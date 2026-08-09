@@ -9,7 +9,6 @@
 class Ademo_mapGameMode;
 class Ademo_mapPlayerController;
 class Udemo_map0909BSectWidget;
-class Udemo_map0909BSectWarehouseWidget;
 class Fdemo_map0909BSectWarehouseService;
 
 /**
@@ -47,13 +46,11 @@ private:
 	void ShowSect(const FString& InFeedback);
 	void RefreshSect(const FString& InFeedback);
 	bool OpenWarehouseService(FString& OutDiagnostic);
-	void ShowWarehouse(const struct Fdemo_map0909BWarehousePresentation& Presentation);
 
 	TWeakObjectPtr<Ademo_mapGameMode> GameMode;
 	TWeakObjectPtr<Ademo_mapPlayerController> Controller;
 	TUniquePtr<Fdemo_map0909BRunStartCoordinator> StartCoordinator;
 	TUniquePtr<Fdemo_map0909BSectWarehouseService> WarehouseService;
 	UPROPERTY(Transient) TObjectPtr<Udemo_map0909BSectWidget> SectWidget;
-	UPROPERTY(Transient) TObjectPtr<Udemo_map0909BSectWarehouseWidget> WarehouseWidget;
 	bool bInitialized = false;
 };

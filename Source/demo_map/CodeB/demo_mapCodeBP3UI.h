@@ -49,6 +49,14 @@ struct FCodeBP3HotbarPresentation
 	TFunction<bool(int32, FCodeBHotbarProjection&, FString&)> Unbind;
 };
 
+/** P23 policy/identity supplied by the product host; no item graph is stored here. */
+struct FCodeBP3WorkspacePresentation
+{
+	demo_map_code_b::FCodeBP3InventoryWorkspaceContext Context;
+	TFunction<demo_map_code_b::ECodeBP3WorkspaceWriteGate()> ResolveWriteGate;
+	TFunction<int32()> ResolveSessionRevision;
+};
+
 /** P14's one actual ground-drop target. It carries no item authority itself. */
 struct FCodeBP3GroundDropPresentation
 {
@@ -264,7 +272,8 @@ public:
 		const FCodeBP3BodyContainerPresentation* BodyContainerPresentation = nullptr,
 		const FCodeBP3HotbarPresentation* HotbarPresentation = nullptr,
 		const FCodeBP3GroundDropPresentation* GroundDropPresentation = nullptr,
-		const FCodeBP3WorldDropPresentation* WorldDropPresentation = nullptr);
+		const FCodeBP3WorldDropPresentation* WorldDropPresentation = nullptr,
+		const FCodeBP3WorkspacePresentation* WorkspacePresentation = nullptr);
 	bool IsNormalContainerPresentation(const FGuid& ContainerId) const;
 	bool HasNormalContainerPresentation() const { return NormalContainerPresentation.IsSet(); }
 	bool IsNormalContainerItemHidden(const FGuid& ItemId) const;
@@ -287,6 +296,18 @@ public:
 	bool IsExternalTargetContainer(const FGuid& ContainerId) const;
 	void PopulateAddressContext(demo_map_code_b::FCodeBP3SlotAddress& Address) const;
 	void PopulateTransferContext(demo_map_code_b::FCodeBP4DragPayload& Payload) const;
+	bool ValidateTransferContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, FString& OutError);
+	bool CanWriteWorkspace(FString& OutError);
+	bool IsOutOfRaidWorkspace() const;
+	bool ActivateOutOfRaidDestination(const demo_map_code_b::FCodeBP3SlotAddress& Address);
+	void UpdateWorkspaceHover(const demo_map_code_b::FCodeBP3SlotAddress& Address, bool bHovered);
+	void UpdateWorkspaceSelection(const demo_map_code_b::FCodeBP3SlotAddress& Address);
+	void UpdateWorkspaceScroll(float PlayerOffset, float TargetOffset);
+	void ClearWorkspaceTransientState();
+	const demo_map_code_b::FCodeBP3InventoryWorkspaceContext* GetWorkspaceContext() const
+	{
+		return WorkspacePresentation.IsSet() ? &WorkspacePresentation->Context : nullptr;
+	}
 	void UpdateBodyContainerProjection(const FCodeBBodyContainerProjection& Projection);
 	const FCodeBP3HotbarPresentation* GetHotbarPresentation() const
 	{
@@ -323,4 +344,5 @@ private:
 	TOptional<FCodeBP3HotbarPresentation> HotbarPresentation;
 	TOptional<FCodeBP3GroundDropPresentation> GroundDropPresentation;
 	TOptional<FCodeBP3WorldDropPresentation> WorldDropPresentation;
+	TOptional<FCodeBP3WorkspacePresentation> WorkspacePresentation;
 };

@@ -4,7 +4,6 @@
 #include "demo_map0909BRunStartCoordinator.h"
 #include "demo_map0909BSectWidget.h"
 #include "demo_map0909BSectWarehouseService.h"
-#include "demo_map0909BSectWarehouseWidget.h"
 #include "demo_map.h"
 #include "demo_mapGameMode.h"
 #include "demo_mapPlayerController.h"
@@ -62,6 +61,15 @@ void Ademo_map0909BFrameworkHost::RequestStartM01FromUI()
 		ShowSect(TEXT("远征协调器尚未就绪。"));
 		return;
 	}
+	// The visible P23 workspace owns all P5 edits. Rehydrate this read-only
+	// selection adapter from the durable graph immediately before StartAttempt
+	// so it can never consume the retired warehouse widget's stale repository.
+	FString WarehouseRefreshDiagnostic;
+	if (!OpenWarehouseService(WarehouseRefreshDiagnostic))
+	{
+		ShowSect(TEXT("无法刷新当前 P5 战备快照：") + WarehouseRefreshDiagnostic);
+		return;
+	}
 	FCodeBLoadoutSelection Selection;
 	FString SelectionDiagnostic;
 	if (!WarehouseService || !WarehouseService->CaptureLoadoutSelection(Selection, SelectionDiagnostic))
@@ -101,18 +109,12 @@ void Ademo_map0909BFrameworkHost::RequestOpenWarehouseFromUI()
 		return;
 	}
 	FString Feedback;
-	Fdemo_mapProfileSessionSnapshot Snapshot;
-	if (!GameMode.IsValid() || !WarehouseService
-		|| !GameMode->Get0909BProfileSnapshot(Snapshot, Feedback))
+	if (!GameMode.IsValid())
 	{
-		ShowSect(Feedback.IsEmpty() ? TEXT("仓库／人物装备暂时不可用。") : Feedback);
+		ShowSect(TEXT("仓库／人物装备暂时不可用。"));
 		return;
 	}
-	Fdemo_map0909BWarehousePresentation Presentation;
-	if (!WarehouseService->OpenForSect(
-		GameMode->Get0909BProfileStorageRoot(),
-		Snapshot,
-		StartCoordinator->GetState(), Presentation, Feedback))
+	if (!GameMode->Open0909BOutOfRaidInventory(Feedback))
 	{
 		ShowSect(Feedback);
 		return;
@@ -121,7 +123,6 @@ void Ademo_map0909BFrameworkHost::RequestOpenWarehouseFromUI()
 	{
 		SectWidget->RemoveFromParent();
 	}
-	ShowWarehouse(Presentation);
 }
 
 void Ademo_map0909BFrameworkHost::RequestWarehouseDragDrop(
@@ -132,33 +133,21 @@ void Ademo_map0909BFrameworkHost::RequestWarehouseDragDrop(
 	const int32 TargetSlot,
 	const int32 ExpectedGraphRevision)
 {
-	if (!WarehouseService || !StartCoordinator.IsValid())
-	{
-		RequestCloseWarehouseFromUI();
-		return;
-	}
-	Fdemo_map0909BWarehouseIntent Intent;
-	Intent.ItemId = ItemId;
-	Intent.SourceContainerId = SourceContainerId;
-	Intent.SourceSlot = SourceSlot;
-	Intent.TargetContainerId = TargetContainerId;
-	Intent.TargetSlot = TargetSlot;
-	Intent.ExpectedGraphRevision = ExpectedGraphRevision;
-	Fdemo_map0909BWarehousePresentation Presentation;
-	FString Feedback;
-	WarehouseService->ApplyDragIntent(Intent, StartCoordinator->GetState(), Presentation, Feedback);
-	if (WarehouseWidget)
-	{
-		WarehouseWidget->RefreshPresentation(Presentation);
-	}
+	// Compatibility-only endpoint for a stale constructed widget. The P23
+	// product route never mounts that widget, and this endpoint is deliberately
+	// zero-write so it cannot become a second P5 transaction path.
+	(void)ItemId;
+	(void)SourceContainerId;
+	(void)SourceSlot;
+	(void)TargetContainerId;
+	(void)TargetSlot;
+	(void)ExpectedGraphRevision;
+	RequestCloseWarehouseFromUI();
+	ShowSect(TEXT("旧仓库拖拽入口已停用；请从宗门主页重新打开统一物品工作台。"));
 }
 
 void Ademo_map0909BFrameworkHost::RequestCloseWarehouseFromUI()
 {
-	if (WarehouseWidget)
-	{
-		WarehouseWidget->RemoveFromParent();
-	}
 	ShowSect(TEXT("已返回宗门；仓库仍是同一份 P5 图，当前战备摘要保持只读可审计。"));
 }
 
@@ -244,28 +233,6 @@ bool Ademo_map0909BFrameworkHost::OpenWarehouseService(FString& OutDiagnostic)
 		static_cast<int32>(Snapshot.SessionState), *Snapshot.ActiveRunId.ToString(EGuidFormats::DigitsWithHyphensLower),
 		static_cast<int32>(Snapshot.LastTerminalReason), *OutDiagnostic);
 	return bProjectionValid;
-}
-
-void Ademo_map0909BFrameworkHost::ShowWarehouse(
-	const Fdemo_map0909BWarehousePresentation& Presentation)
-{
-	if (!Controller.IsValid()) return;
-	if (!WarehouseWidget)
-	{
-		WarehouseWidget = CreateWidget<Udemo_map0909BSectWarehouseWidget>(
-			Controller.Get(), Udemo_map0909BSectWarehouseWidget::StaticClass());
-		if (WarehouseWidget)
-		{
-			WarehouseWidget->InitializeForFramework(this);
-		}
-	}
-	if (!WarehouseWidget) return;
-	if (!WarehouseWidget->IsInViewport())
-	{
-		WarehouseWidget->AddToViewport(720);
-	}
-	Controller->BeginProfilePreparationInputLock(WarehouseWidget);
-	WarehouseWidget->RefreshPresentation(Presentation);
 }
 
 void Ademo_map0909BFrameworkHost::EndPlay(

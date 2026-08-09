@@ -4,7 +4,7 @@
 
 - 项目名称：Shanmen Unreal
 - 项目编号：`Dev.D.UE.0.0.9B`
-- 当前阶段：`0.0.9BFix.P4`
+- 当前阶段：`0.0.9B.P23`
 - 活动开发根：`C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B`
 - 隔离根：`C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B_QUARANTINE_I0R0_FROM_0.0.9-XFix1_20260804T194204`
 - Unreal 工程：`C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\demo_map.uproject`
@@ -12,26 +12,26 @@
 
 ## 当前任务
 
-- 当前任务：`Dev.D.UE.0.0.9BFix.P4`
-- 当前状态：`READY_FOR_0_0_9BFIX2_REPLANNING`
-- 下一任务：等待策划部回收 P4 Report 并重新规划 `0.0.9BFix2`；不得自行开始 P5、Fix2 或 F。
+- 当前任务：`Dev.D.UE.0.0.9B.P23.0.r0`
+- 当前状态：`READY_FOR_P24_PLANNING`
+- 下一任务：上传并发送 P23 Report 后，只取得并归档策划部下一份 Prompt；本轮不自行执行 P24。
 - Prompt 目录：`C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Prompt`
-- 当前 Prompt：`C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Prompt\Dev.D.UE.0.0.9BFix.P4_prompt.md`
+- 当前 Prompt：`C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Prompt\Dev.D.UE.0.0.9B.P23.0.r0_prompt.md`
 - Task Report 目录：`C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Report`
 - Version Report：`C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Dev.D.UE-0.0.9B.codex.report.md`
-- 当前 Report：`C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Report\Dev.D.UE.0.0.9BFix.P4_report.md`
+- 当前 Report：`C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Report\Dev.D.UE.0.0.9B.P23.0.r0_report.md`
 
-## 基础调用与 I 阶段门禁
+## 基础调用与阶段门禁
 
 - Git 基线：项目根本地仓库；生成目录和候选包已排除。
 - 唯一调用入口：`Scripts\Invoke-Shanmen.ps1`。
 - 无启动诊断：`Scripts\Invoke-Shanmen.ps1 -Action ResolveLatest`。
 - UE 定位：显式 `-EngineRoot` → `SHANMEN_UE_ROOT` → Epic 注册表 → `.uproject` EngineAssociation 默认安装目录。
 - Latest Demo：根目录包装器 → 项目 `LATEST_DEMO.bat` → packaged `Latest_Demo`；无候选包时只允许明确的 Editor `-game` 降级。
-- I 阶段审计：`Scripts\Invoke-FoundationAudit.ps1`；每个 I 阶段开始和结束必须执行，规则见 `Docs\Process\I_STAGE_FOUNDATION_GATE.md`。
+- 基础调用审计：`Scripts\Invoke-FoundationAudit.ps1` 保留为维护工具；主线不再设置 I/IPF 前置门禁，也不得借审计扩展当前 Prompt 的验证范围。
 - 交接账本：`Scripts\Update-HandoffLedger.ps1`；真实 Report 附件在策划 Chat 可见前不得进入 `MARKER_SENT`。
-- 阶段分工：P 开发／静态审查／最小编译，I 接入／基础自查，F Package／内部回归／真实 Windows 输入／最终发布。
-- P4 局内统一工作台：Tab、普通容器、尸体共用同一玩家 pane、四态 Cell、稳定 SlotIndex、通用完整图 Drag、`Ctrl+左键` Quick Transfer、`Shift+1—9` P13 Bind、动态空间 Capacity 与左右独立滚动。右键无位置写入，UI focus 下普通 1—9 不进入 P15；真实验证保留给后续 Fix2/F 规划。Editor/Game Development 均 `Succeeded`。
+- 阶段分工：P 只做开发／静态审查／Prompt 明确要求的编译；F 承担产品运行、内部回归、真实 Windows 输入、截图、Smoke、Cook/Package 与最终发布验证。
+- P23 局外统一工作台：正式宗门 Warehouse／Loadout 已复用 P4 的同一 Cell、stable address、Drag payload、modifier router、dynamic grid 与双栏 scroll。OutOfRaidP5 Context 只保存 Owner／revision／Coordinator gate／pane 与 transient identity；P5/P6 事务隔离，旧仓库拖拽入口零写入。P5 `Ctrl+左键`、`Shift+1—9`、动态空间容量与稳定 SlotIndex 均进入共享 policy；Fix2 已取消。真实验证留给 `0.0.9B.F`。
 
 ## 来源与隔离
 

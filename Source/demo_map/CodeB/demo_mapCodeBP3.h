@@ -20,7 +20,9 @@ namespace demo_map_code_b
 	enum class ECodeBP3InventoryScope : uint8
 	{
 		Unknown,
-		Player,
+		OutOfRaidPlayer,
+		OutOfRaidWarehouse,
+		InRunPlayer,
 		ExternalTarget
 	};
 
@@ -88,6 +90,47 @@ namespace demo_map_code_b
 	{
 		OutOfRaidProfile,
 		ActiveRun
+	};
+
+	/** P23's authority-facing mode for the one shared inventory workspace. */
+	enum class ECodeBP3WorkspaceScope : uint8
+	{
+		Development,
+		OutOfRaidP5,
+		InRunP6
+	};
+
+	/** A narrow top-level write gate; it never mirrors Profile or Run inventory state. */
+	enum class ECodeBP3WorkspaceWriteGate : uint8
+	{
+		Unavailable,
+		AtSect,
+		StartAttemptPending,
+		InRun,
+		ResolvingTerminal
+	};
+
+	/**
+	 * Transient workspace identity and interaction state. Items and placements stay
+	 * exclusively in the current P2 projection/P1 repository.
+	 */
+	struct FCodeBP3InventoryWorkspaceContext
+	{
+		ECodeBP3WorkspaceScope Scope = ECodeBP3WorkspaceScope::Development;
+		FGuid OwnerId;
+		FGuid RunInstanceId;
+		int32 SessionRevision = INDEX_NONE;
+		ECodeBP3WorkspaceWriteGate WriteGate = ECodeBP3WorkspaceWriteGate::Unavailable;
+		FName PlayerPaneId = FName(TEXT("Player"));
+		FName TargetPaneId = FName(TEXT("Target"));
+		TOptional<FGuid> ActiveDestinationContainerId;
+		TOptional<FCodeBP3SlotAddress> HoveredAddress;
+		TOptional<FCodeBP3SlotAddress> SelectedAddress;
+		float PlayerScrollOffset = 0.0f;
+		float TargetScrollOffset = 0.0f;
+
+		bool IsOutOfRaidP5() const { return Scope == ECodeBP3WorkspaceScope::OutOfRaidP5; }
+		bool IsInRun() const { return Scope == ECodeBP3WorkspaceScope::InRunP6; }
 	};
 
 	/** P17's read-only active-Run view of one actual item-owned space container. */

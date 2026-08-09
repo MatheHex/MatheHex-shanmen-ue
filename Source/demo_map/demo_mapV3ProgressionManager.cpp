@@ -37,6 +37,7 @@
 #include "demo_mapExitZone.h"
 #include "demo_mapGameState.h"
 #include "demo_mapGameMode.h"
+#include "demo_map0909BFramework.h"
 #include "demo_mapPlayerHealthComponent.h"
 #include "demo_mapSkillProjectile.h"
 #include "demo_mapEnemySkillRuntimeComponent.h"
@@ -4376,6 +4377,47 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBOutOfRaidInventory(FString& OutFeed
 		return WeakManager->CodeBOutOfRaidProfileStore->UnbindOutOfRaidHotbarSlot(
 			SlotIndex, OutProjection, &OutError);
 	};
+	FCodeBP3WorkspacePresentation OutOfRaidWorkspace;
+	OutOfRaidWorkspace.Context.Scope = demo_map_code_b::ECodeBP3WorkspaceScope::OutOfRaidP5;
+	OutOfRaidWorkspace.Context.OwnerId = Snapshot.ProfileId;
+	OutOfRaidWorkspace.Context.SessionRevision = CodeBOutOfRaidProfileStore->GetPersistentRevision();
+	OutOfRaidWorkspace.Context.WriteGate = demo_map_code_b::ECodeBP3WorkspaceWriteGate::AtSect;
+	OutOfRaidWorkspace.Context.PlayerPaneId = FName(TEXT("OutOfRaidP5.PlayerLoadout"));
+	OutOfRaidWorkspace.Context.TargetPaneId = FName(TEXT("OutOfRaidP5.SectWarehouse"));
+	OutOfRaidWorkspace.ResolveWriteGate = [WeakManager]()
+	{
+		if (!WeakManager.IsValid() || !WeakManager->GetWorld())
+		{
+			return demo_map_code_b::ECodeBP3WorkspaceWriteGate::Unavailable;
+		}
+		const Ademo_mapGameMode* GameMode = WeakManager->GetWorld()->GetAuthGameMode<Ademo_mapGameMode>();
+		const Ademo_map0909BFrameworkHost* Framework = GameMode
+			? GameMode->Get0909BFrameworkHost() : nullptr;
+		if (!Framework)
+		{
+			return demo_map_code_b::ECodeBP3WorkspaceWriteGate::Unavailable;
+		}
+		switch (Framework->GetTopState())
+		{
+		case Edemo_map0909BTopState::AtSect:
+			return demo_map_code_b::ECodeBP3WorkspaceWriteGate::AtSect;
+		case Edemo_map0909BTopState::PreparingStart:
+		case Edemo_map0909BTopState::ActivatingWorld:
+			return demo_map_code_b::ECodeBP3WorkspaceWriteGate::StartAttemptPending;
+		case Edemo_map0909BTopState::InRun:
+			return demo_map_code_b::ECodeBP3WorkspaceWriteGate::InRun;
+		case Edemo_map0909BTopState::ResolvingTerminal:
+			return demo_map_code_b::ECodeBP3WorkspaceWriteGate::ResolvingTerminal;
+		default:
+			return demo_map_code_b::ECodeBP3WorkspaceWriteGate::Unavailable;
+		}
+	};
+	OutOfRaidWorkspace.ResolveSessionRevision = [WeakManager]()
+	{
+		return WeakManager.IsValid() && WeakManager->CodeBOutOfRaidProfileStore.IsValid()
+			? WeakManager->CodeBOutOfRaidProfileStore->GetPersistentRevision()
+			: INDEX_NONE;
+	};
 	const bool bOpened = Host->OpenProfilePage(
 		*CodeBOutOfRaidRepository,
 		Layout,
@@ -4401,7 +4443,10 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBOutOfRaidInventory(FString& OutFeed
 		false,
 		nullptr,
 		nullptr,
-		&OutOfRaidHotbarPresentation);
+		&OutOfRaidHotbarPresentation,
+		nullptr,
+		nullptr,
+		&OutOfRaidWorkspace);
 	OutFeedback = bOpened
 		? OpenResult.Diagnostic
 		: TEXT("仓库／人物配置无法创建真实 Code B 页面。");

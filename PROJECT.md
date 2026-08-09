@@ -9,14 +9,14 @@ engine_resolution = Scripts\Shanmen.Foundation.psm1 (explicit -EngineRoot -> SHA
 canonical_entry = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Scripts\Invoke-Shanmen.ps1
 foundation_audit = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Scripts\Invoke-FoundationAudit.ps1
 handoff_ledger = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Scripts\Update-HandoffLedger.ps1
-i_stage_gate = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Process\I_STAGE_FOUNDATION_GATE.md
-current_task = Dev.D.UE.0.0.9BFix.P4
-current_status = READY_FOR_0_0_9BFIX2_REPLANNING
+phase_rule = P code/static review/prompt-required builds; F real product verification
+current_task = Dev.D.UE.0.0.9B.P23.0.r0
+current_status = READY_FOR_P24_PLANNING
 prompt_directory = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Prompt
 report_directory = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Report
 version_report = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Dev.D.UE-0.0.9B.codex.report.md
-current_prompt = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Prompt\Dev.D.UE.0.0.9BFix.P4_prompt.md
-current_report = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Report\Dev.D.UE.0.0.9BFix.P4_report.md
+current_prompt = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Prompt\Dev.D.UE.0.0.9B.P23.0.r0_prompt.md
+current_report = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Report\Dev.D.UE.0.0.9B.P23.0.r0_report.md
 formal_P_stage_started = true
 code_B_source = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Source\demo_map\CodeB
 p2_source = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Source\demo_map\CodeB
@@ -47,12 +47,14 @@ actual_baseline_source = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9-XFix1
 - 项目已经建立本地 Git 基线；`Binaries`、`DerivedDataCache`、`Intermediate`、`Saved` 和 Latest 候选包不进入版本库。
 - UE、Editor、Build、Package 和 Latest Demo 的新调用统一经过 `Scripts\Invoke-Shanmen.ps1`。旧脚本暂列技术债，不再作为默认入口。
 - 根目录 `latest demo.bat` 只委托项目 `LATEST_DEMO.bat`；项目入口优先运行已安装的 packaged `Latest_Demo`，缺失时明确使用 Editor `-game` 降级，不运行未 Cook 的 Development EXE。
-- 每个 `I` 阶段在开始和结束执行项目级 Foundation Audit；它覆盖版本、启动、构建、进程、输入、存档、配置和 Prompt/Report 交接，但不替代 `0.0.9B.F` 的真实测试。
-- P 阶段继续只做功能开发、代码审查和 Prompt 要求的最小编译；真实产品测试统一留给 F。
+- P 阶段只做功能开发、代码审查和当前 Prompt 明确要求的编译；真实产品运行、输入、回归、截图、Smoke、Cook/Package 与最终验收统一留给 `0.0.9B.F`。
+- 基础调用审计保留为项目维护能力，但主线不再设置 I/IPF 前置门禁；任何自查不得自行扩展当前 Prompt 的验证范围。
 - Prompt/Report 交接按 `DOWNLOADED_HASHED → EXECUTED → REPORT_WRITTEN_HASHED → ATTACHMENT_VISIBLE → MARKER_SENT → NEXT_PROMPT_HASHED` 持久化；没有真实附件可见确认时禁止发送完成标识。
 - 中断由交接账本记录 `BLOCKED` 与失败前状态，恢复时必须执行 `ResumeBlocked` 续接；未取得并归档下一份 Prompt 不算完成。
 
-0.0.9BFix.P4：P7 Tab、P10 普通容器与 P12 尸体页面已收敛为同一局内物品 workspace。玩家装备、BaseQuick、真实空间 ChildContainer、P13 快捷引用以及右侧外部目标共用同一稳定 `Owner/Run/Scope/ContainerId/SlotIndex` Cell 地址、四态 `Empty/Hidden/Searching/Revealed` 投影、selection/hover 与 P4 payload。Hidden/Searching 搜索改用不含隐藏 ItemId 的持久化 target/container/slot/revision locator；固定容器严格按 Capacity 和 SlotIndex 建 Cell，空间区交叉验证正式 Definition 与 ChildContainer Capacity，并显示完整动态格数。Loaded spatial parent 的旧 P2/P4 类型阻断已删除，P1 与 P10/P12 composite commit 继续裁决完整图事务。`Ctrl+左键` 复用同一 Preview/Commit，只按 SlotIndex 先 Merge 后 Empty 且不 Swap/Split/自动装备；右键只读。`Shift+1—9` 只在活动 P6 workspace、非 repeat、UI focus 下按 hover→selection 解析并调用 P13，普通数字不会进入 P15。左右各有独立可见纵向 ScrollBox 并保留 offset。2026-08-09 Editor 与 Game Win64 Development 均以 native exit code `0`、UBT `Succeeded` 完成；未运行产品、真实输入、截图、自动化、Smoke、回归、Cook、Package 或最终验收。状态：`READY_FOR_0_0_9BFIX2_REPLANNING`。
+P23.0.r0：正式宗门 Warehouse／Loadout 入口已从独立 `Udemo_map0909BSectWarehouseWidget` 切换到 P4 共享 `UCodeBP3InventoryWidget`、Cell、stable address、Drag payload、modifier router、dynamic grid 与双栏 scroll。新增只保存 identity/transient 的 `OutOfRaidP5` Workspace Context，按 Owner、无 Run、P5 persistent revision 与 Coordinator 状态隔离 P5/P6 写入；旧仓库拖拽端点保留 ABI 但固定零写入，StartAttempt 仅从当前 P5 durable graph 重建只读 selection adapter。P5 `Ctrl+左键` 从仓库进入明确激活的合法玩家 child、否则 BaseQuick；玩家侧回仓库，继续按 SlotIndex 先 Merge 后 Empty，且不自动装备、Swap、Split 或 Compact。`Shift+1—9` 仅在 AtSect 的 P5 BaseQuick 对 QuickUsable 引用调用 P13；普通数字不进入 P15。固定 Slot 与正式动态容量（戒指 4/6/8/10/12、吞天袋 36）继续由 Definition 与 ChildContainer 交叉投影。Fix2 已取消，功能归入主线 P23；P 阶段未运行产品或真实测试，状态：`READY_FOR_P24_PLANNING`。
+
+0.0.9BFix.P4（历史）：P7 Tab、P10 普通容器与 P12 尸体页面已收敛为同一局内物品 workspace。其成果是 P23 共享接入基线；后续 `0.0.9BFix2` 已由策划取消，不是活动任务。
 
 0.0.9BFix.P3：将宗门 UI Host 的唯一出战请求收敛为 `StartAttemptId` 关联的 `Coordinator → M01RuntimeAdapter → RuntimeReady` 链。Adapter 仅验证正式 M01 descriptor／World／GameMode／WorldSettings／Controller／Pawn／GameOnly 输入的当前事实，接受既有 M01 materialization 请求后才报告同 Attempt 的 RuntimeReady；旧、重复或不匹配回执不改变状态。Coordinator 在 `RuntimeReady → InRun` 后才调用 selection-aware P5→P6 observer；其拒绝仅是审计，不能伪装为 activation failure。TechnicalStartFailure 只释放匹配 attempt 的 transient state、回滚尚未确认的 Code A prepared run、复核无 P6 session 后返回 AtSect，并清除活动 Run identity；P5 未移动／锁定、P8 零写入。P3 未修改 `demo_mapGameMode`／`demo_mapPlayerController`、地图、Actor、战斗、库存或终局权威。2026-08-08 指定 Editor 和 Game Development 两个原生命令均以 exit code `0`、UBT `Succeeded` 完成；未启动产品、CTA、PIE、截图、自动化、Smoke、回归、Cook、Package 或最终验收。状态：`READY_FOR_0_0_9BFIX_P4_OR_F_PLANNING`。
 

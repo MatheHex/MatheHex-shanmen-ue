@@ -17,21 +17,10 @@ struct Fdemo_map0909BWarehousePresentation
 	FCodeBLoadoutSelection LoadoutSelection;
 };
 
-/** Intent only: the UI provides no mutable item graph and no direct write. */
-struct Fdemo_map0909BWarehouseIntent
-{
-	FGuid ItemId;
-	FGuid SourceContainerId;
-	int32 SourceSlot = INDEX_NONE;
-	FGuid TargetContainerId;
-	int32 TargetSlot = INDEX_NONE;
-	int32 ExpectedGraphRevision = INDEX_NONE;
-};
-
 /**
- * The P2 sect warehouse application layer.  It owns one hydrated P5 Code B
- * repository while the presentation is open; every accepted change is first
- * a P1 transaction and then a single P5 durable replacement.
+ * Read-only StartAttempt adapter. P23 moved all visible P5 writes to the
+ * shared P3/P4 workspace; this service only rehydrates the durable graph and
+ * captures its authoritative LoadoutSelection immediately before deployment.
  */
 class Fdemo_map0909BSectWarehouseService
 {
@@ -39,11 +28,6 @@ public:
 	bool OpenForSect(
 		const FString& StorageRoot,
 		const Fdemo_mapProfileSessionSnapshot& ProfileSnapshot,
-		Edemo_map0909BTopState CoordinatorState,
-		Fdemo_map0909BWarehousePresentation& OutPresentation,
-		FString& OutDiagnostic);
-	bool ApplyDragIntent(
-		const Fdemo_map0909BWarehouseIntent& Intent,
 		Edemo_map0909BTopState CoordinatorState,
 		Fdemo_map0909BWarehousePresentation& OutPresentation,
 		FString& OutDiagnostic);
@@ -57,12 +41,6 @@ private:
 		Edemo_map0909BTopState CoordinatorState,
 		Fdemo_map0909BWarehousePresentation& OutPresentation,
 		FString& OutDiagnostic) const;
-	bool IsP5LayoutContainer(const FGuid& ContainerId) const;
-	bool ValidateCompleteSpatialClosure(const FGuid& RootItemId, FString& OutDiagnostic) const;
-	static demo_map_code_b::ECodeBOperation ResolveDragOperation(
-		const demo_map_code_b::FCodeBRepository& Repository,
-		const Fdemo_map0909BWarehouseIntent& Intent);
-
 	TUniquePtr<FCodeBOutOfRaidProfileStore> Store;
 	demo_map_code_b::FCodeBRepository Repository;
 	demo_map_code_b::FCodeBP2PlayerLayout Layout;

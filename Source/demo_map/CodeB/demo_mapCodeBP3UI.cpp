@@ -1995,12 +1995,17 @@ FReply UCodeBP3CellButton::NativeOnMouseButtonDown(const FGeometry& InGeometry, 
 		OwnerWidget->HandleQuickTransfer(this);
 		return FReply::Handled();
 	}
-	if (InMouseEvent.GetEffectingButton() == EKeys::LeftMouseButton && Address.IsRevealed() && OwnerWidget.IsValid())
+	if (InMouseEvent.GetEffectingButton() == EKeys::LeftMouseButton
+		&& Address.IsValid()
+		&& (Address.CellState == ECodeBP3CellState::Empty || Address.IsRevealed())
+		&& OwnerWidget.IsValid())
 	{
 		OwnerWidget->BeginP4PointerGesture(Address);
-		// This threshold registration is owned by the same cell that owns MouseUp,
-		// double-click, enter/leave and drop. It performs no item write by itself.
-		return FReply::Handled().DetectDrag(TakeWidget(), EKeys::LeftMouseButton);
+		// Empty child cells can become P23's explicit quick-transfer destination,
+		// but only a revealed root may register a drag threshold.
+		return Address.IsRevealed()
+			? FReply::Handled().DetectDrag(TakeWidget(), EKeys::LeftMouseButton)
+			: FReply::Handled();
 	}
 	if (InMouseEvent.GetEffectingButton() == EKeys::RightMouseButton && Address.IsRevealed() && OwnerWidget.IsValid())
 	{
@@ -2182,6 +2187,10 @@ void UCodeBP3InventoryWidget::NativeDestruct()
 	P4Preview.Reset();
 	HoveredAddress.Reset();
 	ContextMenuRevision = INDEX_NONE;
+	if (Host.IsValid())
+	{
+		Host->ClearWorkspaceTransientState();
+	}
 	Super::NativeDestruct();
 }
 
@@ -2204,8 +2213,7 @@ FReply UCodeBP3InventoryWidget::NativeOnKeyDown(const FGeometry& InGeometry, con
 		// UI focus owns all number keys. Shift is the P13 binding chord; plain
 		// numbers are consumed here so they can never fall through to P15 Use.
 		if (InKeyEvent.IsShiftDown() && !InKeyEvent.IsRepeat()
-			&& Host.IsValid() && Host->GetController()
-			&& Host->GetController()->IsActiveRunBacked())
+			&& Host.IsValid() && Host->GetController())
 		{
 			const TOptional<FCodeBP3SlotAddress>& Selected = Host->GetController()->GetSelectedAddress();
 			const FCodeBP3SlotAddress* Candidate = HoveredAddress.IsSet() && HoveredAddress->IsRevealed()
@@ -2353,6 +2361,12 @@ FCodeBP4DropPreview UCodeBP3InventoryWidget::PreviewInventoryTransfer(
 		Rejected.Message = TEXT("物品工作台已关闭。");
 		return Rejected;
 	}
+	FString ContextError;
+	if (!Host->ValidateTransferContext(Payload, ContextError))
+	{
+		Rejected.Message = ContextError;
+		return Rejected;
+	}
 	if (Host->IsNormalContainerSlotProtected(Target.ContainerId, Target.SlotIndex)
 		|| Host->IsBodyContainerSlotProtected(Target.ContainerId, Target.SlotIndex))
 	{
@@ -2405,7 +2419,13 @@ bool UCodeBP3InventoryWidget::CommitInventoryTransfer(
 		return false;
 	}
 	FCodeBP4InteractionController* Interaction = GetP4Controller();
-	const bool bCommitted = Interaction && Interaction->CommitDrop(Payload, Target);
+	FString GateError;
+	const bool bCommitted = Host.IsValid() && Host->CanWriteWorkspace(GateError)
+		&& Interaction && Interaction->CommitDrop(Payload, Target);
+	if (!bCommitted && !GateError.IsEmpty() && Host.IsValid() && Host->GetController())
+	{
+		Host->GetController()->SetP4Feedback(GateError);
+	}
 	TraceP4Input(InputLabel, Target,
 		FString::Printf(TEXT("Allowed=1 CommitSucceeded=%d Kind=%s"), bCommitted ? 1 : 0,
 			*FCodeBP4InteractionController::GetDropKindLabel(Preview.Kind)), true);
@@ -2422,6 +2442,30 @@ const FCodeBP2ContainerView* UCodeBP3InventoryWidget::ResolveQuickTransferDestin
 		return Projection.Containers.FindByPredicate(
 			[ContainerId](const FCodeBP2ContainerView& Candidate) { return Candidate.ContainerId == ContainerId; });
 	};
+	if (Host->IsOutOfRaidWorkspace())
+	{
+		// P23 uses an explicit two-pane policy. Warehouse roots enter the active
+		// player child only when the user selected that exact child; otherwise
+		// BaseQuick is the deterministic default. Every player placement returns
+		// to the warehouse and never guesses an equipment target.
+		if (Payload.Source.ContainerId == Projection.WarehouseContainerId)
+		{
+			if (const FCodeBP3InventoryWorkspaceContext* Context = Host->GetWorkspaceContext();
+				Context && Context->ActiveDestinationContainerId.IsSet())
+			{
+				if (const FCodeBP2ContainerView* Active = FindContainer(Context->ActiveDestinationContainerId.GetValue()))
+				{
+					if (Active->Role == FName(TEXT("QuickSpatial"))
+						|| Active->Role == FName(TEXT("PouchInternal")))
+					{
+						return Active;
+					}
+				}
+			}
+			return FindContainer(Projection.BasicContainerId);
+		}
+		return FindContainer(Projection.WarehouseContainerId);
+	}
 	if (Host->IsExternalTargetContainer(Payload.Source.ContainerId))
 	{
 		if (Host->GetController()->GetSelectedAddress().IsSet())
@@ -2499,6 +2543,12 @@ bool UCodeBP3InventoryWidget::BeginP4Drag(UCodeBP3CellButton* CellButton, FCodeB
 	ContextMenuRevision = INDEX_NONE;
 	P4PreviewAddress.Reset();
 	P4Preview.Reset();
+	FString GateError;
+	if (!Host.IsValid() || !Host->CanWriteWorkspace(GateError))
+	{
+		if (Host.IsValid() && Host->GetController()) Host->GetController()->SetP4Feedback(GateError);
+		return false;
+	}
 	if (FCodeBP4InteractionController* Interaction = GetP4Controller())
 	{
 		const bool bStarted = Interaction->BeginDrag(CellButton->GetAddress(), OutPayload);
@@ -2927,6 +2977,15 @@ void UCodeBP3InventoryWidget::BuildPageContents()
 	}
 	if (PlayerScrollBox) PlayerScrollOffset = PlayerScrollBox->GetScrollOffset();
 	if (TargetScrollBox) TargetScrollOffset = TargetScrollBox->GetScrollOffset();
+	if (Host.IsValid())
+	{
+		Host->UpdateWorkspaceScroll(PlayerScrollOffset, TargetScrollOffset);
+		if (const FCodeBP3InventoryWorkspaceContext* Context = Host->GetWorkspaceContext())
+		{
+			PlayerScrollOffset = Context->PlayerScrollOffset;
+			TargetScrollOffset = Context->TargetScrollOffset;
+		}
+	}
 	PageContents->ClearChildren();
 	MountedCells.Reset();
 	CloseButton = nullptr;
@@ -3068,6 +3127,13 @@ void UCodeBP3InventoryWidget::HandleCellActivated(UCodeBP3CellButton* CellButton
 {
 	if (Host.IsValid() && Host->GetController() && CellButton)
 	{
+		const bool bActivatedDestination = Host->ActivateOutOfRaidDestination(CellButton->GetAddress());
+		if (bActivatedDestination && !CellButton->GetAddress().IsRevealed())
+		{
+			Host->GetController()->SetP4Feedback(TEXT("已激活该玩家空间区；仓库 Ctrl+左键将优先进入此处。"));
+			RefreshFromController();
+			return;
+		}
 		FString SearchError;
 		if (Host->IsNormalContainerPresentation(CellButton->GetAddress().ContainerId)
 			&& Host->IsNormalContainerSlotProtected(
@@ -3104,7 +3170,10 @@ void UCodeBP3InventoryWidget::HandleCellActivated(UCodeBP3CellButton* CellButton
 			return;
 		}
 		TraceP4Input(TEXT("P3Selection"), CellButton->GetAddress());
-		Host->GetController()->ActivateAddress(CellButton->GetAddress());
+		if (Host->GetController()->ActivateAddress(CellButton->GetAddress()))
+		{
+			Host->UpdateWorkspaceSelection(CellButton->GetAddress());
+		}
 		RefreshFromController();
 	}
 }
@@ -3120,6 +3189,10 @@ void UCodeBP3InventoryWidget::HandleCellHover(const FCodeBP3SlotAddress& Address
 		&& HoveredAddress->SlotIndex == Address.SlotIndex)
 	{
 		HoveredAddress.Reset();
+	}
+	if (Host.IsValid())
+	{
+		Host->UpdateWorkspaceHover(Address, bHovered);
 	}
 }
 
@@ -3410,7 +3483,8 @@ bool UCodeBP3UIHostSubsystem::OpenProfilePage(
 	const FCodeBP3BodyContainerPresentation* InBodyContainerPresentation,
 	const FCodeBP3HotbarPresentation* InHotbarPresentation,
 	const FCodeBP3GroundDropPresentation* InGroundDropPresentation,
-	const FCodeBP3WorldDropPresentation* InWorldDropPresentation)
+	const FCodeBP3WorldDropPresentation* InWorldDropPresentation,
+	const FCodeBP3WorkspacePresentation* InWorkspacePresentation)
 {
 	if (!Controller.IsValid())
 	{
@@ -3452,6 +3526,41 @@ bool UCodeBP3UIHostSubsystem::OpenProfilePage(
 	WorldDropPresentation = InWorldDropPresentation
 		? TOptional<FCodeBP3WorldDropPresentation>(*InWorldDropPresentation)
 		: TOptional<FCodeBP3WorldDropPresentation>();
+	if (InWorkspacePresentation)
+	{
+		WorkspacePresentation = *InWorkspacePresentation;
+	}
+	else
+	{
+		FCodeBP3WorkspacePresentation Derived;
+		Derived.Context.Scope = bActiveRunPresentation
+			? ECodeBP3WorkspaceScope::InRunP6 : ECodeBP3WorkspaceScope::OutOfRaidP5;
+		Derived.Context.WriteGate = bActiveRunPresentation
+			? ECodeBP3WorkspaceWriteGate::InRun : ECodeBP3WorkspaceWriteGate::AtSect;
+		Derived.Context.PlayerPaneId = bActiveRunPresentation
+			? FName(TEXT("InRun.Player")) : FName(TEXT("OutOfRaid.Player"));
+		Derived.Context.TargetPaneId = bActiveRunPresentation
+			? FName(TEXT("InRun.External")) : FName(TEXT("OutOfRaid.Warehouse"));
+		if (InHotbarPresentation)
+		{
+			Derived.Context.OwnerId = InHotbarPresentation->OwnerId;
+			Derived.Context.RunInstanceId = InHotbarPresentation->RunInstanceId;
+			Derived.Context.SessionRevision = InHotbarPresentation->Projection.DurableRevision;
+		}
+		else if (InNormalContainerPresentation)
+		{
+			Derived.Context.OwnerId = InNormalContainerPresentation->Projection.OwnerId;
+			Derived.Context.RunInstanceId = InNormalContainerPresentation->Projection.RunInstanceId;
+			Derived.Context.SessionRevision = InNormalContainerPresentation->Projection.Revision;
+		}
+		else if (InBodyContainerPresentation)
+		{
+			Derived.Context.OwnerId = InBodyContainerPresentation->Projection.OwnerId;
+			Derived.Context.RunInstanceId = InBodyContainerPresentation->Projection.RunInstanceId;
+			Derived.Context.SessionRevision = InBodyContainerPresentation->Projection.Revision;
+		}
+		WorkspacePresentation = MoveTemp(Derived);
+	}
 	ProfilePageClosed = MoveTemp(OnClosed);
 	if (ActiveWidget.IsValid())
 	{
@@ -3500,6 +3609,7 @@ void UCodeBP3UIHostSubsystem::ClosePage()
 	HotbarPresentation.Reset();
 	GroundDropPresentation.Reset();
 	WorldDropPresentation.Reset();
+	WorkspacePresentation.Reset();
 }
 
 bool UCodeBP3UIHostSubsystem::IsNormalContainerPresentation(const FGuid& ContainerId) const
@@ -3735,8 +3845,23 @@ bool UCodeBP3UIHostSubsystem::IsExternalTargetContainer(const FGuid& ContainerId
 
 void UCodeBP3UIHostSubsystem::PopulateAddressContext(FCodeBP3SlotAddress& Address) const
 {
-	Address.Scope = IsExternalTargetContainer(Address.ContainerId)
-		? ECodeBP3InventoryScope::ExternalTarget : ECodeBP3InventoryScope::Player;
+	const bool bExternal = IsExternalTargetContainer(Address.ContainerId);
+	if (WorkspacePresentation.IsSet())
+	{
+		const FCodeBP3InventoryWorkspaceContext& Context = WorkspacePresentation->Context;
+		Address.Scope = bExternal
+			? ECodeBP3InventoryScope::ExternalTarget
+			: Context.IsOutOfRaidP5()
+				? (Controller.IsValid() && Address.ContainerId == Controller->GetProjection().WarehouseContainerId
+					? ECodeBP3InventoryScope::OutOfRaidWarehouse
+					: ECodeBP3InventoryScope::OutOfRaidPlayer)
+				: ECodeBP3InventoryScope::InRunPlayer;
+		Address.OwnerId = Context.OwnerId;
+		Address.RunInstanceId = Context.RunInstanceId;
+		return;
+	}
+	Address.Scope = bExternal
+		? ECodeBP3InventoryScope::ExternalTarget : ECodeBP3InventoryScope::InRunPlayer;
 	if (HotbarPresentation.IsSet())
 	{
 		Address.OwnerId = HotbarPresentation->OwnerId;
@@ -3758,7 +3883,12 @@ void UCodeBP3UIHostSubsystem::PopulateTransferContext(FCodeBP4DragPayload& Paylo
 {
 	PopulateAddressContext(Payload.Source);
 	Payload.SourceScope = Payload.Source.Scope;
-	if (HotbarPresentation.IsSet())
+	if (WorkspacePresentation.IsSet())
+	{
+		Payload.OwnerId = WorkspacePresentation->Context.OwnerId;
+		Payload.RunInstanceId = WorkspacePresentation->Context.RunInstanceId;
+	}
+	else if (HotbarPresentation.IsSet())
 	{
 		Payload.OwnerId = HotbarPresentation->OwnerId;
 		Payload.RunInstanceId = HotbarPresentation->RunInstanceId;
@@ -3773,6 +3903,182 @@ void UCodeBP3UIHostSubsystem::PopulateTransferContext(FCodeBP4DragPayload& Paylo
 		Payload.OwnerId = BodyContainerPresentation->Projection.OwnerId;
 		Payload.RunInstanceId = BodyContainerPresentation->Projection.RunInstanceId;
 	}
+}
+
+bool UCodeBP3UIHostSubsystem::CanWriteWorkspace(FString& OutError)
+{
+	OutError.Reset();
+	if (!Controller.IsValid() || !Controller->IsOpen())
+	{
+		OutError = TEXT("物品工作台已关闭。");
+		return false;
+	}
+	if (!WorkspacePresentation.IsSet())
+	{
+		return true;
+	}
+	FCodeBP3InventoryWorkspaceContext& Context = WorkspacePresentation->Context;
+	if (WorkspacePresentation->ResolveWriteGate)
+	{
+		Context.WriteGate = WorkspacePresentation->ResolveWriteGate();
+	}
+	if (WorkspacePresentation->ResolveSessionRevision)
+	{
+		Context.SessionRevision = WorkspacePresentation->ResolveSessionRevision();
+	}
+	const FCodeBP2Projection& Projection = Controller->GetProjection();
+	auto IsCurrentAddress = [&Projection](const FCodeBP3SlotAddress& Address)
+	{
+		const FCodeBP2ContainerView* Container = Projection.Containers.FindByPredicate(
+			[&Address](const FCodeBP2ContainerView& Value) { return Value.ContainerId == Address.ContainerId; });
+		const FCodeBP2SlotView* Slot = Container ? Container->Slots.FindByPredicate(
+			[&Address](const FCodeBP2SlotView& Value) { return Value.SlotIndex == Address.SlotIndex; }) : nullptr;
+		return Slot && (!Address.ItemId.IsValid() || Slot->ItemId == Address.ItemId);
+	};
+	if (Context.HoveredAddress.IsSet() && !IsCurrentAddress(Context.HoveredAddress.GetValue()))
+	{
+		Context.HoveredAddress.Reset();
+	}
+	if (Context.SelectedAddress.IsSet() && !IsCurrentAddress(Context.SelectedAddress.GetValue()))
+	{
+		Context.SelectedAddress.Reset();
+	}
+	if (Context.ActiveDestinationContainerId.IsSet())
+	{
+		const FGuid ActiveId = Context.ActiveDestinationContainerId.GetValue();
+		const FCodeBP2ContainerView* Active = Projection.Containers.FindByPredicate(
+			[ActiveId](const FCodeBP2ContainerView& Value) { return Value.ContainerId == ActiveId; });
+		if (!Active || (Active->Role != FName(TEXT("QuickSpatial"))
+			&& Active->Role != FName(TEXT("PouchInternal"))))
+		{
+			Context.ActiveDestinationContainerId.Reset();
+		}
+	}
+	if (Context.IsOutOfRaidP5())
+	{
+		if (Context.WriteGate == ECodeBP3WorkspaceWriteGate::AtSect)
+		{
+			if (Context.OwnerId.IsValid() && !Context.RunInstanceId.IsValid())
+			{
+				return true;
+			}
+			OutError = TEXT("P5 Owner 或 Run scope 无效；未提交写入。");
+			return false;
+		}
+		OutError = Context.WriteGate == ECodeBP3WorkspaceWriteGate::StartAttemptPending
+			? TEXT("StartAttemptPending：出战尝试处理中，P5 写入暂时拒绝。")
+			: TEXT("当前不在 AtSect；P5 工作台只读且不会写入物品位置。");
+		return false;
+	}
+	if (Context.IsInRun())
+	{
+		if (Context.WriteGate == ECodeBP3WorkspaceWriteGate::InRun
+			&& Context.OwnerId.IsValid() && Context.RunInstanceId.IsValid())
+		{
+			return true;
+		}
+		OutError = TEXT("活动 Run 身份或生命周期已变化；当前工作台写入被拒绝。");
+		return false;
+	}
+	return true;
+}
+
+bool UCodeBP3UIHostSubsystem::ValidateTransferContext(
+	const FCodeBP4DragPayload& Payload,
+	FString& OutError)
+{
+	if (!Payload.IsValid() || !Controller.IsValid())
+	{
+		OutError = TEXT("物品移动描述无效。");
+		return false;
+	}
+	if (!CanWriteWorkspace(OutError))
+	{
+		return false;
+	}
+	if (!WorkspacePresentation.IsSet())
+	{
+		return true;
+	}
+	FCodeBP3SlotAddress ExpectedSource = Payload.Source;
+	PopulateAddressContext(ExpectedSource);
+	const FCodeBP3InventoryWorkspaceContext& Context = WorkspacePresentation->Context;
+	if (Payload.OwnerId != Context.OwnerId
+		|| Payload.RunInstanceId != Context.RunInstanceId
+		|| Payload.SourceScope != ExpectedSource.Scope
+		|| Payload.Source.OwnerId != Context.OwnerId
+		|| Payload.Source.RunInstanceId != Context.RunInstanceId
+		|| Payload.ExpectedRevision != Controller->GetProjection().Revision)
+	{
+		OutError = TEXT("Owner／Run／scope／revision 已变化；stale payload 未写入。");
+		return false;
+	}
+	return true;
+}
+
+bool UCodeBP3UIHostSubsystem::IsOutOfRaidWorkspace() const
+{
+	return WorkspacePresentation.IsSet()
+		&& WorkspacePresentation->Context.IsOutOfRaidP5();
+}
+
+bool UCodeBP3UIHostSubsystem::ActivateOutOfRaidDestination(const FCodeBP3SlotAddress& Address)
+{
+	if (!IsOutOfRaidWorkspace() || !Controller.IsValid() || !Address.IsValid())
+	{
+		return false;
+	}
+	const FCodeBP2ContainerView* Container = Controller->GetProjection().Containers.FindByPredicate(
+		[&Address](const FCodeBP2ContainerView& Value) { return Value.ContainerId == Address.ContainerId; });
+	if (!Container || (Container->Role != FName(TEXT("QuickSpatial"))
+		&& Container->Role != FName(TEXT("PouchInternal"))))
+	{
+		return false;
+	}
+	WorkspacePresentation->Context.ActiveDestinationContainerId = Container->ContainerId;
+	return true;
+}
+
+void UCodeBP3UIHostSubsystem::UpdateWorkspaceHover(
+	const FCodeBP3SlotAddress& Address,
+	const bool bHovered)
+{
+	if (!WorkspacePresentation.IsSet()) return;
+	if (bHovered)
+	{
+		WorkspacePresentation->Context.HoveredAddress = Address;
+	}
+	else if (WorkspacePresentation->Context.HoveredAddress.IsSet()
+		&& WorkspacePresentation->Context.HoveredAddress->ContainerId == Address.ContainerId
+		&& WorkspacePresentation->Context.HoveredAddress->SlotIndex == Address.SlotIndex)
+	{
+		WorkspacePresentation->Context.HoveredAddress.Reset();
+	}
+}
+
+void UCodeBP3UIHostSubsystem::UpdateWorkspaceSelection(const FCodeBP3SlotAddress& Address)
+{
+	if (WorkspacePresentation.IsSet())
+	{
+		WorkspacePresentation->Context.SelectedAddress = Address;
+	}
+}
+
+void UCodeBP3UIHostSubsystem::UpdateWorkspaceScroll(
+	const float PlayerOffset,
+	const float TargetOffset)
+{
+	if (!WorkspacePresentation.IsSet()) return;
+	WorkspacePresentation->Context.PlayerScrollOffset = FMath::Max(0.0f, PlayerOffset);
+	WorkspacePresentation->Context.TargetScrollOffset = FMath::Max(0.0f, TargetOffset);
+}
+
+void UCodeBP3UIHostSubsystem::ClearWorkspaceTransientState()
+{
+	if (!WorkspacePresentation.IsSet()) return;
+	WorkspacePresentation->Context.ActiveDestinationContainerId.Reset();
+	WorkspacePresentation->Context.HoveredAddress.Reset();
+	WorkspacePresentation->Context.SelectedAddress.Reset();
 }
 
 void UCodeBP3UIHostSubsystem::UpdateBodyContainerProjection(
@@ -3817,11 +4123,24 @@ bool UCodeBP3UIHostSubsystem::RequestHotbarBindFromAddress(
 {
 	OutError.Reset();
 	if (!HotbarPresentation.IsSet() || !HotbarPresentation->Projection.bEditable
-		|| !HotbarPresentation->Projection.bActiveRunScope
-		|| !HotbarPresentation->OwnerId.IsValid() || !HotbarPresentation->RunInstanceId.IsValid()
-		|| !HotbarPresentation->Bind || !Controller.IsValid() || !Controller->IsActiveRunBacked())
+		|| !HotbarPresentation->OwnerId.IsValid()
+		|| !HotbarPresentation->Bind || !Controller.IsValid())
 	{
-		OutError = TEXT("Shift+数字绑定仅在精确活动 Run 工作台中可用。");
+		OutError = TEXT("Shift+数字绑定当前不可用或只读。");
+		return false;
+	}
+	const bool bActiveRunBinding = HotbarPresentation->Projection.bActiveRunScope;
+	if ((bActiveRunBinding && (!Controller->IsActiveRunBacked()
+			|| !HotbarPresentation->RunInstanceId.IsValid()))
+		|| (!bActiveRunBinding && (Controller->IsActiveRunBacked()
+			|| HotbarPresentation->RunInstanceId.IsValid()
+			|| !IsOutOfRaidWorkspace())))
+	{
+		OutError = TEXT("P5／P6 快捷栏 scope 或 Run 身份不匹配。");
+		return false;
+	}
+	if (!CanWriteWorkspace(OutError))
+	{
 		return false;
 	}
 	const FCodeBP2Projection& Projection = Controller->GetProjection();
