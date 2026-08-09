@@ -1,0 +1,30 @@
+# Unreal generated outputs
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+
+# Local packaged candidates and switch staging
+Latest_Demo/
+Latest_Demo.Backups/
+.Latest_Demo.staging-*/
+
+# IDE and local tool state
+.vs/
+.vscode/
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.VC.opendb
+
+# Transient logs and crash artifacts
+*.log
+*.dmp
+crashinfo--*/
+
+# Python and PowerShell caches
+__pycache__/
+*.pyc
+

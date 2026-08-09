@@ -1,0 +1,280 @@
+#include "demo_map0909BFramework.h"
+
+#include "demo_map0909BEditorSupport.h"
+#include "demo_map0909BRunStartCoordinator.h"
+#include "demo_map0909BSectWidget.h"
+#include "demo_map0909BSectWarehouseService.h"
+#include "demo_map0909BSectWarehouseWidget.h"
+#include "demo_map.h"
+#include "demo_mapGameMode.h"
+#include "demo_mapPlayerController.h"
+#include "Blueprint/UserWidget.h"
+
+Ademo_map0909BFrameworkHost::Ademo_map0909BFrameworkHost()
+{
+	SetActorHiddenInGame(true);
+	SetCanBeDamaged(false);
+	PrimaryActorTick.bCanEverTick = false;
+}
+
+bool Ademo_map0909BFrameworkHost::InitializeForGame(
+	Ademo_mapGameMode* InGameMode,
+	Ademo_mapPlayerController* InController)
+{
+	if (bInitialized)
+	{
+		return GameMode.Get() == InGameMode && Controller.Get() == InController;
+	}
+	if (!InGameMode || !InGameMode->Is0909BRuntimeReady() || !InController)
+	{
+		return false;
+	}
+	GameMode = InGameMode;
+	Controller = InController;
+	StartCoordinator = MakeUnique<Fdemo_map0909BRunStartCoordinator>();
+	StartCoordinator->Initialize(InGameMode, InController);
+	WarehouseService = MakeUnique<Fdemo_map0909BSectWarehouseService>();
+	TWeakObjectPtr<Ademo_map0909BFrameworkHost> WeakHost(this);
+	InGameMode->Set0909BOutOfRaidClosedCallback([WeakHost]()
+	{
+		if (WeakHost.IsValid())
+		{
+			WeakHost->ShowSect(TEXT("已返回宗门；仓库的真实 Profile 修改已保留。"));
+		}
+	});
+
+	FString WarehouseDiagnostic;
+	const bool bWarehouseReady = OpenWarehouseService(WarehouseDiagnostic);
+	FString EditorDiagnostic;
+	const bool bEditorEntryValid = Fdemo_map0909BEditorSupport::ValidateDefaultEntry(
+		*InGameMode, EditorDiagnostic);
+	bInitialized = true;
+	ShowSect(bEditorEntryValid && bWarehouseReady
+		? TEXT("已进入 0.0.9B 宗门入口。仓库可整理；只有真实 M01 成功部署才会锁定。")
+		: TEXT("入口或 P5 战备诊断异常：") + EditorDiagnostic + TEXT(" | ") + WarehouseDiagnostic);
+	return bEditorEntryValid && bWarehouseReady;
+}
+
+void Ademo_map0909BFrameworkHost::RequestStartM01FromUI()
+{
+	if (!bInitialized || !StartCoordinator.IsValid())
+	{
+		ShowSect(TEXT("远征协调器尚未就绪。"));
+		return;
+	}
+	FCodeBLoadoutSelection Selection;
+	FString SelectionDiagnostic;
+	if (!WarehouseService || !WarehouseService->CaptureLoadoutSelection(Selection, SelectionDiagnostic))
+	{
+		ShowSect(TEXT("无法取得当前 P5 战备快照：") + SelectionDiagnostic);
+		return;
+	}
+	FString Feedback;
+	const bool bStarted = StartCoordinator->StartM01Run(Selection, Feedback);
+	if (!bStarted)
+	{
+		ShowSect(Feedback);
+		return;
+	}
+	if (SectWidget && StartCoordinator->GetState() == Edemo_map0909BTopState::InRun)
+	{
+		SectWidget->RemoveFromParent();
+	}
+	RefreshSect(Feedback);
+}
+
+void Ademo_map0909BFrameworkHost::RequestOpenWarehouseFromUI()
+{
+	if (!bInitialized || !StartCoordinator.IsValid())
+	{
+		RefreshSect(TEXT("仓库路由尚未初始化。"));
+		return;
+	}
+	if (!StartCoordinator->IsAtSect())
+	{
+		const Edemo_map0909BTopState CurrentState = StartCoordinator->GetState();
+		RefreshSect(
+			CurrentState == Edemo_map0909BTopState::PreparingStart
+				|| CurrentState == Edemo_map0909BTopState::ActivatingWorld
+				? TEXT("出战尝试处理中；尚未形成活动 Run，P5 仓库暂不接受写入。")
+				: TEXT("当前是真实局内状态；P5 仓库只读，不能整理。"));
+		return;
+	}
+	FString Feedback;
+	Fdemo_mapProfileSessionSnapshot Snapshot;
+	if (!GameMode.IsValid() || !WarehouseService
+		|| !GameMode->Get0909BProfileSnapshot(Snapshot, Feedback))
+	{
+		ShowSect(Feedback.IsEmpty() ? TEXT("仓库／人物装备暂时不可用。") : Feedback);
+		return;
+	}
+	Fdemo_map0909BWarehousePresentation Presentation;
+	if (!WarehouseService->OpenForSect(
+		GameMode->Get0909BProfileStorageRoot(),
+		Snapshot,
+		StartCoordinator->GetState(), Presentation, Feedback))
+	{
+		ShowSect(Feedback);
+		return;
+	}
+	if (SectWidget)
+	{
+		SectWidget->RemoveFromParent();
+	}
+	ShowWarehouse(Presentation);
+}
+
+void Ademo_map0909BFrameworkHost::RequestWarehouseDragDrop(
+	const FGuid& ItemId,
+	const FGuid& SourceContainerId,
+	const int32 SourceSlot,
+	const FGuid& TargetContainerId,
+	const int32 TargetSlot,
+	const int32 ExpectedGraphRevision)
+{
+	if (!WarehouseService || !StartCoordinator.IsValid())
+	{
+		RequestCloseWarehouseFromUI();
+		return;
+	}
+	Fdemo_map0909BWarehouseIntent Intent;
+	Intent.ItemId = ItemId;
+	Intent.SourceContainerId = SourceContainerId;
+	Intent.SourceSlot = SourceSlot;
+	Intent.TargetContainerId = TargetContainerId;
+	Intent.TargetSlot = TargetSlot;
+	Intent.ExpectedGraphRevision = ExpectedGraphRevision;
+	Fdemo_map0909BWarehousePresentation Presentation;
+	FString Feedback;
+	WarehouseService->ApplyDragIntent(Intent, StartCoordinator->GetState(), Presentation, Feedback);
+	if (WarehouseWidget)
+	{
+		WarehouseWidget->RefreshPresentation(Presentation);
+	}
+}
+
+void Ademo_map0909BFrameworkHost::RequestCloseWarehouseFromUI()
+{
+	if (WarehouseWidget)
+	{
+		WarehouseWidget->RemoveFromParent();
+	}
+	ShowSect(TEXT("已返回宗门；仓库仍是同一份 P5 图，当前战备摘要保持只读可审计。"));
+}
+
+Edemo_map0909BTopState Ademo_map0909BFrameworkHost::GetTopState() const
+{
+	return StartCoordinator.IsValid()
+		? StartCoordinator->GetState() : Edemo_map0909BTopState::TechnicalStartFailure;
+}
+
+const Fdemo_map0909BStartDiagnostic&
+Ademo_map0909BFrameworkHost::GetLastStartDiagnostic() const
+{
+	static const Fdemo_map0909BStartDiagnostic Empty;
+	return StartCoordinator.IsValid()
+		? StartCoordinator->GetLastDiagnostic() : Empty;
+}
+
+void Ademo_map0909BFrameworkHost::ShowSect(const FString& InFeedback)
+{
+	if (!Controller.IsValid())
+	{
+		return;
+	}
+	if (!SectWidget)
+	{
+		SectWidget = CreateWidget<Udemo_map0909BSectWidget>(
+			Controller.Get(), Udemo_map0909BSectWidget::StaticClass());
+		if (SectWidget)
+		{
+			SectWidget->InitializeForFramework(this);
+		}
+	}
+	if (!SectWidget)
+	{
+		return;
+	}
+	if (!SectWidget->IsInViewport())
+	{
+		SectWidget->AddToViewport(700);
+	}
+	Controller->BeginProfilePreparationInputLock(SectWidget);
+	RefreshSect(InFeedback);
+}
+
+void Ademo_map0909BFrameworkHost::RefreshSect(const FString& InFeedback)
+{
+	if (SectWidget && StartCoordinator.IsValid())
+	{
+		SectWidget->RefreshPresentation(
+			StartCoordinator->GetState(), InFeedback,
+			StartCoordinator->GetLastDiagnostic());
+	}
+}
+
+bool Ademo_map0909BFrameworkHost::OpenWarehouseService(FString& OutDiagnostic)
+{
+	OutDiagnostic.Reset();
+	if (!GameMode.IsValid() || !StartCoordinator.IsValid() || !WarehouseService)
+	{
+		OutDiagnostic = TEXT("宗门仓库服务尚未初始化。");
+		return false;
+	}
+	Fdemo_mapProfileSessionSnapshot Snapshot;
+	if (!GameMode->Get0909BProfileSnapshot(Snapshot, OutDiagnostic))
+	{
+		return false;
+	}
+	Fdemo_map0909BWarehousePresentation Presentation;
+	if (!WarehouseService->OpenForSect(GameMode->Get0909BProfileStorageRoot(), Snapshot,
+		StartCoordinator->GetState(), Presentation, OutDiagnostic))
+	{
+		UE_LOG(Logdemo_map, Warning,
+			TEXT("0_0_9BFIX_WAREHOUSE Event=OpenForSect Ready=0 CoordinatorState=%d SessionState=%d ActiveRunId=%s LastTerminalReason=%d Diagnostic=%s"),
+			static_cast<int32>(StartCoordinator->GetState()), static_cast<int32>(Snapshot.SessionState),
+			*Snapshot.ActiveRunId.ToString(EGuidFormats::DigitsWithHyphensLower),
+			static_cast<int32>(Snapshot.LastTerminalReason), *OutDiagnostic);
+		return false;
+	}
+	const bool bProjectionValid = Fdemo_map0909BEditorSupport::ValidateWarehouseProjection(Presentation, OutDiagnostic);
+	UE_LOG(Logdemo_map, Log,
+		TEXT("0_0_9BFIX_WAREHOUSE Event=OpenForSect Ready=%d CoordinatorState=%d SessionState=%d ActiveRunId=%s LastTerminalReason=%d Diagnostic=%s"),
+		bProjectionValid ? 1 : 0, static_cast<int32>(StartCoordinator->GetState()),
+		static_cast<int32>(Snapshot.SessionState), *Snapshot.ActiveRunId.ToString(EGuidFormats::DigitsWithHyphensLower),
+		static_cast<int32>(Snapshot.LastTerminalReason), *OutDiagnostic);
+	return bProjectionValid;
+}
+
+void Ademo_map0909BFrameworkHost::ShowWarehouse(
+	const Fdemo_map0909BWarehousePresentation& Presentation)
+{
+	if (!Controller.IsValid()) return;
+	if (!WarehouseWidget)
+	{
+		WarehouseWidget = CreateWidget<Udemo_map0909BSectWarehouseWidget>(
+			Controller.Get(), Udemo_map0909BSectWarehouseWidget::StaticClass());
+		if (WarehouseWidget)
+		{
+			WarehouseWidget->InitializeForFramework(this);
+		}
+	}
+	if (!WarehouseWidget) return;
+	if (!WarehouseWidget->IsInViewport())
+	{
+		WarehouseWidget->AddToViewport(720);
+	}
+	Controller->BeginProfilePreparationInputLock(WarehouseWidget);
+	WarehouseWidget->RefreshPresentation(Presentation);
+}
+
+void Ademo_map0909BFrameworkHost::EndPlay(
+	const EEndPlayReason::Type EndPlayReason)
+{
+	if (GameMode.IsValid())
+	{
+		GameMode->Set0909BOutOfRaidClosedCallback(TFunction<void()>());
+	}
+	WarehouseService.Reset();
+	Super::EndPlay(EndPlayReason);
+}
