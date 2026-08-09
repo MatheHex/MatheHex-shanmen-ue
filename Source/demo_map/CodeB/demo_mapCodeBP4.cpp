@@ -2,8 +2,6 @@
 
 #include "CodeB/demo_mapCodeBP4.h"
 
-#include "demo_mapItemDefinitions.h"
-
 namespace
 {
 	using namespace demo_map_code_b;
@@ -65,17 +63,6 @@ namespace demo_map_code_b
 			&& Source.EquipSlot == ECodeBEquipSlot::Accessory;
 	}
 
-	int32 FCodeBP4InteractionController::GetMaxStack(const FName& DefinitionId)
-	{
-		if (const Fdemo_mapItemDefinition* Definition = Fdemo_mapItemDefinitions::Find(DefinitionId))
-		{
-			return Definition->MaxStackSize;
-		}
-		if (DefinitionId == FName(TEXT("Material.Dust"))) return 20;
-		if (DefinitionId == FName(TEXT("Consumable.Potion"))) return 10;
-		return 1;
-	}
-
 	FCodeBP4DropPreview FCodeBP4InteractionController::Reject(const FString& Message)
 	{
 		FCodeBP4DropPreview Preview;
@@ -130,9 +117,9 @@ namespace demo_map_code_b
 			return false;
 		}
 		OutPayload.bSplitIntent = true;
-		OutPayload.Quantity = RequestedQuantity;
+		OutPayload.RequestedMergeQuantity = RequestedQuantity;
 		Controller.SetP4Feedback(FString::Printf(
-			TEXT("拆分草稿已确认：拖动 %d 个到明确空储物格；Drop 前不写入。"), RequestedQuantity));
+			TEXT("数量草稿已确认：拖动 %d 个到明确空格或兼容未满堆叠；Drop 前不写入。"), RequestedQuantity));
 		return true;
 	}
 
@@ -145,7 +132,8 @@ namespace demo_map_code_b
 
 		const FCodeBP2SlotView* SourceSlot = FindSlot(Payload.Source);
 		const FCodeBP2SlotView* TargetSlot = FindSlot(Target);
-		if (!SourceSlot || !TargetSlot || !SourceSlot->bOccupied || SourceSlot->ItemId != Payload.ItemId)
+		if (!SourceSlot || !TargetSlot || !SourceSlot->bOccupied || SourceSlot->ItemId != Payload.ItemId
+			|| SourceSlot->DefinitionId != Payload.DefinitionId || SourceSlot->Quantity != Payload.Quantity)
 		{
 			return Reject(TEXT("来源或目标已变化，请重新操作"));
 		}
@@ -153,11 +141,10 @@ namespace demo_map_code_b
 		const bool bTargetEquipment = IsEquipmentContainer(Target.ContainerId);
 		FCodeBP4DropPreview Preview;
 		Preview.bAllowed = true;
-		Preview.Quantity = Payload.Quantity;
 		if (Payload.bSplitIntent)
 		{
 			FString SplitError;
-			if (!Controller.ValidateSplitSource(Payload.Source, Payload.Quantity, SplitError))
+			if (!Controller.ValidateSplitSource(Payload.Source, Payload.RequestedMergeQuantity, SplitError))
 			{
 				return Reject(SplitError);
 			}
@@ -167,11 +154,33 @@ namespace demo_map_code_b
 			}
 			if (TargetSlot->bOccupied)
 			{
-				return Reject(TEXT("拆分只接受明确的空普通储物格，不合并也不交换。"));
+				if (TargetSlot->ChildContainerId.IsValid()
+					|| SourceSlot->DefinitionId != TargetSlot->DefinitionId
+					|| !SourceSlot->bStackable || !TargetSlot->bStackable
+					|| SourceSlot->MaxStack <= 1 || SourceSlot->MaxStack != TargetSlot->MaxStack)
+				{
+					return Reject(TEXT("数量草稿只接受同一正式堆叠定义的普通未满目标。"));
+				}
+				const int32 Available = TargetSlot->MaxStack - TargetSlot->Quantity;
+				if (Available < Payload.RequestedMergeQuantity)
+				{
+					return Reject(FString::Printf(
+						TEXT("目标只剩 %d 个容量，不能接受明确请求的 %d 个；数量不会自动截断。"),
+						FMath::Max(0, Available), Payload.RequestedMergeQuantity));
+				}
+				Preview.Kind = ECodeBP4DropKind::Merge;
+				Preview.Operation = ECodeBOperation::Merge;
+				Preview.Quantity = Payload.RequestedMergeQuantity;
+				Preview.ProjectedAcceptedQuantity = Payload.RequestedMergeQuantity;
+				Preview.Message = FString::Printf(
+					TEXT("可精确合并 %d 个；来源与目标 ItemId 均保持不变"), Payload.RequestedMergeQuantity);
+				return Preview;
 			}
 			Preview.Kind = ECodeBP4DropKind::Split;
 			Preview.Operation = ECodeBOperation::Split;
-			Preview.Message = FString::Printf(TEXT("可在此生成 %d 个的新堆叠"), Payload.Quantity);
+			Preview.Quantity = Payload.RequestedMergeQuantity;
+			Preview.ProjectedAcceptedQuantity = Payload.RequestedMergeQuantity;
+			Preview.Message = FString::Printf(TEXT("可在此生成 %d 个的新堆叠"), Payload.RequestedMergeQuantity);
 			return Preview;
 		}
 		if (bTargetEquipment)
@@ -198,13 +207,23 @@ namespace demo_map_code_b
 			Preview.Message = TEXT("可移动到空储物格");
 			return Preview;
 		}
-		if (SourceSlot->DefinitionId == TargetSlot->DefinitionId && GetMaxStack(SourceSlot->DefinitionId) > 1)
+		if (SourceSlot->DefinitionId == TargetSlot->DefinitionId
+			&& SourceSlot->bStackable && TargetSlot->bStackable
+			&& SourceSlot->MaxStack > 1 && SourceSlot->MaxStack == TargetSlot->MaxStack)
 		{
-			const int32 Available = GetMaxStack(SourceSlot->DefinitionId) - TargetSlot->Quantity;
-			if (Available < Payload.Quantity) return Reject(TEXT("目标堆叠空间不足；请使用拆分后合并"));
+			const int32 Available = TargetSlot->MaxStack - TargetSlot->Quantity;
+			if (Available <= 0) return Reject(TEXT("目标堆叠已满"));
+			const int32 Accepted = FMath::Min(SourceSlot->Quantity, Available);
 			Preview.Kind = ECodeBP4DropKind::Merge;
 			Preview.Operation = ECodeBOperation::Merge;
-			Preview.Message = TEXT("可合并完整堆叠");
+			// Quantity zero deliberately delegates the normal full-stack amount to
+			// P1 ExecuteMerge. The accepted preview remains display-only.
+			Preview.Quantity = 0;
+			Preview.ProjectedAcceptedQuantity = Accepted;
+			Preview.bPartialAcceptance = Accepted < SourceSlot->Quantity;
+			Preview.Message = Preview.bPartialAcceptance
+				? FString::Printf(TEXT("可部分接收 %d 个；来源保留 %d 个并保持原位"), Accepted, SourceSlot->Quantity - Accepted)
+				: FString::Printf(TEXT("可完整合并 %d 个"), Accepted);
 			return Preview;
 		}
 		Preview.Kind = ECodeBP4DropKind::Swap;

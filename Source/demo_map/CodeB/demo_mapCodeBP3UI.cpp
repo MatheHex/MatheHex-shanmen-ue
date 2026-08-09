@@ -2081,7 +2081,7 @@ void UCodeBP3CellButton::NativeOnDragDetected(const FGeometry& InGeometry, const
 	Operation->Configure(Payload, OwnerWidget.Get());
 	UTextBlock* DragVisual = NewObject<UTextBlock>(Operation);
 	const FString DragLabel = Payload.bSplitIntent
-		? FString::Printf(TEXT("拆分拖拽：%s  x%d"), *Payload.DefinitionId.ToString(), Payload.Quantity)
+		? FString::Printf(TEXT("数量拖拽：%s  x%d"), *Payload.DefinitionId.ToString(), Payload.RequestedMergeQuantity)
 		: FString::Printf(TEXT("拖拽：%s  x%d"), *Payload.DefinitionId.ToString(), Payload.Quantity);
 	DragVisual->SetText(FText::FromString(DragLabel));
 	DragVisual->SetFont(FSlateFontInfo(FCoreStyle::GetDefaultFont(), 16));
@@ -4145,7 +4145,7 @@ bool UCodeBP3UIHostSubsystem::CreateSplitDraft(
 	}
 	SplitDraft = MoveTemp(Draft);
 	Controller->SetP4Feedback(FString::Printf(
-		TEXT("已准备拆分 %d 个；请拖动同一来源堆到明确空储物格。"), RequestedQuantity));
+		TEXT("已准备 %d 个；请拖动同一来源堆到明确空格或兼容未满堆叠。"), RequestedQuantity));
 	return true;
 }
 
@@ -4176,7 +4176,12 @@ bool UCodeBP3UIHostSubsystem::BeginInventoryDrag(
 		if (OutError.IsEmpty()) OutError = TEXT("拆分草稿已过期，未开始拖拽。");
 		return false;
 	}
-	return Interaction.BeginSplitDrag(Source, Draft.RequestedQuantity, OutPayload);
+	const bool bStarted = Interaction.BeginSplitDrag(Source, Draft.RequestedQuantity, OutPayload);
+	if (bStarted)
+	{
+		OutPayload.GraphIdentity = Draft.GraphIdentity;
+	}
+	return bStarted;
 }
 
 bool UCodeBP3UIHostSubsystem::CancelSplitDraft(const FString& Reason)
@@ -4303,8 +4308,35 @@ bool UCodeBP3UIHostSubsystem::ValidateTransferContext(
 	{
 		return false;
 	}
+	if (Payload.bSplitIntent)
+	{
+		const FCodeBP2Projection& Projection = Controller->GetProjection();
+		FGuid ExpectedGraphIdentity;
+		if (NormalContainerPresentation.IsSet()) ExpectedGraphIdentity = NormalContainerPresentation->TargetContainerId;
+		else if (BodyContainerPresentation.IsSet()) ExpectedGraphIdentity = BodyContainerPresentation->TargetContainerId;
+		else if (WorkspacePresentation.IsSet() && WorkspacePresentation->Context.IsOutOfRaidP5())
+			ExpectedGraphIdentity = Projection.WarehouseContainerId;
+		else ExpectedGraphIdentity = Projection.BasicContainerId;
+		if (!ExpectedGraphIdentity.IsValid() || Payload.GraphIdentity != ExpectedGraphIdentity)
+		{
+			OutError = TEXT("数量草稿的仓库／Run／外部目标图身份已变化；未写入。");
+			return false;
+		}
+	}
 	if (!WorkspacePresentation.IsSet())
 	{
+		FCodeBP3SlotAddress ExpectedSource = Payload.Source;
+		PopulateAddressContext(ExpectedSource);
+		if (Payload.ExpectedRevision != Controller->GetProjection().Revision
+			|| Payload.SourceScope != ExpectedSource.Scope
+			|| (ExpectedSource.OwnerId.IsValid() && (Payload.OwnerId != ExpectedSource.OwnerId
+				|| Payload.Source.OwnerId != ExpectedSource.OwnerId))
+			|| (ExpectedSource.RunInstanceId.IsValid() && (Payload.RunInstanceId != ExpectedSource.RunInstanceId
+				|| Payload.Source.RunInstanceId != ExpectedSource.RunInstanceId)))
+		{
+			OutError = TEXT("Owner／Run／scope／revision 已变化；stale payload 未写入。");
+			return false;
+		}
 		return true;
 	}
 	FCodeBP3SlotAddress ExpectedSource = Payload.Source;
@@ -4408,7 +4440,7 @@ bool UCodeBP3UIHostSubsystem::RequestGroundDrop(
 	OutError.Reset();
 	if (Payload.bSplitIntent)
 	{
-		OutError = TEXT("P24 拆分拖拽只接受明确空储物格；P14 地面丢弃保持完整图语义。");
+		OutError = TEXT("数量草稿不进入 P14 世界丢弃；地面丢弃继续保持完整图语义。");
 		return false;
 	}
 	if (!GroundDropPresentation.IsSet() || !GroundDropPresentation->RequestDrop || !Payload.IsValid())

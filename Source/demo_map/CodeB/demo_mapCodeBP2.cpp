@@ -97,6 +97,8 @@ namespace demo_map_code_b
 			&& ItemId == Other.ItemId
 			&& DefinitionId == Other.DefinitionId
 			&& Quantity == Other.Quantity
+			&& bStackable == Other.bStackable
+			&& MaxStack == Other.MaxStack
 			&& Level == Other.Level
 			&& Quality == Other.Quality
 			&& RandomSeed == Other.RandomSeed
@@ -220,6 +222,8 @@ namespace demo_map_code_b
 					SlotView.ItemId = Item->ItemId;
 					SlotView.DefinitionId = Item->DefinitionId;
 					SlotView.Quantity = Item->Quantity;
+					SlotView.bStackable = Definition->bStackable;
+					SlotView.MaxStack = Definition->MaxStack;
 					SlotView.Level = Item->Level;
 					SlotView.Quality = Item->Quality;
 					SlotView.RandomSeed = Item->RandomSeed;

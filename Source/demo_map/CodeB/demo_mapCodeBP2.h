@@ -78,6 +78,9 @@ namespace demo_map_code_b
 		FGuid ItemId;
 		FName DefinitionId;
 		int32 Quantity = 0;
+		/** Read-only P1 stack metadata used by the shared P4 planner. */
+		bool bStackable = false;
+		int32 MaxStack = 1;
 		int32 Level = 0;
 		int32 Quality = 0;
 		int32 RandomSeed = 0;

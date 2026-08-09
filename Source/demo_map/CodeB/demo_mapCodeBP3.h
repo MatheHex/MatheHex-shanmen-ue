@@ -134,9 +134,9 @@ namespace demo_map_code_b
 	};
 
 	/**
-	 * P24's one transient split intent.  It captures only stable authority
-	 * identities and the requested quantity; P1 alone creates the new ItemId
-	 * when an explicit empty-cell Drop is finally accepted.
+	 * P24/P25's one transient quantity intent. It captures only stable authority
+	 * identities and the requested quantity; P1 alone either creates the split
+	 * identity for an empty target or applies the exact Merge to an existing stack.
 	 */
 	struct FCodeBP3SplitDraft
 	{

@@ -231,6 +231,170 @@ namespace
 		return true;
 	}
 
+	bool HasP25MergeQuantityOrRemovalDelta(
+		const FCodeBSnapshot& Prior,
+		const FCodeBSnapshot& Candidate)
+	{
+		for (const TPair<FGuid, FCodeBItemInstance>& Pair : Prior.Items)
+		{
+			const FCodeBItemInstance* Current = Candidate.Items.Find(Pair.Key);
+			if (!Current || Current->Quantity != Pair.Value.Quantity)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * P25 accepts a cross-graph quantity delta only when it is structurally
+	 * identical to one P1 ExecuteMerge. No identity is created; partial merge
+	 * retains both placements, while a fully consumed source alone is removed.
+	 */
+	bool IsExactP25MergeDelta(
+		const FCodeBSnapshot& Prior,
+		const FCodeBSnapshot& Candidate,
+		FString& OutError)
+	{
+		if (Prior.Revision == MAX_int32 || Candidate.Revision != Prior.Revision + 1
+			|| Candidate.Definitions.Num() != Prior.Definitions.Num()
+			|| Candidate.Containers.Num() != Prior.Containers.Num()
+			|| (Candidate.Items.Num() != Prior.Items.Num()
+				&& Candidate.Items.Num() != Prior.Items.Num() - 1))
+		{
+			OutError = TEXT("P25 merge candidate has a non-Merge revision or graph cardinality delta.");
+			return false;
+		}
+		for (const TPair<FName, FCodeBItemDefinition>& Pair : Prior.Definitions)
+		{
+			const FCodeBItemDefinition* Current = Candidate.Definitions.Find(Pair.Key);
+			if (!Current || !(*Current == Pair.Value))
+			{
+				OutError = TEXT("P25 merge candidate mutated an item definition.");
+				return false;
+			}
+		}
+		for (const TPair<FGuid, FCodeBItemInstance>& Pair : Candidate.Items)
+		{
+			if (!Prior.Items.Contains(Pair.Key))
+			{
+				OutError = TEXT("P25 merge candidate invented an item identity.");
+				return false;
+			}
+		}
+
+		const FCodeBItemInstance* OriginalSource = nullptr;
+		const FCodeBItemInstance* CandidateSource = nullptr;
+		const FCodeBItemInstance* OriginalTarget = nullptr;
+		const FCodeBItemInstance* CandidateTarget = nullptr;
+		for (const TPair<FGuid, FCodeBItemInstance>& Pair : Prior.Items)
+		{
+			const FCodeBItemInstance* Current = Candidate.Items.Find(Pair.Key);
+			if (!Current || Current->Quantity < Pair.Value.Quantity)
+			{
+				if (OriginalSource)
+				{
+					OutError = TEXT("P25 merge candidate changed more than one source stack.");
+					return false;
+				}
+				OriginalSource = &Pair.Value;
+				CandidateSource = Current;
+				continue;
+			}
+			if (Current->Quantity > Pair.Value.Quantity)
+			{
+				if (OriginalTarget)
+				{
+					OutError = TEXT("P25 merge candidate changed more than one target stack.");
+					return false;
+				}
+				OriginalTarget = &Pair.Value;
+				CandidateTarget = Current;
+				continue;
+			}
+			if (!(Pair.Value == *Current))
+			{
+				OutError = TEXT("P25 merge candidate mutated a non-quantity item field.");
+				return false;
+			}
+		}
+		if (!OriginalSource || !OriginalTarget || !CandidateTarget
+			|| OriginalSource->ItemId == OriginalTarget->ItemId
+			|| OriginalSource->DefinitionId != OriginalTarget->DefinitionId
+			|| OriginalSource->ChildContainerId.IsValid() || OriginalTarget->ChildContainerId.IsValid())
+		{
+			OutError = TEXT("P25 merge candidate has no one compatible simple source and target pair.");
+			return false;
+		}
+
+		const FCodeBItemDefinition* Definition = Prior.Definitions.Find(OriginalSource->DefinitionId);
+		const FCodeBContainer* SourceContainer = Prior.Containers.Find(OriginalSource->ParentContainerId);
+		const FCodeBContainer* TargetContainer = Prior.Containers.Find(OriginalTarget->ParentContainerId);
+		if (!Definition || !Definition->bStackable || Definition->MaxStack <= 1
+			|| !SourceContainer || SourceContainer->IsEquipment()
+			|| !TargetContainer || TargetContainer->IsEquipment()
+			|| !SourceContainer->Slots.IsValidIndex(OriginalSource->SlotIndex)
+			|| SourceContainer->Slots[OriginalSource->SlotIndex] != OriginalSource->ItemId
+			|| !TargetContainer->Slots.IsValidIndex(OriginalTarget->SlotIndex)
+			|| TargetContainer->Slots[OriginalTarget->SlotIndex] != OriginalTarget->ItemId)
+		{
+			OutError = TEXT("P25 merge candidate violates the P1 stack or storage placement rules.");
+			return false;
+		}
+
+		const int32 Amount = CandidateTarget->Quantity - OriginalTarget->Quantity;
+		const int32 SourceRemainder = OriginalSource->Quantity - Amount;
+		if (Amount <= 0 || Amount > OriginalSource->Quantity
+			|| CandidateTarget->Quantity > Definition->MaxStack || SourceRemainder < 0)
+		{
+			OutError = TEXT("P25 merge candidate has an invalid accepted quantity or exceeds MaxStack.");
+			return false;
+		}
+		FCodeBItemInstance ExpectedTarget = *OriginalTarget;
+		ExpectedTarget.Quantity += Amount;
+		if (!(ExpectedTarget == *CandidateTarget))
+		{
+			OutError = TEXT("P25 merge target differs from P1's exact quantity-only delta.");
+			return false;
+		}
+		if (SourceRemainder > 0)
+		{
+			FCodeBItemInstance ExpectedSource = *OriginalSource;
+			ExpectedSource.Quantity = SourceRemainder;
+			if (!CandidateSource || !(ExpectedSource == *CandidateSource))
+			{
+				OutError = TEXT("P25 partial merge did not retain the exact source identity and placement.");
+				return false;
+			}
+		}
+		else if (CandidateSource)
+		{
+			OutError = TEXT("P25 full merge retained a zero-quantity source item.");
+			return false;
+		}
+
+		for (const TPair<FGuid, FCodeBContainer>& Pair : Prior.Containers)
+		{
+			const FCodeBContainer* Current = Candidate.Containers.Find(Pair.Key);
+			if (!Current)
+			{
+				OutError = TEXT("P25 merge candidate removed a pre-existing container.");
+				return false;
+			}
+			FCodeBContainer Expected = Pair.Value;
+			if (SourceRemainder == 0 && Pair.Key == OriginalSource->ParentContainerId)
+			{
+				Expected.Slots[OriginalSource->SlotIndex] = FGuid();
+			}
+			if (!(Expected == *Current))
+			{
+				OutError = TEXT("P25 merge candidate changed a container outside source cleanup.");
+				return false;
+			}
+		}
+		return true;
+	}
+
 	/** P16's closed Code B-only content catalog.  It has no Actor, UI, or RNG dependency. */
 	struct FCodeBLootProfileCandidate
 	{
@@ -6845,6 +7009,14 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 		if (OutError) *OutError = TEXT("Code B P12 body transfer refused a non-P1 Split identity: ") + Error;
 		return false;
 	}
+	const bool bHasP25MergeDelta = HasP25MergeQuantityOrRemovalDelta(
+		P24PriorComposite, CompositeSnapshot);
+	if (!bAcceptedP24SplitIdentity && bHasP25MergeDelta
+		&& !IsExactP25MergeDelta(P24PriorComposite, CompositeSnapshot, Error))
+	{
+		if (OutError) *OutError = TEXT("Code B P12 body transfer refused a non-P1 Merge quantity delta: ") + Error;
+		return false;
+	}
 	for (const TPair<FGuid, FCodeBItemInstance>& Pair : CompositeSnapshot.Items)
 	{
 		if (!PriorItemIds.Contains(Pair.Key) && !bAcceptedP24SplitIdentity)
@@ -8022,6 +8194,14 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 	if (bHasP24CreatedIdentity && !bAcceptedP24SplitIdentity)
 	{
 		if (OutError) *OutError = TEXT("Code B P10 dual transfer refused a non-P1 Split identity: ") + Error;
+		return false;
+	}
+	const bool bHasP25MergeDelta = HasP25MergeQuantityOrRemovalDelta(
+		P24PriorComposite, CompositeSnapshot);
+	if (!bAcceptedP24SplitIdentity && bHasP25MergeDelta
+		&& !IsExactP25MergeDelta(P24PriorComposite, CompositeSnapshot, Error))
+	{
+		if (OutError) *OutError = TEXT("Code B P10 dual transfer refused a non-P1 Merge quantity delta: ") + Error;
 		return false;
 	}
 	for (const TPair<FGuid, FCodeBItemInstance>& Pair : CompositeSnapshot.Items)
