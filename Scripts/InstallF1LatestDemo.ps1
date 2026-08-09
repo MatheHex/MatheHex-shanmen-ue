@@ -1,25 +1,33 @@
 param(
-    [string]$CandidateRoot = 'C:\AIDev\shanmen-ue\Builds\demo_map\Candidate\20260801T110153Z-Dev.D.UE.0.0.8.F0.0.r0'
+    [Parameter(Mandatory = $true)][string]$CandidateRoot,
+    [string]$TaskId = 'Dev.D.UE.0.0.9B.F1.0.r0',
+    [string]$AttemptId = 'attempt-001'
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-$TaskId = 'Dev.D.UE.0.0.8.F1.0.r0'
 $ActiveRoot = Split-Path -Parent $PSScriptRoot
 $TaskRoot = Join-Path $ActiveRoot "Saved\Automation\$TaskId"
-$AttemptRoot = Join-Path $TaskRoot 'LatestSwitch\attempt-001'
+$AttemptRoot = Join-Path $TaskRoot "LatestSwitch\$AttemptId"
 $ManifestTool = Join-Path $PSScriptRoot 'GetF0CanonicalManifest.ps1'
 $LatestRoot = Join-Path $ActiveRoot 'Latest_Demo'
 $BackupParent = Join-Path $ActiveRoot 'Latest_Demo.Backups'
 $Timestamp = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ')
 $StagingRoot = Join-Path $ActiveRoot ".Latest_Demo.staging-$Timestamp-$TaskId"
 $BackupRoot = Join-Path $BackupParent "$Timestamp-pre-$TaskId"
-$ExpectedFiles = 48
-$ExpectedBytes = 1085427808
-$ExpectedManifest = 'B4913B74CBDA064BED68DFEBA409150CA442C49B73F18F029FA7F9478D2F1802'
 $Utf8NoBom = [Text.UTF8Encoding]::new($false)
 
+if ($TaskId -notmatch '^[A-Za-z0-9._-]+$') { throw "Invalid TaskId: $TaskId" }
+if ($AttemptId -notmatch '^[A-Za-z0-9._-]+$') { throw "Invalid AttemptId: $AttemptId" }
 if (-not (Test-Path -LiteralPath $CandidateRoot -PathType Container)) { throw "Candidate missing: $CandidateRoot" }
+$CandidateRoot = [IO.Path]::GetFullPath($CandidateRoot)
+$CandidateBase = [IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $ActiveRoot) 'Builds\demo_map\Candidate')).TrimEnd('\') + '\'
+if (-not ($CandidateRoot.TrimEnd('\') + '\').StartsWith($CandidateBase, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Candidate escaped the canonical Candidate root: $CandidateRoot"
+}
+if (((Get-Item -LiteralPath $CandidateRoot).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw "Candidate root cannot be a reparse point: $CandidateRoot"
+}
 if (Test-Path -LiteralPath $AttemptRoot) { throw "Attempt already exists: $AttemptRoot" }
 if (Test-Path -LiteralPath $StagingRoot) { throw "Staging already exists: $StagingRoot" }
 if (Test-Path -LiteralPath $BackupRoot) { throw "Backup already exists: $BackupRoot" }
@@ -33,8 +41,8 @@ foreach ($Target in @($LatestRoot, $BackupParent, $StagingRoot, $BackupRoot)) {
 
 New-Item -ItemType Directory -Path $AttemptRoot,$BackupParent -Force | Out-Null
 $CandidatePre = & $ManifestTool -Path $CandidateRoot -OutputPath (Join-Path $AttemptRoot 'candidate.pre.manifest.txt')
-if ($CandidatePre.Files -ne $ExpectedFiles -or $CandidatePre.Bytes -ne $ExpectedBytes -or $CandidatePre.ManifestSha256 -ne $ExpectedManifest) {
-    throw "Candidate identity mismatch: $($CandidatePre.Files)/$($CandidatePre.Bytes)/$($CandidatePre.ManifestSha256)"
+if ($CandidatePre.Files -lt 1 -or $CandidatePre.Bytes -lt 1 -or [string]::IsNullOrWhiteSpace($CandidatePre.ManifestSha256)) {
+    throw 'Candidate is empty or could not be hashed.'
 }
 
 $OldLatest = $null

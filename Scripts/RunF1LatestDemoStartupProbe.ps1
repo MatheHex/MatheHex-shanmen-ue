@@ -1,11 +1,11 @@
 param(
-    [string]$AttemptId = 'attempt-001'
+    [string]$AttemptId = 'attempt-001',
+    [string]$TaskId = 'Dev.D.UE.0.0.9B.F1.0.r0'
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$TaskId = 'Dev.D.UE.0.0.9.F1.0.r0'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $TaskRoot = Join-Path $ProjectRoot "Saved\Automation\$TaskId"
 $LatestRoot = Join-Path $ProjectRoot 'Latest_Demo'

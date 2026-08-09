@@ -1,12 +1,16 @@
-param([string]$AttemptId = 'attempt-002')
+param(
+    [string]$AttemptId = 'attempt-001',
+    [string]$TaskId = 'Dev.D.UE.0.0.9B.F0.0.r0'
+)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$TaskId = 'Dev.D.UE.0.0.9.F0.0.r0'
-$ProjectRoot = Split-Path -Parent $PSScriptRoot
+Import-Module (Join-Path $PSScriptRoot 'Shanmen.Foundation.psm1') -Force
+$Project = Resolve-ShanmenProject
+$ProjectRoot = $Project.ProjectRoot
 $AttemptRoot = Join-Path $ProjectRoot "Saved\Automation\$TaskId\Build\$AttemptId"
-$BuildBat = 'C:\Program Files\Epic Games\UE_5.8\Engine\Build\BatchFiles\Build.bat'
+$BuildBat = $Project.BuildBat
 $Uproject = Join-Path $ProjectRoot 'demo_map.uproject'
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 

@@ -14,8 +14,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$projectRoot = Split-Path -Parent $PSScriptRoot
-$engineEditor = 'C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd.exe'
+Import-Module (Join-Path $PSScriptRoot 'Shanmen.Foundation.psm1') -Force
+$Project = Resolve-ShanmenProject
+$projectRoot = $Project.ProjectRoot
+$engineEditor = $Project.EditorCmd
 $uproject = Join-Path $projectRoot 'demo_map.uproject'
 $canonicalRoot = [IO.Path]::GetFullPath($StorageRoot)
 $allowedRoot = [IO.Path]::GetFullPath((Join-Path $projectRoot 'Saved\Automation\Dev.D.UE.0.0.9B.P6.0.r3'))

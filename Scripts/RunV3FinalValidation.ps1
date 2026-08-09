@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$ProjectRoot = (Split-Path -Parent $PSScriptRoot),
-    [string]$EngineRoot = "C:\Program Files\Epic Games\UE_5.8",
+    [string]$EngineRoot,
     [string]$BuildOutputRoot = (Join-Path (Split-Path -Parent $PSScriptRoot) "Builds\demo_map"),
     [switch]$SkipBuild,
     [switch]$SkipPackage
@@ -9,6 +9,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+Import-Module (Join-Path $PSScriptRoot 'Shanmen.Foundation.psm1') -Force
+$ResolvedProject = Resolve-ShanmenProject -ProjectRoot $ProjectRoot -EngineRoot $EngineRoot
+$ProjectRoot = $ResolvedProject.ProjectRoot
+$EngineRoot = $ResolvedProject.EngineRoot
 
 function Stop-ProcessTree {
     param([int]$RootProcessId)

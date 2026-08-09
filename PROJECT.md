@@ -5,6 +5,11 @@ project_id = Dev.D.UE.0.0.9B
 active_root = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B
 active_uproject = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\demo_map.uproject
 engine_root = C:\Program Files\Epic Games\UE_5.8
+engine_resolution = Scripts\Shanmen.Foundation.psm1 (explicit -EngineRoot -> SHANMEN_UE_ROOT -> registry -> EngineAssociation install)
+canonical_entry = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Scripts\Invoke-Shanmen.ps1
+foundation_audit = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Scripts\Invoke-FoundationAudit.ps1
+handoff_ledger = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Scripts\Update-HandoffLedger.ps1
+i_stage_gate = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Process\I_STAGE_FOUNDATION_GATE.md
 current_task = Dev.D.UE.0.0.9BFix.P3
 current_status = READY_FOR_0_0_9BFIX_P4_OR_F_PLANNING
 prompt_directory = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Prompt
@@ -36,6 +41,16 @@ quarantine_root = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B_QUARANTINE_I0R0_FROM_0.0.9
 requested_source = CANCELLED_BY_USER_DECISION_2026-08-04
 actual_baseline_source = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9-XFix1
 ```
+
+## 项目基础调用门禁
+
+- 项目已经建立本地 Git 基线；`Binaries`、`DerivedDataCache`、`Intermediate`、`Saved` 和 Latest 候选包不进入版本库。
+- UE、Editor、Build、Package 和 Latest Demo 的新调用统一经过 `Scripts\Invoke-Shanmen.ps1`。旧脚本暂列技术债，不再作为默认入口。
+- 根目录 `latest demo.bat` 只委托项目 `LATEST_DEMO.bat`；项目入口优先运行已安装的 packaged `Latest_Demo`，缺失时明确使用 Editor `-game` 降级，不运行未 Cook 的 Development EXE。
+- 每个 `I` 阶段在开始和结束执行项目级 Foundation Audit；它覆盖版本、启动、构建、进程、输入、存档、配置和 Prompt/Report 交接，但不替代 `0.0.9B.F` 的真实测试。
+- P 阶段继续只做功能开发、代码审查和 Prompt 要求的最小编译；真实产品测试统一留给 F。
+- Prompt/Report 交接按 `DOWNLOADED_HASHED → EXECUTED → REPORT_WRITTEN_HASHED → ATTACHMENT_VISIBLE → MARKER_SENT → NEXT_PROMPT_HASHED` 持久化；没有真实附件可见确认时禁止发送完成标识。
+- 中断由交接账本记录 `BLOCKED` 与失败前状态，恢复时必须执行 `ResumeBlocked` 续接；未取得并归档下一份 Prompt 不算完成。
 
 0.0.9BFix.P3：将宗门 UI Host 的唯一出战请求收敛为 `StartAttemptId` 关联的 `Coordinator → M01RuntimeAdapter → RuntimeReady` 链。Adapter 仅验证正式 M01 descriptor／World／GameMode／WorldSettings／Controller／Pawn／GameOnly 输入的当前事实，接受既有 M01 materialization 请求后才报告同 Attempt 的 RuntimeReady；旧、重复或不匹配回执不改变状态。Coordinator 在 `RuntimeReady → InRun` 后才调用 selection-aware P5→P6 observer；其拒绝仅是审计，不能伪装为 activation failure。TechnicalStartFailure 只释放匹配 attempt 的 transient state、回滚尚未确认的 Code A prepared run、复核无 P6 session 后返回 AtSect，并清除活动 Run identity；P5 未移动／锁定、P8 零写入。P3 未修改 `demo_mapGameMode`／`demo_mapPlayerController`、地图、Actor、战斗、库存或终局权威。2026-08-08 指定 Editor 和 Game Development 两个原生命令均以 exit code `0`、UBT `Succeeded` 完成；未启动产品、CTA、PIE、截图、自动化、Smoke、回归、Cook、Package 或最终验收。状态：`READY_FOR_0_0_9BFIX_P4_OR_F_PLANNING`。
 

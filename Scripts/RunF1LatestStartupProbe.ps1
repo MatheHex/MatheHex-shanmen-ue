@@ -1,16 +1,29 @@
-param([string]$AttemptId = 'attempt-001')
+param(
+    [string]$AttemptId = 'attempt-001',
+    [Parameter(Mandatory = $true)][string]$CandidateRoot,
+    [string]$TaskId = 'Dev.D.UE.0.0.9B.F1.0.r0'
+)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-$TaskId = 'Dev.D.UE.0.0.8.F1.0.r0'
 $ActiveRoot = Split-Path -Parent $PSScriptRoot
-$CandidateRoot = 'C:\AIDev\shanmen-ue\Builds\demo_map\Candidate\20260801T110153Z-Dev.D.UE.0.0.8.F0.0.r0'
 $LatestRoot = Join-Path $ActiveRoot 'Latest_Demo'
 $RunRoot = Join-Path $ActiveRoot "Saved\Automation\$TaskId\VisibleSmoke\$AttemptId"
 $CopyRoot = Join-Path $RunRoot 'IndependentCopy'
 $ManifestTool = Join-Path $PSScriptRoot 'GetF0CanonicalManifest.ps1'
 $Utf8NoBom = [Text.UTF8Encoding]::new($false)
 
+if ($TaskId -notmatch '^[A-Za-z0-9._-]+$') { throw "Invalid TaskId: $TaskId" }
+if ($AttemptId -notmatch '^[A-Za-z0-9._-]+$') { throw "Invalid AttemptId: $AttemptId" }
+if (-not (Test-Path -LiteralPath $CandidateRoot -PathType Container)) { throw "Candidate missing: $CandidateRoot" }
+$CandidateRoot = [IO.Path]::GetFullPath($CandidateRoot)
+$CandidateBase = [IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $ActiveRoot) 'Builds\demo_map\Candidate')).TrimEnd('\') + '\'
+if (-not ($CandidateRoot.TrimEnd('\') + '\').StartsWith($CandidateBase, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Candidate escaped the canonical Candidate root: $CandidateRoot"
+}
+if (((Get-Item -LiteralPath $CandidateRoot).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw "Candidate root cannot be a reparse point: $CandidateRoot"
+}
 if (Test-Path -LiteralPath $RunRoot) { throw "Smoke attempt already exists: $RunRoot" }
 if (-not (Test-Path -LiteralPath $LatestRoot -PathType Container)) { throw "Latest_Demo missing: $LatestRoot" }
 New-Item -ItemType Directory -Path $RunRoot -Force | Out-Null

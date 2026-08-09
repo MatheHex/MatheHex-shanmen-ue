@@ -1,9 +1,11 @@
-param()
+param([string]$TaskId = 'Manual.M01RewardTargeted')
 $ErrorActionPreference = 'Stop'
-$ProjectRoot = Split-Path -Parent $PSScriptRoot
+Import-Module (Join-Path $PSScriptRoot 'Shanmen.Foundation.psm1') -Force
+$Project = Resolve-ShanmenProject
+$ProjectRoot = $Project.ProjectRoot
 $ProjectFile = Join-Path $ProjectRoot 'demo_map.uproject'
-$EditorCmd = 'C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd.exe'
-$EvidenceDirectory = Join-Path $ProjectRoot 'Saved\Automation\Dev.D.UE.0.0.8.P4.0.r0'
+$EditorCmd = $Project.EditorCmd
+$EvidenceDirectory = Join-Path $ProjectRoot ('Saved\Automation\' + (ConvertTo-ShanmenSafeName $TaskId))
 $Log = Join-Path $EvidenceDirectory 'M01RewardTargetedTests.log'
 New-Item -ItemType Directory -Path $EvidenceDirectory -Force | Out-Null
 foreach ($Path in @($ProjectRoot, $ProjectFile, $EditorCmd)) {

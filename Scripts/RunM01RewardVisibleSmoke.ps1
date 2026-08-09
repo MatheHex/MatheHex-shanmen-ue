@@ -1,9 +1,11 @@
-param()
+param([string]$TaskId = 'Manual.M01RewardVisibleSmoke')
 $ErrorActionPreference = 'Stop'
-$ProjectRoot = Split-Path -Parent $PSScriptRoot
+Import-Module (Join-Path $PSScriptRoot 'Shanmen.Foundation.psm1') -Force
+$Project = Resolve-ShanmenProject
+$ProjectRoot = $Project.ProjectRoot
 $ProjectFile = Join-Path $ProjectRoot 'demo_map.uproject'
-$Editor = 'C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor.exe'
-$EvidenceDirectory = Join-Path $ProjectRoot 'Saved\Automation\Dev.D.UE.0.0.8.P4.0.r0'
+$Editor = $Project.Editor
+$EvidenceDirectory = Join-Path $ProjectRoot ('Saved\Automation\' + (ConvertTo-ShanmenSafeName $TaskId))
 $VisualDirectory = Join-Path $EvidenceDirectory 'Visual'
 $Log = Join-Path $EvidenceDirectory 'M01RewardVisibleSmoke.log'
 New-Item -ItemType Directory -Path $VisualDirectory -Force | Out-Null

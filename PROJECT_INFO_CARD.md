@@ -21,6 +21,17 @@
 - Version Report：`C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Dev.D.UE-0.0.9B.codex.report.md`
 - 当前 Report：`C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Report\Dev.D.UE.0.0.9BFix.P3_report.md`
 
+## 基础调用与 I 阶段门禁
+
+- Git 基线：项目根本地仓库；生成目录和候选包已排除。
+- 唯一调用入口：`Scripts\Invoke-Shanmen.ps1`。
+- 无启动诊断：`Scripts\Invoke-Shanmen.ps1 -Action ResolveLatest`。
+- UE 定位：显式 `-EngineRoot` → `SHANMEN_UE_ROOT` → Epic 注册表 → `.uproject` EngineAssociation 默认安装目录。
+- Latest Demo：根目录包装器 → 项目 `LATEST_DEMO.bat` → packaged `Latest_Demo`；无候选包时只允许明确的 Editor `-game` 降级。
+- I 阶段审计：`Scripts\Invoke-FoundationAudit.ps1`；每个 I 阶段开始和结束必须执行，规则见 `Docs\Process\I_STAGE_FOUNDATION_GATE.md`。
+- 交接账本：`Scripts\Update-HandoffLedger.ps1`；真实 Report 附件在策划 Chat 可见前不得进入 `MARKER_SENT`。
+- 阶段分工：P 开发／静态审查／最小编译，I 接入／基础自查，F Package／内部回归／真实 Windows 输入／最终发布。
+
 ## 来源与隔离
 
 - 工程级开发基线：`C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9-XFix1`（用户 2026-08-04 最新裁决）
@@ -94,7 +105,7 @@
 
 ## 当前入口
 
-- 源码构建后入口：`C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Binaries\Win64\demo_map.exe`
+- 固定入口：`C:\AIDev\shanmen-ue\latest demo.bat`；它只委托统一调用器，优先 packaged `Latest_Demo`，否则明确使用 Editor `-game` 回退。
 - 默认 Smoke 地图：`/Game/M01/Maps/L_M01_Expedition`
 - P4.r1 构建：`demo_mapEditor Win64 Development` 与 `demo_map Win64 Development` 均成功，游戏二进制为 `C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Binaries\Win64\demo_map.exe`。
 - P4x r2 回归：Code B `58/58`、ProfileSettlement `19/19`、ProfileSession `33/33`、ProfileNormalStartup `17/17`、ProfilePreparationFlow `17/17`、四个产品 Start Run 场景及第二次启动均成功；`P4x.RealInputTrace` 在 1280×720/1920×1080 均通过。日志见 `Saved\Logs\P4x.r2.*.current.log`。
