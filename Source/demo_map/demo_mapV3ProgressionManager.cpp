@@ -4676,9 +4676,11 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBGroundDrop(
 	}
 	const demo_map_code_b::FCodeBItemInstance* SourceItem = Session.RepositorySnapshot.Items.Find(Payload.ItemId);
 	const demo_map_code_b::FCodeBContainer* SourceContainer = Session.RepositorySnapshot.Containers.Find(Payload.Source.ContainerId);
-	if (Payload.ItemId != Payload.Source.ItemId
+	if (Payload.OwnerId != Session.OwnerId || Payload.RunInstanceId != Session.RunInstanceId
+		|| Payload.ItemId != Payload.Source.ItemId
 		|| Payload.ExpectedRevision != Session.RepositorySnapshot.Revision
 		|| !SourceItem || !SourceContainer
+		|| SourceItem->Quantity != Payload.Quantity
 		|| SourceItem->ParentContainerId != Payload.Source.ContainerId
 		|| SourceItem->SlotIndex != Payload.Source.SlotIndex
 		|| !SourceContainer->Slots.IsValidIndex(Payload.Source.SlotIndex)
@@ -4693,6 +4695,8 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBGroundDrop(
 	FCodeBWorldDropProjection Projection;
 	if (!CodeBActiveRunInventoryStore->DropMatchedActiveRunWorldDropItem(
 		CodeBActiveRunInventoryRunId, Payload.ItemId, Payload.Source.ContainerId,
+		Payload.Source.SlotIndex, Payload.ExpectedRevision,
+		Payload.bSplitIntent ? Payload.RequestedMergeQuantity : 0,
 		MapRoute, FloorTransform, Projection, &OutFeedback))
 	{
 		return false;

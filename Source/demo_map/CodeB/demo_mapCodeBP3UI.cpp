@@ -2434,11 +2434,47 @@ FCodeBP4DropPreview UCodeBP3InventoryWidget::PreviewInventoryTransfer(
 	}
 	FCodeBP4DropPreview Preview = Interaction->PreviewDrop(Payload, Target);
 	if (Host->IsWorldDropPresentation(Payload.Source.ContainerId)
-		&& Preview.bAllowed
-		&& (Target.bOccupied || (Preview.Operation != ECodeBOperation::Move && Preview.Operation != ECodeBOperation::Equip)))
+		&& Preview.bAllowed)
 	{
-		Rejected.Message = TEXT("地面完整图只能进入合法空储物格或匹配空装备位。");
-		return Rejected;
+		const FCodeBP2Projection& Projection = Host->GetController()->GetProjection();
+		const FCodeBP2ContainerView* SourceContainer = Projection.Containers.FindByPredicate(
+			[&Payload](const FCodeBP2ContainerView& Value) { return Value.ContainerId == Payload.Source.ContainerId; });
+		const FCodeBP2SlotView* SourceSlot = SourceContainer ? SourceContainer->Slots.FindByPredicate(
+			[&Payload](const FCodeBP2SlotView& Value) { return Value.SlotIndex == Payload.Source.SlotIndex; }) : nullptr;
+		const FCodeBP2ContainerView* TargetContainer = Projection.Containers.FindByPredicate(
+			[&Target](const FCodeBP2ContainerView& Value) { return Value.ContainerId == Target.ContainerId; });
+		const bool bSimpleStack = SourceSlot && !SourceSlot->ChildContainerId.IsValid()
+			&& SourceSlot->bStackable && SourceSlot->MaxStack > 1;
+		const bool bSimpleRoot = SourceSlot && !SourceSlot->ChildContainerId.IsValid();
+		const bool bP26PlayerStorage = TargetContainer
+			&& (TargetContainer->Role == FName(TEXT("Basic6"))
+				|| TargetContainer->Role == FName(TEXT("QuickSpatial"))
+				|| TargetContainer->Role == FName(TEXT("PouchInternal")));
+		if (bSimpleStack)
+		{
+			if (!bP26PlayerStorage
+				|| (Target.bOccupied && Preview.Operation != ECodeBOperation::Merge)
+				|| (!Target.bOccupied && Preview.Operation != ECodeBOperation::Move))
+			{
+				Rejected.Message = TEXT("地面简单堆叠只能拖到明确的 BaseQuick／当前空间 child 空格或兼容未满堆叠。");
+				return Rejected;
+			}
+		}
+		else if (bSimpleRoot)
+		{
+			if (!TargetContainer || TargetContainer->Role != FName(TEXT("Basic6"))
+				|| Target.bOccupied || Preview.Operation != ECodeBOperation::Move)
+			{
+				Rejected.Message = TEXT("既有 P14 简单非堆叠地面物品仍只可拖回明确的 BaseQuick 空格。");
+				return Rejected;
+			}
+		}
+		else if (Target.bOccupied
+			|| (Preview.Operation != ECodeBOperation::Move && Preview.Operation != ECodeBOperation::Equip))
+		{
+			Rejected.Message = TEXT("地面完整空间图只能进入合法空储物格或匹配空装备位。");
+			return Rejected;
+		}
 	}
 	return Preview;
 }
@@ -2688,15 +2724,17 @@ bool UCodeBP3InventoryWidget::HandleGroundDropZoneDrop(UCodeBP4DragOperation* Op
 	const FCodeBP4DragPayload& Payload = Operation->GetPayload();
 	FString Error;
 	const bool bCommitted = Host->RequestGroundDrop(Payload, Error);
-	if (bCommitted)
+	if (bCommitted && !Payload.bSplitIntent)
 	{
 		// The Store replacement removed this root (and possibly its P17 child
-		// closure) from the live player projection. Do not retain a cell selection
-		// or pending source that could point at the now-world-owned graph.
+		// closure) from the live player projection. P26 partial drop deliberately
+		// retains its source identity and stable cell instead.
 		Host->GetController()->ClearTransientSelection(TEXT("完整物品图已转入地面真值。"));
 	}
 	Host->GetController()->SetP4Feedback(bCommitted
-		? TEXT("已提交地面丢弃；地面物品由 P6 持久化。")
+		? (Payload.bSplitIntent
+			? TEXT("已提交明确数量的地面丢弃；来源余量与世界新堆均来自 P1 Split。")
+			: TEXT("已提交地面丢弃；地面物品由 P6 持久化。"))
 		: (Error.IsEmpty() ? TEXT("地面丢弃未完成。") : Error));
 	TraceP4Input(TEXT("Drop"), Payload.Source,
 		FString::Printf(TEXT("GroundDrop NativeOnDrop CommitSucceeded=%d"), bCommitted ? 1 : 0));
@@ -3194,7 +3232,7 @@ void UCodeBP3InventoryWidget::BuildPageContents()
 		{
 			// P19 intentionally mounts only the P14 root cell. A spatial parent's
 			// child graph remains Store-owned and cannot become a ground sub-item UI.
-			AddContainerSection(TargetColumn, TEXT("地面完整图根节点（仅拖回合法空格）"), *WorldTarget, 1);
+			AddContainerSection(TargetColumn, TEXT("地面单根（拖回明确空格或兼容未满堆叠）"), *WorldTarget, 1);
 		}
 	}
 	if (bActiveRunBacked) AddGroundDropZone(TargetColumn);
@@ -3312,6 +3350,11 @@ void UCodeBP3InventoryWidget::HandleQuickTransfer(UCodeBP3CellButton* CellButton
 	const FCodeBP3SlotAddress& SourceAddress = CellButton->GetAddress();
 	// Ctrl+左键始终保留原有完整堆 Quick Transfer；不消费拆分数量。
 	Host->CancelSplitDraft(TEXT("Ctrl+左键保持完整堆 Quick Transfer；拆分草稿已清除"));
+	if (Host->IsWorldDropPresentation(SourceAddress.ContainerId))
+	{
+		Host->GetController()->SetP4Feedback(TEXT("地面物品不支持 Ctrl 快速拾取；请拖到明确的玩家格。"));
+		return;
+	}
 	if (Host->IsNormalContainerSlotProtected(SourceAddress.ContainerId, SourceAddress.SlotIndex)
 		|| Host->IsBodyContainerSlotProtected(SourceAddress.ContainerId, SourceAddress.SlotIndex))
 	{
@@ -4438,14 +4481,13 @@ bool UCodeBP3UIHostSubsystem::RequestGroundDrop(
 	FString& OutError)
 {
 	OutError.Reset();
-	if (Payload.bSplitIntent)
-	{
-		OutError = TEXT("数量草稿不进入 P14 世界丢弃；地面丢弃继续保持完整图语义。");
-		return false;
-	}
 	if (!GroundDropPresentation.IsSet() || !GroundDropPresentation->RequestDrop || !Payload.IsValid())
 	{
 		OutError = TEXT("地面丢弃入口当前不可用。");
+		return false;
+	}
+	if (!ValidateTransferContext(Payload, OutError))
+	{
 		return false;
 	}
 	const bool bCommitted = GroundDropPresentation->RequestDrop(Payload, OutError);

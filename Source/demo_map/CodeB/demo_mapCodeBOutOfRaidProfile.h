@@ -166,6 +166,8 @@ struct FCodeBWorldDropProjection
 	FGuid WorldDropId;
 	FGuid WorldContainerId;
 	FGuid ItemId;
+	FName DefinitionId;
+	int32 Quantity = 0;
 	FName MapRoute;
 	FTransform FloorTransform = FTransform::Identity;
 	int32 P6SnapshotRevision = INDEX_NONE;
@@ -984,16 +986,19 @@ public:
 		const FGuid& ExpectedRunInstanceId,
 		TArray<FCodeBWorldDropProjection>& OutProjections,
 		FString* OutError = nullptr) const;
-	/** P14/P19's only ground-drop writer. The P7 source cell and Code A floor transform are both verified, never persisted by Code A. */
+	/** P14/P19/P26's only ground-drop writer. Exact source address/revision and Code A floor transform are verified before one durable candidate. */
 	bool DropMatchedActiveRunWorldDropItem(
 		const FGuid& ExpectedRunInstanceId,
 		const FGuid& ItemId,
 		const FGuid& ExpectedSourceContainerId,
+		int32 ExpectedSourceSlot,
+		int32 ExpectedP6SnapshotRevision,
+		int32 RequestedSplitQuantity,
 		FName MapRoute,
 		const FTransform& FloorTransform,
 		FCodeBWorldDropProjection& OutProjection,
 		FString* OutError = nullptr);
-	/** P14/P19's only pickup writer; accepts the P1-validated root move into an empty legal P6 destination. */
+	/** P14/P19/P26's only pickup writer; accepts only the exact P1 Move/Equip or P26 full-stack Merge candidate. */
 	static bool CommitAcceptedMatchedRunWorldDropPickup(
 		const FString& InStorageRoot,
 		const FGuid& InOwnerId,

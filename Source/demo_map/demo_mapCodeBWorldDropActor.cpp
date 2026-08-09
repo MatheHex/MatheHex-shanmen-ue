@@ -31,6 +31,11 @@ void Ademo_mapCodeBWorldDropActor::ConfigureCodeBWorldDrop(const FCodeBWorldDrop
 	OwnerId = Projection.OwnerId;
 	RunInstanceId = Projection.RunInstanceId;
 	WorldDropId = Projection.WorldDropId;
+	if (Label)
+	{
+		Label->SetText(FText::FromString(FString::Printf(
+			TEXT("%s x%d"), *Projection.DefinitionId.ToString(), Projection.Quantity)));
+	}
 	SetActorTransform(Projection.FloorTransform);
 }
 
