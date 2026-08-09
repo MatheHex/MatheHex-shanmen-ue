@@ -4343,6 +4343,7 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBOutOfRaidInventory(FString& OutFeed
 	}
 	const TWeakObjectPtr<Ademo_mapV3ProgressionManager> WeakManager(this);
 	FCodeBP3HotbarPresentation OutOfRaidHotbarPresentation;
+	OutOfRaidHotbarPresentation.OwnerId = Snapshot.ProfileId;
 	OutOfRaidHotbarPresentation.Projection = MoveTemp(OutOfRaidHotbarProjection);
 	OutOfRaidHotbarPresentation.Refresh = [WeakManager](FCodeBHotbarProjection& OutProjection, FString& OutError)
 	{
@@ -4497,6 +4498,8 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBActiveRunInventory(FString& OutFeed
 	CodeBActiveRunInventoryRunId = ExpectedRunId;
 	const TWeakObjectPtr<Ademo_mapV3ProgressionManager> WeakManager(this);
 	FCodeBP3HotbarPresentation ActiveRunHotbarPresentation;
+	ActiveRunHotbarPresentation.OwnerId = Snapshot.ProfileId;
+	ActiveRunHotbarPresentation.RunInstanceId = ExpectedRunId;
 	ActiveRunHotbarPresentation.Projection = MoveTemp(ActiveRunHotbarProjection);
 	ActiveRunHotbarPresentation.Refresh = [WeakManager, ExpectedRunId](
 		FCodeBHotbarProjection& OutProjection, FString& OutError)
@@ -5057,10 +5060,75 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBNormalContainerPage(
 	Presentation.TargetContainerId = FreshProjection.ContainerId;
 	Presentation.Title = TEXT("普通储物箱");
 	Presentation.Projection = FreshProjection;
-	Presentation.BeginItemSearch = [WeakManager](const FGuid& ItemId, FCodeBNormalContainerProjection& OutProjection, FString& OutError)
+	Presentation.BeginItemSearch = [WeakManager](const demo_map_code_b::FCodeBP3SearchLocator& Locator, FCodeBNormalContainerProjection& OutProjection, FString& OutError)
 	{
-		return WeakManager.IsValid()
-			&& WeakManager->BeginCodeBNormalContainerItemSearch(ItemId, OutProjection, OutError);
+		if (!WeakManager.IsValid() || !Locator.IsValid()
+			|| Locator.TargetKind != demo_map_code_b::ECodeBP3SearchTargetKind::NormalContainer
+			|| Locator.OwnerId != WeakManager->CodeBNormalContainerOwnerId
+			|| Locator.RunInstanceId != WeakManager->CodeBNormalContainerRunId
+			|| Locator.TargetId != WeakManager->CodeBNormalContainerTargetId
+			|| Locator.TargetRevision != WeakManager->CodeBNormalContainerExpectedTargetRevision)
+		{
+			OutError = TEXT("P10 search locator is stale or belongs to another exact Run target.");
+			return false;
+		}
+		FCodeBNormalContainerProjection Current;
+		if (!FCodeBOutOfRaidProfileStore::TryGetMatchedRunNormalContainerProjection(
+			WeakManager->ProfilePreparationFlow ? WeakManager->ProfilePreparationFlow->GetStorageRoot() : FString(),
+			Locator.OwnerId, Locator.RunInstanceId, Locator.TargetId, Current, &OutError)
+			|| Current.Revision != Locator.TargetRevision
+			|| Current.ActiveActionId != Locator.ActiveActionId)
+		{
+			if (OutError.IsEmpty()) OutError = TEXT("P10 search locator no longer matches persisted target state.");
+			return false;
+		}
+		const FCodeBNormalContainerItemProjection* Item = Current.Items.FindByPredicate(
+			[&Locator](const FCodeBNormalContainerItemProjection& Candidate)
+			{
+				return Candidate.ParentContainerId == Locator.ContainerId
+					&& Candidate.SlotIndex == Locator.SlotIndex;
+			});
+		if (!Item || Item->RevealState != ECodeBNormalContainerRevealState::Hidden)
+		{
+			OutError = TEXT("P10 persisted search slot is absent or no longer Hidden.");
+			return false;
+		}
+		return WeakManager->BeginCodeBNormalContainerItemSearch(Item->ItemId, OutProjection, OutError);
+	};
+	FCodeBP3HotbarPresentation HotbarPresentation;
+	HotbarPresentation.OwnerId = CodeBNormalContainerOwnerId;
+	HotbarPresentation.RunInstanceId = CodeBNormalContainerRunId;
+	if (!Store.TryGetMatchedActiveRunHotbarProjection(
+		CodeBNormalContainerRunId, HotbarPresentation.Projection, &OutFeedback))
+	{
+		return false;
+	}
+	HotbarPresentation.Refresh = [WeakManager](FCodeBHotbarProjection& OutProjection, FString& OutError)
+	{
+		if (!WeakManager.IsValid()) return false;
+		FCodeBOutOfRaidProfileStore HotbarStore(
+			WeakManager->ProfilePreparationFlow ? WeakManager->ProfilePreparationFlow->GetStorageRoot() : FString(),
+			WeakManager->CodeBNormalContainerOwnerId);
+		return HotbarStore.TryGetMatchedActiveRunHotbarProjection(
+			WeakManager->CodeBNormalContainerRunId, OutProjection, &OutError);
+	};
+	HotbarPresentation.Bind = [WeakManager](const FGuid& ItemId, const int32 SlotIndex, FCodeBHotbarProjection& OutProjection, FString& OutError)
+	{
+		if (!WeakManager.IsValid()) return false;
+		FCodeBOutOfRaidProfileStore HotbarStore(
+			WeakManager->ProfilePreparationFlow ? WeakManager->ProfilePreparationFlow->GetStorageRoot() : FString(),
+			WeakManager->CodeBNormalContainerOwnerId);
+		return HotbarStore.BindMatchedActiveRunHotbarSlot(
+			WeakManager->CodeBNormalContainerRunId, ItemId, SlotIndex, OutProjection, &OutError);
+	};
+	HotbarPresentation.Unbind = [WeakManager](const int32 SlotIndex, FCodeBHotbarProjection& OutProjection, FString& OutError)
+	{
+		if (!WeakManager.IsValid()) return false;
+		FCodeBOutOfRaidProfileStore HotbarStore(
+			WeakManager->ProfilePreparationFlow ? WeakManager->ProfilePreparationFlow->GetStorageRoot() : FString(),
+			WeakManager->CodeBNormalContainerOwnerId);
+		return HotbarStore.UnbindMatchedActiveRunHotbarSlot(
+			WeakManager->CodeBNormalContainerRunId, SlotIndex, OutProjection, &OutError);
 	};
 	const bool bOpened = Host->OpenProfilePage(
 		*CodeBNormalContainerRepository,
@@ -5089,7 +5157,9 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBNormalContainerPage(
 			}
 		},
 		true,
-		&Presentation);
+		&Presentation,
+		nullptr,
+		&HotbarPresentation);
 	if (!bOpened)
 	{
 		CodeBNormalContainerRepository.Reset();
@@ -5423,9 +5493,75 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBBodyContainerPage(
 	Presentation.TargetContainerId = FreshProjection.ContainerId;
 	Presentation.Title = TEXT("尸体");
 	Presentation.Projection = FreshProjection;
-	Presentation.BeginItemSearch = [WeakManager](const FGuid& ItemId, FCodeBBodyContainerProjection& OutProjection, FString& OutError)
+	Presentation.BeginItemSearch = [WeakManager](const demo_map_code_b::FCodeBP3SearchLocator& Locator, FCodeBBodyContainerProjection& OutProjection, FString& OutError)
 	{
-		return WeakManager.IsValid() && WeakManager->BeginCodeBBodyContainerItemSearch(ItemId, OutProjection, OutError);
+		if (!WeakManager.IsValid() || !Locator.IsValid()
+			|| Locator.TargetKind != demo_map_code_b::ECodeBP3SearchTargetKind::BodyContainer
+			|| Locator.OwnerId != WeakManager->CodeBBodyContainerOwnerId
+			|| Locator.RunInstanceId != WeakManager->CodeBBodyContainerRunId
+			|| Locator.TargetId != WeakManager->CodeBBodyContainerTargetId
+			|| Locator.TargetRevision != WeakManager->CodeBBodyContainerExpectedTargetRevision)
+		{
+			OutError = TEXT("P12 search locator is stale or belongs to another exact Run target.");
+			return false;
+		}
+		FCodeBBodyContainerProjection Current;
+		if (!FCodeBOutOfRaidProfileStore::TryGetMatchedRunBodyContainerProjection(
+			WeakManager->ProfilePreparationFlow ? WeakManager->ProfilePreparationFlow->GetStorageRoot() : FString(),
+			Locator.OwnerId, Locator.RunInstanceId, Locator.TargetId, Current, &OutError)
+			|| Current.Revision != Locator.TargetRevision
+			|| Current.ActiveActionId != Locator.ActiveActionId)
+		{
+			if (OutError.IsEmpty()) OutError = TEXT("P12 search locator no longer matches persisted target state.");
+			return false;
+		}
+		const FCodeBBodyContainerItemProjection* Item = Current.Items.FindByPredicate(
+			[&Locator](const FCodeBBodyContainerItemProjection& Candidate)
+			{
+				return Candidate.ParentContainerId == Locator.ContainerId
+					&& Candidate.SlotIndex == Locator.SlotIndex;
+			});
+		if (!Item || Item->Visibility != ECodeBBodyContainerVisibility::Hidden)
+		{
+			OutError = TEXT("P12 persisted search slot is absent or no longer Hidden.");
+			return false;
+		}
+		return WeakManager->BeginCodeBBodyContainerItemSearch(Item->ItemId, OutProjection, OutError);
+	};
+	FCodeBP3HotbarPresentation HotbarPresentation;
+	HotbarPresentation.OwnerId = CodeBBodyContainerOwnerId;
+	HotbarPresentation.RunInstanceId = CodeBBodyContainerRunId;
+	if (!Store.TryGetMatchedActiveRunHotbarProjection(
+		CodeBBodyContainerRunId, HotbarPresentation.Projection, &OutFeedback))
+	{
+		return false;
+	}
+	HotbarPresentation.Refresh = [WeakManager](FCodeBHotbarProjection& OutProjection, FString& OutError)
+	{
+		if (!WeakManager.IsValid()) return false;
+		FCodeBOutOfRaidProfileStore HotbarStore(
+			WeakManager->ProfilePreparationFlow ? WeakManager->ProfilePreparationFlow->GetStorageRoot() : FString(),
+			WeakManager->CodeBBodyContainerOwnerId);
+		return HotbarStore.TryGetMatchedActiveRunHotbarProjection(
+			WeakManager->CodeBBodyContainerRunId, OutProjection, &OutError);
+	};
+	HotbarPresentation.Bind = [WeakManager](const FGuid& ItemId, const int32 SlotIndex, FCodeBHotbarProjection& OutProjection, FString& OutError)
+	{
+		if (!WeakManager.IsValid()) return false;
+		FCodeBOutOfRaidProfileStore HotbarStore(
+			WeakManager->ProfilePreparationFlow ? WeakManager->ProfilePreparationFlow->GetStorageRoot() : FString(),
+			WeakManager->CodeBBodyContainerOwnerId);
+		return HotbarStore.BindMatchedActiveRunHotbarSlot(
+			WeakManager->CodeBBodyContainerRunId, ItemId, SlotIndex, OutProjection, &OutError);
+	};
+	HotbarPresentation.Unbind = [WeakManager](const int32 SlotIndex, FCodeBHotbarProjection& OutProjection, FString& OutError)
+	{
+		if (!WeakManager.IsValid()) return false;
+		FCodeBOutOfRaidProfileStore HotbarStore(
+			WeakManager->ProfilePreparationFlow ? WeakManager->ProfilePreparationFlow->GetStorageRoot() : FString(),
+			WeakManager->CodeBBodyContainerOwnerId);
+		return HotbarStore.UnbindMatchedActiveRunHotbarSlot(
+			WeakManager->CodeBBodyContainerRunId, SlotIndex, OutProjection, &OutError);
 	};
 	const bool bOpened = Host->OpenProfilePage(
 		*CodeBBodyContainerRepository, PresentationLayout,
@@ -5447,7 +5583,7 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBBodyContainerPage(
 		{
 			if (WeakManager.IsValid()) WeakManager->CloseCodeBBodyContainerPage(TEXT("PageClosed"));
 		},
-		true, nullptr, &Presentation);
+		true, nullptr, &Presentation, &HotbarPresentation);
 	if (!bOpened)
 	{
 		CodeBBodyContainerRepository.Reset();

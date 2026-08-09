@@ -14,6 +14,7 @@
 #include "demo_mapCodeBP3UI.generated.h"
 
 class UEditableTextBox;
+class UScrollBox;
 class UVerticalBox;
 class UCodeBP3InventoryWidget;
 
@@ -24,7 +25,7 @@ struct FCodeBP3NormalContainerPresentation
 	FString Title;
 	FCodeBNormalContainerProjection Projection;
 	/** The manager/service starts the durable search and returns its fresh projection. */
-	TFunction<bool(const FGuid&, FCodeBNormalContainerProjection&, FString&)> BeginItemSearch;
+	TFunction<bool(const demo_map_code_b::FCodeBP3SearchLocator&, FCodeBNormalContainerProjection&, FString&)> BeginItemSearch;
 };
 
 /** P12-only display policy for the existing production P3/P4 Host. */
@@ -34,12 +35,14 @@ struct FCodeBP3BodyContainerPresentation
 	FString Title;
 	FCodeBBodyContainerProjection Projection;
 	/** The manager/service starts the durable body search and returns its fresh projection. */
-	TFunction<bool(const FGuid&, FCodeBBodyContainerProjection&, FString&)> BeginItemSearch;
+	TFunction<bool(const demo_map_code_b::FCodeBP3SearchLocator&, FCodeBBodyContainerProjection&, FString&)> BeginItemSearch;
 };
 
 /** P13 keeps the P3/P4 host projection-only; all writes enter a Store-owned binding service callback. */
 struct FCodeBP3HotbarPresentation
 {
+	FGuid OwnerId;
+	FGuid RunInstanceId;
 	FCodeBHotbarProjection Projection;
 	TFunction<bool(FCodeBHotbarProjection&, FString&)> Refresh;
 	TFunction<bool(const FGuid&, int32, FCodeBHotbarProjection&, FString&)> Bind;
@@ -93,6 +96,8 @@ protected:
 	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseButtonDoubleClick(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+	virtual void NativeOnMouseEnter(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+	virtual void NativeOnMouseLeave(const FPointerEvent& InMouseEvent) override;
 	virtual void NativeOnDragDetected(const FGeometry& InGeometry, const FPointerEvent& InPointerEvent, UDragDropOperation*& OutOperation) override;
 	virtual void NativeOnDragEnter(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
 	virtual void NativeOnDragLeave(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
@@ -105,28 +110,7 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UButton> InnerButton;
 	demo_map_code_b::FCodeBP3SlotAddress Address;
-};
-
-/** Explicit P13 reference action control. It does not carry an ItemId or any P1 write capability. */
-UCLASS()
-class DEMO_MAP_API UCodeBP3HotbarActionButton : public UUserWidget
-{
-	GENERATED_BODY()
-
-public:
-	void Configure(UCodeBP3InventoryWidget* InOwnerWidget, int32 InSlotIndex, bool bInUnbindAction);
-	void SetLabel(const FString& InLabel, bool bEnabled);
-
-private:
-	void BuildButton();
-	UFUNCTION()
-	void OnClicked();
-
-	TWeakObjectPtr<UCodeBP3InventoryWidget> OwnerWidget;
-	UPROPERTY(Transient)
-	TObjectPtr<UButton> InnerButton;
-	int32 SlotIndex = INDEX_NONE;
-	bool bUnbindAction = false;
+	bool bConsumedQuickTransfer = false;
 };
 
 /** Visible P6-only drag surface. It writes only from NativeOnDrop through its Host callback. */
@@ -163,7 +147,8 @@ public:
 	/** Returns the currently mounted production controls used by the real-input lifecycle smoke. */
 	UButton* GetMountedCloseButton() const { return CloseButton; }
 	void HandleCellActivated(UCodeBP3CellButton* CellButton);
-	void HandleHotbarSlotAction(int32 SlotIndex, bool bUnbindAction);
+	void HandleCellHover(const demo_map_code_b::FCodeBP3SlotAddress& Address, bool bHovered);
+	void HandleQuickTransfer(UCodeBP3CellButton* CellButton);
 	void BeginP4PointerGesture(const demo_map_code_b::FCodeBP3SlotAddress& Address);
 	void TraceP4Input(const FString& EventName, const demo_map_code_b::FCodeBP3SlotAddress& Address, const FString& Detail = FString(), bool bSubmittedCommand = false);
 	bool BeginP4Drag(UCodeBP3CellButton* CellButton, demo_map_code_b::FCodeBP4DragPayload& OutPayload);
@@ -186,13 +171,22 @@ protected:
 	virtual void NativeOnDragCancelled(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
 
 private:
+	enum class EInventorySectionKind : uint8
+	{
+		Plain,
+		NormalTarget,
+		BodyTarget
+	};
+
 	void BuildLayout();
 	void BuildPageContents();
 	UVerticalBox* AddPanel(UVerticalBox* Parent, const FString& Title);
+	void AddInventorySection(UVerticalBox* Parent, const FString& Title, const demo_map_code_b::FCodeBP2ContainerView& Container, int32 Columns, EInventorySectionKind Kind);
 	void AddContainerSection(UVerticalBox* Parent, const FString& Title, const demo_map_code_b::FCodeBP2ContainerView& Container, int32 Columns);
 	void AddNormalContainerSection(UVerticalBox* Parent, const demo_map_code_b::FCodeBP2ContainerView& Container);
 	void AddBodyContainerSection(UVerticalBox* Parent, const demo_map_code_b::FCodeBP2ContainerView& Container);
 	void AddBodyEquipmentContainerSection(UVerticalBox* Parent, const demo_map_code_b::FCodeBP2ContainerView& Container, FName SlotSemantic);
+	void AddSpatialContainerSection(UVerticalBox* Parent, const FString& EmptyTitle, const demo_map_code_b::FCodeBP2ContainerView* Container, const demo_map_code_b::FCodeBP2SlotView* ParentSlot);
 	void AddHotbarPlaceholders(UVerticalBox* Parent);
 	void AddGroundDropZone(UVerticalBox* Parent);
 	void AddDetailAndActions(UVerticalBox* Parent);
@@ -200,6 +194,11 @@ private:
 	const demo_map_code_b::FCodeBP2ContainerView* FindRole(FName Role) const;
 	bool IsSelectedItemInEquipmentSlot() const;
 	bool IsSelectedItemEquipable() const;
+	const demo_map_code_b::FCodeBP2SlotView* FindSlot(const demo_map_code_b::FCodeBP3SlotAddress& Address) const;
+	const demo_map_code_b::FCodeBP2SlotView* FindSpatialParent(const demo_map_code_b::FCodeBP2ContainerView& ChildContainer) const;
+	demo_map_code_b::FCodeBP4DropPreview PreviewInventoryTransfer(const demo_map_code_b::FCodeBP4DragPayload& Payload, const demo_map_code_b::FCodeBP3SlotAddress& Target) const;
+	bool CommitInventoryTransfer(const demo_map_code_b::FCodeBP4DragPayload& Payload, const demo_map_code_b::FCodeBP3SlotAddress& Target, const TCHAR* InputLabel);
+	const demo_map_code_b::FCodeBP2ContainerView* ResolveQuickTransferDestination(const demo_map_code_b::FCodeBP4DragPayload& Payload) const;
 	FLinearColor GetNormalCellColor(const demo_map_code_b::FCodeBP3SlotAddress& Address) const;
 	demo_map_code_b::FCodeBP4InteractionController* GetP4Controller();
 
@@ -216,6 +215,10 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UVerticalBox> PageContents;
 	UPROPERTY(Transient)
+	TObjectPtr<UScrollBox> PlayerScrollBox;
+	UPROPERTY(Transient)
+	TObjectPtr<UScrollBox> TargetScrollBox;
+	UPROPERTY(Transient)
 	TObjectPtr<UEditableTextBox> SplitQuantityBox;
 	UPROPERTY(Transient)
 	TObjectPtr<UButton> CloseButton;
@@ -225,6 +228,9 @@ private:
 	TOptional<demo_map_code_b::FCodeBP3SlotAddress> ContextMenuAddress;
 	TOptional<demo_map_code_b::FCodeBP3SlotAddress> P4PreviewAddress;
 	TOptional<demo_map_code_b::FCodeBP4DropPreview> P4Preview;
+	TOptional<demo_map_code_b::FCodeBP3SlotAddress> HoveredAddress;
+	float PlayerScrollOffset = 0.0f;
+	float TargetScrollOffset = 0.0f;
 	int32 ContextMenuRevision = INDEX_NONE;
 	uint64 NextP4GestureId = 0;
 	uint64 CurrentP4GestureId = 0;
@@ -273,6 +279,14 @@ public:
 	bool IsBodyContainerItemSearching(const FGuid& ItemId) const;
 	bool IsBodyContainerSlotProtected(const FGuid& ContainerId, int32 SlotIndex) const;
 	bool RequestBodyContainerItemSearch(const FGuid& ContainerId, int32 SlotIndex, FString& OutError);
+	bool ResolveExternalCellState(
+		const FGuid& ContainerId,
+		int32 SlotIndex,
+		demo_map_code_b::ECodeBP3CellState& OutState,
+		demo_map_code_b::FCodeBP3SearchLocator& OutLocator) const;
+	bool IsExternalTargetContainer(const FGuid& ContainerId) const;
+	void PopulateAddressContext(demo_map_code_b::FCodeBP3SlotAddress& Address) const;
+	void PopulateTransferContext(demo_map_code_b::FCodeBP4DragPayload& Payload) const;
 	void UpdateBodyContainerProjection(const FCodeBBodyContainerProjection& Projection);
 	const FCodeBP3HotbarPresentation* GetHotbarPresentation() const
 	{
@@ -284,8 +298,7 @@ public:
 	{
 		return WorldDropPresentation.IsSet() && WorldDropPresentation->TargetContainerId == ContainerId;
 	}
-	bool RequestHotbarBindFromSelectedItem(int32 SlotIndex, FString& OutError);
-	bool RequestHotbarUnbind(int32 SlotIndex, FString& OutError);
+	bool RequestHotbarBindFromAddress(const demo_map_code_b::FCodeBP3SlotAddress& Address, int32 SlotIndex, FString& OutError);
 	void RefreshHotbarProjection();
 	void ClosePage();
 	void ResetDevelopmentFixture();

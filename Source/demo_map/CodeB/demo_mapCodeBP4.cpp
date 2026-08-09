@@ -27,7 +27,10 @@ namespace demo_map_code_b
 	const FCodeBP2SlotView* FCodeBP4InteractionController::FindSlot(const FCodeBP3SlotAddress& Address) const
 	{
 		const FCodeBP2ContainerView* Container = FindContainer(Address.ContainerId);
-		return Container && Container->Slots.IsValidIndex(Address.SlotIndex) ? &Container->Slots[Address.SlotIndex] : nullptr;
+		return Container ? Container->Slots.FindByPredicate([&Address](const FCodeBP2SlotView& Slot)
+		{
+			return Slot.SlotIndex == Address.SlotIndex;
+		}) : nullptr;
 	}
 
 	bool FCodeBP4InteractionController::IsEquipmentContainer(const FGuid& ContainerId) const
@@ -42,14 +45,6 @@ namespace demo_map_code_b
 			|| Container->Role == FName(TEXT("SpatialRing"))
 			|| Container->Role == FName(TEXT("Backpack"))
 			|| Container->Role.ToString().StartsWith(TEXT("Accessory"));
-	}
-
-	bool FCodeBP4InteractionController::IsLoadedSpatialItem(const FCodeBP4DragPayload& Payload) const
-	{
-		const FCodeBP2SlotView* Source = FindSlot(Payload.Source);
-		const FCodeBP2ContainerView* Internal = Source && Source->ChildContainerId.IsValid()
-			? FindContainer(Source->ChildContainerId) : nullptr;
-		return Internal && Internal->Slots.ContainsByPredicate([](const FCodeBP2SlotView& Slot) { return Slot.bOccupied; });
 	}
 
 	bool FCodeBP4InteractionController::IsCompatibleEquipmentTarget(const FCodeBP2SlotView& Source, const FGuid& TargetContainerId) const
@@ -112,6 +107,7 @@ namespace demo_map_code_b
 		OutPayload.DefinitionId = SourceSlot->DefinitionId;
 		OutPayload.Quantity = SourceSlot->Quantity;
 		OutPayload.Quality = SourceSlot->Quality;
+		OutPayload.SourceScope = ECodeBP3InventoryScope::Unknown;
 		OutPayload.SessionId = NextSessionId++;
 		Controller.SetP4Feedback(FString::Printf(TEXT("正在拖拽 %s；放下时才会提交事务"), *SourceSlot->DefinitionId.ToString()));
 		return true;
@@ -130,17 +126,6 @@ namespace demo_map_code_b
 		{
 			return Reject(TEXT("来源或目标已变化，请重新操作"));
 		}
-		const FCodeBP2ContainerView* SourceContainer = FindContainer(Payload.Source.ContainerId);
-		const bool bWorldDropRootSource = SourceContainer
-			&& SourceContainer->Role == FName(TEXT("WorldDropTarget"));
-		// P19 keeps normal P7 movement unchanged. Only the one transient P14 root
-		// may carry its P17 child closure through this preview; Store validation
-		// still decides whether the exact graph is eligible to return.
-		if (IsLoadedSpatialItem(Payload) && !bWorldDropRootSource)
-		{
-			return Reject(TEXT("空间道具已装载物品，暂不支持整体移动"));
-		}
-
 		const bool bSourceEquipment = IsEquipmentContainer(Payload.Source.ContainerId);
 		const bool bTargetEquipment = IsEquipmentContainer(Target.ContainerId);
 		FCodeBP4DropPreview Preview;

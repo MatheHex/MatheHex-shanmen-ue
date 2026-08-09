@@ -9,6 +9,52 @@
 
 namespace demo_map_code_b
 {
+	enum class ECodeBP3CellState : uint8
+	{
+		Empty,
+		Hidden,
+		Searching,
+		Revealed
+	};
+
+	enum class ECodeBP3InventoryScope : uint8
+	{
+		Unknown,
+		Player,
+		ExternalTarget
+	};
+
+	enum class ECodeBP3SearchTargetKind : uint8
+	{
+		None,
+		NormalContainer,
+		BodyContainer
+	};
+
+	/**
+	 * P4's non-secret search identity. Hidden cells never expose an ItemId to the
+	 * widget/input route; the action service resolves the persisted target slot.
+	 */
+	struct FCodeBP3SearchLocator
+	{
+		ECodeBP3SearchTargetKind TargetKind = ECodeBP3SearchTargetKind::None;
+		FGuid OwnerId;
+		FGuid RunInstanceId;
+		FGuid TargetId;
+		FGuid ContainerId;
+		int32 SlotIndex = INDEX_NONE;
+		int32 TargetRevision = INDEX_NONE;
+		FGuid ActiveActionId;
+
+		bool IsValid() const
+		{
+			return TargetKind != ECodeBP3SearchTargetKind::None
+				&& OwnerId.IsValid() && RunInstanceId.IsValid() && TargetId.IsValid()
+				&& ContainerId.IsValid() && SlotIndex != INDEX_NONE
+				&& TargetRevision != INDEX_NONE;
+		}
+	};
+
 	/** A stable, projection-derived address.  P3 only retains this display address and ItemId; P1 remains mutable authority. */
 	struct FCodeBP3SlotAddress
 	{
@@ -17,8 +63,14 @@ namespace demo_map_code_b
 		FName SlotId;
 		FGuid ItemId;
 		bool bOccupied = false;
+		ECodeBP3InventoryScope Scope = ECodeBP3InventoryScope::Unknown;
+		FGuid OwnerId;
+		FGuid RunInstanceId;
+		ECodeBP3CellState CellState = ECodeBP3CellState::Empty;
+		FCodeBP3SearchLocator SearchLocator;
 
 		bool IsValid() const { return ContainerId.IsValid() && SlotIndex != INDEX_NONE; }
+		bool IsRevealed() const { return CellState == ECodeBP3CellState::Revealed && bOccupied && ItemId.IsValid(); }
 	};
 
 	enum class ECodeBP3OperationMode : uint8

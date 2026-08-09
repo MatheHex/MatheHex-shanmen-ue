@@ -1986,14 +1986,23 @@ void UCodeBP3CellButton::SetCellColor(const FLinearColor& InColor)
 
 FReply UCodeBP3CellButton::NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
 {
-	if (InMouseEvent.GetEffectingButton() == EKeys::LeftMouseButton && Address.bOccupied && OwnerWidget.IsValid())
+	bConsumedQuickTransfer = false;
+	if (InMouseEvent.GetEffectingButton() == EKeys::LeftMouseButton
+		&& InMouseEvent.IsControlDown() && Address.IsRevealed() && OwnerWidget.IsValid())
+	{
+		bConsumedQuickTransfer = true;
+		OwnerWidget->BeginP4PointerGesture(Address);
+		OwnerWidget->HandleQuickTransfer(this);
+		return FReply::Handled();
+	}
+	if (InMouseEvent.GetEffectingButton() == EKeys::LeftMouseButton && Address.IsRevealed() && OwnerWidget.IsValid())
 	{
 		OwnerWidget->BeginP4PointerGesture(Address);
 		// This threshold registration is owned by the same cell that owns MouseUp,
 		// double-click, enter/leave and drop. It performs no item write by itself.
 		return FReply::Handled().DetectDrag(TakeWidget(), EKeys::LeftMouseButton);
 	}
-	if (InMouseEvent.GetEffectingButton() == EKeys::RightMouseButton && Address.bOccupied && OwnerWidget.IsValid())
+	if (InMouseEvent.GetEffectingButton() == EKeys::RightMouseButton && Address.IsRevealed() && OwnerWidget.IsValid())
 	{
 		OwnerWidget->BeginP4PointerGesture(Address);
 		OwnerWidget->TraceP4Input(TEXT("RightMouseDown"), Address);
@@ -2007,6 +2016,11 @@ FReply UCodeBP3CellButton::NativeOnMouseButtonUp(const FGeometry& InGeometry, co
 {
 	if (InMouseEvent.GetEffectingButton() == EKeys::LeftMouseButton && OwnerWidget.IsValid())
 	{
+		if (bConsumedQuickTransfer)
+		{
+			bConsumedQuickTransfer = false;
+			return FReply::Handled();
+		}
 		OwnerWidget->TraceP4Input(TEXT("LeftMouseUp"), Address);
 		// P4x deliberately leaves a click as read-only selection. Position changes are
 		// committed exclusively by a later real DragOperation Drop on an explicit target.
@@ -2016,9 +2030,27 @@ FReply UCodeBP3CellButton::NativeOnMouseButtonUp(const FGeometry& InGeometry, co
 	return Super::NativeOnMouseButtonUp(InGeometry, InMouseEvent);
 }
 
+void UCodeBP3CellButton::NativeOnMouseEnter(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
+{
+	Super::NativeOnMouseEnter(InGeometry, InMouseEvent);
+	if (OwnerWidget.IsValid())
+	{
+		OwnerWidget->HandleCellHover(Address, true);
+	}
+}
+
+void UCodeBP3CellButton::NativeOnMouseLeave(const FPointerEvent& InMouseEvent)
+{
+	Super::NativeOnMouseLeave(InMouseEvent);
+	if (OwnerWidget.IsValid())
+	{
+		OwnerWidget->HandleCellHover(Address, false);
+	}
+}
+
 FReply UCodeBP3CellButton::NativeOnMouseButtonDoubleClick(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
 {
-	if (InMouseEvent.GetEffectingButton() == EKeys::LeftMouseButton && Address.bOccupied && OwnerWidget.IsValid())
+	if (InMouseEvent.GetEffectingButton() == EKeys::LeftMouseButton && Address.IsRevealed() && OwnerWidget.IsValid())
 	{
 		OwnerWidget->TraceP4Input(TEXT("NativeDoubleClick"), Address);
 		// Double-click is selection-only; the retired QuickMove command is no longer
@@ -2077,47 +2109,6 @@ bool UCodeBP3CellButton::NativeOnDrop(const FGeometry& InGeometry, const FDragDr
 		return true;
 	}
 	return Super::NativeOnDrop(InGeometry, InDragDropEvent, InOperation);
-}
-
-void UCodeBP3HotbarActionButton::Configure(
-	UCodeBP3InventoryWidget* InOwnerWidget,
-	const int32 InSlotIndex,
-	const bool bInUnbindAction)
-{
-	OwnerWidget = InOwnerWidget;
-	SlotIndex = InSlotIndex;
-	bUnbindAction = bInUnbindAction;
-	BuildButton();
-}
-
-void UCodeBP3HotbarActionButton::SetLabel(const FString& InLabel, const bool bEnabled)
-{
-	BuildButton();
-	if (InnerButton)
-	{
-		InnerButton->SetIsEnabled(bEnabled);
-		InnerButton->SetContent(MakeText(
-			WidgetTree, InLabel, 12,
-			bEnabled ? FLinearColor::White : FLinearColor(0.55f, 0.55f, 0.55f)));
-	}
-}
-
-void UCodeBP3HotbarActionButton::BuildButton()
-{
-	if (!InnerButton && WidgetTree)
-	{
-		InnerButton = WidgetTree->ConstructWidget<UButton>();
-		InnerButton->OnClicked.AddDynamic(this, &UCodeBP3HotbarActionButton::OnClicked);
-		WidgetTree->RootWidget = InnerButton;
-	}
-}
-
-void UCodeBP3HotbarActionButton::OnClicked()
-{
-	if (OwnerWidget.IsValid())
-	{
-		OwnerWidget->HandleHotbarSlotAction(SlotIndex, bUnbindAction);
-	}
 }
 
 void UCodeBP3GroundDropZone::Configure(UCodeBP3InventoryWidget* InOwnerWidget)
@@ -2189,12 +2180,47 @@ void UCodeBP3InventoryWidget::NativeDestruct()
 	ContextMenuAddress.Reset();
 	P4PreviewAddress.Reset();
 	P4Preview.Reset();
+	HoveredAddress.Reset();
 	ContextMenuRevision = INDEX_NONE;
 	Super::NativeDestruct();
 }
 
 FReply UCodeBP3InventoryWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
 {
+	const FKey NumberKeys[] = {
+		EKeys::One, EKeys::Two, EKeys::Three, EKeys::Four, EKeys::Five,
+		EKeys::Six, EKeys::Seven, EKeys::Eight, EKeys::Nine };
+	int32 NumberSlot = INDEX_NONE;
+	for (int32 Index = 0; Index < UE_ARRAY_COUNT(NumberKeys); ++Index)
+	{
+		if (InKeyEvent.GetKey() == NumberKeys[Index])
+		{
+			NumberSlot = Index + 1;
+			break;
+		}
+	}
+	if (NumberSlot != INDEX_NONE)
+	{
+		// UI focus owns all number keys. Shift is the P13 binding chord; plain
+		// numbers are consumed here so they can never fall through to P15 Use.
+		if (InKeyEvent.IsShiftDown() && !InKeyEvent.IsRepeat()
+			&& Host.IsValid() && Host->GetController()
+			&& Host->GetController()->IsActiveRunBacked())
+		{
+			const TOptional<FCodeBP3SlotAddress>& Selected = Host->GetController()->GetSelectedAddress();
+			const FCodeBP3SlotAddress* Candidate = HoveredAddress.IsSet() && HoveredAddress->IsRevealed()
+				? &HoveredAddress.GetValue()
+				: (Selected.IsSet() ? &Selected.GetValue() : nullptr);
+			FString Error;
+			const bool bBound = Candidate
+				&& Host->RequestHotbarBindFromAddress(*Candidate, NumberSlot, Error);
+			Host->GetController()->SetP4Feedback(bBound
+				? FString::Printf(TEXT("Shift+%d 已通过 P13 绑定；未触发 P15 使用。"), NumberSlot)
+				: (Error.IsEmpty() ? TEXT("没有可绑定的 BaseQuick QuickUsable 物品。") : Error));
+			RefreshFromController();
+		}
+		return FReply::Handled();
+	}
 	if (InKeyEvent.GetKey() == EKeys::I
 		&& Host.IsValid() && Host->GetController() && Host->GetController()->IsActiveRunBacked())
 	{
@@ -2250,13 +2276,8 @@ void UCodeBP3InventoryWidget::BuildLayout()
 	PageSize->SetHeightOverride(960.0f);
 	ScaleBox->SetContent(PageSize);
 
-	UScrollBox* ScrollBox = WidgetTree->ConstructWidget<UScrollBox>();
-	ScrollBox->SetOrientation(Orient_Vertical);
-	ScrollBox->SetScrollBarVisibility(ESlateVisibility::Visible);
-	PageSize->SetContent(ScrollBox);
-
 	PageContents = WidgetTree->ConstructWidget<UVerticalBox>();
-	ScrollBox->AddChild(PageContents);
+	PageSize->SetContent(PageContents);
 	WidgetTree->RootWidget = ScaleBox;
 	bLayoutBuilt = true;
 }
@@ -2296,6 +2317,152 @@ FCodeBP4InteractionController* UCodeBP3InventoryWidget::GetP4Controller()
 	return P4Controller.Get();
 }
 
+const FCodeBP2SlotView* UCodeBP3InventoryWidget::FindSlot(const FCodeBP3SlotAddress& Address) const
+{
+	if (!Host.IsValid() || !Host->GetController()) return nullptr;
+	const FCodeBP2ContainerView* Container = Host->GetController()->GetProjection().Containers.FindByPredicate(
+		[&Address](const FCodeBP2ContainerView& Candidate) { return Candidate.ContainerId == Address.ContainerId; });
+	return Container ? Container->Slots.FindByPredicate(
+		[&Address](const FCodeBP2SlotView& Candidate) { return Candidate.SlotIndex == Address.SlotIndex; }) : nullptr;
+}
+
+const FCodeBP2SlotView* UCodeBP3InventoryWidget::FindSpatialParent(const FCodeBP2ContainerView& ChildContainer) const
+{
+	if (!Host.IsValid() || !Host->GetController()) return nullptr;
+	for (const FCodeBP2ContainerView& Container : Host->GetController()->GetProjection().Containers)
+	{
+		if (const FCodeBP2SlotView* Parent = Container.Slots.FindByPredicate(
+			[&ChildContainer](const FCodeBP2SlotView& CellSlot)
+			{
+				return CellSlot.bOccupied && CellSlot.ChildContainerId == ChildContainer.ContainerId;
+			}))
+		{
+			return Parent;
+		}
+	}
+	return nullptr;
+}
+
+FCodeBP4DropPreview UCodeBP3InventoryWidget::PreviewInventoryTransfer(
+	const FCodeBP4DragPayload& Payload,
+	const FCodeBP3SlotAddress& Target) const
+{
+	FCodeBP4DropPreview Rejected;
+	if (!Host.IsValid() || !Host->GetController())
+	{
+		Rejected.Message = TEXT("物品工作台已关闭。");
+		return Rejected;
+	}
+	if (Host->IsNormalContainerSlotProtected(Target.ContainerId, Target.SlotIndex)
+		|| Host->IsBodyContainerSlotProtected(Target.ContainerId, Target.SlotIndex))
+	{
+		Rejected.Message = TEXT("Hidden／Searching 格只能接收搜索点击，不能接收移动。");
+		return Rejected;
+	}
+	const bool bSourceExternal = Host->IsExternalTargetContainer(Payload.Source.ContainerId);
+	const bool bTargetExternal = Host->IsExternalTargetContainer(Target.ContainerId);
+	if (bSourceExternal && bTargetExternal)
+	{
+		Rejected.Message = TEXT("外部目标面板不提供内部整理；请在玩家与目标之间移动。");
+		return Rejected;
+	}
+	if (Host->IsBodyEquipmentContainerPresentation(Target.ContainerId))
+	{
+		Rejected.Message = TEXT("尸体固定装备位不是玩家物品写入目标。");
+		return Rejected;
+	}
+	if (Host->IsWorldDropPresentation(Target.ContainerId))
+	{
+		Rejected.Message = TEXT("地面目标不可写入；请使用明确的地面丢弃区。");
+		return Rejected;
+	}
+	FCodeBP4InteractionController* Interaction = const_cast<UCodeBP3InventoryWidget*>(this)->GetP4Controller();
+	if (!Interaction)
+	{
+		Rejected.Message = TEXT("统一移动路由不可用。");
+		return Rejected;
+	}
+	FCodeBP4DropPreview Preview = Interaction->PreviewDrop(Payload, Target);
+	if (Host->IsWorldDropPresentation(Payload.Source.ContainerId)
+		&& Preview.bAllowed
+		&& (Target.bOccupied || (Preview.Operation != ECodeBOperation::Move && Preview.Operation != ECodeBOperation::Equip)))
+	{
+		Rejected.Message = TEXT("地面完整图只能进入合法空储物格或匹配空装备位。");
+		return Rejected;
+	}
+	return Preview;
+}
+
+bool UCodeBP3InventoryWidget::CommitInventoryTransfer(
+	const FCodeBP4DragPayload& Payload,
+	const FCodeBP3SlotAddress& Target,
+	const TCHAR* InputLabel)
+{
+	const FCodeBP4DropPreview Preview = PreviewInventoryTransfer(Payload, Target);
+	if (!Preview.bAllowed)
+	{
+		if (Host.IsValid() && Host->GetController()) Host->GetController()->SetP4Feedback(Preview.Message);
+		return false;
+	}
+	FCodeBP4InteractionController* Interaction = GetP4Controller();
+	const bool bCommitted = Interaction && Interaction->CommitDrop(Payload, Target);
+	TraceP4Input(InputLabel, Target,
+		FString::Printf(TEXT("Allowed=1 CommitSucceeded=%d Kind=%s"), bCommitted ? 1 : 0,
+			*FCodeBP4InteractionController::GetDropKindLabel(Preview.Kind)), true);
+	return bCommitted;
+}
+
+const FCodeBP2ContainerView* UCodeBP3InventoryWidget::ResolveQuickTransferDestination(
+	const FCodeBP4DragPayload& Payload) const
+{
+	if (!Host.IsValid() || !Host->GetController()) return nullptr;
+	const FCodeBP2Projection& Projection = Host->GetController()->GetProjection();
+	auto FindContainer = [&Projection](const FGuid& ContainerId)
+	{
+		return Projection.Containers.FindByPredicate(
+			[ContainerId](const FCodeBP2ContainerView& Candidate) { return Candidate.ContainerId == ContainerId; });
+	};
+	if (Host->IsExternalTargetContainer(Payload.Source.ContainerId))
+	{
+		if (Host->GetController()->GetSelectedAddress().IsSet())
+		{
+			const FCodeBP3SlotAddress& Selected = Host->GetController()->GetSelectedAddress().GetValue();
+			if (!Host->IsExternalTargetContainer(Selected.ContainerId))
+			{
+				if (const FCodeBP2ContainerView* SelectedContainer = FindContainer(Selected.ContainerId))
+				{
+					const FString Role = SelectedContainer->Role.ToString();
+					if (Role == TEXT("Basic6") || Role == TEXT("QuickSpatial") || Role == TEXT("PouchInternal"))
+					{
+						return SelectedContainer;
+					}
+				}
+			}
+		}
+		return FindContainer(Projection.BasicContainerId);
+	}
+	if (const FCodeBP2ContainerView* External = Projection.Containers.FindByPredicate(
+		[](const FCodeBP2ContainerView& Candidate)
+		{
+			return Candidate.Role == FName(TEXT("NormalContainerTarget"))
+				|| Candidate.Role == FName(TEXT("BodyContainerTarget"));
+		}))
+	{
+		return External;
+	}
+	if (Payload.Source.ContainerId != Projection.BasicContainerId)
+	{
+		return FindContainer(Projection.BasicContainerId);
+	}
+	if (const FCodeBP2ContainerView* Quick = Projection.Containers.FindByPredicate(
+		[](const FCodeBP2ContainerView& Candidate) { return Candidate.Role == FName(TEXT("QuickSpatial")); }))
+	{
+		return Quick;
+	}
+	return Projection.Containers.FindByPredicate(
+		[](const FCodeBP2ContainerView& Candidate) { return Candidate.Role == FName(TEXT("PouchInternal")); });
+}
+
 FLinearColor UCodeBP3InventoryWidget::GetNormalCellColor(const FCodeBP3SlotAddress& Address) const
 {
 	if (P4PreviewAddress.IsSet() && P4Preview.IsSet()
@@ -2307,7 +2474,7 @@ FLinearColor UCodeBP3InventoryWidget::GetNormalCellColor(const FCodeBP3SlotAddre
 	}
 	if (!Host.IsValid() || !Host->GetController())
 	{
-		return Address.bOccupied ? ItemColor : EmptyColor;
+		return Address.IsRevealed() ? ItemColor : EmptyColor;
 	}
 	const TOptional<FCodeBP3SlotAddress>& Pending = Host->GetController()->GetPendingSource();
 	if (Pending.IsSet() && Pending->ContainerId == Address.ContainerId && Pending->SlotIndex == Address.SlotIndex)
@@ -2319,7 +2486,7 @@ FLinearColor UCodeBP3InventoryWidget::GetNormalCellColor(const FCodeBP3SlotAddre
 	{
 		return SelectedColor;
 	}
-	return Address.bOccupied ? ItemColor : EmptyColor;
+	return Address.IsRevealed() ? ItemColor : EmptyColor;
 }
 
 bool UCodeBP3InventoryWidget::BeginP4Drag(UCodeBP3CellButton* CellButton, FCodeBP4DragPayload& OutPayload)
@@ -2334,7 +2501,9 @@ bool UCodeBP3InventoryWidget::BeginP4Drag(UCodeBP3CellButton* CellButton, FCodeB
 	P4Preview.Reset();
 	if (FCodeBP4InteractionController* Interaction = GetP4Controller())
 	{
-		return Interaction->BeginDrag(CellButton->GetAddress(), OutPayload);
+		const bool bStarted = Interaction->BeginDrag(CellButton->GetAddress(), OutPayload);
+		if (bStarted && Host.IsValid()) Host->PopulateTransferContext(OutPayload);
+		return bStarted;
 	}
 	return false;
 }
@@ -2345,78 +2514,14 @@ void UCodeBP3InventoryWidget::HandleP4DragEnter(UCodeBP3CellButton* CellButton, 
 	{
 		return;
 	}
-	if (Host.IsValid() && (Host->IsNormalContainerSlotProtected(
-		CellButton->GetAddress().ContainerId, CellButton->GetAddress().SlotIndex)
-		|| Host->IsBodyContainerSlotProtected(
-			CellButton->GetAddress().ContainerId, CellButton->GetAddress().SlotIndex)))
-	{
-		FCodeBP4DropPreview Rejected;
-		Rejected.Message = TEXT("未知或正在搜索的容器物品不能作为拖拽目标。");
-		TraceP4Input(TEXT("DragEnter"), CellButton->GetAddress(), TEXT("Preview=Rejected HiddenOrSearchingTarget"));
-		P4PreviewAddress = CellButton->GetAddress();
-		P4Preview = Rejected;
-		CellButton->SetCellColor(GetNormalCellColor(CellButton->GetAddress()));
-		return;
-	}
-	if (Host.IsValid())
-	{
-		const bool bBodySource = Host->IsBodyContainerPresentation(Operation->GetPayload().Source.ContainerId);
-		const bool bBodyDestination = Host->IsBodyContainerPresentation(CellButton->GetAddress().ContainerId);
-		const bool bP21BodyEquipmentSource = Host->IsBodyEquipmentContainerPresentation(Operation->GetPayload().Source.ContainerId);
-		const bool bP21BodyEquipmentDestination = Host->IsBodyEquipmentContainerPresentation(CellButton->GetAddress().ContainerId);
-		const bool bP20SpatialParent = Operation->GetPayload().DefinitionId == Fdemo_mapItemIds::WindTalisman
-			|| Operation->GetPayload().DefinitionId == Fdemo_mapItemIds::BackpackLevel1;
-		const bool bEmptyBaseQuickDestination = CellButton->GetAddress().ContainerId == Host->GetController()->GetProjection().BasicContainerId
-			&& !CellButton->GetAddress().bOccupied;
-		if ((bP21BodyEquipmentSource && !bEmptyBaseQuickDestination)
-			|| bP21BodyEquipmentDestination
-			|| (bBodySource && bP20SpatialParent && !bEmptyBaseQuickDestination)
-			|| (bBodyDestination && bP20SpatialParent))
-		{
-			FCodeBP4DropPreview Rejected;
-			Rejected.Message = bP21BodyEquipmentDestination
-				? TEXT("玩家物品不能回存尸体装备位。")
-				: bP21BodyEquipmentSource
-					? TEXT("尸体装备只能拖到空基础物品栏。")
-				: bBodyDestination
-				? TEXT("空间道具不能从玩家放回尸体。")
-				: TEXT("尸体空间根节点只能拖到空基础物品栏。");
-			TraceP4Input(TEXT("DragEnter"), CellButton->GetAddress(), TEXT("Preview=Rejected P20BodySpatialRootOnly"));
-			P4PreviewAddress = CellButton->GetAddress();
-			P4Preview = Rejected;
-			CellButton->SetCellColor(GetNormalCellColor(CellButton->GetAddress()));
-			return;
-		}
-	}
-	if (Host.IsValid() && (Host->HasNormalContainerPresentation() || Host->HasBodyContainerPresentation() || Host->IsWorldDropPresentation(Operation->GetPayload().Source.ContainerId) || Host->IsWorldDropPresentation(CellButton->GetAddress().ContainerId)))
-	{
-		const bool bSourceIsTarget = Host->IsNormalContainerPresentation(
-			Operation->GetPayload().Source.ContainerId)
-			|| Host->IsBodyContainerPresentation(Operation->GetPayload().Source.ContainerId)
-			|| Host->IsWorldDropPresentation(Operation->GetPayload().Source.ContainerId);
-		const bool bDestinationIsTarget = Host->IsNormalContainerPresentation(
-			CellButton->GetAddress().ContainerId)
-			|| Host->IsBodyContainerPresentation(CellButton->GetAddress().ContainerId)
-			|| Host->IsWorldDropPresentation(CellButton->GetAddress().ContainerId);
-		if (!bSourceIsTarget && !bDestinationIsTarget)
-		{
-			FCodeBP4DropPreview Rejected;
-			Rejected.Message = TEXT("打开容器时，拖拽必须跨越玩家与目标两栏。");
-			TraceP4Input(TEXT("DragEnter"), CellButton->GetAddress(), TEXT("Preview=Rejected NotTwoColumnTransfer"));
-			P4PreviewAddress = CellButton->GetAddress();
-			P4Preview = Rejected;
-			CellButton->SetCellColor(GetNormalCellColor(CellButton->GetAddress()));
-			return;
-		}
-	}
-	if (FCodeBP4InteractionController* Interaction = GetP4Controller())
-	{
-		const FCodeBP4DropPreview Preview = Interaction->PreviewDrop(Operation->GetPayload(), CellButton->GetAddress());
-		TraceP4Input(TEXT("DragEnter"), CellButton->GetAddress(), FString::Printf(TEXT("Allowed=%d Kind=%s"), Preview.bAllowed ? 1 : 0, *FCodeBP4InteractionController::GetDropKindLabel(Preview.Kind)));
-		P4PreviewAddress = CellButton->GetAddress();
-		P4Preview = Preview;
-		CellButton->SetCellColor(GetNormalCellColor(CellButton->GetAddress()));
-	}
+	const FCodeBP4DropPreview Preview = PreviewInventoryTransfer(
+		Operation->GetPayload(), CellButton->GetAddress());
+	TraceP4Input(TEXT("DragEnter"), CellButton->GetAddress(),
+		FString::Printf(TEXT("Allowed=%d Kind=%s"), Preview.bAllowed ? 1 : 0,
+			*FCodeBP4InteractionController::GetDropKindLabel(Preview.Kind)));
+	P4PreviewAddress = CellButton->GetAddress();
+	P4Preview = Preview;
+	CellButton->SetCellColor(GetNormalCellColor(CellButton->GetAddress()));
 }
 
 void UCodeBP3InventoryWidget::HandleP4DragLeave(UCodeBP3CellButton* CellButton, UCodeBP4DragOperation* Operation)
@@ -2457,125 +2562,25 @@ bool UCodeBP3InventoryWidget::HandleP4Drop(UCodeBP3CellButton* CellButton, UCode
 	{
 		return false;
 	}
-	if (Host.IsValid() && (Host->IsNormalContainerSlotProtected(
-		CellButton->GetAddress().ContainerId, CellButton->GetAddress().SlotIndex)
-		|| Host->IsBodyContainerSlotProtected(
-			CellButton->GetAddress().ContainerId, CellButton->GetAddress().SlotIndex)))
+	const FCodeBP4DropPreview Preview = PreviewInventoryTransfer(
+		Operation->GetPayload(), CellButton->GetAddress());
+	if (Preview.bAllowed)
 	{
-		Host->GetController()->SetP4Feedback(TEXT("未知或正在搜索的容器物品不能作为拖拽目标。"));
-		TraceP4Input(TEXT("Drop"), CellButton->GetAddress(), TEXT("Preview=Rejected HiddenOrSearchingTarget"));
-		return true;
+		++CurrentP4SubmittedCommandCount;
+		++CurrentP4P2CallCount;
 	}
-	if (Host.IsValid())
-	{
-		const bool bBodySource = Host->IsBodyContainerPresentation(Operation->GetPayload().Source.ContainerId);
-		const bool bBodyDestination = Host->IsBodyContainerPresentation(CellButton->GetAddress().ContainerId);
-		const bool bP21BodyEquipmentSource = Host->IsBodyEquipmentContainerPresentation(Operation->GetPayload().Source.ContainerId);
-		const bool bP21BodyEquipmentDestination = Host->IsBodyEquipmentContainerPresentation(CellButton->GetAddress().ContainerId);
-		const bool bP20SpatialParent = Operation->GetPayload().DefinitionId == Fdemo_mapItemIds::WindTalisman
-			|| Operation->GetPayload().DefinitionId == Fdemo_mapItemIds::BackpackLevel1;
-		const bool bEmptyBaseQuickDestination = CellButton->GetAddress().ContainerId == Host->GetController()->GetProjection().BasicContainerId
-			&& !CellButton->GetAddress().bOccupied;
-		if ((bP21BodyEquipmentSource && !bEmptyBaseQuickDestination)
-			|| bP21BodyEquipmentDestination
-			|| (bBodySource && bP20SpatialParent && !bEmptyBaseQuickDestination)
-			|| (bBodyDestination && bP20SpatialParent))
-		{
-			Host->GetController()->SetP4Feedback(bP21BodyEquipmentDestination
-				? TEXT("玩家物品不能回存尸体装备位。")
-				: bP21BodyEquipmentSource
-					? TEXT("尸体装备只能拖到空基础物品栏。")
-				: bBodyDestination
-				? TEXT("空间道具不能从玩家放回尸体。")
-				: TEXT("尸体空间根节点只能拖到空基础物品栏。"));
-			TraceP4Input(TEXT("Drop"), CellButton->GetAddress(), TEXT("Preview=Rejected P20BodySpatialRootOnly"));
-			return true;
-		}
-	}
-	if (Host.IsValid() && (Host->HasNormalContainerPresentation() || Host->HasBodyContainerPresentation() || Host->IsWorldDropPresentation(Operation->GetPayload().Source.ContainerId) || Host->IsWorldDropPresentation(CellButton->GetAddress().ContainerId)))
-	{
-		const bool bSourceIsTarget = Host->IsNormalContainerPresentation(
-			Operation->GetPayload().Source.ContainerId)
-			|| Host->IsBodyContainerPresentation(Operation->GetPayload().Source.ContainerId)
-			|| Host->IsWorldDropPresentation(Operation->GetPayload().Source.ContainerId);
-		const bool bDestinationIsTarget = Host->IsNormalContainerPresentation(
-			CellButton->GetAddress().ContainerId)
-			|| Host->IsBodyContainerPresentation(CellButton->GetAddress().ContainerId)
-			|| Host->IsWorldDropPresentation(CellButton->GetAddress().ContainerId);
-		if (!bSourceIsTarget && !bDestinationIsTarget)
-		{
-			Host->GetController()->SetP4Feedback(TEXT("打开容器时，拖拽必须跨越玩家与目标两栏。"));
-			TraceP4Input(TEXT("Drop"), CellButton->GetAddress(), TEXT("Preview=Rejected NotTwoColumnTransfer"));
-			return true;
-		}
-	}
-	if (FCodeBP4InteractionController* Interaction = GetP4Controller())
-	{
-		const FCodeBP4DropPreview Preview = Interaction->PreviewDrop(Operation->GetPayload(), CellButton->GetAddress());
-		const bool bContainerTargetIsSource = Host.IsValid()
-			&& (Host->IsNormalContainerPresentation(Operation->GetPayload().Source.ContainerId)
-				|| Host->IsBodyContainerPresentation(Operation->GetPayload().Source.ContainerId)
-				|| Host->IsWorldDropPresentation(Operation->GetPayload().Source.ContainerId));
-		const bool bWorldDropIsSource = Host.IsValid()
-			&& Host->IsWorldDropPresentation(Operation->GetPayload().Source.ContainerId);
-		const FCodeBP2ContainerView* WorldDropTarget = Host.IsValid()
-			? Host->GetController()->GetProjection().Containers.FindByPredicate(
-				[CellButton](const FCodeBP2ContainerView& Container)
-				{
-					return Container.ContainerId == CellButton->GetAddress().ContainerId;
-				})
-			: nullptr;
-		const bool bEmptyBaseQuickTarget = Host.IsValid()
-			&& CellButton->GetAddress().ContainerId == Host->GetController()->GetProjection().BasicContainerId
-			&& Preview.bAllowed && Preview.Operation == ECodeBOperation::Move;
-		const bool bWindTalismanEquipmentTarget = Preview.bAllowed
-			&& Preview.Operation == ECodeBOperation::Equip
-			&& Operation->GetPayload().DefinitionId == Fdemo_mapItemIds::WindTalisman
-			&& WorldDropTarget && WorldDropTarget->Role == FName(TEXT("SpatialRing"));
-		const bool bBackpackEquipmentTarget = Preview.bAllowed
-			&& Preview.Operation == ECodeBOperation::Equip
-			&& Operation->GetPayload().DefinitionId == Fdemo_mapItemIds::BackpackLevel1
-			&& WorldDropTarget && WorldDropTarget->Role == FName(TEXT("Backpack"));
-		if (bWorldDropIsSource
-			&& !bEmptyBaseQuickTarget && !bWindTalismanEquipmentTarget && !bBackpackEquipmentTarget)
-		{
-			Host->GetController()->SetP4Feedback(TEXT("地面根节点只能拖到空基础物品栏，或其匹配的空空间装备栏；不允许合并、交换或拆分。"));
-			TraceP4Input(TEXT("Drop"), CellButton->GetAddress(), TEXT("Preview=Rejected WorldDropRootOnlyLegalEmptyDestination"));
-			return true;
-		}
-		if (Host.IsValid() && Host->IsWorldDropPresentation(CellButton->GetAddress().ContainerId))
-		{
-			Host->GetController()->SetP4Feedback(TEXT("不能将物品拖入地面目标；请使用明确的地面丢弃区域。"));
-			TraceP4Input(TEXT("Drop"), CellButton->GetAddress(), TEXT("Preview=Rejected NoDropIntoWorldTarget"));
-			return true;
-		}
-		if (bContainerTargetIsSource
-			&& Preview.bAllowed
-			&& Preview.Operation != ECodeBOperation::Move
-			&& Preview.Operation != ECodeBOperation::Merge
-			&& Preview.Operation != ECodeBOperation::Swap)
-		{
-			Host->GetController()->SetP4Feedback(TEXT("容器仅允许已揭示物品与玩家储物格之间的移动、合并或交换。"));
-			TraceP4Input(TEXT("Drop"), CellButton->GetAddress(), TEXT("Preview=Rejected NormalContainerNonTransferOperation"));
-			return true;
-		}
-		// P4x counts only a preview-approved physical drop as a P2 submission/call.
-		// Rejected previews return feedback locally and must prove zero writes.
-		if (Preview.bAllowed)
-		{
-			++CurrentP4SubmittedCommandCount;
-			++CurrentP4P2CallCount;
-		}
-		const bool bCommitted = Interaction->CommitDrop(Operation->GetPayload(), CellButton->GetAddress());
-		TraceP4Input(TEXT("Drop"), CellButton->GetAddress(), FString::Printf(TEXT("Preview=%s CommitSucceeded=%d Kind=%s"), Preview.bAllowed ? TEXT("Allowed") : TEXT("Rejected"), bCommitted ? 1 : 0, *FCodeBP4InteractionController::GetDropKindLabel(Preview.Kind)));
-		ContextMenuAddress.Reset();
-		ContextMenuRevision = INDEX_NONE;
-		P4PreviewAddress.Reset();
-		P4Preview.Reset();
-		RefreshFromController();
-		return true;
-	}
-	return false;
+	const bool bCommitted = CommitInventoryTransfer(
+		Operation->GetPayload(), CellButton->GetAddress(), TEXT("Drop"));
+	TraceP4Input(TEXT("DropResult"), CellButton->GetAddress(),
+		FString::Printf(TEXT("Preview=%s CommitSucceeded=%d Kind=%s"),
+			Preview.bAllowed ? TEXT("Allowed") : TEXT("Rejected"), bCommitted ? 1 : 0,
+			*FCodeBP4InteractionController::GetDropKindLabel(Preview.Kind)));
+	ContextMenuAddress.Reset();
+	ContextMenuRevision = INDEX_NONE;
+	P4PreviewAddress.Reset();
+	P4Preview.Reset();
+	RefreshFromController();
+	return true;
 }
 
 bool UCodeBP3InventoryWidget::HandleGroundDropZoneDrop(UCodeBP4DragOperation* Operation)
@@ -2631,146 +2636,87 @@ void UCodeBP3InventoryWidget::HandleP4ContextMenu(UCodeBP3CellButton* CellButton
 	RefreshFromController();
 }
 
-void UCodeBP3InventoryWidget::AddContainerSection(UVerticalBox* Parent, const FString& Title, const FCodeBP2ContainerView& Container, const int32 Columns)
+void UCodeBP3InventoryWidget::AddInventorySection(
+	UVerticalBox* Parent,
+	const FString& Title,
+	const FCodeBP2ContainerView& Container,
+	const int32 Columns,
+	const EInventorySectionKind Kind)
 {
 	UVerticalBox* Section = AddPanel(Parent, FString::Printf(TEXT("%s  ·  %d 格"), *Title, Container.Capacity));
-	UUniformGridPanel* Grid = WidgetTree->ConstructWidget<UUniformGridPanel>();
-	Grid->SetSlotPadding(FMargin(3.0f));
-	Section->AddChildToVerticalBox(Grid)->SetHorizontalAlignment(HAlign_Fill);
-
-	for (int32 Index = 0; Index < Container.Slots.Num(); ++Index)
+	if (Kind != EInventorySectionKind::Plain)
 	{
-		const FCodeBP2SlotView& SlotView = Container.Slots[Index];
-		FCodeBP3SlotAddress Address;
-		Address.ContainerId = Container.ContainerId;
-		Address.SlotIndex = SlotView.SlotIndex;
-		Address.SlotId = SlotView.SlotId;
-		Address.ItemId = SlotView.ItemId;
-		Address.bOccupied = SlotView.bOccupied;
-
-		UCodeBP3CellButton* Cell = WidgetTree->ConstructWidget<UCodeBP3CellButton>();
-		Cell->Configure(this, Address);
-		MountedCells.Add(Cell);
-		Cell->SetCellColor(GetNormalCellColor(Address));
-		FString Label;
-		if (SlotView.bOccupied)
-		{
-			Label = FString::Printf(TEXT("%s\nx%d  L%d/Q%d"), *SlotView.DefinitionId.ToString(), SlotView.Quantity, SlotView.Level, SlotView.Quality);
-		}
-		else
-		{
-			Label = FString::Printf(TEXT("空格\n%s"), *SlotView.SlotId.ToString());
-		}
-		Cell->SetCellContent(MakeText(WidgetTree, Label, 12, SlotView.bOccupied ? FLinearColor::White : FLinearColor(0.52f, 0.58f, 0.64f)));
-		UUniformGridSlot* GridSlot = Grid->AddChildToUniformGrid(Cell, Index / Columns, Index % Columns);
-		GridSlot->SetHorizontalAlignment(HAlign_Fill);
-		GridSlot->SetVerticalAlignment(VAlign_Fill);
-	}
-}
-
-void UCodeBP3InventoryWidget::AddNormalContainerSection(
-	UVerticalBox* Parent,
-	const FCodeBP2ContainerView& Container)
-{
-	UVerticalBox* Section = AddPanel(Parent, FString::Printf(TEXT("普通容器  ·  %d 格"), Container.Capacity));
-	Section->AddChildToVerticalBox(MakeText(
-		WidgetTree,
-		TEXT("未知物品只能逐件搜索；正在搜索、未知物品与详情都不提供拖拽或转移。"),
-		12,
-		FLinearColor(0.72f, 0.82f, 0.92f)))->SetPadding(FMargin(2.0f, 0.0f, 2.0f, 4.0f));
-	UUniformGridPanel* Grid = WidgetTree->ConstructWidget<UUniformGridPanel>();
-	Grid->SetSlotPadding(FMargin(3.0f));
-	Section->AddChildToVerticalBox(Grid)->SetHorizontalAlignment(HAlign_Fill);
-
-	for (int32 Index = 0; Index < Container.Slots.Num(); ++Index)
-	{
-		const FCodeBP2SlotView& SlotView = Container.Slots[Index];
-		const bool bHidden = SlotView.bOccupied && Host.IsValid()
-			&& Host->IsNormalContainerItemHidden(SlotView.ItemId);
-		const bool bSearching = SlotView.bOccupied && Host.IsValid()
-			&& Host->IsNormalContainerItemSearching(SlotView.ItemId);
-		FCodeBP3SlotAddress Address;
-		Address.ContainerId = Container.ContainerId;
-		Address.SlotIndex = SlotView.SlotIndex;
-		Address.SlotId = SlotView.SlotId;
-		Address.ItemId = bHidden || bSearching ? FGuid() : SlotView.ItemId;
-		Address.bOccupied = SlotView.bOccupied && !bHidden && !bSearching;
-
-		UCodeBP3CellButton* Cell = WidgetTree->ConstructWidget<UCodeBP3CellButton>();
-		Cell->Configure(this, Address);
-		MountedCells.Add(Cell);
-		Cell->SetCellColor(
-			bSearching ? FLinearColor(0.42f, 0.28f, 0.08f, 1.0f)
-			: bHidden ? FLinearColor(0.16f, 0.20f, 0.24f, 1.0f)
-			: GetNormalCellColor(Address));
-		const FString Label = bSearching
-			? TEXT("正在搜索\n内容保密")
-			: bHidden
-				? TEXT("未搜索\n点击搜索")
-				: SlotView.bOccupied
-					? FString::Printf(TEXT("%s\nx%d  L%d/Q%d"), *SlotView.DefinitionId.ToString(), SlotView.Quantity, SlotView.Level, SlotView.Quality)
-					: FString::Printf(TEXT("空格\n%s"), *SlotView.SlotId.ToString());
-		Cell->SetCellContent(MakeText(
+		Section->AddChildToVerticalBox(MakeText(
 			WidgetTree,
-			Label,
-			12,
-			bHidden || bSearching || !SlotView.bOccupied
-				? FLinearColor(0.62f, 0.68f, 0.74f)
-				: FLinearColor::White));
-		UUniformGridSlot* GridSlot = Grid->AddChildToUniformGrid(Cell, Index / 2, Index % 2);
-		GridSlot->SetHorizontalAlignment(HAlign_Fill);
-		GridSlot->SetVerticalAlignment(VAlign_Fill);
+			TEXT("未揭示格可点击搜索但不暴露数量、定义、ItemId 或拖拽；揭示后与玩家格共用同一 Cell 和事务路由。"),
+			12, FLinearColor(0.72f, 0.82f, 0.92f)))->SetPadding(FMargin(2.0f, 0.0f, 2.0f, 4.0f));
 	}
-}
-
-void UCodeBP3InventoryWidget::AddBodyContainerSection(
-	UVerticalBox* Parent,
-	const FCodeBP2ContainerView& Container)
-{
-	UVerticalBox* Section = AddPanel(Parent, FString::Printf(TEXT("尸体  ·  %d 格"), Container.Capacity));
-	Section->AddChildToVerticalBox(MakeText(
-		WidgetTree,
-		TEXT("未知物品只能逐件搜查；搜查中和未知物品不显示信息、详情或拖拽 payload。"),
-		12,
-		FLinearColor(0.82f, 0.70f, 0.70f)))->SetPadding(FMargin(2.0f, 0.0f, 2.0f, 4.0f));
 	UUniformGridPanel* Grid = WidgetTree->ConstructWidget<UUniformGridPanel>();
 	Grid->SetSlotPadding(FMargin(3.0f));
 	Section->AddChildToVerticalBox(Grid)->SetHorizontalAlignment(HAlign_Fill);
-	for (int32 Index = 0; Index < Container.Slots.Num(); ++Index)
+
+	const int32 SafeColumns = FMath::Max(1, Columns);
+	for (int32 SlotIndex = 0; SlotIndex < Container.Capacity; ++SlotIndex)
 	{
-		const FCodeBP2SlotView& SlotView = Container.Slots[Index];
-		const bool bHidden = SlotView.bOccupied && Host.IsValid()
-			&& Host->IsBodyContainerItemHidden(SlotView.ItemId);
-		const bool bSearching = SlotView.bOccupied && Host.IsValid()
-			&& Host->IsBodyContainerItemSearching(SlotView.ItemId);
+		const FCodeBP2SlotView* SlotView = Container.Slots.FindByPredicate(
+			[SlotIndex](const FCodeBP2SlotView& Candidate) { return Candidate.SlotIndex == SlotIndex; });
+		ECodeBP3CellState State = SlotView && SlotView->bOccupied
+			? ECodeBP3CellState::Revealed : ECodeBP3CellState::Empty;
+		FCodeBP3SearchLocator SearchLocator;
+		if (Kind != EInventorySectionKind::Plain && Host.IsValid())
+		{
+			Host->ResolveExternalCellState(Container.ContainerId, SlotIndex, State, SearchLocator);
+		}
+
 		FCodeBP3SlotAddress Address;
 		Address.ContainerId = Container.ContainerId;
-		Address.SlotIndex = SlotView.SlotIndex;
-		Address.SlotId = SlotView.SlotId;
-		Address.ItemId = bHidden || bSearching ? FGuid() : SlotView.ItemId;
-		Address.bOccupied = SlotView.bOccupied && !bHidden && !bSearching;
+		Address.SlotIndex = SlotIndex;
+		Address.SlotId = SlotView && !SlotView->SlotId.IsNone()
+			? SlotView->SlotId : FName(*FString::Printf(TEXT("Slot.%d"), SlotIndex));
+		Address.CellState = State;
+		Address.SearchLocator = SearchLocator;
+		Address.bOccupied = State == ECodeBP3CellState::Revealed && SlotView && SlotView->bOccupied;
+		Address.ItemId = Address.bOccupied ? SlotView->ItemId : FGuid();
+		if (Host.IsValid()) Host->PopulateAddressContext(Address);
+
 		UCodeBP3CellButton* Cell = WidgetTree->ConstructWidget<UCodeBP3CellButton>();
 		Cell->Configure(this, Address);
 		MountedCells.Add(Cell);
-		Cell->SetCellColor(
-			bSearching ? FLinearColor(0.42f, 0.20f, 0.08f, 1.0f)
-			: bHidden ? FLinearColor(0.22f, 0.13f, 0.13f, 1.0f)
-			: GetNormalCellColor(Address));
-		const FString Label = bSearching
-			? TEXT("正在搜查\n内容保密")
-			: bHidden
-				? TEXT("未搜查\n点击搜查")
-				: SlotView.bOccupied
-					? FString::Printf(TEXT("%s\nx%d  L%d/Q%d"), *SlotView.DefinitionId.ToString(), SlotView.Quantity, SlotView.Level, SlotView.Quality)
-					: FString::Printf(TEXT("空格\n%s"), *SlotView.SlotId.ToString());
+		Cell->SetCellColor(State == ECodeBP3CellState::Searching
+			? FLinearColor(0.42f, 0.24f, 0.08f, 1.0f)
+			: State == ECodeBP3CellState::Hidden
+				? FLinearColor(0.16f, 0.18f, 0.22f, 1.0f)
+				: GetNormalCellColor(Address));
+		const FString Label = State == ECodeBP3CellState::Searching
+			? TEXT("正在搜索\n内容保密")
+			: State == ECodeBP3CellState::Hidden
+				? TEXT("未搜索\n点击搜索")
+				: Address.IsRevealed()
+					? FString::Printf(TEXT("%s\nx%d  L%d/Q%d"), *SlotView->DefinitionId.ToString(), SlotView->Quantity, SlotView->Level, SlotView->Quality)
+					: FString::Printf(TEXT("空格\n%s"), *Address.SlotId.ToString());
 		Cell->SetCellContent(MakeText(
 			WidgetTree, Label, 12,
-			bHidden || bSearching || !SlotView.bOccupied
-				? FLinearColor(0.70f, 0.64f, 0.64f) : FLinearColor::White));
-		UUniformGridSlot* GridSlot = Grid->AddChildToUniformGrid(Cell, Index / 2, Index % 2);
+			Address.IsRevealed() ? FLinearColor::White : FLinearColor(0.62f, 0.68f, 0.74f)));
+		UUniformGridSlot* GridSlot = Grid->AddChildToUniformGrid(
+			Cell, SlotIndex / SafeColumns, SlotIndex % SafeColumns);
 		GridSlot->SetHorizontalAlignment(HAlign_Fill);
 		GridSlot->SetVerticalAlignment(VAlign_Fill);
 	}
+}
+
+void UCodeBP3InventoryWidget::AddContainerSection(UVerticalBox* Parent, const FString& Title, const FCodeBP2ContainerView& Container, const int32 Columns)
+{
+	AddInventorySection(Parent, Title, Container, Columns, EInventorySectionKind::Plain);
+}
+
+void UCodeBP3InventoryWidget::AddNormalContainerSection(UVerticalBox* Parent, const FCodeBP2ContainerView& Container)
+{
+	AddInventorySection(Parent, TEXT("普通容器"), Container, 2, EInventorySectionKind::NormalTarget);
+}
+
+void UCodeBP3InventoryWidget::AddBodyContainerSection(UVerticalBox* Parent, const FCodeBP2ContainerView& Container)
+{
+	AddInventorySection(Parent, TEXT("尸体"), Container, 2, EInventorySectionKind::BodyTarget);
 }
 
 void UCodeBP3InventoryWidget::AddBodyEquipmentContainerSection(
@@ -2778,41 +2724,73 @@ void UCodeBP3InventoryWidget::AddBodyEquipmentContainerSection(
 	const FCodeBP2ContainerView& Container,
 	const FName SlotSemantic)
 {
-	UVerticalBox* Section = AddPanel(Parent, FString::Printf(TEXT("尸体装备  ·  %s"), *SlotSemantic.ToString()));
-	Section->AddChildToVerticalBox(MakeText(
-		WidgetTree,
-		TEXT("仅在既有尸体揭示后可见；只能拖到空基础物品栏，不能回存或直接装备。"),
-		12, FLinearColor(0.82f, 0.70f, 0.70f)))->SetPadding(FMargin(2.0f, 0.0f, 2.0f, 4.0f));
-	UHorizontalBox* Row = WidgetTree->ConstructWidget<UHorizontalBox>();
-	Section->AddChildToVerticalBox(Row);
-	for (const FCodeBP2SlotView& SlotView : Container.Slots)
+	AddInventorySection(
+		Parent,
+		FString::Printf(TEXT("尸体装备  ·  %s"), *SlotSemantic.ToString()),
+		Container,
+		1,
+		EInventorySectionKind::BodyTarget);
+}
+
+void UCodeBP3InventoryWidget::AddSpatialContainerSection(
+	UVerticalBox* Parent,
+	const FString& EmptyTitle,
+	const FCodeBP2ContainerView* Container,
+	const FCodeBP2SlotView* ParentSlot)
+{
+	if (!Container || !ParentSlot || !ParentSlot->bOccupied || !ParentSlot->ChildContainerId.IsValid())
 	{
-		const bool bHidden = SlotView.bOccupied && Host.IsValid() && Host->IsBodyContainerItemHidden(SlotView.ItemId);
-		const bool bSearching = SlotView.bOccupied && Host.IsValid() && Host->IsBodyContainerItemSearching(SlotView.ItemId);
-		FCodeBP3SlotAddress Address;
-		Address.ContainerId = Container.ContainerId;
-		Address.SlotIndex = SlotView.SlotIndex;
-		Address.SlotId = SlotView.SlotId;
-		Address.ItemId = bHidden || bSearching ? FGuid() : SlotView.ItemId;
-		Address.bOccupied = SlotView.bOccupied && !bHidden && !bSearching;
-		UCodeBP3CellButton* Cell = WidgetTree->ConstructWidget<UCodeBP3CellButton>();
-		Cell->Configure(this, Address);
-		MountedCells.Add(Cell);
-		Cell->SetCellColor(bSearching ? FLinearColor(0.42f, 0.20f, 0.08f, 1.0f)
-			: bHidden ? FLinearColor(0.22f, 0.13f, 0.13f, 1.0f) : GetNormalCellColor(Address));
-		const FString Label = bSearching ? TEXT("正在搜查\n内容保密")
-			: bHidden ? TEXT("未搜查\n点击搜查")
-			: SlotView.bOccupied ? FString::Printf(TEXT("%s\nx%d"), *SlotView.DefinitionId.ToString(), SlotView.Quantity)
-			: TEXT("空装备位");
-		Cell->SetCellContent(MakeText(WidgetTree, Label, 12,
-			bHidden || bSearching || !SlotView.bOccupied ? FLinearColor(0.70f, 0.64f, 0.64f) : FLinearColor::White));
-		Row->AddChildToHorizontalBox(Cell)->SetPadding(FMargin(2.0f));
+		UVerticalBox* Empty = AddPanel(Parent, EmptyTitle);
+		Empty->AddChildToVerticalBox(MakeText(
+			WidgetTree, TEXT("当前没有可访问的真实空间 parent；未创建 0 格假容器。"),
+			13, FLinearColor(0.65f, 0.70f, 0.76f)));
+		return;
 	}
+	int32 DefinitionCapacity = INDEX_NONE;
+	FString CapacityDiagnostic;
+	if (ParentSlot->EquipSlot == ECodeBEquipSlot::SpatialItem)
+	{
+		const Fdemo_mapSpatialRingCapacityResult Result =
+			Fdemo_mapItemDefinitions::ResolveSpatialRingCapacity(ParentSlot->DefinitionId);
+		DefinitionCapacity = Result.bSuccess ? Result.Capacity : INDEX_NONE;
+		CapacityDiagnostic = Result.Diagnostic;
+	}
+	else
+	{
+		const Fdemo_mapSpatialStorageCapacityResult Result =
+			Fdemo_mapItemDefinitions::ResolveSpatialStorageCapacity(ParentSlot->DefinitionId);
+		DefinitionCapacity = Result.bSuccess ? Result.Capacity : INDEX_NONE;
+		CapacityDiagnostic = Result.Diagnostic;
+	}
+	if (DefinitionCapacity != Container->Capacity)
+	{
+		UVerticalBox* Invalid = AddPanel(Parent, EmptyTitle);
+		Invalid->AddChildToVerticalBox(MakeText(
+			WidgetTree,
+			FString::Printf(TEXT("空间容量 provenance 冲突：Definition=%d，ChildContainer=%d。%s"),
+				DefinitionCapacity, Container->Capacity, *CapacityDiagnostic),
+			13, FLinearColor(1.0f, 0.42f, 0.35f)));
+		return;
+	}
+	int32 Used = 0;
+	for (const FCodeBP2SlotView& CellSlot : Container->Slots)
+	{
+		if (CellSlot.bOccupied) ++Used;
+	}
+	const Fdemo_mapItemDefinition* Definition = Fdemo_mapItemDefinitions::Find(ParentSlot->DefinitionId);
+	const FString DisplayName = Definition
+		? Definition->DisplayName.ToString() : ParentSlot->DefinitionId.ToString();
+	AddContainerSection(
+		Parent,
+		FString::Printf(TEXT("%s · 品质 %d · 已用 %d/%d"),
+			*DisplayName, ParentSlot->Quality, Used, Container->Capacity),
+		*Container,
+		4);
 }
 
 void UCodeBP3InventoryWidget::AddHotbarPlaceholders(UVerticalBox* Parent)
 {
-	UVerticalBox* Section = AddPanel(Parent, TEXT("1—9 快捷栏引用（仅绑定／解绑；未启用使用）"));
+	UVerticalBox* Section = AddPanel(Parent, TEXT("1—9 快捷栏引用（Shift+数字绑定；UI 内不使用）"));
 	if (!Host.IsValid() || !Host->GetController() || !Host->GetHotbarPresentation())
 	{
 		Section->AddChildToVerticalBox(MakeText(
@@ -2823,49 +2801,24 @@ void UCodeBP3InventoryWidget::AddHotbarPlaceholders(UVerticalBox* Parent)
 	}
 
 	const FCodeBP3HotbarPresentation* Presentation = Host->GetHotbarPresentation();
-	const FCodeBP2Projection& Projection = Host->GetController()->GetProjection();
-	bool bCanBindSelected = false;
-	if (Host->GetController()->GetSelectedAddress().IsSet())
-	{
-		const FCodeBP3SlotAddress& Selected = Host->GetController()->GetSelectedAddress().GetValue();
-		const FCodeBP2ContainerView* BasicContainer = Projection.Containers.FindByPredicate(
-			[&Projection](const FCodeBP2ContainerView& Candidate)
-			{ return Candidate.ContainerId == Projection.BasicContainerId; });
-		if (BasicContainer && Selected.ContainerId == Projection.BasicContainerId
-			&& BasicContainer->Slots.IsValidIndex(Selected.SlotIndex))
-		{
-			const FCodeBP2SlotView& SelectedSlot = BasicContainer->Slots[Selected.SlotIndex];
-			bCanBindSelected = Selected.bOccupied && SelectedSlot.bOccupied
-				&& Selected.ItemId == SelectedSlot.ItemId && SelectedSlot.bQuickUsable;
-		}
-	}
 	Section->AddChildToVerticalBox(MakeText(
 		WidgetTree,
-		TEXT("先选中基础快捷物品区的 QuickUsable 物品，再点“绑定”指定槽。清空只移除 ItemId 引用，绝不移动、消耗或使用物品。"),
+		TEXT("鼠标悬停优先、否则使用当前选择；Shift+1—9 仅通过 P13 绑定 BaseQuick QuickUsable 引用，绝不移动、消耗或触发 P15 使用。"),
 		13, FLinearColor(0.72f, 0.82f, 0.92f)))->SetPadding(FMargin(2.0f, 0.0f, 2.0f, 4.0f));
 
-	UHorizontalBox* BindActions = WidgetTree->ConstructWidget<UHorizontalBox>();
-	Section->AddChildToVerticalBox(BindActions);
-	UHorizontalBox* UnbindActions = WidgetTree->ConstructWidget<UHorizontalBox>();
-	Section->AddChildToVerticalBox(UnbindActions)->SetPadding(FMargin(0.0f, 2.0f, 0.0f, 0.0f));
+	UHorizontalBox* References = WidgetTree->ConstructWidget<UHorizontalBox>();
+	Section->AddChildToVerticalBox(References);
 	for (int32 Index = 1; Index <= FCodeBHotbarBindings::SlotCount; ++Index)
 	{
 		const FCodeBHotbarSlotProjection* HotbarSlot = Presentation->Projection.Slots.IsValidIndex(Index - 1)
 			? &Presentation->Projection.Slots[Index - 1] : nullptr;
 		const FString ReferenceLabel = HotbarSlot && HotbarSlot->bHasReference
-			? FString::Printf(TEXT("%d\n%s x%d\n绑定"), Index, *HotbarSlot->DefinitionId.ToString(), HotbarSlot->Quantity)
-			: FString::Printf(TEXT("%d\n空\n绑定"), Index);
-		UCodeBP3HotbarActionButton* BindButton = WidgetTree->ConstructWidget<UCodeBP3HotbarActionButton>();
-		BindButton->Configure(this, Index, false);
-		BindButton->SetLabel(ReferenceLabel, Presentation->Projection.bEditable && bCanBindSelected);
-		BindActions->AddChildToHorizontalBox(BindButton)->SetPadding(FMargin(2.0f));
-
-		UCodeBP3HotbarActionButton* UnbindButton = WidgetTree->ConstructWidget<UCodeBP3HotbarActionButton>();
-		UnbindButton->Configure(this, Index, true);
-		UnbindButton->SetLabel(
-			FString::Printf(TEXT("清空 %d"), Index),
-			Presentation->Projection.bEditable && HotbarSlot && HotbarSlot->bHasReference);
-		UnbindActions->AddChildToHorizontalBox(UnbindButton)->SetPadding(FMargin(2.0f));
+			? FString::Printf(TEXT("%d\n%s x%d"), Index, *HotbarSlot->DefinitionId.ToString(), HotbarSlot->Quantity)
+			: FString::Printf(TEXT("%d\n空"), Index);
+		References->AddChildToHorizontalBox(MakeText(
+			WidgetTree, ReferenceLabel, 12,
+			HotbarSlot && HotbarSlot->bHasReference ? FLinearColor::White : FLinearColor(0.55f, 0.60f, 0.66f)))
+			->SetPadding(FMargin(6.0f, 2.0f));
 	}
 }
 
@@ -2889,21 +2842,24 @@ void UCodeBP3InventoryWidget::AddDetailAndActions(UVerticalBox* Parent)
 		{
 			return Candidate.ContainerId == Selected.ContainerId;
 		});
-		if (Container && Container->Slots.IsValidIndex(Selected.SlotIndex))
+		const FCodeBP2SlotView* SlotView = Container
+			? Container->Slots.FindByPredicate([&Selected](const FCodeBP2SlotView& Candidate)
+				{ return Candidate.SlotIndex == Selected.SlotIndex; })
+			: nullptr;
+		if (SlotView)
 		{
-			const FCodeBP2SlotView& SlotView = Container->Slots[Selected.SlotIndex];
 			const TCHAR* SourceDescription = Host->GetController()->IsProfileBacked()
 				? TEXT("真实 Profile Code B 持久化实例。")
 				: TEXT("Code B Fixture 最小可审计展示数据。");
 			DetailText = FString::Printf(TEXT("定义：%s\n类型：%s\n数量：%d\n等级／品质：%d / %d\nItemId：%s\n容器／槽位：%s / %s\n随机种子：%d\n描述：%s"),
-				*SlotView.DefinitionId.ToString(), *ItemTypeToChinese(SlotView.ItemType), SlotView.Quantity, SlotView.Level, SlotView.Quality,
-				*SlotView.ItemId.ToString(EGuidFormats::DigitsWithHyphens), *Container->Role.ToString(), *SlotView.SlotId.ToString(), SlotView.RandomSeed, SourceDescription);
+				*SlotView->DefinitionId.ToString(), *ItemTypeToChinese(SlotView->ItemType), SlotView->Quantity, SlotView->Level, SlotView->Quality,
+				*SlotView->ItemId.ToString(EGuidFormats::DigitsWithHyphens), *Container->Role.ToString(), *SlotView->SlotId.ToString(), SlotView->RandomSeed, SourceDescription);
 		}
 	}
 	Detail->AddChildToVerticalBox(MakeText(WidgetTree, DetailText, 14, FLinearColor(0.86f, 0.90f, 0.95f)))->SetPadding(FMargin(2.0f, 2.0f, 2.0f, 10.0f));
 
 	UVerticalBox* Actions = AddPanel(Parent, TEXT("物品操作规则"));
-	Actions->AddChildToVerticalBox(MakeText(WidgetTree, TEXT("移动、交换、合并、装备替换和卸下都必须拖到明确目标格；本页没有自动转移、合并或放回。"), 13, FLinearColor(0.72f, 0.82f, 0.92f)));
+	Actions->AddChildToVerticalBox(MakeText(WidgetTree, TEXT("拖拽使用明确目标；Ctrl+左键只按稳定候选顺序合并或进入空槽，不交换、不拆分、不自动装备；右键只读。"), 13, FLinearColor(0.72f, 0.82f, 0.92f)));
 	if (Host.IsValid() && Host->GetController() && Host->GetController()->GetSelectedAddress().IsSet())
 	{
 		const bool bActiveRunBacked = Host->GetController()->IsActiveRunBacked();
@@ -2969,9 +2925,13 @@ void UCodeBP3InventoryWidget::BuildPageContents()
 	{
 		return;
 	}
+	if (PlayerScrollBox) PlayerScrollOffset = PlayerScrollBox->GetScrollOffset();
+	if (TargetScrollBox) TargetScrollOffset = TargetScrollBox->GetScrollOffset();
 	PageContents->ClearChildren();
 	MountedCells.Reset();
 	CloseButton = nullptr;
+	PlayerScrollBox = nullptr;
+	TargetScrollBox = nullptr;
 	FCodeBP3UIController* Controller = Host->GetController();
 	const FCodeBP2Projection& Projection = Controller->GetProjection();
 
@@ -3008,14 +2968,25 @@ void UCodeBP3InventoryWidget::BuildPageContents()
 	UHorizontalBox* Main = WidgetTree->ConstructWidget<UHorizontalBox>();
 	PageContents->AddChildToVerticalBox(Main)->SetPadding(FMargin(4.0f));
 	UVerticalBox* PlayerColumn = WidgetTree->ConstructWidget<UVerticalBox>();
-	UVerticalBox* StashColumn = WidgetTree->ConstructWidget<UVerticalBox>();
-	UVerticalBox* DetailColumn = WidgetTree->ConstructWidget<UVerticalBox>();
-	FSlateChildSize PlayerSize; PlayerSize.SizeRule = ESlateSizeRule::Fill; PlayerSize.Value = 1.05f;
-	FSlateChildSize StashSize; StashSize.SizeRule = ESlateSizeRule::Fill; StashSize.Value = 1.25f;
-	FSlateChildSize DetailSize; DetailSize.SizeRule = ESlateSizeRule::Fill; DetailSize.Value = 0.95f;
-	Main->AddChildToHorizontalBox(PlayerColumn)->SetSize(PlayerSize);
-	Main->AddChildToHorizontalBox(StashColumn)->SetSize(StashSize);
-	Main->AddChildToHorizontalBox(DetailColumn)->SetSize(DetailSize);
+	UVerticalBox* TargetColumn = WidgetTree->ConstructWidget<UVerticalBox>();
+	USizeBox* PlayerViewport = WidgetTree->ConstructWidget<USizeBox>();
+	USizeBox* TargetViewport = WidgetTree->ConstructWidget<USizeBox>();
+	PlayerViewport->SetHeightOverride(710.0f);
+	TargetViewport->SetHeightOverride(710.0f);
+	PlayerScrollBox = WidgetTree->ConstructWidget<UScrollBox>();
+	TargetScrollBox = WidgetTree->ConstructWidget<UScrollBox>();
+	PlayerScrollBox->SetOrientation(Orient_Vertical);
+	TargetScrollBox->SetOrientation(Orient_Vertical);
+	PlayerScrollBox->SetScrollBarVisibility(ESlateVisibility::Visible);
+	TargetScrollBox->SetScrollBarVisibility(ESlateVisibility::Visible);
+	PlayerScrollBox->AddChild(PlayerColumn);
+	TargetScrollBox->AddChild(TargetColumn);
+	PlayerViewport->SetContent(PlayerScrollBox);
+	TargetViewport->SetContent(TargetScrollBox);
+	FSlateChildSize PlayerSize; PlayerSize.SizeRule = ESlateSizeRule::Fill; PlayerSize.Value = 1.0f;
+	FSlateChildSize TargetSize; TargetSize.SizeRule = ESlateSizeRule::Fill; TargetSize.Value = 1.0f;
+	Main->AddChildToHorizontalBox(PlayerViewport)->SetSize(PlayerSize);
+	Main->AddChildToHorizontalBox(TargetViewport)->SetSize(TargetSize);
 
 	if (const FCodeBP2ContainerView* Weapon = FindRole(FName(TEXT("Weapon")))) AddContainerSection(PlayerColumn, TEXT("兵器"), *Weapon, 1);
 	if (const FCodeBP2ContainerView* Armor = FindRole(FName(TEXT("Armor")))) AddContainerSection(PlayerColumn, TEXT("道袍"), *Armor, 1);
@@ -3024,52 +2995,47 @@ void UCodeBP3InventoryWidget::BuildPageContents()
 	if (const FCodeBP2ContainerView* SpatialRing = FindRole(FName(TEXT("SpatialRing")))) AddContainerSection(PlayerColumn, TEXT("空间戒指（仅此栏可装备）"), *SpatialRing, 1);
 	if (const FCodeBP2ContainerView* Backpack = FindRole(FName(TEXT("Backpack")))) AddContainerSection(PlayerColumn, TEXT("空间储物囊"), *Backpack, 1);
 	if (const FCodeBP2ContainerView* Basic = FindRole(FName(TEXT("Basic6")))) AddContainerSection(PlayerColumn, TEXT("基础物品"), *Basic, 3);
+	const FCodeBP2ContainerView* QuickSpatial = FindRole(FName(TEXT("QuickSpatial")));
+	AddSpatialContainerSection(PlayerColumn, TEXT("空间戒指内部"), QuickSpatial,
+		QuickSpatial ? FindSpatialParent(*QuickSpatial) : nullptr);
+	const FCodeBP2ContainerView* PouchInternal = FindRole(FName(TEXT("PouchInternal")));
+	AddSpatialContainerSection(PlayerColumn, TEXT("空间储物囊内部"), PouchInternal,
+		PouchInternal ? FindSpatialParent(*PouchInternal) : nullptr);
+	AddHotbarPlaceholders(PlayerColumn);
 
 	if (!bActiveRunBacked)
 	{
-		if (const FCodeBP2ContainerView* Stash = FindRole(FName(TEXT("Warehouse")))) AddContainerSection(StashColumn, TEXT("局外仓库"), *Stash, 5);
+		if (const FCodeBP2ContainerView* Stash = FindRole(FName(TEXT("Warehouse")))) AddContainerSection(TargetColumn, TEXT("局外仓库"), *Stash, 5);
 	}
 	if (bActiveRunBacked)
 	{
 		if (const FCodeBP2ContainerView* NormalTarget = FindRole(FName(TEXT("NormalContainerTarget"))))
 		{
-			AddNormalContainerSection(StashColumn, *NormalTarget);
+			AddNormalContainerSection(TargetColumn, *NormalTarget);
 		}
 		if (const FCodeBP2ContainerView* BodyTarget = FindRole(FName(TEXT("BodyContainerTarget"))))
 		{
-			AddBodyContainerSection(StashColumn, *BodyTarget);
+			AddBodyContainerSection(TargetColumn, *BodyTarget);
 		}
 		for (const FName BodyEquipmentRole : {
 			FName(TEXT("Body.Weapon")), FName(TEXT("Body.ArmorRobe")), FName(TEXT("Body.Accessory0")) })
 		{
 			if (const FCodeBP2ContainerView* EquipmentContainer = FindRole(BodyEquipmentRole))
 			{
-				AddBodyEquipmentContainerSection(StashColumn, *EquipmentContainer, BodyEquipmentRole);
+				AddBodyEquipmentContainerSection(TargetColumn, *EquipmentContainer, BodyEquipmentRole);
 			}
 		}
 		if (const FCodeBP2ContainerView* WorldTarget = FindRole(FName(TEXT("WorldDropTarget"))))
 		{
 			// P19 intentionally mounts only the P14 root cell. A spatial parent's
 			// child graph remains Store-owned and cannot become a ground sub-item UI.
-			AddContainerSection(StashColumn, TEXT("地面完整图根节点（仅拖回空基础格或匹配空装备栏）"), *WorldTarget, 1);
+			AddContainerSection(TargetColumn, TEXT("地面完整图根节点（仅拖回合法空格）"), *WorldTarget, 1);
 		}
 	}
-	if (const FCodeBP2ContainerView* SpatialRing = FindRole(FName(TEXT("SpatialRing"))))
-	{
-		if (SpatialRing->Slots.Num() > 0 && SpatialRing->Slots[0].bOccupied)
-		{
-			if (const FCodeBP2ContainerView* QuickSpatial = FindRole(FName(TEXT("QuickSpatial")))) AddContainerSection(StashColumn, TEXT("快捷空间（空间戒指）"), *QuickSpatial, 4);
-		}
-		else
-		{
-			UVerticalBox* EmptySpatial = AddPanel(StashColumn, TEXT("快捷空间（空间戒指）"));
-			EmptySpatial->AddChildToVerticalBox(MakeText(WidgetTree, TEXT("空间戒指未装备；快捷空间不会显示或提供访问。"), 14, FLinearColor(0.65f, 0.70f, 0.76f)));
-		}
-	}
-	if (const FCodeBP2ContainerView* PouchInternal = FindRole(FName(TEXT("PouchInternal")))) AddContainerSection(StashColumn, TEXT("非快捷储物囊（普通空间物品）"), *PouchInternal, 4);
-	if (bActiveRunBacked) AddGroundDropZone(StashColumn);
-	AddHotbarPlaceholders(StashColumn);
-	AddDetailAndActions(DetailColumn);
+	if (bActiveRunBacked) AddGroundDropZone(TargetColumn);
+	AddDetailAndActions(TargetColumn);
+	PlayerScrollBox->SetScrollOffset(PlayerScrollOffset);
+	TargetScrollBox->SetScrollOffset(TargetScrollOffset);
 }
 
 void UCodeBP3InventoryWidget::RefreshFromController()
@@ -3143,21 +3109,86 @@ void UCodeBP3InventoryWidget::HandleCellActivated(UCodeBP3CellButton* CellButton
 	}
 }
 
-void UCodeBP3InventoryWidget::HandleHotbarSlotAction(const int32 SlotIndex, const bool bUnbindAction)
+void UCodeBP3InventoryWidget::HandleCellHover(const FCodeBP3SlotAddress& Address, const bool bHovered)
 {
-	if (!Host.IsValid() || !Host->GetController())
+	if (bHovered)
+	{
+		HoveredAddress = Address;
+	}
+	else if (HoveredAddress.IsSet()
+		&& HoveredAddress->ContainerId == Address.ContainerId
+		&& HoveredAddress->SlotIndex == Address.SlotIndex)
+	{
+		HoveredAddress.Reset();
+	}
+}
+
+void UCodeBP3InventoryWidget::HandleQuickTransfer(UCodeBP3CellButton* CellButton)
+{
+	if (!CellButton || !CellButton->GetAddress().IsRevealed()
+		|| !Host.IsValid() || !Host->GetController())
 	{
 		return;
 	}
-	FString Error;
-	const bool bAccepted = bUnbindAction
-		? Host->RequestHotbarUnbind(SlotIndex, Error)
-		: Host->RequestHotbarBindFromSelectedItem(SlotIndex, Error);
-	Host->GetController()->SetP4Feedback(bAccepted
-		? (bUnbindAction
-			? FString::Printf(TEXT("已清空快捷栏 %d 的引用。"), SlotIndex)
-			: FString::Printf(TEXT("已绑定快捷栏 %d；未启用按键使用或消耗。"), SlotIndex))
-		: (Error.IsEmpty() ? TEXT("快捷栏引用操作未完成。") : Error));
+	const FCodeBP3SlotAddress& SourceAddress = CellButton->GetAddress();
+	if (Host->IsNormalContainerSlotProtected(SourceAddress.ContainerId, SourceAddress.SlotIndex)
+		|| Host->IsBodyContainerSlotProtected(SourceAddress.ContainerId, SourceAddress.SlotIndex))
+	{
+		Host->GetController()->SetP4Feedback(TEXT("Hidden／Searching 格不能 Quick Transfer。"));
+		return;
+	}
+	FCodeBP4DragPayload Payload;
+	if (!BeginP4Drag(CellButton, Payload))
+	{
+		return;
+	}
+	const FCodeBP2ContainerView* Destination = ResolveQuickTransferDestination(Payload);
+	if (!Destination || Destination->ContainerId == Payload.Source.ContainerId)
+	{
+		Host->GetController()->SetP4Feedback(TEXT("当前没有明确且合法的 Quick Transfer 目标容器。"));
+		return;
+	}
+	auto MakeTarget = [this, Destination](const FCodeBP2SlotView& CellSlot)
+	{
+		FCodeBP3SlotAddress Target;
+		Target.ContainerId = Destination->ContainerId;
+		Target.SlotIndex = CellSlot.SlotIndex;
+		Target.SlotId = CellSlot.SlotId;
+		Target.ItemId = CellSlot.ItemId;
+		Target.bOccupied = CellSlot.bOccupied;
+		Target.CellState = CellSlot.bOccupied ? ECodeBP3CellState::Revealed : ECodeBP3CellState::Empty;
+		if (Host.IsValid()) Host->PopulateAddressContext(Target);
+		return Target;
+	};
+	for (int32 SlotIndex = 0; SlotIndex < Destination->Capacity; ++SlotIndex)
+	{
+		const FCodeBP2SlotView* CandidateSlot = Destination->Slots.FindByPredicate(
+			[SlotIndex](const FCodeBP2SlotView& Candidate) { return Candidate.SlotIndex == SlotIndex; });
+		if (!CandidateSlot || !CandidateSlot->bOccupied || CandidateSlot->DefinitionId != Payload.DefinitionId) continue;
+		const FCodeBP3SlotAddress Target = MakeTarget(*CandidateSlot);
+		const FCodeBP4DropPreview Preview = PreviewInventoryTransfer(Payload, Target);
+		if (Preview.bAllowed && Preview.Kind == ECodeBP4DropKind::Merge)
+		{
+			CommitInventoryTransfer(Payload, Target, TEXT("CtrlLeftQuickTransfer"));
+			RefreshFromController();
+			return;
+		}
+	}
+	for (int32 SlotIndex = 0; SlotIndex < Destination->Capacity; ++SlotIndex)
+	{
+		const FCodeBP2SlotView* CandidateSlot = Destination->Slots.FindByPredicate(
+			[SlotIndex](const FCodeBP2SlotView& Candidate) { return Candidate.SlotIndex == SlotIndex; });
+		if (!CandidateSlot || CandidateSlot->bOccupied) continue;
+		const FCodeBP3SlotAddress Target = MakeTarget(*CandidateSlot);
+		const FCodeBP4DropPreview Preview = PreviewInventoryTransfer(Payload, Target);
+		if (Preview.bAllowed && Preview.Kind != ECodeBP4DropKind::Swap)
+		{
+			CommitInventoryTransfer(Payload, Target, TEXT("CtrlLeftQuickTransfer"));
+			RefreshFromController();
+			return;
+		}
+	}
+	Host->GetController()->SetP4Feedback(TEXT("Quick Transfer 未找到合法合并或空槽；未写入。"));
 	RefreshFromController();
 }
 
@@ -3225,16 +3256,19 @@ bool UCodeBP3InventoryWidget::IsSelectedItemEquipable() const
 	{
 		return Candidate.ContainerId == Selected.ContainerId;
 	});
-	if (!Container || !Container->Slots.IsValidIndex(Selected.SlotIndex))
+	const FCodeBP2SlotView* SelectedSlot = Container
+		? Container->Slots.FindByPredicate([&Selected](const FCodeBP2SlotView& Candidate)
+			{ return Candidate.SlotIndex == Selected.SlotIndex; })
+		: nullptr;
+	if (!SelectedSlot)
 	{
 		return false;
 	}
-	const FCodeBP2SlotView& SelectedSlot = Container->Slots[Selected.SlotIndex];
-	return SelectedSlot.ItemType == ECodeBItemType::Weapon
-		|| SelectedSlot.ItemType == ECodeBItemType::Armor
-		|| SelectedSlot.ItemType == ECodeBItemType::Accessory
-		|| SelectedSlot.ItemType == ECodeBItemType::SpatialItem
-		|| SelectedSlot.ItemType == ECodeBItemType::Backpack;
+	return SelectedSlot->ItemType == ECodeBItemType::Weapon
+		|| SelectedSlot->ItemType == ECodeBItemType::Armor
+		|| SelectedSlot->ItemType == ECodeBItemType::Accessory
+		|| SelectedSlot->ItemType == ECodeBItemType::SpatialItem
+		|| SelectedSlot->ItemType == ECodeBItemType::Backpack;
 }
 
 void UCodeBP3InventoryWidget::OnEquipGuidanceClicked()
@@ -3498,15 +3532,10 @@ bool UCodeBP3UIHostSubsystem::IsNormalContainerSlotProtected(
 	const FGuid& ContainerId,
 	const int32 SlotIndex) const
 {
-	if (!IsNormalContainerPresentation(ContainerId) || !Controller.IsValid()) return false;
-	const FCodeBP2ContainerView* Container = Controller->GetProjection().Containers.FindByPredicate(
-		[ContainerId](const FCodeBP2ContainerView& Value) { return Value.ContainerId == ContainerId; });
-	if (!Container || !Container->Slots.IsValidIndex(SlotIndex) || !Container->Slots[SlotIndex].bOccupied)
-	{
-		return false;
-	}
-	const FGuid ItemId = Container->Slots[SlotIndex].ItemId;
-	return IsNormalContainerItemHidden(ItemId) || IsNormalContainerItemSearching(ItemId);
+	ECodeBP3CellState State = ECodeBP3CellState::Empty;
+	FCodeBP3SearchLocator Locator;
+	return ResolveExternalCellState(ContainerId, SlotIndex, State, Locator)
+		&& (State == ECodeBP3CellState::Hidden || State == ECodeBP3CellState::Searching);
 }
 
 bool UCodeBP3UIHostSubsystem::RequestNormalContainerItemSearch(
@@ -3522,24 +3551,23 @@ bool UCodeBP3UIHostSubsystem::RequestNormalContainerItemSearch(
 		OutError = TEXT("普通容器搜索入口当前不可用。");
 		return false;
 	}
-	const FCodeBP2ContainerView* Container = Controller->GetProjection().Containers.FindByPredicate(
-		[ContainerId](const FCodeBP2ContainerView& Value) { return Value.ContainerId == ContainerId; });
-	if (!Container || !Container->Slots.IsValidIndex(SlotIndex)
-		|| !Container->Slots[SlotIndex].bOccupied)
+	ECodeBP3CellState State = ECodeBP3CellState::Empty;
+	FCodeBP3SearchLocator Locator;
+	if (!ResolveExternalCellState(ContainerId, SlotIndex, State, Locator)
+		|| !Locator.IsValid())
 	{
 		OutError = TEXT("该普通容器格没有可搜索的物品。");
 		return false;
 	}
-	const FGuid ItemId = Container->Slots[SlotIndex].ItemId;
-	if (!IsNormalContainerItemHidden(ItemId))
+	if (State != ECodeBP3CellState::Hidden)
 	{
-		OutError = IsNormalContainerItemSearching(ItemId)
+		OutError = State == ECodeBP3CellState::Searching
 			? TEXT("该物品正在搜索中。")
 			: TEXT("该物品已揭示，不能再次搜索。");
 		return false;
 	}
 	FCodeBNormalContainerProjection UpdatedProjection;
-	if (!NormalContainerPresentation->BeginItemSearch(ItemId, UpdatedProjection, OutError))
+	if (!NormalContainerPresentation->BeginItemSearch(Locator, UpdatedProjection, OutError))
 	{
 		return false;
 	}
@@ -3598,15 +3626,10 @@ bool UCodeBP3UIHostSubsystem::IsBodyContainerSlotProtected(
 	const FGuid& ContainerId,
 	const int32 SlotIndex) const
 {
-	if (!IsBodyContainerPresentation(ContainerId) || !Controller.IsValid()) return false;
-	const FCodeBP2ContainerView* Container = Controller->GetProjection().Containers.FindByPredicate(
-		[ContainerId](const FCodeBP2ContainerView& Value) { return Value.ContainerId == ContainerId; });
-	if (!Container || !Container->Slots.IsValidIndex(SlotIndex) || !Container->Slots[SlotIndex].bOccupied)
-	{
-		return false;
-	}
-	const FGuid ItemId = Container->Slots[SlotIndex].ItemId;
-	return IsBodyContainerItemHidden(ItemId) || IsBodyContainerItemSearching(ItemId);
+	ECodeBP3CellState State = ECodeBP3CellState::Empty;
+	FCodeBP3SearchLocator Locator;
+	return ResolveExternalCellState(ContainerId, SlotIndex, State, Locator)
+		&& (State == ECodeBP3CellState::Hidden || State == ECodeBP3CellState::Searching);
 }
 
 bool UCodeBP3UIHostSubsystem::RequestBodyContainerItemSearch(
@@ -3622,27 +3645,134 @@ bool UCodeBP3UIHostSubsystem::RequestBodyContainerItemSearch(
 		OutError = TEXT("尸体搜查入口当前不可用。");
 		return false;
 	}
-	const FCodeBP2ContainerView* Container = Controller->GetProjection().Containers.FindByPredicate(
-		[ContainerId](const FCodeBP2ContainerView& Value) { return Value.ContainerId == ContainerId; });
-	if (!Container || !Container->Slots.IsValidIndex(SlotIndex) || !Container->Slots[SlotIndex].bOccupied)
+	ECodeBP3CellState State = ECodeBP3CellState::Empty;
+	FCodeBP3SearchLocator Locator;
+	if (!ResolveExternalCellState(ContainerId, SlotIndex, State, Locator)
+		|| !Locator.IsValid())
 	{
 		OutError = TEXT("该尸体格没有可搜查的物品。");
 		return false;
 	}
-	const FGuid ItemId = Container->Slots[SlotIndex].ItemId;
-	if (!IsBodyContainerItemHidden(ItemId))
+	if (State != ECodeBP3CellState::Hidden)
 	{
-		OutError = IsBodyContainerItemSearching(ItemId)
+		OutError = State == ECodeBP3CellState::Searching
 			? TEXT("该尸体物品正在搜查中。") : TEXT("该尸体物品已揭示，不能再次搜查。");
 		return false;
 	}
 	FCodeBBodyContainerProjection UpdatedProjection;
-	if (!BodyContainerPresentation->BeginItemSearch(ItemId, UpdatedProjection, OutError))
+	if (!BodyContainerPresentation->BeginItemSearch(Locator, UpdatedProjection, OutError))
 	{
 		return false;
 	}
 	UpdateBodyContainerProjection(UpdatedProjection);
 	return true;
+}
+
+bool UCodeBP3UIHostSubsystem::ResolveExternalCellState(
+	const FGuid& ContainerId,
+	const int32 SlotIndex,
+	ECodeBP3CellState& OutState,
+	FCodeBP3SearchLocator& OutLocator) const
+{
+	OutState = ECodeBP3CellState::Empty;
+	OutLocator = FCodeBP3SearchLocator();
+	if (NormalContainerPresentation.IsSet()
+		&& NormalContainerPresentation->TargetContainerId == ContainerId)
+	{
+		const FCodeBNormalContainerProjection& Projection = NormalContainerPresentation->Projection;
+		const FCodeBNormalContainerItemProjection* Item = Projection.Items.FindByPredicate(
+			[ContainerId, SlotIndex](const FCodeBNormalContainerItemProjection& Candidate)
+			{
+				return Candidate.ParentContainerId == ContainerId && Candidate.SlotIndex == SlotIndex;
+			});
+		if (!Item) return true;
+		OutState = Item->RevealState == ECodeBNormalContainerRevealState::Hidden
+			? ECodeBP3CellState::Hidden
+			: Item->RevealState == ECodeBNormalContainerRevealState::Searching
+				? ECodeBP3CellState::Searching : ECodeBP3CellState::Revealed;
+		OutLocator.TargetKind = ECodeBP3SearchTargetKind::NormalContainer;
+		OutLocator.OwnerId = Projection.OwnerId;
+		OutLocator.RunInstanceId = Projection.RunInstanceId;
+		OutLocator.TargetId = Projection.SearchTargetId;
+		OutLocator.ContainerId = ContainerId;
+		OutLocator.SlotIndex = SlotIndex;
+		OutLocator.TargetRevision = Projection.Revision;
+		OutLocator.ActiveActionId = Projection.ActiveActionId;
+		return true;
+	}
+	if (BodyContainerPresentation.IsSet() && IsBodyContainerPresentation(ContainerId))
+	{
+		const FCodeBBodyContainerProjection& Projection = BodyContainerPresentation->Projection;
+		const FCodeBBodyContainerItemProjection* Item = Projection.Items.FindByPredicate(
+			[ContainerId, SlotIndex](const FCodeBBodyContainerItemProjection& Candidate)
+			{
+				return Candidate.ParentContainerId == ContainerId && Candidate.SlotIndex == SlotIndex;
+			});
+		if (!Item) return true;
+		OutState = Item->Visibility == ECodeBBodyContainerVisibility::Hidden
+			? ECodeBP3CellState::Hidden
+			: Item->Visibility == ECodeBBodyContainerVisibility::Searching
+				? ECodeBP3CellState::Searching : ECodeBP3CellState::Revealed;
+		OutLocator.TargetKind = ECodeBP3SearchTargetKind::BodyContainer;
+		OutLocator.OwnerId = Projection.OwnerId;
+		OutLocator.RunInstanceId = Projection.RunInstanceId;
+		OutLocator.TargetId = Projection.BodyTargetId;
+		OutLocator.ContainerId = ContainerId;
+		OutLocator.SlotIndex = SlotIndex;
+		OutLocator.TargetRevision = Projection.Revision;
+		OutLocator.ActiveActionId = Projection.ActiveActionId;
+		return true;
+	}
+	return false;
+}
+
+bool UCodeBP3UIHostSubsystem::IsExternalTargetContainer(const FGuid& ContainerId) const
+{
+	return IsNormalContainerPresentation(ContainerId)
+		|| IsBodyContainerPresentation(ContainerId)
+		|| IsWorldDropPresentation(ContainerId);
+}
+
+void UCodeBP3UIHostSubsystem::PopulateAddressContext(FCodeBP3SlotAddress& Address) const
+{
+	Address.Scope = IsExternalTargetContainer(Address.ContainerId)
+		? ECodeBP3InventoryScope::ExternalTarget : ECodeBP3InventoryScope::Player;
+	if (HotbarPresentation.IsSet())
+	{
+		Address.OwnerId = HotbarPresentation->OwnerId;
+		Address.RunInstanceId = HotbarPresentation->RunInstanceId;
+	}
+	else if (NormalContainerPresentation.IsSet())
+	{
+		Address.OwnerId = NormalContainerPresentation->Projection.OwnerId;
+		Address.RunInstanceId = NormalContainerPresentation->Projection.RunInstanceId;
+	}
+	else if (BodyContainerPresentation.IsSet())
+	{
+		Address.OwnerId = BodyContainerPresentation->Projection.OwnerId;
+		Address.RunInstanceId = BodyContainerPresentation->Projection.RunInstanceId;
+	}
+}
+
+void UCodeBP3UIHostSubsystem::PopulateTransferContext(FCodeBP4DragPayload& Payload) const
+{
+	PopulateAddressContext(Payload.Source);
+	Payload.SourceScope = Payload.Source.Scope;
+	if (HotbarPresentation.IsSet())
+	{
+		Payload.OwnerId = HotbarPresentation->OwnerId;
+		Payload.RunInstanceId = HotbarPresentation->RunInstanceId;
+	}
+	else if (NormalContainerPresentation.IsSet())
+	{
+		Payload.OwnerId = NormalContainerPresentation->Projection.OwnerId;
+		Payload.RunInstanceId = NormalContainerPresentation->Projection.RunInstanceId;
+	}
+	else if (BodyContainerPresentation.IsSet())
+	{
+		Payload.OwnerId = BodyContainerPresentation->Projection.OwnerId;
+		Payload.RunInstanceId = BodyContainerPresentation->Projection.RunInstanceId;
+	}
 }
 
 void UCodeBP3UIHostSubsystem::UpdateBodyContainerProjection(
@@ -3680,52 +3810,41 @@ bool UCodeBP3UIHostSubsystem::RequestGroundDrop(
 	return bCommitted;
 }
 
-bool UCodeBP3UIHostSubsystem::RequestHotbarBindFromSelectedItem(const int32 SlotIndex, FString& OutError)
+bool UCodeBP3UIHostSubsystem::RequestHotbarBindFromAddress(
+	const FCodeBP3SlotAddress& Selected,
+	const int32 SlotIndex,
+	FString& OutError)
 {
 	OutError.Reset();
 	if (!HotbarPresentation.IsSet() || !HotbarPresentation->Projection.bEditable
-		|| !HotbarPresentation->Bind || !Controller.IsValid()
-		|| !Controller->GetSelectedAddress().IsSet())
+		|| !HotbarPresentation->Projection.bActiveRunScope
+		|| !HotbarPresentation->OwnerId.IsValid() || !HotbarPresentation->RunInstanceId.IsValid()
+		|| !HotbarPresentation->Bind || !Controller.IsValid() || !Controller->IsActiveRunBacked())
 	{
-		OutError = TEXT("快捷栏绑定入口当前不可用。请选择基础快捷物品区中的 QuickUsable 物品。");
+		OutError = TEXT("Shift+数字绑定仅在精确活动 Run 工作台中可用。");
 		return false;
 	}
-	const FCodeBP3SlotAddress& Selected = Controller->GetSelectedAddress().GetValue();
 	const FCodeBP2Projection& Projection = Controller->GetProjection();
 	const FCodeBP2ContainerView* BasicContainer = Projection.Containers.FindByPredicate(
 		[&Projection](const FCodeBP2ContainerView& Candidate)
 		{ return Candidate.ContainerId == Projection.BasicContainerId; });
-	if (!BasicContainer || Selected.ContainerId != Projection.BasicContainerId
-		|| !BasicContainer->Slots.IsValidIndex(Selected.SlotIndex))
+	const FCodeBP2SlotView* Slot = BasicContainer
+		? BasicContainer->Slots.FindByPredicate([&Selected](const FCodeBP2SlotView& Candidate)
+			{ return Candidate.SlotIndex == Selected.SlotIndex; })
+		: nullptr;
+	if (!Slot || Selected.ContainerId != Projection.BasicContainerId)
 	{
 		OutError = TEXT("快捷栏只能引用基础快捷物品区中的物品。");
 		return false;
 	}
-	const FCodeBP2SlotView& Slot = BasicContainer->Slots[Selected.SlotIndex];
-	if (!Selected.bOccupied || !Slot.bOccupied || Slot.ItemId != Selected.ItemId || !Slot.bQuickUsable)
+	if (!Selected.IsRevealed() || !Slot->bOccupied || Slot->ItemId != Selected.ItemId
+		|| Slot->Quantity <= 0 || !Slot->bQuickUsable)
 	{
 		OutError = TEXT("当前选择不是可绑定的 QuickUsable 基础快捷物品。");
 		return false;
 	}
 	FCodeBHotbarProjection UpdatedProjection;
 	if (!HotbarPresentation->Bind(Selected.ItemId, SlotIndex, UpdatedProjection, OutError))
-	{
-		return false;
-	}
-	HotbarPresentation->Projection = MoveTemp(UpdatedProjection);
-	return true;
-}
-
-bool UCodeBP3UIHostSubsystem::RequestHotbarUnbind(const int32 SlotIndex, FString& OutError)
-{
-	OutError.Reset();
-	if (!HotbarPresentation.IsSet() || !HotbarPresentation->Projection.bEditable || !HotbarPresentation->Unbind)
-	{
-		OutError = TEXT("快捷栏解绑入口当前不可用。");
-		return false;
-	}
-	FCodeBHotbarProjection UpdatedProjection;
-	if (!HotbarPresentation->Unbind(SlotIndex, UpdatedProjection, OutError))
 	{
 		return false;
 	}

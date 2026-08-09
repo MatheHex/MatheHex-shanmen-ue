@@ -367,16 +367,21 @@ namespace demo_map_code_b
 	bool FCodeBP3UIController::MakeAddress(const FGuid& ContainerId, const int32 SlotIndex, FCodeBP3SlotAddress& OutAddress) const
 	{
 		const FCodeBP2ContainerView* Container = FindContainerView(ContainerId);
-		if (!Container || !Container->Slots.IsValidIndex(SlotIndex))
+		const FCodeBP2SlotView* Slot = Container
+			? Container->Slots.FindByPredicate([SlotIndex](const FCodeBP2SlotView& Candidate)
+				{ return Candidate.SlotIndex == SlotIndex; })
+			: nullptr;
+		if (!Slot)
 		{
 			return false;
 		}
-		const FCodeBP2SlotView& Slot = Container->Slots[SlotIndex];
 		OutAddress.ContainerId = ContainerId;
-		OutAddress.SlotIndex = Slot.SlotIndex;
-		OutAddress.SlotId = Slot.SlotId;
-		OutAddress.ItemId = Slot.ItemId;
-		OutAddress.bOccupied = Slot.bOccupied;
+		OutAddress.SlotIndex = Slot->SlotIndex;
+		OutAddress.SlotId = Slot->SlotId;
+		OutAddress.ItemId = Slot->ItemId;
+		OutAddress.bOccupied = Slot->bOccupied;
+		OutAddress.CellState = Slot->bOccupied ? ECodeBP3CellState::Revealed : ECodeBP3CellState::Empty;
+		OutAddress.SearchLocator = FCodeBP3SearchLocator();
 		return true;
 	}
 
@@ -393,6 +398,8 @@ namespace demo_map_code_b
 					OutAddress.SlotId = Slot.SlotId;
 					OutAddress.ItemId = Slot.ItemId;
 					OutAddress.bOccupied = true;
+					OutAddress.CellState = ECodeBP3CellState::Revealed;
+					OutAddress.SearchLocator = FCodeBP3SearchLocator();
 					return true;
 				}
 			}
@@ -690,10 +697,6 @@ namespace demo_map_code_b
 
 	FString FCodeBP3UIController::GetResultFeedback(const FCodeBP2ApplicationResult& Result)
 	{
-		if (Result.Code == ECodeBP2ResultCode::LoadedSpatialItemMoveUnsupported)
-		{
-			return TEXT("空间道具已装载物品，暂不支持整体移动（LoadedSpatialItemMoveUnsupported）");
-		}
 		if (Result.P1Result.Code == ECodeBResultCode::StaleRevision)
 		{
 			return TEXT("物品状态已变化，请重新操作");

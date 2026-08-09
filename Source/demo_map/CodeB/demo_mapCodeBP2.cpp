@@ -388,28 +388,6 @@ namespace demo_map_code_b
 		return FCodeBP2ProjectionBuilder::Build(Repository, Layout, OutProjection, nullptr, OutError);
 	}
 
-	bool FCodeBP2ApplicationService::IsLoadedSpatialItemMoveUnsupported(const FCodeBP2Command& Command, FString& OutMessage) const
-	{
-		if (Command.Operation != ECodeBOperation::Move
-			&& Command.Operation != ECodeBOperation::Swap
-			&& Command.Operation != ECodeBOperation::Equip
-			&& Command.Operation != ECodeBOperation::Unequip)
-		{
-			return false;
-		}
-		const FCodeBItemInstance* Item = Repository.FindItem(Command.ItemId);
-		if (!Item || !Item->ChildContainerId.IsValid() || Command.SourceContainerId == Command.TargetContainerId)
-		{
-			return false;
-		}
-		if (!IsEmptyContainer(Repository, Item->ChildContainerId))
-		{
-			OutMessage = TEXT("Loaded spatial-item overall movement is outside P2 scope.");
-			return true;
-		}
-		return false;
-	}
-
 	FCodeBP2ApplicationResult FCodeBP2ApplicationService::Apply(const FCodeBP2Command& Command)
 	{
 		FCodeBP2ApplicationResult Result;
@@ -427,15 +405,6 @@ namespace demo_map_code_b
 			EffectiveCommand.TransactionId = FGuid::NewGuid();
 		}
 		Result.Command = EffectiveCommand;
-
-		FString UnsupportedMessage;
-		if (IsLoadedSpatialItemMoveUnsupported(EffectiveCommand, UnsupportedMessage))
-		{
-			Result.Code = ECodeBP2ResultCode::LoadedSpatialItemMoveUnsupported;
-			Result.Message = UnsupportedMessage;
-			BuildCurrentProjection(Result.Projection, nullptr);
-			return Result;
-		}
 
 		FCodeBTransactionRequest Request;
 		Request.TransactionId = EffectiveCommand.TransactionId;

@@ -10,13 +10,13 @@ canonical_entry = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Scripts\Invoke-Shanmen.ps1
 foundation_audit = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Scripts\Invoke-FoundationAudit.ps1
 handoff_ledger = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Scripts\Update-HandoffLedger.ps1
 i_stage_gate = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Process\I_STAGE_FOUNDATION_GATE.md
-current_task = Dev.D.UE.0.0.9BFix.P3
-current_status = READY_FOR_0_0_9BFIX_P4_OR_F_PLANNING
+current_task = Dev.D.UE.0.0.9BFix.P4
+current_status = READY_FOR_0_0_9BFIX2_REPLANNING
 prompt_directory = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Prompt
 report_directory = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Report
 version_report = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Dev.D.UE-0.0.9B.codex.report.md
-current_prompt = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Prompt\Dev.D.UE.0.0.9BFix.P3_prompt.md
-current_report = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Report\Dev.D.UE.0.0.9BFix.P3_report.md
+current_prompt = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Prompt\Dev.D.UE.0.0.9BFix.P4_prompt.md
+current_report = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Report\Dev.D.UE.0.0.9BFix.P4_report.md
 formal_P_stage_started = true
 code_B_source = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Source\demo_map\CodeB
 p2_source = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Source\demo_map\CodeB
@@ -51,6 +51,8 @@ actual_baseline_source = C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9-XFix1
 - P 阶段继续只做功能开发、代码审查和 Prompt 要求的最小编译；真实产品测试统一留给 F。
 - Prompt/Report 交接按 `DOWNLOADED_HASHED → EXECUTED → REPORT_WRITTEN_HASHED → ATTACHMENT_VISIBLE → MARKER_SENT → NEXT_PROMPT_HASHED` 持久化；没有真实附件可见确认时禁止发送完成标识。
 - 中断由交接账本记录 `BLOCKED` 与失败前状态，恢复时必须执行 `ResumeBlocked` 续接；未取得并归档下一份 Prompt 不算完成。
+
+0.0.9BFix.P4：P7 Tab、P10 普通容器与 P12 尸体页面已收敛为同一局内物品 workspace。玩家装备、BaseQuick、真实空间 ChildContainer、P13 快捷引用以及右侧外部目标共用同一稳定 `Owner/Run/Scope/ContainerId/SlotIndex` Cell 地址、四态 `Empty/Hidden/Searching/Revealed` 投影、selection/hover 与 P4 payload。Hidden/Searching 搜索改用不含隐藏 ItemId 的持久化 target/container/slot/revision locator；固定容器严格按 Capacity 和 SlotIndex 建 Cell，空间区交叉验证正式 Definition 与 ChildContainer Capacity，并显示完整动态格数。Loaded spatial parent 的旧 P2/P4 类型阻断已删除，P1 与 P10/P12 composite commit 继续裁决完整图事务。`Ctrl+左键` 复用同一 Preview/Commit，只按 SlotIndex 先 Merge 后 Empty 且不 Swap/Split/自动装备；右键只读。`Shift+1—9` 只在活动 P6 workspace、非 repeat、UI focus 下按 hover→selection 解析并调用 P13，普通数字不会进入 P15。左右各有独立可见纵向 ScrollBox 并保留 offset。2026-08-09 Editor 与 Game Win64 Development 均以 native exit code `0`、UBT `Succeeded` 完成；未运行产品、真实输入、截图、自动化、Smoke、回归、Cook、Package 或最终验收。状态：`READY_FOR_0_0_9BFIX2_REPLANNING`。
 
 0.0.9BFix.P3：将宗门 UI Host 的唯一出战请求收敛为 `StartAttemptId` 关联的 `Coordinator → M01RuntimeAdapter → RuntimeReady` 链。Adapter 仅验证正式 M01 descriptor／World／GameMode／WorldSettings／Controller／Pawn／GameOnly 输入的当前事实，接受既有 M01 materialization 请求后才报告同 Attempt 的 RuntimeReady；旧、重复或不匹配回执不改变状态。Coordinator 在 `RuntimeReady → InRun` 后才调用 selection-aware P5→P6 observer；其拒绝仅是审计，不能伪装为 activation failure。TechnicalStartFailure 只释放匹配 attempt 的 transient state、回滚尚未确认的 Code A prepared run、复核无 P6 session 后返回 AtSect，并清除活动 Run identity；P5 未移动／锁定、P8 零写入。P3 未修改 `demo_mapGameMode`／`demo_mapPlayerController`、地图、Actor、战斗、库存或终局权威。2026-08-08 指定 Editor 和 Game Development 两个原生命令均以 exit code `0`、UBT `Succeeded` 完成；未启动产品、CTA、PIE、截图、自动化、Smoke、回归、Cook、Package 或最终验收。状态：`READY_FOR_0_0_9BFIX_P4_OR_F_PLANNING`。
 

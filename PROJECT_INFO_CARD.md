@@ -4,7 +4,7 @@
 
 - 项目名称：Shanmen Unreal
 - 项目编号：`Dev.D.UE.0.0.9B`
-- 当前阶段：`0.0.9BFix.P3`
+- 当前阶段：`0.0.9BFix.P4`
 - 活动开发根：`C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B`
 - 隔离根：`C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B_QUARANTINE_I0R0_FROM_0.0.9-XFix1_20260804T194204`
 - Unreal 工程：`C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\demo_map.uproject`
@@ -12,14 +12,14 @@
 
 ## 当前任务
 
-- 当前任务：`Dev.D.UE.0.0.9BFix.P3`
-- 当前状态：`READY_FOR_0_0_9BFIX_P4_OR_F_PLANNING`
-- 下一任务：等待策划部下发修复线后续任务或 `0.0.9B.F`；不得自行进入未下发任务。
+- 当前任务：`Dev.D.UE.0.0.9BFix.P4`
+- 当前状态：`READY_FOR_0_0_9BFIX2_REPLANNING`
+- 下一任务：等待策划部回收 P4 Report 并重新规划 `0.0.9BFix2`；不得自行开始 P5、Fix2 或 F。
 - Prompt 目录：`C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Prompt`
-- 当前 Prompt：`C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Prompt\Dev.D.UE.0.0.9BFix.P3_prompt.md`
+- 当前 Prompt：`C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Prompt\Dev.D.UE.0.0.9BFix.P4_prompt.md`
 - Task Report 目录：`C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Report`
 - Version Report：`C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Dev.D.UE-0.0.9B.codex.report.md`
-- 当前 Report：`C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Report\Dev.D.UE.0.0.9BFix.P3_report.md`
+- 当前 Report：`C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Docs\Report\Dev.D.UE.0.0.9BFix.P4_report.md`
 
 ## 基础调用与 I 阶段门禁
 
@@ -31,6 +31,7 @@
 - I 阶段审计：`Scripts\Invoke-FoundationAudit.ps1`；每个 I 阶段开始和结束必须执行，规则见 `Docs\Process\I_STAGE_FOUNDATION_GATE.md`。
 - 交接账本：`Scripts\Update-HandoffLedger.ps1`；真实 Report 附件在策划 Chat 可见前不得进入 `MARKER_SENT`。
 - 阶段分工：P 开发／静态审查／最小编译，I 接入／基础自查，F Package／内部回归／真实 Windows 输入／最终发布。
+- P4 局内统一工作台：Tab、普通容器、尸体共用同一玩家 pane、四态 Cell、稳定 SlotIndex、通用完整图 Drag、`Ctrl+左键` Quick Transfer、`Shift+1—9` P13 Bind、动态空间 Capacity 与左右独立滚动。右键无位置写入，UI focus 下普通 1—9 不进入 P15；真实验证保留给后续 Fix2/F 规划。Editor/Game Development 均 `Succeeded`。
 
 ## 来源与隔离
 

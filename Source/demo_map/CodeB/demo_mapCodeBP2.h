@@ -10,7 +10,6 @@ namespace demo_map_code_b
 		Success,
 		FixtureInvalid,
 		InvalidCommand,
-		LoadedSpatialItemMoveUnsupported,
 		ProjectionFailure,
 		P1Failure
 	};
@@ -182,8 +181,6 @@ namespace demo_map_code_b
 		FCodeBP2ApplicationResult Apply(const FCodeBP2Command& Command);
 
 	private:
-		bool IsLoadedSpatialItemMoveUnsupported(const FCodeBP2Command& Command, FString& OutMessage) const;
-
 		FCodeBRepository& Repository;
 		FCodeBP2PlayerLayout Layout;
 	};

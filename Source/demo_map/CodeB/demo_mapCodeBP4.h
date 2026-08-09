@@ -15,6 +15,9 @@ namespace demo_map_code_b
 		FName DefinitionId;
 		int32 Quantity = 0;
 		int32 Quality = 0;
+		ECodeBP3InventoryScope SourceScope = ECodeBP3InventoryScope::Unknown;
+		FGuid OwnerId;
+		FGuid RunInstanceId;
 		uint32 SessionId = 0;
 
 		bool IsValid() const { return Source.IsValid() && ItemId.IsValid() && ExpectedRevision != INDEX_NONE && SessionId != 0; }
@@ -64,7 +67,6 @@ namespace demo_map_code_b
 		const FCodeBP2ContainerView* FindContainer(const FGuid& ContainerId) const;
 		const FCodeBP2SlotView* FindSlot(const FCodeBP3SlotAddress& Address) const;
 		bool IsEquipmentContainer(const FGuid& ContainerId) const;
-		bool IsLoadedSpatialItem(const FCodeBP4DragPayload& Payload) const;
 		bool IsCompatibleEquipmentTarget(const FCodeBP2SlotView& Source, const FGuid& TargetContainerId) const;
 		static int32 GetMaxStack(const FName& DefinitionId);
 		static FCodeBP4DropPreview Reject(const FString& Message);

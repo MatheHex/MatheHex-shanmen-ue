@@ -315,7 +315,7 @@ bool FCodeBP2SpatialInternalRoundTripTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCodeBP2LoadedSpatialMoveTest, "demo_map.CodeB.P2.LoadedSpatialMoveUnsupported", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCodeBP2LoadedSpatialMoveTest, "demo_map.CodeB.P2.LoadedSpatialMovePreservesGraph", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FCodeBP2LoadedSpatialMoveTest::RunTest(const FString& Parameters)
 {
 	FCodeBP2Fixture Fixture;
@@ -324,10 +324,17 @@ bool FCodeBP2LoadedSpatialMoveTest::RunTest(const FString& Parameters)
 	const FCodeBP2FixtureIds& Ids = Fixture.GetIds();
 	ExpectSuccess(*this, Service.Apply(MakeCommand(Fixture.GetRepository(), ECodeBOperation::Equip, Ids.SpatialItemId, Ids.SpatialContainerId, 0, 160)), TEXT("Loaded spatial item equip"));
 	ExpectSuccess(*this, Service.Apply(MakeCommand(Fixture.GetRepository(), ECodeBOperation::Move, Ids.DustAItemId, Ids.SpatialInternalContainerId, 0, 161)), TEXT("Load spatial item internal storage"));
-	const FCodeBSnapshot Before = Fixture.GetRepository().CaptureSnapshot();
+	const FCodeBItemInstance* ParentBefore = Fixture.GetRepository().FindItem(Ids.SpatialItemId);
+	const FGuid ChildContainerId = ParentBefore ? ParentBefore->ChildContainerId : FGuid();
 	const FCodeBP2ApplicationResult Result = Service.Apply(MakeCommand(Fixture.GetRepository(), ECodeBOperation::Unequip, Ids.SpatialItemId, Ids.WarehouseContainerId, 5, 162));
-	TestTrue(TEXT("Loaded spatial item move is explicitly unsupported"), !Result.IsSuccess() && Result.Code == ECodeBP2ResultCode::LoadedSpatialItemMoveUnsupported);
-	TestTrue(TEXT("Unsupported loaded spatial item move is atomic"), Fixture.GetRepository().CaptureSnapshot() == Before);
+	ExpectSuccess(*this, Result, TEXT("Loaded spatial parent moves through the common P1 transaction"));
+	const FCodeBItemInstance* ParentAfter = Fixture.GetRepository().FindItem(Ids.SpatialItemId);
+	const FCodeBItemInstance* ChildAfter = Fixture.GetRepository().FindItem(Ids.DustAItemId);
+	TestTrue(TEXT("Loaded spatial move preserves parent and ChildContainer identity"),
+		ParentAfter && ParentAfter->ParentContainerId == Ids.WarehouseContainerId
+		&& ParentAfter->SlotIndex == 5 && ParentAfter->ChildContainerId == ChildContainerId);
+	TestTrue(TEXT("Loaded spatial move preserves the complete child placement graph"),
+		ChildAfter && ChildAfter->ParentContainerId == ChildContainerId && ChildAfter->SlotIndex == 0);
 	return true;
 }
 
