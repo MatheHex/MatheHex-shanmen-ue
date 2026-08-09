@@ -243,6 +243,46 @@ namespace demo_map_code_b
 		return true;
 	}
 
+	bool FCodeBP3UIController::ValidateSplitSource(
+		const FCodeBP3SlotAddress& Address,
+		const int32 RequestedQuantity,
+		FString& OutError) const
+	{
+		OutError.Reset();
+		if (!bOpen || !ProfileRepository || !Address.IsValid() || !Address.ItemId.IsValid())
+		{
+			OutError = TEXT("拆分只接受当前真实 Profile／Run 图中的已显示物品。");
+			return false;
+		}
+		const FCodeBItemInstance* Item = ProfileRepository->FindItem(Address.ItemId);
+		const FCodeBItemDefinition* Definition = Item
+			? ProfileRepository->FindDefinition(Item->DefinitionId) : nullptr;
+		const FCodeBContainer* Container = Item
+			? ProfileRepository->FindContainer(Item->ParentContainerId) : nullptr;
+		if (!Item || !Definition || !Container
+			|| Item->ParentContainerId != Address.ContainerId
+			|| Item->SlotIndex != Address.SlotIndex
+			|| !Container->Slots.IsValidIndex(Address.SlotIndex)
+			|| Container->Slots[Address.SlotIndex] != Item->ItemId)
+		{
+			OutError = TEXT("拆分来源已变化，请重新选择。");
+			return false;
+		}
+		if (Container->IsEquipment() || Item->ChildContainerId.IsValid()
+			|| !Definition->bStackable || Definition->MaxStack <= 1
+			|| Item->Quantity <= 1)
+		{
+			OutError = TEXT("只有普通储物格中的无子容器可堆叠物品才能拆分。");
+			return false;
+		}
+		if (RequestedQuantity < 1 || RequestedQuantity >= Item->Quantity)
+		{
+			OutError = FString::Printf(TEXT("拆分数量必须在 1—%d 之间。"), Item->Quantity - 1);
+			return false;
+		}
+		return true;
+	}
+
 	const FCodeBP2ContainerView* FCodeBP3UIController::FindContainerView(const FGuid& ContainerId) const
 	{
 		return Projection.Containers.FindByPredicate([&ContainerId](const FCodeBP2ContainerView& Candidate)

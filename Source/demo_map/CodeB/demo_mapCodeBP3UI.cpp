@@ -2080,7 +2080,10 @@ void UCodeBP3CellButton::NativeOnDragDetected(const FGeometry& InGeometry, const
 	UCodeBP4DragOperation* Operation = NewObject<UCodeBP4DragOperation>(this);
 	Operation->Configure(Payload, OwnerWidget.Get());
 	UTextBlock* DragVisual = NewObject<UTextBlock>(Operation);
-	DragVisual->SetText(FText::FromString(FString::Printf(TEXT("拖拽：%s  x%d"), *Payload.DefinitionId.ToString(), Payload.Quantity)));
+	const FString DragLabel = Payload.bSplitIntent
+		? FString::Printf(TEXT("拆分拖拽：%s  x%d"), *Payload.DefinitionId.ToString(), Payload.Quantity)
+		: FString::Printf(TEXT("拖拽：%s  x%d"), *Payload.DefinitionId.ToString(), Payload.Quantity);
+	DragVisual->SetText(FText::FromString(DragLabel));
 	DragVisual->SetFont(FSlateFontInfo(FCoreStyle::GetDefaultFont(), 16));
 	DragVisual->SetColorAndOpacity(FSlateColor(FLinearColor(0.86f, 0.95f, 1.0f)));
 	Operation->DefaultDragVisual = DragVisual;
@@ -2186,6 +2189,8 @@ void UCodeBP3InventoryWidget::NativeDestruct()
 	P4PreviewAddress.Reset();
 	P4Preview.Reset();
 	HoveredAddress.Reset();
+	bSplitQuantityInputOpen = false;
+	SplitInputItemId.Invalidate();
 	ContextMenuRevision = INDEX_NONE;
 	if (Host.IsValid())
 	{
@@ -2246,7 +2251,21 @@ FReply UCodeBP3InventoryWidget::NativeOnKeyDown(const FGeometry& InGeometry, con
 		}
 		ContextMenuAddress.Reset();
 		ContextMenuRevision = INDEX_NONE;
-		if (Host.IsValid() && Host->GetController() && Host->GetController()->GetOperationMode() != ECodeBP3OperationMode::None)
+		if (bSplitQuantityInputOpen)
+		{
+			bSplitQuantityInputOpen = false;
+			SplitInputItemId.Invalidate();
+			if (Host.IsValid() && Host->GetController())
+			{
+				Host->GetController()->SetP4Feedback(TEXT("拆分数量输入已取消，未写入物品状态"));
+			}
+			RefreshFromController();
+		}
+		else if (Host.IsValid() && Host->CancelSplitDraft())
+		{
+			RefreshFromController();
+		}
+		else if (Host.IsValid() && Host->GetController() && Host->GetController()->GetOperationMode() != ECodeBP3OperationMode::None)
 		{
 			Host->GetController()->CancelOperation(TEXT("已取消当前操作"));
 			RefreshFromController();
@@ -2258,6 +2277,23 @@ FReply UCodeBP3InventoryWidget::NativeOnKeyDown(const FGeometry& InGeometry, con
 		return FReply::Handled();
 	}
 	return Super::NativeOnKeyDown(InGeometry, InKeyEvent);
+}
+
+void UCodeBP3InventoryWidget::NativeOnFocusLost(const FFocusEvent& InFocusEvent)
+{
+	// Child controls take focus during normal quantity entry.  Only an actual
+	// page/window blur clears the transient intent; internal mouse focus does not.
+	if (InFocusEvent.GetCause() == EFocusCause::WindowActivate
+		|| InFocusEvent.GetCause() == EFocusCause::Cleared)
+	{
+		bSplitQuantityInputOpen = false;
+		SplitInputItemId.Invalidate();
+		if (Host.IsValid())
+		{
+			Host->CancelSplitDraft(TEXT("页面失去焦点，拆分草稿已清除且未写入"));
+		}
+	}
+	Super::NativeOnFocusLost(InFocusEvent);
 }
 
 void UCodeBP3InventoryWidget::NativeOnDragCancelled(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
@@ -2525,6 +2561,11 @@ FLinearColor UCodeBP3InventoryWidget::GetNormalCellColor(const FCodeBP3SlotAddre
 	{
 		return PendingColor;
 	}
+	if (const FCodeBP3SplitDraft* Draft = Host->GetSplitDraft();
+		Draft && Draft->Source.ContainerId == Address.ContainerId && Draft->Source.SlotIndex == Address.SlotIndex)
+	{
+		return PendingColor;
+	}
 	const TOptional<FCodeBP3SlotAddress>& Selected = Host->GetController()->GetSelectedAddress();
 	if (Selected.IsSet() && Selected->ContainerId == Address.ContainerId && Selected->SlotIndex == Address.SlotIndex)
 	{
@@ -2551,8 +2592,13 @@ bool UCodeBP3InventoryWidget::BeginP4Drag(UCodeBP3CellButton* CellButton, FCodeB
 	}
 	if (FCodeBP4InteractionController* Interaction = GetP4Controller())
 	{
-		const bool bStarted = Interaction->BeginDrag(CellButton->GetAddress(), OutPayload);
+		const bool bStarted = Host->BeginInventoryDrag(
+			*Interaction, CellButton->GetAddress(), OutPayload, GateError);
 		if (bStarted && Host.IsValid()) Host->PopulateTransferContext(OutPayload);
+		else if (!GateError.IsEmpty() && Host.IsValid() && Host->GetController())
+		{
+			Host->GetController()->SetP4Feedback(GateError);
+		}
 		return bStarted;
 	}
 	return false;
@@ -2912,6 +2958,65 @@ void UCodeBP3InventoryWidget::AddDetailAndActions(UVerticalBox* Parent)
 	Actions->AddChildToVerticalBox(MakeText(WidgetTree, TEXT("拖拽使用明确目标；Ctrl+左键只按稳定候选顺序合并或进入空槽，不交换、不拆分、不自动装备；右键只读。"), 13, FLinearColor(0.72f, 0.82f, 0.92f)));
 	if (Host.IsValid() && Host->GetController() && Host->GetController()->GetSelectedAddress().IsSet())
 	{
+		const FCodeBP3SlotAddress& Selected = Host->GetController()->GetSelectedAddress().GetValue();
+		FString SplitEligibilityError;
+		if (Host->GetController()->ValidateSplitSource(Selected, 1, SplitEligibilityError))
+		{
+			const FCodeBP3SplitDraft* Draft = Host->GetSplitDraft();
+			const bool bMatchingDraft = Draft
+				&& Draft->SourceItemId == Selected.ItemId
+				&& Draft->Source.ContainerId == Selected.ContainerId
+				&& Draft->Source.SlotIndex == Selected.SlotIndex;
+			if (bMatchingDraft)
+			{
+				bSplitQuantityInputOpen = false;
+				SplitInputItemId.Invalidate();
+				Actions->AddChildToVerticalBox(MakeText(
+					WidgetTree,
+					FString::Printf(TEXT("拆分草稿：%d 个。拖动此来源堆到明确空储物格；新 ItemId 只在 Drop 成功时由 P1 创建。"), Draft->RequestedQuantity),
+					13, FLinearColor(0.78f, 0.88f, 0.98f)))->SetPadding(FMargin(2.0f, 8.0f, 2.0f, 2.0f));
+				UButton* CancelButton = WidgetTree->ConstructWidget<UButton>();
+				CancelButton->SetBackgroundColor(FLinearColor(0.30f, 0.12f, 0.10f, 1.0f));
+				CancelButton->SetContent(MakeText(WidgetTree, TEXT("取消拆分草稿"), 15));
+				CancelButton->OnClicked.AddDynamic(this, &UCodeBP3InventoryWidget::OnCancelSplitClicked);
+				Actions->AddChildToVerticalBox(CancelButton)->SetPadding(FMargin(2.0f));
+			}
+			else if (bSplitQuantityInputOpen && SplitInputItemId == Selected.ItemId)
+			{
+				Actions->AddChildToVerticalBox(MakeText(
+					WidgetTree, TEXT("输入要拆出的数量；此输入仍是临时 UI 状态，不会修改权威数量。"),
+					13, FLinearColor(0.78f, 0.88f, 0.98f)))->SetPadding(FMargin(2.0f, 8.0f, 2.0f, 2.0f));
+				SplitQuantityBox = WidgetTree->ConstructWidget<UEditableTextBox>();
+				SplitQuantityBox->SetText(FText::AsNumber(1));
+				SplitQuantityBox->SetHintText(FText::FromString(TEXT("拆分数量")));
+				Actions->AddChildToVerticalBox(SplitQuantityBox)->SetPadding(FMargin(2.0f));
+				UButton* ConfirmButton = WidgetTree->ConstructWidget<UButton>();
+				ConfirmButton->SetBackgroundColor(HeaderColor);
+				ConfirmButton->SetContent(MakeText(WidgetTree, TEXT("确认拆分草稿"), 15));
+				ConfirmButton->OnClicked.AddDynamic(this, &UCodeBP3InventoryWidget::OnBeginSplitClicked);
+				Actions->AddChildToVerticalBox(ConfirmButton)->SetPadding(FMargin(2.0f));
+				UButton* CancelButton = WidgetTree->ConstructWidget<UButton>();
+				CancelButton->SetBackgroundColor(FLinearColor(0.30f, 0.12f, 0.10f, 1.0f));
+				CancelButton->SetContent(MakeText(WidgetTree, TEXT("取消数量输入"), 15));
+				CancelButton->OnClicked.AddDynamic(this, &UCodeBP3InventoryWidget::OnCancelSplitClicked);
+				Actions->AddChildToVerticalBox(CancelButton)->SetPadding(FMargin(2.0f));
+			}
+			else
+			{
+				bSplitQuantityInputOpen = false;
+				SplitInputItemId.Invalidate();
+				UButton* OpenSplitButton = WidgetTree->ConstructWidget<UButton>();
+				OpenSplitButton->SetBackgroundColor(HeaderColor);
+				OpenSplitButton->SetContent(MakeText(WidgetTree, TEXT("拆分"), 15));
+				OpenSplitButton->OnClicked.AddDynamic(this, &UCodeBP3InventoryWidget::OnOpenSplitClicked);
+				Actions->AddChildToVerticalBox(OpenSplitButton)->SetPadding(FMargin(2.0f, 8.0f, 2.0f, 2.0f));
+			}
+		}
+		else if (SplitInputItemId == Selected.ItemId || bSplitQuantityInputOpen)
+		{
+			bSplitQuantityInputOpen = false;
+			SplitInputItemId.Invalidate();
+		}
 		const bool bActiveRunBacked = Host->GetController()->IsActiveRunBacked();
 		UButton* GuidanceButton = WidgetTree->ConstructWidget<UButton>();
 		GuidanceButton->SetBackgroundColor(HeaderColor);
@@ -2988,6 +3093,7 @@ void UCodeBP3InventoryWidget::BuildPageContents()
 	}
 	PageContents->ClearChildren();
 	MountedCells.Reset();
+	SplitQuantityBox = nullptr;
 	CloseButton = nullptr;
 	PlayerScrollBox = nullptr;
 	TargetScrollBox = nullptr;
@@ -3204,6 +3310,8 @@ void UCodeBP3InventoryWidget::HandleQuickTransfer(UCodeBP3CellButton* CellButton
 		return;
 	}
 	const FCodeBP3SlotAddress& SourceAddress = CellButton->GetAddress();
+	// Ctrl+左键始终保留原有完整堆 Quick Transfer；不消费拆分数量。
+	Host->CancelSplitDraft(TEXT("Ctrl+左键保持完整堆 Quick Transfer；拆分草稿已清除"));
 	if (Host->IsNormalContainerSlotProtected(SourceAddress.ContainerId, SourceAddress.SlotIndex)
 		|| Host->IsBodyContainerSlotProtected(SourceAddress.ContainerId, SourceAddress.SlotIndex))
 	{
@@ -3361,6 +3469,68 @@ void UCodeBP3InventoryWidget::OnUnequipGuidanceClicked()
 		RefreshFromController();
 	}
 }
+
+void UCodeBP3InventoryWidget::OnOpenSplitClicked()
+{
+	if (!Host.IsValid() || !Host->GetController()
+		|| !Host->GetController()->GetSelectedAddress().IsSet())
+	{
+		return;
+	}
+	const FCodeBP3SlotAddress& Selected = Host->GetController()->GetSelectedAddress().GetValue();
+	FString Error;
+	if (!Host->GetController()->ValidateSplitSource(Selected, 1, Error))
+	{
+		Host->GetController()->SetP4Feedback(Error);
+		return;
+	}
+	Host->CancelSplitDraft(TEXT("已用新的数量输入替换旧拆分草稿"));
+	bSplitQuantityInputOpen = true;
+	SplitInputItemId = Selected.ItemId;
+	Host->GetController()->SetP4Feedback(TEXT("拆分数量输入已打开；尚未写入任何物品状态。"));
+	RefreshFromController();
+}
+
+void UCodeBP3InventoryWidget::OnBeginSplitClicked()
+{
+	if (!Host.IsValid() || !Host->GetController() || !SplitQuantityBox
+		|| !Host->GetController()->GetSelectedAddress().IsSet())
+	{
+		return;
+	}
+	const FString QuantityText = SplitQuantityBox->GetText().ToString().TrimStartAndEnd();
+	bool bIntegerText = !QuantityText.IsEmpty();
+	for (const TCHAR Character : QuantityText)
+	{
+		bIntegerText = bIntegerText && FChar::IsDigit(Character);
+	}
+	const int32 RequestedQuantity = FCString::Atoi(*QuantityText);
+	FString Error;
+	if (!bIntegerText || !Host->CreateSplitDraft(
+		Host->GetController()->GetSelectedAddress().GetValue(), RequestedQuantity, Error))
+	{
+		Host->GetController()->SetP4Feedback(Error.IsEmpty()
+			? TEXT("请输入合法的整数拆分数量。") : Error);
+	}
+	else
+	{
+		bSplitQuantityInputOpen = false;
+		SplitInputItemId.Invalidate();
+	}
+	RefreshFromController();
+}
+
+void UCodeBP3InventoryWidget::OnCancelSplitClicked()
+{
+	if (Host.IsValid())
+	{
+		Host->CancelSplitDraft();
+	}
+	bSplitQuantityInputOpen = false;
+	SplitInputItemId.Invalidate();
+	RefreshFromController();
+}
+
 void UCodeBP3InventoryWidget::OnContextDetailClicked()
 {
 	if (ContextMenuAddress.IsSet() && Host.IsValid() && Host->GetController())
@@ -3905,16 +4075,139 @@ void UCodeBP3UIHostSubsystem::PopulateTransferContext(FCodeBP4DragPayload& Paylo
 	}
 }
 
+bool UCodeBP3UIHostSubsystem::CreateSplitDraft(
+	const FCodeBP3SlotAddress& Source,
+	const int32 RequestedQuantity,
+	FString& OutError)
+{
+	OutError.Reset();
+	if (!CanWriteWorkspace(OutError) || !Controller.IsValid())
+	{
+		SplitDraft.Reset();
+		return false;
+	}
+	FCodeBP3SlotAddress AuthoritativeSource;
+	if (!Controller->MakeAddress(Source.ContainerId, Source.SlotIndex, AuthoritativeSource)
+		|| !AuthoritativeSource.IsRevealed() || AuthoritativeSource.ItemId != Source.ItemId)
+	{
+		OutError = TEXT("拆分来源已变化或当前不可见。");
+		SplitDraft.Reset();
+		return false;
+	}
+	PopulateAddressContext(AuthoritativeSource);
+	if (IsWorldDropPresentation(AuthoritativeSource.ContainerId))
+	{
+		OutError = TEXT("P14 地面完整图不进入拆分流程。");
+		SplitDraft.Reset();
+		return false;
+	}
+	if (!Controller->ValidateSplitSource(AuthoritativeSource, RequestedQuantity, OutError))
+	{
+		SplitDraft.Reset();
+		return false;
+	}
+
+	FCodeBP4DragPayload IdentityProbe;
+	IdentityProbe.Source = AuthoritativeSource;
+	PopulateTransferContext(IdentityProbe);
+	const FCodeBP2Projection& Projection = Controller->GetProjection();
+	FGuid GraphIdentity;
+	if (NormalContainerPresentation.IsSet()) GraphIdentity = NormalContainerPresentation->TargetContainerId;
+	else if (BodyContainerPresentation.IsSet()) GraphIdentity = BodyContainerPresentation->TargetContainerId;
+	else if (WorkspacePresentation.IsSet() && WorkspacePresentation->Context.IsOutOfRaidP5())
+		GraphIdentity = Projection.WarehouseContainerId;
+	else GraphIdentity = Projection.BasicContainerId;
+	if (!GraphIdentity.IsValid())
+	{
+		OutError = TEXT("当前共享工作台没有稳定图身份，拆分草稿未创建。");
+		SplitDraft.Reset();
+		return false;
+	}
+
+	FCodeBP3SplitDraft Draft;
+	Draft.WorkspaceScope = WorkspacePresentation.IsSet()
+		? WorkspacePresentation->Context.Scope
+		: (Controller->IsActiveRunBacked() ? ECodeBP3WorkspaceScope::InRunP6 : ECodeBP3WorkspaceScope::OutOfRaidP5);
+	Draft.SourceScope = AuthoritativeSource.Scope;
+	Draft.OwnerId = IdentityProbe.OwnerId;
+	Draft.RunInstanceId = IdentityProbe.RunInstanceId;
+	Draft.GraphIdentity = GraphIdentity;
+	Draft.Source = AuthoritativeSource;
+	Draft.SourceItemId = AuthoritativeSource.ItemId;
+	Draft.ExpectedRevision = Controller->GetProjection().Revision;
+	Draft.RequestedQuantity = RequestedQuantity;
+	if (!Draft.IsValid() || !Draft.OwnerId.IsValid()
+		|| (Draft.WorkspaceScope == ECodeBP3WorkspaceScope::InRunP6 && !Draft.RunInstanceId.IsValid()))
+	{
+		OutError = TEXT("拆分草稿缺少 Owner／Run／图身份，未创建。");
+		SplitDraft.Reset();
+		return false;
+	}
+	SplitDraft = MoveTemp(Draft);
+	Controller->SetP4Feedback(FString::Printf(
+		TEXT("已准备拆分 %d 个；请拖动同一来源堆到明确空储物格。"), RequestedQuantity));
+	return true;
+}
+
+bool UCodeBP3UIHostSubsystem::BeginInventoryDrag(
+	FCodeBP4InteractionController& Interaction,
+	const FCodeBP3SlotAddress& Source,
+	FCodeBP4DragPayload& OutPayload,
+	FString& OutError)
+{
+	OutError.Reset();
+	if (!SplitDraft.IsSet())
+	{
+		return Interaction.BeginDrag(Source, OutPayload);
+	}
+	const FCodeBP3SplitDraft Draft = SplitDraft.GetValue();
+	if (Draft.Source.ContainerId != Source.ContainerId
+		|| Draft.Source.SlotIndex != Source.SlotIndex
+		|| Draft.SourceItemId != Source.ItemId)
+	{
+		CancelSplitDraft(TEXT("开始了另一项拖拽，旧拆分草稿已清除"));
+		return Interaction.BeginDrag(Source, OutPayload);
+	}
+	SplitDraft.Reset();
+	if (!CanWriteWorkspace(OutError) || !Controller.IsValid()
+		|| Draft.ExpectedRevision != Controller->GetProjection().Revision
+		|| !Controller->ValidateSplitSource(Source, Draft.RequestedQuantity, OutError))
+	{
+		if (OutError.IsEmpty()) OutError = TEXT("拆分草稿已过期，未开始拖拽。");
+		return false;
+	}
+	return Interaction.BeginSplitDrag(Source, Draft.RequestedQuantity, OutPayload);
+}
+
+bool UCodeBP3UIHostSubsystem::CancelSplitDraft(const FString& Reason)
+{
+	if (!SplitDraft.IsSet()) return false;
+	SplitDraft.Reset();
+	if (Controller.IsValid()) Controller->SetP4Feedback(Reason);
+	return true;
+}
+
 bool UCodeBP3UIHostSubsystem::CanWriteWorkspace(FString& OutError)
 {
 	OutError.Reset();
 	if (!Controller.IsValid() || !Controller->IsOpen())
 	{
+		SplitDraft.Reset();
 		OutError = TEXT("物品工作台已关闭。");
 		return false;
 	}
 	if (!WorkspacePresentation.IsSet())
 	{
+		if (SplitDraft.IsSet())
+		{
+			FString SplitError;
+			const FCodeBP3SplitDraft& Draft = SplitDraft.GetValue();
+			if (Draft.ExpectedRevision != Controller->GetProjection().Revision
+				|| !Controller->ValidateSplitSource(Draft.Source, Draft.RequestedQuantity, SplitError))
+			{
+				SplitDraft.Reset();
+			}
+		}
 		return true;
 	}
 	FCodeBP3InventoryWorkspaceContext& Context = WorkspacePresentation->Context;
@@ -3954,6 +4247,17 @@ bool UCodeBP3UIHostSubsystem::CanWriteWorkspace(FString& OutError)
 			Context.ActiveDestinationContainerId.Reset();
 		}
 	}
+	if (SplitDraft.IsSet())
+	{
+		FString SplitError;
+		const FCodeBP3SplitDraft& Draft = SplitDraft.GetValue();
+		if (Draft.OwnerId != Context.OwnerId || Draft.RunInstanceId != Context.RunInstanceId
+			|| Draft.ExpectedRevision != Projection.Revision
+			|| !Controller->ValidateSplitSource(Draft.Source, Draft.RequestedQuantity, SplitError))
+		{
+			SplitDraft.Reset();
+		}
+	}
 	if (Context.IsOutOfRaidP5())
 	{
 		if (Context.WriteGate == ECodeBP3WorkspaceWriteGate::AtSect)
@@ -3963,11 +4267,13 @@ bool UCodeBP3UIHostSubsystem::CanWriteWorkspace(FString& OutError)
 				return true;
 			}
 			OutError = TEXT("P5 Owner 或 Run scope 无效；未提交写入。");
+			SplitDraft.Reset();
 			return false;
 		}
 		OutError = Context.WriteGate == ECodeBP3WorkspaceWriteGate::StartAttemptPending
 			? TEXT("StartAttemptPending：出战尝试处理中，P5 写入暂时拒绝。")
 			: TEXT("当前不在 AtSect；P5 工作台只读且不会写入物品位置。");
+		SplitDraft.Reset();
 		return false;
 	}
 	if (Context.IsInRun())
@@ -3978,6 +4284,7 @@ bool UCodeBP3UIHostSubsystem::CanWriteWorkspace(FString& OutError)
 			return true;
 		}
 		OutError = TEXT("活动 Run 身份或生命周期已变化；当前工作台写入被拒绝。");
+		SplitDraft.Reset();
 		return false;
 	}
 	return true;
@@ -4075,6 +4382,7 @@ void UCodeBP3UIHostSubsystem::UpdateWorkspaceScroll(
 
 void UCodeBP3UIHostSubsystem::ClearWorkspaceTransientState()
 {
+	SplitDraft.Reset();
 	if (!WorkspacePresentation.IsSet()) return;
 	WorkspacePresentation->Context.ActiveDestinationContainerId.Reset();
 	WorkspacePresentation->Context.HoveredAddress.Reset();
@@ -4098,6 +4406,11 @@ bool UCodeBP3UIHostSubsystem::RequestGroundDrop(
 	FString& OutError)
 {
 	OutError.Reset();
+	if (Payload.bSplitIntent)
+	{
+		OutError = TEXT("P24 拆分拖拽只接受明确空储物格；P14 地面丢弃保持完整图语义。");
+		return false;
+	}
 	if (!GroundDropPresentation.IsSet() || !GroundDropPresentation->RequestDrop || !Payload.IsValid())
 	{
 		OutError = TEXT("地面丢弃入口当前不可用。");

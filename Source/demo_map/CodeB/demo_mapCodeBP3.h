@@ -133,6 +133,30 @@ namespace demo_map_code_b
 		bool IsInRun() const { return Scope == ECodeBP3WorkspaceScope::InRunP6; }
 	};
 
+	/**
+	 * P24's one transient split intent.  It captures only stable authority
+	 * identities and the requested quantity; P1 alone creates the new ItemId
+	 * when an explicit empty-cell Drop is finally accepted.
+	 */
+	struct FCodeBP3SplitDraft
+	{
+		ECodeBP3WorkspaceScope WorkspaceScope = ECodeBP3WorkspaceScope::Development;
+		ECodeBP3InventoryScope SourceScope = ECodeBP3InventoryScope::Unknown;
+		FGuid OwnerId;
+		FGuid RunInstanceId;
+		FGuid GraphIdentity;
+		FCodeBP3SlotAddress Source;
+		FGuid SourceItemId;
+		int32 ExpectedRevision = INDEX_NONE;
+		int32 RequestedQuantity = 0;
+
+		bool IsValid() const
+		{
+			return Source.IsValid() && SourceItemId.IsValid() && GraphIdentity.IsValid()
+				&& ExpectedRevision != INDEX_NONE && RequestedQuantity > 0;
+		}
+	};
+
 	/** P17's read-only active-Run view of one actual item-owned space container. */
 	struct FCodeBP7SpatialContainerProjection
 	{
@@ -183,6 +207,8 @@ namespace demo_map_code_b
 
 		bool MakeAddress(const FGuid& ContainerId, int32 SlotIndex, FCodeBP3SlotAddress& OutAddress) const;
 		bool SelectAddress(const FCodeBP3SlotAddress& Address);
+		/** Authority-backed P24 source check; it never mutates the repository. */
+		bool ValidateSplitSource(const FCodeBP3SlotAddress& Address, int32 RequestedQuantity, FString& OutError) const;
 		bool BeginOperation(ECodeBP3OperationMode InOperationMode);
 		void CancelOperation(const FString& Reason = TEXT("已取消当前操作"));
 		/** Clears an item selection whose authoritative P6 graph just left this transient page. */

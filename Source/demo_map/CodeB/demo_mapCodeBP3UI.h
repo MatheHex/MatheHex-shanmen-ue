@@ -176,6 +176,7 @@ protected:
 	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
 	virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
+	virtual void NativeOnFocusLost(const FFocusEvent& InFocusEvent) override;
 	virtual void NativeOnDragCancelled(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
 
 private:
@@ -215,6 +216,12 @@ private:
 	UFUNCTION()
 	void OnUnequipGuidanceClicked();
 	UFUNCTION()
+	void OnOpenSplitClicked();
+	UFUNCTION()
+	void OnBeginSplitClicked();
+	UFUNCTION()
+	void OnCancelSplitClicked();
+	UFUNCTION()
 	void OnContextDetailClicked();
 	UFUNCTION()
 	void OnCloseClicked();
@@ -245,7 +252,9 @@ private:
 	int32 CurrentP4SubmittedCommandCount = 0;
 	int32 CurrentP4P2CallCount = 0;
 	int32 CurrentP4RevisionBefore = INDEX_NONE;
+	FGuid SplitInputItemId;
 	bool bLayoutBuilt = false;
+	bool bSplitQuantityInputOpen = false;
 };
 
 /**
@@ -297,6 +306,17 @@ public:
 	void PopulateAddressContext(demo_map_code_b::FCodeBP3SlotAddress& Address) const;
 	void PopulateTransferContext(demo_map_code_b::FCodeBP4DragPayload& Payload) const;
 	bool ValidateTransferContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, FString& OutError);
+	bool CreateSplitDraft(const demo_map_code_b::FCodeBP3SlotAddress& Source, int32 RequestedQuantity, FString& OutError);
+	bool BeginInventoryDrag(
+		demo_map_code_b::FCodeBP4InteractionController& Interaction,
+		const demo_map_code_b::FCodeBP3SlotAddress& Source,
+		demo_map_code_b::FCodeBP4DragPayload& OutPayload,
+		FString& OutError);
+	bool CancelSplitDraft(const FString& Reason = TEXT("拆分草稿已取消，未写入物品状态"));
+	const demo_map_code_b::FCodeBP3SplitDraft* GetSplitDraft() const
+	{
+		return SplitDraft.IsSet() ? &SplitDraft.GetValue() : nullptr;
+	}
 	bool CanWriteWorkspace(FString& OutError);
 	bool IsOutOfRaidWorkspace() const;
 	bool ActivateOutOfRaidDestination(const demo_map_code_b::FCodeBP3SlotAddress& Address);
@@ -345,4 +365,5 @@ private:
 	TOptional<FCodeBP3GroundDropPresentation> GroundDropPresentation;
 	TOptional<FCodeBP3WorldDropPresentation> WorldDropPresentation;
 	TOptional<FCodeBP3WorkspacePresentation> WorkspacePresentation;
+	TOptional<demo_map_code_b::FCodeBP3SplitDraft> SplitDraft;
 };

@@ -67,6 +67,170 @@ namespace
 		return FDateTime::UtcNow().ToIso8601();
 	}
 
+	bool BuildP24PriorComposite(
+		const FCodeBSnapshot& PlayerSnapshot,
+		const FCodeBSnapshot& TargetSnapshot,
+		FCodeBSnapshot& OutComposite,
+		FString& OutError)
+	{
+		OutComposite = PlayerSnapshot;
+		OutComposite.Revision = FMath::Max(PlayerSnapshot.Revision, TargetSnapshot.Revision);
+		for (const TPair<FName, FCodeBItemDefinition>& Pair : TargetSnapshot.Definitions)
+		{
+			if (const FCodeBItemDefinition* Existing = OutComposite.Definitions.Find(Pair.Key);
+				Existing && !(*Existing == Pair.Value))
+			{
+				OutError = TEXT("P24 split boundary found conflicting player/target definitions.");
+				return false;
+			}
+			OutComposite.Definitions.Add(Pair.Key, Pair.Value);
+		}
+		for (const TPair<FGuid, FCodeBItemInstance>& Pair : TargetSnapshot.Items)
+		{
+			if (OutComposite.Items.Contains(Pair.Key))
+			{
+				OutError = TEXT("P24 split boundary found duplicate player/target item identities.");
+				return false;
+			}
+			OutComposite.Items.Add(Pair.Key, Pair.Value);
+		}
+		for (const TPair<FGuid, FCodeBContainer>& Pair : TargetSnapshot.Containers)
+		{
+			if (OutComposite.Containers.Contains(Pair.Key))
+			{
+				OutError = TEXT("P24 split boundary found duplicate player/target container identities.");
+				return false;
+			}
+			OutComposite.Containers.Add(Pair.Key, Pair.Value);
+		}
+		return true;
+	}
+
+	/**
+	 * A cross-graph candidate may contain one new identity only when the entire
+	 * delta is structurally identical to P1 ExecuteSplit.  The random identity
+	 * value itself is irrelevant; every other field, slot and quantity is proven.
+	 */
+	bool IsExactP24SplitDelta(
+		const FCodeBSnapshot& Prior,
+		const FCodeBSnapshot& Candidate,
+		FString& OutError)
+	{
+		if (Prior.Revision == MAX_int32 || Candidate.Revision != Prior.Revision + 1
+			|| Candidate.Definitions.Num() != Prior.Definitions.Num()
+			|| Candidate.Containers.Num() != Prior.Containers.Num()
+			|| Candidate.Items.Num() != Prior.Items.Num() + 1)
+		{
+			OutError = TEXT("P24 split candidate has a non-Split revision or graph cardinality delta.");
+			return false;
+		}
+		for (const TPair<FName, FCodeBItemDefinition>& Pair : Prior.Definitions)
+		{
+			const FCodeBItemDefinition* CandidateDefinition = Candidate.Definitions.Find(Pair.Key);
+			if (!CandidateDefinition || !(*CandidateDefinition == Pair.Value))
+			{
+				OutError = TEXT("P24 split candidate mutated an item definition.");
+				return false;
+			}
+		}
+
+		const FCodeBItemInstance* NewItem = nullptr;
+		for (const TPair<FGuid, FCodeBItemInstance>& Pair : Candidate.Items)
+		{
+			if (!Prior.Items.Contains(Pair.Key))
+			{
+				if (NewItem)
+				{
+					OutError = TEXT("P24 split candidate created more than one item identity.");
+					return false;
+				}
+				NewItem = &Pair.Value;
+			}
+		}
+		if (!NewItem || !NewItem->ItemId.IsValid() || Prior.Items.Contains(NewItem->ItemId)
+			|| NewItem->ChildContainerId.IsValid() || !NewItem->IsPlaced())
+		{
+			OutError = TEXT("P24 split candidate has no one valid simple created item.");
+			return false;
+		}
+
+		const FCodeBItemInstance* OriginalSource = nullptr;
+		const FCodeBItemInstance* CandidateSource = nullptr;
+		for (const TPair<FGuid, FCodeBItemInstance>& Pair : Prior.Items)
+		{
+			const FCodeBItemInstance* Current = Candidate.Items.Find(Pair.Key);
+			if (!Current)
+			{
+				OutError = TEXT("P24 split candidate removed a pre-existing item.");
+				return false;
+			}
+			if (!(Pair.Value == *Current))
+			{
+				if (OriginalSource)
+				{
+					OutError = TEXT("P24 split candidate mutated more than the source stack.");
+					return false;
+				}
+				OriginalSource = &Pair.Value;
+				CandidateSource = Current;
+			}
+		}
+		if (!OriginalSource || !CandidateSource || OriginalSource->ChildContainerId.IsValid())
+		{
+			OutError = TEXT("P24 split candidate has no one simple source stack.");
+			return false;
+		}
+		const FCodeBItemDefinition* Definition = Prior.Definitions.Find(OriginalSource->DefinitionId);
+		const FCodeBContainer* SourceContainer = Prior.Containers.Find(OriginalSource->ParentContainerId);
+		const FCodeBContainer* TargetContainer = Prior.Containers.Find(NewItem->ParentContainerId);
+		if (!Definition || !Definition->bStackable || Definition->MaxStack <= 1
+			|| !SourceContainer || SourceContainer->IsEquipment()
+			|| !TargetContainer || TargetContainer->IsEquipment()
+			|| !SourceContainer->Slots.IsValidIndex(OriginalSource->SlotIndex)
+			|| SourceContainer->Slots[OriginalSource->SlotIndex] != OriginalSource->ItemId
+			|| !TargetContainer->Slots.IsValidIndex(NewItem->SlotIndex)
+			|| TargetContainer->Slots[NewItem->SlotIndex].IsValid()
+			|| NewItem->Quantity < 1 || NewItem->Quantity >= OriginalSource->Quantity
+			|| NewItem->Quantity > Definition->MaxStack)
+		{
+			OutError = TEXT("P24 split candidate violates the P1 source, target, stack, or quantity rules.");
+			return false;
+		}
+
+		FCodeBItemInstance ExpectedSource = *OriginalSource;
+		ExpectedSource.Quantity -= NewItem->Quantity;
+		FCodeBItemInstance ExpectedNew = *OriginalSource;
+		ExpectedNew.ItemId = NewItem->ItemId;
+		ExpectedNew.Quantity = NewItem->Quantity;
+		ExpectedNew.ParentContainerId = NewItem->ParentContainerId;
+		ExpectedNew.SlotIndex = NewItem->SlotIndex;
+		if (!(ExpectedSource == *CandidateSource) || !(ExpectedNew == *NewItem))
+		{
+			OutError = TEXT("P24 split candidate differs from P1's exact source/new-item field delta.");
+			return false;
+		}
+		for (const TPair<FGuid, FCodeBContainer>& Pair : Prior.Containers)
+		{
+			const FCodeBContainer* Current = Candidate.Containers.Find(Pair.Key);
+			if (!Current)
+			{
+				OutError = TEXT("P24 split candidate removed a pre-existing container.");
+				return false;
+			}
+			FCodeBContainer Expected = Pair.Value;
+			if (Pair.Key == NewItem->ParentContainerId)
+			{
+				Expected.Slots[NewItem->SlotIndex] = NewItem->ItemId;
+			}
+			if (!(Expected == *Current))
+			{
+				OutError = TEXT("P24 split candidate changed a container outside the one explicit empty target slot.");
+				return false;
+			}
+		}
+		return true;
+	}
+
 	/** P16's closed Code B-only content catalog.  It has no Actor, UI, or RNG dependency. */
 	struct FCodeBLootProfileCandidate
 	{
@@ -6657,9 +6821,33 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 		}
 		PriorContainerIds.Add(Pair.Key);
 	}
+	FCodeBSnapshot P24PriorComposite;
+	if (!BuildP24PriorComposite(
+		Candidate.ActiveRunInventorySession.RepositorySnapshot,
+		Record->ContainerSnapshot, P24PriorComposite, Error))
+	{
+		if (OutError) *OutError = Error;
+		return false;
+	}
+	bool bHasP24CreatedIdentity = false;
 	for (const TPair<FGuid, FCodeBItemInstance>& Pair : CompositeSnapshot.Items)
 	{
 		if (!PriorItemIds.Contains(Pair.Key))
+		{
+			bHasP24CreatedIdentity = true;
+			break;
+		}
+	}
+	const bool bAcceptedP24SplitIdentity = bHasP24CreatedIdentity
+		&& IsExactP24SplitDelta(P24PriorComposite, CompositeSnapshot, Error);
+	if (bHasP24CreatedIdentity && !bAcceptedP24SplitIdentity)
+	{
+		if (OutError) *OutError = TEXT("Code B P12 body transfer refused a non-P1 Split identity: ") + Error;
+		return false;
+	}
+	for (const TPair<FGuid, FCodeBItemInstance>& Pair : CompositeSnapshot.Items)
+	{
+		if (!PriorItemIds.Contains(Pair.Key) && !bAcceptedP24SplitIdentity)
 		{
 			if (OutError) *OutError = TEXT("Code B P12 body transfer refused an invented item identity.");
 			return false;
@@ -7812,9 +8000,33 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 		}
 		PriorContainerIds.Add(Pair.Key);
 	}
+	FCodeBSnapshot P24PriorComposite;
+	if (!BuildP24PriorComposite(
+		Candidate.ActiveRunInventorySession.RepositorySnapshot,
+		Record->ContainerSnapshot, P24PriorComposite, Error))
+	{
+		if (OutError) *OutError = Error;
+		return false;
+	}
+	bool bHasP24CreatedIdentity = false;
 	for (const TPair<FGuid, FCodeBItemInstance>& Pair : CompositeSnapshot.Items)
 	{
 		if (!PriorItemIds.Contains(Pair.Key))
+		{
+			bHasP24CreatedIdentity = true;
+			break;
+		}
+	}
+	const bool bAcceptedP24SplitIdentity = bHasP24CreatedIdentity
+		&& IsExactP24SplitDelta(P24PriorComposite, CompositeSnapshot, Error);
+	if (bHasP24CreatedIdentity && !bAcceptedP24SplitIdentity)
+	{
+		if (OutError) *OutError = TEXT("Code B P10 dual transfer refused a non-P1 Split identity: ") + Error;
+		return false;
+	}
+	for (const TPair<FGuid, FCodeBItemInstance>& Pair : CompositeSnapshot.Items)
+	{
+		if (!PriorItemIds.Contains(Pair.Key) && !bAcceptedP24SplitIdentity)
 		{
 			if (OutError) *OutError = TEXT("Code B P10 dual transfer refused an invented item identity.");
 			return false;
@@ -7951,6 +8163,32 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 			return false;
 		}
 	}
+	TMap<FGuid, ECodeBNormalContainerRevealState> ExistingRevealStates;
+	for (const FCodeBNormalContainerItemReveal& Reveal : Record->ItemRevealStates)
+	{
+		ExistingRevealStates.Add(Reveal.ItemId, Reveal.RevealState);
+	}
+	TArray<FCodeBNormalContainerItemReveal> NextRevealStates;
+	NextRevealStates.Reserve(TargetSnapshot.Items.Num());
+	for (const TPair<FGuid, FCodeBItemInstance>& Pair : TargetSnapshot.Items)
+	{
+		FCodeBNormalContainerItemReveal& Reveal = NextRevealStates.AddDefaulted_GetRef();
+		Reveal.ItemId = Pair.Key;
+		if (const ECodeBNormalContainerRevealState* Existing = ExistingRevealStates.Find(Pair.Key))
+		{
+			Reveal.RevealState = *Existing;
+		}
+		else
+		{
+			// A player-origin split is an explicit known Drop, never newly hidden.
+			Reveal.RevealState = ECodeBNormalContainerRevealState::Revealed;
+		}
+	}
+	NextRevealStates.Sort([](const FCodeBNormalContainerItemReveal& Left, const FCodeBNormalContainerItemReveal& Right)
+	{
+		return Left.ItemId.ToString(EGuidFormats::DigitsWithHyphensLower)
+			< Right.ItemId.ToString(EGuidFormats::DigitsWithHyphensLower);
+	});
 
 	FCodeBRunInventorySession& CandidateSession = Candidate.ActiveRunInventorySession;
 	if (!ReconcileHotbarBindings(
@@ -7968,6 +8206,7 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 	CandidateSession.LastCommittedUtc = UtcNow();
 	++CandidateSession.SessionRevision;
 	Record->ContainerSnapshot = MoveTemp(TargetSnapshot);
+	Record->ItemRevealStates = MoveTemp(NextRevealStates);
 	++Record->Revision;
 	Candidate.LastCommittedUtc = CandidateSession.LastCommittedUtc;
 	++Candidate.PersistentRevision;

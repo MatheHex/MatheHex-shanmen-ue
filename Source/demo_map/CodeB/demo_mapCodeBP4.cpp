@@ -113,6 +113,29 @@ namespace demo_map_code_b
 		return true;
 	}
 
+	bool FCodeBP4InteractionController::BeginSplitDrag(
+		const FCodeBP3SlotAddress& Source,
+		const int32 RequestedQuantity,
+		FCodeBP4DragPayload& OutPayload)
+	{
+		FString SplitError;
+		if (!Controller.ValidateSplitSource(Source, RequestedQuantity, SplitError))
+		{
+			OutPayload = FCodeBP4DragPayload();
+			Controller.SetP4Feedback(SplitError);
+			return false;
+		}
+		if (!BeginDrag(Source, OutPayload))
+		{
+			return false;
+		}
+		OutPayload.bSplitIntent = true;
+		OutPayload.Quantity = RequestedQuantity;
+		Controller.SetP4Feedback(FString::Printf(
+			TEXT("拆分草稿已确认：拖动 %d 个到明确空储物格；Drop 前不写入。"), RequestedQuantity));
+		return true;
+	}
+
 	FCodeBP4DropPreview FCodeBP4InteractionController::PreviewDrop(const FCodeBP4DragPayload& Payload, const FCodeBP3SlotAddress& Target) const
 	{
 		if (!Payload.IsValid()) return Reject(TEXT("拖拽 payload 无效"));
@@ -131,6 +154,26 @@ namespace demo_map_code_b
 		FCodeBP4DropPreview Preview;
 		Preview.bAllowed = true;
 		Preview.Quantity = Payload.Quantity;
+		if (Payload.bSplitIntent)
+		{
+			FString SplitError;
+			if (!Controller.ValidateSplitSource(Payload.Source, Payload.Quantity, SplitError))
+			{
+				return Reject(SplitError);
+			}
+			if (bSourceEquipment || bTargetEquipment || SourceSlot->ChildContainerId.IsValid())
+			{
+				return Reject(TEXT("拆分不能使用装备格、装备目标或空间父物品。"));
+			}
+			if (TargetSlot->bOccupied)
+			{
+				return Reject(TEXT("拆分只接受明确的空普通储物格，不合并也不交换。"));
+			}
+			Preview.Kind = ECodeBP4DropKind::Split;
+			Preview.Operation = ECodeBOperation::Split;
+			Preview.Message = FString::Printf(TEXT("可在此生成 %d 个的新堆叠"), Payload.Quantity);
+			return Preview;
+		}
 		if (bTargetEquipment)
 		{
 			if (bSourceEquipment) return Reject(TEXT("装备栏之间不能直接拖拽"));
@@ -194,6 +237,7 @@ namespace demo_map_code_b
 	{
 		switch (Kind)
 		{
+		case ECodeBP4DropKind::Split: return TEXT("拆分");
 		case ECodeBP4DropKind::Move: return TEXT("移动");
 		case ECodeBP4DropKind::Merge: return TEXT("合并");
 		case ECodeBP4DropKind::Swap: return TEXT("交换");

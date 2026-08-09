@@ -15,6 +15,7 @@ namespace demo_map_code_b
 		FName DefinitionId;
 		int32 Quantity = 0;
 		int32 Quality = 0;
+		bool bSplitIntent = false;
 		ECodeBP3InventoryScope SourceScope = ECodeBP3InventoryScope::Unknown;
 		FGuid OwnerId;
 		FGuid RunInstanceId;
@@ -26,6 +27,7 @@ namespace demo_map_code_b
 	enum class ECodeBP4DropKind : uint8
 	{
 		Reject,
+		Split,
 		Move,
 		Merge,
 		Swap,
@@ -57,6 +59,8 @@ namespace demo_map_code_b
 		}
 
 		bool BeginDrag(const FCodeBP3SlotAddress& Source, FCodeBP4DragPayload& OutPayload);
+		/** Consumes a confirmed P24 draft into a one-shot split drag descriptor. */
+		bool BeginSplitDrag(const FCodeBP3SlotAddress& Source, int32 RequestedQuantity, FCodeBP4DragPayload& OutPayload);
 		FCodeBP4DropPreview PreviewDrop(const FCodeBP4DragPayload& Payload, const FCodeBP3SlotAddress& Target) const;
 		bool CommitDrop(const FCodeBP4DragPayload& Payload, const FCodeBP3SlotAddress& Target);
 		void CancelInteraction(const FString& Reason = TEXT("已取消拖拽，未写入任何物品状态"));
