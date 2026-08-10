@@ -10420,6 +10420,349 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedActiveRunWorldDropItem(
 	return true;
 }
 
+bool FCodeBOutOfRaidProfileStore::DropMatchedRunBodyContainerWorldDropItem(
+	const FString& InStorageRoot,
+	const FGuid& InOwnerId,
+	const FGuid& InRunInstanceId,
+	const FGuid& BodyTargetId,
+	const FName DefinitionId,
+	const int32 ExpectedP6SnapshotRevision,
+	const int32 ExpectedBodyContainerRevision,
+	const FCodeBP43BodySimpleStackGroundDropProof& SourceProof,
+	const FName MapRoute,
+	const FTransform& FloorTransform,
+	FCodeBBodyContainerProjection& OutBodyProjection,
+	FCodeBWorldDropProjection& OutWorldProjection,
+	FString* OutError)
+{
+	OutBodyProjection = FCodeBBodyContainerProjection();
+	OutWorldProjection = FCodeBWorldDropProjection();
+	if (OutError) OutError->Reset();
+	if (!InOwnerId.IsValid() || !InRunInstanceId.IsValid() || !BodyTargetId.IsValid()
+		|| DefinitionId != FName(TEXT("CodeB.BodyContainer.BasicCorpse"))
+		|| ExpectedP6SnapshotRevision < 0 || ExpectedBodyContainerRevision < 1
+		|| !SourceProof.HasSourceIdentity() || MapRoute.IsNone()
+		|| !IsFiniteWorldDropTransform(FloorTransform))
+	{
+		if (OutError) *OutError = TEXT("Code B P43 requires one exact BasicCorpse source and legal frozen floor placement.");
+		return false;
+	}
+
+	FCodeBOutOfRaidProfileStore Store(InStorageRoot, InOwnerId);
+	FCodeBRunInventorySession PriorSession;
+	FString Error;
+	if (!Store.OpenMatchedActiveRunInventorySession(InRunInstanceId, PriorSession, &Error))
+	{
+		if (OutError) *OutError = TEXT("Code B P43 has no exact committed P6 session: ") + Error;
+		return false;
+	}
+	FCodeBOutOfRaidInventoryRecord Candidate = Store.Record;
+	FCodeBRunLocalBodyContainerRecord* BodyRecord = Candidate.RunLocalBodyContainers.FindByPredicate(
+		[BodyTargetId](const FCodeBRunLocalBodyContainerRecord& Value)
+		{
+			return Value.BodyTargetId == BodyTargetId;
+		});
+	if (!BodyRecord || BodyRecord->OwnerId != InOwnerId
+		|| BodyRecord->RunInstanceId != InRunInstanceId
+		|| BodyRecord->DefinitionId != DefinitionId
+		|| BodyRecord->State != ECodeBBodyContainerState::Open
+		|| BodyRecord->ActiveActionId.IsValid() || BodyRecord->ActiveSearchItemId.IsValid()
+		|| PriorSession.RepositorySnapshot.Revision != ExpectedP6SnapshotRevision
+		|| BodyRecord->Revision != ExpectedBodyContainerRevision
+		|| Candidate.PersistentRevision == MAX_int32
+		|| Candidate.ActiveRunInventorySession.SessionRevision == MAX_int32
+		|| Candidate.ActiveRunInventorySession.NextWorldDropOrdinal == MAX_int32
+		|| BodyRecord->Revision == MAX_int32
+		|| !ValidateWorldDrops(PriorSession, Error))
+	{
+		if (OutError) *OutError = Error.IsEmpty()
+			? TEXT("Code B P43 refused a stale, pending, terminal, or identity-mismatched P11/P6 source.")
+			: Error;
+		return false;
+	}
+
+	const FCodeBItemInstance* SourceItem = BodyRecord->ContainerSnapshot.Items.Find(SourceProof.SourceItemId);
+	const FCodeBContainer* SourceContainer =
+		BodyRecord->ContainerSnapshot.Containers.Find(SourceProof.SourceContainerId);
+	const FCodeBItemDefinition* SourceDefinition = SourceItem
+		? BodyRecord->ContainerSnapshot.Definitions.Find(SourceItem->DefinitionId) : nullptr;
+	const FCodeBBodyContainerItemVisibility* SourceVisibility =
+		BodyRecord->ItemVisibilities.FindByPredicate(
+			[&SourceProof](const FCodeBBodyContainerItemVisibility& Value)
+			{
+				return Value.ItemId == SourceProof.SourceItemId;
+			});
+	FCodeBItemDefinition CanonicalDefinition;
+	const int32 PriorCompositeRevision = FMath::Max(
+		PriorSession.RepositorySnapshot.Revision, BodyRecord->ContainerSnapshot.Revision);
+	if (SourceProof.OwnerId != InOwnerId || SourceProof.RunInstanceId != InRunInstanceId
+		|| SourceProof.BodyTargetId != BodyTargetId
+		|| SourceProof.BodyDefinitionId != DefinitionId
+		|| SourceProof.BodyRecordRevision != ExpectedBodyContainerRevision
+		|| SourceProof.DeathReceiptId != BodyRecord->Receipt.DeathReceipt.DeathReceiptId
+		|| SourceProof.SourceContainerId != BodyRecord->ContainerId
+		|| SourceProof.CompositeRevision != PriorCompositeRevision
+		|| BodyRecord->Receipt.OwnerId != SourceProof.OwnerId
+		|| BodyRecord->Receipt.RunInstanceId != SourceProof.RunInstanceId
+		|| BodyRecord->Receipt.BodyTargetId != SourceProof.BodyTargetId
+		|| BodyRecord->Receipt.DefinitionId != SourceProof.BodyDefinitionId
+		|| BodyRecord->Receipt.ContainerId != SourceProof.SourceContainerId
+		|| BodyRecord->Receipt.DeathReceipt.OwnerId != SourceProof.OwnerId
+		|| BodyRecord->Receipt.DeathReceipt.RunInstanceId != SourceProof.RunInstanceId
+		|| BodyRecord->Receipt.DeathReceipt.BodyTargetId != SourceProof.BodyTargetId
+		|| BodyRecord->Receipt.DeathReceipt.DefinitionId != SourceProof.BodyDefinitionId
+		|| BodyRecord->Receipt.LootProfileId != SourceProof.LootProfileId
+		|| BodyRecord->Receipt.LootProfileVersion != SourceProof.LootProfileVersion
+		|| BodyRecord->Receipt.LootProfileDigest != SourceProof.LootProfileDigest
+		|| BodyRecord->Receipt.LootResultDigest != SourceProof.LootResultDigest
+		|| BodyRecord->Receipt.MaterializationDigest != SourceProof.MaterializationDigest
+		|| SourceProof.WorkspaceTargetPaneId != FName(TEXT("InRun.External"))
+		|| !SourceItem || !SourceContainer || !SourceDefinition || !SourceVisibility
+		|| SourceContainer->ContainerId != BodyRecord->ContainerId
+		|| SourceContainer->ContainerType != DefinitionId || SourceContainer->IsEquipment()
+		|| !SourceContainer->Slots.IsValidIndex(SourceProof.SourceSlot)
+		|| SourceContainer->Slots[SourceProof.SourceSlot] != SourceProof.SourceItemId
+		|| SourceItem->ItemId != SourceProof.SourceItemId
+		|| SourceItem->DefinitionId != SourceProof.SourceDefinitionId
+		|| SourceItem->ParentContainerId != SourceProof.SourceContainerId
+		|| SourceItem->SlotIndex != SourceProof.SourceSlot
+		|| SourceItem->Quantity != SourceProof.SourceQuantity
+		|| SourceItem->Quantity <= 0 || SourceItem->ChildContainerId.IsValid()
+		|| SourceVisibility->Visibility != ECodeBBodyContainerVisibility::Revealed
+		|| !BuildCanonicalCodeBItemDefinition(SourceProof.SourceDefinitionId, CanonicalDefinition, Error)
+		|| !(*SourceDefinition == CanonicalDefinition)
+		|| !SourceDefinition->bStackable || SourceDefinition->MaxStack <= 1
+		|| SourceItem->Quantity > SourceDefinition->MaxStack
+		|| SourceDefinition->ChildContainerCapacity != 0
+		|| SourceDefinition->SpatialContainerSemantic != ECodeBSpatialContainerSemantic::None
+		|| SourceDefinition->EquipSlot != ECodeBEquipSlot::None)
+	{
+		if (OutError) *OutError = Error.IsEmpty()
+			? TEXT("Code B P43 refused a non-Revealed, non-canonical, spatial, equipped, or provenance-stale ordinary body root.")
+			: Error;
+		return false;
+	}
+
+	const int32 NewOrdinal = Candidate.ActiveRunInventorySession.NextWorldDropOrdinal;
+	const FGuid WorldDropId = WorldDropGuid(InOwnerId, InRunInstanceId, NewOrdinal);
+	const FGuid WorldContainerId = WorldDropContainerGuid(WorldDropId);
+	if (!WorldDropId.IsValid() || !WorldContainerId.IsValid()
+		|| PriorSession.RepositorySnapshot.Containers.Contains(WorldContainerId)
+		|| BodyRecord->ContainerSnapshot.Containers.Contains(WorldContainerId)
+		|| Candidate.ActiveRunInventorySession.WorldDrops.ContainsByPredicate(
+			[WorldDropId, NewOrdinal](const FCodeBWorldDropRecord& Value)
+			{
+				return Value.WorldDropId == WorldDropId || Value.Ordinal == NewOrdinal;
+			}))
+	{
+		if (OutError) *OutError = TEXT("Code B P43 refused a collided derived P31 record identity.");
+		return false;
+	}
+
+	FCodeBSnapshot PriorComposite;
+	if (!BuildP24PriorComposite(
+		PriorSession.RepositorySnapshot, BodyRecord->ContainerSnapshot, PriorComposite, Error))
+	{
+		if (OutError) *OutError = Error;
+		return false;
+	}
+	FCodeBRepository Repository;
+	if (!Repository.LoadPersistedSnapshot(PriorComposite, &Error)
+		|| !Repository.CreateContainer(FName(TEXT("WorldDrop")), 1, ECodeBContainerKind::Storage,
+			ECodeBEquipSlot::None, &Error, WorldContainerId).IsValid())
+	{
+		if (OutError) *OutError = Error;
+		return false;
+	}
+	FCodeBTransactionRequest Move;
+	Move.TransactionId = FGuid::NewGuid();
+	Move.Operation = ECodeBOperation::Move;
+	Move.ItemId = SourceProof.SourceItemId;
+	Move.SourceContainerId = SourceProof.SourceContainerId;
+	Move.SourceSlot = SourceProof.SourceSlot;
+	Move.TargetContainerId = WorldContainerId;
+	Move.TargetSlot = 0;
+	Move.Quantity = 0;
+	Move.ExpectedRevision = Repository.GetRevision();
+	const FCodeBTransactionResult Transaction = Repository.ExecuteTransaction(Move);
+	if (!Transaction.IsSuccess())
+	{
+		if (OutError) *OutError = TEXT("Code B P43 exact P1 corpse-to-world whole-root Move was rejected.");
+		return false;
+	}
+	const FCodeBSnapshot AcceptedComposite = Repository.CaptureSnapshot();
+	const FCodeBItemInstance* AcceptedWorldRoot = AcceptedComposite.Items.Find(SourceProof.SourceItemId);
+	const FCodeBContainer* AcceptedWorldContainer = AcceptedComposite.Containers.Find(WorldContainerId);
+	if (Transaction.CreatedItemId.IsValid() || !AcceptedWorldRoot || !AcceptedWorldContainer
+		|| AcceptedWorldContainer->ContainerType != FName(TEXT("WorldDrop"))
+		|| AcceptedWorldContainer->IsEquipment() || AcceptedWorldContainer->Slots.Num() != 1
+		|| AcceptedWorldContainer->Slots[0] != SourceProof.SourceItemId
+		|| AcceptedWorldRoot->ItemId != SourceProof.SourceItemId
+		|| AcceptedWorldRoot->DefinitionId != SourceProof.SourceDefinitionId
+		|| AcceptedWorldRoot->Quantity != SourceProof.SourceQuantity
+		|| AcceptedWorldRoot->ParentContainerId != WorldContainerId
+		|| AcceptedWorldRoot->SlotIndex != 0 || AcceptedWorldRoot->ChildContainerId.IsValid())
+	{
+		if (OutError) *OutError = TEXT("Code B P43 accepted P1 result is not the same single simple-stack root in slot 0.");
+		return false;
+	}
+	for (const FCodeBWorldDropRecord& ExistingDrop : PriorSession.WorldDrops)
+	{
+		if (!IsWorldDropClosureUnchanged(
+			PriorSession.RepositorySnapshot, AcceptedComposite, ExistingDrop))
+		{
+			if (OutError) *OutError = TEXT("Code B P43 candidate changed an existing exact P31 record graph.");
+			return false;
+		}
+	}
+
+	// Replay the exact same P1 command and deterministic container derivation;
+	// the accepted composite is admissible only when the replay is byte-for-byte equal.
+	FCodeBRepository ReplayRepository;
+	if (!ReplayRepository.LoadPersistedSnapshot(PriorComposite, &Error)
+		|| !ReplayRepository.CreateContainer(FName(TEXT("WorldDrop")), 1, ECodeBContainerKind::Storage,
+			ECodeBEquipSlot::None, &Error, WorldContainerId).IsValid()
+		|| !ReplayRepository.ExecuteTransaction(Move).IsSuccess()
+		|| ReplayRepository.CaptureSnapshot() != AcceptedComposite)
+	{
+		if (OutError) *OutError = TEXT("Code B P43 candidate differs from its one replayed P1 whole-root Move.");
+		return false;
+	}
+
+	TSet<FGuid> BodyContainerIds;
+	TSet<FGuid> RemainingBodyItemIds;
+	for (const TPair<FGuid, FCodeBContainer>& Pair : BodyRecord->ContainerSnapshot.Containers)
+	{
+		if (!AcceptedComposite.Containers.Contains(Pair.Key))
+		{
+			if (OutError) *OutError = TEXT("Code B P43 lost an unrelated P11 body container.");
+			return false;
+		}
+		BodyContainerIds.Add(Pair.Key);
+	}
+	for (const TPair<FGuid, FCodeBItemInstance>& Pair : BodyRecord->ContainerSnapshot.Items)
+	{
+		if (Pair.Key == SourceProof.SourceItemId) continue;
+		if (!AcceptedComposite.Items.Contains(Pair.Key))
+		{
+			if (OutError) *OutError = TEXT("Code B P43 lost an unrelated P11 body item.");
+			return false;
+		}
+		RemainingBodyItemIds.Add(Pair.Key);
+	}
+
+	FCodeBSnapshot PlayerSnapshot;
+	FCodeBSnapshot BodySnapshot;
+	PlayerSnapshot.Revision = AcceptedComposite.Revision;
+	BodySnapshot.Revision = AcceptedComposite.Revision;
+	PlayerSnapshot.Definitions = AcceptedComposite.Definitions;
+	BodySnapshot.Definitions = AcceptedComposite.Definitions;
+	for (const TPair<FGuid, FCodeBContainer>& Pair : AcceptedComposite.Containers)
+	{
+		(BodyContainerIds.Contains(Pair.Key) ? BodySnapshot.Containers : PlayerSnapshot.Containers)
+			.Add(Pair.Key, Pair.Value);
+	}
+	for (const TPair<FGuid, FCodeBItemInstance>& Pair : AcceptedComposite.Items)
+	{
+		(RemainingBodyItemIds.Contains(Pair.Key) ? BodySnapshot.Items : PlayerSnapshot.Items)
+			.Add(Pair.Key, Pair.Value);
+	}
+	FCodeBRepository PlayerValidation;
+	FCodeBRepository BodyValidation;
+	if (!PlayerValidation.LoadPersistedSnapshot(PlayerSnapshot, &Error)
+		|| !BodyValidation.LoadPersistedSnapshot(BodySnapshot, &Error))
+	{
+		if (OutError) *OutError = TEXT("Code B P43 P11/P6 partition is not independently P1-valid: ") + Error;
+		return false;
+	}
+
+	TArray<FCodeBBodyContainerItemVisibility> NextVisibilities;
+	NextVisibilities.Reserve(BodyRecord->ItemVisibilities.Num() - 1);
+	for (const FCodeBBodyContainerItemVisibility& Visibility : BodyRecord->ItemVisibilities)
+	{
+		if (Visibility.ItemId == SourceProof.SourceItemId)
+		{
+			if (Visibility.Visibility != ECodeBBodyContainerVisibility::Revealed) return false;
+			continue;
+		}
+		if (!BodySnapshot.Items.Contains(Visibility.ItemId))
+		{
+			if (OutError) *OutError = TEXT("Code B P43 visibility partition lost an unrelated P11 item.");
+			return false;
+		}
+		NextVisibilities.Add(Visibility);
+	}
+	if (NextVisibilities.Num() != BodySnapshot.Items.Num())
+	{
+		if (OutError) *OutError = TEXT("Code B P43 visibility partition does not match the remaining body graph.");
+		return false;
+	}
+
+	FCodeBRunInventorySession& CandidateSession = Candidate.ActiveRunInventorySession;
+	CandidateSession.RepositorySnapshot = MoveTemp(PlayerSnapshot);
+	FCodeBWorldDropRecord& NewDrop = CandidateSession.WorldDrops.AddDefaulted_GetRef();
+	NewDrop.OwnerId = InOwnerId;
+	NewDrop.RunInstanceId = InRunInstanceId;
+	NewDrop.WorldDropId = WorldDropId;
+	NewDrop.Ordinal = NewOrdinal;
+	NewDrop.WorldContainerId = WorldContainerId;
+	NewDrop.ItemId = SourceProof.SourceItemId;
+	NewDrop.SpatialChildContainerId.Invalidate();
+	NewDrop.MapRoute = MapRoute;
+	NewDrop.FloorTransform = FloorTransform;
+	NewDrop.ActionState = ECodeBWorldDropActionState::Available;
+	NewDrop.RecordRevision = 1;
+	NewDrop.Provenance = TEXT("P43.AcceptedGroundDrop.CorpseOrdinarySimpleStack");
+	++CandidateSession.NextWorldDropOrdinal;
+	SortWorldDropRegistry(CandidateSession.WorldDrops);
+	if (!ReconcileHotbarBindings(
+		CandidateSession.HotbarBindings, CandidateSession.RepositorySnapshot, CandidateSession.Layout, Error)
+		|| !FreezeRunInventoryPayloadReceipt(CandidateSession, Error)
+		|| !ValidateRunInventorySession(CandidateSession, Error))
+	{
+		if (OutError) *OutError = Error;
+		return false;
+	}
+
+	const FString CommitUtc = UtcNow();
+	CandidateSession.LastCommittedUtc = CommitUtc;
+	++CandidateSession.SessionRevision;
+	BodyRecord->SchemaVersion = FCodeBRunLocalBodyContainerRecord::CurrentSchemaVersion;
+	BodyRecord->ContainerSnapshot = MoveTemp(BodySnapshot);
+	BodyRecord->ItemVisibilities = MoveTemp(NextVisibilities);
+	++BodyRecord->Revision;
+	Candidate.LastCommittedUtc = CommitUtc;
+	++Candidate.PersistentRevision;
+
+	FCodeBBodyContainerProjection CandidateBodyProjection;
+	if (!BuildBodyContainerProjection(*BodyRecord, CandidateBodyProjection, Error))
+	{
+		if (OutError) *OutError = Error;
+		return false;
+	}
+	const FCodeBWorldDropRecord* CandidateDrop = CandidateSession.WorldDrops.FindByPredicate(
+		[WorldDropId](const FCodeBWorldDropRecord& Value)
+		{
+			return Value.WorldDropId == WorldDropId;
+		});
+	if (!CandidateDrop)
+	{
+		if (OutError) *OutError = TEXT("Code B P43 candidate lost its exact new P31 record.");
+		return false;
+	}
+	const FCodeBWorldDropProjection CandidateWorldProjection =
+		WorldDropProjection(CandidateSession, *CandidateDrop);
+	if (!Store.SaveRecord(Candidate, Error))
+	{
+		if (OutError) *OutError = Error;
+		return false;
+	}
+	Store.Record = MoveTemp(Candidate);
+	OutBodyProjection = MoveTemp(CandidateBodyProjection);
+	OutWorldProjection = CandidateWorldProjection;
+	return true;
+}
+
 bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 	const FString& InStorageRoot,
 	const FGuid& InOwnerId,

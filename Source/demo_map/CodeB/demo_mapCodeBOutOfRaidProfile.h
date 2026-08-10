@@ -1015,6 +1015,25 @@ public:
 		const FTransform& FloorTransform,
 		FCodeBWorldDropProjection& OutProjection,
 		FString* OutError = nullptr);
+	/**
+	 * P43's sole corpse-to-world writer.  It revalidates one exact Revealed
+	 * ordinary P12 simple-stack root, creates one derived P31 record, partitions
+	 * the accepted P1 composite back into P11/P6, and saves one Owner replacement.
+	 */
+	static bool DropMatchedRunBodyContainerWorldDropItem(
+		const FString& InStorageRoot,
+		const FGuid& InOwnerId,
+		const FGuid& InRunInstanceId,
+		const FGuid& BodyTargetId,
+		FName DefinitionId,
+		int32 ExpectedP6SnapshotRevision,
+		int32 ExpectedBodyContainerRevision,
+		const demo_map_code_b::FCodeBP43BodySimpleStackGroundDropProof& SourceProof,
+		FName MapRoute,
+		const FTransform& FloorTransform,
+		FCodeBBodyContainerProjection& OutBodyProjection,
+		FCodeBWorldDropProjection& OutWorldProjection,
+		FString* OutError = nullptr);
 	/** P14/P19/P26/P27/P28/P29/P30/P32/P34/P36/P37's only opened-WorldDrop writer; the accepted P2 command is transient proof context, never durable state. */
 	static bool CommitAcceptedMatchedRunWorldDropPickup(
 		const FString& InStorageRoot,

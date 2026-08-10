@@ -4736,6 +4736,112 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBGroundDrop(
 	return true;
 }
 
+bool Ademo_mapV3ProgressionManager::RequestCodeBBodyGroundDrop(
+	const demo_map_code_b::FCodeBP4DragPayload& Payload,
+	FString& OutFeedback)
+{
+	OutFeedback.Reset();
+	const demo_map_code_b::FCodeBP43BodySimpleStackGroundDropProof& Proof =
+		Payload.P43BodySimpleStackGroundDropProof;
+	if (!Payload.IsValid() || !Proof.HasSourceIdentity()
+		|| Payload.bQuickTransferIntent || Payload.bSplitIntent
+		|| Payload.QuantityDraftKind != demo_map_code_b::ECodeBP3QuantityDraftKind::None
+		|| Payload.RequestedMergeQuantity != 0
+		|| Payload.P38BodyEquipmentProof.bIntent || Payload.P40BodySimpleStackProof.bIntent
+		|| Payload.P41BodySpatialGraphProof.bIntent
+		|| Payload.P42BodySpatialGraphEquipmentProof.bIntent
+		|| Payload.WorldDropId.IsValid() || Payload.WorldDropOrdinal != 0
+		|| Payload.WorldDropRecordRevision != INDEX_NONE
+		|| Payload.WorldDropTargetOpenGeneration != 0 || !Payload.WorldDropMapRoute.IsNone()
+		|| !bCodeBBodyContainerOpen || !ProfilePreparationFlow
+		|| !ActiveCodeBBodyContainer.IsValid()
+		|| ActiveCodeBBodyContainer->GetCodeBBodyTargetIdentity()
+			!= GCodeBBodyContainerTargetIdentity
+		|| Proof.OwnerId != CodeBBodyContainerOwnerId
+		|| Proof.RunInstanceId != CodeBBodyContainerRunId
+		|| Proof.BodyTargetId != CodeBBodyContainerTargetId
+		|| Proof.BodyDefinitionId != CodeBBodyContainerDefinitionId
+		|| Proof.BodyRecordRevision != CodeBBodyContainerExpectedTargetRevision
+		|| Proof.SourceItemId != Payload.ItemId
+		|| Proof.SourceContainerId != Payload.Source.ContainerId
+		|| Proof.SourceSlot != Payload.Source.SlotIndex
+		|| Proof.SourceDefinitionId != Payload.DefinitionId
+		|| Proof.SourceQuantity != Payload.Quantity)
+	{
+		OutFeedback = TEXT("P43 body GroundDrop source or open-host identity is stale; no fallback was attempted.");
+		return false;
+	}
+	const Fdemo_mapProfileSessionSnapshot Snapshot = ProfilePreparationFlow->GetSession()
+		? ProfilePreparationFlow->GetSession()->GetSnapshot() : Fdemo_mapProfileSessionSnapshot();
+	if (ProfilePreparationFlow->GetPhase() != Edemo_mapProfilePreparationFlowPhase::RunActive
+		|| Snapshot.ProfileId != Proof.OwnerId || Snapshot.ActiveRunId != Proof.RunInstanceId
+		|| ProfilePreparationFlow->GetStartedRunId() != Proof.RunInstanceId)
+	{
+		OutFeedback = TEXT("P43 body GroundDrop requires the same active Owner/Run lifecycle.");
+		return false;
+	}
+
+	FName MapRoute;
+	FTransform FloorTransform;
+	if (!ResolveCodeBWorldDropPlacement(MapRoute, FloorTransform, OutFeedback)) return false;
+
+	FCodeBBodyContainerProjection UpdatedBody;
+	FCodeBWorldDropProjection NewWorldDrop;
+	if (!FCodeBOutOfRaidProfileStore::DropMatchedRunBodyContainerWorldDropItem(
+		ProfilePreparationFlow->GetStorageRoot(), CodeBBodyContainerOwnerId,
+		CodeBBodyContainerRunId, CodeBBodyContainerTargetId,
+		CodeBBodyContainerDefinitionId, CodeBBodyContainerExpectedP6Revision,
+		CodeBBodyContainerExpectedTargetRevision, Proof, MapRoute, FloorTransform,
+		UpdatedBody, NewWorldDrop, &OutFeedback))
+	{
+		return false;
+	}
+
+	// Reload both projections only after the one Owner replacement is durable.
+	CodeBActiveRunInventoryStore = MakeUnique<FCodeBOutOfRaidProfileStore>(
+		ProfilePreparationFlow->GetStorageRoot(), CodeBBodyContainerOwnerId);
+	CodeBActiveRunInventoryOwnerId = CodeBBodyContainerOwnerId;
+	FCodeBRunInventorySession UpdatedSession;
+	if (!CodeBActiveRunInventoryStore->OpenMatchedActiveRunInventorySession(
+		CodeBBodyContainerRunId, UpdatedSession, &OutFeedback))
+	{
+		return false;
+	}
+	const FCodeBRunLocalBodyContainerRecord* UpdatedBodyRecord =
+		CodeBActiveRunInventoryStore->GetRecord().RunLocalBodyContainers.FindByPredicate(
+			[this](const FCodeBRunLocalBodyContainerRecord& Value)
+			{
+				return Value.BodyTargetId == CodeBBodyContainerTargetId;
+			});
+	demo_map_code_b::FCodeBSnapshot UpdatedComposite;
+	if (!UpdatedBodyRecord
+		|| !BuildCodeBRunContainerCompositeSnapshot(
+			UpdatedSession.RepositorySnapshot, UpdatedBodyRecord->ContainerSnapshot,
+			UpdatedComposite, OutFeedback)
+		|| !CodeBBodyContainerRepository.IsValid()
+		|| !CodeBBodyContainerRepository->LoadPersistedSnapshot(UpdatedComposite, &OutFeedback))
+	{
+		return false;
+	}
+	CodeBBodyContainerExpectedP6Revision = UpdatedSession.RepositorySnapshot.Revision;
+	CodeBBodyContainerExpectedTargetRevision = UpdatedBody.Revision;
+	UGameInstance* GameInstance = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
+	if (UCodeBP3UIHostSubsystem* Host = GameInstance
+		? GameInstance->GetSubsystem<UCodeBP3UIHostSubsystem>() : nullptr)
+	{
+		Host->UpdateBodyContainerProjection(UpdatedBody);
+	}
+	RefreshCodeBWorldDropActors();
+	UE_LOG(LogTemp, Display,
+		TEXT("CodeB.P43.GroundDrop Committed OwnerId=%s RunId=%s BodyTargetId=%s WorldDropId=%s ItemId=%s"),
+		*NewWorldDrop.OwnerId.ToString(EGuidFormats::DigitsWithHyphens),
+		*NewWorldDrop.RunInstanceId.ToString(EGuidFormats::DigitsWithHyphens),
+		*CodeBBodyContainerTargetId.ToString(EGuidFormats::DigitsWithHyphens),
+		*NewWorldDrop.WorldDropId.ToString(EGuidFormats::DigitsWithHyphens),
+		*NewWorldDrop.ItemId.ToString(EGuidFormats::DigitsWithHyphens));
+	return true;
+}
+
 void Ademo_mapV3ProgressionManager::RefreshCodeBWorldDropActors()
 {
 	if (!CodeBActiveRunInventoryStore.IsValid() || !CodeBActiveRunInventoryRunId.IsValid() || !GetWorld()) return;
@@ -5806,6 +5912,14 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBBodyContainerPage(
 		return HotbarStore.UnbindMatchedActiveRunHotbarSlot(
 			WeakManager->CodeBBodyContainerRunId, SlotIndex, OutProjection, &OutError);
 	};
+	FCodeBP3GroundDropPresentation GroundDropPresentation;
+	GroundDropPresentation.RequestDrop = [WeakManager](
+		const demo_map_code_b::FCodeBP4DragPayload& Payload,
+		FString& OutError)
+	{
+		return WeakManager.IsValid()
+			&& WeakManager->RequestCodeBBodyGroundDrop(Payload, OutError);
+	};
 	const bool bOpened = Host->OpenProfilePage(
 		*CodeBBodyContainerRepository, PresentationLayout,
 		[this](const demo_map_code_b::FCodeBSnapshot& PersistedSnapshot,
@@ -5885,7 +5999,7 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBBodyContainerPage(
 		{
 			if (WeakManager.IsValid()) WeakManager->CloseCodeBBodyContainerPage(TEXT("PageClosed"));
 		},
-		true, nullptr, &Presentation, &HotbarPresentation);
+		true, nullptr, &Presentation, &HotbarPresentation, &GroundDropPresentation);
 	if (!bOpened)
 	{
 		CodeBBodyContainerRepository.Reset();

@@ -327,6 +327,8 @@ public:
 		demo_map_code_b::FCodeBP4DragPayload& Payload) const;
 	void PopulateP42BodySpatialGraphEquipmentSourceProof(
 		demo_map_code_b::FCodeBP4DragPayload& Payload) const;
+	void PopulateP43BodySimpleStackGroundDropProof(
+		demo_map_code_b::FCodeBP4DragPayload& Payload) const;
 	void FreezeP42BodySpatialGraphEquipmentTarget(
 		demo_map_code_b::FCodeBP4DragPayload& Payload,
 		const demo_map_code_b::FCodeBP3SlotAddress& Target) const;
@@ -340,6 +342,9 @@ public:
 	bool ValidateP40BodySimpleStackQuickTransferContext(
 		const demo_map_code_b::FCodeBP4DragPayload& Payload,
 		const demo_map_code_b::FCodeBP3SlotAddress& Target,
+		FString& OutError) const;
+	bool ValidateP43BodySimpleStackGroundDropContext(
+		const demo_map_code_b::FCodeBP4DragPayload& Payload,
 		FString& OutError) const;
 	/** P41 exact P20 graph source and one frozen first-empty BaseQuick target gate. */
 	bool ValidateP41BodySpatialGraphQuickTransferContext(

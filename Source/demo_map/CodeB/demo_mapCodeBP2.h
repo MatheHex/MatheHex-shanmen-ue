@@ -221,6 +221,49 @@ namespace demo_map_code_b
 	};
 
 	/**
+	 * P43 transient proof for one normal Drag of an exact Revealed ordinary
+	 * P12 simple-stack root to the existing GroundDropZone.  It deliberately
+	 * carries no player target, quantity draft, WorldDrop identity, or ordinal;
+	 * the durable Store derives the new P31 identity only after revalidation.
+	 */
+	struct FCodeBP43BodySimpleStackGroundDropProof
+	{
+		bool bIntent = false;
+		FGuid OwnerId;
+		FGuid RunInstanceId;
+		FGuid BodyTargetId;
+		FGuid DeathReceiptId;
+		int32 BodyRecordRevision = INDEX_NONE;
+		uint32 BodyTargetOpenGeneration = 0;
+		FName BodyDefinitionId;
+		FGuid SourceContainerId;
+		int32 SourceSlot = INDEX_NONE;
+		FGuid SourceItemId;
+		FName SourceDefinitionId;
+		int32 SourceQuantity = 0;
+		FName LootProfileId;
+		int32 LootProfileVersion = 0;
+		FString LootProfileDigest;
+		FString LootResultDigest;
+		FString MaterializationDigest;
+		FName WorkspaceTargetPaneId;
+		int32 CompositeRevision = INDEX_NONE;
+
+		bool HasSourceIdentity() const
+		{
+			return bIntent && OwnerId.IsValid() && RunInstanceId.IsValid()
+				&& BodyTargetId.IsValid() && DeathReceiptId.IsValid()
+				&& BodyRecordRevision > 0 && BodyTargetOpenGeneration != 0
+				&& !BodyDefinitionId.IsNone() && SourceContainerId.IsValid()
+				&& SourceSlot >= 0 && SourceItemId.IsValid() && !SourceDefinitionId.IsNone()
+				&& SourceQuantity > 0 && !LootProfileId.IsNone() && LootProfileVersion > 0
+				&& !LootProfileDigest.IsEmpty() && !LootResultDigest.IsEmpty()
+				&& !MaterializationDigest.IsEmpty() && !WorkspaceTargetPaneId.IsNone()
+				&& CompositeRevision >= 0;
+		}
+	};
+
+	/**
 	 * P41 transient proof for one revealed P20 spatial parent in the exact opened
 	 * P12 ordinary body root.  It freezes the canonical source closure and the
 	 * input-time BaseQuick domain; Preview later fills one exact first-empty

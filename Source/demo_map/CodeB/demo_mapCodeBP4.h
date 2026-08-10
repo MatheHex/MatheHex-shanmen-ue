@@ -33,6 +33,8 @@ namespace demo_map_code_b
 		FCodeBP38BodyEquipmentTransferProof P38BodyEquipmentProof;
 		/** P40: exact revealed ordinary P12 simple-stack and frozen-target proof. */
 		FCodeBP40BodySimpleStackQuickTransferProof P40BodySimpleStackProof;
+		/** P43: exact revealed ordinary P12 simple-stack source for normal ground Drop. */
+		FCodeBP43BodySimpleStackGroundDropProof P43BodySimpleStackGroundDropProof;
 		/** P41: exact revealed ordinary P20 spatial graph and frozen BaseQuick target. */
 		FCodeBP41BodySpatialGraphQuickTransferProof P41BodySpatialGraphProof;
 		/** P42: normal Drag source proof plus the exact user-selected formal P6 target. */
