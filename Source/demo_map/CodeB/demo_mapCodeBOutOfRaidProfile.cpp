@@ -9487,6 +9487,8 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedActiveRunWorldDropItem(
 		&& IsP26PlayerStorageContainer(Current, ExpectedSourceContainerId);
 	const bool bP32EquippedStandardSource = !bIsSpatialClosure
 		&& IsP32EquippedStandardRoot(Current, *Item, ExpectedSourceContainerId);
+	const bool bP33BaseQuickStandardSource = !bIsSpatialClosure && bFromBasic
+		&& !Source->IsEquipment() && IsP32StandardEquipmentRoot(Current, *Item);
 	const bool bPartialDrop = RequestedSplitQuantity > 0;
 	if ((bPartialDrop && (!bP26SimpleStackSource || RequestedSplitQuantity >= Item->Quantity))
 			|| (!bPartialDrop && ((bFormalSpatialDefinition && !bIsSpatialClosure)
@@ -9564,18 +9566,19 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedActiveRunWorldDropItem(
 		}
 	}
 	const FCodeBItemInstance* AcceptedWorldRoot = AcceptedSnapshot.Items.Find(AcceptedWorldItemId);
-	FCodeBItemInstance ExpectedP32WorldRoot;
-	if (bP32EquippedStandardSource)
+	FCodeBItemInstance ExpectedStandardWorldRoot;
+	const bool bP32OrP33StandardSource = bP32EquippedStandardSource || bP33BaseQuickStandardSource;
+	if (bP32OrP33StandardSource)
 	{
-		ExpectedP32WorldRoot = *Item;
-		ExpectedP32WorldRoot.ParentContainerId = WorldContainerId;
-		ExpectedP32WorldRoot.SlotIndex = 0;
+		ExpectedStandardWorldRoot = *Item;
+		ExpectedStandardWorldRoot.ParentContainerId = WorldContainerId;
+		ExpectedStandardWorldRoot.SlotIndex = 0;
 	}
 	if (!AcceptedWorldRoot
-		|| (bP32EquippedStandardSource && !(*AcceptedWorldRoot == ExpectedP32WorldRoot)))
+		|| (bP32OrP33StandardSource && !(*AcceptedWorldRoot == ExpectedStandardWorldRoot)))
 	{
-		if (OutError) *OutError = bP32EquippedStandardSource
-			? TEXT("Code B P32 accepted Unequip changed more than the standard root placement.")
+		if (OutError) *OutError = bP32OrP33StandardSource
+			? TEXT("Code B P32/P33 accepted standard-equipment relocation changed more than the root placement.")
 			: TEXT("Code B P31 accepted create candidate lost its exact world root.");
 		return false;
 	}
@@ -9600,7 +9603,9 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedActiveRunWorldDropItem(
 			? TEXT("P31.AcceptedGroundDrop.CompleteGraph")
 			: (bP32EquippedStandardSource
 				? TEXT("P32.AcceptedGroundDrop.StandardEquipment")
-				: TEXT("P31.AcceptedGroundDrop.WholeRoot")));
+				: (bP33BaseQuickStandardSource
+					? TEXT("P33.AcceptedGroundDrop.BaseQuickStandardEquipment")
+					: TEXT("P31.AcceptedGroundDrop.WholeRoot"))));
 	++Session.NextWorldDropOrdinal;
 	if (!ReconcileHotbarBindings(Session.HotbarBindings, Session.RepositorySnapshot, Session.Layout, Error)
 		|| !FreezeRunInventoryPayloadReceipt(Session, Error)
