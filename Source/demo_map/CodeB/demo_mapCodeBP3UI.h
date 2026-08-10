@@ -333,6 +333,8 @@ public:
 		demo_map_code_b::FCodeBP4DragPayload& Payload) const;
 	void PopulateP47NormalContainerSpatialGraphQuickTransferProof(
 		demo_map_code_b::FCodeBP4DragPayload& Payload) const;
+	void PopulateP48NormalContainerSpatialGraphEquipmentSourceProof(
+		demo_map_code_b::FCodeBP4DragPayload& Payload) const;
 	void PopulateP41BodySpatialGraphQuickTransferProof(
 		demo_map_code_b::FCodeBP4DragPayload& Payload) const;
 	void PopulateP42BodySpatialGraphEquipmentSourceProof(
@@ -340,6 +342,9 @@ public:
 	void PopulateP43BodySimpleStackGroundDropProof(
 		demo_map_code_b::FCodeBP4DragPayload& Payload) const;
 	void FreezeP42BodySpatialGraphEquipmentTarget(
+		demo_map_code_b::FCodeBP4DragPayload& Payload,
+		const demo_map_code_b::FCodeBP3SlotAddress& Target) const;
+	void FreezeP48NormalContainerSpatialGraphEquipmentTarget(
 		demo_map_code_b::FCodeBP4DragPayload& Payload,
 		const demo_map_code_b::FCodeBP3SlotAddress& Target) const;
 	bool ValidateTransferContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, FString& OutError);
@@ -360,6 +365,11 @@ public:
 		FString& OutError) const;
 	/** P47 exact BasicCache spatial graph and one frozen first-empty BaseQuick gate. */
 	bool ValidateP47NormalContainerSpatialGraphQuickTransferContext(
+		const demo_map_code_b::FCodeBP4DragPayload& Payload,
+		const demo_map_code_b::FCodeBP3SlotAddress& Target,
+		FString& OutError) const;
+	/** P48 exact normal-Drag source and user-selected formal P6 equipment target gate. */
+	bool ValidateP48NormalContainerSpatialGraphEquipmentTransferContext(
 		const demo_map_code_b::FCodeBP4DragPayload& Payload,
 		const demo_map_code_b::FCodeBP3SlotAddress& Target,
 		FString& OutError) const;

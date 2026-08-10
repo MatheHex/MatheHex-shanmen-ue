@@ -206,6 +206,15 @@ namespace demo_map_code_b
 		{
 			if (bSourceEquipment) return Reject(TEXT("装备栏之间不能直接拖拽"));
 			if (!IsCompatibleEquipmentTarget(*SourceSlot, Target.ContainerId)) return Reject(TEXT("物品类型与目标栏位不匹配"));
+			if (Payload.P48NormalContainerSpatialGraphEquipmentProof.bIntent)
+			{
+				if (TargetSlot->bOccupied) return Reject(TEXT("P48 BasicCache 空间图只接受明确空正式装备位，不替换"));
+				Preview.Kind = ECodeBP4DropKind::Move;
+				Preview.Operation = ECodeBOperation::Move;
+				Preview.Quantity = 1;
+				Preview.Message = TEXT("可将已揭示 BasicCache 完整空间图移动到该明确空正式装备位");
+				return Preview;
+			}
 			if (Payload.P42BodySpatialGraphEquipmentProof.bIntent)
 			{
 				if (TargetSlot->bOccupied) return Reject(TEXT("P42 尸体空间图只接受明确空正式装备位，不替换"));
@@ -319,6 +328,7 @@ namespace demo_map_code_b
 			Payload.P40BodySimpleStackProof,
 			Payload.P46NormalContainerSimpleStackProof,
 			Payload.P47NormalContainerSpatialGraphProof,
+			Payload.P48NormalContainerSpatialGraphEquipmentProof,
 			Payload.P41BodySpatialGraphProof,
 			Payload.P42BodySpatialGraphEquipmentProof);
 	}

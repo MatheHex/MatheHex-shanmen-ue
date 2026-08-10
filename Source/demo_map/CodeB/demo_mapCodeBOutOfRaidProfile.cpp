@@ -8324,6 +8324,7 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 		if (AcceptedCommand.Intent != ECodeBP2CommandIntent::QuickTransfer
 			|| AcceptedCommand.P38BodyEquipmentProof.bIntent
 			|| AcceptedCommand.P40BodySimpleStackProof.bIntent
+			|| AcceptedCommand.P48NormalContainerSpatialGraphEquipmentProof.bIntent
 			|| AcceptedCommand.P42BodySpatialGraphEquipmentProof.bIntent
 			|| !P41Proof.HasSourceIdentity() || !P41Proof.HasFrozenTarget()
 			|| P41Proof.OwnerId != InOwnerId || P41Proof.RunInstanceId != InRunInstanceId
@@ -8460,6 +8461,7 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 			|| AcceptedCommand.P38BodyEquipmentProof.bIntent
 			|| AcceptedCommand.P40BodySimpleStackProof.bIntent
 			|| AcceptedCommand.P41BodySpatialGraphProof.bIntent
+			|| AcceptedCommand.P48NormalContainerSpatialGraphEquipmentProof.bIntent
 			|| !P42Proof.HasSourceIdentity() || !P42Proof.HasFrozenTarget()
 			|| P42Proof.OwnerId != InOwnerId || P42Proof.RunInstanceId != InRunInstanceId
 			|| P42Proof.BodyTargetId != BodyTargetId
@@ -9530,6 +9532,164 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 		return false;
 	}
 
+	// P48 freezes one exact revealed P18 spatial root and the user's explicit
+	// compatible empty formal equipment cell. Rebuild both sides from durable
+	// P9/P6 truth and replay exactly one P1 whole-graph Move(1).
+	const FCodeBP48NormalContainerSpatialGraphEquipmentTransferProof& P48Proof =
+		AcceptedCommand.P48NormalContainerSpatialGraphEquipmentProof;
+	if (P48Proof.bIntent)
+	{
+		const FCodeBItemInstance* OriginalSource =
+			Record->ContainerSnapshot.Items.Find(P48Proof.SourceItemId);
+		const FCodeBContainer* OriginalSourceContainer =
+			Record->ContainerSnapshot.Containers.Find(P48Proof.SourceContainerId);
+		const FCodeBContainer* OriginalChild =
+			Record->ContainerSnapshot.Containers.Find(P48Proof.SourceChildContainerId);
+		const FCodeBContainer* OriginalTarget =
+			Candidate.ActiveRunInventorySession.RepositorySnapshot.Containers.Find(
+				P48Proof.FrozenTargetContainerId);
+		const FCodeBItemDefinition* SourceDefinition =
+			P24PriorComposite.Definitions.Find(P48Proof.SourceDefinitionId);
+		FCodeBItemDefinition CanonicalSourceDefinition;
+		const FCodeBNormalContainerItemReveal* SourceReveal =
+			Record->ItemRevealStates.FindByPredicate(
+				[&P48Proof](const FCodeBNormalContainerItemReveal& Value)
+				{
+					return Value.ItemId == P48Proof.SourceItemId;
+				});
+		const FCodeBLootProfile* NormalProfile = FindLootProfileByProvenance(
+			DefinitionId, Record->Receipt.LootProfileId, Record->Receipt.LootProfileVersion);
+		const bool bP18R2 = NormalProfile
+			&& NormalProfile->LootProfileId == FName(TEXT("CodeB.LootProfile.BasicCache.r2"))
+			&& NormalProfile->ProfileVersion == 2
+			&& NormalProfile->AlgorithmVersion == TEXT("CodeB.DeterministicWeightedLoot.Crc32.r2");
+		const bool bWindTalisman = P48Proof.SourceDefinitionId == Fdemo_mapItemIds::WindTalisman;
+		const bool bBackpackLevel1 = P48Proof.SourceDefinitionId == Fdemo_mapItemIds::BackpackLevel1;
+		const FGuid ExpectedTargetContainerId = bWindTalisman
+			? Candidate.ActiveRunInventorySession.Layout.SpatialContainerId
+			: (bBackpackLevel1
+				? Candidate.ActiveRunInventorySession.Layout.BackpackContainerId : FGuid());
+		const FName ExpectedTargetSemantic = bWindTalisman
+			? FName(TEXT("SpatialRing")) : (bBackpackLevel1 ? FName(TEXT("Backpack")) : NAME_None);
+		const ECodeBEquipSlot ExpectedEquipSlot = bWindTalisman
+			? ECodeBEquipSlot::SpatialItem : ECodeBEquipSlot::Backpack;
+		const bool bCanonicalDefinition = SourceDefinition
+			&& BuildCanonicalCodeBItemDefinition(
+				P48Proof.SourceDefinitionId, CanonicalSourceDefinition, Error)
+			&& *SourceDefinition == CanonicalSourceDefinition
+			&& !SourceDefinition->bStackable && SourceDefinition->MaxStack == 1
+			&& SourceDefinition->ChildContainerCapacity > 0
+			&& ((bWindTalisman
+					&& SourceDefinition->ItemType == ECodeBItemType::SpatialItem
+					&& SourceDefinition->EquipSlot == ECodeBEquipSlot::SpatialItem
+					&& SourceDefinition->SpatialContainerSemantic == ECodeBSpatialContainerSemantic::QuickRing)
+				|| (bBackpackLevel1
+					&& SourceDefinition->ItemType == ECodeBItemType::Backpack
+					&& SourceDefinition->EquipSlot == ECodeBEquipSlot::Backpack
+					&& SourceDefinition->SpatialContainerSemantic == ECodeBSpatialContainerSemantic::StoragePouch));
+		bool bClosureValid = false;
+		if (OriginalSource)
+		{
+			bClosureValid = ValidateP20BasicCorpseSpatialClosure(
+				Record->ContainerSnapshot, *OriginalSource, Error);
+		}
+		if (AcceptedCommand.Intent != ECodeBP2CommandIntent::Standard
+			|| AcceptedCommand.P38BodyEquipmentProof.bIntent
+			|| AcceptedCommand.P40BodySimpleStackProof.bIntent
+			|| AcceptedCommand.P46NormalContainerSimpleStackProof.bIntent
+			|| AcceptedCommand.P47NormalContainerSpatialGraphProof.bIntent
+			|| AcceptedCommand.P41BodySpatialGraphProof.bIntent
+			|| AcceptedCommand.P42BodySpatialGraphEquipmentProof.bIntent
+			|| !P48Proof.HasSourceIdentity() || !P48Proof.HasFrozenTarget()
+			|| P48Proof.OwnerId != InOwnerId || P48Proof.RunInstanceId != RunInstanceId
+			|| P48Proof.SearchTargetId != SearchTargetId
+			|| P48Proof.ReceiptId != Record->Receipt.ReceiptId
+			|| P48Proof.NormalContainerRevision != ExpectedNormalContainerRevision
+			|| P48Proof.NormalContainerDefinitionId != DefinitionId
+			|| DefinitionId != FName(TEXT("CodeB.NormalContainer.BasicCache"))
+			|| P48Proof.SourceContainerId != Record->ContainerId
+			|| P48Proof.SourceItemId != AcceptedCommand.ItemId
+			|| P48Proof.SourceContainerId != AcceptedCommand.SourceContainerId
+			|| P48Proof.SourceSlot != AcceptedCommand.SourceSlot
+			|| P48Proof.DefinitionContentRevision != Record->Receipt.DefinitionContentRevision
+			|| P48Proof.DefinitionDigest != Record->Receipt.DefinitionDigest
+			|| P48Proof.LootProfileId != Record->Receipt.LootProfileId
+			|| P48Proof.LootProfileVersion != Record->Receipt.LootProfileVersion
+			|| P48Proof.LootProfileDigest != Record->Receipt.LootProfileDigest
+			|| P48Proof.LootAlgorithmVersion != Record->Receipt.LootAlgorithmVersion
+			|| P48Proof.LootResultDigest != Record->Receipt.LootResultDigest
+			|| P48Proof.MaterializationDigest != Record->Receipt.MaterializationDigest
+			|| P48Proof.WorkspaceTargetPaneId != FName(TEXT("InRun.External"))
+			|| P48Proof.CompositeRevision != P24PriorComposite.Revision
+			|| P48Proof.FrozenTargetCompositeRevision != P24PriorComposite.Revision
+			|| P48Proof.P6SnapshotRevision != ExpectedP6SnapshotRevision
+			|| !ExpectedTargetContainerId.IsValid()
+			|| P48Proof.FrozenTargetContainerId != ExpectedTargetContainerId
+			|| P48Proof.FrozenTargetSlot != 0
+			|| P48Proof.FrozenTargetSlotSemantic != ExpectedTargetSemantic
+			|| AcceptedCommand.TargetContainerId != P48Proof.FrozenTargetContainerId
+			|| AcceptedCommand.TargetSlot != P48Proof.FrozenTargetSlot
+			|| AcceptedCommand.QuickTransferTargetMode != ECodeBQuickTransferTargetMode::Legacy
+			|| AcceptedCommand.QuickTransferActivePlayerContainerId.IsValid()
+			|| AcceptedCommand.QuickTransferActivePlayerParentItemId.IsValid()
+			|| AcceptedCommand.ActivePlayerChildOpenGeneration != 0
+			|| AcceptedCommand.Operation != ECodeBOperation::Move
+			|| AcceptedCommand.Quantity != 1
+			|| !AcceptedCommand.TransactionId.IsValid()
+			|| AcceptedCommand.ExpectedRevision != P24PriorComposite.Revision
+			|| !bP18R2 || !bCanonicalDefinition || !bClosureValid
+			|| Record->Receipt.OwnerId != InOwnerId
+			|| Record->Receipt.RunInstanceId != RunInstanceId
+			|| Record->Receipt.SearchTargetId != SearchTargetId
+			|| Record->Receipt.DefinitionId != DefinitionId
+			|| Record->Receipt.ContainerId != Record->ContainerId
+			|| !OriginalSource || !OriginalSourceContainer || OriginalSourceContainer->IsEquipment()
+			|| OriginalSourceContainer->ContainerId != Record->ContainerId
+			|| !OriginalSourceContainer->Slots.IsValidIndex(P48Proof.SourceSlot)
+			|| OriginalSourceContainer->Slots[P48Proof.SourceSlot] != P48Proof.SourceItemId
+			|| OriginalSource->ItemId != P48Proof.SourceItemId
+			|| OriginalSource->DefinitionId != P48Proof.SourceDefinitionId
+			|| OriginalSource->ParentContainerId != P48Proof.SourceContainerId
+			|| OriginalSource->SlotIndex != P48Proof.SourceSlot || OriginalSource->Quantity != 1
+			|| OriginalSource->ChildContainerId != P48Proof.SourceChildContainerId
+			|| P48Proof.StableSpatialChildGuid != SpatialChildGuid(P48Proof.SourceItemId)
+			|| P48Proof.SourceChildContainerId != P48Proof.StableSpatialChildGuid
+			|| !OriginalChild || OriginalChild->IsEquipment()
+			|| OriginalChild->Slots.Num() != SourceDefinition->ChildContainerCapacity
+			|| OriginalChild->Slots.ContainsByPredicate(
+				[](const FGuid& ItemId) { return ItemId.IsValid(); })
+			|| !SourceReveal || SourceReveal->RevealState != ECodeBNormalContainerRevealState::Revealed
+			|| !OriginalTarget || !OriginalTarget->IsEquipment()
+			|| OriginalTarget->ContainerType != ExpectedTargetSemantic
+			|| OriginalTarget->EquipmentSlot != ExpectedEquipSlot
+			|| OriginalTarget->Slots.Num() != 1 || OriginalTarget->Slots[0].IsValid())
+		{
+			if (OutError) *OutError = Error.IsEmpty()
+				? TEXT("Code B P48 refused a stale, non-canonical, redirected, occupied, or identity-incomplete BasicCache spatial graph command.")
+				: Error;
+			return false;
+		}
+
+		FCodeBRepository ExpectedRepository;
+		FCodeBTransactionRequest ExpectedRequest;
+		ExpectedRequest.TransactionId = AcceptedCommand.TransactionId;
+		ExpectedRequest.Operation = ECodeBOperation::Move;
+		ExpectedRequest.ItemId = AcceptedCommand.ItemId;
+		ExpectedRequest.SourceContainerId = AcceptedCommand.SourceContainerId;
+		ExpectedRequest.SourceSlot = AcceptedCommand.SourceSlot;
+		ExpectedRequest.TargetContainerId = AcceptedCommand.TargetContainerId;
+		ExpectedRequest.TargetSlot = AcceptedCommand.TargetSlot;
+		ExpectedRequest.Quantity = 1;
+		ExpectedRequest.ExpectedRevision = AcceptedCommand.ExpectedRevision;
+		if (!ExpectedRepository.LoadPersistedSnapshot(P24PriorComposite, &Error)
+			|| !ExpectedRepository.ExecuteTransaction(ExpectedRequest).IsSuccess()
+			|| ExpectedRepository.CaptureSnapshot() != CompositeSnapshot)
+		{
+			if (OutError) *OutError = TEXT("Code B P48 candidate differs from its one exact P1 whole-graph Move(1).");
+			return false;
+		}
+	}
+
 	// P47 freezes one exact revealed P18 spatial root and the first empty
 	// BaseQuick cell. Reconstruct the complete parent/child closure from durable
 	// P9/P6 truth and replay exactly one P1 Move(1) before accepting the snapshot.
@@ -9585,6 +9745,7 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 			|| AcceptedCommand.P38BodyEquipmentProof.bIntent
 			|| AcceptedCommand.P40BodySimpleStackProof.bIntent
 			|| AcceptedCommand.P46NormalContainerSimpleStackProof.bIntent
+			|| AcceptedCommand.P48NormalContainerSpatialGraphEquipmentProof.bIntent
 			|| AcceptedCommand.P41BodySpatialGraphProof.bIntent
 			|| AcceptedCommand.P42BodySpatialGraphEquipmentProof.bIntent
 			|| !P47Proof.HasSourceIdentity() || !P47Proof.HasFrozenTarget()
@@ -9718,6 +9879,7 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 			|| AcceptedCommand.P40BodySimpleStackProof.bIntent
 			|| AcceptedCommand.P41BodySpatialGraphProof.bIntent
 			|| AcceptedCommand.P47NormalContainerSpatialGraphProof.bIntent
+			|| AcceptedCommand.P48NormalContainerSpatialGraphEquipmentProof.bIntent
 			|| AcceptedCommand.P42BodySpatialGraphEquipmentProof.bIntent
 			|| !P46Proof.HasSourceIdentity()
 			|| P46Proof.OwnerId != InOwnerId || P46Proof.RunInstanceId != RunInstanceId
@@ -9940,6 +10102,11 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 	{
 		RevealStates.Add(Reveal.ItemId, Reveal.RevealState);
 	}
+	bool bMovedP18SpatialParent = false;
+	FGuid MovedP18SpatialParentId;
+	int32 MovedP18SpatialSourceSlot = INDEX_NONE;
+	FGuid MovedP18SpatialTargetContainerId;
+	int32 MovedP18SpatialTargetSlot = INDEX_NONE;
 	for (const TPair<FGuid, FCodeBItemInstance>& Pair : Record->ContainerSnapshot.Items)
 	{
 		const FCodeBItemInstance& OriginalItem = Pair.Value;
@@ -9978,13 +10145,35 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 			continue;
 		}
 		const FCodeBContainer* Destination = CompositeSnapshot.Containers.Find(FinalItem->ParentContainerId);
+		const bool bExactBaseQuickTarget = FinalItem->ParentContainerId
+			== Candidate.ActiveRunInventorySession.Layout.BasicContainerId;
+		const bool bExactP48Target = P48Proof.bIntent
+			&& OriginalItem.ItemId == P48Proof.SourceItemId
+			&& FinalItem->ParentContainerId == P48Proof.FrozenTargetContainerId
+			&& FinalItem->SlotIndex == P48Proof.FrozenTargetSlot;
 		if (!Destination || !Candidate.ActiveRunInventorySession.RepositorySnapshot.Containers.Contains(FinalItem->ParentContainerId)
 			|| !Destination->Slots.IsValidIndex(FinalItem->SlotIndex)
-			|| Destination->Slots[FinalItem->SlotIndex] != FinalItem->ItemId)
+			|| Destination->Slots[FinalItem->SlotIndex] != FinalItem->ItemId
+			|| (!bExactBaseQuickTarget && !bExactP48Target))
 		{
-			if (OutError) *OutError = TEXT("Code B P18 transfer refused a spatial parent destination outside the exact P6 graph.");
+			if (OutError) *OutError = TEXT("Code B P18 transfer only accepts exact BaseQuick or the P48-frozen compatible formal equipment cell.");
 			return false;
 		}
+		bMovedP18SpatialParent = true;
+		MovedP18SpatialParentId = OriginalItem.ItemId;
+		MovedP18SpatialSourceSlot = OriginalItem.SlotIndex;
+		MovedP18SpatialTargetContainerId = FinalItem->ParentContainerId;
+		MovedP18SpatialTargetSlot = FinalItem->SlotIndex;
+	}
+	if (P48Proof.bIntent
+		&& (!bMovedP18SpatialParent
+			|| MovedP18SpatialParentId != P48Proof.SourceItemId
+			|| MovedP18SpatialSourceSlot != P48Proof.SourceSlot
+			|| MovedP18SpatialTargetContainerId != P48Proof.FrozenTargetContainerId
+			|| MovedP18SpatialTargetSlot != P48Proof.FrozenTargetSlot))
+	{
+		if (OutError) *OutError = TEXT("Code B P48 proof did not produce its exact frozen P9-to-formal-P6 whole-graph move.");
+		return false;
 	}
 
 	// Partition the validated P1 graph by the exact P9 root. Any child storage

@@ -660,6 +660,7 @@ namespace demo_map_code_b
 		const FCodeBP40BodySimpleStackQuickTransferProof& P40BodySimpleStackProof,
 		const FCodeBP46NormalContainerSimpleStackQuickTransferProof& P46NormalContainerSimpleStackProof,
 		const FCodeBP47NormalContainerSpatialGraphQuickTransferProof& P47NormalContainerSpatialGraphProof,
+		const FCodeBP48NormalContainerSpatialGraphEquipmentTransferProof& P48NormalContainerSpatialGraphEquipmentProof,
 		const FCodeBP41BodySpatialGraphQuickTransferProof& P41BodySpatialGraphProof,
 		const FCodeBP42BodySpatialGraphEquipmentTransferProof& P42BodySpatialGraphEquipmentProof)
 	{
@@ -702,6 +703,7 @@ namespace demo_map_code_b
 		Command.P40BodySimpleStackProof = P40BodySimpleStackProof;
 		Command.P46NormalContainerSimpleStackProof = P46NormalContainerSimpleStackProof;
 		Command.P47NormalContainerSpatialGraphProof = P47NormalContainerSpatialGraphProof;
+		Command.P48NormalContainerSpatialGraphEquipmentProof = P48NormalContainerSpatialGraphEquipmentProof;
 		Command.P41BodySpatialGraphProof = P41BodySpatialGraphProof;
 		Command.P42BodySpatialGraphEquipmentProof = P42BodySpatialGraphEquipmentProof;
 
