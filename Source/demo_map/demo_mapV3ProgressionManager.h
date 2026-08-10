@@ -279,7 +279,7 @@ private:
 	bool RequestCodeBGroundDrop(
 		const demo_map_code_b::FCodeBP4DragPayload& Payload,
 		FString& OutFeedback);
-	/** P43 adapter for the same GroundDropZone while the exact P12 body page is open. */
+	/** P43/P44 adapter for the same GroundDropZone while the exact P12 body page is open. */
 	bool RequestCodeBBodyGroundDrop(
 		const demo_map_code_b::FCodeBP4DragPayload& Payload,
 		FString& OutFeedback);

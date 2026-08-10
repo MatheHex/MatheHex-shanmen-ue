@@ -29,7 +29,7 @@ namespace demo_map_code_b
 		ECodeBQuickTransferTargetMode QuickTransferTargetMode = ECodeBQuickTransferTargetMode::Legacy;
 		/** P36/P37: exact P17 spatial parent identity paired with CurrentP17Child mode. */
 		FGuid QuickTransferActivePlayerParentItemId;
-		/** P38/P39: exact P21 body-source and input-time current P17-child proof. */
+		/** P38/P39/P44: exact P21 body-source plus optional input-time current P17-child proof. */
 		FCodeBP38BodyEquipmentTransferProof P38BodyEquipmentProof;
 		/** P40: exact revealed ordinary P12 simple-stack and frozen-target proof. */
 		FCodeBP40BodySimpleStackQuickTransferProof P40BodySimpleStackProof;

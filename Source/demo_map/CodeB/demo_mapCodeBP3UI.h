@@ -346,6 +346,10 @@ public:
 	bool ValidateP43BodySimpleStackGroundDropContext(
 		const demo_map_code_b::FCodeBP4DragPayload& Payload,
 		FString& OutError) const;
+	/** P44 exact P21 equipment source gate for the existing normal GroundDropZone. */
+	bool ValidateP44BodyEquipmentGroundDropContext(
+		const demo_map_code_b::FCodeBP4DragPayload& Payload,
+		FString& OutError) const;
 	/** P41 exact P20 graph source and one frozen first-empty BaseQuick target gate. */
 	bool ValidateP41BodySpatialGraphQuickTransferContext(
 		const demo_map_code_b::FCodeBP4DragPayload& Payload,
@@ -360,10 +364,12 @@ public:
 	bool IsP29PlayerQuickTransferSourceContainer(const FGuid& ContainerId) const;
 	/** P35 exact current-child gate; BaseQuick is deliberately not accepted here. */
 	bool IsCurrentActiveP17ChildContainer(const FGuid& ContainerId) const;
-	/** P37 read-only gate for the accepted P32/P33 provenance family; authority remains in P1/P6. */
+	/** P37/P44 read-only gate for accepted standard-root provenance; authority remains in P1/P6. */
 	bool IsP34StandardEquipmentWorldDropSource(const FGuid& ContainerId) const;
 	/** P35 provenance gate shared by P35 normal Drag and P36's explicitly frozen Ctrl quick pickup. */
 	bool IsP35ChildStandardEquipmentWorldDropSource(const FGuid& ContainerId) const;
+	/** P44 provenance admission into the existing standard-root normal/QuickTransfer routes. */
+	bool IsP44CorpseStandardEquipmentWorldDropSource(const FGuid& ContainerId) const;
 	bool ValidateWorldDropTransferContext(
 		const demo_map_code_b::FCodeBP4DragPayload& Payload,
 		const demo_map_code_b::FCodeBP3SlotAddress& Target,

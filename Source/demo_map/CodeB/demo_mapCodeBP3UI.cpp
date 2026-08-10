@@ -2574,6 +2574,9 @@ FCodeBP4DropPreview UCodeBP3InventoryWidget::PreviewInventoryTransfer(
 		const bool bP35ChildStandardRecord = !Payload.bQuickTransferIntent
 			&& bP32StandardEquipmentRoot
 			&& Host->IsP35ChildStandardEquipmentWorldDropSource(Payload.Source.ContainerId);
+		const bool bP44CorpseStandardRecord = !Payload.bQuickTransferIntent
+			&& bP32StandardEquipmentRoot
+			&& Host->IsP44CorpseStandardEquipmentWorldDropSource(Payload.Source.ContainerId);
 		if (bP30CompleteGraphQuickTransfer)
 		{
 			if (!TargetContainer || TargetContainer->ContainerId != Projection.BasicContainerId
@@ -2604,7 +2607,7 @@ FCodeBP4DropPreview UCodeBP3InventoryWidget::PreviewInventoryTransfer(
 				|| Target.bOccupied || Preview.Operation != ECodeBOperation::Move
 				|| Preview.Quantity != 1)
 			{
-				Rejected.Message = TEXT("P36/P37 标准装备 Ctrl 快转只接受输入时冻结的 current child 或 no-child BaseQuick 首空普通格的一次 whole-root Move(1)。");
+				Rejected.Message = TEXT("P36/P37/P44 标准装备 Ctrl 快转只接受输入时冻结的 current child 或 no-child BaseQuick 首空普通格的一次 whole-root Move(1)。");
 				return Rejected;
 			}
 			return Preview;
@@ -2650,7 +2653,8 @@ FCodeBP4DropPreview UCodeBP3InventoryWidget::PreviewInventoryTransfer(
 				&& TargetContainer->Role == FName(TEXT("Basic6"))
 				&& !Target.bOccupied && Preview.Operation == ECodeBOperation::Move;
 			const FCodeBP3InventoryWorkspaceContext* Context = Host->GetWorkspaceContext();
-			const bool bExplicitCurrentChild = bP35ChildStandardRecord && TargetContainer
+			const bool bExplicitCurrentChild = (bP35ChildStandardRecord || bP44CorpseStandardRecord)
+				&& TargetContainer
 				&& (TargetContainer->Role == FName(TEXT("QuickSpatial"))
 					|| TargetContainer->Role == FName(TEXT("PouchInternal")))
 				&& !Target.bOccupied && Preview.Operation == ECodeBOperation::Move
@@ -2663,7 +2667,7 @@ FCodeBP4DropPreview UCodeBP3InventoryWidget::PreviewInventoryTransfer(
 			if (Payload.bQuickTransferIntent
 				|| (!bExplicitBaseQuick && !bExplicitCurrentChild && !bExplicitCompatibleEquipment))
 			{
-				Rejected.Message = TEXT("标准装备只接受 normal Drag 到明确空 BaseQuick、P35 当前 child 空格或明确空兼容装备位；不自动选槽或替换。");
+				Rejected.Message = TEXT("标准装备只接受 normal Drag 到明确空 BaseQuick、允许来源的当前 child 空格或明确空兼容装备位；不自动选槽或替换。");
 				return Rejected;
 			}
 		}
@@ -3687,7 +3691,7 @@ void UCodeBP3InventoryWidget::HandleQuickTransfer(UCodeBP3CellButton* CellButton
 			&& !bSimpleStack))
 	{
 		Host->GetController()->SetP4Feedback(
-			TEXT("WorldDrop Ctrl 快转只接受 simple stack、正式 P19 完整空间图、P32/P33 标准装备 root，或 P35 child-standard root。"));
+			TEXT("WorldDrop Ctrl 快转只接受 simple stack、正式 P19 完整空间图、P32/P33/P44 标准装备 root，或 P35 child-standard root。"));
 		return;
 	}
 	const bool bFrozenTargetStandardEquipmentRoot = bP39BodyEquipmentRoot
@@ -4646,8 +4650,15 @@ void UCodeBP3UIHostSubsystem::PopulateTransferContext(FCodeBP4DragPayload& Paylo
 			Proof.LootProfileId = Body.Receipt.LootProfileId;
 			Proof.LootProfileVersion = Body.Receipt.LootProfileVersion;
 			Proof.LootProfileDigest = Body.Receipt.LootProfileDigest;
+			Proof.LootResultDigest = Body.Receipt.LootResultDigest;
+			Proof.MaterializationDigest = Body.Receipt.MaterializationDigest;
 			Proof.EquipmentCandidateSetDigest = Body.Receipt.EquipmentCandidateSetDigest;
 			Proof.WorkspaceTargetPaneId = WorkspacePresentation->Context.TargetPaneId;
+			Proof.SourceContainerId = Payload.Source.ContainerId;
+			Proof.SourceSlot = Payload.Source.SlotIndex;
+			Proof.SourceItemId = Payload.ItemId;
+			Proof.SourceDefinitionId = Payload.DefinitionId;
+			Proof.CompositeRevision = Controller->GetProjection().Revision;
 			if (WorkspacePresentation->Context.ActiveDestinationContainerId.IsSet()
 				&& WorkspacePresentation->Context.ActiveDestinationOpenGeneration != 0)
 			{
@@ -5640,6 +5651,8 @@ bool UCodeBP3UIHostSubsystem::ValidateP38BodyEquipmentTransferContext(
 		&& Body.Receipt.LootProfileId == Proof.LootProfileId
 		&& Body.Receipt.LootProfileVersion == Proof.LootProfileVersion
 		&& Body.Receipt.LootProfileDigest == Proof.LootProfileDigest
+		&& Body.Receipt.LootResultDigest == Proof.LootResultDigest
+		&& Body.Receipt.MaterializationDigest == Proof.MaterializationDigest
 		&& Body.Receipt.EquipmentCandidateSetDigest == Proof.EquipmentCandidateSetDigest
 		&& Proof.LootProfileId == FName(TEXT("CodeB.LootProfile.BasicCorpse.r3"))
 		&& Proof.LootProfileVersion == 3
@@ -5648,18 +5661,24 @@ bool UCodeBP3UIHostSubsystem::ValidateP38BodyEquipmentTransferContext(
 		&& Context.OwnerId == Proof.OwnerId && Context.RunInstanceId == Proof.RunInstanceId
 		&& Payload.OwnerId == Proof.OwnerId && Payload.RunInstanceId == Proof.RunInstanceId
 		&& Payload.Source.OwnerId == Proof.OwnerId && Payload.Source.RunInstanceId == Proof.RunInstanceId
+		&& Proof.SourceContainerId == Payload.Source.ContainerId
+		&& Proof.SourceSlot == Payload.Source.SlotIndex
+		&& Proof.SourceItemId == Payload.ItemId
+		&& Proof.SourceDefinitionId == Payload.DefinitionId
 		&& EquipmentSlot->SlotSemantic == Proof.SourceSlotSemantic
 		&& EquipmentSlot->EquipmentSlot == ExpectedEquipSlot
 		&& BodyItem->Visibility == ECodeBBodyContainerVisibility::Revealed
 		&& BodyItem->DefinitionId == ExpectedDefinition && BodyItem->Quantity == 1
 		&& !BodyItem->ChildContainerId.IsValid()
 		&& SourceContainer->Role == Proof.SourceSlotSemantic
+		&& SourceContainer->ContainerId == Proof.SourceContainerId
 		&& SourceSlot->bOccupied && SourceSlot->ItemId == Payload.ItemId
 		&& SourceSlot->DefinitionId == ExpectedDefinition
 		&& SourceSlot->Quantity == 1 && !SourceSlot->bStackable && SourceSlot->MaxStack == 1
 		&& !SourceSlot->ChildContainerId.IsValid() && SourceSlot->EquipSlot == ExpectedEquipSlot
 		&& Payload.DefinitionId == ExpectedDefinition
-		&& Payload.ExpectedRevision == Projection.Revision;
+		&& Payload.ExpectedRevision == Projection.Revision
+		&& Proof.CompositeRevision == Projection.Revision;
 	if (!bExactSource)
 	{
 		OutError = TEXT("P38/P39 source 的 BodyTarget/death receipt/r3 profile/reveal/slot/root/Owner/Run/revision/open-focus 身份已失效。");
@@ -6078,6 +6097,46 @@ bool UCodeBP3UIHostSubsystem::ValidateP43BodySimpleStackGroundDropContext(
 	return true;
 }
 
+bool UCodeBP3UIHostSubsystem::ValidateP44BodyEquipmentGroundDropContext(
+	const FCodeBP4DragPayload& Payload,
+	FString& OutError) const
+{
+	OutError.Reset();
+	const FCodeBP38BodyEquipmentTransferProof& Proof = Payload.P38BodyEquipmentProof;
+	if (!Proof.HasSourceIdentity() || Payload.bQuickTransferIntent || Payload.bSplitIntent
+		|| Payload.QuantityDraftKind != ECodeBP3QuantityDraftKind::None
+		|| Payload.RequestedMergeQuantity != 0 || Payload.Quantity != 1
+		|| Payload.SourceScope != ECodeBP3InventoryScope::ExternalTarget
+		|| Payload.QuickTransferTargetMode != ECodeBQuickTransferTargetMode::Legacy
+		|| Payload.QuickTransferActivePlayerContainerId.IsValid()
+		|| Payload.QuickTransferActivePlayerParentItemId.IsValid()
+		|| Payload.ActivePlayerChildOpenGeneration != 0
+		|| Proof.ActivePlayerChildContainerId.IsValid()
+		|| Proof.ActivePlayerChildParentItemId.IsValid()
+		|| Proof.ActivePlayerChildOpenGeneration != 0
+		|| Payload.P40BodySimpleStackProof.bIntent
+		|| Payload.P41BodySpatialGraphProof.bIntent
+		|| Payload.P42BodySpatialGraphEquipmentProof.bIntent
+		|| Payload.P43BodySimpleStackGroundDropProof.bIntent
+		|| Payload.WorldDropId.IsValid() || Payload.WorldDropOrdinal != 0
+		|| Payload.WorldDropRecordRevision != INDEX_NONE
+		|| Payload.WorldDropTargetOpenGeneration != 0 || !Payload.WorldDropMapRoute.IsNone()
+		|| !IsBodyEquipmentContainerPresentation(Payload.Source.ContainerId))
+	{
+		OutError = TEXT("P44 只接受当前 P12 Host 中已揭示 P21 standard equipment root 的 normal GroundDrop。");
+		return false;
+	}
+	if (!ValidateP38BodyEquipmentTransferContext(Payload, FCodeBP3SlotAddress(), OutError))
+	{
+		if (OutError.IsEmpty())
+		{
+			OutError = TEXT("P44 source 的 P21 slot/root/receipt/profile/Owner/Run/revision/open 身份已失效。");
+		}
+		return false;
+	}
+	return true;
+}
+
 bool UCodeBP3UIHostSubsystem::ValidateP41BodySpatialGraphQuickTransferContext(
 	const FCodeBP4DragPayload& Payload,
 	const FCodeBP3SlotAddress& Target,
@@ -6456,13 +6515,22 @@ bool UCodeBP3UIHostSubsystem::IsP34StandardEquipmentWorldDropSource(const FGuid&
 	}
 	const FString& Provenance = WorldDropPresentation->Provenance;
 	return Provenance == TEXT("P32.AcceptedGroundDrop.StandardEquipment")
-		|| Provenance == TEXT("P33.AcceptedGroundDrop.BaseQuickStandardEquipment");
+		|| Provenance == TEXT("P33.AcceptedGroundDrop.BaseQuickStandardEquipment")
+		|| Provenance == TEXT("P44.AcceptedGroundDrop.CorpseStandardEquipment");
 }
 
 bool UCodeBP3UIHostSubsystem::IsP35ChildStandardEquipmentWorldDropSource(const FGuid& ContainerId) const
 {
 	return IsWorldDropPresentation(ContainerId) && WorldDropPresentation.IsSet()
 		&& WorldDropPresentation->Provenance == TEXT("P35.AcceptedGroundDrop.ChildStandardEquipment");
+}
+
+bool UCodeBP3UIHostSubsystem::IsP44CorpseStandardEquipmentWorldDropSource(
+	const FGuid& ContainerId) const
+{
+	return IsWorldDropPresentation(ContainerId) && WorldDropPresentation.IsSet()
+		&& WorldDropPresentation->Provenance
+			== TEXT("P44.AcceptedGroundDrop.CorpseStandardEquipment");
 }
 
 bool UCodeBP3UIHostSubsystem::ValidateWorldDropTransferContext(
@@ -6626,13 +6694,28 @@ bool UCodeBP3UIHostSubsystem::RequestGroundDrop(
 	}
 	FCodeBP4DragPayload EffectivePayload = Payload;
 	const bool bBodyOrdinarySource = IsBodyOrdinaryContainerPresentation(Payload.Source.ContainerId);
+	const bool bBodyEquipmentSource = IsBodyEquipmentContainerPresentation(Payload.Source.ContainerId);
 	if (bBodyOrdinarySource)
 	{
 		PopulateP43BodySimpleStackGroundDropProof(EffectivePayload);
 	}
+	if (bBodyEquipmentSource)
+	{
+		// P44 freezes no player destination.  P38's immutable source proof is
+		// retained, while generic workspace/current-child decoration is removed.
+		EffectivePayload.QuickTransferActivePlayerContainerId.Invalidate();
+		EffectivePayload.QuickTransferActivePlayerParentItemId.Invalidate();
+		EffectivePayload.ActivePlayerChildOpenGeneration = 0;
+		EffectivePayload.QuickTransferTargetMode = ECodeBQuickTransferTargetMode::Legacy;
+		EffectivePayload.P38BodyEquipmentProof.ActivePlayerChildContainerId.Invalidate();
+		EffectivePayload.P38BodyEquipmentProof.ActivePlayerChildParentItemId.Invalidate();
+		EffectivePayload.P38BodyEquipmentProof.ActivePlayerChildOpenGeneration = 0;
+	}
 	if (!ValidateTransferContext(EffectivePayload, OutError)
 		|| (bBodyOrdinarySource
-			&& !ValidateP43BodySimpleStackGroundDropContext(EffectivePayload, OutError)))
+			&& !ValidateP43BodySimpleStackGroundDropContext(EffectivePayload, OutError))
+		|| (bBodyEquipmentSource
+			&& !ValidateP44BodyEquipmentGroundDropContext(EffectivePayload, OutError)))
 	{
 		return false;
 	}

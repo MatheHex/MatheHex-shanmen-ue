@@ -138,7 +138,8 @@ namespace demo_map_code_b
 	};
 
 	/**
-	 * P38/P39 transient proof for one normal drag or frozen-target QuickTransfer
+	 * P38/P39/P44 transient proof for one normal drag, frozen-target QuickTransfer,
+	 * or normal GroundDrop
 	 * from an exact P21 corpse-equipment
 	 * slot. It carries only immutable identities/lifecycle revisions into the
 	 * existing P3 -> P2 -> P1 -> P11/P6 commit callback; it is never persisted as
@@ -158,8 +159,15 @@ namespace demo_map_code_b
 		FName LootProfileId;
 		int32 LootProfileVersion = 0;
 		FString LootProfileDigest;
+		FString LootResultDigest;
+		FString MaterializationDigest;
 		FString EquipmentCandidateSetDigest;
 		FName WorkspaceTargetPaneId;
+		FGuid SourceContainerId;
+		int32 SourceSlot = INDEX_NONE;
+		FGuid SourceItemId;
+		FName SourceDefinitionId;
+		int32 CompositeRevision = INDEX_NONE;
 		FGuid ActivePlayerChildContainerId;
 		FGuid ActivePlayerChildParentItemId;
 		uint32 ActivePlayerChildOpenGeneration = 0;
@@ -171,8 +179,11 @@ namespace demo_map_code_b
 				&& BodyRecordRevision > 0 && BodyTargetOpenGeneration != 0
 				&& !BodyDefinitionId.IsNone() && !SourceSlotSemantic.IsNone()
 				&& !LootProfileId.IsNone() && LootProfileVersion > 0
-				&& !LootProfileDigest.IsEmpty() && !EquipmentCandidateSetDigest.IsEmpty()
-				&& !WorkspaceTargetPaneId.IsNone();
+				&& !LootProfileDigest.IsEmpty() && !LootResultDigest.IsEmpty()
+				&& !MaterializationDigest.IsEmpty() && !EquipmentCandidateSetDigest.IsEmpty()
+				&& !WorkspaceTargetPaneId.IsNone() && SourceContainerId.IsValid()
+				&& SourceSlot == 0 && SourceItemId.IsValid() && !SourceDefinitionId.IsNone()
+				&& CompositeRevision >= 0;
 		}
 	};
 

@@ -1016,9 +1016,10 @@ public:
 		FCodeBWorldDropProjection& OutProjection,
 		FString* OutError = nullptr);
 	/**
-	 * P43's sole corpse-to-world writer.  It revalidates one exact Revealed
-	 * ordinary P12 simple-stack root, creates one derived P31 record, partitions
-	 * the accepted P1 composite back into P11/P6, and saves one Owner replacement.
+	 * P43/P44's sole corpse-to-world writer. It revalidates exactly one Revealed
+	 * ordinary P12 simple-stack or P21 standard-equipment root, creates one
+	 * derived P31 record, partitions the accepted P1 composite back into P11/P6,
+	 * and saves one Owner replacement.
 	 */
 	static bool DropMatchedRunBodyContainerWorldDropItem(
 		const FString& InStorageRoot,
@@ -1029,6 +1030,7 @@ public:
 		int32 ExpectedP6SnapshotRevision,
 		int32 ExpectedBodyContainerRevision,
 		const demo_map_code_b::FCodeBP43BodySimpleStackGroundDropProof& SourceProof,
+		const demo_map_code_b::FCodeBP38BodyEquipmentTransferProof& EquipmentSourceProof,
 		FName MapRoute,
 		const FTransform& FloorTransform,
 		FCodeBBodyContainerProjection& OutBodyProjection,
