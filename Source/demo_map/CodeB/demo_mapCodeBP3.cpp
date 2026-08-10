@@ -658,7 +658,8 @@ namespace demo_map_code_b
 		const FGuid& QuickTransferActivePlayerParentItemId,
 		const FCodeBP38BodyEquipmentTransferProof& P38BodyEquipmentProof,
 		const FCodeBP40BodySimpleStackQuickTransferProof& P40BodySimpleStackProof,
-		const FCodeBP41BodySpatialGraphQuickTransferProof& P41BodySpatialGraphProof)
+		const FCodeBP41BodySpatialGraphQuickTransferProof& P41BodySpatialGraphProof,
+		const FCodeBP42BodySpatialGraphEquipmentTransferProof& P42BodySpatialGraphEquipmentProof)
 	{
 		if (!bOpen || !Service.IsValid())
 		{
@@ -698,6 +699,7 @@ namespace demo_map_code_b
 		Command.P38BodyEquipmentProof = P38BodyEquipmentProof;
 		Command.P40BodySimpleStackProof = P40BodySimpleStackProof;
 		Command.P41BodySpatialGraphProof = P41BodySpatialGraphProof;
+		Command.P42BodySpatialGraphEquipmentProof = P42BodySpatialGraphEquipmentProof;
 
 		const FGuid PreferredSelectionItem = Operation == ECodeBOperation::Merge && AuthoritativeTarget.bOccupied
 			? AuthoritativeTarget.ItemId

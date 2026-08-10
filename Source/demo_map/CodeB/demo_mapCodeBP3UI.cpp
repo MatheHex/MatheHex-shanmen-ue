@@ -2471,6 +2471,19 @@ FCodeBP4DropPreview UCodeBP3InventoryWidget::PreviewInventoryTransfer(
 		}
 		return Preview;
 	}
+	if (Payload.P42BodySpatialGraphEquipmentProof.bIntent)
+	{
+		if (!Host->ValidateP42BodySpatialGraphEquipmentTransferContext(Payload, Target, ContextError)
+			|| !Preview.bAllowed || Preview.Kind != ECodeBP4DropKind::Move
+			|| Preview.Operation != ECodeBOperation::Move || Preview.Quantity != 1)
+		{
+			Rejected.Message = ContextError.IsEmpty()
+				? TEXT("P42 尸体完整空间图 Drag 只接受用户明确选择的匹配空 P6 正式装备位 Move(1)。")
+				: ContextError;
+			return Rejected;
+		}
+		return Preview;
+	}
 	if (Payload.P40BodySimpleStackProof.bIntent
 		|| (Payload.bQuickTransferIntent
 			&& !Payload.P41BodySpatialGraphProof.bIntent
@@ -2695,7 +2708,7 @@ bool UCodeBP3InventoryWidget::CommitInventoryTransfer(
 		FString RefreshError;
 		if (!Host->RefreshBodyContainerProjection(RefreshError))
 		{
-			UE_LOG(LogTemp, Warning, TEXT("P40/P41 accepted body transfer could not refresh its read-only projection: %s"), *RefreshError);
+			UE_LOG(LogTemp, Warning, TEXT("P40/P41/P42 accepted body transfer could not refresh its read-only projection: %s"), *RefreshError);
 		}
 	}
 	if (!bCommitted && !GateError.IsEmpty() && Host.IsValid() && Host->GetController())
@@ -2874,8 +2887,10 @@ void UCodeBP3InventoryWidget::HandleP4DragEnter(UCodeBP3CellButton* CellButton, 
 	{
 		return;
 	}
+	FCodeBP4DragPayload PreviewPayload = Operation->GetPayload();
+	if (Host.IsValid()) Host->FreezeP42BodySpatialGraphEquipmentTarget(PreviewPayload, CellButton->GetAddress());
 	const FCodeBP4DropPreview Preview = PreviewInventoryTransfer(
-		Operation->GetPayload(), CellButton->GetAddress());
+		PreviewPayload, CellButton->GetAddress());
 	TraceP4Input(TEXT("DragEnter"), CellButton->GetAddress(),
 		FString::Printf(TEXT("Allowed=%d Kind=%s"), Preview.bAllowed ? 1 : 0,
 			*FCodeBP4InteractionController::GetDropKindLabel(Preview.Kind)));
@@ -2922,15 +2937,17 @@ bool UCodeBP3InventoryWidget::HandleP4Drop(UCodeBP3CellButton* CellButton, UCode
 	{
 		return false;
 	}
+	FCodeBP4DragPayload DropPayload = Operation->GetPayload();
+	if (Host.IsValid()) Host->FreezeP42BodySpatialGraphEquipmentTarget(DropPayload, CellButton->GetAddress());
 	const FCodeBP4DropPreview Preview = PreviewInventoryTransfer(
-		Operation->GetPayload(), CellButton->GetAddress());
+		DropPayload, CellButton->GetAddress());
 	if (Preview.bAllowed)
 	{
 		++CurrentP4SubmittedCommandCount;
 		++CurrentP4P2CallCount;
 	}
 	const bool bCommitted = CommitInventoryTransfer(
-		Operation->GetPayload(), CellButton->GetAddress(), TEXT("Drop"));
+		DropPayload, CellButton->GetAddress(), TEXT("Drop"));
 	TraceP4Input(TEXT("DropResult"), CellButton->GetAddress(),
 		FString::Printf(TEXT("Preview=%s CommitSucceeded=%d Kind=%s"),
 			Preview.bAllowed ? TEXT("Allowed") : TEXT("Rejected"), bCommitted ? 1 : 0,
@@ -3600,6 +3617,7 @@ void UCodeBP3InventoryWidget::HandleQuickTransfer(UCodeBP3CellButton* CellButton
 		return;
 	}
 	Payload.bQuickTransferIntent = true;
+	Payload.P42BodySpatialGraphEquipmentProof = FCodeBP42BodySpatialGraphEquipmentTransferProof{};
 	Host->PopulateP40BodySimpleStackQuickTransferProof(Payload);
 	Host->PopulateP41BodySpatialGraphQuickTransferProof(Payload);
 	const FCodeBP2SlotView* SourceSlot = FindSlot(SourceAddress);
@@ -4653,6 +4671,7 @@ void UCodeBP3UIHostSubsystem::PopulateTransferContext(FCodeBP4DragPayload& Paylo
 			}
 		}
 	}
+	PopulateP42BodySpatialGraphEquipmentSourceProof(Payload);
 	if (WorldDropPresentation.IsSet())
 	{
 		Payload.WorldDropId = WorldDropPresentation->WorldDropId;
@@ -4862,6 +4881,157 @@ void UCodeBP3UIHostSubsystem::PopulateP41BodySpatialGraphQuickTransferProof(
 	Proof.WorkspaceTargetPaneId = WorkspacePresentation->Context.TargetPaneId;
 	Proof.BaseQuickContainerId = BaseQuick->ContainerId;
 	Proof.CompositeRevision = Projection.Revision;
+}
+
+void UCodeBP3UIHostSubsystem::PopulateP42BodySpatialGraphEquipmentSourceProof(
+	FCodeBP4DragPayload& Payload) const
+{
+	Payload.P42BodySpatialGraphEquipmentProof = FCodeBP42BodySpatialGraphEquipmentTransferProof{};
+	if (Payload.bQuickTransferIntent || Payload.bSplitIntent || !Controller.IsValid()
+		|| !BodyContainerPresentation.IsSet() || !WorkspacePresentation.IsSet()
+		|| !IsBodyOrdinaryContainerPresentation(Payload.Source.ContainerId))
+	{
+		return;
+	}
+	const FCodeBBodyContainerProjection& Body = BodyContainerPresentation->Projection;
+	const FCodeBP2Projection& Projection = Controller->GetProjection();
+	const FCodeBBodyContainerItemProjection* BodyItem = Body.Items.FindByPredicate(
+		[&Payload](const FCodeBBodyContainerItemProjection& Value)
+		{
+			return Value.ParentContainerId == Payload.Source.ContainerId
+				&& Value.SlotIndex == Payload.Source.SlotIndex
+				&& Value.ItemId == Payload.ItemId;
+		});
+	const FCodeBP2ContainerView* SourceContainer = Projection.Containers.FindByPredicate(
+		[&Payload](const FCodeBP2ContainerView& Value)
+		{
+			return Value.ContainerId == Payload.Source.ContainerId;
+		});
+	const FCodeBP2SlotView* SourceSlot = SourceContainer ? SourceContainer->Slots.FindByPredicate(
+		[&Payload](const FCodeBP2SlotView& Value)
+		{
+			return Value.SlotIndex == Payload.Source.SlotIndex;
+		}) : nullptr;
+	int32 ChildOwnerMatches = 0;
+	if (BodyItem)
+	{
+		for (const FCodeBP2ContainerView& Container : Projection.Containers)
+		{
+			for (const FCodeBP2SlotView& Slot : Container.Slots)
+			{
+				if (Slot.bOccupied && Slot.ChildContainerId == BodyItem->ChildContainerId)
+				{
+					++ChildOwnerMatches;
+				}
+			}
+		}
+	}
+	const bool bWindTalisman = SourceSlot
+		&& SourceSlot->DefinitionId == Fdemo_mapItemIds::WindTalisman;
+	const bool bBackpackLevel1 = SourceSlot
+		&& SourceSlot->DefinitionId == Fdemo_mapItemIds::BackpackLevel1;
+	const bool bP20Profile = (Body.Receipt.LootProfileId == FName(TEXT("CodeB.LootProfile.BasicCorpse.r2"))
+			&& Body.Receipt.LootProfileVersion == 2)
+		|| (Body.Receipt.LootProfileId == FName(TEXT("CodeB.LootProfile.BasicCorpse.r3"))
+			&& Body.Receipt.LootProfileVersion == 3);
+	const bool bExactSource = BodyItem && SourceContainer && SourceSlot
+		&& Body.State == ECodeBBodyContainerState::Open
+		&& !Body.ActiveActionId.IsValid() && !Body.ActiveSearchItemId.IsValid()
+		&& Body.DefinitionId == FName(TEXT("CodeB.BodyContainer.BasicCorpse"))
+		&& BodyItem->Visibility == ECodeBBodyContainerVisibility::Revealed
+		&& BodyItem->Quantity == 1 && BodyItem->ChildContainerId.IsValid()
+		&& SourceContainer->ContainerId == Body.ContainerId
+		&& SourceContainer->Role == FName(TEXT("BodyContainerTarget"))
+		&& SourceSlot->bOccupied && SourceSlot->ItemId == BodyItem->ItemId
+		&& SourceSlot->DefinitionId == BodyItem->DefinitionId
+		&& SourceSlot->Quantity == 1 && !SourceSlot->bStackable && SourceSlot->MaxStack == 1
+		&& ((bWindTalisman && SourceSlot->ItemType == ECodeBItemType::SpatialItem
+				&& SourceSlot->EquipSlot == ECodeBEquipSlot::SpatialItem)
+			|| (bBackpackLevel1 && SourceSlot->ItemType == ECodeBItemType::Backpack
+				&& SourceSlot->EquipSlot == ECodeBEquipSlot::Backpack))
+		&& SourceSlot->ChildContainerId == BodyItem->ChildContainerId
+		&& ChildOwnerMatches == 1 && bP20Profile
+		&& Body.Receipt.DeathReceipt.DeathReceiptId.IsValid()
+		&& !Body.Receipt.LootProfileDigest.IsEmpty()
+		&& !Body.Receipt.LootResultDigest.IsEmpty()
+		&& !Body.Receipt.MaterializationDigest.IsEmpty()
+		&& BodyContainerPresentation->TargetOpenGeneration != 0;
+	if (!bExactSource)
+	{
+		return;
+	}
+	FCodeBP42BodySpatialGraphEquipmentTransferProof& Proof =
+		Payload.P42BodySpatialGraphEquipmentProof;
+	Proof.bSourceProof = true;
+	Proof.OwnerId = Body.OwnerId;
+	Proof.RunInstanceId = Body.RunInstanceId;
+	Proof.BodyTargetId = Body.BodyTargetId;
+	Proof.DeathReceiptId = Body.Receipt.DeathReceipt.DeathReceiptId;
+	Proof.BodyRecordRevision = Body.Revision;
+	Proof.BodyTargetOpenGeneration = BodyContainerPresentation->TargetOpenGeneration;
+	Proof.BodyDefinitionId = Body.DefinitionId;
+	Proof.SourceContainerId = Payload.Source.ContainerId;
+	Proof.SourceSlot = Payload.Source.SlotIndex;
+	Proof.SourceItemId = Payload.ItemId;
+	Proof.SourceDefinitionId = Payload.DefinitionId;
+	Proof.SourceChildContainerId = BodyItem->ChildContainerId;
+	Proof.StableSpatialChildGuid = BodyItem->ChildContainerId;
+	Proof.LootProfileId = Body.Receipt.LootProfileId;
+	Proof.LootProfileVersion = Body.Receipt.LootProfileVersion;
+	Proof.LootProfileDigest = Body.Receipt.LootProfileDigest;
+	Proof.LootResultDigest = Body.Receipt.LootResultDigest;
+	Proof.MaterializationDigest = Body.Receipt.MaterializationDigest;
+	Proof.WorkspaceTargetPaneId = WorkspacePresentation->Context.TargetPaneId;
+	Proof.CompositeRevision = Projection.Revision;
+}
+
+void UCodeBP3UIHostSubsystem::FreezeP42BodySpatialGraphEquipmentTarget(
+	FCodeBP4DragPayload& Payload,
+	const FCodeBP3SlotAddress& Target) const
+{
+	FCodeBP42BodySpatialGraphEquipmentTransferProof& Proof =
+		Payload.P42BodySpatialGraphEquipmentProof;
+	if (!Proof.HasSourceIdentity() || Payload.bQuickTransferIntent || !Controller.IsValid())
+	{
+		return;
+	}
+	const FCodeBP2Projection& Projection = Controller->GetProjection();
+	const FCodeBP2ContainerView* TargetContainer = Projection.Containers.FindByPredicate(
+		[&Target](const FCodeBP2ContainerView& Value)
+		{
+			return Value.ContainerId == Target.ContainerId;
+		});
+	if (TargetContainer && TargetContainer->Role == FName(TEXT("Basic6")))
+	{
+		return; // Preserve P20's established ordinary BaseQuick Drag path.
+	}
+	Proof.bIntent = true;
+	Payload.QuickTransferActivePlayerContainerId.Invalidate();
+	Payload.ActivePlayerChildOpenGeneration = 0;
+	Payload.QuickTransferActivePlayerParentItemId.Invalidate();
+	Proof.FrozenTargetContainerId.Invalidate();
+	Proof.FrozenTargetSlot = INDEX_NONE;
+	Proof.FrozenTargetSlotSemantic = NAME_None;
+	Proof.FrozenTargetCompositeRevision = INDEX_NONE;
+	const FName ExpectedRole = Proof.SourceDefinitionId == Fdemo_mapItemIds::WindTalisman
+		? FName(TEXT("SpatialRing"))
+		: (Proof.SourceDefinitionId == Fdemo_mapItemIds::BackpackLevel1
+			? FName(TEXT("Backpack")) : NAME_None);
+	const FCodeBP2ContainerView* ExpectedContainer = Projection.Containers.FindByPredicate(
+		[ExpectedRole](const FCodeBP2ContainerView& Value) { return Value.Role == ExpectedRole; });
+	const FGuid ExpectedContainerId = ExpectedContainer ? ExpectedContainer->ContainerId : FGuid();
+	const FCodeBP2SlotView* TargetSlot = TargetContainer ? TargetContainer->Slots.FindByPredicate(
+		[&Target](const FCodeBP2SlotView& Value) { return Value.SlotIndex == Target.SlotIndex; }) : nullptr;
+	if (!ExpectedRole.IsNone() && TargetContainer && TargetSlot
+		&& TargetContainer->ContainerId == ExpectedContainerId
+		&& TargetContainer->Role == ExpectedRole && TargetContainer->Capacity == 1
+		&& Target.SlotIndex == 0 && !TargetSlot->bOccupied)
+	{
+		Proof.FrozenTargetContainerId = Target.ContainerId;
+		Proof.FrozenTargetSlot = Target.SlotIndex;
+		Proof.FrozenTargetSlotSemantic = ExpectedRole;
+		Proof.FrozenTargetCompositeRevision = Projection.Revision;
+	}
 }
 
 bool UCodeBP3UIHostSubsystem::CreateSplitDraft(
@@ -5161,6 +5331,14 @@ bool UCodeBP3UIHostSubsystem::ValidateTransferContext(
 	if (Payload.P41BodySpatialGraphProof.bIntent)
 	{
 		if (!ValidateP41BodySpatialGraphQuickTransferContext(
+			Payload, FCodeBP3SlotAddress(), OutError))
+		{
+			return false;
+		}
+	}
+	if (Payload.P42BodySpatialGraphEquipmentProof.bIntent)
+	{
+		if (!ValidateP42BodySpatialGraphEquipmentTransferContext(
 			Payload, FCodeBP3SlotAddress(), OutError))
 		{
 			return false;
@@ -5874,6 +6052,164 @@ bool UCodeBP3UIHostSubsystem::ValidateP41BodySpatialGraphQuickTransferContext(
 			|| Target.OwnerId != Proof.OwnerId || Target.RunInstanceId != Proof.RunInstanceId))
 	{
 		OutError = TEXT("P41 Commit target 与 Preview 冻结的 exact BaseQuick candidate 不一致；未重扫。");
+		return false;
+	}
+	return true;
+}
+
+bool UCodeBP3UIHostSubsystem::ValidateP42BodySpatialGraphEquipmentTransferContext(
+	const FCodeBP4DragPayload& Payload,
+	const FCodeBP3SlotAddress& Target,
+	FString& OutError) const
+{
+	OutError.Reset();
+	const FCodeBP42BodySpatialGraphEquipmentTransferProof& Proof =
+		Payload.P42BodySpatialGraphEquipmentProof;
+	if (!Controller.IsValid() || !ActiveWidget.IsValid() || !BodyContainerPresentation.IsSet()
+		|| !WorkspacePresentation.IsSet() || !WorkspacePresentation->Context.IsInRun()
+		|| Payload.bQuickTransferIntent || !Proof.HasSourceIdentity() || !Proof.HasFrozenTarget()
+		|| Payload.QuickTransferTargetMode != ECodeBQuickTransferTargetMode::Legacy
+		|| !IsBodyOrdinaryContainerPresentation(Payload.Source.ContainerId)
+		|| Payload.bSplitIntent || Payload.QuantityDraftKind != ECodeBP3QuantityDraftKind::None
+		|| Payload.RequestedMergeQuantity != 0 || Payload.Quantity != 1
+		|| Payload.SourceScope != ECodeBP3InventoryScope::ExternalTarget
+		|| Payload.QuickTransferActivePlayerContainerId.IsValid()
+		|| Payload.QuickTransferActivePlayerParentItemId.IsValid()
+		|| Payload.ActivePlayerChildOpenGeneration != 0
+		|| Payload.P38BodyEquipmentProof.bIntent || Payload.P40BodySimpleStackProof.bIntent
+		|| Payload.P41BodySpatialGraphProof.bIntent
+		|| Payload.WorldDropId.IsValid() || Payload.WorldDropOrdinal != 0
+		|| Payload.WorldDropRecordRevision != INDEX_NONE
+		|| Payload.WorldDropTargetOpenGeneration != 0 || !Payload.WorldDropMapRoute.IsNone())
+	{
+		OutError = TEXT("P42 只接受当前 P12 Host 中完整证明的 P20 空 child 空间图 normal Drag。 ");
+		return false;
+	}
+
+	const FCodeBBodyContainerProjection& Body = BodyContainerPresentation->Projection;
+	const FCodeBP3InventoryWorkspaceContext& Context = WorkspacePresentation->Context;
+	const FCodeBP2Projection& Projection = Controller->GetProjection();
+	const FCodeBBodyContainerItemProjection* BodyItem = Body.Items.FindByPredicate(
+		[&Payload](const FCodeBBodyContainerItemProjection& Value)
+		{
+			return Value.ParentContainerId == Payload.Source.ContainerId
+				&& Value.SlotIndex == Payload.Source.SlotIndex && Value.ItemId == Payload.ItemId;
+		});
+	const FCodeBP2ContainerView* SourceContainer = Projection.Containers.FindByPredicate(
+		[&Payload](const FCodeBP2ContainerView& Value)
+		{
+			return Value.ContainerId == Payload.Source.ContainerId;
+		});
+	const FCodeBP2SlotView* SourceSlot = SourceContainer ? SourceContainer->Slots.FindByPredicate(
+		[&Payload](const FCodeBP2SlotView& Value)
+		{
+			return Value.SlotIndex == Payload.Source.SlotIndex;
+		}) : nullptr;
+	int32 ChildOwnerMatches = 0;
+	for (const FCodeBP2ContainerView& Container : Projection.Containers)
+	{
+		for (const FCodeBP2SlotView& Slot : Container.Slots)
+		{
+			if (Slot.bOccupied && Slot.ChildContainerId == Proof.SourceChildContainerId)
+			{
+				++ChildOwnerMatches;
+			}
+		}
+	}
+	const bool bWindTalisman = Proof.SourceDefinitionId == Fdemo_mapItemIds::WindTalisman;
+	const bool bBackpackLevel1 = Proof.SourceDefinitionId == Fdemo_mapItemIds::BackpackLevel1;
+	const bool bP20Profile = (Proof.LootProfileId == FName(TEXT("CodeB.LootProfile.BasicCorpse.r2"))
+			&& Proof.LootProfileVersion == 2)
+		|| (Proof.LootProfileId == FName(TEXT("CodeB.LootProfile.BasicCorpse.r3"))
+			&& Proof.LootProfileVersion == 3);
+	const bool bExactSource = BodyItem && SourceContainer && SourceSlot
+		&& BodyContainerPresentation->TargetContainerId == Body.ContainerId
+		&& BodyContainerPresentation->TargetOpenGeneration == Proof.BodyTargetOpenGeneration
+		&& Body.State == ECodeBBodyContainerState::Open
+		&& !Body.ActiveActionId.IsValid() && !Body.ActiveSearchItemId.IsValid()
+		&& Body.OwnerId == Proof.OwnerId && Body.RunInstanceId == Proof.RunInstanceId
+		&& Body.BodyTargetId == Proof.BodyTargetId && Body.DefinitionId == Proof.BodyDefinitionId
+		&& Body.DefinitionId == FName(TEXT("CodeB.BodyContainer.BasicCorpse"))
+		&& Body.Revision == Proof.BodyRecordRevision
+		&& Body.Receipt.OwnerId == Proof.OwnerId && Body.Receipt.RunInstanceId == Proof.RunInstanceId
+		&& Body.Receipt.BodyTargetId == Proof.BodyTargetId
+		&& Body.Receipt.DefinitionId == Proof.BodyDefinitionId
+		&& Body.Receipt.ContainerId == Proof.SourceContainerId
+		&& Body.Receipt.DeathReceipt.DeathReceiptId == Proof.DeathReceiptId
+		&& Body.Receipt.DeathReceipt.OwnerId == Proof.OwnerId
+		&& Body.Receipt.DeathReceipt.RunInstanceId == Proof.RunInstanceId
+		&& Body.Receipt.DeathReceipt.BodyTargetId == Proof.BodyTargetId
+		&& Body.Receipt.DeathReceipt.DefinitionId == Proof.BodyDefinitionId
+		&& Body.Receipt.LootProfileId == Proof.LootProfileId
+		&& Body.Receipt.LootProfileVersion == Proof.LootProfileVersion
+		&& Body.Receipt.LootProfileDigest == Proof.LootProfileDigest
+		&& Body.Receipt.LootResultDigest == Proof.LootResultDigest
+		&& Body.Receipt.MaterializationDigest == Proof.MaterializationDigest
+		&& bP20Profile && Proof.WorkspaceTargetPaneId == Context.TargetPaneId
+		&& Context.TargetPaneId == FName(TEXT("InRun.External"))
+		&& Context.OwnerId == Proof.OwnerId && Context.RunInstanceId == Proof.RunInstanceId
+		&& Payload.OwnerId == Proof.OwnerId && Payload.RunInstanceId == Proof.RunInstanceId
+		&& Payload.Source.OwnerId == Proof.OwnerId && Payload.Source.RunInstanceId == Proof.RunInstanceId
+		&& Proof.SourceContainerId == Payload.Source.ContainerId
+		&& Proof.SourceSlot == Payload.Source.SlotIndex && Proof.SourceItemId == Payload.ItemId
+		&& Proof.SourceDefinitionId == Payload.DefinitionId
+		&& SourceContainer->ContainerId == Body.ContainerId
+		&& SourceContainer->Role == FName(TEXT("BodyContainerTarget"))
+		&& BodyItem->Visibility == ECodeBBodyContainerVisibility::Revealed
+		&& BodyItem->DefinitionId == Proof.SourceDefinitionId && BodyItem->Quantity == 1
+		&& BodyItem->ChildContainerId == Proof.SourceChildContainerId
+		&& Proof.StableSpatialChildGuid == Proof.SourceChildContainerId
+		&& SourceSlot->bOccupied && SourceSlot->ItemId == Proof.SourceItemId
+		&& SourceSlot->DefinitionId == Proof.SourceDefinitionId
+		&& SourceSlot->Quantity == 1 && !SourceSlot->bStackable && SourceSlot->MaxStack == 1
+		&& SourceSlot->ChildContainerId == Proof.SourceChildContainerId
+		&& ((bWindTalisman && SourceSlot->ItemType == ECodeBItemType::SpatialItem
+				&& SourceSlot->EquipSlot == ECodeBEquipSlot::SpatialItem)
+			|| (bBackpackLevel1 && SourceSlot->ItemType == ECodeBItemType::Backpack
+				&& SourceSlot->EquipSlot == ECodeBEquipSlot::Backpack))
+		&& ChildOwnerMatches == 1 && Payload.ExpectedRevision == Projection.Revision
+		&& Proof.CompositeRevision == Projection.Revision
+		&& Proof.FrozenTargetCompositeRevision == Projection.Revision;
+	if (!bExactSource)
+	{
+		OutError = TEXT("P42 source 的 P20/P21 provenance、BodyTarget/receipt/reveal、parent-child closure、Owner/Run/revision/open-focus 身份已失效。");
+		return false;
+	}
+
+	const FName ExpectedRole = bWindTalisman ? FName(TEXT("SpatialRing"))
+		: (bBackpackLevel1 ? FName(TEXT("Backpack")) : NAME_None);
+	const ECodeBEquipSlot ExpectedEquipSlot = bWindTalisman
+		? ECodeBEquipSlot::SpatialItem : ECodeBEquipSlot::Backpack;
+	const FCodeBP2ContainerView* TargetContainer = Projection.Containers.FindByPredicate(
+		[&Proof](const FCodeBP2ContainerView& Value)
+		{
+			return Value.ContainerId == Proof.FrozenTargetContainerId;
+		});
+	const FCodeBP2SlotView* TargetSlot = TargetContainer ? TargetContainer->Slots.FindByPredicate(
+		[&Proof](const FCodeBP2SlotView& Value)
+		{
+			return Value.SlotIndex == Proof.FrozenTargetSlot;
+		}) : nullptr;
+	int32 ExpectedRoleMatches = 0;
+	for (const FCodeBP2ContainerView& Container : Projection.Containers)
+	{
+		if (Container.Role == ExpectedRole) ++ExpectedRoleMatches;
+	}
+	if (ExpectedRole.IsNone() || ExpectedRoleMatches != 1 || !TargetContainer || !TargetSlot
+		|| TargetContainer->Role != ExpectedRole || Proof.FrozenTargetSlotSemantic != ExpectedRole
+		|| TargetContainer->Capacity != 1 || Proof.FrozenTargetSlot != 0
+		|| TargetSlot->bOccupied || SourceSlot->EquipSlot != ExpectedEquipSlot)
+	{
+		OutError = TEXT("P42 frozen target 不是该空间 root 唯一匹配且仍为空的正式 P6 SpatialRing／Backpack 槽。");
+		return false;
+	}
+	if (Target.IsValid()
+		&& (Target.ContainerId != Proof.FrozenTargetContainerId
+			|| Target.SlotIndex != Proof.FrozenTargetSlot || Target.bOccupied
+			|| Target.Scope != ECodeBP3InventoryScope::InRunPlayer
+			|| Target.OwnerId != Proof.OwnerId || Target.RunInstanceId != Proof.RunInstanceId))
+	{
+		OutError = TEXT("P42 Commit target 与用户 Drop 冻结的 exact formal equipment Cell 不一致；未扫描或回退。");
 		return false;
 	}
 	return true;

@@ -206,6 +206,15 @@ namespace demo_map_code_b
 		{
 			if (bSourceEquipment) return Reject(TEXT("装备栏之间不能直接拖拽"));
 			if (!IsCompatibleEquipmentTarget(*SourceSlot, Target.ContainerId)) return Reject(TEXT("物品类型与目标栏位不匹配"));
+			if (Payload.P42BodySpatialGraphEquipmentProof.bIntent)
+			{
+				if (TargetSlot->bOccupied) return Reject(TEXT("P42 尸体空间图只接受明确空正式装备位，不替换"));
+				Preview.Kind = ECodeBP4DropKind::Move;
+				Preview.Operation = ECodeBOperation::Move;
+				Preview.Quantity = 1;
+				Preview.Message = TEXT("可将已揭示尸体完整空间图移动到该明确空正式装备位");
+				return Preview;
+			}
 			if (bP21BodyEquipmentSource)
 			{
 				if (TargetSlot->bOccupied) return Reject(TEXT("P38 尸体装备只接受明确空装备位，不替换"));
@@ -302,7 +311,8 @@ namespace demo_map_code_b
 			Payload.QuickTransferActivePlayerParentItemId,
 			Payload.P38BodyEquipmentProof,
 			Payload.P40BodySimpleStackProof,
-			Payload.P41BodySpatialGraphProof);
+			Payload.P41BodySpatialGraphProof,
+			Payload.P42BodySpatialGraphEquipmentProof);
 	}
 
 	bool FCodeBP4InteractionController::CommitDrop(const FCodeBP4DragPayload& Payload, const FCodeBP3SlotAddress& Target)

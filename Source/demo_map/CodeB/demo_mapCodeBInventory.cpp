@@ -1,5 +1,7 @@
 #include "CodeB/demo_mapCodeBInventory.h"
 
+#include "demo_mapItemDefinitions.h"
+
 namespace demo_map_code_b
 {
 	namespace
@@ -651,7 +653,38 @@ namespace demo_map_code_b
 		}
 		FCodeBContainer* Target = Candidate.Containers.Find(Request.TargetContainerId);
 		int32 TargetSlot = Request.TargetSlot;
-		if (bP21BodyEquipmentSource && Target && Target->IsEquipment())
+		const bool bP42BodySpatialSource = Source->ContainerType == FName(TEXT("CodeB.BodyContainer.BasicCorpse"));
+		if (bP42BodySpatialSource && Target && Target->IsEquipment())
+		{
+			const FCodeBItemDefinition* Definition = Candidate.Definitions.Find(Item->DefinitionId);
+			const bool bWindTalisman = Item->DefinitionId == Fdemo_mapItemIds::WindTalisman;
+			const bool bBackpackLevel1 = Item->DefinitionId == Fdemo_mapItemIds::BackpackLevel1;
+			const bool bExactTarget = (bWindTalisman
+					&& Target->ContainerType == FName(TEXT("SpatialRing"))
+					&& Target->EquipmentSlot == ECodeBEquipSlot::SpatialItem)
+				|| (bBackpackLevel1
+					&& Target->ContainerType == FName(TEXT("Backpack"))
+					&& Target->EquipmentSlot == ECodeBEquipSlot::Backpack);
+			if (!Definition || !bExactTarget || !IsEquipSlotCompatible(*Definition, *Target)
+				|| Definition->bStackable || Definition->MaxStack != 1
+				|| Definition->ChildContainerCapacity <= 0
+				|| !Item->ChildContainerId.IsValid() || Item->Quantity != 1
+				|| Request.Quantity != 1 || Target->Slots.Num() != 1
+				|| Request.TargetSlot != 0)
+			{
+				OutResult.Code = ECodeBResultCode::IncompatibleSlot;
+				OutResult.Message = TEXT("P42 corpse spatial Move requires its one compatible formal empty player equipment slot.");
+				return false;
+			}
+			TargetSlot = 0;
+			if (Target->Slots[0].IsValid())
+			{
+				OutResult.Code = ECodeBResultCode::TargetOccupied;
+				OutResult.Message = TEXT("P42 corpse spatial Move does not replace an occupied equipment slot.");
+				return false;
+			}
+		}
+		else if (bP21BodyEquipmentSource && Target && Target->IsEquipment())
 		{
 			const FCodeBItemDefinition* Definition = Candidate.Definitions.Find(Item->DefinitionId);
 			const FString TargetType = Target->ContainerType.ToString();

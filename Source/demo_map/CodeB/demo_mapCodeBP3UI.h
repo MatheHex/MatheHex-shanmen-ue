@@ -325,6 +325,11 @@ public:
 		demo_map_code_b::FCodeBP4DragPayload& Payload) const;
 	void PopulateP41BodySpatialGraphQuickTransferProof(
 		demo_map_code_b::FCodeBP4DragPayload& Payload) const;
+	void PopulateP42BodySpatialGraphEquipmentSourceProof(
+		demo_map_code_b::FCodeBP4DragPayload& Payload) const;
+	void FreezeP42BodySpatialGraphEquipmentTarget(
+		demo_map_code_b::FCodeBP4DragPayload& Payload,
+		const demo_map_code_b::FCodeBP3SlotAddress& Target) const;
 	bool ValidateTransferContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, FString& OutError);
 	/** Shared P38 normal-drag / P39 frozen-target source and destination gate. */
 	bool ValidateP38BodyEquipmentTransferContext(
@@ -338,6 +343,11 @@ public:
 		FString& OutError) const;
 	/** P41 exact P20 graph source and one frozen first-empty BaseQuick target gate. */
 	bool ValidateP41BodySpatialGraphQuickTransferContext(
+		const demo_map_code_b::FCodeBP4DragPayload& Payload,
+		const demo_map_code_b::FCodeBP3SlotAddress& Target,
+		FString& OutError) const;
+	/** P42 exact normal-Drag source and user-selected formal P6 equipment target gate. */
+	bool ValidateP42BodySpatialGraphEquipmentTransferContext(
 		const demo_map_code_b::FCodeBP4DragPayload& Payload,
 		const demo_map_code_b::FCodeBP3SlotAddress& Target,
 		FString& OutError) const;

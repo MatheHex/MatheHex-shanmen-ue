@@ -8312,6 +8312,7 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 		if (AcceptedCommand.Intent != ECodeBP2CommandIntent::QuickTransfer
 			|| AcceptedCommand.P38BodyEquipmentProof.bIntent
 			|| AcceptedCommand.P40BodySimpleStackProof.bIntent
+			|| AcceptedCommand.P42BodySpatialGraphEquipmentProof.bIntent
 			|| !P41Proof.HasSourceIdentity() || !P41Proof.HasFrozenTarget()
 			|| P41Proof.OwnerId != InOwnerId || P41Proof.RunInstanceId != InRunInstanceId
 			|| P41Proof.BodyTargetId != BodyTargetId
@@ -8388,6 +8389,126 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 		return false;
 	}
 
+	// P42 reuses the same canonical P20 source closure, but freezes the user's
+	// explicit normal-Drop address in exactly one compatible empty P6 formal slot.
+	const FCodeBP42BodySpatialGraphEquipmentTransferProof& P42Proof =
+		AcceptedCommand.P42BodySpatialGraphEquipmentProof;
+	if (P42Proof.bIntent)
+	{
+		const FCodeBItemInstance* OriginalSource =
+			Record->ContainerSnapshot.Items.Find(P42Proof.SourceItemId);
+		const FCodeBContainer* OriginalSourceContainer =
+			Record->ContainerSnapshot.Containers.Find(P42Proof.SourceContainerId);
+		const FCodeBContainer* OriginalChild =
+			Record->ContainerSnapshot.Containers.Find(P42Proof.SourceChildContainerId);
+		const FCodeBContainer* OriginalTarget =
+			Candidate.ActiveRunInventorySession.RepositorySnapshot.Containers.Find(
+				P42Proof.FrozenTargetContainerId);
+		const FCodeBItemDefinition* SourceDefinition =
+			P24PriorComposite.Definitions.Find(P42Proof.SourceDefinitionId);
+		FCodeBItemDefinition CanonicalSourceDefinition;
+		const ECodeBBodyContainerVisibility* SourceVisibility =
+			OriginalVisibilities.Find(P42Proof.SourceItemId);
+		const bool bP20R2 = BodyProfile
+			&& BodyProfile->LootProfileId == FName(TEXT("CodeB.LootProfile.BasicCorpse.r2"))
+			&& BodyProfile->ProfileVersion == 2
+			&& BodyProfile->AlgorithmVersion == TEXT("CodeB.DeterministicWeightedLoot.Crc32.r2");
+		const bool bP20OrInheritedP21Profile = bP20R2 || (BodyProfile && IsP21BasicCorpseR3(*BodyProfile));
+		const bool bWindTalisman = P42Proof.SourceDefinitionId == Fdemo_mapItemIds::WindTalisman;
+		const bool bBackpackLevel1 = P42Proof.SourceDefinitionId == Fdemo_mapItemIds::BackpackLevel1;
+		const FGuid ExpectedTargetContainerId = bWindTalisman
+			? Candidate.ActiveRunInventorySession.Layout.SpatialContainerId
+			: (bBackpackLevel1
+				? Candidate.ActiveRunInventorySession.Layout.BackpackContainerId : FGuid());
+		const FName ExpectedTargetSemantic = bWindTalisman
+			? FName(TEXT("SpatialRing")) : (bBackpackLevel1 ? FName(TEXT("Backpack")) : NAME_None);
+		const ECodeBEquipSlot ExpectedEquipSlot = bWindTalisman
+			? ECodeBEquipSlot::SpatialItem : ECodeBEquipSlot::Backpack;
+		const bool bCanonicalDefinition = SourceDefinition
+			&& BuildCanonicalCodeBItemDefinition(
+				P42Proof.SourceDefinitionId, CanonicalSourceDefinition, Error)
+			&& *SourceDefinition == CanonicalSourceDefinition
+			&& !SourceDefinition->bStackable && SourceDefinition->MaxStack == 1
+			&& SourceDefinition->ChildContainerCapacity > 0
+			&& ((bWindTalisman
+					&& SourceDefinition->ItemType == ECodeBItemType::SpatialItem
+					&& SourceDefinition->EquipSlot == ECodeBEquipSlot::SpatialItem
+					&& SourceDefinition->SpatialContainerSemantic == ECodeBSpatialContainerSemantic::QuickRing)
+				|| (bBackpackLevel1
+					&& SourceDefinition->ItemType == ECodeBItemType::Backpack
+					&& SourceDefinition->EquipSlot == ECodeBEquipSlot::Backpack
+					&& SourceDefinition->SpatialContainerSemantic == ECodeBSpatialContainerSemantic::StoragePouch));
+		bool bClosureValid = false;
+		if (OriginalSource)
+		{
+			bClosureValid = ValidateP20BasicCorpseSpatialClosure(
+				Record->ContainerSnapshot, *OriginalSource, Error);
+		}
+		if (AcceptedCommand.Intent != ECodeBP2CommandIntent::Standard
+			|| AcceptedCommand.P38BodyEquipmentProof.bIntent
+			|| AcceptedCommand.P40BodySimpleStackProof.bIntent
+			|| AcceptedCommand.P41BodySpatialGraphProof.bIntent
+			|| !P42Proof.HasSourceIdentity() || !P42Proof.HasFrozenTarget()
+			|| P42Proof.OwnerId != InOwnerId || P42Proof.RunInstanceId != InRunInstanceId
+			|| P42Proof.BodyTargetId != BodyTargetId
+			|| P42Proof.DeathReceiptId != Record->Receipt.DeathReceipt.DeathReceiptId
+			|| P42Proof.BodyRecordRevision != ExpectedBodyContainerRevision
+			|| P42Proof.BodyDefinitionId != DefinitionId
+			|| DefinitionId != FName(TEXT("CodeB.BodyContainer.BasicCorpse"))
+			|| P42Proof.SourceContainerId != Record->ContainerId
+			|| P42Proof.SourceItemId != AcceptedCommand.ItemId
+			|| P42Proof.SourceContainerId != AcceptedCommand.SourceContainerId
+			|| P42Proof.SourceSlot != AcceptedCommand.SourceSlot
+			|| P42Proof.LootProfileId != Record->Receipt.LootProfileId
+			|| P42Proof.LootProfileVersion != Record->Receipt.LootProfileVersion
+			|| P42Proof.LootProfileDigest != Record->Receipt.LootProfileDigest
+			|| P42Proof.LootResultDigest != Record->Receipt.LootResultDigest
+			|| P42Proof.MaterializationDigest != Record->Receipt.MaterializationDigest
+			|| P42Proof.WorkspaceTargetPaneId != FName(TEXT("InRun.External"))
+			|| P42Proof.CompositeRevision != P24PriorComposite.Revision
+			|| P42Proof.FrozenTargetCompositeRevision != P24PriorComposite.Revision
+			|| !ExpectedTargetContainerId.IsValid()
+			|| P42Proof.FrozenTargetContainerId != ExpectedTargetContainerId
+			|| P42Proof.FrozenTargetSlot != 0
+			|| P42Proof.FrozenTargetSlotSemantic != ExpectedTargetSemantic
+			|| AcceptedCommand.TargetContainerId != P42Proof.FrozenTargetContainerId
+			|| AcceptedCommand.TargetSlot != P42Proof.FrozenTargetSlot
+			|| AcceptedCommand.QuickTransferTargetMode != ECodeBQuickTransferTargetMode::Legacy
+			|| AcceptedCommand.QuickTransferActivePlayerContainerId.IsValid()
+			|| AcceptedCommand.QuickTransferActivePlayerParentItemId.IsValid()
+			|| AcceptedCommand.ActivePlayerChildOpenGeneration != 0
+			|| AcceptedCommand.Operation != ECodeBOperation::Move
+			|| AcceptedCommand.Quantity != 1 || !AcceptedCommand.TransactionId.IsValid()
+			|| AcceptedCommand.ExpectedRevision != P24PriorComposite.Revision
+			|| !bP20OrInheritedP21Profile || !bCanonicalDefinition || !bClosureValid
+			|| !OriginalSource || !OriginalSourceContainer || OriginalSourceContainer->IsEquipment()
+			|| OriginalSourceContainer->ContainerType != FName(TEXT("CodeB.BodyContainer.BasicCorpse"))
+			|| !OriginalSourceContainer->Slots.IsValidIndex(P42Proof.SourceSlot)
+			|| OriginalSourceContainer->Slots[P42Proof.SourceSlot] != P42Proof.SourceItemId
+			|| OriginalSource->ItemId != P42Proof.SourceItemId
+			|| OriginalSource->DefinitionId != P42Proof.SourceDefinitionId
+			|| OriginalSource->ParentContainerId != P42Proof.SourceContainerId
+			|| OriginalSource->SlotIndex != P42Proof.SourceSlot || OriginalSource->Quantity != 1
+			|| OriginalSource->ChildContainerId != P42Proof.SourceChildContainerId
+			|| P42Proof.StableSpatialChildGuid != SpatialChildGuid(P42Proof.SourceItemId)
+			|| P42Proof.SourceChildContainerId != P42Proof.StableSpatialChildGuid
+			|| !OriginalChild || OriginalChild->IsEquipment()
+			|| OriginalChild->Slots.Num() != SourceDefinition->ChildContainerCapacity
+			|| OriginalChild->Slots.ContainsByPredicate(
+				[](const FGuid& ItemId) { return ItemId.IsValid(); })
+			|| !SourceVisibility || *SourceVisibility != ECodeBBodyContainerVisibility::Revealed
+			|| !OriginalTarget || !OriginalTarget->IsEquipment()
+			|| OriginalTarget->ContainerType != ExpectedTargetSemantic
+			|| OriginalTarget->EquipmentSlot != ExpectedEquipSlot
+			|| OriginalTarget->Slots.Num() != 1 || OriginalTarget->Slots[0].IsValid())
+		{
+			if (OutError) *OutError = Error.IsEmpty()
+				? TEXT("Code B P42 refused a stale, non-canonical, redirected, occupied, or identity-incomplete P12 spatial graph command.")
+				: Error;
+			return false;
+		}
+	}
+
 	// P20 adds one deliberately narrow P12 path. A formal parent may leave this
 	// exact, Revealed BasicCorpse root only as its unchanged empty P17 closure,
 	// only through one empty P6 BaseQuick cell. The comparison below makes the
@@ -8401,6 +8522,7 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 	bool bMovedSpatialParent = false;
 	FGuid MovedSpatialParentId;
 	int32 MovedSpatialSourceSlot = INDEX_NONE;
+	FGuid MovedSpatialTargetContainerId;
 	int32 MovedSpatialTargetSlot = INDEX_NONE;
 	for (const TPair<FGuid, FCodeBItemInstance>& Pair : Record->ContainerSnapshot.Items)
 	{
@@ -8441,20 +8563,35 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 			}
 			continue;
 		}
+		const bool bExactBaseQuickTarget = OriginalBaseQuick && CandidateBaseQuick
+			&& FinalItem->ParentContainerId == Candidate.ActiveRunInventorySession.Layout.BasicContainerId
+			&& OriginalBaseQuick->Slots.IsValidIndex(FinalItem->SlotIndex)
+			&& !OriginalBaseQuick->Slots[FinalItem->SlotIndex].IsValid()
+			&& CandidateBaseQuick->Slots.IsValidIndex(FinalItem->SlotIndex)
+			&& CandidateBaseQuick->Slots[FinalItem->SlotIndex] == OriginalItem.ItemId;
+		const FCodeBContainer* OriginalP42Target = P42Proof.bIntent
+			? Candidate.ActiveRunInventorySession.RepositorySnapshot.Containers.Find(
+				P42Proof.FrozenTargetContainerId) : nullptr;
+		const FCodeBContainer* CandidateP42Target = P42Proof.bIntent
+			? CompositeSnapshot.Containers.Find(P42Proof.FrozenTargetContainerId) : nullptr;
+		const bool bExactP42Target = P42Proof.bIntent && OriginalP42Target && CandidateP42Target
+			&& OriginalItem.ItemId == P42Proof.SourceItemId
+			&& FinalItem->ParentContainerId == P42Proof.FrozenTargetContainerId
+			&& FinalItem->SlotIndex == P42Proof.FrozenTargetSlot
+			&& OriginalP42Target->Slots.IsValidIndex(FinalItem->SlotIndex)
+			&& !OriginalP42Target->Slots[FinalItem->SlotIndex].IsValid()
+			&& CandidateP42Target->Slots.IsValidIndex(FinalItem->SlotIndex)
+			&& CandidateP42Target->Slots[FinalItem->SlotIndex] == OriginalItem.ItemId;
 		if (*Visibility != ECodeBBodyContainerVisibility::Revealed
-			|| !OriginalBaseQuick || !CandidateBaseQuick
-			|| FinalItem->ParentContainerId != Candidate.ActiveRunInventorySession.Layout.BasicContainerId
-			|| !OriginalBaseQuick->Slots.IsValidIndex(FinalItem->SlotIndex)
-			|| OriginalBaseQuick->Slots[FinalItem->SlotIndex].IsValid()
-			|| !CandidateBaseQuick->Slots.IsValidIndex(FinalItem->SlotIndex)
-			|| CandidateBaseQuick->Slots[FinalItem->SlotIndex] != OriginalItem.ItemId)
+			|| (!bExactBaseQuickTarget && !bExactP42Target))
 		{
-			if (OutError) *OutError = TEXT("Code B P20 only moves a Revealed BasicCorpse spatial root to one empty exact P6 BaseQuick cell.");
+			if (OutError) *OutError = TEXT("Code B P20 only moves a Revealed BasicCorpse spatial root to one empty exact P6 BaseQuick or P42 formal equipment cell.");
 			return false;
 		}
 		bMovedSpatialParent = true;
 		MovedSpatialParentId = OriginalItem.ItemId;
 		MovedSpatialSourceSlot = OriginalItem.SlotIndex;
+		MovedSpatialTargetContainerId = FinalItem->ParentContainerId;
 		MovedSpatialTargetSlot = FinalItem->SlotIndex;
 	}
 	for (const TPair<FGuid, FCodeBItemInstance>& Pair : Candidate.ActiveRunInventorySession.RepositorySnapshot.Items)
@@ -8478,9 +8615,20 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 		&& (!bMovedSpatialParent
 			|| MovedSpatialParentId != P41Proof.SourceItemId
 			|| MovedSpatialSourceSlot != P41Proof.SourceSlot
+			|| MovedSpatialTargetContainerId != P41Proof.FrozenTargetContainerId
 			|| MovedSpatialTargetSlot != P41Proof.FrozenTargetSlot))
 	{
 		if (OutError) *OutError = TEXT("Code B P41 proof did not produce its exact frozen P11-to-BaseQuick whole-graph move.");
+		return false;
+	}
+	if (P42Proof.bIntent
+		&& (!bMovedSpatialParent
+			|| MovedSpatialParentId != P42Proof.SourceItemId
+			|| MovedSpatialSourceSlot != P42Proof.SourceSlot
+			|| MovedSpatialTargetContainerId != P42Proof.FrozenTargetContainerId
+			|| MovedSpatialTargetSlot != P42Proof.FrozenTargetSlot))
+	{
+		if (OutError) *OutError = TEXT("Code B P42 proof did not produce its exact frozen P11-to-formal-P6 whole-graph move.");
 		return false;
 	}
 	if (bMovedSpatialParent)
@@ -8517,21 +8665,21 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 		}
 		FCodeBRepository ExpectedRepository;
 		FCodeBTransactionRequest Move;
-		Move.TransactionId = P41Proof.bIntent
+		Move.TransactionId = (P41Proof.bIntent || P42Proof.bIntent)
 			? AcceptedCommand.TransactionId : FGuid::NewGuid();
 		Move.Operation = ECodeBOperation::Move;
 		Move.ItemId = MovedSpatialParentId;
 		Move.SourceContainerId = Record->ContainerId;
 		Move.SourceSlot = MovedSpatialSourceSlot;
-		Move.TargetContainerId = Candidate.ActiveRunInventorySession.Layout.BasicContainerId;
+		Move.TargetContainerId = MovedSpatialTargetContainerId;
 		Move.TargetSlot = MovedSpatialTargetSlot;
-		Move.Quantity = P41Proof.bIntent ? 1 : 0;
+		Move.Quantity = (P41Proof.bIntent || P42Proof.bIntent) ? 1 : 0;
 		Move.ExpectedRevision = ExpectedComposite.Revision;
 		if (!ExpectedRepository.LoadPersistedSnapshot(ExpectedComposite, &Error)
 			|| !ExpectedRepository.ExecuteTransaction(Move).IsSuccess()
 			|| ExpectedRepository.CaptureSnapshot() != CompositeSnapshot)
 		{
-			if (OutError) *OutError = TEXT("Code B P20 transfer candidate differs from the one allowed P11-to-empty-P6-BaseQuick whole-graph Move.");
+			if (OutError) *OutError = TEXT("Code B P20 transfer candidate differs from the one allowed P11-to-empty-P6 whole-graph Move.");
 			return false;
 		}
 	}
