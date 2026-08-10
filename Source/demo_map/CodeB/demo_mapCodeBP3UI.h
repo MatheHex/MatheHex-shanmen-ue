@@ -318,8 +318,12 @@ public:
 	void PopulateTransferContext(demo_map_code_b::FCodeBP4DragPayload& Payload) const;
 	bool ValidateTransferContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, FString& OutError);
 	bool IsP29PlayerQuickTransferSourceContainer(const FGuid& ContainerId) const;
+	/** P35 exact current-child gate; BaseQuick is deliberately not accepted here. */
+	bool IsCurrentActiveP17ChildContainer(const FGuid& ContainerId) const;
 	/** P34 read-only source-family gate; item/topology authority remains in P1/P6. */
 	bool IsP34StandardEquipmentWorldDropSource(const FGuid& ContainerId) const;
+	/** P35 provenance gate for normal Drag pickup only; never authorizes Ctrl quick transfer. */
+	bool IsP35ChildStandardEquipmentWorldDropSource(const FGuid& ContainerId) const;
 	bool ValidateWorldDropTransferContext(
 		const demo_map_code_b::FCodeBP4DragPayload& Payload,
 		const demo_map_code_b::FCodeBP3SlotAddress& Target,
@@ -385,4 +389,5 @@ private:
 	TOptional<FCodeBP3WorldDropPresentation> WorldDropPresentation;
 	TOptional<FCodeBP3WorkspacePresentation> WorkspacePresentation;
 	TOptional<demo_map_code_b::FCodeBP3SplitDraft> SplitDraft;
+	uint32 NextActiveDestinationOpenGeneration = 1;
 };

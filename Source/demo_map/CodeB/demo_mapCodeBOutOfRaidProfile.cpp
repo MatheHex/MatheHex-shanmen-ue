@@ -1109,6 +1109,75 @@ namespace
 			|| IsEquippedChild(Session.Layout.BackpackContainerId);
 	}
 
+	/**
+	 * P35's durable current-child topology proof. The transient open generation is
+	 * checked by the caller; this helper independently reconstructs the unique
+	 * canonical P17 parent/child edge from the current P1/P6 snapshot.
+	 */
+	bool IsP35ActiveP17ChildContainer(
+		const FCodeBRunInventorySession& Session,
+		const FGuid& ContainerId,
+		FGuid* OutParentItemId = nullptr)
+	{
+		if (OutParentItemId) OutParentItemId->Invalidate();
+		const FCodeBContainer* Child = Session.RepositorySnapshot.Containers.Find(ContainerId);
+		if (!Child || Child->IsEquipment() || !IsP26PlayerStorageContainer(Session, ContainerId))
+		{
+			return false;
+		}
+
+		const FCodeBItemInstance* Parent = nullptr;
+		for (const TPair<FGuid, FCodeBItemInstance>& Pair : Session.RepositorySnapshot.Items)
+		{
+			if (Pair.Value.ChildContainerId != ContainerId) continue;
+			if (Parent) return false;
+			Parent = &Pair.Value;
+		}
+		if (!Parent || Parent->Quantity != 1 || !Parent->IsPlaced()) return false;
+
+		const FCodeBItemDefinition* Definition = Session.RepositorySnapshot.Definitions.Find(Parent->DefinitionId);
+		FCodeBItemDefinition CanonicalDefinition;
+		FString Error;
+		if (!Definition || !BuildCanonicalCodeBItemDefinition(Parent->DefinitionId, CanonicalDefinition, Error)
+			|| *Definition != CanonicalDefinition
+			|| Definition->SpatialContainerSemantic == ECodeBSpatialContainerSemantic::None
+			|| Definition->ChildContainerCapacity <= 0
+			|| Child->Slots.Num() != Definition->ChildContainerCapacity)
+		{
+			return false;
+		}
+
+		const FGuid ExpectedEquipmentContainerId =
+			Definition->SpatialContainerSemantic == ECodeBSpatialContainerSemantic::QuickRing
+				? Session.Layout.SpatialContainerId
+				: Session.Layout.BackpackContainerId;
+		const FCodeBContainer* Equipment = Session.RepositorySnapshot.Containers.Find(ExpectedEquipmentContainerId);
+		if (!Equipment || !Equipment->IsEquipment()
+			|| Parent->ParentContainerId != ExpectedEquipmentContainerId
+			|| !Equipment->Slots.IsValidIndex(Parent->SlotIndex)
+			|| Equipment->Slots[Parent->SlotIndex] != Parent->ItemId)
+		{
+			return false;
+		}
+
+		for (const FGuid& ChildItemId : Child->Slots)
+		{
+			if (!ChildItemId.IsValid()) continue;
+			const FCodeBItemInstance* ChildItem = Session.RepositorySnapshot.Items.Find(ChildItemId);
+			const FCodeBItemDefinition* ChildDefinition = ChildItem
+				? Session.RepositorySnapshot.Definitions.Find(ChildItem->DefinitionId) : nullptr;
+			if (!ChildItem || !ChildDefinition || ChildItem->ChildContainerId.IsValid()
+				|| ChildDefinition->SpatialContainerSemantic != ECodeBSpatialContainerSemantic::None
+				|| ChildDefinition->ItemType == ECodeBItemType::SpatialItem
+				|| ChildDefinition->ItemType == ECodeBItemType::Backpack)
+			{
+				return false;
+			}
+		}
+		if (OutParentItemId) *OutParentItemId = Parent->ItemId;
+		return true;
+	}
+
 	bool IsP26SimpleStack(
 		const FCodeBRunInventorySession& Session,
 		const FCodeBItemInstance& Item)
@@ -1216,9 +1285,11 @@ namespace
 		{
 			if (ContainerId == Session.Layout.BasicContainerId)
 			{
-				return !bWorldToPlayer || !AcceptedCommand.QuickTransferActivePlayerContainerId.IsValid();
+				return !bWorldToPlayer || (!AcceptedCommand.QuickTransferActivePlayerContainerId.IsValid()
+					&& AcceptedCommand.ActivePlayerChildOpenGeneration == 0);
 			}
 			return AcceptedCommand.QuickTransferActivePlayerContainerId == ContainerId
+				&& AcceptedCommand.ActivePlayerChildOpenGeneration != 0
 				&& IsP26PlayerStorageContainer(Session, ContainerId);
 		};
 
@@ -1353,6 +1424,7 @@ namespace
 			|| AcceptedCommand.Quantity != 0
 			|| AcceptedCommand.ExpectedRevision != Prior.Revision
 			|| AcceptedCommand.QuickTransferActivePlayerContainerId.IsValid()
+			|| AcceptedCommand.ActivePlayerChildOpenGeneration != 0
 			|| Prior.Revision == MAX_int32
 			|| Drop.ActionState != ECodeBWorldDropActionState::Available)
 		{
@@ -1447,6 +1519,7 @@ namespace
 			|| AcceptedCommand.Quantity != 1
 			|| AcceptedCommand.ExpectedRevision != Prior.Revision
 			|| AcceptedCommand.QuickTransferActivePlayerContainerId.IsValid()
+			|| AcceptedCommand.ActivePlayerChildOpenGeneration != 0
 			|| Prior.Revision == MAX_int32
 			|| Drop.ActionState != ECodeBWorldDropActionState::Available
 			|| !bAcceptedProvenance)
@@ -9516,6 +9589,8 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedActiveRunWorldDropItem(
 	const int32 ExpectedSourceSlot,
 	const int32 ExpectedP6SnapshotRevision,
 	const int32 RequestedSplitQuantity,
+	const FGuid& ExpectedActiveChildContainerId,
+	const uint32 ExpectedActiveChildOpenGeneration,
 	const FName MapRoute,
 	const FTransform& FloorTransform,
 	FCodeBWorldDropProjection& OutProjection,
@@ -9527,6 +9602,7 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedActiveRunWorldDropItem(
 	FString Error;
 	if (!ExpectedRunInstanceId.IsValid() || !ItemId.IsValid() || !ExpectedSourceContainerId.IsValid()
 		|| ExpectedSourceSlot < 0 || ExpectedP6SnapshotRevision < 1 || RequestedSplitQuantity < 0
+		|| (ExpectedActiveChildContainerId.IsValid() != (ExpectedActiveChildOpenGeneration != 0))
 		|| MapRoute.IsNone()
 		|| !IsFiniteWorldDropTransform(FloorTransform)
 		|| !OpenMatchedActiveRunInventorySession(ExpectedRunInstanceId, Current, &Error))
@@ -9573,10 +9649,17 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedActiveRunWorldDropItem(
 		&& IsP32EquippedStandardRoot(Current, *Item, ExpectedSourceContainerId);
 	const bool bP33BaseQuickStandardSource = !bIsSpatialClosure && bFromBasic
 		&& !Source->IsEquipment() && IsP32StandardEquipmentRoot(Current, *Item);
+	FGuid P35ParentItemId;
+	const bool bP35ChildStandardSource = !bIsSpatialClosure && !Source->IsEquipment()
+		&& ExpectedActiveChildContainerId == ExpectedSourceContainerId
+		&& ExpectedActiveChildOpenGeneration != 0
+		&& IsP35ActiveP17ChildContainer(Current, ExpectedSourceContainerId, &P35ParentItemId)
+		&& P35ParentItemId.IsValid() && IsP32StandardEquipmentRoot(Current, *Item);
 	const bool bPartialDrop = RequestedSplitQuantity > 0;
 	if ((bPartialDrop && (!bP26SimpleStackSource || RequestedSplitQuantity >= Item->Quantity))
 			|| (!bPartialDrop && ((bFormalSpatialDefinition && !bIsSpatialClosure)
-			|| (!bIsSpatialClosure && !bFromBasic && !bP26SimpleStackSource && !bP32EquippedStandardSource)
+			|| (!bIsSpatialClosure && !bFromBasic && !bP26SimpleStackSource
+				&& !bP32EquippedStandardSource && !bP35ChildStandardSource)
 			|| (bIsSpatialClosure && !bFromBasic && !bFromMatchingSpatialEquipment && !bFromMatchingBackpackEquipment))))
 	{
 		if (OutError)
@@ -9585,7 +9668,7 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedActiveRunWorldDropItem(
 				? TEXT("Code B P26 partial drop requires one exact simple stack in BaseQuick or an equipped current child, leaving a non-empty source.")
 				: ((bIsSpatialClosure || bFormalSpatialDefinition)
 					? TEXT("Code B P19 only drops a formal spatial parent from BaseQuick or its matching equipment slot.")
-					: TEXT("Code B P14/P26 only drops a legal whole simple item from BaseQuick or a P26 simple stack from an equipped child."));
+					: TEXT("Code B P14/P26/P35 only drops an accepted BaseQuick root, P26 simple stack, or current-child canonical standard root."));
 		}
 		return false;
 	}
@@ -9651,18 +9734,19 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedActiveRunWorldDropItem(
 	}
 	const FCodeBItemInstance* AcceptedWorldRoot = AcceptedSnapshot.Items.Find(AcceptedWorldItemId);
 	FCodeBItemInstance ExpectedStandardWorldRoot;
-	const bool bP32OrP33StandardSource = bP32EquippedStandardSource || bP33BaseQuickStandardSource;
-	if (bP32OrP33StandardSource)
+	const bool bP32P33OrP35StandardSource = bP32EquippedStandardSource
+		|| bP33BaseQuickStandardSource || bP35ChildStandardSource;
+	if (bP32P33OrP35StandardSource)
 	{
 		ExpectedStandardWorldRoot = *Item;
 		ExpectedStandardWorldRoot.ParentContainerId = WorldContainerId;
 		ExpectedStandardWorldRoot.SlotIndex = 0;
 	}
 	if (!AcceptedWorldRoot
-		|| (bP32OrP33StandardSource && !(*AcceptedWorldRoot == ExpectedStandardWorldRoot)))
+		|| (bP32P33OrP35StandardSource && !(*AcceptedWorldRoot == ExpectedStandardWorldRoot)))
 	{
-		if (OutError) *OutError = bP32OrP33StandardSource
-			? TEXT("Code B P32/P33 accepted standard-equipment relocation changed more than the root placement.")
+		if (OutError) *OutError = bP32P33OrP35StandardSource
+			? TEXT("Code B P32/P33/P35 accepted standard-equipment relocation changed more than the root placement.")
 			: TEXT("Code B P31 accepted create candidate lost its exact world root.");
 		return false;
 	}
@@ -9683,13 +9767,15 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedActiveRunWorldDropItem(
 	RecordValue.RecordRevision = 1;
 	RecordValue.Provenance = bPartialDrop
 		? TEXT("P31.AcceptedGroundDrop.Split")
-		: (bIsSpatialClosure
+			: (bIsSpatialClosure
 			? TEXT("P31.AcceptedGroundDrop.CompleteGraph")
-			: (bP32EquippedStandardSource
+			: (bP35ChildStandardSource
+				? TEXT("P35.AcceptedGroundDrop.ChildStandardEquipment")
+				: (bP32EquippedStandardSource
 				? TEXT("P32.AcceptedGroundDrop.StandardEquipment")
 				: (bP33BaseQuickStandardSource
 					? TEXT("P33.AcceptedGroundDrop.BaseQuickStandardEquipment")
-					: TEXT("P31.AcceptedGroundDrop.WholeRoot"))));
+					: TEXT("P31.AcceptedGroundDrop.WholeRoot")))));
 	++Session.NextWorldDropOrdinal;
 	if (!ReconcileHotbarBindings(Session.HotbarBindings, Session.RepositorySnapshot, Session.Layout, Error)
 		|| !FreezeRunInventoryPayloadReceipt(Session, Error)
@@ -9767,6 +9853,11 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 	const bool bP26SimpleStack = !bIsSpatialClosure && IsP26SimpleStack(Existing, *SourceItem);
 	const bool bP32StandardEquipmentRoot = !bIsSpatialClosure
 		&& IsP32StandardEquipmentRoot(Existing, *SourceItem);
+	const bool bP35ChildStandardRecord =
+		Drop->Provenance == TEXT("P35.AcceptedGroundDrop.ChildStandardEquipment");
+	const bool bAcceptedStandardProvenance = bP35ChildStandardRecord
+		|| Drop->Provenance == TEXT("P32.AcceptedGroundDrop.StandardEquipment")
+		|| Drop->Provenance == TEXT("P33.AcceptedGroundDrop.BaseQuickStandardEquipment");
 	const bool bQuickTransfer = AcceptedCommand.Intent == ECodeBP2CommandIntent::QuickTransfer;
 	bool bP29RetainWorldRoot = false;
 	bool bP30CompleteGraphQuickTransfer = false;
@@ -9908,12 +9999,22 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 			AcceptedCommand.TargetContainerId);
 		const bool bBaseQuickTarget = AcceptedCommand.TargetContainerId == Existing.Layout.BasicContainerId
 			&& AcceptedCommand.Operation == ECodeBOperation::Move;
+		FGuid P35TargetParentItemId;
+		const bool bP35CurrentChildTarget = bP35ChildStandardRecord
+			&& AcceptedCommand.Operation == ECodeBOperation::Move
+			&& AcceptedCommand.QuickTransferActivePlayerContainerId == AcceptedCommand.TargetContainerId
+			&& AcceptedCommand.ActivePlayerChildOpenGeneration != 0
+			&& AcceptedCommand.TargetContainerId != Existing.Layout.BasicContainerId
+			&& IsP35ActiveP17ChildContainer(
+				Existing, AcceptedCommand.TargetContainerId, &P35TargetParentItemId)
+			&& P35TargetParentItemId.IsValid();
 		const bool bEquipmentTarget = Definition
 			&& AcceptedCommand.Operation == ECodeBOperation::Equip
 			&& AcceptedCommand.TargetSlot == 0
 			&& IsP32ActiveStandardEquipmentContainer(
 				Existing, AcceptedCommand.TargetContainerId, Definition->EquipSlot);
 		if (!CandidateItem || !Definition || !ExistingTarget || !CandidateTarget
+			|| !bAcceptedStandardProvenance
 			|| AcceptedCommand.Intent != ECodeBP2CommandIntent::Standard
 			|| !AcceptedCommand.TransactionId.IsValid()
 			|| AcceptedCommand.ItemId != Drop->ItemId
@@ -9921,7 +10022,7 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 			|| AcceptedCommand.SourceSlot != 0
 			|| AcceptedCommand.Quantity != 0
 			|| AcceptedCommand.ExpectedRevision != Existing.RepositorySnapshot.Revision
-			|| (!bBaseQuickTarget && !bEquipmentTarget)
+			|| (!bBaseQuickTarget && !bP35CurrentChildTarget && !bEquipmentTarget)
 			|| !ExistingTarget->Slots.IsValidIndex(AcceptedCommand.TargetSlot)
 			|| ExistingTarget->Slots[AcceptedCommand.TargetSlot].IsValid()
 			|| !CandidateTarget->Slots.IsValidIndex(AcceptedCommand.TargetSlot)
@@ -9929,7 +10030,7 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 			|| CandidateItem->ParentContainerId != AcceptedCommand.TargetContainerId
 			|| CandidateItem->SlotIndex != AcceptedCommand.TargetSlot)
 		{
-			if (OutError) *OutError = TEXT("Code B P32 pickup requires one exact normal Drag P1 Move/Equip into the explicit empty BaseQuick or compatible active equipment cell; replacement is forbidden.");
+			if (OutError) *OutError = TEXT("Code B P32/P33/P35 pickup requires one exact normal Drag P1 Move/Equip into explicit BaseQuick, the current P35 child, or compatible active equipment; replacement is forbidden.");
 			return false;
 		}
 		Move.TransactionId = AcceptedCommand.TransactionId;

@@ -4670,6 +4670,20 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBGroundDrop(
 		OutFeedback = TEXT("活动 Run 地面丢弃服务当前不可用。");
 		return false;
 	}
+	UGameInstance* GameInstance = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
+	UCodeBP3UIHostSubsystem* Host = GameInstance
+		? GameInstance->GetSubsystem<UCodeBP3UIHostSubsystem>() : nullptr;
+	const demo_map_code_b::FCodeBP3InventoryWorkspaceContext* Workspace = Host ? Host->GetWorkspaceContext() : nullptr;
+	const bool bCarriesActiveChild = Payload.QuickTransferActivePlayerContainerId.IsValid();
+	if ((bCarriesActiveChild && (!Workspace || !Workspace->ActiveDestinationContainerId.IsSet()
+			|| Workspace->ActiveDestinationContainerId.GetValue() != Payload.QuickTransferActivePlayerContainerId
+			|| Workspace->ActiveDestinationOpenGeneration == 0
+			|| Workspace->ActiveDestinationOpenGeneration != Payload.ActivePlayerChildOpenGeneration))
+		|| (!bCarriesActiveChild && Payload.ActivePlayerChildOpenGeneration != 0))
+	{
+		OutFeedback = TEXT("活动 P17 child 已关闭或切换；陈旧拖拽未提交。");
+		return false;
+	}
 	FCodeBRunInventorySession Session;
 	if (!CodeBActiveRunInventoryStore->OpenMatchedActiveRunInventorySession(
 		CodeBActiveRunInventoryRunId, Session, &OutFeedback))
@@ -4680,6 +4694,7 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBGroundDrop(
 	const demo_map_code_b::FCodeBContainer* SourceContainer = Session.RepositorySnapshot.Containers.Find(Payload.Source.ContainerId);
 	if (Payload.OwnerId != Session.OwnerId || Payload.RunInstanceId != Session.RunInstanceId
 		|| Payload.ItemId != Payload.Source.ItemId
+		|| !Payload.Source.IsRevealed()
 		|| Payload.ExpectedRevision != Session.RepositorySnapshot.Revision
 		|| !SourceItem || !SourceContainer
 		|| SourceItem->Quantity != Payload.Quantity
@@ -4699,6 +4714,8 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBGroundDrop(
 		CodeBActiveRunInventoryRunId, Payload.ItemId, Payload.Source.ContainerId,
 		Payload.Source.SlotIndex, Payload.ExpectedRevision,
 		Payload.bSplitIntent ? Payload.RequestedMergeQuantity : 0,
+		Payload.QuickTransferActivePlayerContainerId,
+		Payload.ActivePlayerChildOpenGeneration,
 		MapRoute, FloorTransform, Projection, &OutFeedback))
 	{
 		return false;
@@ -4956,6 +4973,24 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBWorldDropPage(
 		[this](const demo_map_code_b::FCodeBSnapshot& CandidateSnapshot,
 			const demo_map_code_b::FCodeBP2Command& AcceptedCommand, FString& CommitError)
 		{
+			UGameInstance* CurrentGameInstance = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
+			UCodeBP3UIHostSubsystem* CurrentHost = CurrentGameInstance
+				? CurrentGameInstance->GetSubsystem<UCodeBP3UIHostSubsystem>() : nullptr;
+			const demo_map_code_b::FCodeBP3InventoryWorkspaceContext* CurrentWorkspace = CurrentHost
+				? CurrentHost->GetWorkspaceContext() : nullptr;
+			const bool bCarriesActiveChild = AcceptedCommand.QuickTransferActivePlayerContainerId.IsValid();
+			if ((bCarriesActiveChild && (!CurrentWorkspace
+					|| !CurrentWorkspace->ActiveDestinationContainerId.IsSet()
+					|| CurrentWorkspace->ActiveDestinationContainerId.GetValue()
+						!= AcceptedCommand.QuickTransferActivePlayerContainerId
+					|| CurrentWorkspace->ActiveDestinationOpenGeneration == 0
+					|| CurrentWorkspace->ActiveDestinationOpenGeneration
+						!= AcceptedCommand.ActivePlayerChildOpenGeneration))
+				|| (!bCarriesActiveChild && AcceptedCommand.ActivePlayerChildOpenGeneration != 0))
+			{
+				CommitError = TEXT("活动 P17 child 已关闭或切换；陈旧拾回未提交。");
+				return false;
+			}
 			const bool bCommitted = FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 				ProfilePreparationFlow ? ProfilePreparationFlow->GetStorageRoot() : FString(),
 				CodeBWorldDropOwnerId, CodeBWorldDropRunId, CodeBWorldDropId,

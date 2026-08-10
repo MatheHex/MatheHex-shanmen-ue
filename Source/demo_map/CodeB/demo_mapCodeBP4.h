@@ -21,8 +21,10 @@ namespace demo_map_code_b
 		bool bSplitIntent = false;
 		/** P29: set only by the shared Ctrl+left router for this one transient gesture. */
 		bool bQuickTransferIntent = false;
-		/** P29: exact active P17 player child at gesture time; empty means BaseQuick fallback. */
+		/** P29/P35: exact active P17 player child at gesture time; empty means no child proof. */
 		FGuid QuickTransferActivePlayerContainerId;
+		/** P35: exact transient activation generation paired with the active child identity. */
+		uint32 ActivePlayerChildOpenGeneration = 0;
 		/** Explicit P24 player split versus P27 world partial-pickup intent. */
 		ECodeBP3QuantityDraftKind QuantityDraftKind = ECodeBP3QuantityDraftKind::None;
 		/** P27 transient record identity. It is never used to derive an ItemId. */

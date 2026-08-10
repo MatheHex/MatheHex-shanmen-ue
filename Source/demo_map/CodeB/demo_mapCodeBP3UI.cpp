@@ -2297,6 +2297,7 @@ void UCodeBP3InventoryWidget::NativeOnFocusLost(const FFocusEvent& InFocusEvent)
 		if (Host.IsValid())
 		{
 			Host->CancelSplitDraft(TEXT("页面失去焦点，拆分草稿已清除且未写入"));
+			Host->ClearWorkspaceTransientState();
 		}
 	}
 	Super::NativeOnFocusLost(InFocusEvent);
@@ -2506,6 +2507,9 @@ FCodeBP4DropPreview UCodeBP3InventoryWidget::PreviewInventoryTransfer(
 		const bool bP34StandardEquipmentQuickTransfer = Payload.bQuickTransferIntent
 			&& bP32StandardEquipmentRoot
 			&& Host->IsP34StandardEquipmentWorldDropSource(Payload.Source.ContainerId);
+		const bool bP35ChildStandardRecord = !Payload.bQuickTransferIntent
+			&& bP32StandardEquipmentRoot
+			&& Host->IsP35ChildStandardEquipmentWorldDropSource(Payload.Source.ContainerId);
 		if (bP30CompleteGraphQuickTransfer)
 		{
 			if (!TargetContainer || TargetContainer->ContainerId != Projection.BasicContainerId
@@ -2570,12 +2574,21 @@ FCodeBP4DropPreview UCodeBP3InventoryWidget::PreviewInventoryTransfer(
 			const bool bExplicitBaseQuick = TargetContainer
 				&& TargetContainer->Role == FName(TEXT("Basic6"))
 				&& !Target.bOccupied && Preview.Operation == ECodeBOperation::Move;
+			const FCodeBP3InventoryWorkspaceContext* Context = Host->GetWorkspaceContext();
+			const bool bExplicitCurrentChild = bP35ChildStandardRecord && TargetContainer
+				&& (TargetContainer->Role == FName(TEXT("QuickSpatial"))
+					|| TargetContainer->Role == FName(TEXT("PouchInternal")))
+				&& !Target.bOccupied && Preview.Operation == ECodeBOperation::Move
+				&& Host->IsCurrentActiveP17ChildContainer(Target.ContainerId)
+				&& Payload.QuickTransferActivePlayerContainerId == Target.ContainerId
+				&& Payload.ActivePlayerChildOpenGeneration != 0 && Context
+				&& Payload.ActivePlayerChildOpenGeneration == Context->ActiveDestinationOpenGeneration;
 			const bool bExplicitCompatibleEquipment = TargetContainer
 				&& !Target.bOccupied && Preview.Operation == ECodeBOperation::Equip;
 			if (Payload.bQuickTransferIntent
-				|| (!bExplicitBaseQuick && !bExplicitCompatibleEquipment))
+				|| (!bExplicitBaseQuick && !bExplicitCurrentChild && !bExplicitCompatibleEquipment))
 			{
-				Rejected.Message = TEXT("P32 标准装备只接受 normal Drag 到明确空 BaseQuick 或明确空兼容装备位；不自动选槽或替换。");
+				Rejected.Message = TEXT("标准装备只接受 normal Drag 到明确空 BaseQuick、P35 当前 child 空格或明确空兼容装备位；不自动选槽或替换。");
 				return Rejected;
 			}
 		}
@@ -3547,6 +3560,7 @@ void UCodeBP3InventoryWidget::HandleQuickTransfer(UCodeBP3CellButton* CellButton
 		// P30/P34 never inherit P29's active-child preference. Their only
 		// deterministic quick target is the first empty BaseQuick slot.
 		Payload.QuickTransferActivePlayerContainerId.Invalidate();
+		Payload.ActivePlayerChildOpenGeneration = 0;
 	}
 	const FCodeBP2ContainerView* Destination = (bP30CompleteGraphRoot || bP34StandardEquipmentRoot)
 		? Host->GetController()->GetProjection().Containers.FindByPredicate(
@@ -4302,6 +4316,8 @@ void UCodeBP3UIHostSubsystem::PopulateTransferContext(FCodeBP4DragPayload& Paylo
 		{
 			Payload.QuickTransferActivePlayerContainerId =
 				WorkspacePresentation->Context.ActiveDestinationContainerId.GetValue();
+			Payload.ActivePlayerChildOpenGeneration =
+				WorkspacePresentation->Context.ActiveDestinationOpenGeneration;
 		}
 	}
 	else if (HotbarPresentation.IsSet())
@@ -4544,7 +4560,12 @@ bool UCodeBP3UIHostSubsystem::CanWriteWorkspace(FString& OutError)
 			&& Active->Role != FName(TEXT("PouchInternal"))))
 		{
 			Context.ActiveDestinationContainerId.Reset();
+			Context.ActiveDestinationOpenGeneration = 0;
 		}
+	}
+	else
+	{
+		Context.ActiveDestinationOpenGeneration = 0;
 	}
 	if (SplitDraft.IsSet())
 	{
@@ -4668,12 +4689,20 @@ bool UCodeBP3UIHostSubsystem::ValidateTransferContext(
 	FCodeBP3SlotAddress ExpectedSource = Payload.Source;
 	PopulateAddressContext(ExpectedSource);
 	const FCodeBP3InventoryWorkspaceContext& Context = WorkspacePresentation->Context;
+	const bool bPayloadCarriesActiveChild = Payload.QuickTransferActivePlayerContainerId.IsValid();
+	const bool bActiveChildIdentityCurrent = bPayloadCarriesActiveChild
+		? (Context.ActiveDestinationContainerId.IsSet()
+			&& Context.ActiveDestinationContainerId.GetValue() == Payload.QuickTransferActivePlayerContainerId
+			&& Context.ActiveDestinationOpenGeneration != 0
+			&& Context.ActiveDestinationOpenGeneration == Payload.ActivePlayerChildOpenGeneration)
+		: Payload.ActivePlayerChildOpenGeneration == 0;
 	if (Payload.OwnerId != Context.OwnerId
 		|| Payload.RunInstanceId != Context.RunInstanceId
 		|| Payload.SourceScope != ExpectedSource.Scope
 		|| Payload.Source.OwnerId != Context.OwnerId
 		|| Payload.Source.RunInstanceId != Context.RunInstanceId
-		|| Payload.ExpectedRevision != Controller->GetProjection().Revision)
+		|| Payload.ExpectedRevision != Controller->GetProjection().Revision
+		|| !bActiveChildIdentityCurrent)
 	{
 		OutError = TEXT("Owner／Run／scope／revision 已变化；stale payload 未写入。");
 		return false;
@@ -4693,12 +4722,19 @@ bool UCodeBP3UIHostSubsystem::IsP29PlayerQuickTransferSourceContainer(const FGui
 	{
 		return true;
 	}
-	if (!WorkspacePresentation->Context.ActiveDestinationContainerId.IsSet()
-		|| WorkspacePresentation->Context.ActiveDestinationContainerId.GetValue() != ContainerId)
+	return IsCurrentActiveP17ChildContainer(ContainerId);
+}
+
+bool UCodeBP3UIHostSubsystem::IsCurrentActiveP17ChildContainer(const FGuid& ContainerId) const
+{
+	if (!ContainerId.IsValid() || !Controller.IsValid() || !WorkspacePresentation.IsSet()
+		|| !WorkspacePresentation->Context.ActiveDestinationContainerId.IsSet()
+		|| WorkspacePresentation->Context.ActiveDestinationContainerId.GetValue() != ContainerId
+		|| WorkspacePresentation->Context.ActiveDestinationOpenGeneration == 0)
 	{
 		return false;
 	}
-	const FCodeBP2ContainerView* Container = Projection.Containers.FindByPredicate(
+	const FCodeBP2ContainerView* Container = Controller->GetProjection().Containers.FindByPredicate(
 		[ContainerId](const FCodeBP2ContainerView& Value) { return Value.ContainerId == ContainerId; });
 	return Container && (Container->Role == FName(TEXT("QuickSpatial"))
 		|| Container->Role == FName(TEXT("PouchInternal")));
@@ -4713,6 +4749,12 @@ bool UCodeBP3UIHostSubsystem::IsP34StandardEquipmentWorldDropSource(const FGuid&
 	const FString& Provenance = WorldDropPresentation->Provenance;
 	return Provenance == TEXT("P32.AcceptedGroundDrop.StandardEquipment")
 		|| Provenance == TEXT("P33.AcceptedGroundDrop.BaseQuickStandardEquipment");
+}
+
+bool UCodeBP3UIHostSubsystem::IsP35ChildStandardEquipmentWorldDropSource(const FGuid& ContainerId) const
+{
+	return IsWorldDropPresentation(ContainerId) && WorldDropPresentation.IsSet()
+		&& WorldDropPresentation->Provenance == TEXT("P35.AcceptedGroundDrop.ChildStandardEquipment");
 }
 
 bool UCodeBP3UIHostSubsystem::ValidateWorldDropTransferContext(
@@ -4783,8 +4825,8 @@ bool UCodeBP3UIHostSubsystem::IsOutOfRaidWorkspace() const
 bool UCodeBP3UIHostSubsystem::ActivateQuickTransferDestination(const FCodeBP3SlotAddress& Address)
 {
 	const bool bSupportedWorkspace = IsOutOfRaidWorkspace()
-		|| (WorldDropPresentation.IsSet() && WorkspacePresentation.IsSet()
-			&& WorkspacePresentation->Context.IsInRun());
+		|| (WorkspacePresentation.IsSet() && WorkspacePresentation->Context.IsInRun()
+			&& (WorldDropPresentation.IsSet() || GroundDropPresentation.IsSet()));
 	if (!bSupportedWorkspace || !Controller.IsValid() || !Address.IsValid())
 	{
 		return false;
@@ -4797,6 +4839,8 @@ bool UCodeBP3UIHostSubsystem::ActivateQuickTransferDestination(const FCodeBP3Slo
 		return false;
 	}
 	WorkspacePresentation->Context.ActiveDestinationContainerId = Container->ContainerId;
+	if (NextActiveDestinationOpenGeneration == 0) NextActiveDestinationOpenGeneration = 1;
+	WorkspacePresentation->Context.ActiveDestinationOpenGeneration = NextActiveDestinationOpenGeneration++;
 	return true;
 }
 
@@ -4839,6 +4883,7 @@ void UCodeBP3UIHostSubsystem::ClearWorkspaceTransientState()
 	SplitDraft.Reset();
 	if (!WorkspacePresentation.IsSet()) return;
 	WorkspacePresentation->Context.ActiveDestinationContainerId.Reset();
+	WorkspacePresentation->Context.ActiveDestinationOpenGeneration = 0;
 	WorkspacePresentation->Context.HoveredAddress.Reset();
 	WorkspacePresentation->Context.SelectedAddress.Reset();
 }
@@ -4867,6 +4912,26 @@ bool UCodeBP3UIHostSubsystem::RequestGroundDrop(
 	}
 	if (!ValidateTransferContext(Payload, OutError))
 	{
+		return false;
+	}
+	const FCodeBP2Projection& Projection = Controller->GetProjection();
+	const FCodeBP2ContainerView* SourceContainer = Projection.Containers.FindByPredicate(
+		[&Payload](const FCodeBP2ContainerView& Value) { return Value.ContainerId == Payload.Source.ContainerId; });
+	const FCodeBP2SlotView* SourceSlot = SourceContainer ? SourceContainer->Slots.FindByPredicate(
+		[&Payload](const FCodeBP2SlotView& Value) { return Value.SlotIndex == Payload.Source.SlotIndex; }) : nullptr;
+	const bool bChildStandardRoot = SourceContainer && SourceSlot
+		&& (SourceContainer->Role == FName(TEXT("QuickSpatial"))
+			|| SourceContainer->Role == FName(TEXT("PouchInternal")))
+		&& !SourceSlot->ChildContainerId.IsValid() && !SourceSlot->bStackable
+		&& SourceSlot->MaxStack == 1 && SourceSlot->Quantity == 1
+		&& ((SourceSlot->ItemType == ECodeBItemType::Weapon && SourceSlot->EquipSlot == ECodeBEquipSlot::Weapon)
+			|| (SourceSlot->ItemType == ECodeBItemType::Armor && SourceSlot->EquipSlot == ECodeBEquipSlot::Armor)
+			|| (SourceSlot->ItemType == ECodeBItemType::Accessory && SourceSlot->EquipSlot == ECodeBEquipSlot::Accessory));
+	if (bChildStandardRoot && (!IsCurrentActiveP17ChildContainer(Payload.Source.ContainerId)
+		|| Payload.QuickTransferActivePlayerContainerId != Payload.Source.ContainerId
+		|| Payload.ActivePlayerChildOpenGeneration == 0))
+	{
+		OutError = TEXT("P35 只接受当前已打开 P17 child 内的 direct standard root。");
 		return false;
 	}
 	const bool bCommitted = GroundDropPresentation->RequestDrop(Payload, OutError);

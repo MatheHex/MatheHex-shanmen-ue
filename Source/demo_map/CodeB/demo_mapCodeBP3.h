@@ -124,6 +124,8 @@ namespace demo_map_code_b
 		FName PlayerPaneId = FName(TEXT("Player"));
 		FName TargetPaneId = FName(TEXT("Target"));
 		TOptional<FGuid> ActiveDestinationContainerId;
+		/** Transient P35 identity for the current explicit P17-child activation. */
+		uint32 ActiveDestinationOpenGeneration = 0;
 		TOptional<FCodeBP3SlotAddress> HoveredAddress;
 		TOptional<FCodeBP3SlotAddress> SelectedAddress;
 		float PlayerScrollOffset = 0.0f;
@@ -242,7 +244,7 @@ namespace demo_map_code_b
 		void SetSplitQuantity(int32 InQuantity) { SplitQuantity = InQuantity; }
 		bool ActivateAddress(const FCodeBP3SlotAddress& TargetAddress, int32 ExpectedRevisionOverride = INDEX_NONE);
 		/** P4-only UI gesture bridge.  The caller supplies stable projection values; this controller remains the sole UI route into P2. */
-		bool CommitP4Operation(ECodeBOperation Operation, const FCodeBP3SlotAddress& Source, const FCodeBP3SlotAddress& Target, int32 ExpectedRevision, int32 Quantity, const FString& OperationLabel, ECodeBP2CommandIntent Intent = ECodeBP2CommandIntent::Standard, const FGuid& QuickTransferActivePlayerContainerId = FGuid());
+		bool CommitP4Operation(ECodeBOperation Operation, const FCodeBP3SlotAddress& Source, const FCodeBP3SlotAddress& Target, int32 ExpectedRevision, int32 Quantity, const FString& OperationLabel, ECodeBP2CommandIntent Intent = ECodeBP2CommandIntent::Standard, const FGuid& QuickTransferActivePlayerContainerId = FGuid(), uint32 ActivePlayerChildOpenGeneration = 0);
 		void SetP4Feedback(const FString& InFeedback) { Feedback = InFeedback; }
 		bool RefreshProjection(FString* OutError = nullptr);
 		/** P17 read-only entry. Quick rings require their exact current P6 equipment slot. */

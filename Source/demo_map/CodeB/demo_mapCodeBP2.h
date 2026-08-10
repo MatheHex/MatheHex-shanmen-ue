@@ -139,8 +139,10 @@ namespace demo_map_code_b
 		int32 Quantity = 0;
 		int32 ExpectedRevision = INDEX_NONE;
 		ECodeBP2CommandIntent Intent = ECodeBP2CommandIntent::Standard;
-		/** P29 transient proof of the exact P17 child selected by the shared workspace. */
+		/** P29/P35 transient proof of the exact P17 child selected by the shared workspace. */
 		FGuid QuickTransferActivePlayerContainerId;
+		/** P35 rejects a drag captured before the current child was reopened or switched. */
+		uint32 ActivePlayerChildOpenGeneration = 0;
 	};
 
 	struct FCodeBP2ApplicationResult

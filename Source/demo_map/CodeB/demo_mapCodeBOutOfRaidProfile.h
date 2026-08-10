@@ -1008,6 +1008,8 @@ public:
 		int32 ExpectedSourceSlot,
 		int32 ExpectedP6SnapshotRevision,
 		int32 RequestedSplitQuantity,
+		const FGuid& ExpectedActiveChildContainerId,
+		uint32 ExpectedActiveChildOpenGeneration,
 		FName MapRoute,
 		const FTransform& FloorTransform,
 		FCodeBWorldDropProjection& OutProjection,
