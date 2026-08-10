@@ -237,6 +237,10 @@ namespace
 	const FName GCodeBNormalContainerDefinitionId(TEXT("CodeB.NormalContainer.BasicCache"));
 	const FName GCodeBNormalContainerMapTargetId(TEXT("M01.CodeBNormalContainer.BasicCache.01"));
 	const FName GCodeBNormalContainerAnchorId(TEXT("M01.Resource.TIER_1.Cluster.01"));
+	// The Tier-1 reward projection fills an 8x6 grid around the anchor at 240 uu
+	// spacing. Keep P10's one production projection outside that grid so the
+	// shared container-separation contract can resolve it deterministically.
+	const FVector GCodeBNormalContainerAnchorLocalOffset(0.0f, -1600.0f, 0.0f);
 	// P11 deliberately binds one map-authored M01 spawn. These values are static
 	// content identity, never Actor/ObjectName/UI/runtime-generated identity.
 	const FName GCodeBBodyContainerDefinitionId(TEXT("CodeB.BodyContainer.BasicCorpse"));
@@ -7260,7 +7264,8 @@ bool Ademo_mapV3ProgressionManager::InitializeCodeBNormalContainerTarget()
 	}
 
 	const FVector Desired = Anchor->GetActorLocation()
-		+ Anchor->GetActorTransform().TransformVectorNoScale(FVector(260.0f, -220.0f, 0.0f));
+		+ Anchor->GetActorTransform().TransformVectorNoScale(
+			GCodeBNormalContainerAnchorLocalOffset);
 	FVector Location;
 	if (!Items->ResolveSafeWorldLocation(
 		GetWorld(), Desired, nullptr, Location, GCodeBNormalContainerMapTargetId,
