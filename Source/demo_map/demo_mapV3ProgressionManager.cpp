@@ -5430,6 +5430,7 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBNormalContainerPage(
 	Presentation.TargetContainerId = FreshProjection.ContainerId;
 	Presentation.Title = TEXT("普通储物箱");
 	Presentation.Projection = FreshProjection;
+	Presentation.P6SnapshotRevision = CodeBNormalContainerExpectedP6Revision;
 	Presentation.BeginItemSearch = [WeakManager](const demo_map_code_b::FCodeBP3SearchLocator& Locator, FCodeBNormalContainerProjection& OutProjection, FString& OutError)
 	{
 		if (!WeakManager.IsValid() || !Locator.IsValid()
@@ -5464,6 +5465,14 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBNormalContainerPage(
 			return false;
 		}
 		return WeakManager->BeginCodeBNormalContainerItemSearch(Item->ItemId, OutProjection, OutError);
+	};
+	Presentation.Refresh = [WeakManager](FCodeBNormalContainerProjection& OutProjection, FString& OutError)
+	{
+		if (!WeakManager.IsValid()) return false;
+		return FCodeBOutOfRaidProfileStore::TryGetMatchedRunNormalContainerProjection(
+			WeakManager->ProfilePreparationFlow ? WeakManager->ProfilePreparationFlow->GetStorageRoot() : FString(),
+			WeakManager->CodeBNormalContainerOwnerId, WeakManager->CodeBNormalContainerRunId,
+			WeakManager->CodeBNormalContainerTargetId, OutProjection, &OutError);
 	};
 	FCodeBP3HotbarPresentation HotbarPresentation;
 	HotbarPresentation.OwnerId = CodeBNormalContainerOwnerId;
@@ -5504,14 +5513,58 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBNormalContainerPage(
 		*CodeBNormalContainerRepository,
 		PresentationLayout,
 		[this](const demo_map_code_b::FCodeBSnapshot& PersistedSnapshot,
-			const demo_map_code_b::FCodeBP2Command&, FString& CommitError)
+			const demo_map_code_b::FCodeBP2Command& AcceptedCommand, FString& CommitError)
 		{
+			if (AcceptedCommand.P46NormalContainerSimpleStackProof.bIntent)
+			{
+				UGameInstance* CurrentGameInstance = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
+				UCodeBP3UIHostSubsystem* CurrentHost = CurrentGameInstance
+					? CurrentGameInstance->GetSubsystem<UCodeBP3UIHostSubsystem>() : nullptr;
+				const demo_map_code_b::FCodeBP3InventoryWorkspaceContext* CurrentWorkspace =
+					CurrentHost ? CurrentHost->GetWorkspaceContext() : nullptr;
+				const demo_map_code_b::FCodeBP46NormalContainerSimpleStackQuickTransferProof& Proof =
+					AcceptedCommand.P46NormalContainerSimpleStackProof;
+				const bool bCurrentChildMode = AcceptedCommand.QuickTransferTargetMode
+					== demo_map_code_b::ECodeBQuickTransferTargetMode::CurrentP17Child;
+				const bool bBaseQuickMode = AcceptedCommand.QuickTransferTargetMode
+					== demo_map_code_b::ECodeBQuickTransferTargetMode::BaseQuickNoChildAtInput;
+				const bool bCurrentChildProof = bCurrentChildMode && CurrentWorkspace
+					&& CurrentWorkspace->ActiveDestinationContainerId.IsSet()
+					&& CurrentWorkspace->ActiveDestinationContainerId.GetValue()
+						== AcceptedCommand.QuickTransferActivePlayerContainerId
+					&& CurrentWorkspace->ActiveDestinationOpenGeneration
+						== AcceptedCommand.ActivePlayerChildOpenGeneration
+					&& Proof.ActivePlayerChildContainerId
+						== AcceptedCommand.QuickTransferActivePlayerContainerId
+					&& Proof.ActivePlayerChildParentItemId
+						== AcceptedCommand.QuickTransferActivePlayerParentItemId
+					&& Proof.ActivePlayerChildOpenGeneration
+						== AcceptedCommand.ActivePlayerChildOpenGeneration;
+				const bool bBaseQuickProof = bBaseQuickMode
+					&& !AcceptedCommand.QuickTransferActivePlayerContainerId.IsValid()
+					&& !AcceptedCommand.QuickTransferActivePlayerParentItemId.IsValid()
+					&& AcceptedCommand.ActivePlayerChildOpenGeneration == 0
+					&& !Proof.ActivePlayerChildContainerId.IsValid()
+					&& !Proof.ActivePlayerChildParentItemId.IsValid()
+					&& Proof.ActivePlayerChildOpenGeneration == 0;
+				if (!bCodeBNormalContainerOpen || !ActiveCodeBNormalContainer.IsValid()
+					|| !CurrentHost || !CurrentHost->IsHostEnabled()
+					|| !CurrentWorkspace || !CurrentWorkspace->IsInRun()
+					|| CurrentWorkspace->OwnerId != CodeBNormalContainerOwnerId
+					|| CurrentWorkspace->RunInstanceId != CodeBNormalContainerRunId
+					|| (!bCurrentChildProof && !bBaseQuickProof))
+				{
+					CommitError = TEXT("P46 durable callback rejected a closed, unfocused, stale, or redirected BasicCache target.");
+					return false;
+				}
+			}
 			const bool bCommitted = FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfer(
 				ProfilePreparationFlow ? ProfilePreparationFlow->GetStorageRoot() : FString(),
 				CodeBNormalContainerOwnerId, CodeBNormalContainerRunId,
 				CodeBNormalContainerTargetId, CodeBNormalContainerDefinitionId,
 				CodeBNormalContainerExpectedP6Revision,
 				CodeBNormalContainerExpectedTargetRevision,
+				AcceptedCommand,
 				PersistedSnapshot, &CommitError);
 			if (bCommitted)
 			{

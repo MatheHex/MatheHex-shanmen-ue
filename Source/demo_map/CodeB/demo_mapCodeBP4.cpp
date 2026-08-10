@@ -311,6 +311,7 @@ namespace demo_map_code_b
 			Payload.QuickTransferActivePlayerParentItemId,
 			Payload.P38BodyEquipmentProof,
 			Payload.P40BodySimpleStackProof,
+			Payload.P46NormalContainerSimpleStackProof,
 			Payload.P41BodySpatialGraphProof,
 			Payload.P42BodySpatialGraphEquipmentProof);
 	}

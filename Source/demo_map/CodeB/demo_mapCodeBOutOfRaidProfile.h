@@ -935,6 +935,7 @@ public:
 		FName DefinitionId,
 		int32 ExpectedP6SnapshotRevision,
 		int32 ExpectedNormalContainerRevision,
+		const demo_map_code_b::FCodeBP2Command& AcceptedCommand,
 		const demo_map_code_b::FCodeBSnapshot& CompositeSnapshot,
 		FString* OutError = nullptr);
 	/** Read-only P5 entry lock probe; it never creates or migrates a sidecar. */

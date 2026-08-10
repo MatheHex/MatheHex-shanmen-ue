@@ -232,6 +232,54 @@ namespace demo_map_code_b
 	};
 
 	/**
+	 * P46 transient proof for one exact opened/revealed P10 BasicCache simple
+	 * stack.  The source receipt and the input-time P17/P6 target choice are
+	 * frozen here; P1 remains the sole placement and quantity authority.
+	 */
+	struct FCodeBP46NormalContainerSimpleStackQuickTransferProof
+	{
+		bool bIntent = false;
+		FGuid OwnerId;
+		FGuid RunInstanceId;
+		FGuid SearchTargetId;
+		FGuid ReceiptId;
+		int32 NormalContainerRevision = INDEX_NONE;
+		uint32 TargetOpenGeneration = 0;
+		FName NormalContainerDefinitionId;
+		FGuid SourceContainerId;
+		int32 SourceSlot = INDEX_NONE;
+		FGuid SourceItemId;
+		FName SourceDefinitionId;
+		int32 DefinitionContentRevision = 0;
+		FString DefinitionDigest;
+		FName LootProfileId;
+		int32 LootProfileVersion = 0;
+		FString LootProfileDigest;
+		FString LootResultDigest;
+		FString MaterializationDigest;
+		FName WorkspaceTargetPaneId;
+		int32 CompositeRevision = INDEX_NONE;
+		int32 P6SnapshotRevision = INDEX_NONE;
+		FGuid ActivePlayerChildContainerId;
+		FGuid ActivePlayerChildParentItemId;
+		uint32 ActivePlayerChildOpenGeneration = 0;
+
+		bool HasSourceIdentity() const
+		{
+			return bIntent && OwnerId.IsValid() && RunInstanceId.IsValid()
+				&& SearchTargetId.IsValid() && ReceiptId.IsValid()
+				&& NormalContainerRevision > 0 && TargetOpenGeneration != 0
+				&& !NormalContainerDefinitionId.IsNone() && SourceContainerId.IsValid()
+				&& SourceSlot >= 0 && SourceItemId.IsValid() && !SourceDefinitionId.IsNone()
+				&& DefinitionContentRevision > 0 && !DefinitionDigest.IsEmpty()
+				&& !LootProfileId.IsNone() && LootProfileVersion > 0
+				&& !LootProfileDigest.IsEmpty() && !LootResultDigest.IsEmpty()
+				&& !MaterializationDigest.IsEmpty() && !WorkspaceTargetPaneId.IsNone()
+				&& CompositeRevision >= 0 && P6SnapshotRevision >= 0;
+		}
+	};
+
+	/**
 	 * P43 transient proof for one normal Drag of an exact Revealed ordinary
 	 * P12 simple-stack root to the existing GroundDropZone.  It deliberately
 	 * carries no player target, quantity draft, WorldDrop identity, or ordinal;
@@ -409,6 +457,8 @@ namespace demo_map_code_b
 		FCodeBP38BodyEquipmentTransferProof P38BodyEquipmentProof;
 		/** P40 ordinary P12 simple-stack source and frozen-target proof. */
 		FCodeBP40BodySimpleStackQuickTransferProof P40BodySimpleStackProof;
+		/** P46 opened/revealed P10 BasicCache simple-stack and frozen-target proof. */
+		FCodeBP46NormalContainerSimpleStackQuickTransferProof P46NormalContainerSimpleStackProof;
 		/** P41 ordinary P12 complete spatial graph and exact BaseQuick candidate proof. */
 		FCodeBP41BodySpatialGraphQuickTransferProof P41BodySpatialGraphProof;
 		/** P42 normal P12 Drag of one complete spatial graph to an exact formal P6 slot. */

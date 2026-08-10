@@ -24,8 +24,14 @@ struct FCodeBP3NormalContainerPresentation
 	FGuid TargetContainerId;
 	FString Title;
 	FCodeBNormalContainerProjection Projection;
+	/** P46 transient page/focus lifecycle identity; never persisted as target truth. */
+	uint32 TargetOpenGeneration = 0;
+	/** Exact P6 revision used to build this P9/P6 composite page. */
+	int32 P6SnapshotRevision = INDEX_NONE;
 	/** The manager/service starts the durable search and returns its fresh projection. */
 	TFunction<bool(const demo_map_code_b::FCodeBP3SearchLocator&, FCodeBNormalContainerProjection&, FString&)> BeginItemSearch;
+	/** Refreshes only the read-only P10 projection after an accepted P9/P6 transaction. */
+	TFunction<bool(FCodeBNormalContainerProjection&, FString&)> Refresh;
 };
 
 /** P12-only display policy for the existing production P3/P4 Host. */
@@ -323,6 +329,8 @@ public:
 	void PopulateTransferContext(demo_map_code_b::FCodeBP4DragPayload& Payload) const;
 	void PopulateP40BodySimpleStackQuickTransferProof(
 		demo_map_code_b::FCodeBP4DragPayload& Payload) const;
+	void PopulateP46NormalContainerSimpleStackQuickTransferProof(
+		demo_map_code_b::FCodeBP4DragPayload& Payload) const;
 	void PopulateP41BodySpatialGraphQuickTransferProof(
 		demo_map_code_b::FCodeBP4DragPayload& Payload) const;
 	void PopulateP42BodySpatialGraphEquipmentSourceProof(
@@ -340,6 +348,11 @@ public:
 		FString& OutError) const;
 	/** P40 exact ordinary body simple-stack source, frozen target, and stable scan gate. */
 	bool ValidateP40BodySimpleStackQuickTransferContext(
+		const demo_map_code_b::FCodeBP4DragPayload& Payload,
+		const demo_map_code_b::FCodeBP3SlotAddress& Target,
+		FString& OutError) const;
+	/** P46 exact BasicCache source, frozen target, and stable resolver gate. */
+	bool ValidateP46NormalContainerSimpleStackQuickTransferContext(
 		const demo_map_code_b::FCodeBP4DragPayload& Payload,
 		const demo_map_code_b::FCodeBP3SlotAddress& Target,
 		FString& OutError) const;
@@ -365,6 +378,7 @@ public:
 		const demo_map_code_b::FCodeBP3SlotAddress& Target,
 		FString& OutError) const;
 	bool RefreshBodyContainerProjection(FString& OutError);
+	bool RefreshNormalContainerProjection(FString& OutError);
 	bool IsP29PlayerQuickTransferSourceContainer(const FGuid& ContainerId) const;
 	/** P35 exact current-child gate; BaseQuick is deliberately not accepted here. */
 	bool IsCurrentActiveP17ChildContainer(const FGuid& ContainerId) const;
@@ -444,5 +458,6 @@ private:
 	TOptional<FCodeBP3WorkspacePresentation> WorkspacePresentation;
 	TOptional<demo_map_code_b::FCodeBP3SplitDraft> SplitDraft;
 	uint32 NextActiveDestinationOpenGeneration = 1;
+	uint32 NextNormalContainerTargetOpenGeneration = 1;
 	uint32 NextBodyTargetOpenGeneration = 1;
 };
