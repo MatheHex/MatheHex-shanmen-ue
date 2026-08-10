@@ -247,7 +247,12 @@ namespace demo_map_code_b
 			Controller.SetP4Feedback(Preview.Message);
 			return false;
 		}
-		return Controller.CommitP4Operation(Preview.Operation, Payload.Source, Target, Payload.ExpectedRevision, Preview.Quantity, GetDropKindLabel(Preview.Kind));
+		return Controller.CommitP4Operation(
+			Preview.Operation, Payload.Source, Target, Payload.ExpectedRevision, Preview.Quantity,
+			GetDropKindLabel(Preview.Kind), Payload.bQuickTransferIntent
+				? ECodeBP2CommandIntent::QuickTransfer
+				: ECodeBP2CommandIntent::Standard,
+			Payload.QuickTransferActivePlayerContainerId);
 	}
 
 	bool FCodeBP4InteractionController::CommitDrop(const FCodeBP4DragPayload& Payload, const FCodeBP3SlotAddress& Target)

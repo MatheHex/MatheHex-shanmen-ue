@@ -981,6 +981,161 @@ namespace
 			&& !Item.ChildContainerId.IsValid();
 	}
 
+	/**
+	 * P29 proves the already accepted shared Ctrl+left P1 command without replaying
+	 * it. Only the currently opened world root and BaseQuick/current active P17
+	 * child may participate, and the candidate must be the exact one-revision
+	 * Move/Merge(0) delta.
+	 */
+	bool IsExactP29WorldDropQuickTransferDelta(
+		const FCodeBRunInventorySession& Session,
+		const FCodeBWorldDropRecord& Drop,
+		const FCodeBP2Command& AcceptedCommand,
+		const FCodeBSnapshot& Candidate,
+		bool& bOutRetainWorldRoot,
+		FString& OutError)
+	{
+		bOutRetainWorldRoot = false;
+		OutError.Reset();
+		const FCodeBSnapshot& Prior = Session.RepositorySnapshot;
+		const bool bWorldSource = AcceptedCommand.SourceContainerId == Drop.WorldContainerId;
+		const bool bWorldTarget = AcceptedCommand.TargetContainerId == Drop.WorldContainerId;
+		if (AcceptedCommand.Intent != ECodeBP2CommandIntent::QuickTransfer
+			|| !AcceptedCommand.TransactionId.IsValid()
+			|| AcceptedCommand.Quantity != 0
+			|| AcceptedCommand.ExpectedRevision != Prior.Revision
+			|| Prior.Revision == MAX_int32
+			|| bWorldSource == bWorldTarget)
+		{
+			OutError = TEXT("P29 requires one exact P1 Ctrl QuickTransfer command with one world side and Quantity=0.");
+			return false;
+		}
+
+		const FCodeBContainer* WorldContainer = Prior.Containers.Find(Drop.WorldContainerId);
+		const FCodeBItemInstance* WorldRoot = Prior.Items.Find(Drop.ItemId);
+		if (!WorldContainer || WorldContainer->IsEquipment() || WorldContainer->Slots.Num() != 1
+			|| WorldContainer->Slots[0] != Drop.ItemId || !WorldRoot
+			|| WorldRoot->ParentContainerId != Drop.WorldContainerId || WorldRoot->SlotIndex != 0
+			|| !IsP26SimpleStack(Session, *WorldRoot))
+		{
+			OutError = TEXT("P29 opened WorldDrop no longer contains its exact simple-stack root.");
+			return false;
+		}
+
+		auto IsExactPlayerContainer = [&Session, &AcceptedCommand](const FGuid& ContainerId, const bool bWorldToPlayer)
+		{
+			if (ContainerId == Session.Layout.BasicContainerId)
+			{
+				return !bWorldToPlayer || !AcceptedCommand.QuickTransferActivePlayerContainerId.IsValid();
+			}
+			return AcceptedCommand.QuickTransferActivePlayerContainerId == ContainerId
+				&& IsP26PlayerStorageContainer(Session, ContainerId);
+		};
+
+		const FGuid PlayerContainerId = bWorldSource
+			? AcceptedCommand.TargetContainerId : AcceptedCommand.SourceContainerId;
+		const int32 PlayerSlot = bWorldSource ? AcceptedCommand.TargetSlot : AcceptedCommand.SourceSlot;
+		const FCodeBContainer* PlayerContainer = Prior.Containers.Find(PlayerContainerId);
+		if (!IsExactPlayerContainer(PlayerContainerId, bWorldSource)
+			|| !PlayerContainer || PlayerContainer->IsEquipment()
+			|| !PlayerContainer->Slots.IsValidIndex(PlayerSlot))
+		{
+			OutError = TEXT("P29 player side is not BaseQuick or the exact current active P17 child.");
+			return false;
+		}
+
+		const FCodeBItemInstance* Source = Prior.Items.Find(AcceptedCommand.ItemId);
+		const FCodeBContainer* SourceContainer = Prior.Containers.Find(AcceptedCommand.SourceContainerId);
+		const FCodeBContainer* TargetContainer = Prior.Containers.Find(AcceptedCommand.TargetContainerId);
+		const FGuid TargetItemId = TargetContainer
+			&& TargetContainer->Slots.IsValidIndex(AcceptedCommand.TargetSlot)
+			? TargetContainer->Slots[AcceptedCommand.TargetSlot] : FGuid();
+		const FCodeBItemInstance* Target = Prior.Items.Find(TargetItemId);
+		if (!Source || !SourceContainer || !TargetContainer
+			|| SourceContainer->IsEquipment() || TargetContainer->IsEquipment()
+			|| Source->ParentContainerId != AcceptedCommand.SourceContainerId
+			|| Source->SlotIndex != AcceptedCommand.SourceSlot
+			|| !SourceContainer->Slots.IsValidIndex(Source->SlotIndex)
+			|| SourceContainer->Slots[Source->SlotIndex] != Source->ItemId
+			|| !IsP26SimpleStack(Session, *Source)
+			|| (bWorldSource && Source->ItemId != Drop.ItemId)
+			|| (bWorldTarget && (AcceptedCommand.TargetSlot != 0 || TargetItemId != Drop.ItemId)))
+		{
+			OutError = TEXT("P29 command source or exact world-root address is invalid.");
+			return false;
+		}
+
+		FCodeBSnapshot Expected = Prior;
+		Expected.Revision = Prior.Revision + 1;
+		FCodeBContainer* ExpectedSourceContainer = Expected.Containers.Find(AcceptedCommand.SourceContainerId);
+		FCodeBContainer* ExpectedTargetContainer = Expected.Containers.Find(AcceptedCommand.TargetContainerId);
+		FCodeBItemInstance* ExpectedSource = Expected.Items.Find(Source->ItemId);
+		if (!ExpectedSourceContainer || !ExpectedTargetContainer || !ExpectedSource)
+		{
+			OutError = TEXT("P29 could not construct the exact candidate proof.");
+			return false;
+		}
+
+		if (AcceptedCommand.Operation == ECodeBOperation::Move)
+		{
+			if (!bWorldSource || TargetItemId.IsValid())
+			{
+				OutError = TEXT("P29 Move is allowed only from the world root into one explicit empty player cell.");
+				return false;
+			}
+			ExpectedSourceContainer->Slots[AcceptedCommand.SourceSlot].Invalidate();
+			ExpectedTargetContainer->Slots[AcceptedCommand.TargetSlot] = Source->ItemId;
+			ExpectedSource->ParentContainerId = AcceptedCommand.TargetContainerId;
+			ExpectedSource->SlotIndex = AcceptedCommand.TargetSlot;
+			bOutRetainWorldRoot = false;
+		}
+		else if (AcceptedCommand.Operation == ECodeBOperation::Merge)
+		{
+			const FCodeBItemDefinition* Definition = Prior.Definitions.Find(Source->DefinitionId);
+			if (!Target || Target->ItemId == Source->ItemId || !Definition
+				|| !Definition->bStackable || Definition->MaxStack <= 1
+				|| Target->DefinitionId != Source->DefinitionId
+				|| Target->ChildContainerId.IsValid()
+				|| Target->Quantity <= 0 || Target->Quantity >= Definition->MaxStack)
+			{
+				OutError = TEXT("P29 Merge(0) requires one compatible occupied underfull world/player target stack.");
+				return false;
+			}
+			const int32 AcceptedQuantity = FMath::Min(Source->Quantity, Definition->MaxStack - Target->Quantity);
+			if (AcceptedQuantity <= 0)
+			{
+				OutError = TEXT("P29 Merge(0) has no positive compatible capacity.");
+				return false;
+			}
+			FCodeBItemInstance* ExpectedTarget = Expected.Items.Find(Target->ItemId);
+			if (!ExpectedTarget)
+			{
+				OutError = TEXT("P29 merge target disappeared while constructing the proof.");
+				return false;
+			}
+			ExpectedTarget->Quantity += AcceptedQuantity;
+			ExpectedSource->Quantity -= AcceptedQuantity;
+			if (ExpectedSource->Quantity == 0)
+			{
+				ExpectedSourceContainer->Slots[AcceptedCommand.SourceSlot].Invalidate();
+				Expected.Items.Remove(Source->ItemId);
+			}
+			bOutRetainWorldRoot = bWorldTarget || Expected.Items.Contains(Drop.ItemId);
+		}
+		else
+		{
+			OutError = TEXT("P29 accepts only P1 Move or Merge(0).");
+			return false;
+		}
+
+		if (Candidate != Expected)
+		{
+			OutError = TEXT("P29 candidate differs from the exact one-command P1 Ctrl quick-transfer delta.");
+			return false;
+		}
+		return true;
+	}
+
 	FString LegacyAffixDigest(const Fdemo_mapPersistentItemRecord& Item)
 	{
 		if (Item.AffixSet.IsEmpty())
@@ -9187,8 +9342,10 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 	}
 	const FCodeBItemInstance* CandidateItem = CandidateSnapshot.Items.Find(Drop->ItemId);
 	const bool bP26SimpleStack = !bIsSpatialClosure && IsP26SimpleStack(Existing, *SourceItem);
+	const bool bP29QuickTransfer = AcceptedCommand.Intent == ECodeBP2CommandIntent::QuickTransfer;
+	bool bP29RetainWorldRoot = false;
 	const bool bP28MergeIntent = AcceptedCommand.Operation == ECodeBOperation::Merge
-		&& AcceptedCommand.Quantity > 0;
+		&& AcceptedCommand.Quantity > 0 && !bP29QuickTransfer;
 	const FCodeBItemInstance* P27CreatedItem = nullptr;
 	bool bMultipleP27CreatedItems = false;
 	for (const TPair<FGuid, FCodeBItemInstance>& Pair : CandidateSnapshot.Items)
@@ -9213,7 +9370,25 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 	Move.ExpectedRevision = Existing.RepositorySnapshot.Revision;
 	bool bP26Merge = false;
 	bool bP28Merge = false;
-	if (bP28MergeIntent)
+	if (bP29QuickTransfer)
+	{
+		if (bIsSpatialClosure || !IsExactP29WorldDropQuickTransferDelta(
+			Existing, *Drop, AcceptedCommand, CandidateSnapshot, bP29RetainWorldRoot, Error))
+		{
+			if (OutError) *OutError = Error.IsEmpty()
+				? TEXT("Code B P29 Ctrl quick transfer requires one exact simple-stack Move/Merge(0) delta.")
+				: Error;
+			return false;
+		}
+		Move.Operation = AcceptedCommand.Operation;
+		Move.ItemId = AcceptedCommand.ItemId;
+		Move.SourceContainerId = AcceptedCommand.SourceContainerId;
+		Move.SourceSlot = AcceptedCommand.SourceSlot;
+		Move.TargetContainerId = AcceptedCommand.TargetContainerId;
+		Move.TargetSlot = AcceptedCommand.TargetSlot;
+		Move.Quantity = 0;
+	}
+	else if (bP28MergeIntent)
 	{
 		const FCodeBContainer* P28TargetContainer = Existing.RepositorySnapshot.Containers.Find(
 			AcceptedCommand.TargetContainerId);
@@ -9351,13 +9526,12 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 		}
 	}
 	FCodeBSnapshot ExpectedSnapshot;
-	if (bP27Split || bP28Merge)
+	if (bP27Split || bP28Merge || bP29QuickTransfer)
 	{
 		// The candidate entered this callback only after the shared P2 service
-		// accepted one P1 command. P27 cannot replay its created GUID, while P28
-		// deliberately avoids a second Merge or Merge(0) fallback; the dedicated
-		// structural proof above already binds the exact accepted command to the
-		// one-source/one-target snapshot delta.
+		// accepted one P1 command. P27 cannot replay its created GUID, while P28/P29
+		// deliberately avoid a second Merge or Merge(0) fallback; their dedicated
+		// structural proofs bind the exact accepted command to the snapshot delta.
 		ExpectedSnapshot = CandidateSnapshot;
 	}
 	else
@@ -9383,9 +9557,10 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 		}
 	}
 	const FCodeBItemInstance* RetainedWorldItem = ExpectedSnapshot.Items.Find(Drop->ItemId);
-	const bool bRetainWorldRoot = (bP26Merge || bP27Split || bP28Merge) && RetainedWorldItem
+	const bool bRetainWorldRoot = (bP29QuickTransfer ? bP29RetainWorldRoot
+		: ((bP26Merge || bP27Split || bP28Merge) && RetainedWorldItem
 		&& RetainedWorldItem->ParentContainerId == Drop->WorldContainerId
-		&& RetainedWorldItem->SlotIndex == 0 && RetainedWorldItem->Quantity > 0;
+		&& RetainedWorldItem->SlotIndex == 0 && RetainedWorldItem->Quantity > 0));
 	if (!bRetainWorldRoot)
 	{
 		ExpectedSnapshot.Containers.Remove(Drop->WorldContainerId);

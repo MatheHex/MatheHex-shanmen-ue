@@ -66,8 +66,11 @@ struct FCodeBP3GroundDropPresentation
 /** P14's transient one-record target. It is a projection of the P6 WorldDrop graph. */
 struct FCodeBP3WorldDropPresentation
 {
+	FGuid OwnerId;
+	FGuid RunInstanceId;
 	FGuid WorldDropId;
 	FGuid TargetContainerId;
+	FGuid RootItemId;
 	FString Title;
 };
 
@@ -307,6 +310,11 @@ public:
 	void PopulateAddressContext(demo_map_code_b::FCodeBP3SlotAddress& Address) const;
 	void PopulateTransferContext(demo_map_code_b::FCodeBP4DragPayload& Payload) const;
 	bool ValidateTransferContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, FString& OutError);
+	bool IsP29PlayerQuickTransferSourceContainer(const FGuid& ContainerId) const;
+	bool ValidateWorldDropTransferContext(
+		const demo_map_code_b::FCodeBP4DragPayload& Payload,
+		const demo_map_code_b::FCodeBP3SlotAddress& Target,
+		FString& OutError) const;
 	bool CreateSplitDraft(const demo_map_code_b::FCodeBP3SlotAddress& Source, int32 RequestedQuantity, FString& OutError);
 	bool BeginInventoryDrag(
 		demo_map_code_b::FCodeBP4InteractionController& Interaction,
@@ -320,7 +328,7 @@ public:
 	}
 	bool CanWriteWorkspace(FString& OutError);
 	bool IsOutOfRaidWorkspace() const;
-	bool ActivateOutOfRaidDestination(const demo_map_code_b::FCodeBP3SlotAddress& Address);
+	bool ActivateQuickTransferDestination(const demo_map_code_b::FCodeBP3SlotAddress& Address);
 	void UpdateWorkspaceHover(const demo_map_code_b::FCodeBP3SlotAddress& Address, bool bHovered);
 	void UpdateWorkspaceSelection(const demo_map_code_b::FCodeBP3SlotAddress& Address);
 	void UpdateWorkspaceScroll(float PlayerOffset, float TargetOffset);
@@ -340,6 +348,7 @@ public:
 	{
 		return WorldDropPresentation.IsSet() && WorldDropPresentation->TargetContainerId == ContainerId;
 	}
+	bool HasWorldDropPresentation() const { return WorldDropPresentation.IsSet(); }
 	bool RequestHotbarBindFromAddress(const demo_map_code_b::FCodeBP3SlotAddress& Address, int32 SlotIndex, FString& OutError);
 	void RefreshHotbarProjection();
 	void ClosePage();

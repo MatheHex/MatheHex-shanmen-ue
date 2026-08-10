@@ -998,7 +998,7 @@ public:
 		const FTransform& FloorTransform,
 		FCodeBWorldDropProjection& OutProjection,
 		FString* OutError = nullptr);
-	/** P14/P19/P26/P27/P28's only pickup writer; the accepted P2 command is transient proof context, never durable state. */
+	/** P14/P19/P26/P27/P28/P29's only opened-WorldDrop writer; the accepted P2 command is transient proof context, never durable state. */
 	static bool CommitAcceptedMatchedRunWorldDropPickup(
 		const FString& InStorageRoot,
 		const FGuid& InOwnerId,

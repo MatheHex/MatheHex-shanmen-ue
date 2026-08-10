@@ -4823,7 +4823,10 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBWorldDropPage(
 		DropActor->GetRunInstanceId(), Session, &OutFeedback)) return false;
 	const FCodeBWorldDropRecord* Drop = Session.WorldDrops.FindByPredicate(
 		[DropActor](const FCodeBWorldDropRecord& Value) { return Value.WorldDropId == DropActor->GetWorldDropId(); });
-	if (!Drop || Drop->MapRoute != FName(*GetWorld()->GetMapName()))
+	if (!Drop || Drop->ActionState != ECodeBWorldDropActionState::Available
+		|| Drop->MapRoute != FName(*GetWorld()->GetMapName())
+		|| DropActor->GetOwnerId() != Session.OwnerId
+		|| DropActor->GetRunInstanceId() != Session.RunInstanceId)
 	{
 		OutFeedback = TEXT("地面物品不属于当前地图路由或已被移除。");
 		return false;
@@ -4841,12 +4844,18 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBWorldDropPage(
 	CodeBWorldDropOwnerId = Session.OwnerId;
 	CodeBWorldDropRunId = Session.RunInstanceId;
 	CodeBWorldDropId = Drop->WorldDropId;
+	CodeBWorldDropContainerId = Drop->WorldContainerId;
+	CodeBWorldDropRootItemId = Drop->ItemId;
 	CodeBWorldDropExpectedP6Revision = Session.RepositorySnapshot.Revision;
+	CodeBWorldDropExpectedNextOrdinal = Session.NextWorldDropOrdinal;
 	ActiveCodeBWorldDrop = DropActor;
 	const TWeakObjectPtr<Ademo_mapV3ProgressionManager> WeakManager(this);
 	FCodeBP3WorldDropPresentation Presentation;
+	Presentation.OwnerId = Session.OwnerId;
+	Presentation.RunInstanceId = Session.RunInstanceId;
 	Presentation.WorldDropId = Drop->WorldDropId;
 	Presentation.TargetContainerId = Drop->WorldContainerId;
+	Presentation.RootItemId = Drop->ItemId;
 	Presentation.Title = TEXT("地面物品");
 	FCodeBP3WorkspacePresentation Workspace;
 	Workspace.Context.Scope = demo_map_code_b::ECodeBP3WorkspaceScope::InRunP6;
@@ -4862,17 +4871,40 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBWorldDropPage(
 		{
 			return demo_map_code_b::ECodeBP3WorkspaceWriteGate::Unavailable;
 		}
-		const Ademo_mapV3ProgressionManager* Manager = WeakManager.Get();
+		Ademo_mapV3ProgressionManager* Manager = WeakManager.Get();
 		const bool bCurrentWorldPage = Manager->CodeBActiveRunInventoryStore.IsValid()
 			&& Manager->CodeBWorldDropRepository.IsValid()
 			&& Manager->CodeBWorldDropOwnerId.IsValid()
 			&& Manager->CodeBWorldDropRunId.IsValid()
 			&& Manager->CodeBWorldDropId.IsValid()
+			&& Manager->CodeBWorldDropContainerId.IsValid()
+			&& Manager->CodeBWorldDropRootItemId.IsValid()
+			&& Manager->CodeBWorldDropExpectedNextOrdinal >= 0
 			&& Manager->ActiveCodeBWorldDrop.IsValid()
 			&& Manager->ProfilePreparationFlow
 			&& Manager->ProfilePreparationFlow->GetPhase() == Edemo_mapProfilePreparationFlowPhase::RunActive
-			&& Manager->ProfilePreparationFlow->GetStartedRunId() == Manager->CodeBWorldDropRunId;
-		return bCurrentWorldPage
+			&& Manager->ProfilePreparationFlow->GetStartedRunId() == Manager->CodeBWorldDropRunId
+			&& Manager->ActiveCodeBWorldDrop->GetOwnerId() == Manager->CodeBWorldDropOwnerId
+			&& Manager->ActiveCodeBWorldDrop->GetRunInstanceId() == Manager->CodeBWorldDropRunId
+			&& Manager->ActiveCodeBWorldDrop->GetWorldDropId() == Manager->CodeBWorldDropId;
+		FCodeBRunInventorySession Current;
+		FString Error;
+		const bool bExactDurableRecord = bCurrentWorldPage
+			&& Manager->CodeBActiveRunInventoryStore->OpenMatchedActiveRunInventorySession(
+				Manager->CodeBWorldDropRunId, Current, &Error)
+			&& Current.OwnerId == Manager->CodeBWorldDropOwnerId
+			&& Current.RunInstanceId == Manager->CodeBWorldDropRunId
+			&& Current.RepositorySnapshot.Revision == Manager->CodeBWorldDropExpectedP6Revision
+			&& Current.NextWorldDropOrdinal == Manager->CodeBWorldDropExpectedNextOrdinal
+			&& Current.WorldDrops.ContainsByPredicate([Manager](const FCodeBWorldDropRecord& Value)
+			{
+				return Value.WorldDropId == Manager->CodeBWorldDropId
+					&& Value.WorldContainerId == Manager->CodeBWorldDropContainerId
+					&& Value.ItemId == Manager->CodeBWorldDropRootItemId
+					&& Value.ActionState == ECodeBWorldDropActionState::Available
+					&& Manager->GetWorld() && Value.MapRoute == FName(*Manager->GetWorld()->GetMapName());
+			});
+		return bExactDurableRecord
 			? demo_map_code_b::ECodeBP3WorkspaceWriteGate::InRun
 			: demo_map_code_b::ECodeBP3WorkspaceWriteGate::Unavailable;
 	};
@@ -4919,7 +4951,10 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBWorldDropPage(
 		CodeBWorldDropOwnerId.Invalidate();
 		CodeBWorldDropRunId.Invalidate();
 		CodeBWorldDropId.Invalidate();
+		CodeBWorldDropContainerId.Invalidate();
+		CodeBWorldDropRootItemId.Invalidate();
 		CodeBWorldDropExpectedP6Revision = INDEX_NONE;
+		CodeBWorldDropExpectedNextOrdinal = INDEX_NONE;
 		ActiveCodeBWorldDrop.Reset();
 		OutFeedback = TEXT("地面物品页面无法创建真实 P3/P4 双栏。");
 		return false;
@@ -4948,7 +4983,10 @@ void Ademo_mapV3ProgressionManager::CloseCodeBWorldDropPage()
 	CodeBWorldDropOwnerId.Invalidate();
 	CodeBWorldDropRunId.Invalidate();
 	CodeBWorldDropId.Invalidate();
+	CodeBWorldDropContainerId.Invalidate();
+	CodeBWorldDropRootItemId.Invalidate();
 	CodeBWorldDropExpectedP6Revision = INDEX_NONE;
+	CodeBWorldDropExpectedNextOrdinal = INDEX_NONE;
 	ActiveCodeBWorldDrop.Reset();
 }
 

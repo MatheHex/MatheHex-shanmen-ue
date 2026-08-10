@@ -650,7 +650,9 @@ namespace demo_map_code_b
 		const FCodeBP3SlotAddress& Target,
 		const int32 ExpectedRevision,
 		const int32 Quantity,
-		const FString& OperationLabel)
+		const FString& OperationLabel,
+		const ECodeBP2CommandIntent Intent,
+		const FGuid& QuickTransferActivePlayerContainerId)
 	{
 		if (!bOpen || !Service.IsValid())
 		{
@@ -682,6 +684,8 @@ namespace demo_map_code_b
 		Command.TargetSlot = AuthoritativeTarget.SlotIndex;
 		Command.Quantity = Quantity;
 		Command.ExpectedRevision = ExpectedRevision;
+		Command.Intent = Intent;
+		Command.QuickTransferActivePlayerContainerId = QuickTransferActivePlayerContainerId;
 
 		const FGuid PreferredSelectionItem = Operation == ECodeBOperation::Merge && AuthoritativeTarget.bOccupied
 			? AuthoritativeTarget.ItemId

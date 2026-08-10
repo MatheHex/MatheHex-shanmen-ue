@@ -120,6 +120,13 @@ namespace demo_map_code_b
 		bool operator!=(const FCodeBP2Projection& Other) const { return !(*this == Other); }
 	};
 
+	/** Transient audit identity for the one P2 command; never persisted as item state. */
+	enum class ECodeBP2CommandIntent : uint8
+	{
+		Standard,
+		QuickTransfer
+	};
+
 	struct FCodeBP2Command
 	{
 		FGuid TransactionId;
@@ -131,6 +138,9 @@ namespace demo_map_code_b
 		int32 TargetSlot = INDEX_NONE;
 		int32 Quantity = 0;
 		int32 ExpectedRevision = INDEX_NONE;
+		ECodeBP2CommandIntent Intent = ECodeBP2CommandIntent::Standard;
+		/** P29 transient proof of the exact P17 child selected by the shared workspace. */
+		FGuid QuickTransferActivePlayerContainerId;
 	};
 
 	struct FCodeBP2ApplicationResult

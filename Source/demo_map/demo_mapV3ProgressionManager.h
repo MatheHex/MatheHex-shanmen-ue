@@ -529,7 +529,10 @@ private:
 	FGuid CodeBWorldDropOwnerId;
 	FGuid CodeBWorldDropRunId;
 	FGuid CodeBWorldDropId;
+	FGuid CodeBWorldDropContainerId;
+	FGuid CodeBWorldDropRootItemId;
 	int32 CodeBWorldDropExpectedP6Revision = INDEX_NONE;
+	int32 CodeBWorldDropExpectedNextOrdinal = INDEX_NONE;
 	TWeakObjectPtr<Ademo_mapCodeBWorldDropActor> ActiveCodeBWorldDrop;
 	bool bCodeBWorldDropOpen = false;
 	/** P10 retains a single transient P1 composite view; P6/P9 remain durable truth. */

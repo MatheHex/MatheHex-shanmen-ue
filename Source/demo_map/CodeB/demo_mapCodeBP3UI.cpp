@@ -2425,9 +2425,12 @@ FCodeBP4DropPreview UCodeBP3InventoryWidget::PreviewInventoryTransfer(
 		Rejected.Message = TEXT("尸体固定装备位不是玩家物品写入目标。");
 		return Rejected;
 	}
-	if (Host->IsWorldDropPresentation(Target.ContainerId))
+	const bool bSourceWorldDrop = Host->IsWorldDropPresentation(Payload.Source.ContainerId);
+	const bool bTargetWorldDrop = Host->IsWorldDropPresentation(Target.ContainerId);
+	if ((bSourceWorldDrop || bTargetWorldDrop)
+		&& !Host->ValidateWorldDropTransferContext(Payload, Target, ContextError))
 	{
-		Rejected.Message = TEXT("地面目标不可写入；请使用明确的地面丢弃区。");
+		Rejected.Message = ContextError;
 		return Rejected;
 	}
 	FCodeBP4InteractionController* Interaction = const_cast<UCodeBP3InventoryWidget*>(this)->GetP4Controller();
@@ -2437,7 +2440,36 @@ FCodeBP4DropPreview UCodeBP3InventoryWidget::PreviewInventoryTransfer(
 		return Rejected;
 	}
 	FCodeBP4DropPreview Preview = Interaction->PreviewDrop(Payload, Target);
-	if (Host->IsWorldDropPresentation(Payload.Source.ContainerId)
+	if (bTargetWorldDrop)
+	{
+		const FCodeBP2Projection& Projection = Host->GetController()->GetProjection();
+		const FCodeBP2ContainerView* SourceContainer = Projection.Containers.FindByPredicate(
+			[&Payload](const FCodeBP2ContainerView& Value) { return Value.ContainerId == Payload.Source.ContainerId; });
+		const FCodeBP2SlotView* SourceSlot = SourceContainer ? SourceContainer->Slots.FindByPredicate(
+			[&Payload](const FCodeBP2SlotView& Value) { return Value.SlotIndex == Payload.Source.SlotIndex; }) : nullptr;
+		const FCodeBP2ContainerView* TargetContainer = Projection.Containers.FindByPredicate(
+			[&Target](const FCodeBP2ContainerView& Value) { return Value.ContainerId == Target.ContainerId; });
+		const FCodeBP2SlotView* TargetSlot = TargetContainer ? TargetContainer->Slots.FindByPredicate(
+			[&Target](const FCodeBP2SlotView& Value) { return Value.SlotIndex == Target.SlotIndex; }) : nullptr;
+		const bool bExactP29Merge = Payload.bQuickTransferIntent && !Payload.bSplitIntent
+			&& Host->IsP29PlayerQuickTransferSourceContainer(Payload.Source.ContainerId)
+			&& SourceSlot && TargetSlot && SourceSlot->bOccupied && TargetSlot->bOccupied
+			&& SourceSlot->bStackable && TargetSlot->bStackable
+			&& SourceSlot->MaxStack > 1 && TargetSlot->MaxStack == SourceSlot->MaxStack
+			&& SourceSlot->Quantity > 0 && TargetSlot->Quantity > 0
+			&& TargetSlot->Quantity < TargetSlot->MaxStack
+			&& !SourceSlot->ChildContainerId.IsValid() && !TargetSlot->ChildContainerId.IsValid()
+			&& SourceSlot->DefinitionId == TargetSlot->DefinitionId
+			&& Preview.bAllowed && Preview.Kind == ECodeBP4DropKind::Merge
+			&& Preview.Operation == ECodeBOperation::Merge && Preview.Quantity == 0;
+		if (!bExactP29Merge)
+		{
+			Rejected.Message = TEXT("地面目标仅接受 P29 Ctrl 快转从 BaseQuick／当前 active child 执行一次兼容 Merge(0)。");
+			return Rejected;
+		}
+		return Preview;
+	}
+	if (bSourceWorldDrop
 		&& Preview.bAllowed)
 	{
 		const FCodeBP2Projection& Projection = Host->GetController()->GetProjection();
@@ -2454,6 +2486,8 @@ FCodeBP4DropPreview UCodeBP3InventoryWidget::PreviewInventoryTransfer(
 			&& (TargetContainer->Role == FName(TEXT("Basic6"))
 				|| TargetContainer->Role == FName(TEXT("QuickSpatial"))
 				|| TargetContainer->Role == FName(TEXT("PouchInternal")));
+		const bool bP29QuickDestination = !Payload.bQuickTransferIntent
+			|| Host->IsP29PlayerQuickTransferSourceContainer(Target.ContainerId);
 		const bool bP27WorldPickup = Payload.bSplitIntent
 			&& Payload.QuantityDraftKind == ECodeBP3QuantityDraftKind::WorldPickup;
 		if (bP27WorldPickup)
@@ -2466,8 +2500,8 @@ FCodeBP4DropPreview UCodeBP3InventoryWidget::PreviewInventoryTransfer(
 				&& Preview.Quantity == Payload.RequestedMergeQuantity
 				&& Preview.ProjectedAcceptedQuantity == Payload.RequestedMergeQuantity
 				&& !Preview.bPartialAcceptance;
-			if (!bSimpleStack || !bP26PlayerStorage
-				|| (!bP27EmptySplit && !bP28OccupiedMerge))
+			if (!bSimpleStack || !bP26PlayerStorage || !bP29QuickDestination
+					|| (!bP27EmptySplit && !bP28OccupiedMerge))
 			{
 				Rejected.Message = TEXT("地面数量拾回只接受 simple stack 到明确空格 Split(N) 或兼容未满堆叠 Merge(N)。");
 				return Rejected;
@@ -2481,8 +2515,8 @@ FCodeBP4DropPreview UCodeBP3InventoryWidget::PreviewInventoryTransfer(
 		}
 		if (bSimpleStack)
 		{
-			if (!bP26PlayerStorage
-				|| (Target.bOccupied && Preview.Operation != ECodeBOperation::Merge)
+			if (!bP26PlayerStorage || !bP29QuickDestination
+					|| (Target.bOccupied && Preview.Operation != ECodeBOperation::Merge)
 				|| (!Target.bOccupied && Preview.Operation != ECodeBOperation::Move))
 			{
 				Rejected.Message = TEXT("地面简单堆叠只能拖到明确的 BaseQuick／当前空间 child 空格或兼容未满堆叠。");
@@ -2543,6 +2577,30 @@ const FCodeBP2ContainerView* UCodeBP3InventoryWidget::ResolveQuickTransferDestin
 		return Projection.Containers.FindByPredicate(
 			[ContainerId](const FCodeBP2ContainerView& Candidate) { return Candidate.ContainerId == ContainerId; });
 	};
+	if (Host->IsWorldDropPresentation(Payload.Source.ContainerId))
+	{
+		if (const FCodeBP3InventoryWorkspaceContext* Context = Host->GetWorkspaceContext();
+			Context && Context->ActiveDestinationContainerId.IsSet())
+		{
+			if (const FCodeBP2ContainerView* Active = FindContainer(Context->ActiveDestinationContainerId.GetValue());
+				Active && (Active->Role == FName(TEXT("QuickSpatial"))
+					|| Active->Role == FName(TEXT("PouchInternal"))))
+			{
+				return Active;
+			}
+		}
+		return FindContainer(Projection.BasicContainerId);
+	}
+	if (Host->HasWorldDropPresentation())
+	{
+		return Host->IsP29PlayerQuickTransferSourceContainer(Payload.Source.ContainerId)
+			? Projection.Containers.FindByPredicate(
+				[](const FCodeBP2ContainerView& Candidate)
+				{
+					return Candidate.Role == FName(TEXT("WorldDropTarget"));
+				})
+			: nullptr;
+	}
 	if (Host->IsOutOfRaidWorkspace())
 	{
 		// P23 uses an explicit two-pane policy. Warehouse roots enter the active
@@ -3308,10 +3366,12 @@ void UCodeBP3InventoryWidget::HandleCellActivated(UCodeBP3CellButton* CellButton
 {
 	if (Host.IsValid() && Host->GetController() && CellButton)
 	{
-		const bool bActivatedDestination = Host->ActivateOutOfRaidDestination(CellButton->GetAddress());
+		const bool bActivatedDestination = Host->ActivateQuickTransferDestination(CellButton->GetAddress());
 		if (bActivatedDestination && !CellButton->GetAddress().IsRevealed())
 		{
-			Host->GetController()->SetP4Feedback(TEXT("已激活该玩家空间区；仓库 Ctrl+左键将优先进入此处。"));
+			Host->GetController()->SetP4Feedback(Host->HasWorldDropPresentation()
+				? TEXT("已激活该玩家空间区；地面 Ctrl+左键将优先进入此处。")
+				: TEXT("已激活该玩家空间区；仓库 Ctrl+左键将优先进入此处。"));
 			RefreshFromController();
 			return;
 		}
@@ -3387,11 +3447,6 @@ void UCodeBP3InventoryWidget::HandleQuickTransfer(UCodeBP3CellButton* CellButton
 	const FCodeBP3SlotAddress& SourceAddress = CellButton->GetAddress();
 	// Ctrl+左键始终保留原有完整堆 Quick Transfer；不消费拆分数量。
 	Host->CancelSplitDraft(TEXT("Ctrl+左键保持完整堆 Quick Transfer；拆分草稿已清除"));
-	if (Host->IsWorldDropPresentation(SourceAddress.ContainerId))
-	{
-		Host->GetController()->SetP4Feedback(TEXT("地面物品不支持 Ctrl 快速拾取；请拖到明确的玩家格。"));
-		return;
-	}
 	if (Host->IsNormalContainerSlotProtected(SourceAddress.ContainerId, SourceAddress.SlotIndex)
 		|| Host->IsBodyContainerSlotProtected(SourceAddress.ContainerId, SourceAddress.SlotIndex))
 	{
@@ -3401,6 +3456,18 @@ void UCodeBP3InventoryWidget::HandleQuickTransfer(UCodeBP3CellButton* CellButton
 	FCodeBP4DragPayload Payload;
 	if (!BeginP4Drag(CellButton, Payload))
 	{
+		return;
+	}
+	Payload.bQuickTransferIntent = true;
+	const FCodeBP2SlotView* SourceSlot = FindSlot(SourceAddress);
+	const bool bSimpleStack = SourceSlot && SourceSlot->bStackable && SourceSlot->MaxStack > 1
+		&& SourceSlot->Quantity > 0 && !SourceSlot->ChildContainerId.IsValid();
+	if ((Host->IsWorldDropPresentation(SourceAddress.ContainerId)
+		|| (Host->HasWorldDropPresentation()
+			&& Host->IsP29PlayerQuickTransferSourceContainer(SourceAddress.ContainerId)))
+		&& !bSimpleStack)
+	{
+		Host->GetController()->SetP4Feedback(TEXT("P29 Ctrl 快转只接受无 child 的 simple stack。"));
 		return;
 	}
 	const FCodeBP2ContainerView* Destination = ResolveQuickTransferDestination(Payload);
@@ -4144,6 +4211,11 @@ void UCodeBP3UIHostSubsystem::PopulateTransferContext(FCodeBP4DragPayload& Paylo
 	{
 		Payload.OwnerId = WorkspacePresentation->Context.OwnerId;
 		Payload.RunInstanceId = WorkspacePresentation->Context.RunInstanceId;
+		if (WorkspacePresentation->Context.ActiveDestinationContainerId.IsSet())
+		{
+			Payload.QuickTransferActivePlayerContainerId =
+				WorkspacePresentation->Context.ActiveDestinationContainerId.GetValue();
+		}
 	}
 	else if (HotbarPresentation.IsSet())
 	{
@@ -4159,6 +4231,11 @@ void UCodeBP3UIHostSubsystem::PopulateTransferContext(FCodeBP4DragPayload& Paylo
 	{
 		Payload.OwnerId = BodyContainerPresentation->Projection.OwnerId;
 		Payload.RunInstanceId = BodyContainerPresentation->Projection.RunInstanceId;
+	}
+	if (WorldDropPresentation.IsSet())
+	{
+		Payload.WorldDropId = WorldDropPresentation->WorldDropId;
+		Payload.GraphIdentity = WorldDropPresentation->WorldDropId;
 	}
 }
 
@@ -4493,15 +4570,93 @@ bool UCodeBP3UIHostSubsystem::ValidateTransferContext(
 	return true;
 }
 
+bool UCodeBP3UIHostSubsystem::IsP29PlayerQuickTransferSourceContainer(const FGuid& ContainerId) const
+{
+	if (!ContainerId.IsValid() || !Controller.IsValid() || !WorldDropPresentation.IsSet()
+		|| !WorkspacePresentation.IsSet() || !WorkspacePresentation->Context.IsInRun())
+	{
+		return false;
+	}
+	const FCodeBP2Projection& Projection = Controller->GetProjection();
+	if (ContainerId == Projection.BasicContainerId)
+	{
+		return true;
+	}
+	if (!WorkspacePresentation->Context.ActiveDestinationContainerId.IsSet()
+		|| WorkspacePresentation->Context.ActiveDestinationContainerId.GetValue() != ContainerId)
+	{
+		return false;
+	}
+	const FCodeBP2ContainerView* Container = Projection.Containers.FindByPredicate(
+		[ContainerId](const FCodeBP2ContainerView& Value) { return Value.ContainerId == ContainerId; });
+	return Container && (Container->Role == FName(TEXT("QuickSpatial"))
+		|| Container->Role == FName(TEXT("PouchInternal")));
+}
+
+bool UCodeBP3UIHostSubsystem::ValidateWorldDropTransferContext(
+	const FCodeBP4DragPayload& Payload,
+	const FCodeBP3SlotAddress& Target,
+	FString& OutError) const
+{
+	OutError.Reset();
+	if (!Controller.IsValid() || !WorldDropPresentation.IsSet() || !WorkspacePresentation.IsSet())
+	{
+		OutError = TEXT("P29 WorldDrop 工作台身份不可用。");
+		return false;
+	}
+	const FCodeBP3WorldDropPresentation& WorldDrop = WorldDropPresentation.GetValue();
+	const FCodeBP3InventoryWorkspaceContext& Context = WorkspacePresentation->Context;
+	const FCodeBP2Projection& Projection = Controller->GetProjection();
+	const bool bSourceWorld = Payload.Source.ContainerId == WorldDrop.TargetContainerId;
+	const bool bTargetWorld = Target.ContainerId == WorldDrop.TargetContainerId;
+	if (bSourceWorld == bTargetWorld || !Context.IsInRun()
+		|| !WorldDrop.OwnerId.IsValid() || !WorldDrop.RunInstanceId.IsValid()
+		|| !WorldDrop.WorldDropId.IsValid() || !WorldDrop.TargetContainerId.IsValid()
+		|| !WorldDrop.RootItemId.IsValid()
+		|| Payload.OwnerId != WorldDrop.OwnerId || Payload.RunInstanceId != WorldDrop.RunInstanceId
+		|| Payload.Source.OwnerId != WorldDrop.OwnerId || Payload.Source.RunInstanceId != WorldDrop.RunInstanceId
+		|| Context.OwnerId != WorldDrop.OwnerId || Context.RunInstanceId != WorldDrop.RunInstanceId
+		|| Context.SessionRevision != Projection.Revision || Payload.ExpectedRevision != Projection.Revision
+		|| Payload.WorldDropId != WorldDrop.WorldDropId || Payload.GraphIdentity != WorldDrop.WorldDropId)
+	{
+		OutError = TEXT("P29 WorldDrop Owner／Run／record／revision 身份已变化；未写入。");
+		return false;
+	}
+	const FCodeBP3SlotAddress& WorldAddress = bSourceWorld ? Payload.Source : Target;
+	const FCodeBP2ContainerView* WorldContainer = Projection.Containers.FindByPredicate(
+		[&WorldDrop](const FCodeBP2ContainerView& Value)
+		{
+			return Value.ContainerId == WorldDrop.TargetContainerId;
+		});
+	const FCodeBP2SlotView* WorldSlot = WorldContainer ? WorldContainer->Slots.FindByPredicate(
+		[](const FCodeBP2SlotView& Value) { return Value.SlotIndex == 0; }) : nullptr;
+	if (!WorldContainer || WorldContainer->Role != FName(TEXT("WorldDropTarget"))
+		|| WorldContainer->Capacity != 1 || !WorldSlot || !WorldSlot->bOccupied
+		|| WorldSlot->ItemId != WorldDrop.RootItemId
+		|| WorldAddress.SlotIndex != 0 || !WorldAddress.IsRevealed()
+		|| WorldAddress.ItemId != WorldDrop.RootItemId
+		|| WorldAddress.OwnerId != WorldDrop.OwnerId
+		|| WorldAddress.RunInstanceId != WorldDrop.RunInstanceId
+		|| WorldAddress.Scope != ECodeBP3InventoryScope::ExternalTarget)
+	{
+		OutError = TEXT("P29 WorldDrop exact record/container/root 地址已变化；未写入。");
+		return false;
+	}
+	return true;
+}
+
 bool UCodeBP3UIHostSubsystem::IsOutOfRaidWorkspace() const
 {
 	return WorkspacePresentation.IsSet()
 		&& WorkspacePresentation->Context.IsOutOfRaidP5();
 }
 
-bool UCodeBP3UIHostSubsystem::ActivateOutOfRaidDestination(const FCodeBP3SlotAddress& Address)
+bool UCodeBP3UIHostSubsystem::ActivateQuickTransferDestination(const FCodeBP3SlotAddress& Address)
 {
-	if (!IsOutOfRaidWorkspace() || !Controller.IsValid() || !Address.IsValid())
+	const bool bSupportedWorkspace = IsOutOfRaidWorkspace()
+		|| (WorldDropPresentation.IsSet() && WorkspacePresentation.IsSet()
+			&& WorkspacePresentation->Context.IsInRun());
+	if (!bSupportedWorkspace || !Controller.IsValid() || !Address.IsValid())
 	{
 		return false;
 	}

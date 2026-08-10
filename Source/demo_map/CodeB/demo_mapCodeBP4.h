@@ -19,6 +19,10 @@ namespace demo_map_code_b
 		int32 RequestedMergeQuantity = 0;
 		int32 Quality = 0;
 		bool bSplitIntent = false;
+		/** P29: set only by the shared Ctrl+left router for this one transient gesture. */
+		bool bQuickTransferIntent = false;
+		/** P29: exact active P17 player child at gesture time; empty means BaseQuick fallback. */
+		FGuid QuickTransferActivePlayerContainerId;
 		/** Explicit P24 player split versus P27 world partial-pickup intent. */
 		ECodeBP3QuantityDraftKind QuantityDraftKind = ECodeBP3QuantityDraftKind::None;
 		/** P27 transient record identity. It is never used to derive an ItemId. */
