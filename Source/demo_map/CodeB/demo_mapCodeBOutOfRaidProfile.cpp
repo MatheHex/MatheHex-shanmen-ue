@@ -1136,6 +1136,98 @@ namespace
 		return true;
 	}
 
+	/**
+	 * P30 proves the already accepted P1 Move of one formal P19 closure from the
+	 * exact opened WorldDrop root to the first empty BaseQuick cell. The proof is
+	 * structural: parent placement is the only allowed delta, so child-container
+	 * identity, contents, ordering, capacity, provenance, and every unrelated
+	 * graph value remain byte-for-byte represented by snapshot equality.
+	 */
+	bool IsExactP30WorldDropCompleteGraphQuickTransferDelta(
+		const FCodeBRunInventorySession& Session,
+		const FCodeBWorldDropRecord& Drop,
+		const FCodeBP2Command& AcceptedCommand,
+		const FCodeBSnapshot& Candidate,
+		FString& OutError)
+	{
+		OutError.Reset();
+		const FCodeBSnapshot& Prior = Session.RepositorySnapshot;
+		if (AcceptedCommand.Intent != ECodeBP2CommandIntent::QuickTransfer
+			|| AcceptedCommand.Operation != ECodeBOperation::Move
+			|| !AcceptedCommand.TransactionId.IsValid()
+			|| AcceptedCommand.ItemId != Drop.ItemId
+			|| AcceptedCommand.SourceContainerId != Drop.WorldContainerId
+			|| AcceptedCommand.SourceSlot != 0
+			|| AcceptedCommand.TargetContainerId != Session.Layout.BasicContainerId
+			|| AcceptedCommand.TargetSlot < 0
+			|| AcceptedCommand.Quantity != 0
+			|| AcceptedCommand.ExpectedRevision != Prior.Revision
+			|| AcceptedCommand.QuickTransferActivePlayerContainerId.IsValid()
+			|| Prior.Revision == MAX_int32
+			|| Drop.ActionState != ECodeBWorldDropActionState::Available)
+		{
+			OutError = TEXT("P30 requires one exact Ctrl QuickTransfer Move from the opened world root to BaseQuick.");
+			return false;
+		}
+
+		const FCodeBContainer* WorldContainer = Prior.Containers.Find(Drop.WorldContainerId);
+		const FCodeBContainer* BaseQuick = Prior.Containers.Find(Session.Layout.BasicContainerId);
+		const FCodeBItemInstance* Root = Prior.Items.Find(Drop.ItemId);
+		bool bIsSpatialClosure = false;
+		if (!WorldContainer || WorldContainer->IsEquipment() || WorldContainer->Slots.Num() != 1
+			|| WorldContainer->Slots[0] != Drop.ItemId
+			|| !BaseQuick || BaseQuick->IsEquipment()
+			|| !BaseQuick->Slots.IsValidIndex(AcceptedCommand.TargetSlot)
+			|| BaseQuick->Slots[AcceptedCommand.TargetSlot].IsValid()
+			|| !Root || Root->ParentContainerId != Drop.WorldContainerId || Root->SlotIndex != 0
+			|| !ValidateP19WorldDropClosure(Prior, *Root, bIsSpatialClosure, OutError)
+			|| !bIsSpatialClosure)
+		{
+			if (OutError.IsEmpty())
+			{
+				OutError = TEXT("P30 opened source is not one valid formal P19 complete graph, or BaseQuick target is invalid.");
+			}
+			return false;
+		}
+		for (int32 SlotIndex = 0; SlotIndex < AcceptedCommand.TargetSlot; ++SlotIndex)
+		{
+			if (!BaseQuick->Slots[SlotIndex].IsValid())
+			{
+				OutError = TEXT("P30 target is not the first empty BaseQuick cell in SlotIndex order.");
+				return false;
+			}
+		}
+
+		FCodeBSnapshot Expected = Prior;
+		Expected.Revision = Prior.Revision + 1;
+		FCodeBContainer* ExpectedWorld = Expected.Containers.Find(Drop.WorldContainerId);
+		FCodeBContainer* ExpectedBaseQuick = Expected.Containers.Find(Session.Layout.BasicContainerId);
+		FCodeBItemInstance* ExpectedRoot = Expected.Items.Find(Drop.ItemId);
+		if (!ExpectedWorld || !ExpectedBaseQuick || !ExpectedRoot)
+		{
+			OutError = TEXT("P30 could not construct the accepted whole-graph candidate proof.");
+			return false;
+		}
+		ExpectedWorld->Slots[0].Invalidate();
+		ExpectedBaseQuick->Slots[AcceptedCommand.TargetSlot] = Drop.ItemId;
+		ExpectedRoot->ParentContainerId = Session.Layout.BasicContainerId;
+		ExpectedRoot->SlotIndex = AcceptedCommand.TargetSlot;
+		if (Candidate != Expected)
+		{
+			OutError = TEXT("P30 candidate differs from the exact one-command whole-graph Move delta.");
+			return false;
+		}
+		const FCodeBItemInstance* CandidateRoot = Candidate.Items.Find(Drop.ItemId);
+		bool bCandidateSpatialClosure = false;
+		if (!CandidateRoot || !ValidateP19WorldDropClosure(
+			Candidate, *CandidateRoot, bCandidateSpatialClosure, OutError) || !bCandidateSpatialClosure)
+		{
+			if (OutError.IsEmpty()) OutError = TEXT("P30 accepted candidate no longer contains the exact formal P19 closure.");
+			return false;
+		}
+		return true;
+	}
+
 	FString LegacyAffixDigest(const Fdemo_mapPersistentItemRecord& Item)
 	{
 		if (Item.AffixSet.IsEmpty())
@@ -9342,10 +9434,11 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 	}
 	const FCodeBItemInstance* CandidateItem = CandidateSnapshot.Items.Find(Drop->ItemId);
 	const bool bP26SimpleStack = !bIsSpatialClosure && IsP26SimpleStack(Existing, *SourceItem);
-	const bool bP29QuickTransfer = AcceptedCommand.Intent == ECodeBP2CommandIntent::QuickTransfer;
+	const bool bQuickTransfer = AcceptedCommand.Intent == ECodeBP2CommandIntent::QuickTransfer;
 	bool bP29RetainWorldRoot = false;
+	bool bP30CompleteGraphQuickTransfer = false;
 	const bool bP28MergeIntent = AcceptedCommand.Operation == ECodeBOperation::Merge
-		&& AcceptedCommand.Quantity > 0 && !bP29QuickTransfer;
+		&& AcceptedCommand.Quantity > 0 && !bQuickTransfer;
 	const FCodeBItemInstance* P27CreatedItem = nullptr;
 	bool bMultipleP27CreatedItems = false;
 	for (const TPair<FGuid, FCodeBItemInstance>& Pair : CandidateSnapshot.Items)
@@ -9370,9 +9463,21 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 	Move.ExpectedRevision = Existing.RepositorySnapshot.Revision;
 	bool bP26Merge = false;
 	bool bP28Merge = false;
-	if (bP29QuickTransfer)
+	if (bQuickTransfer)
 	{
-		if (bIsSpatialClosure || !IsExactP29WorldDropQuickTransferDelta(
+		if (bIsSpatialClosure)
+		{
+			if (!IsExactP30WorldDropCompleteGraphQuickTransferDelta(
+				Existing, *Drop, AcceptedCommand, CandidateSnapshot, Error))
+			{
+				if (OutError) *OutError = Error.IsEmpty()
+					? TEXT("Code B P30 Ctrl quick transfer requires one exact complete-graph Move to first-empty BaseQuick.")
+					: Error;
+				return false;
+			}
+			bP30CompleteGraphQuickTransfer = true;
+		}
+		else if (!IsExactP29WorldDropQuickTransferDelta(
 			Existing, *Drop, AcceptedCommand, CandidateSnapshot, bP29RetainWorldRoot, Error))
 		{
 			if (OutError) *OutError = Error.IsEmpty()
@@ -9526,12 +9631,13 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 		}
 	}
 	FCodeBSnapshot ExpectedSnapshot;
-	if (bP27Split || bP28Merge || bP29QuickTransfer)
+	if (bP27Split || bP28Merge || bQuickTransfer)
 	{
 		// The candidate entered this callback only after the shared P2 service
 		// accepted one P1 command. P27 cannot replay its created GUID, while P28/P29
-		// deliberately avoid a second Merge or Merge(0) fallback; their dedicated
-		// structural proofs bind the exact accepted command to the snapshot delta.
+		// deliberately avoid a second Merge or Merge(0) fallback. P30 likewise proves
+		// the whole-graph Move structurally; each proof binds the accepted command to
+		// the exact snapshot delta without a second durable mutation.
 		ExpectedSnapshot = CandidateSnapshot;
 	}
 	else
@@ -9557,7 +9663,8 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 		}
 	}
 	const FCodeBItemInstance* RetainedWorldItem = ExpectedSnapshot.Items.Find(Drop->ItemId);
-	const bool bRetainWorldRoot = (bP29QuickTransfer ? bP29RetainWorldRoot
+	const bool bRetainWorldRoot = (bQuickTransfer
+		? (bP30CompleteGraphQuickTransfer ? false : bP29RetainWorldRoot)
 		: ((bP26Merge || bP27Split || bP28Merge) && RetainedWorldItem
 		&& RetainedWorldItem->ParentContainerId == Drop->WorldContainerId
 		&& RetainedWorldItem->SlotIndex == 0 && RetainedWorldItem->Quantity > 0));

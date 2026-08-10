@@ -2,6 +2,8 @@
 
 #include "CodeB/demo_mapCodeBP3UI.h"
 
+#include "demo_mapItemDefinitions.h"
+
 #include "Components/Border.h"
 #include "Components/ButtonSlot.h"
 #include "Components/EditableTextBox.h"
@@ -2488,6 +2490,22 @@ FCodeBP4DropPreview UCodeBP3InventoryWidget::PreviewInventoryTransfer(
 				|| TargetContainer->Role == FName(TEXT("PouchInternal")));
 		const bool bP29QuickDestination = !Payload.bQuickTransferIntent
 			|| Host->IsP29PlayerQuickTransferSourceContainer(Target.ContainerId);
+		const bool bP30CompleteGraphQuickTransfer = Payload.bQuickTransferIntent
+			&& SourceSlot && SourceSlot->ChildContainerId.IsValid()
+			&& (SourceSlot->DefinitionId == Fdemo_mapItemIds::WindTalisman
+				|| SourceSlot->DefinitionId == Fdemo_mapItemIds::BackpackLevel1);
+		if (bP30CompleteGraphQuickTransfer)
+		{
+			if (!TargetContainer || TargetContainer->ContainerId != Projection.BasicContainerId
+				|| TargetContainer->Role != FName(TEXT("Basic6"))
+				|| Target.bOccupied || Preview.Operation != ECodeBOperation::Move
+				|| Preview.Quantity != 0)
+			{
+				Rejected.Message = TEXT("P30 完整空间图 Ctrl 快转只接受明确 BaseQuick 空格的一次 whole-graph Move。");
+				return Rejected;
+			}
+			return Preview;
+		}
 		const bool bP27WorldPickup = Payload.bSplitIntent
 			&& Payload.QuantityDraftKind == ECodeBP3QuantityDraftKind::WorldPickup;
 		if (bP27WorldPickup)
@@ -3462,15 +3480,34 @@ void UCodeBP3InventoryWidget::HandleQuickTransfer(UCodeBP3CellButton* CellButton
 	const FCodeBP2SlotView* SourceSlot = FindSlot(SourceAddress);
 	const bool bSimpleStack = SourceSlot && SourceSlot->bStackable && SourceSlot->MaxStack > 1
 		&& SourceSlot->Quantity > 0 && !SourceSlot->ChildContainerId.IsValid();
-	if ((Host->IsWorldDropPresentation(SourceAddress.ContainerId)
-		|| (Host->HasWorldDropPresentation()
-			&& Host->IsP29PlayerQuickTransferSourceContainer(SourceAddress.ContainerId)))
-		&& !bSimpleStack)
+	const bool bWorldSource = Host->IsWorldDropPresentation(SourceAddress.ContainerId);
+	const bool bP30CompleteGraphRoot = bWorldSource && SourceSlot
+		&& SourceSlot->ChildContainerId.IsValid()
+		&& (SourceSlot->DefinitionId == Fdemo_mapItemIds::WindTalisman
+			|| SourceSlot->DefinitionId == Fdemo_mapItemIds::BackpackLevel1);
+	if ((bWorldSource && !bSimpleStack && !bP30CompleteGraphRoot)
+		|| (!bWorldSource && Host->HasWorldDropPresentation()
+			&& Host->IsP29PlayerQuickTransferSourceContainer(SourceAddress.ContainerId)
+			&& !bSimpleStack))
 	{
-		Host->GetController()->SetP4Feedback(TEXT("P29 Ctrl 快转只接受无 child 的 simple stack。"));
+		Host->GetController()->SetP4Feedback(
+			TEXT("WorldDrop Ctrl 快转只接受 simple stack，或当前已打开的正式 P19 完整空间图 root。"));
 		return;
 	}
-	const FCodeBP2ContainerView* Destination = ResolveQuickTransferDestination(Payload);
+	if (bP30CompleteGraphRoot)
+	{
+		// P30 never inherits P29's active-child preference. A complete graph has
+		// exactly one deterministic quick target: the first empty BaseQuick slot.
+		Payload.QuickTransferActivePlayerContainerId.Invalidate();
+	}
+	const FCodeBP2ContainerView* Destination = bP30CompleteGraphRoot
+		? Host->GetController()->GetProjection().Containers.FindByPredicate(
+			[this](const FCodeBP2ContainerView& Candidate)
+			{
+				return Candidate.ContainerId == Host->GetController()->GetProjection().BasicContainerId
+					&& Candidate.Role == FName(TEXT("Basic6"));
+			})
+		: ResolveQuickTransferDestination(Payload);
 	if (!Destination || Destination->ContainerId == Payload.Source.ContainerId)
 	{
 		Host->GetController()->SetP4Feedback(TEXT("当前没有明确且合法的 Quick Transfer 目标容器。"));
@@ -3488,7 +3525,7 @@ void UCodeBP3InventoryWidget::HandleQuickTransfer(UCodeBP3CellButton* CellButton
 		if (Host.IsValid()) Host->PopulateAddressContext(Target);
 		return Target;
 	};
-	for (int32 SlotIndex = 0; SlotIndex < Destination->Capacity; ++SlotIndex)
+	for (int32 SlotIndex = 0; !bP30CompleteGraphRoot && SlotIndex < Destination->Capacity; ++SlotIndex)
 	{
 		const FCodeBP2SlotView* CandidateSlot = Destination->Slots.FindByPredicate(
 			[SlotIndex](const FCodeBP2SlotView& Candidate) { return Candidate.SlotIndex == SlotIndex; });
