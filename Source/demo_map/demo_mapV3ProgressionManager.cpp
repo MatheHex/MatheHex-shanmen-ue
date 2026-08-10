@@ -4736,6 +4736,129 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBGroundDrop(
 	return true;
 }
 
+bool Ademo_mapV3ProgressionManager::RequestCodeBNormalContainerGroundDrop(
+	const demo_map_code_b::FCodeBP4DragPayload& Payload,
+	FString& OutFeedback)
+{
+	OutFeedback.Reset();
+	const demo_map_code_b::FCodeBP49NormalContainerSimpleStackGroundDropProof& Proof =
+		Payload.P49NormalContainerSimpleStackGroundDropProof;
+	UGameInstance* GameInstance = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
+	UCodeBP3UIHostSubsystem* Host = GameInstance
+		? GameInstance->GetSubsystem<UCodeBP3UIHostSubsystem>() : nullptr;
+	const demo_map_code_b::FCodeBP3InventoryWorkspaceContext* Workspace =
+		Host ? Host->GetWorkspaceContext() : nullptr;
+	if (!Payload.IsValid() || !Proof.HasSourceIdentity()
+		|| Payload.bQuickTransferIntent || Payload.bSplitIntent
+		|| Payload.QuantityDraftKind != demo_map_code_b::ECodeBP3QuantityDraftKind::None
+		|| Payload.RequestedMergeQuantity != 0 || Payload.Quantity <= 0
+		|| Payload.SourceScope != demo_map_code_b::ECodeBP3InventoryScope::ExternalTarget
+		|| Payload.QuickTransferTargetMode != demo_map_code_b::ECodeBQuickTransferTargetMode::Legacy
+		|| Payload.QuickTransferActivePlayerContainerId.IsValid()
+		|| Payload.QuickTransferActivePlayerParentItemId.IsValid()
+		|| Payload.ActivePlayerChildOpenGeneration != 0
+		|| Payload.P38BodyEquipmentProof.bIntent
+		|| Payload.P40BodySimpleStackProof.bIntent
+		|| Payload.P41BodySpatialGraphProof.bIntent
+		|| Payload.P42BodySpatialGraphEquipmentProof.bSourceProof
+		|| Payload.P43BodySimpleStackGroundDropProof.bIntent
+		|| Payload.P46NormalContainerSimpleStackProof.bIntent
+		|| Payload.P47NormalContainerSpatialGraphProof.bIntent
+		|| Payload.P48NormalContainerSpatialGraphEquipmentProof.bSourceProof
+		|| Payload.WorldDropId.IsValid() || Payload.WorldDropOrdinal != 0
+		|| Payload.WorldDropRecordRevision != INDEX_NONE
+		|| Payload.WorldDropTargetOpenGeneration != 0 || !Payload.WorldDropMapRoute.IsNone()
+		|| !bCodeBNormalContainerOpen || !ProfilePreparationFlow
+		|| !ActiveCodeBNormalContainer.IsValid()
+		|| ActiveCodeBNormalContainer->GetMapTargetIdentity() != GCodeBNormalContainerMapTargetId
+		|| !Host || !Host->IsHostEnabled() || !Workspace || !Workspace->IsInRun()
+		|| Workspace->OwnerId != CodeBNormalContainerOwnerId
+		|| Workspace->RunInstanceId != CodeBNormalContainerRunId
+		|| Workspace->TargetPaneId != FName(TEXT("InRun.External"))
+		|| Proof.OwnerId != CodeBNormalContainerOwnerId
+		|| Proof.RunInstanceId != CodeBNormalContainerRunId
+		|| Proof.SearchTargetId != CodeBNormalContainerTargetId
+		|| Proof.NormalContainerDefinitionId != CodeBNormalContainerDefinitionId
+		|| Proof.NormalContainerRevision != CodeBNormalContainerExpectedTargetRevision
+		|| Proof.P6SnapshotRevision != CodeBNormalContainerExpectedP6Revision
+		|| Proof.SourceItemId != Payload.ItemId
+		|| Proof.SourceContainerId != Payload.Source.ContainerId
+		|| Proof.SourceSlot != Payload.Source.SlotIndex
+		|| Proof.SourceDefinitionId != Payload.DefinitionId
+		|| Proof.SourceQuantity != Payload.Quantity
+		|| Proof.CompositeRevision != Payload.ExpectedRevision)
+	{
+		OutFeedback = TEXT("P49 BasicCache GroundDrop source or exact open-host identity is stale; no fallback was attempted.");
+		return false;
+	}
+	const Fdemo_mapProfileSessionSnapshot Snapshot = ProfilePreparationFlow->GetSession()
+		? ProfilePreparationFlow->GetSession()->GetSnapshot() : Fdemo_mapProfileSessionSnapshot();
+	if (ProfilePreparationFlow->GetPhase() != Edemo_mapProfilePreparationFlowPhase::RunActive
+		|| Snapshot.ProfileId != Proof.OwnerId || Snapshot.ActiveRunId != Proof.RunInstanceId
+		|| ProfilePreparationFlow->GetStartedRunId() != Proof.RunInstanceId)
+	{
+		OutFeedback = TEXT("P49 BasicCache GroundDrop requires the same active Owner/Run lifecycle.");
+		return false;
+	}
+
+	FName MapRoute;
+	FTransform FloorTransform;
+	if (!ResolveCodeBWorldDropPlacement(MapRoute, FloorTransform, OutFeedback)) return false;
+
+	FCodeBNormalContainerProjection UpdatedNormal;
+	FCodeBWorldDropProjection NewWorldDrop;
+	if (!FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerWorldDropItem(
+		ProfilePreparationFlow->GetStorageRoot(), CodeBNormalContainerOwnerId,
+		CodeBNormalContainerRunId, CodeBNormalContainerTargetId,
+		CodeBNormalContainerDefinitionId, CodeBNormalContainerExpectedP6Revision,
+		CodeBNormalContainerExpectedTargetRevision, Proof, MapRoute, FloorTransform,
+		UpdatedNormal, NewWorldDrop, &OutFeedback))
+	{
+		return false;
+	}
+
+	// Rebind both read models only after the one Owner record replacement is durable.
+	CodeBActiveRunInventoryStore = MakeUnique<FCodeBOutOfRaidProfileStore>(
+		ProfilePreparationFlow->GetStorageRoot(), CodeBNormalContainerOwnerId);
+	CodeBActiveRunInventoryOwnerId = CodeBNormalContainerOwnerId;
+	CodeBActiveRunInventoryRunId = CodeBNormalContainerRunId;
+	FCodeBRunInventorySession UpdatedSession;
+	if (!CodeBActiveRunInventoryStore->OpenMatchedActiveRunInventorySession(
+		CodeBNormalContainerRunId, UpdatedSession, &OutFeedback))
+	{
+		return false;
+	}
+	const FCodeBRunLocalNormalContainerRecord* UpdatedNormalRecord =
+		CodeBActiveRunInventoryStore->GetRecord().RunLocalNormalContainers.FindByPredicate(
+			[this](const FCodeBRunLocalNormalContainerRecord& Value)
+			{
+				return Value.SearchTargetId == CodeBNormalContainerTargetId;
+			});
+	demo_map_code_b::FCodeBSnapshot UpdatedComposite;
+	if (!UpdatedNormalRecord
+		|| !BuildCodeBRunContainerCompositeSnapshot(
+			UpdatedSession.RepositorySnapshot, UpdatedNormalRecord->ContainerSnapshot,
+			UpdatedComposite, OutFeedback)
+		|| !CodeBNormalContainerRepository.IsValid()
+		|| !CodeBNormalContainerRepository->LoadPersistedSnapshot(UpdatedComposite, &OutFeedback))
+	{
+		return false;
+	}
+	CodeBNormalContainerExpectedP6Revision = UpdatedSession.RepositorySnapshot.Revision;
+	CodeBNormalContainerExpectedTargetRevision = UpdatedNormal.Revision;
+	Host->UpdateNormalContainerProjection(
+		UpdatedNormal, UpdatedSession.RepositorySnapshot.Revision);
+	RefreshCodeBWorldDropActors();
+	UE_LOG(LogTemp, Display,
+		TEXT("CodeB.P49.GroundDrop Committed OwnerId=%s RunId=%s SearchTargetId=%s WorldDropId=%s ItemId=%s"),
+		*NewWorldDrop.OwnerId.ToString(EGuidFormats::DigitsWithHyphens),
+		*NewWorldDrop.RunInstanceId.ToString(EGuidFormats::DigitsWithHyphens),
+		*CodeBNormalContainerTargetId.ToString(EGuidFormats::DigitsWithHyphens),
+		*NewWorldDrop.WorldDropId.ToString(EGuidFormats::DigitsWithHyphens),
+		*NewWorldDrop.ItemId.ToString(EGuidFormats::DigitsWithHyphens));
+	return true;
+}
+
 bool Ademo_mapV3ProgressionManager::RequestCodeBBodyGroundDrop(
 	const demo_map_code_b::FCodeBP4DragPayload& Payload,
 	FString& OutFeedback)
@@ -4786,6 +4909,7 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBBodyGroundDrop(
 		|| Payload.P41BodySpatialGraphProof.bIntent
 		|| Payload.P47NormalContainerSpatialGraphProof.bIntent
 		|| Payload.P48NormalContainerSpatialGraphEquipmentProof.bIntent
+		|| Payload.P49NormalContainerSimpleStackGroundDropProof.bIntent
 		|| Payload.P42BodySpatialGraphEquipmentProof.bIntent
 		|| Payload.WorldDropId.IsValid() || Payload.WorldDropOrdinal != 0
 		|| Payload.WorldDropRecordRevision != INDEX_NONE
@@ -5511,6 +5635,14 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBNormalContainerPage(
 		return HotbarStore.UnbindMatchedActiveRunHotbarSlot(
 			WeakManager->CodeBNormalContainerRunId, SlotIndex, OutProjection, &OutError);
 	};
+	FCodeBP3GroundDropPresentation GroundDropPresentation;
+	GroundDropPresentation.RequestDrop = [WeakManager](
+		const demo_map_code_b::FCodeBP4DragPayload& Payload,
+		FString& OutError)
+	{
+		return WeakManager.IsValid()
+			&& WeakManager->RequestCodeBNormalContainerGroundDrop(Payload, OutError);
+	};
 	const bool bOpened = Host->OpenProfilePage(
 		*CodeBNormalContainerRepository,
 		PresentationLayout,
@@ -5645,7 +5777,8 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBNormalContainerPage(
 		true,
 		&Presentation,
 		nullptr,
-		&HotbarPresentation);
+		&HotbarPresentation,
+		&GroundDropPresentation);
 	if (!bOpened)
 	{
 		CodeBNormalContainerRepository.Reset();

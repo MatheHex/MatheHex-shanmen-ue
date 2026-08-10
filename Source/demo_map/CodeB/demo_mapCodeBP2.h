@@ -280,6 +280,58 @@ namespace demo_map_code_b
 	};
 
 	/**
+	 * P49 transient proof for one normal Drag of an exact opened/revealed P10
+	 * BasicCache ordinary simple-stack root to the existing GroundDropZone.
+	 * It freezes only the P9 source and receipt identity; WorldDrop identity and
+	 * ordinal remain Store-derived after durable revalidation.
+	 */
+	struct FCodeBP49NormalContainerSimpleStackGroundDropProof
+	{
+		bool bIntent = false;
+		FGuid OwnerId;
+		FGuid RunInstanceId;
+		FGuid SearchTargetId;
+		FGuid ReceiptId;
+		int32 NormalContainerRevision = INDEX_NONE;
+		uint32 TargetOpenGeneration = 0;
+		FName NormalContainerDefinitionId;
+		FGuid SourceContainerId;
+		int32 SourceSlot = INDEX_NONE;
+		FGuid SourceItemId;
+		FName SourceDefinitionId;
+		FName SourceStackKey;
+		int32 SourceQuantity = 0;
+		int32 SourceMaxStack = 0;
+		int32 DefinitionContentRevision = 0;
+		FString DefinitionDigest;
+		FName LootProfileId;
+		int32 LootProfileVersion = 0;
+		FString LootProfileDigest;
+		FString LootAlgorithmVersion;
+		FString LootResultDigest;
+		FString MaterializationDigest;
+		FName WorkspaceTargetPaneId;
+		int32 CompositeRevision = INDEX_NONE;
+		int32 P6SnapshotRevision = INDEX_NONE;
+
+		bool HasSourceIdentity() const
+		{
+			return bIntent && OwnerId.IsValid() && RunInstanceId.IsValid()
+				&& SearchTargetId.IsValid() && ReceiptId.IsValid()
+				&& NormalContainerRevision > 0 && TargetOpenGeneration != 0
+				&& !NormalContainerDefinitionId.IsNone() && SourceContainerId.IsValid()
+				&& SourceSlot >= 0 && SourceItemId.IsValid() && !SourceDefinitionId.IsNone()
+				&& !SourceStackKey.IsNone() && SourceQuantity > 0 && SourceMaxStack > 1
+				&& DefinitionContentRevision > 0 && !DefinitionDigest.IsEmpty()
+				&& !LootProfileId.IsNone() && LootProfileVersion > 0
+				&& !LootProfileDigest.IsEmpty() && !LootAlgorithmVersion.IsEmpty()
+				&& !LootResultDigest.IsEmpty() && !MaterializationDigest.IsEmpty()
+				&& !WorkspaceTargetPaneId.IsNone()
+				&& CompositeRevision >= 0 && P6SnapshotRevision >= 0;
+		}
+	};
+
+	/**
 	 * P47 transient proof for one exact opened/revealed P10 BasicCache spatial
 	 * parent.  It freezes the canonical P18/P17 source closure and the one
 	 * input-time BaseQuick candidate; P1 remains the sole graph authority.

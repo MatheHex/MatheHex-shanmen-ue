@@ -35,6 +35,8 @@ namespace demo_map_code_b
 		FCodeBP40BodySimpleStackQuickTransferProof P40BodySimpleStackProof;
 		/** P46: exact opened/revealed P10 BasicCache simple-stack and frozen target. */
 		FCodeBP46NormalContainerSimpleStackQuickTransferProof P46NormalContainerSimpleStackProof;
+		/** P49: exact opened/revealed P10 BasicCache simple-stack for normal GroundDrop. */
+		FCodeBP49NormalContainerSimpleStackGroundDropProof P49NormalContainerSimpleStackGroundDropProof;
 		/** P47: exact opened/revealed P10 BasicCache spatial graph and frozen BaseQuick. */
 		FCodeBP47NormalContainerSpatialGraphQuickTransferProof P47NormalContainerSpatialGraphProof;
 		/** P48: exact opened/revealed P10 BasicCache graph and explicit formal equipment target. */

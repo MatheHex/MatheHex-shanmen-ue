@@ -1038,6 +1038,25 @@ public:
 		FCodeBBodyContainerProjection& OutBodyProjection,
 		FCodeBWorldDropProjection& OutWorldProjection,
 		FString* OutError = nullptr);
+	/**
+	 * P49's sole BasicCache-to-world writer. It revalidates one exact Revealed
+	 * ordinary P10 simple stack, executes one P1 whole-root Move into one new P31
+	 * record, partitions P9/P6, and saves one Owner replacement.
+	 */
+	static bool DropMatchedRunNormalContainerWorldDropItem(
+		const FString& InStorageRoot,
+		const FGuid& InOwnerId,
+		const FGuid& InRunInstanceId,
+		const FGuid& SearchTargetId,
+		FName DefinitionId,
+		int32 ExpectedP6SnapshotRevision,
+		int32 ExpectedNormalContainerRevision,
+		const demo_map_code_b::FCodeBP49NormalContainerSimpleStackGroundDropProof& SourceProof,
+		FName MapRoute,
+		const FTransform& FloorTransform,
+		FCodeBNormalContainerProjection& OutNormalProjection,
+		FCodeBWorldDropProjection& OutWorldProjection,
+		FString* OutError = nullptr);
 	/** P14/P19/P26/P27/P28/P29/P30/P32/P34/P36/P37's only opened-WorldDrop writer; the accepted P2 command is transient proof context, never durable state. */
 	static bool CommitAcceptedMatchedRunWorldDropPickup(
 		const FString& InStorageRoot,

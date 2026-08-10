@@ -310,7 +310,9 @@ public:
 	bool IsNormalContainerItemSearching(const FGuid& ItemId) const;
 	bool IsNormalContainerSlotProtected(const FGuid& ContainerId, int32 SlotIndex) const;
 	bool RequestNormalContainerItemSearch(const FGuid& ContainerId, int32 SlotIndex, FString& OutError);
-	void UpdateNormalContainerProjection(const FCodeBNormalContainerProjection& Projection);
+	void UpdateNormalContainerProjection(
+		const FCodeBNormalContainerProjection& Projection,
+		int32 P6SnapshotRevision = INDEX_NONE);
 	bool IsBodyContainerPresentation(const FGuid& ContainerId) const;
 	bool IsBodyOrdinaryContainerPresentation(const FGuid& ContainerId) const;
 	bool IsBodyEquipmentContainerPresentation(const FGuid& ContainerId) const;
@@ -330,6 +332,8 @@ public:
 	void PopulateP40BodySimpleStackQuickTransferProof(
 		demo_map_code_b::FCodeBP4DragPayload& Payload) const;
 	void PopulateP46NormalContainerSimpleStackQuickTransferProof(
+		demo_map_code_b::FCodeBP4DragPayload& Payload) const;
+	void PopulateP49NormalContainerSimpleStackGroundDropProof(
 		demo_map_code_b::FCodeBP4DragPayload& Payload) const;
 	void PopulateP47NormalContainerSpatialGraphQuickTransferProof(
 		demo_map_code_b::FCodeBP4DragPayload& Payload) const;
@@ -362,6 +366,10 @@ public:
 	bool ValidateP46NormalContainerSimpleStackQuickTransferContext(
 		const demo_map_code_b::FCodeBP4DragPayload& Payload,
 		const demo_map_code_b::FCodeBP3SlotAddress& Target,
+		FString& OutError) const;
+	/** P49 exact opened/revealed BasicCache simple-stack normal GroundDrop gate. */
+	bool ValidateP49NormalContainerSimpleStackGroundDropContext(
+		const demo_map_code_b::FCodeBP4DragPayload& Payload,
 		FString& OutError) const;
 	/** P47 exact BasicCache spatial graph and one frozen first-empty BaseQuick gate. */
 	bool ValidateP47NormalContainerSpatialGraphQuickTransferContext(
