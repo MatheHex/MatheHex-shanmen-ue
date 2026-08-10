@@ -2503,6 +2503,9 @@ FCodeBP4DropPreview UCodeBP3InventoryWidget::PreviewInventoryTransfer(
 			&& SourceSlot && SourceSlot->ChildContainerId.IsValid()
 			&& (SourceSlot->DefinitionId == Fdemo_mapItemIds::WindTalisman
 				|| SourceSlot->DefinitionId == Fdemo_mapItemIds::BackpackLevel1);
+		const bool bP34StandardEquipmentQuickTransfer = Payload.bQuickTransferIntent
+			&& bP32StandardEquipmentRoot
+			&& Host->IsP34StandardEquipmentWorldDropSource(Payload.Source.ContainerId);
 		if (bP30CompleteGraphQuickTransfer)
 		{
 			if (!TargetContainer || TargetContainer->ContainerId != Projection.BasicContainerId
@@ -2511,6 +2514,18 @@ FCodeBP4DropPreview UCodeBP3InventoryWidget::PreviewInventoryTransfer(
 				|| Preview.Quantity != 0)
 			{
 				Rejected.Message = TEXT("P30 完整空间图 Ctrl 快转只接受明确 BaseQuick 空格的一次 whole-graph Move。");
+				return Rejected;
+			}
+			return Preview;
+		}
+		if (bP34StandardEquipmentQuickTransfer)
+		{
+			if (!TargetContainer || TargetContainer->ContainerId != Projection.BasicContainerId
+				|| TargetContainer->Role != FName(TEXT("Basic6"))
+				|| Target.bOccupied || Preview.Operation != ECodeBOperation::Move
+				|| Preview.Quantity != 1)
+			{
+				Rejected.Message = TEXT("P34 标准装备 Ctrl 快转只接受首个空 BaseQuick 格的一次 whole-root Move(1)。");
 				return Rejected;
 			}
 			return Preview;
@@ -3508,22 +3523,32 @@ void UCodeBP3InventoryWidget::HandleQuickTransfer(UCodeBP3CellButton* CellButton
 		&& SourceSlot->ChildContainerId.IsValid()
 		&& (SourceSlot->DefinitionId == Fdemo_mapItemIds::WindTalisman
 			|| SourceSlot->DefinitionId == Fdemo_mapItemIds::BackpackLevel1);
-	if ((bWorldSource && !bSimpleStack && !bP30CompleteGraphRoot)
+	const bool bP34StandardEquipmentRoot = bWorldSource && SourceSlot
+		&& !SourceSlot->ChildContainerId.IsValid()
+		&& !SourceSlot->bStackable && SourceSlot->MaxStack == 1 && SourceSlot->Quantity == 1
+		&& ((SourceSlot->ItemType == ECodeBItemType::Weapon
+				&& SourceSlot->EquipSlot == ECodeBEquipSlot::Weapon)
+			|| (SourceSlot->ItemType == ECodeBItemType::Armor
+				&& SourceSlot->EquipSlot == ECodeBEquipSlot::Armor)
+			|| (SourceSlot->ItemType == ECodeBItemType::Accessory
+				&& SourceSlot->EquipSlot == ECodeBEquipSlot::Accessory))
+		&& Host->IsP34StandardEquipmentWorldDropSource(SourceAddress.ContainerId);
+	if ((bWorldSource && !bSimpleStack && !bP30CompleteGraphRoot && !bP34StandardEquipmentRoot)
 		|| (!bWorldSource && Host->HasWorldDropPresentation()
 			&& Host->IsP29PlayerQuickTransferSourceContainer(SourceAddress.ContainerId)
 			&& !bSimpleStack))
 	{
 		Host->GetController()->SetP4Feedback(
-			TEXT("WorldDrop Ctrl 快转只接受 simple stack，或当前已打开的正式 P19 完整空间图 root。"));
+			TEXT("WorldDrop Ctrl 快转只接受 simple stack、正式 P19 完整空间图，或 P32/P33 标准装备 root。"));
 		return;
 	}
-	if (bP30CompleteGraphRoot)
+	if (bP30CompleteGraphRoot || bP34StandardEquipmentRoot)
 	{
-		// P30 never inherits P29's active-child preference. A complete graph has
-		// exactly one deterministic quick target: the first empty BaseQuick slot.
+		// P30/P34 never inherit P29's active-child preference. Their only
+		// deterministic quick target is the first empty BaseQuick slot.
 		Payload.QuickTransferActivePlayerContainerId.Invalidate();
 	}
-	const FCodeBP2ContainerView* Destination = bP30CompleteGraphRoot
+	const FCodeBP2ContainerView* Destination = (bP30CompleteGraphRoot || bP34StandardEquipmentRoot)
 		? Host->GetController()->GetProjection().Containers.FindByPredicate(
 			[this](const FCodeBP2ContainerView& Candidate)
 			{
@@ -3548,7 +3573,9 @@ void UCodeBP3InventoryWidget::HandleQuickTransfer(UCodeBP3CellButton* CellButton
 		if (Host.IsValid()) Host->PopulateAddressContext(Target);
 		return Target;
 	};
-	for (int32 SlotIndex = 0; !bP30CompleteGraphRoot && SlotIndex < Destination->Capacity; ++SlotIndex)
+	for (int32 SlotIndex = 0;
+		!bP30CompleteGraphRoot && !bP34StandardEquipmentRoot && SlotIndex < Destination->Capacity;
+		++SlotIndex)
 	{
 		const FCodeBP2SlotView* CandidateSlot = Destination->Slots.FindByPredicate(
 			[SlotIndex](const FCodeBP2SlotView& Candidate) { return Candidate.SlotIndex == SlotIndex; });
@@ -4675,6 +4702,17 @@ bool UCodeBP3UIHostSubsystem::IsP29PlayerQuickTransferSourceContainer(const FGui
 		[ContainerId](const FCodeBP2ContainerView& Value) { return Value.ContainerId == ContainerId; });
 	return Container && (Container->Role == FName(TEXT("QuickSpatial"))
 		|| Container->Role == FName(TEXT("PouchInternal")));
+}
+
+bool UCodeBP3UIHostSubsystem::IsP34StandardEquipmentWorldDropSource(const FGuid& ContainerId) const
+{
+	if (!IsWorldDropPresentation(ContainerId) || !WorldDropPresentation.IsSet())
+	{
+		return false;
+	}
+	const FString& Provenance = WorldDropPresentation->Provenance;
+	return Provenance == TEXT("P32.AcceptedGroundDrop.StandardEquipment")
+		|| Provenance == TEXT("P33.AcceptedGroundDrop.BaseQuickStandardEquipment");
 }
 
 bool UCodeBP3UIHostSubsystem::ValidateWorldDropTransferContext(

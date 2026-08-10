@@ -4873,6 +4873,7 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBWorldDropPage(
 	Presentation.SpatialChildContainerId = Drop->SpatialChildContainerId;
 	Presentation.MapRoute = Drop->MapRoute;
 	Presentation.RecordRevision = Drop->RecordRevision;
+	Presentation.Provenance = Drop->Provenance;
 	Presentation.TargetOpenGeneration = CodeBWorldDropOpenGeneration;
 	Presentation.Title = TEXT("地面物品");
 	FCodeBP3WorkspacePresentation Workspace;

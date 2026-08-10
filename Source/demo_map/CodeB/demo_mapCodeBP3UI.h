@@ -75,6 +75,8 @@ struct FCodeBP3WorldDropPresentation
 	FGuid SpatialChildContainerId;
 	FName MapRoute = NAME_None;
 	int32 RecordRevision = INDEX_NONE;
+	/** Read-only durable record family used only by the shared QuickTransfer resolver. */
+	FString Provenance;
 	uint32 TargetOpenGeneration = 0;
 	FString Title;
 };
@@ -316,6 +318,8 @@ public:
 	void PopulateTransferContext(demo_map_code_b::FCodeBP4DragPayload& Payload) const;
 	bool ValidateTransferContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, FString& OutError);
 	bool IsP29PlayerQuickTransferSourceContainer(const FGuid& ContainerId) const;
+	/** P34 read-only source-family gate; item/topology authority remains in P1/P6. */
+	bool IsP34StandardEquipmentWorldDropSource(const FGuid& ContainerId) const;
 	bool ValidateWorldDropTransferContext(
 		const demo_map_code_b::FCodeBP4DragPayload& Payload,
 		const demo_map_code_b::FCodeBP3SlotAddress& Target,
