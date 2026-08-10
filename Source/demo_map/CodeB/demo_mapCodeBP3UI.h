@@ -320,7 +320,7 @@ public:
 	bool IsP29PlayerQuickTransferSourceContainer(const FGuid& ContainerId) const;
 	/** P35 exact current-child gate; BaseQuick is deliberately not accepted here. */
 	bool IsCurrentActiveP17ChildContainer(const FGuid& ContainerId) const;
-	/** P34 read-only source-family gate; item/topology authority remains in P1/P6. */
+	/** P37 read-only gate for the accepted P32/P33 provenance family; authority remains in P1/P6. */
 	bool IsP34StandardEquipmentWorldDropSource(const FGuid& ContainerId) const;
 	/** P35 provenance gate shared by P35 normal Drag and P36's explicitly frozen Ctrl quick pickup. */
 	bool IsP35ChildStandardEquipmentWorldDropSource(const FGuid& ContainerId) const;

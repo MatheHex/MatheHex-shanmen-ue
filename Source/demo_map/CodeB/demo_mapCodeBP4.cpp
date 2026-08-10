@@ -212,10 +212,10 @@ namespace demo_map_code_b
 		{
 			Preview.Kind = ECodeBP4DropKind::Move;
 			Preview.Operation = ECodeBOperation::Move;
-			// P34's non-stack whole-root QuickTransfer carries its one accepted item
-			// explicitly. P1 Move ignores quantity, but the durable proof rejects the
-			// P29/P30 Quantity=0 stack/graph semantics for this source family.
-			const bool bP34WholeRootQuickTransfer = Payload.bQuickTransferIntent
+			// P34/P36/P37 standard whole-root QuickTransfer carries its one accepted
+			// item explicitly. P1 Move ignores quantity, but the durable proof rejects
+			// the P29/P30 Quantity=0 stack/graph semantics for this source family.
+			const bool bStandardWholeRootQuickTransfer = Payload.bQuickTransferIntent
 				&& !SourceSlot->bStackable && SourceSlot->MaxStack == 1
 				&& SourceSlot->Quantity == 1 && !SourceSlot->ChildContainerId.IsValid()
 				&& ((SourceSlot->ItemType == ECodeBItemType::Weapon
@@ -224,7 +224,7 @@ namespace demo_map_code_b
 						&& SourceSlot->EquipSlot == ECodeBEquipSlot::Armor)
 					|| (SourceSlot->ItemType == ECodeBItemType::Accessory
 						&& SourceSlot->EquipSlot == ECodeBEquipSlot::Accessory));
-			Preview.Quantity = bP34WholeRootQuickTransfer ? 1 : 0;
+			Preview.Quantity = bStandardWholeRootQuickTransfer ? 1 : 0;
 			Preview.Message = TEXT("可移动到空储物格");
 			return Preview;
 		}

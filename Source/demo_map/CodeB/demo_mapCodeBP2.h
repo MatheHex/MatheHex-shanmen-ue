@@ -127,7 +127,7 @@ namespace demo_map_code_b
 		QuickTransfer
 	};
 
-	/** P36 freezes the one automatic target family at pointer-down time. Legacy keeps P29/P30/P34 behavior unchanged. */
+	/** P36/P37 freeze the one automatic target family at pointer-down time. Legacy remains for P29/P30. */
 	enum class ECodeBQuickTransferTargetMode : uint8
 	{
 		Legacy,
@@ -151,9 +151,9 @@ namespace demo_map_code_b
 		FGuid QuickTransferActivePlayerContainerId;
 		/** P35 rejects a drag captured before the current child was reopened or switched. */
 		uint32 ActivePlayerChildOpenGeneration = 0;
-		/** P36 one-shot target decision; never persisted and never recomputed at commit. */
+		/** P36/P37 one-shot target decision; never persisted and never recomputed at commit. */
 		ECodeBQuickTransferTargetMode QuickTransferTargetMode = ECodeBQuickTransferTargetMode::Legacy;
-		/** P36 exact canonical spatial parent paired with CurrentP17Child mode. */
+		/** P36/P37 exact canonical spatial parent paired with CurrentP17Child mode. */
 		FGuid QuickTransferActivePlayerParentItemId;
 	};
 

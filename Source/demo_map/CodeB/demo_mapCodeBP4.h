@@ -25,9 +25,9 @@ namespace demo_map_code_b
 		FGuid QuickTransferActivePlayerContainerId;
 		/** P35: exact transient activation generation paired with the active child identity. */
 		uint32 ActivePlayerChildOpenGeneration = 0;
-		/** P36: target family frozen at Ctrl+left input; Legacy preserves earlier quick-transfer families. */
+		/** P36/P37: target family frozen at Ctrl+left input; Legacy preserves P29/P30. */
 		ECodeBQuickTransferTargetMode QuickTransferTargetMode = ECodeBQuickTransferTargetMode::Legacy;
-		/** P36: exact P17 spatial parent identity paired with CurrentP17Child mode. */
+		/** P36/P37: exact P17 spatial parent identity paired with CurrentP17Child mode. */
 		FGuid QuickTransferActivePlayerParentItemId;
 		/** Explicit P24 player split versus P27 world partial-pickup intent. */
 		ECodeBP3QuantityDraftKind QuantityDraftKind = ECodeBP3QuantityDraftKind::None;

@@ -2504,7 +2504,7 @@ FCodeBP4DropPreview UCodeBP3InventoryWidget::PreviewInventoryTransfer(
 			&& SourceSlot && SourceSlot->ChildContainerId.IsValid()
 			&& (SourceSlot->DefinitionId == Fdemo_mapItemIds::WindTalisman
 				|| SourceSlot->DefinitionId == Fdemo_mapItemIds::BackpackLevel1);
-		const bool bP34StandardEquipmentQuickTransfer = Payload.bQuickTransferIntent
+		const bool bP37StandardEquipmentQuickTransfer = Payload.bQuickTransferIntent
 			&& bP32StandardEquipmentRoot
 			&& Host->IsP34StandardEquipmentWorldDropSource(Payload.Source.ContainerId);
 		const bool bP36StandardEquipmentQuickTransfer = Payload.bQuickTransferIntent
@@ -2525,19 +2525,7 @@ FCodeBP4DropPreview UCodeBP3InventoryWidget::PreviewInventoryTransfer(
 			}
 			return Preview;
 		}
-		if (bP34StandardEquipmentQuickTransfer)
-		{
-			if (!TargetContainer || TargetContainer->ContainerId != Projection.BasicContainerId
-				|| TargetContainer->Role != FName(TEXT("Basic6"))
-				|| Target.bOccupied || Preview.Operation != ECodeBOperation::Move
-				|| Preview.Quantity != 1)
-			{
-				Rejected.Message = TEXT("P34 标准装备 Ctrl 快转只接受首个空 BaseQuick 格的一次 whole-root Move(1)。");
-				return Rejected;
-			}
-			return Preview;
-		}
-		if (bP36StandardEquipmentQuickTransfer)
+		if (bP37StandardEquipmentQuickTransfer || bP36StandardEquipmentQuickTransfer)
 		{
 			const bool bCurrentChildMode =
 				Payload.QuickTransferTargetMode == ECodeBQuickTransferTargetMode::CurrentP17Child;
@@ -2555,7 +2543,7 @@ FCodeBP4DropPreview UCodeBP3InventoryWidget::PreviewInventoryTransfer(
 				|| Target.bOccupied || Preview.Operation != ECodeBOperation::Move
 				|| Preview.Quantity != 1)
 			{
-				Rejected.Message = TEXT("P36 标准装备 Ctrl 快转只接受输入时冻结的 current child 或 no-child BaseQuick 首空普通格的一次 whole-root Move(1)。");
+				Rejected.Message = TEXT("P36/P37 标准装备 Ctrl 快转只接受输入时冻结的 current child 或 no-child BaseQuick 首空普通格的一次 whole-root Move(1)。");
 				return Rejected;
 			}
 			return Preview;
@@ -3562,7 +3550,7 @@ void UCodeBP3InventoryWidget::HandleQuickTransfer(UCodeBP3CellButton* CellButton
 		&& SourceSlot->ChildContainerId.IsValid()
 		&& (SourceSlot->DefinitionId == Fdemo_mapItemIds::WindTalisman
 			|| SourceSlot->DefinitionId == Fdemo_mapItemIds::BackpackLevel1);
-	const bool bP34StandardEquipmentRoot = bWorldSource && SourceSlot
+	const bool bP37StandardEquipmentRoot = bWorldSource && SourceSlot
 		&& !SourceSlot->ChildContainerId.IsValid()
 		&& !SourceSlot->bStackable && SourceSlot->MaxStack == 1 && SourceSlot->Quantity == 1
 		&& ((SourceSlot->ItemType == ECodeBItemType::Weapon
@@ -3583,7 +3571,7 @@ void UCodeBP3InventoryWidget::HandleQuickTransfer(UCodeBP3CellButton* CellButton
 				&& SourceSlot->EquipSlot == ECodeBEquipSlot::Accessory))
 		&& Host->IsP35ChildStandardEquipmentWorldDropSource(SourceAddress.ContainerId);
 	if ((bWorldSource && !bSimpleStack && !bP30CompleteGraphRoot
-			&& !bP34StandardEquipmentRoot && !bP36StandardEquipmentRoot)
+			&& !bP37StandardEquipmentRoot && !bP36StandardEquipmentRoot)
 		|| (!bWorldSource && Host->HasWorldDropPresentation()
 			&& Host->IsP29PlayerQuickTransferSourceContainer(SourceAddress.ContainerId)
 			&& !bSimpleStack))
@@ -3592,7 +3580,9 @@ void UCodeBP3InventoryWidget::HandleQuickTransfer(UCodeBP3CellButton* CellButton
 			TEXT("WorldDrop Ctrl 快转只接受 simple stack、正式 P19 完整空间图、P32/P33 标准装备 root，或 P35 child-standard root。"));
 		return;
 	}
-	if (bP36StandardEquipmentRoot)
+	const bool bFrozenTargetStandardEquipmentRoot =
+		bP37StandardEquipmentRoot || bP36StandardEquipmentRoot;
+	if (bFrozenTargetStandardEquipmentRoot)
 	{
 		const bool bHasValidCurrentChild = Payload.QuickTransferActivePlayerContainerId.IsValid()
 			&& Payload.ActivePlayerChildOpenGeneration != 0
@@ -3608,7 +3598,7 @@ void UCodeBP3InventoryWidget::HandleQuickTransfer(UCodeBP3CellButton* CellButton
 			const FCodeBP2SlotView* SpatialParent = CurrentChild ? FindSpatialParent(*CurrentChild) : nullptr;
 			if (!SpatialParent || !SpatialParent->ItemId.IsValid())
 			{
-				Host->GetController()->SetP4Feedback(TEXT("P36 当前 P17 child 缺少唯一空间 parent 身份；未写入。"));
+				Host->GetController()->SetP4Feedback(TEXT("P36/P37 当前 P17 child 缺少唯一空间 parent 身份；未写入。"));
 				return;
 			}
 			Payload.QuickTransferTargetMode = ECodeBQuickTransferTargetMode::CurrentP17Child;
@@ -3622,24 +3612,23 @@ void UCodeBP3InventoryWidget::HandleQuickTransfer(UCodeBP3CellButton* CellButton
 			Payload.QuickTransferActivePlayerParentItemId.Invalidate();
 		}
 	}
-	if (bP30CompleteGraphRoot || bP34StandardEquipmentRoot)
+	if (bP30CompleteGraphRoot)
 	{
-		// P30/P34 never inherit P29's active-child preference. Their only
-		// deterministic quick target is the first empty BaseQuick slot.
+		// P30 remains BaseQuick-only and never inherits the P36/P37 frozen-child model.
 		Payload.QuickTransferActivePlayerContainerId.Invalidate();
 		Payload.ActivePlayerChildOpenGeneration = 0;
 	}
-	const bool bP36CurrentChildMode = bP36StandardEquipmentRoot
+	const bool bFrozenCurrentChildMode = bFrozenTargetStandardEquipmentRoot
 		&& Payload.QuickTransferTargetMode == ECodeBQuickTransferTargetMode::CurrentP17Child;
-	const FCodeBP2ContainerView* Destination = (bP30CompleteGraphRoot || bP34StandardEquipmentRoot
-		|| (bP36StandardEquipmentRoot && !bP36CurrentChildMode))
+	const FCodeBP2ContainerView* Destination = (bP30CompleteGraphRoot
+		|| (bFrozenTargetStandardEquipmentRoot && !bFrozenCurrentChildMode))
 		? Host->GetController()->GetProjection().Containers.FindByPredicate(
 			[this](const FCodeBP2ContainerView& Candidate)
 			{
 				return Candidate.ContainerId == Host->GetController()->GetProjection().BasicContainerId
 					&& Candidate.Role == FName(TEXT("Basic6"));
 			})
-		: (bP36CurrentChildMode
+		: (bFrozenCurrentChildMode
 			? Host->GetController()->GetProjection().Containers.FindByPredicate(
 				[&Payload](const FCodeBP2ContainerView& Candidate)
 				{
@@ -3664,7 +3653,7 @@ void UCodeBP3InventoryWidget::HandleQuickTransfer(UCodeBP3CellButton* CellButton
 		return Target;
 	};
 	for (int32 SlotIndex = 0;
-		!bP30CompleteGraphRoot && !bP34StandardEquipmentRoot && !bP36StandardEquipmentRoot
+		!bP30CompleteGraphRoot && !bFrozenTargetStandardEquipmentRoot
 			&& SlotIndex < Destination->Capacity;
 		++SlotIndex)
 	{
@@ -4773,7 +4762,7 @@ bool UCodeBP3UIHostSubsystem::ValidateTransferContext(
 			&& Context.ActiveDestinationOpenGeneration != 0
 			&& Context.ActiveDestinationOpenGeneration == Payload.ActivePlayerChildOpenGeneration)
 		: Payload.ActivePlayerChildOpenGeneration == 0;
-	bool bP36ModeProofCurrent = true;
+	bool bFrozenTargetModeProofCurrent = true;
 	if (Payload.QuickTransferTargetMode == ECodeBQuickTransferTargetMode::CurrentP17Child)
 	{
 		int32 ParentMatches = 0;
@@ -4789,7 +4778,7 @@ bool UCodeBP3UIHostSubsystem::ValidateTransferContext(
 				}
 			}
 		}
-		bP36ModeProofCurrent = bPayloadCarriesActiveChild
+		bFrozenTargetModeProofCurrent = bPayloadCarriesActiveChild
 			&& Payload.ActivePlayerChildOpenGeneration != 0
 			&& Payload.QuickTransferActivePlayerParentItemId.IsValid()
 			&& IsCurrentActiveP17ChildContainer(Payload.QuickTransferActivePlayerContainerId)
@@ -4798,13 +4787,13 @@ bool UCodeBP3UIHostSubsystem::ValidateTransferContext(
 	else if (Payload.QuickTransferTargetMode == ECodeBQuickTransferTargetMode::BaseQuickNoChildAtInput)
 	{
 		// A child opened after pointer-down does not change this frozen mode.
-		bP36ModeProofCurrent = !bPayloadCarriesActiveChild
+		bFrozenTargetModeProofCurrent = !bPayloadCarriesActiveChild
 			&& Payload.ActivePlayerChildOpenGeneration == 0
 			&& !Payload.QuickTransferActivePlayerParentItemId.IsValid();
 	}
 	else if (Payload.QuickTransferActivePlayerParentItemId.IsValid())
 	{
-		bP36ModeProofCurrent = false;
+		bFrozenTargetModeProofCurrent = false;
 	}
 	if (Payload.OwnerId != Context.OwnerId
 		|| Payload.RunInstanceId != Context.RunInstanceId
@@ -4813,7 +4802,7 @@ bool UCodeBP3UIHostSubsystem::ValidateTransferContext(
 		|| Payload.Source.RunInstanceId != Context.RunInstanceId
 		|| Payload.ExpectedRevision != Controller->GetProjection().Revision
 		|| !bActiveChildIdentityCurrent
-		|| !bP36ModeProofCurrent)
+		|| !bFrozenTargetModeProofCurrent)
 	{
 		OutError = TEXT("Owner／Run／scope／revision 已变化；stale payload 未写入。");
 		return false;
