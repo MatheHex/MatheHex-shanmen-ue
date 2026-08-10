@@ -4843,8 +4843,48 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBWorldDropPage(
 	ActiveCodeBWorldDrop = DropActor;
 	const TWeakObjectPtr<Ademo_mapV3ProgressionManager> WeakManager(this);
 	FCodeBP3WorldDropPresentation Presentation;
+	Presentation.WorldDropId = Drop->WorldDropId;
 	Presentation.TargetContainerId = Drop->WorldContainerId;
 	Presentation.Title = TEXT("地面物品");
+	FCodeBP3WorkspacePresentation Workspace;
+	Workspace.Context.Scope = demo_map_code_b::ECodeBP3WorkspaceScope::InRunP6;
+	Workspace.Context.OwnerId = Session.OwnerId;
+	Workspace.Context.RunInstanceId = Session.RunInstanceId;
+	Workspace.Context.SessionRevision = Session.RepositorySnapshot.Revision;
+	Workspace.Context.WriteGate = demo_map_code_b::ECodeBP3WorkspaceWriteGate::InRun;
+	Workspace.Context.PlayerPaneId = FName(TEXT("InRun.Player"));
+	Workspace.Context.TargetPaneId = FName(TEXT("InRun.WorldDrop"));
+	Workspace.ResolveWriteGate = [WeakManager]()
+	{
+		if (!WeakManager.IsValid())
+		{
+			return demo_map_code_b::ECodeBP3WorkspaceWriteGate::Unavailable;
+		}
+		const Ademo_mapV3ProgressionManager* Manager = WeakManager.Get();
+		const bool bCurrentWorldPage = Manager->CodeBActiveRunInventoryStore.IsValid()
+			&& Manager->CodeBWorldDropRepository.IsValid()
+			&& Manager->CodeBWorldDropOwnerId.IsValid()
+			&& Manager->CodeBWorldDropRunId.IsValid()
+			&& Manager->CodeBWorldDropId.IsValid()
+			&& Manager->ActiveCodeBWorldDrop.IsValid()
+			&& Manager->ProfilePreparationFlow
+			&& Manager->ProfilePreparationFlow->GetPhase() == Edemo_mapProfilePreparationFlowPhase::RunActive
+			&& Manager->ProfilePreparationFlow->GetStartedRunId() == Manager->CodeBWorldDropRunId;
+		return bCurrentWorldPage
+			? demo_map_code_b::ECodeBP3WorkspaceWriteGate::InRun
+			: demo_map_code_b::ECodeBP3WorkspaceWriteGate::Unavailable;
+	};
+	Workspace.ResolveSessionRevision = [WeakManager]() -> int32
+	{
+		if (!WeakManager.IsValid()) return INDEX_NONE;
+		Ademo_mapV3ProgressionManager* Manager = WeakManager.Get();
+		FCodeBRunInventorySession Current;
+		FString Error;
+		return Manager->CodeBActiveRunInventoryStore.IsValid()
+			&& Manager->CodeBActiveRunInventoryStore->OpenMatchedActiveRunInventorySession(
+				Manager->CodeBWorldDropRunId, Current, &Error)
+			? Current.RepositorySnapshot.Revision : INDEX_NONE;
+	};
 	const bool bOpened = Host->OpenProfilePage(
 		*CodeBWorldDropRepository,
 		PresentationLayout,
@@ -4869,7 +4909,7 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBWorldDropPage(
 			return bCommitted;
 		},
 		[WeakManager]() { if (WeakManager.IsValid()) WeakManager->CloseCodeBWorldDropPage(); },
-		true, nullptr, nullptr, nullptr, nullptr, &Presentation);
+		true, nullptr, nullptr, nullptr, nullptr, &Presentation, &Workspace);
 	if (!bOpened)
 	{
 		CodeBWorldDropRepository.Reset();

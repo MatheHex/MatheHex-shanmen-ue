@@ -133,18 +133,30 @@ namespace demo_map_code_b
 		bool IsInRun() const { return Scope == ECodeBP3WorkspaceScope::InRunP6; }
 	};
 
+	enum class ECodeBP3QuantityDraftKind : uint8
+	{
+		None,
+		PlayerSplit,
+		WorldPickup
+	};
+
 	/**
 	 * P24/P25's one transient quantity intent. It captures only stable authority
 	 * identities and the requested quantity; P1 alone either creates the split
 	 * identity for an empty target or applies the exact Merge to an existing stack.
+	 * P27 adds a separately identified WorldPickup draft without widening the
+	 * accepted sources or destinations of the original PlayerSplit draft.
 	 */
 	struct FCodeBP3SplitDraft
 	{
+		ECodeBP3QuantityDraftKind Kind = ECodeBP3QuantityDraftKind::None;
 		ECodeBP3WorkspaceScope WorkspaceScope = ECodeBP3WorkspaceScope::Development;
 		ECodeBP3InventoryScope SourceScope = ECodeBP3InventoryScope::Unknown;
 		FGuid OwnerId;
 		FGuid RunInstanceId;
 		FGuid GraphIdentity;
+		/** P27 only: exact P14 record identity; never an item or quantity truth. */
+		FGuid WorldDropId;
 		FCodeBP3SlotAddress Source;
 		FGuid SourceItemId;
 		int32 ExpectedRevision = INDEX_NONE;
@@ -152,7 +164,9 @@ namespace demo_map_code_b
 
 		bool IsValid() const
 		{
-			return Source.IsValid() && SourceItemId.IsValid() && GraphIdentity.IsValid()
+			return Kind != ECodeBP3QuantityDraftKind::None
+				&& Source.IsValid() && SourceItemId.IsValid() && GraphIdentity.IsValid()
+				&& (Kind != ECodeBP3QuantityDraftKind::WorldPickup || WorldDropId.IsValid())
 				&& ExpectedRevision != INDEX_NONE && RequestedQuantity > 0;
 		}
 	};

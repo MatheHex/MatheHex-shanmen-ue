@@ -9109,6 +9109,22 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 	}
 	const FCodeBItemInstance* CandidateItem = CandidateSnapshot.Items.Find(Drop->ItemId);
 	const bool bP26SimpleStack = !bIsSpatialClosure && IsP26SimpleStack(Existing, *SourceItem);
+	const FCodeBItemInstance* P27CreatedItem = nullptr;
+	bool bMultipleP27CreatedItems = false;
+	for (const TPair<FGuid, FCodeBItemInstance>& Pair : CandidateSnapshot.Items)
+	{
+		if (Existing.RepositorySnapshot.Items.Contains(Pair.Key)) continue;
+		if (P27CreatedItem)
+		{
+			bMultipleP27CreatedItems = true;
+			break;
+		}
+		P27CreatedItem = &Pair.Value;
+	}
+	const bool bP27Split = bP26SimpleStack && !bMultipleP27CreatedItems && P27CreatedItem
+		&& CandidateItem && CandidateItem->ParentContainerId == Drop->WorldContainerId
+		&& CandidateItem->SlotIndex == 0 && CandidateItem->ItemId == SourceItem->ItemId
+		&& CandidateItem->Quantity > 0 && CandidateItem->Quantity < SourceItem->Quantity;
 	FCodeBTransactionRequest Move;
 	Move.TransactionId = FGuid::NewGuid();
 	Move.ItemId = Drop->ItemId;
@@ -9154,6 +9170,28 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 			Move.TargetContainerId = ExpectedEquipmentContainerId;
 			Move.TargetSlot = 0;
 		}
+	}
+	else if (bP27Split)
+	{
+		const FCodeBContainer* OriginalTarget = Existing.RepositorySnapshot.Containers.Find(
+			P27CreatedItem->ParentContainerId);
+		if (!IsExactP24SplitDelta(Existing.RepositorySnapshot, CandidateSnapshot, Error)
+			|| !IsP26PlayerStorageContainer(Existing, P27CreatedItem->ParentContainerId)
+			|| !OriginalTarget || OriginalTarget->IsEquipment()
+			|| !OriginalTarget->Slots.IsValidIndex(P27CreatedItem->SlotIndex)
+			|| OriginalTarget->Slots[P27CreatedItem->SlotIndex].IsValid()
+			|| P27CreatedItem->DefinitionId != SourceItem->DefinitionId
+			|| P27CreatedItem->Quantity != SourceItem->Quantity - CandidateItem->Quantity)
+		{
+			if (OutError) *OutError = Error.IsEmpty()
+				? TEXT("Code B P27 pickup requires one exact P1 Split into an explicit empty player storage cell.")
+				: Error;
+			return false;
+		}
+		Move.Operation = ECodeBOperation::Split;
+		Move.TargetContainerId = P27CreatedItem->ParentContainerId;
+		Move.TargetSlot = P27CreatedItem->SlotIndex;
+		Move.Quantity = P27CreatedItem->Quantity;
 	}
 	else if (CandidateItem && CandidateItem->ParentContainerId != Drop->WorldContainerId)
 	{
@@ -9210,27 +9248,39 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 			return false;
 		}
 	}
-	FCodeBRepository ExpectedRepository;
-	if (!ExpectedRepository.LoadPersistedSnapshot(Existing.RepositorySnapshot, &Error))
+	FCodeBSnapshot ExpectedSnapshot;
+	if (bP27Split)
 	{
-		if (OutError) *OutError = Error;
-		return false;
+		// The candidate entered this callback only after the shared P2 service
+		// accepted one P1 Split. The created GUID is intentionally not replayed:
+		// IsExactP24SplitDelta above proves that this accepted identity and every
+		// other field are exactly the one-source/one-empty-target P1 delta.
+		ExpectedSnapshot = CandidateSnapshot;
 	}
-	if (!ExpectedRepository.ExecuteTransaction(Move).IsSuccess())
+	else
 	{
-		if (OutError) *OutError = bIsSpatialClosure
-			? TEXT("Code B P19 pickup whole-graph P1 transaction was rejected.")
-			: TEXT("Code B P14 pickup P1 transaction was rejected.");
-		return false;
-	}
-	FCodeBSnapshot ExpectedSnapshot = ExpectedRepository.CaptureSnapshot();
-	if (CandidateSnapshot != ExpectedSnapshot)
-	{
-		if (OutError) *OutError = TEXT("Code B P14/P26 pickup refused a candidate differing from the exact P1 Move/Merge.");
-		return false;
+		FCodeBRepository ExpectedRepository;
+		if (!ExpectedRepository.LoadPersistedSnapshot(Existing.RepositorySnapshot, &Error))
+		{
+			if (OutError) *OutError = Error;
+			return false;
+		}
+		if (!ExpectedRepository.ExecuteTransaction(Move).IsSuccess())
+		{
+			if (OutError) *OutError = bIsSpatialClosure
+				? TEXT("Code B P19 pickup whole-graph P1 transaction was rejected.")
+				: TEXT("Code B P14 pickup P1 transaction was rejected.");
+			return false;
+		}
+		ExpectedSnapshot = ExpectedRepository.CaptureSnapshot();
+		if (CandidateSnapshot != ExpectedSnapshot)
+		{
+			if (OutError) *OutError = TEXT("Code B P14/P26 pickup refused a candidate differing from the exact P1 Move/Merge.");
+			return false;
+		}
 	}
 	const FCodeBItemInstance* RetainedWorldItem = ExpectedSnapshot.Items.Find(Drop->ItemId);
-	const bool bRetainWorldRoot = bP26Merge && RetainedWorldItem
+	const bool bRetainWorldRoot = (bP26Merge || bP27Split) && RetainedWorldItem
 		&& RetainedWorldItem->ParentContainerId == Drop->WorldContainerId
 		&& RetainedWorldItem->SlotIndex == 0 && RetainedWorldItem->Quantity > 0;
 	if (!bRetainWorldRoot)

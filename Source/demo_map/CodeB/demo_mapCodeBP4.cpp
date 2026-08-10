@@ -103,8 +103,15 @@ namespace demo_map_code_b
 	bool FCodeBP4InteractionController::BeginSplitDrag(
 		const FCodeBP3SlotAddress& Source,
 		const int32 RequestedQuantity,
-		FCodeBP4DragPayload& OutPayload)
+		FCodeBP4DragPayload& OutPayload,
+		const ECodeBP3QuantityDraftKind DraftKind)
 	{
+		if (DraftKind == ECodeBP3QuantityDraftKind::None)
+		{
+			OutPayload = FCodeBP4DragPayload();
+			Controller.SetP4Feedback(TEXT("数量拖拽缺少明确意图种类。"));
+			return false;
+		}
 		FString SplitError;
 		if (!Controller.ValidateSplitSource(Source, RequestedQuantity, SplitError))
 		{
@@ -117,6 +124,7 @@ namespace demo_map_code_b
 			return false;
 		}
 		OutPayload.bSplitIntent = true;
+		OutPayload.QuantityDraftKind = DraftKind;
 		OutPayload.RequestedMergeQuantity = RequestedQuantity;
 		Controller.SetP4Feedback(FString::Printf(
 			TEXT("数量草稿已确认：拖动 %d 个到明确空格或兼容未满堆叠；Drop 前不写入。"), RequestedQuantity));

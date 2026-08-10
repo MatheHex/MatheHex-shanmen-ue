@@ -19,6 +19,10 @@ namespace demo_map_code_b
 		int32 RequestedMergeQuantity = 0;
 		int32 Quality = 0;
 		bool bSplitIntent = false;
+		/** Explicit P24 player split versus P27 world partial-pickup intent. */
+		ECodeBP3QuantityDraftKind QuantityDraftKind = ECodeBP3QuantityDraftKind::None;
+		/** P27 transient record identity. It is never used to derive an ItemId. */
+		FGuid WorldDropId;
 		ECodeBP3InventoryScope SourceScope = ECodeBP3InventoryScope::Unknown;
 		FGuid OwnerId;
 		FGuid RunInstanceId;
@@ -29,8 +33,9 @@ namespace demo_map_code_b
 		bool IsValid() const
 		{
 			return Source.IsValid() && ItemId.IsValid() && ExpectedRevision != INDEX_NONE && SessionId != 0
-				&& Quantity > 0 && (!bSplitIntent || (GraphIdentity.IsValid()
-					&& RequestedMergeQuantity > 0 && RequestedMergeQuantity < Quantity));
+				&& Quantity > 0 && (!bSplitIntent || (QuantityDraftKind != ECodeBP3QuantityDraftKind::None
+					&& GraphIdentity.IsValid() && RequestedMergeQuantity > 0 && RequestedMergeQuantity < Quantity
+					&& (QuantityDraftKind != ECodeBP3QuantityDraftKind::WorldPickup || WorldDropId.IsValid())));
 		}
 	};
 
@@ -74,7 +79,11 @@ namespace demo_map_code_b
 
 		bool BeginDrag(const FCodeBP3SlotAddress& Source, FCodeBP4DragPayload& OutPayload);
 		/** Consumes a confirmed P24 draft into a one-shot split drag descriptor. */
-		bool BeginSplitDrag(const FCodeBP3SlotAddress& Source, int32 RequestedQuantity, FCodeBP4DragPayload& OutPayload);
+		bool BeginSplitDrag(
+			const FCodeBP3SlotAddress& Source,
+			int32 RequestedQuantity,
+			FCodeBP4DragPayload& OutPayload,
+			ECodeBP3QuantityDraftKind DraftKind = ECodeBP3QuantityDraftKind::PlayerSplit);
 		FCodeBP4DropPreview PreviewDrop(const FCodeBP4DragPayload& Payload, const FCodeBP3SlotAddress& Target) const;
 		bool CommitDrop(const FCodeBP4DragPayload& Payload, const FCodeBP3SlotAddress& Target);
 		void CancelInteraction(const FString& Reason = TEXT("已取消拖拽，未写入任何物品状态"));

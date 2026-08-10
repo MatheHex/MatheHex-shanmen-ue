@@ -2081,7 +2081,11 @@ void UCodeBP3CellButton::NativeOnDragDetected(const FGeometry& InGeometry, const
 	Operation->Configure(Payload, OwnerWidget.Get());
 	UTextBlock* DragVisual = NewObject<UTextBlock>(Operation);
 	const FString DragLabel = Payload.bSplitIntent
-		? FString::Printf(TEXT("数量拖拽：%s  x%d"), *Payload.DefinitionId.ToString(), Payload.RequestedMergeQuantity)
+		? (Payload.QuantityDraftKind == ECodeBP3QuantityDraftKind::WorldPickup
+			? FString::Printf(TEXT("地面数量拾回：%s  x%d"),
+				*Payload.DefinitionId.ToString(), Payload.RequestedMergeQuantity)
+			: FString::Printf(TEXT("数量拖拽：%s  x%d"),
+				*Payload.DefinitionId.ToString(), Payload.RequestedMergeQuantity))
 		: FString::Printf(TEXT("拖拽：%s  x%d"), *Payload.DefinitionId.ToString(), Payload.Quantity);
 	DragVisual->SetText(FText::FromString(DragLabel));
 	DragVisual->SetFont(FSlateFontInfo(FCoreStyle::GetDefaultFont(), 16));
@@ -2450,6 +2454,24 @@ FCodeBP4DropPreview UCodeBP3InventoryWidget::PreviewInventoryTransfer(
 			&& (TargetContainer->Role == FName(TEXT("Basic6"))
 				|| TargetContainer->Role == FName(TEXT("QuickSpatial"))
 				|| TargetContainer->Role == FName(TEXT("PouchInternal")));
+		const bool bP27WorldPickup = Payload.bSplitIntent
+			&& Payload.QuantityDraftKind == ECodeBP3QuantityDraftKind::WorldPickup;
+		if (bP27WorldPickup)
+		{
+			if (!bSimpleStack || !bP26PlayerStorage || Target.bOccupied
+				|| Preview.Operation != ECodeBOperation::Split
+				|| Preview.Quantity != Payload.RequestedMergeQuantity)
+			{
+				Rejected.Message = TEXT("地面数量拾回只接受 simple stack 到明确空的 BaseQuick／当前合法空间 child 格。");
+				return Rejected;
+			}
+			return Preview;
+		}
+		if (Payload.bSplitIntent)
+		{
+			Rejected.Message = TEXT("地面来源只接受明确的 WorldPickup 数量草稿。");
+			return Rejected;
+		}
 		if (bSimpleStack)
 		{
 			if (!bP26PlayerStorage
@@ -3009,13 +3031,19 @@ void UCodeBP3InventoryWidget::AddDetailAndActions(UVerticalBox* Parent)
 			{
 				bSplitQuantityInputOpen = false;
 				SplitInputItemId.Invalidate();
+				const FString DraftDescription = Draft->Kind == ECodeBP3QuantityDraftKind::WorldPickup
+					? FString::Printf(TEXT("地面拾回草稿：%d 个。拖到明确空玩家格；新 ItemId 只在 Drop 成功时由 P1 创建。"),
+						Draft->RequestedQuantity)
+					: FString::Printf(TEXT("拆分草稿：%d 个。拖动此来源堆到明确空储物格；新 ItemId 只在 Drop 成功时由 P1 创建。"),
+						Draft->RequestedQuantity);
 				Actions->AddChildToVerticalBox(MakeText(
-					WidgetTree,
-					FString::Printf(TEXT("拆分草稿：%d 个。拖动此来源堆到明确空储物格；新 ItemId 只在 Drop 成功时由 P1 创建。"), Draft->RequestedQuantity),
+					WidgetTree, DraftDescription,
 					13, FLinearColor(0.78f, 0.88f, 0.98f)))->SetPadding(FMargin(2.0f, 8.0f, 2.0f, 2.0f));
 				UButton* CancelButton = WidgetTree->ConstructWidget<UButton>();
 				CancelButton->SetBackgroundColor(FLinearColor(0.30f, 0.12f, 0.10f, 1.0f));
-				CancelButton->SetContent(MakeText(WidgetTree, TEXT("取消拆分草稿"), 15));
+				CancelButton->SetContent(MakeText(WidgetTree,
+					Draft->Kind == ECodeBP3QuantityDraftKind::WorldPickup
+						? TEXT("取消地面拾回草稿") : TEXT("取消拆分草稿"), 15));
 				CancelButton->OnClicked.AddDynamic(this, &UCodeBP3InventoryWidget::OnCancelSplitClicked);
 				Actions->AddChildToVerticalBox(CancelButton)->SetPadding(FMargin(2.0f));
 			}
@@ -3045,7 +3073,9 @@ void UCodeBP3InventoryWidget::AddDetailAndActions(UVerticalBox* Parent)
 				SplitInputItemId.Invalidate();
 				UButton* OpenSplitButton = WidgetTree->ConstructWidget<UButton>();
 				OpenSplitButton->SetBackgroundColor(HeaderColor);
-				OpenSplitButton->SetContent(MakeText(WidgetTree, TEXT("拆分"), 15));
+				OpenSplitButton->SetContent(MakeText(WidgetTree,
+					Host->IsWorldDropPresentation(Selected.ContainerId)
+						? TEXT("按数量拾回") : TEXT("拆分"), 15));
 				OpenSplitButton->OnClicked.AddDynamic(this, &UCodeBP3InventoryWidget::OnOpenSplitClicked);
 				Actions->AddChildToVerticalBox(OpenSplitButton)->SetPadding(FMargin(2.0f, 8.0f, 2.0f, 2.0f));
 			}
@@ -3772,6 +3802,13 @@ bool UCodeBP3UIHostSubsystem::OpenProfilePage(
 			Derived.Context.RunInstanceId = InBodyContainerPresentation->Projection.RunInstanceId;
 			Derived.Context.SessionRevision = InBodyContainerPresentation->Projection.Revision;
 		}
+		else if (InWorldDropPresentation)
+		{
+			// P27 callers normally provide a live resolver-backed workspace. Keep
+			// this fallback fail-closed: a world page without exact Owner/Run cannot
+			// create a WorldPickupDraft.
+			Derived.Context.SessionRevision = Controller->GetProjection().Revision;
+		}
 		WorkspacePresentation = MoveTemp(Derived);
 	}
 	ProfilePageClosed = MoveTemp(OnClosed);
@@ -4138,9 +4175,12 @@ bool UCodeBP3UIHostSubsystem::CreateSplitDraft(
 		return false;
 	}
 	PopulateAddressContext(AuthoritativeSource);
-	if (IsWorldDropPresentation(AuthoritativeSource.ContainerId))
+	const bool bWorldPickup = IsWorldDropPresentation(AuthoritativeSource.ContainerId);
+	if (bWorldPickup && (!WorldDropPresentation.IsSet()
+		|| !WorldDropPresentation->WorldDropId.IsValid()
+		|| WorldDropPresentation->TargetContainerId != AuthoritativeSource.ContainerId))
 	{
-		OutError = TEXT("P14 地面完整图不进入拆分流程。");
+		OutError = TEXT("地面数量拾回缺少精确 P14 record/root 身份。");
 		SplitDraft.Reset();
 		return false;
 	}
@@ -4155,7 +4195,8 @@ bool UCodeBP3UIHostSubsystem::CreateSplitDraft(
 	PopulateTransferContext(IdentityProbe);
 	const FCodeBP2Projection& Projection = Controller->GetProjection();
 	FGuid GraphIdentity;
-	if (NormalContainerPresentation.IsSet()) GraphIdentity = NormalContainerPresentation->TargetContainerId;
+	if (bWorldPickup) GraphIdentity = WorldDropPresentation->WorldDropId;
+	else if (NormalContainerPresentation.IsSet()) GraphIdentity = NormalContainerPresentation->TargetContainerId;
 	else if (BodyContainerPresentation.IsSet()) GraphIdentity = BodyContainerPresentation->TargetContainerId;
 	else if (WorkspacePresentation.IsSet() && WorkspacePresentation->Context.IsOutOfRaidP5())
 		GraphIdentity = Projection.WarehouseContainerId;
@@ -4168,6 +4209,9 @@ bool UCodeBP3UIHostSubsystem::CreateSplitDraft(
 	}
 
 	FCodeBP3SplitDraft Draft;
+	Draft.Kind = bWorldPickup
+		? ECodeBP3QuantityDraftKind::WorldPickup
+		: ECodeBP3QuantityDraftKind::PlayerSplit;
 	Draft.WorkspaceScope = WorkspacePresentation.IsSet()
 		? WorkspacePresentation->Context.Scope
 		: (Controller->IsActiveRunBacked() ? ECodeBP3WorkspaceScope::InRunP6 : ECodeBP3WorkspaceScope::OutOfRaidP5);
@@ -4175,6 +4219,7 @@ bool UCodeBP3UIHostSubsystem::CreateSplitDraft(
 	Draft.OwnerId = IdentityProbe.OwnerId;
 	Draft.RunInstanceId = IdentityProbe.RunInstanceId;
 	Draft.GraphIdentity = GraphIdentity;
+	Draft.WorldDropId = bWorldPickup ? WorldDropPresentation->WorldDropId : FGuid();
 	Draft.Source = AuthoritativeSource;
 	Draft.SourceItemId = AuthoritativeSource.ItemId;
 	Draft.ExpectedRevision = Controller->GetProjection().Revision;
@@ -4187,8 +4232,11 @@ bool UCodeBP3UIHostSubsystem::CreateSplitDraft(
 		return false;
 	}
 	SplitDraft = MoveTemp(Draft);
-	Controller->SetP4Feedback(FString::Printf(
-		TEXT("已准备 %d 个；请拖动同一来源堆到明确空格或兼容未满堆叠。"), RequestedQuantity));
+	Controller->SetP4Feedback(bWorldPickup
+		? FString::Printf(TEXT("已确认从地面拾回 %d 个；请拖到明确空玩家格，Drop 前零写入。"),
+			RequestedQuantity)
+		: FString::Printf(TEXT("已准备 %d 个；请拖动同一来源堆到明确空格或兼容未满堆叠。"),
+			RequestedQuantity));
 	return true;
 }
 
@@ -4212,17 +4260,33 @@ bool UCodeBP3UIHostSubsystem::BeginInventoryDrag(
 		return Interaction.BeginDrag(Source, OutPayload);
 	}
 	SplitDraft.Reset();
-	if (!CanWriteWorkspace(OutError) || !Controller.IsValid()
+	if (!CanWriteWorkspace(OutError) || !Controller.IsValid())
+	{
+		return false;
+	}
+	const FCodeBP2Projection& Projection = Controller->GetProjection();
+	const bool bWorkspaceIdentityCurrent = !WorkspacePresentation.IsSet()
+		|| (Draft.OwnerId == WorkspacePresentation->Context.OwnerId
+			&& Draft.RunInstanceId == WorkspacePresentation->Context.RunInstanceId);
+	const bool bWorldIdentityCurrent = Draft.Kind != ECodeBP3QuantityDraftKind::WorldPickup
+		|| (WorldDropPresentation.IsSet()
+			&& Draft.WorldDropId == WorldDropPresentation->WorldDropId
+			&& Draft.Source.ContainerId == WorldDropPresentation->TargetContainerId
+			&& (!WorkspacePresentation.IsSet()
+				|| WorkspacePresentation->Context.SessionRevision == Projection.Revision));
+	if (!bWorkspaceIdentityCurrent || !bWorldIdentityCurrent
 		|| Draft.ExpectedRevision != Controller->GetProjection().Revision
 		|| !Controller->ValidateSplitSource(Source, Draft.RequestedQuantity, OutError))
 	{
 		if (OutError.IsEmpty()) OutError = TEXT("拆分草稿已过期，未开始拖拽。");
 		return false;
 	}
-	const bool bStarted = Interaction.BeginSplitDrag(Source, Draft.RequestedQuantity, OutPayload);
+	const bool bStarted = Interaction.BeginSplitDrag(
+		Source, Draft.RequestedQuantity, OutPayload, Draft.Kind);
 	if (bStarted)
 	{
 		OutPayload.GraphIdentity = Draft.GraphIdentity;
+		OutPayload.WorldDropId = Draft.WorldDropId;
 	}
 	return bStarted;
 }
@@ -4301,6 +4365,11 @@ bool UCodeBP3UIHostSubsystem::CanWriteWorkspace(FString& OutError)
 		const FCodeBP3SplitDraft& Draft = SplitDraft.GetValue();
 		if (Draft.OwnerId != Context.OwnerId || Draft.RunInstanceId != Context.RunInstanceId
 			|| Draft.ExpectedRevision != Projection.Revision
+			|| (Draft.Kind == ECodeBP3QuantityDraftKind::WorldPickup
+				&& (Context.SessionRevision != Projection.Revision
+					|| !WorldDropPresentation.IsSet()
+					|| Draft.WorldDropId != WorldDropPresentation->WorldDropId
+					|| Draft.Source.ContainerId != WorldDropPresentation->TargetContainerId))
 			|| !Controller->ValidateSplitSource(Draft.Source, Draft.RequestedQuantity, SplitError))
 		{
 			SplitDraft.Reset();
@@ -4355,7 +4424,26 @@ bool UCodeBP3UIHostSubsystem::ValidateTransferContext(
 	{
 		const FCodeBP2Projection& Projection = Controller->GetProjection();
 		FGuid ExpectedGraphIdentity;
-		if (NormalContainerPresentation.IsSet()) ExpectedGraphIdentity = NormalContainerPresentation->TargetContainerId;
+		if (Payload.QuantityDraftKind == ECodeBP3QuantityDraftKind::WorldPickup)
+		{
+			if (!WorldDropPresentation.IsSet()
+				|| Payload.WorldDropId != WorldDropPresentation->WorldDropId
+				|| Payload.Source.ContainerId != WorldDropPresentation->TargetContainerId
+				|| Payload.SourceScope != ECodeBP3InventoryScope::ExternalTarget
+				|| (WorkspacePresentation.IsSet()
+					&& WorkspacePresentation->Context.SessionRevision != Projection.Revision))
+			{
+				OutError = TEXT("WorldPickup 数量 payload 的 P14 record/root 身份已变化；未写入。");
+				return false;
+			}
+			ExpectedGraphIdentity = WorldDropPresentation->WorldDropId;
+		}
+		else if (Payload.QuantityDraftKind != ECodeBP3QuantityDraftKind::PlayerSplit)
+		{
+			OutError = TEXT("数量 payload 缺少明确 PlayerSplit／WorldPickup 种类；未写入。");
+			return false;
+		}
+		else if (NormalContainerPresentation.IsSet()) ExpectedGraphIdentity = NormalContainerPresentation->TargetContainerId;
 		else if (BodyContainerPresentation.IsSet()) ExpectedGraphIdentity = BodyContainerPresentation->TargetContainerId;
 		else if (WorkspacePresentation.IsSet() && WorkspacePresentation->Context.IsOutOfRaidP5())
 			ExpectedGraphIdentity = Projection.WarehouseContainerId;

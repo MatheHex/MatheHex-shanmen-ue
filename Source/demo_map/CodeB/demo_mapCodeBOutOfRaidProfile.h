@@ -998,7 +998,7 @@ public:
 		const FTransform& FloorTransform,
 		FCodeBWorldDropProjection& OutProjection,
 		FString* OutError = nullptr);
-	/** P14/P19/P26's only pickup writer; accepts only the exact P1 Move/Equip or P26 full-stack Merge candidate. */
+	/** P14/P19/P26/P27's only pickup writer; accepts exact P1 Move/Equip/Merge or the one P27 world-to-empty-player Split candidate. */
 	static bool CommitAcceptedMatchedRunWorldDropPickup(
 		const FString& InStorageRoot,
 		const FGuid& InOwnerId,

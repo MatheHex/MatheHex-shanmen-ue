@@ -66,6 +66,7 @@ struct FCodeBP3GroundDropPresentation
 /** P14's transient one-record target. It is a projection of the P6 WorldDrop graph. */
 struct FCodeBP3WorldDropPresentation
 {
+	FGuid WorldDropId;
 	FGuid TargetContainerId;
 	FString Title;
 };
