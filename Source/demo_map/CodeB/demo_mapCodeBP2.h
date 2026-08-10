@@ -132,7 +132,9 @@ namespace demo_map_code_b
 	{
 		Legacy,
 		CurrentP17Child,
-		BaseQuickNoChildAtInput
+		BaseQuickNoChildAtInput,
+		/** P41 complete spatial graphs never target a P17 child, even when one is open. */
+		BaseQuickOnly
 	};
 
 	/**
@@ -218,6 +220,62 @@ namespace demo_map_code_b
 		}
 	};
 
+	/**
+	 * P41 transient proof for one revealed P20 spatial parent in the exact opened
+	 * P12 ordinary body root.  It freezes the canonical source closure and the
+	 * input-time BaseQuick domain; Preview later fills one exact first-empty
+	 * candidate and Commit may only revalidate that same address.
+	 */
+	struct FCodeBP41BodySpatialGraphQuickTransferProof
+	{
+		bool bIntent = false;
+		FGuid OwnerId;
+		FGuid RunInstanceId;
+		FGuid BodyTargetId;
+		FGuid DeathReceiptId;
+		int32 BodyRecordRevision = INDEX_NONE;
+		uint32 BodyTargetOpenGeneration = 0;
+		FName BodyDefinitionId;
+		FGuid SourceContainerId;
+		int32 SourceSlot = INDEX_NONE;
+		FGuid SourceItemId;
+		FName SourceDefinitionId;
+		FGuid SourceChildContainerId;
+		/** P17's stable child identity is the canonical SpatialChildGuid for SourceItemId. */
+		FGuid StableSpatialChildGuid;
+		FName LootProfileId;
+		int32 LootProfileVersion = 0;
+		FString LootProfileDigest;
+		FString LootResultDigest;
+		FString MaterializationDigest;
+		FName WorkspaceTargetPaneId;
+		FGuid BaseQuickContainerId;
+		int32 CompositeRevision = INDEX_NONE;
+		FGuid FrozenTargetContainerId;
+		int32 FrozenTargetSlot = INDEX_NONE;
+		int32 FrozenTargetCompositeRevision = INDEX_NONE;
+
+		bool HasSourceIdentity() const
+		{
+			return bIntent && OwnerId.IsValid() && RunInstanceId.IsValid()
+				&& BodyTargetId.IsValid() && DeathReceiptId.IsValid()
+				&& BodyRecordRevision > 0 && BodyTargetOpenGeneration != 0
+				&& !BodyDefinitionId.IsNone() && SourceContainerId.IsValid()
+				&& SourceSlot >= 0 && SourceItemId.IsValid() && !SourceDefinitionId.IsNone()
+				&& SourceChildContainerId.IsValid() && StableSpatialChildGuid.IsValid()
+				&& !LootProfileId.IsNone() && LootProfileVersion > 0
+				&& !LootProfileDigest.IsEmpty() && !LootResultDigest.IsEmpty()
+				&& !MaterializationDigest.IsEmpty() && !WorkspaceTargetPaneId.IsNone()
+				&& BaseQuickContainerId.IsValid() && CompositeRevision >= 0;
+		}
+
+		bool HasFrozenTarget() const
+		{
+			return FrozenTargetContainerId.IsValid() && FrozenTargetSlot >= 0
+				&& FrozenTargetCompositeRevision >= 0;
+		}
+	};
+
 	struct FCodeBP2Command
 	{
 		FGuid TransactionId;
@@ -242,6 +300,8 @@ namespace demo_map_code_b
 		FCodeBP38BodyEquipmentTransferProof P38BodyEquipmentProof;
 		/** P40 ordinary P12 simple-stack source and frozen-target proof. */
 		FCodeBP40BodySimpleStackQuickTransferProof P40BodySimpleStackProof;
+		/** P41 ordinary P12 complete spatial graph and exact BaseQuick candidate proof. */
+		FCodeBP41BodySpatialGraphQuickTransferProof P41BodySpatialGraphProof;
 	};
 
 	struct FCodeBP2ApplicationResult

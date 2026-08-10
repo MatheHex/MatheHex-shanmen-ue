@@ -2,6 +2,8 @@
 
 #include "CodeB/demo_mapCodeBP4.h"
 
+#include "demo_mapItemDefinitions.h"
+
 namespace
 {
 	using namespace demo_map_code_b;
@@ -239,6 +241,11 @@ namespace demo_map_code_b
 			// P34/P36/P37/P39 standard whole-root QuickTransfer carries its one accepted
 			// item explicitly. P1 Move ignores quantity, but the durable proof rejects
 			// the P29/P30 Quantity=0 stack/graph semantics for this source family.
+			const bool bP41WholeGraphQuickTransfer = Payload.bQuickTransferIntent
+				&& Payload.P41BodySpatialGraphProof.bIntent
+				&& SourceSlot->Quantity == 1 && SourceSlot->ChildContainerId.IsValid()
+				&& (SourceSlot->DefinitionId == Fdemo_mapItemIds::WindTalisman
+					|| SourceSlot->DefinitionId == Fdemo_mapItemIds::BackpackLevel1);
 			const bool bStandardWholeRootQuickTransfer = Payload.bQuickTransferIntent
 				&& !SourceSlot->bStackable && SourceSlot->MaxStack == 1
 				&& SourceSlot->Quantity == 1 && !SourceSlot->ChildContainerId.IsValid()
@@ -248,7 +255,7 @@ namespace demo_map_code_b
 						&& SourceSlot->EquipSlot == ECodeBEquipSlot::Armor)
 					|| (SourceSlot->ItemType == ECodeBItemType::Accessory
 						&& SourceSlot->EquipSlot == ECodeBEquipSlot::Accessory));
-			Preview.Quantity = bStandardWholeRootQuickTransfer ? 1 : 0;
+			Preview.Quantity = (bStandardWholeRootQuickTransfer || bP41WholeGraphQuickTransfer) ? 1 : 0;
 			Preview.Message = TEXT("可移动到空储物格");
 			return Preview;
 		}
@@ -294,7 +301,8 @@ namespace demo_map_code_b
 			Payload.QuickTransferTargetMode,
 			Payload.QuickTransferActivePlayerParentItemId,
 			Payload.P38BodyEquipmentProof,
-			Payload.P40BodySimpleStackProof);
+			Payload.P40BodySimpleStackProof,
+			Payload.P41BodySpatialGraphProof);
 	}
 
 	bool FCodeBP4InteractionController::CommitDrop(const FCodeBP4DragPayload& Payload, const FCodeBP3SlotAddress& Target)

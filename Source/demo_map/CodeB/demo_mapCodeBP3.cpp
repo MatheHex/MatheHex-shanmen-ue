@@ -657,7 +657,8 @@ namespace demo_map_code_b
 		const ECodeBQuickTransferTargetMode QuickTransferTargetMode,
 		const FGuid& QuickTransferActivePlayerParentItemId,
 		const FCodeBP38BodyEquipmentTransferProof& P38BodyEquipmentProof,
-		const FCodeBP40BodySimpleStackQuickTransferProof& P40BodySimpleStackProof)
+		const FCodeBP40BodySimpleStackQuickTransferProof& P40BodySimpleStackProof,
+		const FCodeBP41BodySpatialGraphQuickTransferProof& P41BodySpatialGraphProof)
 	{
 		if (!bOpen || !Service.IsValid())
 		{
@@ -696,6 +697,7 @@ namespace demo_map_code_b
 		Command.QuickTransferActivePlayerParentItemId = QuickTransferActivePlayerParentItemId;
 		Command.P38BodyEquipmentProof = P38BodyEquipmentProof;
 		Command.P40BodySimpleStackProof = P40BodySimpleStackProof;
+		Command.P41BodySpatialGraphProof = P41BodySpatialGraphProof;
 
 		const FGuid PreferredSelectionItem = Operation == ECodeBOperation::Merge && AuthoritativeTarget.bOccupied
 			? AuthoritativeTarget.ItemId

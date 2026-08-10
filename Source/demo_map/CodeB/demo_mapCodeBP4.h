@@ -33,6 +33,8 @@ namespace demo_map_code_b
 		FCodeBP38BodyEquipmentTransferProof P38BodyEquipmentProof;
 		/** P40: exact revealed ordinary P12 simple-stack and frozen-target proof. */
 		FCodeBP40BodySimpleStackQuickTransferProof P40BodySimpleStackProof;
+		/** P41: exact revealed ordinary P20 spatial graph and frozen BaseQuick target. */
+		FCodeBP41BodySpatialGraphQuickTransferProof P41BodySpatialGraphProof;
 		/** Explicit P24 player split versus P27 world partial-pickup intent. */
 		ECodeBP3QuantityDraftKind QuantityDraftKind = ECodeBP3QuantityDraftKind::None;
 		/** P27 transient record identity. It is never used to derive an ItemId. */
