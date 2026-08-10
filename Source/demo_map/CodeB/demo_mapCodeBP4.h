@@ -29,6 +29,8 @@ namespace demo_map_code_b
 		ECodeBQuickTransferTargetMode QuickTransferTargetMode = ECodeBQuickTransferTargetMode::Legacy;
 		/** P36/P37: exact P17 spatial parent identity paired with CurrentP17Child mode. */
 		FGuid QuickTransferActivePlayerParentItemId;
+		/** P38: exact P21 body-source and current P17-child proof for this normal drag. */
+		FCodeBP38BodyEquipmentTransferProof P38BodyEquipmentProof;
 		/** Explicit P24 player split versus P27 world partial-pickup intent. */
 		ECodeBP3QuantityDraftKind QuantityDraftKind = ECodeBP3QuantityDraftKind::None;
 		/** P27 transient record identity. It is never used to derive an ItemId. */
@@ -112,6 +114,7 @@ namespace demo_map_code_b
 		const FCodeBP2ContainerView* FindContainer(const FGuid& ContainerId) const;
 		const FCodeBP2SlotView* FindSlot(const FCodeBP3SlotAddress& Address) const;
 		bool IsEquipmentContainer(const FGuid& ContainerId) const;
+		bool IsP21BodyEquipmentContainer(const FGuid& ContainerId) const;
 		bool IsCompatibleEquipmentTarget(const FCodeBP2SlotView& Source, const FGuid& TargetContainerId) const;
 		static FCodeBP4DropPreview Reject(const FString& Message);
 		bool CommitPreview(const FCodeBP4DragPayload& Payload, const FCodeBP3SlotAddress& Target, const FCodeBP4DropPreview& Preview);

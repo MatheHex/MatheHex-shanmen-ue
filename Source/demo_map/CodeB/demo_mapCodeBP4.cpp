@@ -45,6 +45,14 @@ namespace demo_map_code_b
 			|| Container->Role.ToString().StartsWith(TEXT("Accessory"));
 	}
 
+	bool FCodeBP4InteractionController::IsP21BodyEquipmentContainer(const FGuid& ContainerId) const
+	{
+		const FCodeBP2ContainerView* Container = FindContainer(ContainerId);
+		return Container && (Container->Role == FName(TEXT("Body.Weapon"))
+			|| Container->Role == FName(TEXT("Body.ArmorRobe"))
+			|| Container->Role == FName(TEXT("Body.Accessory0")));
+	}
+
 	bool FCodeBP4InteractionController::IsCompatibleEquipmentTarget(const FCodeBP2SlotView& Source, const FGuid& TargetContainerId) const
 	{
 		const FCodeBP2ContainerView* Target = FindContainer(TargetContainerId);
@@ -146,6 +154,7 @@ namespace demo_map_code_b
 			return Reject(TEXT("来源或目标已变化，请重新操作"));
 		}
 		const bool bSourceEquipment = IsEquipmentContainer(Payload.Source.ContainerId);
+		const bool bP21BodyEquipmentSource = IsP21BodyEquipmentContainer(Payload.Source.ContainerId);
 		const bool bTargetEquipment = IsEquipmentContainer(Target.ContainerId);
 		FCodeBP4DropPreview Preview;
 		Preview.bAllowed = true;
@@ -195,6 +204,15 @@ namespace demo_map_code_b
 		{
 			if (bSourceEquipment) return Reject(TEXT("装备栏之间不能直接拖拽"));
 			if (!IsCompatibleEquipmentTarget(*SourceSlot, Target.ContainerId)) return Reject(TEXT("物品类型与目标栏位不匹配"));
+			if (bP21BodyEquipmentSource)
+			{
+				if (TargetSlot->bOccupied) return Reject(TEXT("P38 尸体装备只接受明确空装备位，不替换"));
+				Preview.Kind = ECodeBP4DropKind::Move;
+				Preview.Operation = ECodeBOperation::Move;
+				Preview.Quantity = 1;
+				Preview.Message = TEXT("可将已揭示尸体装备直接移动到该明确空装备位");
+				return Preview;
+			}
 			Preview.Kind = TargetSlot->bOccupied ? ECodeBP4DropKind::Replacement : ECodeBP4DropKind::Equip;
 			Preview.Operation = ECodeBOperation::Equip;
 			Preview.Message = TargetSlot->bOccupied ? TEXT("可替换已装备物品") : TEXT("可装备到此栏位");
@@ -212,6 +230,12 @@ namespace demo_map_code_b
 		{
 			Preview.Kind = ECodeBP4DropKind::Move;
 			Preview.Operation = ECodeBOperation::Move;
+			if (bP21BodyEquipmentSource)
+			{
+				Preview.Quantity = 1;
+				Preview.Message = TEXT("可将已揭示尸体装备移动到该明确空普通格");
+				return Preview;
+			}
 			// P34/P36/P37 standard whole-root QuickTransfer carries its one accepted
 			// item explicitly. P1 Move ignores quantity, but the durable proof rejects
 			// the P29/P30 Quantity=0 stack/graph semantics for this source family.
@@ -268,7 +292,8 @@ namespace demo_map_code_b
 			Payload.QuickTransferActivePlayerContainerId,
 			Payload.ActivePlayerChildOpenGeneration,
 			Payload.QuickTransferTargetMode,
-			Payload.QuickTransferActivePlayerParentItemId);
+			Payload.QuickTransferActivePlayerParentItemId,
+			Payload.P38BodyEquipmentProof);
 	}
 
 	bool FCodeBP4InteractionController::CommitDrop(const FCodeBP4DragPayload& Payload, const FCodeBP3SlotAddress& Target)

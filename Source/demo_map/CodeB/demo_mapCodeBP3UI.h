@@ -34,6 +34,8 @@ struct FCodeBP3BodyContainerPresentation
 	FGuid TargetContainerId;
 	FString Title;
 	FCodeBBodyContainerProjection Projection;
+	/** P38 transient page/focus lifecycle identity; never persisted as BodyTarget truth. */
+	uint32 TargetOpenGeneration = 0;
 	/** The manager/service starts the durable body search and returns its fresh projection. */
 	TFunction<bool(const demo_map_code_b::FCodeBP3SearchLocator&, FCodeBBodyContainerProjection&, FString&)> BeginItemSearch;
 };
@@ -317,6 +319,10 @@ public:
 	void PopulateAddressContext(demo_map_code_b::FCodeBP3SlotAddress& Address) const;
 	void PopulateTransferContext(demo_map_code_b::FCodeBP4DragPayload& Payload) const;
 	bool ValidateTransferContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, FString& OutError);
+	bool ValidateP38BodyEquipmentTransferContext(
+		const demo_map_code_b::FCodeBP4DragPayload& Payload,
+		const demo_map_code_b::FCodeBP3SlotAddress& Target,
+		FString& OutError) const;
 	bool IsP29PlayerQuickTransferSourceContainer(const FGuid& ContainerId) const;
 	/** P35 exact current-child gate; BaseQuick is deliberately not accepted here. */
 	bool IsCurrentActiveP17ChildContainer(const FGuid& ContainerId) const;
@@ -390,4 +396,5 @@ private:
 	TOptional<FCodeBP3WorkspacePresentation> WorkspacePresentation;
 	TOptional<demo_map_code_b::FCodeBP3SplitDraft> SplitDraft;
 	uint32 NextActiveDestinationOpenGeneration = 1;
+	uint32 NextBodyTargetOpenGeneration = 1;
 };

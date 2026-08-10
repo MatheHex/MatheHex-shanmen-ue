@@ -7656,6 +7656,7 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 	const FName DefinitionId,
 	const int32 ExpectedP6SnapshotRevision,
 	const int32 ExpectedBodyContainerRevision,
+	const FCodeBP2Command& AcceptedCommand,
 	const FCodeBSnapshot& CompositeSnapshot,
 	FString* OutError)
 {
@@ -7784,11 +7785,10 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 	}
 
 	// P21's fixed corpse-equipment cells are a one-way extraction boundary.
-	// Before the generic P12 material path can partition a candidate snapshot,
-	// prove that every body equipment cell is unchanged or that its one real,
-	// Revealed item made the exact P1 Move into an initially empty P6 BaseQuick
-	// cell.  This rejects direct player equip, return-to-corpse, cloning, and
-	// any widget-side rewrite while keeping all earlier r1/r2 records untouched.
+	// P38 permits one Revealed standard root to make one explicit P1 Move into
+	// exactly one empty P6 BaseQuick cell, the current canonical P17 child, or a
+	// compatible formal Weapon/Armor/Accessory cell. The accepted command and
+	// candidate are both reconstructed before the single P11/P6 replacement.
 	const FCodeBLootProfile* BodyProfile = FindLootProfileByProvenance(
 		Record->DefinitionId, Record->Receipt.LootProfileId, Record->Receipt.LootProfileVersion);
 	const bool bP21R3 = BodyProfile && IsP21BasicCorpseR3(*BodyProfile);
@@ -7796,6 +7796,7 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 	bool bMovedP21Equipment = false;
 	FGuid MovedP21EquipmentItemId;
 	FGuid MovedP21EquipmentContainerId;
+	FGuid MovedP21EquipmentTargetContainerId;
 	int32 MovedP21EquipmentTargetSlot = INDEX_NONE;
 	if (bP21R3)
 	{
@@ -7814,16 +7815,6 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 	}
 	if (bP21R3)
 	{
-		const FCodeBContainer* OriginalBaseQuick = Candidate.ActiveRunInventorySession.RepositorySnapshot.Containers.Find(
-			Candidate.ActiveRunInventorySession.Layout.BasicContainerId);
-		const FCodeBContainer* CandidateBaseQuick = CompositeSnapshot.Containers.Find(
-			Candidate.ActiveRunInventorySession.Layout.BasicContainerId);
-		if (!OriginalBaseQuick || !CandidateBaseQuick
-			|| OriginalBaseQuick->IsEquipment() || CandidateBaseQuick->IsEquipment())
-		{
-			if (OutError) *OutError = TEXT("Code B P21 body transfer requires the exact P6 BaseQuick storage container.");
-			return false;
-		}
 		for (const FP21BodyEquipmentSlot& EquipmentSlot : P21BodyEquipmentSlots())
 		{
 			const FGuid EquipmentContainerId = P21BodyEquipmentContainerGuid(
@@ -7874,19 +7865,84 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 				}
 				continue;
 			}
+			const FCodeBContainer* OriginalTarget =
+				Candidate.ActiveRunInventorySession.RepositorySnapshot.Containers.Find(CandidateItem->ParentContainerId);
+			const FCodeBContainer* CandidateTarget = CompositeSnapshot.Containers.Find(CandidateItem->ParentContainerId);
+			FGuid CanonicalChildParentItemId;
+			const bool bExactBaseQuick = CandidateItem->ParentContainerId
+				== Candidate.ActiveRunInventorySession.Layout.BasicContainerId
+				&& OriginalTarget && !OriginalTarget->IsEquipment();
+			const bool bExactCurrentChild = IsP35ActiveP17ChildContainer(
+				Candidate.ActiveRunInventorySession, CandidateItem->ParentContainerId,
+				&CanonicalChildParentItemId)
+				&& AcceptedCommand.P38BodyEquipmentProof.ActivePlayerChildContainerId
+					== CandidateItem->ParentContainerId
+				&& AcceptedCommand.P38BodyEquipmentProof.ActivePlayerChildParentItemId
+					== CanonicalChildParentItemId
+				&& AcceptedCommand.P38BodyEquipmentProof.ActivePlayerChildOpenGeneration != 0;
+			const FCodeBItemDefinition* P38Definition =
+				Candidate.ActiveRunInventorySession.RepositorySnapshot.Definitions.Find(OriginalItem->DefinitionId);
+			const bool bExactFormalEquipment = P38Definition
+				&& IsP32StandardEquipmentRoot(Candidate.ActiveRunInventorySession, *OriginalItem)
+				&& IsP32ActiveStandardEquipmentContainer(
+					Candidate.ActiveRunInventorySession, CandidateItem->ParentContainerId,
+					P38Definition->EquipSlot);
 			if (bMovedP21Equipment || !Visibility || *Visibility != ECodeBBodyContainerVisibility::Revealed
-				|| CandidateItem->ParentContainerId != Candidate.ActiveRunInventorySession.Layout.BasicContainerId
-				|| !OriginalBaseQuick->Slots.IsValidIndex(CandidateItem->SlotIndex)
-				|| OriginalBaseQuick->Slots[CandidateItem->SlotIndex].IsValid()
-				|| !CandidateBaseQuick->Slots.IsValidIndex(CandidateItem->SlotIndex)
-				|| CandidateBaseQuick->Slots[CandidateItem->SlotIndex] != OriginalItemId)
+				|| (!bExactBaseQuick && !bExactCurrentChild && !bExactFormalEquipment)
+				|| !OriginalTarget || !CandidateTarget
+				|| !OriginalTarget->Slots.IsValidIndex(CandidateItem->SlotIndex)
+				|| OriginalTarget->Slots[CandidateItem->SlotIndex].IsValid()
+				|| !CandidateTarget->Slots.IsValidIndex(CandidateItem->SlotIndex)
+				|| CandidateTarget->Slots[CandidateItem->SlotIndex] != OriginalItemId)
 			{
-				if (OutError) *OutError = TEXT("Code B P21 only moves a Revealed corpse equipment item to one empty exact P6 BaseQuick cell.");
+				if (OutError) *OutError = TEXT("Code B P38 only moves one Revealed P21 root to an explicit empty BaseQuick/current-child/compatible-formal P6 cell.");
+				return false;
+			}
+			const FCodeBP38BodyEquipmentTransferProof& Proof = AcceptedCommand.P38BodyEquipmentProof;
+			const bool bCarriesChildProof = Proof.ActivePlayerChildContainerId.IsValid()
+				|| Proof.ActivePlayerChildParentItemId.IsValid()
+				|| Proof.ActivePlayerChildOpenGeneration != 0;
+			FGuid ProofCanonicalParentItemId;
+			const bool bCurrentChildProofValid = !bCarriesChildProof
+				|| (Proof.ActivePlayerChildContainerId.IsValid()
+					&& Proof.ActivePlayerChildParentItemId.IsValid()
+					&& Proof.ActivePlayerChildOpenGeneration != 0
+					&& IsP35ActiveP17ChildContainer(
+						Candidate.ActiveRunInventorySession,
+						Proof.ActivePlayerChildContainerId, &ProofCanonicalParentItemId)
+					&& ProofCanonicalParentItemId == Proof.ActivePlayerChildParentItemId);
+			if (AcceptedCommand.Intent != ECodeBP2CommandIntent::Standard
+				|| AcceptedCommand.Operation != ECodeBOperation::Move
+				|| !AcceptedCommand.TransactionId.IsValid()
+				|| AcceptedCommand.ItemId != OriginalItemId
+				|| AcceptedCommand.SourceContainerId != EquipmentContainerId
+				|| AcceptedCommand.SourceSlot != 0
+				|| AcceptedCommand.TargetContainerId != CandidateItem->ParentContainerId
+				|| AcceptedCommand.TargetSlot != CandidateItem->SlotIndex
+				|| AcceptedCommand.Quantity != 1
+				|| AcceptedCommand.ExpectedRevision != P24PriorComposite.Revision
+				|| AcceptedCommand.QuickTransferTargetMode != ECodeBQuickTransferTargetMode::Legacy
+				|| !Proof.HasSourceIdentity() || !bCurrentChildProofValid
+				|| Proof.OwnerId != InOwnerId || Proof.RunInstanceId != InRunInstanceId
+				|| Proof.BodyTargetId != BodyTargetId
+				|| Proof.DeathReceiptId != Record->Receipt.DeathReceipt.DeathReceiptId
+				|| Proof.BodyRecordRevision != ExpectedBodyContainerRevision
+				|| Proof.BodyDefinitionId != DefinitionId
+				|| Proof.SourceSlotSemantic != EquipmentSlot.Semantic
+				|| Proof.LootProfileId != Record->Receipt.LootProfileId
+				|| Proof.LootProfileVersion != Record->Receipt.LootProfileVersion
+				|| Proof.LootProfileDigest != Record->Receipt.LootProfileDigest
+				|| Proof.EquipmentCandidateSetDigest != Record->Receipt.EquipmentCandidateSetDigest
+				|| Proof.WorkspaceTargetPaneId != FName(TEXT("InRun.External"))
+				|| (bExactCurrentChild && !bCarriesChildProof))
+			{
+				if (OutError) *OutError = TEXT("Code B P38 refused a non-normal, stale, redirected, quick, or identity-incomplete body-equipment command.");
 				return false;
 			}
 			bMovedP21Equipment = true;
 			MovedP21EquipmentItemId = OriginalItemId;
 			MovedP21EquipmentContainerId = EquipmentContainerId;
+			MovedP21EquipmentTargetContainerId = CandidateItem->ParentContainerId;
 			MovedP21EquipmentTargetSlot = CandidateItem->SlotIndex;
 		}
 		for (const TPair<FGuid, FCodeBItemInstance>& Pair : Candidate.ActiveRunInventorySession.RepositorySnapshot.Items)
@@ -7937,22 +7993,33 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 			}
 			FCodeBRepository ExpectedRepository;
 			FCodeBTransactionRequest Move;
-			Move.TransactionId = FGuid::NewGuid();
+			Move.TransactionId = AcceptedCommand.TransactionId;
 			Move.Operation = ECodeBOperation::Move;
 			Move.ItemId = MovedP21EquipmentItemId;
 			Move.SourceContainerId = MovedP21EquipmentContainerId;
 			Move.SourceSlot = 0;
-			Move.TargetContainerId = Candidate.ActiveRunInventorySession.Layout.BasicContainerId;
+			Move.TargetContainerId = MovedP21EquipmentTargetContainerId;
 			Move.TargetSlot = MovedP21EquipmentTargetSlot;
+			Move.Quantity = 1;
 			Move.ExpectedRevision = ExpectedComposite.Revision;
 			if (!ExpectedRepository.LoadPersistedSnapshot(ExpectedComposite, &Error)
 				|| !ExpectedRepository.ExecuteTransaction(Move).IsSuccess()
 				|| ExpectedRepository.CaptureSnapshot() != CompositeSnapshot)
 			{
-				if (OutError) *OutError = TEXT("Code B P21 transfer candidate differs from the one allowed P11-to-empty-P6-BaseQuick P1 Move.");
+				if (OutError) *OutError = TEXT("Code B P38 candidate differs from its one explicit P11-to-P6 whole-root P1 Move(1).");
 				return false;
 			}
 		}
+		else if (AcceptedCommand.P38BodyEquipmentProof.bIntent)
+		{
+			if (OutError) *OutError = TEXT("Code B P38 proof was supplied without moving its exact P21 corpse-equipment root.");
+			return false;
+		}
+	}
+	else if (AcceptedCommand.P38BodyEquipmentProof.bIntent)
+	{
+		if (OutError) *OutError = TEXT("Code B P38 proof cannot be used by a historical non-r3 body record.");
+		return false;
 	}
 
 	// P20 adds one deliberately narrow P12 path. A formal parent may leave this

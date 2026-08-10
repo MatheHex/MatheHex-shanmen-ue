@@ -135,6 +135,44 @@ namespace demo_map_code_b
 		BaseQuickNoChildAtInput
 	};
 
+	/**
+	 * P38 transient proof for one normal drag from an exact P21 corpse-equipment
+	 * slot. It carries only immutable identities/lifecycle revisions into the
+	 * existing P3 -> P2 -> P1 -> P11/P6 commit callback; it is never persisted as
+	 * item or container truth.
+	 */
+	struct FCodeBP38BodyEquipmentTransferProof
+	{
+		bool bIntent = false;
+		FGuid OwnerId;
+		FGuid RunInstanceId;
+		FGuid BodyTargetId;
+		FGuid DeathReceiptId;
+		int32 BodyRecordRevision = INDEX_NONE;
+		uint32 BodyTargetOpenGeneration = 0;
+		FName BodyDefinitionId;
+		FName SourceSlotSemantic;
+		FName LootProfileId;
+		int32 LootProfileVersion = 0;
+		FString LootProfileDigest;
+		FString EquipmentCandidateSetDigest;
+		FName WorkspaceTargetPaneId;
+		FGuid ActivePlayerChildContainerId;
+		FGuid ActivePlayerChildParentItemId;
+		uint32 ActivePlayerChildOpenGeneration = 0;
+
+		bool HasSourceIdentity() const
+		{
+			return bIntent && OwnerId.IsValid() && RunInstanceId.IsValid()
+				&& BodyTargetId.IsValid() && DeathReceiptId.IsValid()
+				&& BodyRecordRevision > 0 && BodyTargetOpenGeneration != 0
+				&& !BodyDefinitionId.IsNone() && !SourceSlotSemantic.IsNone()
+				&& !LootProfileId.IsNone() && LootProfileVersion > 0
+				&& !LootProfileDigest.IsEmpty() && !EquipmentCandidateSetDigest.IsEmpty()
+				&& !WorkspaceTargetPaneId.IsNone();
+		}
+	};
+
 	struct FCodeBP2Command
 	{
 		FGuid TransactionId;
@@ -155,6 +193,8 @@ namespace demo_map_code_b
 		ECodeBQuickTransferTargetMode QuickTransferTargetMode = ECodeBQuickTransferTargetMode::Legacy;
 		/** P36/P37 exact canonical spatial parent paired with CurrentP17Child mode. */
 		FGuid QuickTransferActivePlayerParentItemId;
+		/** P38 normal-drag source/target lifecycle proof; absent for every earlier family. */
+		FCodeBP38BodyEquipmentTransferProof P38BodyEquipmentProof;
 	};
 
 	struct FCodeBP2ApplicationResult

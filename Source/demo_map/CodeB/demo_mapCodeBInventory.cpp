@@ -31,7 +31,7 @@ namespace demo_map_code_b
 		// P21 has read-only corpse equipment source cells.  They are still formal
 		// P1 equipment containers for invariant purposes, but their one-way P12
 		// extraction is modelled as a Move and is later narrowed by the durable
-		// body-transfer commit to an empty P6 BaseQuick destination.
+		// body-transfer commit to one explicit P38 P6 target.
 		bool IsP21BodyEquipmentContainer(const FCodeBContainer& Container)
 		{
 			return Container.IsEquipment()
@@ -642,18 +642,56 @@ namespace demo_map_code_b
 		{
 			return false;
 		}
-		if (Source->IsEquipment() && !IsP21BodyEquipmentContainer(*Source))
+		const bool bP21BodyEquipmentSource = IsP21BodyEquipmentContainer(*Source);
+		if (Source->IsEquipment() && !bP21BodyEquipmentSource)
 		{
 			OutResult.Code = ECodeBResultCode::InvalidSlot;
 			OutResult.Message = TEXT("Use Unequip for equipment items.");
 			return false;
 		}
-		int32 TargetSlot = Request.TargetSlot;
-		if (!IsValidStorageTarget(Candidate, Request.TargetContainerId, Request.TargetSlot, OutResult, &TargetSlot))
-		{
-			return false;
-		}
 		FCodeBContainer* Target = Candidate.Containers.Find(Request.TargetContainerId);
+		int32 TargetSlot = Request.TargetSlot;
+		if (bP21BodyEquipmentSource && Target && Target->IsEquipment())
+		{
+			const FCodeBItemDefinition* Definition = Candidate.Definitions.Find(Item->DefinitionId);
+			const FString TargetType = Target->ContainerType.ToString();
+			const bool bFormalP38Target = TargetType == TEXT("Weapon")
+				|| TargetType == TEXT("Armor") || TargetType.StartsWith(TEXT("Accessory"));
+			if (!Definition || !bFormalP38Target || IsP21BodyEquipmentContainer(*Target)
+				|| !IsEquipSlotCompatible(*Definition, *Target)
+				|| Definition->bStackable || Definition->MaxStack != 1
+				|| Definition->SpatialContainerSemantic != ECodeBSpatialContainerSemantic::None
+				|| Definition->ChildContainerCapacity != 0
+				|| Item->Quantity != 1 || Item->ChildContainerId.IsValid()
+				|| Request.Quantity != 1 || Target->Slots.Num() != 1
+				|| (Request.TargetSlot != INDEX_NONE && Request.TargetSlot != 0))
+			{
+				OutResult.Code = ECodeBResultCode::IncompatibleSlot;
+				OutResult.Message = TEXT("P38 corpse equipment Move requires one compatible formal empty player equipment slot.");
+				return false;
+			}
+			TargetSlot = 0;
+			if (Target->Slots[0].IsValid())
+			{
+				OutResult.Code = ECodeBResultCode::TargetOccupied;
+				OutResult.Message = TEXT("P38 corpse equipment Move does not replace an occupied equipment slot.");
+				return false;
+			}
+		}
+		else
+		{
+			if (bP21BodyEquipmentSource && Request.Quantity != 1)
+			{
+				OutResult.Code = ECodeBResultCode::InvalidQuantity;
+				OutResult.Message = TEXT("P38 corpse equipment Move requires the one whole root.");
+				return false;
+			}
+			if (!IsValidStorageTarget(Candidate, Request.TargetContainerId, Request.TargetSlot, OutResult, &TargetSlot))
+			{
+				return false;
+			}
+			Target = Candidate.Containers.Find(Request.TargetContainerId);
+		}
 		const int32 OldSlot = Item->SlotIndex;
 		const FGuid OldContainerId = Item->ParentContainerId;
 		Source->Slots[OldSlot] = FGuid();

@@ -5794,13 +5794,14 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBBodyContainerPage(
 	const bool bOpened = Host->OpenProfilePage(
 		*CodeBBodyContainerRepository, PresentationLayout,
 		[this](const demo_map_code_b::FCodeBSnapshot& PersistedSnapshot,
-			const demo_map_code_b::FCodeBP2Command&, FString& CommitError)
+			const demo_map_code_b::FCodeBP2Command& AcceptedCommand, FString& CommitError)
 		{
 			const bool bCommitted = FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 				ProfilePreparationFlow ? ProfilePreparationFlow->GetStorageRoot() : FString(),
 				CodeBBodyContainerOwnerId, CodeBBodyContainerRunId, CodeBBodyContainerTargetId,
 				CodeBBodyContainerDefinitionId, CodeBBodyContainerExpectedP6Revision,
-				CodeBBodyContainerExpectedTargetRevision, PersistedSnapshot, &CommitError);
+				CodeBBodyContainerExpectedTargetRevision, AcceptedCommand,
+				PersistedSnapshot, &CommitError);
 			if (bCommitted)
 			{
 				CodeBBodyContainerExpectedP6Revision = PersistedSnapshot.Revision;

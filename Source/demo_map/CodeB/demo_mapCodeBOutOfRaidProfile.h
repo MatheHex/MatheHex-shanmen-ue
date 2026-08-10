@@ -862,6 +862,7 @@ public:
 		FName DefinitionId,
 		int32 ExpectedP6SnapshotRevision,
 		int32 ExpectedBodyContainerRevision,
+		const demo_map_code_b::FCodeBP2Command& AcceptedCommand,
 		const demo_map_code_b::FCodeBSnapshot& CompositeSnapshot,
 		FString* OutError = nullptr);
 	/**
