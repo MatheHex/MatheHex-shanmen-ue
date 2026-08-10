@@ -346,6 +346,10 @@ public:
 	bool ValidateP43BodySimpleStackGroundDropContext(
 		const demo_map_code_b::FCodeBP4DragPayload& Payload,
 		FString& OutError) const;
+	/** P45 exact revealed P20 complete spatial graph source gate for normal GroundDrop. */
+	bool ValidateP45BodySpatialGraphGroundDropContext(
+		const demo_map_code_b::FCodeBP4DragPayload& Payload,
+		FString& OutError) const;
 	/** P44 exact P21 equipment source gate for the existing normal GroundDropZone. */
 	bool ValidateP44BodyEquipmentGroundDropContext(
 		const demo_map_code_b::FCodeBP4DragPayload& Payload,
@@ -370,6 +374,10 @@ public:
 	bool IsP35ChildStandardEquipmentWorldDropSource(const FGuid& ContainerId) const;
 	/** P44 provenance admission into the existing standard-root normal/QuickTransfer routes. */
 	bool IsP44CorpseStandardEquipmentWorldDropSource(const FGuid& ContainerId) const;
+	/** P45 provenance admission into the existing P19 normal / P30 quick pickup routes. */
+	bool IsP45CorpseSpatialGraphWorldDropSource(const FGuid& ContainerId) const;
+	/** Exact provenance gate shared by the established P19/P30 complete-graph routes. */
+	bool IsP19CompleteGraphWorldDropSource(const FGuid& ContainerId) const;
 	bool ValidateWorldDropTransferContext(
 		const demo_map_code_b::FCodeBP4DragPayload& Payload,
 		const demo_map_code_b::FCodeBP3SlotAddress& Target,

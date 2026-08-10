@@ -4745,24 +4745,43 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBBodyGroundDrop(
 		Payload.P43BodySimpleStackGroundDropProof;
 	const demo_map_code_b::FCodeBP38BodyEquipmentTransferProof& P44Proof =
 		Payload.P38BodyEquipmentProof;
+	const demo_map_code_b::FCodeBP42BodySpatialGraphEquipmentTransferProof& P45Proof =
+		Payload.P42BodySpatialGraphEquipmentProof;
 	const bool bP43SimpleStack = P43Proof.HasSourceIdentity();
 	const bool bP44StandardEquipment = P44Proof.HasSourceIdentity();
-	const FGuid ProofOwnerId = bP44StandardEquipment ? P44Proof.OwnerId : P43Proof.OwnerId;
-	const FGuid ProofRunInstanceId = bP44StandardEquipment ? P44Proof.RunInstanceId : P43Proof.RunInstanceId;
-	const FGuid ProofBodyTargetId = bP44StandardEquipment ? P44Proof.BodyTargetId : P43Proof.BodyTargetId;
-	const FName ProofBodyDefinitionId = bP44StandardEquipment ? P44Proof.BodyDefinitionId : P43Proof.BodyDefinitionId;
-	const int32 ProofBodyRecordRevision = bP44StandardEquipment ? P44Proof.BodyRecordRevision : P43Proof.BodyRecordRevision;
-	const FGuid ProofSourceItemId = bP44StandardEquipment ? P44Proof.SourceItemId : P43Proof.SourceItemId;
-	const FGuid ProofSourceContainerId = bP44StandardEquipment ? P44Proof.SourceContainerId : P43Proof.SourceContainerId;
-	const int32 ProofSourceSlot = bP44StandardEquipment ? P44Proof.SourceSlot : P43Proof.SourceSlot;
-	const FName ProofSourceDefinitionId = bP44StandardEquipment ? P44Proof.SourceDefinitionId : P43Proof.SourceDefinitionId;
-	const int32 ProofSourceQuantity = bP44StandardEquipment ? 1 : P43Proof.SourceQuantity;
-	if (!Payload.IsValid() || bP43SimpleStack == bP44StandardEquipment
+	const bool bP45SpatialGraph = P45Proof.HasSourceIdentity() && !P45Proof.bIntent;
+	const FGuid ProofOwnerId = bP45SpatialGraph ? P45Proof.OwnerId
+		: (bP44StandardEquipment ? P44Proof.OwnerId : P43Proof.OwnerId);
+	const FGuid ProofRunInstanceId = bP45SpatialGraph ? P45Proof.RunInstanceId
+		: (bP44StandardEquipment ? P44Proof.RunInstanceId : P43Proof.RunInstanceId);
+	const FGuid ProofBodyTargetId = bP45SpatialGraph ? P45Proof.BodyTargetId
+		: (bP44StandardEquipment ? P44Proof.BodyTargetId : P43Proof.BodyTargetId);
+	const FName ProofBodyDefinitionId = bP45SpatialGraph ? P45Proof.BodyDefinitionId
+		: (bP44StandardEquipment ? P44Proof.BodyDefinitionId : P43Proof.BodyDefinitionId);
+	const int32 ProofBodyRecordRevision = bP45SpatialGraph ? P45Proof.BodyRecordRevision
+		: (bP44StandardEquipment ? P44Proof.BodyRecordRevision : P43Proof.BodyRecordRevision);
+	const FGuid ProofSourceItemId = bP45SpatialGraph ? P45Proof.SourceItemId
+		: (bP44StandardEquipment ? P44Proof.SourceItemId : P43Proof.SourceItemId);
+	const FGuid ProofSourceContainerId = bP45SpatialGraph ? P45Proof.SourceContainerId
+		: (bP44StandardEquipment ? P44Proof.SourceContainerId : P43Proof.SourceContainerId);
+	const int32 ProofSourceSlot = bP45SpatialGraph ? P45Proof.SourceSlot
+		: (bP44StandardEquipment ? P44Proof.SourceSlot : P43Proof.SourceSlot);
+	const FName ProofSourceDefinitionId = bP45SpatialGraph ? P45Proof.SourceDefinitionId
+		: (bP44StandardEquipment ? P44Proof.SourceDefinitionId : P43Proof.SourceDefinitionId);
+	const int32 ProofSourceQuantity = bP45SpatialGraph || bP44StandardEquipment
+		? 1 : P43Proof.SourceQuantity;
+	const int32 SourceKindCount = (bP43SimpleStack ? 1 : 0)
+		+ (bP44StandardEquipment ? 1 : 0) + (bP45SpatialGraph ? 1 : 0);
+	if (!Payload.IsValid() || SourceKindCount != 1
 		|| Payload.bQuickTransferIntent || Payload.bSplitIntent
 		|| Payload.QuantityDraftKind != demo_map_code_b::ECodeBP3QuantityDraftKind::None
 		|| Payload.RequestedMergeQuantity != 0
-		|| (bP43SimpleStack && Payload.P38BodyEquipmentProof.bIntent)
-		|| (bP44StandardEquipment && Payload.P43BodySimpleStackGroundDropProof.bIntent)
+		|| (bP43SimpleStack && (Payload.P38BodyEquipmentProof.bIntent
+			|| Payload.P42BodySpatialGraphEquipmentProof.bSourceProof))
+		|| (bP44StandardEquipment && (Payload.P43BodySimpleStackGroundDropProof.bIntent
+			|| Payload.P42BodySpatialGraphEquipmentProof.bSourceProof))
+		|| (bP45SpatialGraph && (Payload.P43BodySimpleStackGroundDropProof.bIntent
+			|| Payload.P38BodyEquipmentProof.bIntent))
 		|| Payload.P40BodySimpleStackProof.bIntent
 		|| Payload.P41BodySpatialGraphProof.bIntent
 		|| Payload.P42BodySpatialGraphEquipmentProof.bIntent
@@ -4784,7 +4803,7 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBBodyGroundDrop(
 		|| ProofSourceDefinitionId != Payload.DefinitionId
 		|| ProofSourceQuantity != Payload.Quantity)
 	{
-		OutFeedback = TEXT("P43/P44 body GroundDrop source or open-host identity is stale; no fallback was attempted.");
+		OutFeedback = TEXT("P43/P44/P45 body GroundDrop source or open-host identity is stale; no fallback was attempted.");
 		return false;
 	}
 	const Fdemo_mapProfileSessionSnapshot Snapshot = ProfilePreparationFlow->GetSession()
@@ -4793,7 +4812,7 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBBodyGroundDrop(
 		|| Snapshot.ProfileId != ProofOwnerId || Snapshot.ActiveRunId != ProofRunInstanceId
 		|| ProfilePreparationFlow->GetStartedRunId() != ProofRunInstanceId)
 	{
-		OutFeedback = TEXT("P43/P44 body GroundDrop requires the same active Owner/Run lifecycle.");
+		OutFeedback = TEXT("P43/P44/P45 body GroundDrop requires the same active Owner/Run lifecycle.");
 		return false;
 	}
 
@@ -4807,7 +4826,8 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBBodyGroundDrop(
 		ProfilePreparationFlow->GetStorageRoot(), CodeBBodyContainerOwnerId,
 		CodeBBodyContainerRunId, CodeBBodyContainerTargetId,
 		CodeBBodyContainerDefinitionId, CodeBBodyContainerExpectedP6Revision,
-		CodeBBodyContainerExpectedTargetRevision, P43Proof, P44Proof, MapRoute, FloorTransform,
+		CodeBBodyContainerExpectedTargetRevision, P43Proof, P44Proof, P45Proof,
+		MapRoute, FloorTransform,
 		UpdatedBody, NewWorldDrop, &OutFeedback))
 	{
 		return false;

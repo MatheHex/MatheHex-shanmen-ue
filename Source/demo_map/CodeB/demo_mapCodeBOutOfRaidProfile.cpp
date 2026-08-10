@@ -1413,6 +1413,9 @@ namespace
 	{
 		OutError.Reset();
 		const FCodeBSnapshot& Prior = Session.RepositorySnapshot;
+		const bool bAcceptedCompleteGraphProvenance =
+			Drop.Provenance == TEXT("P31.AcceptedGroundDrop.CompleteGraph")
+			|| Drop.Provenance == TEXT("P45.AcceptedGroundDrop.CorpseSpatialCompleteGraph");
 		if (AcceptedCommand.Intent != ECodeBP2CommandIntent::QuickTransfer
 			|| AcceptedCommand.Operation != ECodeBOperation::Move
 			|| !AcceptedCommand.TransactionId.IsValid()
@@ -1426,7 +1429,8 @@ namespace
 			|| AcceptedCommand.QuickTransferActivePlayerContainerId.IsValid()
 			|| AcceptedCommand.ActivePlayerChildOpenGeneration != 0
 			|| Prior.Revision == MAX_int32
-			|| Drop.ActionState != ECodeBWorldDropActionState::Available)
+			|| Drop.ActionState != ECodeBWorldDropActionState::Available
+			|| !bAcceptedCompleteGraphProvenance)
 		{
 			OutError = TEXT("P30 requires one exact Ctrl QuickTransfer Move from the opened world root to BaseQuick.");
 			return false;
@@ -10437,6 +10441,7 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunBodyContainerWorldDropItem(
 	const int32 ExpectedBodyContainerRevision,
 	const FCodeBP43BodySimpleStackGroundDropProof& SourceProof,
 	const FCodeBP38BodyEquipmentTransferProof& EquipmentSourceProof,
+	const FCodeBP42BodySpatialGraphEquipmentTransferProof& SpatialSourceProof,
 	const FName MapRoute,
 	const FTransform& FloorTransform,
 	FCodeBBodyContainerProjection& OutBodyProjection,
@@ -10448,31 +10453,53 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunBodyContainerWorldDropItem(
 	if (OutError) OutError->Reset();
 	const bool bP43SimpleStack = SourceProof.HasSourceIdentity();
 	const bool bP44StandardEquipment = EquipmentSourceProof.HasSourceIdentity();
-	const FGuid ProofOwnerId = bP44StandardEquipment ? EquipmentSourceProof.OwnerId : SourceProof.OwnerId;
-	const FGuid ProofRunInstanceId = bP44StandardEquipment ? EquipmentSourceProof.RunInstanceId : SourceProof.RunInstanceId;
-	const FGuid ProofBodyTargetId = bP44StandardEquipment ? EquipmentSourceProof.BodyTargetId : SourceProof.BodyTargetId;
-	const FGuid ProofDeathReceiptId = bP44StandardEquipment ? EquipmentSourceProof.DeathReceiptId : SourceProof.DeathReceiptId;
-	const int32 ProofBodyRecordRevision = bP44StandardEquipment ? EquipmentSourceProof.BodyRecordRevision : SourceProof.BodyRecordRevision;
-	const FName ProofBodyDefinitionId = bP44StandardEquipment ? EquipmentSourceProof.BodyDefinitionId : SourceProof.BodyDefinitionId;
-	const FGuid ProofSourceContainerId = bP44StandardEquipment ? EquipmentSourceProof.SourceContainerId : SourceProof.SourceContainerId;
-	const int32 ProofSourceSlot = bP44StandardEquipment ? EquipmentSourceProof.SourceSlot : SourceProof.SourceSlot;
-	const FGuid ProofSourceItemId = bP44StandardEquipment ? EquipmentSourceProof.SourceItemId : SourceProof.SourceItemId;
-	const FName ProofSourceDefinitionId = bP44StandardEquipment ? EquipmentSourceProof.SourceDefinitionId : SourceProof.SourceDefinitionId;
-	const int32 ProofSourceQuantity = bP44StandardEquipment ? 1 : SourceProof.SourceQuantity;
-	const FName ProofLootProfileId = bP44StandardEquipment ? EquipmentSourceProof.LootProfileId : SourceProof.LootProfileId;
-	const int32 ProofLootProfileVersion = bP44StandardEquipment ? EquipmentSourceProof.LootProfileVersion : SourceProof.LootProfileVersion;
-	const FString ProofLootProfileDigest = bP44StandardEquipment ? EquipmentSourceProof.LootProfileDigest : SourceProof.LootProfileDigest;
-	const FString ProofLootResultDigest = bP44StandardEquipment ? EquipmentSourceProof.LootResultDigest : SourceProof.LootResultDigest;
-	const FString ProofMaterializationDigest = bP44StandardEquipment ? EquipmentSourceProof.MaterializationDigest : SourceProof.MaterializationDigest;
-	const FName ProofWorkspaceTargetPaneId = bP44StandardEquipment ? EquipmentSourceProof.WorkspaceTargetPaneId : SourceProof.WorkspaceTargetPaneId;
-	const int32 ProofCompositeRevision = bP44StandardEquipment ? EquipmentSourceProof.CompositeRevision : SourceProof.CompositeRevision;
+	const bool bP45SpatialGraph = SpatialSourceProof.HasSourceIdentity()
+		&& !SpatialSourceProof.bIntent;
+	const FGuid ProofOwnerId = bP45SpatialGraph ? SpatialSourceProof.OwnerId
+		: (bP44StandardEquipment ? EquipmentSourceProof.OwnerId : SourceProof.OwnerId);
+	const FGuid ProofRunInstanceId = bP45SpatialGraph ? SpatialSourceProof.RunInstanceId
+		: (bP44StandardEquipment ? EquipmentSourceProof.RunInstanceId : SourceProof.RunInstanceId);
+	const FGuid ProofBodyTargetId = bP45SpatialGraph ? SpatialSourceProof.BodyTargetId
+		: (bP44StandardEquipment ? EquipmentSourceProof.BodyTargetId : SourceProof.BodyTargetId);
+	const FGuid ProofDeathReceiptId = bP45SpatialGraph ? SpatialSourceProof.DeathReceiptId
+		: (bP44StandardEquipment ? EquipmentSourceProof.DeathReceiptId : SourceProof.DeathReceiptId);
+	const int32 ProofBodyRecordRevision = bP45SpatialGraph ? SpatialSourceProof.BodyRecordRevision
+		: (bP44StandardEquipment ? EquipmentSourceProof.BodyRecordRevision : SourceProof.BodyRecordRevision);
+	const FName ProofBodyDefinitionId = bP45SpatialGraph ? SpatialSourceProof.BodyDefinitionId
+		: (bP44StandardEquipment ? EquipmentSourceProof.BodyDefinitionId : SourceProof.BodyDefinitionId);
+	const FGuid ProofSourceContainerId = bP45SpatialGraph ? SpatialSourceProof.SourceContainerId
+		: (bP44StandardEquipment ? EquipmentSourceProof.SourceContainerId : SourceProof.SourceContainerId);
+	const int32 ProofSourceSlot = bP45SpatialGraph ? SpatialSourceProof.SourceSlot
+		: (bP44StandardEquipment ? EquipmentSourceProof.SourceSlot : SourceProof.SourceSlot);
+	const FGuid ProofSourceItemId = bP45SpatialGraph ? SpatialSourceProof.SourceItemId
+		: (bP44StandardEquipment ? EquipmentSourceProof.SourceItemId : SourceProof.SourceItemId);
+	const FName ProofSourceDefinitionId = bP45SpatialGraph ? SpatialSourceProof.SourceDefinitionId
+		: (bP44StandardEquipment ? EquipmentSourceProof.SourceDefinitionId : SourceProof.SourceDefinitionId);
+	const int32 ProofSourceQuantity = bP45SpatialGraph || bP44StandardEquipment
+		? 1 : SourceProof.SourceQuantity;
+	const FName ProofLootProfileId = bP45SpatialGraph ? SpatialSourceProof.LootProfileId
+		: (bP44StandardEquipment ? EquipmentSourceProof.LootProfileId : SourceProof.LootProfileId);
+	const int32 ProofLootProfileVersion = bP45SpatialGraph ? SpatialSourceProof.LootProfileVersion
+		: (bP44StandardEquipment ? EquipmentSourceProof.LootProfileVersion : SourceProof.LootProfileVersion);
+	const FString ProofLootProfileDigest = bP45SpatialGraph ? SpatialSourceProof.LootProfileDigest
+		: (bP44StandardEquipment ? EquipmentSourceProof.LootProfileDigest : SourceProof.LootProfileDigest);
+	const FString ProofLootResultDigest = bP45SpatialGraph ? SpatialSourceProof.LootResultDigest
+		: (bP44StandardEquipment ? EquipmentSourceProof.LootResultDigest : SourceProof.LootResultDigest);
+	const FString ProofMaterializationDigest = bP45SpatialGraph ? SpatialSourceProof.MaterializationDigest
+		: (bP44StandardEquipment ? EquipmentSourceProof.MaterializationDigest : SourceProof.MaterializationDigest);
+	const FName ProofWorkspaceTargetPaneId = bP45SpatialGraph ? SpatialSourceProof.WorkspaceTargetPaneId
+		: (bP44StandardEquipment ? EquipmentSourceProof.WorkspaceTargetPaneId : SourceProof.WorkspaceTargetPaneId);
+	const int32 ProofCompositeRevision = bP45SpatialGraph ? SpatialSourceProof.CompositeRevision
+		: (bP44StandardEquipment ? EquipmentSourceProof.CompositeRevision : SourceProof.CompositeRevision);
+	const int32 SourceKindCount = (bP43SimpleStack ? 1 : 0)
+		+ (bP44StandardEquipment ? 1 : 0) + (bP45SpatialGraph ? 1 : 0);
 	if (!InOwnerId.IsValid() || !InRunInstanceId.IsValid() || !BodyTargetId.IsValid()
 		|| DefinitionId != FName(TEXT("CodeB.BodyContainer.BasicCorpse"))
 		|| ExpectedP6SnapshotRevision < 0 || ExpectedBodyContainerRevision < 1
-		|| bP43SimpleStack == bP44StandardEquipment || MapRoute.IsNone()
+		|| SourceKindCount != 1 || MapRoute.IsNone()
 		|| !IsFiniteWorldDropTransform(FloorTransform))
 	{
-		if (OutError) *OutError = TEXT("Code B P43/P44 requires exactly one exact BasicCorpse source and legal frozen floor placement.");
+		if (OutError) *OutError = TEXT("Code B P43/P44/P45 requires exactly one exact BasicCorpse source and legal frozen floor placement.");
 		return false;
 	}
 
@@ -10555,6 +10582,40 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunBodyContainerWorldDropItem(
 		&& BodyRecord->Receipt.EquipmentCandidateSetDigest
 			== EquipmentSourceProof.EquipmentCandidateSetDigest
 		&& EquipmentSourceProof.EquipmentCandidateSetDigest == P21EquipmentCandidateSetDigest();
+	bool bP45ClosureValid = false;
+	if (bP45SpatialGraph && SourceItem)
+	{
+		bP45ClosureValid = ValidateP19WorldDropClosure(
+			BodyRecord->ContainerSnapshot, *SourceItem, bP45ClosureValid, Error)
+			&& bP45ClosureValid;
+	}
+	const bool bP45Profile = (BodyRecord->Receipt.LootProfileId
+			== FName(TEXT("CodeB.LootProfile.BasicCorpse.r2"))
+			&& BodyRecord->Receipt.LootProfileVersion == 2)
+		|| (BodyRecord->Receipt.LootProfileId
+			== FName(TEXT("CodeB.LootProfile.BasicCorpse.r3"))
+			&& BodyRecord->Receipt.LootProfileVersion == 3);
+	const bool bP45SourceShape = bP45SpatialGraph && SourceContainer && SourceDefinition
+		&& SourceItem && bP45Profile && bP45ClosureValid
+		&& ProofSourceContainerId == BodyRecord->ContainerId
+		&& SourceContainer->ContainerId == BodyRecord->ContainerId
+		&& SourceContainer->ContainerType == DefinitionId && !SourceContainer->IsEquipment()
+		&& !SourceDefinition->bStackable && SourceDefinition->MaxStack == 1
+		&& SourceDefinition->ChildContainerCapacity > 0 && SourceItem->Quantity == 1
+		&& SourceItem->ChildContainerId == SpatialSourceProof.SourceChildContainerId
+		&& SpatialSourceProof.SourceChildContainerId
+			== SpatialSourceProof.StableSpatialChildGuid
+		&& SpatialSourceProof.StableSpatialChildGuid == SpatialChildGuid(SourceItem->ItemId)
+		&& ((ProofSourceDefinitionId == Fdemo_mapItemIds::WindTalisman
+				&& SourceDefinition->ItemType == ECodeBItemType::SpatialItem
+				&& SourceDefinition->EquipSlot == ECodeBEquipSlot::SpatialItem
+				&& SourceDefinition->SpatialContainerSemantic
+					== ECodeBSpatialContainerSemantic::QuickRing)
+			|| (ProofSourceDefinitionId == Fdemo_mapItemIds::BackpackLevel1
+				&& SourceDefinition->ItemType == ECodeBItemType::Backpack
+				&& SourceDefinition->EquipSlot == ECodeBEquipSlot::Backpack
+				&& SourceDefinition->SpatialContainerSemantic
+					== ECodeBSpatialContainerSemantic::StoragePouch));
 	if (ProofOwnerId != InOwnerId || ProofRunInstanceId != InRunInstanceId
 		|| ProofBodyTargetId != BodyTargetId
 		|| ProofBodyDefinitionId != DefinitionId
@@ -10584,14 +10645,17 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunBodyContainerWorldDropItem(
 		|| SourceItem->ParentContainerId != ProofSourceContainerId
 		|| SourceItem->SlotIndex != ProofSourceSlot
 		|| SourceItem->Quantity != ProofSourceQuantity
-		|| SourceItem->Quantity <= 0 || SourceItem->ChildContainerId.IsValid()
+		|| SourceItem->Quantity <= 0
+		|| (bP45SpatialGraph
+			? SourceItem->ChildContainerId != SpatialSourceProof.SourceChildContainerId
+			: SourceItem->ChildContainerId.IsValid())
 		|| SourceVisibility->Visibility != ECodeBBodyContainerVisibility::Revealed
 		|| !BuildCanonicalCodeBItemDefinition(ProofSourceDefinitionId, CanonicalDefinition, Error)
 		|| !(*SourceDefinition == CanonicalDefinition)
-		|| (!bP43SourceShape && !bP44SourceShape))
+		|| (!bP43SourceShape && !bP44SourceShape && !bP45SourceShape))
 	{
 		if (OutError) *OutError = Error.IsEmpty()
-			? TEXT("Code B P43/P44 refused a non-Revealed, non-canonical, spatial, or provenance-stale body root.")
+			? TEXT("Code B P43/P44/P45 refused a non-Revealed, non-canonical, or provenance-stale body source graph.")
 			: Error;
 		return false;
 	}
@@ -10654,10 +10718,44 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunBodyContainerWorldDropItem(
 		|| AcceptedWorldRoot->DefinitionId != ProofSourceDefinitionId
 		|| AcceptedWorldRoot->Quantity != ProofSourceQuantity
 		|| AcceptedWorldRoot->ParentContainerId != WorldContainerId
-		|| AcceptedWorldRoot->SlotIndex != 0 || AcceptedWorldRoot->ChildContainerId.IsValid())
+		|| AcceptedWorldRoot->SlotIndex != 0
+		|| (bP45SpatialGraph
+			? AcceptedWorldRoot->ChildContainerId != SpatialSourceProof.SourceChildContainerId
+			: AcceptedWorldRoot->ChildContainerId.IsValid()))
 	{
-		if (OutError) *OutError = TEXT("Code B P43/P44 accepted P1 result is not the same single root in slot 0.");
+		if (OutError) *OutError = TEXT("Code B P43/P44/P45 accepted P1 result is not the same source root in slot 0.");
 		return false;
+	}
+	if (bP45SpatialGraph)
+	{
+		bool bAcceptedSpatialClosure = false;
+		const FCodeBContainer* OriginalChild = BodyRecord->ContainerSnapshot.Containers.Find(
+			SpatialSourceProof.SourceChildContainerId);
+		const FCodeBContainer* AcceptedChild = AcceptedComposite.Containers.Find(
+			SpatialSourceProof.SourceChildContainerId);
+		if (!ValidateP19WorldDropClosure(
+				AcceptedComposite, *AcceptedWorldRoot, bAcceptedSpatialClosure, Error)
+			|| !bAcceptedSpatialClosure || !OriginalChild || !AcceptedChild
+			|| !(*OriginalChild == *AcceptedChild))
+		{
+			if (OutError) *OutError = Error.IsEmpty()
+				? TEXT("Code B P45 accepted P1 result did not preserve the exact spatial child container.")
+				: Error;
+			return false;
+		}
+		for (const FGuid& ChildItemId : OriginalChild->Slots)
+		{
+			if (!ChildItemId.IsValid()) continue;
+			const FCodeBItemInstance* OriginalChildItem =
+				BodyRecord->ContainerSnapshot.Items.Find(ChildItemId);
+			const FCodeBItemInstance* AcceptedChildItem = AcceptedComposite.Items.Find(ChildItemId);
+			if (!OriginalChildItem || !AcceptedChildItem
+				|| !(*OriginalChildItem == *AcceptedChildItem))
+			{
+				if (OutError) *OutError = TEXT("Code B P45 accepted P1 result changed a child item in the complete graph.");
+				return false;
+			}
+		}
 	}
 	for (const FCodeBWorldDropRecord& ExistingDrop : PriorSession.WorldDrops)
 	{
@@ -10684,8 +10782,28 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunBodyContainerWorldDropItem(
 
 	TSet<FGuid> BodyContainerIds;
 	TSet<FGuid> RemainingBodyItemIds;
+	TSet<FGuid> TransferredClosureItemIds;
+	TransferredClosureItemIds.Add(ProofSourceItemId);
+	if (bP45SpatialGraph)
+	{
+		const FCodeBContainer* SpatialChild = BodyRecord->ContainerSnapshot.Containers.Find(
+			SpatialSourceProof.SourceChildContainerId);
+		if (!SpatialChild)
+		{
+			if (OutError) *OutError = TEXT("Code B P45 source child disappeared before P11/P6 partition.");
+			return false;
+		}
+		for (const FGuid& ChildItemId : SpatialChild->Slots)
+		{
+			if (ChildItemId.IsValid()) TransferredClosureItemIds.Add(ChildItemId);
+		}
+	}
 	for (const TPair<FGuid, FCodeBContainer>& Pair : BodyRecord->ContainerSnapshot.Containers)
 	{
+		if (bP45SpatialGraph && Pair.Key == SpatialSourceProof.SourceChildContainerId)
+		{
+			continue;
+		}
 		if (!AcceptedComposite.Containers.Contains(Pair.Key))
 		{
 			if (OutError) *OutError = TEXT("Code B P43/P44 lost an unrelated P11 body container.");
@@ -10695,7 +10813,7 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunBodyContainerWorldDropItem(
 	}
 	for (const TPair<FGuid, FCodeBItemInstance>& Pair : BodyRecord->ContainerSnapshot.Items)
 	{
-		if (Pair.Key == ProofSourceItemId) continue;
+		if (TransferredClosureItemIds.Contains(Pair.Key)) continue;
 		if (!AcceptedComposite.Items.Contains(Pair.Key))
 		{
 			if (OutError) *OutError = TEXT("Code B P43/P44 lost an unrelated P11 body item.");
@@ -10730,12 +10848,17 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunBodyContainerWorldDropItem(
 	}
 
 	TArray<FCodeBBodyContainerItemVisibility> NextVisibilities;
-	NextVisibilities.Reserve(BodyRecord->ItemVisibilities.Num() - 1);
+	NextVisibilities.Reserve(FMath::Max(
+		0, BodyRecord->ItemVisibilities.Num() - TransferredClosureItemIds.Num()));
 	for (const FCodeBBodyContainerItemVisibility& Visibility : BodyRecord->ItemVisibilities)
 	{
-		if (Visibility.ItemId == ProofSourceItemId)
+		if (TransferredClosureItemIds.Contains(Visibility.ItemId))
 		{
-			if (Visibility.Visibility != ECodeBBodyContainerVisibility::Revealed) return false;
+			if (Visibility.ItemId == ProofSourceItemId
+				&& Visibility.Visibility != ECodeBBodyContainerVisibility::Revealed)
+			{
+				return false;
+			}
 			continue;
 		}
 		if (!BodySnapshot.Items.Contains(Visibility.ItemId))
@@ -10760,14 +10883,17 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunBodyContainerWorldDropItem(
 	NewDrop.Ordinal = NewOrdinal;
 	NewDrop.WorldContainerId = WorldContainerId;
 	NewDrop.ItemId = ProofSourceItemId;
-	NewDrop.SpatialChildContainerId.Invalidate();
+	NewDrop.SpatialChildContainerId = bP45SpatialGraph
+		? SpatialSourceProof.SourceChildContainerId : FGuid();
 	NewDrop.MapRoute = MapRoute;
 	NewDrop.FloorTransform = FloorTransform;
 	NewDrop.ActionState = ECodeBWorldDropActionState::Available;
 	NewDrop.RecordRevision = 1;
-	NewDrop.Provenance = bP44StandardEquipment
-		? TEXT("P44.AcceptedGroundDrop.CorpseStandardEquipment")
-		: TEXT("P43.AcceptedGroundDrop.CorpseOrdinarySimpleStack");
+	NewDrop.Provenance = bP45SpatialGraph
+		? TEXT("P45.AcceptedGroundDrop.CorpseSpatialCompleteGraph")
+		: (bP44StandardEquipment
+			? TEXT("P44.AcceptedGroundDrop.CorpseStandardEquipment")
+			: TEXT("P43.AcceptedGroundDrop.CorpseOrdinarySimpleStack"));
 	++CandidateSession.NextWorldDropOrdinal;
 	SortWorldDropRegistry(CandidateSession.WorldDrops);
 	if (!ReconcileHotbarBindings(
@@ -10865,6 +10991,14 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 	{
 		if (OutError) *OutError = Error.IsEmpty()
 			? TEXT("Code B P14 pickup found an invalid stored ground item.") : Error;
+		return false;
+	}
+	const bool bAcceptedSpatialProvenance =
+		Drop->Provenance == TEXT("P31.AcceptedGroundDrop.CompleteGraph")
+		|| Drop->Provenance == TEXT("P45.AcceptedGroundDrop.CorpseSpatialCompleteGraph");
+	if (bIsSpatialClosure && !bAcceptedSpatialProvenance)
+	{
+		if (OutError) *OutError = TEXT("Code B P19/P30 pickup refused a complete graph without accepted P31/P45 provenance.");
 		return false;
 	}
 	const FCodeBItemInstance* CandidateItem = CandidateSnapshot.Items.Find(Drop->ItemId);

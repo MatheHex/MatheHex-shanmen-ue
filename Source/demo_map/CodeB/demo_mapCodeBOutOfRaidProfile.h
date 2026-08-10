@@ -1016,8 +1016,8 @@ public:
 		FCodeBWorldDropProjection& OutProjection,
 		FString* OutError = nullptr);
 	/**
-	 * P43/P44's sole corpse-to-world writer. It revalidates exactly one Revealed
-	 * ordinary P12 simple-stack or P21 standard-equipment root, creates one
+	 * P43/P44/P45's sole corpse-to-world writer. It revalidates exactly one Revealed
+	 * ordinary P12 simple-stack, P21 standard-equipment root, or P20 complete graph, creates one
 	 * derived P31 record, partitions the accepted P1 composite back into P11/P6,
 	 * and saves one Owner replacement.
 	 */
@@ -1031,6 +1031,7 @@ public:
 		int32 ExpectedBodyContainerRevision,
 		const demo_map_code_b::FCodeBP43BodySimpleStackGroundDropProof& SourceProof,
 		const demo_map_code_b::FCodeBP38BodyEquipmentTransferProof& EquipmentSourceProof,
+		const demo_map_code_b::FCodeBP42BodySpatialGraphEquipmentTransferProof& SpatialSourceProof,
 		FName MapRoute,
 		const FTransform& FloorTransform,
 		FCodeBBodyContainerProjection& OutBodyProjection,
