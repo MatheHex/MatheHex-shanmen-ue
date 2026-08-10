@@ -1057,6 +1057,25 @@ public:
 		FCodeBNormalContainerProjection& OutNormalProjection,
 		FCodeBWorldDropProjection& OutWorldProjection,
 		FString* OutError = nullptr);
+	/**
+	 * P50's sole BasicCache spatial-graph-to-world writer. It revalidates one
+	 * exact revealed P18 parent plus its unique empty child, moves the whole
+	 * graph to a new P31 record, and saves one Owner replacement.
+	 */
+	static bool DropMatchedRunNormalContainerSpatialWorldDropItem(
+		const FString& InStorageRoot,
+		const FGuid& InOwnerId,
+		const FGuid& InRunInstanceId,
+		const FGuid& SearchTargetId,
+		FName DefinitionId,
+		int32 ExpectedP6SnapshotRevision,
+		int32 ExpectedNormalContainerRevision,
+		const demo_map_code_b::FCodeBP48NormalContainerSpatialGraphEquipmentTransferProof& SourceProof,
+		FName MapRoute,
+		const FTransform& FloorTransform,
+		FCodeBNormalContainerProjection& OutNormalProjection,
+		FCodeBWorldDropProjection& OutWorldProjection,
+		FString* OutError = nullptr);
 	/** P14/P19/P26/P27/P28/P29/P30/P32/P34/P36/P37's only opened-WorldDrop writer; the accepted P2 command is transient proof context, never durable state. */
 	static bool CommitAcceptedMatchedRunWorldDropPickup(
 		const FString& InStorageRoot,

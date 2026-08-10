@@ -7020,6 +7020,27 @@ bool UCodeBP3UIHostSubsystem::ValidateP49NormalContainerSimpleStackGroundDropCon
 	return true;
 }
 
+bool UCodeBP3UIHostSubsystem::ValidateP50NormalContainerSpatialGraphGroundDropContext(
+	const FCodeBP4DragPayload& Payload,
+	FString& OutError) const
+{
+	const FCodeBP48NormalContainerSpatialGraphEquipmentTransferProof& Proof =
+		Payload.P48NormalContainerSpatialGraphEquipmentProof;
+	if (!Proof.HasSourceIdentity() || Proof.bIntent || Proof.HasFrozenTarget()
+		|| Payload.bQuickTransferIntent || Payload.bSplitIntent
+		|| Payload.QuantityDraftKind != ECodeBP3QuantityDraftKind::None
+		|| Payload.RequestedMergeQuantity != 0 || Payload.Quantity != 1
+		|| Payload.P49NormalContainerSimpleStackGroundDropProof.bIntent
+		|| Payload.P43BodySimpleStackGroundDropProof.bIntent
+		|| Payload.P42BodySpatialGraphEquipmentProof.bSourceProof)
+	{
+		OutError = TEXT("P50 只接受当前 P10 BasicCache 已揭示 P18 空 child 完整空间图的 normal GroundDrop。");
+		return false;
+	}
+	return ValidateP48NormalContainerSpatialGraphEquipmentTransferContext(
+		Payload, FCodeBP3SlotAddress(), OutError);
+}
+
 bool UCodeBP3UIHostSubsystem::ValidateP47NormalContainerSpatialGraphQuickTransferContext(
 	const FCodeBP4DragPayload& Payload,
 	const FCodeBP3SlotAddress& Target,
@@ -7205,9 +7226,12 @@ bool UCodeBP3UIHostSubsystem::ValidateP48NormalContainerSpatialGraphEquipmentTra
 	OutError.Reset();
 	const FCodeBP48NormalContainerSpatialGraphEquipmentTransferProof& Proof =
 		Payload.P48NormalContainerSpatialGraphEquipmentProof;
+	const bool bP50GroundDrop = Proof.HasSourceIdentity()
+		&& !Proof.bIntent && !Proof.HasFrozenTarget();
 	if (!Controller.IsValid() || !ActiveWidget.IsValid() || !NormalContainerPresentation.IsSet()
 		|| !WorkspacePresentation.IsSet() || !WorkspacePresentation->Context.IsInRun()
-		|| Payload.bQuickTransferIntent || !Proof.HasSourceIdentity() || !Proof.HasFrozenTarget()
+		|| Payload.bQuickTransferIntent || !Proof.HasSourceIdentity()
+		|| (!bP50GroundDrop && !Proof.HasFrozenTarget())
 		|| Payload.QuickTransferTargetMode != ECodeBQuickTransferTargetMode::Legacy
 		|| !IsNormalContainerPresentation(Payload.Source.ContainerId)
 		|| Payload.bSplitIntent || Payload.QuantityDraftKind != ECodeBP3QuantityDraftKind::None
@@ -7219,6 +7243,7 @@ bool UCodeBP3UIHostSubsystem::ValidateP48NormalContainerSpatialGraphEquipmentTra
 		|| Payload.P38BodyEquipmentProof.bIntent || Payload.P40BodySimpleStackProof.bIntent
 		|| Payload.P46NormalContainerSimpleStackProof.bIntent
 		|| Payload.P47NormalContainerSpatialGraphProof.bIntent
+		|| Payload.P49NormalContainerSimpleStackGroundDropProof.bIntent
 		|| Payload.P41BodySpatialGraphProof.bIntent
 		|| Payload.P42BodySpatialGraphEquipmentProof.bIntent
 		|| Payload.WorldDropId.IsValid() || Payload.WorldDropOrdinal != 0
@@ -7325,11 +7350,15 @@ bool UCodeBP3UIHostSubsystem::ValidateP48NormalContainerSpatialGraphEquipmentTra
 		&& ChildOwnerMatches == 1
 		&& Payload.ExpectedRevision == Projection.Revision
 		&& Proof.CompositeRevision == Projection.Revision
-		&& Proof.FrozenTargetCompositeRevision == Projection.Revision;
+		&& (bP50GroundDrop || Proof.FrozenTargetCompositeRevision == Projection.Revision);
 	if (!bExactSource)
 	{
 		OutError = TEXT("P48 source 的 P18 provenance、BasicCache receipt/reveal、parent-child closure、Owner/Run/revision/open-focus 身份已失效。");
 		return false;
+	}
+	if (bP50GroundDrop)
+	{
+		return true;
 	}
 
 	const FName ExpectedRole = bWindTalisman ? FName(TEXT("SpatialRing"))
@@ -8098,6 +8127,8 @@ bool UCodeBP3UIHostSubsystem::IsP19CompleteGraphWorldDropSource(
 	return IsWorldDropPresentation(ContainerId) && WorldDropPresentation.IsSet()
 		&& (WorldDropPresentation->Provenance
 			== TEXT("P31.AcceptedGroundDrop.CompleteGraph")
+			|| WorldDropPresentation->Provenance
+				== TEXT("P50.AcceptedGroundDrop.BasicCacheSpatialCompleteGraph")
 			|| IsP45CorpseSpatialGraphWorldDropSource(ContainerId));
 }
 
@@ -8275,6 +8306,18 @@ bool UCodeBP3UIHostSubsystem::RequestGroundDrop(
 	{
 		PopulateP49NormalContainerSimpleStackGroundDropProof(EffectivePayload);
 	}
+	const bool bP50SpatialSource = bNormalContainerSource
+		&& EffectivePayload.P48NormalContainerSpatialGraphEquipmentProof.HasSourceIdentity()
+		&& !EffectivePayload.P48NormalContainerSpatialGraphEquipmentProof.bIntent;
+	if (bP50SpatialSource)
+	{
+		// GroundDrop freezes no player destination. Keep P48's immutable P18
+		// source graph proof and remove generic current-child decoration.
+		EffectivePayload.QuickTransferActivePlayerContainerId.Invalidate();
+		EffectivePayload.QuickTransferActivePlayerParentItemId.Invalidate();
+		EffectivePayload.ActivePlayerChildOpenGeneration = 0;
+		EffectivePayload.QuickTransferTargetMode = ECodeBQuickTransferTargetMode::Legacy;
+	}
 	if (bBodyOrdinarySource)
 	{
 		PopulateP43BodySimpleStackGroundDropProof(EffectivePayload);
@@ -8304,8 +8347,10 @@ bool UCodeBP3UIHostSubsystem::RequestGroundDrop(
 		EffectivePayload.P38BodyEquipmentProof.ActivePlayerChildOpenGeneration = 0;
 	}
 	if (!ValidateTransferContext(EffectivePayload, OutError)
-		|| (bNormalContainerSource
+		|| (bNormalContainerSource && !bP50SpatialSource
 			&& !ValidateP49NormalContainerSimpleStackGroundDropContext(EffectivePayload, OutError))
+		|| (bP50SpatialSource
+			&& !ValidateP50NormalContainerSpatialGraphGroundDropContext(EffectivePayload, OutError))
 		|| (bBodyOrdinarySource && !bP45SpatialSource
 			&& !ValidateP43BodySimpleStackGroundDropContext(EffectivePayload, OutError))
 		|| (bP45SpatialSource

@@ -371,6 +371,10 @@ public:
 	bool ValidateP49NormalContainerSimpleStackGroundDropContext(
 		const demo_map_code_b::FCodeBP4DragPayload& Payload,
 		FString& OutError) const;
+	/** P50 exact opened/revealed BasicCache P18 empty-child complete-graph GroundDrop gate. */
+	bool ValidateP50NormalContainerSpatialGraphGroundDropContext(
+		const demo_map_code_b::FCodeBP4DragPayload& Payload,
+		FString& OutError) const;
 	/** P47 exact BasicCache spatial graph and one frozen first-empty BaseQuick gate. */
 	bool ValidateP47NormalContainerSpatialGraphQuickTransferContext(
 		const demo_map_code_b::FCodeBP4DragPayload& Payload,

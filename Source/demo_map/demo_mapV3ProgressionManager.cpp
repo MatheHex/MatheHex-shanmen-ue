@@ -4741,14 +4741,37 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBNormalContainerGroundDrop(
 	FString& OutFeedback)
 {
 	OutFeedback.Reset();
-	const demo_map_code_b::FCodeBP49NormalContainerSimpleStackGroundDropProof& Proof =
+	const demo_map_code_b::FCodeBP49NormalContainerSimpleStackGroundDropProof& P49Proof =
 		Payload.P49NormalContainerSimpleStackGroundDropProof;
+	const demo_map_code_b::FCodeBP48NormalContainerSpatialGraphEquipmentTransferProof& P50Proof =
+		Payload.P48NormalContainerSpatialGraphEquipmentProof;
+	const bool bP49SimpleStack = P49Proof.HasSourceIdentity();
+	const bool bP50SpatialGraph = P50Proof.HasSourceIdentity() && !P50Proof.bIntent;
+	const int32 SourceKindCount = (bP49SimpleStack ? 1 : 0) + (bP50SpatialGraph ? 1 : 0);
+	const FGuid ProofOwnerId = bP50SpatialGraph ? P50Proof.OwnerId : P49Proof.OwnerId;
+	const FGuid ProofRunInstanceId = bP50SpatialGraph ? P50Proof.RunInstanceId : P49Proof.RunInstanceId;
+	const FGuid ProofSearchTargetId = bP50SpatialGraph ? P50Proof.SearchTargetId : P49Proof.SearchTargetId;
+	const FName ProofDefinitionId = bP50SpatialGraph
+		? P50Proof.NormalContainerDefinitionId : P49Proof.NormalContainerDefinitionId;
+	const int32 ProofNormalRevision = bP50SpatialGraph
+		? P50Proof.NormalContainerRevision : P49Proof.NormalContainerRevision;
+	const int32 ProofP6Revision = bP50SpatialGraph
+		? P50Proof.P6SnapshotRevision : P49Proof.P6SnapshotRevision;
+	const FGuid ProofSourceItemId = bP50SpatialGraph ? P50Proof.SourceItemId : P49Proof.SourceItemId;
+	const FGuid ProofSourceContainerId = bP50SpatialGraph
+		? P50Proof.SourceContainerId : P49Proof.SourceContainerId;
+	const int32 ProofSourceSlot = bP50SpatialGraph ? P50Proof.SourceSlot : P49Proof.SourceSlot;
+	const FName ProofSourceDefinitionId = bP50SpatialGraph
+		? P50Proof.SourceDefinitionId : P49Proof.SourceDefinitionId;
+	const int32 ProofSourceQuantity = bP50SpatialGraph ? 1 : P49Proof.SourceQuantity;
+	const int32 ProofCompositeRevision = bP50SpatialGraph
+		? P50Proof.CompositeRevision : P49Proof.CompositeRevision;
 	UGameInstance* GameInstance = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
 	UCodeBP3UIHostSubsystem* Host = GameInstance
 		? GameInstance->GetSubsystem<UCodeBP3UIHostSubsystem>() : nullptr;
 	const demo_map_code_b::FCodeBP3InventoryWorkspaceContext* Workspace =
 		Host ? Host->GetWorkspaceContext() : nullptr;
-	if (!Payload.IsValid() || !Proof.HasSourceIdentity()
+	if (!Payload.IsValid() || SourceKindCount != 1
 		|| Payload.bQuickTransferIntent || Payload.bSplitIntent
 		|| Payload.QuantityDraftKind != demo_map_code_b::ECodeBP3QuantityDraftKind::None
 		|| Payload.RequestedMergeQuantity != 0 || Payload.Quantity <= 0
@@ -4764,7 +4787,9 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBNormalContainerGroundDrop(
 		|| Payload.P43BodySimpleStackGroundDropProof.bIntent
 		|| Payload.P46NormalContainerSimpleStackProof.bIntent
 		|| Payload.P47NormalContainerSpatialGraphProof.bIntent
-		|| Payload.P48NormalContainerSpatialGraphEquipmentProof.bSourceProof
+		|| Payload.P48NormalContainerSpatialGraphEquipmentProof.bIntent
+		|| (bP49SimpleStack && Payload.P48NormalContainerSpatialGraphEquipmentProof.bSourceProof)
+		|| (bP50SpatialGraph && Payload.P49NormalContainerSimpleStackGroundDropProof.bIntent)
 		|| Payload.WorldDropId.IsValid() || Payload.WorldDropOrdinal != 0
 		|| Payload.WorldDropRecordRevision != INDEX_NONE
 		|| Payload.WorldDropTargetOpenGeneration != 0 || !Payload.WorldDropMapRoute.IsNone()
@@ -4775,29 +4800,29 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBNormalContainerGroundDrop(
 		|| Workspace->OwnerId != CodeBNormalContainerOwnerId
 		|| Workspace->RunInstanceId != CodeBNormalContainerRunId
 		|| Workspace->TargetPaneId != FName(TEXT("InRun.External"))
-		|| Proof.OwnerId != CodeBNormalContainerOwnerId
-		|| Proof.RunInstanceId != CodeBNormalContainerRunId
-		|| Proof.SearchTargetId != CodeBNormalContainerTargetId
-		|| Proof.NormalContainerDefinitionId != CodeBNormalContainerDefinitionId
-		|| Proof.NormalContainerRevision != CodeBNormalContainerExpectedTargetRevision
-		|| Proof.P6SnapshotRevision != CodeBNormalContainerExpectedP6Revision
-		|| Proof.SourceItemId != Payload.ItemId
-		|| Proof.SourceContainerId != Payload.Source.ContainerId
-		|| Proof.SourceSlot != Payload.Source.SlotIndex
-		|| Proof.SourceDefinitionId != Payload.DefinitionId
-		|| Proof.SourceQuantity != Payload.Quantity
-		|| Proof.CompositeRevision != Payload.ExpectedRevision)
+		|| ProofOwnerId != CodeBNormalContainerOwnerId
+		|| ProofRunInstanceId != CodeBNormalContainerRunId
+		|| ProofSearchTargetId != CodeBNormalContainerTargetId
+		|| ProofDefinitionId != CodeBNormalContainerDefinitionId
+		|| ProofNormalRevision != CodeBNormalContainerExpectedTargetRevision
+		|| ProofP6Revision != CodeBNormalContainerExpectedP6Revision
+		|| ProofSourceItemId != Payload.ItemId
+		|| ProofSourceContainerId != Payload.Source.ContainerId
+		|| ProofSourceSlot != Payload.Source.SlotIndex
+		|| ProofSourceDefinitionId != Payload.DefinitionId
+		|| ProofSourceQuantity != Payload.Quantity
+		|| ProofCompositeRevision != Payload.ExpectedRevision)
 	{
-		OutFeedback = TEXT("P49 BasicCache GroundDrop source or exact open-host identity is stale; no fallback was attempted.");
+		OutFeedback = TEXT("P49/P50 BasicCache GroundDrop source or exact open-host identity is stale; no fallback was attempted.");
 		return false;
 	}
 	const Fdemo_mapProfileSessionSnapshot Snapshot = ProfilePreparationFlow->GetSession()
 		? ProfilePreparationFlow->GetSession()->GetSnapshot() : Fdemo_mapProfileSessionSnapshot();
 	if (ProfilePreparationFlow->GetPhase() != Edemo_mapProfilePreparationFlowPhase::RunActive
-		|| Snapshot.ProfileId != Proof.OwnerId || Snapshot.ActiveRunId != Proof.RunInstanceId
-		|| ProfilePreparationFlow->GetStartedRunId() != Proof.RunInstanceId)
+		|| Snapshot.ProfileId != ProofOwnerId || Snapshot.ActiveRunId != ProofRunInstanceId
+		|| ProfilePreparationFlow->GetStartedRunId() != ProofRunInstanceId)
 	{
-		OutFeedback = TEXT("P49 BasicCache GroundDrop requires the same active Owner/Run lifecycle.");
+		OutFeedback = TEXT("P49/P50 BasicCache GroundDrop requires the same active Owner/Run lifecycle.");
 		return false;
 	}
 
@@ -4807,12 +4832,20 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBNormalContainerGroundDrop(
 
 	FCodeBNormalContainerProjection UpdatedNormal;
 	FCodeBWorldDropProjection NewWorldDrop;
-	if (!FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerWorldDropItem(
-		ProfilePreparationFlow->GetStorageRoot(), CodeBNormalContainerOwnerId,
-		CodeBNormalContainerRunId, CodeBNormalContainerTargetId,
-		CodeBNormalContainerDefinitionId, CodeBNormalContainerExpectedP6Revision,
-		CodeBNormalContainerExpectedTargetRevision, Proof, MapRoute, FloorTransform,
-		UpdatedNormal, NewWorldDrop, &OutFeedback))
+	const bool bStored = bP50SpatialGraph
+		? FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerSpatialWorldDropItem(
+			ProfilePreparationFlow->GetStorageRoot(), CodeBNormalContainerOwnerId,
+			CodeBNormalContainerRunId, CodeBNormalContainerTargetId,
+			CodeBNormalContainerDefinitionId, CodeBNormalContainerExpectedP6Revision,
+			CodeBNormalContainerExpectedTargetRevision, P50Proof, MapRoute, FloorTransform,
+			UpdatedNormal, NewWorldDrop, &OutFeedback)
+		: FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerWorldDropItem(
+			ProfilePreparationFlow->GetStorageRoot(), CodeBNormalContainerOwnerId,
+			CodeBNormalContainerRunId, CodeBNormalContainerTargetId,
+			CodeBNormalContainerDefinitionId, CodeBNormalContainerExpectedP6Revision,
+			CodeBNormalContainerExpectedTargetRevision, P49Proof, MapRoute, FloorTransform,
+			UpdatedNormal, NewWorldDrop, &OutFeedback);
+	if (!bStored)
 	{
 		return false;
 	}
@@ -4850,7 +4883,8 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBNormalContainerGroundDrop(
 		UpdatedNormal, UpdatedSession.RepositorySnapshot.Revision);
 	RefreshCodeBWorldDropActors();
 	UE_LOG(LogTemp, Display,
-		TEXT("CodeB.P49.GroundDrop Committed OwnerId=%s RunId=%s SearchTargetId=%s WorldDropId=%s ItemId=%s"),
+		TEXT("CodeB.%s.GroundDrop Committed OwnerId=%s RunId=%s SearchTargetId=%s WorldDropId=%s ItemId=%s"),
+		bP50SpatialGraph ? TEXT("P50") : TEXT("P49"),
 		*NewWorldDrop.OwnerId.ToString(EGuidFormats::DigitsWithHyphens),
 		*NewWorldDrop.RunInstanceId.ToString(EGuidFormats::DigitsWithHyphens),
 		*CodeBNormalContainerTargetId.ToString(EGuidFormats::DigitsWithHyphens),
