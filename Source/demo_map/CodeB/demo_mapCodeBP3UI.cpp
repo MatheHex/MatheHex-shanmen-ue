@@ -2484,6 +2484,15 @@ FCodeBP4DropPreview UCodeBP3InventoryWidget::PreviewInventoryTransfer(
 		const bool bSimpleStack = SourceSlot && !SourceSlot->ChildContainerId.IsValid()
 			&& SourceSlot->bStackable && SourceSlot->MaxStack > 1;
 		const bool bSimpleRoot = SourceSlot && !SourceSlot->ChildContainerId.IsValid();
+		const bool bP32StandardEquipmentRoot = SourceSlot
+			&& !SourceSlot->ChildContainerId.IsValid()
+			&& !SourceSlot->bStackable && SourceSlot->MaxStack == 1 && SourceSlot->Quantity == 1
+			&& ((SourceSlot->ItemType == ECodeBItemType::Weapon
+					&& SourceSlot->EquipSlot == ECodeBEquipSlot::Weapon)
+				|| (SourceSlot->ItemType == ECodeBItemType::Armor
+					&& SourceSlot->EquipSlot == ECodeBEquipSlot::Armor)
+				|| (SourceSlot->ItemType == ECodeBItemType::Accessory
+					&& SourceSlot->EquipSlot == ECodeBEquipSlot::Accessory));
 		const bool bP26PlayerStorage = TargetContainer
 			&& (TargetContainer->Role == FName(TEXT("Basic6"))
 				|| TargetContainer->Role == FName(TEXT("QuickSpatial"))
@@ -2538,6 +2547,20 @@ FCodeBP4DropPreview UCodeBP3InventoryWidget::PreviewInventoryTransfer(
 				|| (!Target.bOccupied && Preview.Operation != ECodeBOperation::Move))
 			{
 				Rejected.Message = TEXT("地面简单堆叠只能拖到明确的 BaseQuick／当前空间 child 空格或兼容未满堆叠。");
+				return Rejected;
+			}
+		}
+		else if (bP32StandardEquipmentRoot)
+		{
+			const bool bExplicitBaseQuick = TargetContainer
+				&& TargetContainer->Role == FName(TEXT("Basic6"))
+				&& !Target.bOccupied && Preview.Operation == ECodeBOperation::Move;
+			const bool bExplicitCompatibleEquipment = TargetContainer
+				&& !Target.bOccupied && Preview.Operation == ECodeBOperation::Equip;
+			if (Payload.bQuickTransferIntent
+				|| (!bExplicitBaseQuick && !bExplicitCompatibleEquipment))
+			{
+				Rejected.Message = TEXT("P32 标准装备只接受 normal Drag 到明确空 BaseQuick 或明确空兼容装备位；不自动选槽或替换。");
 				return Rejected;
 			}
 		}

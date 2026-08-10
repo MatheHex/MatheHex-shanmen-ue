@@ -1119,6 +1119,58 @@ namespace
 			&& !Item.ChildContainerId.IsValid();
 	}
 
+	/** P32's closed standard-equipment slice: canonical P1 definitions only, never spatial or stack roots. */
+	bool IsP32StandardEquipmentRoot(
+		const FCodeBRunInventorySession& Session,
+		const FCodeBItemInstance& Item)
+	{
+		const FCodeBItemDefinition* Definition = Session.RepositorySnapshot.Definitions.Find(Item.DefinitionId);
+		FCodeBItemDefinition CanonicalDefinition;
+		FString Error;
+		return Definition
+			&& BuildCanonicalCodeBItemDefinition(Item.DefinitionId, CanonicalDefinition, Error)
+			&& *Definition == CanonicalDefinition
+			&& !Definition->bStackable && Definition->MaxStack == 1
+			&& Definition->SpatialContainerSemantic == ECodeBSpatialContainerSemantic::None
+			&& Definition->ChildContainerCapacity == 0
+			&& (Definition->ItemType == ECodeBItemType::Weapon
+				|| Definition->ItemType == ECodeBItemType::Armor
+				|| Definition->ItemType == ECodeBItemType::Accessory)
+			&& (Definition->EquipSlot == ECodeBEquipSlot::Weapon
+				|| Definition->EquipSlot == ECodeBEquipSlot::Armor
+				|| Definition->EquipSlot == ECodeBEquipSlot::Accessory)
+			&& Item.Quantity == 1 && !Item.ChildContainerId.IsValid();
+	}
+
+	bool IsP32ActiveStandardEquipmentContainer(
+		const FCodeBRunInventorySession& Session,
+		const FGuid& ContainerId,
+		const ECodeBEquipSlot EquipSlot)
+	{
+		const bool bExactLayoutRoot = (EquipSlot == ECodeBEquipSlot::Weapon
+				&& ContainerId == Session.Layout.WeaponContainerId)
+			|| (EquipSlot == ECodeBEquipSlot::Armor
+				&& ContainerId == Session.Layout.ArmorContainerId)
+			|| (EquipSlot == ECodeBEquipSlot::Accessory
+				&& Session.Layout.AccessoryContainerIds.Contains(ContainerId));
+		const FCodeBContainer* Container = Session.RepositorySnapshot.Containers.Find(ContainerId);
+		return bExactLayoutRoot && Container && Container->IsEquipment()
+			&& Container->EquipmentSlot == EquipSlot && Container->Slots.Num() == 1;
+	}
+
+	bool IsP32EquippedStandardRoot(
+		const FCodeBRunInventorySession& Session,
+		const FCodeBItemInstance& Item,
+		const FGuid& ContainerId)
+	{
+		const FCodeBItemDefinition* Definition = Session.RepositorySnapshot.Definitions.Find(Item.DefinitionId);
+		const FCodeBContainer* Container = Session.RepositorySnapshot.Containers.Find(ContainerId);
+		return Definition && IsP32StandardEquipmentRoot(Session, Item)
+			&& IsP32ActiveStandardEquipmentContainer(Session, ContainerId, Definition->EquipSlot)
+			&& Container && Container->Slots[0] == Item.ItemId
+			&& Item.ParentContainerId == ContainerId && Item.SlotIndex == 0;
+	}
+
 	/**
 	 * P29 proves the already accepted shared Ctrl+left P1 command without replaying
 	 * it. Only the currently opened world root and BaseQuick/current active P17
@@ -9433,10 +9485,12 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedActiveRunWorldDropItem(
 	const bool bP26SimpleStackSource = !bIsSpatialClosure
 		&& IsP26SimpleStack(Current, *Item)
 		&& IsP26PlayerStorageContainer(Current, ExpectedSourceContainerId);
+	const bool bP32EquippedStandardSource = !bIsSpatialClosure
+		&& IsP32EquippedStandardRoot(Current, *Item, ExpectedSourceContainerId);
 	const bool bPartialDrop = RequestedSplitQuantity > 0;
 	if ((bPartialDrop && (!bP26SimpleStackSource || RequestedSplitQuantity >= Item->Quantity))
 			|| (!bPartialDrop && ((bFormalSpatialDefinition && !bIsSpatialClosure)
-			|| (!bIsSpatialClosure && !bFromBasic && !bP26SimpleStackSource)
+			|| (!bIsSpatialClosure && !bFromBasic && !bP26SimpleStackSource && !bP32EquippedStandardSource)
 			|| (bIsSpatialClosure && !bFromBasic && !bFromMatchingSpatialEquipment && !bFromMatchingBackpackEquipment))))
 	{
 		if (OutError)
@@ -9510,9 +9564,19 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedActiveRunWorldDropItem(
 		}
 	}
 	const FCodeBItemInstance* AcceptedWorldRoot = AcceptedSnapshot.Items.Find(AcceptedWorldItemId);
-	if (!AcceptedWorldRoot)
+	FCodeBItemInstance ExpectedP32WorldRoot;
+	if (bP32EquippedStandardSource)
 	{
-		if (OutError) *OutError = TEXT("Code B P31 accepted create candidate lost its exact world root.");
+		ExpectedP32WorldRoot = *Item;
+		ExpectedP32WorldRoot.ParentContainerId = WorldContainerId;
+		ExpectedP32WorldRoot.SlotIndex = 0;
+	}
+	if (!AcceptedWorldRoot
+		|| (bP32EquippedStandardSource && !(*AcceptedWorldRoot == ExpectedP32WorldRoot)))
+	{
+		if (OutError) *OutError = bP32EquippedStandardSource
+			? TEXT("Code B P32 accepted Unequip changed more than the standard root placement.")
+			: TEXT("Code B P31 accepted create candidate lost its exact world root.");
 		return false;
 	}
 	FCodeBOutOfRaidInventoryRecord Candidate = Record;
@@ -9532,7 +9596,11 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedActiveRunWorldDropItem(
 	RecordValue.RecordRevision = 1;
 	RecordValue.Provenance = bPartialDrop
 		? TEXT("P31.AcceptedGroundDrop.Split")
-		: (bIsSpatialClosure ? TEXT("P31.AcceptedGroundDrop.CompleteGraph") : TEXT("P31.AcceptedGroundDrop.WholeRoot"));
+		: (bIsSpatialClosure
+			? TEXT("P31.AcceptedGroundDrop.CompleteGraph")
+			: (bP32EquippedStandardSource
+				? TEXT("P32.AcceptedGroundDrop.StandardEquipment")
+				: TEXT("P31.AcceptedGroundDrop.WholeRoot")));
 	++Session.NextWorldDropOrdinal;
 	if (!ReconcileHotbarBindings(Session.HotbarBindings, Session.RepositorySnapshot, Session.Layout, Error)
 		|| !FreezeRunInventoryPayloadReceipt(Session, Error)
@@ -9608,6 +9676,8 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 	}
 	const FCodeBItemInstance* CandidateItem = CandidateSnapshot.Items.Find(Drop->ItemId);
 	const bool bP26SimpleStack = !bIsSpatialClosure && IsP26SimpleStack(Existing, *SourceItem);
+	const bool bP32StandardEquipmentRoot = !bIsSpatialClosure
+		&& IsP32StandardEquipmentRoot(Existing, *SourceItem);
 	const bool bQuickTransfer = AcceptedCommand.Intent == ECodeBP2CommandIntent::QuickTransfer;
 	bool bP29RetainWorldRoot = false;
 	bool bP30CompleteGraphQuickTransfer = false;
@@ -9726,6 +9796,44 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 			Move.TargetContainerId = ExpectedEquipmentContainerId;
 			Move.TargetSlot = 0;
 		}
+	}
+	else if (bP32StandardEquipmentRoot)
+	{
+		const FCodeBItemDefinition* Definition = Existing.RepositorySnapshot.Definitions.Find(SourceItem->DefinitionId);
+		const FCodeBContainer* ExistingTarget = Existing.RepositorySnapshot.Containers.Find(
+			AcceptedCommand.TargetContainerId);
+		const FCodeBContainer* CandidateTarget = CandidateSnapshot.Containers.Find(
+			AcceptedCommand.TargetContainerId);
+		const bool bBaseQuickTarget = AcceptedCommand.TargetContainerId == Existing.Layout.BasicContainerId
+			&& AcceptedCommand.Operation == ECodeBOperation::Move;
+		const bool bEquipmentTarget = Definition
+			&& AcceptedCommand.Operation == ECodeBOperation::Equip
+			&& AcceptedCommand.TargetSlot == 0
+			&& IsP32ActiveStandardEquipmentContainer(
+				Existing, AcceptedCommand.TargetContainerId, Definition->EquipSlot);
+		if (!CandidateItem || !Definition || !ExistingTarget || !CandidateTarget
+			|| AcceptedCommand.Intent != ECodeBP2CommandIntent::Standard
+			|| !AcceptedCommand.TransactionId.IsValid()
+			|| AcceptedCommand.ItemId != Drop->ItemId
+			|| AcceptedCommand.SourceContainerId != Drop->WorldContainerId
+			|| AcceptedCommand.SourceSlot != 0
+			|| AcceptedCommand.Quantity != 0
+			|| AcceptedCommand.ExpectedRevision != Existing.RepositorySnapshot.Revision
+			|| (!bBaseQuickTarget && !bEquipmentTarget)
+			|| !ExistingTarget->Slots.IsValidIndex(AcceptedCommand.TargetSlot)
+			|| ExistingTarget->Slots[AcceptedCommand.TargetSlot].IsValid()
+			|| !CandidateTarget->Slots.IsValidIndex(AcceptedCommand.TargetSlot)
+			|| CandidateTarget->Slots[AcceptedCommand.TargetSlot] != Drop->ItemId
+			|| CandidateItem->ParentContainerId != AcceptedCommand.TargetContainerId
+			|| CandidateItem->SlotIndex != AcceptedCommand.TargetSlot)
+		{
+			if (OutError) *OutError = TEXT("Code B P32 pickup requires one exact normal Drag P1 Move/Equip into the explicit empty BaseQuick or compatible active equipment cell; replacement is forbidden.");
+			return false;
+		}
+		Move.TransactionId = AcceptedCommand.TransactionId;
+		Move.Operation = AcceptedCommand.Operation;
+		Move.TargetContainerId = AcceptedCommand.TargetContainerId;
+		Move.TargetSlot = AcceptedCommand.TargetSlot;
 	}
 	else if (bP27Split)
 	{
