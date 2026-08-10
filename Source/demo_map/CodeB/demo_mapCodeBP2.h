@@ -280,6 +280,66 @@ namespace demo_map_code_b
 	};
 
 	/**
+	 * P47 transient proof for one exact opened/revealed P10 BasicCache spatial
+	 * parent.  It freezes the canonical P18/P17 source closure and the one
+	 * input-time BaseQuick candidate; P1 remains the sole graph authority.
+	 */
+	struct FCodeBP47NormalContainerSpatialGraphQuickTransferProof
+	{
+		bool bIntent = false;
+		FGuid OwnerId;
+		FGuid RunInstanceId;
+		FGuid SearchTargetId;
+		FGuid ReceiptId;
+		int32 NormalContainerRevision = INDEX_NONE;
+		uint32 TargetOpenGeneration = 0;
+		FName NormalContainerDefinitionId;
+		FGuid SourceContainerId;
+		int32 SourceSlot = INDEX_NONE;
+		FGuid SourceItemId;
+		FName SourceDefinitionId;
+		FGuid SourceChildContainerId;
+		FGuid StableSpatialChildGuid;
+		int32 DefinitionContentRevision = 0;
+		FString DefinitionDigest;
+		FName LootProfileId;
+		int32 LootProfileVersion = 0;
+		FString LootProfileDigest;
+		FString LootAlgorithmVersion;
+		FString LootResultDigest;
+		FString MaterializationDigest;
+		FName WorkspaceTargetPaneId;
+		FGuid BaseQuickContainerId;
+		int32 CompositeRevision = INDEX_NONE;
+		int32 P6SnapshotRevision = INDEX_NONE;
+		FGuid FrozenTargetContainerId;
+		int32 FrozenTargetSlot = INDEX_NONE;
+		int32 FrozenTargetCompositeRevision = INDEX_NONE;
+
+		bool HasSourceIdentity() const
+		{
+			return bIntent && OwnerId.IsValid() && RunInstanceId.IsValid()
+				&& SearchTargetId.IsValid() && ReceiptId.IsValid()
+				&& NormalContainerRevision > 0 && TargetOpenGeneration != 0
+				&& !NormalContainerDefinitionId.IsNone() && SourceContainerId.IsValid()
+				&& SourceSlot >= 0 && SourceItemId.IsValid() && !SourceDefinitionId.IsNone()
+				&& SourceChildContainerId.IsValid() && StableSpatialChildGuid.IsValid()
+				&& DefinitionContentRevision > 0 && !DefinitionDigest.IsEmpty()
+				&& !LootProfileId.IsNone() && LootProfileVersion > 0
+				&& !LootProfileDigest.IsEmpty() && !LootAlgorithmVersion.IsEmpty()
+				&& !LootResultDigest.IsEmpty() && !MaterializationDigest.IsEmpty()
+				&& !WorkspaceTargetPaneId.IsNone() && BaseQuickContainerId.IsValid()
+				&& CompositeRevision >= 0 && P6SnapshotRevision >= 0;
+		}
+
+		bool HasFrozenTarget() const
+		{
+			return FrozenTargetContainerId.IsValid() && FrozenTargetSlot >= 0
+				&& FrozenTargetCompositeRevision >= 0;
+		}
+	};
+
+	/**
 	 * P43 transient proof for one normal Drag of an exact Revealed ordinary
 	 * P12 simple-stack root to the existing GroundDropZone.  It deliberately
 	 * carries no player target, quantity draft, WorldDrop identity, or ordinal;
@@ -459,6 +519,8 @@ namespace demo_map_code_b
 		FCodeBP40BodySimpleStackQuickTransferProof P40BodySimpleStackProof;
 		/** P46 opened/revealed P10 BasicCache simple-stack and frozen-target proof. */
 		FCodeBP46NormalContainerSimpleStackQuickTransferProof P46NormalContainerSimpleStackProof;
+		/** P47 opened/revealed P10 BasicCache spatial graph and frozen BaseQuick proof. */
+		FCodeBP47NormalContainerSpatialGraphQuickTransferProof P47NormalContainerSpatialGraphProof;
 		/** P41 ordinary P12 complete spatial graph and exact BaseQuick candidate proof. */
 		FCodeBP41BodySpatialGraphQuickTransferProof P41BodySpatialGraphProof;
 		/** P42 normal P12 Drag of one complete spatial graph to an exact formal P6 slot. */

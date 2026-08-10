@@ -9530,6 +9530,159 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 		return false;
 	}
 
+	// P47 freezes one exact revealed P18 spatial root and the first empty
+	// BaseQuick cell. Reconstruct the complete parent/child closure from durable
+	// P9/P6 truth and replay exactly one P1 Move(1) before accepting the snapshot.
+	const FCodeBP47NormalContainerSpatialGraphQuickTransferProof& P47Proof =
+		AcceptedCommand.P47NormalContainerSpatialGraphProof;
+	if (P47Proof.bIntent)
+	{
+		const FCodeBItemInstance* OriginalSource =
+			Record->ContainerSnapshot.Items.Find(P47Proof.SourceItemId);
+		const FCodeBContainer* OriginalSourceContainer =
+			Record->ContainerSnapshot.Containers.Find(P47Proof.SourceContainerId);
+		const FCodeBContainer* OriginalChild =
+			Record->ContainerSnapshot.Containers.Find(P47Proof.SourceChildContainerId);
+		const FCodeBContainer* OriginalTarget =
+			Candidate.ActiveRunInventorySession.RepositorySnapshot.Containers.Find(
+				P47Proof.FrozenTargetContainerId);
+		const FCodeBItemDefinition* SourceDefinition =
+			P24PriorComposite.Definitions.Find(P47Proof.SourceDefinitionId);
+		FCodeBItemDefinition CanonicalSourceDefinition;
+		const FCodeBNormalContainerItemReveal* SourceReveal =
+			Record->ItemRevealStates.FindByPredicate(
+				[&P47Proof](const FCodeBNormalContainerItemReveal& Value)
+				{
+					return Value.ItemId == P47Proof.SourceItemId;
+				});
+		const FCodeBLootProfile* NormalProfile = FindLootProfileByProvenance(
+			DefinitionId, Record->Receipt.LootProfileId, Record->Receipt.LootProfileVersion);
+		const bool bP18R2 = NormalProfile
+			&& NormalProfile->LootProfileId == FName(TEXT("CodeB.LootProfile.BasicCache.r2"))
+			&& NormalProfile->ProfileVersion == 2
+			&& NormalProfile->AlgorithmVersion == TEXT("CodeB.DeterministicWeightedLoot.Crc32.r2");
+		const bool bCanonicalDefinition = SourceDefinition
+			&& BuildCanonicalCodeBItemDefinition(
+				P47Proof.SourceDefinitionId, CanonicalSourceDefinition, Error)
+			&& *SourceDefinition == CanonicalSourceDefinition
+			&& !SourceDefinition->bStackable && SourceDefinition->MaxStack == 1
+			&& SourceDefinition->ChildContainerCapacity > 0
+			&& ((P47Proof.SourceDefinitionId == Fdemo_mapItemIds::WindTalisman
+					&& SourceDefinition->ItemType == ECodeBItemType::SpatialItem
+					&& SourceDefinition->EquipSlot == ECodeBEquipSlot::SpatialItem
+					&& SourceDefinition->SpatialContainerSemantic == ECodeBSpatialContainerSemantic::QuickRing)
+				|| (P47Proof.SourceDefinitionId == Fdemo_mapItemIds::BackpackLevel1
+					&& SourceDefinition->ItemType == ECodeBItemType::Backpack
+					&& SourceDefinition->EquipSlot == ECodeBEquipSlot::Backpack
+					&& SourceDefinition->SpatialContainerSemantic == ECodeBSpatialContainerSemantic::StoragePouch));
+		bool bClosureValid = false;
+		if (OriginalSource)
+		{
+			bClosureValid = ValidateP20BasicCorpseSpatialClosure(
+				Record->ContainerSnapshot, *OriginalSource, Error);
+		}
+		if (AcceptedCommand.Intent != ECodeBP2CommandIntent::QuickTransfer
+			|| AcceptedCommand.P38BodyEquipmentProof.bIntent
+			|| AcceptedCommand.P40BodySimpleStackProof.bIntent
+			|| AcceptedCommand.P46NormalContainerSimpleStackProof.bIntent
+			|| AcceptedCommand.P41BodySpatialGraphProof.bIntent
+			|| AcceptedCommand.P42BodySpatialGraphEquipmentProof.bIntent
+			|| !P47Proof.HasSourceIdentity() || !P47Proof.HasFrozenTarget()
+			|| P47Proof.OwnerId != InOwnerId || P47Proof.RunInstanceId != RunInstanceId
+			|| P47Proof.SearchTargetId != SearchTargetId
+			|| P47Proof.ReceiptId != Record->Receipt.ReceiptId
+			|| P47Proof.NormalContainerRevision != ExpectedNormalContainerRevision
+			|| P47Proof.NormalContainerDefinitionId != DefinitionId
+			|| DefinitionId != FName(TEXT("CodeB.NormalContainer.BasicCache"))
+			|| P47Proof.SourceContainerId != Record->ContainerId
+			|| P47Proof.SourceItemId != AcceptedCommand.ItemId
+			|| P47Proof.SourceContainerId != AcceptedCommand.SourceContainerId
+			|| P47Proof.SourceSlot != AcceptedCommand.SourceSlot
+			|| P47Proof.DefinitionContentRevision != Record->Receipt.DefinitionContentRevision
+			|| P47Proof.DefinitionDigest != Record->Receipt.DefinitionDigest
+			|| P47Proof.LootProfileId != Record->Receipt.LootProfileId
+			|| P47Proof.LootProfileVersion != Record->Receipt.LootProfileVersion
+			|| P47Proof.LootProfileDigest != Record->Receipt.LootProfileDigest
+			|| P47Proof.LootAlgorithmVersion != Record->Receipt.LootAlgorithmVersion
+			|| P47Proof.LootResultDigest != Record->Receipt.LootResultDigest
+			|| P47Proof.MaterializationDigest != Record->Receipt.MaterializationDigest
+			|| P47Proof.WorkspaceTargetPaneId != FName(TEXT("InRun.External"))
+			|| P47Proof.CompositeRevision != P24PriorComposite.Revision
+			|| P47Proof.FrozenTargetCompositeRevision != P24PriorComposite.Revision
+			|| P47Proof.P6SnapshotRevision != ExpectedP6SnapshotRevision
+			|| P47Proof.BaseQuickContainerId
+				!= Candidate.ActiveRunInventorySession.Layout.BasicContainerId
+			|| P47Proof.FrozenTargetContainerId != P47Proof.BaseQuickContainerId
+			|| AcceptedCommand.TargetContainerId != P47Proof.FrozenTargetContainerId
+			|| AcceptedCommand.TargetSlot != P47Proof.FrozenTargetSlot
+			|| AcceptedCommand.QuickTransferTargetMode != ECodeBQuickTransferTargetMode::BaseQuickOnly
+			|| AcceptedCommand.QuickTransferActivePlayerContainerId.IsValid()
+			|| AcceptedCommand.QuickTransferActivePlayerParentItemId.IsValid()
+			|| AcceptedCommand.ActivePlayerChildOpenGeneration != 0
+			|| AcceptedCommand.Operation != ECodeBOperation::Move
+			|| AcceptedCommand.Quantity != 1
+			|| !AcceptedCommand.TransactionId.IsValid()
+			|| AcceptedCommand.ExpectedRevision != P24PriorComposite.Revision
+			|| !bP18R2 || !bCanonicalDefinition || !bClosureValid
+			|| Record->Receipt.OwnerId != InOwnerId
+			|| Record->Receipt.RunInstanceId != RunInstanceId
+			|| Record->Receipt.SearchTargetId != SearchTargetId
+			|| Record->Receipt.DefinitionId != DefinitionId
+			|| Record->Receipt.ContainerId != Record->ContainerId
+			|| !OriginalSource || !OriginalSourceContainer || OriginalSourceContainer->IsEquipment()
+			|| OriginalSourceContainer->ContainerId != Record->ContainerId
+			|| !OriginalSourceContainer->Slots.IsValidIndex(P47Proof.SourceSlot)
+			|| OriginalSourceContainer->Slots[P47Proof.SourceSlot] != P47Proof.SourceItemId
+			|| OriginalSource->ItemId != P47Proof.SourceItemId
+			|| OriginalSource->DefinitionId != P47Proof.SourceDefinitionId
+			|| OriginalSource->ParentContainerId != P47Proof.SourceContainerId
+			|| OriginalSource->SlotIndex != P47Proof.SourceSlot || OriginalSource->Quantity != 1
+			|| OriginalSource->ChildContainerId != P47Proof.SourceChildContainerId
+			|| P47Proof.StableSpatialChildGuid != SpatialChildGuid(P47Proof.SourceItemId)
+			|| P47Proof.SourceChildContainerId != P47Proof.StableSpatialChildGuid
+			|| !OriginalChild || OriginalChild->IsEquipment()
+			|| OriginalChild->Slots.Num() != SourceDefinition->ChildContainerCapacity
+			|| OriginalChild->Slots.ContainsByPredicate(
+				[](const FGuid& ItemId) { return ItemId.IsValid(); })
+			|| !SourceReveal || SourceReveal->RevealState != ECodeBNormalContainerRevealState::Revealed
+			|| !OriginalTarget || OriginalTarget->IsEquipment()
+			|| !OriginalTarget->Slots.IsValidIndex(P47Proof.FrozenTargetSlot)
+			|| OriginalTarget->Slots[P47Proof.FrozenTargetSlot].IsValid())
+		{
+			if (OutError) *OutError = Error.IsEmpty()
+				? TEXT("Code B P47 refused a stale, non-canonical, non-empty-child, redirected, or identity-incomplete BasicCache spatial graph command.")
+				: Error;
+			return false;
+		}
+		for (int32 SlotIndex = 0; SlotIndex < P47Proof.FrozenTargetSlot; ++SlotIndex)
+		{
+			if (!OriginalTarget->Slots[SlotIndex].IsValid())
+			{
+				if (OutError) *OutError = TEXT("Code B P47 frozen BaseQuick target is not first empty in stable SlotIndex order.");
+				return false;
+			}
+		}
+
+		FCodeBRepository ExpectedRepository;
+		FCodeBTransactionRequest ExpectedRequest;
+		ExpectedRequest.TransactionId = AcceptedCommand.TransactionId;
+		ExpectedRequest.Operation = ECodeBOperation::Move;
+		ExpectedRequest.ItemId = AcceptedCommand.ItemId;
+		ExpectedRequest.SourceContainerId = AcceptedCommand.SourceContainerId;
+		ExpectedRequest.SourceSlot = AcceptedCommand.SourceSlot;
+		ExpectedRequest.TargetContainerId = AcceptedCommand.TargetContainerId;
+		ExpectedRequest.TargetSlot = AcceptedCommand.TargetSlot;
+		ExpectedRequest.Quantity = 1;
+		ExpectedRequest.ExpectedRevision = AcceptedCommand.ExpectedRevision;
+		if (!ExpectedRepository.LoadPersistedSnapshot(P24PriorComposite, &Error)
+			|| !ExpectedRepository.ExecuteTransaction(ExpectedRequest).IsSuccess()
+			|| ExpectedRepository.CaptureSnapshot() != CompositeSnapshot)
+		{
+			if (OutError) *OutError = TEXT("Code B P47 candidate differs from its one exact P1 whole-graph Move(1).");
+			return false;
+		}
+	}
+
 	// P46 reconstructs the exact opened/revealed BasicCache source, the
 	// input-time frozen P17/P6 target, the stable merge-first/empty-second
 	// candidate, and the one P1 transaction from durable P9/P6 truth.
@@ -9564,6 +9717,7 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 			|| AcceptedCommand.P38BodyEquipmentProof.bIntent
 			|| AcceptedCommand.P40BodySimpleStackProof.bIntent
 			|| AcceptedCommand.P41BodySpatialGraphProof.bIntent
+			|| AcceptedCommand.P47NormalContainerSpatialGraphProof.bIntent
 			|| AcceptedCommand.P42BodySpatialGraphEquipmentProof.bIntent
 			|| !P46Proof.HasSourceIdentity()
 			|| P46Proof.OwnerId != InOwnerId || P46Proof.RunInstanceId != RunInstanceId
@@ -9729,10 +9883,11 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 			return false;
 		}
 	}
-	else if (AcceptedCommand.Intent == ECodeBP2CommandIntent::QuickTransfer
+	else if (!P47Proof.bIntent
+		&& AcceptedCommand.Intent == ECodeBP2CommandIntent::QuickTransfer
 		&& Record->ContainerSnapshot.Containers.Contains(AcceptedCommand.SourceContainerId))
 	{
-		if (OutError) *OutError = TEXT("Code B P46 refused an unproven BasicCache-source QuickTransfer branch.");
+		if (OutError) *OutError = TEXT("Code B P46/P47 refused an unproven BasicCache-source QuickTransfer branch.");
 		return false;
 	}
 	bool bHasP24CreatedIdentity = false;

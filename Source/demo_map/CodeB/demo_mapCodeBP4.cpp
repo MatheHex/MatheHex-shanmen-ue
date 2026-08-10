@@ -264,7 +264,13 @@ namespace demo_map_code_b
 						&& SourceSlot->EquipSlot == ECodeBEquipSlot::Armor)
 					|| (SourceSlot->ItemType == ECodeBItemType::Accessory
 						&& SourceSlot->EquipSlot == ECodeBEquipSlot::Accessory));
-			Preview.Quantity = (bStandardWholeRootQuickTransfer || bP41WholeGraphQuickTransfer) ? 1 : 0;
+			const bool bP47WholeGraphQuickTransfer = Payload.bQuickTransferIntent
+				&& Payload.P47NormalContainerSpatialGraphProof.bIntent
+				&& SourceSlot->Quantity == 1 && SourceSlot->ChildContainerId.IsValid()
+				&& (SourceSlot->DefinitionId == Fdemo_mapItemIds::WindTalisman
+					|| SourceSlot->DefinitionId == Fdemo_mapItemIds::BackpackLevel1);
+			Preview.Quantity = (bStandardWholeRootQuickTransfer || bP41WholeGraphQuickTransfer
+				|| bP47WholeGraphQuickTransfer) ? 1 : 0;
 			Preview.Message = TEXT("可移动到空储物格");
 			return Preview;
 		}
@@ -312,6 +318,7 @@ namespace demo_map_code_b
 			Payload.P38BodyEquipmentProof,
 			Payload.P40BodySimpleStackProof,
 			Payload.P46NormalContainerSimpleStackProof,
+			Payload.P47NormalContainerSpatialGraphProof,
 			Payload.P41BodySpatialGraphProof,
 			Payload.P42BodySpatialGraphEquipmentProof);
 	}

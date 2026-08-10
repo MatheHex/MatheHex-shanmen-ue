@@ -4784,6 +4784,7 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBBodyGroundDrop(
 			|| Payload.P38BodyEquipmentProof.bIntent))
 		|| Payload.P40BodySimpleStackProof.bIntent
 		|| Payload.P41BodySpatialGraphProof.bIntent
+		|| Payload.P47NormalContainerSpatialGraphProof.bIntent
 		|| Payload.P42BodySpatialGraphEquipmentProof.bIntent
 		|| Payload.WorldDropId.IsValid() || Payload.WorldDropOrdinal != 0
 		|| Payload.WorldDropRecordRevision != INDEX_NONE
@@ -5555,6 +5556,36 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBNormalContainerPage(
 					|| (!bCurrentChildProof && !bBaseQuickProof))
 				{
 					CommitError = TEXT("P46 durable callback rejected a closed, unfocused, stale, or redirected BasicCache target.");
+					return false;
+				}
+			}
+			if (AcceptedCommand.P47NormalContainerSpatialGraphProof.bIntent)
+			{
+				UGameInstance* CurrentGameInstance = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
+				UCodeBP3UIHostSubsystem* CurrentHost = CurrentGameInstance
+					? CurrentGameInstance->GetSubsystem<UCodeBP3UIHostSubsystem>() : nullptr;
+				const demo_map_code_b::FCodeBP3InventoryWorkspaceContext* CurrentWorkspace =
+					CurrentHost ? CurrentHost->GetWorkspaceContext() : nullptr;
+				const demo_map_code_b::FCodeBP47NormalContainerSpatialGraphQuickTransferProof& Proof =
+					AcceptedCommand.P47NormalContainerSpatialGraphProof;
+				const bool bExactBaseQuickProof =
+					AcceptedCommand.QuickTransferTargetMode
+						== demo_map_code_b::ECodeBQuickTransferTargetMode::BaseQuickOnly
+					&& !AcceptedCommand.QuickTransferActivePlayerContainerId.IsValid()
+					&& !AcceptedCommand.QuickTransferActivePlayerParentItemId.IsValid()
+					&& AcceptedCommand.ActivePlayerChildOpenGeneration == 0
+					&& Proof.HasSourceIdentity() && Proof.HasFrozenTarget()
+					&& Proof.BaseQuickContainerId == AcceptedCommand.TargetContainerId
+					&& Proof.FrozenTargetContainerId == AcceptedCommand.TargetContainerId
+					&& Proof.FrozenTargetSlot == AcceptedCommand.TargetSlot;
+				if (!bCodeBNormalContainerOpen || !ActiveCodeBNormalContainer.IsValid()
+					|| !CurrentHost || !CurrentHost->IsHostEnabled()
+					|| !CurrentWorkspace || !CurrentWorkspace->IsInRun()
+					|| CurrentWorkspace->OwnerId != CodeBNormalContainerOwnerId
+					|| CurrentWorkspace->RunInstanceId != CodeBNormalContainerRunId
+					|| !bExactBaseQuickProof)
+				{
+					CommitError = TEXT("P47 durable callback rejected a closed, unfocused, stale, or redirected BasicCache spatial graph target.");
 					return false;
 				}
 			}
