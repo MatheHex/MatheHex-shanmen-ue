@@ -1575,6 +1575,114 @@ namespace
 		return CandidateRoot && IsP32StandardEquipmentRoot(Session, *CandidateRoot);
 	}
 
+	/**
+	 * P36 proves one accepted P35 standard root Move to the target family frozen
+	 * at pointer-down. Current-child mode binds the exact canonical P17 parent,
+	 * while no-child mode binds BaseQuick and cannot be redirected by later UI state.
+	 */
+	bool IsExactP36WorldDropChildStandardEquipmentQuickTransferDelta(
+		const FCodeBRunInventorySession& Session,
+		const FCodeBWorldDropRecord& Drop,
+		const FCodeBP2Command& AcceptedCommand,
+		const FCodeBSnapshot& Candidate,
+		FString& OutError)
+	{
+		OutError.Reset();
+		const FCodeBSnapshot& Prior = Session.RepositorySnapshot;
+		const bool bCurrentChildMode = AcceptedCommand.QuickTransferTargetMode
+			== ECodeBQuickTransferTargetMode::CurrentP17Child;
+		const bool bBaseQuickMode = AcceptedCommand.QuickTransferTargetMode
+			== ECodeBQuickTransferTargetMode::BaseQuickNoChildAtInput;
+		if (AcceptedCommand.Intent != ECodeBP2CommandIntent::QuickTransfer
+			|| AcceptedCommand.Operation != ECodeBOperation::Move
+			|| !AcceptedCommand.TransactionId.IsValid()
+			|| AcceptedCommand.ItemId != Drop.ItemId
+			|| AcceptedCommand.SourceContainerId != Drop.WorldContainerId
+			|| AcceptedCommand.SourceSlot != 0
+			|| !AcceptedCommand.TargetContainerId.IsValid()
+			|| AcceptedCommand.TargetSlot < 0
+			|| AcceptedCommand.Quantity != 1
+			|| AcceptedCommand.ExpectedRevision != Prior.Revision
+			|| Prior.Revision == MAX_int32
+			|| Drop.ActionState != ECodeBWorldDropActionState::Available
+			|| Drop.Provenance != TEXT("P35.AcceptedGroundDrop.ChildStandardEquipment")
+			|| (!bCurrentChildMode && !bBaseQuickMode))
+		{
+			OutError = TEXT("P36 requires one exact P35 Move(1) with a frozen child/BaseQuick target mode.");
+			return false;
+		}
+
+		FGuid CanonicalParentItemId;
+		if (bCurrentChildMode)
+		{
+			if (AcceptedCommand.TargetContainerId == Session.Layout.BasicContainerId
+				|| AcceptedCommand.QuickTransferActivePlayerContainerId != AcceptedCommand.TargetContainerId
+				|| AcceptedCommand.ActivePlayerChildOpenGeneration == 0
+				|| !AcceptedCommand.QuickTransferActivePlayerParentItemId.IsValid()
+				|| !IsP35ActiveP17ChildContainer(
+					Session, AcceptedCommand.TargetContainerId, &CanonicalParentItemId)
+				|| CanonicalParentItemId != AcceptedCommand.QuickTransferActivePlayerParentItemId)
+			{
+				OutError = TEXT("P36 current-child mode lost its exact P17 parent/child identity; BaseQuick fallback is forbidden.");
+				return false;
+			}
+		}
+		else if (AcceptedCommand.TargetContainerId != Session.Layout.BasicContainerId
+			|| AcceptedCommand.QuickTransferActivePlayerContainerId.IsValid()
+			|| AcceptedCommand.ActivePlayerChildOpenGeneration != 0
+			|| AcceptedCommand.QuickTransferActivePlayerParentItemId.IsValid())
+		{
+			OutError = TEXT("P36 no-child mode must remain bound to BaseQuick with no child identity.");
+			return false;
+		}
+
+		const FCodeBContainer* WorldContainer = Prior.Containers.Find(Drop.WorldContainerId);
+		const FCodeBContainer* TargetContainer = Prior.Containers.Find(AcceptedCommand.TargetContainerId);
+		const FCodeBItemInstance* Root = Prior.Items.Find(Drop.ItemId);
+		if (!WorldContainer || WorldContainer->IsEquipment() || WorldContainer->Slots.Num() != 1
+			|| WorldContainer->Slots[0] != Drop.ItemId
+			|| Drop.SpatialChildContainerId.IsValid()
+			|| !TargetContainer || TargetContainer->IsEquipment() || TargetContainer->Slots.Num() <= 0
+			|| !TargetContainer->Slots.IsValidIndex(AcceptedCommand.TargetSlot)
+			|| TargetContainer->Slots[AcceptedCommand.TargetSlot].IsValid()
+			|| !Root || Root->ParentContainerId != Drop.WorldContainerId || Root->SlotIndex != 0
+			|| !IsP32StandardEquipmentRoot(Session, *Root))
+		{
+			OutError = TEXT("P36 source is not one canonical P35 standard root, or its frozen ordinary target is invalid.");
+			return false;
+		}
+		for (int32 SlotIndex = 0; SlotIndex < AcceptedCommand.TargetSlot; ++SlotIndex)
+		{
+			if (!TargetContainer->Slots[SlotIndex].IsValid())
+			{
+				OutError = TEXT("P36 target is not the first empty ordinary cell in stable SlotIndex order.");
+				return false;
+			}
+		}
+
+		FCodeBSnapshot Expected = Prior;
+		Expected.Revision = Prior.Revision + 1;
+		FCodeBContainer* ExpectedWorld = Expected.Containers.Find(Drop.WorldContainerId);
+		FCodeBContainer* ExpectedTarget = Expected.Containers.Find(AcceptedCommand.TargetContainerId);
+		FCodeBItemInstance* ExpectedRoot = Expected.Items.Find(Drop.ItemId);
+		if (!ExpectedWorld || !ExpectedTarget || !ExpectedRoot)
+		{
+			OutError = TEXT("P36 could not construct the accepted whole-root candidate proof.");
+			return false;
+		}
+		ExpectedWorld->Slots[0].Invalidate();
+		ExpectedTarget->Slots[AcceptedCommand.TargetSlot] = Drop.ItemId;
+		ExpectedRoot->ParentContainerId = AcceptedCommand.TargetContainerId;
+		ExpectedRoot->SlotIndex = AcceptedCommand.TargetSlot;
+		if (Candidate != Expected)
+		{
+			OutError = TEXT("P36 candidate differs from the exact one-command frozen-target Move delta.");
+			return false;
+		}
+		const FCodeBItemInstance* CandidateRoot = Candidate.Items.Find(Drop.ItemId);
+		return CandidateRoot && IsP32StandardEquipmentRoot(Session, *CandidateRoot);
+	}
+
 	FString LegacyAffixDigest(const Fdemo_mapPersistentItemRecord& Item)
 	{
 		if (Item.AffixSet.IsEmpty())
@@ -9862,6 +9970,7 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 	bool bP29RetainWorldRoot = false;
 	bool bP30CompleteGraphQuickTransfer = false;
 	bool bP34StandardEquipmentQuickTransfer = false;
+	bool bP36ChildStandardEquipmentQuickTransfer = false;
 	const bool bP28MergeIntent = AcceptedCommand.Operation == ECodeBOperation::Merge
 		&& AcceptedCommand.Quantity > 0 && !bQuickTransfer;
 	const FCodeBItemInstance* P27CreatedItem = nullptr;
@@ -9904,15 +10013,22 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 		}
 		else if (bP32StandardEquipmentRoot)
 		{
-			if (!IsExactP34WorldDropStandardEquipmentQuickTransferDelta(
-				Existing, *Drop, AcceptedCommand, CandidateSnapshot, Error))
+			const bool bExactStandardQuickTransfer = bP35ChildStandardRecord
+				? IsExactP36WorldDropChildStandardEquipmentQuickTransferDelta(
+					Existing, *Drop, AcceptedCommand, CandidateSnapshot, Error)
+				: IsExactP34WorldDropStandardEquipmentQuickTransferDelta(
+					Existing, *Drop, AcceptedCommand, CandidateSnapshot, Error);
+			if (!bExactStandardQuickTransfer)
 			{
 				if (OutError) *OutError = Error.IsEmpty()
-					? TEXT("Code B P34 Ctrl quick transfer requires one exact standard-equipment Move(1) to first-empty BaseQuick.")
+					? (bP35ChildStandardRecord
+						? TEXT("Code B P36 Ctrl quick transfer requires one exact P35 standard Move(1) to its frozen first-empty target.")
+						: TEXT("Code B P34 Ctrl quick transfer requires one exact standard-equipment Move(1) to first-empty BaseQuick."))
 					: Error;
 				return false;
 			}
-			bP34StandardEquipmentQuickTransfer = true;
+			bP36ChildStandardEquipmentQuickTransfer = bP35ChildStandardRecord;
+			bP34StandardEquipmentQuickTransfer = !bP35ChildStandardRecord;
 		}
 		else if (!IsExactP29WorldDropQuickTransferDelta(
 			Existing, *Drop, AcceptedCommand, CandidateSnapshot, bP29RetainWorldRoot, Error))
@@ -10120,7 +10236,7 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 	{
 		// The candidate entered this callback only after the shared P2 service
 		// accepted one P1 command. P27 cannot replay its created GUID, while P28/P29
-		// deliberately avoid a second Merge or Merge(0) fallback. P30/P34 likewise prove
+		// deliberately avoid a second Merge or Merge(0) fallback. P30/P34/P36 likewise prove
 		// the whole-graph/whole-root Move structurally; each proof binds the accepted command to
 		// the exact snapshot delta without a second durable mutation.
 		ExpectedSnapshot = CandidateSnapshot;
@@ -10149,7 +10265,8 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 	}
 	const FCodeBItemInstance* RetainedWorldItem = ExpectedSnapshot.Items.Find(Drop->ItemId);
 	const bool bRetainWorldRoot = (bQuickTransfer
-		? ((bP30CompleteGraphQuickTransfer || bP34StandardEquipmentQuickTransfer)
+		? ((bP30CompleteGraphQuickTransfer || bP34StandardEquipmentQuickTransfer
+			|| bP36ChildStandardEquipmentQuickTransfer)
 			? false : bP29RetainWorldRoot)
 		: ((bP26Merge || bP27Split || bP28Merge) && RetainedWorldItem
 		&& RetainedWorldItem->ParentContainerId == Drop->WorldContainerId

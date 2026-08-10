@@ -266,7 +266,9 @@ namespace demo_map_code_b
 				? ECodeBP2CommandIntent::QuickTransfer
 				: ECodeBP2CommandIntent::Standard,
 			Payload.QuickTransferActivePlayerContainerId,
-			Payload.ActivePlayerChildOpenGeneration);
+			Payload.ActivePlayerChildOpenGeneration,
+			Payload.QuickTransferTargetMode,
+			Payload.QuickTransferActivePlayerParentItemId);
 	}
 
 	bool FCodeBP4InteractionController::CommitDrop(const FCodeBP4DragPayload& Payload, const FCodeBP3SlotAddress& Target)

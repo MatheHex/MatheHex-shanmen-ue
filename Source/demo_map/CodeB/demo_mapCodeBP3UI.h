@@ -322,7 +322,7 @@ public:
 	bool IsCurrentActiveP17ChildContainer(const FGuid& ContainerId) const;
 	/** P34 read-only source-family gate; item/topology authority remains in P1/P6. */
 	bool IsP34StandardEquipmentWorldDropSource(const FGuid& ContainerId) const;
-	/** P35 provenance gate for normal Drag pickup only; never authorizes Ctrl quick transfer. */
+	/** P35 provenance gate shared by P35 normal Drag and P36's explicitly frozen Ctrl quick pickup. */
 	bool IsP35ChildStandardEquipmentWorldDropSource(const FGuid& ContainerId) const;
 	bool ValidateWorldDropTransferContext(
 		const demo_map_code_b::FCodeBP4DragPayload& Payload,

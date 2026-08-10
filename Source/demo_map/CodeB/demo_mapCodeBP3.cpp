@@ -653,7 +653,9 @@ namespace demo_map_code_b
 		const FString& OperationLabel,
 		const ECodeBP2CommandIntent Intent,
 		const FGuid& QuickTransferActivePlayerContainerId,
-		const uint32 ActivePlayerChildOpenGeneration)
+		const uint32 ActivePlayerChildOpenGeneration,
+		const ECodeBQuickTransferTargetMode QuickTransferTargetMode,
+		const FGuid& QuickTransferActivePlayerParentItemId)
 	{
 		if (!bOpen || !Service.IsValid())
 		{
@@ -688,6 +690,8 @@ namespace demo_map_code_b
 		Command.Intent = Intent;
 		Command.QuickTransferActivePlayerContainerId = QuickTransferActivePlayerContainerId;
 		Command.ActivePlayerChildOpenGeneration = ActivePlayerChildOpenGeneration;
+		Command.QuickTransferTargetMode = QuickTransferTargetMode;
+		Command.QuickTransferActivePlayerParentItemId = QuickTransferActivePlayerParentItemId;
 
 		const FGuid PreferredSelectionItem = Operation == ECodeBOperation::Merge && AuthoritativeTarget.bOccupied
 			? AuthoritativeTarget.ItemId

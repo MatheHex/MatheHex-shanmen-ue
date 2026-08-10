@@ -4979,7 +4979,20 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBWorldDropPage(
 			const demo_map_code_b::FCodeBP3InventoryWorkspaceContext* CurrentWorkspace = CurrentHost
 				? CurrentHost->GetWorkspaceContext() : nullptr;
 			const bool bCarriesActiveChild = AcceptedCommand.QuickTransferActivePlayerContainerId.IsValid();
-			if ((bCarriesActiveChild && (!CurrentWorkspace
+			const bool bP36CurrentChildMode = AcceptedCommand.QuickTransferTargetMode
+				== demo_map_code_b::ECodeBQuickTransferTargetMode::CurrentP17Child;
+			const bool bP36BaseQuickMode = AcceptedCommand.QuickTransferTargetMode
+				== demo_map_code_b::ECodeBQuickTransferTargetMode::BaseQuickNoChildAtInput;
+			const bool bP36ModeMalformed = (bP36CurrentChildMode
+					&& (!bCarriesActiveChild || !AcceptedCommand.QuickTransferActivePlayerParentItemId.IsValid()
+						|| AcceptedCommand.ActivePlayerChildOpenGeneration == 0))
+				|| (bP36BaseQuickMode && (bCarriesActiveChild
+					|| AcceptedCommand.QuickTransferActivePlayerParentItemId.IsValid()
+					|| AcceptedCommand.ActivePlayerChildOpenGeneration != 0))
+				|| (!bP36CurrentChildMode && !bP36BaseQuickMode
+					&& AcceptedCommand.QuickTransferActivePlayerParentItemId.IsValid());
+			if (bP36ModeMalformed
+				|| (bCarriesActiveChild && (!CurrentWorkspace
 					|| !CurrentWorkspace->ActiveDestinationContainerId.IsSet()
 					|| CurrentWorkspace->ActiveDestinationContainerId.GetValue()
 						!= AcceptedCommand.QuickTransferActivePlayerContainerId
@@ -4988,7 +5001,7 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBWorldDropPage(
 						!= AcceptedCommand.ActivePlayerChildOpenGeneration))
 				|| (!bCarriesActiveChild && AcceptedCommand.ActivePlayerChildOpenGeneration != 0))
 			{
-				CommitError = TEXT("活动 P17 child 已关闭或切换；陈旧拾回未提交。");
+				CommitError = TEXT("活动 P17 child 已关闭、切换或 target-mode 身份失效；陈旧拾回未提交且不回退 BaseQuick。");
 				return false;
 			}
 			const bool bCommitted = FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
