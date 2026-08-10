@@ -998,13 +998,14 @@ public:
 		const FTransform& FloorTransform,
 		FCodeBWorldDropProjection& OutProjection,
 		FString* OutError = nullptr);
-	/** P14/P19/P26/P27's only pickup writer; accepts exact P1 Move/Equip/Merge or the one P27 world-to-empty-player Split candidate. */
+	/** P14/P19/P26/P27/P28's only pickup writer; the accepted P2 command is transient proof context, never durable state. */
 	static bool CommitAcceptedMatchedRunWorldDropPickup(
 		const FString& InStorageRoot,
 		const FGuid& InOwnerId,
 		const FGuid& InRunInstanceId,
 		const FGuid& WorldDropId,
 		int32 ExpectedP6SnapshotRevision,
+		const demo_map_code_b::FCodeBP2Command& AcceptedCommand,
 		const demo_map_code_b::FCodeBSnapshot& CandidateSnapshot,
 		FString* OutError = nullptr);
 

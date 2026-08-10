@@ -395,6 +395,83 @@ namespace
 		return true;
 	}
 
+	/**
+	 * P28 tightens P25's generic Merge proof with the exact accepted command.
+	 * The world source and occupied player target must both retain identity and
+	 * placement, no item may be created or deleted, and the two quantities must
+	 * change by precisely the explicitly confirmed N.
+	 */
+	bool IsExactP28WorldPickupMergeDelta(
+		const FCodeBSnapshot& Prior,
+		const FCodeBSnapshot& Candidate,
+		const FCodeBP2Command& AcceptedCommand,
+		const FGuid& WorldSourceItemId,
+		FString& OutError)
+	{
+		if (AcceptedCommand.Operation != ECodeBOperation::Merge
+			|| AcceptedCommand.Quantity <= 0
+			|| AcceptedCommand.ExpectedRevision != Prior.Revision
+			|| AcceptedCommand.ItemId != WorldSourceItemId
+			|| (AcceptedCommand.SourceContainerId == AcceptedCommand.TargetContainerId
+				&& AcceptedCommand.SourceSlot == AcceptedCommand.TargetSlot))
+		{
+			OutError = TEXT("P28 requires one explicit positive-quantity P1 Merge command from the world source.");
+			return false;
+		}
+		const FCodeBItemInstance* Source = Prior.Items.Find(WorldSourceItemId);
+		const FCodeBContainer* SourceContainer = Source
+			? Prior.Containers.Find(Source->ParentContainerId) : nullptr;
+		const FCodeBContainer* TargetContainer = Prior.Containers.Find(AcceptedCommand.TargetContainerId);
+		const FGuid TargetItemId = TargetContainer
+			&& TargetContainer->Slots.IsValidIndex(AcceptedCommand.TargetSlot)
+			? TargetContainer->Slots[AcceptedCommand.TargetSlot] : FGuid();
+		const FCodeBItemInstance* Target = Prior.Items.Find(TargetItemId);
+		const FCodeBItemDefinition* Definition = Source
+			? Prior.Definitions.Find(Source->DefinitionId) : nullptr;
+		if (!Source || !SourceContainer || SourceContainer->IsEquipment()
+			|| Source->ParentContainerId != AcceptedCommand.SourceContainerId
+			|| Source->SlotIndex != AcceptedCommand.SourceSlot
+			|| !SourceContainer->Slots.IsValidIndex(Source->SlotIndex)
+			|| SourceContainer->Slots[Source->SlotIndex] != Source->ItemId
+			|| !Target || !TargetContainer || TargetContainer->IsEquipment()
+			|| Target->ParentContainerId != AcceptedCommand.TargetContainerId
+			|| Target->SlotIndex != AcceptedCommand.TargetSlot
+			|| Target->ItemId == Source->ItemId
+			|| !Definition || !Definition->bStackable || Definition->MaxStack <= 1
+			|| Source->DefinitionId != Target->DefinitionId
+			|| Source->ChildContainerId.IsValid() || Target->ChildContainerId.IsValid()
+			|| Source->Quantity <= AcceptedCommand.Quantity
+			|| Target->Quantity <= 0 || Target->Quantity >= Definition->MaxStack
+			|| Definition->MaxStack - Target->Quantity < AcceptedCommand.Quantity)
+		{
+			OutError = TEXT("P28 Merge command violates the exact simple-stack source, occupied target, or available-capacity gate.");
+			return false;
+		}
+		if (Candidate.Items.Num() != Prior.Items.Num()
+			|| !IsExactP25MergeDelta(Prior, Candidate, OutError))
+		{
+			if (OutError.IsEmpty())
+			{
+				OutError = TEXT("P28 exact partial Merge must retain every existing ItemId.");
+			}
+			return false;
+		}
+		const FCodeBItemInstance* CandidateSource = Candidate.Items.Find(Source->ItemId);
+		const FCodeBItemInstance* CandidateTarget = Candidate.Items.Find(Target->ItemId);
+		FCodeBItemInstance ExpectedSource = *Source;
+		ExpectedSource.Quantity -= AcceptedCommand.Quantity;
+		FCodeBItemInstance ExpectedTarget = *Target;
+		ExpectedTarget.Quantity += AcceptedCommand.Quantity;
+		if (!CandidateSource || !CandidateTarget
+			|| !(ExpectedSource == *CandidateSource)
+			|| !(ExpectedTarget == *CandidateTarget))
+		{
+			OutError = TEXT("P28 candidate does not contain the exact source -N and target +N quantity-only delta.");
+			return false;
+		}
+		return true;
+	}
+
 	/** P16's closed Code B-only content catalog.  It has no Actor, UI, or RNG dependency. */
 	struct FCodeBLootProfileCandidate
 	{
@@ -9072,6 +9149,7 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 	const FGuid& InRunInstanceId,
 	const FGuid& WorldDropId,
 	const int32 ExpectedP6SnapshotRevision,
+	const FCodeBP2Command& AcceptedCommand,
 	const FCodeBSnapshot& CandidateSnapshot,
 	FString* OutError)
 {
@@ -9109,6 +9187,8 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 	}
 	const FCodeBItemInstance* CandidateItem = CandidateSnapshot.Items.Find(Drop->ItemId);
 	const bool bP26SimpleStack = !bIsSpatialClosure && IsP26SimpleStack(Existing, *SourceItem);
+	const bool bP28MergeIntent = AcceptedCommand.Operation == ECodeBOperation::Merge
+		&& AcceptedCommand.Quantity > 0;
 	const FCodeBItemInstance* P27CreatedItem = nullptr;
 	bool bMultipleP27CreatedItems = false;
 	for (const TPair<FGuid, FCodeBItemInstance>& Pair : CandidateSnapshot.Items)
@@ -9132,7 +9212,29 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 	Move.SourceSlot = 0;
 	Move.ExpectedRevision = Existing.RepositorySnapshot.Revision;
 	bool bP26Merge = false;
-	if (bIsSpatialClosure)
+	bool bP28Merge = false;
+	if (bP28MergeIntent)
+	{
+		const FCodeBContainer* P28TargetContainer = Existing.RepositorySnapshot.Containers.Find(
+			AcceptedCommand.TargetContainerId);
+		if (!bP26SimpleStack
+			|| !IsP26PlayerStorageContainer(Existing, AcceptedCommand.TargetContainerId)
+			|| !P28TargetContainer || P28TargetContainer->IsEquipment()
+			|| !IsExactP28WorldPickupMergeDelta(
+				Existing.RepositorySnapshot, CandidateSnapshot, AcceptedCommand, Drop->ItemId, Error))
+		{
+			if (OutError) *OutError = Error.IsEmpty()
+				? TEXT("Code B P28 pickup requires one exact P1 Merge(N) into an explicit compatible occupied player stack.")
+				: Error;
+			return false;
+		}
+		Move.Operation = ECodeBOperation::Merge;
+		Move.TargetContainerId = AcceptedCommand.TargetContainerId;
+		Move.TargetSlot = AcceptedCommand.TargetSlot;
+		Move.Quantity = AcceptedCommand.Quantity;
+		bP28Merge = true;
+	}
+	else if (bIsSpatialClosure)
 	{
 		if (!CandidateItem)
 		{
@@ -9249,12 +9351,13 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 		}
 	}
 	FCodeBSnapshot ExpectedSnapshot;
-	if (bP27Split)
+	if (bP27Split || bP28Merge)
 	{
 		// The candidate entered this callback only after the shared P2 service
-		// accepted one P1 Split. The created GUID is intentionally not replayed:
-		// IsExactP24SplitDelta above proves that this accepted identity and every
-		// other field are exactly the one-source/one-empty-target P1 delta.
+		// accepted one P1 command. P27 cannot replay its created GUID, while P28
+		// deliberately avoids a second Merge or Merge(0) fallback; the dedicated
+		// structural proof above already binds the exact accepted command to the
+		// one-source/one-target snapshot delta.
 		ExpectedSnapshot = CandidateSnapshot;
 	}
 	else
@@ -9280,7 +9383,7 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 		}
 	}
 	const FCodeBItemInstance* RetainedWorldItem = ExpectedSnapshot.Items.Find(Drop->ItemId);
-	const bool bRetainWorldRoot = (bP26Merge || bP27Split) && RetainedWorldItem
+	const bool bRetainWorldRoot = (bP26Merge || bP27Split || bP28Merge) && RetainedWorldItem
 		&& RetainedWorldItem->ParentContainerId == Drop->WorldContainerId
 		&& RetainedWorldItem->SlotIndex == 0 && RetainedWorldItem->Quantity > 0;
 	if (!bRetainWorldRoot)

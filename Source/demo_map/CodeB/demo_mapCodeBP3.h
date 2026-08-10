@@ -189,7 +189,12 @@ namespace demo_map_code_b
 	class FCodeBP3UIController
 	{
 	public:
-		using FProfileCommit = TFunction<bool(const FCodeBSnapshot&, FString&)>;
+		/**
+		 * Durable callbacks receive the exact command already accepted by P1/P2.
+		 * The command is transient audit context only; callbacks must still
+		 * revalidate the authoritative snapshot before saving it.
+		 */
+		using FProfileCommit = TFunction<bool(const FCodeBSnapshot&, const FCodeBP2Command&, FString&)>;
 
 		bool Open(FString* OutError = nullptr);
 		/** Opens a real Profile-owned repository without constructing the development fixture. */
@@ -251,7 +256,10 @@ namespace demo_map_code_b
 		bool FindAddressForItem(const FGuid& ItemId, FCodeBP3SlotAddress& OutAddress) const;
 		void RestoreSelectionAfterResult(const FCodeBP2ApplicationResult& Result, const FGuid& PreferredItemId);
 		FCodeBP2Command MakeCommand(const FCodeBP3SlotAddress& Source, const FCodeBP3SlotAddress& Target, int32 ExpectedRevision) const;
-		bool PersistProfileSnapshotAfterAcceptedP1(const FCodeBSnapshot& BeforeSnapshot, FString& OutError);
+		bool PersistProfileSnapshotAfterAcceptedP1(
+			const FCodeBSnapshot& BeforeSnapshot,
+			const FCodeBP2Command& AcceptedCommand,
+			FString& OutError);
 		bool OpenRepository(
 			FCodeBRepository& InRepository,
 			const FCodeBP2PlayerLayout& InLayout,

@@ -552,13 +552,14 @@ namespace demo_map_code_b
 
 	bool FCodeBP3UIController::PersistProfileSnapshotAfterAcceptedP1(
 		const FCodeBSnapshot& BeforeSnapshot,
+		const FCodeBP2Command& AcceptedCommand,
 		FString& OutError)
 	{
 		if (!ProfileRepository || !ProfileCommit)
 		{
 			return true;
 		}
-		if (ProfileCommit(ProfileRepository->CaptureSnapshot(), OutError))
+		if (ProfileCommit(ProfileRepository->CaptureSnapshot(), AcceptedCommand, OutError))
 		{
 			return true;
 		}
@@ -616,7 +617,7 @@ namespace demo_map_code_b
 		if (Result.IsSuccess())
 		{
 			FString PersistenceError;
-			if (!PersistProfileSnapshotAfterAcceptedP1(BeforeSnapshot, PersistenceError))
+			if (!PersistProfileSnapshotAfterAcceptedP1(BeforeSnapshot, Command, PersistenceError))
 			{
 				SelectedAddress.Reset();
 				Feedback = FString::Printf(TEXT("保存失败，未提交本次操作：%s"), *PersistenceError);
@@ -695,7 +696,7 @@ namespace demo_map_code_b
 		if (Result.IsSuccess())
 		{
 			FString PersistenceError;
-			if (!PersistProfileSnapshotAfterAcceptedP1(BeforeSnapshot, PersistenceError))
+			if (!PersistProfileSnapshotAfterAcceptedP1(BeforeSnapshot, Command, PersistenceError))
 			{
 				SelectedAddress.Reset();
 				Feedback = FString::Printf(TEXT("保存失败，未提交本次拖拽：%s"), *PersistenceError);

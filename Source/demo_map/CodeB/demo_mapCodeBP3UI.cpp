@@ -2458,11 +2458,18 @@ FCodeBP4DropPreview UCodeBP3InventoryWidget::PreviewInventoryTransfer(
 			&& Payload.QuantityDraftKind == ECodeBP3QuantityDraftKind::WorldPickup;
 		if (bP27WorldPickup)
 		{
-			if (!bSimpleStack || !bP26PlayerStorage || Target.bOccupied
-				|| Preview.Operation != ECodeBOperation::Split
-				|| Preview.Quantity != Payload.RequestedMergeQuantity)
+			const bool bP27EmptySplit = !Target.bOccupied
+				&& Preview.Operation == ECodeBOperation::Split
+				&& Preview.Quantity == Payload.RequestedMergeQuantity;
+			const bool bP28OccupiedMerge = Target.bOccupied
+				&& Preview.Operation == ECodeBOperation::Merge
+				&& Preview.Quantity == Payload.RequestedMergeQuantity
+				&& Preview.ProjectedAcceptedQuantity == Payload.RequestedMergeQuantity
+				&& !Preview.bPartialAcceptance;
+			if (!bSimpleStack || !bP26PlayerStorage
+				|| (!bP27EmptySplit && !bP28OccupiedMerge))
 			{
-				Rejected.Message = TEXT("地面数量拾回只接受 simple stack 到明确空的 BaseQuick／当前合法空间 child 格。");
+				Rejected.Message = TEXT("地面数量拾回只接受 simple stack 到明确空格 Split(N) 或兼容未满堆叠 Merge(N)。");
 				return Rejected;
 			}
 			return Preview;
@@ -4233,7 +4240,7 @@ bool UCodeBP3UIHostSubsystem::CreateSplitDraft(
 	}
 	SplitDraft = MoveTemp(Draft);
 	Controller->SetP4Feedback(bWorldPickup
-		? FString::Printf(TEXT("已确认从地面拾回 %d 个；请拖到明确空玩家格，Drop 前零写入。"),
+		? FString::Printf(TEXT("已确认从地面拾回 %d 个；请拖到明确空格或兼容未满玩家堆叠，Drop 前零写入。"),
 			RequestedQuantity)
 		: FString::Printf(TEXT("已准备 %d 个；请拖动同一来源堆到明确空格或兼容未满堆叠。"),
 			RequestedQuantity));

@@ -4421,7 +4421,8 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBOutOfRaidInventory(FString& OutFeed
 	const bool bOpened = Host->OpenProfilePage(
 		*CodeBOutOfRaidRepository,
 		Layout,
-		[this](const demo_map_code_b::FCodeBSnapshot& PersistedSnapshot, FString& OutError)
+		[this](const demo_map_code_b::FCodeBSnapshot& PersistedSnapshot,
+			const demo_map_code_b::FCodeBP2Command&, FString& OutError)
 		{
 			return CodeBOutOfRaidProfileStore.IsValid()
 				&& CodeBOutOfRaidProfileStore->CommitAcceptedSnapshot(PersistedSnapshot, &OutError);
@@ -4592,7 +4593,8 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBActiveRunInventory(FString& OutFeed
 	const bool bOpened = Host->OpenProfilePage(
 		*CodeBActiveRunInventoryRepository,
 		ActiveSession.Layout,
-		[this, ExpectedRunId](const demo_map_code_b::FCodeBSnapshot& PersistedSnapshot, FString& OutError)
+		[this, ExpectedRunId](const demo_map_code_b::FCodeBSnapshot& PersistedSnapshot,
+			const demo_map_code_b::FCodeBP2Command&, FString& OutError)
 		{
 			return CodeBActiveRunInventoryStore.IsValid()
 				&& CodeBActiveRunInventoryRunId == ExpectedRunId
@@ -4888,12 +4890,13 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBWorldDropPage(
 	const bool bOpened = Host->OpenProfilePage(
 		*CodeBWorldDropRepository,
 		PresentationLayout,
-		[this](const demo_map_code_b::FCodeBSnapshot& CandidateSnapshot, FString& CommitError)
+		[this](const demo_map_code_b::FCodeBSnapshot& CandidateSnapshot,
+			const demo_map_code_b::FCodeBP2Command& AcceptedCommand, FString& CommitError)
 		{
 			const bool bCommitted = FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 				ProfilePreparationFlow ? ProfilePreparationFlow->GetStorageRoot() : FString(),
 				CodeBWorldDropOwnerId, CodeBWorldDropRunId, CodeBWorldDropId,
-				CodeBWorldDropExpectedP6Revision, CandidateSnapshot, &CommitError);
+				CodeBWorldDropExpectedP6Revision, AcceptedCommand, CandidateSnapshot, &CommitError);
 			if (bCommitted)
 			{
 				CodeBWorldDropExpectedP6Revision = CandidateSnapshot.Revision;
@@ -5222,7 +5225,8 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBNormalContainerPage(
 	const bool bOpened = Host->OpenProfilePage(
 		*CodeBNormalContainerRepository,
 		PresentationLayout,
-		[this](const demo_map_code_b::FCodeBSnapshot& PersistedSnapshot, FString& CommitError)
+		[this](const demo_map_code_b::FCodeBSnapshot& PersistedSnapshot,
+			const demo_map_code_b::FCodeBP2Command&, FString& CommitError)
 		{
 			const bool bCommitted = FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfer(
 				ProfilePreparationFlow ? ProfilePreparationFlow->GetStorageRoot() : FString(),
@@ -5654,7 +5658,8 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBBodyContainerPage(
 	};
 	const bool bOpened = Host->OpenProfilePage(
 		*CodeBBodyContainerRepository, PresentationLayout,
-		[this](const demo_map_code_b::FCodeBSnapshot& PersistedSnapshot, FString& CommitError)
+		[this](const demo_map_code_b::FCodeBSnapshot& PersistedSnapshot,
+			const demo_map_code_b::FCodeBP2Command&, FString& CommitError)
 		{
 			const bool bCommitted = FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 				ProfilePreparationFlow ? ProfilePreparationFlow->GetStorageRoot() : FString(),
