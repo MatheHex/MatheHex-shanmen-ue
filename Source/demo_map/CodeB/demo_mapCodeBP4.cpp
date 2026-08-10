@@ -293,7 +293,8 @@ namespace demo_map_code_b
 			Payload.ActivePlayerChildOpenGeneration,
 			Payload.QuickTransferTargetMode,
 			Payload.QuickTransferActivePlayerParentItemId,
-			Payload.P38BodyEquipmentProof);
+			Payload.P38BodyEquipmentProof,
+			Payload.P40BodySimpleStackProof);
 	}
 
 	bool FCodeBP4InteractionController::CommitDrop(const FCodeBP4DragPayload& Payload, const FCodeBP3SlotAddress& Target)

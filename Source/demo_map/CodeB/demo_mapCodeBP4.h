@@ -31,6 +31,8 @@ namespace demo_map_code_b
 		FGuid QuickTransferActivePlayerParentItemId;
 		/** P38/P39: exact P21 body-source and input-time current P17-child proof. */
 		FCodeBP38BodyEquipmentTransferProof P38BodyEquipmentProof;
+		/** P40: exact revealed ordinary P12 simple-stack and frozen-target proof. */
+		FCodeBP40BodySimpleStackQuickTransferProof P40BodySimpleStackProof;
 		/** Explicit P24 player split versus P27 world partial-pickup intent. */
 		ECodeBP3QuantityDraftKind QuantityDraftKind = ECodeBP3QuantityDraftKind::None;
 		/** P27 transient record identity. It is never used to derive an ItemId. */

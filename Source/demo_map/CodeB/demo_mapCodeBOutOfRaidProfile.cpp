@@ -8066,6 +8066,210 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 		return false;
 	}
 
+	// P40 adds one ordinary P12 source family to the existing frozen-target
+	// QuickTransfer command. The Store independently reconstructs the canonical
+	// source, exact target mode, stable merge-first/empty-second candidate and the
+	// one P1 transaction before the shared P11/P6 durable replacement below.
+	const FCodeBP40BodySimpleStackQuickTransferProof& P40Proof =
+		AcceptedCommand.P40BodySimpleStackProof;
+	if (P40Proof.bIntent)
+	{
+		const FCodeBItemInstance* OriginalSource =
+			Record->ContainerSnapshot.Items.Find(P40Proof.SourceItemId);
+		const FCodeBContainer* OriginalSourceContainer =
+			Record->ContainerSnapshot.Containers.Find(P40Proof.SourceContainerId);
+		const FCodeBItemDefinition* SourceDefinition =
+			P24PriorComposite.Definitions.Find(P40Proof.SourceDefinitionId);
+		FCodeBItemDefinition CanonicalSourceDefinition;
+		const ECodeBBodyContainerVisibility* SourceVisibility =
+			OriginalVisibilities.Find(P40Proof.SourceItemId);
+		const bool bCanonicalSimpleStack = SourceDefinition
+			&& BuildCanonicalCodeBItemDefinition(
+				P40Proof.SourceDefinitionId, CanonicalSourceDefinition, Error)
+			&& *SourceDefinition == CanonicalSourceDefinition
+			&& SourceDefinition->bStackable && SourceDefinition->MaxStack > 1
+			&& SourceDefinition->SpatialContainerSemantic == ECodeBSpatialContainerSemantic::None
+			&& SourceDefinition->ChildContainerCapacity == 0
+			&& SourceDefinition->EquipSlot == ECodeBEquipSlot::None;
+		if (AcceptedCommand.Intent != ECodeBP2CommandIntent::QuickTransfer
+			|| AcceptedCommand.P38BodyEquipmentProof.bIntent
+			|| !P40Proof.HasSourceIdentity()
+			|| P40Proof.OwnerId != InOwnerId || P40Proof.RunInstanceId != InRunInstanceId
+			|| P40Proof.BodyTargetId != BodyTargetId
+			|| P40Proof.DeathReceiptId != Record->Receipt.DeathReceipt.DeathReceiptId
+			|| P40Proof.BodyRecordRevision != ExpectedBodyContainerRevision
+			|| P40Proof.BodyDefinitionId != DefinitionId
+			|| P40Proof.SourceContainerId != Record->ContainerId
+			|| P40Proof.SourceItemId != AcceptedCommand.ItemId
+			|| P40Proof.SourceContainerId != AcceptedCommand.SourceContainerId
+			|| P40Proof.SourceSlot != AcceptedCommand.SourceSlot
+			|| P40Proof.LootProfileId != Record->Receipt.LootProfileId
+			|| P40Proof.LootProfileVersion != Record->Receipt.LootProfileVersion
+			|| P40Proof.LootProfileDigest != Record->Receipt.LootProfileDigest
+			|| P40Proof.LootResultDigest != Record->Receipt.LootResultDigest
+			|| P40Proof.MaterializationDigest != Record->Receipt.MaterializationDigest
+			|| P40Proof.WorkspaceTargetPaneId != FName(TEXT("InRun.External"))
+			|| P40Proof.CompositeRevision != P24PriorComposite.Revision
+			|| Record->Receipt.OwnerId != InOwnerId
+			|| Record->Receipt.RunInstanceId != InRunInstanceId
+			|| Record->Receipt.BodyTargetId != BodyTargetId
+			|| Record->Receipt.DefinitionId != DefinitionId
+			|| Record->Receipt.ContainerId != Record->ContainerId
+			|| Record->Receipt.DeathReceipt.OwnerId != InOwnerId
+			|| Record->Receipt.DeathReceipt.RunInstanceId != InRunInstanceId
+			|| Record->Receipt.DeathReceipt.BodyTargetId != BodyTargetId
+			|| Record->Receipt.DeathReceipt.DefinitionId != DefinitionId
+			|| !OriginalSource || !OriginalSourceContainer || OriginalSourceContainer->IsEquipment()
+			|| !OriginalSourceContainer->Slots.IsValidIndex(P40Proof.SourceSlot)
+			|| OriginalSourceContainer->Slots[P40Proof.SourceSlot] != P40Proof.SourceItemId
+			|| OriginalSource->ItemId != P40Proof.SourceItemId
+			|| OriginalSource->DefinitionId != P40Proof.SourceDefinitionId
+			|| OriginalSource->ParentContainerId != P40Proof.SourceContainerId
+			|| OriginalSource->SlotIndex != P40Proof.SourceSlot
+			|| OriginalSource->Quantity <= 0
+			|| (SourceDefinition && OriginalSource->Quantity > SourceDefinition->MaxStack)
+			|| OriginalSource->ChildContainerId.IsValid()
+			|| !SourceVisibility || *SourceVisibility != ECodeBBodyContainerVisibility::Revealed
+			|| !bCanonicalSimpleStack
+			|| !AcceptedCommand.TransactionId.IsValid()
+			|| AcceptedCommand.ExpectedRevision != P24PriorComposite.Revision
+			|| AcceptedCommand.Quantity != 0
+			|| (AcceptedCommand.Operation != ECodeBOperation::Merge
+				&& AcceptedCommand.Operation != ECodeBOperation::Move))
+		{
+			if (OutError) *OutError = TEXT("Code B P40 refused a stale, non-ordinary, non-simple, hidden, or identity-incomplete P12 source command.");
+			return false;
+		}
+
+		const bool bCurrentChildMode = AcceptedCommand.QuickTransferTargetMode
+			== ECodeBQuickTransferTargetMode::CurrentP17Child;
+		const bool bBaseQuickMode = AcceptedCommand.QuickTransferTargetMode
+			== ECodeBQuickTransferTargetMode::BaseQuickNoChildAtInput;
+		FGuid CanonicalChildParentItemId;
+		const bool bCurrentChildTarget = bCurrentChildMode
+			&& AcceptedCommand.TargetContainerId
+				== AcceptedCommand.QuickTransferActivePlayerContainerId
+			&& AcceptedCommand.QuickTransferActivePlayerContainerId
+				== P40Proof.ActivePlayerChildContainerId
+			&& AcceptedCommand.QuickTransferActivePlayerParentItemId.IsValid()
+			&& AcceptedCommand.QuickTransferActivePlayerParentItemId
+				== P40Proof.ActivePlayerChildParentItemId
+			&& AcceptedCommand.ActivePlayerChildOpenGeneration != 0
+			&& AcceptedCommand.ActivePlayerChildOpenGeneration
+				== P40Proof.ActivePlayerChildOpenGeneration
+			&& IsP35ActiveP17ChildContainer(
+				Candidate.ActiveRunInventorySession, AcceptedCommand.TargetContainerId,
+				&CanonicalChildParentItemId)
+			&& CanonicalChildParentItemId == AcceptedCommand.QuickTransferActivePlayerParentItemId;
+		const bool bBaseQuickTarget = bBaseQuickMode
+			&& AcceptedCommand.TargetContainerId
+				== Candidate.ActiveRunInventorySession.Layout.BasicContainerId
+			&& !AcceptedCommand.QuickTransferActivePlayerContainerId.IsValid()
+			&& !AcceptedCommand.QuickTransferActivePlayerParentItemId.IsValid()
+			&& AcceptedCommand.ActivePlayerChildOpenGeneration == 0
+			&& !P40Proof.ActivePlayerChildContainerId.IsValid()
+			&& !P40Proof.ActivePlayerChildParentItemId.IsValid()
+			&& P40Proof.ActivePlayerChildOpenGeneration == 0;
+		const FCodeBContainer* OriginalTarget =
+			Candidate.ActiveRunInventorySession.RepositorySnapshot.Containers.Find(
+				AcceptedCommand.TargetContainerId);
+		if ((!bCurrentChildTarget && !bBaseQuickTarget) || !OriginalTarget
+			|| OriginalTarget->IsEquipment()
+			|| !OriginalTarget->Slots.IsValidIndex(AcceptedCommand.TargetSlot))
+		{
+			if (OutError) *OutError = TEXT("Code B P40 refused a redirected, closed, capacity-invalid, or mode-invalid frozen P6 target.");
+			return false;
+		}
+
+		auto IsCompatibleUnderfullAt = [&](const int32 SlotIndex)
+		{
+			if (!OriginalTarget->Slots.IsValidIndex(SlotIndex)
+				|| !OriginalTarget->Slots[SlotIndex].IsValid()) return false;
+			const FCodeBItemInstance* TargetItem =
+				Candidate.ActiveRunInventorySession.RepositorySnapshot.Items.Find(
+					OriginalTarget->Slots[SlotIndex]);
+			const FCodeBItemDefinition* TargetDefinition = TargetItem
+				? Candidate.ActiveRunInventorySession.RepositorySnapshot.Definitions.Find(
+					TargetItem->DefinitionId) : nullptr;
+			return TargetItem && TargetDefinition
+				&& TargetItem->DefinitionId == OriginalSource->DefinitionId
+				&& TargetDefinition->bStackable
+				&& TargetDefinition->MaxStack == SourceDefinition->MaxStack
+				&& TargetItem->Quantity > 0
+				&& TargetItem->Quantity < TargetDefinition->MaxStack
+				&& !TargetItem->ChildContainerId.IsValid()
+				&& TargetItem->ParentContainerId == OriginalTarget->ContainerId
+				&& TargetItem->SlotIndex == SlotIndex;
+		};
+
+		if (AcceptedCommand.Operation == ECodeBOperation::Merge)
+		{
+			if (!IsCompatibleUnderfullAt(AcceptedCommand.TargetSlot))
+			{
+				if (OutError) *OutError = TEXT("Code B P40 Merge(0) target is not a compatible underfull simple stack.");
+				return false;
+			}
+			for (int32 SlotIndex = 0; SlotIndex < AcceptedCommand.TargetSlot; ++SlotIndex)
+			{
+				if (IsCompatibleUnderfullAt(SlotIndex))
+				{
+					if (OutError) *OutError = TEXT("Code B P40 Merge(0) target is not first in stable SlotIndex order.");
+					return false;
+				}
+			}
+		}
+		else
+		{
+			for (int32 SlotIndex = 0; SlotIndex < OriginalTarget->Slots.Num(); ++SlotIndex)
+			{
+				if (IsCompatibleUnderfullAt(SlotIndex))
+				{
+					if (OutError) *OutError = TEXT("Code B P40 Move cannot bypass a compatible underfull stack.");
+					return false;
+				}
+			}
+			if (OriginalTarget->Slots[AcceptedCommand.TargetSlot].IsValid())
+			{
+				if (OutError) *OutError = TEXT("Code B P40 Move target is not empty.");
+				return false;
+			}
+			for (int32 SlotIndex = 0; SlotIndex < AcceptedCommand.TargetSlot; ++SlotIndex)
+			{
+				if (!OriginalTarget->Slots[SlotIndex].IsValid())
+				{
+					if (OutError) *OutError = TEXT("Code B P40 Move target is not first empty in stable SlotIndex order.");
+					return false;
+				}
+			}
+		}
+
+		FCodeBRepository ExpectedRepository;
+		FCodeBTransactionRequest ExpectedRequest;
+		ExpectedRequest.TransactionId = AcceptedCommand.TransactionId;
+		ExpectedRequest.Operation = AcceptedCommand.Operation;
+		ExpectedRequest.ItemId = AcceptedCommand.ItemId;
+		ExpectedRequest.SourceContainerId = AcceptedCommand.SourceContainerId;
+		ExpectedRequest.SourceSlot = AcceptedCommand.SourceSlot;
+		ExpectedRequest.TargetContainerId = AcceptedCommand.TargetContainerId;
+		ExpectedRequest.TargetSlot = AcceptedCommand.TargetSlot;
+		ExpectedRequest.Quantity = 0;
+		ExpectedRequest.ExpectedRevision = AcceptedCommand.ExpectedRevision;
+		if (!ExpectedRepository.LoadPersistedSnapshot(P24PriorComposite, &Error)
+			|| !ExpectedRepository.ExecuteTransaction(ExpectedRequest).IsSuccess()
+			|| ExpectedRepository.CaptureSnapshot() != CompositeSnapshot)
+		{
+			if (OutError) *OutError = TEXT("Code B P40 candidate differs from its one exact P1 Merge(0) or whole-root Move.");
+			return false;
+		}
+	}
+	else if (AcceptedCommand.Intent == ECodeBP2CommandIntent::QuickTransfer
+		&& Record->ContainerSnapshot.Containers.Contains(AcceptedCommand.SourceContainerId)
+		&& !AcceptedCommand.P38BodyEquipmentProof.bIntent)
+	{
+		if (OutError) *OutError = TEXT("Code B P40 refused an unproven corpse-source QuickTransfer branch.");
+		return false;
+	}
+
 	// P20 adds one deliberately narrow P12 path. A formal parent may leave this
 	// exact, Revealed BasicCorpse root only as its unchanged empty P17 closure,
 	// only through one empty P6 BaseQuick cell. The comparison below makes the

@@ -174,6 +174,50 @@ namespace demo_map_code_b
 		}
 	};
 
+	/**
+	 * P40 transient proof for one revealed ordinary P12 simple-stack source.
+	 * It freezes only durable body/source identities and the input-time P17 target
+	 * identity; P1 remains the sole placement and quantity authority.
+	 */
+	struct FCodeBP40BodySimpleStackQuickTransferProof
+	{
+		bool bIntent = false;
+		FGuid OwnerId;
+		FGuid RunInstanceId;
+		FGuid BodyTargetId;
+		FGuid DeathReceiptId;
+		int32 BodyRecordRevision = INDEX_NONE;
+		uint32 BodyTargetOpenGeneration = 0;
+		FName BodyDefinitionId;
+		FGuid SourceContainerId;
+		int32 SourceSlot = INDEX_NONE;
+		FGuid SourceItemId;
+		FName SourceDefinitionId;
+		FName LootProfileId;
+		int32 LootProfileVersion = 0;
+		FString LootProfileDigest;
+		FString LootResultDigest;
+		FString MaterializationDigest;
+		FName WorkspaceTargetPaneId;
+		int32 CompositeRevision = INDEX_NONE;
+		FGuid ActivePlayerChildContainerId;
+		FGuid ActivePlayerChildParentItemId;
+		uint32 ActivePlayerChildOpenGeneration = 0;
+
+		bool HasSourceIdentity() const
+		{
+			return bIntent && OwnerId.IsValid() && RunInstanceId.IsValid()
+				&& BodyTargetId.IsValid() && DeathReceiptId.IsValid()
+				&& BodyRecordRevision > 0 && BodyTargetOpenGeneration != 0
+				&& !BodyDefinitionId.IsNone() && SourceContainerId.IsValid()
+				&& SourceSlot >= 0 && SourceItemId.IsValid() && !SourceDefinitionId.IsNone()
+				&& !LootProfileId.IsNone() && LootProfileVersion > 0
+				&& !LootProfileDigest.IsEmpty() && !LootResultDigest.IsEmpty()
+				&& !MaterializationDigest.IsEmpty() && !WorkspaceTargetPaneId.IsNone()
+				&& CompositeRevision >= 0;
+		}
+	};
+
 	struct FCodeBP2Command
 	{
 		FGuid TransactionId;
@@ -196,6 +240,8 @@ namespace demo_map_code_b
 		FGuid QuickTransferActivePlayerParentItemId;
 		/** P38/P39 body-equipment source/target lifecycle proof; absent for every earlier family. */
 		FCodeBP38BodyEquipmentTransferProof P38BodyEquipmentProof;
+		/** P40 ordinary P12 simple-stack source and frozen-target proof. */
+		FCodeBP40BodySimpleStackQuickTransferProof P40BodySimpleStackProof;
 	};
 
 	struct FCodeBP2ApplicationResult

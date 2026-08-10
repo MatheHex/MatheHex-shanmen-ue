@@ -38,6 +38,8 @@ struct FCodeBP3BodyContainerPresentation
 	uint32 TargetOpenGeneration = 0;
 	/** The manager/service starts the durable body search and returns its fresh projection. */
 	TFunction<bool(const demo_map_code_b::FCodeBP3SearchLocator&, FCodeBBodyContainerProjection&, FString&)> BeginItemSearch;
+	/** Refreshes only the read-only body projection after an accepted P11/P6 transaction. */
+	TFunction<bool(FCodeBBodyContainerProjection&, FString&)> Refresh;
 };
 
 /** P13 keeps the P3/P4 host projection-only; all writes enter a Store-owned binding service callback. */
@@ -304,6 +306,7 @@ public:
 	bool RequestNormalContainerItemSearch(const FGuid& ContainerId, int32 SlotIndex, FString& OutError);
 	void UpdateNormalContainerProjection(const FCodeBNormalContainerProjection& Projection);
 	bool IsBodyContainerPresentation(const FGuid& ContainerId) const;
+	bool IsBodyOrdinaryContainerPresentation(const FGuid& ContainerId) const;
 	bool IsBodyEquipmentContainerPresentation(const FGuid& ContainerId) const;
 	bool HasBodyContainerPresentation() const { return BodyContainerPresentation.IsSet(); }
 	bool IsBodyContainerItemHidden(const FGuid& ItemId) const;
@@ -318,12 +321,20 @@ public:
 	bool IsExternalTargetContainer(const FGuid& ContainerId) const;
 	void PopulateAddressContext(demo_map_code_b::FCodeBP3SlotAddress& Address) const;
 	void PopulateTransferContext(demo_map_code_b::FCodeBP4DragPayload& Payload) const;
+	void PopulateP40BodySimpleStackQuickTransferProof(
+		demo_map_code_b::FCodeBP4DragPayload& Payload) const;
 	bool ValidateTransferContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, FString& OutError);
 	/** Shared P38 normal-drag / P39 frozen-target source and destination gate. */
 	bool ValidateP38BodyEquipmentTransferContext(
 		const demo_map_code_b::FCodeBP4DragPayload& Payload,
 		const demo_map_code_b::FCodeBP3SlotAddress& Target,
 		FString& OutError) const;
+	/** P40 exact ordinary body simple-stack source, frozen target, and stable scan gate. */
+	bool ValidateP40BodySimpleStackQuickTransferContext(
+		const demo_map_code_b::FCodeBP4DragPayload& Payload,
+		const demo_map_code_b::FCodeBP3SlotAddress& Target,
+		FString& OutError) const;
+	bool RefreshBodyContainerProjection(FString& OutError);
 	bool IsP29PlayerQuickTransferSourceContainer(const FGuid& ContainerId) const;
 	/** P35 exact current-child gate; BaseQuick is deliberately not accepted here. */
 	bool IsCurrentActiveP17ChildContainer(const FGuid& ContainerId) const;

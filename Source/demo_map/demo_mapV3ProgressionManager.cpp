@@ -5756,6 +5756,21 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBBodyContainerPage(
 		}
 		return WeakManager->BeginCodeBBodyContainerItemSearch(Item->ItemId, OutProjection, OutError);
 	};
+	Presentation.Refresh = [WeakManager](FCodeBBodyContainerProjection& OutProjection, FString& OutError)
+	{
+		if (!WeakManager.IsValid() || !WeakManager->bCodeBBodyContainerOpen
+			|| !WeakManager->CodeBBodyContainerOwnerId.IsValid()
+			|| !WeakManager->CodeBBodyContainerRunId.IsValid()
+			|| !WeakManager->CodeBBodyContainerTargetId.IsValid())
+		{
+			OutError = TEXT("P12 body projection refresh requires the exact open Owner/Run/BodyTarget.");
+			return false;
+		}
+		return FCodeBOutOfRaidProfileStore::TryGetMatchedRunBodyContainerProjection(
+			WeakManager->ProfilePreparationFlow ? WeakManager->ProfilePreparationFlow->GetStorageRoot() : FString(),
+			WeakManager->CodeBBodyContainerOwnerId, WeakManager->CodeBBodyContainerRunId,
+			WeakManager->CodeBBodyContainerTargetId, OutProjection, &OutError);
+	};
 	FCodeBP3HotbarPresentation HotbarPresentation;
 	HotbarPresentation.OwnerId = CodeBBodyContainerOwnerId;
 	HotbarPresentation.RunInstanceId = CodeBBodyContainerRunId;
@@ -5799,15 +5814,25 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBBodyContainerPage(
 			const bool bP39QuickTransfer = AcceptedCommand.Intent
 				== demo_map_code_b::ECodeBP2CommandIntent::QuickTransfer
 				&& AcceptedCommand.P38BodyEquipmentProof.bIntent;
-			if (bP39QuickTransfer)
+			const bool bP40QuickTransfer = AcceptedCommand.Intent
+				== demo_map_code_b::ECodeBP2CommandIntent::QuickTransfer
+				&& AcceptedCommand.P40BodySimpleStackProof.bIntent;
+			if (bP39QuickTransfer || bP40QuickTransfer)
 			{
 				UGameInstance* CurrentGameInstance = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
 				UCodeBP3UIHostSubsystem* CurrentHost = CurrentGameInstance
 					? CurrentGameInstance->GetSubsystem<UCodeBP3UIHostSubsystem>() : nullptr;
 				const demo_map_code_b::FCodeBP3InventoryWorkspaceContext* CurrentWorkspace = CurrentHost
 					? CurrentHost->GetWorkspaceContext() : nullptr;
-				const demo_map_code_b::FCodeBP38BodyEquipmentTransferProof& Proof =
-					AcceptedCommand.P38BodyEquipmentProof;
+				const FGuid ProofChildContainerId = bP39QuickTransfer
+					? AcceptedCommand.P38BodyEquipmentProof.ActivePlayerChildContainerId
+					: AcceptedCommand.P40BodySimpleStackProof.ActivePlayerChildContainerId;
+				const FGuid ProofChildParentItemId = bP39QuickTransfer
+					? AcceptedCommand.P38BodyEquipmentProof.ActivePlayerChildParentItemId
+					: AcceptedCommand.P40BodySimpleStackProof.ActivePlayerChildParentItemId;
+				const uint32 ProofChildOpenGeneration = bP39QuickTransfer
+					? AcceptedCommand.P38BodyEquipmentProof.ActivePlayerChildOpenGeneration
+					: AcceptedCommand.P40BodySimpleStackProof.ActivePlayerChildOpenGeneration;
 				const bool bCurrentChildMode = AcceptedCommand.QuickTransferTargetMode
 					== demo_map_code_b::ECodeBQuickTransferTargetMode::CurrentP17Child;
 				const bool bBaseQuickMode = AcceptedCommand.QuickTransferTargetMode
@@ -5819,23 +5844,27 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBBodyContainerPage(
 					&& CurrentWorkspace->ActiveDestinationOpenGeneration != 0
 					&& CurrentWorkspace->ActiveDestinationOpenGeneration
 						== AcceptedCommand.ActivePlayerChildOpenGeneration
-					&& Proof.ActivePlayerChildContainerId
+					&& ProofChildContainerId
 						== AcceptedCommand.QuickTransferActivePlayerContainerId
-					&& Proof.ActivePlayerChildParentItemId
+					&& ProofChildParentItemId
 						== AcceptedCommand.QuickTransferActivePlayerParentItemId
-					&& Proof.ActivePlayerChildOpenGeneration
+					&& ProofChildOpenGeneration
 						== AcceptedCommand.ActivePlayerChildOpenGeneration;
 				const bool bBaseQuickProof = bBaseQuickMode
 					&& !AcceptedCommand.QuickTransferActivePlayerContainerId.IsValid()
 					&& !AcceptedCommand.QuickTransferActivePlayerParentItemId.IsValid()
 					&& AcceptedCommand.ActivePlayerChildOpenGeneration == 0
-					&& !Proof.ActivePlayerChildContainerId.IsValid()
-					&& !Proof.ActivePlayerChildParentItemId.IsValid()
-					&& Proof.ActivePlayerChildOpenGeneration == 0;
+					&& !ProofChildContainerId.IsValid()
+					&& !ProofChildParentItemId.IsValid()
+					&& ProofChildOpenGeneration == 0;
 				if ((!bCurrentChildProof && !bBaseQuickProof)
-					|| !bCodeBBodyContainerOpen || !CurrentHost)
+					|| (bP39QuickTransfer && bP40QuickTransfer)
+					|| !bCodeBBodyContainerOpen || !CurrentHost
+					|| !ActiveCodeBBodyContainer.IsValid()
+					|| ActiveCodeBBodyContainer->GetCodeBBodyTargetIdentity()
+						!= GCodeBBodyContainerTargetIdentity)
 				{
-					CommitError = TEXT("P39 frozen target or P12 Host lifecycle changed; pickup was rejected without fallback.");
+					CommitError = TEXT("P39/P40 frozen target or P12 Host lifecycle changed; pickup was rejected without fallback.");
 					return false;
 				}
 			}
