@@ -136,7 +136,8 @@ namespace demo_map_code_b
 	};
 
 	/**
-	 * P38 transient proof for one normal drag from an exact P21 corpse-equipment
+	 * P38/P39 transient proof for one normal drag or frozen-target QuickTransfer
+	 * from an exact P21 corpse-equipment
 	 * slot. It carries only immutable identities/lifecycle revisions into the
 	 * existing P3 -> P2 -> P1 -> P11/P6 commit callback; it is never persisted as
 	 * item or container truth.
@@ -193,7 +194,7 @@ namespace demo_map_code_b
 		ECodeBQuickTransferTargetMode QuickTransferTargetMode = ECodeBQuickTransferTargetMode::Legacy;
 		/** P36/P37 exact canonical spatial parent paired with CurrentP17Child mode. */
 		FGuid QuickTransferActivePlayerParentItemId;
-		/** P38 normal-drag source/target lifecycle proof; absent for every earlier family. */
+		/** P38/P39 body-equipment source/target lifecycle proof; absent for every earlier family. */
 		FCodeBP38BodyEquipmentTransferProof P38BodyEquipmentProof;
 	};
 

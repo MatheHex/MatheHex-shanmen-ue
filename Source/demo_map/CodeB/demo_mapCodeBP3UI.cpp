@@ -2450,7 +2450,9 @@ FCodeBP4DropPreview UCodeBP3InventoryWidget::PreviewInventoryTransfer(
 			|| Preview.Operation != ECodeBOperation::Move || Preview.Quantity != 1)
 		{
 			Rejected.Message = ContextError.IsEmpty()
-				? TEXT("P38 尸体装备 Drag 只接受三类明确空目标的一次 whole-root Move(1)。")
+				? (Payload.bQuickTransferIntent
+					? TEXT("P39 尸体装备 Ctrl 快转只接受输入时冻结 ordinary target 的一次 whole-root Move(1)。")
+					: TEXT("P38 尸体装备 Drag 只接受三类明确空目标的一次 whole-root Move(1)。"))
 				: ContextError;
 			return Rejected;
 		}
@@ -3549,11 +3551,6 @@ void UCodeBP3InventoryWidget::HandleQuickTransfer(UCodeBP3CellButton* CellButton
 		Host->GetController()->SetP4Feedback(TEXT("Hidden／Searching 格不能 Quick Transfer。"));
 		return;
 	}
-	if (Host->IsBodyEquipmentContainerPresentation(SourceAddress.ContainerId))
-	{
-		Host->GetController()->SetP4Feedback(TEXT("P38 尸体装备不提供 Ctrl QuickTransfer；请拖到一个明确目标格。"));
-		return;
-	}
 	FCodeBP4DragPayload Payload;
 	if (!BeginP4Drag(CellButton, Payload))
 	{
@@ -3564,6 +3561,23 @@ void UCodeBP3InventoryWidget::HandleQuickTransfer(UCodeBP3CellButton* CellButton
 	const bool bSimpleStack = SourceSlot && SourceSlot->bStackable && SourceSlot->MaxStack > 1
 		&& SourceSlot->Quantity > 0 && !SourceSlot->ChildContainerId.IsValid();
 	const bool bWorldSource = Host->IsWorldDropPresentation(SourceAddress.ContainerId);
+	const bool bP39BodyEquipmentRoot = Host->IsBodyEquipmentContainerPresentation(SourceAddress.ContainerId)
+		&& Payload.P38BodyEquipmentProof.HasSourceIdentity() && SourceSlot
+		&& !SourceSlot->ChildContainerId.IsValid()
+		&& !SourceSlot->bStackable && SourceSlot->MaxStack == 1 && SourceSlot->Quantity == 1
+		&& ((SourceSlot->ItemType == ECodeBItemType::Weapon
+				&& SourceSlot->EquipSlot == ECodeBEquipSlot::Weapon)
+			|| (SourceSlot->ItemType == ECodeBItemType::Armor
+				&& SourceSlot->EquipSlot == ECodeBEquipSlot::Armor)
+			|| (SourceSlot->ItemType == ECodeBItemType::Accessory
+				&& SourceSlot->EquipSlot == ECodeBEquipSlot::Accessory));
+	if (Host->IsBodyEquipmentContainerPresentation(SourceAddress.ContainerId)
+		&& !bP39BodyEquipmentRoot)
+	{
+		Host->GetController()->SetP4Feedback(
+			TEXT("P39 只接受当前已打开、已揭示且 identity-valid 的 P21 r3 尸体装备 root。"));
+		return;
+	}
 	const bool bP30CompleteGraphRoot = bWorldSource && SourceSlot
 		&& SourceSlot->ChildContainerId.IsValid()
 		&& (SourceSlot->DefinitionId == Fdemo_mapItemIds::WindTalisman
@@ -3598,8 +3612,8 @@ void UCodeBP3InventoryWidget::HandleQuickTransfer(UCodeBP3CellButton* CellButton
 			TEXT("WorldDrop Ctrl 快转只接受 simple stack、正式 P19 完整空间图、P32/P33 标准装备 root，或 P35 child-standard root。"));
 		return;
 	}
-	const bool bFrozenTargetStandardEquipmentRoot =
-		bP37StandardEquipmentRoot || bP36StandardEquipmentRoot;
+	const bool bFrozenTargetStandardEquipmentRoot = bP39BodyEquipmentRoot
+		|| bP37StandardEquipmentRoot || bP36StandardEquipmentRoot;
 	if (bFrozenTargetStandardEquipmentRoot)
 	{
 		const bool bHasValidCurrentChild = Payload.QuickTransferActivePlayerContainerId.IsValid()
@@ -3616,11 +3630,19 @@ void UCodeBP3InventoryWidget::HandleQuickTransfer(UCodeBP3CellButton* CellButton
 			const FCodeBP2SlotView* SpatialParent = CurrentChild ? FindSpatialParent(*CurrentChild) : nullptr;
 			if (!SpatialParent || !SpatialParent->ItemId.IsValid())
 			{
-				Host->GetController()->SetP4Feedback(TEXT("P36/P37 当前 P17 child 缺少唯一空间 parent 身份；未写入。"));
+				Host->GetController()->SetP4Feedback(TEXT("P36/P37/P39 当前 P17 child 缺少唯一空间 parent 身份；未写入。"));
 				return;
 			}
 			Payload.QuickTransferTargetMode = ECodeBQuickTransferTargetMode::CurrentP17Child;
 			Payload.QuickTransferActivePlayerParentItemId = SpatialParent->ItemId;
+			if (bP39BodyEquipmentRoot)
+			{
+				Payload.P38BodyEquipmentProof.ActivePlayerChildContainerId =
+					Payload.QuickTransferActivePlayerContainerId;
+				Payload.P38BodyEquipmentProof.ActivePlayerChildParentItemId = SpatialParent->ItemId;
+				Payload.P38BodyEquipmentProof.ActivePlayerChildOpenGeneration =
+					Payload.ActivePlayerChildOpenGeneration;
+			}
 		}
 		else
 		{
@@ -3628,6 +3650,12 @@ void UCodeBP3InventoryWidget::HandleQuickTransfer(UCodeBP3CellButton* CellButton
 			Payload.QuickTransferActivePlayerContainerId.Invalidate();
 			Payload.ActivePlayerChildOpenGeneration = 0;
 			Payload.QuickTransferActivePlayerParentItemId.Invalidate();
+			if (bP39BodyEquipmentRoot)
+			{
+				Payload.P38BodyEquipmentProof.ActivePlayerChildContainerId.Invalidate();
+				Payload.P38BodyEquipmentProof.ActivePlayerChildParentItemId.Invalidate();
+				Payload.P38BodyEquipmentProof.ActivePlayerChildOpenGeneration = 0;
+			}
 		}
 	}
 	if (bP30CompleteGraphRoot)
@@ -4917,15 +4945,23 @@ bool UCodeBP3UIHostSubsystem::ValidateP38BodyEquipmentTransferContext(
 {
 	OutError.Reset();
 	const FCodeBP38BodyEquipmentTransferProof& Proof = Payload.P38BodyEquipmentProof;
+	const bool bP39QuickTransfer = Payload.bQuickTransferIntent;
+	const bool bCurrentChildMode = Payload.QuickTransferTargetMode
+		== ECodeBQuickTransferTargetMode::CurrentP17Child;
+	const bool bBaseQuickMode = Payload.QuickTransferTargetMode
+		== ECodeBQuickTransferTargetMode::BaseQuickNoChildAtInput;
 	if (!Controller.IsValid() || !ActiveWidget.IsValid() || !BodyContainerPresentation.IsSet()
 		|| !WorkspacePresentation.IsSet() || !WorkspacePresentation->Context.IsInRun()
 		|| !IsBodyEquipmentContainerPresentation(Payload.Source.ContainerId)
-		|| !Proof.HasSourceIdentity() || Payload.bQuickTransferIntent || Payload.bSplitIntent
+		|| !Proof.HasSourceIdentity() || Payload.bSplitIntent
 		|| Payload.QuantityDraftKind != ECodeBP3QuantityDraftKind::None
 		|| Payload.RequestedMergeQuantity != 0 || Payload.Quantity != 1
-		|| Payload.SourceScope != ECodeBP3InventoryScope::ExternalTarget)
+		|| Payload.SourceScope != ECodeBP3InventoryScope::ExternalTarget
+		|| (bP39QuickTransfer && !bCurrentChildMode && !bBaseQuickMode)
+		|| (!bP39QuickTransfer
+			&& Payload.QuickTransferTargetMode != ECodeBQuickTransferTargetMode::Legacy))
 	{
-		OutError = TEXT("P38 只接受当前 P12 Host 中已揭示 P21 尸体装备 root 的普通 whole-root Drag。");
+		OutError = TEXT("P38/P39 只接受当前 P12 Host 中已揭示 P21 尸体装备 root 的普通 Drag 或冻结目标 Ctrl QuickTransfer。");
 		return false;
 	}
 
@@ -5010,8 +5046,30 @@ bool UCodeBP3UIHostSubsystem::ValidateP38BodyEquipmentTransferContext(
 		&& Payload.ExpectedRevision == Projection.Revision;
 	if (!bExactSource)
 	{
-		OutError = TEXT("P38 source 的 BodyTarget/death receipt/r3 profile/reveal/slot/root/Owner/Run/revision/open-focus 身份已失效。");
+		OutError = TEXT("P38/P39 source 的 BodyTarget/death receipt/r3 profile/reveal/slot/root/Owner/Run/revision/open-focus 身份已失效。");
 		return false;
+	}
+	if (bP39QuickTransfer)
+	{
+		const bool bCurrentChildProof = bCurrentChildMode
+			&& Payload.QuickTransferActivePlayerContainerId.IsValid()
+			&& Payload.QuickTransferActivePlayerParentItemId.IsValid()
+			&& Payload.ActivePlayerChildOpenGeneration != 0
+			&& Proof.ActivePlayerChildContainerId == Payload.QuickTransferActivePlayerContainerId
+			&& Proof.ActivePlayerChildParentItemId == Payload.QuickTransferActivePlayerParentItemId
+			&& Proof.ActivePlayerChildOpenGeneration == Payload.ActivePlayerChildOpenGeneration;
+		const bool bBaseQuickProof = bBaseQuickMode
+			&& !Payload.QuickTransferActivePlayerContainerId.IsValid()
+			&& !Payload.QuickTransferActivePlayerParentItemId.IsValid()
+			&& Payload.ActivePlayerChildOpenGeneration == 0
+			&& !Proof.ActivePlayerChildContainerId.IsValid()
+			&& !Proof.ActivePlayerChildParentItemId.IsValid()
+			&& Proof.ActivePlayerChildOpenGeneration == 0;
+		if (!bCurrentChildProof && !bBaseQuickProof)
+		{
+			OutError = TEXT("P39 输入时冻结的 current-child/BaseQuick 模式证明不完整；未写入且不回退。");
+			return false;
+		}
 	}
 	if (!Target.IsValid()) return true;
 
@@ -5029,7 +5087,7 @@ bool UCodeBP3UIHostSubsystem::ValidateP38BodyEquipmentTransferContext(
 		|| Target.Scope != ECodeBP3InventoryScope::InRunPlayer
 		|| Target.OwnerId != Proof.OwnerId || Target.RunInstanceId != Proof.RunInstanceId)
 	{
-		OutError = TEXT("P38 target 必须是当前 Owner/Run 中用户明确命中的空 P6 Cell。");
+		OutError = TEXT("P38/P39 target 必须是当前 Owner/Run 中的空 P6 Cell。");
 		return false;
 	}
 
@@ -5070,7 +5128,31 @@ bool UCodeBP3UIHostSubsystem::ValidateP38BodyEquipmentTransferContext(
 		&& ((TargetContainer->Role == FName(TEXT("Weapon")) && ExpectedEquipSlot == ECodeBEquipSlot::Weapon)
 			|| (TargetContainer->Role == FName(TEXT("Armor")) && ExpectedEquipSlot == ECodeBEquipSlot::Armor)
 			|| (bAccessoryTarget && ExpectedEquipSlot == ECodeBEquipSlot::Accessory));
-	if (!bBaseQuick && !bCurrentChild && !bCompatibleEquipment)
+	if (bP39QuickTransfer)
+	{
+		const bool bExactFrozenTarget = (bCurrentChildMode && bCurrentChild
+				&& Target.ContainerId == Payload.QuickTransferActivePlayerContainerId)
+			|| (bBaseQuickMode && bBaseQuick);
+		if (!bExactFrozenTarget)
+		{
+			OutError = TEXT("P39 只接受输入时冻结的 exact current child 或 no-child BaseQuick ordinary target；不自动装备或回退。");
+			return false;
+		}
+		for (int32 SlotIndex = 0; SlotIndex < Target.SlotIndex; ++SlotIndex)
+		{
+			const FCodeBP2SlotView* Earlier = TargetContainer->Slots.FindByPredicate(
+				[SlotIndex](const FCodeBP2SlotView& Value)
+				{
+					return Value.SlotIndex == SlotIndex;
+				});
+			if (!Earlier || !Earlier->bOccupied)
+			{
+				OutError = TEXT("P39 target 不是 frozen ordinary container 中 stable SlotIndex 顺序的首个空格。");
+				return false;
+			}
+		}
+	}
+	else if (!bBaseQuick && !bCurrentChild && !bCompatibleEquipment)
 	{
 		OutError = TEXT("P38 只接受明确空 BaseQuick、当前 identity-valid P17 child 或 compatible empty formal equipment Cell；不回退。");
 		return false;

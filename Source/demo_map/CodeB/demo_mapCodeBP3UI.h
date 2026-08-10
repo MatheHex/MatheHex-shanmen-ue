@@ -319,6 +319,7 @@ public:
 	void PopulateAddressContext(demo_map_code_b::FCodeBP3SlotAddress& Address) const;
 	void PopulateTransferContext(demo_map_code_b::FCodeBP4DragPayload& Payload) const;
 	bool ValidateTransferContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, FString& OutError);
+	/** Shared P38 normal-drag / P39 frozen-target source and destination gate. */
 	bool ValidateP38BodyEquipmentTransferContext(
 		const demo_map_code_b::FCodeBP4DragPayload& Payload,
 		const demo_map_code_b::FCodeBP3SlotAddress& Target,

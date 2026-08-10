@@ -29,7 +29,7 @@ namespace demo_map_code_b
 		ECodeBQuickTransferTargetMode QuickTransferTargetMode = ECodeBQuickTransferTargetMode::Legacy;
 		/** P36/P37: exact P17 spatial parent identity paired with CurrentP17Child mode. */
 		FGuid QuickTransferActivePlayerParentItemId;
-		/** P38: exact P21 body-source and current P17-child proof for this normal drag. */
+		/** P38/P39: exact P21 body-source and input-time current P17-child proof. */
 		FCodeBP38BodyEquipmentTransferProof P38BodyEquipmentProof;
 		/** Explicit P24 player split versus P27 world partial-pickup intent. */
 		ECodeBP3QuantityDraftKind QuantityDraftKind = ECodeBP3QuantityDraftKind::None;

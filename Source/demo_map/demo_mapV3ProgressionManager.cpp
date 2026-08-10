@@ -5796,6 +5796,49 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBBodyContainerPage(
 		[this](const demo_map_code_b::FCodeBSnapshot& PersistedSnapshot,
 			const demo_map_code_b::FCodeBP2Command& AcceptedCommand, FString& CommitError)
 		{
+			const bool bP39QuickTransfer = AcceptedCommand.Intent
+				== demo_map_code_b::ECodeBP2CommandIntent::QuickTransfer
+				&& AcceptedCommand.P38BodyEquipmentProof.bIntent;
+			if (bP39QuickTransfer)
+			{
+				UGameInstance* CurrentGameInstance = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
+				UCodeBP3UIHostSubsystem* CurrentHost = CurrentGameInstance
+					? CurrentGameInstance->GetSubsystem<UCodeBP3UIHostSubsystem>() : nullptr;
+				const demo_map_code_b::FCodeBP3InventoryWorkspaceContext* CurrentWorkspace = CurrentHost
+					? CurrentHost->GetWorkspaceContext() : nullptr;
+				const demo_map_code_b::FCodeBP38BodyEquipmentTransferProof& Proof =
+					AcceptedCommand.P38BodyEquipmentProof;
+				const bool bCurrentChildMode = AcceptedCommand.QuickTransferTargetMode
+					== demo_map_code_b::ECodeBQuickTransferTargetMode::CurrentP17Child;
+				const bool bBaseQuickMode = AcceptedCommand.QuickTransferTargetMode
+					== demo_map_code_b::ECodeBQuickTransferTargetMode::BaseQuickNoChildAtInput;
+				const bool bCurrentChildProof = bCurrentChildMode && CurrentWorkspace
+					&& CurrentWorkspace->ActiveDestinationContainerId.IsSet()
+					&& CurrentWorkspace->ActiveDestinationContainerId.GetValue()
+						== AcceptedCommand.QuickTransferActivePlayerContainerId
+					&& CurrentWorkspace->ActiveDestinationOpenGeneration != 0
+					&& CurrentWorkspace->ActiveDestinationOpenGeneration
+						== AcceptedCommand.ActivePlayerChildOpenGeneration
+					&& Proof.ActivePlayerChildContainerId
+						== AcceptedCommand.QuickTransferActivePlayerContainerId
+					&& Proof.ActivePlayerChildParentItemId
+						== AcceptedCommand.QuickTransferActivePlayerParentItemId
+					&& Proof.ActivePlayerChildOpenGeneration
+						== AcceptedCommand.ActivePlayerChildOpenGeneration;
+				const bool bBaseQuickProof = bBaseQuickMode
+					&& !AcceptedCommand.QuickTransferActivePlayerContainerId.IsValid()
+					&& !AcceptedCommand.QuickTransferActivePlayerParentItemId.IsValid()
+					&& AcceptedCommand.ActivePlayerChildOpenGeneration == 0
+					&& !Proof.ActivePlayerChildContainerId.IsValid()
+					&& !Proof.ActivePlayerChildParentItemId.IsValid()
+					&& Proof.ActivePlayerChildOpenGeneration == 0;
+				if ((!bCurrentChildProof && !bBaseQuickProof)
+					|| !bCodeBBodyContainerOpen || !CurrentHost)
+				{
+					CommitError = TEXT("P39 frozen target or P12 Host lifecycle changed; pickup was rejected without fallback.");
+					return false;
+				}
+			}
 			const bool bCommitted = FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 				ProfilePreparationFlow ? ProfilePreparationFlow->GetStorageRoot() : FString(),
 				CodeBBodyContainerOwnerId, CodeBBodyContainerRunId, CodeBBodyContainerTargetId,

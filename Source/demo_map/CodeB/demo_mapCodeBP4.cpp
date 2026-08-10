@@ -236,7 +236,7 @@ namespace demo_map_code_b
 				Preview.Message = TEXT("可将已揭示尸体装备移动到该明确空普通格");
 				return Preview;
 			}
-			// P34/P36/P37 standard whole-root QuickTransfer carries its one accepted
+			// P34/P36/P37/P39 standard whole-root QuickTransfer carries its one accepted
 			// item explicitly. P1 Move ignores quantity, but the durable proof rejects
 			// the P29/P30 Quantity=0 stack/graph semantics for this source family.
 			const bool bStandardWholeRootQuickTransfer = Payload.bQuickTransferIntent
