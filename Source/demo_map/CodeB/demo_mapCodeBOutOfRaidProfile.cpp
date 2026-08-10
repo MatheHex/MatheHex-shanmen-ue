@@ -801,9 +801,13 @@ namespace
 	TSharedRef<FJsonObject> WorldDropJson(const FCodeBWorldDropRecord& Record)
 	{
 		TSharedRef<FJsonObject> Object = MakeShared<FJsonObject>();
+		Object->SetStringField(TEXT("OwnerId"), GuidText(Record.OwnerId));
+		Object->SetStringField(TEXT("RunInstanceId"), GuidText(Record.RunInstanceId));
 		Object->SetStringField(TEXT("WorldDropId"), GuidText(Record.WorldDropId));
+		Object->SetNumberField(TEXT("Ordinal"), Record.Ordinal);
 		Object->SetStringField(TEXT("WorldContainerId"), GuidText(Record.WorldContainerId));
 		Object->SetStringField(TEXT("ItemId"), GuidText(Record.ItemId));
+		Object->SetStringField(TEXT("SpatialChildContainerId"), GuidText(Record.SpatialChildContainerId));
 		Object->SetStringField(TEXT("MapRoute"), Record.MapRoute.ToString());
 		Object->SetNumberField(TEXT("LocationX"), Record.FloorTransform.GetLocation().X);
 		Object->SetNumberField(TEXT("LocationY"), Record.FloorTransform.GetLocation().Y);
@@ -813,10 +817,16 @@ namespace
 		Object->SetNumberField(TEXT("RotationYaw"), Rotation.Yaw);
 		Object->SetNumberField(TEXT("RotationRoll"), Rotation.Roll);
 		Object->SetStringField(TEXT("ActionState"), TEXT("Available"));
+		Object->SetNumberField(TEXT("RecordRevision"), Record.RecordRevision);
+		Object->SetStringField(TEXT("Provenance"), Record.Provenance);
 		return Object;
 	}
 
-	bool JsonToWorldDrop(const TSharedPtr<FJsonObject>& Object, FCodeBWorldDropRecord& OutRecord, FString& OutError)
+	bool JsonToWorldDrop(
+		const TSharedPtr<FJsonObject>& Object,
+		const bool bRequireP31RegistryIdentity,
+		FCodeBWorldDropRecord& OutRecord,
+		FString& OutError)
 	{
 		OutRecord = FCodeBWorldDropRecord();
 		FString WorldDropText, WorldContainerText, ItemText, Route, ActionState;
@@ -846,6 +856,32 @@ namespace
 		OutRecord.MapRoute = FName(*Route);
 		OutRecord.FloorTransform = FTransform(FRotator(Pitch, Yaw, Roll), FVector(X, Y, Z));
 		OutRecord.ActionState = ECodeBWorldDropActionState::Available;
+		if (bRequireP31RegistryIdentity)
+		{
+			FString OwnerText, RunText, ChildText, Provenance;
+			double Ordinal = 0.0, RecordRevision = 0.0;
+			if (!Object->TryGetStringField(TEXT("OwnerId"), OwnerText)
+				|| !Object->TryGetStringField(TEXT("RunInstanceId"), RunText)
+				|| !Object->TryGetStringField(TEXT("SpatialChildContainerId"), ChildText)
+				|| !Object->TryGetStringField(TEXT("Provenance"), Provenance)
+				|| !Object->TryGetNumberField(TEXT("Ordinal"), Ordinal)
+				|| !Object->TryGetNumberField(TEXT("RecordRevision"), RecordRevision)
+				|| !FMath::IsNearlyEqual(Ordinal, FMath::RoundToDouble(Ordinal))
+				|| !FMath::IsNearlyEqual(RecordRevision, FMath::RoundToDouble(RecordRevision))
+				|| Ordinal < 1.0 || Ordinal > MAX_int32
+				|| RecordRevision < 1.0 || RecordRevision > MAX_int32
+				|| !TryGuidText(OwnerText, OutRecord.OwnerId) || !OutRecord.OwnerId.IsValid()
+				|| !TryGuidText(RunText, OutRecord.RunInstanceId) || !OutRecord.RunInstanceId.IsValid()
+				|| !TryGuidText(ChildText, OutRecord.SpatialChildContainerId)
+				|| Provenance.IsEmpty())
+			{
+				OutError = TEXT("Code B P31 WorldDrop Registry identity JSON is invalid.");
+				return false;
+			}
+			OutRecord.Ordinal = static_cast<int32>(Ordinal);
+			OutRecord.RecordRevision = static_cast<int32>(RecordRevision);
+			OutRecord.Provenance = MoveTemp(Provenance);
+		}
 		return IsFiniteWorldDropTransform(OutRecord.FloorTransform);
 	}
 
@@ -881,6 +917,87 @@ namespace
 		const FCodeBWorldDropRecord& Record,
 		FString& OutError);
 
+	bool WorldDropRecordLess(const FCodeBWorldDropRecord& Left, const FCodeBWorldDropRecord& Right)
+	{
+		return Left.Ordinal != Right.Ordinal
+			? Left.Ordinal < Right.Ordinal
+			: GuidText(Left.WorldDropId) < GuidText(Right.WorldDropId);
+	}
+
+	void SortWorldDropRegistry(TArray<FCodeBWorldDropRecord>& WorldDrops)
+	{
+		WorldDrops.Sort([](const FCodeBWorldDropRecord& Left, const FCodeBWorldDropRecord& Right)
+		{
+			return WorldDropRecordLess(Left, Right);
+		});
+	}
+
+	bool IsWorldDropClosureUnchanged(
+		const FCodeBSnapshot& Before,
+		const FCodeBSnapshot& After,
+		const FCodeBWorldDropRecord& Record)
+	{
+		const FCodeBContainer* BeforeWorld = Before.Containers.Find(Record.WorldContainerId);
+		const FCodeBContainer* AfterWorld = After.Containers.Find(Record.WorldContainerId);
+		const FCodeBItemInstance* BeforeRoot = Before.Items.Find(Record.ItemId);
+		const FCodeBItemInstance* AfterRoot = After.Items.Find(Record.ItemId);
+		if (!BeforeWorld || !AfterWorld || *BeforeWorld != *AfterWorld
+			|| !BeforeRoot || !AfterRoot || *BeforeRoot != *AfterRoot)
+		{
+			return false;
+		}
+		if (!Record.SpatialChildContainerId.IsValid()) return true;
+		const FCodeBContainer* BeforeChild = Before.Containers.Find(Record.SpatialChildContainerId);
+		const FCodeBContainer* AfterChild = After.Containers.Find(Record.SpatialChildContainerId);
+		if (!BeforeChild || !AfterChild || *BeforeChild != *AfterChild) return false;
+		for (const FGuid& ChildItemId : BeforeChild->Slots)
+		{
+			if (!ChildItemId.IsValid()) continue;
+			const FCodeBItemInstance* BeforeItem = Before.Items.Find(ChildItemId);
+			const FCodeBItemInstance* AfterItem = After.Items.Find(ChildItemId);
+			if (!BeforeItem || !AfterItem || *BeforeItem != *AfterItem) return false;
+		}
+		return true;
+	}
+
+	bool UpgradeWorldDropRegistry(
+		FCodeBRunInventorySession& Session,
+		const int32 StoredSchemaVersion,
+		FString& OutError)
+	{
+		if (StoredSchemaVersion < 6)
+		{
+			// P14's accepted durable shape was a singleton even though its JSON field
+			// was array-shaped. P31 promotes that same record without replacing any ID.
+			if (Session.WorldDrops.Num() > 1)
+			{
+				OutError = TEXT("Code B P31 legacy WorldDrop migration found more than one singleton record.");
+				return false;
+			}
+			if (Session.WorldDrops.Num() == 1)
+			{
+				FCodeBWorldDropRecord& Record = Session.WorldDrops[0];
+				const int32 LegacyOrdinal = Session.NextWorldDropOrdinal - 1;
+				const FCodeBItemInstance* Root = Session.RepositorySnapshot.Items.Find(Record.ItemId);
+				if (LegacyOrdinal < 1
+					|| Record.WorldDropId != WorldDropGuid(Session.OwnerId, Session.RunInstanceId, LegacyOrdinal)
+					|| !Root)
+				{
+					OutError = TEXT("Code B P31 cannot recover the exact legacy WorldDrop ordinal/root identity.");
+					return false;
+				}
+				Record.OwnerId = Session.OwnerId;
+				Record.RunInstanceId = Session.RunInstanceId;
+				Record.Ordinal = LegacyOrdinal;
+				Record.SpatialChildContainerId = Root->ChildContainerId;
+				Record.RecordRevision = 1;
+				Record.Provenance = TEXT("P14.LegacySingleRecord");
+			}
+		}
+		SortWorldDropRegistry(Session.WorldDrops);
+		return true;
+	}
+
 	bool ValidateWorldDrops(const FCodeBRunInventorySession& Session, FString& OutError)
 	{
 		if (Session.NextWorldDropOrdinal < 1)
@@ -891,22 +1008,34 @@ namespace
 		TSet<FGuid> WorldDropIds;
 		TSet<FGuid> WorldContainerIds;
 		TSet<FGuid> WorldItemIds;
-		for (const FCodeBWorldDropRecord& Record : Session.WorldDrops)
+		TSet<int32> WorldDropOrdinals;
+		for (int32 RecordIndex = 0; RecordIndex < Session.WorldDrops.Num(); ++RecordIndex)
 		{
+			const FCodeBWorldDropRecord& Record = Session.WorldDrops[RecordIndex];
 			const FCodeBContainer* Container = Session.RepositorySnapshot.Containers.Find(Record.WorldContainerId);
 			const FCodeBItemInstance* Item = Session.RepositorySnapshot.Items.Find(Record.ItemId);
-			if (!Record.WorldDropId.IsValid() || !Record.WorldContainerId.IsValid() || !Record.ItemId.IsValid()
+			if (Record.OwnerId != Session.OwnerId || Record.RunInstanceId != Session.RunInstanceId
+				|| !Record.WorldDropId.IsValid() || Record.Ordinal < 1 || Record.Ordinal >= Session.NextWorldDropOrdinal
+				|| Record.WorldDropId != WorldDropGuid(Session.OwnerId, Session.RunInstanceId, Record.Ordinal)
+				|| !Record.WorldContainerId.IsValid() || !Record.ItemId.IsValid()
 				|| Record.WorldContainerId != WorldDropContainerGuid(Record.WorldDropId)
 				|| Record.MapRoute.IsNone() || !IsFiniteWorldDropTransform(Record.FloorTransform)
 				|| Record.ActionState != ECodeBWorldDropActionState::Available
+				|| Record.RecordRevision < 1 || Record.Provenance.IsEmpty()
 				|| WorldDropIds.Contains(Record.WorldDropId) || WorldContainerIds.Contains(Record.WorldContainerId)
+				|| WorldDropOrdinals.Contains(Record.Ordinal)
 				|| WorldItemIds.Contains(Record.ItemId) || !Container || !Item
 				|| Container->ContainerType != FName(TEXT("WorldDrop")) || Container->Kind != ECodeBContainerKind::Storage
 				|| Container->Slots.Num() != 1 || Container->Slots[0] != Record.ItemId
 				|| Item->ParentContainerId != Record.WorldContainerId || Item->SlotIndex != 0
 				|| Item->Quantity <= 0)
 			{
-				OutError = TEXT("Code B P14 world-drop record does not match the sole P6/P1 ground graph.");
+				OutError = TEXT("Code B P31 WorldDrop Registry record does not match its exact P6/P1 single-root graph.");
+				return false;
+			}
+			if (RecordIndex > 0 && WorldDropRecordLess(Record, Session.WorldDrops[RecordIndex - 1]))
+			{
+				OutError = TEXT("Code B P31 WorldDrop Registry is not in canonical ordinal/identity order.");
 				return false;
 			}
 			bool bIsSpatialClosure = false;
@@ -914,9 +1043,15 @@ namespace
 			{
 				return false;
 			}
+			if (Record.SpatialChildContainerId != (bIsSpatialClosure ? Item->ChildContainerId : FGuid()))
+			{
+				OutError = TEXT("Code B P31 WorldDrop record child-closure identity does not match its exact root.");
+				return false;
+			}
 			WorldDropIds.Add(Record.WorldDropId);
 			WorldContainerIds.Add(Record.WorldContainerId);
 			WorldItemIds.Add(Record.ItemId);
+			WorldDropOrdinals.Add(Record.Ordinal);
 		}
 		for (const FCodeBHotbarBinding& Binding : Session.HotbarBindings.Slots)
 		{
@@ -935,8 +1070,10 @@ namespace
 		Result.OwnerId = Session.OwnerId;
 		Result.RunInstanceId = Session.RunInstanceId;
 		Result.WorldDropId = Record.WorldDropId;
+		Result.Ordinal = Record.Ordinal;
 		Result.WorldContainerId = Record.WorldContainerId;
 		Result.ItemId = Record.ItemId;
+		Result.SpatialChildContainerId = Record.SpatialChildContainerId;
 		if (const FCodeBItemInstance* Item = Session.RepositorySnapshot.Items.Find(Record.ItemId))
 		{
 			Result.DefinitionId = Item->DefinitionId;
@@ -944,6 +1081,7 @@ namespace
 		}
 		Result.MapRoute = Record.MapRoute;
 		Result.FloorTransform = Record.FloorTransform;
+		Result.RecordRevision = Record.RecordRevision;
 		Result.P6SnapshotRevision = Session.RepositorySnapshot.Revision;
 		return Result;
 	}
@@ -4558,7 +4696,9 @@ namespace
 		Object->SetObjectField(TEXT("RepositorySnapshot"), SnapshotJson(Session.RepositorySnapshot));
 		Object->SetArrayField(TEXT("HotbarBindings"), HotbarBindingsJson(Session.HotbarBindings));
 		TArray<TSharedPtr<FJsonValue>> WorldDrops;
-		for (const FCodeBWorldDropRecord& Record : Session.WorldDrops)
+		TArray<FCodeBWorldDropRecord> CanonicalWorldDrops = Session.WorldDrops;
+		SortWorldDropRegistry(CanonicalWorldDrops);
+		for (const FCodeBWorldDropRecord& Record : CanonicalWorldDrops)
 		{
 			WorldDrops.Add(MakeShared<FJsonValueObject>(WorldDropJson(Record)));
 		}
@@ -4779,7 +4919,8 @@ namespace
 			for (const TSharedPtr<FJsonValue>& Value : *WorldDropValues)
 			{
 				FCodeBWorldDropRecord Record;
-				if (!JsonToWorldDrop(Value.IsValid() ? Value->AsObject() : nullptr, Record, OutError)) return false;
+				if (!JsonToWorldDrop(Value.IsValid() ? Value->AsObject() : nullptr,
+					StoredSchemaVersion >= 6, Record, OutError)) return false;
 				OutSession.WorldDrops.Add(MoveTemp(Record));
 			}
 		}
@@ -4789,6 +4930,10 @@ namespace
 			// with no world authority, and the next durable write serializes schema 4.
 			OutSession.WorldDrops.Reset();
 			OutSession.NextWorldDropOrdinal = 1;
+		}
+		if (!UpgradeWorldDropRegistry(OutSession, StoredSchemaVersion, OutError))
+		{
+			return false;
 		}
 		if (StoredSchemaVersion >= 5)
 		{
@@ -9356,16 +9501,38 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedActiveRunWorldDropItem(
 		if (OutError) *OutError = TEXT("Code B P26 accepted P1 result did not expose the exact single world root identity.");
 		return false;
 	}
+	for (const FCodeBWorldDropRecord& ExistingDrop : Current.WorldDrops)
+	{
+		if (!IsWorldDropClosureUnchanged(Current.RepositorySnapshot, AcceptedSnapshot, ExistingDrop))
+		{
+			if (OutError) *OutError = TEXT("Code B P31 refused a create candidate that changed an existing WorldDrop record graph.");
+			return false;
+		}
+	}
+	const FCodeBItemInstance* AcceptedWorldRoot = AcceptedSnapshot.Items.Find(AcceptedWorldItemId);
+	if (!AcceptedWorldRoot)
+	{
+		if (OutError) *OutError = TEXT("Code B P31 accepted create candidate lost its exact world root.");
+		return false;
+	}
 	FCodeBOutOfRaidInventoryRecord Candidate = Record;
 	FCodeBRunInventorySession& Session = Candidate.ActiveRunInventorySession;
 	Session.RepositorySnapshot = AcceptedSnapshot;
 	FCodeBWorldDropRecord& RecordValue = Session.WorldDrops.AddDefaulted_GetRef();
+	RecordValue.OwnerId = Session.OwnerId;
+	RecordValue.RunInstanceId = Session.RunInstanceId;
 	RecordValue.WorldDropId = WorldDropId;
+	RecordValue.Ordinal = Session.NextWorldDropOrdinal;
 	RecordValue.WorldContainerId = WorldContainerId;
 	RecordValue.ItemId = AcceptedWorldItemId;
+	RecordValue.SpatialChildContainerId = AcceptedWorldRoot->ChildContainerId;
 	RecordValue.MapRoute = MapRoute;
 	RecordValue.FloorTransform = FloorTransform;
 	RecordValue.ActionState = ECodeBWorldDropActionState::Available;
+	RecordValue.RecordRevision = 1;
+	RecordValue.Provenance = bPartialDrop
+		? TEXT("P31.AcceptedGroundDrop.Split")
+		: (bIsSpatialClosure ? TEXT("P31.AcceptedGroundDrop.CompleteGraph") : TEXT("P31.AcceptedGroundDrop.WholeRoot"));
 	++Session.NextWorldDropOrdinal;
 	if (!ReconcileHotbarBindings(Session.HotbarBindings, Session.RepositorySnapshot, Session.Layout, Error)
 		|| !FreezeRunInventoryPayloadReceipt(Session, Error)
@@ -9395,6 +9562,8 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 	const FGuid& InOwnerId,
 	const FGuid& InRunInstanceId,
 	const FGuid& WorldDropId,
+	const int32 ExpectedWorldDropOrdinal,
+	const int32 ExpectedWorldDropRecordRevision,
 	const int32 ExpectedP6SnapshotRevision,
 	const FCodeBP2Command& AcceptedCommand,
 	const FCodeBSnapshot& CandidateSnapshot,
@@ -9402,6 +9571,7 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 {
 	if (OutError) OutError->Reset();
 	if (!InOwnerId.IsValid() || !InRunInstanceId.IsValid() || !WorldDropId.IsValid()
+		|| ExpectedWorldDropOrdinal < 1 || ExpectedWorldDropRecordRevision < 1
 		|| ExpectedP6SnapshotRevision < 1)
 	{
 		if (OutError) *OutError = TEXT("Code B P14 pickup requires exact Owner/Run/drop and P6 revision.");
@@ -9417,7 +9587,10 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 	}
 	const FCodeBWorldDropRecord* Drop = Existing.WorldDrops.FindByPredicate(
 		[WorldDropId](const FCodeBWorldDropRecord& Value) { return Value.WorldDropId == WorldDropId; });
-	if (!Drop || Existing.RepositorySnapshot.Revision != ExpectedP6SnapshotRevision
+	if (!Drop || Drop->OwnerId != InOwnerId || Drop->RunInstanceId != InRunInstanceId
+		|| Drop->Ordinal != ExpectedWorldDropOrdinal
+		|| Drop->RecordRevision != ExpectedWorldDropRecordRevision
+		|| Existing.RepositorySnapshot.Revision != ExpectedP6SnapshotRevision
 		|| Store.Record.PersistentRevision == MAX_int32 || Existing.SessionRevision == MAX_int32)
 	{
 		if (OutError) *OutError = TEXT("Code B P14 pickup refused a stale, missing, or terminal ground drop.");
@@ -9426,6 +9599,7 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 	const FCodeBItemInstance* SourceItem = Existing.RepositorySnapshot.Items.Find(Drop->ItemId);
 	bool bIsSpatialClosure = false;
 	if (!SourceItem || SourceItem->ParentContainerId != Drop->WorldContainerId || SourceItem->SlotIndex != 0
+		|| Drop->SpatialChildContainerId != SourceItem->ChildContainerId
 		|| !ValidateP19WorldDropClosure(Existing.RepositorySnapshot, *SourceItem, bIsSpatialClosure, Error))
 	{
 		if (OutError) *OutError = Error.IsEmpty()
@@ -9672,6 +9846,15 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 	{
 		ExpectedSnapshot.Containers.Remove(Drop->WorldContainerId);
 	}
+	for (const FCodeBWorldDropRecord& OtherDrop : Existing.WorldDrops)
+	{
+		if (OtherDrop.WorldDropId == WorldDropId) continue;
+		if (!IsWorldDropClosureUnchanged(Existing.RepositorySnapshot, ExpectedSnapshot, OtherDrop))
+		{
+			if (OutError) *OutError = TEXT("Code B P31 refused a pickup candidate that changed another WorldDrop record graph.");
+			return false;
+		}
+	}
 	FCodeBRepository FinalValidation;
 	if (!FinalValidation.LoadPersistedSnapshot(ExpectedSnapshot, &Error))
 	{
@@ -9681,11 +9864,27 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 	FCodeBOutOfRaidInventoryRecord Candidate = Store.Record;
 	FCodeBRunInventorySession& Session = Candidate.ActiveRunInventorySession;
 	Session.RepositorySnapshot = MoveTemp(ExpectedSnapshot);
-	if (!bRetainWorldRoot)
+	if (bRetainWorldRoot)
 	{
-		Session.WorldDrops.RemoveAll([WorldDropId](const FCodeBWorldDropRecord& Value)
-			{ return Value.WorldDropId == WorldDropId; });
+		const FCodeBWorldDropRecord* Retained = Session.WorldDrops.FindByPredicate(
+			[WorldDropId](const FCodeBWorldDropRecord& Value) { return Value.WorldDropId == WorldDropId; });
+		if (!Retained || Retained->RecordRevision != ExpectedWorldDropRecordRevision)
+		{
+			if (OutError) *OutError = TEXT("Code B P31 retained WorldDrop record identity revision changed unexpectedly.");
+			return false;
+		}
 	}
+	else
+	{
+		const int32 Removed = Session.WorldDrops.RemoveAll([WorldDropId](const FCodeBWorldDropRecord& Value)
+			{ return Value.WorldDropId == WorldDropId; });
+		if (Removed != 1)
+		{
+			if (OutError) *OutError = TEXT("Code B P31 pickup did not remove exactly one WorldDrop Registry record.");
+			return false;
+		}
+	}
+	SortWorldDropRegistry(Session.WorldDrops);
 	if (!ReconcileHotbarBindings(Session.HotbarBindings, Session.RepositorySnapshot, Session.Layout, Error)
 		|| !FreezeRunInventoryPayloadReceipt(Session, Error)
 		|| !ValidateRunInventorySession(Session, Error))

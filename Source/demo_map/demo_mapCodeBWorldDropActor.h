@@ -24,6 +24,12 @@ public:
 	const FGuid& GetOwnerId() const { return OwnerId; }
 	const FGuid& GetRunInstanceId() const { return RunInstanceId; }
 	const FGuid& GetWorldDropId() const { return WorldDropId; }
+	int32 GetOrdinal() const { return Ordinal; }
+	const FGuid& GetWorldContainerId() const { return WorldContainerId; }
+	const FGuid& GetRootItemId() const { return RootItemId; }
+	const FGuid& GetSpatialChildContainerId() const { return SpatialChildContainerId; }
+	FName GetMapRoute() const { return MapRoute; }
+	int32 GetRecordRevision() const { return RecordRevision; }
 
 	virtual bool CanInteract(const APlayerController* Controller) const override;
 	virtual FText GetInteractionPrompt(const APlayerController* Controller) const override;
@@ -40,4 +46,10 @@ private:
 	FGuid OwnerId;
 	FGuid RunInstanceId;
 	FGuid WorldDropId;
+	int32 Ordinal = 0;
+	FGuid WorldContainerId;
+	FGuid RootItemId;
+	FGuid SpatialChildContainerId;
+	FName MapRoute = NAME_None;
+	int32 RecordRevision = INDEX_NONE;
 };

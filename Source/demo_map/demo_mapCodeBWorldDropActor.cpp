@@ -31,6 +31,12 @@ void Ademo_mapCodeBWorldDropActor::ConfigureCodeBWorldDrop(const FCodeBWorldDrop
 	OwnerId = Projection.OwnerId;
 	RunInstanceId = Projection.RunInstanceId;
 	WorldDropId = Projection.WorldDropId;
+	Ordinal = Projection.Ordinal;
+	WorldContainerId = Projection.WorldContainerId;
+	RootItemId = Projection.ItemId;
+	SpatialChildContainerId = Projection.SpatialChildContainerId;
+	MapRoute = Projection.MapRoute;
+	RecordRevision = Projection.RecordRevision;
 	if (Label)
 	{
 		Label->SetText(FText::FromString(FString::Printf(
@@ -51,6 +57,8 @@ void Ademo_mapCodeBWorldDropActor::EndPlay(const EEndPlayReason::Type EndPlayRea
 bool Ademo_mapCodeBWorldDropActor::CanInteract(const APlayerController* Controller) const
 {
 	return Controller && OwnerId.IsValid() && RunInstanceId.IsValid() && WorldDropId.IsValid()
+		&& Ordinal > 0 && WorldContainerId.IsValid() && RootItemId.IsValid()
+		&& !MapRoute.IsNone() && RecordRevision > 0
 		&& ResolveManager() != nullptr;
 }
 

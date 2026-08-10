@@ -27,6 +27,11 @@ namespace demo_map_code_b
 		ECodeBP3QuantityDraftKind QuantityDraftKind = ECodeBP3QuantityDraftKind::None;
 		/** P27 transient record identity. It is never used to derive an ItemId. */
 		FGuid WorldDropId;
+		/** P31 exact opened-record lifecycle identity; transient and never authoritative. */
+		int32 WorldDropOrdinal = 0;
+		int32 WorldDropRecordRevision = INDEX_NONE;
+		uint32 WorldDropTargetOpenGeneration = 0;
+		FName WorldDropMapRoute = NAME_None;
 		ECodeBP3InventoryScope SourceScope = ECodeBP3InventoryScope::Unknown;
 		FGuid OwnerId;
 		FGuid RunInstanceId;
@@ -39,7 +44,10 @@ namespace demo_map_code_b
 			return Source.IsValid() && ItemId.IsValid() && ExpectedRevision != INDEX_NONE && SessionId != 0
 				&& Quantity > 0 && (!bSplitIntent || (QuantityDraftKind != ECodeBP3QuantityDraftKind::None
 					&& GraphIdentity.IsValid() && RequestedMergeQuantity > 0 && RequestedMergeQuantity < Quantity
-					&& (QuantityDraftKind != ECodeBP3QuantityDraftKind::WorldPickup || WorldDropId.IsValid())));
+					&& (QuantityDraftKind != ECodeBP3QuantityDraftKind::WorldPickup
+						|| (WorldDropId.IsValid() && WorldDropOrdinal > 0
+							&& WorldDropRecordRevision > 0 && WorldDropTargetOpenGeneration != 0
+							&& !WorldDropMapRoute.IsNone()))));
 		}
 	};
 

@@ -157,6 +157,10 @@ namespace demo_map_code_b
 		FGuid GraphIdentity;
 		/** P27 only: exact P14 record identity; never an item or quantity truth. */
 		FGuid WorldDropId;
+		int32 WorldDropOrdinal = 0;
+		int32 WorldDropRecordRevision = INDEX_NONE;
+		uint32 WorldDropTargetOpenGeneration = 0;
+		FName WorldDropMapRoute = NAME_None;
 		FCodeBP3SlotAddress Source;
 		FGuid SourceItemId;
 		int32 ExpectedRevision = INDEX_NONE;
@@ -166,7 +170,10 @@ namespace demo_map_code_b
 		{
 			return Kind != ECodeBP3QuantityDraftKind::None
 				&& Source.IsValid() && SourceItemId.IsValid() && GraphIdentity.IsValid()
-				&& (Kind != ECodeBP3QuantityDraftKind::WorldPickup || WorldDropId.IsValid())
+				&& (Kind != ECodeBP3QuantityDraftKind::WorldPickup
+					|| (WorldDropId.IsValid() && WorldDropOrdinal > 0
+						&& WorldDropRecordRevision > 0 && WorldDropTargetOpenGeneration != 0
+						&& !WorldDropMapRoute.IsNone()))
 				&& ExpectedRevision != INDEX_NONE && RequestedQuantity > 0;
 		}
 	};

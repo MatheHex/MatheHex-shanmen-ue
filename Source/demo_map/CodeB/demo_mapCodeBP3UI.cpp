@@ -4272,6 +4272,10 @@ void UCodeBP3UIHostSubsystem::PopulateTransferContext(FCodeBP4DragPayload& Paylo
 	if (WorldDropPresentation.IsSet())
 	{
 		Payload.WorldDropId = WorldDropPresentation->WorldDropId;
+		Payload.WorldDropOrdinal = WorldDropPresentation->Ordinal;
+		Payload.WorldDropRecordRevision = WorldDropPresentation->RecordRevision;
+		Payload.WorldDropTargetOpenGeneration = WorldDropPresentation->TargetOpenGeneration;
+		Payload.WorldDropMapRoute = WorldDropPresentation->MapRoute;
 		Payload.GraphIdentity = WorldDropPresentation->WorldDropId;
 	}
 }
@@ -4341,6 +4345,10 @@ bool UCodeBP3UIHostSubsystem::CreateSplitDraft(
 	Draft.RunInstanceId = IdentityProbe.RunInstanceId;
 	Draft.GraphIdentity = GraphIdentity;
 	Draft.WorldDropId = bWorldPickup ? WorldDropPresentation->WorldDropId : FGuid();
+	Draft.WorldDropOrdinal = bWorldPickup ? WorldDropPresentation->Ordinal : 0;
+	Draft.WorldDropRecordRevision = bWorldPickup ? WorldDropPresentation->RecordRevision : INDEX_NONE;
+	Draft.WorldDropTargetOpenGeneration = bWorldPickup ? WorldDropPresentation->TargetOpenGeneration : 0;
+	Draft.WorldDropMapRoute = bWorldPickup ? WorldDropPresentation->MapRoute : NAME_None;
 	Draft.Source = AuthoritativeSource;
 	Draft.SourceItemId = AuthoritativeSource.ItemId;
 	Draft.ExpectedRevision = Controller->GetProjection().Revision;
@@ -4392,6 +4400,10 @@ bool UCodeBP3UIHostSubsystem::BeginInventoryDrag(
 	const bool bWorldIdentityCurrent = Draft.Kind != ECodeBP3QuantityDraftKind::WorldPickup
 		|| (WorldDropPresentation.IsSet()
 			&& Draft.WorldDropId == WorldDropPresentation->WorldDropId
+			&& Draft.WorldDropOrdinal == WorldDropPresentation->Ordinal
+			&& Draft.WorldDropRecordRevision == WorldDropPresentation->RecordRevision
+			&& Draft.WorldDropTargetOpenGeneration == WorldDropPresentation->TargetOpenGeneration
+			&& Draft.WorldDropMapRoute == WorldDropPresentation->MapRoute
 			&& Draft.Source.ContainerId == WorldDropPresentation->TargetContainerId
 			&& (!WorkspacePresentation.IsSet()
 				|| WorkspacePresentation->Context.SessionRevision == Projection.Revision));
@@ -4408,6 +4420,10 @@ bool UCodeBP3UIHostSubsystem::BeginInventoryDrag(
 	{
 		OutPayload.GraphIdentity = Draft.GraphIdentity;
 		OutPayload.WorldDropId = Draft.WorldDropId;
+		OutPayload.WorldDropOrdinal = Draft.WorldDropOrdinal;
+		OutPayload.WorldDropRecordRevision = Draft.WorldDropRecordRevision;
+		OutPayload.WorldDropTargetOpenGeneration = Draft.WorldDropTargetOpenGeneration;
+		OutPayload.WorldDropMapRoute = Draft.WorldDropMapRoute;
 	}
 	return bStarted;
 }
@@ -4490,6 +4506,10 @@ bool UCodeBP3UIHostSubsystem::CanWriteWorkspace(FString& OutError)
 				&& (Context.SessionRevision != Projection.Revision
 					|| !WorldDropPresentation.IsSet()
 					|| Draft.WorldDropId != WorldDropPresentation->WorldDropId
+					|| Draft.WorldDropOrdinal != WorldDropPresentation->Ordinal
+					|| Draft.WorldDropRecordRevision != WorldDropPresentation->RecordRevision
+					|| Draft.WorldDropTargetOpenGeneration != WorldDropPresentation->TargetOpenGeneration
+					|| Draft.WorldDropMapRoute != WorldDropPresentation->MapRoute
 					|| Draft.Source.ContainerId != WorldDropPresentation->TargetContainerId))
 			|| !Controller->ValidateSplitSource(Draft.Source, Draft.RequestedQuantity, SplitError))
 		{
@@ -4549,6 +4569,10 @@ bool UCodeBP3UIHostSubsystem::ValidateTransferContext(
 		{
 			if (!WorldDropPresentation.IsSet()
 				|| Payload.WorldDropId != WorldDropPresentation->WorldDropId
+				|| Payload.WorldDropOrdinal != WorldDropPresentation->Ordinal
+				|| Payload.WorldDropRecordRevision != WorldDropPresentation->RecordRevision
+				|| Payload.WorldDropTargetOpenGeneration != WorldDropPresentation->TargetOpenGeneration
+				|| Payload.WorldDropMapRoute != WorldDropPresentation->MapRoute
 				|| Payload.Source.ContainerId != WorldDropPresentation->TargetContainerId
 				|| Payload.SourceScope != ECodeBP3InventoryScope::ExternalTarget
 				|| (WorkspacePresentation.IsSet()
@@ -4649,12 +4673,19 @@ bool UCodeBP3UIHostSubsystem::ValidateWorldDropTransferContext(
 	if (bSourceWorld == bTargetWorld || !Context.IsInRun()
 		|| !WorldDrop.OwnerId.IsValid() || !WorldDrop.RunInstanceId.IsValid()
 		|| !WorldDrop.WorldDropId.IsValid() || !WorldDrop.TargetContainerId.IsValid()
-		|| !WorldDrop.RootItemId.IsValid()
+		|| WorldDrop.Ordinal < 1 || !WorldDrop.RootItemId.IsValid()
+		|| WorldDrop.RecordRevision < 1 || WorldDrop.TargetOpenGeneration == 0
+		|| WorldDrop.MapRoute.IsNone()
 		|| Payload.OwnerId != WorldDrop.OwnerId || Payload.RunInstanceId != WorldDrop.RunInstanceId
 		|| Payload.Source.OwnerId != WorldDrop.OwnerId || Payload.Source.RunInstanceId != WorldDrop.RunInstanceId
 		|| Context.OwnerId != WorldDrop.OwnerId || Context.RunInstanceId != WorldDrop.RunInstanceId
 		|| Context.SessionRevision != Projection.Revision || Payload.ExpectedRevision != Projection.Revision
-		|| Payload.WorldDropId != WorldDrop.WorldDropId || Payload.GraphIdentity != WorldDrop.WorldDropId)
+		|| Payload.WorldDropId != WorldDrop.WorldDropId
+		|| Payload.WorldDropOrdinal != WorldDrop.Ordinal
+		|| Payload.WorldDropRecordRevision != WorldDrop.RecordRevision
+		|| Payload.WorldDropTargetOpenGeneration != WorldDrop.TargetOpenGeneration
+		|| Payload.WorldDropMapRoute != WorldDrop.MapRoute
+		|| Payload.GraphIdentity != WorldDrop.WorldDropId)
 	{
 		OutError = TEXT("P29 WorldDrop Owner／Run／record／revision 身份已变化；未写入。");
 		return false;

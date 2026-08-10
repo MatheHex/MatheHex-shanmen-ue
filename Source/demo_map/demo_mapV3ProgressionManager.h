@@ -531,8 +531,13 @@ private:
 	FGuid CodeBWorldDropId;
 	FGuid CodeBWorldDropContainerId;
 	FGuid CodeBWorldDropRootItemId;
+	FGuid CodeBWorldDropSpatialChildContainerId;
+	FName CodeBWorldDropMapRoute = NAME_None;
+	int32 CodeBWorldDropOrdinal = 0;
+	int32 CodeBWorldDropRecordRevision = INDEX_NONE;
 	int32 CodeBWorldDropExpectedP6Revision = INDEX_NONE;
-	int32 CodeBWorldDropExpectedNextOrdinal = INDEX_NONE;
+	uint32 CodeBWorldDropOpenGeneration = 0;
+	uint32 NextCodeBWorldDropOpenGeneration = 1;
 	TWeakObjectPtr<Ademo_mapCodeBWorldDropActor> ActiveCodeBWorldDrop;
 	bool bCodeBWorldDropOpen = false;
 	/** P10 retains a single transient P1 composite view; P6/P9 remain durable truth. */

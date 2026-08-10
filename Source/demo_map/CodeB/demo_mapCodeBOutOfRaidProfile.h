@@ -148,14 +148,25 @@ enum class ECodeBWorldDropActionState : uint8
 
 struct FCodeBWorldDropRecord
 {
+	/** P31 canonical registry scope. These values must exactly match the owning P6 session. */
+	FGuid OwnerId;
+	FGuid RunInstanceId;
 	FGuid WorldDropId;
+	/** Stable creation order encoded by WorldDropId; never renumbered after another record is removed. */
+	int32 Ordinal = 0;
 	/** Deterministically derived from WorldDropId; it is an ordinary P1 storage root. */
 	FGuid WorldContainerId;
 	/** Foreign key to the one whole P1 item instance held by WorldContainerId. */
 	FGuid ItemId;
+	/** Exact formal P19 child identity, or invalid for a simple root. */
+	FGuid SpatialChildContainerId;
 	FName MapRoute;
 	FTransform FloorTransform = FTransform::Identity;
 	ECodeBWorldDropActionState ActionState = ECodeBWorldDropActionState::Available;
+	/** Per-record identity revision. Root quantity changes remain covered by the P6 snapshot revision. */
+	int32 RecordRevision = 1;
+	/** Durable creation/migration provenance only; never used to infer item authority. */
+	FString Provenance;
 };
 
 /** Read-only P14 bridge data for the Code A placement/actor adapter. */
@@ -164,12 +175,15 @@ struct FCodeBWorldDropProjection
 	FGuid OwnerId;
 	FGuid RunInstanceId;
 	FGuid WorldDropId;
+	int32 Ordinal = 0;
 	FGuid WorldContainerId;
 	FGuid ItemId;
+	FGuid SpatialChildContainerId;
 	FName DefinitionId;
 	int32 Quantity = 0;
 	FName MapRoute;
 	FTransform FloorTransform = FTransform::Identity;
+	int32 RecordRevision = INDEX_NONE;
 	int32 P6SnapshotRevision = INDEX_NONE;
 };
 
@@ -197,7 +211,7 @@ struct FCodeBQuickUseReceipt
  */
 struct FCodeBRunInventorySession
 {
-	static constexpr int32 CurrentSchemaVersion = 5;
+	static constexpr int32 CurrentSchemaVersion = 6;
 
 	int32 SchemaVersion = CurrentSchemaVersion;
 	FGuid OwnerId;
@@ -1004,6 +1018,8 @@ public:
 		const FGuid& InOwnerId,
 		const FGuid& InRunInstanceId,
 		const FGuid& WorldDropId,
+		int32 ExpectedWorldDropOrdinal,
+		int32 ExpectedWorldDropRecordRevision,
 		int32 ExpectedP6SnapshotRevision,
 		const demo_map_code_b::FCodeBP2Command& AcceptedCommand,
 		const demo_map_code_b::FCodeBSnapshot& CandidateSnapshot,

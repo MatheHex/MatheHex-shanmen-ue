@@ -4732,6 +4732,7 @@ void Ademo_mapV3ProgressionManager::RefreshCodeBWorldDropActors()
 	TSet<FGuid> ExpectedIds;
 	for (const FCodeBWorldDropProjection& Projection : Projections)
 	{
+		if (Projection.MapRoute != FName(*GetWorld()->GetMapName())) continue;
 		ExpectedIds.Add(Projection.WorldDropId);
 		if (TWeakObjectPtr<Ademo_mapCodeBWorldDropActor>* Existing = CodeBWorldDropActors.Find(Projection.WorldDropId);
 			Existing && Existing->IsValid())
@@ -4825,6 +4826,13 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBWorldDropPage(
 		[DropActor](const FCodeBWorldDropRecord& Value) { return Value.WorldDropId == DropActor->GetWorldDropId(); });
 	if (!Drop || Drop->ActionState != ECodeBWorldDropActionState::Available
 		|| Drop->MapRoute != FName(*GetWorld()->GetMapName())
+		|| Drop->OwnerId != Session.OwnerId || Drop->RunInstanceId != Session.RunInstanceId
+		|| Drop->Ordinal != DropActor->GetOrdinal()
+		|| Drop->WorldContainerId != DropActor->GetWorldContainerId()
+		|| Drop->ItemId != DropActor->GetRootItemId()
+		|| Drop->SpatialChildContainerId != DropActor->GetSpatialChildContainerId()
+		|| Drop->MapRoute != DropActor->GetMapRoute()
+		|| Drop->RecordRevision != DropActor->GetRecordRevision()
 		|| DropActor->GetOwnerId() != Session.OwnerId
 		|| DropActor->GetRunInstanceId() != Session.RunInstanceId)
 	{
@@ -4846,16 +4854,26 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBWorldDropPage(
 	CodeBWorldDropId = Drop->WorldDropId;
 	CodeBWorldDropContainerId = Drop->WorldContainerId;
 	CodeBWorldDropRootItemId = Drop->ItemId;
+	CodeBWorldDropSpatialChildContainerId = Drop->SpatialChildContainerId;
+	CodeBWorldDropMapRoute = Drop->MapRoute;
+	CodeBWorldDropOrdinal = Drop->Ordinal;
+	CodeBWorldDropRecordRevision = Drop->RecordRevision;
 	CodeBWorldDropExpectedP6Revision = Session.RepositorySnapshot.Revision;
-	CodeBWorldDropExpectedNextOrdinal = Session.NextWorldDropOrdinal;
+	if (NextCodeBWorldDropOpenGeneration == 0) NextCodeBWorldDropOpenGeneration = 1;
+	CodeBWorldDropOpenGeneration = NextCodeBWorldDropOpenGeneration++;
 	ActiveCodeBWorldDrop = DropActor;
 	const TWeakObjectPtr<Ademo_mapV3ProgressionManager> WeakManager(this);
 	FCodeBP3WorldDropPresentation Presentation;
 	Presentation.OwnerId = Session.OwnerId;
 	Presentation.RunInstanceId = Session.RunInstanceId;
 	Presentation.WorldDropId = Drop->WorldDropId;
+	Presentation.Ordinal = Drop->Ordinal;
 	Presentation.TargetContainerId = Drop->WorldContainerId;
 	Presentation.RootItemId = Drop->ItemId;
+	Presentation.SpatialChildContainerId = Drop->SpatialChildContainerId;
+	Presentation.MapRoute = Drop->MapRoute;
+	Presentation.RecordRevision = Drop->RecordRevision;
+	Presentation.TargetOpenGeneration = CodeBWorldDropOpenGeneration;
 	Presentation.Title = TEXT("地面物品");
 	FCodeBP3WorkspacePresentation Workspace;
 	Workspace.Context.Scope = demo_map_code_b::ECodeBP3WorkspaceScope::InRunP6;
@@ -4879,14 +4897,21 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBWorldDropPage(
 			&& Manager->CodeBWorldDropId.IsValid()
 			&& Manager->CodeBWorldDropContainerId.IsValid()
 			&& Manager->CodeBWorldDropRootItemId.IsValid()
-			&& Manager->CodeBWorldDropExpectedNextOrdinal >= 0
+			&& Manager->CodeBWorldDropOrdinal > 0
+			&& Manager->CodeBWorldDropRecordRevision > 0
+			&& Manager->CodeBWorldDropOpenGeneration != 0
+			&& !Manager->CodeBWorldDropMapRoute.IsNone()
 			&& Manager->ActiveCodeBWorldDrop.IsValid()
 			&& Manager->ProfilePreparationFlow
 			&& Manager->ProfilePreparationFlow->GetPhase() == Edemo_mapProfilePreparationFlowPhase::RunActive
 			&& Manager->ProfilePreparationFlow->GetStartedRunId() == Manager->CodeBWorldDropRunId
 			&& Manager->ActiveCodeBWorldDrop->GetOwnerId() == Manager->CodeBWorldDropOwnerId
 			&& Manager->ActiveCodeBWorldDrop->GetRunInstanceId() == Manager->CodeBWorldDropRunId
-			&& Manager->ActiveCodeBWorldDrop->GetWorldDropId() == Manager->CodeBWorldDropId;
+			&& Manager->ActiveCodeBWorldDrop->GetWorldDropId() == Manager->CodeBWorldDropId
+			&& Manager->ActiveCodeBWorldDrop->GetOrdinal() == Manager->CodeBWorldDropOrdinal
+			&& Manager->ActiveCodeBWorldDrop->GetWorldContainerId() == Manager->CodeBWorldDropContainerId
+			&& Manager->ActiveCodeBWorldDrop->GetRootItemId() == Manager->CodeBWorldDropRootItemId
+			&& Manager->ActiveCodeBWorldDrop->GetRecordRevision() == Manager->CodeBWorldDropRecordRevision;
 		FCodeBRunInventorySession Current;
 		FString Error;
 		const bool bExactDurableRecord = bCurrentWorldPage
@@ -4895,13 +4920,18 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBWorldDropPage(
 			&& Current.OwnerId == Manager->CodeBWorldDropOwnerId
 			&& Current.RunInstanceId == Manager->CodeBWorldDropRunId
 			&& Current.RepositorySnapshot.Revision == Manager->CodeBWorldDropExpectedP6Revision
-			&& Current.NextWorldDropOrdinal == Manager->CodeBWorldDropExpectedNextOrdinal
 			&& Current.WorldDrops.ContainsByPredicate([Manager](const FCodeBWorldDropRecord& Value)
 			{
-				return Value.WorldDropId == Manager->CodeBWorldDropId
+				return Value.OwnerId == Manager->CodeBWorldDropOwnerId
+					&& Value.RunInstanceId == Manager->CodeBWorldDropRunId
+					&& Value.WorldDropId == Manager->CodeBWorldDropId
+					&& Value.Ordinal == Manager->CodeBWorldDropOrdinal
 					&& Value.WorldContainerId == Manager->CodeBWorldDropContainerId
 					&& Value.ItemId == Manager->CodeBWorldDropRootItemId
+					&& Value.SpatialChildContainerId == Manager->CodeBWorldDropSpatialChildContainerId
+					&& Value.RecordRevision == Manager->CodeBWorldDropRecordRevision
 					&& Value.ActionState == ECodeBWorldDropActionState::Available
+					&& Value.MapRoute == Manager->CodeBWorldDropMapRoute
 					&& Manager->GetWorld() && Value.MapRoute == FName(*Manager->GetWorld()->GetMapName());
 			});
 		return bExactDurableRecord
@@ -4928,6 +4958,7 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBWorldDropPage(
 			const bool bCommitted = FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 				ProfilePreparationFlow ? ProfilePreparationFlow->GetStorageRoot() : FString(),
 				CodeBWorldDropOwnerId, CodeBWorldDropRunId, CodeBWorldDropId,
+				CodeBWorldDropOrdinal, CodeBWorldDropRecordRevision,
 				CodeBWorldDropExpectedP6Revision, AcceptedCommand, CandidateSnapshot, &CommitError);
 			if (bCommitted)
 			{
@@ -4939,6 +4970,11 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBWorldDropPage(
 				// never converts an already committed P6 pickup into a failed write.
 				CodeBActiveRunInventoryStore->OpenMatchedActiveRunInventorySession(
 					CodeBWorldDropRunId, RefreshedSession, &RefreshError);
+				if (const FCodeBWorldDropRecord* Retained = RefreshedSession.WorldDrops.FindByPredicate(
+					[this](const FCodeBWorldDropRecord& Value) { return Value.WorldDropId == CodeBWorldDropId; }))
+				{
+					CodeBWorldDropRecordRevision = Retained->RecordRevision;
+				}
 				RefreshCodeBWorldDropActors();
 			}
 			return bCommitted;
@@ -4953,8 +4989,12 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBWorldDropPage(
 		CodeBWorldDropId.Invalidate();
 		CodeBWorldDropContainerId.Invalidate();
 		CodeBWorldDropRootItemId.Invalidate();
+		CodeBWorldDropSpatialChildContainerId.Invalidate();
+		CodeBWorldDropMapRoute = NAME_None;
+		CodeBWorldDropOrdinal = 0;
+		CodeBWorldDropRecordRevision = INDEX_NONE;
 		CodeBWorldDropExpectedP6Revision = INDEX_NONE;
-		CodeBWorldDropExpectedNextOrdinal = INDEX_NONE;
+		CodeBWorldDropOpenGeneration = 0;
 		ActiveCodeBWorldDrop.Reset();
 		OutFeedback = TEXT("地面物品页面无法创建真实 P3/P4 双栏。");
 		return false;
@@ -4985,8 +5025,12 @@ void Ademo_mapV3ProgressionManager::CloseCodeBWorldDropPage()
 	CodeBWorldDropId.Invalidate();
 	CodeBWorldDropContainerId.Invalidate();
 	CodeBWorldDropRootItemId.Invalidate();
+	CodeBWorldDropSpatialChildContainerId.Invalidate();
+	CodeBWorldDropMapRoute = NAME_None;
+	CodeBWorldDropOrdinal = 0;
+	CodeBWorldDropRecordRevision = INDEX_NONE;
 	CodeBWorldDropExpectedP6Revision = INDEX_NONE;
-	CodeBWorldDropExpectedNextOrdinal = INDEX_NONE;
+	CodeBWorldDropOpenGeneration = 0;
 	ActiveCodeBWorldDrop.Reset();
 }
 
@@ -4994,7 +5038,11 @@ void Ademo_mapV3ProgressionManager::NotifyCodeBWorldDropActorEndPlay(
 	Ademo_mapCodeBWorldDropActor* DropActor)
 {
 	if (!DropActor) return;
-	CodeBWorldDropActors.Remove(DropActor->GetWorldDropId());
+	if (const TWeakObjectPtr<Ademo_mapCodeBWorldDropActor>* Registered =
+		CodeBWorldDropActors.Find(DropActor->GetWorldDropId()); Registered && Registered->Get() == DropActor)
+	{
+		CodeBWorldDropActors.Remove(DropActor->GetWorldDropId());
+	}
 	if (ActiveCodeBWorldDrop.Get() == DropActor) CloseCodeBWorldDropPage();
 }
 

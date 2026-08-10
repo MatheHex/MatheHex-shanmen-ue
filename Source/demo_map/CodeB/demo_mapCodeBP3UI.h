@@ -63,14 +63,19 @@ struct FCodeBP3GroundDropPresentation
 	TFunction<bool(const demo_map_code_b::FCodeBP4DragPayload&, FString&)> RequestDrop;
 };
 
-/** P14's transient one-record target. It is a projection of the P6 WorldDrop graph. */
+/** P31's transient exact-record target. It projects one member of the P6 WorldDrop Registry. */
 struct FCodeBP3WorldDropPresentation
 {
 	FGuid OwnerId;
 	FGuid RunInstanceId;
 	FGuid WorldDropId;
+	int32 Ordinal = 0;
 	FGuid TargetContainerId;
 	FGuid RootItemId;
+	FGuid SpatialChildContainerId;
+	FName MapRoute = NAME_None;
+	int32 RecordRevision = INDEX_NONE;
+	uint32 TargetOpenGeneration = 0;
 	FString Title;
 };
 
