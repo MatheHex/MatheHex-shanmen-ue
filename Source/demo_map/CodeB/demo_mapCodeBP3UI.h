@@ -10,6 +10,7 @@
 #include "Blueprint/DragDropOperation.h"
 #include "Blueprint/UserWidget.h"
 #include "Components/Button.h"
+#include "Templates/UniquePtr.h"
 
 #include "demo_mapCodeBP3UI.generated.h"
 
@@ -17,6 +18,7 @@ class UEditableTextBox;
 class UScrollBox;
 class UVerticalBox;
 class UCodeBP3InventoryWidget;
+class FCodeBRunItemSourceActionApplication;
 
 /** P10-only display policy for the existing production P3/P4 Host. */
 struct FCodeBP3NormalContainerPresentation
@@ -84,6 +86,8 @@ struct FCodeBP3WorldDropPresentation
 	FGuid RootItemId;
 	FGuid SpatialChildContainerId;
 	FName MapRoute = NAME_None;
+	/** Read-only canonical placement projected from the opened durable record. */
+	FTransform FloorTransform = FTransform::Identity;
 	int32 RecordRevision = INDEX_NONE;
 	/** Read-only durable record family used only by the shared QuickTransfer resolver. */
 	FString Provenance;
@@ -328,103 +332,8 @@ public:
 		demo_map_code_b::FCodeBP3SearchLocator& OutLocator) const;
 	bool IsExternalTargetContainer(const FGuid& ContainerId) const;
 	void PopulateAddressContext(demo_map_code_b::FCodeBP3SlotAddress& Address) const;
-	void PopulateTransferContext(demo_map_code_b::FCodeBP4DragPayload& Payload) const;
-	void PopulateP40BodySimpleStackQuickTransferProof(
-		demo_map_code_b::FCodeBP4DragPayload& Payload) const;
-	void PopulateP46NormalContainerSimpleStackQuickTransferProof(
-		demo_map_code_b::FCodeBP4DragPayload& Payload) const;
-	void PopulateP49NormalContainerSimpleStackGroundDropProof(
-		demo_map_code_b::FCodeBP4DragPayload& Payload) const;
-	void PopulateP47NormalContainerSpatialGraphQuickTransferProof(
-		demo_map_code_b::FCodeBP4DragPayload& Payload) const;
-	void PopulateP48NormalContainerSpatialGraphEquipmentSourceProof(
-		demo_map_code_b::FCodeBP4DragPayload& Payload) const;
-	void PopulateP41BodySpatialGraphQuickTransferProof(
-		demo_map_code_b::FCodeBP4DragPayload& Payload) const;
-	void PopulateP42BodySpatialGraphEquipmentSourceProof(
-		demo_map_code_b::FCodeBP4DragPayload& Payload) const;
-	void PopulateP43BodySimpleStackGroundDropProof(
-		demo_map_code_b::FCodeBP4DragPayload& Payload) const;
-	void FreezeP42BodySpatialGraphEquipmentTarget(
-		demo_map_code_b::FCodeBP4DragPayload& Payload,
-		const demo_map_code_b::FCodeBP3SlotAddress& Target) const;
-	void FreezeP48NormalContainerSpatialGraphEquipmentTarget(
-		demo_map_code_b::FCodeBP4DragPayload& Payload,
-		const demo_map_code_b::FCodeBP3SlotAddress& Target) const;
-	bool ValidateTransferContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, FString& OutError);
-	/** Shared P38 normal-drag / P39 frozen-target source and destination gate. */
-	bool ValidateP38BodyEquipmentTransferContext(
-		const demo_map_code_b::FCodeBP4DragPayload& Payload,
-		const demo_map_code_b::FCodeBP3SlotAddress& Target,
-		FString& OutError) const;
-	/** P40 exact ordinary body simple-stack source, frozen target, and stable scan gate. */
-	bool ValidateP40BodySimpleStackQuickTransferContext(
-		const demo_map_code_b::FCodeBP4DragPayload& Payload,
-		const demo_map_code_b::FCodeBP3SlotAddress& Target,
-		FString& OutError) const;
-	/** P46 exact BasicCache source, frozen target, and stable resolver gate. */
-	bool ValidateP46NormalContainerSimpleStackQuickTransferContext(
-		const demo_map_code_b::FCodeBP4DragPayload& Payload,
-		const demo_map_code_b::FCodeBP3SlotAddress& Target,
-		FString& OutError) const;
-	/** P49 exact opened/revealed BasicCache simple-stack normal GroundDrop gate. */
-	bool ValidateP49NormalContainerSimpleStackGroundDropContext(
-		const demo_map_code_b::FCodeBP4DragPayload& Payload,
-		FString& OutError) const;
-	/** P50 exact opened/revealed BasicCache P18 empty-child complete-graph GroundDrop gate. */
-	bool ValidateP50NormalContainerSpatialGraphGroundDropContext(
-		const demo_map_code_b::FCodeBP4DragPayload& Payload,
-		FString& OutError) const;
-	/** P47 exact BasicCache spatial graph and one frozen first-empty BaseQuick gate. */
-	bool ValidateP47NormalContainerSpatialGraphQuickTransferContext(
-		const demo_map_code_b::FCodeBP4DragPayload& Payload,
-		const demo_map_code_b::FCodeBP3SlotAddress& Target,
-		FString& OutError) const;
-	/** P48 exact normal-Drag source and user-selected formal P6 equipment target gate. */
-	bool ValidateP48NormalContainerSpatialGraphEquipmentTransferContext(
-		const demo_map_code_b::FCodeBP4DragPayload& Payload,
-		const demo_map_code_b::FCodeBP3SlotAddress& Target,
-		FString& OutError) const;
-	bool ValidateP43BodySimpleStackGroundDropContext(
-		const demo_map_code_b::FCodeBP4DragPayload& Payload,
-		FString& OutError) const;
-	/** P45 exact revealed P20 complete spatial graph source gate for normal GroundDrop. */
-	bool ValidateP45BodySpatialGraphGroundDropContext(
-		const demo_map_code_b::FCodeBP4DragPayload& Payload,
-		FString& OutError) const;
-	/** P44 exact P21 equipment source gate for the existing normal GroundDropZone. */
-	bool ValidateP44BodyEquipmentGroundDropContext(
-		const demo_map_code_b::FCodeBP4DragPayload& Payload,
-		FString& OutError) const;
-	/** P41 exact P20 graph source and one frozen first-empty BaseQuick target gate. */
-	bool ValidateP41BodySpatialGraphQuickTransferContext(
-		const demo_map_code_b::FCodeBP4DragPayload& Payload,
-		const demo_map_code_b::FCodeBP3SlotAddress& Target,
-		FString& OutError) const;
-	/** P42 exact normal-Drag source and user-selected formal P6 equipment target gate. */
-	bool ValidateP42BodySpatialGraphEquipmentTransferContext(
-		const demo_map_code_b::FCodeBP4DragPayload& Payload,
-		const demo_map_code_b::FCodeBP3SlotAddress& Target,
-		FString& OutError) const;
-	bool RefreshBodyContainerProjection(FString& OutError);
-	bool RefreshNormalContainerProjection(FString& OutError);
-	bool IsP29PlayerQuickTransferSourceContainer(const FGuid& ContainerId) const;
-	/** P35 exact current-child gate; BaseQuick is deliberately not accepted here. */
-	bool IsCurrentActiveP17ChildContainer(const FGuid& ContainerId) const;
-	/** P37/P44 read-only gate for accepted standard-root provenance; authority remains in P1/P6. */
-	bool IsP34StandardEquipmentWorldDropSource(const FGuid& ContainerId) const;
-	/** P35 provenance gate shared by P35 normal Drag and P36's explicitly frozen Ctrl quick pickup. */
-	bool IsP35ChildStandardEquipmentWorldDropSource(const FGuid& ContainerId) const;
-	/** P44 provenance admission into the existing standard-root normal/QuickTransfer routes. */
-	bool IsP44CorpseStandardEquipmentWorldDropSource(const FGuid& ContainerId) const;
-	/** P45 provenance admission into the existing P19 normal / P30 quick pickup routes. */
-	bool IsP45CorpseSpatialGraphWorldDropSource(const FGuid& ContainerId) const;
-	/** Exact provenance gate shared by the established P19/P30 complete-graph routes. */
-	bool IsP19CompleteGraphWorldDropSource(const FGuid& ContainerId) const;
-	bool ValidateWorldDropTransferContext(
-		const demo_map_code_b::FCodeBP4DragPayload& Payload,
-		const demo_map_code_b::FCodeBP3SlotAddress& Target,
-		FString& OutError) const;
+	/** The reusable P72 source-action boundary owns durable proof construction and preflight. */
+	FCodeBRunItemSourceActionApplication& GetSourceActionApplication() const;
 	bool CreateSplitDraft(const demo_map_code_b::FCodeBP3SlotAddress& Source, int32 RequestedQuantity, FString& OutError);
 	bool BeginInventoryDrag(
 		demo_map_code_b::FCodeBP4InteractionController& Interaction,
@@ -448,6 +357,7 @@ public:
 		return WorkspacePresentation.IsSet() ? &WorkspacePresentation->Context : nullptr;
 	}
 	void UpdateBodyContainerProjection(const FCodeBBodyContainerProjection& Projection);
+	void UpdateWorldDropProjection(const FCodeBWorldDropProjection& Projection);
 	const FCodeBP3HotbarPresentation* GetHotbarPresentation() const
 	{
 		return HotbarPresentation.IsSet() ? &HotbarPresentation.GetValue() : nullptr;
@@ -470,6 +380,7 @@ public:
 	UCodeBP3InventoryWidget* GetActiveWidget() const { return ActiveWidget.Get(); }
 
 private:
+	friend class FCodeBRunItemSourceActionApplication;
 	class APlayerController* GetPlayerController() const;
 	void CaptureInput(class APlayerController* PlayerController, UCodeBP3InventoryWidget* Widget);
 	void RestoreInput(class APlayerController* PlayerController);
@@ -486,7 +397,93 @@ private:
 	TOptional<FCodeBP3WorldDropPresentation> WorldDropPresentation;
 	TOptional<FCodeBP3WorkspacePresentation> WorkspacePresentation;
 	TOptional<demo_map_code_b::FCodeBP3SplitDraft> SplitDraft;
+	mutable TUniquePtr<FCodeBRunItemSourceActionApplication> SourceActionApplication;
 	uint32 NextActiveDestinationOpenGeneration = 1;
 	uint32 NextNormalContainerTargetOpenGeneration = 1;
 	uint32 NextBodyTargetOpenGeneration = 1;
+};
+
+/**
+ * Production source-action application boundary.  It consumes only the Host's
+ * transient page projection and rebuilds source proofs/preflight against the
+ * current authoritative projection before P2/P1.  It never writes Store data.
+ */
+class FCodeBRunItemSourceActionApplication
+{
+public:
+	explicit FCodeBRunItemSourceActionApplication(UCodeBP3UIHostSubsystem& InHost) : Host(InHost) {}
+
+	bool PrepareSourceAction(demo_map_code_b::FCodeBP4DragPayload& Payload, FString& OutError) const;
+	void PopulateTransferContext(demo_map_code_b::FCodeBP4DragPayload& Payload) const;
+	void PopulateP40BodySimpleStackQuickTransferProof(demo_map_code_b::FCodeBP4DragPayload& Payload) const;
+	void PopulateP46NormalContainerSimpleStackQuickTransferProof(demo_map_code_b::FCodeBP4DragPayload& Payload) const;
+	void PopulateP62NormalContainerStandardEquipmentQuickTransferProof(demo_map_code_b::FCodeBP4DragPayload& Payload) const;
+	void PopulateP63NormalContainerPlayerSimpleStackQuickTransferProof(demo_map_code_b::FCodeBP4DragPayload& Payload) const;
+	void PopulateP58PlayerToNormalContainerSimpleStackQuickTransferProof(demo_map_code_b::FCodeBP4DragPayload& Payload) const;
+	void PopulateP59PlayerToNormalContainerStandardEquipmentQuickTransferProof(demo_map_code_b::FCodeBP4DragPayload& Payload) const;
+	void PopulateP60PlayerToNormalContainerSpatialGraphQuickTransferProof(demo_map_code_b::FCodeBP4DragPayload& Payload) const;
+	void PopulateP49NormalContainerSimpleStackGroundDropProof(demo_map_code_b::FCodeBP4DragPayload& Payload) const;
+	void PopulateP64NormalContainerPlayerSimpleStackGroundDropProof(demo_map_code_b::FCodeBP4DragPayload& Payload) const;
+	void PopulateP65NormalContainerPlayerStandardEquipmentGroundDropProof(demo_map_code_b::FCodeBP4DragPayload& Payload) const;
+	void PopulateP47NormalContainerSpatialGraphQuickTransferProof(demo_map_code_b::FCodeBP4DragPayload& Payload) const;
+	void PopulateP48NormalContainerSpatialGraphEquipmentSourceProof(demo_map_code_b::FCodeBP4DragPayload& Payload) const;
+	void PopulateP41BodySpatialGraphQuickTransferProof(demo_map_code_b::FCodeBP4DragPayload& Payload) const;
+	void PopulateP42BodySpatialGraphEquipmentSourceProof(demo_map_code_b::FCodeBP4DragPayload& Payload) const;
+	void PopulateP43BodySimpleStackGroundDropProof(demo_map_code_b::FCodeBP4DragPayload& Payload) const;
+	void FreezeP42BodySpatialGraphEquipmentTarget(demo_map_code_b::FCodeBP4DragPayload& Payload, const demo_map_code_b::FCodeBP3SlotAddress& Target) const;
+	void FreezeP48NormalContainerSpatialGraphEquipmentTarget(demo_map_code_b::FCodeBP4DragPayload& Payload, const demo_map_code_b::FCodeBP3SlotAddress& Target) const;
+	bool ValidateTransferContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, FString& OutError);
+	bool ValidateP38BodyEquipmentTransferContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, const demo_map_code_b::FCodeBP3SlotAddress& Target, FString& OutError) const;
+	bool ValidateP40BodySimpleStackQuickTransferContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, const demo_map_code_b::FCodeBP3SlotAddress& Target, FString& OutError) const;
+	bool ValidateP46NormalContainerSimpleStackQuickTransferContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, const demo_map_code_b::FCodeBP3SlotAddress& Target, FString& OutError) const;
+	bool ValidateP62NormalContainerStandardEquipmentQuickTransferContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, const demo_map_code_b::FCodeBP3SlotAddress& Target, FString& OutError) const;
+	bool ValidateP63NormalContainerPlayerSimpleStackQuickTransferContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, const demo_map_code_b::FCodeBP3SlotAddress& Target, FString& OutError) const;
+	bool ValidateP58PlayerToNormalContainerSimpleStackQuickTransferContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, const demo_map_code_b::FCodeBP3SlotAddress& Target, FString& OutError) const;
+	bool ValidateP59PlayerToNormalContainerStandardEquipmentQuickTransferContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, const demo_map_code_b::FCodeBP3SlotAddress& Target, FString& OutError) const;
+	bool ValidateP60PlayerToNormalContainerSpatialGraphQuickTransferContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, const demo_map_code_b::FCodeBP3SlotAddress& Target, FString& OutError) const;
+	bool ValidateP49NormalContainerSimpleStackGroundDropContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, FString& OutError) const;
+	bool ValidateP64NormalContainerPlayerSimpleStackGroundDropContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, FString& OutError) const;
+	bool ValidateP65NormalContainerPlayerStandardEquipmentGroundDropContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, FString& OutError) const;
+	bool ValidateP50NormalContainerSpatialGraphGroundDropContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, FString& OutError) const;
+	bool ValidateP47NormalContainerSpatialGraphQuickTransferContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, const demo_map_code_b::FCodeBP3SlotAddress& Target, FString& OutError) const;
+	bool ValidateP48NormalContainerSpatialGraphEquipmentTransferContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, const demo_map_code_b::FCodeBP3SlotAddress& Target, FString& OutError) const;
+	bool ValidateP43BodySimpleStackGroundDropContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, FString& OutError) const;
+	bool ValidateP45BodySpatialGraphGroundDropContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, FString& OutError) const;
+	bool ValidateP44BodyEquipmentGroundDropContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, FString& OutError) const;
+	bool ValidateP41BodySpatialGraphQuickTransferContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, const demo_map_code_b::FCodeBP3SlotAddress& Target, FString& OutError) const;
+	bool ValidateP42BodySpatialGraphEquipmentTransferContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, const demo_map_code_b::FCodeBP3SlotAddress& Target, FString& OutError) const;
+	bool RefreshNormalContainerProjection(FString& OutError);
+	bool RefreshBodyContainerProjection(FString& OutError);
+	bool IsP29PlayerQuickTransferSourceContainer(const FGuid& ContainerId) const;
+	bool IsP58PlayerSimpleStackSourceContainer(const FGuid& ContainerId) const;
+	bool IsCurrentActiveP17ChildContainer(const FGuid& ContainerId) const;
+	bool IsP34StandardEquipmentWorldDropSource(const FGuid& ContainerId) const;
+	bool IsP35ChildStandardEquipmentWorldDropSource(const FGuid& ContainerId) const;
+	bool IsP44CorpseStandardEquipmentWorldDropSource(const FGuid& ContainerId) const;
+	bool IsP45CorpseSpatialGraphWorldDropSource(const FGuid& ContainerId) const;
+	bool IsP19CompleteGraphWorldDropSource(const FGuid& ContainerId) const;
+	bool ValidateWorldDropTransferContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, const demo_map_code_b::FCodeBP3SlotAddress& Target, FString& OutError) const;
+	bool ValidateP71WorldDropGroundRepositionContext(const demo_map_code_b::FCodeBP4DragPayload& Payload, FString& OutError) const;
+
+	// The Host remains the transient page/read-model owner; these adapters carry no durable rules.
+	void PopulateAddressContext(demo_map_code_b::FCodeBP3SlotAddress& Address) const { Host.PopulateAddressContext(Address); }
+	bool CanWriteWorkspace(FString& OutError) { return Host.CanWriteWorkspace(OutError); }
+	bool IsNormalContainerPresentation(const FGuid& ContainerId) const { return Host.IsNormalContainerPresentation(ContainerId); }
+	bool IsNormalContainerSlotProtected(const FGuid& ContainerId, int32 SlotIndex) const { return Host.IsNormalContainerSlotProtected(ContainerId, SlotIndex); }
+	bool IsBodyOrdinaryContainerPresentation(const FGuid& ContainerId) const { return Host.IsBodyOrdinaryContainerPresentation(ContainerId); }
+	bool IsBodyEquipmentContainerPresentation(const FGuid& ContainerId) const { return Host.IsBodyEquipmentContainerPresentation(ContainerId); }
+	bool IsWorldDropPresentation(const FGuid& ContainerId) const { return Host.IsWorldDropPresentation(ContainerId); }
+	bool CancelSplitDraft(const FString& Reason) { return Host.CancelSplitDraft(Reason); }
+	void UpdateNormalContainerProjection(const FCodeBNormalContainerProjection& Projection, int32 P6SnapshotRevision = INDEX_NONE)
+	{
+		Host.UpdateNormalContainerProjection(Projection, P6SnapshotRevision);
+	}
+	void UpdateBodyContainerProjection(const FCodeBBodyContainerProjection& Projection)
+	{
+		Host.UpdateBodyContainerProjection(Projection);
+	}
+	void RefreshActivePage() { Host.RefreshActivePage(); }
+
+private:
+	UCodeBP3UIHostSubsystem& Host;
 };

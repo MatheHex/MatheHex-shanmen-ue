@@ -749,7 +749,8 @@ Fdemo_mapItemOperationResult Fdemo_mapItemAuthority::CreateContainerDefinition(
 	FName RareRewardPolicyId,
 	FName RareRewardTierId,
 	int64 RareRewardBonusValue,
-	const Fdemo_mapRewardAffixSet& AffixSet)
+	const Fdemo_mapRewardAffixSet& AffixSet,
+	FGuid RequestedInstanceId)
 {
 	OutInstanceId.Invalidate();
 	const Fdemo_mapItemDefinition* Definition = Fdemo_mapItemDefinitions::Find(DefinitionId);
@@ -807,7 +808,18 @@ Fdemo_mapItemOperationResult Fdemo_mapItemAuthority::CreateContainerDefinition(
 
 	const Fdemo_mapItemAuthorityState Before = CaptureState();
 	Fdemo_mapItemInstance Instance;
-	Instance.InstanceId = GenerateUniqueInstanceId();
+	if (RequestedInstanceId.IsValid()
+		&& Instances.Contains(RequestedInstanceId))
+	{
+		return Fdemo_mapItemOperationResult::Failure(
+			Edemo_mapItemResultCode::InvariantViolation,
+			TEXT("Committed Container ItemInstance identity already exists."),
+			RequestedInstanceId,
+			DefinitionId);
+	}
+	Instance.InstanceId = RequestedInstanceId.IsValid()
+		? RequestedInstanceId
+		: GenerateUniqueInstanceId();
 	Instance.DefinitionId = DefinitionId;
 	Instance.Quantity = Quantity;
 	Instance.OwnershipState = Edemo_mapItemOwnershipState::Container;

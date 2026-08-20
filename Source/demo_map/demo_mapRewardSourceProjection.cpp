@@ -70,7 +70,10 @@ bool Fdemo_mapRewardProjectionSection::IsValid() const
 bool Fdemo_mapRewardSourceProjection::IsValid() const
 {
 	if (ProjectionId.IsNone()
+		|| ContentVersionId.IsNone()
+		|| ContentDigest.IsEmpty()
 		|| StableSourceRoleId.IsNone()
+		|| SlotId.IsNone()
 		|| BudgetProfileId.IsNone()
 		|| JackpotPolicyId.IsNone()
 		|| RareExtremePolicyId.IsNone()
@@ -107,146 +110,103 @@ bool Fdemo_mapRewardSourceProjection::IsValid() const
 			EquipmentCapacity += Section.Capacity;
 		}
 	}
-	return Weight == 10000
+	return Fdemo_mapItemDefinitions::IsCurrentContentIdentity(
+		ContentVersionId,
+		ContentDigest)
+		&& Weight == 10000
 		&& (MaxGeneratedStacks == 0
 			|| MaxGeneratedStacks <= Capacity)
 		&& RequiredEquipmentCount <= EquipmentCapacity;
 }
 
+bool Fdemo_mapRewardSourceAcceptanceReceipt::IsValid() const
+{
+	if (!RunId.IsValid()
+		|| StableSourceRoleId.IsNone()
+		|| BudgetProfileId.IsNone()
+		|| EffectiveSeed == 0
+		|| RandomizedBudget < 0
+		|| GeneratedTotalValue < 0
+		|| ResidualValue < 0
+		|| PityStateIn < 0 || PityStateIn > 3
+		|| PityStateOut < 0 || PityStateOut > 3
+		|| PlannedStacks.IsEmpty())
+	{
+		return false;
+	}
+	return bLegacyCompatibilityView
+		? (!ContentVersionId.IsNone()
+			&& !ContentDigest.IsEmpty()
+			&& Fdemo_mapItemDefinitions::IsKnownContentIdentity(
+				ContentVersionId,
+				ContentDigest))
+		: (!ProjectionId.IsNone()
+			&& !DistributionProfileId.IsNone()
+			&& Fdemo_mapItemDefinitions::IsKnownContentIdentity(
+				ContentVersionId,
+				ContentDigest));
+}
+
+Fdemo_mapRewardSourceAcceptanceReceipt
+Fdemo_mapRewardSourceAcceptanceReceipt::FromProjection(
+	const Fdemo_mapRewardSourceProjection& Projection,
+	const Fdemo_mapRewardSourceProjectionResult& Result)
+{
+	Fdemo_mapRewardSourceAcceptanceReceipt Receipt;
+	Receipt.RunId = Result.Trace.RunId;
+	Receipt.StableSourceRoleId = Result.Trace.StableSourceRoleId;
+	Receipt.SlotId = Projection.SlotId;
+	Receipt.ProjectionId = Result.Trace.ProjectionId;
+	Receipt.DistributionProfileId = Projection.DistributionProfileId;
+	Receipt.ContentVersionId = Result.Trace.ContentVersionId;
+	Receipt.ContentDigest = Result.Trace.ContentDigest;
+	Receipt.BudgetProfileId = Projection.BudgetProfileId;
+	Receipt.MarkerId = Projection.MarkerId;
+	Receipt.EncounterId = Projection.EncounterId;
+	Receipt.JackpotPolicyId = Projection.JackpotPolicyId;
+	Receipt.RareExtremePolicyId = Projection.RareExtremePolicyId;
+	Receipt.AffixPolicyId = Projection.AffixPolicyId;
+	Receipt.EffectiveSeed = Result.Trace.EffectiveSeed;
+	Receipt.RandomizedBudget = Result.Trace.RandomizedBudget;
+	Receipt.GeneratedTotalValue = Result.Trace.GeneratedTotalValue;
+	Receipt.ResidualValue = Result.Trace.ResidualValue;
+	Receipt.PityStateIn = Result.Trace.PityStateIn;
+	Receipt.PityStateOut = Result.Trace.PityStateOut;
+	Receipt.bPityCommitRequired = Result.Trace.PityDecisions.ContainsByPredicate(
+		[](const Fdemo_mapRewardAffixPityDecision& Decision)
+		{
+			return Decision.bCommitRequired;
+		});
+	Receipt.bFallbackUsed = Result.Trace.bFallbackUsed;
+	Receipt.PlannedStacks = Result.PlannedStacks;
+	return Receipt;
+}
+
+Fdemo_mapRewardSourceAcceptanceReceipt
+Fdemo_mapRewardSourceAcceptanceReceipt::FromGeneratedResult(
+	FName StableSourceRoleId,
+	const Fdemo_mapRewardGenerationResult& Result)
+{
+	Fdemo_mapRewardSourceAcceptanceReceipt Receipt;
+	Receipt.RunId = Result.Trace.RunId;
+	Receipt.StableSourceRoleId = StableSourceRoleId;
+	Receipt.SlotId = StableSourceRoleId;
+	Receipt.DistributionProfileId = Result.Trace.BudgetProfileId;
+	Receipt.ContentVersionId = Result.Trace.ContentVersionId;
+	Receipt.ContentDigest = Result.Trace.ContentDigest;
+	Receipt.BudgetProfileId = Result.Trace.BudgetProfileId;
+	Receipt.EffectiveSeed = Result.Trace.EffectiveSeed;
+	Receipt.RandomizedBudget = Result.Trace.RandomizedBudget;
+	Receipt.GeneratedTotalValue = Result.Trace.GeneratedTotalValue;
+	Receipt.ResidualValue = Result.Trace.ResidualValue;
+	Receipt.bFallbackUsed = false;
+	Receipt.bLegacyCompatibilityView = true;
+	Receipt.PlannedStacks = Result.PlannedStacks;
+	return Receipt;
+}
+
 namespace
 {
-	Fdemo_mapRewardProjectionSection Section(
-		FName Id,
-		Edemo_mapRuntimeContainerSection Runtime,
-		FName Tag,
-		int32 Weight,
-		int32 Capacity,
-		int32 Priority)
-	{
-		Fdemo_mapRewardProjectionSection Result;
-		Result.SectionId = Id;
-		Result.RuntimeSection = Runtime;
-		Result.SectionTags = { Tag };
-		Result.BudgetWeightBps = Weight;
-		Result.Capacity = Capacity;
-		Result.bRequiredNonEmpty = true;
-		Result.ResidualRedistributionPriority = Priority;
-		return Result;
-	}
-
-	Fdemo_mapRewardSourceProjection Chest(
-		FName ProjectionId,
-		FName RoleId,
-		FName MarkerId,
-		FName ProfileId,
-		FName SourceTag,
-		FName Fallback)
-	{
-		Fdemo_mapRewardSourceProjection Result;
-		Result.ProjectionId = ProjectionId;
-		Result.StableSourceRoleId = RoleId;
-		Result.MarkerId = MarkerId;
-		Result.BudgetProfileId = ProfileId;
-		Result.JackpotPolicyId =
-			Fdemo_mapRewardJackpotPolicyRegistry::DefaultPolicyId;
-		Result.RareExtremePolicyId =
-			Fdemo_mapRewardRareExtremePolicyRegistry::DefaultPolicyId;
-		Result.AffixPolicyId =
-			Fdemo_mapRewardAffixPolicyRegistry::DefaultPolicyId;
-		Result.SourceTags = {
-			Fdemo_mapRewardTagIds::SourceContainerGeneral,
-			SourceTag
-		};
-		Result.Sections = {
-			Section(
-				TEXT("Chest"),
-				Edemo_mapRuntimeContainerSection::Chest,
-				SourceTag,
-				10000,
-				Fdemo_mapSearchContainerPrototypeConfig::ChestPrototypeCapacity,
-				0)
-		};
-		Result.FixedFallbackTableId = Fallback;
-		return Result;
-	}
-
-	Fdemo_mapRewardSourceProjection Corpse(
-		FName ProjectionId,
-		FName EncounterId,
-		FName ProfileId,
-		FName Fallback)
-	{
-		Fdemo_mapRewardSourceProjection Result;
-		Result.ProjectionId = ProjectionId;
-		Result.StableSourceRoleId = EncounterId;
-		Result.EncounterId = EncounterId;
-		Result.BudgetProfileId = ProfileId;
-		Result.JackpotPolicyId =
-			Fdemo_mapRewardJackpotPolicyRegistry::DefaultPolicyId;
-		Result.RareExtremePolicyId =
-			Fdemo_mapRewardRareExtremePolicyRegistry::DefaultPolicyId;
-		Result.AffixPolicyId =
-			Fdemo_mapRewardAffixPolicyRegistry::DefaultPolicyId;
-		Result.SourceTags = {
-			Fdemo_mapRewardProjectionTagIds::SourceCorpse
-		};
-		Result.Sections = {
-			Section(
-				TEXT("Equipment"),
-				Edemo_mapRuntimeContainerSection::Equipment,
-				Fdemo_mapRewardProjectionTagIds::SectionEquipment,
-				4000,
-				Fdemo_mapSearchContainerPrototypeConfig::
-					CorpseEquipmentCapacity,
-				0),
-			Section(
-				TEXT("Backpack"),
-				Edemo_mapRuntimeContainerSection::Backpack,
-				Fdemo_mapRewardProjectionTagIds::SectionBackpack,
-				3500,
-				Fdemo_mapSearchContainerPrototypeConfig::
-					CorpseRewardBackpackCapacity,
-				1),
-			Section(
-				TEXT("Body"),
-				Edemo_mapRuntimeContainerSection::Body,
-				Fdemo_mapRewardProjectionTagIds::SectionBody,
-				2500,
-				Fdemo_mapSearchContainerPrototypeConfig::
-					CorpseBodyCapacity,
-				2)
-		};
-		Result.FixedFallbackTableId = Fallback;
-		return Result;
-	}
-
-	Fdemo_mapRewardSourceProjection BossCorpse()
-	{
-		Fdemo_mapRewardSourceProjection Result = Corpse(
-			Fdemo_mapRewardProjectionIds::CorpseBossPrototype,
-			Fdemo_mapEnemyEncounterIds::MainMeleeHeavy,
-			Fdemo_mapRewardBudgetProfileIds::Boss,
-			Fdemo_mapFixedLootTableIds::CorpseMainMeleeHeavy);
-		Result.StableSourceRoleId =
-			Fdemo_mapRewardSourceRoleIds::BossPrototype;
-		Result.SourceTags = {
-			Fdemo_mapRewardProjectionTagIds::SourceBoss,
-			Fdemo_mapRewardProjectionTagIds::SourceCorpse,
-			Fdemo_mapRewardProjectionTagIds::ValueHigh,
-			Fdemo_mapRewardProjectionTagIds::Generated
-		};
-		Result.Sections[0].Capacity = 3;
-		Result.Sections[1].Capacity = 1;
-		Result.Sections[2].Capacity = 2;
-		Result.bAllowFixedFallbackOnFailure = false;
-		Result.BaseSourceValue = 12000;
-		Result.MinGeneratedStacks = 3;
-		Result.MaxGeneratedStacks = 6;
-		Result.RequiredEquipmentCount = 1;
-		Result.SourceDisplayLabel = TEXT("BOSS REWARD");
-		return Result;
-	}
-
 	bool HasItemTag(const Fdemo_mapRewardPoolEntry& Entry, FName Tag)
 	{
 		return Entry.ItemTags.Contains(Tag);
@@ -279,36 +239,7 @@ namespace
 const TArray<Fdemo_mapRewardSourceProjection>&
 Fdemo_mapRewardSourceProjectionRegistry::GetAll()
 {
-	static const TArray<Fdemo_mapRewardSourceProjection> Projections = {
-		Chest(
-			Fdemo_mapRewardProjectionIds::ChestMainWood,
-			Fdemo_mapRewardSourceIds::ChestMainA,
-			Fdemo_mapFixedLootTableIds::MarkerChestMainA,
-			Fdemo_mapRewardBudgetProfileIds::ContainerBasic,
-			Fdemo_mapRewardProjectionTagIds::SourceContainerWood,
-			Fdemo_mapFixedLootTableIds::ChestMainA),
-		Chest(
-			Fdemo_mapRewardProjectionIds::ChestMainOre,
-			Fdemo_mapRewardSourceIds::ChestMainB,
-			Fdemo_mapFixedLootTableIds::MarkerChestMainB,
-			Fdemo_mapRewardBudgetProfileIds::ContainerBasic,
-			Fdemo_mapRewardProjectionTagIds::SourceContainerOre,
-			Fdemo_mapFixedLootTableIds::ChestMainB),
-		Chest(
-			Fdemo_mapRewardProjectionIds::ChestSideHighValue,
-			Fdemo_mapRewardSourceIds::ChestSideHighValue,
-			Fdemo_mapFixedLootTableIds::MarkerChestSideA,
-			Fdemo_mapRewardBudgetProfileIds::ContainerHighValue,
-			Fdemo_mapRewardTagIds::SourceContainerHighValue,
-			Fdemo_mapFixedLootTableIds::ChestSideA),
-		Corpse(Fdemo_mapRewardProjectionIds::CorpseMainMeleeStandard, Fdemo_mapEnemyEncounterIds::MainMeleeStandard, Fdemo_mapRewardBudgetProfileIds::EnemyStandard, Fdemo_mapFixedLootTableIds::CorpseMainMeleeStandard),
-		Corpse(Fdemo_mapRewardProjectionIds::CorpseMainMeleeHeavy, Fdemo_mapEnemyEncounterIds::MainMeleeHeavy, Fdemo_mapRewardBudgetProfileIds::EnemyStandard, Fdemo_mapFixedLootTableIds::CorpseMainMeleeHeavy),
-		Corpse(Fdemo_mapRewardProjectionIds::CorpseMainRangedStandard, Fdemo_mapEnemyEncounterIds::MainRangedStandard, Fdemo_mapRewardBudgetProfileIds::EnemyStandard, Fdemo_mapFixedLootTableIds::CorpseMainRangedStandard),
-		Corpse(Fdemo_mapRewardProjectionIds::CorpseSideMeleeEnhanced, Fdemo_mapEnemyEncounterIds::SideMeleeEnhanced, Fdemo_mapRewardBudgetProfileIds::EnemyElite, Fdemo_mapFixedLootTableIds::CorpseSideMeleeEnhanced),
-		Corpse(Fdemo_mapRewardProjectionIds::CorpseSideRangedEnhanced, Fdemo_mapEnemyEncounterIds::SideRangedEnhanced, Fdemo_mapRewardBudgetProfileIds::EnemyElite, Fdemo_mapFixedLootTableIds::CorpseSideRangedEnhanced),
-		BossCorpse()
-	};
-	return Projections;
+	return Fdemo_mapItemDefinitions::GetGeneratedRewardProjectionProfiles();
 }
 
 const Fdemo_mapRewardSourceProjection*
@@ -354,7 +285,7 @@ Fdemo_mapRewardSourceProjectionRegistry::BuildSectionPool(
 {
 	TArray<Fdemo_mapRewardPoolEntry> Result;
 	for (const Fdemo_mapRewardPoolEntry& Source :
-		Fdemo_mapRewardGenerationRegistry::GetHighValueContainerPool())
+		Fdemo_mapItemDefinitions::GetGeneratedRewardPool())
 	{
 		const Fdemo_mapItemDefinition* Definition =
 			Fdemo_mapItemDefinitions::Find(Source.DefinitionId);
@@ -424,7 +355,7 @@ bool Fdemo_mapRewardSourceProjectionRegistry::Validate(FString* OutError)
 			|| Projection.AffixPolicyId
 				!= Fdemo_mapRewardAffixPolicyRegistry::DefaultPolicyId
 			|| !Fdemo_mapRewardAffixPolicyRegistry::Validate()
-			|| !Fdemo_mapFixedLootTableRegistry::Find(
+			|| !Fdemo_mapItemDefinitions::FindFixedLootProfile(
 				Projection.FixedFallbackTableId))
 		{
 			if (OutError)
@@ -477,10 +408,16 @@ Fdemo_mapRewardSourceProjectionPlanner::Plan(
 {
 	Fdemo_mapRewardSourceProjectionResult Result;
 	Result.Trace.ProjectionId = Projection.ProjectionId;
+	Result.Trace.ContentVersionId = Projection.ContentVersionId;
+	Result.Trace.ContentDigest = Projection.ContentDigest;
 	Result.Trace.StableSourceRoleId = Projection.StableSourceRoleId;
 	Result.Trace.RunId = RunId;
 	Result.Trace.PityStateIn = PityStateIn;
-	if (!Projection.IsValid() || !RunId.IsValid())
+	if (!Projection.IsValid()
+		|| !Fdemo_mapItemDefinitions::IsCurrentContentIdentity(
+			Projection.ContentVersionId,
+			Projection.ContentDigest)
+		|| !RunId.IsValid())
 	{
 		Result.Trace.Diagnostic = TEXT("invalid_projection_request");
 		return Result;
@@ -505,6 +442,8 @@ Fdemo_mapRewardSourceProjectionPlanner::Plan(
 		*Projection.ProjectionId.ToString()));
 	ProbeRequest.RunId = RunId;
 	ProbeRequest.LootSourceId = Projection.StableSourceRoleId;
+	ProbeRequest.ContentVersionId = Projection.ContentVersionId;
+	ProbeRequest.ContentDigest = Projection.ContentDigest;
 	ProbeRequest.BudgetProfileId = Projection.BudgetProfileId;
 	ProbeRequest.SourceTags = Projection.SourceTags;
 	ProbeRequest.SourceTags.Append(Projection.Sections[0].SectionTags);
@@ -585,6 +524,8 @@ Fdemo_mapRewardSourceProjectionPlanner::Plan(
 			*SectionDef.SectionId.ToString()));
 		SectionRequest.RunId = RunId;
 		SectionRequest.LootSourceId = Projection.StableSourceRoleId;
+		SectionRequest.ContentVersionId = Projection.ContentVersionId;
+		SectionRequest.ContentDigest = Projection.ContentDigest;
 		SectionRequest.BudgetProfileId = Projection.BudgetProfileId;
 		SectionRequest.SourceTags = Projection.SourceTags;
 		SectionRequest.SourceTags.Append(SectionDef.SectionTags);

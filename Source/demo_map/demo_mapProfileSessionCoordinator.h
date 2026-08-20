@@ -21,6 +21,10 @@ public:
 	Fdemo_mapProfileSessionInitializeResult InitializeSession(const Fdemo_mapProfileStorageContext& Storage);
 	Fdemo_mapProfileSessionBeginResult BeginRun(const Fdemo_mapBeginRunRequest& Request, Udemo_mapItemSubsystem& Runtime);
 	Fdemo_mapProfileSessionSettlementResult CommitRuntimeSettlement(const Fdemo_mapSettlementSummary& Summary);
+	Fdemo_mapProfileGeneratedRewardSourceResult CommitGeneratedRewardSource(
+		const Fdemo_mapRewardSourceAcceptanceReceipt& Receipt);
+	TArray<Fdemo_mapPersistentGeneratedRewardSource>
+	GetActiveGeneratedRewardSources() const;
 	Fdemo_mapProfileSessionSettlementResult RetryPendingSettlement();
 	Fdemo_mapProfileTradeResult SubmitTrade(
 		const Fdemo_mapProfileTradeIntent& Intent,

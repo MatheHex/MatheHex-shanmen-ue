@@ -58,6 +58,12 @@ struct Fdemo_mapRewardProjectionSection
 struct Fdemo_mapRewardSourceProjection
 {
 	FName ProjectionId = NAME_None;
+	/** P73.4 binds every current source to its immutable distribution slot. */
+	FName DistributionProfileId = NAME_None;
+	FName SlotId = NAME_None;
+	/** Manifest identity frozen into current requests and accepted source receipts. */
+	FName ContentVersionId = NAME_None;
+	FString ContentDigest;
 	FName StableSourceRoleId = NAME_None;
 	FName MarkerId = NAME_None;
 	FName EncounterId = NAME_None;
@@ -91,6 +97,8 @@ struct Fdemo_mapRewardProjectionSectionTrace
 struct Fdemo_mapRewardSourceProjectionTrace
 {
 	FName ProjectionId = NAME_None;
+	FName ContentVersionId = NAME_None;
+	FString ContentDigest;
 	FName StableSourceRoleId = NAME_None;
 	FGuid RunId;
 	uint64 EffectiveSeed = 0;
@@ -151,6 +159,46 @@ struct Fdemo_mapRewardSourceProjectionResult
 		return Status == Edemo_mapRewardGenerationStatus::Success
 			|| Status == Edemo_mapRewardGenerationStatus::CapacityLimited;
 	}
+};
+
+/**
+ * The existing generated-source ledger's immutable accepted payload. It records
+ * the exact manifest view and accepted plan; it is not a second item authority.
+ */
+struct Fdemo_mapRewardSourceAcceptanceReceipt
+{
+	FGuid RunId;
+	FName StableSourceRoleId = NAME_None;
+	FName SlotId = NAME_None;
+	FName ProjectionId = NAME_None;
+	FName DistributionProfileId = NAME_None;
+	FName ContentVersionId = NAME_None;
+	FString ContentDigest;
+	FName BudgetProfileId = NAME_None;
+	FName MarkerId = NAME_None;
+	FName EncounterId = NAME_None;
+	FName JackpotPolicyId = NAME_None;
+	FName RareExtremePolicyId = NAME_None;
+	FName AffixPolicyId = NAME_None;
+	uint64 EffectiveSeed = 0;
+	int64 RandomizedBudget = 0;
+	int64 GeneratedTotalValue = 0;
+	int64 ResidualValue = 0;
+	/** Durable replay input/output for the active pity read model. */
+	int32 PityStateIn = 0;
+	int32 PityStateOut = 0;
+	bool bPityCommitRequired = false;
+	bool bFallbackUsed = false;
+	bool bLegacyCompatibilityView = false;
+	TArray<Fdemo_mapRewardPlannedStack> PlannedStacks;
+
+	bool IsValid() const;
+	static Fdemo_mapRewardSourceAcceptanceReceipt FromProjection(
+		const Fdemo_mapRewardSourceProjection& Projection,
+		const Fdemo_mapRewardSourceProjectionResult& Result);
+	static Fdemo_mapRewardSourceAcceptanceReceipt FromGeneratedResult(
+		FName StableSourceRoleId,
+		const Fdemo_mapRewardGenerationResult& Result);
 };
 
 /** Single authority for the P2 projections plus the P7 Boss role projection. */

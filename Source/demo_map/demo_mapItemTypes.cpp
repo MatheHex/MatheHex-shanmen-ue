@@ -49,7 +49,7 @@ bool Fdemo_mapItemViewRules::IsHotbarBindable(
 		&& Instance.OwnershipState == Edemo_mapItemOwnershipState::Inventory
 		&& Instance.Quantity > 0
 		&& Instance.Quantity <= Definition.MaxStackSize
-		&& Definition.CategoryId == Fdemo_mapItemIds::ConsumableCategory;
+		&& Definition.bHotbarEligible;
 }
 
 Fdemo_mapItemOperationResult Fdemo_mapItemOperationResult::Success(FGuid InstanceId, FName DefinitionId, FName SlotId, FName ActorId)

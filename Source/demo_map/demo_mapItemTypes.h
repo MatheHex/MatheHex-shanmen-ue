@@ -172,6 +172,13 @@ struct Fdemo_mapItemDefinition
 	int64 SellPrice = 0;
 	int32 PrototypeValue = 0;
 	FName WorldPresentationId = NAME_None;
+	/** P73 content manifest identity. Runtime instances retain DefinitionId only. */
+	FName ContentVersionId = NAME_None;
+	FString ContentDigest;
+	/** Canonical content rule; WorldDrop creation fails closed when false. */
+	bool bWorldDropEligible = false;
+	/** Canonical content rule consumed by the hotbar projection/validator. */
+	bool bHotbarEligible = false;
 };
 
 USTRUCT()

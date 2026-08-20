@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "demo_mapRewardAffixTypes.h"
 #include "demo_mapRewardEventTypes.h"
+#include "demo_mapRewardSourceProjection.h"
 
 enum class Edemo_mapPersistentDomain : uint8
 {
@@ -90,6 +91,31 @@ struct Fdemo_mapPersistentShopStockState
 	bool operator==(const Fdemo_mapPersistentShopStockState& Other) const;
 };
 
+/**
+ * The durable, pre-runtime item projection for one generated source.  The
+ * Profile Repository owns these IDs before any ItemAuthority or Actor write;
+ * section/slot preserves the container presentation without another roll.
+ */
+struct Fdemo_mapPersistentGeneratedRewardSourceEntry
+{
+	Fdemo_mapPersistentItemRecord Item;
+	Edemo_mapRuntimeContainerSection Section =
+		Edemo_mapRuntimeContainerSection::Chest;
+	int32 SlotIndex = INDEX_NONE;
+
+	bool operator==(const Fdemo_mapPersistentGeneratedRewardSourceEntry& Other) const;
+};
+
+/** One atomic Profile candidate: immutable receipt plus its exact source items. */
+struct Fdemo_mapPersistentGeneratedRewardSource
+{
+	Fdemo_mapRewardSourceAcceptanceReceipt Receipt;
+	FGuid ContainerId;
+	TArray<Fdemo_mapPersistentGeneratedRewardSourceEntry> Entries;
+
+	bool operator==(const Fdemo_mapPersistentGeneratedRewardSource& Other) const;
+};
+
 struct Fdemo_mapPersistentActiveRunRecord
 {
 	bool bHasActiveRun = false;
@@ -98,6 +124,8 @@ struct Fdemo_mapPersistentActiveRunRecord
 	int64 RiskSpiritStones = 0;
 	TArray<FGuid> DeployedItemIds;
 	TArray<Fdemo_mapPersistentItemRecord> ActiveRunItems;
+	/** P73.4 durable duplicate gate and recoverable generated-source projection. */
+	TArray<Fdemo_mapPersistentGeneratedRewardSource> GeneratedRewardSources;
 	TArray<FName> ConsumedSpiritStoneSourceIds;
 	FGuid CommittedSettlementId;
 
@@ -175,7 +203,7 @@ struct Fdemo_mapPersistentProfileMetadata
 
 struct Fdemo_mapPersistentProfile
 {
-	static constexpr int32 CurrentSchemaVersion = 6;
+	static constexpr int32 CurrentSchemaVersion = 7;
 
 	int32 SchemaVersion = CurrentSchemaVersion;
 	FGuid ProfileId;

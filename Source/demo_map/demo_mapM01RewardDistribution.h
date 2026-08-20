@@ -28,6 +28,9 @@ struct Fdemo_mapM01RewardSlot
 	FName AnchorMarkerId = NAME_None;
 	FName RouteId = NAME_None;
 	FName AreaId = NAME_None;
+	/** Stable key into Fdemo_mapItemDefinitions' P73.3 distribution manifest. */
+	FName DistributionProfileId = NAME_None;
+	/** Read-only manifest projection retained for diagnostics and historical tests; never a planning input. */
 	FName ProjectionId = NAME_None;
 	FName BudgetProfileId = NAME_None;
 	TArray<FName> SourceTags;

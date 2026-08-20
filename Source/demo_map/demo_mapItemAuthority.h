@@ -61,7 +61,8 @@ public:
 		FName RareRewardPolicyId = NAME_None,
 		FName RareRewardTierId = NAME_None,
 		int64 RareRewardBonusValue = 0,
-		const Fdemo_mapRewardAffixSet& AffixSet = {});
+		const Fdemo_mapRewardAffixSet& AffixSet = {},
+		FGuid RequestedInstanceId = FGuid());
 	Fdemo_mapItemOperationResult TransferContainerToInventoryWhole(
 		FGuid InstanceId,
 		FGuid ExpectedContainerId,

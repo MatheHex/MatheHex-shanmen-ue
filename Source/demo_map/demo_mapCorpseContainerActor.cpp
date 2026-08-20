@@ -1,7 +1,8 @@
 #include "demo_mapCorpseContainerActor.h"
 #include "demo_mapSearchContainerTypes.h"
-#include "demo_mapFixedLootTableRegistry.h"
+#include "demo_mapItemDefinitions.h"
 #include "demo_mapItemSubsystem.h"
+#include "demo_mapPersistentProfileTypes.h"
 #include "demo_mapV3ProgressionManager.h"
 #include "Components/StaticMeshComponent.h"
 #include "EngineUtils.h"
@@ -172,7 +173,7 @@ bool Ademo_mapCorpseContainerActor::InitializeFixedCorpse(
 	FName InLootTableId)
 {
 	const Fdemo_mapFixedLootTableDefinition* Table =
-		Fdemo_mapFixedLootTableRegistry::Find(InLootTableId);
+		Fdemo_mapItemDefinitions::FindFixedLootProfile(InLootTableId);
 	if (!InLootSourceId.IsValid()
 		|| !Table
 		|| Table->Kind != Edemo_mapRuntimeContainerKind::Corpse)
@@ -201,9 +202,7 @@ bool Ademo_mapCorpseContainerActor::InitializeGeneratedCorpse(
 	const Fdemo_mapRewardSourceProjectionResult& Plan)
 {
 	if (!InLootSourceId.IsValid()
-		|| !Projection.IsValid()
-		|| !Plan.IsSuccess()
-		|| Plan.PlannedStacks.IsEmpty())
+		|| !Projection.IsValid())
 	{
 		return false;
 	}
@@ -212,18 +211,52 @@ bool Ademo_mapCorpseContainerActor::InitializeGeneratedCorpse(
 	RewardProjectionId = Projection.ProjectionId;
 	RewardSourceRoleId = Projection.StableSourceRoleId;
 	CorpseIdentity = NAME_None;
-	ProjectionResult = Plan;
 	if (!Projection.SourceDisplayLabel.IsEmpty())
 	{
 		SetContainerDisplayLabel(Projection.SourceDisplayLabel);
 	}
-	return InitializeSearchContainer(
-		InManager,
-		InItems,
-		InRunId,
-		Edemo_mapRuntimeContainerKind::Corpse,
-		Projection.StableSourceRoleId,
-		Fdemo_mapRewardSourceProjectionPlanner::BuildContainerSeed(Plan));
+	Fdemo_mapPersistentGeneratedRewardSource ExistingSource;
+	if (InManager && InManager->FindDurablyAcceptedRewardSource(
+		InRunId, Projection.StableSourceRoleId, ExistingSource))
+	{
+		if (InitializeCommittedSearchContainer(
+			InManager, InItems, InRunId,
+			Edemo_mapRuntimeContainerKind::Corpse, ExistingSource))
+		{
+			return true;
+		}
+		MarkCommittedRewardSourcePendingReconciliation(
+			TEXT("Durably accepted Corpse source is awaiting Runtime reconciliation without reroll."));
+		return true;
+	}
+	if (!Plan.IsSuccess() || Plan.PlannedStacks.IsEmpty())
+	{
+		return false;
+	}
+	ProjectionResult = Plan;
+	const Fdemo_mapProfileGeneratedRewardSourceResult Accepted =
+		InManager->PrepareGeneratedRewardSource(
+		InRunId, Projection.StableSourceRoleId,
+		Fdemo_mapRewardSourceAcceptanceReceipt::FromProjection(
+			Projection, Plan));
+	if (!Accepted.IsDurablyCommitted())
+	{
+		return false;
+	}
+	if (Accepted.RequiresRuntimeReconciliation())
+	{
+		MarkCommittedRewardSourcePendingReconciliation(Accepted.Diagnostic);
+		return true;
+	}
+	if (InitializeCommittedSearchContainer(
+		InManager, InItems, InRunId,
+		Edemo_mapRuntimeContainerKind::Corpse, Accepted.Source))
+	{
+		return true;
+	}
+	MarkCommittedRewardSourcePendingReconciliation(
+		TEXT("Generated corpse source is durably accepted; Runtime projection is pending reconciliation without reroll."));
+	return true;
 }
 
 bool Ademo_mapCorpseContainerActor::InitializeM01GeneratedCorpse(

@@ -103,7 +103,12 @@ namespace demo_map_code_b
 		OutPayload.ExpectedRevision = Controller.GetProjection().Revision;
 		OutPayload.DefinitionId = SourceSlot->DefinitionId;
 		OutPayload.Quantity = SourceSlot->Quantity;
+		OutPayload.bStackable = SourceSlot->bStackable;
+		OutPayload.MaxStack = SourceSlot->MaxStack;
+		OutPayload.Level = SourceSlot->Level;
 		OutPayload.Quality = SourceSlot->Quality;
+		OutPayload.RandomSeed = SourceSlot->RandomSeed;
+		OutPayload.LegacyAffixDigest = SourceSlot->LegacyAffixDigest;
 		OutPayload.SourceScope = ECodeBP3InventoryScope::Unknown;
 		OutPayload.SessionId = NextSessionId++;
 		Controller.SetP4Feedback(FString::Printf(TEXT("正在拖拽 %s；放下时才会提交事务"), *SourceSlot->DefinitionId.ToString()));
@@ -278,8 +283,13 @@ namespace demo_map_code_b
 				&& SourceSlot->Quantity == 1 && SourceSlot->ChildContainerId.IsValid()
 				&& (SourceSlot->DefinitionId == Fdemo_mapItemIds::WindTalisman
 					|| SourceSlot->DefinitionId == Fdemo_mapItemIds::BackpackLevel1);
+			const bool bP60WholeGraphQuickTransfer = Payload.bQuickTransferIntent
+				&& Payload.P60PlayerToNormalContainerSpatialGraphProof.bIntent
+				&& SourceSlot->Quantity == 1 && SourceSlot->ChildContainerId.IsValid()
+				&& (SourceSlot->DefinitionId == Fdemo_mapItemIds::WindTalisman
+					|| SourceSlot->DefinitionId == Fdemo_mapItemIds::BackpackLevel1);
 			Preview.Quantity = (bStandardWholeRootQuickTransfer || bP41WholeGraphQuickTransfer
-				|| bP47WholeGraphQuickTransfer) ? 1 : 0;
+				|| bP47WholeGraphQuickTransfer || bP60WholeGraphQuickTransfer) ? 1 : 0;
 			Preview.Message = TEXT("可移动到空储物格");
 			return Preview;
 		}
@@ -315,22 +325,32 @@ namespace demo_map_code_b
 			Controller.SetP4Feedback(Preview.Message);
 			return false;
 		}
-		return Controller.CommitP4Operation(
-			Preview.Operation, Payload.Source, Target, Payload.ExpectedRevision, Preview.Quantity,
-			GetDropKindLabel(Preview.Kind), Payload.bQuickTransferIntent
-				? ECodeBP2CommandIntent::QuickTransfer
-				: ECodeBP2CommandIntent::Standard,
-			Payload.QuickTransferActivePlayerContainerId,
-			Payload.ActivePlayerChildOpenGeneration,
-			Payload.QuickTransferTargetMode,
-			Payload.QuickTransferActivePlayerParentItemId,
-			Payload.P38BodyEquipmentProof,
-			Payload.P40BodySimpleStackProof,
-			Payload.P46NormalContainerSimpleStackProof,
-			Payload.P47NormalContainerSpatialGraphProof,
-			Payload.P48NormalContainerSpatialGraphEquipmentProof,
-			Payload.P41BodySpatialGraphProof,
-			Payload.P42BodySpatialGraphEquipmentProof);
+		FCodeBP3SourceAction Action;
+		Action.Operation = Preview.Operation;
+		Action.Source = Payload.Source;
+		Action.Target = Target;
+		Action.ExpectedRevision = Payload.ExpectedRevision;
+		Action.Quantity = Preview.Quantity;
+		Action.OperationLabel = GetDropKindLabel(Preview.Kind);
+		Action.Intent = Payload.bQuickTransferIntent
+			? ECodeBP2CommandIntent::QuickTransfer : ECodeBP2CommandIntent::Standard;
+		Action.QuickTransferActivePlayerContainerId = Payload.QuickTransferActivePlayerContainerId;
+		Action.ActivePlayerChildOpenGeneration = Payload.ActivePlayerChildOpenGeneration;
+		Action.QuickTransferTargetMode = Payload.QuickTransferTargetMode;
+		Action.QuickTransferActivePlayerParentItemId = Payload.QuickTransferActivePlayerParentItemId;
+		Action.P38BodyEquipmentProof = Payload.P38BodyEquipmentProof;
+		Action.P40BodySimpleStackProof = Payload.P40BodySimpleStackProof;
+		Action.P46NormalContainerSimpleStackProof = Payload.P46NormalContainerSimpleStackProof;
+		Action.P62NormalContainerStandardEquipmentProof = Payload.P62NormalContainerStandardEquipmentProof;
+		Action.P63NormalContainerPlayerSimpleStackProof = Payload.P63NormalContainerPlayerSimpleStackProof;
+		Action.P58PlayerToNormalContainerSimpleStackProof = Payload.P58PlayerToNormalContainerSimpleStackProof;
+		Action.P59PlayerToNormalContainerStandardEquipmentProof = Payload.P59PlayerToNormalContainerStandardEquipmentProof;
+		Action.P60PlayerToNormalContainerSpatialGraphProof = Payload.P60PlayerToNormalContainerSpatialGraphProof;
+		Action.P47NormalContainerSpatialGraphProof = Payload.P47NormalContainerSpatialGraphProof;
+		Action.P48NormalContainerSpatialGraphEquipmentProof = Payload.P48NormalContainerSpatialGraphEquipmentProof;
+		Action.P41BodySpatialGraphProof = Payload.P41BodySpatialGraphProof;
+		Action.P42BodySpatialGraphEquipmentProof = Payload.P42BodySpatialGraphEquipmentProof;
+		return Controller.CommitSourceAction(Action);
 	}
 
 	bool FCodeBP4InteractionController::CommitDrop(const FCodeBP4DragPayload& Payload, const FCodeBP3SlotAddress& Target)

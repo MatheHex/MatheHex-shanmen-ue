@@ -2,7 +2,9 @@
 #include "demo_map.h"
 #include "demo_mapSearchContainerTypes.h"
 #include "demo_mapFixedLootTableRegistry.h"
+#include "demo_mapItemDefinitions.h"
 #include "demo_mapItemSubsystem.h"
+#include "demo_mapPersistentProfileTypes.h"
 #include "demo_mapRewardGenerator.h"
 #include "demo_mapV3ProgressionManager.h"
 
@@ -107,6 +109,44 @@ bool Ademo_mapLootChest::InitializeChest(
 	bUsedFixedFallback = false;
 	if (RewardSourceMode == Edemo_mapRewardSourceMode::GeneratedReward)
 	{
+		Fdemo_mapPersistentGeneratedRewardSource ExistingSource;
+		if (InManager && InManager->FindDurablyAcceptedRewardSource(
+			InRunId, RewardSourceId, ExistingSource))
+		{
+			LastRewardGenerationResult.Status =
+				Edemo_mapRewardGenerationStatus::Success;
+			LastRewardGenerationResult.PlannedStacks =
+				ExistingSource.Receipt.PlannedStacks;
+			LastRewardGenerationResult.Trace.RunId = InRunId;
+			LastRewardGenerationResult.Trace.LootSourceId = RewardSourceId;
+			LastRewardGenerationResult.Trace.ContentVersionId =
+				ExistingSource.Receipt.ContentVersionId;
+			LastRewardGenerationResult.Trace.ContentDigest =
+				ExistingSource.Receipt.ContentDigest;
+			LastRewardGenerationResult.Trace.BudgetProfileId =
+				ExistingSource.Receipt.BudgetProfileId;
+			LastRewardGenerationResult.Trace.EffectiveSeed =
+				ExistingSource.Receipt.EffectiveSeed;
+			LastRewardGenerationResult.Trace.RandomizedBudget =
+				ExistingSource.Receipt.RandomizedBudget;
+			LastRewardGenerationResult.Trace.GeneratedTotalValue =
+				ExistingSource.Receipt.GeneratedTotalValue;
+			LastRewardGenerationResult.Trace.ResidualValue =
+				ExistingSource.Receipt.ResidualValue;
+			if (InitializeCommittedSearchContainer(
+				InManager, InItems, InRunId,
+				Edemo_mapRuntimeContainerKind::Chest, ExistingSource))
+			{
+				return true;
+			}
+			LastRewardGenerationResult.Status =
+				Edemo_mapRewardGenerationStatus::AcceptedPendingReconciliation;
+			LastRewardGenerationResult.Trace.Diagnostic =
+				TEXT("Durably accepted Chest source is awaiting Runtime reconciliation without reroll.");
+			MarkCommittedRewardSourcePendingReconciliation(
+				LastRewardGenerationResult.Trace.Diagnostic);
+			return true;
+		}
 		if (!InManager
 			|| RewardSourceId.IsNone()
 			|| RewardBudgetProfileId.IsNone()
@@ -120,6 +160,10 @@ bool Ademo_mapLootChest::InitializeChest(
 			LastRewardGenerationResult.Trace.RunId = InRunId;
 			LastRewardGenerationResult.Trace.LootSourceId =
 				RewardSourceId;
+			LastRewardGenerationResult.Trace.ContentVersionId =
+				LastProjectionResult.Trace.ContentVersionId;
+			LastRewardGenerationResult.Trace.ContentDigest =
+				LastProjectionResult.Trace.ContentDigest;
 			LastRewardGenerationResult.Trace.BudgetProfileId =
 				RewardBudgetProfileId;
 			LastRewardGenerationResult.Trace.Diagnostic =
@@ -172,22 +216,31 @@ bool Ademo_mapLootChest::InitializeChest(
 				LastProjectionResult.Trace.Diagnostic;
 			if (LastProjectionResult.IsSuccess())
 			{
-				const bool bInitialized = InitializeSearchContainer(
-					InManager,
-					InItems,
-					InRunId,
-					Edemo_mapRuntimeContainerKind::Chest,
-					RewardSourceId,
-					Fdemo_mapRewardSourceProjectionPlanner::
-						BuildContainerSeed(LastProjectionResult));
-				if (bInitialized
-					&& InManager->CommitGeneratedRewardSource(
-						InRunId,
-						RewardSourceId)
-					&& InManager->CommitRewardAffixPity(
-						InRunId,
-						RewardSourceId,
-						LastProjectionResult))
+				const Fdemo_mapProfileGeneratedRewardSourceResult Accepted =
+					InManager->PrepareGeneratedRewardSource(
+						InRunId, RewardSourceId,
+						Fdemo_mapRewardSourceAcceptanceReceipt::FromProjection(
+							*Projection, LastProjectionResult));
+				if (!Accepted.IsDurablyCommitted())
+				{
+					LastRewardGenerationResult.Status =
+						Edemo_mapRewardGenerationStatus::MaterializationFailed;
+					LastRewardGenerationResult.Trace.Diagnostic =
+						TEXT("Generated source Profile candidate was rejected before Runtime materialization.");
+					return false;
+				}
+				if (Accepted.RequiresRuntimeReconciliation())
+				{
+					LastRewardGenerationResult.Status =
+						Edemo_mapRewardGenerationStatus::AcceptedPendingReconciliation;
+					LastRewardGenerationResult.Trace.Diagnostic = Accepted.Diagnostic;
+					MarkCommittedRewardSourcePendingReconciliation(Accepted.Diagnostic);
+					return true;
+				}
+				const bool bInitialized = InitializeCommittedSearchContainer(
+					InManager, InItems, InRunId,
+					Edemo_mapRuntimeContainerKind::Chest, Accepted.Source);
+				if (bInitialized)
 				{
 					UE_LOG(
 						Logdemo_map,
@@ -202,9 +255,12 @@ bool Ademo_mapLootChest::InitializeChest(
 					return true;
 				}
 				LastRewardGenerationResult.Status =
-					Edemo_mapRewardGenerationStatus::MaterializationFailed;
+					Edemo_mapRewardGenerationStatus::AcceptedPendingReconciliation;
 				LastRewardGenerationResult.Trace.Diagnostic =
-					TEXT("Projection materialization or ledger commit failed.");
+					TEXT("Generated source is durably accepted; Runtime projection is pending reconciliation without reroll.");
+				MarkCommittedRewardSourcePendingReconciliation(
+					LastRewardGenerationResult.Trace.Diagnostic);
+				return true;
 			}
 		}
 		else
@@ -216,6 +272,8 @@ bool Ademo_mapLootChest::InitializeChest(
 			*RewardSourceId.ToString()));
 		Request.RunId = InRunId;
 		Request.LootSourceId = RewardSourceId;
+		Request.ContentVersionId = Fdemo_mapItemDefinitions::GetContentVersionId();
+		Request.ContentDigest = Fdemo_mapItemDefinitions::GetContentDigest();
 		Request.BudgetProfileId = RewardBudgetProfileId;
 		Request.SourceTags = RewardSourceTags;
 		Request.StableSeed =
@@ -231,18 +289,31 @@ bool Ademo_mapLootChest::InitializeChest(
 			Fdemo_mapRewardGenerator::Generate(Request);
 		if (LastRewardGenerationResult.IsSuccess())
 		{
-			const bool bInitialized = InitializeSearchContainer(
-				InManager,
-				InItems,
-				InRunId,
-				Edemo_mapRuntimeContainerKind::Chest,
-				RewardSourceId,
-				Fdemo_mapRewardGenerator::BuildContainerSeed(
-					LastRewardGenerationResult));
-			if (bInitialized
-				&& InManager->CommitGeneratedRewardSource(
-					InRunId,
-					RewardSourceId))
+			const Fdemo_mapProfileGeneratedRewardSourceResult Accepted =
+				InManager->PrepareGeneratedRewardSource(
+					InRunId, RewardSourceId,
+					Fdemo_mapRewardSourceAcceptanceReceipt::FromGeneratedResult(
+						RewardSourceId, LastRewardGenerationResult));
+			if (!Accepted.IsDurablyCommitted())
+			{
+				LastRewardGenerationResult.Status =
+					Edemo_mapRewardGenerationStatus::MaterializationFailed;
+				LastRewardGenerationResult.Trace.Diagnostic =
+					TEXT("Generated source Profile candidate was rejected before Runtime materialization.");
+				return false;
+			}
+			if (Accepted.RequiresRuntimeReconciliation())
+			{
+				LastRewardGenerationResult.Status =
+					Edemo_mapRewardGenerationStatus::AcceptedPendingReconciliation;
+				LastRewardGenerationResult.Trace.Diagnostic = Accepted.Diagnostic;
+				MarkCommittedRewardSourcePendingReconciliation(Accepted.Diagnostic);
+				return true;
+			}
+			const bool bInitialized = InitializeCommittedSearchContainer(
+				InManager, InItems, InRunId,
+				Edemo_mapRuntimeContainerKind::Chest, Accepted.Source);
+			if (bInitialized)
 			{
 				const Fdemo_mapRewardGenerationTrace& Trace =
 					LastRewardGenerationResult.Trace;
@@ -264,9 +335,12 @@ bool Ademo_mapLootChest::InitializeChest(
 				return true;
 			}
 			LastRewardGenerationResult.Status =
-				Edemo_mapRewardGenerationStatus::MaterializationFailed;
+				Edemo_mapRewardGenerationStatus::AcceptedPendingReconciliation;
 			LastRewardGenerationResult.Trace.Diagnostic =
-				TEXT("Generated Reward Plan could not be atomically materialized and committed.");
+				TEXT("Generated source is durably accepted; Runtime projection is pending reconciliation without reroll.");
+			MarkCommittedRewardSourcePendingReconciliation(
+				LastRewardGenerationResult.Trace.Diagnostic);
+			return true;
 		}
 		}
 
@@ -275,7 +349,7 @@ bool Ademo_mapLootChest::InitializeChest(
 			return false;
 		}
 		const Fdemo_mapFixedLootTableDefinition* Fallback =
-			Fdemo_mapFixedLootTableRegistry::Find(
+			Fdemo_mapItemDefinitions::FindFixedLootProfile(
 				FixedFallbackTableId);
 		if (!Fallback
 			|| Fallback->Kind !=
@@ -302,7 +376,7 @@ bool Ademo_mapLootChest::InitializeChest(
 	const Fdemo_mapFixedLootTableDefinition* FixedTable =
 		LootTableId.IsNone()
 			? nullptr
-			: Fdemo_mapFixedLootTableRegistry::Find(LootTableId);
+			: Fdemo_mapItemDefinitions::FindFixedLootProfile(LootTableId);
 	if (!LootTableId.IsNone()
 		&& (!FixedTable
 			|| FixedTable->Kind != Edemo_mapRuntimeContainerKind::Chest))

@@ -3,6 +3,25 @@
 
 bool Fdemo_mapFixedLootTableDefinition::IsValid(FString* OutError) const
 {
+	if (!Fdemo_mapItemDefinitions::IsCurrentContentIdentity(
+		ContentVersionId,
+		ContentDigest)
+		|| CandidateWeight <= 0
+		|| NoDropWeight < 0)
+	{
+		if (OutError) *OutError = TEXT("Fixed loot profile has an invalid content identity or deterministic weight gate.");
+		return false;
+	}
+	if (!FixedEquipmentDefinitionId.IsNone())
+	{
+		const Fdemo_mapItemDefinition* EquipmentDefinition =
+			Fdemo_mapItemDefinitions::Find(FixedEquipmentDefinitionId);
+		if (!EquipmentDefinition || EquipmentDefinition->EquipmentSlotId.IsNone())
+		{
+			if (OutError) *OutError = TEXT("Fixed loot profile targets an unknown or non-equipment definition.");
+			return false;
+		}
+	}
 	TSet<uint64> OccupiedSlots;
 	int32 ComputedValue = 0;
 	for (const Fdemo_mapRuntimeContainerSeedEntry& Entry : Entries)

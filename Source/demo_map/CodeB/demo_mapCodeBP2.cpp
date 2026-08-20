@@ -102,6 +102,7 @@ namespace demo_map_code_b
 			&& Level == Other.Level
 			&& Quality == Other.Quality
 			&& RandomSeed == Other.RandomSeed
+			&& LegacyAffixDigest == Other.LegacyAffixDigest
 			&& ItemType == Other.ItemType
 			&& bQuickUsable == Other.bQuickUsable
 			&& EquipSlot == Other.EquipSlot
@@ -227,6 +228,7 @@ namespace demo_map_code_b
 					SlotView.Level = Item->Level;
 					SlotView.Quality = Item->Quality;
 					SlotView.RandomSeed = Item->RandomSeed;
+					SlotView.LegacyAffixDigest = Item->LegacyAffixDigest;
 					SlotView.ItemType = Definition->ItemType;
 					SlotView.bQuickUsable = Definition->bQuickUsable;
 					SlotView.EquipSlot = Definition->EquipSlot;

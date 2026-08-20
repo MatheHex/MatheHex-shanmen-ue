@@ -28,6 +28,9 @@ struct Fdemo_mapFullMapRewardSlot
 	FName MarkerId = NAME_None;
 	FName RouteId = NAME_None;
 	FName AreaId = NAME_None;
+	/** Stable key into Fdemo_mapItemDefinitions' P73.3 distribution manifest. */
+	FName DistributionProfileId = NAME_None;
+	/** Read-only manifest projection retained for diagnostics and historical tests; never a planning input. */
 	FName ProjectionId = NAME_None;
 	FName BudgetProfileId = NAME_None;
 	TArray<FName> SourceTags;
@@ -112,4 +115,3 @@ struct Fdemo_mapRewardFullMapDistribution
 	static Fdemo_mapFullMapDistributionCounts Count();
 	static bool Validate(FString* OutError = nullptr);
 };
-

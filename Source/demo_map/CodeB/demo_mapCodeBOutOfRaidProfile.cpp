@@ -524,6 +524,24 @@ namespace
 		TArray<FCodeBLootProfileRollEntry> Entries;
 	};
 
+	/** Deterministic, non-root child material derived from one current r3 spatial roll entry. */
+	struct FCodeBP51PreloadedChildSpec
+	{
+		int32 ParentEntryIndex = INDEX_NONE;
+		FName ParentDefinitionId;
+		FName ItemDefinitionId;
+		int32 Quantity = 0;
+		int32 SlotIndex = INDEX_NONE;
+		FGuid ItemId;
+
+		bool IsSet() const
+		{
+			return ParentEntryIndex >= 0 && !ParentDefinitionId.IsNone()
+				&& !ItemDefinitionId.IsNone() && Quantity > 0
+				&& SlotIndex >= 0 && ItemId.IsValid();
+		}
+	};
+
 	const FCodeBBodyContainerDefinition* FindBodyContainerDefinitionInternal(FName DefinitionId);
 	const FCodeBLootProfile* FindLootProfileInternal(FName SourceContainerDefinitionId);
 	const FCodeBLootProfile* FindLootProfileByProvenance(
@@ -1416,7 +1434,9 @@ namespace
 		const bool bAcceptedCompleteGraphProvenance =
 			Drop.Provenance == TEXT("P31.AcceptedGroundDrop.CompleteGraph")
 			|| Drop.Provenance == TEXT("P45.AcceptedGroundDrop.CorpseSpatialCompleteGraph")
-			|| Drop.Provenance == TEXT("P50.AcceptedGroundDrop.BasicCacheSpatialCompleteGraph");
+			|| Drop.Provenance == TEXT("P53.AcceptedGroundDrop.CorpseLoadedSpatialCompleteGraph")
+			|| Drop.Provenance == TEXT("P50.AcceptedGroundDrop.BasicCacheSpatialCompleteGraph")
+			|| Drop.Provenance == TEXT("P66.AcceptedGroundDrop.BasicCachePlayerSpatialCompleteGraph");
 		if (AcceptedCommand.Intent != ECodeBP2CommandIntent::QuickTransfer
 			|| AcceptedCommand.Operation != ECodeBOperation::Move
 			|| !AcceptedCommand.TransactionId.IsValid()
@@ -1518,7 +1538,8 @@ namespace
 			Drop.Provenance == TEXT("P35.AcceptedGroundDrop.ChildStandardEquipment")
 			|| Drop.Provenance == TEXT("P32.AcceptedGroundDrop.StandardEquipment")
 			|| Drop.Provenance == TEXT("P33.AcceptedGroundDrop.BaseQuickStandardEquipment")
-			|| Drop.Provenance == TEXT("P44.AcceptedGroundDrop.CorpseStandardEquipment");
+			|| Drop.Provenance == TEXT("P44.AcceptedGroundDrop.CorpseStandardEquipment")
+			|| Drop.Provenance == TEXT("P65.AcceptedGroundDrop.BasicCachePlayerStandardEquipment");
 		if (AcceptedCommand.Intent != ECodeBP2CommandIntent::QuickTransfer
 			|| AcceptedCommand.Operation != ECodeBOperation::Move
 			|| !AcceptedCommand.TransactionId.IsValid()
@@ -1837,6 +1858,13 @@ namespace
 	bool IsP21BasicCorpseR3(const FCodeBLootProfile& Profile)
 	{
 		return Profile.LootProfileId == FName(TEXT("CodeB.LootProfile.BasicCorpse.r3"))
+			&& Profile.ProfileVersion == 3
+			&& Profile.AlgorithmVersion == TEXT("CodeB.DeterministicWeightedLoot.Crc32.r3");
+	}
+
+	bool IsP54BasicCacheR3(const FCodeBLootProfile& Profile)
+	{
+		return Profile.LootProfileId == FName(TEXT("CodeB.LootProfile.BasicCache.r3"))
 			&& Profile.ProfileVersion == 3
 			&& Profile.AlgorithmVersion == TEXT("CodeB.DeterministicWeightedLoot.Crc32.r3");
 	}
@@ -3147,6 +3175,12 @@ namespace
 		return true;
 	}
 
+	bool ResolveNormalContainerMaterializationRootClaim(
+		const FCodeBRunLocalNormalContainerRecord& Record,
+		const FGuid& ItemId,
+		bool& bOutClaimed,
+		FString& OutError);
+
 	bool BuildNormalContainerProjection(
 		const FCodeBRunLocalNormalContainerRecord& Record,
 		FCodeBNormalContainerProjection& OutProjection,
@@ -3167,6 +3201,19 @@ namespace
 		OutProjection.ActiveSearchItemId = Record.ActiveSearchItemId;
 		OutProjection.Revision = Record.Revision;
 		OutProjection.Receipt = Record.Receipt;
+		TSet<FGuid> MaterializationClaimedRootIds;
+		for (const TPair<FGuid, FCodeBItemInstance>& Pair : Record.ContainerSnapshot.Items)
+		{
+			const FCodeBItemInstance& Item = Pair.Value;
+			if (Item.ParentContainerId != Record.ContainerId) continue;
+			bool bClaimed = false;
+			if (!ResolveNormalContainerMaterializationRootClaim(
+				Record, Item.ItemId, bClaimed, OutError))
+			{
+				return false;
+			}
+			if (bClaimed) MaterializationClaimedRootIds.Add(Item.ItemId);
+		}
 		TMap<FGuid, ECodeBNormalContainerRevealState> RevealByItemId;
 		for (const FCodeBNormalContainerItemReveal& Reveal : Record.ItemRevealStates)
 		{
@@ -3175,6 +3222,9 @@ namespace
 		for (const TPair<FGuid, FCodeBItemInstance>& Pair : Record.ContainerSnapshot.Items)
 		{
 			const FCodeBItemInstance& Item = Pair.Value;
+			// P10 exposes/searches only direct BasicCache roots. P54's fixed child
+			// material remains an opaque member of the whole spatial graph.
+			if (Item.ParentContainerId != Record.ContainerId) continue;
 			FCodeBNormalContainerItemProjection& ProjectionItem = OutProjection.Items.AddDefaulted_GetRef();
 			ProjectionItem.ItemId = Item.ItemId;
 			ProjectionItem.DefinitionId = Item.DefinitionId;
@@ -3182,6 +3232,8 @@ namespace
 			ProjectionItem.ParentContainerId = Item.ParentContainerId;
 			ProjectionItem.SlotIndex = Item.SlotIndex;
 			ProjectionItem.ChildContainerId = Item.ChildContainerId;
+			ProjectionItem.bMaterializationClaimedRoot =
+				MaterializationClaimedRootIds.Contains(Item.ItemId);
 			const ECodeBNormalContainerRevealState* RevealState = RevealByItemId.Find(Item.ItemId);
 			ProjectionItem.RevealState = RevealState
 				? *RevealState
@@ -3252,6 +3304,14 @@ namespace
 			};
 			BasicCacheR2.RollGroups.Add(MoveTemp(SpatialUtility));
 
+			// P54 selects r3 only before one BasicCache is first materialized.
+			// Its root roll groups intentionally remain byte-for-byte equivalent to r2;
+			// only a spatial hit now carries one deterministic fixed child stack.
+			FCodeBLootProfile BasicCacheR3 = BasicCacheR2;
+			BasicCacheR3.LootProfileId = FName(TEXT("CodeB.LootProfile.BasicCache.r3"));
+			BasicCacheR3.ProfileVersion = 3;
+			BasicCacheR3.AlgorithmVersion = TEXT("CodeB.DeterministicWeightedLoot.Crc32.r3");
+
 			FCodeBLootProfile BasicCorpse;
 			BasicCorpse.LootProfileId = FName(TEXT("CodeB.LootProfile.BasicCorpse.r1"));
 			BasicCorpse.SourceContainerDefinitionId = FName(TEXT("CodeB.BodyContainer.BasicCorpse"));
@@ -3310,7 +3370,7 @@ namespace
 				{ FName(TEXT("Body.Weapon")), Fdemo_mapItemIds::HeavyPracticeBlade, 1, 1, 1, 2 }
 			};
 			BasicCorpseR3.RollGroups.Add(MoveTemp(CorpseEquippedLoadout));
-			return TArray<FCodeBLootProfile> { MoveTemp(BasicCacheR1), MoveTemp(BasicCacheR2), MoveTemp(BasicCorpse), MoveTemp(BasicCorpseR2), MoveTemp(BasicCorpseR3) };
+			return TArray<FCodeBLootProfile> { MoveTemp(BasicCacheR1), MoveTemp(BasicCacheR2), MoveTemp(BasicCacheR3), MoveTemp(BasicCorpse), MoveTemp(BasicCorpseR2), MoveTemp(BasicCorpseR3) };
 		}();
 		return Profiles;
 	}
@@ -3532,11 +3592,13 @@ namespace
 			ProfileIds.Add(Profile.LootProfileId);
 			SourceDefinitionIds.Add(Profile.SourceContainerDefinitionId);
 		}
-		return ProfileIds.Num() == 5 && SourceDefinitionIds.Num() == 2
+		return ProfileIds.Num() == 6 && SourceDefinitionIds.Num() == 2
 			&& FindLootProfileByProvenance(FName(TEXT("CodeB.NormalContainer.BasicCache")),
 				FName(TEXT("CodeB.LootProfile.BasicCache.r1")), 1)
 			&& FindLootProfileByProvenance(FName(TEXT("CodeB.NormalContainer.BasicCache")),
 				FName(TEXT("CodeB.LootProfile.BasicCache.r2")), 2)
+			&& FindLootProfileByProvenance(FName(TEXT("CodeB.NormalContainer.BasicCache")),
+				FName(TEXT("CodeB.LootProfile.BasicCache.r3")), 3)
 			&& FindLootProfileByProvenance(FName(TEXT("CodeB.BodyContainer.BasicCorpse")),
 				FName(TEXT("CodeB.LootProfile.BasicCorpse.r1")), 1)
 			&& FindLootProfileByProvenance(FName(TEXT("CodeB.BodyContainer.BasicCorpse")),
@@ -3570,6 +3632,93 @@ namespace
 		return FGuid(
 			FCrc::StrCrc32(*(Seed + TEXT("|A"))), FCrc::StrCrc32(*(Seed + TEXT("|B"))),
 			FCrc::StrCrc32(*(Seed + TEXT("|C"))), FCrc::StrCrc32(*(Seed + TEXT("|D"))));
+	}
+
+	bool BuildP51PreloadedChildSpec(
+		const FCodeBLootProfile& Profile,
+		const FString& LootIdentity,
+		const FCodeBLootProfileRollResult& Roll,
+		FCodeBP51PreloadedChildSpec& OutSpec,
+		FString& OutError)
+	{
+		OutSpec = FCodeBP51PreloadedChildSpec();
+		if (!IsP21BasicCorpseR3(Profile) && !IsP54BasicCacheR3(Profile)) return true;
+		for (int32 EntryIndex = 0; EntryIndex < Roll.Entries.Num(); ++EntryIndex)
+		{
+			const FCodeBLootProfileRollEntry& Entry = Roll.Entries[EntryIndex];
+			if (Entry.GroupOrder != 1
+				|| (Entry.ItemDefinitionId != Fdemo_mapItemIds::WindTalisman
+					&& Entry.ItemDefinitionId != Fdemo_mapItemIds::BackpackLevel1))
+			{
+				continue;
+			}
+			if (OutSpec.IsSet())
+			{
+				OutError = TEXT("Code B P51/P54 r3 roll contains more than one spatial parent entry.");
+				return false;
+			}
+			OutSpec.ParentEntryIndex = EntryIndex;
+			OutSpec.ParentDefinitionId = Entry.ItemDefinitionId;
+			OutSpec.ItemDefinitionId = Entry.ItemDefinitionId == Fdemo_mapItemIds::WindTalisman
+				? Fdemo_mapItemIds::SpiritDust : Fdemo_mapItemIds::IronShard;
+			OutSpec.Quantity = 1;
+			OutSpec.SlotIndex = 0;
+			OutSpec.ItemId = StableLootGraphGuid(LootIdentity, TEXT("preloaded-child"), EntryIndex);
+		}
+		if (!OutSpec.IsSet()) return true;
+
+		FCodeBItemDefinition ParentDefinition;
+		FCodeBItemDefinition ChildDefinition;
+		if (!BuildCanonicalCodeBItemDefinition(OutSpec.ParentDefinitionId, ParentDefinition, OutError)
+			|| !BuildCanonicalCodeBItemDefinition(OutSpec.ItemDefinitionId, ChildDefinition, OutError)
+			|| ParentDefinition.ChildContainerCapacity <= OutSpec.SlotIndex
+			|| ParentDefinition.SpatialContainerSemantic == ECodeBSpatialContainerSemantic::None
+			|| !ChildDefinition.bStackable || ChildDefinition.MaxStack < OutSpec.Quantity
+			|| ChildDefinition.ItemType != ECodeBItemType::Material
+			|| ChildDefinition.EquipSlot != ECodeBEquipSlot::None
+			|| ChildDefinition.SpatialContainerSemantic != ECodeBSpatialContainerSemantic::None
+			|| ChildDefinition.ChildContainerCapacity != 0)
+		{
+			if (OutError.IsEmpty())
+			{
+				OutError = TEXT("Code B P51/P54 fixed child material is incompatible with the canonical spatial child.");
+			}
+			return false;
+		}
+		return true;
+	}
+
+	bool BuildLootResultDigest(
+		const FString& LootIdentity,
+		const FCodeBLootProfile& Profile,
+		const FCodeBLootProfileRollResult& Roll,
+		const bool bIncludeP51PreloadedChild,
+		FString& OutDigest,
+		FString& OutError)
+	{
+		TArray<FString> ResultPieces { LootIdentity };
+		for (const FCodeBLootProfileRollEntry& Entry : Roll.Entries)
+		{
+			ResultPieces.Add(FString::Printf(TEXT("entry:%d:%d:%s:%d"), Entry.GroupOrder,
+				Entry.CandidateTieBreakOrder, *Entry.ItemDefinitionId.ToString(), Entry.Quantity));
+		}
+		if (bIncludeP51PreloadedChild)
+		{
+			FCodeBP51PreloadedChildSpec Spec;
+			if (!BuildP51PreloadedChildSpec(Profile, LootIdentity, Roll, Spec, OutError)) return false;
+			if (Spec.IsSet())
+			{
+				const FGuid ParentItemId = StableLootGraphGuid(
+					LootIdentity, TEXT("item"), Spec.ParentEntryIndex);
+				ResultPieces.Add(FString::Printf(
+					TEXT("preloaded:%d:%s:%s:%s:%s:%d:%d"), Spec.ParentEntryIndex,
+					*GuidText(ParentItemId), *GuidText(SpatialChildGuid(ParentItemId)),
+					*GuidText(Spec.ItemId), *Spec.ItemDefinitionId.ToString(),
+					Spec.Quantity, Spec.SlotIndex));
+			}
+		}
+		OutDigest = FString::Printf(TEXT("%08X"), FCrc::StrCrc32(*FString::Join(ResultPieces, TEXT("|"))));
+		return true;
 	}
 
 	bool BuildDeterministicLootProfileRoll(
@@ -3708,14 +3857,8 @@ namespace
 				? INDEX_NONE : RootSlotIndex++;
 		}
 		if (!ValidateLootProfileMaterialization(OutRoll, SourceContainerDefinitionId, SourceCapacity, OutError)) return false;
-		TArray<FString> ResultPieces { Identity };
-		for (const FCodeBLootProfileRollEntry& Entry : OutRoll.Entries)
-		{
-			ResultPieces.Add(FString::Printf(TEXT("entry:%d:%d:%s:%d"), Entry.GroupOrder,
-				Entry.CandidateTieBreakOrder, *Entry.ItemDefinitionId.ToString(), Entry.Quantity));
-		}
-		OutRoll.ResultDigest = FString::Printf(TEXT("%08X"), FCrc::StrCrc32(*FString::Join(ResultPieces, TEXT("|"))));
-		return true;
+		return BuildLootResultDigest(Identity, Profile, OutRoll, true,
+			OutRoll.ResultDigest, OutError);
 	}
 
 	bool ValidateLootProfileMaterialization(
@@ -3787,13 +3930,90 @@ namespace
 			|| ExpectedRoll.LootProfileId != LootProfileId
 			|| ExpectedRoll.ProfileVersion != LootProfileVersion
 			|| ExpectedRoll.ProfileDigest != LootProfileDigestText
-			|| ExpectedRoll.AlgorithmVersion != LootAlgorithmVersion
-			|| ExpectedRoll.ResultDigest != LootResultDigest)
+			|| ExpectedRoll.AlgorithmVersion != LootAlgorithmVersion)
 		{
 			if (OutError.IsEmpty()) OutError = TEXT("Code B P16 Loot Profile receipt provenance does not match its exact deterministic identity.");
 			return false;
 		}
+		bool bResultDigestMatches = ExpectedRoll.ResultDigest == LootResultDigest;
+		if (!bResultDigestMatches && IsP21BasicCorpseR3(*Profile))
+		{
+			// P51 changes only future r3 spatial-hit materializations.  An already
+			// persisted P21 r3 receipt keeps its pre-P51 result digest and empty child.
+			const FString Identity = LootRollIdentityText(OwnerId, RunInstanceId, TargetId,
+				SourceContainerDefinitionId, DeathReceiptId, *Profile);
+			FString HistoricalR3ResultDigest;
+			if (!BuildLootResultDigest(Identity, *Profile, ExpectedRoll, false,
+				HistoricalR3ResultDigest, OutError))
+			{
+				return false;
+			}
+			bResultDigestMatches = HistoricalR3ResultDigest == LootResultDigest;
+		}
+		if (!bResultDigestMatches)
+		{
+			OutError = TEXT("Code B P16 Loot Profile receipt result digest is neither current nor retained historical r3 provenance.");
+			return false;
+		}
+		ExpectedRoll.ResultDigest = LootResultDigest;
 		if (OutExpectedRoll) *OutExpectedRoll = MoveTemp(ExpectedRoll);
+		return true;
+	}
+
+	bool ResolveNormalContainerMaterializationRootClaim(
+		const FCodeBRunLocalNormalContainerRecord& Record,
+		const FGuid& ItemId,
+		bool& bOutClaimed,
+		FString& OutError)
+	{
+		bOutClaimed = false;
+		if (!ItemId.IsValid())
+		{
+			OutError = TEXT("Code B normal-container materialization claim requires a valid root ItemId.");
+			return false;
+		}
+		const FCodeBNormalContainerDefinition* Definition =
+			FindNormalContainerDefinitionInternal(Record.DefinitionId);
+		const FCodeBLootProfile* Profile = FindLootProfileByProvenance(
+			Record.DefinitionId, Record.Receipt.LootProfileId, Record.Receipt.LootProfileVersion);
+		if (!Definition)
+		{
+			OutError = TEXT("Code B normal-container materialization claim cannot resolve its definition.");
+			return false;
+		}
+		if (!Profile)
+		{
+			if (!HasLootProfileProvenance(
+				Record.Receipt.LootProfileId, Record.Receipt.LootProfileVersion,
+				Record.Receipt.LootProfileDigest, Record.Receipt.LootAlgorithmVersion,
+				Record.Receipt.LootResultDigest))
+			{
+				return true;
+			}
+			OutError = TEXT("Code B normal-container materialization claim cannot resolve its receipt profile.");
+			return false;
+		}
+		FCodeBLootProfileRollResult ExpectedRoll;
+		if (!ValidateLootProfileReceiptProvenance(
+			Record.OwnerId, Record.RunInstanceId, Record.SearchTargetId,
+			Record.DefinitionId, Definition->Capacity, FGuid(),
+			Record.Receipt.LootProfileId, Record.Receipt.LootProfileVersion,
+			Record.Receipt.LootProfileDigest, Record.Receipt.LootAlgorithmVersion,
+			Record.Receipt.LootResultDigest, &ExpectedRoll, OutError))
+		{
+			return false;
+		}
+		const FString Identity = LootRollIdentityText(
+			Record.OwnerId, Record.RunInstanceId, Record.SearchTargetId,
+			Record.DefinitionId, FGuid(), *Profile);
+		for (int32 EntryIndex = 0; EntryIndex < ExpectedRoll.Entries.Num(); ++EntryIndex)
+		{
+			if (StableLootGraphGuid(Identity, TEXT("item"), EntryIndex) == ItemId)
+			{
+				bOutClaimed = true;
+				break;
+			}
+		}
 		return true;
 	}
 
@@ -3826,7 +4046,7 @@ namespace
 			SourceContainerDefinitionId, LootProfileId, LootProfileVersion);
 		const FCodeBContainer* Root = Snapshot.Containers.Find(RootContainerId);
 		const bool bP21R3 = Profile && IsP21BasicCorpseR3(*Profile);
-		if (!Profile || !Root || Snapshot.Items.Num() != ExpectedRoll.Entries.Num()
+		if (!Profile || !Root
 			|| (bP21R3 && !ValidateP21BodyEquipmentCatalog(OutError)))
 		{
 			OutError = TEXT("Code B P16 initial Loot Profile graph does not match its deterministic result shape.");
@@ -3834,6 +4054,21 @@ namespace
 		}
 		const FString Identity = LootRollIdentityText(OwnerId, RunInstanceId, TargetId,
 			SourceContainerDefinitionId, DeathReceiptId, *Profile);
+		FCodeBP51PreloadedChildSpec P51Spec;
+		FString CurrentResultDigest;
+		if (!BuildP51PreloadedChildSpec(*Profile, Identity, ExpectedRoll, P51Spec, OutError)
+			|| !BuildLootResultDigest(Identity, *Profile, ExpectedRoll, true,
+				CurrentResultDigest, OutError))
+		{
+			return false;
+		}
+		const bool bP51PreloadedGraph = P51Spec.IsSet()
+			&& LootResultDigest == CurrentResultDigest;
+		if (Snapshot.Items.Num() != ExpectedRoll.Entries.Num() + (bP51PreloadedGraph ? 1 : 0))
+		{
+			OutError = TEXT("Code B P51 initial Loot Profile graph item count does not match its retained or current r3 result digest.");
+			return false;
+		}
 		int32 ExpectedContainerCount = 1 + (bP21R3 ? P21BodyEquipmentSlots().Num() : 0);
 		for (int32 EntryIndex = 0; EntryIndex < ExpectedRoll.Entries.Num(); ++EntryIndex)
 		{
@@ -3874,10 +4109,34 @@ namespace
 				: FName(TEXT("CodeB.SpatialChild.StoragePouch"));
 			if (Item->ChildContainerId != ExpectedChildId || !Child
 				|| Child->ContainerType != ExpectedChildType || Child->IsEquipment()
-				|| Child->Slots.Num() != CanonicalDefinition.ChildContainerCapacity
-				|| Child->Slots.ContainsByPredicate([](const FGuid& Value) { return Value.IsValid(); }))
+				|| Child->Slots.Num() != CanonicalDefinition.ChildContainerCapacity)
 			{
-				OutError = TEXT("Code B P18 spatial loot entry does not own its one canonical empty child container.");
+				OutError = TEXT("Code B P18/P51 spatial loot entry does not own its one canonical child container.");
+				return false;
+			}
+			const bool bExpectedLoadedChild = bP51PreloadedGraph
+				&& P51Spec.ParentEntryIndex == EntryIndex
+				&& P51Spec.ParentDefinitionId == Entry.ItemDefinitionId;
+			if (bExpectedLoadedChild)
+			{
+				const FCodeBItemInstance* ChildItem = Snapshot.Items.Find(P51Spec.ItemId);
+				if (!Child->Slots.IsValidIndex(P51Spec.SlotIndex)
+					|| Child->Slots[P51Spec.SlotIndex] != P51Spec.ItemId
+					|| Child->Slots.ContainsByPredicate([&P51Spec](const FGuid& Value)
+						{ return Value.IsValid() && Value != P51Spec.ItemId; })
+					|| !ChildItem || ChildItem->DefinitionId != P51Spec.ItemDefinitionId
+					|| ChildItem->Quantity != P51Spec.Quantity
+					|| ChildItem->ParentContainerId != ExpectedChildId
+					|| ChildItem->SlotIndex != P51Spec.SlotIndex
+					|| ChildItem->ChildContainerId.IsValid())
+				{
+					OutError = TEXT("Code B P51 spatial child does not contain its exact deterministic one-stack material mapping.");
+					return false;
+				}
+			}
+			else if (Child->Slots.ContainsByPredicate([](const FGuid& Value) { return Value.IsValid(); }))
+			{
+				OutError = TEXT("Code B P18 retained spatial graph is no longer its canonical empty child container.");
 				return false;
 			}
 			++ExpectedContainerCount;
@@ -3888,6 +4147,250 @@ namespace
 			return false;
 		}
 		return true;
+	}
+
+	bool ResolveP51PreloadedReceipt(
+		const FCodeBRunLocalBodyContainerRecord& Record,
+		bool& bOutRequiresLoadedClosure,
+		FString& OutIdentity,
+		FCodeBP51PreloadedChildSpec& OutSpec,
+		FString& OutError)
+	{
+		bOutRequiresLoadedClosure = false;
+		OutIdentity.Reset();
+		OutSpec = FCodeBP51PreloadedChildSpec();
+		const FCodeBBodyContainerDefinition* Definition =
+			FindBodyContainerDefinitionInternal(Record.DefinitionId);
+		const FCodeBLootProfile* Profile = FindLootProfileByProvenance(
+			Record.DefinitionId, Record.Receipt.LootProfileId, Record.Receipt.LootProfileVersion);
+		if (!Definition || !Profile || !IsP21BasicCorpseR3(*Profile)) return true;
+		FCodeBLootProfileRollResult ExpectedRoll;
+		if (!ValidateLootProfileReceiptProvenance(Record.OwnerId, Record.RunInstanceId,
+			Record.BodyTargetId, Record.DefinitionId, Definition->Capacity,
+			Record.Receipt.DeathReceipt.DeathReceiptId, Record.Receipt.LootProfileId,
+			Record.Receipt.LootProfileVersion, Record.Receipt.LootProfileDigest,
+			Record.Receipt.LootAlgorithmVersion, Record.Receipt.LootResultDigest,
+			&ExpectedRoll, OutError))
+		{
+			return false;
+		}
+		OutIdentity = LootRollIdentityText(Record.OwnerId, Record.RunInstanceId,
+			Record.BodyTargetId, Record.DefinitionId,
+			Record.Receipt.DeathReceipt.DeathReceiptId, *Profile);
+		FString CurrentResultDigest;
+		if (!BuildP51PreloadedChildSpec(*Profile, OutIdentity, ExpectedRoll, OutSpec, OutError)
+			|| !BuildLootResultDigest(OutIdentity, *Profile, ExpectedRoll, true,
+				CurrentResultDigest, OutError))
+		{
+			return false;
+		}
+		bOutRequiresLoadedClosure = OutSpec.IsSet()
+			&& Record.Receipt.LootResultDigest == CurrentResultDigest;
+		return true;
+	}
+
+	bool ValidateP51BasicCorpseLoadedSpatialClosure(
+		const FCodeBRunLocalBodyContainerRecord& Record,
+		const FCodeBSnapshot& Snapshot,
+		const FCodeBItemInstance& Parent,
+		FString& OutError)
+	{
+		bool bRequiresLoadedClosure = false;
+		FString Identity;
+		FCodeBP51PreloadedChildSpec Spec;
+		if (!ResolveP51PreloadedReceipt(Record, bRequiresLoadedClosure,
+			Identity, Spec, OutError) || !bRequiresLoadedClosure)
+		{
+			if (OutError.IsEmpty()) OutError = TEXT("Code B P51 loaded closure has no exact current r3 receipt provenance.");
+			return false;
+		}
+		const FGuid ExpectedParentItemId = StableLootGraphGuid(
+			Identity, TEXT("item"), Spec.ParentEntryIndex);
+		bool bIsSpatialClosure = false;
+		if (Parent.ItemId != ExpectedParentItemId
+			|| Parent.DefinitionId != Spec.ParentDefinitionId
+			|| Parent.ChildContainerId != SpatialChildGuid(ExpectedParentItemId)
+			|| !ValidateP19WorldDropClosure(Snapshot, Parent, bIsSpatialClosure, OutError)
+			|| !bIsSpatialClosure)
+		{
+			if (OutError.IsEmpty()) OutError = TEXT("Code B P51 loaded closure parent/child identity is not canonical.");
+			return false;
+		}
+		const FCodeBContainer* Child = Snapshot.Containers.Find(Parent.ChildContainerId);
+		const FCodeBItemInstance* ChildItem = Snapshot.Items.Find(Spec.ItemId);
+		if (!Child || Child->IsEquipment()
+			|| !Child->Slots.IsValidIndex(Spec.SlotIndex)
+			|| Child->Slots[Spec.SlotIndex] != Spec.ItemId
+			|| Child->Slots.ContainsByPredicate([&Spec](const FGuid& Value)
+				{ return Value.IsValid() && Value != Spec.ItemId; })
+			|| !ChildItem || ChildItem->DefinitionId != Spec.ItemDefinitionId
+			|| ChildItem->Quantity != Spec.Quantity
+			|| ChildItem->ParentContainerId != Child->ContainerId
+			|| ChildItem->SlotIndex != Spec.SlotIndex
+			|| ChildItem->ChildContainerId.IsValid())
+		{
+			OutError = TEXT("Code B P51 loaded closure does not contain exactly its fixed one-stack child material.");
+			return false;
+		}
+		return true;
+	}
+
+	bool ValidateP20OrP51BasicCorpseSpatialClosure(
+		const FCodeBRunLocalBodyContainerRecord& Record,
+		const FCodeBSnapshot& Snapshot,
+		const FCodeBItemInstance& Parent,
+		bool& bOutP51Loaded,
+		FString& OutError)
+	{
+		bOutP51Loaded = false;
+		bool bRequiresLoadedClosure = false;
+		FString Identity;
+		FCodeBP51PreloadedChildSpec Spec;
+		if (!ResolveP51PreloadedReceipt(Record, bRequiresLoadedClosure,
+			Identity, Spec, OutError))
+		{
+			return false;
+		}
+		if (bRequiresLoadedClosure)
+		{
+			if (!ValidateP51BasicCorpseLoadedSpatialClosure(Record, Snapshot, Parent, OutError))
+			{
+				return false;
+			}
+			bOutP51Loaded = true;
+			return true;
+		}
+		return ValidateP20BasicCorpseSpatialClosure(Snapshot, Parent, OutError);
+	}
+
+	bool ResolveP54PreloadedReceipt(
+		const FCodeBRunLocalNormalContainerRecord& Record,
+		bool& bOutRequiresLoadedClosure,
+		FString& OutIdentity,
+		FCodeBP51PreloadedChildSpec& OutSpec,
+		FString& OutError)
+	{
+		bOutRequiresLoadedClosure = false;
+		OutIdentity.Reset();
+		OutSpec = FCodeBP51PreloadedChildSpec();
+		const FCodeBNormalContainerDefinition* Definition =
+			FindNormalContainerDefinitionInternal(Record.DefinitionId);
+		const FCodeBLootProfile* Profile = FindLootProfileByProvenance(
+			Record.DefinitionId, Record.Receipt.LootProfileId, Record.Receipt.LootProfileVersion);
+		if (!Definition || !Profile || !IsP54BasicCacheR3(*Profile)) return true;
+		FCodeBLootProfileRollResult ExpectedRoll;
+		if (!ValidateLootProfileReceiptProvenance(Record.OwnerId, Record.RunInstanceId,
+			Record.SearchTargetId, Record.DefinitionId, Definition->Capacity, FGuid(),
+			Record.Receipt.LootProfileId, Record.Receipt.LootProfileVersion,
+			Record.Receipt.LootProfileDigest, Record.Receipt.LootAlgorithmVersion,
+			Record.Receipt.LootResultDigest, &ExpectedRoll, OutError))
+		{
+			return false;
+		}
+		OutIdentity = LootRollIdentityText(Record.OwnerId, Record.RunInstanceId,
+			Record.SearchTargetId, Record.DefinitionId, FGuid(), *Profile);
+		FString CurrentResultDigest;
+		if (!BuildP51PreloadedChildSpec(*Profile, OutIdentity, ExpectedRoll, OutSpec, OutError)
+			|| !BuildLootResultDigest(OutIdentity, *Profile, ExpectedRoll, true,
+				CurrentResultDigest, OutError))
+		{
+			return false;
+		}
+		bOutRequiresLoadedClosure = OutSpec.IsSet()
+			&& Record.Receipt.LootResultDigest == CurrentResultDigest;
+		return true;
+	}
+
+	bool ValidateP54BasicCacheLoadedSpatialClosure(
+		const FCodeBRunLocalNormalContainerRecord& Record,
+		const FCodeBSnapshot& Snapshot,
+		const FCodeBItemInstance& Parent,
+		FCodeBP51PreloadedChildSpec* OutSpec,
+		FString& OutError)
+	{
+		bool bRequiresLoadedClosure = false;
+		FString Identity;
+		FCodeBP51PreloadedChildSpec Spec;
+		if (!ResolveP54PreloadedReceipt(Record, bRequiresLoadedClosure,
+			Identity, Spec, OutError) || !bRequiresLoadedClosure)
+		{
+			if (OutError.IsEmpty()) OutError = TEXT("Code B P54 loaded closure has no exact current BasicCache r3 receipt provenance.");
+			return false;
+		}
+		const FGuid ExpectedParentItemId = StableLootGraphGuid(
+			Identity, TEXT("item"), Spec.ParentEntryIndex);
+		bool bIsSpatialClosure = false;
+		if (Parent.ItemId != ExpectedParentItemId
+			|| Parent.DefinitionId != Spec.ParentDefinitionId
+			|| Parent.ChildContainerId != SpatialChildGuid(ExpectedParentItemId)
+			|| !ValidateP19WorldDropClosure(Snapshot, Parent, bIsSpatialClosure, OutError)
+			|| !bIsSpatialClosure)
+		{
+			if (OutError.IsEmpty()) OutError = TEXT("Code B P54 loaded closure parent/child identity is not canonical.");
+			return false;
+		}
+		const FCodeBContainer* Child = Snapshot.Containers.Find(Parent.ChildContainerId);
+		const FCodeBItemInstance* ChildItem = Snapshot.Items.Find(Spec.ItemId);
+		if (!Child || Child->IsEquipment()
+			|| !Child->Slots.IsValidIndex(Spec.SlotIndex)
+			|| Child->Slots[Spec.SlotIndex] != Spec.ItemId
+			|| Child->Slots.ContainsByPredicate([&Spec](const FGuid& Value)
+				{ return Value.IsValid() && Value != Spec.ItemId; })
+			|| !ChildItem || ChildItem->DefinitionId != Spec.ItemDefinitionId
+			|| ChildItem->Quantity != Spec.Quantity
+			|| ChildItem->ParentContainerId != Child->ContainerId
+			|| ChildItem->SlotIndex != Spec.SlotIndex
+			|| ChildItem->ChildContainerId.IsValid())
+		{
+			OutError = TEXT("Code B P54 loaded closure does not contain exactly its fixed one-stack child material.");
+			return false;
+		}
+		if (OutSpec) *OutSpec = Spec;
+		return true;
+	}
+
+	bool ValidateP18OrP54BasicCacheSpatialClosure(
+		const FCodeBRunLocalNormalContainerRecord& Record,
+		const FCodeBSnapshot& Snapshot,
+		const FCodeBItemInstance& Parent,
+		bool& bOutP54Loaded,
+		FCodeBP51PreloadedChildSpec* OutSpec,
+		FString& OutError)
+	{
+		bOutP54Loaded = false;
+		bool bRequiresLoadedClosure = false;
+		FString Identity;
+		FCodeBP51PreloadedChildSpec Spec;
+		if (!ResolveP54PreloadedReceipt(Record, bRequiresLoadedClosure,
+			Identity, Spec, OutError))
+		{
+			return false;
+		}
+		if (bRequiresLoadedClosure)
+		{
+			if (!ValidateP54BasicCacheLoadedSpatialClosure(
+				Record, Snapshot, Parent, &Spec, OutError))
+			{
+				return false;
+			}
+			bOutP54Loaded = true;
+			if (OutSpec) *OutSpec = Spec;
+			return true;
+		}
+		return ValidateP20BasicCorpseSpatialClosure(Snapshot, Parent, OutError);
+	}
+
+	/** P60 retrieval accepts any current root whose complete graph still satisfies
+	 * the canonical P19 closure. Receipt provenance remains authoritative for the
+	 * BasicCache page itself, but is not used to classify player-deposited items. */
+	bool ValidateP60RetrievableBasicCacheSpatialClosure(
+		const FCodeBSnapshot& Snapshot,
+		const FCodeBItemInstance& Parent,
+		FString& OutError)
+	{
+		bool bIsSpatialClosure = false;
+		return ValidateP19WorldDropClosure(Snapshot, Parent, bIsSpatialClosure, OutError)
+			&& bIsSpatialClosure;
 	}
 
 	const FCodeBBodyContainerDefinition* FindBodyContainerDefinitionInternal(const FName DefinitionId)
@@ -4265,6 +4768,21 @@ namespace
 		return true;
 	}
 
+	bool IsP12BodyRootProjectionItem(
+		const FCodeBRunLocalBodyContainerRecord& Record,
+		const FCodeBItemInstance& Item)
+	{
+		if (Item.ParentContainerId == Record.ContainerId) return true;
+		const FCodeBLootProfile* Profile = FindLootProfileByProvenance(
+			Record.DefinitionId, Record.Receipt.LootProfileId, Record.Receipt.LootProfileVersion);
+		if (!Profile || !IsP21BasicCorpseR3(*Profile)) return false;
+		return P21BodyEquipmentSlots().ContainsByPredicate([&Record, &Item](const FP21BodyEquipmentSlot& Slot)
+		{
+			return Item.ParentContainerId == P21BodyEquipmentContainerGuid(
+				Record.BodyTargetId, Record.DefinitionId, Slot.Semantic);
+		});
+	}
+
 	bool ValidateRunLocalBodyContainerRecord(
 		const FCodeBRunLocalBodyContainerRecord& Record,
 		FString& OutError)
@@ -4327,6 +4845,27 @@ namespace
 			OutError = TEXT("Code B P11 body-container root does not match its definition.");
 			return false;
 		}
+		int32 BodySpatialRootCount = 0;
+		for (const FGuid& RootItemId : Root->Slots)
+		{
+			if (!RootItemId.IsValid()) continue;
+			const FCodeBItemInstance* RootItem = Record.ContainerSnapshot.Items.Find(RootItemId);
+			FCodeBItemDefinition RootDefinition;
+			if (!RootItem || !BuildCanonicalCodeBItemDefinition(
+				RootItem->DefinitionId, RootDefinition, OutError))
+			{
+				return false;
+			}
+			if (RootDefinition.SpatialContainerSemantic == ECodeBSpatialContainerSemantic::None) continue;
+			bool bP51Loaded = false;
+			if (++BodySpatialRootCount > 1
+				|| !ValidateP20OrP51BasicCorpseSpatialClosure(
+					Record, Record.ContainerSnapshot, *RootItem, bP51Loaded, OutError))
+			{
+				if (OutError.IsEmpty()) OutError = TEXT("Code B P20/P51 body record has a non-canonical spatial closure.");
+				return false;
+			}
+		}
 		TSet<FGuid> VisitedContainers, VisitedItems;
 		TArray<FGuid> PendingContainers { Record.ContainerId };
 		if (bP21R3)
@@ -4383,13 +4922,17 @@ namespace
 		TSet<FGuid> VisibilityItemIds;
 		for (const FCodeBBodyContainerItemVisibility& Visibility : Record.ItemVisibilities)
 		{
-			if (!Record.ContainerSnapshot.Items.Contains(Visibility.ItemId)
+			const FCodeBItemInstance* VisibilityItem =
+				Record.ContainerSnapshot.Items.Find(Visibility.ItemId);
+			if (!VisibilityItem
 				|| VisibilityItemIds.Contains(Visibility.ItemId)
 				|| (Visibility.Visibility != ECodeBBodyContainerVisibility::Hidden
 					&& Visibility.Visibility != ECodeBBodyContainerVisibility::Searching
-					&& Visibility.Visibility != ECodeBBodyContainerVisibility::Revealed))
+					&& Visibility.Visibility != ECodeBBodyContainerVisibility::Revealed)
+				|| (!IsP12BodyRootProjectionItem(Record, *VisibilityItem)
+					&& Visibility.Visibility != ECodeBBodyContainerVisibility::Hidden))
 			{
-				OutError = TEXT("Code B P12 body-container visibility must cover each current item exactly once.");
+				OutError = TEXT("Code B P12 visibility covers every item once while non-root child contents remain permanently Hidden.");
 				return false;
 			}
 			VisibilityItemIds.Add(Visibility.ItemId);
@@ -4501,6 +5044,9 @@ namespace
 		for (const TPair<FGuid, FCodeBItemInstance>& Pair : Record.ContainerSnapshot.Items)
 		{
 			const FCodeBItemInstance& Item = Pair.Value;
+			// P51 child contents are durable graph members, never a second corpse
+			// cell/search source. P6/P17 projects them only after the root transfers.
+			if (!IsP12BodyRootProjectionItem(Record, Item)) continue;
 			FCodeBBodyContainerItemProjection& ProjectionItem = OutProjection.Items.AddDefaulted_GetRef();
 			ProjectionItem.ItemId = Item.ItemId;
 			ProjectionItem.DefinitionId = Item.DefinitionId;
@@ -4564,6 +5110,11 @@ namespace
 		}
 		const FString LootIdentity = LootRollIdentityText(OwnerId, RunInstanceId, BodyTargetId,
 			Definition.DefinitionId, DeathReceipt.DeathReceiptId, *Profile);
+		FCodeBP51PreloadedChildSpec P51Spec;
+		if (!BuildP51PreloadedChildSpec(*Profile, LootIdentity, Roll, P51Spec, OutError))
+		{
+			return false;
+		}
 		OutRecord.OwnerId = OwnerId;
 		OutRecord.RunInstanceId = RunInstanceId;
 		OutRecord.BodyTargetId = BodyTargetId;
@@ -4582,6 +5133,13 @@ namespace
 			if (!BuildCanonicalCodeBItemDefinition(Entry.ItemDefinitionId, ItemDefinition, OutError)
 				|| !LocalRepository.RegisterDefinition(ItemDefinition, &OutError)) return false;
 			RegisteredDefinitions.Add(Entry.ItemDefinitionId);
+		}
+		if (P51Spec.IsSet() && !RegisteredDefinitions.Contains(P51Spec.ItemDefinitionId))
+		{
+			FCodeBItemDefinition ChildDefinition;
+			if (!BuildCanonicalCodeBItemDefinition(P51Spec.ItemDefinitionId, ChildDefinition, OutError)
+				|| !LocalRepository.RegisterDefinition(ChildDefinition, &OutError)) return false;
+			RegisteredDefinitions.Add(P51Spec.ItemDefinitionId);
 		}
 		if (!LocalRepository.CreateContainer(Definition.ContainerType, Definition.Capacity,
 			ECodeBContainerKind::Storage, ECodeBEquipSlot::None, &OutError, OutRecord.ContainerId).IsValid())
@@ -4641,10 +5199,31 @@ namespace
 					return false;
 				}
 				ReservedGraphIds.Add(ChildContainerId);
+				if (P51Spec.IsSet() && P51Spec.ParentEntryIndex == EntryIndex)
+				{
+					if (P51Spec.ParentDefinitionId != Entry.ItemDefinitionId
+						|| ReservedGraphIds.Contains(P51Spec.ItemId)
+						|| !LocalRepository.CreateItem(P51Spec.ItemDefinitionId, P51Spec.Quantity,
+							ChildContainerId, P51Spec.SlotIndex, P51Spec.ItemId, &OutError).IsValid())
+					{
+						if (OutError.IsEmpty()) OutError = TEXT("Code B P51 cannot atomically create the deterministic preloaded child stack.");
+						return false;
+					}
+					ReservedGraphIds.Add(P51Spec.ItemId);
+					FCodeBBodyContainerItemVisibility& ChildVisibility =
+						OutRecord.ItemVisibilities.AddDefaulted_GetRef();
+					ChildVisibility.ItemId = P51Spec.ItemId;
+					ChildVisibility.Visibility = ECodeBBodyContainerVisibility::Hidden;
+				}
 			}
 			FCodeBBodyContainerItemVisibility& Visibility = OutRecord.ItemVisibilities.AddDefaulted_GetRef();
 			Visibility.ItemId = ItemId;
 			Visibility.Visibility = ECodeBBodyContainerVisibility::Hidden;
+		}
+		if (P51Spec.IsSet() && !ReservedGraphIds.Contains(P51Spec.ItemId))
+		{
+			OutError = TEXT("Code B P51 deterministic spatial hit did not materialize its required child stack.");
+			return false;
 		}
 		OutRecord.ItemVisibilities.Sort([](const FCodeBBodyContainerItemVisibility& Left, const FCodeBBodyContainerItemVisibility& Right)
 		{
@@ -4734,6 +5313,11 @@ namespace
 		}
 		const FString LootIdentity = LootRollIdentityText(OwnerId, RunInstanceId, SearchTargetId,
 			Definition.DefinitionId, FGuid(), *Profile);
+		FCodeBP51PreloadedChildSpec P54Spec;
+		if (!BuildP51PreloadedChildSpec(*Profile, LootIdentity, Roll, P54Spec, OutError))
+		{
+			return false;
+		}
 		OutRecord.OwnerId = OwnerId;
 		OutRecord.RunInstanceId = RunInstanceId;
 		OutRecord.SearchTargetId = SearchTargetId;
@@ -4756,6 +5340,16 @@ namespace
 				return false;
 			}
 			RegisteredDefinitions.Add(Entry.ItemDefinitionId);
+		}
+		if (P54Spec.IsSet() && !RegisteredDefinitions.Contains(P54Spec.ItemDefinitionId))
+		{
+			FCodeBItemDefinition ChildDefinition;
+			if (!BuildCanonicalCodeBItemDefinition(P54Spec.ItemDefinitionId, ChildDefinition, OutError)
+				|| !LocalRepository.RegisterDefinition(ChildDefinition, &OutError))
+			{
+				return false;
+			}
+			RegisteredDefinitions.Add(P54Spec.ItemDefinitionId);
 		}
 		if (!LocalRepository.CreateContainer(
 			Definition.ContainerType, Definition.Capacity, ECodeBContainerKind::Storage,
@@ -4795,10 +5389,31 @@ namespace
 					return false;
 				}
 				ReservedGraphIds.Add(ChildContainerId);
+				if (P54Spec.IsSet() && P54Spec.ParentEntryIndex == EntryIndex)
+				{
+					if (P54Spec.ParentDefinitionId != Entry.ItemDefinitionId
+						|| ReservedGraphIds.Contains(P54Spec.ItemId)
+						|| !LocalRepository.CreateItem(P54Spec.ItemDefinitionId, P54Spec.Quantity,
+							ChildContainerId, P54Spec.SlotIndex, P54Spec.ItemId, &OutError).IsValid())
+					{
+						if (OutError.IsEmpty()) OutError = TEXT("Code B P54 cannot atomically create the deterministic preloaded child stack.");
+						return false;
+					}
+					ReservedGraphIds.Add(P54Spec.ItemId);
+					FCodeBNormalContainerItemReveal& ChildReveal =
+						OutRecord.ItemRevealStates.AddDefaulted_GetRef();
+					ChildReveal.ItemId = P54Spec.ItemId;
+					ChildReveal.RevealState = ECodeBNormalContainerRevealState::Hidden;
+				}
 			}
 			FCodeBNormalContainerItemReveal& Reveal = OutRecord.ItemRevealStates.AddDefaulted_GetRef();
 			Reveal.ItemId = ItemId;
 			Reveal.RevealState = ECodeBNormalContainerRevealState::Hidden;
+		}
+		if (P54Spec.IsSet() && !ReservedGraphIds.Contains(P54Spec.ItemId))
+		{
+			OutError = TEXT("Code B P54 deterministic spatial hit did not materialize its required child stack.");
+			return false;
 		}
 		OutRecord.ItemRevealStates.Sort([](const FCodeBNormalContainerItemReveal& Left, const FCodeBNormalContainerItemReveal& Right)
 		{
@@ -6062,11 +6677,52 @@ bool FCodeBOutOfRaidProfileStore::SaveRecord(const FCodeBOutOfRaidInventoryRecor
 		OutError = TEXT("Code B out-of-raid backup preparation failed.");
 		return false;
 	}
+	// Durable commit point: all validation, serialization, temporary-file
+	// readback, and backup preparation are complete before this atomic replace.
+	// A failed Move is a pre-commit failure; a successful Move is a committed
+	// candidate and must never be reported as a zero-write failure by a later
+	// observer.
 	if (!IFileManager::Get().Move(*GetPrimaryPath(), *GetTempPath(), true, false, true, true))
 	{
 		OutError = TEXT("Code B out-of-raid atomic replacement failed.");
 		return false;
 	}
+	return true;
+}
+
+bool FCodeBOutOfRaidProfileStore::CommitCandidateRecord(
+	const FCodeBOutOfRaidInventoryRecord& Candidate,
+	FString& OutError) const
+{
+	/*
+	 * SaveRecord owns the complete pre-commit protocol and returns true only
+	 * after its verified temporary payload has crossed the atomic replacement
+	 * point.  There is intentionally no fallible primary reread after that
+	 * point: a post-commit observation failure cannot be converted into a
+	 * phantom rejection while callers retain the old candidate in memory.
+	 * Every production caller therefore has one result contract:
+	 * false == no durable commit and candidate state is not accepted;
+	 * true  == durable commit completed and the candidate must be accepted.
+	 * The next LoadRecord uses the existing primary-then-backup recovery path.
+	 */
+	return SaveRecord(Candidate, OutError);
+}
+
+bool FCodeBOutOfRaidProfileStore::CommitAndPublishCandidate(
+	FCodeBOutOfRaidInventoryRecord& Candidate,
+	FString& OutError)
+{
+	if (!CommitCandidateRecord(Candidate, OutError))
+	{
+		return false;
+	}
+
+	// SaveRecord has crossed its verified atomic replacement point.  The
+	// candidate is now the sole accepted live Owner graph as well; publishing
+	// it is intentionally in-memory only and cannot turn a committed write
+	// into a reported failure.
+	Record = MoveTemp(Candidate);
+	bHasRecord = true;
 	return true;
 }
 
@@ -6540,11 +7196,16 @@ bool FCodeBOutOfRaidProfileStore::FinalizePreparedReceipt(FString& OutError)
 		OutError = TEXT("Code B persistent revision cannot be incremented.");
 		return false;
 	}
-	Record.Receipt.State = ECodeBOutOfRaidHandoffState::Committed;
-	Record.Receipt.CommittedUtc = UtcNow();
-	Record.LastCommittedUtc = Record.Receipt.CommittedUtc;
-	++Record.PersistentRevision;
-	return SaveRecord(Record, OutError);
+	FCodeBOutOfRaidInventoryRecord Candidate = Record;
+	Candidate.Receipt.State = ECodeBOutOfRaidHandoffState::Committed;
+	Candidate.Receipt.CommittedUtc = UtcNow();
+	Candidate.LastCommittedUtc = Candidate.Receipt.CommittedUtc;
+	++Candidate.PersistentRevision;
+	if (!CommitAndPublishCandidate(Candidate, OutError))
+	{
+		return false;
+	}
+	return true;
 }
 
 FCodeBOutOfRaidOpenResult FCodeBOutOfRaidProfileStore::OpenOrMigrate(const Fdemo_mapProfileSessionSnapshot& ProfileSnapshot, FCodeBRepository& OutRepository, FCodeBP2PlayerLayout& OutLayout)
@@ -6581,14 +7242,15 @@ FCodeBOutOfRaidOpenResult FCodeBOutOfRaidProfileStore::OpenOrMigrate(const Fdemo
 		Result.bRecoveredPendingReceipt = Record.Receipt.State == ECodeBOutOfRaidHandoffState::Prepared;
 		if (bLastLoadUsedBackup)
 		{
-			if (Record.PersistentRevision == MAX_int32)
+			FCodeBOutOfRaidInventoryRecord Candidate = Record;
+			if (Candidate.PersistentRevision == MAX_int32)
 			{
 				Result.Diagnostic = TEXT("Code B recovered record cannot advance its persistent revision.");
 				return Result;
 			}
-			++Record.PersistentRevision;
-			Record.LastCommittedUtc = UtcNow();
-			if (!SaveRecord(Record, Error))
+			++Candidate.PersistentRevision;
+			Candidate.LastCommittedUtc = UtcNow();
+			if (!CommitAndPublishCandidate(Candidate, Error))
 			{
 				Result.Diagnostic = Error;
 				return Result;
@@ -6602,16 +7264,17 @@ FCodeBOutOfRaidOpenResult FCodeBOutOfRaidProfileStore::OpenOrMigrate(const Fdemo
 		}
 		if (bP17SpatialMigration)
 		{
-			if (Record.PersistentRevision == MAX_int32)
+			FCodeBOutOfRaidInventoryRecord Candidate = Record;
+			if (Candidate.PersistentRevision == MAX_int32)
 			{
 				Result.Diagnostic = TEXT("Code B P17 spatial migration cannot advance its Owner document revision.");
 				return Result;
 			}
 			// P5 and a possible P6 snapshot are replaced together in this one
 			// Owner document write; existing child graphs are never rebuilt here.
-			++Record.PersistentRevision;
-			Record.LastCommittedUtc = UtcNow();
-			if (!SaveRecord(Record, Error))
+			++Candidate.PersistentRevision;
+			Candidate.LastCommittedUtc = UtcNow();
+			if (!CommitAndPublishCandidate(Candidate, Error))
 			{
 				Result.Diagnostic = Error;
 				return Result;
@@ -6625,12 +7288,13 @@ FCodeBOutOfRaidOpenResult FCodeBOutOfRaidProfileStore::OpenOrMigrate(const Fdemo
 	}
 	else
 	{
-		if (!BuildInitialRecord(ProfileSnapshot, Record, Error) || !SaveRecord(Record, Error))
+		FCodeBOutOfRaidInventoryRecord Candidate;
+		if (!BuildInitialRecord(ProfileSnapshot, Candidate, Error)
+			|| !CommitAndPublishCandidate(Candidate, Error))
 		{
 			Result.Diagnostic = Error;
 			return Result;
 		}
-		bHasRecord = true;
 		Result.bCreated = true;
 #if WITH_DEV_AUTOMATION_TESTS
 		if (bInterruptAfterPreparedReceiptForAutomation)
@@ -6675,12 +7339,11 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedSnapshot(const FCodeBSnapshot& S
 	}
 	++Candidate.PersistentRevision;
 	Candidate.LastCommittedUtc = UtcNow();
-	if (!SaveRecord(Candidate, Error))
+	if (!CommitAndPublishCandidate(Candidate, Error))
 	{
 		if (OutError) *OutError = Error;
 		return false;
 	}
-	Record = MoveTemp(Candidate);
 	return true;
 }
 
@@ -6733,12 +7396,11 @@ bool FCodeBOutOfRaidProfileStore::BindOutOfRaidHotbarSlot(
 	Candidate.LastCommittedUtc = UtcNow();
 	if (!BuildHotbarProjection(Candidate.HotbarBindings, Candidate.RepositorySnapshot,
 			true, false, Candidate.PersistentRevision, OutProjection, Error)
-		|| !SaveRecord(Candidate, Error))
+		|| !CommitAndPublishCandidate(Candidate, Error))
 	{
 		if (OutError) *OutError = Error;
 		return false;
 	}
-	Record = MoveTemp(Candidate);
 	return true;
 }
 
@@ -6766,12 +7428,11 @@ bool FCodeBOutOfRaidProfileStore::UnbindOutOfRaidHotbarSlot(
 	Candidate.LastCommittedUtc = UtcNow();
 	if (!BuildHotbarProjection(Candidate.HotbarBindings, Candidate.RepositorySnapshot,
 			true, false, Candidate.PersistentRevision, OutProjection, Error)
-		|| !SaveRecord(Candidate, Error))
+		|| !CommitAndPublishCandidate(Candidate, Error))
 	{
 		if (OutError) *OutError = Error;
 		return false;
 	}
-	Record = MoveTemp(Candidate);
 	return true;
 }
 
@@ -7155,15 +7816,8 @@ FCodeBOutOfRaidProfileStore::MaterializeMatchedRunBodyContainerOnDeath(
 	Candidate.RunLocalBodyContainers.Add(MoveTemp(Materialized));
 	Candidate.LastCommittedUtc = UtcNow();
 	++Candidate.PersistentRevision;
-	if (!Store.SaveRecord(Candidate, Error))
-	{
-		Result.Status = ECodeBBodyContainerMaterializationStatus::StorageFailure;
-		Result.Diagnostic = Error;
-		return Result;
-	}
-	Store.Record = MoveTemp(Candidate);
-	Store.bHasRecord = true;
-	if (!BuildBodyContainerProjection(Store.Record.RunLocalBodyContainers.Last(), Result.Projection, Error))
+	if (!BuildBodyContainerProjection(Candidate.RunLocalBodyContainers.Last(), Result.Projection, Error)
+		|| !Store.CommitAndPublishCandidate(Candidate, Error))
 	{
 		Result.Status = ECodeBBodyContainerMaterializationStatus::StorageFailure;
 		Result.Diagnostic = Error;
@@ -7304,7 +7958,8 @@ FCodeBBodyContainerActionResult FCodeBOutOfRaidProfileStore::BeginMatchedRunBody
 	++Record->Revision;
 	Candidate.LastCommittedUtc = UtcNow();
 	++Candidate.PersistentRevision;
-	if (!Store.SaveRecord(Candidate, Error) || !BuildBodyContainerProjection(*Record, Result.Projection, Error))
+	if (!BuildBodyContainerProjection(*Record, Result.Projection, Error)
+		|| !Store.CommitAndPublishCandidate(Candidate, Error))
 	{
 		Result.Status = ECodeBBodyContainerActionStatus::StorageFailure;
 		Result.Diagnostic = Error;
@@ -7384,7 +8039,8 @@ FCodeBBodyContainerActionResult FCodeBOutOfRaidProfileStore::CompleteMatchedRunB
 	++Record->Revision;
 	Candidate.LastCommittedUtc = UtcNow();
 	++Candidate.PersistentRevision;
-	if (!Store.SaveRecord(Candidate, Error) || !BuildBodyContainerProjection(*Record, Result.Projection, Error))
+	if (!BuildBodyContainerProjection(*Record, Result.Projection, Error)
+		|| !Store.CommitAndPublishCandidate(Candidate, Error))
 	{
 		Result.Status = ECodeBBodyContainerActionStatus::StorageFailure;
 		Result.Diagnostic = Error;
@@ -7437,10 +8093,11 @@ FCodeBBodyContainerActionResult FCodeBOutOfRaidProfileStore::BeginMatchedRunBody
 	}
 	FCodeBBodyContainerItemVisibility* Visibility = Record->ItemVisibilities.FindByPredicate(
 		[ItemId](const FCodeBBodyContainerItemVisibility& Value) { return Value.ItemId == ItemId; });
-	if (!Visibility || !Record->ContainerSnapshot.Items.Contains(ItemId))
+	const FCodeBItemInstance* SearchItem = Record->ContainerSnapshot.Items.Find(ItemId);
+	if (!Visibility || !SearchItem || !IsP12BodyRootProjectionItem(*Record, *SearchItem))
 	{
 		Result.Status = ECodeBBodyContainerActionStatus::ItemNotFound;
-		Result.Diagnostic = TEXT("Code B P12 body item search refused an item outside the exact body snapshot.");
+		Result.Diagnostic = TEXT("Code B P12 body item search refused a child-content or non-projected item source.");
 		return Result;
 	}
 	if (Record->State != ECodeBBodyContainerState::Open || Record->ActiveActionId.IsValid()
@@ -7469,7 +8126,8 @@ FCodeBBodyContainerActionResult FCodeBOutOfRaidProfileStore::BeginMatchedRunBody
 	++Record->Revision;
 	Candidate.LastCommittedUtc = UtcNow();
 	++Candidate.PersistentRevision;
-	if (!Store.SaveRecord(Candidate, Error) || !BuildBodyContainerProjection(*Record, Result.Projection, Error))
+	if (!BuildBodyContainerProjection(*Record, Result.Projection, Error)
+		|| !Store.CommitAndPublishCandidate(Candidate, Error))
 	{
 		Result.Status = ECodeBBodyContainerActionStatus::StorageFailure;
 		Result.Diagnostic = Error;
@@ -7548,7 +8206,8 @@ FCodeBBodyContainerActionResult FCodeBOutOfRaidProfileStore::CompleteMatchedRunB
 	++Record->Revision;
 	Candidate.LastCommittedUtc = UtcNow();
 	++Candidate.PersistentRevision;
-	if (!Store.SaveRecord(Candidate, Error) || !BuildBodyContainerProjection(*Record, Result.Projection, Error))
+	if (!BuildBodyContainerProjection(*Record, Result.Projection, Error)
+		|| !Store.CommitAndPublishCandidate(Candidate, Error))
 	{
 		Result.Status = ECodeBBodyContainerActionStatus::StorageFailure;
 		Result.Diagnostic = Error;
@@ -7643,7 +8302,8 @@ FCodeBBodyContainerActionResult FCodeBOutOfRaidProfileStore::InterruptMatchedRun
 	++Record->Revision;
 	Candidate.LastCommittedUtc = UtcNow();
 	++Candidate.PersistentRevision;
-	if (!Store.SaveRecord(Candidate, Error) || !BuildBodyContainerProjection(*Record, Result.Projection, Error))
+	if (!BuildBodyContainerProjection(*Record, Result.Projection, Error)
+		|| !Store.CommitAndPublishCandidate(Candidate, Error))
 	{
 		Result.Status = ECodeBBodyContainerActionStatus::StorageFailure;
 		Result.Diagnostic = Error;
@@ -8276,9 +8936,10 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 		}
 	}
 
-	// P41 freezes the exact P20 source closure, BaseQuick domain and first-empty
-	// candidate in the transient command.  Reconstruct all of it from durable
-	// P11/P6 truth before the existing P20 whole-graph replay below.
+	// P41/P52 freeze the exact P20 empty or P51-loaded source identity, BaseQuick
+	// domain and first-empty candidate in the transient command. Reconstruct the
+	// receipt-bound full closure from durable P11/P6 truth before the one shared
+	// whole-graph replay below.
 	const FCodeBP41BodySpatialGraphQuickTransferProof& P41Proof =
 		AcceptedCommand.P41BodySpatialGraphProof;
 	if (P41Proof.bIntent)
@@ -8317,10 +8978,12 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 					&& SourceDefinition->EquipSlot == ECodeBEquipSlot::Backpack
 					&& SourceDefinition->SpatialContainerSemantic == ECodeBSpatialContainerSemantic::StoragePouch));
 		bool bClosureValid = false;
+		bool bP51LoadedClosure = false;
 		if (OriginalSource)
 		{
-			bClosureValid = ValidateP20BasicCorpseSpatialClosure(
-				Record->ContainerSnapshot, *OriginalSource, Error);
+			bClosureValid = ValidateP20OrP51BasicCorpseSpatialClosure(
+				*Record, Record->ContainerSnapshot, *OriginalSource,
+				bP51LoadedClosure, Error);
 		}
 		if (AcceptedCommand.Intent != ECodeBP2CommandIntent::QuickTransfer
 			|| AcceptedCommand.P38BodyEquipmentProof.bIntent
@@ -8360,6 +9023,7 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 			|| !AcceptedCommand.TransactionId.IsValid()
 			|| AcceptedCommand.ExpectedRevision != P24PriorComposite.Revision
 			|| !bP20OrInheritedP21Profile || !bCanonicalDefinition || !bClosureValid
+			|| (bP51LoadedClosure && (!BodyProfile || !IsP21BasicCorpseR3(*BodyProfile)))
 			|| !OriginalSource || !OriginalSourceContainer || OriginalSourceContainer->IsEquipment()
 			|| OriginalSourceContainer->ContainerId != Record->ContainerId
 			|| !OriginalSourceContainer->Slots.IsValidIndex(P41Proof.SourceSlot)
@@ -8373,15 +9037,15 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 			|| P41Proof.SourceChildContainerId != P41Proof.StableSpatialChildGuid
 			|| !OriginalChild || OriginalChild->IsEquipment()
 			|| OriginalChild->Slots.Num() != SourceDefinition->ChildContainerCapacity
-			|| OriginalChild->Slots.ContainsByPredicate(
-				[](const FGuid& ItemId) { return ItemId.IsValid(); })
+			|| (!bP51LoadedClosure && OriginalChild->Slots.ContainsByPredicate(
+				[](const FGuid& ItemId) { return ItemId.IsValid(); }))
 			|| !SourceVisibility || *SourceVisibility != ECodeBBodyContainerVisibility::Revealed
 			|| !OriginalTarget || OriginalTarget->IsEquipment()
 			|| !OriginalTarget->Slots.IsValidIndex(P41Proof.FrozenTargetSlot)
 			|| OriginalTarget->Slots[P41Proof.FrozenTargetSlot].IsValid())
 		{
 			if (OutError) *OutError = Error.IsEmpty()
-				? TEXT("Code B P41 refused a stale, non-canonical, non-empty-child, redirected, or identity-incomplete P12 spatial graph command.")
+				? TEXT("Code B P41/P52 refused a stale, non-canonical, unsupported-closure, redirected, or identity-incomplete P12 spatial graph command.")
 				: Error;
 			return false;
 		}
@@ -8453,10 +9117,12 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 					&& SourceDefinition->EquipSlot == ECodeBEquipSlot::Backpack
 					&& SourceDefinition->SpatialContainerSemantic == ECodeBSpatialContainerSemantic::StoragePouch));
 		bool bClosureValid = false;
+		bool bP51LoadedClosure = false;
 		if (OriginalSource)
 		{
-			bClosureValid = ValidateP20BasicCorpseSpatialClosure(
-				Record->ContainerSnapshot, *OriginalSource, Error);
+			bClosureValid = ValidateP20OrP51BasicCorpseSpatialClosure(
+				*Record, Record->ContainerSnapshot, *OriginalSource,
+				bP51LoadedClosure, Error);
 		}
 		if (AcceptedCommand.Intent != ECodeBP2CommandIntent::Standard
 			|| AcceptedCommand.P38BodyEquipmentProof.bIntent
@@ -8496,6 +9162,7 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 			|| AcceptedCommand.Quantity != 1 || !AcceptedCommand.TransactionId.IsValid()
 			|| AcceptedCommand.ExpectedRevision != P24PriorComposite.Revision
 			|| !bP20OrInheritedP21Profile || !bCanonicalDefinition || !bClosureValid
+			|| (bP51LoadedClosure && (!BodyProfile || !IsP21BasicCorpseR3(*BodyProfile)))
 			|| !OriginalSource || !OriginalSourceContainer || OriginalSourceContainer->IsEquipment()
 			|| OriginalSourceContainer->ContainerType != FName(TEXT("CodeB.BodyContainer.BasicCorpse"))
 			|| !OriginalSourceContainer->Slots.IsValidIndex(P42Proof.SourceSlot)
@@ -8509,8 +9176,6 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 			|| P42Proof.SourceChildContainerId != P42Proof.StableSpatialChildGuid
 			|| !OriginalChild || OriginalChild->IsEquipment()
 			|| OriginalChild->Slots.Num() != SourceDefinition->ChildContainerCapacity
-			|| OriginalChild->Slots.ContainsByPredicate(
-				[](const FGuid& ItemId) { return ItemId.IsValid(); })
 			|| !SourceVisibility || *SourceVisibility != ECodeBBodyContainerVisibility::Revealed
 			|| !OriginalTarget || !OriginalTarget->IsEquipment()
 			|| OriginalTarget->ContainerType != ExpectedTargetSemantic
@@ -8524,17 +9189,18 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 		}
 	}
 
-	// P20 adds one deliberately narrow P12 path. A formal parent may leave this
-	// exact, Revealed BasicCorpse root only as its unchanged empty P17 closure,
-	// only through one empty P6 BaseQuick cell. The comparison below makes the
-	// accepted composite identical to that one P1 Move, rather than a generic
-	// widget-authored rearrangement. Existing simple-item P12 moves remain below.
+	// P20 adds one deliberately narrow empty-closure path; P51 extends only normal
+	// Drag for the exact deterministic loaded r3 closure. Both leave this exact,
+	// Revealed BasicCorpse root only through one empty P6 BaseQuick or compatible
+	// formal equipment cell. The accepted composite must equal one P1 Move.
 	const FCodeBContainer* OriginalBaseQuick = Candidate.ActiveRunInventorySession.RepositorySnapshot.Containers.Find(
 		Candidate.ActiveRunInventorySession.Layout.BasicContainerId);
 	const FCodeBContainer* CandidateBaseQuick = CompositeSnapshot.Containers.Find(
 		Candidate.ActiveRunInventorySession.Layout.BasicContainerId);
 	int32 SpatialParentCount = 0;
 	bool bMovedSpatialParent = false;
+	bool bMovedP51LoadedSpatialParent = false;
+	TSet<FGuid> MovedP51ClosureItemIds;
 	FGuid MovedSpatialParentId;
 	int32 MovedSpatialSourceSlot = INDEX_NONE;
 	FGuid MovedSpatialTargetContainerId;
@@ -8550,23 +9216,29 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 			return false;
 		}
 		if (CanonicalDefinition.SpatialContainerSemantic == ECodeBSpatialContainerSemantic::None) continue;
+		bool bOriginalP51Loaded = false;
 		if (++SpatialParentCount != 1
 			|| (OriginalItem.DefinitionId != Fdemo_mapItemIds::WindTalisman
 				&& OriginalItem.DefinitionId != Fdemo_mapItemIds::BackpackLevel1)
-			|| !ValidateP20BasicCorpseSpatialClosure(Record->ContainerSnapshot, OriginalItem, Error))
+			|| !ValidateP20OrP51BasicCorpseSpatialClosure(
+				*Record, Record->ContainerSnapshot, OriginalItem,
+				bOriginalP51Loaded, Error))
 		{
 			if (OutError) *OutError = Error.IsEmpty()
-				? TEXT("Code B P20 BasicCorpse contains more than one or an unsupported spatial parent.") : Error;
+				? TEXT("Code B P20/P51 BasicCorpse contains more than one or an unsupported spatial parent.") : Error;
 			return false;
 		}
 		const ECodeBBodyContainerVisibility* Visibility = OriginalVisibilities.Find(OriginalItem.ItemId);
 		const FCodeBItemInstance* FinalItem = CompositeSnapshot.Items.Find(OriginalItem.ItemId);
+		bool bFinalP51Loaded = false;
 		if (!Visibility || !FinalItem || FinalItem->DefinitionId != OriginalItem.DefinitionId
 			|| FinalItem->Quantity != OriginalItem.Quantity
-			|| !ValidateP20BasicCorpseSpatialClosure(CompositeSnapshot, *FinalItem, Error))
+			|| !ValidateP20OrP51BasicCorpseSpatialClosure(
+				*Record, CompositeSnapshot, *FinalItem, bFinalP51Loaded, Error)
+			|| bFinalP51Loaded != bOriginalP51Loaded)
 		{
 			if (OutError) *OutError = Error.IsEmpty()
-				? TEXT("Code B P20 transfer refused a missing, cloned, flattened, or mutated spatial closure.") : Error;
+				? TEXT("Code B P20/P51 transfer refused a missing, cloned, flattened, or mutated spatial closure.") : Error;
 			return false;
 		}
 		if (FinalItem->ParentContainerId == Record->ContainerId)
@@ -8597,17 +9269,39 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 			&& !OriginalP42Target->Slots[FinalItem->SlotIndex].IsValid()
 			&& CandidateP42Target->Slots.IsValidIndex(FinalItem->SlotIndex)
 			&& CandidateP42Target->Slots[FinalItem->SlotIndex] == OriginalItem.ItemId;
+		const bool bAcceptedP51LoadedRoute = !bOriginalP51Loaded
+			|| ((AcceptedCommand.Intent == ECodeBP2CommandIntent::Standard && !P41Proof.bIntent)
+				|| (AcceptedCommand.Intent == ECodeBP2CommandIntent::QuickTransfer
+					&& P41Proof.bIntent));
 		if (*Visibility != ECodeBBodyContainerVisibility::Revealed
-			|| (!bExactBaseQuickTarget && !bExactP42Target))
+			|| (!bExactBaseQuickTarget && !bExactP42Target)
+			|| !bAcceptedP51LoadedRoute
+			|| (bOriginalP51Loaded && !AcceptedCommand.TransactionId.IsValid()))
 		{
-			if (OutError) *OutError = TEXT("Code B P20 only moves a Revealed BasicCorpse spatial root to one empty exact P6 BaseQuick or P42 formal equipment cell.");
+			if (OutError) *OutError = TEXT("Code B P20/P51/P52 only moves a Revealed BasicCorpse spatial root by normal Drag, or an exact proof-bound P52 Ctrl route to frozen BaseQuick.");
 			return false;
 		}
 		bMovedSpatialParent = true;
+		bMovedP51LoadedSpatialParent = bOriginalP51Loaded;
 		MovedSpatialParentId = OriginalItem.ItemId;
 		MovedSpatialSourceSlot = OriginalItem.SlotIndex;
 		MovedSpatialTargetContainerId = FinalItem->ParentContainerId;
 		MovedSpatialTargetSlot = FinalItem->SlotIndex;
+		if (bOriginalP51Loaded)
+		{
+			MovedP51ClosureItemIds.Add(OriginalItem.ItemId);
+			const FCodeBContainer* LoadedChild =
+				Record->ContainerSnapshot.Containers.Find(OriginalItem.ChildContainerId);
+			if (!LoadedChild)
+			{
+				if (OutError) *OutError = TEXT("Code B P51 loaded closure lost its canonical child container before commit.");
+				return false;
+			}
+			for (const FGuid& ChildItemId : LoadedChild->Slots)
+			{
+				if (ChildItemId.IsValid()) MovedP51ClosureItemIds.Add(ChildItemId);
+			}
+		}
 	}
 	for (const TPair<FGuid, FCodeBItemInstance>& Pair : Candidate.ActiveRunInventorySession.RepositorySnapshot.Items)
 	{
@@ -8680,7 +9374,8 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 		}
 		FCodeBRepository ExpectedRepository;
 		FCodeBTransactionRequest Move;
-		Move.TransactionId = (P41Proof.bIntent || P42Proof.bIntent)
+		Move.TransactionId = (P41Proof.bIntent || P42Proof.bIntent
+			|| bMovedP51LoadedSpatialParent)
 			? AcceptedCommand.TransactionId : FGuid::NewGuid();
 		Move.Operation = ECodeBOperation::Move;
 		Move.ItemId = MovedSpatialParentId;
@@ -8688,13 +9383,15 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 		Move.SourceSlot = MovedSpatialSourceSlot;
 		Move.TargetContainerId = MovedSpatialTargetContainerId;
 		Move.TargetSlot = MovedSpatialTargetSlot;
-		Move.Quantity = (P41Proof.bIntent || P42Proof.bIntent) ? 1 : 0;
+		Move.Quantity = bMovedP51LoadedSpatialParent
+			? AcceptedCommand.Quantity
+			: ((P41Proof.bIntent || P42Proof.bIntent) ? 1 : 0);
 		Move.ExpectedRevision = ExpectedComposite.Revision;
 		if (!ExpectedRepository.LoadPersistedSnapshot(ExpectedComposite, &Error)
 			|| !ExpectedRepository.ExecuteTransaction(Move).IsSuccess()
 			|| ExpectedRepository.CaptureSnapshot() != CompositeSnapshot)
 		{
-			if (OutError) *OutError = TEXT("Code B P20 transfer candidate differs from the one allowed P11-to-empty-P6 whole-graph Move.");
+			if (OutError) *OutError = TEXT("Code B P20/P51 transfer candidate differs from the one allowed P11-to-P6 whole-graph Move.");
 			return false;
 		}
 	}
@@ -8758,7 +9455,8 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 	{
 		if ((Visibility.Visibility == ECodeBBodyContainerVisibility::Hidden
 				|| Visibility.Visibility == ECodeBBodyContainerVisibility::Searching)
-			&& !TargetSnapshot.Items.Contains(Visibility.ItemId))
+			&& !TargetSnapshot.Items.Contains(Visibility.ItemId)
+			&& !MovedP51ClosureItemIds.Contains(Visibility.ItemId))
 		{
 			if (OutError) *OutError = TEXT("Code B P12 body transfer refused a Hidden or Searching item leaving the body.");
 			return false;
@@ -8814,7 +9512,7 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
 	++Record->Revision;
 	Candidate.LastCommittedUtc = CandidateSession.LastCommittedUtc;
 	++Candidate.PersistentRevision;
-	if (!Store.SaveRecord(Candidate, Error))
+	if (!Store.CommitAndPublishCandidate(Candidate, Error))
 	{
 		if (OutError) *OutError = Error;
 		return false;
@@ -8903,15 +9601,8 @@ FCodeBNormalContainerMaterializationResult FCodeBOutOfRaidProfileStore::Material
 	Candidate.RunLocalNormalContainers.Add(MoveTemp(Materialized));
 	Candidate.LastCommittedUtc = UtcNow();
 	++Candidate.PersistentRevision;
-	if (!Store.SaveRecord(Candidate, Error))
-	{
-		Result.Status = ECodeBNormalContainerMaterializationStatus::StorageFailure;
-		Result.Diagnostic = Error;
-		return Result;
-	}
-	Store.Record = MoveTemp(Candidate);
-	Store.bHasRecord = true;
-	if (!BuildNormalContainerProjection(Store.Record.RunLocalNormalContainers.Last(), Result.Projection, Error))
+	if (!BuildNormalContainerProjection(Candidate.RunLocalNormalContainers.Last(), Result.Projection, Error)
+		|| !Store.CommitAndPublishCandidate(Candidate, Error))
 	{
 		Result.Status = ECodeBNormalContainerMaterializationStatus::StorageFailure;
 		Result.Diagnostic = Error;
@@ -9078,13 +9769,8 @@ FCodeBOutOfRaidProfileStore::BeginMatchedRunNormalContainerOpen(
 	++Record->Revision;
 	Candidate.LastCommittedUtc = UtcNow();
 	++Candidate.PersistentRevision;
-	if (!Store.SaveRecord(Candidate, Error))
-	{
-		Result.Status = ECodeBNormalContainerActionStatus::StorageFailure;
-		Result.Diagnostic = Error;
-		return Result;
-	}
-	if (!BuildNormalContainerProjection(*Record, Result.Projection, Error))
+	if (!BuildNormalContainerProjection(*Record, Result.Projection, Error)
+		|| !Store.CommitAndPublishCandidate(Candidate, Error))
 	{
 		Result.Status = ECodeBNormalContainerActionStatus::StorageFailure;
 		Result.Diagnostic = Error;
@@ -9165,7 +9851,8 @@ FCodeBOutOfRaidProfileStore::CompleteMatchedRunNormalContainerOpen(
 	++Record->Revision;
 	Candidate.LastCommittedUtc = UtcNow();
 	++Candidate.PersistentRevision;
-	if (!Store.SaveRecord(Candidate, Error) || !BuildNormalContainerProjection(*Record, Result.Projection, Error))
+	if (!BuildNormalContainerProjection(*Record, Result.Projection, Error)
+		|| !Store.CommitAndPublishCandidate(Candidate, Error))
 	{
 		Result.Status = ECodeBNormalContainerActionStatus::StorageFailure;
 		Result.Diagnostic = Error;
@@ -9251,7 +9938,8 @@ FCodeBOutOfRaidProfileStore::BeginMatchedRunNormalContainerItemSearch(
 	++Record->Revision;
 	Candidate.LastCommittedUtc = UtcNow();
 	++Candidate.PersistentRevision;
-	if (!Store.SaveRecord(Candidate, Error) || !BuildNormalContainerProjection(*Record, Result.Projection, Error))
+	if (!BuildNormalContainerProjection(*Record, Result.Projection, Error)
+		|| !Store.CommitAndPublishCandidate(Candidate, Error))
 	{
 		Result.Status = ECodeBNormalContainerActionStatus::StorageFailure;
 		Result.Diagnostic = Error;
@@ -9332,7 +10020,8 @@ FCodeBOutOfRaidProfileStore::CompleteMatchedRunNormalContainerItemSearch(
 	++Record->Revision;
 	Candidate.LastCommittedUtc = UtcNow();
 	++Candidate.PersistentRevision;
-	if (!Store.SaveRecord(Candidate, Error) || !BuildNormalContainerProjection(*Record, Result.Projection, Error))
+	if (!BuildNormalContainerProjection(*Record, Result.Projection, Error)
+		|| !Store.CommitAndPublishCandidate(Candidate, Error))
 	{
 		Result.Status = ECodeBNormalContainerActionStatus::StorageFailure;
 		Result.Diagnostic = Error;
@@ -9428,7 +10117,8 @@ FCodeBOutOfRaidProfileStore::InterruptMatchedRunNormalContainerAction(
 	++Record->Revision;
 	Candidate.LastCommittedUtc = UtcNow();
 	++Candidate.PersistentRevision;
-	if (!Store.SaveRecord(Candidate, Error) || !BuildNormalContainerProjection(*Record, Result.Projection, Error))
+	if (!BuildNormalContainerProjection(*Record, Result.Projection, Error)
+		|| !Store.CommitAndPublishCandidate(Candidate, Error))
 	{
 		Result.Status = ECodeBNormalContainerActionStatus::StorageFailure;
 		Result.Diagnostic = Error;
@@ -9558,12 +10248,6 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 				{
 					return Value.ItemId == P48Proof.SourceItemId;
 				});
-		const FCodeBLootProfile* NormalProfile = FindLootProfileByProvenance(
-			DefinitionId, Record->Receipt.LootProfileId, Record->Receipt.LootProfileVersion);
-		const bool bP18R2 = NormalProfile
-			&& NormalProfile->LootProfileId == FName(TEXT("CodeB.LootProfile.BasicCache.r2"))
-			&& NormalProfile->ProfileVersion == 2
-			&& NormalProfile->AlgorithmVersion == TEXT("CodeB.DeterministicWeightedLoot.Crc32.r2");
 		const bool bWindTalisman = P48Proof.SourceDefinitionId == Fdemo_mapItemIds::WindTalisman;
 		const bool bBackpackLevel1 = P48Proof.SourceDefinitionId == Fdemo_mapItemIds::BackpackLevel1;
 		const FGuid ExpectedTargetContainerId = bWindTalisman
@@ -9591,13 +10275,16 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 		bool bClosureValid = false;
 		if (OriginalSource)
 		{
-			bClosureValid = ValidateP20BasicCorpseSpatialClosure(
+			bClosureValid = ValidateP60RetrievableBasicCacheSpatialClosure(
 				Record->ContainerSnapshot, *OriginalSource, Error);
 		}
 		if (AcceptedCommand.Intent != ECodeBP2CommandIntent::Standard
 			|| AcceptedCommand.P38BodyEquipmentProof.bIntent
 			|| AcceptedCommand.P40BodySimpleStackProof.bIntent
 			|| AcceptedCommand.P46NormalContainerSimpleStackProof.bIntent
+			|| AcceptedCommand.P63NormalContainerPlayerSimpleStackProof.bIntent
+			|| AcceptedCommand.P59PlayerToNormalContainerStandardEquipmentProof.bIntent
+			|| AcceptedCommand.P60PlayerToNormalContainerSpatialGraphProof.bIntent
 			|| AcceptedCommand.P47NormalContainerSpatialGraphProof.bIntent
 			|| AcceptedCommand.P41BodySpatialGraphProof.bIntent
 			|| AcceptedCommand.P42BodySpatialGraphEquipmentProof.bIntent
@@ -9638,7 +10325,7 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 			|| AcceptedCommand.Quantity != 1
 			|| !AcceptedCommand.TransactionId.IsValid()
 			|| AcceptedCommand.ExpectedRevision != P24PriorComposite.Revision
-			|| !bP18R2 || !bCanonicalDefinition || !bClosureValid
+			|| !bCanonicalDefinition || !bClosureValid
 			|| Record->Receipt.OwnerId != InOwnerId
 			|| Record->Receipt.RunInstanceId != RunInstanceId
 			|| Record->Receipt.SearchTargetId != SearchTargetId
@@ -9657,8 +10344,6 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 			|| P48Proof.SourceChildContainerId != P48Proof.StableSpatialChildGuid
 			|| !OriginalChild || OriginalChild->IsEquipment()
 			|| OriginalChild->Slots.Num() != SourceDefinition->ChildContainerCapacity
-			|| OriginalChild->Slots.ContainsByPredicate(
-				[](const FGuid& ItemId) { return ItemId.IsValid(); })
 			|| !SourceReveal || SourceReveal->RevealState != ECodeBNormalContainerRevealState::Revealed
 			|| !OriginalTarget || !OriginalTarget->IsEquipment()
 			|| OriginalTarget->ContainerType != ExpectedTargetSemantic
@@ -9691,9 +10376,9 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 		}
 	}
 
-	// P47 freezes one exact revealed P18 spatial root and the first empty
-	// BaseQuick cell. Reconstruct the complete parent/child closure from durable
-	// P9/P6 truth and replay exactly one P1 Move(1) before accepting the snapshot.
+	// P47/P55 freezes one exact revealed P18 empty or P54 loaded spatial root and
+	// the first empty BaseQuick cell. Reconstruct the complete parent/child closure
+	// from durable P9/P6 truth and replay exactly one P1 Move(1).
 	const FCodeBP47NormalContainerSpatialGraphQuickTransferProof& P47Proof =
 		AcceptedCommand.P47NormalContainerSpatialGraphProof;
 	if (P47Proof.bIntent)
@@ -9722,6 +10407,11 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 			&& NormalProfile->LootProfileId == FName(TEXT("CodeB.LootProfile.BasicCache.r2"))
 			&& NormalProfile->ProfileVersion == 2
 			&& NormalProfile->AlgorithmVersion == TEXT("CodeB.DeterministicWeightedLoot.Crc32.r2");
+		const bool bP54R3 = NormalProfile && IsP54BasicCacheR3(*NormalProfile);
+		bool bMaterializationClaimed = false;
+		const bool bMaterializationClaimResolved = OriginalSource
+			&& ResolveNormalContainerMaterializationRootClaim(
+				*Record, OriginalSource->ItemId, bMaterializationClaimed, Error);
 		const bool bCanonicalDefinition = SourceDefinition
 			&& BuildCanonicalCodeBItemDefinition(
 				P47Proof.SourceDefinitionId, CanonicalSourceDefinition, Error)
@@ -9737,15 +10427,43 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 					&& SourceDefinition->EquipSlot == ECodeBEquipSlot::Backpack
 					&& SourceDefinition->SpatialContainerSemantic == ECodeBSpatialContainerSemantic::StoragePouch));
 		bool bClosureValid = false;
+		bool bP54Loaded = false;
 		if (OriginalSource)
 		{
-			bClosureValid = ValidateP20BasicCorpseSpatialClosure(
-				Record->ContainerSnapshot, *OriginalSource, Error);
+			bClosureValid = P47Proof.bPlayerDepositedSource
+				? ValidateP60RetrievableBasicCacheSpatialClosure(
+					Record->ContainerSnapshot, *OriginalSource, Error)
+				: ValidateP18OrP54BasicCacheSpatialClosure(
+					*Record, Record->ContainerSnapshot, *OriginalSource,
+					bP54Loaded, nullptr, Error);
+		}
+		FString PlayerClosureDigest;
+		if (P47Proof.bPlayerDepositedSource && OriginalSource && OriginalChild)
+		{
+			PlayerClosureDigest = FString::Printf(TEXT("P61|parent:%s|def:%s|child:%s|capacity:%d"),
+				*OriginalSource->ItemId.ToString(EGuidFormats::DigitsWithHyphens),
+				*OriginalSource->DefinitionId.ToString(),
+				*OriginalChild->ContainerId.ToString(EGuidFormats::DigitsWithHyphens),
+				OriginalChild->Slots.Num());
+			for (int32 SlotIndex = 0; SlotIndex < OriginalChild->Slots.Num(); ++SlotIndex)
+			{
+				const FGuid ChildItemId = OriginalChild->Slots[SlotIndex];
+				const FCodeBItemInstance* ChildItem = ChildItemId.IsValid()
+					? Record->ContainerSnapshot.Items.Find(ChildItemId) : nullptr;
+				PlayerClosureDigest += FString::Printf(TEXT("|slot:%d:%s:%s:%d"), SlotIndex,
+					*ChildItemId.ToString(EGuidFormats::DigitsWithHyphens),
+					*(ChildItem ? ChildItem->DefinitionId : NAME_None).ToString(),
+					ChildItem ? ChildItem->Quantity : 0);
+			}
 		}
 		if (AcceptedCommand.Intent != ECodeBP2CommandIntent::QuickTransfer
 			|| AcceptedCommand.P38BodyEquipmentProof.bIntent
 			|| AcceptedCommand.P40BodySimpleStackProof.bIntent
 			|| AcceptedCommand.P46NormalContainerSimpleStackProof.bIntent
+			|| AcceptedCommand.P63NormalContainerPlayerSimpleStackProof.bIntent
+			|| AcceptedCommand.P58PlayerToNormalContainerSimpleStackProof.bIntent
+			|| AcceptedCommand.P59PlayerToNormalContainerStandardEquipmentProof.bIntent
+			|| AcceptedCommand.P60PlayerToNormalContainerSpatialGraphProof.bIntent
 			|| AcceptedCommand.P48NormalContainerSpatialGraphEquipmentProof.bIntent
 			|| AcceptedCommand.P41BodySpatialGraphProof.bIntent
 			|| AcceptedCommand.P42BodySpatialGraphEquipmentProof.bIntent
@@ -9785,7 +10503,14 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 			|| AcceptedCommand.Quantity != 1
 			|| !AcceptedCommand.TransactionId.IsValid()
 			|| AcceptedCommand.ExpectedRevision != P24PriorComposite.Revision
-			|| !bP18R2 || !bCanonicalDefinition || !bClosureValid
+			|| !bMaterializationClaimResolved
+			|| (P47Proof.bPlayerDepositedSource
+				? (bMaterializationClaimed
+					|| !OriginalChild
+					|| P47Proof.SourceChildCapacity != OriginalChild->Slots.Num()
+					|| P47Proof.SourceClosureDigest != PlayerClosureDigest)
+				: (!bMaterializationClaimed || (!bP18R2 && !(bP54R3 && bP54Loaded))))
+			|| !bCanonicalDefinition || !bClosureValid
 			|| Record->Receipt.OwnerId != InOwnerId
 			|| Record->Receipt.RunInstanceId != RunInstanceId
 			|| Record->Receipt.SearchTargetId != SearchTargetId
@@ -9804,15 +10529,16 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 			|| P47Proof.SourceChildContainerId != P47Proof.StableSpatialChildGuid
 			|| !OriginalChild || OriginalChild->IsEquipment()
 			|| OriginalChild->Slots.Num() != SourceDefinition->ChildContainerCapacity
-			|| OriginalChild->Slots.ContainsByPredicate(
-				[](const FGuid& ItemId) { return ItemId.IsValid(); })
+			|| (!P47Proof.bPlayerDepositedSource && bP18R2
+				&& OriginalChild->Slots.ContainsByPredicate(
+				[](const FGuid& ItemId) { return ItemId.IsValid(); }))
 			|| !SourceReveal || SourceReveal->RevealState != ECodeBNormalContainerRevealState::Revealed
 			|| !OriginalTarget || OriginalTarget->IsEquipment()
 			|| !OriginalTarget->Slots.IsValidIndex(P47Proof.FrozenTargetSlot)
 			|| OriginalTarget->Slots[P47Proof.FrozenTargetSlot].IsValid())
 		{
 			if (OutError) *OutError = Error.IsEmpty()
-				? TEXT("Code B P47 refused a stale, non-canonical, non-empty-child, redirected, or identity-incomplete BasicCache spatial graph command.")
+				? TEXT("Code B P47/P55/P61 refused a stale, source-family-invalid, non-canonical, closure-invalid, redirected, or identity-incomplete BasicCache spatial graph command.")
 				: Error;
 			return false;
 		}
@@ -9820,7 +10546,7 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 		{
 			if (!OriginalTarget->Slots[SlotIndex].IsValid())
 			{
-				if (OutError) *OutError = TEXT("Code B P47 frozen BaseQuick target is not first empty in stable SlotIndex order.");
+				if (OutError) *OutError = TEXT("Code B P47/P55/P61 frozen BaseQuick target is not first empty in stable SlotIndex order.");
 				return false;
 			}
 		}
@@ -9840,7 +10566,928 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 			|| !ExpectedRepository.ExecuteTransaction(ExpectedRequest).IsSuccess()
 			|| ExpectedRepository.CaptureSnapshot() != CompositeSnapshot)
 		{
-			if (OutError) *OutError = TEXT("Code B P47 candidate differs from its one exact P1 whole-graph Move(1).");
+			if (OutError) *OutError = TEXT("Code B P47/P55/P61 candidate differs from its one exact P1 whole-graph Move(1).");
+			return false;
+		}
+	}
+
+	// P60 reconstructs one exact canonical P19 graph in P6 BaseQuick or its
+	// formal equipment slot, freezes the graph closure and first real empty P9
+	// slot, then replays one direct Unequip or whole-graph Move(1).
+	const FCodeBP60PlayerSpatialGraphToNormalContainerQuickTransferProof& P60Proof =
+		AcceptedCommand.P60PlayerToNormalContainerSpatialGraphProof;
+	if (P60Proof.bIntent)
+	{
+		const FCodeBRunInventorySession& PriorSession = Candidate.ActiveRunInventorySession;
+		const FCodeBSnapshot& PriorPlayer = PriorSession.RepositorySnapshot;
+		const FCodeBItemInstance* OriginalSource = PriorPlayer.Items.Find(P60Proof.SourceItemId);
+		const FCodeBContainer* OriginalSourceContainer =
+			PriorPlayer.Containers.Find(P60Proof.SourceContainerId);
+		const FCodeBContainer* OriginalChild =
+			PriorPlayer.Containers.Find(P60Proof.SourceChildContainerId);
+		const FCodeBItemDefinition* SourceDefinition =
+			PriorPlayer.Definitions.Find(P60Proof.SourceDefinitionId);
+		const FCodeBContainer* OriginalTarget =
+			Record->ContainerSnapshot.Containers.Find(P60Proof.TargetContainerId);
+		FCodeBItemDefinition CanonicalSourceDefinition;
+		const bool bWindTalisman = P60Proof.SourceDefinitionId == Fdemo_mapItemIds::WindTalisman;
+		const bool bBackpackLevel1 = P60Proof.SourceDefinitionId == Fdemo_mapItemIds::BackpackLevel1;
+		const FGuid ExpectedFormalContainerId = bWindTalisman
+			? PriorSession.Layout.SpatialContainerId
+			: (bBackpackLevel1 ? PriorSession.Layout.BackpackContainerId : FGuid());
+		const FName ExpectedFormalRole = bWindTalisman
+			? FName(TEXT("SpatialRing")) : (bBackpackLevel1 ? FName(TEXT("Backpack")) : NAME_None);
+		const ECodeBEquipSlot ExpectedEquipSlot = bWindTalisman
+			? ECodeBEquipSlot::SpatialItem : ECodeBEquipSlot::Backpack;
+		const bool bExactFormalSource = P60Proof.bSourceIsFormalEquipment
+			&& !P60Proof.bSourceIsBaseQuick
+			&& P60Proof.SourceContainerId == ExpectedFormalContainerId
+			&& P60Proof.SourceContainerRole == ExpectedFormalRole
+			&& OriginalSourceContainer && OriginalSourceContainer->IsEquipment()
+			&& OriginalSourceContainer->EquipmentSlot == ExpectedEquipSlot
+			&& P60Proof.SourceSlot == 0;
+		const bool bExactBaseQuickSource = !P60Proof.bSourceIsFormalEquipment
+			&& P60Proof.bSourceIsBaseQuick
+			&& P60Proof.SourceContainerId == PriorSession.Layout.BasicContainerId
+			&& P60Proof.SourceContainerRole == FName(TEXT("Basic6"))
+			&& OriginalSourceContainer && !OriginalSourceContainer->IsEquipment();
+		const bool bCanonicalDefinition = SourceDefinition
+			&& BuildCanonicalCodeBItemDefinition(P60Proof.SourceDefinitionId,
+				CanonicalSourceDefinition, Error)
+			&& *SourceDefinition == CanonicalSourceDefinition
+			&& !SourceDefinition->bStackable && SourceDefinition->MaxStack == 1
+			&& SourceDefinition->EquipSlot == ExpectedEquipSlot
+			&& SourceDefinition->ChildContainerCapacity == P60Proof.SourceChildCapacity
+			&& ((bWindTalisman
+					&& SourceDefinition->ItemType == ECodeBItemType::SpatialItem
+					&& SourceDefinition->SpatialContainerSemantic == ECodeBSpatialContainerSemantic::QuickRing)
+				|| (bBackpackLevel1
+					&& SourceDefinition->ItemType == ECodeBItemType::Backpack
+					&& SourceDefinition->SpatialContainerSemantic == ECodeBSpatialContainerSemantic::StoragePouch));
+		bool bCanonicalClosure = false;
+		if (OriginalSource)
+		{
+			bCanonicalClosure = ValidateP60RetrievableBasicCacheSpatialClosure(
+				PriorPlayer, *OriginalSource, Error);
+		}
+		int32 ChildOwnerMatches = 0;
+		for (const TPair<FGuid, FCodeBItemInstance>& Pair : PriorPlayer.Items)
+		{
+			if (Pair.Value.ChildContainerId == P60Proof.SourceChildContainerId) ++ChildOwnerMatches;
+		}
+		FString ClosureDigest;
+		if (OriginalSource && OriginalChild)
+		{
+			ClosureDigest = FString::Printf(TEXT("P60|parent:%s|def:%s|child:%s|capacity:%d"),
+				*OriginalSource->ItemId.ToString(EGuidFormats::DigitsWithHyphens),
+				*OriginalSource->DefinitionId.ToString(),
+				*OriginalChild->ContainerId.ToString(EGuidFormats::DigitsWithHyphens),
+				OriginalChild->Slots.Num());
+			for (int32 SlotIndex = 0; SlotIndex < OriginalChild->Slots.Num(); ++SlotIndex)
+			{
+				const FGuid ChildItemId = OriginalChild->Slots[SlotIndex];
+				const FCodeBItemInstance* ChildItem = ChildItemId.IsValid()
+					? PriorPlayer.Items.Find(ChildItemId) : nullptr;
+				ClosureDigest += FString::Printf(TEXT("|slot:%d:%s:%s:%d"), SlotIndex,
+					*ChildItemId.ToString(EGuidFormats::DigitsWithHyphens),
+					*(ChildItem ? ChildItem->DefinitionId : NAME_None).ToString(),
+					ChildItem ? ChildItem->Quantity : 0);
+			}
+		}
+		const ECodeBOperation ExpectedOperation = bExactFormalSource
+			? ECodeBOperation::Unequip : ECodeBOperation::Move;
+		const int32 ExpectedQuantity = bExactFormalSource ? 0 : 1;
+		if (AcceptedCommand.Intent != ECodeBP2CommandIntent::QuickTransfer
+			|| AcceptedCommand.P38BodyEquipmentProof.bIntent
+			|| AcceptedCommand.P40BodySimpleStackProof.bIntent
+			|| AcceptedCommand.P46NormalContainerSimpleStackProof.bIntent
+			|| AcceptedCommand.P63NormalContainerPlayerSimpleStackProof.bIntent
+			|| AcceptedCommand.P58PlayerToNormalContainerSimpleStackProof.bIntent
+			|| AcceptedCommand.P59PlayerToNormalContainerStandardEquipmentProof.bIntent
+			|| AcceptedCommand.P47NormalContainerSpatialGraphProof.bIntent
+			|| AcceptedCommand.P48NormalContainerSpatialGraphEquipmentProof.bIntent
+			|| AcceptedCommand.P41BodySpatialGraphProof.bIntent
+			|| AcceptedCommand.P42BodySpatialGraphEquipmentProof.bIntent
+			|| !AcceptedCommand.TransactionId.IsValid()
+			|| !P60Proof.HasFrozenTarget()
+			|| P60Proof.OwnerId != InOwnerId || P60Proof.RunInstanceId != RunInstanceId
+			|| P60Proof.SearchTargetId != SearchTargetId
+			|| P60Proof.ReceiptId != Record->Receipt.ReceiptId
+			|| P60Proof.NormalContainerRevision != ExpectedNormalContainerRevision
+			|| P60Proof.NormalContainerDefinitionId != DefinitionId
+			|| DefinitionId != FName(TEXT("CodeB.NormalContainer.BasicCache"))
+			|| P60Proof.TargetContainerId != Record->ContainerId
+			|| P60Proof.DefinitionContentRevision != Record->Receipt.DefinitionContentRevision
+			|| P60Proof.DefinitionDigest != Record->Receipt.DefinitionDigest
+			|| P60Proof.LootProfileId != Record->Receipt.LootProfileId
+			|| P60Proof.LootProfileVersion != Record->Receipt.LootProfileVersion
+			|| P60Proof.LootProfileDigest != Record->Receipt.LootProfileDigest
+			|| P60Proof.LootAlgorithmVersion != Record->Receipt.LootAlgorithmVersion
+			|| P60Proof.LootResultDigest != Record->Receipt.LootResultDigest
+			|| P60Proof.MaterializationDigest != Record->Receipt.MaterializationDigest
+			|| P60Proof.WorkspaceTargetPaneId != FName(TEXT("InRun.External"))
+			|| P60Proof.CompositeRevision != P24PriorComposite.Revision
+			|| P60Proof.P6SnapshotRevision != ExpectedP6SnapshotRevision
+			|| P60Proof.SourceItemId != AcceptedCommand.ItemId
+			|| P60Proof.SourceContainerId != AcceptedCommand.SourceContainerId
+			|| P60Proof.SourceSlot != AcceptedCommand.SourceSlot
+			|| P60Proof.TargetContainerId != AcceptedCommand.TargetContainerId
+			|| P60Proof.FrozenTargetSlot != AcceptedCommand.TargetSlot
+			|| (!bExactFormalSource && !bExactBaseQuickSource)
+			|| !bCanonicalDefinition || !bCanonicalClosure
+			|| !OriginalSource || !OriginalSourceContainer || !OriginalChild
+			|| !OriginalSourceContainer->Slots.IsValidIndex(P60Proof.SourceSlot)
+			|| OriginalSourceContainer->Slots[P60Proof.SourceSlot] != P60Proof.SourceItemId
+			|| OriginalSource->ParentContainerId != P60Proof.SourceContainerId
+			|| OriginalSource->SlotIndex != P60Proof.SourceSlot
+			|| OriginalSource->Quantity != 1
+			|| OriginalSource->ChildContainerId != P60Proof.SourceChildContainerId
+			|| P60Proof.StableSpatialChildGuid != SpatialChildGuid(P60Proof.SourceItemId)
+			|| P60Proof.SourceChildContainerId != P60Proof.StableSpatialChildGuid
+			|| OriginalChild->Slots.Num() != P60Proof.SourceChildCapacity
+			|| ChildOwnerMatches != 1 || ClosureDigest != P60Proof.SourceClosureDigest
+			|| !OriginalTarget || OriginalTarget->IsEquipment()
+			|| !OriginalTarget->Slots.IsValidIndex(P60Proof.FrozenTargetSlot)
+			|| OriginalTarget->Slots[P60Proof.FrozenTargetSlot].IsValid()
+			|| AcceptedCommand.ExpectedRevision != P24PriorComposite.Revision
+			|| AcceptedCommand.Operation != ExpectedOperation
+			|| AcceptedCommand.Quantity != ExpectedQuantity)
+		{
+			if (OutError) *OutError = Error.IsEmpty()
+				? TEXT("Code B P60 refused a stale, redirected, non-canonical, or closure-incomplete player spatial-graph deposit.")
+				: Error;
+			return false;
+		}
+		for (int32 SlotIndex = 0; SlotIndex < P60Proof.FrozenTargetSlot; ++SlotIndex)
+		{
+			if (!OriginalTarget->Slots[SlotIndex].IsValid())
+			{
+				if (OutError) *OutError = TEXT("Code B P60 frozen BasicCache target is not first empty in stable SlotIndex order.");
+				return false;
+			}
+		}
+
+		FCodeBRepository ExpectedRepository;
+		FCodeBTransactionRequest ExpectedRequest;
+		ExpectedRequest.TransactionId = AcceptedCommand.TransactionId;
+		ExpectedRequest.Operation = ExpectedOperation;
+		ExpectedRequest.ItemId = AcceptedCommand.ItemId;
+		ExpectedRequest.SourceContainerId = AcceptedCommand.SourceContainerId;
+		ExpectedRequest.SourceSlot = AcceptedCommand.SourceSlot;
+		ExpectedRequest.TargetContainerId = AcceptedCommand.TargetContainerId;
+		ExpectedRequest.TargetSlot = AcceptedCommand.TargetSlot;
+		ExpectedRequest.Quantity = ExpectedQuantity;
+		ExpectedRequest.ExpectedRevision = AcceptedCommand.ExpectedRevision;
+		if (!ExpectedRepository.LoadPersistedSnapshot(P24PriorComposite, &Error)
+			|| !ExpectedRepository.ExecuteTransaction(ExpectedRequest).IsSuccess()
+			|| ExpectedRepository.CaptureSnapshot() != CompositeSnapshot)
+		{
+			if (OutError) *OutError = bExactFormalSource
+				? TEXT("Code B P60 candidate differs from its one direct P1 Unequip to the frozen P9 slot.")
+				: TEXT("Code B P60 candidate differs from its one exact P1 whole-graph Move(1).");
+			return false;
+		}
+	}
+
+	// P59 reconstructs one exact canonical P6 standard-equipment source and the
+	// first real empty ordinary slot in this exact P9 BasicCache root. Equipped
+	// sources replay one direct Unequip; ordinary sources replay one Move(1).
+	const FCodeBP59PlayerStandardEquipmentToNormalContainerQuickTransferProof& P59Proof =
+		AcceptedCommand.P59PlayerToNormalContainerStandardEquipmentProof;
+	if (P59Proof.bIntent)
+	{
+		const FCodeBRunInventorySession& PriorSession = Candidate.ActiveRunInventorySession;
+		const FCodeBSnapshot& PriorPlayer = PriorSession.RepositorySnapshot;
+		const FCodeBItemInstance* OriginalSource = PriorPlayer.Items.Find(P59Proof.SourceItemId);
+		const FCodeBContainer* OriginalSourceContainer =
+			PriorPlayer.Containers.Find(P59Proof.SourceContainerId);
+		const FCodeBItemDefinition* SourceDefinition =
+			PriorPlayer.Definitions.Find(P59Proof.SourceDefinitionId);
+		const FCodeBContainer* OriginalTarget =
+			Record->ContainerSnapshot.Containers.Find(P59Proof.TargetContainerId);
+		FGuid CanonicalSourceParentItemId;
+		const bool bExactFormalSource = P59Proof.bSourceIsFormalEquipment
+			&& !P59Proof.bSourceIsBaseQuick && OriginalSource
+			&& IsP32EquippedStandardRoot(PriorSession, *OriginalSource, P59Proof.SourceContainerId)
+			&& ((P59Proof.SourceEquipSlot == ECodeBEquipSlot::Weapon
+					&& P59Proof.SourceContainerRole == FName(TEXT("Weapon")))
+				|| (P59Proof.SourceEquipSlot == ECodeBEquipSlot::Armor
+					&& P59Proof.SourceContainerRole == FName(TEXT("Armor")))
+				|| (P59Proof.SourceEquipSlot == ECodeBEquipSlot::Accessory
+					&& P59Proof.SourceContainerRole.ToString().StartsWith(TEXT("Accessory"))))
+			&& !P59Proof.SourceActiveChildContainerId.IsValid()
+			&& !P59Proof.SourceActiveChildParentItemId.IsValid()
+			&& P59Proof.SourceActiveChildOpenGeneration == 0;
+		const bool bExactBaseQuickSource = !P59Proof.bSourceIsFormalEquipment
+			&& P59Proof.bSourceIsBaseQuick
+			&& P59Proof.SourceContainerId == PriorSession.Layout.BasicContainerId
+			&& P59Proof.SourceContainerRole == FName(TEXT("Basic6"))
+			&& OriginalSourceContainer && !OriginalSourceContainer->IsEquipment()
+			&& !P59Proof.SourceActiveChildContainerId.IsValid()
+			&& !P59Proof.SourceActiveChildParentItemId.IsValid()
+			&& P59Proof.SourceActiveChildOpenGeneration == 0;
+		const bool bExactCurrentChildSource = !P59Proof.bSourceIsFormalEquipment
+			&& !P59Proof.bSourceIsBaseQuick
+			&& (P59Proof.SourceContainerRole == FName(TEXT("QuickSpatial"))
+				|| P59Proof.SourceContainerRole == FName(TEXT("PouchInternal")))
+			&& P59Proof.SourceContainerId == P59Proof.SourceActiveChildContainerId
+			&& P59Proof.SourceActiveChildParentItemId.IsValid()
+			&& P59Proof.SourceActiveChildOpenGeneration != 0
+			&& IsP35ActiveP17ChildContainer(
+				PriorSession, P59Proof.SourceContainerId, &CanonicalSourceParentItemId)
+			&& CanonicalSourceParentItemId == P59Proof.SourceActiveChildParentItemId
+			&& OriginalSourceContainer && !OriginalSourceContainer->IsEquipment();
+		const bool bCanonicalStandardRoot = OriginalSource && SourceDefinition
+			&& IsP32StandardEquipmentRoot(PriorSession, *OriginalSource)
+			&& SourceDefinition->EquipSlot == P59Proof.SourceEquipSlot
+			&& OriginalSource->DefinitionId == P59Proof.SourceDefinitionId
+			&& OriginalSource->Quantity == 1
+			&& OriginalSource->Level == P59Proof.SourceLevel
+			&& OriginalSource->Quality == P59Proof.SourceQuality
+			&& OriginalSource->RandomSeed == P59Proof.SourceRandomSeed
+			&& OriginalSource->LegacyAffixDigest == P59Proof.SourceLegacyAffixDigest
+			&& !OriginalSource->ChildContainerId.IsValid();
+		const ECodeBOperation ExpectedOperation = bExactFormalSource
+			? ECodeBOperation::Unequip : ECodeBOperation::Move;
+		const int32 ExpectedQuantity = bExactFormalSource ? 0 : 1;
+		if (AcceptedCommand.Intent != ECodeBP2CommandIntent::QuickTransfer
+			|| AcceptedCommand.P38BodyEquipmentProof.bIntent
+			|| AcceptedCommand.P40BodySimpleStackProof.bIntent
+			|| AcceptedCommand.P46NormalContainerSimpleStackProof.bIntent
+			|| AcceptedCommand.P63NormalContainerPlayerSimpleStackProof.bIntent
+			|| AcceptedCommand.P58PlayerToNormalContainerSimpleStackProof.bIntent
+			|| AcceptedCommand.P47NormalContainerSpatialGraphProof.bIntent
+			|| AcceptedCommand.P48NormalContainerSpatialGraphEquipmentProof.bIntent
+			|| AcceptedCommand.P41BodySpatialGraphProof.bIntent
+			|| AcceptedCommand.P42BodySpatialGraphEquipmentProof.bIntent
+			|| !AcceptedCommand.TransactionId.IsValid()
+			|| !P59Proof.HasFrozenTarget()
+			|| P59Proof.OwnerId != InOwnerId || P59Proof.RunInstanceId != RunInstanceId
+			|| P59Proof.SearchTargetId != SearchTargetId
+			|| P59Proof.ReceiptId != Record->Receipt.ReceiptId
+			|| P59Proof.NormalContainerRevision != ExpectedNormalContainerRevision
+			|| P59Proof.NormalContainerDefinitionId != DefinitionId
+			|| DefinitionId != FName(TEXT("CodeB.NormalContainer.BasicCache"))
+			|| P59Proof.TargetContainerId != Record->ContainerId
+			|| P59Proof.DefinitionContentRevision != Record->Receipt.DefinitionContentRevision
+			|| P59Proof.DefinitionDigest != Record->Receipt.DefinitionDigest
+			|| P59Proof.LootProfileId != Record->Receipt.LootProfileId
+			|| P59Proof.LootProfileVersion != Record->Receipt.LootProfileVersion
+			|| P59Proof.LootProfileDigest != Record->Receipt.LootProfileDigest
+			|| P59Proof.LootAlgorithmVersion != Record->Receipt.LootAlgorithmVersion
+			|| P59Proof.LootResultDigest != Record->Receipt.LootResultDigest
+			|| P59Proof.MaterializationDigest != Record->Receipt.MaterializationDigest
+			|| P59Proof.WorkspaceTargetPaneId != FName(TEXT("InRun.External"))
+			|| P59Proof.CompositeRevision != P24PriorComposite.Revision
+			|| P59Proof.P6SnapshotRevision != ExpectedP6SnapshotRevision
+			|| P59Proof.SourceItemId != AcceptedCommand.ItemId
+			|| P59Proof.SourceContainerId != AcceptedCommand.SourceContainerId
+			|| P59Proof.SourceSlot != AcceptedCommand.SourceSlot
+			|| P59Proof.TargetContainerId != AcceptedCommand.TargetContainerId
+			|| P59Proof.FrozenTargetSlot != AcceptedCommand.TargetSlot
+			|| (!bExactFormalSource && !bExactBaseQuickSource && !bExactCurrentChildSource)
+			|| !bCanonicalStandardRoot || !OriginalSourceContainer
+			|| !OriginalSourceContainer->Slots.IsValidIndex(P59Proof.SourceSlot)
+			|| OriginalSourceContainer->Slots[P59Proof.SourceSlot] != P59Proof.SourceItemId
+			|| OriginalSource->ParentContainerId != P59Proof.SourceContainerId
+			|| OriginalSource->SlotIndex != P59Proof.SourceSlot
+			|| !OriginalTarget || OriginalTarget->IsEquipment()
+			|| !OriginalTarget->Slots.IsValidIndex(P59Proof.FrozenTargetSlot)
+			|| OriginalTarget->Slots[P59Proof.FrozenTargetSlot].IsValid()
+			|| AcceptedCommand.ExpectedRevision != P24PriorComposite.Revision
+			|| AcceptedCommand.Operation != ExpectedOperation
+			|| AcceptedCommand.Quantity != ExpectedQuantity)
+		{
+			if (OutError) *OutError = TEXT("Code B P59 refused a stale, redirected, non-canonical, or identity-incomplete player standard-equipment deposit.");
+			return false;
+		}
+		for (int32 SlotIndex = 0; SlotIndex < P59Proof.FrozenTargetSlot; ++SlotIndex)
+		{
+			if (!OriginalTarget->Slots[SlotIndex].IsValid())
+			{
+				if (OutError) *OutError = TEXT("Code B P59 frozen BasicCache target is not first empty in stable SlotIndex order.");
+				return false;
+			}
+		}
+
+		FCodeBRepository ExpectedRepository;
+		FCodeBTransactionRequest ExpectedRequest;
+		ExpectedRequest.TransactionId = AcceptedCommand.TransactionId;
+		ExpectedRequest.Operation = ExpectedOperation;
+		ExpectedRequest.ItemId = AcceptedCommand.ItemId;
+		ExpectedRequest.SourceContainerId = AcceptedCommand.SourceContainerId;
+		ExpectedRequest.SourceSlot = AcceptedCommand.SourceSlot;
+		ExpectedRequest.TargetContainerId = AcceptedCommand.TargetContainerId;
+		ExpectedRequest.TargetSlot = AcceptedCommand.TargetSlot;
+		ExpectedRequest.Quantity = ExpectedQuantity;
+		ExpectedRequest.ExpectedRevision = AcceptedCommand.ExpectedRevision;
+		if (!ExpectedRepository.LoadPersistedSnapshot(P24PriorComposite, &Error)
+			|| !ExpectedRepository.ExecuteTransaction(ExpectedRequest).IsSuccess()
+			|| ExpectedRepository.CaptureSnapshot() != CompositeSnapshot)
+		{
+			if (OutError) *OutError = bExactFormalSource
+				? TEXT("Code B P59 candidate differs from its one direct P1 Unequip to the frozen P9 slot.")
+				: TEXT("Code B P59 candidate differs from its one exact P1 whole-root Move(1).");
+			return false;
+		}
+	}
+
+	// P58 reconstructs the exact P6 BaseQuick/current-child source and the one
+	// input-time merge-first/real-empty-second candidate in this exact P9 root.
+	const FCodeBP58PlayerSimpleStackToNormalContainerQuickTransferProof& P58Proof =
+		AcceptedCommand.P58PlayerToNormalContainerSimpleStackProof;
+	if (P58Proof.bIntent)
+	{
+		const FCodeBSnapshot& PriorPlayer = Candidate.ActiveRunInventorySession.RepositorySnapshot;
+		const FCodeBItemInstance* OriginalSource = PriorPlayer.Items.Find(P58Proof.SourceItemId);
+		const FCodeBContainer* OriginalSourceContainer =
+			PriorPlayer.Containers.Find(P58Proof.SourceContainerId);
+		const FCodeBItemDefinition* SourceDefinition =
+			PriorPlayer.Definitions.Find(P58Proof.SourceDefinitionId);
+		const FCodeBContainer* OriginalTarget =
+			Record->ContainerSnapshot.Containers.Find(P58Proof.TargetContainerId);
+		FGuid CanonicalSourceParentItemId;
+		const bool bExactBaseQuickSource = P58Proof.bSourceIsBaseQuick
+			&& P58Proof.SourceContainerId == Candidate.ActiveRunInventorySession.Layout.BasicContainerId
+			&& !P58Proof.SourceActiveChildContainerId.IsValid()
+			&& !P58Proof.SourceActiveChildParentItemId.IsValid()
+			&& P58Proof.SourceActiveChildOpenGeneration == 0;
+		const bool bExactCurrentChildSource = !P58Proof.bSourceIsBaseQuick
+			&& P58Proof.SourceContainerId == P58Proof.SourceActiveChildContainerId
+			&& P58Proof.SourceActiveChildParentItemId.IsValid()
+			&& P58Proof.SourceActiveChildOpenGeneration != 0
+			&& IsP35ActiveP17ChildContainer(
+				Candidate.ActiveRunInventorySession, P58Proof.SourceContainerId,
+				&CanonicalSourceParentItemId)
+			&& CanonicalSourceParentItemId == P58Proof.SourceActiveChildParentItemId;
+		const bool bOrdinaryDefinition = SourceDefinition && SourceDefinition->bStackable
+			&& SourceDefinition->MaxStack == P58Proof.SourceMaxStack
+			&& SourceDefinition->MaxStack > 1
+			&& SourceDefinition->EquipSlot == ECodeBEquipSlot::None
+			&& SourceDefinition->SpatialContainerSemantic == ECodeBSpatialContainerSemantic::None
+			&& SourceDefinition->ChildContainerCapacity == 0
+			&& SourceDefinition->ItemType != ECodeBItemType::Weapon
+			&& SourceDefinition->ItemType != ECodeBItemType::Armor
+			&& SourceDefinition->ItemType != ECodeBItemType::Accessory
+			&& SourceDefinition->ItemType != ECodeBItemType::SpatialItem
+			&& SourceDefinition->ItemType != ECodeBItemType::Backpack;
+		if (AcceptedCommand.Intent != ECodeBP2CommandIntent::QuickTransfer
+			|| AcceptedCommand.P38BodyEquipmentProof.bIntent
+			|| AcceptedCommand.P40BodySimpleStackProof.bIntent
+			|| AcceptedCommand.P46NormalContainerSimpleStackProof.bIntent
+			|| AcceptedCommand.P63NormalContainerPlayerSimpleStackProof.bIntent
+			|| AcceptedCommand.P59PlayerToNormalContainerStandardEquipmentProof.bIntent
+			|| AcceptedCommand.P47NormalContainerSpatialGraphProof.bIntent
+			|| AcceptedCommand.P48NormalContainerSpatialGraphEquipmentProof.bIntent
+			|| AcceptedCommand.P41BodySpatialGraphProof.bIntent
+			|| AcceptedCommand.P42BodySpatialGraphEquipmentProof.bIntent
+			|| !AcceptedCommand.TransactionId.IsValid()
+			|| !P58Proof.HasFrozenTarget()
+			|| P58Proof.OwnerId != InOwnerId || P58Proof.RunInstanceId != RunInstanceId
+			|| P58Proof.SearchTargetId != SearchTargetId
+			|| P58Proof.ReceiptId != Record->Receipt.ReceiptId
+			|| P58Proof.NormalContainerRevision != ExpectedNormalContainerRevision
+			|| P58Proof.NormalContainerDefinitionId != DefinitionId
+			|| DefinitionId != FName(TEXT("CodeB.NormalContainer.BasicCache"))
+			|| P58Proof.TargetContainerId != Record->ContainerId
+			|| P58Proof.DefinitionContentRevision != Record->Receipt.DefinitionContentRevision
+			|| P58Proof.DefinitionDigest != Record->Receipt.DefinitionDigest
+			|| P58Proof.LootProfileId != Record->Receipt.LootProfileId
+			|| P58Proof.LootProfileVersion != Record->Receipt.LootProfileVersion
+			|| P58Proof.LootProfileDigest != Record->Receipt.LootProfileDigest
+			|| P58Proof.LootAlgorithmVersion != Record->Receipt.LootAlgorithmVersion
+			|| P58Proof.LootResultDigest != Record->Receipt.LootResultDigest
+			|| P58Proof.MaterializationDigest != Record->Receipt.MaterializationDigest
+			|| P58Proof.WorkspaceTargetPaneId != FName(TEXT("InRun.External"))
+			|| P58Proof.CompositeRevision != P24PriorComposite.Revision
+			|| P58Proof.P6SnapshotRevision != ExpectedP6SnapshotRevision
+			|| P58Proof.SourceItemId != AcceptedCommand.ItemId
+			|| P58Proof.SourceContainerId != AcceptedCommand.SourceContainerId
+			|| P58Proof.SourceSlot != AcceptedCommand.SourceSlot
+			|| P58Proof.TargetContainerId != AcceptedCommand.TargetContainerId
+			|| P58Proof.FrozenTargetSlot != AcceptedCommand.TargetSlot
+			|| P58Proof.SourceDefinitionId != P58Proof.SourceStackKey
+			|| (!bExactBaseQuickSource && !bExactCurrentChildSource)
+			|| !OriginalSource || !OriginalSourceContainer || OriginalSourceContainer->IsEquipment()
+			|| !OriginalSourceContainer->Slots.IsValidIndex(P58Proof.SourceSlot)
+			|| OriginalSourceContainer->Slots[P58Proof.SourceSlot] != P58Proof.SourceItemId
+			|| OriginalSource->ParentContainerId != P58Proof.SourceContainerId
+			|| OriginalSource->SlotIndex != P58Proof.SourceSlot
+			|| OriginalSource->DefinitionId != P58Proof.SourceDefinitionId
+			|| OriginalSource->Quantity != P58Proof.SourceQuantity
+			|| OriginalSource->Quantity <= 0 || OriginalSource->Quantity > P58Proof.SourceMaxStack
+			|| OriginalSource->ChildContainerId.IsValid() || !bOrdinaryDefinition
+			|| !OriginalTarget || OriginalTarget->IsEquipment()
+			|| !OriginalTarget->Slots.IsValidIndex(P58Proof.FrozenTargetSlot)
+			|| AcceptedCommand.ExpectedRevision != P24PriorComposite.Revision
+			|| AcceptedCommand.Quantity != 0
+			|| (AcceptedCommand.Operation != ECodeBOperation::Merge
+				&& AcceptedCommand.Operation != ECodeBOperation::Move))
+		{
+			if (OutError) *OutError = TEXT("Code B P58 refused a stale, redirected, non-ordinary, or identity-incomplete player-to-BasicCache command.");
+			return false;
+		}
+
+		auto FindReveal = [Record](const FGuid& ItemId)
+		{
+			return Record->ItemRevealStates.FindByPredicate(
+				[ItemId](const FCodeBNormalContainerItemReveal& Value)
+				{
+					return Value.ItemId == ItemId;
+				});
+		};
+		auto IsRevealedCompatibleUnderfullAt = [&](const int32 SlotIndex)
+		{
+			if (!OriginalTarget->Slots.IsValidIndex(SlotIndex)) return false;
+			const FGuid ItemId = OriginalTarget->Slots[SlotIndex];
+			if (!ItemId.IsValid()) return false;
+			const FCodeBNormalContainerItemReveal* Reveal = FindReveal(ItemId);
+			if (!Reveal || Reveal->RevealState != ECodeBNormalContainerRevealState::Revealed)
+			{
+				return false;
+			}
+			const FCodeBItemInstance* Item = Record->ContainerSnapshot.Items.Find(ItemId);
+			const FCodeBItemDefinition* Definition = Item
+				? Record->ContainerSnapshot.Definitions.Find(Item->DefinitionId) : nullptr;
+			return Item && Definition && Item->ParentContainerId == Record->ContainerId
+				&& Item->SlotIndex == SlotIndex
+				&& Item->DefinitionId == P58Proof.SourceStackKey
+				&& Definition->bStackable && Definition->MaxStack == P58Proof.SourceMaxStack
+				&& Item->Quantity > 0 && Item->Quantity < Definition->MaxStack
+				&& !Item->ChildContainerId.IsValid()
+				&& Definition->EquipSlot == ECodeBEquipSlot::None;
+		};
+
+		if (P58Proof.bFrozenMergeCandidate)
+		{
+			const FGuid TargetItemId = OriginalTarget->Slots[P58Proof.FrozenTargetSlot];
+			const FCodeBItemInstance* TargetItem =
+				Record->ContainerSnapshot.Items.Find(TargetItemId);
+			if (AcceptedCommand.Operation != ECodeBOperation::Merge
+				|| TargetItemId != P58Proof.FrozenTargetItemId
+				|| !TargetItem || TargetItem->Quantity != P58Proof.FrozenTargetQuantity
+				|| !IsRevealedCompatibleUnderfullAt(P58Proof.FrozenTargetSlot))
+			{
+				if (OutError) *OutError = TEXT("Code B P58 frozen Revealed merge target is stale, full, hidden, or incompatible.");
+				return false;
+			}
+			for (int32 SlotIndex = 0; SlotIndex < P58Proof.FrozenTargetSlot; ++SlotIndex)
+			{
+				if (IsRevealedCompatibleUnderfullAt(SlotIndex))
+				{
+					if (OutError) *OutError = TEXT("Code B P58 merge target is not first in stable SlotIndex order.");
+					return false;
+				}
+			}
+		}
+		else
+		{
+			if (AcceptedCommand.Operation != ECodeBOperation::Move
+				|| OriginalTarget->Slots[P58Proof.FrozenTargetSlot].IsValid())
+			{
+				if (OutError) *OutError = TEXT("Code B P58 frozen real-empty target is no longer empty.");
+				return false;
+			}
+			for (int32 SlotIndex = 0; SlotIndex < OriginalTarget->Slots.Num(); ++SlotIndex)
+			{
+				if (IsRevealedCompatibleUnderfullAt(SlotIndex))
+				{
+					if (OutError) *OutError = TEXT("Code B P58 empty target cannot bypass a Revealed compatible underfull stack.");
+					return false;
+				}
+			}
+			for (int32 SlotIndex = 0; SlotIndex < P58Proof.FrozenTargetSlot; ++SlotIndex)
+			{
+				if (!OriginalTarget->Slots[SlotIndex].IsValid())
+				{
+					if (OutError) *OutError = TEXT("Code B P58 empty target is not first in stable SlotIndex order.");
+					return false;
+				}
+			}
+		}
+
+		FCodeBRepository ExpectedRepository;
+		FCodeBTransactionRequest ExpectedRequest;
+		ExpectedRequest.TransactionId = AcceptedCommand.TransactionId;
+		ExpectedRequest.Operation = AcceptedCommand.Operation;
+		ExpectedRequest.ItemId = AcceptedCommand.ItemId;
+		ExpectedRequest.SourceContainerId = AcceptedCommand.SourceContainerId;
+		ExpectedRequest.SourceSlot = AcceptedCommand.SourceSlot;
+		ExpectedRequest.TargetContainerId = AcceptedCommand.TargetContainerId;
+		ExpectedRequest.TargetSlot = AcceptedCommand.TargetSlot;
+		ExpectedRequest.Quantity = 0;
+		ExpectedRequest.ExpectedRevision = AcceptedCommand.ExpectedRevision;
+		if (!ExpectedRepository.LoadPersistedSnapshot(P24PriorComposite, &Error)
+			|| !ExpectedRepository.ExecuteTransaction(ExpectedRequest).IsSuccess()
+			|| ExpectedRepository.CaptureSnapshot() != CompositeSnapshot)
+		{
+			if (OutError) *OutError = TEXT("Code B P58 candidate differs from its one exact P1 Merge(0) or whole-stack Move.");
+			return false;
+		}
+	}
+
+	// P62 reconstructs one player-deposited canonical standard root from the
+	// exact P9 record, proves that the durable materialization result does not
+	// claim it, and replays one frozen whole-root Move(1) into P6.
+	const FCodeBP62NormalContainerStandardEquipmentQuickTransferProof& P62Proof =
+		AcceptedCommand.P62NormalContainerStandardEquipmentProof;
+	if (P62Proof.bIntent)
+	{
+		const FCodeBItemInstance* OriginalSource =
+			Record->ContainerSnapshot.Items.Find(P62Proof.SourceItemId);
+		const FCodeBContainer* OriginalSourceContainer =
+			Record->ContainerSnapshot.Containers.Find(P62Proof.SourceContainerId);
+		const FCodeBContainer* OriginalTarget =
+			Candidate.ActiveRunInventorySession.RepositorySnapshot.Containers.Find(
+				P62Proof.FrozenTargetContainerId);
+		const FCodeBItemDefinition* SourceDefinition =
+			P24PriorComposite.Definitions.Find(P62Proof.SourceDefinitionId);
+		FCodeBItemDefinition CanonicalSourceDefinition;
+		const FCodeBNormalContainerItemReveal* SourceReveal =
+			Record->ItemRevealStates.FindByPredicate(
+				[&P62Proof](const FCodeBNormalContainerItemReveal& Value)
+				{
+					return Value.ItemId == P62Proof.SourceItemId;
+				});
+		bool bMaterializationClaimed = false;
+		const bool bMaterializationClaimResolved = OriginalSource
+			&& ResolveNormalContainerMaterializationRootClaim(
+				*Record, OriginalSource->ItemId, bMaterializationClaimed, Error);
+		const bool bCanonicalStandardDefinition = SourceDefinition
+			&& BuildCanonicalCodeBItemDefinition(
+				P62Proof.SourceDefinitionId, CanonicalSourceDefinition, Error)
+			&& *SourceDefinition == CanonicalSourceDefinition
+			&& !SourceDefinition->bStackable && SourceDefinition->MaxStack == 1
+			&& SourceDefinition->ChildContainerCapacity == 0
+			&& SourceDefinition->SpatialContainerSemantic == ECodeBSpatialContainerSemantic::None
+			&& ((SourceDefinition->ItemType == ECodeBItemType::Weapon
+					&& SourceDefinition->EquipSlot == ECodeBEquipSlot::Weapon)
+				|| (SourceDefinition->ItemType == ECodeBItemType::Armor
+					&& SourceDefinition->EquipSlot == ECodeBEquipSlot::Armor)
+				|| (SourceDefinition->ItemType == ECodeBItemType::Accessory
+					&& SourceDefinition->EquipSlot == ECodeBEquipSlot::Accessory));
+		if (AcceptedCommand.Intent != ECodeBP2CommandIntent::QuickTransfer
+			|| AcceptedCommand.P38BodyEquipmentProof.bIntent
+			|| AcceptedCommand.P40BodySimpleStackProof.bIntent
+			|| AcceptedCommand.P46NormalContainerSimpleStackProof.bIntent
+			|| AcceptedCommand.P63NormalContainerPlayerSimpleStackProof.bIntent
+			|| AcceptedCommand.P58PlayerToNormalContainerSimpleStackProof.bIntent
+			|| AcceptedCommand.P59PlayerToNormalContainerStandardEquipmentProof.bIntent
+			|| AcceptedCommand.P60PlayerToNormalContainerSpatialGraphProof.bIntent
+			|| AcceptedCommand.P47NormalContainerSpatialGraphProof.bIntent
+			|| AcceptedCommand.P48NormalContainerSpatialGraphEquipmentProof.bIntent
+			|| AcceptedCommand.P41BodySpatialGraphProof.bIntent
+			|| AcceptedCommand.P42BodySpatialGraphEquipmentProof.bIntent
+			|| !P62Proof.HasSourceIdentity() || !P62Proof.HasFrozenTarget()
+			|| P62Proof.OwnerId != InOwnerId || P62Proof.RunInstanceId != RunInstanceId
+			|| P62Proof.SearchTargetId != SearchTargetId
+			|| P62Proof.ReceiptId != Record->Receipt.ReceiptId
+			|| P62Proof.NormalContainerRevision != ExpectedNormalContainerRevision
+			|| P62Proof.NormalContainerDefinitionId != DefinitionId
+			|| DefinitionId != FName(TEXT("CodeB.NormalContainer.BasicCache"))
+			|| P62Proof.SourceContainerId != Record->ContainerId
+			|| P62Proof.SourceItemId != AcceptedCommand.ItemId
+			|| P62Proof.SourceContainerId != AcceptedCommand.SourceContainerId
+			|| P62Proof.SourceSlot != AcceptedCommand.SourceSlot
+			|| P62Proof.DefinitionContentRevision != Record->Receipt.DefinitionContentRevision
+			|| P62Proof.DefinitionDigest != Record->Receipt.DefinitionDigest
+			|| P62Proof.LootProfileId != Record->Receipt.LootProfileId
+			|| P62Proof.LootProfileVersion != Record->Receipt.LootProfileVersion
+			|| P62Proof.LootProfileDigest != Record->Receipt.LootProfileDigest
+			|| P62Proof.LootAlgorithmVersion != Record->Receipt.LootAlgorithmVersion
+			|| P62Proof.LootResultDigest != Record->Receipt.LootResultDigest
+			|| P62Proof.MaterializationDigest != Record->Receipt.MaterializationDigest
+			|| P62Proof.WorkspaceTargetPaneId != FName(TEXT("InRun.External"))
+			|| P62Proof.CompositeRevision != P24PriorComposite.Revision
+			|| P62Proof.P6SnapshotRevision != ExpectedP6SnapshotRevision
+			|| Record->Receipt.OwnerId != InOwnerId
+			|| Record->Receipt.RunInstanceId != RunInstanceId
+			|| Record->Receipt.SearchTargetId != SearchTargetId
+			|| Record->Receipt.DefinitionId != DefinitionId
+			|| Record->Receipt.ContainerId != Record->ContainerId
+			|| !OriginalSource || !OriginalSourceContainer || OriginalSourceContainer->IsEquipment()
+			|| OriginalSourceContainer->ContainerId != Record->ContainerId
+			|| !OriginalSourceContainer->Slots.IsValidIndex(P62Proof.SourceSlot)
+			|| OriginalSourceContainer->Slots[P62Proof.SourceSlot] != P62Proof.SourceItemId
+			|| OriginalSource->ItemId != P62Proof.SourceItemId
+			|| OriginalSource->DefinitionId != P62Proof.SourceDefinitionId
+			|| OriginalSource->ParentContainerId != P62Proof.SourceContainerId
+			|| OriginalSource->SlotIndex != P62Proof.SourceSlot
+			|| OriginalSource->Quantity != 1 || OriginalSource->ChildContainerId.IsValid()
+			|| OriginalSource->Level != P62Proof.SourceLevel
+			|| OriginalSource->Quality != P62Proof.SourceQuality
+			|| OriginalSource->RandomSeed != P62Proof.SourceRandomSeed
+			|| OriginalSource->LegacyAffixDigest != P62Proof.SourceLegacyAffixDigest
+			|| !SourceReveal || SourceReveal->RevealState != ECodeBNormalContainerRevealState::Revealed
+			|| !bCanonicalStandardDefinition
+			|| SourceDefinition->EquipSlot != P62Proof.SourceEquipSlot
+			|| !bMaterializationClaimResolved || bMaterializationClaimed
+			|| !AcceptedCommand.TransactionId.IsValid()
+			|| AcceptedCommand.ExpectedRevision != P24PriorComposite.Revision
+			|| AcceptedCommand.Operation != ECodeBOperation::Move
+			|| AcceptedCommand.Quantity != 1
+			|| AcceptedCommand.TargetContainerId != P62Proof.FrozenTargetContainerId
+			|| AcceptedCommand.TargetSlot != P62Proof.FrozenTargetSlot)
+		{
+			if (OutError) *OutError = Error.IsEmpty()
+				? TEXT("Code B P62 refused a claimed, stale, non-canonical, hidden, spatial, or identity-incomplete BasicCache standard root.")
+				: Error;
+			return false;
+		}
+
+		const bool bCurrentChildMode = AcceptedCommand.QuickTransferTargetMode
+			== ECodeBQuickTransferTargetMode::CurrentP17Child;
+		const bool bBaseQuickMode = AcceptedCommand.QuickTransferTargetMode
+			== ECodeBQuickTransferTargetMode::BaseQuickNoChildAtInput;
+		FGuid CanonicalChildParentItemId;
+		const bool bCurrentChildTarget = bCurrentChildMode
+			&& AcceptedCommand.TargetContainerId == AcceptedCommand.QuickTransferActivePlayerContainerId
+			&& AcceptedCommand.QuickTransferActivePlayerContainerId == P62Proof.ActivePlayerChildContainerId
+			&& AcceptedCommand.QuickTransferActivePlayerParentItemId.IsValid()
+			&& AcceptedCommand.QuickTransferActivePlayerParentItemId == P62Proof.ActivePlayerChildParentItemId
+			&& AcceptedCommand.ActivePlayerChildOpenGeneration != 0
+			&& AcceptedCommand.ActivePlayerChildOpenGeneration == P62Proof.ActivePlayerChildOpenGeneration
+			&& IsP35ActiveP17ChildContainer(
+				Candidate.ActiveRunInventorySession, AcceptedCommand.TargetContainerId,
+				&CanonicalChildParentItemId)
+			&& CanonicalChildParentItemId == AcceptedCommand.QuickTransferActivePlayerParentItemId;
+		const bool bBaseQuickTarget = bBaseQuickMode
+			&& AcceptedCommand.TargetContainerId
+				== Candidate.ActiveRunInventorySession.Layout.BasicContainerId
+			&& !AcceptedCommand.QuickTransferActivePlayerContainerId.IsValid()
+			&& !AcceptedCommand.QuickTransferActivePlayerParentItemId.IsValid()
+			&& AcceptedCommand.ActivePlayerChildOpenGeneration == 0
+			&& !P62Proof.ActivePlayerChildContainerId.IsValid()
+			&& !P62Proof.ActivePlayerChildParentItemId.IsValid()
+			&& P62Proof.ActivePlayerChildOpenGeneration == 0;
+		if ((!bCurrentChildTarget && !bBaseQuickTarget) || !OriginalTarget
+			|| OriginalTarget->IsEquipment()
+			|| OriginalTarget->Slots.Num() != P62Proof.FrozenTargetCapacity
+			|| !OriginalTarget->Slots.IsValidIndex(P62Proof.FrozenTargetSlot)
+			|| OriginalTarget->Slots[P62Proof.FrozenTargetSlot].IsValid())
+		{
+			if (OutError) *OutError = TEXT("Code B P62 refused a redirected, stale-capacity, occupied, closed, or mode-invalid frozen P6 target.");
+			return false;
+		}
+		for (int32 SlotIndex = 0; SlotIndex < P62Proof.FrozenTargetSlot; ++SlotIndex)
+		{
+			if (!OriginalTarget->Slots[SlotIndex].IsValid())
+			{
+				if (OutError) *OutError = TEXT("Code B P62 target is not first empty in stable SlotIndex order.");
+				return false;
+			}
+		}
+
+		FCodeBRepository ExpectedRepository;
+		FCodeBTransactionRequest ExpectedRequest;
+		ExpectedRequest.TransactionId = AcceptedCommand.TransactionId;
+		ExpectedRequest.Operation = ECodeBOperation::Move;
+		ExpectedRequest.ItemId = AcceptedCommand.ItemId;
+		ExpectedRequest.SourceContainerId = AcceptedCommand.SourceContainerId;
+		ExpectedRequest.SourceSlot = AcceptedCommand.SourceSlot;
+		ExpectedRequest.TargetContainerId = AcceptedCommand.TargetContainerId;
+		ExpectedRequest.TargetSlot = AcceptedCommand.TargetSlot;
+		ExpectedRequest.Quantity = 1;
+		ExpectedRequest.ExpectedRevision = AcceptedCommand.ExpectedRevision;
+		if (!ExpectedRepository.LoadPersistedSnapshot(P24PriorComposite, &Error)
+			|| !ExpectedRepository.ExecuteTransaction(ExpectedRequest).IsSuccess()
+			|| ExpectedRepository.CaptureSnapshot() != CompositeSnapshot)
+		{
+			if (OutError) *OutError = TEXT("Code B P62 candidate differs from its one exact whole-root P1 Move(1).");
+			return false;
+		}
+	}
+
+	// P63 reconstructs one player-deposited generic simple stack from P9,
+	// resolves the durable materialization claim by current ItemId, freezes one
+	// merge-first/empty-second P6 candidate, and replays one exact P1 command.
+	const FCodeBP63NormalContainerPlayerSimpleStackQuickTransferProof& P63Proof =
+		AcceptedCommand.P63NormalContainerPlayerSimpleStackProof;
+	if (P63Proof.bIntent)
+	{
+		const FCodeBItemInstance* OriginalSource =
+			Record->ContainerSnapshot.Items.Find(P63Proof.SourceItemId);
+		const FCodeBContainer* OriginalSourceContainer =
+			Record->ContainerSnapshot.Containers.Find(P63Proof.SourceContainerId);
+		const FCodeBItemDefinition* SourceDefinition =
+			P24PriorComposite.Definitions.Find(P63Proof.SourceDefinitionId);
+		const FCodeBContainer* OriginalTarget =
+			Candidate.ActiveRunInventorySession.RepositorySnapshot.Containers.Find(
+				P63Proof.FrozenTargetContainerId);
+		const FCodeBNormalContainerItemReveal* SourceReveal =
+			Record->ItemRevealStates.FindByPredicate(
+				[&P63Proof](const FCodeBNormalContainerItemReveal& Value)
+				{
+					return Value.ItemId == P63Proof.SourceItemId;
+				});
+		bool bMaterializationClaimed = false;
+		const bool bMaterializationClaimResolved = OriginalSource
+			&& ResolveNormalContainerMaterializationRootClaim(
+				*Record, OriginalSource->ItemId, bMaterializationClaimed, Error);
+		const bool bOrdinarySimpleDefinition = SourceDefinition
+			&& SourceDefinition->bStackable
+			&& SourceDefinition->MaxStack == P63Proof.SourceMaxStack
+			&& SourceDefinition->MaxStack > 1
+			&& SourceDefinition->ItemType == P63Proof.SourceItemType
+			&& SourceDefinition->EquipSlot == ECodeBEquipSlot::None
+			&& SourceDefinition->SpatialContainerSemantic == ECodeBSpatialContainerSemantic::None
+			&& SourceDefinition->ChildContainerCapacity == 0
+			&& SourceDefinition->ItemType != ECodeBItemType::Weapon
+			&& SourceDefinition->ItemType != ECodeBItemType::Armor
+			&& SourceDefinition->ItemType != ECodeBItemType::Accessory
+			&& SourceDefinition->ItemType != ECodeBItemType::SpatialItem
+			&& SourceDefinition->ItemType != ECodeBItemType::Backpack;
+		if (AcceptedCommand.Intent != ECodeBP2CommandIntent::QuickTransfer
+			|| AcceptedCommand.P38BodyEquipmentProof.bIntent
+			|| AcceptedCommand.P40BodySimpleStackProof.bIntent
+			|| AcceptedCommand.P46NormalContainerSimpleStackProof.bIntent
+			|| AcceptedCommand.P62NormalContainerStandardEquipmentProof.bIntent
+			|| AcceptedCommand.P58PlayerToNormalContainerSimpleStackProof.bIntent
+			|| AcceptedCommand.P59PlayerToNormalContainerStandardEquipmentProof.bIntent
+			|| AcceptedCommand.P60PlayerToNormalContainerSpatialGraphProof.bIntent
+			|| AcceptedCommand.P47NormalContainerSpatialGraphProof.bIntent
+			|| AcceptedCommand.P48NormalContainerSpatialGraphEquipmentProof.bIntent
+			|| AcceptedCommand.P41BodySpatialGraphProof.bIntent
+			|| AcceptedCommand.P42BodySpatialGraphEquipmentProof.bIntent
+			|| !P63Proof.HasSourceIdentity() || !P63Proof.HasFrozenTarget()
+			|| P63Proof.OwnerId != InOwnerId || P63Proof.RunInstanceId != RunInstanceId
+			|| P63Proof.SearchTargetId != SearchTargetId
+			|| P63Proof.ReceiptId != Record->Receipt.ReceiptId
+			|| P63Proof.NormalContainerRevision != ExpectedNormalContainerRevision
+			|| P63Proof.NormalContainerDefinitionId != DefinitionId
+			|| DefinitionId != FName(TEXT("CodeB.NormalContainer.BasicCache"))
+			|| P63Proof.SourceContainerId != Record->ContainerId
+			|| P63Proof.SourceItemId != AcceptedCommand.ItemId
+			|| P63Proof.SourceContainerId != AcceptedCommand.SourceContainerId
+			|| P63Proof.SourceSlot != AcceptedCommand.SourceSlot
+			|| P63Proof.SourceDefinitionId != P63Proof.SourceStackKey
+			|| P63Proof.DefinitionContentRevision != Record->Receipt.DefinitionContentRevision
+			|| P63Proof.DefinitionDigest != Record->Receipt.DefinitionDigest
+			|| P63Proof.LootProfileId != Record->Receipt.LootProfileId
+			|| P63Proof.LootProfileVersion != Record->Receipt.LootProfileVersion
+			|| P63Proof.LootProfileDigest != Record->Receipt.LootProfileDigest
+			|| P63Proof.LootAlgorithmVersion != Record->Receipt.LootAlgorithmVersion
+			|| P63Proof.LootResultDigest != Record->Receipt.LootResultDigest
+			|| P63Proof.MaterializationDigest != Record->Receipt.MaterializationDigest
+			|| P63Proof.WorkspaceTargetPaneId != FName(TEXT("InRun.External"))
+			|| P63Proof.CompositeRevision != P24PriorComposite.Revision
+			|| P63Proof.P6SnapshotRevision != ExpectedP6SnapshotRevision
+			|| Record->Receipt.OwnerId != InOwnerId
+			|| Record->Receipt.RunInstanceId != RunInstanceId
+			|| Record->Receipt.SearchTargetId != SearchTargetId
+			|| Record->Receipt.DefinitionId != DefinitionId
+			|| Record->Receipt.ContainerId != Record->ContainerId
+			|| !OriginalSource || !OriginalSourceContainer || OriginalSourceContainer->IsEquipment()
+			|| OriginalSourceContainer->ContainerId != Record->ContainerId
+			|| !OriginalSourceContainer->Slots.IsValidIndex(P63Proof.SourceSlot)
+			|| OriginalSourceContainer->Slots[P63Proof.SourceSlot] != P63Proof.SourceItemId
+			|| OriginalSource->ItemId != P63Proof.SourceItemId
+			|| OriginalSource->DefinitionId != P63Proof.SourceDefinitionId
+			|| OriginalSource->ParentContainerId != P63Proof.SourceContainerId
+			|| OriginalSource->SlotIndex != P63Proof.SourceSlot
+			|| OriginalSource->Quantity != P63Proof.SourceQuantity
+			|| OriginalSource->Quantity <= 0 || OriginalSource->Quantity > P63Proof.SourceMaxStack
+			|| OriginalSource->ChildContainerId.IsValid()
+			|| OriginalSource->Level != P63Proof.SourceLevel
+			|| OriginalSource->Quality != P63Proof.SourceQuality
+			|| OriginalSource->RandomSeed != P63Proof.SourceRandomSeed
+			|| OriginalSource->LegacyAffixDigest != P63Proof.SourceLegacyAffixDigest
+			|| !SourceReveal || SourceReveal->RevealState != ECodeBNormalContainerRevealState::Revealed
+			|| !bOrdinarySimpleDefinition
+			|| P63Proof.SourceEquipSlot != ECodeBEquipSlot::None
+			|| !bMaterializationClaimResolved || bMaterializationClaimed
+			|| !AcceptedCommand.TransactionId.IsValid()
+			|| AcceptedCommand.ExpectedRevision != P24PriorComposite.Revision
+			|| AcceptedCommand.Quantity != 0
+			|| AcceptedCommand.TargetContainerId != P63Proof.FrozenTargetContainerId
+			|| AcceptedCommand.TargetSlot != P63Proof.FrozenTargetSlot
+			|| (AcceptedCommand.Operation != ECodeBOperation::Merge
+				&& AcceptedCommand.Operation != ECodeBOperation::Move))
+		{
+			if (OutError) *OutError = Error.IsEmpty()
+				? TEXT("Code B P63 refused a claimed, stale, hidden, non-ordinary, or identity-incomplete BasicCache simple stack.")
+				: Error;
+			return false;
+		}
+
+		const bool bCurrentChildMode = AcceptedCommand.QuickTransferTargetMode
+			== ECodeBQuickTransferTargetMode::CurrentP17Child;
+		const bool bBaseQuickMode = AcceptedCommand.QuickTransferTargetMode
+			== ECodeBQuickTransferTargetMode::BaseQuickNoChildAtInput;
+		FGuid CanonicalChildParentItemId;
+		const bool bCurrentChildTarget = bCurrentChildMode
+			&& AcceptedCommand.TargetContainerId == AcceptedCommand.QuickTransferActivePlayerContainerId
+			&& AcceptedCommand.QuickTransferActivePlayerContainerId == P63Proof.ActivePlayerChildContainerId
+			&& AcceptedCommand.QuickTransferActivePlayerParentItemId.IsValid()
+			&& AcceptedCommand.QuickTransferActivePlayerParentItemId == P63Proof.ActivePlayerChildParentItemId
+			&& AcceptedCommand.ActivePlayerChildOpenGeneration != 0
+			&& AcceptedCommand.ActivePlayerChildOpenGeneration == P63Proof.ActivePlayerChildOpenGeneration
+			&& IsP35ActiveP17ChildContainer(
+				Candidate.ActiveRunInventorySession, AcceptedCommand.TargetContainerId,
+				&CanonicalChildParentItemId)
+			&& CanonicalChildParentItemId == AcceptedCommand.QuickTransferActivePlayerParentItemId;
+		const bool bBaseQuickTarget = bBaseQuickMode
+			&& AcceptedCommand.TargetContainerId
+				== Candidate.ActiveRunInventorySession.Layout.BasicContainerId
+			&& !AcceptedCommand.QuickTransferActivePlayerContainerId.IsValid()
+			&& !AcceptedCommand.QuickTransferActivePlayerParentItemId.IsValid()
+			&& AcceptedCommand.ActivePlayerChildOpenGeneration == 0
+			&& !P63Proof.ActivePlayerChildContainerId.IsValid()
+			&& !P63Proof.ActivePlayerChildParentItemId.IsValid()
+			&& P63Proof.ActivePlayerChildOpenGeneration == 0;
+		if ((!bCurrentChildTarget && !bBaseQuickTarget) || !OriginalTarget
+			|| OriginalTarget->IsEquipment()
+			|| OriginalTarget->Slots.Num() != P63Proof.FrozenTargetCapacity
+			|| !OriginalTarget->Slots.IsValidIndex(P63Proof.FrozenTargetSlot))
+		{
+			if (OutError) *OutError = TEXT("Code B P63 refused a redirected, stale-capacity, closed, or mode-invalid frozen P6 target.");
+			return false;
+		}
+
+		auto IsCompatibleUnderfullAt = [&](const int32 SlotIndex)
+		{
+			if (!OriginalTarget->Slots.IsValidIndex(SlotIndex)
+				|| !OriginalTarget->Slots[SlotIndex].IsValid()) return false;
+			const FCodeBItemInstance* TargetItem =
+				Candidate.ActiveRunInventorySession.RepositorySnapshot.Items.Find(
+					OriginalTarget->Slots[SlotIndex]);
+			const FCodeBItemDefinition* TargetDefinition = TargetItem
+				? Candidate.ActiveRunInventorySession.RepositorySnapshot.Definitions.Find(
+					TargetItem->DefinitionId) : nullptr;
+			return TargetItem && TargetDefinition
+				&& TargetItem->DefinitionId == P63Proof.SourceStackKey
+				&& TargetDefinition->bStackable
+				&& TargetDefinition->MaxStack == P63Proof.SourceMaxStack
+				&& TargetDefinition->EquipSlot == ECodeBEquipSlot::None
+				&& TargetItem->Quantity > 0 && TargetItem->Quantity < TargetDefinition->MaxStack
+				&& !TargetItem->ChildContainerId.IsValid()
+				&& TargetItem->ParentContainerId == OriginalTarget->ContainerId
+				&& TargetItem->SlotIndex == SlotIndex;
+		};
+		if (P63Proof.bFrozenMergeCandidate)
+		{
+			const FGuid TargetItemId = OriginalTarget->Slots[P63Proof.FrozenTargetSlot];
+			const FCodeBItemInstance* TargetItem =
+				Candidate.ActiveRunInventorySession.RepositorySnapshot.Items.Find(TargetItemId);
+			if (AcceptedCommand.Operation != ECodeBOperation::Merge
+				|| TargetItemId != P63Proof.FrozenTargetItemId
+				|| !TargetItem || TargetItem->Quantity != P63Proof.FrozenTargetQuantity
+				|| !IsCompatibleUnderfullAt(P63Proof.FrozenTargetSlot))
+			{
+				if (OutError) *OutError = TEXT("Code B P63 frozen merge candidate is stale, full, or incompatible.");
+				return false;
+			}
+			for (int32 SlotIndex = 0; SlotIndex < P63Proof.FrozenTargetSlot; ++SlotIndex)
+			{
+				if (IsCompatibleUnderfullAt(SlotIndex))
+				{
+					if (OutError) *OutError = TEXT("Code B P63 merge candidate is not first in stable SlotIndex order.");
+					return false;
+				}
+			}
+		}
+		else
+		{
+			if (AcceptedCommand.Operation != ECodeBOperation::Move
+				|| OriginalTarget->Slots[P63Proof.FrozenTargetSlot].IsValid())
+			{
+				if (OutError) *OutError = TEXT("Code B P63 frozen real-empty candidate is no longer empty.");
+				return false;
+			}
+			for (int32 SlotIndex = 0; SlotIndex < OriginalTarget->Slots.Num(); ++SlotIndex)
+			{
+				if (IsCompatibleUnderfullAt(SlotIndex))
+				{
+					if (OutError) *OutError = TEXT("Code B P63 empty candidate cannot bypass a compatible underfull stack.");
+					return false;
+				}
+			}
+			for (int32 SlotIndex = 0; SlotIndex < P63Proof.FrozenTargetSlot; ++SlotIndex)
+			{
+				if (!OriginalTarget->Slots[SlotIndex].IsValid())
+				{
+					if (OutError) *OutError = TEXT("Code B P63 empty candidate is not first in stable SlotIndex order.");
+					return false;
+				}
+			}
+		}
+
+		FCodeBRepository ExpectedRepository;
+		FCodeBTransactionRequest ExpectedRequest;
+		ExpectedRequest.TransactionId = AcceptedCommand.TransactionId;
+		ExpectedRequest.Operation = AcceptedCommand.Operation;
+		ExpectedRequest.ItemId = AcceptedCommand.ItemId;
+		ExpectedRequest.SourceContainerId = AcceptedCommand.SourceContainerId;
+		ExpectedRequest.SourceSlot = AcceptedCommand.SourceSlot;
+		ExpectedRequest.TargetContainerId = AcceptedCommand.TargetContainerId;
+		ExpectedRequest.TargetSlot = AcceptedCommand.TargetSlot;
+		ExpectedRequest.Quantity = 0;
+		ExpectedRequest.ExpectedRevision = AcceptedCommand.ExpectedRevision;
+		if (!ExpectedRepository.LoadPersistedSnapshot(P24PriorComposite, &Error)
+			|| !ExpectedRepository.ExecuteTransaction(ExpectedRequest).IsSuccess()
+			|| ExpectedRepository.CaptureSnapshot() != CompositeSnapshot)
+		{
+			if (OutError) *OutError = TEXT("Code B P63 candidate differs from its one exact P1 Merge(0) or whole-stack Move.");
 			return false;
 		}
 	}
@@ -9865,6 +11512,10 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 				{
 					return Value.ItemId == P46Proof.SourceItemId;
 				});
+		bool bMaterializationClaimed = false;
+		const bool bMaterializationClaimResolved = OriginalSource
+			&& ResolveNormalContainerMaterializationRootClaim(
+				*Record, OriginalSource->ItemId, bMaterializationClaimed, Error);
 		const bool bExpectedDefinition = P46Proof.SourceDefinitionId == Fdemo_mapItemIds::SpiritDust
 			|| P46Proof.SourceDefinitionId == Fdemo_mapItemIds::IronShard;
 		const bool bCanonicalSimpleStack = SourceDefinition
@@ -9878,6 +11529,8 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 		if (AcceptedCommand.Intent != ECodeBP2CommandIntent::QuickTransfer
 			|| AcceptedCommand.P38BodyEquipmentProof.bIntent
 			|| AcceptedCommand.P40BodySimpleStackProof.bIntent
+			|| AcceptedCommand.P62NormalContainerStandardEquipmentProof.bIntent
+			|| AcceptedCommand.P63NormalContainerPlayerSimpleStackProof.bIntent
 			|| AcceptedCommand.P41BodySpatialGraphProof.bIntent
 			|| AcceptedCommand.P47NormalContainerSpatialGraphProof.bIntent
 			|| AcceptedCommand.P48NormalContainerSpatialGraphEquipmentProof.bIntent
@@ -9919,6 +11572,7 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 			|| (SourceDefinition && OriginalSource->Quantity > SourceDefinition->MaxStack)
 			|| OriginalSource->ChildContainerId.IsValid()
 			|| !SourceReveal || SourceReveal->RevealState != ECodeBNormalContainerRevealState::Revealed
+			|| !bMaterializationClaimResolved || !bMaterializationClaimed
 			|| !bExpectedDefinition || !bCanonicalSimpleStack
 			|| !AcceptedCommand.TransactionId.IsValid()
 			|| AcceptedCommand.ExpectedRevision != P24PriorComposite.Revision
@@ -9926,7 +11580,9 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 			|| (AcceptedCommand.Operation != ECodeBOperation::Merge
 				&& AcceptedCommand.Operation != ECodeBOperation::Move))
 		{
-			if (OutError) *OutError = TEXT("Code B P46 refused a stale, non-BasicCache, non-simple, hidden, or identity-incomplete source command.");
+			if (OutError) *OutError = Error.IsEmpty()
+				? TEXT("Code B P46 refused an unclaimed, stale, non-BasicCache, non-simple, hidden, or identity-incomplete source command.")
+				: Error;
 			return false;
 		}
 
@@ -10046,11 +11702,20 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 			return false;
 		}
 	}
-	else if (!P47Proof.bIntent
+	else if (!P47Proof.bIntent && !P58Proof.bIntent && !P62Proof.bIntent && !P63Proof.bIntent
 		&& AcceptedCommand.Intent == ECodeBP2CommandIntent::QuickTransfer
 		&& Record->ContainerSnapshot.Containers.Contains(AcceptedCommand.SourceContainerId))
 	{
-		if (OutError) *OutError = TEXT("Code B P46/P47 refused an unproven BasicCache-source QuickTransfer branch.");
+		if (OutError) *OutError = TEXT("Code B P46/P47/P62/P63 refused an unproven BasicCache-source QuickTransfer branch.");
+		return false;
+	}
+	else if (!P58Proof.bIntent && !P59Proof.bIntent
+		&& AcceptedCommand.Intent == ECodeBP2CommandIntent::QuickTransfer
+		&& AcceptedCommand.TargetContainerId == Record->ContainerId
+		&& Candidate.ActiveRunInventorySession.RepositorySnapshot.Containers.Contains(
+			AcceptedCommand.SourceContainerId))
+	{
+		if (OutError) *OutError = TEXT("Code B P58/P59 refused an unproven player-to-BasicCache QuickTransfer branch.");
 		return false;
 	}
 	bool bHasP24CreatedIdentity = false;
@@ -10095,8 +11760,8 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 	}
 
 	// P18 admits only a revealed spatial parent originating at this exact
-	// BasicCache root.  Its P17 child is never an independently draggable
-	// item: the pre/post composite must retain that stable, empty child graph
+	// BasicCache root. Its P17 child is never an independently draggable
+	// item: the pre/post composite must retain that stable empty/P54-loaded graph
 	// whole, and a moved parent must land in an existing P6 container.
 	TMap<FGuid, ECodeBNormalContainerRevealState> RevealStates;
 	for (const FCodeBNormalContainerItemReveal& Reveal : Record->ItemRevealStates)
@@ -10104,6 +11769,7 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 		RevealStates.Add(Reveal.ItemId, Reveal.RevealState);
 	}
 	bool bMovedP18SpatialParent = false;
+	TSet<FGuid> P54LoadedChildIds;
 	FGuid MovedP18SpatialParentId;
 	int32 MovedP18SpatialSourceSlot = INDEX_NONE;
 	FGuid MovedP18SpatialTargetContainerId;
@@ -10124,10 +11790,14 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 		const FCodeBContainer* OriginalChild = Record->ContainerSnapshot.Containers.Find(ExpectedChildId);
 		const FCodeBItemInstance* FinalItem = CompositeSnapshot.Items.Find(OriginalItem.ItemId);
 		const FCodeBContainer* FinalChild = CompositeSnapshot.Containers.Find(ExpectedChildId);
-		if (!RevealState || *RevealState != ECodeBNormalContainerRevealState::Revealed
+		bool bP54Loaded = false;
+		FCodeBP51PreloadedChildSpec P54Spec;
+		if (!ValidateP18OrP54BasicCacheSpatialClosure(
+			*Record, Record->ContainerSnapshot, OriginalItem,
+			bP54Loaded, &P54Spec, Error)
+			|| !RevealState || *RevealState != ECodeBNormalContainerRevealState::Revealed
 			|| OriginalItem.ChildContainerId != ExpectedChildId || !OriginalChild || !FinalItem || !FinalChild
 			|| OriginalChild->Slots.Num() != CanonicalDefinition.ChildContainerCapacity
-			|| OriginalChild->Slots.ContainsByPredicate([](const FGuid& Value) { return Value.IsValid(); })
 			|| FinalItem->DefinitionId != OriginalItem.DefinitionId || FinalItem->Quantity != OriginalItem.Quantity
 			|| FinalItem->ChildContainerId != ExpectedChildId
 			|| FinalChild->ContainerType != OriginalChild->ContainerType
@@ -10136,6 +11806,7 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 			if (OutError) *OutError = TEXT("Code B P18 transfer refused a non-revealed, partial, cloned, or mutated spatial graph.");
 			return false;
 		}
+		if (bP54Loaded) P54LoadedChildIds.Add(P54Spec.ItemId);
 		if (FinalItem->ParentContainerId == Record->ContainerId)
 		{
 			if (FinalItem->SlotIndex != OriginalItem.SlotIndex)
@@ -10237,7 +11908,8 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 	{
 		if ((Reveal.RevealState == ECodeBNormalContainerRevealState::Hidden
 				|| Reveal.RevealState == ECodeBNormalContainerRevealState::Searching)
-			&& !TargetSnapshot.Items.Contains(Reveal.ItemId))
+			&& !TargetSnapshot.Items.Contains(Reveal.ItemId)
+			&& !P54LoadedChildIds.Contains(Reveal.ItemId))
 		{
 			if (OutError) *OutError = TEXT("Code B P10 dual transfer refused a Hidden or Searching item leaving its target.");
 			return false;
@@ -10290,7 +11962,7 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfe
 	++Record->Revision;
 	Candidate.LastCommittedUtc = CandidateSession.LastCommittedUtc;
 	++Candidate.PersistentRevision;
-	if (!Store.SaveRecord(Candidate, Error))
+	if (!Store.CommitAndPublishCandidate(Candidate, Error))
 	{
 		if (OutError) *OutError = Error;
 		return false;
@@ -10449,12 +12121,11 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedActiveRunInventorySnapshot(
 	++Session.SessionRevision;
 	Candidate.LastCommittedUtc = CommitUtc;
 	++Candidate.PersistentRevision;
-	if (!SaveRecord(Candidate, Error))
+	if (!CommitAndPublishCandidate(Candidate, Error))
 	{
 		if (OutError) *OutError = Error;
 		return false;
 	}
-	Record = MoveTemp(Candidate);
 	return true;
 }
 
@@ -10540,13 +12211,12 @@ bool FCodeBOutOfRaidProfileStore::UseMatchedActiveRunBoundQuickSlot(
 	++Session.SessionRevision;
 	Candidate.LastCommittedUtc = CommitUtc;
 	++Candidate.PersistentRevision;
-	if (!SaveRecord(Candidate, Error))
+	if (!CommitAndPublishCandidate(Candidate, Error))
 	{
 		if (OutError) *OutError = Error;
 		return false;
 	}
 	OutReceipt = Receipt;
-	Record = MoveTemp(Candidate);
 	return true;
 }
 
@@ -10606,12 +12276,11 @@ bool FCodeBOutOfRaidProfileStore::AcknowledgeMatchedActiveRunQuickUseReceipt(
 	++Session.SessionRevision;
 	Candidate.LastCommittedUtc = CommitUtc;
 	++Candidate.PersistentRevision;
-	if (!SaveRecord(Candidate, Error))
+	if (!CommitAndPublishCandidate(Candidate, Error))
 	{
 		if (OutError) *OutError = Error;
 		return false;
 	}
-	Record = MoveTemp(Candidate);
 	return true;
 }
 
@@ -10682,12 +12351,11 @@ bool FCodeBOutOfRaidProfileStore::BindMatchedActiveRunHotbarSlot(
 	Candidate.LastCommittedUtc = CommitUtc;
 	if (!BuildHotbarProjection(Session.HotbarBindings, Session.RepositorySnapshot,
 			true, true, Session.SessionRevision, OutProjection, Error)
-		|| !SaveRecord(Candidate, Error))
+		|| !CommitAndPublishCandidate(Candidate, Error))
 	{
 		if (OutError) *OutError = Error;
 		return false;
 	}
-	Record = MoveTemp(Candidate);
 	return true;
 }
 
@@ -10727,12 +12395,11 @@ bool FCodeBOutOfRaidProfileStore::UnbindMatchedActiveRunHotbarSlot(
 	Candidate.LastCommittedUtc = CommitUtc;
 	if (!BuildHotbarProjection(Session.HotbarBindings, Session.RepositorySnapshot,
 			true, true, Session.SessionRevision, OutProjection, Error)
-		|| !SaveRecord(Candidate, Error))
+		|| !CommitAndPublishCandidate(Candidate, Error))
 	{
 		if (OutError) *OutError = Error;
 		return false;
 	}
-	Record = MoveTemp(Candidate);
 	return true;
 }
 
@@ -10974,13 +12641,541 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedActiveRunWorldDropItem(
 	Candidate.LastCommittedUtc = CommitUtc;
 	++Candidate.PersistentRevision;
 	const FCodeBWorldDropProjection CommittedProjection = WorldDropProjection(Session, RecordValue);
-	if (!SaveRecord(Candidate, Error))
+	if (!CommitAndPublishCandidate(Candidate, Error))
 	{
 		if (OutError) *OutError = Error;
 		return false;
 	}
-	Record = MoveTemp(Candidate);
 	OutProjection = CommittedProjection;
+	return true;
+}
+
+bool FCodeBOutOfRaidProfileStore::SplitMatchedActiveRunWorldDropItem(
+	const FGuid& ExpectedRunInstanceId,
+	const FGuid& ExpectedWorldDropId,
+	const int32 ExpectedWorldDropOrdinal,
+	const int32 ExpectedWorldDropRecordRevision,
+	const int32 ExpectedP6SnapshotRevision,
+	const FGuid& ExpectedSourceItemId,
+	const int32 RequestedSplitQuantity,
+	const FName MapRoute,
+	const FTransform& FloorTransform,
+	FCodeBWorldDropProjection& OutSourceProjection,
+	FCodeBWorldDropProjection& OutNewProjection,
+	FString* OutError)
+{
+	OutSourceProjection = FCodeBWorldDropProjection();
+	OutNewProjection = FCodeBWorldDropProjection();
+	if (OutError) OutError->Reset();
+
+	FCodeBRunInventorySession Current;
+	FString Error;
+	if (!ExpectedRunInstanceId.IsValid() || !ExpectedWorldDropId.IsValid()
+		|| ExpectedWorldDropOrdinal < 1 || ExpectedWorldDropRecordRevision < 1
+		|| ExpectedP6SnapshotRevision < 1 || !ExpectedSourceItemId.IsValid()
+		|| RequestedSplitQuantity < 1 || MapRoute.IsNone()
+		|| !IsFiniteWorldDropTransform(FloorTransform)
+		|| !OpenMatchedActiveRunInventorySession(ExpectedRunInstanceId, Current, &Error))
+	{
+		if (OutError) *OutError = Error.IsEmpty()
+			? TEXT("Code B P70 requires one exact opened WorldDrop split request and legal floor placement.")
+			: Error;
+		return false;
+	}
+	if (Current.RepositorySnapshot.Revision != ExpectedP6SnapshotRevision
+		|| Record.PersistentRevision == MAX_int32 || Current.SessionRevision == MAX_int32
+		|| Current.NextWorldDropOrdinal < 1 || Current.NextWorldDropOrdinal == MAX_int32)
+	{
+		if (OutError) *OutError = TEXT("Code B P70 refused a stale or exhausted P6 session.");
+		return false;
+	}
+
+	const int32 SourceRecordIndex = Current.WorldDrops.IndexOfByPredicate(
+		[&ExpectedWorldDropId](const FCodeBWorldDropRecord& Value)
+		{
+			return Value.WorldDropId == ExpectedWorldDropId;
+		});
+	if (!Current.WorldDrops.IsValidIndex(SourceRecordIndex))
+	{
+		if (OutError) *OutError = TEXT("Code B P70 could not resolve the exact source WorldDrop record.");
+		return false;
+	}
+	const FCodeBWorldDropRecord SourceRecord = Current.WorldDrops[SourceRecordIndex];
+	const FCodeBContainer* SourceContainer =
+		Current.RepositorySnapshot.Containers.Find(SourceRecord.WorldContainerId);
+	const FCodeBItemInstance* SourceItem =
+		Current.RepositorySnapshot.Items.Find(SourceRecord.ItemId);
+	const FCodeBItemDefinition* SourceDefinition = SourceItem
+		? Current.RepositorySnapshot.Definitions.Find(SourceItem->DefinitionId) : nullptr;
+	FCodeBItemDefinition CanonicalDefinition;
+	if (SourceRecord.OwnerId != Current.OwnerId
+		|| SourceRecord.RunInstanceId != Current.RunInstanceId
+		|| SourceRecord.Ordinal != ExpectedWorldDropOrdinal
+		|| SourceRecord.RecordRevision != ExpectedWorldDropRecordRevision
+		|| SourceRecord.ActionState != ECodeBWorldDropActionState::Available
+		|| SourceRecord.ItemId != ExpectedSourceItemId
+		|| SourceRecord.MapRoute != MapRoute
+		|| SourceRecord.SpatialChildContainerId.IsValid()
+		|| !SourceContainer || SourceContainer->ContainerType != FName(TEXT("WorldDrop"))
+		|| SourceContainer->IsEquipment() || SourceContainer->Slots.Num() != 1
+		|| SourceContainer->Slots[0] != ExpectedSourceItemId
+		|| !SourceItem || SourceItem->ParentContainerId != SourceRecord.WorldContainerId
+		|| SourceItem->SlotIndex != 0 || SourceItem->Quantity <= RequestedSplitQuantity
+		|| !IsP26SimpleStack(Current, *SourceItem) || !SourceDefinition
+		|| !BuildCanonicalCodeBItemDefinition(SourceItem->DefinitionId, CanonicalDefinition, Error)
+		|| !(*SourceDefinition == CanonicalDefinition))
+	{
+		if (OutError) *OutError = Error.IsEmpty()
+			? TEXT("Code B P70 requires the current exact canonical P31 simple stack and 1 <= N < quantity.")
+			: Error;
+		return false;
+	}
+	if (SourceRecord.RecordRevision == MAX_int32)
+	{
+		if (OutError) *OutError = TEXT("Code B P70 source WorldDrop record revision is exhausted.");
+		return false;
+	}
+
+	const int32 NewOrdinal = Current.NextWorldDropOrdinal;
+	const FGuid NewWorldDropId = WorldDropGuid(Current.OwnerId, Current.RunInstanceId, NewOrdinal);
+	const FGuid NewWorldContainerId = WorldDropContainerGuid(NewWorldDropId);
+	if (!NewWorldDropId.IsValid() || !NewWorldContainerId.IsValid()
+		|| Current.RepositorySnapshot.Containers.Contains(NewWorldContainerId)
+		|| Current.WorldDrops.ContainsByPredicate(
+			[&NewWorldDropId, NewOrdinal](const FCodeBWorldDropRecord& Value)
+			{
+				return Value.WorldDropId == NewWorldDropId || Value.Ordinal == NewOrdinal;
+			}))
+	{
+		if (OutError) *OutError = TEXT("Code B P70 refused a collided derived P31 identity.");
+		return false;
+	}
+
+	FCodeBRepository Repository;
+	if (!Repository.LoadPersistedSnapshot(Current.RepositorySnapshot, &Error)
+		|| !Repository.CreateContainer(FName(TEXT("WorldDrop")), 1,
+			ECodeBContainerKind::Storage, ECodeBEquipSlot::None,
+			&Error, NewWorldContainerId).IsValid())
+	{
+		if (OutError) *OutError = Error;
+		return false;
+	}
+	FCodeBTransactionRequest Split;
+	Split.TransactionId = FGuid::NewGuid();
+	Split.Operation = ECodeBOperation::Split;
+	Split.ItemId = ExpectedSourceItemId;
+	Split.SourceContainerId = SourceRecord.WorldContainerId;
+	Split.SourceSlot = 0;
+	Split.TargetContainerId = NewWorldContainerId;
+	Split.TargetSlot = 0;
+	Split.Quantity = RequestedSplitQuantity;
+	Split.ExpectedRevision = Repository.GetRevision();
+	const FCodeBTransactionResult Transaction = Repository.ExecuteTransaction(Split);
+	if (!Transaction.IsSuccess())
+	{
+		if (OutError) *OutError = TEXT("Code B P70 exact P1 WorldDrop-to-WorldDrop Split(N) was rejected.");
+		return false;
+	}
+
+	const FCodeBSnapshot AcceptedSnapshot = Repository.CaptureSnapshot();
+	const FCodeBContainer* AcceptedSourceContainer =
+		AcceptedSnapshot.Containers.Find(SourceRecord.WorldContainerId);
+	const FCodeBContainer* AcceptedNewContainer =
+		AcceptedSnapshot.Containers.Find(NewWorldContainerId);
+	const FCodeBItemInstance* AcceptedSourceItem =
+		AcceptedSnapshot.Items.Find(ExpectedSourceItemId);
+	const FCodeBItemInstance* AcceptedNewItem =
+		AcceptedSnapshot.Items.Find(Transaction.CreatedItemId);
+	FCodeBItemInstance ExpectedSourceRemainder = *SourceItem;
+	ExpectedSourceRemainder.Quantity -= RequestedSplitQuantity;
+	FCodeBItemInstance ExpectedNewItem = *SourceItem;
+	ExpectedNewItem.ItemId = Transaction.CreatedItemId;
+	ExpectedNewItem.Quantity = RequestedSplitQuantity;
+	ExpectedNewItem.ParentContainerId = NewWorldContainerId;
+	ExpectedNewItem.SlotIndex = 0;
+	bool bDefinitionsUnchanged = AcceptedSnapshot.Definitions.Num()
+		== Current.RepositorySnapshot.Definitions.Num();
+	for (const TPair<FName, FCodeBItemDefinition>& Pair : Current.RepositorySnapshot.Definitions)
+	{
+		const FCodeBItemDefinition* AcceptedDefinition =
+			AcceptedSnapshot.Definitions.Find(Pair.Key);
+		bDefinitionsUnchanged = bDefinitionsUnchanged
+			&& AcceptedDefinition && *AcceptedDefinition == Pair.Value;
+	}
+	if (!Transaction.CreatedItemId.IsValid() || Transaction.CreatedItemId == ExpectedSourceItemId
+		|| !AcceptedSourceContainer || !(*AcceptedSourceContainer == *SourceContainer)
+		|| !AcceptedNewContainer || AcceptedNewContainer->ContainerType != FName(TEXT("WorldDrop"))
+		|| AcceptedNewContainer->IsEquipment() || AcceptedNewContainer->Slots.Num() != 1
+		|| AcceptedNewContainer->Slots[0] != Transaction.CreatedItemId
+		|| !AcceptedSourceItem || !(*AcceptedSourceItem == ExpectedSourceRemainder)
+		|| !AcceptedNewItem || !(*AcceptedNewItem == ExpectedNewItem)
+		|| AcceptedSourceItem->Quantity + AcceptedNewItem->Quantity != SourceItem->Quantity
+		|| !bDefinitionsUnchanged
+		|| AcceptedSnapshot.Containers.Num() != Current.RepositorySnapshot.Containers.Num() + 1
+		|| AcceptedSnapshot.Items.Num() != Current.RepositorySnapshot.Items.Num() + 1)
+	{
+		if (OutError) *OutError = TEXT("Code B P70 accepted split did not preserve the source identity/remainder and exact independent new root.");
+		return false;
+	}
+	for (int32 DropIndex = 0; DropIndex < Current.WorldDrops.Num(); ++DropIndex)
+	{
+		if (DropIndex == SourceRecordIndex) continue;
+		if (!IsWorldDropClosureUnchanged(
+			Current.RepositorySnapshot, AcceptedSnapshot, Current.WorldDrops[DropIndex]))
+		{
+			if (OutError) *OutError = TEXT("Code B P70 candidate changed an unrelated WorldDrop closure.");
+			return false;
+		}
+	}
+
+	// Replay the exact container derivation and P1 Split(N). The transaction may
+	// allocate a different fresh item GUID, so remap only that created identity
+	// before requiring byte-for-byte snapshot equality.
+	FCodeBRepository ReplayRepository;
+	FCodeBTransactionResult ReplayTransaction;
+	FCodeBSnapshot ReplaySnapshot;
+	bool bReplayMatches = ReplayRepository.LoadPersistedSnapshot(
+		Current.RepositorySnapshot, &Error)
+		&& ReplayRepository.CreateContainer(FName(TEXT("WorldDrop")), 1,
+			ECodeBContainerKind::Storage, ECodeBEquipSlot::None,
+			&Error, NewWorldContainerId).IsValid();
+	if (bReplayMatches)
+	{
+		ReplayTransaction = ReplayRepository.ExecuteTransaction(Split);
+		bReplayMatches = ReplayTransaction.IsSuccess();
+	}
+	if (bReplayMatches)
+	{
+		ReplaySnapshot = ReplayRepository.CaptureSnapshot();
+		if (ReplayTransaction.CreatedItemId != Transaction.CreatedItemId)
+		{
+			FCodeBItemInstance* ReplayCreated =
+				ReplaySnapshot.Items.Find(ReplayTransaction.CreatedItemId);
+			FCodeBContainer* ReplayWorldContainer =
+				ReplaySnapshot.Containers.Find(NewWorldContainerId);
+			if (!ReplayCreated || !ReplayWorldContainer || ReplayWorldContainer->Slots.Num() != 1
+				|| ReplayWorldContainer->Slots[0] != ReplayTransaction.CreatedItemId)
+			{
+				bReplayMatches = false;
+			}
+			else
+			{
+				FCodeBItemInstance RemappedReplayItem = *ReplayCreated;
+				ReplaySnapshot.Items.Remove(ReplayTransaction.CreatedItemId);
+				RemappedReplayItem.ItemId = Transaction.CreatedItemId;
+				ReplaySnapshot.Items.Add(Transaction.CreatedItemId, MoveTemp(RemappedReplayItem));
+				ReplayWorldContainer = ReplaySnapshot.Containers.Find(NewWorldContainerId);
+				ReplayWorldContainer->Slots[0] = Transaction.CreatedItemId;
+			}
+		}
+		bReplayMatches = bReplayMatches && ReplaySnapshot == AcceptedSnapshot;
+	}
+	if (!bReplayMatches)
+	{
+		if (OutError) *OutError = TEXT("Code B P70 candidate differs from its replayed P1 Split(N).");
+		return false;
+	}
+
+	FCodeBOutOfRaidInventoryRecord Candidate = Record;
+	FCodeBRunInventorySession& CandidateSession = Candidate.ActiveRunInventorySession;
+	CandidateSession.RepositorySnapshot = AcceptedSnapshot;
+	FCodeBWorldDropRecord* CandidateSource = CandidateSession.WorldDrops.FindByPredicate(
+		[&ExpectedWorldDropId](const FCodeBWorldDropRecord& Value)
+		{
+			return Value.WorldDropId == ExpectedWorldDropId;
+		});
+	if (!CandidateSource || CandidateSource->Ordinal != SourceRecord.Ordinal
+		|| CandidateSource->WorldContainerId != SourceRecord.WorldContainerId
+		|| CandidateSource->ItemId != SourceRecord.ItemId
+		|| CandidateSource->MapRoute != SourceRecord.MapRoute
+		|| !CandidateSource->FloorTransform.Equals(SourceRecord.FloorTransform)
+		|| CandidateSource->Provenance != SourceRecord.Provenance)
+	{
+		if (OutError) *OutError = TEXT("Code B P70 candidate lost immutable source record provenance or placement.");
+		return false;
+	}
+	++CandidateSource->RecordRevision;
+	FCodeBWorldDropRecord& NewDrop = CandidateSession.WorldDrops.AddDefaulted_GetRef();
+	NewDrop.OwnerId = CandidateSession.OwnerId;
+	NewDrop.RunInstanceId = CandidateSession.RunInstanceId;
+	NewDrop.WorldDropId = NewWorldDropId;
+	NewDrop.Ordinal = NewOrdinal;
+	NewDrop.WorldContainerId = NewWorldContainerId;
+	NewDrop.ItemId = Transaction.CreatedItemId;
+	NewDrop.SpatialChildContainerId.Invalidate();
+	NewDrop.MapRoute = MapRoute;
+	NewDrop.FloorTransform = FloorTransform;
+	NewDrop.ActionState = ECodeBWorldDropActionState::Available;
+	NewDrop.RecordRevision = 1;
+	NewDrop.Provenance = TEXT("P70.AcceptedGroundDrop.WorldSimpleSplit");
+	++CandidateSession.NextWorldDropOrdinal;
+	SortWorldDropRegistry(CandidateSession.WorldDrops);
+	if (!ReconcileHotbarBindings(
+			CandidateSession.HotbarBindings, CandidateSession.RepositorySnapshot,
+			CandidateSession.Layout, Error)
+		|| !FreezeRunInventoryPayloadReceipt(CandidateSession, Error)
+		|| !ValidateRunInventorySession(CandidateSession, Error))
+	{
+		if (OutError) *OutError = Error;
+		return false;
+	}
+
+	const FString CommitUtc = UtcNow();
+	CandidateSession.LastCommittedUtc = CommitUtc;
+	++CandidateSession.SessionRevision;
+	Candidate.LastCommittedUtc = CommitUtc;
+	++Candidate.PersistentRevision;
+	CandidateSource = CandidateSession.WorldDrops.FindByPredicate(
+		[&ExpectedWorldDropId](const FCodeBWorldDropRecord& Value)
+		{
+			return Value.WorldDropId == ExpectedWorldDropId;
+		});
+	const FCodeBWorldDropRecord* CandidateNew = CandidateSession.WorldDrops.FindByPredicate(
+		[&NewWorldDropId](const FCodeBWorldDropRecord& Value)
+		{
+			return Value.WorldDropId == NewWorldDropId;
+		});
+	if (!CandidateSource || !CandidateNew)
+	{
+		if (OutError) *OutError = TEXT("Code B P70 candidate lost one of its exact retained/new records.");
+		return false;
+	}
+	const FCodeBWorldDropProjection SourceProjection =
+		WorldDropProjection(CandidateSession, *CandidateSource);
+	const FCodeBWorldDropProjection NewProjection =
+		WorldDropProjection(CandidateSession, *CandidateNew);
+	if (!CommitAndPublishCandidate(Candidate, Error))
+	{
+		if (OutError) *OutError = Error;
+		return false;
+	}
+	OutSourceProjection = SourceProjection;
+	OutNewProjection = NewProjection;
+	return true;
+}
+
+bool FCodeBOutOfRaidProfileStore::RepositionMatchedActiveRunWorldDropItem(
+	const FGuid& ExpectedRunInstanceId,
+	const FGuid& ExpectedWorldDropId,
+	const int32 ExpectedWorldDropOrdinal,
+	const int32 ExpectedWorldDropRecordRevision,
+	const int32 ExpectedP6SnapshotRevision,
+	const FGuid& ExpectedSourceItemId,
+	const FName ExpectedDefinitionId,
+	const FName ExpectedStackKey,
+	const int32 ExpectedQuantity,
+	const int32 ExpectedMaxStack,
+	const int32 ExpectedLevel,
+	const int32 ExpectedQuality,
+	const int32 ExpectedRandomSeed,
+	const FString& ExpectedLegacyAffixDigest,
+	const FName MapRoute,
+	const FTransform& ExpectedOldFloorTransform,
+	const FTransform& NewFloorTransform,
+	FCodeBWorldDropProjection& OutProjection,
+	FString* OutError)
+{
+	OutProjection = FCodeBWorldDropProjection();
+	if (OutError) OutError->Reset();
+
+	FCodeBRunInventorySession Current;
+	FString Error;
+	if (!ExpectedRunInstanceId.IsValid() || !ExpectedWorldDropId.IsValid()
+		|| ExpectedWorldDropOrdinal < 1 || ExpectedWorldDropRecordRevision < 1
+		|| ExpectedP6SnapshotRevision < 1 || !ExpectedSourceItemId.IsValid()
+		|| ExpectedDefinitionId.IsNone() || ExpectedStackKey != ExpectedDefinitionId
+		|| ExpectedQuantity < 1 || ExpectedMaxStack <= 1 || ExpectedLevel < 0
+		|| MapRoute.IsNone() || !IsFiniteWorldDropTransform(ExpectedOldFloorTransform)
+		|| !IsFiniteWorldDropTransform(NewFloorTransform)
+		|| !OpenMatchedActiveRunInventorySession(ExpectedRunInstanceId, Current, &Error))
+	{
+		if (OutError) *OutError = Error.IsEmpty()
+			? TEXT("Code B P71 requires one exact WorldDrop record and two legal frozen placements.")
+			: Error;
+		return false;
+	}
+	if (Current.RepositorySnapshot.Revision != ExpectedP6SnapshotRevision
+		|| Record.PersistentRevision == MAX_int32 || Current.SessionRevision == MAX_int32)
+	{
+		if (OutError) *OutError = TEXT("Code B P71 refused a stale or exhausted P6 session.");
+		return false;
+	}
+
+	const int32 SourceRecordIndex = Current.WorldDrops.IndexOfByPredicate(
+		[&ExpectedWorldDropId](const FCodeBWorldDropRecord& Value)
+		{
+			return Value.WorldDropId == ExpectedWorldDropId;
+		});
+	if (!Current.WorldDrops.IsValidIndex(SourceRecordIndex))
+	{
+		if (OutError) *OutError = TEXT("Code B P71 could not resolve the exact source WorldDrop record.");
+		return false;
+	}
+	const FCodeBWorldDropRecord SourceRecord = Current.WorldDrops[SourceRecordIndex];
+	const FCodeBContainer* SourceContainer =
+		Current.RepositorySnapshot.Containers.Find(SourceRecord.WorldContainerId);
+	const FCodeBItemInstance* SourceItem =
+		Current.RepositorySnapshot.Items.Find(SourceRecord.ItemId);
+	const FCodeBItemDefinition* SourceDefinition = SourceItem
+		? Current.RepositorySnapshot.Definitions.Find(SourceItem->DefinitionId) : nullptr;
+	FCodeBItemDefinition CanonicalDefinition;
+	if (SourceRecord.OwnerId != Current.OwnerId
+		|| SourceRecord.RunInstanceId != Current.RunInstanceId
+		|| SourceRecord.Ordinal != ExpectedWorldDropOrdinal
+		|| SourceRecord.RecordRevision != ExpectedWorldDropRecordRevision
+		|| SourceRecord.ActionState != ECodeBWorldDropActionState::Available
+		|| SourceRecord.ItemId != ExpectedSourceItemId
+		|| SourceRecord.MapRoute != MapRoute
+		|| !SourceRecord.FloorTransform.Equals(ExpectedOldFloorTransform)
+		|| SourceRecord.SpatialChildContainerId.IsValid()
+		|| !SourceContainer || SourceContainer->ContainerType != FName(TEXT("WorldDrop"))
+		|| SourceContainer->IsEquipment() || SourceContainer->Slots.Num() != 1
+		|| SourceContainer->Slots[0] != ExpectedSourceItemId
+		|| !SourceItem || SourceItem->ParentContainerId != SourceRecord.WorldContainerId
+		|| SourceItem->SlotIndex != 0 || SourceItem->DefinitionId != ExpectedDefinitionId
+		|| SourceItem->Quantity != ExpectedQuantity || SourceItem->Level != ExpectedLevel
+		|| SourceItem->Quality != ExpectedQuality || SourceItem->RandomSeed != ExpectedRandomSeed
+		|| SourceItem->LegacyAffixDigest != ExpectedLegacyAffixDigest
+		|| !IsP26SimpleStack(Current, *SourceItem) || !SourceDefinition
+		|| !SourceDefinition->bStackable || SourceDefinition->MaxStack != ExpectedMaxStack
+		|| !BuildCanonicalCodeBItemDefinition(SourceItem->DefinitionId, CanonicalDefinition, Error)
+		|| !(*SourceDefinition == CanonicalDefinition))
+	{
+		if (OutError) *OutError = Error.IsEmpty()
+			? TEXT("Code B P71 requires the exact available canonical P31 simple root and old placement.")
+			: Error;
+		return false;
+	}
+	if (SourceRecord.RecordRevision == MAX_int32)
+	{
+		if (OutError) *OutError = TEXT("Code B P71 source WorldDrop record revision is exhausted.");
+		return false;
+	}
+	if (SourceRecord.FloorTransform.Equals(NewFloorTransform))
+	{
+		if (OutError) *OutError = TEXT("Code B P71 normalized placement is unchanged; no durable write was performed.");
+		return false;
+	}
+
+	FCodeBOutOfRaidInventoryRecord Candidate = Record;
+	FCodeBRunInventorySession& CandidateSession = Candidate.ActiveRunInventorySession;
+	FCodeBWorldDropRecord* CandidateSource = CandidateSession.WorldDrops.FindByPredicate(
+		[&ExpectedWorldDropId](const FCodeBWorldDropRecord& Value)
+		{
+			return Value.WorldDropId == ExpectedWorldDropId;
+		});
+	if (!CandidateSource || CandidateSession.RepositorySnapshot != Current.RepositorySnapshot
+		|| CandidateSession.WorldDrops.Num() != Current.WorldDrops.Num()
+		|| CandidateSession.NextWorldDropOrdinal != Current.NextWorldDropOrdinal
+		|| CandidateSource->Ordinal != SourceRecord.Ordinal
+		|| CandidateSource->WorldContainerId != SourceRecord.WorldContainerId
+		|| CandidateSource->ItemId != SourceRecord.ItemId
+		|| CandidateSource->SpatialChildContainerId != SourceRecord.SpatialChildContainerId
+		|| CandidateSource->MapRoute != SourceRecord.MapRoute
+		|| CandidateSource->ActionState != SourceRecord.ActionState
+		|| CandidateSource->Provenance != SourceRecord.Provenance
+		|| !CandidateSource->FloorTransform.Equals(SourceRecord.FloorTransform))
+	{
+		if (OutError) *OutError = TEXT("Code B P71 candidate did not begin at the exact durable P31 record.");
+		return false;
+	}
+	CandidateSource->FloorTransform = NewFloorTransform;
+	++CandidateSource->RecordRevision;
+	SortWorldDropRegistry(CandidateSession.WorldDrops);
+	if (CandidateSession.RepositorySnapshot != Current.RepositorySnapshot
+		|| CandidateSession.WorldDrops.Num() != Current.WorldDrops.Num()
+		|| CandidateSession.NextWorldDropOrdinal != Current.NextWorldDropOrdinal
+		|| !ValidateRunInventorySession(CandidateSession, Error))
+	{
+		if (OutError) *OutError = Error.IsEmpty()
+			? TEXT("Code B P71 candidate changed the P1 graph, registry cardinality, or ordinal authority.")
+			: Error;
+		return false;
+	}
+	for (int32 RecordIndex = 0; RecordIndex < Current.WorldDrops.Num(); ++RecordIndex)
+	{
+		const FCodeBWorldDropRecord& BeforeRecord = Current.WorldDrops[RecordIndex];
+		const FCodeBWorldDropRecord* AfterRecord = CandidateSession.WorldDrops.FindByPredicate(
+			[&BeforeRecord](const FCodeBWorldDropRecord& Value)
+			{
+				return Value.WorldDropId == BeforeRecord.WorldDropId;
+			});
+		if (!AfterRecord)
+		{
+			if (OutError) *OutError = TEXT("Code B P71 candidate lost a P31 Registry member.");
+			return false;
+		}
+		if (BeforeRecord.WorldDropId == ExpectedWorldDropId)
+		{
+			if (AfterRecord->OwnerId != BeforeRecord.OwnerId
+				|| AfterRecord->RunInstanceId != BeforeRecord.RunInstanceId
+				|| AfterRecord->Ordinal != BeforeRecord.Ordinal
+				|| AfterRecord->WorldContainerId != BeforeRecord.WorldContainerId
+				|| AfterRecord->ItemId != BeforeRecord.ItemId
+				|| AfterRecord->SpatialChildContainerId != BeforeRecord.SpatialChildContainerId
+				|| AfterRecord->MapRoute != BeforeRecord.MapRoute
+				|| AfterRecord->ActionState != BeforeRecord.ActionState
+				|| AfterRecord->Provenance != BeforeRecord.Provenance
+				|| AfterRecord->RecordRevision != BeforeRecord.RecordRevision + 1
+				|| !AfterRecord->FloorTransform.Equals(NewFloorTransform))
+			{
+				if (OutError) *OutError = TEXT("Code B P71 source record delta exceeded placement plus revision.");
+				return false;
+			}
+		}
+		else if (AfterRecord->OwnerId != BeforeRecord.OwnerId
+			|| AfterRecord->RunInstanceId != BeforeRecord.RunInstanceId
+			|| AfterRecord->WorldDropId != BeforeRecord.WorldDropId
+			|| AfterRecord->Ordinal != BeforeRecord.Ordinal
+			|| AfterRecord->WorldContainerId != BeforeRecord.WorldContainerId
+			|| AfterRecord->ItemId != BeforeRecord.ItemId
+			|| AfterRecord->SpatialChildContainerId != BeforeRecord.SpatialChildContainerId
+			|| AfterRecord->MapRoute != BeforeRecord.MapRoute
+			|| !AfterRecord->FloorTransform.Equals(BeforeRecord.FloorTransform)
+			|| AfterRecord->ActionState != BeforeRecord.ActionState
+			|| AfterRecord->RecordRevision != BeforeRecord.RecordRevision
+			|| AfterRecord->Provenance != BeforeRecord.Provenance
+			|| !IsWorldDropClosureUnchanged(
+				Current.RepositorySnapshot, CandidateSession.RepositorySnapshot, BeforeRecord))
+		{
+			if (OutError) *OutError = TEXT("Code B P71 candidate changed an unrelated WorldDrop record or closure.");
+			return false;
+		}
+	}
+
+	const FString CommitUtc = UtcNow();
+	CandidateSession.LastCommittedUtc = CommitUtc;
+	++CandidateSession.SessionRevision;
+	Candidate.LastCommittedUtc = CommitUtc;
+	++Candidate.PersistentRevision;
+	CandidateSource = CandidateSession.WorldDrops.FindByPredicate(
+		[&ExpectedWorldDropId](const FCodeBWorldDropRecord& Value)
+		{
+			return Value.WorldDropId == ExpectedWorldDropId;
+		});
+	if (!CandidateSource || !ValidateRunInventorySession(CandidateSession, Error))
+	{
+		if (OutError) *OutError = Error.IsEmpty()
+			? TEXT("Code B P71 final Owner replacement failed P31 validation.") : Error;
+		return false;
+	}
+	if (CandidateSession.RepositorySnapshot != Current.RepositorySnapshot
+		|| CandidateSession.WorldDrops.Num() != Current.WorldDrops.Num()
+		|| CandidateSession.NextWorldDropOrdinal != Current.NextWorldDropOrdinal
+		|| CandidateSource->RecordRevision != SourceRecord.RecordRevision + 1
+		|| !CandidateSource->FloorTransform.Equals(NewFloorTransform)
+		|| CandidateSource->Provenance != SourceRecord.Provenance)
+	{
+		if (OutError) *OutError = TEXT("Code B P71 candidate did not preserve the exact record graph and new placement.");
+		return false;
+	}
+	const FCodeBWorldDropProjection CandidateProjection = WorldDropProjection(CandidateSession, *CandidateSource);
+	if (!CommitAndPublishCandidate(Candidate, Error))
+	{
+		if (OutError) *OutError = Error;
+		return false;
+	}
+	OutProjection = CandidateProjection;
 	return true;
 }
 
@@ -10993,6 +13188,9 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerWorldDropItem(
 	const int32 ExpectedP6SnapshotRevision,
 	const int32 ExpectedNormalContainerRevision,
 	const FCodeBP49NormalContainerSimpleStackGroundDropProof& SourceProof,
+	const int32 RequestedSplitQuantity,
+	const bool bPlayerDepositedSource,
+	const bool bPlayerDepositedStandardSource,
 	const FName MapRoute,
 	const FTransform& FloorTransform,
 	FCodeBNormalContainerProjection& OutNormalProjection,
@@ -11005,10 +13203,11 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerWorldDropItem(
 	if (!InOwnerId.IsValid() || !InRunInstanceId.IsValid() || !SearchTargetId.IsValid()
 		|| DefinitionId != FName(TEXT("CodeB.NormalContainer.BasicCache"))
 		|| ExpectedP6SnapshotRevision < 0 || ExpectedNormalContainerRevision < 1
+		|| RequestedSplitQuantity < 0
 		|| !SourceProof.HasSourceIdentity() || MapRoute.IsNone()
 		|| !IsFiniteWorldDropTransform(FloorTransform))
 	{
-		if (OutError) *OutError = TEXT("Code B P49 requires one exact BasicCache simple-stack source and legal frozen floor placement.");
+		if (OutError) *OutError = TEXT("Code B P49/P64/P65/P67 requires one exact BasicCache source and legal frozen floor placement.");
 		return false;
 	}
 
@@ -11017,7 +13216,7 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerWorldDropItem(
 	FString Error;
 	if (!Store.OpenMatchedActiveRunInventorySession(InRunInstanceId, PriorSession, &Error))
 	{
-		if (OutError) *OutError = TEXT("Code B P49 has no exact committed P6 session: ") + Error;
+		if (OutError) *OutError = TEXT("Code B P49/P64/P65/P67 has no exact committed P6 session: ") + Error;
 		return false;
 	}
 	FCodeBOutOfRaidInventoryRecord Candidate = Store.Record;
@@ -11041,7 +13240,7 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerWorldDropItem(
 		|| !ValidateWorldDrops(PriorSession, Error))
 	{
 		if (OutError) *OutError = Error.IsEmpty()
-			? TEXT("Code B P49 refused a stale, pending, terminal, or identity-mismatched P10/P6 source.")
+			? TEXT("Code B P49/P64/P65/P67 refused a stale, pending, terminal, or identity-mismatched P10/P6 source.")
 			: Error;
 		return false;
 	}
@@ -11061,8 +13260,55 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerWorldDropItem(
 	FCodeBItemDefinition CanonicalDefinition;
 	const int32 PriorCompositeRevision = FMath::Max(
 		PriorSession.RepositorySnapshot.Revision, NormalRecord->ContainerSnapshot.Revision);
-	const bool bOrdinaryMaterial = SourceProof.SourceDefinitionId == Fdemo_mapItemIds::SpiritDust
+	const bool bP49Definition = SourceProof.SourceDefinitionId == Fdemo_mapItemIds::SpiritDust
 		|| SourceProof.SourceDefinitionId == Fdemo_mapItemIds::IronShard;
+	bool bMaterializationClaimed = false;
+	const bool bMaterializationClaimResolved = !bPlayerDepositedSource
+		|| (SourceItem && ResolveNormalContainerMaterializationRootClaim(
+			*NormalRecord, SourceItem->ItemId, bMaterializationClaimed, Error));
+	const bool bCanonicalP49Source = !bPlayerDepositedSource && bP49Definition
+		&& BuildCanonicalCodeBItemDefinition(
+			SourceProof.SourceDefinitionId, CanonicalDefinition, Error)
+		&& SourceDefinition && *SourceDefinition == CanonicalDefinition
+		&& SourceDefinition->ItemType == ECodeBItemType::Material;
+	const bool bSplit = RequestedSplitQuantity > 0;
+	const bool bGenericP64Source = bPlayerDepositedSource && !bPlayerDepositedStandardSource
+		&& !bP49Definition
+		&& bMaterializationClaimResolved && !bMaterializationClaimed
+		&& SourceDefinition
+		&& SourceDefinition->ItemType == SourceProof.SourceItemType
+		&& SourceDefinition->EquipSlot == SourceProof.SourceEquipSlot
+		&& SourceDefinition->EquipSlot == ECodeBEquipSlot::None
+		&& SourceDefinition->ItemType != ECodeBItemType::Weapon
+		&& SourceDefinition->ItemType != ECodeBItemType::Armor
+		&& SourceDefinition->ItemType != ECodeBItemType::Accessory
+		&& SourceDefinition->ItemType != ECodeBItemType::SpatialItem
+		&& SourceDefinition->ItemType != ECodeBItemType::Backpack
+		&& SourceItem && SourceItem->Level == SourceProof.SourceLevel
+		&& SourceItem->Quality == SourceProof.SourceQuality
+		&& SourceItem->RandomSeed == SourceProof.SourceRandomSeed
+		&& SourceItem->LegacyAffixDigest == SourceProof.SourceLegacyAffixDigest;
+	const bool bStandardP65Source = bPlayerDepositedSource && bPlayerDepositedStandardSource
+		&& bMaterializationClaimResolved && !bMaterializationClaimed
+		&& BuildCanonicalCodeBItemDefinition(
+			SourceProof.SourceDefinitionId, CanonicalDefinition, Error)
+		&& SourceDefinition && *SourceDefinition == CanonicalDefinition
+		&& SourceDefinition->ItemType == SourceProof.SourceItemType
+		&& SourceDefinition->EquipSlot == SourceProof.SourceEquipSlot
+		&& ((SourceDefinition->ItemType == ECodeBItemType::Weapon
+				&& SourceDefinition->EquipSlot == ECodeBEquipSlot::Weapon)
+			|| (SourceDefinition->ItemType == ECodeBItemType::Armor
+				&& SourceDefinition->EquipSlot == ECodeBEquipSlot::Armor)
+			|| (SourceDefinition->ItemType == ECodeBItemType::Accessory
+				&& SourceDefinition->EquipSlot == ECodeBEquipSlot::Accessory))
+		&& !SourceDefinition->bStackable && SourceDefinition->MaxStack == 1
+		&& SourceDefinition->ChildContainerCapacity == 0
+		&& SourceDefinition->SpatialContainerSemantic == ECodeBSpatialContainerSemantic::None
+		&& SourceItem && SourceItem->Quantity == 1
+		&& SourceItem->Level == SourceProof.SourceLevel
+		&& SourceItem->Quality == SourceProof.SourceQuality
+		&& SourceItem->RandomSeed == SourceProof.SourceRandomSeed
+		&& SourceItem->LegacyAffixDigest == SourceProof.SourceLegacyAffixDigest;
 	if (SourceProof.OwnerId != InOwnerId
 		|| SourceProof.RunInstanceId != InRunInstanceId
 		|| SourceProof.SearchTargetId != SearchTargetId
@@ -11099,18 +13345,22 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerWorldDropItem(
 		|| SourceItem->ChildContainerId.IsValid()
 		|| SourceReveal->RevealState != ECodeBNormalContainerRevealState::Revealed
 		|| SourceProof.SourceStackKey != SourceProof.SourceDefinitionId
-		|| !bOrdinaryMaterial
-		|| !BuildCanonicalCodeBItemDefinition(SourceProof.SourceDefinitionId, CanonicalDefinition, Error)
-		|| !(*SourceDefinition == CanonicalDefinition)
-		|| SourceDefinition->ItemType != ECodeBItemType::Material
-		|| !SourceDefinition->bStackable || SourceDefinition->MaxStack <= 1
+		|| (!bCanonicalP49Source && !bGenericP64Source && !bStandardP65Source)
+		|| (bSplit && ((!bCanonicalP49Source && !bGenericP64Source)
+			|| bPlayerDepositedStandardSource || RequestedSplitQuantity >= SourceItem->Quantity))
+		|| (bStandardP65Source
+			? (SourceDefinition->bStackable || SourceDefinition->MaxStack != 1
+				|| SourceProof.SourceQuantity != 1 || SourceProof.SourceMaxStack != 1)
+			: (!SourceDefinition->bStackable || SourceDefinition->MaxStack <= 1))
 		|| SourceDefinition->MaxStack != SourceProof.SourceMaxStack
 		|| SourceDefinition->ChildContainerCapacity != 0
 		|| SourceDefinition->SpatialContainerSemantic != ECodeBSpatialContainerSemantic::None
-		|| SourceDefinition->EquipSlot != ECodeBEquipSlot::None)
+		|| (bStandardP65Source
+			? SourceDefinition->EquipSlot == ECodeBEquipSlot::None
+			: SourceDefinition->EquipSlot != ECodeBEquipSlot::None))
 	{
 		if (OutError) *OutError = Error.IsEmpty()
-			? TEXT("Code B P49 refused a non-Revealed, non-canonical, non-simple, or provenance-stale BasicCache source.")
+			? TEXT("Code B P49/P64/P65/P67 refused a claimed, non-Revealed, family-invalid, or provenance-stale BasicCache source.")
 			: Error;
 		return false;
 	}
@@ -11127,7 +13377,7 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerWorldDropItem(
 				return Value.WorldDropId == WorldDropId || Value.Ordinal == NewOrdinal;
 			}))
 	{
-		if (OutError) *OutError = TEXT("Code B P49 refused a collided derived P31 record identity.");
+		if (OutError) *OutError = TEXT("Code B P49/P64/P65/P67 refused a collided derived P31 record identity.");
 		return false;
 	}
 
@@ -11148,40 +13398,59 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerWorldDropItem(
 	}
 	FCodeBTransactionRequest Move;
 	Move.TransactionId = FGuid::NewGuid();
-	Move.Operation = ECodeBOperation::Move;
+	Move.Operation = bSplit ? ECodeBOperation::Split : ECodeBOperation::Move;
 	Move.ItemId = SourceProof.SourceItemId;
 	Move.SourceContainerId = SourceProof.SourceContainerId;
 	Move.SourceSlot = SourceProof.SourceSlot;
 	Move.TargetContainerId = WorldContainerId;
 	Move.TargetSlot = 0;
-	Move.Quantity = 0;
+	Move.Quantity = bSplit ? RequestedSplitQuantity : (bStandardP65Source ? 1 : 0);
 	Move.ExpectedRevision = Repository.GetRevision();
 	const FCodeBTransactionResult Transaction = Repository.ExecuteTransaction(Move);
 	if (!Transaction.IsSuccess())
 	{
-		if (OutError) *OutError = TEXT("Code B P49 exact P1 BasicCache-to-world whole-stack Move was rejected.");
+		if (OutError) *OutError = bSplit
+			? (bGenericP64Source
+				? TEXT("Code B P68 exact P1 BasicCache player-simple-to-world Split(N) was rejected.")
+				: TEXT("Code B P67 exact P1 BasicCache-to-world Split(N) was rejected."))
+			: TEXT("Code B P49/P64/P65 exact P1 BasicCache-to-world whole-root Move was rejected.");
 		return false;
 	}
 	const FCodeBSnapshot AcceptedComposite = Repository.CaptureSnapshot();
+	const FGuid AcceptedWorldItemId = bSplit ? Transaction.CreatedItemId : SourceProof.SourceItemId;
 	const FCodeBItemInstance* AcceptedWorldRoot =
-		AcceptedComposite.Items.Find(SourceProof.SourceItemId);
+		AcceptedComposite.Items.Find(AcceptedWorldItemId);
 	const FCodeBContainer* AcceptedWorldContainer =
 		AcceptedComposite.Containers.Find(WorldContainerId);
 	FCodeBItemInstance ExpectedWorldRoot = *SourceItem;
+	ExpectedWorldRoot.ItemId = AcceptedWorldItemId;
 	ExpectedWorldRoot.ParentContainerId = WorldContainerId;
 	ExpectedWorldRoot.SlotIndex = 0;
+	ExpectedWorldRoot.Quantity = bSplit ? RequestedSplitQuantity : SourceItem->Quantity;
 	FCodeBContainer ExpectedSourceContainer = *SourceContainer;
-	ExpectedSourceContainer.Slots[SourceProof.SourceSlot].Invalidate();
+	if (!bSplit) ExpectedSourceContainer.Slots[SourceProof.SourceSlot].Invalidate();
 	const FCodeBContainer* AcceptedSourceContainer =
 		AcceptedComposite.Containers.Find(SourceProof.SourceContainerId);
-	if (Transaction.CreatedItemId.IsValid() || !AcceptedWorldRoot || !AcceptedWorldContainer
+	const FCodeBItemInstance* AcceptedSourceItem =
+		AcceptedComposite.Items.Find(SourceProof.SourceItemId);
+	FCodeBItemInstance ExpectedSourceItem = *SourceItem;
+	ExpectedSourceItem.Quantity -= RequestedSplitQuantity;
+	if ((bSplit ? (!Transaction.CreatedItemId.IsValid()
+			|| Transaction.CreatedItemId == SourceProof.SourceItemId)
+			: Transaction.CreatedItemId.IsValid())
+		|| !AcceptedWorldRoot || !AcceptedWorldContainer
 		|| !AcceptedSourceContainer || !(*AcceptedWorldRoot == ExpectedWorldRoot)
 		|| !(*AcceptedSourceContainer == ExpectedSourceContainer)
+		|| (bSplit && (!AcceptedSourceItem || !(*AcceptedSourceItem == ExpectedSourceItem)))
+		|| AcceptedComposite.Containers.Num() != PriorComposite.Containers.Num() + 1
+		|| AcceptedComposite.Items.Num() != PriorComposite.Items.Num() + (bSplit ? 1 : 0)
 		|| AcceptedWorldContainer->ContainerType != FName(TEXT("WorldDrop"))
 		|| AcceptedWorldContainer->IsEquipment() || AcceptedWorldContainer->Slots.Num() != 1
-		|| AcceptedWorldContainer->Slots[0] != SourceProof.SourceItemId)
+		|| AcceptedWorldContainer->Slots[0] != AcceptedWorldItemId)
 	{
-		if (OutError) *OutError = TEXT("Code B P49 accepted P1 result is not the same whole simple stack in WorldDrop slot 0.");
+		if (OutError) *OutError = bSplit
+			? TEXT("Code B P67 accepted P1 result did not preserve the source remainder and exact new split root.")
+			: TEXT("Code B P49 accepted P1 result is not the same whole simple stack in WorldDrop slot 0.");
 		return false;
 	}
 	for (const TPair<FGuid, FCodeBContainer>& Pair : PriorSession.RepositorySnapshot.Containers)
@@ -11233,13 +13502,45 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerWorldDropItem(
 	}
 
 	FCodeBRepository ReplayRepository;
-	if (!ReplayRepository.LoadPersistedSnapshot(PriorComposite, &Error)
-		|| !ReplayRepository.CreateContainer(FName(TEXT("WorldDrop")), 1, ECodeBContainerKind::Storage,
-			ECodeBEquipSlot::None, &Error, WorldContainerId).IsValid()
-		|| !ReplayRepository.ExecuteTransaction(Move).IsSuccess()
-		|| ReplayRepository.CaptureSnapshot() != AcceptedComposite)
+	FCodeBTransactionResult ReplayTransaction;
+	FCodeBSnapshot ReplaySnapshot;
+	bool bReplayMatches = ReplayRepository.LoadPersistedSnapshot(PriorComposite, &Error)
+		&& ReplayRepository.CreateContainer(FName(TEXT("WorldDrop")), 1, ECodeBContainerKind::Storage,
+			ECodeBEquipSlot::None, &Error, WorldContainerId).IsValid();
+	if (bReplayMatches)
 	{
-		if (OutError) *OutError = TEXT("Code B P49 candidate differs from its one replayed P1 whole-stack Move.");
+		ReplayTransaction = ReplayRepository.ExecuteTransaction(Move);
+		bReplayMatches = ReplayTransaction.IsSuccess();
+	}
+	if (bReplayMatches)
+	{
+		ReplaySnapshot = ReplayRepository.CaptureSnapshot();
+		if (bSplit && ReplayTransaction.CreatedItemId != AcceptedWorldItemId)
+		{
+			FCodeBItemInstance* ReplayCreated = ReplaySnapshot.Items.Find(ReplayTransaction.CreatedItemId);
+			FCodeBContainer* ReplayWorldContainer = ReplaySnapshot.Containers.Find(WorldContainerId);
+			if (!ReplayCreated || !ReplayWorldContainer || ReplayWorldContainer->Slots.Num() != 1
+				|| ReplayWorldContainer->Slots[0] != ReplayTransaction.CreatedItemId)
+			{
+				bReplayMatches = false;
+			}
+			else
+			{
+				FCodeBItemInstance RemappedReplayItem = *ReplayCreated;
+				ReplaySnapshot.Items.Remove(ReplayTransaction.CreatedItemId);
+				RemappedReplayItem.ItemId = AcceptedWorldItemId;
+				ReplaySnapshot.Items.Add(AcceptedWorldItemId, MoveTemp(RemappedReplayItem));
+				ReplayWorldContainer = ReplaySnapshot.Containers.Find(WorldContainerId);
+				ReplayWorldContainer->Slots[0] = AcceptedWorldItemId;
+			}
+		}
+		bReplayMatches = bReplayMatches && ReplaySnapshot == AcceptedComposite;
+	}
+	if (!bReplayMatches)
+	{
+		if (OutError) *OutError = bSplit
+			? TEXT("Code B P67 candidate differs from its one replayed P1 Split(N).")
+			: TEXT("Code B P49 candidate differs from its one replayed P1 whole-stack Move.");
 		return false;
 	}
 
@@ -11256,7 +13557,7 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerWorldDropItem(
 	}
 	for (const TPair<FGuid, FCodeBItemInstance>& Pair : NormalRecord->ContainerSnapshot.Items)
 	{
-		if (Pair.Key == SourceProof.SourceItemId) continue;
+		if (Pair.Key == SourceProof.SourceItemId && !bSplit) continue;
 		if (!AcceptedComposite.Items.Contains(Pair.Key))
 		{
 			if (OutError) *OutError = TEXT("Code B P49 lost an unrelated P9 item during partition.");
@@ -11331,13 +13632,21 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerWorldDropItem(
 	NewDrop.WorldDropId = WorldDropId;
 	NewDrop.Ordinal = NewOrdinal;
 	NewDrop.WorldContainerId = WorldContainerId;
-	NewDrop.ItemId = SourceProof.SourceItemId;
+	NewDrop.ItemId = AcceptedWorldItemId;
 	NewDrop.SpatialChildContainerId.Invalidate();
 	NewDrop.MapRoute = MapRoute;
 	NewDrop.FloorTransform = FloorTransform;
 	NewDrop.ActionState = ECodeBWorldDropActionState::Available;
 	NewDrop.RecordRevision = 1;
-	NewDrop.Provenance = TEXT("P49.AcceptedGroundDrop.BasicCacheOrdinarySimpleStack");
+	NewDrop.Provenance = bSplit
+		? (bGenericP64Source
+			? TEXT("P68.AcceptedGroundDrop.BasicCachePlayerSimpleSplit")
+			: TEXT("P67.AcceptedGroundDrop.BasicCacheMaterializedSimpleSplit"))
+		: bStandardP65Source
+		? TEXT("P65.AcceptedGroundDrop.BasicCachePlayerStandardEquipment")
+		: (bPlayerDepositedSource
+			? TEXT("P64.AcceptedGroundDrop.BasicCachePlayerSimpleStack")
+			: TEXT("P49.AcceptedGroundDrop.BasicCacheOrdinarySimpleStack"));
 	++CandidateSession.NextWorldDropOrdinal;
 	SortWorldDropRegistry(CandidateSession.WorldDrops);
 	if (!ReconcileHotbarBindings(
@@ -11377,12 +13686,11 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerWorldDropItem(
 	}
 	const FCodeBWorldDropProjection CandidateWorldProjection =
 		WorldDropProjection(CandidateSession, *CandidateDrop);
-	if (!Store.SaveRecord(Candidate, Error))
+	if (!Store.CommitAndPublishCandidate(Candidate, Error))
 	{
 		if (OutError) *OutError = Error;
 		return false;
 	}
-	Store.Record = MoveTemp(Candidate);
 	OutNormalProjection = MoveTemp(CandidateNormalProjection);
 	OutWorldProjection = CandidateWorldProjection;
 	return true;
@@ -11413,7 +13721,7 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerSpatialWorldDropI
 		|| SourceProof.HasFrozenTarget() || MapRoute.IsNone()
 		|| !IsFiniteWorldDropTransform(FloorTransform))
 	{
-		if (OutError) *OutError = TEXT("Code B P50 requires one exact BasicCache P18 source graph and legal frozen floor placement.");
+		if (OutError) *OutError = TEXT("Code B P50/P56/P66 requires one exact BasicCache materialized or player-deposited source graph and legal frozen floor placement.");
 		return false;
 	}
 
@@ -11475,12 +13783,45 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerSpatialWorldDropI
 		&& SourceProof.LootProfileVersion == 2
 		&& SourceProof.LootAlgorithmVersion
 			== TEXT("CodeB.DeterministicWeightedLoot.Crc32.r2");
+	const bool bP54R3Profile = SourceProof.LootProfileId
+		== FName(TEXT("CodeB.LootProfile.BasicCache.r3"))
+		&& SourceProof.LootProfileVersion == 3
+		&& SourceProof.LootAlgorithmVersion
+			== TEXT("CodeB.DeterministicWeightedLoot.Crc32.r3");
 	bool bSourceClosureValid = false;
+	bool bP54Loaded = false;
+	FCodeBP51PreloadedChildSpec P54Spec;
+	bool bMaterializationClaimed = false;
+	const bool bMaterializationClaimResolved = SourceItem
+		&& ResolveNormalContainerMaterializationRootClaim(
+			*NormalRecord, SourceItem->ItemId, bMaterializationClaimed, Error);
 	if (SourceItem)
 	{
-		bSourceClosureValid = ValidateP19WorldDropClosure(
-			NormalRecord->ContainerSnapshot, *SourceItem, bSourceClosureValid, Error)
-			&& bSourceClosureValid;
+		bSourceClosureValid = SourceProof.bPlayerDepositedSource
+			? ValidateP60RetrievableBasicCacheSpatialClosure(
+				NormalRecord->ContainerSnapshot, *SourceItem, Error)
+			: ValidateP18OrP54BasicCacheSpatialClosure(
+				*NormalRecord, NormalRecord->ContainerSnapshot, *SourceItem,
+				bP54Loaded, &P54Spec, Error);
+	}
+	FString PlayerClosureDigest;
+	if (SourceProof.bPlayerDepositedSource && SourceItem && SourceChild)
+	{
+		PlayerClosureDigest = FString::Printf(TEXT("P61|parent:%s|def:%s|child:%s|capacity:%d"),
+			*SourceItem->ItemId.ToString(EGuidFormats::DigitsWithHyphens),
+			*SourceItem->DefinitionId.ToString(),
+			*SourceChild->ContainerId.ToString(EGuidFormats::DigitsWithHyphens),
+			SourceChild->Slots.Num());
+		for (int32 SlotIndex = 0; SlotIndex < SourceChild->Slots.Num(); ++SlotIndex)
+		{
+			const FGuid ChildItemId = SourceChild->Slots[SlotIndex];
+			const FCodeBItemInstance* ChildItem = ChildItemId.IsValid()
+				? NormalRecord->ContainerSnapshot.Items.Find(ChildItemId) : nullptr;
+			PlayerClosureDigest += FString::Printf(TEXT("|slot:%d:%s:%s:%d"), SlotIndex,
+				*ChildItemId.ToString(EGuidFormats::DigitsWithHyphens),
+				*(ChildItem ? ChildItem->DefinitionId : NAME_None).ToString(),
+				ChildItem ? ChildItem->Quantity : 0);
+		}
 	}
 	if (SourceProof.OwnerId != InOwnerId
 		|| SourceProof.RunInstanceId != InRunInstanceId
@@ -11504,7 +13845,15 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerSpatialWorldDropI
 		|| NormalRecord->Receipt.LootAlgorithmVersion != SourceProof.LootAlgorithmVersion
 		|| NormalRecord->Receipt.LootResultDigest != SourceProof.LootResultDigest
 		|| NormalRecord->Receipt.MaterializationDigest != SourceProof.MaterializationDigest
-		|| !bP18R2Profile || !SourceItem || !SourceContainer || !SourceChild
+		|| !bMaterializationClaimResolved
+		|| (SourceProof.bPlayerDepositedSource
+			? (bMaterializationClaimed
+				|| SourceProof.SourceChildCapacity != (SourceChild ? SourceChild->Slots.Num() : 0)
+				|| SourceProof.SourceClosureDigest != PlayerClosureDigest)
+			: (!bMaterializationClaimed
+				|| (!(bP18R2Profile && !bP54Loaded)
+					&& !(bP54R3Profile && bP54Loaded && P54Spec.IsSet()))))
+		|| !SourceItem || !SourceContainer || !SourceChild
 		|| !SourceDefinition || !SourceReveal || !bSourceClosureValid
 		|| SourceContainer->ContainerId != NormalRecord->ContainerId
 		|| SourceContainer->ContainerType != DefinitionId || SourceContainer->IsEquipment()
@@ -11524,8 +13873,9 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerSpatialWorldDropI
 		|| SourceDefinition->ChildContainerCapacity <= 0
 		|| SourceChild->IsEquipment()
 		|| SourceChild->Slots.Num() != SourceDefinition->ChildContainerCapacity
-		|| SourceChild->Slots.ContainsByPredicate(
-			[](const FGuid& ItemId) { return ItemId.IsValid(); })
+		|| (!SourceProof.bPlayerDepositedSource && bP18R2Profile
+			&& SourceChild->Slots.ContainsByPredicate(
+			[](const FGuid& ItemId) { return ItemId.IsValid(); }))
 		|| (!bWindTalisman && !bBackpackLevel1)
 		|| (bWindTalisman && (SourceDefinition->ItemType != ECodeBItemType::SpatialItem
 			|| SourceDefinition->EquipSlot != ECodeBEquipSlot::SpatialItem
@@ -11537,7 +13887,7 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerSpatialWorldDropI
 				!= ECodeBSpatialContainerSemantic::StoragePouch)))
 	{
 		if (OutError) *OutError = Error.IsEmpty()
-			? TEXT("Code B P50 refused a non-Revealed, non-canonical, non-empty-child, or provenance-stale BasicCache graph.")
+			? TEXT("Code B P50/P56/P66 refused a non-Revealed, non-canonical, claim-mismatched, closure-invalid, or provenance-stale BasicCache graph.")
 			: Error;
 		return false;
 	}
@@ -11552,8 +13902,14 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerSpatialWorldDropI
 	}
 	if (ChildOwnerMatches != 1)
 	{
-		if (OutError) *OutError = TEXT("Code B P50 source child is not uniquely owned by the frozen P18 parent.");
+		if (OutError) *OutError = TEXT("Code B P50/P56/P66 source child is not uniquely owned by the frozen spatial parent.");
 		return false;
+	}
+	TSet<FGuid> MovedGraphItemIds;
+	MovedGraphItemIds.Add(SourceProof.SourceItemId);
+	for (const FGuid& ChildItemId : SourceChild->Slots)
+	{
+		if (ChildItemId.IsValid()) MovedGraphItemIds.Add(ChildItemId);
 	}
 
 	const int32 NewOrdinal = Candidate.ActiveRunInventorySession.NextWorldDropOrdinal;
@@ -11595,7 +13951,7 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerSpatialWorldDropI
 	Move.SourceSlot = SourceProof.SourceSlot;
 	Move.TargetContainerId = WorldContainerId;
 	Move.TargetSlot = 0;
-	Move.Quantity = 0;
+	Move.Quantity = 1;
 	Move.ExpectedRevision = Repository.GetRevision();
 	const FCodeBTransactionResult Transaction = Repository.ExecuteTransaction(Move);
 	if (!Transaction.IsSuccess())
@@ -11612,6 +13968,23 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerSpatialWorldDropI
 		AcceptedComposite.Containers.Find(SourceProof.SourceContainerId);
 	const FCodeBContainer* AcceptedChild =
 		AcceptedComposite.Containers.Find(SourceProof.SourceChildContainerId);
+	const FCodeBItemInstance* SourceLoadedChild = bP54Loaded
+		? NormalRecord->ContainerSnapshot.Items.Find(P54Spec.ItemId) : nullptr;
+	const FCodeBItemInstance* AcceptedLoadedChild = bP54Loaded
+		? AcceptedComposite.Items.Find(P54Spec.ItemId) : nullptr;
+	bool bAcceptedChildItemsUnchanged = true;
+	for (const FGuid& ChildItemId : SourceChild->Slots)
+	{
+		if (!ChildItemId.IsValid()) continue;
+		const FCodeBItemInstance* BeforeChild =
+			NormalRecord->ContainerSnapshot.Items.Find(ChildItemId);
+		const FCodeBItemInstance* AfterChild = AcceptedComposite.Items.Find(ChildItemId);
+		if (!BeforeChild || !AfterChild || !(*BeforeChild == *AfterChild))
+		{
+			bAcceptedChildItemsUnchanged = false;
+			break;
+		}
+	}
 	FCodeBItemInstance ExpectedWorldRoot = *SourceItem;
 	ExpectedWorldRoot.ParentContainerId = WorldContainerId;
 	ExpectedWorldRoot.SlotIndex = 0;
@@ -11623,6 +13996,9 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerSpatialWorldDropI
 		|| !(*AcceptedWorldRoot == ExpectedWorldRoot)
 		|| !(*AcceptedSourceContainer == ExpectedSourceContainer)
 		|| !(*AcceptedChild == *SourceChild)
+		|| !bAcceptedChildItemsUnchanged
+		|| (bP54Loaded && (!SourceLoadedChild || !AcceptedLoadedChild
+			|| !(*AcceptedLoadedChild == *SourceLoadedChild)))
 		|| AcceptedWorldContainer->ContainerType != FName(TEXT("WorldDrop"))
 		|| AcceptedWorldContainer->IsEquipment() || AcceptedWorldContainer->Slots.Num() != 1
 		|| AcceptedWorldContainer->Slots[0] != SourceProof.SourceItemId
@@ -11631,7 +14007,7 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerSpatialWorldDropI
 		|| !bAcceptedClosureValid)
 	{
 		if (OutError) *OutError = Error.IsEmpty()
-			? TEXT("Code B P50 accepted P1 result did not preserve the exact parent-child closure in WorldDrop slot 0.")
+			? TEXT("Code B P50/P56/P66 accepted P1 result did not preserve the exact parent-child closure in WorldDrop slot 0.")
 			: Error;
 		return false;
 	}
@@ -11676,7 +14052,7 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerSpatialWorldDropI
 	}
 	for (const TPair<FGuid, FCodeBItemInstance>& Pair : NormalRecord->ContainerSnapshot.Items)
 	{
-		if (Pair.Key == SourceProof.SourceItemId) continue;
+		if (MovedGraphItemIds.Contains(Pair.Key)) continue;
 		const FCodeBItemInstance* Accepted = AcceptedComposite.Items.Find(Pair.Key);
 		if (!Accepted || !(*Accepted == Pair.Value))
 		{
@@ -11710,7 +14086,7 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerSpatialWorldDropI
 	}
 	for (const TPair<FGuid, FCodeBItemInstance>& Pair : NormalRecord->ContainerSnapshot.Items)
 	{
-		if (Pair.Key == SourceProof.SourceItemId) continue;
+		if (MovedGraphItemIds.Contains(Pair.Key)) continue;
 		if (!AcceptedComposite.Items.Contains(Pair.Key))
 		{
 			if (OutError) *OutError = TEXT("Code B P50 lost an unrelated P9 item during partition.");
@@ -11744,14 +14120,18 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerSpatialWorldDropI
 	}
 
 	TArray<FCodeBNormalContainerItemReveal> NextRevealStates;
-	NextRevealStates.Reserve(FMath::Max(0, NormalRecord->ItemRevealStates.Num() - 1));
+	NextRevealStates.Reserve(FMath::Max(
+		0, NormalRecord->ItemRevealStates.Num() - MovedGraphItemIds.Num()));
 	bool bRemovedRevealedRoot = false;
 	for (const FCodeBNormalContainerItemReveal& Reveal : NormalRecord->ItemRevealStates)
 	{
-		if (Reveal.ItemId == SourceProof.SourceItemId)
+		if (MovedGraphItemIds.Contains(Reveal.ItemId))
 		{
-			bRemovedRevealedRoot = Reveal.RevealState
-				== ECodeBNormalContainerRevealState::Revealed;
+			if (Reveal.ItemId == SourceProof.SourceItemId)
+			{
+				bRemovedRevealedRoot = Reveal.RevealState
+					== ECodeBNormalContainerRevealState::Revealed;
+			}
 			continue;
 		}
 		if (!NormalSnapshot.Items.Contains(Reveal.ItemId))
@@ -11781,7 +14161,9 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerSpatialWorldDropI
 	NewDrop.FloorTransform = FloorTransform;
 	NewDrop.ActionState = ECodeBWorldDropActionState::Available;
 	NewDrop.RecordRevision = 1;
-	NewDrop.Provenance = TEXT("P50.AcceptedGroundDrop.BasicCacheSpatialCompleteGraph");
+	NewDrop.Provenance = SourceProof.bPlayerDepositedSource
+		? TEXT("P66.AcceptedGroundDrop.BasicCachePlayerSpatialCompleteGraph")
+		: TEXT("P50.AcceptedGroundDrop.BasicCacheSpatialCompleteGraph");
 	++CandidateSession.NextWorldDropOrdinal;
 	SortWorldDropRegistry(CandidateSession.WorldDrops);
 	if (!ReconcileHotbarBindings(
@@ -11821,12 +14203,11 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunNormalContainerSpatialWorldDropI
 	}
 	const FCodeBWorldDropProjection CandidateWorldProjection =
 		WorldDropProjection(CandidateSession, *CandidateDrop);
-	if (!Store.SaveRecord(Candidate, Error))
+	if (!Store.CommitAndPublishCandidate(Candidate, Error))
 	{
 		if (OutError) *OutError = Error;
 		return false;
 	}
-	Store.Record = MoveTemp(Candidate);
 	OutNormalProjection = MoveTemp(CandidateNormalProjection);
 	OutWorldProjection = CandidateWorldProjection;
 	return true;
@@ -11843,6 +14224,7 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunBodyContainerWorldDropItem(
 	const FCodeBP43BodySimpleStackGroundDropProof& SourceProof,
 	const FCodeBP38BodyEquipmentTransferProof& EquipmentSourceProof,
 	const FCodeBP42BodySpatialGraphEquipmentTransferProof& SpatialSourceProof,
+	const int32 RequestedSplitQuantity,
 	const FName MapRoute,
 	const FTransform& FloorTransform,
 	FCodeBBodyContainerProjection& OutBodyProjection,
@@ -11856,6 +14238,7 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunBodyContainerWorldDropItem(
 	const bool bP44StandardEquipment = EquipmentSourceProof.HasSourceIdentity();
 	const bool bP45SpatialGraph = SpatialSourceProof.HasSourceIdentity()
 		&& !SpatialSourceProof.bIntent;
+	const bool bP69Split = RequestedSplitQuantity > 0;
 	const FGuid ProofOwnerId = bP45SpatialGraph ? SpatialSourceProof.OwnerId
 		: (bP44StandardEquipment ? EquipmentSourceProof.OwnerId : SourceProof.OwnerId);
 	const FGuid ProofRunInstanceId = bP45SpatialGraph ? SpatialSourceProof.RunInstanceId
@@ -11897,10 +14280,11 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunBodyContainerWorldDropItem(
 	if (!InOwnerId.IsValid() || !InRunInstanceId.IsValid() || !BodyTargetId.IsValid()
 		|| DefinitionId != FName(TEXT("CodeB.BodyContainer.BasicCorpse"))
 		|| ExpectedP6SnapshotRevision < 0 || ExpectedBodyContainerRevision < 1
+		|| RequestedSplitQuantity < 0
 		|| SourceKindCount != 1 || MapRoute.IsNone()
 		|| !IsFiniteWorldDropTransform(FloorTransform))
 	{
-		if (OutError) *OutError = TEXT("Code B P43/P44/P45 requires exactly one exact BasicCorpse source and legal frozen floor placement.");
+		if (OutError) *OutError = TEXT("Code B P43/P44/P45/P53 requires exactly one exact BasicCorpse source and legal frozen floor placement.");
 		return false;
 	}
 
@@ -11983,12 +14367,16 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunBodyContainerWorldDropItem(
 		&& BodyRecord->Receipt.EquipmentCandidateSetDigest
 			== EquipmentSourceProof.EquipmentCandidateSetDigest
 		&& EquipmentSourceProof.EquipmentCandidateSetDigest == P21EquipmentCandidateSetDigest();
-	bool bP45ClosureValid = false;
+	bool bP45OrP53ClosureValid = false;
+	bool bP53LoadedClosure = false;
 	if (bP45SpatialGraph && SourceItem)
 	{
-		bP45ClosureValid = ValidateP19WorldDropClosure(
-			BodyRecord->ContainerSnapshot, *SourceItem, bP45ClosureValid, Error)
-			&& bP45ClosureValid;
+		// The shared corpse-spatial proof remains the sole GroundDrop input. The
+		// durable classifier preserves P45 for canonical empty closures and admits
+		// only the exact current P51-loaded r3 closure as the distinct P53 branch.
+		bP45OrP53ClosureValid = ValidateP20OrP51BasicCorpseSpatialClosure(
+			*BodyRecord, BodyRecord->ContainerSnapshot, *SourceItem,
+			bP53LoadedClosure, Error);
 	}
 	const bool bP45Profile = (BodyRecord->Receipt.LootProfileId
 			== FName(TEXT("CodeB.LootProfile.BasicCorpse.r2"))
@@ -11996,8 +14384,8 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunBodyContainerWorldDropItem(
 		|| (BodyRecord->Receipt.LootProfileId
 			== FName(TEXT("CodeB.LootProfile.BasicCorpse.r3"))
 			&& BodyRecord->Receipt.LootProfileVersion == 3);
-	const bool bP45SourceShape = bP45SpatialGraph && SourceContainer && SourceDefinition
-		&& SourceItem && bP45Profile && bP45ClosureValid
+	const bool bP45OrP53SourceShape = bP45SpatialGraph && SourceContainer && SourceDefinition
+		&& SourceItem && bP45Profile && bP45OrP53ClosureValid
 		&& ProofSourceContainerId == BodyRecord->ContainerId
 		&& SourceContainer->ContainerId == BodyRecord->ContainerId
 		&& SourceContainer->ContainerType == DefinitionId && !SourceContainer->IsEquipment()
@@ -12053,10 +14441,12 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunBodyContainerWorldDropItem(
 		|| SourceVisibility->Visibility != ECodeBBodyContainerVisibility::Revealed
 		|| !BuildCanonicalCodeBItemDefinition(ProofSourceDefinitionId, CanonicalDefinition, Error)
 		|| !(*SourceDefinition == CanonicalDefinition)
-		|| (!bP43SourceShape && !bP44SourceShape && !bP45SourceShape))
+		|| (bP69Split && (!bP43SourceShape || bP44StandardEquipment || bP45SpatialGraph
+			|| RequestedSplitQuantity >= SourceItem->Quantity))
+		|| (!bP43SourceShape && !bP44SourceShape && !bP45OrP53SourceShape))
 	{
 		if (OutError) *OutError = Error.IsEmpty()
-			? TEXT("Code B P43/P44/P45 refused a non-Revealed, non-canonical, or provenance-stale body source graph.")
+			? TEXT("Code B P43/P44/P45/P53 refused a non-Revealed, non-canonical, or provenance-stale body source graph.")
 			: Error;
 		return false;
 	}
@@ -12094,37 +14484,56 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunBodyContainerWorldDropItem(
 	}
 	FCodeBTransactionRequest Move;
 	Move.TransactionId = FGuid::NewGuid();
-	Move.Operation = ECodeBOperation::Move;
+	Move.Operation = bP69Split ? ECodeBOperation::Split : ECodeBOperation::Move;
 	Move.ItemId = ProofSourceItemId;
 	Move.SourceContainerId = ProofSourceContainerId;
 	Move.SourceSlot = ProofSourceSlot;
 	Move.TargetContainerId = WorldContainerId;
 	Move.TargetSlot = 0;
-	Move.Quantity = 0;
+	Move.Quantity = bP69Split ? RequestedSplitQuantity : 0;
 	Move.ExpectedRevision = Repository.GetRevision();
 	const FCodeBTransactionResult Transaction = Repository.ExecuteTransaction(Move);
 	if (!Transaction.IsSuccess())
 	{
-		if (OutError) *OutError = TEXT("Code B P43/P44 exact P1 corpse-to-world whole-root Move was rejected.");
+		if (OutError) *OutError = bP69Split
+			? TEXT("Code B P69 exact P1 corpse-to-world Split(N) was rejected.")
+			: TEXT("Code B P43/P44 exact P1 corpse-to-world whole-root Move was rejected.");
 		return false;
 	}
 	const FCodeBSnapshot AcceptedComposite = Repository.CaptureSnapshot();
-	const FCodeBItemInstance* AcceptedWorldRoot = AcceptedComposite.Items.Find(ProofSourceItemId);
+	const FGuid AcceptedWorldItemId = bP69Split ? Transaction.CreatedItemId : ProofSourceItemId;
+	const FCodeBItemInstance* AcceptedWorldRoot = AcceptedComposite.Items.Find(AcceptedWorldItemId);
 	const FCodeBContainer* AcceptedWorldContainer = AcceptedComposite.Containers.Find(WorldContainerId);
-	if (Transaction.CreatedItemId.IsValid() || !AcceptedWorldRoot || !AcceptedWorldContainer
+	FCodeBItemInstance ExpectedWorldRoot = *SourceItem;
+	ExpectedWorldRoot.ItemId = AcceptedWorldItemId;
+	ExpectedWorldRoot.ParentContainerId = WorldContainerId;
+	ExpectedWorldRoot.SlotIndex = 0;
+	ExpectedWorldRoot.Quantity = bP69Split ? RequestedSplitQuantity : SourceItem->Quantity;
+	FCodeBContainer ExpectedSourceContainer = *SourceContainer;
+	if (!bP69Split) ExpectedSourceContainer.Slots[ProofSourceSlot].Invalidate();
+	const FCodeBContainer* AcceptedSourceContainer = AcceptedComposite.Containers.Find(ProofSourceContainerId);
+	const FCodeBItemInstance* AcceptedSourceItem = AcceptedComposite.Items.Find(ProofSourceItemId);
+	FCodeBItemInstance ExpectedSourceItem = *SourceItem;
+	ExpectedSourceItem.Quantity -= RequestedSplitQuantity;
+	if ((bP69Split ? (!Transaction.CreatedItemId.IsValid()
+			|| Transaction.CreatedItemId == ProofSourceItemId)
+			: Transaction.CreatedItemId.IsValid())
+		|| !AcceptedWorldRoot || !AcceptedWorldContainer || !AcceptedSourceContainer
 		|| AcceptedWorldContainer->ContainerType != FName(TEXT("WorldDrop"))
 		|| AcceptedWorldContainer->IsEquipment() || AcceptedWorldContainer->Slots.Num() != 1
-		|| AcceptedWorldContainer->Slots[0] != ProofSourceItemId
-		|| AcceptedWorldRoot->ItemId != ProofSourceItemId
-		|| AcceptedWorldRoot->DefinitionId != ProofSourceDefinitionId
-		|| AcceptedWorldRoot->Quantity != ProofSourceQuantity
-		|| AcceptedWorldRoot->ParentContainerId != WorldContainerId
-		|| AcceptedWorldRoot->SlotIndex != 0
+		|| AcceptedWorldContainer->Slots[0] != AcceptedWorldItemId
+		|| !(*AcceptedWorldRoot == ExpectedWorldRoot)
+		|| !(*AcceptedSourceContainer == ExpectedSourceContainer)
+		|| (bP69Split && (!AcceptedSourceItem || !(*AcceptedSourceItem == ExpectedSourceItem)))
+		|| AcceptedComposite.Containers.Num() != PriorComposite.Containers.Num() + 1
+		|| AcceptedComposite.Items.Num() != PriorComposite.Items.Num() + (bP69Split ? 1 : 0)
 		|| (bP45SpatialGraph
 			? AcceptedWorldRoot->ChildContainerId != SpatialSourceProof.SourceChildContainerId
 			: AcceptedWorldRoot->ChildContainerId.IsValid()))
 	{
-		if (OutError) *OutError = TEXT("Code B P43/P44/P45 accepted P1 result is not the same source root in slot 0.");
+		if (OutError) *OutError = bP69Split
+			? TEXT("Code B P69 accepted P1 result did not preserve the corpse source remainder and exact new split root.")
+			: TEXT("Code B P43/P44/P45/P53 accepted P1 result is not the same source root in slot 0.");
 		return false;
 	}
 	if (bP45SpatialGraph)
@@ -12140,7 +14549,7 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunBodyContainerWorldDropItem(
 			|| !(*OriginalChild == *AcceptedChild))
 		{
 			if (OutError) *OutError = Error.IsEmpty()
-				? TEXT("Code B P45 accepted P1 result did not preserve the exact spatial child container.")
+				? TEXT("Code B P45/P53 accepted P1 result did not preserve the exact spatial child container.")
 				: Error;
 			return false;
 		}
@@ -12153,7 +14562,7 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunBodyContainerWorldDropItem(
 			if (!OriginalChildItem || !AcceptedChildItem
 				|| !(*OriginalChildItem == *AcceptedChildItem))
 			{
-				if (OutError) *OutError = TEXT("Code B P45 accepted P1 result changed a child item in the complete graph.");
+				if (OutError) *OutError = TEXT("Code B P45/P53 accepted P1 result changed a child item in the complete graph.");
 				return false;
 			}
 		}
@@ -12171,27 +14580,59 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunBodyContainerWorldDropItem(
 	// Replay the exact same P1 command and deterministic container derivation;
 	// the accepted composite is admissible only when the replay is byte-for-byte equal.
 	FCodeBRepository ReplayRepository;
-	if (!ReplayRepository.LoadPersistedSnapshot(PriorComposite, &Error)
-		|| !ReplayRepository.CreateContainer(FName(TEXT("WorldDrop")), 1, ECodeBContainerKind::Storage,
-			ECodeBEquipSlot::None, &Error, WorldContainerId).IsValid()
-		|| !ReplayRepository.ExecuteTransaction(Move).IsSuccess()
-		|| ReplayRepository.CaptureSnapshot() != AcceptedComposite)
+	FCodeBTransactionResult ReplayTransaction;
+	FCodeBSnapshot ReplaySnapshot;
+	bool bReplayMatches = ReplayRepository.LoadPersistedSnapshot(PriorComposite, &Error)
+		&& ReplayRepository.CreateContainer(FName(TEXT("WorldDrop")), 1, ECodeBContainerKind::Storage,
+			ECodeBEquipSlot::None, &Error, WorldContainerId).IsValid();
+	if (bReplayMatches)
 	{
-		if (OutError) *OutError = TEXT("Code B P43/P44 candidate differs from its one replayed P1 whole-root Move.");
+		ReplayTransaction = ReplayRepository.ExecuteTransaction(Move);
+		bReplayMatches = ReplayTransaction.IsSuccess();
+	}
+	if (bReplayMatches)
+	{
+		ReplaySnapshot = ReplayRepository.CaptureSnapshot();
+		if (bP69Split && ReplayTransaction.CreatedItemId != AcceptedWorldItemId)
+		{
+			FCodeBItemInstance* ReplayCreated = ReplaySnapshot.Items.Find(ReplayTransaction.CreatedItemId);
+			FCodeBContainer* ReplayWorldContainer = ReplaySnapshot.Containers.Find(WorldContainerId);
+			if (!ReplayCreated || !ReplayWorldContainer || ReplayWorldContainer->Slots.Num() != 1
+				|| ReplayWorldContainer->Slots[0] != ReplayTransaction.CreatedItemId)
+			{
+				bReplayMatches = false;
+			}
+			else
+			{
+				FCodeBItemInstance RemappedReplayItem = *ReplayCreated;
+				ReplaySnapshot.Items.Remove(ReplayTransaction.CreatedItemId);
+				RemappedReplayItem.ItemId = AcceptedWorldItemId;
+				ReplaySnapshot.Items.Add(AcceptedWorldItemId, MoveTemp(RemappedReplayItem));
+				ReplayWorldContainer = ReplaySnapshot.Containers.Find(WorldContainerId);
+				ReplayWorldContainer->Slots[0] = AcceptedWorldItemId;
+			}
+		}
+		bReplayMatches = bReplayMatches && ReplaySnapshot == AcceptedComposite;
+	}
+	if (!bReplayMatches)
+	{
+		if (OutError) *OutError = bP69Split
+			? TEXT("Code B P69 candidate differs from its one replayed P1 Split(N).")
+			: TEXT("Code B P43/P44 candidate differs from its one replayed P1 whole-root Move.");
 		return false;
 	}
 
 	TSet<FGuid> BodyContainerIds;
 	TSet<FGuid> RemainingBodyItemIds;
 	TSet<FGuid> TransferredClosureItemIds;
-	TransferredClosureItemIds.Add(ProofSourceItemId);
+	TransferredClosureItemIds.Add(AcceptedWorldItemId);
 	if (bP45SpatialGraph)
 	{
 		const FCodeBContainer* SpatialChild = BodyRecord->ContainerSnapshot.Containers.Find(
 			SpatialSourceProof.SourceChildContainerId);
 		if (!SpatialChild)
 		{
-			if (OutError) *OutError = TEXT("Code B P45 source child disappeared before P11/P6 partition.");
+			if (OutError) *OutError = TEXT("Code B P45/P53 source child disappeared before P11/P6 partition.");
 			return false;
 		}
 		for (const FGuid& ChildItemId : SpatialChild->Slots)
@@ -12283,18 +14724,33 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunBodyContainerWorldDropItem(
 	NewDrop.WorldDropId = WorldDropId;
 	NewDrop.Ordinal = NewOrdinal;
 	NewDrop.WorldContainerId = WorldContainerId;
-	NewDrop.ItemId = ProofSourceItemId;
+	NewDrop.ItemId = AcceptedWorldItemId;
 	NewDrop.SpatialChildContainerId = bP45SpatialGraph
 		? SpatialSourceProof.SourceChildContainerId : FGuid();
 	NewDrop.MapRoute = MapRoute;
 	NewDrop.FloorTransform = FloorTransform;
 	NewDrop.ActionState = ECodeBWorldDropActionState::Available;
 	NewDrop.RecordRevision = 1;
-	NewDrop.Provenance = bP45SpatialGraph
-		? TEXT("P45.AcceptedGroundDrop.CorpseSpatialCompleteGraph")
-		: (bP44StandardEquipment
-			? TEXT("P44.AcceptedGroundDrop.CorpseStandardEquipment")
-			: TEXT("P43.AcceptedGroundDrop.CorpseOrdinarySimpleStack"));
+	if (bP53LoadedClosure)
+	{
+		NewDrop.Provenance = TEXT("P53.AcceptedGroundDrop.CorpseLoadedSpatialCompleteGraph");
+	}
+	else if (bP45SpatialGraph)
+	{
+		NewDrop.Provenance = TEXT("P45.AcceptedGroundDrop.CorpseSpatialCompleteGraph");
+	}
+	else if (bP44StandardEquipment)
+	{
+		NewDrop.Provenance = TEXT("P44.AcceptedGroundDrop.CorpseStandardEquipment");
+	}
+	else if (bP69Split)
+	{
+		NewDrop.Provenance = TEXT("P69.AcceptedGroundDrop.CorpseOrdinarySimpleSplit");
+	}
+	else
+	{
+		NewDrop.Provenance = TEXT("P43.AcceptedGroundDrop.CorpseOrdinarySimpleStack");
+	}
 	++CandidateSession.NextWorldDropOrdinal;
 	SortWorldDropRegistry(CandidateSession.WorldDrops);
 	if (!ReconcileHotbarBindings(
@@ -12334,12 +14790,11 @@ bool FCodeBOutOfRaidProfileStore::DropMatchedRunBodyContainerWorldDropItem(
 	}
 	const FCodeBWorldDropProjection CandidateWorldProjection =
 		WorldDropProjection(CandidateSession, *CandidateDrop);
-	if (!Store.SaveRecord(Candidate, Error))
+	if (!Store.CommitAndPublishCandidate(Candidate, Error))
 	{
 		if (OutError) *OutError = Error;
 		return false;
 	}
-	Store.Record = MoveTemp(Candidate);
 	OutBodyProjection = MoveTemp(CandidateBodyProjection);
 	OutWorldProjection = CandidateWorldProjection;
 	return true;
@@ -12397,10 +14852,12 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 	const bool bAcceptedSpatialProvenance =
 		Drop->Provenance == TEXT("P31.AcceptedGroundDrop.CompleteGraph")
 		|| Drop->Provenance == TEXT("P45.AcceptedGroundDrop.CorpseSpatialCompleteGraph")
-		|| Drop->Provenance == TEXT("P50.AcceptedGroundDrop.BasicCacheSpatialCompleteGraph");
+		|| Drop->Provenance == TEXT("P53.AcceptedGroundDrop.CorpseLoadedSpatialCompleteGraph")
+		|| Drop->Provenance == TEXT("P50.AcceptedGroundDrop.BasicCacheSpatialCompleteGraph")
+		|| Drop->Provenance == TEXT("P66.AcceptedGroundDrop.BasicCachePlayerSpatialCompleteGraph");
 	if (bIsSpatialClosure && !bAcceptedSpatialProvenance)
 	{
-		if (OutError) *OutError = TEXT("Code B P19/P30 pickup refused a complete graph without accepted P31/P45/P50 provenance.");
+		if (OutError) *OutError = TEXT("Code B P19/P30 pickup refused a complete graph without accepted P31/P45/P50/P53/P66 provenance.");
 		return false;
 	}
 	const FCodeBItemInstance* CandidateItem = CandidateSnapshot.Items.Find(Drop->ItemId);
@@ -12414,7 +14871,8 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 	const bool bAcceptedStandardProvenance = bP35ChildStandardRecord
 		|| Drop->Provenance == TEXT("P32.AcceptedGroundDrop.StandardEquipment")
 		|| Drop->Provenance == TEXT("P33.AcceptedGroundDrop.BaseQuickStandardEquipment")
-		|| bP44CorpseStandardRecord;
+		|| bP44CorpseStandardRecord
+		|| Drop->Provenance == TEXT("P65.AcceptedGroundDrop.BasicCachePlayerStandardEquipment");
 	const bool bQuickTransfer = AcceptedCommand.Intent == ECodeBP2CommandIntent::QuickTransfer;
 	bool bP29RetainWorldRoot = false;
 	bool bP30CompleteGraphQuickTransfer = false;
@@ -12773,12 +15231,11 @@ bool FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
 	++Session.SessionRevision;
 	Candidate.LastCommittedUtc = CommitUtc;
 	++Candidate.PersistentRevision;
-	if (!Store.SaveRecord(Candidate, Error))
+	if (!Store.CommitAndPublishCandidate(Candidate, Error))
 	{
 		if (OutError) *OutError = Error;
 		return false;
 	}
-	Store.Record = MoveTemp(Candidate);
 	return true;
 }
 
@@ -12909,13 +15366,12 @@ FCodeBRunInventoryTerminalResult FCodeBOutOfRaidProfileStore::FinalizeCommittedR
 	Candidate.ActiveRunInventorySession = FCodeBRunInventorySession();
 	Candidate.LastCommittedUtc = Receipt.CommittedUtc;
 	++Candidate.PersistentRevision;
-	if (!SaveRecord(Candidate, Error))
+	if (!CommitAndPublishCandidate(Candidate, Error))
 	{
 		Result.Status = ECodeBRunInventoryTerminalStatus::StorageFailure;
 		Result.Diagnostic = Error;
 		return Result;
 	}
-	Record = MoveTemp(Candidate);
 	Result.Status = ECodeBRunInventoryTerminalStatus::Committed;
 	Result.Diagnostic = TerminalState == ECodeBRunInventoryTerminalState::Extracted
 		? TEXT("Code B P8 atomically returned the frozen P7 current graph to P5 and closed P6.")
@@ -13000,13 +15456,12 @@ FCodeBRunInventoryBridgeResult FCodeBOutOfRaidProfileStore::BridgeSuccessfulRun(
 	Prepared.ActiveRunInventorySession = MoveTemp(NewSession);
 	++Prepared.PersistentRevision;
 	Prepared.LastCommittedUtc = UtcNow();
-	if (!SaveRecord(Prepared, Error))
+	if (!CommitAndPublishCandidate(Prepared, Error))
 	{
 		Result.Status = ECodeBRunInventoryBridgeStatus::StorageFailure;
 		Result.Diagnostic = Error;
 		return Result;
 	}
-	Record = MoveTemp(Prepared);
 #if WITH_DEV_AUTOMATION_TESTS
 	if (bInterruptAfterRunPreparedReceiptForAutomation)
 	{
@@ -13068,13 +15523,12 @@ bool FCodeBOutOfRaidProfileStore::RebindPreparedRunInventoryReceipt(
 	Session.Receipt.RecoveryDiagnostic = TEXT("Rebound verified Prepared receipt to a new RunId after Code A RecoveredAbandon.");
 	++Candidate.PersistentRevision;
 	Candidate.LastCommittedUtc = UtcNow();
-	if (!ValidateRunInventorySession(Session, Error) || !SaveRecord(Candidate, Error))
+	if (!ValidateRunInventorySession(Session, Error) || !CommitAndPublishCandidate(Candidate, Error))
 	{
 		OutResult.Status = ECodeBRunInventoryBridgeStatus::StorageFailure;
 		OutResult.Diagnostic = Error;
 		return false;
 	}
-	Record = MoveTemp(Candidate);
 	return FinalizePreparedRunInventoryReceipt(OutResult);
 }
 
@@ -13138,13 +15592,12 @@ bool FCodeBOutOfRaidProfileStore::FinalizePreparedRunInventoryReceipt(FCodeBRunI
 	++Session.SessionRevision;
 	Candidate.LastCommittedUtc = CommitUtc;
 	++Candidate.PersistentRevision;
-	if (!SaveRecord(Candidate, Error))
+	if (!CommitAndPublishCandidate(Candidate, Error))
 	{
 		OutResult.Status = ECodeBRunInventoryBridgeStatus::StorageFailure;
 		OutResult.Diagnostic = Error;
 		return false;
 	}
-	Record = MoveTemp(Candidate);
 	OutResult.Status = bRecovered
 		? ECodeBRunInventoryBridgeStatus::RecoveredPreparedReceipt
 		: ECodeBRunInventoryBridgeStatus::Committed;

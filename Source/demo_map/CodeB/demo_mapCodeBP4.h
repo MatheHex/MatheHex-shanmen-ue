@@ -17,7 +17,13 @@ namespace demo_map_code_b
 		int32 Quantity = 0;
 		/** P25's one-shot exact merge/split quantity; zero for a normal full-stack drag. */
 		int32 RequestedMergeQuantity = 0;
+		/** Immutable source-definition metadata captured for identity-bound adapters. */
+		bool bStackable = false;
+		int32 MaxStack = 1;
+		int32 Level = 0;
 		int32 Quality = 0;
+		int32 RandomSeed = 0;
+		FString LegacyAffixDigest;
 		bool bSplitIntent = false;
 		/** P29: set only by the shared Ctrl+left router for this one transient gesture. */
 		bool bQuickTransferIntent = false;
@@ -35,13 +41,27 @@ namespace demo_map_code_b
 		FCodeBP40BodySimpleStackQuickTransferProof P40BodySimpleStackProof;
 		/** P46: exact opened/revealed P10 BasicCache simple-stack and frozen target. */
 		FCodeBP46NormalContainerSimpleStackQuickTransferProof P46NormalContainerSimpleStackProof;
+		/** P62: exact player-deposited BasicCache standard root and frozen P6 target. */
+		FCodeBP62NormalContainerStandardEquipmentQuickTransferProof P62NormalContainerStandardEquipmentProof;
+		/** P63: exact player-deposited generic BasicCache simple stack and frozen P6 target. */
+		FCodeBP63NormalContainerPlayerSimpleStackQuickTransferProof P63NormalContainerPlayerSimpleStackProof;
+		/** P58: exact player simple-stack source and opened BasicCache candidate. */
+		FCodeBP58PlayerSimpleStackToNormalContainerQuickTransferProof P58PlayerToNormalContainerSimpleStackProof;
+		/** P59: exact player standard-equipment source and opened BasicCache candidate. */
+		FCodeBP59PlayerStandardEquipmentToNormalContainerQuickTransferProof P59PlayerToNormalContainerStandardEquipmentProof;
+		/** P60: exact player complete spatial graph source and opened BasicCache candidate. */
+		FCodeBP60PlayerSpatialGraphToNormalContainerQuickTransferProof P60PlayerToNormalContainerSpatialGraphProof;
 		/** P49: exact opened/revealed P10 BasicCache simple-stack for normal GroundDrop. */
 		FCodeBP49NormalContainerSimpleStackGroundDropProof P49NormalContainerSimpleStackGroundDropProof;
+		/** P64: exact player-deposited generic BasicCache simple-stack for normal GroundDrop. */
+		FCodeBP64NormalContainerPlayerSimpleStackGroundDropProof P64NormalContainerPlayerSimpleStackGroundDropProof;
+		/** P65: exact player-deposited canonical standard root for normal GroundDrop. */
+		FCodeBP65NormalContainerPlayerStandardEquipmentGroundDropProof P65NormalContainerPlayerStandardEquipmentGroundDropProof;
 		/** P47: exact opened/revealed P10 BasicCache spatial graph and frozen BaseQuick. */
 		FCodeBP47NormalContainerSpatialGraphQuickTransferProof P47NormalContainerSpatialGraphProof;
-		/** P48: exact opened/revealed P10 BasicCache graph and explicit formal equipment target. */
+		/** P48/P66: exact BasicCache spatial source; player provenance freezes its full closure. */
 		FCodeBP48NormalContainerSpatialGraphEquipmentTransferProof P48NormalContainerSpatialGraphEquipmentProof;
-		/** P43: exact revealed ordinary P12 simple-stack source for normal ground Drop. */
+		/** P43/P69: exact revealed ordinary P12 simple-stack source for whole/split ground Drop. */
 		FCodeBP43BodySimpleStackGroundDropProof P43BodySimpleStackGroundDropProof;
 		/** P41: exact revealed ordinary P20 spatial graph and frozen BaseQuick target. */
 		FCodeBP41BodySpatialGraphQuickTransferProof P41BodySpatialGraphProof;
@@ -56,6 +76,8 @@ namespace demo_map_code_b
 		int32 WorldDropRecordRevision = INDEX_NONE;
 		uint32 WorldDropTargetOpenGeneration = 0;
 		FName WorldDropMapRoute = NAME_None;
+		/** P71 read-only placement identity frozen at drag start; never a writable record copy. */
+		FTransform WorldDropFloorTransform = FTransform::Identity;
 		ECodeBP3InventoryScope SourceScope = ECodeBP3InventoryScope::Unknown;
 		FGuid OwnerId;
 		FGuid RunInstanceId;

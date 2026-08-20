@@ -644,26 +644,31 @@ namespace demo_map_code_b
 		return false;
 	}
 
-	bool FCodeBP3UIController::CommitP4Operation(
-		const ECodeBOperation Operation,
-		const FCodeBP3SlotAddress& Source,
-		const FCodeBP3SlotAddress& Target,
-		const int32 ExpectedRevision,
-		const int32 Quantity,
-		const FString& OperationLabel,
-		const ECodeBP2CommandIntent Intent,
-		const FGuid& QuickTransferActivePlayerContainerId,
-		const uint32 ActivePlayerChildOpenGeneration,
-		const ECodeBQuickTransferTargetMode QuickTransferTargetMode,
-		const FGuid& QuickTransferActivePlayerParentItemId,
-		const FCodeBP38BodyEquipmentTransferProof& P38BodyEquipmentProof,
-		const FCodeBP40BodySimpleStackQuickTransferProof& P40BodySimpleStackProof,
-		const FCodeBP46NormalContainerSimpleStackQuickTransferProof& P46NormalContainerSimpleStackProof,
-		const FCodeBP47NormalContainerSpatialGraphQuickTransferProof& P47NormalContainerSpatialGraphProof,
-		const FCodeBP48NormalContainerSpatialGraphEquipmentTransferProof& P48NormalContainerSpatialGraphEquipmentProof,
-		const FCodeBP41BodySpatialGraphQuickTransferProof& P41BodySpatialGraphProof,
-		const FCodeBP42BodySpatialGraphEquipmentTransferProof& P42BodySpatialGraphEquipmentProof)
+	bool FCodeBP3UIController::CommitSourceAction(const FCodeBP3SourceAction& Action)
 	{
+		const ECodeBOperation Operation = Action.Operation;
+		const FCodeBP3SlotAddress& Source = Action.Source;
+		const FCodeBP3SlotAddress& Target = Action.Target;
+		const int32 ExpectedRevision = Action.ExpectedRevision;
+		const int32 Quantity = Action.Quantity;
+		const FString& OperationLabel = Action.OperationLabel;
+		const ECodeBP2CommandIntent Intent = Action.Intent;
+		const FGuid& QuickTransferActivePlayerContainerId = Action.QuickTransferActivePlayerContainerId;
+		const uint32 ActivePlayerChildOpenGeneration = Action.ActivePlayerChildOpenGeneration;
+		const ECodeBQuickTransferTargetMode QuickTransferTargetMode = Action.QuickTransferTargetMode;
+		const FGuid& QuickTransferActivePlayerParentItemId = Action.QuickTransferActivePlayerParentItemId;
+		const FCodeBP38BodyEquipmentTransferProof& P38BodyEquipmentProof = Action.P38BodyEquipmentProof;
+		const FCodeBP40BodySimpleStackQuickTransferProof& P40BodySimpleStackProof = Action.P40BodySimpleStackProof;
+		const FCodeBP46NormalContainerSimpleStackQuickTransferProof& P46NormalContainerSimpleStackProof = Action.P46NormalContainerSimpleStackProof;
+		const FCodeBP62NormalContainerStandardEquipmentQuickTransferProof& P62NormalContainerStandardEquipmentProof = Action.P62NormalContainerStandardEquipmentProof;
+		const FCodeBP63NormalContainerPlayerSimpleStackQuickTransferProof& P63NormalContainerPlayerSimpleStackProof = Action.P63NormalContainerPlayerSimpleStackProof;
+		const FCodeBP58PlayerSimpleStackToNormalContainerQuickTransferProof& P58PlayerToNormalContainerSimpleStackProof = Action.P58PlayerToNormalContainerSimpleStackProof;
+		const FCodeBP59PlayerStandardEquipmentToNormalContainerQuickTransferProof& P59PlayerToNormalContainerStandardEquipmentProof = Action.P59PlayerToNormalContainerStandardEquipmentProof;
+		const FCodeBP60PlayerSpatialGraphToNormalContainerQuickTransferProof& P60PlayerToNormalContainerSpatialGraphProof = Action.P60PlayerToNormalContainerSpatialGraphProof;
+		const FCodeBP47NormalContainerSpatialGraphQuickTransferProof& P47NormalContainerSpatialGraphProof = Action.P47NormalContainerSpatialGraphProof;
+		const FCodeBP48NormalContainerSpatialGraphEquipmentTransferProof& P48NormalContainerSpatialGraphEquipmentProof = Action.P48NormalContainerSpatialGraphEquipmentProof;
+		const FCodeBP41BodySpatialGraphQuickTransferProof& P41BodySpatialGraphProof = Action.P41BodySpatialGraphProof;
+		const FCodeBP42BodySpatialGraphEquipmentTransferProof& P42BodySpatialGraphEquipmentProof = Action.P42BodySpatialGraphEquipmentProof;
 		if (!bOpen || !Service.IsValid())
 		{
 			Feedback = TEXT("开发 Host 尚未启动");
@@ -702,6 +707,13 @@ namespace demo_map_code_b
 		Command.P38BodyEquipmentProof = P38BodyEquipmentProof;
 		Command.P40BodySimpleStackProof = P40BodySimpleStackProof;
 		Command.P46NormalContainerSimpleStackProof = P46NormalContainerSimpleStackProof;
+		Command.P62NormalContainerStandardEquipmentProof = P62NormalContainerStandardEquipmentProof;
+		Command.P63NormalContainerPlayerSimpleStackProof = P63NormalContainerPlayerSimpleStackProof;
+		Command.P58PlayerToNormalContainerSimpleStackProof = P58PlayerToNormalContainerSimpleStackProof;
+		Command.P59PlayerToNormalContainerStandardEquipmentProof =
+			P59PlayerToNormalContainerStandardEquipmentProof;
+		Command.P60PlayerToNormalContainerSpatialGraphProof =
+			P60PlayerToNormalContainerSpatialGraphProof;
 		Command.P47NormalContainerSpatialGraphProof = P47NormalContainerSpatialGraphProof;
 		Command.P48NormalContainerSpatialGraphEquipmentProof = P48NormalContainerSpatialGraphEquipmentProof;
 		Command.P41BodySpatialGraphProof = P41BodySpatialGraphProof;

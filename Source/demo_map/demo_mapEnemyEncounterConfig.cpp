@@ -1,6 +1,7 @@
 #include "demo_mapEnemyEncounterConfig.h"
 #include "demo_mapEnemySkillTypes.h"
 #include "demo_mapFixedLootTableRegistry.h"
+#include "demo_mapItemDefinitions.h"
 
 const FName Fdemo_mapEnemyEncounterIds::MainRoute(TEXT("P7.Route.Main"));
 const FName Fdemo_mapEnemyEncounterIds::SideMeleeRoute(TEXT("P7.Route.Side.Melee"));
@@ -181,7 +182,7 @@ bool Fdemo_mapEnemyEncounterConfig::Validate(FString* OutError)
 			|| Encounters.Contains(Record.Identity.EncounterId)
 			|| Markers.Contains(Record.Identity.SpawnMarkerId)
 			|| LootTables.Contains(Record.Identity.LootTableId)
-			|| !Fdemo_mapFixedLootTableRegistry::Find(Record.Identity.LootTableId)
+			|| !Fdemo_mapItemDefinitions::FindFixedLootProfile(Record.Identity.LootTableId)
 			|| (!Record.Identity.SkillProfileId.IsNone()
 				&& !Fdemo_mapEnemySkillPrototypeConfig::FindProfile(
 					Record.Identity.SkillProfileId)))

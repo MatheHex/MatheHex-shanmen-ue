@@ -24,7 +24,9 @@ enum class Edemo_mapRewardGenerationStatus : uint8
 	ArithmeticOverflow,
 	CapacityLimited,
 	DuplicateSource,
-	MaterializationFailed
+	MaterializationFailed,
+	/** The source is durably accepted; only transient runtime hydration remains. */
+	AcceptedPendingReconciliation
 };
 
 struct Fdemo_mapRewardBudgetProfile
@@ -78,6 +80,9 @@ struct Fdemo_mapRewardGenerationRequest
 	FName RequestId = NAME_None;
 	FGuid RunId;
 	FName LootSourceId = NAME_None;
+	/** P73.1 identity of the manifest view used for new generation. */
+	FName ContentVersionId = NAME_None;
+	FString ContentDigest;
 	FName BudgetProfileId = NAME_None;
 	TArray<FName> SourceTags;
 	uint64 StableSeed = 0;
@@ -123,6 +128,8 @@ struct Fdemo_mapRewardGenerationTrace
 	FName RequestId = NAME_None;
 	FGuid RunId;
 	FName LootSourceId = NAME_None;
+	FName ContentVersionId = NAME_None;
+	FString ContentDigest;
 	FName BudgetProfileId = NAME_None;
 	int64 BaseValue = 0;
 	int32 MultiplierBps = 0;
@@ -140,6 +147,8 @@ struct Fdemo_mapRewardGenerationTrace
 		return RequestId == Other.RequestId
 			&& RunId == Other.RunId
 			&& LootSourceId == Other.LootSourceId
+			&& ContentVersionId == Other.ContentVersionId
+			&& ContentDigest == Other.ContentDigest
 			&& BudgetProfileId == Other.BudgetProfileId
 			&& BaseValue == Other.BaseValue
 			&& MultiplierBps == Other.MultiplierBps
@@ -164,7 +173,8 @@ struct Fdemo_mapRewardGenerationResult
 	bool IsSuccess() const
 	{
 		return Status == Edemo_mapRewardGenerationStatus::Success
-			|| Status == Edemo_mapRewardGenerationStatus::CapacityLimited;
+			|| Status == Edemo_mapRewardGenerationStatus::CapacityLimited
+			|| Status == Edemo_mapRewardGenerationStatus::AcceptedPendingReconciliation;
 	}
 
 	bool operator==(const Fdemo_mapRewardGenerationResult& Other) const

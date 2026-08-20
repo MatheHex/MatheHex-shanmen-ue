@@ -10,13 +10,78 @@
 #include "demo_mapPersistentPreparationTransaction.h"
 #include "demo_mapSpiritStoneTransaction.h"
 
-namespace
-{
+	namespace
+	{
 	bool IsPreparedRun(const Fdemo_mapPersistentProfile& Profile, const FGuid& ExpectedRunId)
 	{
 		return Profile.ActiveRun.bHasActiveRun
 			&& Profile.ActiveRun.ActiveRunState == Edemo_mapPersistentActiveRunState::Prepared
 			&& Profile.ActiveRun.ActiveRunId == ExpectedRunId;
+	}
+
+	FGuid AllocateGeneratedRewardIdentity(TSet<FGuid>& InOutUsed)
+	{
+		FGuid Result;
+		do
+		{
+			Result = FGuid::NewGuid();
+		}
+		while (!Result.IsValid() || InOutUsed.Contains(Result));
+		InOutUsed.Add(Result);
+		return Result;
+	}
+
+	Fdemo_mapPersistentGeneratedRewardSource BuildGeneratedRewardSource(
+		const Fdemo_mapPersistentProfile& Profile,
+		const Fdemo_mapRewardSourceAcceptanceReceipt& Receipt)
+	{
+		TSet<FGuid> UsedIds;
+		UsedIds.Add(Profile.ProfileId);
+		UsedIds.Add(Profile.ActiveRun.ActiveRunId);
+		for (const Fdemo_mapPersistentItemRecord& Item : Profile.PermanentStash)
+		{
+			UsedIds.Add(Item.ItemInstanceId);
+		}
+		for (const Fdemo_mapPersistentItemRecord& Item : Profile.ActiveRun.ActiveRunItems)
+		{
+			UsedIds.Add(Item.ItemInstanceId);
+		}
+		for (const Fdemo_mapPersistentGeneratedRewardSource& Existing :
+			Profile.ActiveRun.GeneratedRewardSources)
+		{
+			UsedIds.Add(Existing.ContainerId);
+			for (const Fdemo_mapPersistentGeneratedRewardSourceEntry& Entry :
+				Existing.Entries)
+			{
+				UsedIds.Add(Entry.Item.ItemInstanceId);
+			}
+		}
+
+		Fdemo_mapPersistentGeneratedRewardSource Source;
+		Source.Receipt = Receipt;
+		Source.ContainerId = AllocateGeneratedRewardIdentity(UsedIds);
+		for (const Fdemo_mapRewardPlannedStack& Stack : Receipt.PlannedStacks)
+		{
+			Fdemo_mapPersistentGeneratedRewardSourceEntry Entry;
+			Entry.Item.ItemInstanceId = AllocateGeneratedRewardIdentity(UsedIds);
+			Entry.Item.ItemDefinitionId = Stack.DefinitionId;
+			Entry.Item.StackCount = Stack.StackCount;
+			Entry.Item.PersistentDomain = Edemo_mapPersistentDomain::ActiveRun;
+			Entry.Item.OriginRunId = Receipt.RunId;
+			Entry.Item.RewardEventKind = Stack.RewardEventKind;
+			Entry.Item.RewardEventId = Stack.RewardEventId;
+			Entry.Item.RewardValueMultiplierBps = Stack.RewardValueMultiplierBps;
+			Entry.Item.RewardSourceRoleId = Stack.RewardSourceRoleId;
+			Entry.Item.RareRewardEventId = Stack.RareRewardEventId;
+			Entry.Item.RareRewardPolicyId = Stack.RareRewardPolicyId;
+			Entry.Item.RareRewardTierId = Stack.RareRewardTierId;
+			Entry.Item.RareRewardBonusValue = Stack.RareRewardBonusValue;
+			Entry.Item.AffixSet = Stack.AffixSet;
+			Entry.Section = Stack.Section;
+			Entry.SlotIndex = Stack.SlotIndex;
+			Source.Entries.Add(MoveTemp(Entry));
+		}
+		return Source;
 	}
 }
 
@@ -49,6 +114,20 @@ Fdemo_mapProfileSessionInitializeResult Fdemo_mapProfileSessionCoordinator::Init
 	CurrentProfile = Load.Profile;
 	if (CurrentProfile->ActiveRun.bHasActiveRun)
 	{
+		if (CurrentProfile->ActiveRun.ActiveRunState
+			== Edemo_mapPersistentActiveRunState::InProgress)
+		{
+			// The durable source receipts are retained in CurrentProfile and are
+			// exposed to the Manager for index hydration.  Runtime/Actor rebind is
+			// intentionally required before the session may generate anything.
+			SetState(Edemo_mapProfileSessionState::RecoveryRequired,
+				Edemo_mapProfileSessionErrorClass::RuntimeMaterializationFailure,
+				TEXT("InProgress ActiveRun retained durable generated-source receipts; Runtime rebind is required and no source will reroll."));
+			Result.Status = Edemo_mapProfileSessionInitializeStatus::RecoveryRequired;
+			Result.Diagnostic = VisibleDiagnostic;
+			Result.Snapshot = GetSnapshot();
+			return Result;
+		}
 		if (CurrentProfile->ActiveRun.ActiveRunState != Edemo_mapPersistentActiveRunState::Prepared)
 		{
 			SetState(Edemo_mapProfileSessionState::FatalProfileError, Edemo_mapProfileSessionErrorClass::LoadFailure, TEXT("Loaded Profile contains an unsupported non-Prepared active run state."));
@@ -225,6 +304,151 @@ Fdemo_mapProfileSessionBeginResult Fdemo_mapProfileSessionCoordinator::BeginRun(
 	Result.Diagnostic = VisibleDiagnostic;
 	Result.Snapshot = GetSnapshot();
 	return Result;
+}
+
+Fdemo_mapProfileGeneratedRewardSourceResult
+Fdemo_mapProfileSessionCoordinator::CommitGeneratedRewardSource(
+	const Fdemo_mapRewardSourceAcceptanceReceipt& Receipt)
+{
+	Fdemo_mapProfileGeneratedRewardSourceResult Result;
+	if (bOperationInProgress
+		|| State != Edemo_mapProfileSessionState::RunActive
+		|| !CurrentProfile.IsSet()
+		|| !StorageContext.IsSet())
+	{
+		Result.Diagnostic =
+			TEXT("Generated reward source commit requires one active Profile session.");
+		return Result;
+	}
+	if (!Receipt.IsValid()
+		|| Receipt.RunId != CurrentProfile->ActiveRun.ActiveRunId)
+	{
+		Result.Status =
+			Edemo_mapProfileGeneratedRewardSourceStatus::ReceiptRejected;
+		Result.Diagnostic =
+			TEXT("Generated reward receipt is invalid or belongs to another ActiveRun.");
+		return Result;
+	}
+	for (const Fdemo_mapPersistentGeneratedRewardSource& Existing :
+		CurrentProfile->ActiveRun.GeneratedRewardSources)
+	{
+		if (Existing.Receipt.StableSourceRoleId
+			== Receipt.StableSourceRoleId)
+		{
+			Result.Source = Existing;
+			Result.SaveGenerationAfter = CurrentProfile->SaveGeneration;
+			if (Existing.Receipt.RunId == Receipt.RunId
+				&& Existing.Receipt.EffectiveSeed == Receipt.EffectiveSeed
+				&& Existing.Receipt.ContentVersionId
+					== Receipt.ContentVersionId
+				&& Existing.Receipt.ContentDigest == Receipt.ContentDigest
+				&& Existing.Receipt.PityStateIn == Receipt.PityStateIn
+				&& Existing.Receipt.PityStateOut == Receipt.PityStateOut
+				&& Existing.Receipt.bPityCommitRequired
+					== Receipt.bPityCommitRequired
+				&& Existing.Receipt.PlannedStacks == Receipt.PlannedStacks)
+			{
+				Result.Status =
+					Edemo_mapProfileGeneratedRewardSourceStatus::AlreadyCommitted;
+				Result.Diagnostic =
+					TEXT("Generated reward source was already durably committed; no reroll occurred.");
+			}
+			else
+			{
+				Result.Status =
+					Edemo_mapProfileGeneratedRewardSourceStatus::DuplicateSourceRejected;
+				Result.Diagnostic =
+					TEXT("Generated reward source role already has a different durable receipt.");
+			}
+			return Result;
+		}
+	}
+
+	TGuardValue<bool> OperationGuard(bOperationInProgress, true);
+	const Fdemo_mapPersistentProfile Before = CurrentProfile.GetValue();
+	Fdemo_mapPersistentProfile Candidate = Before;
+	Candidate.ActiveRun.ActiveRunState =
+		Edemo_mapPersistentActiveRunState::InProgress;
+	Result.Source = BuildGeneratedRewardSource(Candidate, Receipt);
+	Candidate.ActiveRun.GeneratedRewardSources.Add(Result.Source);
+	FString ValidationError;
+	if (!Repository.ValidateProfile(Candidate, &ValidationError))
+	{
+		Result.Status =
+			Edemo_mapProfileGeneratedRewardSourceStatus::ReceiptRejected;
+		Result.Diagnostic = TEXT("Generated reward source candidate was rejected: ")
+			+ ValidationError;
+		Result.Source = Fdemo_mapPersistentGeneratedRewardSource();
+		return Result;
+	}
+
+	Fdemo_mapPersistentProfile Committed = Candidate;
+	const Fdemo_mapProfileSaveResult Save = Repository.SaveProfile(
+		Committed, OperationStorage());
+	if (Save.IsSuccess())
+	{
+		CurrentProfile = Committed;
+		Result.Status = Edemo_mapProfileGeneratedRewardSourceStatus::Committed;
+		Result.Source = Committed.ActiveRun.GeneratedRewardSources.Last();
+		Result.SaveGenerationAfter = Committed.SaveGeneration;
+		Result.Diagnostic =
+			TEXT("Generated receipt and source item projection committed in one Profile revision.");
+		return Result;
+	}
+	if (Save.Status == Edemo_mapProfileSaveStatus::PostCommitVerificationFailed)
+	{
+		const Fdemo_mapProfileLoadResult Reload =
+			Repository.LoadExistingProfile(StorageContext.GetValue());
+		if (Reload.IsSuccess() && Reload.Profile == Candidate)
+		{
+			CurrentProfile = Reload.Profile;
+			Result.Status =
+				Edemo_mapProfileGeneratedRewardSourceStatus::ReconciledAfterReload;
+			Result.Source = Reload.Profile.ActiveRun.GeneratedRewardSources.Last();
+			Result.SaveGenerationAfter = Reload.Profile.SaveGeneration;
+			Result.Diagnostic =
+				TEXT("Generated reward source commit was reconciled after one reload; no replay occurred.");
+			return Result;
+		}
+		if (Reload.IsSuccess() && Reload.Profile == Before)
+		{
+			CurrentProfile = Reload.Profile;
+			Result.Status =
+				Edemo_mapProfileGeneratedRewardSourceStatus::PersistentCommitRejected;
+			Result.Source = Fdemo_mapPersistentGeneratedRewardSource();
+			Result.Diagnostic =
+				TEXT("Generated reward source ambiguity reconciled as unchanged Before state.");
+			return Result;
+		}
+		if (Reload.IsSuccess())
+		{
+			CurrentProfile = Reload.Profile;
+		}
+		SetState(Edemo_mapProfileSessionState::RecoveryRequired,
+			Edemo_mapProfileSessionErrorClass::AmbiguousCommit,
+			TEXT("Generated reward source reload matched neither Before nor intended source candidate."));
+		Result.Status = Edemo_mapProfileGeneratedRewardSourceStatus::RecoveryRequired;
+		Result.Source = Fdemo_mapPersistentGeneratedRewardSource();
+		Result.Diagnostic = VisibleDiagnostic;
+		return Result;
+	}
+
+	Result.Status =
+		Edemo_mapProfileGeneratedRewardSourceStatus::PersistentCommitRejected;
+	Result.Source = Fdemo_mapPersistentGeneratedRewardSource();
+	Result.Diagnostic = Save.Diagnostic.IsEmpty()
+		? TEXT("Generated reward source Profile commit failed before durability.")
+		: Save.Diagnostic;
+	return Result;
+}
+
+TArray<Fdemo_mapPersistentGeneratedRewardSource>
+Fdemo_mapProfileSessionCoordinator::GetActiveGeneratedRewardSources() const
+{
+	return CurrentProfile.IsSet()
+		&& CurrentProfile->ActiveRun.bHasActiveRun
+		? CurrentProfile->ActiveRun.GeneratedRewardSources
+		: TArray<Fdemo_mapPersistentGeneratedRewardSource>();
 }
 
 Fdemo_mapProfileSessionSettlementResult Fdemo_mapProfileSessionCoordinator::CommitRuntimeSettlement(const Fdemo_mapSettlementSummary& Summary)

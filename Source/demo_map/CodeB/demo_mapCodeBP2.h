@@ -84,6 +84,8 @@ namespace demo_map_code_b
 		int32 Level = 0;
 		int32 Quality = 0;
 		int32 RandomSeed = 0;
+		/** Immutable P1 instance metadata; projected read-only for identity-bound transfers. */
+		FString LegacyAffixDigest;
 		ECodeBItemType ItemType = ECodeBItemType::Generic;
 		/** Projection-only Code B definition metadata; no UI cache is a hotbar truth. */
 		bool bQuickUsable = false;
@@ -280,6 +282,376 @@ namespace demo_map_code_b
 	};
 
 	/**
+	 * P62 transient proof for one player-deposited canonical non-spatial
+	 * standard-equipment root in the exact opened BasicCache.  It records the
+	 * full immutable root identity and the input-time P17/P6 target choice; it
+	 * is never persisted as a second provenance truth.
+	 */
+	struct FCodeBP62NormalContainerStandardEquipmentQuickTransferProof
+	{
+		bool bIntent = false;
+		FGuid OwnerId;
+		FGuid RunInstanceId;
+		FGuid SearchTargetId;
+		FGuid ReceiptId;
+		int32 NormalContainerRevision = INDEX_NONE;
+		uint32 TargetOpenGeneration = 0;
+		FName NormalContainerDefinitionId;
+		FGuid SourceContainerId;
+		int32 SourceSlot = INDEX_NONE;
+		FGuid SourceItemId;
+		FName SourceDefinitionId;
+		ECodeBEquipSlot SourceEquipSlot = ECodeBEquipSlot::None;
+		int32 SourceLevel = 0;
+		int32 SourceQuality = 0;
+		int32 SourceRandomSeed = 0;
+		FString SourceLegacyAffixDigest;
+		int32 DefinitionContentRevision = 0;
+		FString DefinitionDigest;
+		FName LootProfileId;
+		int32 LootProfileVersion = 0;
+		FString LootProfileDigest;
+		FString LootAlgorithmVersion;
+		FString LootResultDigest;
+		FString MaterializationDigest;
+		FName WorkspaceTargetPaneId;
+		int32 CompositeRevision = INDEX_NONE;
+		int32 P6SnapshotRevision = INDEX_NONE;
+		FGuid ActivePlayerChildContainerId;
+		FGuid ActivePlayerChildParentItemId;
+		uint32 ActivePlayerChildOpenGeneration = 0;
+		FGuid FrozenTargetContainerId;
+		int32 FrozenTargetSlot = INDEX_NONE;
+		int32 FrozenTargetCapacity = 0;
+
+		bool HasSourceIdentity() const
+		{
+			return bIntent && OwnerId.IsValid() && RunInstanceId.IsValid()
+				&& SearchTargetId.IsValid() && ReceiptId.IsValid()
+				&& NormalContainerRevision > 0 && TargetOpenGeneration != 0
+				&& !NormalContainerDefinitionId.IsNone() && SourceContainerId.IsValid()
+				&& SourceSlot >= 0 && SourceItemId.IsValid() && !SourceDefinitionId.IsNone()
+				&& SourceEquipSlot != ECodeBEquipSlot::None && SourceLevel > 0
+				&& DefinitionContentRevision > 0 && !DefinitionDigest.IsEmpty()
+				&& !LootProfileId.IsNone() && LootProfileVersion > 0
+				&& !LootProfileDigest.IsEmpty() && !LootAlgorithmVersion.IsEmpty()
+				&& !LootResultDigest.IsEmpty() && !MaterializationDigest.IsEmpty()
+				&& !WorkspaceTargetPaneId.IsNone()
+				&& CompositeRevision >= 0 && P6SnapshotRevision >= 0;
+		}
+
+		bool HasFrozenTarget() const
+		{
+			return HasSourceIdentity() && FrozenTargetContainerId.IsValid()
+				&& FrozenTargetSlot >= 0 && FrozenTargetCapacity > 0;
+		}
+	};
+
+	/**
+	 * P63 transient proof for one player-deposited generic simple stack in the
+	 * exact opened BasicCache.  It is intentionally disjoint from P46's
+	 * durable-materialization family and freezes one merge-first / real-empty-
+	 * second P6 target at input time.
+	 */
+	struct FCodeBP63NormalContainerPlayerSimpleStackQuickTransferProof
+	{
+		bool bIntent = false;
+		FGuid OwnerId;
+		FGuid RunInstanceId;
+		FGuid SearchTargetId;
+		FGuid ReceiptId;
+		int32 NormalContainerRevision = INDEX_NONE;
+		uint32 TargetOpenGeneration = 0;
+		FName NormalContainerDefinitionId;
+		FGuid SourceContainerId;
+		int32 SourceSlot = INDEX_NONE;
+		FGuid SourceItemId;
+		FName SourceDefinitionId;
+		FName SourceStackKey;
+		int32 SourceQuantity = 0;
+		int32 SourceMaxStack = 0;
+		ECodeBItemType SourceItemType = ECodeBItemType::Material;
+		ECodeBEquipSlot SourceEquipSlot = ECodeBEquipSlot::None;
+		int32 SourceLevel = 0;
+		int32 SourceQuality = 0;
+		int32 SourceRandomSeed = 0;
+		FString SourceLegacyAffixDigest;
+		int32 DefinitionContentRevision = 0;
+		FString DefinitionDigest;
+		FName LootProfileId;
+		int32 LootProfileVersion = 0;
+		FString LootProfileDigest;
+		FString LootAlgorithmVersion;
+		FString LootResultDigest;
+		FString MaterializationDigest;
+		FName WorkspaceTargetPaneId;
+		int32 CompositeRevision = INDEX_NONE;
+		int32 P6SnapshotRevision = INDEX_NONE;
+		FGuid ActivePlayerChildContainerId;
+		FGuid ActivePlayerChildParentItemId;
+		uint32 ActivePlayerChildOpenGeneration = 0;
+		FGuid FrozenTargetContainerId;
+		int32 FrozenTargetSlot = INDEX_NONE;
+		int32 FrozenTargetCapacity = 0;
+		bool bFrozenMergeCandidate = false;
+		FGuid FrozenTargetItemId;
+		int32 FrozenTargetQuantity = 0;
+
+		bool HasSourceIdentity() const
+		{
+			return bIntent && OwnerId.IsValid() && RunInstanceId.IsValid()
+				&& SearchTargetId.IsValid() && ReceiptId.IsValid()
+				&& NormalContainerRevision > 0 && TargetOpenGeneration != 0
+				&& !NormalContainerDefinitionId.IsNone() && SourceContainerId.IsValid()
+				&& SourceSlot >= 0 && SourceItemId.IsValid() && !SourceDefinitionId.IsNone()
+				&& !SourceStackKey.IsNone() && SourceQuantity > 0 && SourceMaxStack > 0
+				&& SourceEquipSlot == ECodeBEquipSlot::None
+				&& DefinitionContentRevision > 0 && !DefinitionDigest.IsEmpty()
+				&& !LootProfileId.IsNone() && LootProfileVersion > 0
+				&& !LootProfileDigest.IsEmpty() && !LootAlgorithmVersion.IsEmpty()
+				&& !LootResultDigest.IsEmpty() && !MaterializationDigest.IsEmpty()
+				&& !WorkspaceTargetPaneId.IsNone()
+				&& CompositeRevision >= 0 && P6SnapshotRevision >= 0;
+		}
+
+		bool HasFrozenTarget() const
+		{
+			return HasSourceIdentity() && FrozenTargetContainerId.IsValid()
+				&& FrozenTargetSlot >= 0 && FrozenTargetCapacity > 0
+				&& (bFrozenMergeCandidate
+					? FrozenTargetItemId.IsValid() && FrozenTargetQuantity > 0
+					: !FrozenTargetItemId.IsValid() && FrozenTargetQuantity == 0);
+		}
+	};
+
+	/**
+	 * P58 transient proof for one player-side ordinary simple stack deposited into
+	 * the exact opened P10 BasicCache.  It freezes both the P6 source mode and the
+	 * one visible merge-first / real-empty-second P9 candidate selected at input.
+	 */
+	struct FCodeBP58PlayerSimpleStackToNormalContainerQuickTransferProof
+	{
+		bool bIntent = false;
+		FGuid OwnerId;
+		FGuid RunInstanceId;
+		FGuid SearchTargetId;
+		FGuid ReceiptId;
+		int32 NormalContainerRevision = INDEX_NONE;
+		uint32 TargetOpenGeneration = 0;
+		FName NormalContainerDefinitionId;
+		FGuid TargetContainerId;
+		FGuid SourceContainerId;
+		int32 SourceSlot = INDEX_NONE;
+		FGuid SourceItemId;
+		FName SourceDefinitionId;
+		FName SourceStackKey;
+		int32 SourceQuantity = 0;
+		int32 SourceMaxStack = 0;
+		bool bSourceIsBaseQuick = false;
+		FGuid SourceActiveChildContainerId;
+		FGuid SourceActiveChildParentItemId;
+		uint32 SourceActiveChildOpenGeneration = 0;
+		int32 DefinitionContentRevision = 0;
+		FString DefinitionDigest;
+		FName LootProfileId;
+		int32 LootProfileVersion = 0;
+		FString LootProfileDigest;
+		FString LootAlgorithmVersion;
+		FString LootResultDigest;
+		FString MaterializationDigest;
+		FName WorkspaceTargetPaneId;
+		int32 CompositeRevision = INDEX_NONE;
+		int32 P6SnapshotRevision = INDEX_NONE;
+		int32 FrozenTargetSlot = INDEX_NONE;
+		bool bFrozenMergeCandidate = false;
+		FGuid FrozenTargetItemId;
+		int32 FrozenTargetQuantity = 0;
+
+		bool HasSourceIdentity() const
+		{
+			const bool bValidSourceMode = bSourceIsBaseQuick
+				? (!SourceActiveChildContainerId.IsValid()
+					&& !SourceActiveChildParentItemId.IsValid()
+					&& SourceActiveChildOpenGeneration == 0)
+				: (SourceActiveChildContainerId == SourceContainerId
+					&& SourceActiveChildParentItemId.IsValid()
+					&& SourceActiveChildOpenGeneration != 0);
+			return bIntent && OwnerId.IsValid() && RunInstanceId.IsValid()
+				&& SearchTargetId.IsValid() && ReceiptId.IsValid()
+				&& NormalContainerRevision > 0 && TargetOpenGeneration != 0
+				&& !NormalContainerDefinitionId.IsNone() && TargetContainerId.IsValid()
+				&& SourceContainerId.IsValid() && SourceSlot >= 0 && SourceItemId.IsValid()
+				&& !SourceDefinitionId.IsNone() && !SourceStackKey.IsNone()
+				&& SourceQuantity > 0 && SourceMaxStack > 1 && bValidSourceMode
+				&& DefinitionContentRevision > 0 && !DefinitionDigest.IsEmpty()
+				&& !LootProfileId.IsNone() && LootProfileVersion > 0
+				&& !LootProfileDigest.IsEmpty() && !LootAlgorithmVersion.IsEmpty()
+				&& !LootResultDigest.IsEmpty() && !MaterializationDigest.IsEmpty()
+				&& !WorkspaceTargetPaneId.IsNone()
+				&& CompositeRevision >= 0 && P6SnapshotRevision >= 0;
+		}
+
+		bool HasFrozenTarget() const
+		{
+			return HasSourceIdentity() && FrozenTargetSlot >= 0
+				&& (bFrozenMergeCandidate
+					? FrozenTargetItemId.IsValid() && FrozenTargetQuantity > 0
+					: !FrozenTargetItemId.IsValid() && FrozenTargetQuantity == 0);
+		}
+	};
+
+	/**
+	 * P59 transient proof for one canonical standard-equipment root deposited from
+	 * an exact P6 equipment/BaseQuick/current-P17-child source into the exact
+	 * opened BasicCache. The first real empty target is frozen once at input.
+	 */
+	struct FCodeBP59PlayerStandardEquipmentToNormalContainerQuickTransferProof
+	{
+		bool bIntent = false;
+		FGuid OwnerId;
+		FGuid RunInstanceId;
+		FGuid SearchTargetId;
+		FGuid ReceiptId;
+		int32 NormalContainerRevision = INDEX_NONE;
+		uint32 TargetOpenGeneration = 0;
+		FName NormalContainerDefinitionId;
+		FGuid TargetContainerId;
+		FGuid SourceContainerId;
+		FName SourceContainerRole;
+		int32 SourceSlot = INDEX_NONE;
+		FGuid SourceItemId;
+		FName SourceDefinitionId;
+		ECodeBEquipSlot SourceEquipSlot = ECodeBEquipSlot::None;
+		int32 SourceLevel = 0;
+		int32 SourceQuality = 0;
+		int32 SourceRandomSeed = 0;
+		FString SourceLegacyAffixDigest;
+		bool bSourceIsFormalEquipment = false;
+		bool bSourceIsBaseQuick = false;
+		FGuid SourceActiveChildContainerId;
+		FGuid SourceActiveChildParentItemId;
+		uint32 SourceActiveChildOpenGeneration = 0;
+		int32 DefinitionContentRevision = 0;
+		FString DefinitionDigest;
+		FName LootProfileId;
+		int32 LootProfileVersion = 0;
+		FString LootProfileDigest;
+		FString LootAlgorithmVersion;
+		FString LootResultDigest;
+		FString MaterializationDigest;
+		FName WorkspaceTargetPaneId;
+		int32 CompositeRevision = INDEX_NONE;
+		int32 P6SnapshotRevision = INDEX_NONE;
+		int32 FrozenTargetSlot = INDEX_NONE;
+
+		bool HasSourceIdentity() const
+		{
+			const bool bFormalMode = bSourceIsFormalEquipment && !bSourceIsBaseQuick
+				&& !SourceActiveChildContainerId.IsValid()
+				&& !SourceActiveChildParentItemId.IsValid()
+				&& SourceActiveChildOpenGeneration == 0;
+			const bool bBaseQuickMode = !bSourceIsFormalEquipment && bSourceIsBaseQuick
+				&& !SourceActiveChildContainerId.IsValid()
+				&& !SourceActiveChildParentItemId.IsValid()
+				&& SourceActiveChildOpenGeneration == 0;
+			const bool bCurrentChildMode = !bSourceIsFormalEquipment && !bSourceIsBaseQuick
+				&& SourceActiveChildContainerId == SourceContainerId
+				&& SourceActiveChildParentItemId.IsValid()
+				&& SourceActiveChildOpenGeneration != 0;
+			return bIntent && OwnerId.IsValid() && RunInstanceId.IsValid()
+				&& SearchTargetId.IsValid() && ReceiptId.IsValid()
+				&& NormalContainerRevision > 0 && TargetOpenGeneration != 0
+				&& !NormalContainerDefinitionId.IsNone() && TargetContainerId.IsValid()
+				&& SourceContainerId.IsValid() && !SourceContainerRole.IsNone()
+				&& SourceSlot >= 0 && SourceItemId.IsValid() && !SourceDefinitionId.IsNone()
+				&& SourceEquipSlot != ECodeBEquipSlot::None && SourceLevel > 0
+				&& (bFormalMode || bBaseQuickMode || bCurrentChildMode)
+				&& DefinitionContentRevision > 0 && !DefinitionDigest.IsEmpty()
+				&& !LootProfileId.IsNone() && LootProfileVersion > 0
+				&& !LootProfileDigest.IsEmpty() && !LootAlgorithmVersion.IsEmpty()
+				&& !LootResultDigest.IsEmpty() && !MaterializationDigest.IsEmpty()
+				&& !WorkspaceTargetPaneId.IsNone()
+				&& CompositeRevision >= 0 && P6SnapshotRevision >= 0;
+		}
+
+		bool HasFrozenTarget() const
+		{
+			return HasSourceIdentity() && FrozenTargetSlot >= 0;
+		}
+	};
+
+	/**
+	 * P60 transient proof for one canonical P19 complete spatial graph deposited
+	 * from P6 BaseQuick or its exact formal equipment slot into the currently
+	 * opened BasicCache.  Source closure and the first real empty target are
+	 * frozen once at input; a P17 child cell is never a source.
+	 */
+	struct FCodeBP60PlayerSpatialGraphToNormalContainerQuickTransferProof
+	{
+		bool bIntent = false;
+		FGuid OwnerId;
+		FGuid RunInstanceId;
+		FGuid SearchTargetId;
+		FGuid ReceiptId;
+		int32 NormalContainerRevision = INDEX_NONE;
+		uint32 TargetOpenGeneration = 0;
+		FName NormalContainerDefinitionId;
+		FGuid TargetContainerId;
+		FGuid SourceContainerId;
+		FName SourceContainerRole;
+		int32 SourceSlot = INDEX_NONE;
+		FGuid SourceItemId;
+		FName SourceDefinitionId;
+		ECodeBEquipSlot SourceEquipSlot = ECodeBEquipSlot::None;
+		FGuid SourceChildContainerId;
+		FGuid StableSpatialChildGuid;
+		int32 SourceChildCapacity = 0;
+		FString SourceClosureDigest;
+		bool bSourceIsFormalEquipment = false;
+		bool bSourceIsBaseQuick = false;
+		int32 DefinitionContentRevision = 0;
+		FString DefinitionDigest;
+		FName LootProfileId;
+		int32 LootProfileVersion = 0;
+		FString LootProfileDigest;
+		FString LootAlgorithmVersion;
+		FString LootResultDigest;
+		FString MaterializationDigest;
+		FName WorkspaceTargetPaneId;
+		int32 CompositeRevision = INDEX_NONE;
+		int32 P6SnapshotRevision = INDEX_NONE;
+		int32 FrozenTargetSlot = INDEX_NONE;
+
+		bool HasSourceIdentity() const
+		{
+			const bool bFormalMode = bSourceIsFormalEquipment && !bSourceIsBaseQuick;
+			const bool bBaseQuickMode = !bSourceIsFormalEquipment && bSourceIsBaseQuick;
+			return bIntent && OwnerId.IsValid() && RunInstanceId.IsValid()
+				&& SearchTargetId.IsValid() && ReceiptId.IsValid()
+				&& NormalContainerRevision > 0 && TargetOpenGeneration != 0
+				&& !NormalContainerDefinitionId.IsNone() && TargetContainerId.IsValid()
+				&& SourceContainerId.IsValid() && !SourceContainerRole.IsNone()
+				&& SourceSlot >= 0 && SourceItemId.IsValid() && !SourceDefinitionId.IsNone()
+				&& SourceEquipSlot != ECodeBEquipSlot::None
+				&& SourceChildContainerId.IsValid() && StableSpatialChildGuid.IsValid()
+				&& SourceChildContainerId == StableSpatialChildGuid
+				&& SourceChildCapacity > 0 && !SourceClosureDigest.IsEmpty()
+				&& (bFormalMode || bBaseQuickMode)
+				&& DefinitionContentRevision > 0 && !DefinitionDigest.IsEmpty()
+				&& !LootProfileId.IsNone() && LootProfileVersion > 0
+				&& !LootProfileDigest.IsEmpty() && !LootAlgorithmVersion.IsEmpty()
+				&& !LootResultDigest.IsEmpty() && !MaterializationDigest.IsEmpty()
+				&& !WorkspaceTargetPaneId.IsNone()
+				&& CompositeRevision >= 0 && P6SnapshotRevision >= 0;
+		}
+
+		bool HasFrozenTarget() const
+		{
+			return HasSourceIdentity() && FrozenTargetSlot >= 0;
+		}
+	};
+
+	/**
 	 * P49 transient proof for one normal Drag of an exact opened/revealed P10
 	 * BasicCache ordinary simple-stack root to the existing GroundDropZone.
 	 * It freezes only the P9 source and receipt identity; WorldDrop identity and
@@ -302,6 +674,12 @@ namespace demo_map_code_b
 		FName SourceStackKey;
 		int32 SourceQuantity = 0;
 		int32 SourceMaxStack = 0;
+		ECodeBItemType SourceItemType = ECodeBItemType::Material;
+		ECodeBEquipSlot SourceEquipSlot = ECodeBEquipSlot::None;
+		int32 SourceLevel = 0;
+		int32 SourceQuality = 0;
+		int32 SourceRandomSeed = 0;
+		FString SourceLegacyAffixDigest;
 		int32 DefinitionContentRevision = 0;
 		FString DefinitionDigest;
 		FName LootProfileId;
@@ -332,9 +710,44 @@ namespace demo_map_code_b
 	};
 
 	/**
-	 * P47 transient proof for one exact opened/revealed P10 BasicCache spatial
-	 * parent.  It freezes the canonical P18/P17 source closure and the one
-	 * input-time BaseQuick candidate; P1 remains the sole graph authority.
+	 * P64 transient proof for one player-deposited generic simple stack in the
+	 * exact opened BasicCache, dragged normally to GroundDrop.  The dedicated
+	 * family stays disjoint from P49's two materialization definitions while
+	 * preserving the complete root metadata needed for durable revalidation.
+	 */
+	struct FCodeBP64NormalContainerPlayerSimpleStackGroundDropProof
+		: FCodeBP49NormalContainerSimpleStackGroundDropProof
+	{
+		bool HasSourceIdentity() const
+		{
+			return FCodeBP49NormalContainerSimpleStackGroundDropProof::HasSourceIdentity()
+				&& SourceEquipSlot == ECodeBEquipSlot::None;
+		}
+	};
+
+	/**
+	 * P65 transient proof for one unclaimed player-deposited canonical standard
+	 * non-spatial root in the exact opened BasicCache, dragged normally to the
+	 * existing GroundDropZone. The shared P49 identity surface is reused only as
+	 * immutable source metadata; the dedicated shape gate keeps P49/P64/P65
+	 * mutually exclusive.
+	 */
+	struct FCodeBP65NormalContainerPlayerStandardEquipmentGroundDropProof
+		: FCodeBP49NormalContainerSimpleStackGroundDropProof
+	{
+		bool HasSourceIdentity() const
+		{
+			return FCodeBP49NormalContainerSimpleStackGroundDropProof::HasSourceIdentity()
+				&& SourceQuantity == 1 && SourceMaxStack == 1
+				&& SourceEquipSlot != ECodeBEquipSlot::None;
+		}
+	};
+
+	/**
+	 * P47/P55/P61 transient proof for one exact opened/revealed BasicCache
+	 * spatial parent. It preserves the two receipt-claimed materialization
+	 * families and adds only the receipt-derived player-deposited family; the
+	 * one input-time BaseQuick candidate and P1 remain authoritative.
 	 */
 	struct FCodeBP47NormalContainerSpatialGraphQuickTransferProof
 	{
@@ -352,6 +765,9 @@ namespace demo_map_code_b
 		FName SourceDefinitionId;
 		FGuid SourceChildContainerId;
 		FGuid StableSpatialChildGuid;
+		bool bPlayerDepositedSource = false;
+		int32 SourceChildCapacity = 0;
+		FString SourceClosureDigest;
 		int32 DefinitionContentRevision = 0;
 		FString DefinitionDigest;
 		FName LootProfileId;
@@ -376,6 +792,9 @@ namespace demo_map_code_b
 				&& !NormalContainerDefinitionId.IsNone() && SourceContainerId.IsValid()
 				&& SourceSlot >= 0 && SourceItemId.IsValid() && !SourceDefinitionId.IsNone()
 				&& SourceChildContainerId.IsValid() && StableSpatialChildGuid.IsValid()
+				&& SourceChildContainerId == StableSpatialChildGuid
+				&& (!bPlayerDepositedSource
+					|| (SourceChildCapacity > 0 && !SourceClosureDigest.IsEmpty()))
 				&& DefinitionContentRevision > 0 && !DefinitionDigest.IsEmpty()
 				&& !LootProfileId.IsNone() && LootProfileVersion > 0
 				&& !LootProfileDigest.IsEmpty() && !LootAlgorithmVersion.IsEmpty()
@@ -392,9 +811,10 @@ namespace demo_map_code_b
 	};
 
 	/**
-	 * P48 transient proof for one normal P10 Drag of a revealed P18 spatial
-	 * graph into the exact empty P6 formal equipment slot selected by the user.
-	 * Source identity is captured at drag start; no target is scanned or inferred.
+	 * P48/P66 transient proof for one normal P10 Drag of a revealed canonical
+	 * spatial graph. P48 freezes an explicit formal-equipment target; P50/P56/P66
+	 * leave the target empty for GroundDrop. Player-deposited graphs carry their
+	 * exact closure identity so the durable writer can reject source-family drift.
 	 */
 	struct FCodeBP48NormalContainerSpatialGraphEquipmentTransferProof
 	{
@@ -413,6 +833,9 @@ namespace demo_map_code_b
 		FName SourceDefinitionId;
 		FGuid SourceChildContainerId;
 		FGuid StableSpatialChildGuid;
+		bool bPlayerDepositedSource = false;
+		int32 SourceChildCapacity = 0;
+		FString SourceClosureDigest;
 		int32 DefinitionContentRevision = 0;
 		FString DefinitionDigest;
 		FName LootProfileId;
@@ -437,6 +860,9 @@ namespace demo_map_code_b
 				&& !NormalContainerDefinitionId.IsNone() && SourceContainerId.IsValid()
 				&& SourceSlot >= 0 && SourceItemId.IsValid() && !SourceDefinitionId.IsNone()
 				&& SourceChildContainerId.IsValid() && StableSpatialChildGuid.IsValid()
+				&& SourceChildContainerId == StableSpatialChildGuid
+				&& (!bPlayerDepositedSource
+					|| (SourceChildCapacity > 0 && !SourceClosureDigest.IsEmpty()))
 				&& DefinitionContentRevision > 0 && !DefinitionDigest.IsEmpty()
 				&& !LootProfileId.IsNone() && LootProfileVersion > 0
 				&& !LootProfileDigest.IsEmpty() && !LootAlgorithmVersion.IsEmpty()
@@ -453,9 +879,9 @@ namespace demo_map_code_b
 	};
 
 	/**
-	 * P43 transient proof for one normal Drag of an exact Revealed ordinary
-	 * P12 simple-stack root to the existing GroundDropZone.  It deliberately
-	 * carries no player target, quantity draft, WorldDrop identity, or ordinal;
+	 * P43/P69 transient proof for one normal Drag of an exact Revealed ordinary
+	 * P12 simple-stack root, whole or confirmed split, to the existing GroundDropZone.
+	 * It deliberately carries no player target, WorldDrop identity, or ordinal;
 	 * the durable Store derives the new P31 identity only after revalidation.
 	 */
 	struct FCodeBP43BodySimpleStackGroundDropProof
@@ -496,10 +922,11 @@ namespace demo_map_code_b
 	};
 
 	/**
-	 * P41 transient proof for one revealed P20 spatial parent in the exact opened
-	 * P12 ordinary body root.  It freezes the canonical source closure and the
-	 * input-time BaseQuick domain; Preview later fills one exact first-empty
-	 * candidate and Commit may only revalidate that same address.
+	 * P41/P52 transient proof for one revealed P20 empty or exact P51-loaded
+	 * spatial parent in the exact opened P12 ordinary body root. It freezes the
+	 * canonical source identity and input-time BaseQuick domain; durable Commit
+	 * independently validates the receipt-bound full closure and may only
+	 * revalidate Preview's one exact first-empty address.
 	 */
 	struct FCodeBP41BodySpatialGraphQuickTransferProof
 	{
@@ -632,6 +1059,15 @@ namespace demo_map_code_b
 		FCodeBP40BodySimpleStackQuickTransferProof P40BodySimpleStackProof;
 		/** P46 opened/revealed P10 BasicCache simple-stack and frozen-target proof. */
 		FCodeBP46NormalContainerSimpleStackQuickTransferProof P46NormalContainerSimpleStackProof;
+		/** P62 player-deposited BasicCache standard-equipment and frozen-target proof. */
+		FCodeBP62NormalContainerStandardEquipmentQuickTransferProof P62NormalContainerStandardEquipmentProof;
+		FCodeBP63NormalContainerPlayerSimpleStackQuickTransferProof P63NormalContainerPlayerSimpleStackProof;
+		/** P58 player ordinary simple-stack and exact opened BasicCache target proof. */
+		FCodeBP58PlayerSimpleStackToNormalContainerQuickTransferProof P58PlayerToNormalContainerSimpleStackProof;
+		/** P59 player canonical standard-equipment and exact opened BasicCache target proof. */
+		FCodeBP59PlayerStandardEquipmentToNormalContainerQuickTransferProof P59PlayerToNormalContainerStandardEquipmentProof;
+		/** P60 player canonical complete spatial graph and exact opened BasicCache target. */
+		FCodeBP60PlayerSpatialGraphToNormalContainerQuickTransferProof P60PlayerToNormalContainerSpatialGraphProof;
 		/** P47 opened/revealed P10 BasicCache spatial graph and frozen BaseQuick proof. */
 		FCodeBP47NormalContainerSpatialGraphQuickTransferProof P47NormalContainerSpatialGraphProof;
 		/** P48 opened/revealed P10 BasicCache spatial graph and explicit formal equipment target. */

@@ -45,6 +45,47 @@ bool Fdemo_mapPersistentShopStockState::operator==(
 		&& Entries == Other.Entries;
 }
 
+bool Fdemo_mapPersistentGeneratedRewardSourceEntry::operator==(
+	const Fdemo_mapPersistentGeneratedRewardSourceEntry& Other) const
+{
+	return Item == Other.Item
+		&& Section == Other.Section
+		&& SlotIndex == Other.SlotIndex;
+}
+
+bool Fdemo_mapPersistentGeneratedRewardSource::operator==(
+	const Fdemo_mapPersistentGeneratedRewardSource& Other) const
+{
+	return Receipt.RunId == Other.Receipt.RunId
+		&& Receipt.StableSourceRoleId == Other.Receipt.StableSourceRoleId
+		&& Receipt.SlotId == Other.Receipt.SlotId
+		&& Receipt.ProjectionId == Other.Receipt.ProjectionId
+		&& Receipt.DistributionProfileId
+			== Other.Receipt.DistributionProfileId
+		&& Receipt.ContentVersionId == Other.Receipt.ContentVersionId
+		&& Receipt.ContentDigest == Other.Receipt.ContentDigest
+		&& Receipt.BudgetProfileId == Other.Receipt.BudgetProfileId
+		&& Receipt.MarkerId == Other.Receipt.MarkerId
+		&& Receipt.EncounterId == Other.Receipt.EncounterId
+		&& Receipt.JackpotPolicyId == Other.Receipt.JackpotPolicyId
+		&& Receipt.RareExtremePolicyId == Other.Receipt.RareExtremePolicyId
+		&& Receipt.AffixPolicyId == Other.Receipt.AffixPolicyId
+		&& Receipt.EffectiveSeed == Other.Receipt.EffectiveSeed
+		&& Receipt.RandomizedBudget == Other.Receipt.RandomizedBudget
+		&& Receipt.GeneratedTotalValue == Other.Receipt.GeneratedTotalValue
+		&& Receipt.ResidualValue == Other.Receipt.ResidualValue
+		&& Receipt.PityStateIn == Other.Receipt.PityStateIn
+		&& Receipt.PityStateOut == Other.Receipt.PityStateOut
+		&& Receipt.bPityCommitRequired
+			== Other.Receipt.bPityCommitRequired
+		&& Receipt.bFallbackUsed == Other.Receipt.bFallbackUsed
+		&& Receipt.bLegacyCompatibilityView
+			== Other.Receipt.bLegacyCompatibilityView
+		&& Receipt.PlannedStacks == Other.Receipt.PlannedStacks
+		&& ContainerId == Other.ContainerId
+		&& Entries == Other.Entries;
+}
+
 bool Fdemo_mapPersistentActiveRunRecord::operator==(const Fdemo_mapPersistentActiveRunRecord& Other) const
 {
 	return bHasActiveRun == Other.bHasActiveRun
@@ -53,6 +94,7 @@ bool Fdemo_mapPersistentActiveRunRecord::operator==(const Fdemo_mapPersistentAct
 		&& RiskSpiritStones == Other.RiskSpiritStones
 		&& DeployedItemIds == Other.DeployedItemIds
 		&& ActiveRunItems == Other.ActiveRunItems
+		&& GeneratedRewardSources == Other.GeneratedRewardSources
 		&& ConsumedSpiritStoneSourceIds == Other.ConsumedSpiritStoneSourceIds
 		&& CommittedSettlementId == Other.CommittedSettlementId;
 }

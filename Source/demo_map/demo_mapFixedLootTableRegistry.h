@@ -18,7 +18,10 @@ struct Fdemo_mapFixedLootTableIds
 	static const FName MarkerChestSideA;
 };
 
-/** Single fixed-table authority used by all P7 Corpses and Chests. */
+/**
+ * Legacy P7 lookup surface. Profile data lives only in the P73 Code B content
+ * manifest (Fdemo_mapItemDefinitions); this type preserves stable profile IDs.
+ */
 struct Fdemo_mapFixedLootTableRegistry
 {
 	static const TArray<Fdemo_mapFixedLootTableDefinition>& GetAll();

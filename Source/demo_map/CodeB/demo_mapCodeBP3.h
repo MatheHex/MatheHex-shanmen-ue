@@ -180,6 +180,39 @@ namespace demo_map_code_b
 		}
 	};
 
+	/**
+	 * One source action entering P2 after the source-action boundary has added
+	 * its durable proof. P4 owns only the gesture portion; this aggregate keeps
+	 * the widget and controller from duplicating a long per-source parameter
+	 * list while P2/P1 retain final transaction authority.
+	 */
+	struct FCodeBP3SourceAction
+	{
+		ECodeBOperation Operation = ECodeBOperation::Move;
+		FCodeBP3SlotAddress Source;
+		FCodeBP3SlotAddress Target;
+		int32 ExpectedRevision = INDEX_NONE;
+		int32 Quantity = 0;
+		FString OperationLabel;
+		ECodeBP2CommandIntent Intent = ECodeBP2CommandIntent::Standard;
+		FGuid QuickTransferActivePlayerContainerId;
+		uint32 ActivePlayerChildOpenGeneration = 0;
+		ECodeBQuickTransferTargetMode QuickTransferTargetMode = ECodeBQuickTransferTargetMode::Legacy;
+		FGuid QuickTransferActivePlayerParentItemId;
+		FCodeBP38BodyEquipmentTransferProof P38BodyEquipmentProof;
+		FCodeBP40BodySimpleStackQuickTransferProof P40BodySimpleStackProof;
+		FCodeBP46NormalContainerSimpleStackQuickTransferProof P46NormalContainerSimpleStackProof;
+		FCodeBP62NormalContainerStandardEquipmentQuickTransferProof P62NormalContainerStandardEquipmentProof;
+		FCodeBP63NormalContainerPlayerSimpleStackQuickTransferProof P63NormalContainerPlayerSimpleStackProof;
+		FCodeBP58PlayerSimpleStackToNormalContainerQuickTransferProof P58PlayerToNormalContainerSimpleStackProof;
+		FCodeBP59PlayerStandardEquipmentToNormalContainerQuickTransferProof P59PlayerToNormalContainerStandardEquipmentProof;
+		FCodeBP60PlayerSpatialGraphToNormalContainerQuickTransferProof P60PlayerToNormalContainerSpatialGraphProof;
+		FCodeBP47NormalContainerSpatialGraphQuickTransferProof P47NormalContainerSpatialGraphProof;
+		FCodeBP48NormalContainerSpatialGraphEquipmentTransferProof P48NormalContainerSpatialGraphEquipmentProof;
+		FCodeBP41BodySpatialGraphQuickTransferProof P41BodySpatialGraphProof;
+		FCodeBP42BodySpatialGraphEquipmentTransferProof P42BodySpatialGraphEquipmentProof;
+	};
+
 	/** P17's read-only active-Run view of one actual item-owned space container. */
 	struct FCodeBP7SpatialContainerProjection
 	{
@@ -243,8 +276,8 @@ namespace demo_map_code_b
 		void ClearTransientSelection(const FString& Reason = TEXT("物品图已离开当前页面"));
 		void SetSplitQuantity(int32 InQuantity) { SplitQuantity = InQuantity; }
 		bool ActivateAddress(const FCodeBP3SlotAddress& TargetAddress, int32 ExpectedRevisionOverride = INDEX_NONE);
-		/** P4-only UI gesture bridge.  The caller supplies stable projection values; this controller remains the sole UI route into P2. */
-		bool CommitP4Operation(ECodeBOperation Operation, const FCodeBP3SlotAddress& Source, const FCodeBP3SlotAddress& Target, int32 ExpectedRevision, int32 Quantity, const FString& OperationLabel, ECodeBP2CommandIntent Intent = ECodeBP2CommandIntent::Standard, const FGuid& QuickTransferActivePlayerContainerId = FGuid(), uint32 ActivePlayerChildOpenGeneration = 0, ECodeBQuickTransferTargetMode QuickTransferTargetMode = ECodeBQuickTransferTargetMode::Legacy, const FGuid& QuickTransferActivePlayerParentItemId = FGuid(), const FCodeBP38BodyEquipmentTransferProof& P38BodyEquipmentProof = FCodeBP38BodyEquipmentTransferProof(), const FCodeBP40BodySimpleStackQuickTransferProof& P40BodySimpleStackProof = FCodeBP40BodySimpleStackQuickTransferProof(), const FCodeBP46NormalContainerSimpleStackQuickTransferProof& P46NormalContainerSimpleStackProof = FCodeBP46NormalContainerSimpleStackQuickTransferProof(), const FCodeBP47NormalContainerSpatialGraphQuickTransferProof& P47NormalContainerSpatialGraphProof = FCodeBP47NormalContainerSpatialGraphQuickTransferProof(), const FCodeBP48NormalContainerSpatialGraphEquipmentTransferProof& P48NormalContainerSpatialGraphEquipmentProof = FCodeBP48NormalContainerSpatialGraphEquipmentTransferProof(), const FCodeBP41BodySpatialGraphQuickTransferProof& P41BodySpatialGraphProof = FCodeBP41BodySpatialGraphQuickTransferProof(), const FCodeBP42BodySpatialGraphEquipmentTransferProof& P42BodySpatialGraphEquipmentProof = FCodeBP42BodySpatialGraphEquipmentTransferProof());
+		/** P4 enters P2 through one source-action aggregate; command construction stays in the application layer. */
+		bool CommitSourceAction(const FCodeBP3SourceAction& Action);
 		void SetP4Feedback(const FString& InFeedback) { Feedback = InFeedback; }
 		bool RefreshProjection(FString* OutError = nullptr);
 		/** P17 read-only entry. Quick rings require their exact current P6 equipment slot. */

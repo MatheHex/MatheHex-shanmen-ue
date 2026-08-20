@@ -1,5 +1,14 @@
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapAttributeDefinitions.h"
+#include "demo_mapEnemyEncounterConfig.h"
+#include "demo_mapFixedLootTableRegistry.h"
+#include "demo_mapRewardAffix.h"
+#include "demo_mapRewardGenerationRegistry.h"
+#include "demo_mapRewardJackpot.h"
+#include "demo_mapRewardRareExtreme.h"
+#include "demo_mapSearchContainerTypes.h"
+
+#include <initializer_list>
 
 const FName Fdemo_mapItemIds::InventoryContainer(TEXT("Run.Inventory"));
 const FName Fdemo_mapItemIds::EquipmentContainer(TEXT("Run.Equipment"));
@@ -129,8 +138,245 @@ namespace
 		Definition.SellPrice = SellPrice;
 		Definition.PrototypeValue = PrototypeValue;
 		Definition.WorldPresentationId = Category;
+		Definition.ContentVersionId = Fdemo_mapItemDefinitions::GetContentVersionId();
+		Definition.ContentDigest = Fdemo_mapItemDefinitions::GetContentDigest();
+		Definition.bWorldDropEligible = true;
+		Definition.bHotbarEligible = Category == Fdemo_mapItemIds::ConsumableCategory;
 		return Definition;
 	}
+
+	Fdemo_mapRuntimeContainerSeedEntry ProfileEntry(
+		Edemo_mapRuntimeContainerSection Section,
+		int32 Slot,
+		FName Definition,
+		int32 Quantity)
+	{
+		Fdemo_mapRuntimeContainerSeedEntry Result;
+		Result.Section = Section;
+		Result.SlotIndex = Slot;
+		Result.DefinitionId = Definition;
+		Result.StackCount = Quantity;
+		return Result;
+	}
+
+	Fdemo_mapFixedLootTableDefinition Profile(
+		FName Id,
+		Edemo_mapRuntimeContainerKind Kind,
+		std::initializer_list<Fdemo_mapRuntimeContainerSeedEntry> Entries,
+		int32 Total,
+		FName FixedEquipmentDefinitionId = NAME_None)
+	{
+		Fdemo_mapFixedLootTableDefinition Result;
+		Result.TableId = Id;
+		Result.ContentVersionId = Fdemo_mapItemDefinitions::GetContentVersionId();
+		Result.ContentDigest = Fdemo_mapItemDefinitions::GetContentDigest();
+		Result.Kind = Kind;
+		Result.CandidateWeight = 1;
+		Result.NoDropWeight = 0;
+		Result.FixedEquipmentDefinitionId = FixedEquipmentDefinitionId;
+		for (const Fdemo_mapRuntimeContainerSeedEntry& Seed : Entries)
+		{
+			Result.Entries.Add(Seed);
+		}
+		Result.TotalPrototypeValue = Total;
+		return Result;
+	}
+
+	Fdemo_mapRewardBudgetProfile GeneratedBudget(
+		FName Id,
+		int32 PlannedCount,
+		int64 BaseValue)
+	{
+		Fdemo_mapRewardBudgetProfile Result;
+		Result.ProfileId = Id;
+		Result.PlannedSourceCount = PlannedCount;
+		Result.BaseValue = BaseValue;
+		Result.MinMultiplierBps = Fdemo_mapRewardGenerationRegistry::NormalMultiplierMinBps;
+		Result.MaxMultiplierBps = Fdemo_mapRewardGenerationRegistry::NormalMultiplierMaxBps;
+		return Result;
+	}
+
+	Fdemo_mapRewardPoolEntry GeneratedPool(
+		const TCHAR* EntryId,
+		FName DefinitionId,
+		FName ItemTag,
+		int64 Weight,
+		int32 MaxStack)
+	{
+		Fdemo_mapRewardPoolEntry Result;
+		Result.EntryId = FName(EntryId);
+		Result.DefinitionId = DefinitionId;
+		Result.ItemTags = { ItemTag };
+		Result.RequiredSourceTags = { Fdemo_mapRewardTagIds::SourceContainerGeneral, Fdemo_mapRewardTagIds::SourceContainerHighValue };
+		Result.Weight = Weight;
+		Result.MinStack = 1;
+		Result.MaxStack = MaxStack;
+		const Fdemo_mapItemDefinition* Definition = Fdemo_mapItemDefinitions::Find(DefinitionId);
+		Result.MinItemLevel = Definition ? Definition->Level : 0;
+		Result.MaxItemLevel = Definition ? Definition->Level : MAX_int32;
+		Result.MinUnitValue = 1;
+		Result.MaxUnitValue = MAX_int64;
+		return Result;
+	}
+
+	Fdemo_mapRewardProjectionSection GeneratedProjectionSection(
+		FName Id,
+		Edemo_mapRuntimeContainerSection Runtime,
+		FName Tag,
+		int32 Weight,
+		int32 Capacity,
+		int32 Priority)
+	{
+		Fdemo_mapRewardProjectionSection Result;
+		Result.SectionId = Id;
+		Result.RuntimeSection = Runtime;
+		Result.SectionTags = { Tag };
+		Result.BudgetWeightBps = Weight;
+		Result.Capacity = Capacity;
+		Result.bRequiredNonEmpty = true;
+		Result.ResidualRedistributionPriority = Priority;
+		return Result;
+	}
+
+	Fdemo_mapRewardSourceProjection GeneratedChestProjection(
+		FName ProjectionId,
+		FName RoleId,
+		FName MarkerId,
+		FName ProfileId,
+		FName SourceTag,
+		FName Fallback)
+	{
+		Fdemo_mapRewardSourceProjection Result;
+		Result.ProjectionId = ProjectionId;
+		Result.ContentVersionId = Fdemo_mapItemDefinitions::GetContentVersionId();
+		Result.ContentDigest = Fdemo_mapItemDefinitions::GetContentDigest();
+		Result.StableSourceRoleId = RoleId;
+		Result.MarkerId = MarkerId;
+		Result.BudgetProfileId = ProfileId;
+		Result.JackpotPolicyId = Fdemo_mapRewardJackpotPolicyRegistry::DefaultPolicyId;
+		Result.RareExtremePolicyId = Fdemo_mapRewardRareExtremePolicyRegistry::DefaultPolicyId;
+		Result.AffixPolicyId = Fdemo_mapRewardAffixPolicyRegistry::DefaultPolicyId;
+		Result.SourceTags = { Fdemo_mapRewardTagIds::SourceContainerGeneral, SourceTag };
+		Result.Sections = { GeneratedProjectionSection(TEXT("Chest"), Edemo_mapRuntimeContainerSection::Chest, SourceTag, 10000, Fdemo_mapSearchContainerPrototypeConfig::ChestPrototypeCapacity, 0) };
+		Result.FixedFallbackTableId = Fallback;
+		return Result;
+	}
+
+	Fdemo_mapRewardSourceProjection GeneratedCorpseProjection(
+		FName ProjectionId,
+		FName EncounterId,
+		FName ProfileId,
+		FName Fallback)
+	{
+		Fdemo_mapRewardSourceProjection Result;
+		Result.ProjectionId = ProjectionId;
+		Result.ContentVersionId = Fdemo_mapItemDefinitions::GetContentVersionId();
+		Result.ContentDigest = Fdemo_mapItemDefinitions::GetContentDigest();
+		Result.StableSourceRoleId = EncounterId;
+		Result.EncounterId = EncounterId;
+		Result.BudgetProfileId = ProfileId;
+		Result.JackpotPolicyId = Fdemo_mapRewardJackpotPolicyRegistry::DefaultPolicyId;
+		Result.RareExtremePolicyId = Fdemo_mapRewardRareExtremePolicyRegistry::DefaultPolicyId;
+		Result.AffixPolicyId = Fdemo_mapRewardAffixPolicyRegistry::DefaultPolicyId;
+		Result.SourceTags = { Fdemo_mapRewardProjectionTagIds::SourceCorpse };
+		Result.Sections = {
+			GeneratedProjectionSection(TEXT("Equipment"), Edemo_mapRuntimeContainerSection::Equipment, Fdemo_mapRewardProjectionTagIds::SectionEquipment, 4000, Fdemo_mapSearchContainerPrototypeConfig::CorpseEquipmentCapacity, 0),
+			GeneratedProjectionSection(TEXT("Backpack"), Edemo_mapRuntimeContainerSection::Backpack, Fdemo_mapRewardProjectionTagIds::SectionBackpack, 3500, Fdemo_mapSearchContainerPrototypeConfig::CorpseRewardBackpackCapacity, 1),
+			GeneratedProjectionSection(TEXT("Body"), Edemo_mapRuntimeContainerSection::Body, Fdemo_mapRewardProjectionTagIds::SectionBody, 2500, Fdemo_mapSearchContainerPrototypeConfig::CorpseBodyCapacity, 2)
+		};
+		Result.FixedFallbackTableId = Fallback;
+		return Result;
+	}
+
+	Fdemo_mapRewardSourceProjection GeneratedBossProjection()
+	{
+		Fdemo_mapRewardSourceProjection Result = GeneratedCorpseProjection(
+			Fdemo_mapRewardProjectionIds::CorpseBossPrototype,
+			Fdemo_mapEnemyEncounterIds::MainMeleeHeavy,
+			Fdemo_mapRewardBudgetProfileIds::Boss,
+			Fdemo_mapFixedLootTableIds::CorpseMainMeleeHeavy);
+		Result.StableSourceRoleId = Fdemo_mapRewardSourceRoleIds::BossPrototype;
+		Result.SourceTags = {
+			Fdemo_mapRewardProjectionTagIds::SourceBoss,
+			Fdemo_mapRewardProjectionTagIds::SourceCorpse,
+			Fdemo_mapRewardProjectionTagIds::ValueHigh,
+			Fdemo_mapRewardProjectionTagIds::Generated
+		};
+		Result.Sections[0].Capacity = 3;
+		Result.Sections[1].Capacity = 1;
+		Result.Sections[2].Capacity = 2;
+		Result.bAllowFixedFallbackOnFailure = false;
+		Result.BaseSourceValue = 12000;
+		Result.MinGeneratedStacks = 3;
+		Result.MaxGeneratedStacks = 6;
+		Result.RequiredEquipmentCount = 1;
+		Result.SourceDisplayLabel = TEXT("BOSS REWARD");
+		return Result;
+	}
+
+	Fdemo_mapRewardDistributionProfile GeneratedDistributionProfile(
+		FName ProfileId,
+		FName ProjectionId,
+		FName BudgetProfileId,
+		TArray<FName> SourceTags,
+		int64 BaseSourceValue)
+	{
+		Fdemo_mapRewardDistributionProfile Result;
+		Result.ProfileId = ProfileId;
+		Result.ContentVersionId = Fdemo_mapItemDefinitions::GetContentVersionId();
+		Result.ContentDigest = Fdemo_mapItemDefinitions::GetContentDigest();
+		Result.ProjectionId = ProjectionId;
+		Result.BudgetProfileId = BudgetProfileId;
+		Result.SourceTags = MoveTemp(SourceTags);
+		Result.BaseSourceValue = BaseSourceValue;
+		Result.bAllowFixedFallbackOnFailure = false;
+		return Result;
+	}
+}
+
+bool Fdemo_mapRewardDistributionProfile::IsValid() const
+{
+	return !ProfileId.IsNone()
+		&& !ProjectionId.IsNone()
+		&& !BudgetProfileId.IsNone()
+		&& !SourceTags.IsEmpty()
+		&& !SourceTags.Contains(NAME_None)
+		&& BaseSourceValue > 0
+		&& Fdemo_mapItemDefinitions::IsCurrentContentIdentity(
+			ContentVersionId,
+			ContentDigest);
+}
+
+FName Fdemo_mapItemDefinitions::GetContentVersionId()
+{
+	return FName(TEXT("CodeB.Content.P73.3"));
+}
+
+const FString& Fdemo_mapItemDefinitions::GetContentDigest()
+{
+	// This is a content-contract digest, not a save migration key. Existing
+	// persisted items keep their DefinitionId and are never remapped by P73.
+	static const FString Digest(TEXT("A263AB7F10B960B30B584A8C67042597E2E1A8967E15B0F998A36D17E1EEA4B2"));
+	return Digest;
+}
+
+bool Fdemo_mapItemDefinitions::IsCurrentContentIdentity(
+	FName ContentVersionId,
+	const FString& ContentDigest)
+{
+	return ContentVersionId == GetContentVersionId()
+		&& ContentDigest == GetContentDigest();
+}
+
+bool Fdemo_mapItemDefinitions::IsKnownContentIdentity(
+	FName ContentVersionId,
+	const FString& ContentDigest)
+{
+	return IsCurrentContentIdentity(ContentVersionId, ContentDigest)
+		|| (ContentVersionId == FName(TEXT("CodeB.Content.P73.2"))
+			&& ContentDigest == TEXT("BCE122E15F3C3278A2AAC9C09D831DC64C7D13D196009D59161CC382F4C42E4B"))
+		|| (ContentVersionId == FName(TEXT("CodeB.Content.P73.0"))
+			&& ContentDigest == TEXT("8D596D4C347D9EAD2B63862D5A8F5D733B51D12A6A0F96A73698DD7F042A43D9"));
 }
 
 const TArray<Fdemo_mapItemDefinition>& Fdemo_mapItemDefinitions::GetAll()
@@ -220,6 +466,202 @@ const TArray<FName>& Fdemo_mapItemDefinitions::GetPurchasableDefinitionIds()
 		return Result;
 	}();
 	return DefinitionIds;
+}
+
+const TArray<Fdemo_mapFixedLootTableDefinition>&
+Fdemo_mapItemDefinitions::GetFixedLootProfiles()
+{
+	using Section = Edemo_mapRuntimeContainerSection;
+	using Kind = Edemo_mapRuntimeContainerKind;
+	static const TArray<Fdemo_mapFixedLootTableDefinition> Profiles = {
+		Profile(Fdemo_mapFixedLootTableIds::CorpseMainMeleeStandard, Kind::Corpse, {
+			ProfileEntry(Section::Equipment, 0, Fdemo_mapItemIds::WeaponLevel1, 1),
+			ProfileEntry(Section::Backpack, 0, Fdemo_mapItemIds::SpiritOreLevel1, 2),
+			ProfileEntry(Section::Body, 0, Fdemo_mapItemIds::SoulBone, 1)}, 180, Fdemo_mapItemIds::WeaponLevel1),
+		Profile(Fdemo_mapFixedLootTableIds::CorpseMainMeleeHeavy, Kind::Corpse, {
+			ProfileEntry(Section::Equipment, 0, Fdemo_mapItemIds::ArmorRobeLevel1, 1),
+			ProfileEntry(Section::Backpack, 0, Fdemo_mapItemIds::SpiritWoodLevel1, 2),
+			ProfileEntry(Section::Body, 0, Fdemo_mapItemIds::SoulBone, 1)}, 170, Fdemo_mapItemIds::ArmorRobeLevel1),
+		Profile(Fdemo_mapFixedLootTableIds::CorpseMainRangedStandard, Kind::Corpse, {
+			ProfileEntry(Section::Equipment, 0, Fdemo_mapItemIds::AccessoryLevel1, 1),
+			ProfileEntry(Section::Backpack, 0, Fdemo_mapItemIds::HealingPillLevel1, 1),
+			ProfileEntry(Section::Body, 0, Fdemo_mapItemIds::SoulBone, 1)}, 155, Fdemo_mapItemIds::AccessoryLevel1),
+		Profile(Fdemo_mapFixedLootTableIds::CorpseSideMeleeEnhanced, Kind::Corpse, {
+			ProfileEntry(Section::Equipment, 0, Fdemo_mapItemIds::WeaponLevel2, 1),
+			ProfileEntry(Section::Equipment, 1, Fdemo_mapItemIds::BackpackLevel2, 1),
+			ProfileEntry(Section::Backpack, 0, Fdemo_mapItemIds::SpiritOreLevel2, 2),
+			ProfileEntry(Section::Body, 0, Fdemo_mapItemIds::SpiritBone, 1),
+			ProfileEntry(Section::Body, 1, Fdemo_mapItemIds::InnerCoreLevel10, 1)}, 970, Fdemo_mapItemIds::WeaponLevel2),
+		Profile(Fdemo_mapFixedLootTableIds::CorpseSideRangedEnhanced, Kind::Corpse, {
+			ProfileEntry(Section::Equipment, 0, Fdemo_mapItemIds::ArmorRobeLevel2, 1),
+			ProfileEntry(Section::Equipment, 1, Fdemo_mapItemIds::AccessoryLevel2, 1),
+			ProfileEntry(Section::Backpack, 0, Fdemo_mapItemIds::SpiritWoodLevel3, 2),
+			ProfileEntry(Section::Body, 0, Fdemo_mapItemIds::SpiritBone, 1),
+			ProfileEntry(Section::Body, 1, Fdemo_mapItemIds::InnerCoreLevel10, 1)}, 950, Fdemo_mapItemIds::ArmorRobeLevel2),
+		Profile(Fdemo_mapFixedLootTableIds::ChestMainA, Kind::Chest, {
+			ProfileEntry(Section::Chest, 0, Fdemo_mapItemIds::SpiritWoodLevel1, 2),
+			ProfileEntry(Section::Chest, 1, Fdemo_mapItemIds::HealingPillLevel1, 1)}, 35),
+		Profile(Fdemo_mapFixedLootTableIds::ChestMainB, Kind::Chest, {
+			ProfileEntry(Section::Chest, 0, Fdemo_mapItemIds::SpiritOreLevel1, 2),
+			ProfileEntry(Section::Chest, 1, Fdemo_mapItemIds::HealingPillLevel1, 1)}, 45),
+		Profile(Fdemo_mapFixedLootTableIds::ChestSideA, Kind::Chest, {
+			ProfileEntry(Section::Chest, 0, Fdemo_mapItemIds::SpiritWoodLevel2, 2),
+			ProfileEntry(Section::Chest, 1, Fdemo_mapItemIds::SpiritOreLevel2, 2),
+			ProfileEntry(Section::Chest, 2, Fdemo_mapItemIds::HealingPillLevel2, 1)}, 150)
+	};
+	return Profiles;
+}
+
+const TArray<Fdemo_mapRewardBudgetProfile>&
+Fdemo_mapItemDefinitions::GetGeneratedRewardBudgetProfiles()
+{
+	static const TArray<Fdemo_mapRewardBudgetProfile> Profiles = {
+		GeneratedBudget(Fdemo_mapRewardBudgetProfileIds::EnemyStandard, 10, 1200),
+		GeneratedBudget(Fdemo_mapRewardBudgetProfileIds::EnemyElite, 3, 4500),
+		GeneratedBudget(Fdemo_mapRewardBudgetProfileIds::ContainerHighValue, 15, 2000),
+		GeneratedBudget(Fdemo_mapRewardBudgetProfileIds::Boss, 1, 12000),
+		GeneratedBudget(Fdemo_mapRewardBudgetProfileIds::ContainerBasic, 120, 400)};
+	return Profiles;
+}
+
+const TArray<Fdemo_mapRewardBudgetProfile>&
+Fdemo_mapItemDefinitions::GetGeneratedRewardM01BudgetProfiles()
+{
+	static const TArray<Fdemo_mapRewardBudgetProfile> Profiles = {
+		GeneratedBudget(Fdemo_mapRewardBudgetProfileIds::M01EnemyLow, 4, 900),
+		GeneratedBudget(Fdemo_mapRewardBudgetProfileIds::M01EnemyMid, 6, 1400),
+		GeneratedBudget(Fdemo_mapRewardBudgetProfileIds::M01ResourceTier1, 48, 250),
+		GeneratedBudget(Fdemo_mapRewardBudgetProfileIds::M01ResourceTier2, 48, 400),
+		GeneratedBudget(Fdemo_mapRewardBudgetProfileIds::M01ResourceTier3, 24, 700)};
+	return Profiles;
+}
+
+const Fdemo_mapRewardBudgetProfile*
+Fdemo_mapItemDefinitions::FindGeneratedRewardBudgetProfile(FName ProfileId)
+{
+	const Fdemo_mapRewardBudgetProfile* Core = GetGeneratedRewardBudgetProfiles().FindByPredicate([ProfileId](const auto& Profile) { return Profile.ProfileId == ProfileId; });
+	return Core ? Core : GetGeneratedRewardM01BudgetProfiles().FindByPredicate([ProfileId](const auto& Profile) { return Profile.ProfileId == ProfileId; });
+}
+
+const TArray<Fdemo_mapRewardPoolEntry>&
+Fdemo_mapItemDefinitions::GetGeneratedRewardPool()
+{
+	static const TArray<Fdemo_mapRewardPoolEntry> Entries = {
+		GeneratedPool(TEXT("P1.Pool.Weapon.L1"), Fdemo_mapItemIds::WeaponLevel1, Fdemo_mapRewardTagIds::ItemEquipmentWeapon, 36, 1), GeneratedPool(TEXT("P1.Pool.Weapon.L2"), Fdemo_mapItemIds::WeaponLevel2, Fdemo_mapRewardTagIds::ItemEquipmentWeapon, 24, 1), GeneratedPool(TEXT("P1.Pool.Weapon.L3"), Fdemo_mapItemIds::WeaponLevel3, Fdemo_mapRewardTagIds::ItemEquipmentWeapon, 12, 1), GeneratedPool(TEXT("P1.Pool.Weapon.L4"), Fdemo_mapItemIds::WeaponLevel4, Fdemo_mapRewardTagIds::ItemEquipmentWeapon, 5, 1),
+		GeneratedPool(TEXT("P1.Pool.Robe.L1"), Fdemo_mapItemIds::ArmorRobeLevel1, Fdemo_mapRewardTagIds::ItemEquipmentRobe, 36, 1), GeneratedPool(TEXT("P1.Pool.Robe.L2"), Fdemo_mapItemIds::ArmorRobeLevel2, Fdemo_mapRewardTagIds::ItemEquipmentRobe, 24, 1), GeneratedPool(TEXT("P1.Pool.Robe.L3"), Fdemo_mapItemIds::ArmorRobeLevel3, Fdemo_mapRewardTagIds::ItemEquipmentRobe, 12, 1), GeneratedPool(TEXT("P1.Pool.Robe.L4"), Fdemo_mapItemIds::ArmorRobeLevel4, Fdemo_mapRewardTagIds::ItemEquipmentRobe, 5, 1),
+		GeneratedPool(TEXT("P1.Pool.Accessory.L1"), Fdemo_mapItemIds::AccessoryLevel1, Fdemo_mapRewardTagIds::ItemEquipmentAccessory, 34, 1), GeneratedPool(TEXT("P1.Pool.Accessory.L2"), Fdemo_mapItemIds::AccessoryLevel2, Fdemo_mapRewardTagIds::ItemEquipmentAccessory, 22, 1), GeneratedPool(TEXT("P1.Pool.Accessory.L3"), Fdemo_mapItemIds::AccessoryLevel3, Fdemo_mapRewardTagIds::ItemEquipmentAccessory, 11, 1), GeneratedPool(TEXT("P1.Pool.Accessory.L4"), Fdemo_mapItemIds::AccessoryLevel4, Fdemo_mapRewardTagIds::ItemEquipmentAccessory, 4, 1),
+		GeneratedPool(TEXT("P1.Pool.Backpack.L1"), Fdemo_mapItemIds::BackpackLevel1, Fdemo_mapRewardTagIds::ItemEquipmentBackpack, 24, 1), GeneratedPool(TEXT("P1.Pool.Backpack.L2"), Fdemo_mapItemIds::BackpackLevel2, Fdemo_mapRewardTagIds::ItemEquipmentBackpack, 14, 1),
+		GeneratedPool(TEXT("P1.Pool.Pill.L1"), Fdemo_mapItemIds::HealingPillLevel1, Fdemo_mapRewardTagIds::ItemConsumablePill, 48, 8), GeneratedPool(TEXT("P1.Pool.Pill.L2"), Fdemo_mapItemIds::HealingPillLevel2, Fdemo_mapRewardTagIds::ItemConsumablePill, 32, 6), GeneratedPool(TEXT("P1.Pool.Pill.L3"), Fdemo_mapItemIds::HealingPillLevel3, Fdemo_mapRewardTagIds::ItemConsumablePill, 18, 4),
+		GeneratedPool(TEXT("P1.Pool.Wood.L1"), Fdemo_mapItemIds::SpiritWoodLevel1, Fdemo_mapRewardTagIds::ItemMaterialWood, 52, 12), GeneratedPool(TEXT("P1.Pool.Wood.L2"), Fdemo_mapItemIds::SpiritWoodLevel2, Fdemo_mapRewardTagIds::ItemMaterialWood, 34, 10), GeneratedPool(TEXT("P1.Pool.Wood.L3"), Fdemo_mapItemIds::SpiritWoodLevel3, Fdemo_mapRewardTagIds::ItemMaterialWood, 18, 8),
+		GeneratedPool(TEXT("P1.Pool.Ore.L1"), Fdemo_mapItemIds::SpiritOreLevel1, Fdemo_mapRewardTagIds::ItemMaterialOre, 50, 12), GeneratedPool(TEXT("P1.Pool.Ore.L2"), Fdemo_mapItemIds::SpiritOreLevel2, Fdemo_mapRewardTagIds::ItemMaterialOre, 32, 10), GeneratedPool(TEXT("P1.Pool.Ore.L3"), Fdemo_mapItemIds::SpiritOreLevel3, Fdemo_mapRewardTagIds::ItemMaterialOre, 16, 8),
+		GeneratedPool(TEXT("P1.Pool.Bone.Soul"), Fdemo_mapItemIds::SoulBone, Fdemo_mapRewardTagIds::ItemBodyBone, 20, 4), GeneratedPool(TEXT("P1.Pool.Bone.Spirit"), Fdemo_mapItemIds::SpiritBone, Fdemo_mapRewardTagIds::ItemBodyBone, 10, 3), GeneratedPool(TEXT("P1.Pool.Bone.Dao"), Fdemo_mapItemIds::DaoBone, Fdemo_mapRewardTagIds::ItemBodyBone, 4, 2),
+		GeneratedPool(TEXT("P1.Pool.Core.L5"), Fdemo_mapItemIds::InnerCoreLevel5, Fdemo_mapRewardTagIds::ItemBodyInnerCore, 16, 4), GeneratedPool(TEXT("P1.Pool.Core.L10"), Fdemo_mapItemIds::InnerCoreLevel10, Fdemo_mapRewardTagIds::ItemBodyInnerCore, 8, 2), GeneratedPool(TEXT("P1.Pool.Core.L15"), Fdemo_mapItemIds::InnerCoreLevel15, Fdemo_mapRewardTagIds::ItemBodyInnerCore, 3, 1)};
+	return Entries;
+}
+
+const TArray<Fdemo_mapRewardSourceProjection>&
+Fdemo_mapItemDefinitions::GetGeneratedRewardProjectionProfiles()
+{
+	static const TArray<Fdemo_mapRewardSourceProjection> Profiles = {
+		GeneratedChestProjection(Fdemo_mapRewardProjectionIds::ChestMainWood, Fdemo_mapRewardSourceIds::ChestMainA, Fdemo_mapFixedLootTableIds::MarkerChestMainA, Fdemo_mapRewardBudgetProfileIds::ContainerBasic, Fdemo_mapRewardProjectionTagIds::SourceContainerWood, Fdemo_mapFixedLootTableIds::ChestMainA),
+		GeneratedChestProjection(Fdemo_mapRewardProjectionIds::ChestMainOre, Fdemo_mapRewardSourceIds::ChestMainB, Fdemo_mapFixedLootTableIds::MarkerChestMainB, Fdemo_mapRewardBudgetProfileIds::ContainerBasic, Fdemo_mapRewardProjectionTagIds::SourceContainerOre, Fdemo_mapFixedLootTableIds::ChestMainB),
+		GeneratedChestProjection(Fdemo_mapRewardProjectionIds::ChestSideHighValue, Fdemo_mapRewardSourceIds::ChestSideHighValue, Fdemo_mapFixedLootTableIds::MarkerChestSideA, Fdemo_mapRewardBudgetProfileIds::ContainerHighValue, Fdemo_mapRewardTagIds::SourceContainerHighValue, Fdemo_mapFixedLootTableIds::ChestSideA),
+		GeneratedCorpseProjection(Fdemo_mapRewardProjectionIds::CorpseMainMeleeStandard, Fdemo_mapEnemyEncounterIds::MainMeleeStandard, Fdemo_mapRewardBudgetProfileIds::EnemyStandard, Fdemo_mapFixedLootTableIds::CorpseMainMeleeStandard),
+		GeneratedCorpseProjection(Fdemo_mapRewardProjectionIds::CorpseMainMeleeHeavy, Fdemo_mapEnemyEncounterIds::MainMeleeHeavy, Fdemo_mapRewardBudgetProfileIds::EnemyStandard, Fdemo_mapFixedLootTableIds::CorpseMainMeleeHeavy),
+		GeneratedCorpseProjection(Fdemo_mapRewardProjectionIds::CorpseMainRangedStandard, Fdemo_mapEnemyEncounterIds::MainRangedStandard, Fdemo_mapRewardBudgetProfileIds::EnemyStandard, Fdemo_mapFixedLootTableIds::CorpseMainRangedStandard),
+		GeneratedCorpseProjection(Fdemo_mapRewardProjectionIds::CorpseSideMeleeEnhanced, Fdemo_mapEnemyEncounterIds::SideMeleeEnhanced, Fdemo_mapRewardBudgetProfileIds::EnemyElite, Fdemo_mapFixedLootTableIds::CorpseSideMeleeEnhanced),
+		GeneratedCorpseProjection(Fdemo_mapRewardProjectionIds::CorpseSideRangedEnhanced, Fdemo_mapEnemyEncounterIds::SideRangedEnhanced, Fdemo_mapRewardBudgetProfileIds::EnemyElite, Fdemo_mapFixedLootTableIds::CorpseSideRangedEnhanced),
+		GeneratedBossProjection()
+	};
+	return Profiles;
+}
+
+const Fdemo_mapRewardSourceProjection*
+Fdemo_mapItemDefinitions::FindGeneratedRewardProjectionProfile(
+	FName ProjectionId)
+{
+	return GetGeneratedRewardProjectionProfiles().FindByPredicate(
+		[ProjectionId](const Fdemo_mapRewardSourceProjection& Profile)
+		{
+			return Profile.ProjectionId == ProjectionId;
+		});
+}
+
+const TArray<Fdemo_mapRewardDistributionProfile>&
+Fdemo_mapItemDefinitions::GetGeneratedRewardDistributionProfiles()
+{
+	using Tags = Fdemo_mapRewardProjectionTagIds;
+	static const TArray<Fdemo_mapRewardDistributionProfile> Profiles = {
+		GeneratedDistributionProfile(TEXT("M01.Distribution.Enemy.Low.Melee"), Fdemo_mapRewardProjectionIds::CorpseMainMeleeStandard, Fdemo_mapRewardBudgetProfileIds::M01EnemyLow, { Tags::SourceCorpse, Tags::RiskLow, Tags::Tier1, Tags::Generated }, 900),
+		GeneratedDistributionProfile(TEXT("M01.Distribution.Enemy.Low.Ranged"), Fdemo_mapRewardProjectionIds::CorpseMainRangedStandard, Fdemo_mapRewardBudgetProfileIds::M01EnemyLow, { Tags::SourceCorpse, Tags::RiskLow, Tags::Tier1, Tags::Generated }, 900),
+		GeneratedDistributionProfile(TEXT("M01.Distribution.Enemy.Mid.Melee"), Fdemo_mapRewardProjectionIds::CorpseMainMeleeStandard, Fdemo_mapRewardBudgetProfileIds::M01EnemyMid, { Tags::SourceCorpse, Tags::RiskMid, Tags::Tier2, Tags::Generated }, 1400),
+		GeneratedDistributionProfile(TEXT("M01.Distribution.Enemy.Mid.Ranged"), Fdemo_mapRewardProjectionIds::CorpseMainRangedStandard, Fdemo_mapRewardBudgetProfileIds::M01EnemyMid, { Tags::SourceCorpse, Tags::RiskMid, Tags::Tier2, Tags::Generated }, 1400),
+		GeneratedDistributionProfile(TEXT("M01.Distribution.Enemy.Mid.Bruiser"), Fdemo_mapRewardProjectionIds::CorpseMainMeleeHeavy, Fdemo_mapRewardBudgetProfileIds::M01EnemyMid, { Tags::SourceCorpse, Tags::RiskMid, Tags::Tier2, Tags::Generated }, 1400),
+		GeneratedDistributionProfile(TEXT("M01.Distribution.Enemy.Elite"), Fdemo_mapRewardProjectionIds::CorpseSideMeleeEnhanced, Fdemo_mapRewardBudgetProfileIds::EnemyElite, { Tags::SourceCorpse, Tags::RiskHigh, Tags::Tier3, Tags::Generated }, 4500),
+		GeneratedDistributionProfile(TEXT("M01.Distribution.Enemy.Boss"), Fdemo_mapRewardProjectionIds::CorpseBossPrototype, Fdemo_mapRewardBudgetProfileIds::Boss, { Tags::SourceBoss, Tags::SourceCorpse, Tags::ValueHigh, Tags::Generated }, 12000),
+		GeneratedDistributionProfile(TEXT("M01.Distribution.Resource.Wood.Tier1"), Fdemo_mapRewardProjectionIds::ChestMainWood, Fdemo_mapRewardBudgetProfileIds::M01ResourceTier1, { Fdemo_mapRewardTagIds::SourceContainerGeneral, Tags::SourceContainerWood, Tags::Tier1, Tags::RiskLow, Tags::Generated }, 250),
+		GeneratedDistributionProfile(TEXT("M01.Distribution.Resource.Ore.Tier1"), Fdemo_mapRewardProjectionIds::ChestMainOre, Fdemo_mapRewardBudgetProfileIds::M01ResourceTier1, { Fdemo_mapRewardTagIds::SourceContainerGeneral, Tags::SourceContainerOre, Tags::Tier1, Tags::RiskLow, Tags::Generated }, 250),
+		GeneratedDistributionProfile(TEXT("M01.Distribution.Resource.Wood.Tier2"), Fdemo_mapRewardProjectionIds::ChestMainWood, Fdemo_mapRewardBudgetProfileIds::M01ResourceTier2, { Fdemo_mapRewardTagIds::SourceContainerGeneral, Tags::SourceContainerWood, Tags::Tier2, Tags::RiskMid, Tags::Generated }, 400),
+		GeneratedDistributionProfile(TEXT("M01.Distribution.Resource.Ore.Tier2"), Fdemo_mapRewardProjectionIds::ChestMainOre, Fdemo_mapRewardBudgetProfileIds::M01ResourceTier2, { Fdemo_mapRewardTagIds::SourceContainerGeneral, Tags::SourceContainerOre, Tags::Tier2, Tags::RiskMid, Tags::Generated }, 400),
+		GeneratedDistributionProfile(TEXT("M01.Distribution.Resource.Wood.Tier3"), Fdemo_mapRewardProjectionIds::ChestMainWood, Fdemo_mapRewardBudgetProfileIds::M01ResourceTier3, { Fdemo_mapRewardTagIds::SourceContainerGeneral, Tags::SourceContainerWood, Tags::Tier3, Tags::RiskHigh, Tags::Generated }, 700),
+		GeneratedDistributionProfile(TEXT("M01.Distribution.Resource.Ore.Tier3"), Fdemo_mapRewardProjectionIds::ChestMainOre, Fdemo_mapRewardBudgetProfileIds::M01ResourceTier3, { Fdemo_mapRewardTagIds::SourceContainerGeneral, Tags::SourceContainerOre, Tags::Tier3, Tags::RiskHigh, Tags::Generated }, 700),
+		GeneratedDistributionProfile(TEXT("M01.Distribution.HighValue"), Fdemo_mapRewardProjectionIds::ChestSideHighValue, Fdemo_mapRewardBudgetProfileIds::ContainerHighValue, { Fdemo_mapRewardTagIds::SourceContainerGeneral, Tags::ValueHigh, Tags::Tier3, Tags::RiskHigh, Tags::Generated }, 2000),
+		GeneratedDistributionProfile(TEXT("P8.Distribution.Enemy.Standard.Melee"), Fdemo_mapRewardProjectionIds::CorpseMainMeleeStandard, Fdemo_mapRewardBudgetProfileIds::EnemyStandard, { Tags::SourceCorpse }, 1200),
+		GeneratedDistributionProfile(TEXT("P8.Distribution.Enemy.Standard.Ranged"), Fdemo_mapRewardProjectionIds::CorpseMainRangedStandard, Fdemo_mapRewardBudgetProfileIds::EnemyStandard, { Tags::SourceCorpse }, 1200),
+		GeneratedDistributionProfile(TEXT("P8.Distribution.Enemy.Elite"), Fdemo_mapRewardProjectionIds::CorpseSideMeleeEnhanced, Fdemo_mapRewardBudgetProfileIds::EnemyElite, { Tags::SourceCorpse }, 4500),
+		GeneratedDistributionProfile(TEXT("P8.Distribution.Enemy.Boss"), Fdemo_mapRewardProjectionIds::CorpseBossPrototype, Fdemo_mapRewardBudgetProfileIds::Boss, { Tags::SourceBoss, Tags::SourceCorpse, Tags::ValueHigh, Tags::Generated }, 12000),
+		GeneratedDistributionProfile(TEXT("P8.Distribution.Container.Wood"), Fdemo_mapRewardProjectionIds::ChestMainWood, Fdemo_mapRewardBudgetProfileIds::ContainerBasic, { Fdemo_mapRewardTagIds::SourceContainerGeneral, Tags::SourceContainerWood }, 400),
+		GeneratedDistributionProfile(TEXT("P8.Distribution.Container.Ore"), Fdemo_mapRewardProjectionIds::ChestMainOre, Fdemo_mapRewardBudgetProfileIds::ContainerBasic, { Fdemo_mapRewardTagIds::SourceContainerGeneral, Tags::SourceContainerOre }, 400),
+		GeneratedDistributionProfile(TEXT("P8.Distribution.Container.HighValue"), Fdemo_mapRewardProjectionIds::ChestSideHighValue, Fdemo_mapRewardBudgetProfileIds::ContainerHighValue, { Fdemo_mapRewardTagIds::SourceContainerGeneral, Tags::ValueHigh }, 2000)
+	};
+	return Profiles;
+}
+
+const Fdemo_mapRewardDistributionProfile*
+Fdemo_mapItemDefinitions::FindGeneratedRewardDistributionProfile(FName ProfileId)
+{
+	return GetGeneratedRewardDistributionProfiles().FindByPredicate(
+		[ProfileId](const Fdemo_mapRewardDistributionProfile& Profile)
+		{
+			return Profile.ProfileId == ProfileId;
+		});
+}
+
+const Fdemo_mapFixedLootTableDefinition*
+Fdemo_mapItemDefinitions::FindFixedLootProfile(FName ProfileId)
+{
+	return GetFixedLootProfiles().FindByPredicate(
+		[ProfileId](const Fdemo_mapFixedLootTableDefinition& Profile)
+		{
+			return Profile.TableId == ProfileId;
+		});
+}
+
+FName Fdemo_mapItemDefinitions::GetEnemyLootProfileId(
+	Edemo_mapEnemyLootArchetype Archetype)
+{
+	switch (Archetype)
+	{
+	case Edemo_mapEnemyLootArchetype::Melee: return Fdemo_mapLootTableIds::EnemyMelee;
+	case Edemo_mapEnemyLootArchetype::Ranged: return Fdemo_mapLootTableIds::EnemyRanged;
+	case Edemo_mapEnemyLootArchetype::Heavy: return Fdemo_mapLootTableIds::EnemyHeavy;
+	default: return NAME_None;
+	}
+}
+
+const TArray<Fdemo_mapLootTableEntry>*
+Fdemo_mapItemDefinitions::FindEnemyLootProfile(FName ProfileId)
+{
+	static const TArray<Fdemo_mapLootTableEntry> Melee = {
+		{ Fdemo_mapItemIds::SpiritDust, 2 }};
+	static const TArray<Fdemo_mapLootTableEntry> Ranged = {
+		{ Fdemo_mapItemIds::IronShard, 2 }};
+	static const TArray<Fdemo_mapLootTableEntry> Heavy = {
+		{ Fdemo_mapItemIds::AncientToken, 1 }};
+	if (ProfileId == Fdemo_mapLootTableIds::EnemyMelee) return &Melee;
+	if (ProfileId == Fdemo_mapLootTableIds::EnemyRanged) return &Ranged;
+	if (ProfileId == Fdemo_mapLootTableIds::EnemyHeavy) return &Heavy;
+	return nullptr;
 }
 
 Fdemo_mapSpatialStorageCapacityResult
@@ -411,7 +853,18 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 			|| (!Definition.bPurchasable && Definition.BuyPrice != 0)
 			|| (Definition.bSellable && Definition.SellPrice <= 0)
 			|| (!Definition.bSellable && Definition.SellPrice != 0)
-			|| (!Definition.EquipmentSlotId.IsNone() && !SlotIds.Contains(Definition.EquipmentSlotId)))
+			|| Definition.WorldPresentationId.IsNone()
+			|| !IsCurrentContentIdentity(
+				Definition.ContentVersionId,
+				Definition.ContentDigest)
+			|| (Definition.bHotbarEligible
+				!= (Definition.CategoryId == Fdemo_mapItemIds::ConsumableCategory))
+			|| (!Definition.EquipmentSlotId.IsNone()
+				&& (Definition.MaxStackSize != 1
+					|| Definition.CompatibleSlotIds.IsEmpty()
+					|| !SlotIds.Contains(Definition.EquipmentSlotId)))
+			|| (Definition.EquipmentSlotId.IsNone()
+				&& !Definition.CompatibleSlotIds.IsEmpty()))
 		{
 			if (OutError) *OutError = FString::Printf(TEXT("Invalid or duplicate item definition: %s"), *Definition.DefinitionId.ToString());
 			return false;
@@ -444,6 +897,30 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 			}
 			EffectIds.Add(Effect.ParameterId);
 		}
+	}
+	TSet<FName> FixedProfileIds;
+	int32 CorpseProfileCount = 0;
+	int32 ChestProfileCount = 0;
+	for (const Fdemo_mapFixedLootTableDefinition& Profile : GetFixedLootProfiles())
+	{
+		if (Profile.TableId.IsNone()
+			|| FixedProfileIds.Contains(Profile.TableId)
+			|| !Profile.IsValid(OutError))
+		{
+			if (OutError && OutError->IsEmpty())
+			{
+				*OutError = TEXT("P73 fixed loot profile is invalid or duplicated.");
+			}
+			return false;
+		}
+		FixedProfileIds.Add(Profile.TableId);
+		if (Profile.Kind == Edemo_mapRuntimeContainerKind::Corpse) ++CorpseProfileCount;
+		else ++ChestProfileCount;
+	}
+	if (FixedProfileIds.Num() != 8 || CorpseProfileCount != 5 || ChestProfileCount != 3)
+	{
+		if (OutError) *OutError = TEXT("P73 fixed loot profile catalog must contain five Corpse and three Chest profiles.");
+		return false;
 	}
 	if (GetPurchasableDefinitionIds() != TArray<FName>({
 		Fdemo_mapItemIds::WeaponLevel1,
@@ -503,29 +980,79 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 		if (OutError) *OutError = TEXT("Nested capacity contract must resolve to base 6, ring 4, bag 36, and total 46.");
 		return false;
 	}
+	TSet<FName> ProjectionIds;
+	TSet<FName> ProjectionRoles;
+	for (const Fdemo_mapRewardSourceProjection& Projection :
+		GetGeneratedRewardProjectionProfiles())
+	{
+		if (!Projection.IsValid()
+			|| ProjectionIds.Contains(Projection.ProjectionId)
+			|| ProjectionRoles.Contains(Projection.StableSourceRoleId)
+			|| !FindGeneratedRewardBudgetProfile(
+				Projection.BudgetProfileId)
+			|| !FindFixedLootProfile(Projection.FixedFallbackTableId))
+		{
+			if (OutError)
+			{
+				*OutError = TEXT("P73.2 generated projection manifest is invalid or duplicated.");
+			}
+			return false;
+		}
+		ProjectionIds.Add(Projection.ProjectionId);
+		ProjectionRoles.Add(Projection.StableSourceRoleId);
+	}
+	if (ProjectionIds.Num() != 9)
+	{
+		if (OutError)
+		{
+			*OutError = TEXT("P73.2 requires nine canonical generated projection profiles.");
+		}
+		return false;
+	}
+	TSet<FName> DistributionProfileIds;
+	for (const Fdemo_mapRewardDistributionProfile& Profile :
+		GetGeneratedRewardDistributionProfiles())
+	{
+		const Fdemo_mapRewardSourceProjection* Projection =
+			FindGeneratedRewardProjectionProfile(Profile.ProjectionId);
+		const Fdemo_mapRewardBudgetProfile* Budget =
+			FindGeneratedRewardBudgetProfile(Profile.BudgetProfileId);
+		if (!Profile.IsValid()
+			|| DistributionProfileIds.Contains(Profile.ProfileId)
+			|| !Projection
+			|| !Budget
+			|| Budget->BaseValue != Profile.BaseSourceValue
+			|| !IsCurrentContentIdentity(
+				Profile.ContentVersionId,
+				Profile.ContentDigest))
+		{
+			if (OutError)
+			{
+				*OutError = TEXT("P73.3 generated distribution manifest is invalid, duplicated, or conflicts with its budget contract.");
+			}
+			return false;
+		}
+		DistributionProfileIds.Add(Profile.ProfileId);
+	}
+	if (DistributionProfileIds.Num() != 21)
+	{
+		if (OutError)
+		{
+			*OutError = TEXT("P73.3 requires twenty-one canonical M01/P8 distribution profiles.");
+		}
+		return false;
+	}
 	return true;
 }
 
 FName Fdemo_mapLootTables::GetTableId(Edemo_mapEnemyLootArchetype Archetype)
 {
-	switch (Archetype)
-	{
-	case Edemo_mapEnemyLootArchetype::Melee: return Fdemo_mapLootTableIds::EnemyMelee;
-	case Edemo_mapEnemyLootArchetype::Ranged: return Fdemo_mapLootTableIds::EnemyRanged;
-	case Edemo_mapEnemyLootArchetype::Heavy: return Fdemo_mapLootTableIds::EnemyHeavy;
-	default: return NAME_None;
-	}
+	return Fdemo_mapItemDefinitions::GetEnemyLootProfileId(Archetype);
 }
 
 const TArray<Fdemo_mapLootTableEntry>* Fdemo_mapLootTables::Find(FName TableId)
 {
-	static const TArray<Fdemo_mapLootTableEntry> Melee = { { Fdemo_mapItemIds::SpiritDust, 2 } };
-	static const TArray<Fdemo_mapLootTableEntry> Ranged = { { Fdemo_mapItemIds::IronShard, 2 } };
-	static const TArray<Fdemo_mapLootTableEntry> Heavy = { { Fdemo_mapItemIds::AncientToken, 1 } };
-	if (TableId == Fdemo_mapLootTableIds::EnemyMelee) return &Melee;
-	if (TableId == Fdemo_mapLootTableIds::EnemyRanged) return &Ranged;
-	if (TableId == Fdemo_mapLootTableIds::EnemyHeavy) return &Heavy;
-	return nullptr;
+	return Fdemo_mapItemDefinitions::FindEnemyLootProfile(TableId);
 }
 
 bool Fdemo_mapLootTables::Validate(FString* OutError)

@@ -1630,8 +1630,9 @@ Fdemo_mapItemOperationResult Udemo_mapItemSubsystem::CreateEnemyLoot(UWorld* Wor
 	{
 		return Fdemo_mapItemOperationResult::Failure(*State == Edemo_mapLootSourceState::Processing ? Edemo_mapItemResultCode::LootSourceProcessing : Edemo_mapItemResultCode::LootSourceCompleted, TEXT("Loot source was already processed."));
 	}
-	const FName TableId = Fdemo_mapLootTables::GetTableId(Archetype);
-	const TArray<Fdemo_mapLootTableEntry>* Entries = Fdemo_mapLootTables::Find(TableId);
+	const FName TableId = Fdemo_mapItemDefinitions::GetEnemyLootProfileId(Archetype);
+	const TArray<Fdemo_mapLootTableEntry>* Entries =
+		Fdemo_mapItemDefinitions::FindEnemyLootProfile(TableId);
 	if (!Entries) return Fdemo_mapItemOperationResult::Failure(Edemo_mapItemResultCode::LootTableNotFound, TEXT("Fixed enemy loot table was not found."), FGuid(), NAME_None, NAME_None, TableId);
 	LootSourceStates.Add(LootSourceId, Edemo_mapLootSourceState::Processing);
 	TArray<Fdemo_mapWorldSpawnRequest> Requests;
@@ -1725,6 +1726,7 @@ Fdemo_mapItemOperationResult Udemo_mapItemSubsystem::CreateWorldItemsAtomically(
 		const Fdemo_mapWorldSpawnRequest& Request = Requests[RequestIndex];
 		const Fdemo_mapItemDefinition* Definition = Fdemo_mapItemDefinitions::Find(Request.DefinitionId);
 		if (Definition == nullptr) return Fdemo_mapItemOperationResult::Failure(Edemo_mapItemResultCode::UnknownDefinition, TEXT("World spawn definition is not registered."), FGuid(), Request.DefinitionId, NAME_None, Request.SourceId);
+		if (!Definition->bWorldDropEligible) return Fdemo_mapItemOperationResult::Failure(Edemo_mapItemResultCode::ForbiddenLootSource, TEXT("World spawn definition is not WorldDrop eligible."), FGuid(), Request.DefinitionId, NAME_None, Request.SourceId);
 		if (Request.Quantity <= 0 || Request.Quantity > Definition->MaxStackSize) return Fdemo_mapItemOperationResult::Failure(Edemo_mapItemResultCode::InvalidQuantity, TEXT("World spawn quantity must fit one stack."), FGuid(), Request.DefinitionId, NAME_None, Request.SourceId);
 		FVector SafeLocation;
 		const FName StableSeed = Request.SourceId.IsNone()
@@ -1961,6 +1963,116 @@ Fdemo_mapItemOperationResult Udemo_mapItemSubsystem::MaterializeContainerItemsAt
 	return Fdemo_mapItemOperationResult::Success(
 		OutInstanceIds[0],
 		Requests[0].DefinitionId);
+}
+
+Fdemo_mapItemOperationResult
+Udemo_mapItemSubsystem::MaterializeCommittedContainerItemsAtomically(
+	FGuid ContainerId,
+	const TArray<Fdemo_mapContainerMaterializationRequest>& Requests,
+	const TArray<FGuid>& CommittedInstanceIds,
+	TFunctionRef<bool(const TArray<FGuid>& InstanceIds, FString& OutDiagnostic)>
+		FinalizeMaterialization,
+	TArray<FGuid>& OutInstanceIds)
+{
+	OutInstanceIds.Reset();
+	if (RunState != Edemo_mapRunState::Active || !ActiveRunId.IsValid())
+	{
+		return Fdemo_mapItemOperationResult::Failure(
+			Edemo_mapItemResultCode::RunNotActive,
+			TEXT("Committed Runtime Container projection requires an ActiveRun."));
+	}
+	if (!ContainerId.IsValid() || Requests.IsEmpty()
+		|| Requests.Num() != CommittedInstanceIds.Num())
+	{
+		return Fdemo_mapItemOperationResult::Failure(
+			Edemo_mapItemResultCode::InvalidContainer,
+			TEXT("Committed Runtime Container projection requires one durable identity per request."));
+	}
+	TSet<FGuid> RequestedIds;
+	for (const FGuid& Id : CommittedInstanceIds)
+	{
+		if (!Id.IsValid() || RequestedIds.Contains(Id))
+		{
+			return Fdemo_mapItemOperationResult::Failure(
+				Edemo_mapItemResultCode::InvariantViolation,
+				TEXT("Committed Runtime Container contains an invalid or duplicate item identity."),
+				Id);
+		}
+		RequestedIds.Add(Id);
+	}
+
+	const Fdemo_mapItemAuthorityState Before = Authority.CaptureState();
+	auto Rollback = [this, &Before, &OutInstanceIds]()
+	{
+		Authority.RestoreState(Before);
+		OutInstanceIds.Reset();
+	};
+	for (int32 Index = 0; Index < Requests.Num(); ++Index)
+	{
+		const Fdemo_mapContainerMaterializationRequest& Request = Requests[Index];
+		const Fdemo_mapItemDefinition* Definition =
+			Fdemo_mapItemDefinitions::Find(Request.DefinitionId);
+		if (!Definition || Request.Quantity <= 0
+			|| Request.Quantity > Definition->MaxStackSize)
+		{
+			Rollback();
+			return Fdemo_mapItemOperationResult::Failure(
+				Definition ? Edemo_mapItemResultCode::InvalidQuantity
+					: Edemo_mapItemResultCode::UnknownDefinition,
+				TEXT("Committed Runtime Container source has an invalid definition or stack."),
+				CommittedInstanceIds[Index], Request.DefinitionId);
+		}
+		FString RewardError;
+		if (!Fdemo_mapRewardEventRules::IsValid(
+			Request.RewardEventKind, Request.RewardEventId,
+			Request.RewardValueMultiplierBps, Request.RewardSourceRoleId,
+			Request.RareRewardEventId, Request.RareRewardPolicyId,
+			Request.RareRewardTierId, Request.RareRewardBonusValue,
+			&RewardError)
+			|| !Fdemo_mapRewardAffixPolicyRegistry::ValidateSet(
+				Request.DefinitionId, Request.Quantity, Request.AffixSet,
+				&RewardError))
+		{
+			Rollback();
+			return Fdemo_mapItemOperationResult::Failure(
+				Edemo_mapItemResultCode::InvariantViolation,
+				RewardError, CommittedInstanceIds[Index], Request.DefinitionId);
+		}
+		FGuid CreatedId;
+		const Fdemo_mapItemOperationResult Created =
+			Authority.CreateContainerDefinition(
+				Request.DefinitionId, Request.Quantity, ContainerId,
+				ActiveRunId, CreatedId, Request.RewardEventKind,
+				Request.RewardEventId, Request.RewardValueMultiplierBps,
+				Request.RewardSourceRoleId, Request.RareRewardEventId,
+				Request.RareRewardPolicyId, Request.RareRewardTierId,
+				Request.RareRewardBonusValue, Request.AffixSet,
+				CommittedInstanceIds[Index]);
+		if (!Created.bSuccess || CreatedId != CommittedInstanceIds[Index])
+		{
+			Rollback();
+			return Created.bSuccess
+				? Fdemo_mapItemOperationResult::Failure(
+					Edemo_mapItemResultCode::InvariantViolation,
+					TEXT("Committed Runtime Container projection changed a durable item identity."),
+					CreatedId, Request.DefinitionId)
+				: Created;
+		}
+		OutInstanceIds.Add(CreatedId);
+	}
+	FString Diagnostic;
+	if (!FinalizeMaterialization(OutInstanceIds, Diagnostic)
+		|| !ValidateInvariants(&Diagnostic))
+	{
+		Rollback();
+		return Fdemo_mapItemOperationResult::Failure(
+			Edemo_mapItemResultCode::InvariantViolation,
+			Diagnostic.IsEmpty()
+				? TEXT("Committed Runtime Container projection finalizer rejected the durable source.")
+				: Diagnostic);
+	}
+	return Fdemo_mapItemOperationResult::Success(
+		OutInstanceIds[0], Requests[0].DefinitionId);
 }
 
 Fdemo_mapItemOperationResult Udemo_mapItemSubsystem::TransferContainerItemToInventory(

@@ -13,92 +13,16 @@ const FName Fdemo_mapFixedLootTableIds::MarkerChestMainA(TEXT("P7.Marker.Chest.M
 const FName Fdemo_mapFixedLootTableIds::MarkerChestMainB(TEXT("P7.Marker.Chest.Main.B"));
 const FName Fdemo_mapFixedLootTableIds::MarkerChestSideA(TEXT("P7.Marker.Chest.Side.A"));
 
-namespace
-{
-	Fdemo_mapRuntimeContainerSeedEntry Entry(
-		Edemo_mapRuntimeContainerSection Section,
-		int32 Slot,
-		FName Definition,
-		int32 Quantity)
-	{
-		Fdemo_mapRuntimeContainerSeedEntry Result;
-		Result.Section = Section;
-		Result.SlotIndex = Slot;
-		Result.DefinitionId = Definition;
-		Result.StackCount = Quantity;
-		return Result;
-	}
-
-	Fdemo_mapFixedLootTableDefinition Table(
-		FName Id,
-		Edemo_mapRuntimeContainerKind Kind,
-		std::initializer_list<Fdemo_mapRuntimeContainerSeedEntry> Entries,
-		int32 Total)
-	{
-		Fdemo_mapFixedLootTableDefinition Result;
-		Result.TableId = Id;
-		Result.Kind = Kind;
-		for (const Fdemo_mapRuntimeContainerSeedEntry& Seed : Entries)
-		{
-			Result.Entries.Add(Seed);
-		}
-		Result.TotalPrototypeValue = Total;
-		return Result;
-	}
-}
-
 const TArray<Fdemo_mapFixedLootTableDefinition>&
 Fdemo_mapFixedLootTableRegistry::GetAll()
 {
-	using Section = Edemo_mapRuntimeContainerSection;
-	using Kind = Edemo_mapRuntimeContainerKind;
-	static const TArray<Fdemo_mapFixedLootTableDefinition> Tables = {
-		Table(Fdemo_mapFixedLootTableIds::CorpseMainMeleeStandard, Kind::Corpse, {
-			Entry(Section::Equipment, 0, Fdemo_mapItemIds::WeaponLevel1, 1),
-			Entry(Section::Backpack, 0, Fdemo_mapItemIds::SpiritOreLevel1, 2),
-			Entry(Section::Body, 0, Fdemo_mapItemIds::SoulBone, 1)}, 180),
-		Table(Fdemo_mapFixedLootTableIds::CorpseMainMeleeHeavy, Kind::Corpse, {
-			Entry(Section::Equipment, 0, Fdemo_mapItemIds::ArmorRobeLevel1, 1),
-			Entry(Section::Backpack, 0, Fdemo_mapItemIds::SpiritWoodLevel1, 2),
-			Entry(Section::Body, 0, Fdemo_mapItemIds::SoulBone, 1)}, 170),
-		Table(Fdemo_mapFixedLootTableIds::CorpseMainRangedStandard, Kind::Corpse, {
-			Entry(Section::Equipment, 0, Fdemo_mapItemIds::AccessoryLevel1, 1),
-			Entry(Section::Backpack, 0, Fdemo_mapItemIds::HealingPillLevel1, 1),
-			Entry(Section::Body, 0, Fdemo_mapItemIds::SoulBone, 1)}, 155),
-		Table(Fdemo_mapFixedLootTableIds::CorpseSideMeleeEnhanced, Kind::Corpse, {
-			Entry(Section::Equipment, 0, Fdemo_mapItemIds::WeaponLevel2, 1),
-			Entry(Section::Equipment, 1, Fdemo_mapItemIds::BackpackLevel2, 1),
-			Entry(Section::Backpack, 0, Fdemo_mapItemIds::SpiritOreLevel2, 2),
-			Entry(Section::Body, 0, Fdemo_mapItemIds::SpiritBone, 1),
-			Entry(Section::Body, 1, Fdemo_mapItemIds::InnerCoreLevel10, 1)}, 970),
-		Table(Fdemo_mapFixedLootTableIds::CorpseSideRangedEnhanced, Kind::Corpse, {
-			Entry(Section::Equipment, 0, Fdemo_mapItemIds::ArmorRobeLevel2, 1),
-			Entry(Section::Equipment, 1, Fdemo_mapItemIds::AccessoryLevel2, 1),
-			Entry(Section::Backpack, 0, Fdemo_mapItemIds::SpiritWoodLevel3, 2),
-			Entry(Section::Body, 0, Fdemo_mapItemIds::SpiritBone, 1),
-			Entry(Section::Body, 1, Fdemo_mapItemIds::InnerCoreLevel10, 1)}, 950),
-		Table(Fdemo_mapFixedLootTableIds::ChestMainA, Kind::Chest, {
-			Entry(Section::Chest, 0, Fdemo_mapItemIds::SpiritWoodLevel1, 2),
-			Entry(Section::Chest, 1, Fdemo_mapItemIds::HealingPillLevel1, 1)}, 35),
-		Table(Fdemo_mapFixedLootTableIds::ChestMainB, Kind::Chest, {
-			Entry(Section::Chest, 0, Fdemo_mapItemIds::SpiritOreLevel1, 2),
-			Entry(Section::Chest, 1, Fdemo_mapItemIds::HealingPillLevel1, 1)}, 45),
-		Table(Fdemo_mapFixedLootTableIds::ChestSideA, Kind::Chest, {
-			Entry(Section::Chest, 0, Fdemo_mapItemIds::SpiritWoodLevel2, 2),
-			Entry(Section::Chest, 1, Fdemo_mapItemIds::SpiritOreLevel2, 2),
-			Entry(Section::Chest, 2, Fdemo_mapItemIds::HealingPillLevel2, 1)}, 150)
-	};
-	return Tables;
+	return Fdemo_mapItemDefinitions::GetFixedLootProfiles();
 }
 
 const Fdemo_mapFixedLootTableDefinition*
 Fdemo_mapFixedLootTableRegistry::Find(FName TableId)
 {
-	return GetAll().FindByPredicate(
-		[TableId](const Fdemo_mapFixedLootTableDefinition& Table)
-		{
-			return Table.TableId == TableId;
-		});
+	return Fdemo_mapItemDefinitions::FindFixedLootProfile(TableId);
 }
 
 FName Fdemo_mapFixedLootTableRegistry::GetChestTableId(int32 ChestIndex)

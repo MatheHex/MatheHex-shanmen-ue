@@ -177,6 +177,30 @@ namespace
 			|| State == Edemo_mapPersistentActiveRunState::ActivationFailure;
 	}
 
+	const TCHAR* ContainerSectionString(
+		Edemo_mapRuntimeContainerSection Section)
+	{
+		switch (Section)
+		{
+		case Edemo_mapRuntimeContainerSection::Chest: return TEXT("Chest");
+		case Edemo_mapRuntimeContainerSection::Equipment: return TEXT("Equipment");
+		case Edemo_mapRuntimeContainerSection::Backpack: return TEXT("Backpack");
+		case Edemo_mapRuntimeContainerSection::Body: return TEXT("Body");
+		default: return TEXT("Invalid");
+		}
+	}
+
+	bool ParseContainerSection(
+		const FString& Text,
+		Edemo_mapRuntimeContainerSection& OutSection)
+	{
+		if (Text == TEXT("Chest")) { OutSection = Edemo_mapRuntimeContainerSection::Chest; return true; }
+		if (Text == TEXT("Equipment")) { OutSection = Edemo_mapRuntimeContainerSection::Equipment; return true; }
+		if (Text == TEXT("Backpack")) { OutSection = Edemo_mapRuntimeContainerSection::Backpack; return true; }
+		if (Text == TEXT("Body")) { OutSection = Edemo_mapRuntimeContainerSection::Body; return true; }
+		return false;
+	}
+
 	TSharedRef<FJsonObject> ItemToJson(const Fdemo_mapPersistentItemRecord& Item)
 	{
 		TSharedRef<FJsonObject> Object = MakeShared<FJsonObject>();
@@ -471,6 +495,273 @@ namespace
 		return true;
 	}
 
+	bool ParseCanonicalNonNegativeInt64(
+		const TSharedPtr<FJsonObject>& Object,
+		const TCHAR* FieldName,
+		int64& OutValue,
+		FString& OutError);
+
+	TSharedRef<FJsonObject> PlannedStackToJson(
+		const Fdemo_mapRewardPlannedStack& Stack)
+	{
+		Fdemo_mapPersistentItemRecord Item;
+		Item.ItemDefinitionId = Stack.DefinitionId;
+		Item.StackCount = Stack.StackCount;
+		Item.RewardEventKind = Stack.RewardEventKind;
+		Item.RewardEventId = Stack.RewardEventId;
+		Item.RewardValueMultiplierBps = Stack.RewardValueMultiplierBps;
+		Item.RewardSourceRoleId = Stack.RewardSourceRoleId;
+		Item.RareRewardEventId = Stack.RareRewardEventId;
+		Item.RareRewardPolicyId = Stack.RareRewardPolicyId;
+		Item.RareRewardTierId = Stack.RareRewardTierId;
+		Item.RareRewardBonusValue = Stack.RareRewardBonusValue;
+		Item.AffixSet = Stack.AffixSet;
+		TSharedRef<FJsonObject> Object = ItemToJson(Item);
+		Object->SetStringField(TEXT("UnitValue"), LexToString(Stack.UnitValue));
+		Object->SetStringField(TEXT("TotalValue"), LexToString(Stack.TotalValue));
+		Object->SetStringField(TEXT("Section"), ContainerSectionString(Stack.Section));
+		Object->SetNumberField(TEXT("SlotIndex"), Stack.SlotIndex);
+		return Object;
+	}
+
+	bool JsonToPlannedStack(
+		const TSharedPtr<FJsonObject>& Object,
+		Fdemo_mapRewardPlannedStack& OutStack,
+		FString& OutError)
+	{
+		Fdemo_mapPersistentItemRecord Item;
+		FString UnitText, TotalText, SectionText, IntegerError;
+		double SlotNumber = 0.0;
+		if (!JsonToItem(Object, Item, OutError)
+			|| !Object->TryGetStringField(TEXT("UnitValue"), UnitText)
+			|| !Object->TryGetStringField(TEXT("TotalValue"), TotalText)
+			|| !Object->TryGetStringField(TEXT("Section"), SectionText)
+			|| !Object->TryGetNumberField(TEXT("SlotIndex"), SlotNumber)
+			|| !FMath::IsNearlyEqual(SlotNumber, FMath::RoundToDouble(SlotNumber))
+			|| SlotNumber < MIN_int32 || SlotNumber > MAX_int32)
+		{
+			OutError = OutError.IsEmpty() ? TEXT("Generated receipt planned stack is malformed.") : OutError;
+			return false;
+		}
+		TSharedPtr<FJsonObject> Integers = MakeShared<FJsonObject>();
+		Integers->SetStringField(TEXT("UnitValue"), UnitText);
+		Integers->SetStringField(TEXT("TotalValue"), TotalText);
+		if (!ParseCanonicalNonNegativeInt64(Integers, TEXT("UnitValue"), OutStack.UnitValue, IntegerError)
+			|| !ParseCanonicalNonNegativeInt64(Integers, TEXT("TotalValue"), OutStack.TotalValue, IntegerError)
+			|| !ParseContainerSection(SectionText, OutStack.Section))
+		{
+			OutError = IntegerError.IsEmpty() ? TEXT("Generated receipt planned stack values are invalid.") : IntegerError;
+			return false;
+		}
+		OutStack.DefinitionId = Item.ItemDefinitionId;
+		OutStack.StackCount = Item.StackCount;
+		OutStack.SlotIndex = static_cast<int32>(SlotNumber);
+		OutStack.RewardEventKind = Item.RewardEventKind;
+		OutStack.RewardEventId = Item.RewardEventId;
+		OutStack.RewardValueMultiplierBps = Item.RewardValueMultiplierBps;
+		OutStack.RewardSourceRoleId = Item.RewardSourceRoleId;
+		OutStack.RareRewardEventId = Item.RareRewardEventId;
+		OutStack.RareRewardPolicyId = Item.RareRewardPolicyId;
+		OutStack.RareRewardTierId = Item.RareRewardTierId;
+		OutStack.RareRewardBonusValue = Item.RareRewardBonusValue;
+		OutStack.AffixSet = Item.AffixSet;
+		return true;
+	}
+
+	TSharedRef<FJsonObject> ReceiptToJson(
+		const Fdemo_mapRewardSourceAcceptanceReceipt& Receipt)
+	{
+		TSharedRef<FJsonObject> Object = MakeShared<FJsonObject>();
+		Object->SetStringField(TEXT("RunId"), GuidString(Receipt.RunId));
+		Object->SetStringField(TEXT("StableSourceRoleId"), Receipt.StableSourceRoleId.ToString());
+		Object->SetStringField(TEXT("SlotId"), Receipt.SlotId.ToString());
+		Object->SetStringField(TEXT("ProjectionId"), Receipt.ProjectionId.ToString());
+		Object->SetStringField(TEXT("DistributionProfileId"), Receipt.DistributionProfileId.ToString());
+		Object->SetStringField(TEXT("ContentVersionId"), Receipt.ContentVersionId.ToString());
+		Object->SetStringField(TEXT("ContentDigest"), Receipt.ContentDigest);
+		Object->SetStringField(TEXT("BudgetProfileId"), Receipt.BudgetProfileId.ToString());
+		Object->SetStringField(TEXT("MarkerId"), Receipt.MarkerId.ToString());
+		Object->SetStringField(TEXT("EncounterId"), Receipt.EncounterId.ToString());
+		Object->SetStringField(TEXT("JackpotPolicyId"), Receipt.JackpotPolicyId.ToString());
+		Object->SetStringField(TEXT("RareExtremePolicyId"), Receipt.RareExtremePolicyId.ToString());
+		Object->SetStringField(TEXT("AffixPolicyId"), Receipt.AffixPolicyId.ToString());
+		Object->SetStringField(TEXT("EffectiveSeed"), LexToString(Receipt.EffectiveSeed));
+		Object->SetStringField(TEXT("RandomizedBudget"), LexToString(Receipt.RandomizedBudget));
+		Object->SetStringField(TEXT("GeneratedTotalValue"), LexToString(Receipt.GeneratedTotalValue));
+		Object->SetStringField(TEXT("ResidualValue"), LexToString(Receipt.ResidualValue));
+		Object->SetNumberField(TEXT("PityStateIn"), Receipt.PityStateIn);
+		Object->SetNumberField(TEXT("PityStateOut"), Receipt.PityStateOut);
+		Object->SetBoolField(TEXT("PityCommitRequired"), Receipt.bPityCommitRequired);
+		Object->SetBoolField(TEXT("FallbackUsed"), Receipt.bFallbackUsed);
+		Object->SetBoolField(TEXT("LegacyCompatibilityView"), Receipt.bLegacyCompatibilityView);
+		TArray<TSharedPtr<FJsonValue>> Stacks;
+		for (const Fdemo_mapRewardPlannedStack& Stack : Receipt.PlannedStacks)
+		{
+			Stacks.Add(MakeShared<FJsonValueObject>(PlannedStackToJson(Stack)));
+		}
+		Object->SetArrayField(TEXT("PlannedStacks"), Stacks);
+		return Object;
+	}
+
+	bool JsonToReceipt(
+		const TSharedPtr<FJsonObject>& Object,
+		Fdemo_mapRewardSourceAcceptanceReceipt& OutReceipt,
+		FString& OutError)
+	{
+		FString RunText, SeedText, RandomizedText, GeneratedText, ResidualText, IntegerError;
+		double PityStateInNumber = 0.0;
+		double PityStateOutNumber = 0.0;
+		const TArray<TSharedPtr<FJsonValue>>* Stacks = nullptr;
+		if (!Object.IsValid())
+		{
+			OutError = TEXT("Generated receipt is malformed.");
+			return false;
+		}
+		// Read all identity strings explicitly; empty current identities are rejected by IsValid below.
+		FString RoleText, SlotText, ProjectionText, DistributionText, VersionText, DigestText, BudgetText, MarkerText, EncounterText, JackpotText, RareText, AffixText;
+		if (!Object->TryGetStringField(TEXT("RunId"), RunText)
+			|| !Object->TryGetStringField(TEXT("StableSourceRoleId"), RoleText)
+			|| !Object->TryGetStringField(TEXT("SlotId"), SlotText)
+			|| !Object->TryGetStringField(TEXT("ProjectionId"), ProjectionText)
+			|| !Object->TryGetStringField(TEXT("DistributionProfileId"), DistributionText)
+			|| !Object->TryGetStringField(TEXT("ContentVersionId"), VersionText)
+			|| !Object->TryGetStringField(TEXT("ContentDigest"), DigestText)
+			|| !Object->TryGetStringField(TEXT("BudgetProfileId"), BudgetText)
+			|| !Object->TryGetStringField(TEXT("MarkerId"), MarkerText)
+			|| !Object->TryGetStringField(TEXT("EncounterId"), EncounterText)
+			|| !Object->TryGetStringField(TEXT("JackpotPolicyId"), JackpotText)
+			|| !Object->TryGetStringField(TEXT("RareExtremePolicyId"), RareText)
+			|| !Object->TryGetStringField(TEXT("AffixPolicyId"), AffixText)
+			|| !Object->TryGetStringField(TEXT("EffectiveSeed"), SeedText)
+			|| !Object->TryGetStringField(TEXT("RandomizedBudget"), RandomizedText)
+			|| !Object->TryGetStringField(TEXT("GeneratedTotalValue"), GeneratedText)
+			|| !Object->TryGetStringField(TEXT("ResidualValue"), ResidualText)
+			|| !Object->TryGetNumberField(TEXT("PityStateIn"), PityStateInNumber)
+			|| !Object->TryGetNumberField(TEXT("PityStateOut"), PityStateOutNumber)
+			|| !Object->TryGetArrayField(TEXT("PlannedStacks"), Stacks)
+			|| !Object->TryGetBoolField(TEXT("PityCommitRequired"), OutReceipt.bPityCommitRequired)
+			|| !Object->TryGetBoolField(TEXT("FallbackUsed"), OutReceipt.bFallbackUsed)
+			|| !Object->TryGetBoolField(TEXT("LegacyCompatibilityView"), OutReceipt.bLegacyCompatibilityView)
+			|| !ParseGuid(RunText, OutReceipt.RunId)
+			|| !FMath::IsNearlyEqual(PityStateInNumber, FMath::RoundToDouble(PityStateInNumber))
+			|| !FMath::IsNearlyEqual(PityStateOutNumber, FMath::RoundToDouble(PityStateOutNumber))
+			|| PityStateInNumber < 0.0 || PityStateInNumber > 3.0
+			|| PityStateOutNumber < 0.0 || PityStateOutNumber > 3.0)
+		{
+			OutError = TEXT("Generated receipt fields are malformed.");
+			return false;
+		}
+		TSharedPtr<FJsonObject> Integers = MakeShared<FJsonObject>();
+		Integers->SetStringField(TEXT("EffectiveSeed"), SeedText);
+		Integers->SetStringField(TEXT("RandomizedBudget"), RandomizedText);
+		Integers->SetStringField(TEXT("GeneratedTotalValue"), GeneratedText);
+		Integers->SetStringField(TEXT("ResidualValue"), ResidualText);
+		uint64 ParsedSeed = 0;
+		if (!LexTryParseString(ParsedSeed, *SeedText)
+			|| ParsedSeed == 0
+			|| !ParseCanonicalNonNegativeInt64(Integers, TEXT("RandomizedBudget"), OutReceipt.RandomizedBudget, IntegerError)
+			|| !ParseCanonicalNonNegativeInt64(Integers, TEXT("GeneratedTotalValue"), OutReceipt.GeneratedTotalValue, IntegerError)
+			|| !ParseCanonicalNonNegativeInt64(Integers, TEXT("ResidualValue"), OutReceipt.ResidualValue, IntegerError))
+		{
+			OutError = IntegerError.IsEmpty() ? TEXT("Generated receipt numeric fields are invalid.") : IntegerError;
+			return false;
+		}
+		OutReceipt.StableSourceRoleId = FName(*RoleText);
+		OutReceipt.SlotId = FName(*SlotText);
+		OutReceipt.ProjectionId = FName(*ProjectionText);
+		OutReceipt.DistributionProfileId = FName(*DistributionText);
+		OutReceipt.ContentVersionId = FName(*VersionText);
+		OutReceipt.ContentDigest = DigestText;
+		OutReceipt.BudgetProfileId = FName(*BudgetText);
+		OutReceipt.MarkerId = FName(*MarkerText);
+		OutReceipt.EncounterId = FName(*EncounterText);
+		OutReceipt.JackpotPolicyId = FName(*JackpotText);
+		OutReceipt.RareExtremePolicyId = FName(*RareText);
+		OutReceipt.AffixPolicyId = FName(*AffixText);
+		OutReceipt.EffectiveSeed = ParsedSeed;
+		OutReceipt.PityStateIn = static_cast<int32>(PityStateInNumber);
+		OutReceipt.PityStateOut = static_cast<int32>(PityStateOutNumber);
+		for (const TSharedPtr<FJsonValue>& Value : *Stacks)
+		{
+			Fdemo_mapRewardPlannedStack Stack;
+			if (!Value.IsValid() || !JsonToPlannedStack(Value->AsObject(), Stack, OutError))
+			{
+				return false;
+			}
+			OutReceipt.PlannedStacks.Add(MoveTemp(Stack));
+		}
+		if (!OutReceipt.IsValid())
+		{
+			OutError = TEXT("Generated receipt violates its immutable identity contract.");
+			return false;
+		}
+		return true;
+	}
+
+	TSharedRef<FJsonObject> GeneratedRewardSourceToJson(
+		const Fdemo_mapPersistentGeneratedRewardSource& Source)
+	{
+		TSharedRef<FJsonObject> Object = MakeShared<FJsonObject>();
+		Object->SetObjectField(TEXT("Receipt"), ReceiptToJson(Source.Receipt));
+		Object->SetStringField(TEXT("ContainerId"), GuidString(Source.ContainerId));
+		TArray<TSharedPtr<FJsonValue>> Entries;
+		for (const Fdemo_mapPersistentGeneratedRewardSourceEntry& Entry : Source.Entries)
+		{
+			TSharedRef<FJsonObject> EntryObject = MakeShared<FJsonObject>();
+			EntryObject->SetObjectField(TEXT("Item"), ItemToJson(Entry.Item));
+			EntryObject->SetStringField(TEXT("Section"), ContainerSectionString(Entry.Section));
+			EntryObject->SetNumberField(TEXT("SlotIndex"), Entry.SlotIndex);
+			Entries.Add(MakeShared<FJsonValueObject>(EntryObject));
+		}
+		Object->SetArrayField(TEXT("Entries"), Entries);
+		return Object;
+	}
+
+	bool JsonToGeneratedRewardSource(
+		const TSharedPtr<FJsonObject>& Object,
+		Fdemo_mapPersistentGeneratedRewardSource& OutSource,
+		FString& OutError)
+	{
+		const TSharedPtr<FJsonObject>* ReceiptObject = nullptr;
+		const TArray<TSharedPtr<FJsonValue>>* Entries = nullptr;
+		FString ContainerText;
+		if (!Object.IsValid()
+			|| !Object->TryGetObjectField(TEXT("Receipt"), ReceiptObject)
+			|| !Object->TryGetStringField(TEXT("ContainerId"), ContainerText)
+			|| !Object->TryGetArrayField(TEXT("Entries"), Entries)
+			|| !ParseGuid(ContainerText, OutSource.ContainerId)
+			|| !OutSource.ContainerId.IsValid()
+			|| !JsonToReceipt(*ReceiptObject, OutSource.Receipt, OutError))
+		{
+			OutError = OutError.IsEmpty() ? TEXT("Generated reward source is malformed.") : OutError;
+			return false;
+		}
+		for (const TSharedPtr<FJsonValue>& Value : *Entries)
+		{
+			const TSharedPtr<FJsonObject> EntryObject =
+				Value.IsValid() ? Value->AsObject() : nullptr;
+			const TSharedPtr<FJsonObject>* ItemObject = nullptr;
+			FString SectionText;
+			double SlotNumber = 0.0;
+			Fdemo_mapPersistentGeneratedRewardSourceEntry Entry;
+			if (!EntryObject.IsValid()
+				|| !EntryObject->TryGetObjectField(TEXT("Item"), ItemObject)
+				|| !EntryObject->TryGetStringField(TEXT("Section"), SectionText)
+				|| !EntryObject->TryGetNumberField(TEXT("SlotIndex"), SlotNumber)
+				|| !FMath::IsNearlyEqual(SlotNumber, FMath::RoundToDouble(SlotNumber))
+				|| SlotNumber < MIN_int32 || SlotNumber > MAX_int32
+				|| !ParseContainerSection(SectionText, Entry.Section)
+				|| !JsonToItem(*ItemObject, Entry.Item, OutError))
+			{
+				OutError = OutError.IsEmpty() ? TEXT("Generated reward source entry is malformed.") : OutError;
+				return false;
+			}
+			Entry.SlotIndex = static_cast<int32>(SlotNumber);
+			OutSource.Entries.Add(MoveTemp(Entry));
+		}
+		return true;
+	}
+
 	TArray<TSharedPtr<FJsonValue>> GuidsToJson(const TArray<FGuid>& Guids)
 	{
 		TArray<TSharedPtr<FJsonValue>> Values;
@@ -615,6 +906,10 @@ namespace
 					Item.EquipmentSlotId = Fdemo_mapItemIds::SpatialRingSlot;
 				}
 			}
+		}
+		if (Legacy.SchemaVersion <= 6)
+		{
+			Promoted.ActiveRun.GeneratedRewardSources.Reset();
 		}
 		Promoted.TownLevel = 0;
 		return Promoted;
@@ -844,12 +1139,14 @@ bool Fdemo_mapProfileRepository::ValidateProfile(const Fdemo_mapPersistentProfil
 		if (Run.ActiveRunState == Edemo_mapPersistentActiveRunState::None)
 		{
 			if (Run.ActiveRunId.IsValid() || !Run.DeployedItemIds.IsEmpty() || !Run.ActiveRunItems.IsEmpty()
+				|| !Run.GeneratedRewardSources.IsEmpty()
 				|| !Run.ConsumedSpiritStoneSourceIds.IsEmpty() || Run.CommittedSettlementId.IsValid())
 				return Fail(TEXT("Idle ActiveRun record contains run, risk, or settlement data."));
 		}
 		else if (IsTerminalRunState(Run.ActiveRunState))
 		{
 			if (!Run.ActiveRunId.IsValid() || !Run.DeployedItemIds.IsEmpty() || !Run.ActiveRunItems.IsEmpty()
+				|| !Run.GeneratedRewardSources.IsEmpty()
 				|| !Run.ConsumedSpiritStoneSourceIds.IsEmpty()
 				|| !Run.CommittedSettlementId.IsValid() || Run.CommittedSettlementId != Profile.LastSettlementId)
 				return Fail(TEXT("Terminal ActiveRun tombstone is inconsistent."));
@@ -882,6 +1179,76 @@ bool Fdemo_mapProfileRepository::ValidateProfile(const Fdemo_mapPersistentProfil
 			if ((Item.OriginRunId.IsValid() && Item.OriginRunId != Run.ActiveRunId) || !DeployedIds.Contains(Item.ItemInstanceId)) return Fail(TEXT("ActiveRun item identity or OriginRunId is inconsistent."));
 		}
 		if (DeployedIds.Num() != Run.ActiveRunItems.Num()) return Fail(TEXT("ActiveRun deployed IDs and item records differ."));
+		TSet<FName> GeneratedSourceRoles;
+		TSet<FGuid> GeneratedContainerIds;
+		int32 ExpectedPityState = 0;
+		for (const Fdemo_mapPersistentGeneratedRewardSource& Source :
+			Run.GeneratedRewardSources)
+		{
+			const Fdemo_mapRewardSourceAcceptanceReceipt& Receipt =
+				Source.Receipt;
+			if (Run.ActiveRunState != Edemo_mapPersistentActiveRunState::InProgress
+				|| !Receipt.IsValid()
+				|| Receipt.RunId != Run.ActiveRunId
+				|| Receipt.PityStateIn != ExpectedPityState
+				|| (!Receipt.bPityCommitRequired
+					&& Receipt.PityStateOut != Receipt.PityStateIn)
+				|| !Source.ContainerId.IsValid()
+				|| GeneratedSourceRoles.Contains(Receipt.StableSourceRoleId)
+				|| GeneratedContainerIds.Contains(Source.ContainerId)
+				|| Source.Entries.Num() != Receipt.PlannedStacks.Num())
+			{
+				return Fail(TEXT("Generated reward source receipt, source role, container, or state is invalid."));
+			}
+			GeneratedSourceRoles.Add(Receipt.StableSourceRoleId);
+			GeneratedContainerIds.Add(Source.ContainerId);
+			ExpectedPityState = Receipt.PityStateOut;
+			int64 PlannedTotalValue = 0;
+			for (int32 Index = 0; Index < Source.Entries.Num(); ++Index)
+			{
+				const Fdemo_mapPersistentGeneratedRewardSourceEntry& Entry =
+					Source.Entries[Index];
+				const Fdemo_mapRewardPlannedStack& Stack =
+					Receipt.PlannedStacks[Index];
+				if (Stack.UnitValue <= 0 || Stack.TotalValue <= 0
+					|| Stack.StackCount <= 0
+					|| Stack.UnitValue > MAX_int64 / Stack.StackCount
+					|| Stack.TotalValue != Stack.UnitValue * Stack.StackCount
+					|| PlannedTotalValue > MAX_int64 - Stack.TotalValue
+					|| Stack.SlotIndex < 0
+					|| !ValidateItem(Entry.Item, Edemo_mapPersistentDomain::ActiveRun)
+					|| Entry.Item.OriginRunId != Run.ActiveRunId
+					|| DeployedIds.Contains(Entry.Item.ItemInstanceId)
+					|| Entry.Item.ItemDefinitionId != Stack.DefinitionId
+					|| Entry.Item.StackCount != Stack.StackCount
+					|| Entry.Section != Stack.Section
+					|| Entry.SlotIndex != Stack.SlotIndex
+					|| Entry.Item.RewardEventKind != Stack.RewardEventKind
+					|| Entry.Item.RewardEventId != Stack.RewardEventId
+					|| Entry.Item.RewardValueMultiplierBps
+						!= Stack.RewardValueMultiplierBps
+					|| Entry.Item.RewardSourceRoleId
+						!= Stack.RewardSourceRoleId
+					|| Entry.Item.RareRewardEventId != Stack.RareRewardEventId
+					|| Entry.Item.RareRewardPolicyId
+						!= Stack.RareRewardPolicyId
+					|| Entry.Item.RareRewardTierId != Stack.RareRewardTierId
+					|| Entry.Item.RareRewardBonusValue
+						!= Stack.RareRewardBonusValue
+					|| Entry.Item.AffixSet != Stack.AffixSet)
+				{
+					return Fail(TEXT("Generated reward source item projection does not match its receipt."));
+				}
+				PlannedTotalValue += Stack.TotalValue;
+			}
+			if (PlannedTotalValue != Receipt.GeneratedTotalValue
+				|| Receipt.GeneratedTotalValue > Receipt.RandomizedBudget
+				|| Receipt.ResidualValue
+					!= Receipt.RandomizedBudget - Receipt.GeneratedTotalValue)
+			{
+				return Fail(TEXT("Generated reward receipt budget, total, or residual proof is inconsistent."));
+			}
+		}
 	}
 
 	// P4x retires PreparationLayout from product Start Run.  It remains serialized
@@ -1012,6 +1379,12 @@ bool Fdemo_mapProfileRepository::SerializeProfile(const Fdemo_mapPersistentProfi
 	TArray<TSharedPtr<FJsonValue>> RunItems;
 	for (const Fdemo_mapPersistentItemRecord& Item : Profile.ActiveRun.ActiveRunItems) RunItems.Add(MakeShared<FJsonValueObject>(ItemToJson(Item)));
 	Run->SetArrayField(TEXT("ActiveRunItems"), RunItems);
+	TArray<TSharedPtr<FJsonValue>> GeneratedSources;
+	for (const Fdemo_mapPersistentGeneratedRewardSource& Source : Profile.ActiveRun.GeneratedRewardSources)
+	{
+		GeneratedSources.Add(MakeShared<FJsonValueObject>(GeneratedRewardSourceToJson(Source)));
+	}
+	Run->SetArrayField(TEXT("GeneratedRewardSources"), GeneratedSources);
 	TArray<TSharedPtr<FJsonValue>> ConsumedSources;
 	for (FName SourceId : Profile.ActiveRun.ConsumedSpiritStoneSourceIds)
 	{
@@ -1051,7 +1424,7 @@ Fdemo_mapProfileRepository::FReadResult Fdemo_mapProfileRepository::DeserializeP
 	}
 	const int32 Schema = static_cast<int32>(SchemaNumber);
 	if (Schema > Fdemo_mapPersistentProfile::CurrentSchemaVersion) { Result.Kind = EReadKind::FutureSchema; Result.Diagnostic = TEXT("Profile uses a future SchemaVersion."); return Result; }
-	if (Schema != 1 && Schema != 2 && Schema != 3 && Schema != 4 && Schema != 5 && Schema != Fdemo_mapPersistentProfile::CurrentSchemaVersion) { Result.Kind = EReadKind::InvalidData; Result.Diagnostic = TEXT("Profile uses an unsupported old SchemaVersion."); return Result; }
+	if (Schema != 1 && Schema != 2 && Schema != 3 && Schema != 4 && Schema != 5 && Schema != 6 && Schema != Fdemo_mapPersistentProfile::CurrentSchemaVersion) { Result.Kind = EReadKind::InvalidData; Result.Diagnostic = TEXT("Profile uses an unsupported old SchemaVersion."); return Result; }
 
 	Fdemo_mapPersistentProfile Profile;
 	Profile.SchemaVersion = Schema;
@@ -1272,11 +1645,13 @@ Fdemo_mapProfileRepository::FReadResult Fdemo_mapProfileRepository::DeserializeP
 	FString ActiveRunIdText, RunStateText, CommittedText;
 	const TArray<TSharedPtr<FJsonValue>>* Deployed = nullptr;
 	const TArray<TSharedPtr<FJsonValue>>* RunItems = nullptr;
+	const TArray<TSharedPtr<FJsonValue>>* GeneratedSources = nullptr;
 	if (!(*Run)->TryGetBoolField(TEXT("HasActiveRun"), Profile.ActiveRun.bHasActiveRun)
 		|| !(*Run)->TryGetStringField(TEXT("ActiveRunId"), ActiveRunIdText)
 		|| !(*Run)->TryGetStringField(TEXT("ActiveRunState"), RunStateText)
 		|| !(*Run)->TryGetArrayField(TEXT("DeployedItemIds"), Deployed)
 		|| !(*Run)->TryGetArrayField(TEXT("ActiveRunItems"), RunItems)
+		|| (Schema >= 7 && !(*Run)->TryGetArrayField(TEXT("GeneratedRewardSources"), GeneratedSources))
 		|| !(*Run)->TryGetStringField(TEXT("CommittedSettlementId"), CommittedText)
 		|| !ParseGuid(ActiveRunIdText, Profile.ActiveRun.ActiveRunId)
 		|| !ParseGuid(CommittedText, Profile.ActiveRun.CommittedSettlementId)
@@ -1305,6 +1680,21 @@ Fdemo_mapProfileRepository::FReadResult Fdemo_mapProfileRepository::DeserializeP
 		if (!Value.IsValid() || !JsonToItem(Value->AsObject(), Item, Error)) { Result.Kind = EReadKind::ParseFailure; Result.Diagnostic = Error; return Result; }
 		Profile.ActiveRun.ActiveRunItems.Add(Item);
 	}
+	if (Schema >= 7)
+	{
+		for (const TSharedPtr<FJsonValue>& Value : *GeneratedSources)
+		{
+			Fdemo_mapPersistentGeneratedRewardSource Source;
+			FString Error;
+			if (!Value.IsValid() || !JsonToGeneratedRewardSource(Value->AsObject(), Source, Error))
+			{
+				Result.Kind = EReadKind::ParseFailure;
+				Result.Diagnostic = Error;
+				return Result;
+			}
+			Profile.ActiveRun.GeneratedRewardSources.Add(MoveTemp(Source));
+		}
+	}
 	if (Schema >= 3)
 	{
 		const TArray<TSharedPtr<FJsonValue>>* ConsumedSources = nullptr;
@@ -1327,7 +1717,7 @@ Fdemo_mapProfileRepository::FReadResult Fdemo_mapProfileRepository::DeserializeP
 		}
 	}
 	FString ValidationError;
-	if (Schema <= 5)
+	if (Schema <= 6)
 	{
 		const Fdemo_mapPersistentProfile Promoted = PromoteLegacyProfile(Profile);
 		if (!ValidateProfile(Promoted, &ValidationError)) { Result.Kind = EReadKind::InvalidData; Result.Diagnostic = ValidationError; return Result; }

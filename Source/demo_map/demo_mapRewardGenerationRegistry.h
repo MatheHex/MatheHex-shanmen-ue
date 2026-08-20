@@ -39,7 +39,10 @@ struct Fdemo_mapRewardSourceIds
 	static const FName ChestSideHighValue;
 };
 
-/** Single P1 data authority for budgets, eligibility and Chest source modes. */
+/**
+ * Stable P1 lookup API. P73.1 moved generated budget and candidate data into
+ * Fdemo_mapItemDefinitions; this surface now only preserves existing callers.
+ */
 struct Fdemo_mapRewardGenerationRegistry
 {
 	static constexpr int32 NormalMultiplierMinBps = 8000;

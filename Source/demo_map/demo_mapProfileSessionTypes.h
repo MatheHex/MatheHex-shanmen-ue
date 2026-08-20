@@ -119,3 +119,39 @@ struct Fdemo_mapProfileSessionSettlementResult
 			|| Status == Edemo_mapProfileSessionSettlementStatus::ReconciledAfterReload;
 	}
 };
+
+enum class Edemo_mapProfileGeneratedRewardSourceStatus : uint8
+{
+	Committed,
+	AlreadyCommitted,
+	ReconciledAfterReload,
+	CommittedReconciliationRequired,
+	SessionStateRejected,
+	ReceiptRejected,
+	DuplicateSourceRejected,
+	PersistentCommitRejected,
+	RecoveryRequired
+};
+
+/** Result for the one Profile Repository candidate that owns receipt and source items. */
+struct Fdemo_mapProfileGeneratedRewardSourceResult
+{
+	Edemo_mapProfileGeneratedRewardSourceStatus Status =
+		Edemo_mapProfileGeneratedRewardSourceStatus::SessionStateRejected;
+	FString Diagnostic;
+	Fdemo_mapPersistentGeneratedRewardSource Source;
+	int32 SaveGenerationAfter = 0;
+
+	bool IsDurablyCommitted() const
+	{
+		return Status == Edemo_mapProfileGeneratedRewardSourceStatus::Committed
+			|| Status == Edemo_mapProfileGeneratedRewardSourceStatus::AlreadyCommitted
+			|| Status == Edemo_mapProfileGeneratedRewardSourceStatus::ReconciledAfterReload
+			|| Status == Edemo_mapProfileGeneratedRewardSourceStatus::CommittedReconciliationRequired;
+	}
+
+	bool RequiresRuntimeReconciliation() const
+	{
+		return Status == Edemo_mapProfileGeneratedRewardSourceStatus::CommittedReconciliationRequired;
+	}
+};

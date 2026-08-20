@@ -8,6 +8,7 @@
 #include "CodeB/demo_mapCodeBP4.h"
 #include "demo_mapItemTypes.h"
 #include "demo_mapProfilePreparationFlow.h"
+#include "demo_mapProfileSessionTypes.h"
 #include "demo_mapProfileStartupMode.h"
 #include "demo_mapRewardGenerator.h"
 #include "demo_mapRewardAffix.h"
@@ -16,6 +17,11 @@
 #include "demo_mapInputConsumptionTrace.h"
 #endif
 #include "demo_mapV3ProgressionManager.generated.h"
+
+struct FCodeBActivePlayerInteractionCommitResult;
+struct FCodeBNormalContainerInteractionCommitResult;
+struct FCodeBBodyContainerInteractionCommitResult;
+struct FCodeBWorldDropInteractionCommitResult;
 
 class UCharacterMovementComponent;
 class APawn;
@@ -211,12 +217,26 @@ public:
 	void Set0909BOutOfRaidCloseCallback(TFunction<void()>&& InCallback);
 	Fdemo_mapProfileSessionSettlementResult RetryPendingProfileSettlement();
 	bool CanGenerateRewardSource(FGuid RunId, FName RewardSourceId) const;
-	bool CommitGeneratedRewardSource(FGuid RunId, FName RewardSourceId);
+	bool FindDurablyAcceptedRewardSource(
+		FGuid RunId,
+		FName RewardSourceId,
+		Fdemo_mapPersistentGeneratedRewardSource& OutSource) const;
+	Fdemo_mapProfileGeneratedRewardSourceResult PrepareGeneratedRewardSource(
+		FGuid RunId,
+		FName RewardSourceId,
+		const Fdemo_mapRewardSourceAcceptanceReceipt& Receipt);
+	bool CommitGeneratedRewardSource(
+		FGuid RunId,
+		FName RewardSourceId,
+		const Fdemo_mapRewardSourceAcceptanceReceipt& Receipt);
+	const Fdemo_mapRewardSourceAcceptanceReceipt*
+		FindAcceptedRewardSourceReceipt(
+			FGuid RunId,
+			FName RewardSourceId) const;
 	int32 GetRewardAffixPityState(FGuid RunId) const;
 	bool CommitRewardAffixPity(
 		FGuid RunId,
-		FName RewardSourceId,
-		const Fdemo_mapRewardSourceProjectionResult& Plan);
+		const Fdemo_mapRewardSourceAcceptanceReceipt& Receipt);
 	bool IsSettlementPending() const { return bSettlementPending; }
 	Udemo_mapSettlementWidget* GetSettlementWidget() const { return SettlementWidget.Get(); }
 	/** Retires only the transient report and its input lock; durable settlement history is untouched. */
@@ -279,6 +299,10 @@ private:
 	bool RequestCodeBGroundDrop(
 		const demo_map_code_b::FCodeBP4DragPayload& Payload,
 		FString& OutFeedback);
+	/** P70/P71 adapter for exact opened WorldDrop split or same-record placement. */
+	bool RequestCodeBWorldDropGroundDrop(
+		const demo_map_code_b::FCodeBP4DragPayload& Payload,
+		FString& OutFeedback);
 	/** P49 adapter for the same GroundDropZone while the exact P10 BasicCache page is open. */
 	bool RequestCodeBNormalContainerGroundDrop(
 		const demo_map_code_b::FCodeBP4DragPayload& Payload,
@@ -288,6 +312,11 @@ private:
 		const demo_map_code_b::FCodeBP4DragPayload& Payload,
 		FString& OutFeedback);
 	bool ResolveCodeBWorldDropPlacement(FName& OutMapRoute, FTransform& OutFloorTransform, FString& OutFeedback) const;
+	/** Applies the explicit, read-only accepted-result contract; it never inspects P2 command or Store state. */
+	void ApplyCodeBRunItemInteractionResult(const FCodeBActivePlayerInteractionCommitResult& Result);
+	void ApplyCodeBRunItemInteractionResult(const FCodeBNormalContainerInteractionCommitResult& Result);
+	void ApplyCodeBRunItemInteractionResult(const FCodeBBodyContainerInteractionCommitResult& Result);
+	void ApplyCodeBRunItemInteractionResult(const FCodeBWorldDropInteractionCommitResult& Result);
 	void RefreshCodeBWorldDropActors();
 	void ClearCodeBWorldDropActors();
 	bool OpenCodeBWorldDropPage(Ademo_mapCodeBWorldDropActor* DropActor, FString& OutFeedback);
@@ -324,8 +353,10 @@ private:
 		ECodeBRunInventoryTerminalState TerminalState);
 	bool InitializeWorldContent();
 	bool InitializeM01RewardContent();
-	/** P10's one static M01 target is a non-blocking Code A adapter, never Run truth. */
+	/** P57's static M01 targets are non-blocking Code A adapters, never Run truth. */
 	bool InitializeCodeBNormalContainerTarget();
+	bool IsRegisteredCodeBNormalContainerTarget(
+		const Ademo_mapCodeBNormalContainerActor* Container) const;
 	bool InitializeEnemyEncounterContent();
 	bool SpawnM01SpiritStonePickup(
 		const Fdemo_mapM01EnemyDefinition& EnemyDefinition,
@@ -531,6 +562,7 @@ private:
 	TUniquePtr<FCodeBOutOfRaidProfileStore> CodeBActiveRunInventoryStore;
 	FGuid CodeBActiveRunInventoryOwnerId;
 	FGuid CodeBActiveRunInventoryRunId;
+	int32 CodeBActiveRunInventoryExpectedP6Revision = INDEX_NONE;
 	bool bCodeBActiveRunInventoryOpen = false;
 	TMap<FGuid, TWeakObjectPtr<Ademo_mapCodeBWorldDropActor>> CodeBWorldDropActors;
 	TUniquePtr<demo_map_code_b::FCodeBRepository> CodeBWorldDropRepository;
@@ -558,9 +590,10 @@ private:
 	int32 CodeBNormalContainerExpectedP6Revision = INDEX_NONE;
 	int32 CodeBNormalContainerExpectedTargetRevision = INDEX_NONE;
 	TWeakObjectPtr<Ademo_mapCodeBNormalContainerActor> ActiveCodeBNormalContainer;
-	/** The one run-scoped production actor for M01.CodeBNormalContainer.BasicCache.01. */
-	TWeakObjectPtr<Ademo_mapCodeBNormalContainerActor> CodeBNormalContainerTarget;
-	bool bCodeBNormalContainerTargetSpawned = false;
+	/** P57 registry for the two exact map sources; Actor state remains projection-only. */
+	TArray<TWeakObjectPtr<Ademo_mapCodeBNormalContainerActor>> CodeBNormalContainerTargets;
+	/** Only runtime-created adapters are destroyed by the manager; map-authored targets are retained. */
+	TArray<TWeakObjectPtr<Ademo_mapCodeBNormalContainerActor>> SpawnedCodeBNormalContainerTargets;
 	bool bCodeBNormalContainerOpen = false;
 	/** P12 retains a separate transient composite; P6/P11 remain the durable truths. */
 	TUniquePtr<demo_map_code_b::FCodeBRepository> CodeBBodyContainerRepository;

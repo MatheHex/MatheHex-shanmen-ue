@@ -56,49 +56,6 @@ const FName Fdemo_mapRewardSourceIds::ChestSideHighValue(
 
 namespace
 {
-	Fdemo_mapRewardBudgetProfile Budget(
-		FName Id,
-		int32 PlannedCount,
-		int64 BaseValue)
-	{
-		Fdemo_mapRewardBudgetProfile Result;
-		Result.ProfileId = Id;
-		Result.PlannedSourceCount = PlannedCount;
-		Result.BaseValue = BaseValue;
-		Result.MinMultiplierBps =
-			Fdemo_mapRewardGenerationRegistry::NormalMultiplierMinBps;
-		Result.MaxMultiplierBps =
-			Fdemo_mapRewardGenerationRegistry::NormalMultiplierMaxBps;
-		return Result;
-	}
-
-	Fdemo_mapRewardPoolEntry Pool(
-		const TCHAR* EntryId,
-		FName DefinitionId,
-		FName ItemTag,
-		int64 Weight,
-		int32 MaxStack)
-	{
-		Fdemo_mapRewardPoolEntry Result;
-		Result.EntryId = FName(EntryId);
-		Result.DefinitionId = DefinitionId;
-		Result.ItemTags = { ItemTag };
-		Result.RequiredSourceTags = {
-			Fdemo_mapRewardTagIds::SourceContainerGeneral,
-			Fdemo_mapRewardTagIds::SourceContainerHighValue
-		};
-		Result.Weight = Weight;
-		Result.MinStack = 1;
-		Result.MaxStack = MaxStack;
-		const Fdemo_mapItemDefinition* Definition =
-			Fdemo_mapItemDefinitions::Find(DefinitionId);
-		Result.MinItemLevel = Definition ? Definition->Level : 0;
-		Result.MaxItemLevel = Definition ? Definition->Level : MAX_int32;
-		Result.MinUnitValue = 1;
-		Result.MaxUnitValue = MAX_int64;
-		return Result;
-	}
-
 	Fdemo_mapRewardSourceDefinition FixedSource(
 		FName Marker,
 		FName Source,
@@ -142,79 +99,25 @@ namespace
 const TArray<Fdemo_mapRewardBudgetProfile>&
 Fdemo_mapRewardGenerationRegistry::GetBudgetProfiles()
 {
-	static const TArray<Fdemo_mapRewardBudgetProfile> Profiles = {
-		Budget(Fdemo_mapRewardBudgetProfileIds::EnemyStandard, 10, 1200),
-		Budget(Fdemo_mapRewardBudgetProfileIds::EnemyElite, 3, 4500),
-		Budget(Fdemo_mapRewardBudgetProfileIds::ContainerHighValue, 15, 2000),
-		Budget(Fdemo_mapRewardBudgetProfileIds::Boss, 1, 12000),
-		Budget(Fdemo_mapRewardBudgetProfileIds::ContainerBasic, 120, 400)
-	};
-	return Profiles;
+	return Fdemo_mapItemDefinitions::GetGeneratedRewardBudgetProfiles();
 }
 
 const TArray<Fdemo_mapRewardBudgetProfile>&
 Fdemo_mapRewardGenerationRegistry::GetM01BudgetProfiles()
 {
-	static const TArray<Fdemo_mapRewardBudgetProfile> Profiles = {
-		Budget(Fdemo_mapRewardBudgetProfileIds::M01EnemyLow, 4, 900),
-		Budget(Fdemo_mapRewardBudgetProfileIds::M01EnemyMid, 6, 1400),
-		Budget(Fdemo_mapRewardBudgetProfileIds::M01ResourceTier1, 48, 250),
-		Budget(Fdemo_mapRewardBudgetProfileIds::M01ResourceTier2, 48, 400),
-		Budget(Fdemo_mapRewardBudgetProfileIds::M01ResourceTier3, 24, 700)
-	};
-	return Profiles;
+	return Fdemo_mapItemDefinitions::GetGeneratedRewardM01BudgetProfiles();
 }
 
 const Fdemo_mapRewardBudgetProfile*
 Fdemo_mapRewardGenerationRegistry::FindBudgetProfile(FName ProfileId)
 {
-	const Fdemo_mapRewardBudgetProfile* Core = GetBudgetProfiles().FindByPredicate(
-		[ProfileId](const Fdemo_mapRewardBudgetProfile& Profile)
-		{
-			return Profile.ProfileId == ProfileId;
-		});
-	return Core ? Core : GetM01BudgetProfiles().FindByPredicate(
-		[ProfileId](const Fdemo_mapRewardBudgetProfile& Profile)
-		{
-			return Profile.ProfileId == ProfileId;
-		});
+	return Fdemo_mapItemDefinitions::FindGeneratedRewardBudgetProfile(ProfileId);
 }
 
 const TArray<Fdemo_mapRewardPoolEntry>&
 Fdemo_mapRewardGenerationRegistry::GetHighValueContainerPool()
 {
-	static const TArray<Fdemo_mapRewardPoolEntry> Entries = {
-		Pool(TEXT("P1.Pool.Weapon.L1"), Fdemo_mapItemIds::WeaponLevel1, Fdemo_mapRewardTagIds::ItemEquipmentWeapon, 36, 1),
-		Pool(TEXT("P1.Pool.Weapon.L2"), Fdemo_mapItemIds::WeaponLevel2, Fdemo_mapRewardTagIds::ItemEquipmentWeapon, 24, 1),
-		Pool(TEXT("P1.Pool.Weapon.L3"), Fdemo_mapItemIds::WeaponLevel3, Fdemo_mapRewardTagIds::ItemEquipmentWeapon, 12, 1),
-		Pool(TEXT("P1.Pool.Weapon.L4"), Fdemo_mapItemIds::WeaponLevel4, Fdemo_mapRewardTagIds::ItemEquipmentWeapon, 5, 1),
-		Pool(TEXT("P1.Pool.Robe.L1"), Fdemo_mapItemIds::ArmorRobeLevel1, Fdemo_mapRewardTagIds::ItemEquipmentRobe, 36, 1),
-		Pool(TEXT("P1.Pool.Robe.L2"), Fdemo_mapItemIds::ArmorRobeLevel2, Fdemo_mapRewardTagIds::ItemEquipmentRobe, 24, 1),
-		Pool(TEXT("P1.Pool.Robe.L3"), Fdemo_mapItemIds::ArmorRobeLevel3, Fdemo_mapRewardTagIds::ItemEquipmentRobe, 12, 1),
-		Pool(TEXT("P1.Pool.Robe.L4"), Fdemo_mapItemIds::ArmorRobeLevel4, Fdemo_mapRewardTagIds::ItemEquipmentRobe, 5, 1),
-		Pool(TEXT("P1.Pool.Accessory.L1"), Fdemo_mapItemIds::AccessoryLevel1, Fdemo_mapRewardTagIds::ItemEquipmentAccessory, 34, 1),
-		Pool(TEXT("P1.Pool.Accessory.L2"), Fdemo_mapItemIds::AccessoryLevel2, Fdemo_mapRewardTagIds::ItemEquipmentAccessory, 22, 1),
-		Pool(TEXT("P1.Pool.Accessory.L3"), Fdemo_mapItemIds::AccessoryLevel3, Fdemo_mapRewardTagIds::ItemEquipmentAccessory, 11, 1),
-		Pool(TEXT("P1.Pool.Accessory.L4"), Fdemo_mapItemIds::AccessoryLevel4, Fdemo_mapRewardTagIds::ItemEquipmentAccessory, 4, 1),
-		Pool(TEXT("P1.Pool.Backpack.L1"), Fdemo_mapItemIds::BackpackLevel1, Fdemo_mapRewardTagIds::ItemEquipmentBackpack, 24, 1),
-		Pool(TEXT("P1.Pool.Backpack.L2"), Fdemo_mapItemIds::BackpackLevel2, Fdemo_mapRewardTagIds::ItemEquipmentBackpack, 14, 1),
-		Pool(TEXT("P1.Pool.Pill.L1"), Fdemo_mapItemIds::HealingPillLevel1, Fdemo_mapRewardTagIds::ItemConsumablePill, 48, 8),
-		Pool(TEXT("P1.Pool.Pill.L2"), Fdemo_mapItemIds::HealingPillLevel2, Fdemo_mapRewardTagIds::ItemConsumablePill, 32, 6),
-		Pool(TEXT("P1.Pool.Pill.L3"), Fdemo_mapItemIds::HealingPillLevel3, Fdemo_mapRewardTagIds::ItemConsumablePill, 18, 4),
-		Pool(TEXT("P1.Pool.Wood.L1"), Fdemo_mapItemIds::SpiritWoodLevel1, Fdemo_mapRewardTagIds::ItemMaterialWood, 52, 12),
-		Pool(TEXT("P1.Pool.Wood.L2"), Fdemo_mapItemIds::SpiritWoodLevel2, Fdemo_mapRewardTagIds::ItemMaterialWood, 34, 10),
-		Pool(TEXT("P1.Pool.Wood.L3"), Fdemo_mapItemIds::SpiritWoodLevel3, Fdemo_mapRewardTagIds::ItemMaterialWood, 18, 8),
-		Pool(TEXT("P1.Pool.Ore.L1"), Fdemo_mapItemIds::SpiritOreLevel1, Fdemo_mapRewardTagIds::ItemMaterialOre, 50, 12),
-		Pool(TEXT("P1.Pool.Ore.L2"), Fdemo_mapItemIds::SpiritOreLevel2, Fdemo_mapRewardTagIds::ItemMaterialOre, 32, 10),
-		Pool(TEXT("P1.Pool.Ore.L3"), Fdemo_mapItemIds::SpiritOreLevel3, Fdemo_mapRewardTagIds::ItemMaterialOre, 16, 8),
-		Pool(TEXT("P1.Pool.Bone.Soul"), Fdemo_mapItemIds::SoulBone, Fdemo_mapRewardTagIds::ItemBodyBone, 20, 4),
-		Pool(TEXT("P1.Pool.Bone.Spirit"), Fdemo_mapItemIds::SpiritBone, Fdemo_mapRewardTagIds::ItemBodyBone, 10, 3),
-		Pool(TEXT("P1.Pool.Bone.Dao"), Fdemo_mapItemIds::DaoBone, Fdemo_mapRewardTagIds::ItemBodyBone, 4, 2),
-		Pool(TEXT("P1.Pool.Core.L5"), Fdemo_mapItemIds::InnerCoreLevel5, Fdemo_mapRewardTagIds::ItemBodyInnerCore, 16, 4),
-		Pool(TEXT("P1.Pool.Core.L10"), Fdemo_mapItemIds::InnerCoreLevel10, Fdemo_mapRewardTagIds::ItemBodyInnerCore, 8, 2),
-		Pool(TEXT("P1.Pool.Core.L15"), Fdemo_mapItemIds::InnerCoreLevel15, Fdemo_mapRewardTagIds::ItemBodyInnerCore, 3, 1)
-	};
-	return Entries;
+	return Fdemo_mapItemDefinitions::GetGeneratedRewardPool();
 }
 
 const TArray<Fdemo_mapRewardSourceDefinition>&
@@ -313,11 +216,11 @@ bool Fdemo_mapRewardGenerationRegistry::Validate(FString* OutError)
 		if (!Source.IsValid()
 			|| SourceIds.Contains(Source.RewardSourceId)
 			|| (Source.Mode == Edemo_mapRewardSourceMode::FixedTable
-				&& !Fdemo_mapFixedLootTableRegistry::Find(Source.FixedTableId))
+				&& !Fdemo_mapItemDefinitions::FindFixedLootProfile(Source.FixedTableId))
 			|| (Source.Mode == Edemo_mapRewardSourceMode::GeneratedReward
 				&& (!FindBudgetProfile(Source.BudgetProfileId)
 					|| (Source.bAllowFixedFallbackOnFailure
-						&& !Fdemo_mapFixedLootTableRegistry::Find(
+						&& !Fdemo_mapItemDefinitions::FindFixedLootProfile(
 							Source.FixedFallbackTableId)))))
 		{
 			if (OutError) *OutError = TEXT("Reward Source registry is invalid or duplicated.");

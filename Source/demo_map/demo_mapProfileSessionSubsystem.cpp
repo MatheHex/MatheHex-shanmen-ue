@@ -270,6 +270,28 @@ Fdemo_mapProfileSessionSettlementResult Udemo_mapProfileSessionSubsystem::Commit
 	return Result;
 }
 
+Fdemo_mapProfileGeneratedRewardSourceResult
+Udemo_mapProfileSessionSubsystem::CommitGeneratedRewardSource(
+	const Fdemo_mapRewardSourceAcceptanceReceipt& Receipt)
+{
+	Fdemo_mapProfileGeneratedRewardSourceResult Result;
+	if (!IsInGameThread() || !bExplicitlyInitialized || !Coordinator.IsValid())
+	{
+		Result.Diagnostic =
+			TEXT("Generated reward source commit requires an initialized Profile Session on the Game Thread.");
+		return Result;
+	}
+	return Coordinator->CommitGeneratedRewardSource(Receipt);
+}
+
+TArray<Fdemo_mapPersistentGeneratedRewardSource>
+Udemo_mapProfileSessionSubsystem::GetActiveGeneratedRewardSources() const
+{
+	return Coordinator.IsValid()
+		? Coordinator->GetActiveGeneratedRewardSources()
+		: TArray<Fdemo_mapPersistentGeneratedRewardSource>();
+}
+
 Fdemo_mapProfileSessionSettlementResult Udemo_mapProfileSessionSubsystem::RetryPendingSettlement()
 {
 	if (!IsInGameThread())

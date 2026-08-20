@@ -1,6 +1,7 @@
 #include "demo_mapSearchContainerActor.h"
 #include "demo_mapV3ProgressionManager.h"
 #include "demo_mapItemSubsystem.h"
+#include "demo_mapPersistentProfileTypes.h"
 #include "demo_mapPlayerHealthComponent.h"
 #include "demo_mapWorldPresentation.h"
 #include "Components/BoxComponent.h"
@@ -52,6 +53,7 @@ bool Ademo_mapSearchContainerActor::InitializeSearchContainer(
 	FName InStableSourceId,
 	const TArray<Fdemo_mapRuntimeContainerSeedEntry>& Seed)
 {
+	bCommittedRewardSourcePendingReconciliation = false;
 	if (!InManager || !InItems || !InRunId.IsValid() || IsContainerInitialized())
 	{
 		return false;
@@ -127,6 +129,86 @@ bool Ademo_mapSearchContainerActor::InitializeSearchContainer(
 					bPlayerDepositAllowed);
 			},
 			InstanceIds);
+	if (!Materialized.bSuccess)
+	{
+		LastDiagnostic = Materialized.Diagnostic;
+		return false;
+	}
+	RefreshContainerPresentation();
+	return true;
+}
+
+bool Ademo_mapSearchContainerActor::InitializeCommittedSearchContainer(
+	Ademo_mapV3ProgressionManager* InManager,
+	Udemo_mapItemSubsystem* InItems,
+	FGuid InRunId,
+	Edemo_mapRuntimeContainerKind InKind,
+	const Fdemo_mapPersistentGeneratedRewardSource& Source)
+{
+	bCommittedRewardSourcePendingReconciliation = false;
+	if (!InManager || !InItems || !InRunId.IsValid()
+		|| IsContainerInitialized() || !Source.ContainerId.IsValid()
+		|| !Source.Receipt.IsValid() || Source.Receipt.RunId != InRunId
+		|| Source.Entries.Num() != Source.Receipt.PlannedStacks.Num())
+	{
+		LastDiagnostic = TEXT("Committed reward source identity or item projection is invalid.");
+		return false;
+	}
+	Manager = InManager;
+	Items = InItems;
+	StableSourceId = Source.Receipt.StableSourceRoleId;
+	TArray<Fdemo_mapContainerMaterializationRequest> Requests;
+	TArray<FGuid> CommittedIds;
+	TArray<Fdemo_mapRuntimeContainerResolvedSeedEntry> Resolved;
+	Requests.Reserve(Source.Entries.Num());
+	CommittedIds.Reserve(Source.Entries.Num());
+	Resolved.Reserve(Source.Entries.Num());
+	for (const Fdemo_mapPersistentGeneratedRewardSourceEntry& Entry :
+		Source.Entries)
+	{
+		Fdemo_mapContainerMaterializationRequest Request;
+		Request.DefinitionId = Entry.Item.ItemDefinitionId;
+		Request.Quantity = Entry.Item.StackCount;
+		Request.RewardEventKind = Entry.Item.RewardEventKind;
+		Request.RewardEventId = Entry.Item.RewardEventId;
+		Request.RewardValueMultiplierBps = Entry.Item.RewardValueMultiplierBps;
+		Request.RewardSourceRoleId = Entry.Item.RewardSourceRoleId;
+		Request.RareRewardEventId = Entry.Item.RareRewardEventId;
+		Request.RareRewardPolicyId = Entry.Item.RareRewardPolicyId;
+		Request.RareRewardTierId = Entry.Item.RareRewardTierId;
+		Request.RareRewardBonusValue = Entry.Item.RareRewardBonusValue;
+		Request.AffixSet = Entry.Item.AffixSet;
+		Requests.Add(MoveTemp(Request));
+		CommittedIds.Add(Entry.Item.ItemInstanceId);
+		Fdemo_mapRuntimeContainerResolvedSeedEntry ResolvedEntry;
+		ResolvedEntry.Section = Entry.Section;
+		ResolvedEntry.SlotIndex = Entry.SlotIndex;
+		ResolvedEntry.ItemInstanceId = Entry.Item.ItemInstanceId;
+		ResolvedEntry.DefinitionId = Entry.Item.ItemDefinitionId;
+		ResolvedEntry.StackCount = Entry.Item.StackCount;
+		ResolvedEntry.SearchDurationSeconds =
+			Fdemo_mapSearchContainerPrototypeConfig::GetSearchSeconds(
+				InKind, Entry.Section);
+		Resolved.Add(MoveTemp(ResolvedEntry));
+	}
+	TArray<FGuid> MaterializedIds;
+	const Fdemo_mapItemOperationResult Materialized =
+		InItems->MaterializeCommittedContainerItemsAtomically(
+			Source.ContainerId, Requests, CommittedIds,
+			[this, &Resolved, &CommittedIds, &Source, InRunId, InKind](
+				const TArray<FGuid>& CreatedIds, FString& OutDiagnostic)
+			{
+				if (CreatedIds.Num() != Resolved.Num()
+					|| CreatedIds != CommittedIds)
+				{
+					OutDiagnostic = TEXT("Committed reward source changed its durable item identity order.");
+					return false;
+				}
+				return ContainerAuthority.Initialize(
+					Source.ContainerId, InRunId, InKind, Resolved,
+					OutDiagnostic, bPlayerDepositAllowed);
+			},
+			MaterializedIds);
 	if (!Materialized.bSuccess)
 	{
 		LastDiagnostic = Materialized.Diagnostic;

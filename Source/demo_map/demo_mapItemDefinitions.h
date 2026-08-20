@@ -1,7 +1,10 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "demo_mapFixedLootTableTypes.h"
 #include "demo_mapItemTypes.h"
+#include "demo_mapRewardGenerationTypes.h"
+#include "demo_mapRewardSourceProjection.h"
 
 struct Fdemo_mapItemIds
 {
@@ -101,6 +104,25 @@ struct Fdemo_mapLootTableEntry
 	int32 Quantity = 0;
 };
 
+/**
+ * P73.3's typed manifest-owned map reward policy.  Map distributions retain
+ * only stable slot identity, placement, and encounter linkage; every input
+ * that changes planning or fallback is frozen here with the manifest identity.
+ */
+struct Fdemo_mapRewardDistributionProfile
+{
+	FName ProfileId = NAME_None;
+	FName ContentVersionId = NAME_None;
+	FString ContentDigest;
+	FName ProjectionId = NAME_None;
+	FName BudgetProfileId = NAME_None;
+	TArray<FName> SourceTags;
+	int64 BaseSourceValue = 0;
+	bool bAllowFixedFallbackOnFailure = false;
+
+	bool IsValid() const;
+};
+
 struct Fdemo_mapLootTables
 {
 	static FName GetTableId(Edemo_mapEnemyLootArchetype Archetype);
@@ -111,10 +133,38 @@ struct Fdemo_mapLootTables
 /** Central immutable prototype registry. Runtime state stores only DefinitionId. */
 struct Fdemo_mapItemDefinitions
 {
+	/** P73's one authoritative Code B content manifest. */
+	static FName GetContentVersionId();
+	static const FString& GetContentDigest();
+	static bool IsCurrentContentIdentity(
+		FName ContentVersionId,
+		const FString& ContentDigest);
+
 	static const TArray<Fdemo_mapItemDefinition>& GetAll();
 	static const Fdemo_mapItemDefinition* Find(FName DefinitionId);
 	static const TArray<FName>& GetEquipmentSlotIds();
 	static const TArray<FName>& GetPurchasableDefinitionIds();
+	/** Primary P73 fixed/container loot profiles; the P7 facade delegates here. */
+	static const TArray<Fdemo_mapFixedLootTableDefinition>& GetFixedLootProfiles();
+	static const Fdemo_mapFixedLootTableDefinition* FindFixedLootProfile(FName ProfileId);
+	/** Typed enemy source profile, retained separately from container topology. */
+	static FName GetEnemyLootProfileId(Edemo_mapEnemyLootArchetype Archetype);
+	static const TArray<Fdemo_mapLootTableEntry>* FindEnemyLootProfile(FName ProfileId);
+	/** P73.1 generated-reward configuration; all new planning reads this manifest. */
+	static const TArray<Fdemo_mapRewardBudgetProfile>& GetGeneratedRewardBudgetProfiles();
+	static const TArray<Fdemo_mapRewardBudgetProfile>& GetGeneratedRewardM01BudgetProfiles();
+	static const Fdemo_mapRewardBudgetProfile* FindGeneratedRewardBudgetProfile(FName ProfileId);
+	static const TArray<Fdemo_mapRewardPoolEntry>& GetGeneratedRewardPool();
+	/** P73.2 canonical generated-source policy profiles; the old registry only delegates. */
+	static const TArray<Fdemo_mapRewardSourceProjection>& GetGeneratedRewardProjectionProfiles();
+	static const Fdemo_mapRewardSourceProjection* FindGeneratedRewardProjectionProfile(FName ProjectionId);
+	/** P73.3 map distribution policy; M01/P8 only resolve profiles from here. */
+	static const TArray<Fdemo_mapRewardDistributionProfile>& GetGeneratedRewardDistributionProfiles();
+	static const Fdemo_mapRewardDistributionProfile* FindGeneratedRewardDistributionProfile(FName ProfileId);
+	/** Current identity accepts new generation; known historical identities are read-only receipt evidence. */
+	static bool IsKnownContentIdentity(
+		FName ContentVersionId,
+		const FString& ContentDigest);
 	static Fdemo_mapSpatialStorageCapacityResult ResolveSpatialStorageCapacity(
 		FName BackpackDefinitionId);
 	static Fdemo_mapSpatialRingCapacityResult ResolveSpatialRingCapacity(

@@ -1,7 +1,6 @@
 #include "demo_mapM01RewardDistribution.h"
 
-#include "demo_mapFixedLootTableRegistry.h"
-#include "demo_mapRewardGenerationRegistry.h"
+#include "demo_mapItemDefinitions.h"
 
 namespace
 {
@@ -28,46 +27,19 @@ namespace
 			0.0f);
 	}
 
-	const Fdemo_mapRewardSourceProjection* EnemyPrototype(
+	FName DistributionProfileForEnemy(
 		const Fdemo_mapM01EnemyDefinition& Enemy)
 	{
-		if (Enemy.IsBoss())
-		{
-			return Fdemo_mapRewardSourceProjectionRegistry::FindBossPrototype();
-		}
-		switch (Enemy.Archetype)
-		{
-		case Edemo_mapM01EnemyArchetype::StandardRanged:
-			return Fdemo_mapRewardSourceProjectionRegistry::Find(
-				Fdemo_mapRewardProjectionIds::CorpseMainRangedStandard);
-		case Edemo_mapM01EnemyArchetype::StandardBruiser:
-			return Fdemo_mapRewardSourceProjectionRegistry::Find(
-				Fdemo_mapRewardProjectionIds::CorpseMainMeleeHeavy);
-		case Edemo_mapM01EnemyArchetype::EliteStalker:
-		case Edemo_mapM01EnemyArchetype::EliteBulwark:
-			return Fdemo_mapRewardSourceProjectionRegistry::Find(
-				Fdemo_mapRewardProjectionIds::CorpseSideMeleeEnhanced);
-		default:
-			return Fdemo_mapRewardSourceProjectionRegistry::Find(
-				Fdemo_mapRewardProjectionIds::CorpseMainMeleeStandard);
-		}
-	}
-
-	FName EnemyProfile(const Fdemo_mapM01EnemyDefinition& Enemy)
-	{
-		if (Enemy.IsBoss()) return Fdemo_mapRewardBudgetProfileIds::Boss;
-		if (Enemy.IsElite()) return Fdemo_mapRewardBudgetProfileIds::EnemyElite;
-		return Enemy.RiskTierId == Fdemo_mapRewardProjectionTagIds::RiskLow
-			? Fdemo_mapRewardBudgetProfileIds::M01EnemyLow
-			: Fdemo_mapRewardBudgetProfileIds::M01EnemyMid;
-	}
-
-	int64 EnemyBase(const Fdemo_mapM01EnemyDefinition& Enemy)
-	{
-		return Enemy.IsBoss() ? 12000
-			: Enemy.IsElite() ? 4500
-			: Enemy.RiskTierId == Fdemo_mapRewardProjectionTagIds::RiskLow
-				? 900 : 1400;
+		if (Enemy.IsBoss()) return TEXT("M01.Distribution.Enemy.Boss");
+		if (Enemy.IsElite()) return TEXT("M01.Distribution.Enemy.Elite");
+		const TCHAR* Risk = Enemy.RiskTierId
+			== Fdemo_mapRewardProjectionTagIds::RiskLow ? TEXT("Low") : TEXT("Mid");
+		const TCHAR* Archetype = Enemy.Archetype
+			== Edemo_mapM01EnemyArchetype::StandardRanged ? TEXT("Ranged")
+			: Enemy.Archetype == Edemo_mapM01EnemyArchetype::StandardBruiser
+				? TEXT("Bruiser") : TEXT("Melee");
+		return FName(*FString::Printf(
+			TEXT("M01.Distribution.Enemy.%s.%s"), Risk, Archetype));
 	}
 
 	Edemo_mapM01RewardSourceClass EnemyClass(
@@ -97,29 +69,11 @@ namespace
 		}
 	}
 
-	FName RiskForClass(Edemo_mapM01RewardSourceClass RewardClass)
-	{
-		switch (RewardClass)
-		{
-		case Edemo_mapM01RewardSourceClass::EnemyLow:
-		case Edemo_mapM01RewardSourceClass::ResourceWoodTier1:
-		case Edemo_mapM01RewardSourceClass::ResourceOreTier1:
-			return Fdemo_mapRewardProjectionTagIds::RiskLow;
-		case Edemo_mapM01RewardSourceClass::EnemyMid:
-		case Edemo_mapM01RewardSourceClass::ResourceWoodTier2:
-		case Edemo_mapM01RewardSourceClass::ResourceOreTier2:
-			return Fdemo_mapRewardProjectionTagIds::RiskMid;
-		default:
-			return Fdemo_mapRewardProjectionTagIds::RiskHigh;
-		}
-	}
-
 	void BuildEnemySlots(TArray<Fdemo_mapM01RewardSlot>& Slots)
 	{
 		for (const Fdemo_mapM01EnemyDefinition& Enemy :
 			Fdemo_mapM01EnemyConfig::GetDefinitions())
 		{
-			const Fdemo_mapRewardSourceProjection* Prototype = EnemyPrototype(Enemy);
 			Fdemo_mapM01RewardSlot Slot;
 			Slot.SlotId = FName(*FString::Printf(
 				TEXT("M01.Reward.Slot.Enemy.%s"), *Enemy.EncounterId.ToString()));
@@ -129,13 +83,7 @@ namespace
 			Slot.AnchorMarkerId = Enemy.ParentMarkerId;
 			Slot.RouteId = Enemy.RouteId;
 			Slot.AreaId = Enemy.ParentMarkerId;
-			Slot.ProjectionId = Prototype ? Prototype->ProjectionId : NAME_None;
-			Slot.BudgetProfileId = EnemyProfile(Enemy);
-			Slot.SourceTags = Prototype ? Prototype->SourceTags : TArray<FName>();
-			Slot.SourceTags.AddUnique(Enemy.RiskTierId);
-			Slot.SourceTags.AddUnique(TierForClass(EnemyClass(Enemy)));
-			Slot.SourceTags.AddUnique(Fdemo_mapRewardProjectionTagIds::Generated);
-			Slot.BaseSourceValue = EnemyBase(Enemy);
+			Slot.DistributionProfileId = DistributionProfileForEnemy(Enemy);
 			Slot.RewardClass = EnemyClass(Enemy);
 			Slot.LocalOffset = Enemy.LocalOffset;
 			Slot.EncounterId = Enemy.EncounterId;
@@ -163,13 +111,6 @@ namespace
 					: Edemo_mapM01RewardSourceClass::ResourceOreTier3;
 		const FName Anchor = bTier1 ? AnchorTier1 : bTier2 ? AnchorTier2 : AnchorTier3;
 		const FName Route = bTier1 ? RouteLow : bTier2 ? RouteMid : RouteHigh;
-		const FName Profile = bTier1
-			? Fdemo_mapRewardBudgetProfileIds::M01ResourceTier1
-			: bTier2 ? Fdemo_mapRewardBudgetProfileIds::M01ResourceTier2
-				: Fdemo_mapRewardBudgetProfileIds::M01ResourceTier3;
-		const auto* Prototype = Fdemo_mapRewardSourceProjectionRegistry::Find(
-			bWood ? Fdemo_mapRewardProjectionIds::ChestMainWood
-				: Fdemo_mapRewardProjectionIds::ChestMainOre);
 		const TCHAR* Material = bWood ? TEXT("Wood") : TEXT("Ore");
 		Fdemo_mapM01RewardSlot Slot;
 		Slot.SlotId = StableName(
@@ -184,13 +125,8 @@ namespace
 		Slot.AnchorMarkerId = Anchor;
 		Slot.RouteId = Route;
 		Slot.AreaId = Anchor;
-		Slot.ProjectionId = Prototype ? Prototype->ProjectionId : NAME_None;
-		Slot.BudgetProfileId = Profile;
-		Slot.SourceTags = Prototype ? Prototype->SourceTags : TArray<FName>();
-		Slot.SourceTags.AddUnique(TierForClass(RewardClass));
-		Slot.SourceTags.AddUnique(RiskForClass(RewardClass));
-		Slot.SourceTags.AddUnique(Fdemo_mapRewardProjectionTagIds::Generated);
-		Slot.BaseSourceValue = bTier1 ? 250 : bTier2 ? 400 : 700;
+		Slot.DistributionProfileId = FName(*FString::Printf(
+			TEXT("M01.Distribution.Resource.%s.Tier%d"), Material, Tier));
 		Slot.RewardClass = RewardClass;
 		Slot.LocalOffset = Tier < 3
 			? GridOffset(CombinedOrdinal, 8, 6, 240.0f)
@@ -212,8 +148,6 @@ namespace
 			}
 		}
 
-		const auto* High = Fdemo_mapRewardSourceProjectionRegistry::Find(
-			Fdemo_mapRewardProjectionIds::ChestSideHighValue);
 		for (int32 Number = 0; Number < 15; ++Number)
 		{
 			const bool bEliteArea = Number < 5;
@@ -224,14 +158,7 @@ namespace
 			Slot.AnchorMarkerId = bEliteArea ? AnchorTier3 : AnchorBoss;
 			Slot.RouteId = RouteHigh;
 			Slot.AreaId = bEliteArea ? AnchorTier3 : AnchorBoss;
-			Slot.ProjectionId = High ? High->ProjectionId : NAME_None;
-			Slot.BudgetProfileId = Fdemo_mapRewardBudgetProfileIds::ContainerHighValue;
-			Slot.SourceTags = High ? High->SourceTags : TArray<FName>();
-			Slot.SourceTags.AddUnique(Fdemo_mapRewardProjectionTagIds::Tier3);
-			Slot.SourceTags.AddUnique(Fdemo_mapRewardProjectionTagIds::RiskHigh);
-			Slot.SourceTags.AddUnique(Fdemo_mapRewardProjectionTagIds::ValueHigh);
-			Slot.SourceTags.AddUnique(Fdemo_mapRewardProjectionTagIds::Generated);
-			Slot.BaseSourceValue = 2000;
+			Slot.DistributionProfileId = TEXT("M01.Distribution.HighValue");
 			Slot.RewardClass = Edemo_mapM01RewardSourceClass::HighValue;
 			Slot.LocalOffset = bEliteArea
 				? FVector((Number - 2) * 300.0f, 1050.0f, 0.0f)
@@ -247,6 +174,7 @@ bool Fdemo_mapM01RewardSlot::IsValid() const
 	return !SlotId.IsNone() && !StableSourceRoleId.IsNone()
 		&& !MarkerId.IsNone() && !AnchorMarkerId.IsNone()
 		&& !RouteId.IsNone() && !AreaId.IsNone()
+		&& !DistributionProfileId.IsNone()
 		&& !ProjectionId.IsNone() && !BudgetProfileId.IsNone()
 		&& !SourceTags.IsEmpty() && !SourceTags.Contains(NAME_None)
 		&& BaseSourceValue > 0
@@ -265,6 +193,22 @@ const TArray<Fdemo_mapM01RewardSlot>& Fdemo_mapM01RewardDistribution::GetSlots()
 		Result.Reserve(TotalSlotCount);
 		BuildEnemySlots(Result);
 		BuildContainerSlots(Result);
+		for (Fdemo_mapM01RewardSlot& Slot : Result)
+		{
+			const Fdemo_mapRewardDistributionProfile* Distribution =
+				Fdemo_mapItemDefinitions::FindGeneratedRewardDistributionProfile(
+					Slot.DistributionProfileId);
+			if (!Distribution)
+			{
+				continue;
+			}
+
+			// Compatibility projection only: planning resolves the manifest again in BuildProjection.
+			Slot.ProjectionId = Distribution->ProjectionId;
+			Slot.BudgetProfileId = Distribution->BudgetProfileId;
+			Slot.SourceTags = Distribution->SourceTags;
+			Slot.BaseSourceValue = Distribution->BaseSourceValue;
+		}
 		return Result;
 	}();
 	return Slots;
@@ -290,23 +234,31 @@ Fdemo_mapM01RewardDistribution::FindEnemyByEncounterId(FName EncounterId)
 Fdemo_mapRewardSourceProjection Fdemo_mapM01RewardDistribution::BuildProjection(
 	const Fdemo_mapM01RewardSlot& Slot)
 {
-	const Fdemo_mapRewardSourceProjection* Prototype =
-		Fdemo_mapRewardSourceProjectionRegistry::Find(Slot.ProjectionId);
-	if (!Prototype) return Fdemo_mapRewardSourceProjection();
+	const Fdemo_mapRewardDistributionProfile* Distribution =
+		Fdemo_mapItemDefinitions::FindGeneratedRewardDistributionProfile(
+			Slot.DistributionProfileId);
+	const Fdemo_mapRewardSourceProjection* Prototype = Distribution
+		? Fdemo_mapItemDefinitions::FindGeneratedRewardProjectionProfile(
+			Distribution->ProjectionId) : nullptr;
+	if (!Distribution || !Distribution->IsValid() || !Prototype)
+		return Fdemo_mapRewardSourceProjection();
 	Fdemo_mapRewardSourceProjection Result = *Prototype;
+	Result.DistributionProfileId = Slot.DistributionProfileId;
+	Result.SlotId = Slot.SlotId;
 	Result.StableSourceRoleId = Slot.StableSourceRoleId;
 	Result.MarkerId = Slot.MarkerId;
 	Result.EncounterId = Slot.IsEnemy() ? Slot.EncounterId : NAME_None;
-	Result.BudgetProfileId = Slot.BudgetProfileId;
-	Result.SourceTags = Slot.SourceTags;
-	Result.BaseSourceValue = Slot.BaseSourceValue;
-	Result.bAllowFixedFallbackOnFailure = false;
+	Result.BudgetProfileId = Distribution->BudgetProfileId;
+	Result.SourceTags = Distribution->SourceTags;
+	Result.BaseSourceValue = Distribution->BaseSourceValue;
+	Result.bAllowFixedFallbackOnFailure =
+		Distribution->bAllowFixedFallbackOnFailure;
 	Result.SourceDisplayLabel = FString::Printf(
 		TEXT("M01 %s\n%s"),
 		Slot.RewardClass == Edemo_mapM01RewardSourceClass::HighValue
 			? TEXT("HIGH VALUE")
 			: Slot.IsEnemy() ? TEXT("CORPSE REWARD")
-				: Slot.SourceTags.Contains(Fdemo_mapRewardProjectionTagIds::SourceContainerWood)
+				: Distribution->SourceTags.Contains(Fdemo_mapRewardProjectionTagIds::SourceContainerWood)
 					? TEXT("WOOD") : TEXT("ORE"),
 		*TierForClass(Slot.RewardClass).ToString());
 	return Result;
@@ -331,7 +283,10 @@ Fdemo_mapM01RewardDistributionCounts Fdemo_mapM01RewardDistribution::Count()
 		case Edemo_mapM01RewardSourceClass::ResourceOreTier3: ++Result.Tier3Ore; break;
 		case Edemo_mapM01RewardSourceClass::HighValue: ++Result.HighValue; break;
 		}
-		Result.BaseSourceValue += Slot.BaseSourceValue;
+		const Fdemo_mapRewardDistributionProfile* Distribution =
+			Fdemo_mapItemDefinitions::FindGeneratedRewardDistributionProfile(
+				Slot.DistributionProfileId);
+		Result.BaseSourceValue += Distribution ? Distribution->BaseSourceValue : 0;
 	}
 	return Result;
 }
@@ -339,8 +294,7 @@ Fdemo_mapM01RewardDistributionCounts Fdemo_mapM01RewardDistribution::Count()
 bool Fdemo_mapM01RewardDistribution::Validate(FString* OutError)
 {
 	FString DependencyError;
-	if (!Fdemo_mapRewardGenerationRegistry::Validate(&DependencyError)
-		|| !Fdemo_mapRewardSourceProjectionRegistry::Validate(&DependencyError)
+	if (!Fdemo_mapItemDefinitions::Validate(&DependencyError)
 		|| !Fdemo_mapM01EnemyConfig::Validate(&DependencyError))
 	{
 		if (OutError) *OutError = TEXT("dependency_validation_failed:") + DependencyError;
@@ -353,10 +307,15 @@ bool Fdemo_mapM01RewardDistribution::Validate(FString* OutError)
 	TSet<FName> EnemyEncounters;
 	for (const Fdemo_mapM01RewardSlot& Slot : GetSlots())
 	{
-		const Fdemo_mapRewardBudgetProfile* Profile =
-			Fdemo_mapRewardGenerationRegistry::FindBudgetProfile(Slot.BudgetProfileId);
+		const Fdemo_mapRewardDistributionProfile* Distribution =
+			Fdemo_mapItemDefinitions::FindGeneratedRewardDistributionProfile(
+				Slot.DistributionProfileId);
 		const Fdemo_mapRewardSourceProjection Projection = BuildProjection(Slot);
-		if (!Slot.IsValid() || !Profile || Profile->BaseValue != Slot.BaseSourceValue
+		if (!Slot.IsValid() || !Distribution || !Distribution->IsValid()
+			|| Slot.ProjectionId != Distribution->ProjectionId
+			|| Slot.BudgetProfileId != Distribution->BudgetProfileId
+			|| Slot.SourceTags != Distribution->SourceTags
+			|| Slot.BaseSourceValue != Distribution->BaseSourceValue
 			|| !Projection.IsValid() || Projection.bAllowFixedFallbackOnFailure
 			|| SlotIds.Contains(Slot.SlotId)
 			|| Roles.Contains(Slot.StableSourceRoleId)

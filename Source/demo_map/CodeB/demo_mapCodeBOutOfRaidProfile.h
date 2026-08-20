@@ -421,6 +421,8 @@ struct FCodeBNormalContainerItemProjection
 	FGuid ParentContainerId;
 	int32 SlotIndex = INDEX_NONE;
 	FGuid ChildContainerId;
+	/** Receipt/result-derived read-only classification; never persisted as a second provenance truth. */
+	bool bMaterializationClaimedRoot = false;
 	ECodeBNormalContainerRevealState RevealState = ECodeBNormalContainerRevealState::Hidden;
 };
 
@@ -1017,8 +1019,53 @@ public:
 		FCodeBWorldDropProjection& OutProjection,
 		FString* OutError = nullptr);
 	/**
-	 * P43/P44/P45's sole corpse-to-world writer. It revalidates exactly one Revealed
-	 * ordinary P12 simple-stack, P21 standard-equipment root, or P20 complete graph, creates one
+	 * P70's sole opened-world-to-new-world writer. It revalidates the exact
+	 * current P31 simple root and confirmed quantity, executes one P1 Split(N),
+	 * retains the source record, creates one independent record, and saves one
+	 * Owner replacement.
+	 */
+	bool SplitMatchedActiveRunWorldDropItem(
+		const FGuid& ExpectedRunInstanceId,
+		const FGuid& ExpectedWorldDropId,
+		int32 ExpectedWorldDropOrdinal,
+		int32 ExpectedWorldDropRecordRevision,
+		int32 ExpectedP6SnapshotRevision,
+		const FGuid& ExpectedSourceItemId,
+		int32 RequestedSplitQuantity,
+		FName MapRoute,
+		const FTransform& FloorTransform,
+		FCodeBWorldDropProjection& OutSourceProjection,
+		FCodeBWorldDropProjection& OutNewProjection,
+		FString* OutError = nullptr);
+	/**
+	 * P71's sole same-record placement writer. It keeps the exact P31 simple
+	 * root graph and registry identity byte-for-byte, changes only the durable
+	 * floor transform plus revisions, and saves one Owner replacement.
+	 */
+	bool RepositionMatchedActiveRunWorldDropItem(
+		const FGuid& ExpectedRunInstanceId,
+		const FGuid& ExpectedWorldDropId,
+		int32 ExpectedWorldDropOrdinal,
+		int32 ExpectedWorldDropRecordRevision,
+		int32 ExpectedP6SnapshotRevision,
+		const FGuid& ExpectedSourceItemId,
+		FName ExpectedDefinitionId,
+		FName ExpectedStackKey,
+		int32 ExpectedQuantity,
+		int32 ExpectedMaxStack,
+		int32 ExpectedLevel,
+		int32 ExpectedQuality,
+		int32 ExpectedRandomSeed,
+		const FString& ExpectedLegacyAffixDigest,
+		FName MapRoute,
+		const FTransform& ExpectedOldFloorTransform,
+		const FTransform& NewFloorTransform,
+		FCodeBWorldDropProjection& OutProjection,
+		FString* OutError = nullptr);
+	/**
+	 * P43/P44/P45/P53/P69's sole corpse-to-world writer. It revalidates exactly one Revealed
+	 * ordinary P12 simple-stack, P21 standard-equipment root, or canonical empty/loaded
+	 * complete graph, creates one
 	 * derived P31 record, partitions the accepted P1 composite back into P11/P6,
 	 * and saves one Owner replacement.
 	 */
@@ -1033,15 +1080,17 @@ public:
 		const demo_map_code_b::FCodeBP43BodySimpleStackGroundDropProof& SourceProof,
 		const demo_map_code_b::FCodeBP38BodyEquipmentTransferProof& EquipmentSourceProof,
 		const demo_map_code_b::FCodeBP42BodySpatialGraphEquipmentTransferProof& SpatialSourceProof,
+		int32 RequestedSplitQuantity,
 		FName MapRoute,
 		const FTransform& FloorTransform,
 		FCodeBBodyContainerProjection& OutBodyProjection,
 		FCodeBWorldDropProjection& OutWorldProjection,
 		FString* OutError = nullptr);
 	/**
-	 * P49's sole BasicCache-to-world writer. It revalidates one exact Revealed
-	 * ordinary P10 simple stack, executes one P1 whole-root Move into one new P31
-	 * record, partitions P9/P6, and saves one Owner replacement.
+	 * P49/P64/P65/P67/P68's sole non-spatial BasicCache-to-world writer. It
+	 * revalidates one exact Revealed source and executes either the established
+	 * whole-root Move or P67/P68's exact P1 Split(N) into one new P31 record, then
+	 * partitions P9/P6 and saves one Owner replacement.
 	 */
 	static bool DropMatchedRunNormalContainerWorldDropItem(
 		const FString& InStorageRoot,
@@ -1052,15 +1101,19 @@ public:
 		int32 ExpectedP6SnapshotRevision,
 		int32 ExpectedNormalContainerRevision,
 		const demo_map_code_b::FCodeBP49NormalContainerSimpleStackGroundDropProof& SourceProof,
+		int32 RequestedSplitQuantity,
+		bool bPlayerDepositedSource,
+		bool bPlayerDepositedStandardSource,
 		FName MapRoute,
 		const FTransform& FloorTransform,
 		FCodeBNormalContainerProjection& OutNormalProjection,
 		FCodeBWorldDropProjection& OutWorldProjection,
 		FString* OutError = nullptr);
 	/**
-	 * P50's sole BasicCache spatial-graph-to-world writer. It revalidates one
-	 * exact revealed P18 parent plus its unique empty child, moves the whole
-	 * graph to a new P31 record, and saves one Owner replacement.
+	 * P50/P56/P66's sole BasicCache spatial-graph-to-world writer. It revalidates
+	 * either one receipt-claimed materialized closure or one unclaimed player-
+	 * deposited canonical closure, moves the whole graph to a new P31 record, and
+	 * saves one Owner replacement.
 	 */
 	static bool DropMatchedRunNormalContainerSpatialWorldDropItem(
 		const FString& InStorageRoot,
@@ -1129,6 +1182,26 @@ private:
 		FCodeBOutOfRaidInventoryRecord& OutRecord,
 		FString& OutError) const;
 	bool SaveRecord(const FCodeBOutOfRaidInventoryRecord& InRecord, FString& OutError) const;
+	/**
+	 * Sole durable candidate commit gate for an already-open Owner document.
+	 * SaveRecord owns all pre-commit validation, serialization, temporary-file
+	 * readback, backup preparation, and the final atomic replacement.  A true
+	 * result means the durable commit point was crossed; callers then accept the
+	 * candidate without a fallible post-commit reread.
+	 */
+	bool CommitCandidateRecord(
+		const FCodeBOutOfRaidInventoryRecord& Candidate,
+		FString& OutError) const;
+	/**
+	 * The one post-commit publication path for this Owner document.  Callers
+	 * construct and completely validate any source-specific result from
+	 * Candidate before entering here.  On success the durable replacement and
+	 * the live record advance together; no caller may re-read or separately
+	 * publish a second item graph after the commit point.
+	 */
+	bool CommitAndPublishCandidate(
+		FCodeBOutOfRaidInventoryRecord& Candidate,
+		FString& OutError);
 	bool BuildInitialRecord(
 		const Fdemo_mapProfileSessionSnapshot& ProfileSnapshot,
 		FCodeBOutOfRaidInventoryRecord& OutRecord,

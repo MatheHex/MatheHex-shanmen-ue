@@ -11,7 +11,7 @@ class USceneComponent;
 class Ademo_mapV3ProgressionManager;
 
 /**
- * P10's map-placeable adapter for the single normal-container target. It owns
+ * P10/P57's map-placeable adapter for an exact normal-container target. It owns
  * only Actor existence, prompt, range surface and real timer delivery; Code B
  * owns every item/state transition and Code A's existing focus/input dispatch
  * remains the only way to reach RequestInteract.
@@ -26,7 +26,7 @@ public:
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
-	/** Map-author visible, static identity. P10 accepts only its one documented value. */
+	/** Map-author visible, static identity. P57 accepts only its two documented values. */
 	UPROPERTY(EditInstanceOnly, Category = "Code B Normal Container")
 	FName MapTargetIdentity = FName(TEXT("M01.CodeBNormalContainer.BasicCache.01"));
 

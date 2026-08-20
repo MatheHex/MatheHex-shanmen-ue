@@ -1,5 +1,6 @@
 #include "demo_mapV3ProgressionManager.h"
 #include "CodeB/demo_mapCodeBP3UI.h"
+#include "CodeB/demo_mapCodeBRunContainerPresentation.h"
 #include "demo_map.h"
 #include "demo_mapInteractable.h"
 #include "demo_mapInventoryWidget.h"
@@ -57,6 +58,7 @@
 #include "demo_mapRewardRareExtreme.h"
 #include "demo_mapRewardShopStock.h"
 #include "demo_mapSearchContainerPresenter.h"
+#include "Engine/GameInstance.h"
 #include "demo_mapEncounterMarker.h"
 #include "demo_mapKnockbackComponent.h"
 #include "demo_mapCombatDisplacement.h"
@@ -235,12 +237,14 @@ namespace
 namespace
 {
 	const FName GCodeBNormalContainerDefinitionId(TEXT("CodeB.NormalContainer.BasicCache"));
-	const FName GCodeBNormalContainerMapTargetId(TEXT("M01.CodeBNormalContainer.BasicCache.01"));
+	const FName GCodeBNormalContainerPrimaryMapTargetId(TEXT("M01.CodeBNormalContainer.BasicCache.01"));
+	const FName GCodeBNormalContainerSecondaryMapTargetId(TEXT("M01.CodeBNormalContainer.BasicCache.02"));
 	const FName GCodeBNormalContainerAnchorId(TEXT("M01.Resource.TIER_1.Cluster.01"));
 	// The Tier-1 reward projection fills an 8x6 grid around the anchor at 240 uu
-	// spacing. Keep P10's one production projection outside that grid so the
-	// shared container-separation contract can resolve it deterministically.
-	const FVector GCodeBNormalContainerAnchorLocalOffset(0.0f, -1600.0f, 0.0f);
+	// spacing. Keep both production projections outside that grid and preserve
+	// P10's original .01 offset exactly; .02 is a separate future source.
+	const FVector GCodeBNormalContainerPrimaryAnchorLocalOffset(0.0f, -1600.0f, 0.0f);
+	const FVector GCodeBNormalContainerSecondaryAnchorLocalOffset(480.0f, -1600.0f, 0.0f);
 	// P11 deliberately binds one map-authored M01 spawn. These values are static
 	// content identity, never Actor/ObjectName/UI/runtime-generated identity.
 	const FName GCodeBBodyContainerDefinitionId(TEXT("CodeB.BodyContainer.BasicCorpse"));
@@ -257,6 +261,19 @@ namespace
 			FCrc::StrCrc32(*(Seed + TEXT("|CodeBNormalTarget.B"))),
 			FCrc::StrCrc32(*(Seed + TEXT("|CodeBNormalTarget.C"))),
 			FCrc::StrCrc32(*(Seed + TEXT("|CodeBNormalTarget.D"))));
+	}
+
+	bool IsCodeBNormalContainerMapTargetIdentity(const FName MapTargetIdentity)
+	{
+		return MapTargetIdentity == GCodeBNormalContainerPrimaryMapTargetId
+			|| MapTargetIdentity == GCodeBNormalContainerSecondaryMapTargetId;
+	}
+
+	FVector CodeBNormalContainerAnchorLocalOffset(const FName MapTargetIdentity)
+	{
+		return MapTargetIdentity == GCodeBNormalContainerPrimaryMapTargetId
+			? GCodeBNormalContainerPrimaryAnchorLocalOffset
+			: GCodeBNormalContainerSecondaryAnchorLocalOffset;
 	}
 
 	FGuid CodeBBodyContainerTargetGuid(const FName BodyTargetIdentity)
@@ -287,57 +304,6 @@ namespace
 			FCrc::StrCrc32(*(Seed + TEXT("|D"))));
 	}
 
-	bool BuildCodeBRunContainerCompositeSnapshot(
-		const demo_map_code_b::FCodeBSnapshot& PlayerSnapshot,
-		const demo_map_code_b::FCodeBSnapshot& TargetSnapshot,
-		demo_map_code_b::FCodeBSnapshot& OutComposite,
-		FString& OutError)
-	{
-		OutComposite = demo_map_code_b::FCodeBSnapshot();
-		OutComposite.Revision = FMath::Max(PlayerSnapshot.Revision, TargetSnapshot.Revision);
-		for (const TPair<FName, demo_map_code_b::FCodeBItemDefinition>& Pair : PlayerSnapshot.Definitions)
-		{
-			OutComposite.Definitions.Add(Pair.Key, Pair.Value);
-		}
-		for (const TPair<FName, demo_map_code_b::FCodeBItemDefinition>& Pair : TargetSnapshot.Definitions)
-		{
-			if (const demo_map_code_b::FCodeBItemDefinition* Existing = OutComposite.Definitions.Find(Pair.Key);
-				Existing && !(*Existing == Pair.Value))
-			{
-				OutError = TEXT("Code B cannot compose conflicting P6/Run-local item definitions.");
-				return false;
-			}
-			OutComposite.Definitions.Add(Pair.Key, Pair.Value);
-		}
-		for (const TPair<FGuid, demo_map_code_b::FCodeBItemInstance>& Pair : PlayerSnapshot.Items)
-		{
-			OutComposite.Items.Add(Pair.Key, Pair.Value);
-		}
-		for (const TPair<FGuid, demo_map_code_b::FCodeBItemInstance>& Pair : TargetSnapshot.Items)
-		{
-			if (OutComposite.Items.Contains(Pair.Key))
-			{
-				OutError = TEXT("Code B cannot compose duplicate P6/Run-local item identities.");
-				return false;
-			}
-			OutComposite.Items.Add(Pair.Key, Pair.Value);
-		}
-		for (const TPair<FGuid, demo_map_code_b::FCodeBContainer>& Pair : PlayerSnapshot.Containers)
-		{
-			OutComposite.Containers.Add(Pair.Key, Pair.Value);
-		}
-		for (const TPair<FGuid, demo_map_code_b::FCodeBContainer>& Pair : TargetSnapshot.Containers)
-		{
-			if (OutComposite.Containers.Contains(Pair.Key))
-			{
-				OutError = TEXT("Code B cannot compose duplicate P6/Run-local container identities.");
-				return false;
-			}
-			OutComposite.Containers.Add(Pair.Key, Pair.Value);
-		}
-		demo_map_code_b::FCodeBRepository ValidationRepository;
-		return ValidationRepository.LoadPersistedSnapshot(OutComposite, &OutError);
-	}
 }
 
 Ademo_mapV3ProgressionManager::Ademo_mapV3ProgressionManager()
@@ -350,24 +316,170 @@ bool Ademo_mapV3ProgressionManager::CanGenerateRewardSource(
 	FGuid RunId,
 	FName RewardSourceId) const
 {
+	bool bDurableReadModelHydrated = true;
+	if (UWorld* World = GetWorld())
+	{
+		if (UGameInstance* GameInstance = World->GetGameInstance())
+		{
+			if (const Udemo_mapProfileSessionSubsystem* Profile =
+				GameInstance->GetSubsystem<Udemo_mapProfileSessionSubsystem>())
+			{
+				Ademo_mapV3ProgressionManager* MutableThis =
+					const_cast<Ademo_mapV3ProgressionManager*>(this);
+				for (const Fdemo_mapPersistentGeneratedRewardSource& Source :
+					Profile->GetActiveGeneratedRewardSources())
+				{
+					if (Source.Receipt.RunId != RunId)
+					{
+						continue;
+					}
+					const bool bReceiptHydrated =
+						MutableThis->RewardGenerationSession.IsProcessed(
+							RunId, Source.Receipt.StableSourceRoleId)
+						|| MutableThis->RewardGenerationSession.Commit(Source.Receipt);
+					const bool bPityHydrated =
+						MutableThis->CommitRewardAffixPity(RunId, Source.Receipt);
+					bDurableReadModelHydrated = bDurableReadModelHydrated
+						&& bReceiptHydrated && bPityHydrated;
+				}
+			}
+		}
+	}
 	return RunId.IsValid()
 		&& Items.IsValid()
 		&& Items->GetRunState() == Edemo_mapRunState::Active
 		&& Items->GetActiveRunId() == RunId
 		&& !RewardSourceId.IsNone()
+		&& bDurableReadModelHydrated
 		&& !RewardGenerationSession.IsProcessed(
 			RunId,
 			RewardSourceId);
 }
 
+bool Ademo_mapV3ProgressionManager::FindDurablyAcceptedRewardSource(
+	FGuid RunId,
+	FName RewardSourceId,
+	Fdemo_mapPersistentGeneratedRewardSource& OutSource) const
+{
+	OutSource = Fdemo_mapPersistentGeneratedRewardSource();
+	if (!RunId.IsValid() || RewardSourceId.IsNone())
+	{
+		return false;
+	}
+	const UWorld* World = GetWorld();
+	const UGameInstance* GameInstance = World ? World->GetGameInstance() : nullptr;
+	const Udemo_mapProfileSessionSubsystem* Profile = GameInstance
+		? GameInstance->GetSubsystem<Udemo_mapProfileSessionSubsystem>()
+		: nullptr;
+	if (!Profile)
+	{
+		return false;
+	}
+	// Opening or rebinding an already-accepted source must reconstruct the
+	// entire active durable read model before the source is exposed.  A caller
+	// can reach this path without first asking CanGenerateRewardSource(), so do
+	// not leave the transient receipt/pity ledgers empty after a reload.
+	Ademo_mapV3ProgressionManager* MutableThis =
+		const_cast<Ademo_mapV3ProgressionManager*>(this);
+	for (const Fdemo_mapPersistentGeneratedRewardSource& Source :
+		Profile->GetActiveGeneratedRewardSources())
+	{
+		if (Source.Receipt.RunId != RunId)
+		{
+			continue;
+		}
+		const bool bReceiptHydrated = Source.Receipt.IsValid()
+			&& (MutableThis->RewardGenerationSession.IsProcessed(
+				RunId, Source.Receipt.StableSourceRoleId)
+				|| MutableThis->RewardGenerationSession.Commit(Source.Receipt));
+		const bool bPityHydrated =
+			MutableThis->CommitRewardAffixPity(RunId, Source.Receipt);
+		if (!bReceiptHydrated || !bPityHydrated)
+		{
+			return false;
+		}
+	}
+	for (const Fdemo_mapPersistentGeneratedRewardSource& Source :
+		Profile->GetActiveGeneratedRewardSources())
+	{
+		if (Source.Receipt.RunId == RunId
+			&& Source.Receipt.StableSourceRoleId == RewardSourceId
+			&& Source.Receipt.IsValid())
+		{
+			OutSource = Source;
+			return true;
+		}
+	}
+	return false;
+}
+
+Fdemo_mapProfileGeneratedRewardSourceResult
+Ademo_mapV3ProgressionManager::PrepareGeneratedRewardSource(
+	FGuid RunId,
+	FName RewardSourceId,
+	const Fdemo_mapRewardSourceAcceptanceReceipt& Receipt)
+{
+	Fdemo_mapProfileGeneratedRewardSourceResult Result;
+	if (!CanGenerateRewardSource(RunId, RewardSourceId)
+		|| Receipt.RunId != RunId
+		|| Receipt.StableSourceRoleId != RewardSourceId)
+	{
+		Result.Diagnostic =
+			TEXT("Generated reward source was rejected before its durable candidate commit.");
+		return Result;
+	}
+	UWorld* World = GetWorld();
+	UGameInstance* GameInstance = World ? World->GetGameInstance() : nullptr;
+	Udemo_mapProfileSessionSubsystem* Profile = GameInstance
+		? GameInstance->GetSubsystem<Udemo_mapProfileSessionSubsystem>()
+		: nullptr;
+	if (!Profile)
+	{
+		Result.Diagnostic =
+			TEXT("Generated reward source has no Profile Session before durable candidate commit.");
+		return Result;
+	}
+	Result =
+		Profile->CommitGeneratedRewardSource(Receipt);
+	if (!Result.IsDurablyCommitted())
+	{
+		return Result;
+	}
+	// This is a transient read model only.  Once the Profile candidate is
+	// durable, a hydration miss is an accepted result requiring reconciliation,
+	// never a retryable generation failure.
+	const bool bReceiptHydrated = RewardGenerationSession.IsProcessed(
+		RunId, RewardSourceId)
+		|| RewardGenerationSession.Commit(Result.Source.Receipt);
+	const bool bPityHydrated = CommitRewardAffixPity(
+		RunId, Result.Source.Receipt);
+	if (!bReceiptHydrated || !bPityHydrated)
+	{
+		Result.Status =
+			Edemo_mapProfileGeneratedRewardSourceStatus::CommittedReconciliationRequired;
+		Result.Diagnostic = TEXT("Generated reward source is durably accepted; transient receipt or pity hydration requires reconciliation without reroll.");
+	}
+	return Result;
+}
+
 bool Ademo_mapV3ProgressionManager::CommitGeneratedRewardSource(
 	FGuid RunId,
-	FName RewardSourceId)
+	FName RewardSourceId,
+	const Fdemo_mapRewardSourceAcceptanceReceipt& Receipt)
 {
-	return CanGenerateRewardSource(RunId, RewardSourceId)
-		&& RewardGenerationSession.Commit(
-			RunId,
-			RewardSourceId);
+	return PrepareGeneratedRewardSource(
+		RunId, RewardSourceId, Receipt).IsDurablyCommitted();
+}
+
+const Fdemo_mapRewardSourceAcceptanceReceipt*
+Ademo_mapV3ProgressionManager::FindAcceptedRewardSourceReceipt(
+	FGuid RunId,
+	FName RewardSourceId) const
+{
+	CanGenerateRewardSource(RunId, RewardSourceId);
+	return RewardGenerationSession.FindAcceptedReceipt(
+		RunId,
+		RewardSourceId);
 }
 
 int32 Ademo_mapV3ProgressionManager::GetRewardAffixPityState(
@@ -380,25 +492,25 @@ int32 Ademo_mapV3ProgressionManager::GetRewardAffixPityState(
 
 bool Ademo_mapV3ProgressionManager::CommitRewardAffixPity(
 	FGuid RunId,
-	FName RewardSourceId,
-	const Fdemo_mapRewardSourceProjectionResult& Plan)
+	const Fdemo_mapRewardSourceAcceptanceReceipt& Receipt)
 {
-	if (!Plan.IsSuccess())
+	if (!Receipt.IsValid() || Receipt.RunId != RunId)
 	{
 		return false;
 	}
-	const bool bRequiresCommit = Plan.Trace.PityDecisions.ContainsByPredicate(
-		[](const Fdemo_mapRewardAffixPityDecision& Decision)
-		{
-			return Decision.bCommitRequired;
-		});
-	return !bRequiresCommit
-		|| RewardAffixPityLedger.Commit(
+	if (!Receipt.bPityCommitRequired)
+	{
+		return Receipt.PityStateIn == Receipt.PityStateOut
+			&& RewardAffixPityLedger.GetState(
+				RunId, Fdemo_mapRewardAffixPolicyRegistry::PityChannelId)
+				== Receipt.PityStateIn;
+	}
+	return RewardAffixPityLedger.Commit(
 			RunId,
 			Fdemo_mapRewardAffixPolicyRegistry::PityChannelId,
-			RewardSourceId,
-			Plan.Trace.PityStateIn,
-			Plan.Trace.PityStateOut);
+			Receipt.StableSourceRoleId,
+			Receipt.PityStateIn,
+			Receipt.PityStateOut);
 }
 
 #if !UE_BUILD_SHIPPING
@@ -4546,6 +4658,7 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBActiveRunInventory(FString& OutFeed
 		return false;
 	}
 	CodeBActiveRunInventoryRunId = ExpectedRunId;
+	CodeBActiveRunInventoryExpectedP6Revision = ActiveSession.RepositorySnapshot.Revision;
 	const TWeakObjectPtr<Ademo_mapV3ProgressionManager> WeakManager(this);
 	FCodeBP3HotbarPresentation ActiveRunHotbarPresentation;
 	ActiveRunHotbarPresentation.OwnerId = Snapshot.ProfileId;
@@ -4597,13 +4710,24 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBActiveRunInventory(FString& OutFeed
 	const bool bOpened = Host->OpenProfilePage(
 		*CodeBActiveRunInventoryRepository,
 		ActiveSession.Layout,
-		[this, ExpectedRunId](const demo_map_code_b::FCodeBSnapshot& PersistedSnapshot,
-			const demo_map_code_b::FCodeBP2Command&, FString& OutError)
+		[this, ExpectedRunId, ExpectedOwnerId = Snapshot.ProfileId](const demo_map_code_b::FCodeBSnapshot& PersistedSnapshot,
+			const demo_map_code_b::FCodeBP2Command& AcceptedCommand, FString& OutError)
 		{
-			return CodeBActiveRunInventoryStore.IsValid()
-				&& CodeBActiveRunInventoryRunId == ExpectedRunId
-				&& CodeBActiveRunInventoryStore->CommitAcceptedActiveRunInventorySnapshot(
-					ExpectedRunId, PersistedSnapshot, &OutError);
+			FCodeBActivePlayerInteractionCommitRequest Request;
+			Request.StorageRoot = ProfilePreparationFlow ? ProfilePreparationFlow->GetStorageRoot() : FString();
+			Request.OwnerId = ExpectedOwnerId;
+			Request.RunInstanceId = ExpectedRunId;
+			Request.Store = CodeBActiveRunInventoryStore.Get();
+			Request.bTransientScopeCurrent = bCodeBActiveRunInventoryOpen
+				&& CodeBActiveRunInventoryRunId == ExpectedRunId;
+			FCodeBActivePlayerInteractionCommitResult Result;
+			const bool bCommitted = FCodeBRunItemInteractionDomain::CommitAcceptedActivePlayer(
+				Request, AcceptedCommand, PersistedSnapshot, Result, OutError);
+			if (bCommitted)
+			{
+				ApplyCodeBRunItemInteractionResult(Result);
+			}
+			return bCommitted;
 		},
 		[WeakManager]()
 		{
@@ -4621,6 +4745,7 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBActiveRunInventory(FString& OutFeed
 	{
 		CodeBActiveRunInventoryRepository.Reset();
 		CodeBActiveRunInventoryRunId.Invalidate();
+		CodeBActiveRunInventoryExpectedP6Revision = INDEX_NONE;
 		OutFeedback = TEXT("Code B 活动背包无法创建真实 P3/P4 页面。");
 		return false;
 	}
@@ -4740,6 +4865,172 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBGroundDrop(
 	return true;
 }
 
+bool Ademo_mapV3ProgressionManager::RequestCodeBWorldDropGroundDrop(
+	const demo_map_code_b::FCodeBP4DragPayload& Payload,
+	FString& OutFeedback)
+{
+	OutFeedback.Reset();
+	const bool bP70Split = Payload.bSplitIntent;
+	const bool bP71Reposition = !Payload.bSplitIntent;
+	if (!Payload.IsValid()
+		|| (bP70Split
+			&& Payload.QuantityDraftKind != demo_map_code_b::ECodeBP3QuantityDraftKind::WorldPickup)
+		|| (bP71Reposition
+			&& (Payload.QuantityDraftKind != demo_map_code_b::ECodeBP3QuantityDraftKind::None
+				|| Payload.RequestedMergeQuantity != 0))
+		|| Payload.bQuickTransferIntent || !CodeBActiveRunInventoryStore.IsValid()
+		|| !CodeBWorldDropRepository.IsValid() || !bCodeBWorldDropOpen
+		|| !CodeBWorldDropOwnerId.IsValid() || !CodeBWorldDropRunId.IsValid()
+		|| !CodeBWorldDropId.IsValid() || !CodeBWorldDropContainerId.IsValid()
+		|| !CodeBWorldDropRootItemId.IsValid() || CodeBWorldDropOrdinal < 1
+		|| CodeBWorldDropRecordRevision < 1 || CodeBWorldDropExpectedP6Revision < 1
+		|| CodeBWorldDropOpenGeneration == 0 || !ActiveCodeBWorldDrop.IsValid()
+		|| Payload.OwnerId != CodeBWorldDropOwnerId || Payload.RunInstanceId != CodeBWorldDropRunId
+		|| Payload.WorldDropId != CodeBWorldDropId || Payload.WorldDropOrdinal != CodeBWorldDropOrdinal
+		|| Payload.WorldDropRecordRevision != CodeBWorldDropRecordRevision
+		|| Payload.WorldDropTargetOpenGeneration != CodeBWorldDropOpenGeneration
+		|| Payload.WorldDropMapRoute != CodeBWorldDropMapRoute
+		|| Payload.GraphIdentity != CodeBWorldDropId
+		|| Payload.Source.ContainerId != CodeBWorldDropContainerId
+		|| Payload.Source.SlotIndex != 0 || Payload.Source.ItemId != CodeBWorldDropRootItemId
+		|| Payload.ItemId != CodeBWorldDropRootItemId
+		|| Payload.ExpectedRevision != CodeBWorldDropExpectedP6Revision
+		|| (bP70Split
+			&& (Payload.RequestedMergeQuantity < 1 || Payload.RequestedMergeQuantity >= Payload.Quantity)))
+	{
+		OutFeedback = TEXT("P70/P71 只接受 current exact opened WorldDrop 的 confirmed split 或 normal whole-root re-placement。");
+		return false;
+	}
+	const TWeakObjectPtr<Ademo_mapCodeBWorldDropActor>* RegisteredActor =
+		CodeBWorldDropActors.Find(CodeBWorldDropId);
+	if (!RegisteredActor || RegisteredActor->Get() != ActiveCodeBWorldDrop.Get())
+	{
+		OutFeedback = TEXT("P71 exact WorldDrop Actor projection 已失效；未提交。");
+		return false;
+	}
+	FName MapRoute;
+	FTransform FloorTransform;
+	if (!ResolveCodeBWorldDropPlacement(MapRoute, FloorTransform, OutFeedback)) return false;
+	if (MapRoute != CodeBWorldDropMapRoute)
+	{
+		OutFeedback = TEXT("P71 不允许跨 map route 重新放置。");
+		return false;
+	}
+	if (bP71Reposition)
+	{
+		FCodeBRunInventorySession BeforeSession;
+		if (!CodeBActiveRunInventoryStore->OpenMatchedActiveRunInventorySession(
+			CodeBWorldDropRunId, BeforeSession, &OutFeedback))
+		{
+			return false;
+		}
+		const FCodeBWorldDropRecord* BeforeRecord = BeforeSession.WorldDrops.FindByPredicate(
+			[this](const FCodeBWorldDropRecord& Value)
+			{
+				return Value.WorldDropId == CodeBWorldDropId;
+			});
+		if (!BeforeRecord || BeforeRecord->Ordinal != CodeBWorldDropOrdinal
+			|| BeforeRecord->RecordRevision != CodeBWorldDropRecordRevision
+			|| BeforeRecord->WorldContainerId != CodeBWorldDropContainerId
+			|| BeforeRecord->ItemId != CodeBWorldDropRootItemId
+			|| BeforeRecord->MapRoute != CodeBWorldDropMapRoute
+			|| !BeforeRecord->FloorTransform.Equals(Payload.WorldDropFloorTransform)
+			|| BeforeRecord->FloorTransform.Equals(FloorTransform))
+		{
+			OutFeedback = TEXT("P71 source record 已变化或规范化后落点相同；零写入。");
+			return false;
+		}
+		FCodeBWorldDropProjection RepositionedProjection;
+		if (!CodeBActiveRunInventoryStore->RepositionMatchedActiveRunWorldDropItem(
+			CodeBWorldDropRunId, CodeBWorldDropId, CodeBWorldDropOrdinal,
+			CodeBWorldDropRecordRevision, CodeBWorldDropExpectedP6Revision,
+			CodeBWorldDropRootItemId, Payload.DefinitionId, Payload.DefinitionId,
+			Payload.Quantity, Payload.MaxStack, Payload.Level, Payload.Quality,
+			Payload.RandomSeed, Payload.LegacyAffixDigest, MapRoute, Payload.WorldDropFloorTransform,
+			FloorTransform, RepositionedProjection, &OutFeedback))
+		{
+			return false;
+		}
+		FCodeBRunInventorySession ReloadedSession;
+		if (!CodeBActiveRunInventoryStore->OpenMatchedActiveRunInventorySession(
+			CodeBWorldDropRunId, ReloadedSession, &OutFeedback)
+			|| !CodeBWorldDropRepository->LoadPersistedSnapshot(
+				ReloadedSession.RepositorySnapshot, &OutFeedback))
+		{
+			return false;
+		}
+		const FCodeBWorldDropRecord* ReloadedRecord = ReloadedSession.WorldDrops.FindByPredicate(
+			[this](const FCodeBWorldDropRecord& Value)
+			{
+				return Value.WorldDropId == CodeBWorldDropId;
+			});
+		if (!ReloadedRecord || ReloadedSession.WorldDrops.Num() != BeforeSession.WorldDrops.Num()
+			|| ReloadedSession.NextWorldDropOrdinal != BeforeSession.NextWorldDropOrdinal
+			|| ReloadedSession.RepositorySnapshot != BeforeSession.RepositorySnapshot
+			|| ReloadedRecord->WorldContainerId != CodeBWorldDropContainerId
+			|| ReloadedRecord->ItemId != CodeBWorldDropRootItemId
+			|| ReloadedRecord->Provenance != BeforeRecord->Provenance
+			|| ReloadedRecord->RecordRevision != CodeBWorldDropRecordRevision + 1
+			|| !ReloadedRecord->FloorTransform.Equals(FloorTransform))
+		{
+			OutFeedback = TEXT("P71 durable reload 未证明 same-record placement-only 结果。");
+			return false;
+		}
+		CodeBWorldDropRecordRevision = RepositionedProjection.RecordRevision;
+		CodeBWorldDropExpectedP6Revision = RepositionedProjection.P6SnapshotRevision;
+		if (UGameInstance* GameInstance = GetWorld() ? GetWorld()->GetGameInstance() : nullptr)
+		{
+			if (UCodeBP3UIHostSubsystem* Host = GameInstance->GetSubsystem<UCodeBP3UIHostSubsystem>())
+			{
+				Host->UpdateWorldDropProjection(RepositionedProjection);
+			}
+		}
+		RefreshCodeBWorldDropActors();
+		UE_LOG(LogTemp, Display,
+			TEXT("CodeB.P71.GroundReposition Committed WorldDropId=%s ItemId=%s RecordRevision=%d"),
+			*RepositionedProjection.WorldDropId.ToString(EGuidFormats::DigitsWithHyphens),
+			*RepositionedProjection.ItemId.ToString(EGuidFormats::DigitsWithHyphens),
+			RepositionedProjection.RecordRevision);
+		return true;
+	}
+	FCodeBWorldDropProjection SourceProjection;
+	FCodeBWorldDropProjection NewProjection;
+	if (!CodeBActiveRunInventoryStore->SplitMatchedActiveRunWorldDropItem(
+		CodeBWorldDropRunId, CodeBWorldDropId, CodeBWorldDropOrdinal,
+		CodeBWorldDropRecordRevision, CodeBWorldDropExpectedP6Revision,
+		CodeBWorldDropRootItemId, Payload.RequestedMergeQuantity,
+		MapRoute, FloorTransform, SourceProjection, NewProjection, &OutFeedback))
+	{
+		return false;
+	}
+	FCodeBRunInventorySession Updated;
+	if (!CodeBActiveRunInventoryStore->OpenMatchedActiveRunInventorySession(
+		CodeBWorldDropRunId, Updated, &OutFeedback)
+		|| !CodeBWorldDropRepository->LoadPersistedSnapshot(
+			Updated.RepositorySnapshot, &OutFeedback))
+	{
+		return false;
+	}
+	CodeBWorldDropRecordRevision = SourceProjection.RecordRevision;
+	CodeBWorldDropExpectedP6Revision = SourceProjection.P6SnapshotRevision;
+	if (UGameInstance* GameInstance = GetWorld() ? GetWorld()->GetGameInstance() : nullptr)
+	{
+		if (UCodeBP3UIHostSubsystem* Host = GameInstance->GetSubsystem<UCodeBP3UIHostSubsystem>())
+		{
+			Host->UpdateWorldDropProjection(SourceProjection);
+		}
+	}
+	RefreshCodeBWorldDropActors();
+	UE_LOG(LogTemp, Display,
+		TEXT("CodeB.P70.GroundSplit Committed SourceWorldDropId=%s NewWorldDropId=%s SourceItemId=%s NewItemId=%s Quantity=%d"),
+		*SourceProjection.WorldDropId.ToString(EGuidFormats::DigitsWithHyphens),
+		*NewProjection.WorldDropId.ToString(EGuidFormats::DigitsWithHyphens),
+		*SourceProjection.ItemId.ToString(EGuidFormats::DigitsWithHyphens),
+		*NewProjection.ItemId.ToString(EGuidFormats::DigitsWithHyphens),
+		Payload.RequestedMergeQuantity);
+	return true;
+}
+
 bool Ademo_mapV3ProgressionManager::RequestCodeBNormalContainerGroundDrop(
 	const demo_map_code_b::FCodeBP4DragPayload& Payload,
 	FString& OutFeedback)
@@ -4747,38 +5038,67 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBNormalContainerGroundDrop(
 	OutFeedback.Reset();
 	const demo_map_code_b::FCodeBP49NormalContainerSimpleStackGroundDropProof& P49Proof =
 		Payload.P49NormalContainerSimpleStackGroundDropProof;
+	const demo_map_code_b::FCodeBP64NormalContainerPlayerSimpleStackGroundDropProof& P64Proof =
+		Payload.P64NormalContainerPlayerSimpleStackGroundDropProof;
+	const demo_map_code_b::FCodeBP65NormalContainerPlayerStandardEquipmentGroundDropProof& P65Proof =
+		Payload.P65NormalContainerPlayerStandardEquipmentGroundDropProof;
 	const demo_map_code_b::FCodeBP48NormalContainerSpatialGraphEquipmentTransferProof& P50Proof =
 		Payload.P48NormalContainerSpatialGraphEquipmentProof;
 	const bool bP49SimpleStack = P49Proof.HasSourceIdentity();
+	const bool bP64PlayerSimpleStack = P64Proof.HasSourceIdentity();
+	const bool bP65PlayerStandardEquipment = P65Proof.HasSourceIdentity();
 	const bool bP50SpatialGraph = P50Proof.HasSourceIdentity() && !P50Proof.bIntent;
-	const int32 SourceKindCount = (bP49SimpleStack ? 1 : 0) + (bP50SpatialGraph ? 1 : 0);
-	const FGuid ProofOwnerId = bP50SpatialGraph ? P50Proof.OwnerId : P49Proof.OwnerId;
-	const FGuid ProofRunInstanceId = bP50SpatialGraph ? P50Proof.RunInstanceId : P49Proof.RunInstanceId;
-	const FGuid ProofSearchTargetId = bP50SpatialGraph ? P50Proof.SearchTargetId : P49Proof.SearchTargetId;
+	const bool bP66PlayerSpatialGraph = bP50SpatialGraph && P50Proof.bPlayerDepositedSource;
+	const bool bP67Split = bP49SimpleStack && Payload.bSplitIntent
+		&& Payload.QuantityDraftKind == demo_map_code_b::ECodeBP3QuantityDraftKind::PlayerSplit
+		&& Payload.GraphIdentity == P49Proof.SourceContainerId
+		&& Payload.RequestedMergeQuantity > 0
+		&& Payload.RequestedMergeQuantity < Payload.Quantity;
+	const bool bP68Split = bP64PlayerSimpleStack && Payload.bSplitIntent
+		&& Payload.QuantityDraftKind == demo_map_code_b::ECodeBP3QuantityDraftKind::PlayerSplit
+		&& Payload.GraphIdentity == P64Proof.SourceContainerId
+		&& Payload.RequestedMergeQuantity > 0
+		&& Payload.RequestedMergeQuantity < Payload.Quantity;
+	const bool bExactNormalContainerSplit = bP67Split || bP68Split;
+	const int32 SourceKindCount = (bP49SimpleStack ? 1 : 0)
+		+ (bP64PlayerSimpleStack ? 1 : 0) + (bP65PlayerStandardEquipment ? 1 : 0)
+		+ (bP50SpatialGraph ? 1 : 0);
+	const demo_map_code_b::FCodeBP49NormalContainerSimpleStackGroundDropProof& SimpleProof =
+		bP65PlayerStandardEquipment
+			? static_cast<const demo_map_code_b::FCodeBP49NormalContainerSimpleStackGroundDropProof&>(P65Proof)
+			: bP64PlayerSimpleStack
+			? static_cast<const demo_map_code_b::FCodeBP49NormalContainerSimpleStackGroundDropProof&>(P64Proof)
+			: P49Proof;
+	const FGuid ProofOwnerId = bP50SpatialGraph ? P50Proof.OwnerId : SimpleProof.OwnerId;
+	const FGuid ProofRunInstanceId = bP50SpatialGraph ? P50Proof.RunInstanceId : SimpleProof.RunInstanceId;
+	const FGuid ProofSearchTargetId = bP50SpatialGraph ? P50Proof.SearchTargetId : SimpleProof.SearchTargetId;
 	const FName ProofDefinitionId = bP50SpatialGraph
-		? P50Proof.NormalContainerDefinitionId : P49Proof.NormalContainerDefinitionId;
+		? P50Proof.NormalContainerDefinitionId : SimpleProof.NormalContainerDefinitionId;
 	const int32 ProofNormalRevision = bP50SpatialGraph
-		? P50Proof.NormalContainerRevision : P49Proof.NormalContainerRevision;
+		? P50Proof.NormalContainerRevision : SimpleProof.NormalContainerRevision;
 	const int32 ProofP6Revision = bP50SpatialGraph
-		? P50Proof.P6SnapshotRevision : P49Proof.P6SnapshotRevision;
-	const FGuid ProofSourceItemId = bP50SpatialGraph ? P50Proof.SourceItemId : P49Proof.SourceItemId;
+		? P50Proof.P6SnapshotRevision : SimpleProof.P6SnapshotRevision;
+	const FGuid ProofSourceItemId = bP50SpatialGraph ? P50Proof.SourceItemId : SimpleProof.SourceItemId;
 	const FGuid ProofSourceContainerId = bP50SpatialGraph
-		? P50Proof.SourceContainerId : P49Proof.SourceContainerId;
-	const int32 ProofSourceSlot = bP50SpatialGraph ? P50Proof.SourceSlot : P49Proof.SourceSlot;
+		? P50Proof.SourceContainerId : SimpleProof.SourceContainerId;
+	const int32 ProofSourceSlot = bP50SpatialGraph ? P50Proof.SourceSlot : SimpleProof.SourceSlot;
 	const FName ProofSourceDefinitionId = bP50SpatialGraph
-		? P50Proof.SourceDefinitionId : P49Proof.SourceDefinitionId;
-	const int32 ProofSourceQuantity = bP50SpatialGraph ? 1 : P49Proof.SourceQuantity;
+		? P50Proof.SourceDefinitionId : SimpleProof.SourceDefinitionId;
+	const int32 ProofSourceQuantity = bP50SpatialGraph ? 1 : SimpleProof.SourceQuantity;
 	const int32 ProofCompositeRevision = bP50SpatialGraph
-		? P50Proof.CompositeRevision : P49Proof.CompositeRevision;
+		? P50Proof.CompositeRevision : SimpleProof.CompositeRevision;
 	UGameInstance* GameInstance = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
 	UCodeBP3UIHostSubsystem* Host = GameInstance
 		? GameInstance->GetSubsystem<UCodeBP3UIHostSubsystem>() : nullptr;
 	const demo_map_code_b::FCodeBP3InventoryWorkspaceContext* Workspace =
 		Host ? Host->GetWorkspaceContext() : nullptr;
 	if (!Payload.IsValid() || SourceKindCount != 1
-		|| Payload.bQuickTransferIntent || Payload.bSplitIntent
-		|| Payload.QuantityDraftKind != demo_map_code_b::ECodeBP3QuantityDraftKind::None
-		|| Payload.RequestedMergeQuantity != 0 || Payload.Quantity <= 0
+		|| Payload.bQuickTransferIntent
+		|| (!bExactNormalContainerSplit && Payload.bSplitIntent)
+		|| (bP67Split && (bP64PlayerSimpleStack || bP65PlayerStandardEquipment || bP50SpatialGraph))
+		|| (bP68Split && (bP49SimpleStack || bP65PlayerStandardEquipment || bP50SpatialGraph))
+		|| (!bExactNormalContainerSplit && Payload.QuantityDraftKind != demo_map_code_b::ECodeBP3QuantityDraftKind::None)
+		|| (!bExactNormalContainerSplit && Payload.RequestedMergeQuantity != 0) || Payload.Quantity <= 0
 		|| Payload.SourceScope != demo_map_code_b::ECodeBP3InventoryScope::ExternalTarget
 		|| Payload.QuickTransferTargetMode != demo_map_code_b::ECodeBQuickTransferTargetMode::Legacy
 		|| Payload.QuickTransferActivePlayerContainerId.IsValid()
@@ -4790,16 +5110,22 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBNormalContainerGroundDrop(
 		|| Payload.P42BodySpatialGraphEquipmentProof.bSourceProof
 		|| Payload.P43BodySimpleStackGroundDropProof.bIntent
 		|| Payload.P46NormalContainerSimpleStackProof.bIntent
+		|| Payload.P62NormalContainerStandardEquipmentProof.bIntent
+		|| Payload.P63NormalContainerPlayerSimpleStackProof.bIntent
 		|| Payload.P47NormalContainerSpatialGraphProof.bIntent
 		|| Payload.P48NormalContainerSpatialGraphEquipmentProof.bIntent
 		|| (bP49SimpleStack && Payload.P48NormalContainerSpatialGraphEquipmentProof.bSourceProof)
+		|| (bP64PlayerSimpleStack && Payload.P48NormalContainerSpatialGraphEquipmentProof.bSourceProof)
+		|| (bP65PlayerStandardEquipment && Payload.P48NormalContainerSpatialGraphEquipmentProof.bSourceProof)
 		|| (bP50SpatialGraph && Payload.P49NormalContainerSimpleStackGroundDropProof.bIntent)
+		|| (bP50SpatialGraph && Payload.P64NormalContainerPlayerSimpleStackGroundDropProof.bIntent)
+		|| (bP50SpatialGraph && Payload.P65NormalContainerPlayerStandardEquipmentGroundDropProof.bIntent)
 		|| Payload.WorldDropId.IsValid() || Payload.WorldDropOrdinal != 0
 		|| Payload.WorldDropRecordRevision != INDEX_NONE
 		|| Payload.WorldDropTargetOpenGeneration != 0 || !Payload.WorldDropMapRoute.IsNone()
 		|| !bCodeBNormalContainerOpen || !ProfilePreparationFlow
 		|| !ActiveCodeBNormalContainer.IsValid()
-		|| ActiveCodeBNormalContainer->GetMapTargetIdentity() != GCodeBNormalContainerMapTargetId
+		|| !IsRegisteredCodeBNormalContainerTarget(ActiveCodeBNormalContainer.Get())
 		|| !Host || !Host->IsHostEnabled() || !Workspace || !Workspace->IsInRun()
 		|| Workspace->OwnerId != CodeBNormalContainerOwnerId
 		|| Workspace->RunInstanceId != CodeBNormalContainerRunId
@@ -4817,7 +5143,7 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBNormalContainerGroundDrop(
 		|| ProofSourceQuantity != Payload.Quantity
 		|| ProofCompositeRevision != Payload.ExpectedRevision)
 	{
-		OutFeedback = TEXT("P49/P50 BasicCache GroundDrop source or exact open-host identity is stale; no fallback was attempted.");
+		OutFeedback = TEXT("P49/P50/P64/P65/P66 BasicCache GroundDrop source or exact open-host identity is stale; no fallback was attempted.");
 		return false;
 	}
 	const Fdemo_mapProfileSessionSnapshot Snapshot = ProfilePreparationFlow->GetSession()
@@ -4826,7 +5152,7 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBNormalContainerGroundDrop(
 		|| Snapshot.ProfileId != ProofOwnerId || Snapshot.ActiveRunId != ProofRunInstanceId
 		|| ProfilePreparationFlow->GetStartedRunId() != ProofRunInstanceId)
 	{
-		OutFeedback = TEXT("P49/P50 BasicCache GroundDrop requires the same active Owner/Run lifecycle.");
+		OutFeedback = TEXT("P49/P50/P64/P65/P66 BasicCache GroundDrop requires the same active Owner/Run lifecycle.");
 		return false;
 	}
 
@@ -4847,7 +5173,11 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBNormalContainerGroundDrop(
 			ProfilePreparationFlow->GetStorageRoot(), CodeBNormalContainerOwnerId,
 			CodeBNormalContainerRunId, CodeBNormalContainerTargetId,
 			CodeBNormalContainerDefinitionId, CodeBNormalContainerExpectedP6Revision,
-			CodeBNormalContainerExpectedTargetRevision, P49Proof, MapRoute, FloorTransform,
+			CodeBNormalContainerExpectedTargetRevision, SimpleProof,
+			bExactNormalContainerSplit ? Payload.RequestedMergeQuantity : 0,
+			bP64PlayerSimpleStack || bP65PlayerStandardEquipment,
+			bP65PlayerStandardEquipment,
+			MapRoute, FloorTransform,
 			UpdatedNormal, NewWorldDrop, &OutFeedback);
 	if (!bStored)
 	{
@@ -4873,7 +5203,7 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBNormalContainerGroundDrop(
 			});
 	demo_map_code_b::FCodeBSnapshot UpdatedComposite;
 	if (!UpdatedNormalRecord
-		|| !BuildCodeBRunContainerCompositeSnapshot(
+		|| !FCodeBRunItemInteractionDomain::BuildAcceptedCompositeSnapshot(
 			UpdatedSession.RepositorySnapshot, UpdatedNormalRecord->ContainerSnapshot,
 			UpdatedComposite, OutFeedback)
 		|| !CodeBNormalContainerRepository.IsValid()
@@ -4888,7 +5218,12 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBNormalContainerGroundDrop(
 	RefreshCodeBWorldDropActors();
 	UE_LOG(LogTemp, Display,
 		TEXT("CodeB.%s.GroundDrop Committed OwnerId=%s RunId=%s SearchTargetId=%s WorldDropId=%s ItemId=%s"),
-		bP50SpatialGraph ? TEXT("P50") : TEXT("P49"),
+		bP67Split ? TEXT("P67")
+			: bP68Split ? TEXT("P68")
+			: bP66PlayerSpatialGraph ? TEXT("P66")
+			: bP50SpatialGraph ? TEXT("P50")
+			: (bP65PlayerStandardEquipment ? TEXT("P65")
+				: (bP64PlayerSimpleStack ? TEXT("P64") : TEXT("P49"))),
 		*NewWorldDrop.OwnerId.ToString(EGuidFormats::DigitsWithHyphens),
 		*NewWorldDrop.RunInstanceId.ToString(EGuidFormats::DigitsWithHyphens),
 		*CodeBNormalContainerTargetId.ToString(EGuidFormats::DigitsWithHyphens),
@@ -4911,6 +5246,11 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBBodyGroundDrop(
 	const bool bP43SimpleStack = P43Proof.HasSourceIdentity();
 	const bool bP44StandardEquipment = P44Proof.HasSourceIdentity();
 	const bool bP45SpatialGraph = P45Proof.HasSourceIdentity() && !P45Proof.bIntent;
+	const bool bP69Split = bP43SimpleStack && Payload.bSplitIntent
+		&& Payload.QuantityDraftKind == demo_map_code_b::ECodeBP3QuantityDraftKind::PlayerSplit
+		&& Payload.GraphIdentity == P43Proof.SourceContainerId
+		&& Payload.RequestedMergeQuantity > 0
+		&& Payload.RequestedMergeQuantity < Payload.Quantity;
 	const FGuid ProofOwnerId = bP45SpatialGraph ? P45Proof.OwnerId
 		: (bP44StandardEquipment ? P44Proof.OwnerId : P43Proof.OwnerId);
 	const FGuid ProofRunInstanceId = bP45SpatialGraph ? P45Proof.RunInstanceId
@@ -4934,9 +5274,11 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBBodyGroundDrop(
 	const int32 SourceKindCount = (bP43SimpleStack ? 1 : 0)
 		+ (bP44StandardEquipment ? 1 : 0) + (bP45SpatialGraph ? 1 : 0);
 	if (!Payload.IsValid() || SourceKindCount != 1
-		|| Payload.bQuickTransferIntent || Payload.bSplitIntent
-		|| Payload.QuantityDraftKind != demo_map_code_b::ECodeBP3QuantityDraftKind::None
-		|| Payload.RequestedMergeQuantity != 0
+		|| Payload.bQuickTransferIntent
+		|| (!bP69Split && Payload.bSplitIntent)
+		|| (!bP69Split && Payload.QuantityDraftKind != demo_map_code_b::ECodeBP3QuantityDraftKind::None)
+		|| (!bP69Split && Payload.RequestedMergeQuantity != 0)
+		|| (bP69Split && (bP44StandardEquipment || bP45SpatialGraph))
 		|| (bP43SimpleStack && (Payload.P38BodyEquipmentProof.bIntent
 			|| Payload.P42BodySpatialGraphEquipmentProof.bSourceProof))
 		|| (bP44StandardEquipment && (Payload.P43BodySimpleStackGroundDropProof.bIntent
@@ -4945,9 +5287,13 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBBodyGroundDrop(
 			|| Payload.P38BodyEquipmentProof.bIntent))
 		|| Payload.P40BodySimpleStackProof.bIntent
 		|| Payload.P41BodySpatialGraphProof.bIntent
+		|| Payload.P62NormalContainerStandardEquipmentProof.bIntent
+		|| Payload.P63NormalContainerPlayerSimpleStackProof.bIntent
 		|| Payload.P47NormalContainerSpatialGraphProof.bIntent
 		|| Payload.P48NormalContainerSpatialGraphEquipmentProof.bIntent
 		|| Payload.P49NormalContainerSimpleStackGroundDropProof.bIntent
+		|| Payload.P64NormalContainerPlayerSimpleStackGroundDropProof.bIntent
+		|| Payload.P65NormalContainerPlayerStandardEquipmentGroundDropProof.bIntent
 		|| Payload.P42BodySpatialGraphEquipmentProof.bIntent
 		|| Payload.WorldDropId.IsValid() || Payload.WorldDropOrdinal != 0
 		|| Payload.WorldDropRecordRevision != INDEX_NONE
@@ -4991,6 +5337,7 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBBodyGroundDrop(
 		CodeBBodyContainerRunId, CodeBBodyContainerTargetId,
 		CodeBBodyContainerDefinitionId, CodeBBodyContainerExpectedP6Revision,
 		CodeBBodyContainerExpectedTargetRevision, P43Proof, P44Proof, P45Proof,
+		bP69Split ? Payload.RequestedMergeQuantity : 0,
 		MapRoute, FloorTransform,
 		UpdatedBody, NewWorldDrop, &OutFeedback))
 	{
@@ -5015,7 +5362,7 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBBodyGroundDrop(
 			});
 	demo_map_code_b::FCodeBSnapshot UpdatedComposite;
 	if (!UpdatedBodyRecord
-		|| !BuildCodeBRunContainerCompositeSnapshot(
+		|| !FCodeBRunItemInteractionDomain::BuildAcceptedCompositeSnapshot(
 			UpdatedSession.RepositorySnapshot, UpdatedBodyRecord->ContainerSnapshot,
 			UpdatedComposite, OutFeedback)
 		|| !CodeBBodyContainerRepository.IsValid()
@@ -5034,7 +5381,7 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBBodyGroundDrop(
 	RefreshCodeBWorldDropActors();
 	UE_LOG(LogTemp, Display,
 		TEXT("CodeB.%s.GroundDrop Committed OwnerId=%s RunId=%s BodyTargetId=%s WorldDropId=%s ItemId=%s"),
-		bP44StandardEquipment ? TEXT("P44") : TEXT("P43"),
+		bP44StandardEquipment ? TEXT("P44") : (bP69Split ? TEXT("P69") : TEXT("P43")),
 		*NewWorldDrop.OwnerId.ToString(EGuidFormats::DigitsWithHyphens),
 		*NewWorldDrop.RunInstanceId.ToString(EGuidFormats::DigitsWithHyphens),
 		*CodeBBodyContainerTargetId.ToString(EGuidFormats::DigitsWithHyphens),
@@ -5043,6 +5390,84 @@ bool Ademo_mapV3ProgressionManager::RequestCodeBBodyGroundDrop(
 	return true;
 }
 
+void Ademo_mapV3ProgressionManager::ApplyCodeBRunItemInteractionResult(
+	const FCodeBActivePlayerInteractionCommitResult& Result)
+{
+	if (Result.OwnerId == CodeBActiveRunInventoryOwnerId
+		&& Result.RunInstanceId == CodeBActiveRunInventoryRunId)
+	{
+		CodeBActiveRunInventoryExpectedP6Revision = Result.P6SnapshotRevision;
+	}
+}
+
+void Ademo_mapV3ProgressionManager::ApplyCodeBRunItemInteractionResult(
+	const FCodeBNormalContainerInteractionCommitResult& Result)
+{
+	if (Result.OwnerId != CodeBNormalContainerOwnerId
+		|| Result.RunInstanceId != CodeBNormalContainerRunId
+		|| Result.TargetId != CodeBNormalContainerTargetId)
+	{
+		return;
+	}
+	CodeBNormalContainerExpectedP6Revision = Result.P6SnapshotRevision;
+	CodeBNormalContainerExpectedTargetRevision = Result.TargetRevision;
+	if (!Result.Projection.IsSet()) return;
+	UGameInstance* GameInstance = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
+	if (UCodeBP3UIHostSubsystem* Host = GameInstance
+		? GameInstance->GetSubsystem<UCodeBP3UIHostSubsystem>() : nullptr)
+	{
+		Host->UpdateNormalContainerProjection(Result.Projection.GetValue(), Result.P6SnapshotRevision);
+	}
+}
+
+void Ademo_mapV3ProgressionManager::ApplyCodeBRunItemInteractionResult(
+	const FCodeBBodyContainerInteractionCommitResult& Result)
+{
+	if (Result.OwnerId != CodeBBodyContainerOwnerId
+		|| Result.RunInstanceId != CodeBBodyContainerRunId
+		|| Result.TargetId != CodeBBodyContainerTargetId)
+	{
+		return;
+	}
+	CodeBBodyContainerExpectedP6Revision = Result.P6SnapshotRevision;
+	CodeBBodyContainerExpectedTargetRevision = Result.TargetRevision;
+	if (!Result.Projection.IsSet()) return;
+	UGameInstance* GameInstance = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
+	if (UCodeBP3UIHostSubsystem* Host = GameInstance
+		? GameInstance->GetSubsystem<UCodeBP3UIHostSubsystem>() : nullptr)
+	{
+		Host->UpdateBodyContainerProjection(Result.Projection.GetValue());
+	}
+}
+
+void Ademo_mapV3ProgressionManager::ApplyCodeBRunItemInteractionResult(
+	const FCodeBWorldDropInteractionCommitResult& Result)
+{
+	if (Result.OwnerId != CodeBWorldDropOwnerId
+		|| Result.RunInstanceId != CodeBWorldDropRunId
+		|| Result.WorldDropId != CodeBWorldDropId)
+	{
+		return;
+	}
+	CodeBWorldDropExpectedP6Revision = Result.P6SnapshotRevision;
+	if (Result.Projection.IsSet())
+	{
+		CodeBWorldDropRecordRevision = Result.Projection.GetValue().RecordRevision;
+		if (UGameInstance* GameInstance = GetWorld() ? GetWorld()->GetGameInstance() : nullptr)
+		{
+			if (UCodeBP3UIHostSubsystem* Host = GameInstance->GetSubsystem<UCodeBP3UIHostSubsystem>())
+			{
+				Host->UpdateWorldDropProjection(Result.Projection.GetValue());
+			}
+		}
+	}
+	if (Result.bReconcileActors)
+	{
+		// This is post-commit visual reconciliation only: it never changes a
+		// committed Store result into an ordinary action failure.
+		RefreshCodeBWorldDropActors();
+	}
+}
 void Ademo_mapV3ProgressionManager::RefreshCodeBWorldDropActors()
 {
 	if (!CodeBActiveRunInventoryStore.IsValid() || !CodeBActiveRunInventoryRunId.IsValid() || !GetWorld()) return;
@@ -5143,38 +5568,29 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBWorldDropPage(
 		OutFeedback = TEXT("地面物品页面需要空闲的生产 P3/P4 Host。");
 		return false;
 	}
-	FCodeBRunInventorySession Session;
-	if (!CodeBActiveRunInventoryStore->OpenMatchedActiveRunInventorySession(
-		DropActor->GetRunInstanceId(), Session, &OutFeedback)) return false;
-	const FCodeBWorldDropRecord* Drop = Session.WorldDrops.FindByPredicate(
-		[DropActor](const FCodeBWorldDropRecord& Value) { return Value.WorldDropId == DropActor->GetWorldDropId(); });
-	if (!Drop || Drop->ActionState != ECodeBWorldDropActionState::Available
-		|| Drop->MapRoute != FName(*GetWorld()->GetMapName())
-		|| Drop->OwnerId != Session.OwnerId || Drop->RunInstanceId != Session.RunInstanceId
-		|| Drop->Ordinal != DropActor->GetOrdinal()
-		|| Drop->WorldContainerId != DropActor->GetWorldContainerId()
-		|| Drop->ItemId != DropActor->GetRootItemId()
-		|| Drop->SpatialChildContainerId != DropActor->GetSpatialChildContainerId()
-		|| Drop->MapRoute != DropActor->GetMapRoute()
-		|| Drop->RecordRevision != DropActor->GetRecordRevision()
-		|| DropActor->GetOwnerId() != Session.OwnerId
-		|| DropActor->GetRunInstanceId() != Session.RunInstanceId)
+	FCodeBWorldDropPresentationRequest FrameRequest;
+	FrameRequest.OwnerId = DropActor->GetOwnerId();
+	FrameRequest.RunInstanceId = DropActor->GetRunInstanceId();
+	FrameRequest.WorldDropId = DropActor->GetWorldDropId();
+	FrameRequest.Ordinal = DropActor->GetOrdinal();
+	FrameRequest.WorldContainerId = DropActor->GetWorldContainerId();
+	FrameRequest.RootItemId = DropActor->GetRootItemId();
+	FrameRequest.SpatialChildContainerId = DropActor->GetSpatialChildContainerId();
+	FrameRequest.MapRoute = DropActor->GetMapRoute();
+	FrameRequest.RecordRevision = DropActor->GetRecordRevision();
+	FCodeBWorldDropPresentationFrame Frame;
+	if (!FCodeBRunItemInteractionDomain::BuildWorldDropFrame(
+		ProfilePreparationFlow->GetStorageRoot(), FrameRequest, Frame, OutFeedback)
+		|| Frame.Projection.MapRoute != FName(*GetWorld()->GetMapName()))
 	{
-		OutFeedback = TEXT("地面物品不属于当前地图路由或已被移除。");
+		if (OutFeedback.IsEmpty()) OutFeedback = TEXT("地面物品不属于当前地图路由或已被移除。");
 		return false;
 	}
-	CodeBWorldDropRepository = MakeUnique<demo_map_code_b::FCodeBRepository>();
-	if (!CodeBWorldDropRepository->LoadPersistedSnapshot(Session.RepositorySnapshot, &OutFeedback))
-	{
-		CodeBWorldDropRepository.Reset();
-		return false;
-	}
-	demo_map_code_b::FCodeBP2PlayerLayout PresentationLayout = Session.Layout;
-	PresentationLayout.TransientPresentationContainers.Reset();
-	PresentationLayout.TransientPresentationContainers.Add(
-		TPair<FName, FGuid>(FName(TEXT("WorldDropTarget")), Drop->WorldContainerId));
-	CodeBWorldDropOwnerId = Session.OwnerId;
-	CodeBWorldDropRunId = Session.RunInstanceId;
+	const FCodeBWorldDropProjection* Drop = &Frame.Projection;
+	CodeBWorldDropRepository = MoveTemp(Frame.Shared.Repository);
+	demo_map_code_b::FCodeBP2PlayerLayout PresentationLayout = MoveTemp(Frame.Shared.Layout);
+	CodeBWorldDropOwnerId = Drop->OwnerId;
+	CodeBWorldDropRunId = Drop->RunInstanceId;
 	CodeBWorldDropId = Drop->WorldDropId;
 	CodeBWorldDropContainerId = Drop->WorldContainerId;
 	CodeBWorldDropRootItemId = Drop->ItemId;
@@ -5182,29 +5598,37 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBWorldDropPage(
 	CodeBWorldDropMapRoute = Drop->MapRoute;
 	CodeBWorldDropOrdinal = Drop->Ordinal;
 	CodeBWorldDropRecordRevision = Drop->RecordRevision;
-	CodeBWorldDropExpectedP6Revision = Session.RepositorySnapshot.Revision;
+	CodeBWorldDropExpectedP6Revision = Frame.Shared.P6SnapshotRevision;
 	if (NextCodeBWorldDropOpenGeneration == 0) NextCodeBWorldDropOpenGeneration = 1;
 	CodeBWorldDropOpenGeneration = NextCodeBWorldDropOpenGeneration++;
 	ActiveCodeBWorldDrop = DropActor;
 	const TWeakObjectPtr<Ademo_mapV3ProgressionManager> WeakManager(this);
 	FCodeBP3WorldDropPresentation Presentation;
-	Presentation.OwnerId = Session.OwnerId;
-	Presentation.RunInstanceId = Session.RunInstanceId;
+	Presentation.OwnerId = Drop->OwnerId;
+	Presentation.RunInstanceId = Drop->RunInstanceId;
 	Presentation.WorldDropId = Drop->WorldDropId;
 	Presentation.Ordinal = Drop->Ordinal;
 	Presentation.TargetContainerId = Drop->WorldContainerId;
 	Presentation.RootItemId = Drop->ItemId;
 	Presentation.SpatialChildContainerId = Drop->SpatialChildContainerId;
 	Presentation.MapRoute = Drop->MapRoute;
+	Presentation.FloorTransform = Drop->FloorTransform;
 	Presentation.RecordRevision = Drop->RecordRevision;
-	Presentation.Provenance = Drop->Provenance;
+	Presentation.Provenance = Frame.Provenance;
 	Presentation.TargetOpenGeneration = CodeBWorldDropOpenGeneration;
 	Presentation.Title = TEXT("地面物品");
+	FCodeBP3GroundDropPresentation GroundDropPresentation;
+	GroundDropPresentation.RequestDrop = [WeakManager](
+		const demo_map_code_b::FCodeBP4DragPayload& Payload, FString& OutError)
+	{
+		return WeakManager.IsValid()
+			&& WeakManager->RequestCodeBWorldDropGroundDrop(Payload, OutError);
+	};
 	FCodeBP3WorkspacePresentation Workspace;
 	Workspace.Context.Scope = demo_map_code_b::ECodeBP3WorkspaceScope::InRunP6;
-	Workspace.Context.OwnerId = Session.OwnerId;
-	Workspace.Context.RunInstanceId = Session.RunInstanceId;
-	Workspace.Context.SessionRevision = Session.RepositorySnapshot.Revision;
+	Workspace.Context.OwnerId = Drop->OwnerId;
+	Workspace.Context.RunInstanceId = Drop->RunInstanceId;
+	Workspace.Context.SessionRevision = Frame.Shared.P6SnapshotRevision;
 	Workspace.Context.WriteGate = demo_map_code_b::ECodeBP3WorkspaceWriteGate::InRun;
 	Workspace.Context.PlayerPaneId = FName(TEXT("InRun.Player"));
 	Workspace.Context.TargetPaneId = FName(TEXT("InRun.WorldDrop"));
@@ -5280,63 +5704,41 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBWorldDropPage(
 		[this](const demo_map_code_b::FCodeBSnapshot& CandidateSnapshot,
 			const demo_map_code_b::FCodeBP2Command& AcceptedCommand, FString& CommitError)
 		{
+			FCodeBWorldDropInteractionCommitRequest Request;
+			Request.StorageRoot = ProfilePreparationFlow ? ProfilePreparationFlow->GetStorageRoot() : FString();
+			Request.OwnerId = CodeBWorldDropOwnerId;
+			Request.RunInstanceId = CodeBWorldDropRunId;
+			Request.WorldDropId = CodeBWorldDropId;
+			Request.ExpectedP6SnapshotRevision = CodeBWorldDropExpectedP6Revision;
+			Request.ExpectedWorldDropOrdinal = CodeBWorldDropOrdinal;
+			Request.ExpectedWorldDropRecordRevision = CodeBWorldDropRecordRevision;
 			UGameInstance* CurrentGameInstance = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
 			UCodeBP3UIHostSubsystem* CurrentHost = CurrentGameInstance
 				? CurrentGameInstance->GetSubsystem<UCodeBP3UIHostSubsystem>() : nullptr;
-			const demo_map_code_b::FCodeBP3InventoryWorkspaceContext* CurrentWorkspace = CurrentHost
-				? CurrentHost->GetWorkspaceContext() : nullptr;
-			const bool bCarriesActiveChild = AcceptedCommand.QuickTransferActivePlayerContainerId.IsValid();
-			const bool bP36CurrentChildMode = AcceptedCommand.QuickTransferTargetMode
-				== demo_map_code_b::ECodeBQuickTransferTargetMode::CurrentP17Child;
-			const bool bP36BaseQuickMode = AcceptedCommand.QuickTransferTargetMode
-				== demo_map_code_b::ECodeBQuickTransferTargetMode::BaseQuickNoChildAtInput;
-			const bool bP36ModeMalformed = (bP36CurrentChildMode
-					&& (!bCarriesActiveChild || !AcceptedCommand.QuickTransferActivePlayerParentItemId.IsValid()
-						|| AcceptedCommand.ActivePlayerChildOpenGeneration == 0))
-				|| (bP36BaseQuickMode && (bCarriesActiveChild
-					|| AcceptedCommand.QuickTransferActivePlayerParentItemId.IsValid()
-					|| AcceptedCommand.ActivePlayerChildOpenGeneration != 0))
-				|| (!bP36CurrentChildMode && !bP36BaseQuickMode
-					&& AcceptedCommand.QuickTransferActivePlayerParentItemId.IsValid());
-			if (bP36ModeMalformed
-				|| (bCarriesActiveChild && (!CurrentWorkspace
-					|| !CurrentWorkspace->ActiveDestinationContainerId.IsSet()
-					|| CurrentWorkspace->ActiveDestinationContainerId.GetValue()
-						!= AcceptedCommand.QuickTransferActivePlayerContainerId
-					|| CurrentWorkspace->ActiveDestinationOpenGeneration == 0
-					|| CurrentWorkspace->ActiveDestinationOpenGeneration
-						!= AcceptedCommand.ActivePlayerChildOpenGeneration))
-				|| (!bCarriesActiveChild && AcceptedCommand.ActivePlayerChildOpenGeneration != 0))
-			{
-				CommitError = TEXT("活动 P17 child 已关闭、切换或 target-mode 身份失效；陈旧拾回未提交且不回退 BaseQuick。");
-				return false;
-			}
-			const bool bCommitted = FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunWorldDropPickup(
-				ProfilePreparationFlow ? ProfilePreparationFlow->GetStorageRoot() : FString(),
-				CodeBWorldDropOwnerId, CodeBWorldDropRunId, CodeBWorldDropId,
-				CodeBWorldDropOrdinal, CodeBWorldDropRecordRevision,
-				CodeBWorldDropExpectedP6Revision, AcceptedCommand, CandidateSnapshot, &CommitError);
+			Request.bTransientScopeCurrent = bCodeBWorldDropOpen
+				&& ActiveCodeBWorldDrop.IsValid()
+				&& CurrentHost && CurrentHost->IsHostEnabled()
+				&& ProfilePreparationFlow && ProfilePreparationFlow->GetSession()
+				&& ProfilePreparationFlow->GetPhase() == Edemo_mapProfilePreparationFlowPhase::RunActive
+				&& ProfilePreparationFlow->GetStartedRunId() == Request.RunInstanceId
+				&& ProfilePreparationFlow->GetSession()->GetSnapshot().ProfileId == Request.OwnerId
+				&& ProfilePreparationFlow->GetSession()->GetSnapshot().ActiveRunId == Request.RunInstanceId
+				&& ActiveCodeBWorldDrop->GetOwnerId() == Request.OwnerId
+				&& ActiveCodeBWorldDrop->GetRunInstanceId() == Request.RunInstanceId
+				&& ActiveCodeBWorldDrop->GetWorldDropId() == Request.WorldDropId
+				&& ActiveCodeBWorldDrop->GetOrdinal() == Request.ExpectedWorldDropOrdinal
+				&& ActiveCodeBWorldDrop->GetRecordRevision() == Request.ExpectedWorldDropRecordRevision;
+			FCodeBWorldDropInteractionCommitResult Result;
+			const bool bCommitted = FCodeBRunItemInteractionDomain::CommitAcceptedWorldDrop(
+				Request, AcceptedCommand, CandidateSnapshot, Result, CommitError);
 			if (bCommitted)
 			{
-				CodeBWorldDropExpectedP6Revision = CandidateSnapshot.Revision;
-				FCodeBRunInventorySession RefreshedSession;
-				FString RefreshError;
-				// The pickup service owns its own short-lived Store transaction. Reload
-				// this projection-only Store before reconciling actors; an actor failure
-				// never converts an already committed P6 pickup into a failed write.
-				CodeBActiveRunInventoryStore->OpenMatchedActiveRunInventorySession(
-					CodeBWorldDropRunId, RefreshedSession, &RefreshError);
-				if (const FCodeBWorldDropRecord* Retained = RefreshedSession.WorldDrops.FindByPredicate(
-					[this](const FCodeBWorldDropRecord& Value) { return Value.WorldDropId == CodeBWorldDropId; }))
-				{
-					CodeBWorldDropRecordRevision = Retained->RecordRevision;
-				}
-				RefreshCodeBWorldDropActors();
+				ApplyCodeBRunItemInteractionResult(Result);
 			}
 			return bCommitted;
 		},
 		[WeakManager]() { if (WeakManager.IsValid()) WeakManager->CloseCodeBWorldDropPage(); },
-		true, nullptr, nullptr, nullptr, nullptr, &Presentation, &Workspace);
+		true, nullptr, nullptr, nullptr, &GroundDropPresentation, &Presentation, &Workspace);
 	if (!bOpened)
 	{
 		CodeBWorldDropRepository.Reset();
@@ -5418,17 +5820,18 @@ void Ademo_mapV3ProgressionManager::CloseCodeBActiveRunInventory()
 	CodeBActiveRunInventoryStore.Reset();
 	CodeBActiveRunInventoryOwnerId.Invalidate();
 	CodeBActiveRunInventoryRunId.Invalidate();
+	CodeBActiveRunInventoryExpectedP6Revision = INDEX_NONE;
 }
 
 Fdemo_mapItemOperationResult
 Ademo_mapV3ProgressionManager::RequestCodeBNormalContainerInteract(
 	Ademo_mapCodeBNormalContainerActor* Container)
 {
-	if (!Container || Container->GetMapTargetIdentity() != GCodeBNormalContainerMapTargetId)
+	if (!IsRegisteredCodeBNormalContainerTarget(Container))
 	{
 		return Fdemo_mapItemOperationResult::Failure(
 			Edemo_mapItemResultCode::InvalidWorldBinding,
-			TEXT("P10 only binds the map-authored BasicCache target identity."));
+			TEXT("P57 only binds one of the two registered BasicCache target identities."));
 	}
 	if (bInventoryOpen || bCodeBActiveRunInventoryOpen || bSearchContainerOpen
 		|| (bCodeBNormalContainerOpen && ActiveCodeBNormalContainer.Get() != Container))
@@ -5548,46 +5951,18 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBNormalContainerPage(
 		OutFeedback = TEXT("P10 requires the existing production P3/P4 Host to be available.");
 		return false;
 	}
-	FCodeBOutOfRaidProfileStore Store(ProfilePreparationFlow->GetStorageRoot(), CodeBNormalContainerOwnerId);
-	FCodeBRunInventorySession Session;
-	if (!Store.OpenMatchedActiveRunInventorySession(CodeBNormalContainerRunId, Session, &OutFeedback))
-	{
-		return false;
-	}
-	FCodeBNormalContainerProjection FreshProjection;
-	if (!FCodeBOutOfRaidProfileStore::TryGetMatchedRunNormalContainerProjection(
+	FCodeBNormalContainerPresentationFrame Frame;
+	if (!FCodeBRunItemInteractionDomain::BuildNormalContainerFrame(
 		ProfilePreparationFlow->GetStorageRoot(), CodeBNormalContainerOwnerId,
-		CodeBNormalContainerRunId, CodeBNormalContainerTargetId, FreshProjection, &OutFeedback)
-		|| FreshProjection.State != ECodeBNormalContainerState::Open)
+		CodeBNormalContainerRunId, CodeBNormalContainerTargetId,
+		CodeBNormalContainerDefinitionId, Frame, OutFeedback))
 	{
 		return false;
 	}
-	const FCodeBRunLocalNormalContainerRecord* TargetRecord =
-		Store.GetRecord().RunLocalNormalContainers.FindByPredicate(
-			[this](const FCodeBRunLocalNormalContainerRecord& Value)
-			{ return Value.SearchTargetId == CodeBNormalContainerTargetId; });
-	if (!TargetRecord)
-	{
-		OutFeedback = TEXT("P10 could not locate the exact durable BasicCache record.");
-		return false;
-	}
-	demo_map_code_b::FCodeBSnapshot CompositeSnapshot;
-	if (!BuildCodeBRunContainerCompositeSnapshot(
-		Session.RepositorySnapshot, TargetRecord->ContainerSnapshot, CompositeSnapshot, OutFeedback))
-	{
-		return false;
-	}
-	CodeBNormalContainerRepository = MakeUnique<demo_map_code_b::FCodeBRepository>();
-	if (!CodeBNormalContainerRepository->LoadPersistedSnapshot(CompositeSnapshot, &OutFeedback))
-	{
-		CodeBNormalContainerRepository.Reset();
-		return false;
-	}
-	demo_map_code_b::FCodeBP2PlayerLayout PresentationLayout = Session.Layout;
-	PresentationLayout.TransientPresentationContainers.Reset();
-	PresentationLayout.TransientPresentationContainers.Add(
-		TPair<FName, FGuid>(FName(TEXT("NormalContainerTarget")), FreshProjection.ContainerId));
-	CodeBNormalContainerExpectedP6Revision = Session.RepositorySnapshot.Revision;
+	const FCodeBNormalContainerProjection& FreshProjection = Frame.Projection;
+	CodeBNormalContainerRepository = MoveTemp(Frame.Shared.Repository);
+	demo_map_code_b::FCodeBP2PlayerLayout PresentationLayout = MoveTemp(Frame.Shared.Layout);
+	CodeBNormalContainerExpectedP6Revision = Frame.Shared.P6SnapshotRevision;
 	CodeBNormalContainerExpectedTargetRevision = FreshProjection.Revision;
 	const TWeakObjectPtr<Ademo_mapV3ProgressionManager> WeakManager(this);
 	FCodeBP3NormalContainerPresentation Presentation;
@@ -5641,11 +6016,7 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBNormalContainerPage(
 	FCodeBP3HotbarPresentation HotbarPresentation;
 	HotbarPresentation.OwnerId = CodeBNormalContainerOwnerId;
 	HotbarPresentation.RunInstanceId = CodeBNormalContainerRunId;
-	if (!Store.TryGetMatchedActiveRunHotbarProjection(
-		CodeBNormalContainerRunId, HotbarPresentation.Projection, &OutFeedback))
-	{
-		return false;
-	}
+	HotbarPresentation.Projection = Frame.Shared.HotbarProjection;
 	HotbarPresentation.Refresh = [WeakManager](FCodeBHotbarProjection& OutProjection, FString& OutError)
 	{
 		if (!WeakManager.IsValid()) return false;
@@ -5687,121 +6058,32 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBNormalContainerPage(
 		[this](const demo_map_code_b::FCodeBSnapshot& PersistedSnapshot,
 			const demo_map_code_b::FCodeBP2Command& AcceptedCommand, FString& CommitError)
 		{
-			if (AcceptedCommand.P46NormalContainerSimpleStackProof.bIntent)
-			{
-				UGameInstance* CurrentGameInstance = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
-				UCodeBP3UIHostSubsystem* CurrentHost = CurrentGameInstance
-					? CurrentGameInstance->GetSubsystem<UCodeBP3UIHostSubsystem>() : nullptr;
-				const demo_map_code_b::FCodeBP3InventoryWorkspaceContext* CurrentWorkspace =
-					CurrentHost ? CurrentHost->GetWorkspaceContext() : nullptr;
-				const demo_map_code_b::FCodeBP46NormalContainerSimpleStackQuickTransferProof& Proof =
-					AcceptedCommand.P46NormalContainerSimpleStackProof;
-				const bool bCurrentChildMode = AcceptedCommand.QuickTransferTargetMode
-					== demo_map_code_b::ECodeBQuickTransferTargetMode::CurrentP17Child;
-				const bool bBaseQuickMode = AcceptedCommand.QuickTransferTargetMode
-					== demo_map_code_b::ECodeBQuickTransferTargetMode::BaseQuickNoChildAtInput;
-				const bool bCurrentChildProof = bCurrentChildMode && CurrentWorkspace
-					&& CurrentWorkspace->ActiveDestinationContainerId.IsSet()
-					&& CurrentWorkspace->ActiveDestinationContainerId.GetValue()
-						== AcceptedCommand.QuickTransferActivePlayerContainerId
-					&& CurrentWorkspace->ActiveDestinationOpenGeneration
-						== AcceptedCommand.ActivePlayerChildOpenGeneration
-					&& Proof.ActivePlayerChildContainerId
-						== AcceptedCommand.QuickTransferActivePlayerContainerId
-					&& Proof.ActivePlayerChildParentItemId
-						== AcceptedCommand.QuickTransferActivePlayerParentItemId
-					&& Proof.ActivePlayerChildOpenGeneration
-						== AcceptedCommand.ActivePlayerChildOpenGeneration;
-				const bool bBaseQuickProof = bBaseQuickMode
-					&& !AcceptedCommand.QuickTransferActivePlayerContainerId.IsValid()
-					&& !AcceptedCommand.QuickTransferActivePlayerParentItemId.IsValid()
-					&& AcceptedCommand.ActivePlayerChildOpenGeneration == 0
-					&& !Proof.ActivePlayerChildContainerId.IsValid()
-					&& !Proof.ActivePlayerChildParentItemId.IsValid()
-					&& Proof.ActivePlayerChildOpenGeneration == 0;
-				if (!bCodeBNormalContainerOpen || !ActiveCodeBNormalContainer.IsValid()
-					|| !CurrentHost || !CurrentHost->IsHostEnabled()
-					|| !CurrentWorkspace || !CurrentWorkspace->IsInRun()
-					|| CurrentWorkspace->OwnerId != CodeBNormalContainerOwnerId
-					|| CurrentWorkspace->RunInstanceId != CodeBNormalContainerRunId
-					|| (!bCurrentChildProof && !bBaseQuickProof))
-				{
-					CommitError = TEXT("P46 durable callback rejected a closed, unfocused, stale, or redirected BasicCache target.");
-					return false;
-				}
-			}
-			if (AcceptedCommand.P47NormalContainerSpatialGraphProof.bIntent)
-			{
-				UGameInstance* CurrentGameInstance = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
-				UCodeBP3UIHostSubsystem* CurrentHost = CurrentGameInstance
-					? CurrentGameInstance->GetSubsystem<UCodeBP3UIHostSubsystem>() : nullptr;
-				const demo_map_code_b::FCodeBP3InventoryWorkspaceContext* CurrentWorkspace =
-					CurrentHost ? CurrentHost->GetWorkspaceContext() : nullptr;
-				const demo_map_code_b::FCodeBP47NormalContainerSpatialGraphQuickTransferProof& Proof =
-					AcceptedCommand.P47NormalContainerSpatialGraphProof;
-				const bool bExactBaseQuickProof =
-					AcceptedCommand.QuickTransferTargetMode
-						== demo_map_code_b::ECodeBQuickTransferTargetMode::BaseQuickOnly
-					&& !AcceptedCommand.QuickTransferActivePlayerContainerId.IsValid()
-					&& !AcceptedCommand.QuickTransferActivePlayerParentItemId.IsValid()
-					&& AcceptedCommand.ActivePlayerChildOpenGeneration == 0
-					&& Proof.HasSourceIdentity() && Proof.HasFrozenTarget()
-					&& Proof.BaseQuickContainerId == AcceptedCommand.TargetContainerId
-					&& Proof.FrozenTargetContainerId == AcceptedCommand.TargetContainerId
-					&& Proof.FrozenTargetSlot == AcceptedCommand.TargetSlot;
-				if (!bCodeBNormalContainerOpen || !ActiveCodeBNormalContainer.IsValid()
-					|| !CurrentHost || !CurrentHost->IsHostEnabled()
-					|| !CurrentWorkspace || !CurrentWorkspace->IsInRun()
-					|| CurrentWorkspace->OwnerId != CodeBNormalContainerOwnerId
-					|| CurrentWorkspace->RunInstanceId != CodeBNormalContainerRunId
-					|| !bExactBaseQuickProof)
-				{
-					CommitError = TEXT("P47 durable callback rejected a closed, unfocused, stale, or redirected BasicCache spatial graph target.");
-					return false;
-				}
-			}
-			if (AcceptedCommand.P48NormalContainerSpatialGraphEquipmentProof.bIntent)
-			{
-				UGameInstance* CurrentGameInstance = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
-				UCodeBP3UIHostSubsystem* CurrentHost = CurrentGameInstance
-					? CurrentGameInstance->GetSubsystem<UCodeBP3UIHostSubsystem>() : nullptr;
-				const demo_map_code_b::FCodeBP3InventoryWorkspaceContext* CurrentWorkspace =
-					CurrentHost ? CurrentHost->GetWorkspaceContext() : nullptr;
-				const demo_map_code_b::FCodeBP48NormalContainerSpatialGraphEquipmentTransferProof& Proof =
-					AcceptedCommand.P48NormalContainerSpatialGraphEquipmentProof;
-				const bool bExactExplicitEquipmentProof =
-					AcceptedCommand.Intent == demo_map_code_b::ECodeBP2CommandIntent::Standard
-					&& AcceptedCommand.QuickTransferTargetMode
-						== demo_map_code_b::ECodeBQuickTransferTargetMode::Legacy
-					&& !AcceptedCommand.QuickTransferActivePlayerContainerId.IsValid()
-					&& !AcceptedCommand.QuickTransferActivePlayerParentItemId.IsValid()
-					&& AcceptedCommand.ActivePlayerChildOpenGeneration == 0
-					&& Proof.HasSourceIdentity() && Proof.HasFrozenTarget()
-					&& Proof.FrozenTargetContainerId == AcceptedCommand.TargetContainerId
-					&& Proof.FrozenTargetSlot == AcceptedCommand.TargetSlot;
-				if (!bCodeBNormalContainerOpen || !ActiveCodeBNormalContainer.IsValid()
-					|| !CurrentHost || !CurrentHost->IsHostEnabled()
-					|| !CurrentWorkspace || !CurrentWorkspace->IsInRun()
-					|| CurrentWorkspace->OwnerId != CodeBNormalContainerOwnerId
-					|| CurrentWorkspace->RunInstanceId != CodeBNormalContainerRunId
-					|| !bExactExplicitEquipmentProof)
-				{
-					CommitError = TEXT("P48 durable callback rejected a closed, unfocused, stale, or redirected BasicCache formal-equipment target.");
-					return false;
-				}
-			}
-			const bool bCommitted = FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunNormalContainerTransfer(
-				ProfilePreparationFlow ? ProfilePreparationFlow->GetStorageRoot() : FString(),
-				CodeBNormalContainerOwnerId, CodeBNormalContainerRunId,
-				CodeBNormalContainerTargetId, CodeBNormalContainerDefinitionId,
-				CodeBNormalContainerExpectedP6Revision,
-				CodeBNormalContainerExpectedTargetRevision,
-				AcceptedCommand,
-				PersistedSnapshot, &CommitError);
+			FCodeBNormalContainerInteractionCommitRequest Request;
+			Request.StorageRoot = ProfilePreparationFlow ? ProfilePreparationFlow->GetStorageRoot() : FString();
+			Request.OwnerId = CodeBNormalContainerOwnerId;
+			Request.RunInstanceId = CodeBNormalContainerRunId;
+			Request.TargetId = CodeBNormalContainerTargetId;
+			Request.DefinitionId = CodeBNormalContainerDefinitionId;
+			Request.ExpectedP6SnapshotRevision = CodeBNormalContainerExpectedP6Revision;
+			Request.ExpectedTargetRevision = CodeBNormalContainerExpectedTargetRevision;
+			UGameInstance* CurrentGameInstance = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
+			UCodeBP3UIHostSubsystem* CurrentHost = CurrentGameInstance
+				? CurrentGameInstance->GetSubsystem<UCodeBP3UIHostSubsystem>() : nullptr;
+			Request.bTransientScopeCurrent = bCodeBNormalContainerOpen
+				&& ActiveCodeBNormalContainer.IsValid()
+				&& IsRegisteredCodeBNormalContainerTarget(ActiveCodeBNormalContainer.Get())
+				&& CurrentHost && CurrentHost->IsHostEnabled()
+				&& ProfilePreparationFlow && ProfilePreparationFlow->GetSession()
+				&& ProfilePreparationFlow->GetPhase() == Edemo_mapProfilePreparationFlowPhase::RunActive
+				&& ProfilePreparationFlow->GetStartedRunId() == Request.RunInstanceId
+				&& ProfilePreparationFlow->GetSession()->GetSnapshot().ProfileId == Request.OwnerId
+				&& ProfilePreparationFlow->GetSession()->GetSnapshot().ActiveRunId == Request.RunInstanceId;
+			FCodeBNormalContainerInteractionCommitResult Result;
+			const bool bCommitted = FCodeBRunItemInteractionDomain::CommitAcceptedNormalContainer(
+				Request, AcceptedCommand, PersistedSnapshot, Result, CommitError);
 			if (bCommitted)
 			{
-				CodeBNormalContainerExpectedP6Revision = PersistedSnapshot.Revision;
-				++CodeBNormalContainerExpectedTargetRevision;
+				ApplyCodeBRunItemInteractionResult(Result);
 			}
 			return bCommitted;
 		},
@@ -6112,38 +6394,18 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBBodyContainerPage(
 		OutFeedback = TEXT("P12 requires the existing production P3/P4 Host to be available.");
 		return false;
 	}
-	FCodeBOutOfRaidProfileStore Store(ProfilePreparationFlow->GetStorageRoot(), CodeBBodyContainerOwnerId);
-	FCodeBRunInventorySession Session;
-	if (!Store.OpenMatchedActiveRunInventorySession(CodeBBodyContainerRunId, Session, &OutFeedback)) return false;
-	FCodeBBodyContainerProjection FreshProjection;
-	if (!FCodeBOutOfRaidProfileStore::TryGetMatchedRunBodyContainerProjection(
-		ProfilePreparationFlow->GetStorageRoot(), CodeBBodyContainerOwnerId, CodeBBodyContainerRunId,
-		CodeBBodyContainerTargetId, FreshProjection, &OutFeedback)
-		|| FreshProjection.State != ECodeBBodyContainerState::Open)
+	FCodeBBodyContainerPresentationFrame Frame;
+	if (!FCodeBRunItemInteractionDomain::BuildBodyContainerFrame(
+		ProfilePreparationFlow->GetStorageRoot(), CodeBBodyContainerOwnerId,
+		CodeBBodyContainerRunId, CodeBBodyContainerTargetId,
+		CodeBBodyContainerDefinitionId, Frame, OutFeedback))
 	{
 		return false;
 	}
-	const FCodeBRunLocalBodyContainerRecord* TargetRecord = Store.GetRecord().RunLocalBodyContainers.FindByPredicate(
-		[this](const FCodeBRunLocalBodyContainerRecord& Value) { return Value.BodyTargetId == CodeBBodyContainerTargetId; });
-	if (!TargetRecord)
-	{
-		OutFeedback = TEXT("P12 could not locate the exact durable body record.");
-		return false;
-	}
-	demo_map_code_b::FCodeBSnapshot CompositeSnapshot;
-	if (!BuildCodeBRunContainerCompositeSnapshot(
-		Session.RepositorySnapshot, TargetRecord->ContainerSnapshot, CompositeSnapshot, OutFeedback)) return false;
-	CodeBBodyContainerRepository = MakeUnique<demo_map_code_b::FCodeBRepository>();
-	if (!CodeBBodyContainerRepository->LoadPersistedSnapshot(CompositeSnapshot, &OutFeedback))
-	{
-		CodeBBodyContainerRepository.Reset();
-		return false;
-	}
-	demo_map_code_b::FCodeBP2PlayerLayout PresentationLayout = Session.Layout;
-	PresentationLayout.TransientPresentationContainers.Reset();
-	PresentationLayout.TransientPresentationContainers.Add(
-		TPair<FName, FGuid>(FName(TEXT("BodyContainerTarget")), FreshProjection.ContainerId));
-	CodeBBodyContainerExpectedP6Revision = Session.RepositorySnapshot.Revision;
+	const FCodeBBodyContainerProjection& FreshProjection = Frame.Projection;
+	CodeBBodyContainerRepository = MoveTemp(Frame.Shared.Repository);
+	demo_map_code_b::FCodeBP2PlayerLayout PresentationLayout = MoveTemp(Frame.Shared.Layout);
+	CodeBBodyContainerExpectedP6Revision = Frame.Shared.P6SnapshotRevision;
 	CodeBBodyContainerExpectedTargetRevision = FreshProjection.Revision;
 	const TWeakObjectPtr<Ademo_mapV3ProgressionManager> WeakManager(this);
 	FCodeBP3BodyContainerPresentation Presentation;
@@ -6203,11 +6465,7 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBBodyContainerPage(
 	FCodeBP3HotbarPresentation HotbarPresentation;
 	HotbarPresentation.OwnerId = CodeBBodyContainerOwnerId;
 	HotbarPresentation.RunInstanceId = CodeBBodyContainerRunId;
-	if (!Store.TryGetMatchedActiveRunHotbarProjection(
-		CodeBBodyContainerRunId, HotbarPresentation.Projection, &OutFeedback))
-	{
-		return false;
-	}
+	HotbarPresentation.Projection = Frame.Shared.HotbarProjection;
 	HotbarPresentation.Refresh = [WeakManager](FCodeBHotbarProjection& OutProjection, FString& OutError)
 	{
 		if (!WeakManager.IsValid()) return false;
@@ -6248,73 +6506,33 @@ bool Ademo_mapV3ProgressionManager::OpenCodeBBodyContainerPage(
 		[this](const demo_map_code_b::FCodeBSnapshot& PersistedSnapshot,
 			const demo_map_code_b::FCodeBP2Command& AcceptedCommand, FString& CommitError)
 		{
-			const bool bP39QuickTransfer = AcceptedCommand.Intent
-				== demo_map_code_b::ECodeBP2CommandIntent::QuickTransfer
-				&& AcceptedCommand.P38BodyEquipmentProof.bIntent;
-			const bool bP40QuickTransfer = AcceptedCommand.Intent
-				== demo_map_code_b::ECodeBP2CommandIntent::QuickTransfer
-				&& AcceptedCommand.P40BodySimpleStackProof.bIntent;
-			if (bP39QuickTransfer || bP40QuickTransfer)
-			{
-				UGameInstance* CurrentGameInstance = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
-				UCodeBP3UIHostSubsystem* CurrentHost = CurrentGameInstance
-					? CurrentGameInstance->GetSubsystem<UCodeBP3UIHostSubsystem>() : nullptr;
-				const demo_map_code_b::FCodeBP3InventoryWorkspaceContext* CurrentWorkspace = CurrentHost
-					? CurrentHost->GetWorkspaceContext() : nullptr;
-				const FGuid ProofChildContainerId = bP39QuickTransfer
-					? AcceptedCommand.P38BodyEquipmentProof.ActivePlayerChildContainerId
-					: AcceptedCommand.P40BodySimpleStackProof.ActivePlayerChildContainerId;
-				const FGuid ProofChildParentItemId = bP39QuickTransfer
-					? AcceptedCommand.P38BodyEquipmentProof.ActivePlayerChildParentItemId
-					: AcceptedCommand.P40BodySimpleStackProof.ActivePlayerChildParentItemId;
-				const uint32 ProofChildOpenGeneration = bP39QuickTransfer
-					? AcceptedCommand.P38BodyEquipmentProof.ActivePlayerChildOpenGeneration
-					: AcceptedCommand.P40BodySimpleStackProof.ActivePlayerChildOpenGeneration;
-				const bool bCurrentChildMode = AcceptedCommand.QuickTransferTargetMode
-					== demo_map_code_b::ECodeBQuickTransferTargetMode::CurrentP17Child;
-				const bool bBaseQuickMode = AcceptedCommand.QuickTransferTargetMode
-					== demo_map_code_b::ECodeBQuickTransferTargetMode::BaseQuickNoChildAtInput;
-				const bool bCurrentChildProof = bCurrentChildMode && CurrentWorkspace
-					&& CurrentWorkspace->ActiveDestinationContainerId.IsSet()
-					&& CurrentWorkspace->ActiveDestinationContainerId.GetValue()
-						== AcceptedCommand.QuickTransferActivePlayerContainerId
-					&& CurrentWorkspace->ActiveDestinationOpenGeneration != 0
-					&& CurrentWorkspace->ActiveDestinationOpenGeneration
-						== AcceptedCommand.ActivePlayerChildOpenGeneration
-					&& ProofChildContainerId
-						== AcceptedCommand.QuickTransferActivePlayerContainerId
-					&& ProofChildParentItemId
-						== AcceptedCommand.QuickTransferActivePlayerParentItemId
-					&& ProofChildOpenGeneration
-						== AcceptedCommand.ActivePlayerChildOpenGeneration;
-				const bool bBaseQuickProof = bBaseQuickMode
-					&& !AcceptedCommand.QuickTransferActivePlayerContainerId.IsValid()
-					&& !AcceptedCommand.QuickTransferActivePlayerParentItemId.IsValid()
-					&& AcceptedCommand.ActivePlayerChildOpenGeneration == 0
-					&& !ProofChildContainerId.IsValid()
-					&& !ProofChildParentItemId.IsValid()
-					&& ProofChildOpenGeneration == 0;
-				if ((!bCurrentChildProof && !bBaseQuickProof)
-					|| (bP39QuickTransfer && bP40QuickTransfer)
-					|| !bCodeBBodyContainerOpen || !CurrentHost
-					|| !ActiveCodeBBodyContainer.IsValid()
-					|| ActiveCodeBBodyContainer->GetCodeBBodyTargetIdentity()
-						!= GCodeBBodyContainerTargetIdentity)
-				{
-					CommitError = TEXT("P39/P40 frozen target or P12 Host lifecycle changed; pickup was rejected without fallback.");
-					return false;
-				}
-			}
-			const bool bCommitted = FCodeBOutOfRaidProfileStore::CommitAcceptedMatchedRunBodyContainerTransfer(
-				ProfilePreparationFlow ? ProfilePreparationFlow->GetStorageRoot() : FString(),
-				CodeBBodyContainerOwnerId, CodeBBodyContainerRunId, CodeBBodyContainerTargetId,
-				CodeBBodyContainerDefinitionId, CodeBBodyContainerExpectedP6Revision,
-				CodeBBodyContainerExpectedTargetRevision, AcceptedCommand,
-				PersistedSnapshot, &CommitError);
+			FCodeBBodyContainerInteractionCommitRequest Request;
+			Request.StorageRoot = ProfilePreparationFlow ? ProfilePreparationFlow->GetStorageRoot() : FString();
+			Request.OwnerId = CodeBBodyContainerOwnerId;
+			Request.RunInstanceId = CodeBBodyContainerRunId;
+			Request.TargetId = CodeBBodyContainerTargetId;
+			Request.DefinitionId = CodeBBodyContainerDefinitionId;
+			Request.ExpectedP6SnapshotRevision = CodeBBodyContainerExpectedP6Revision;
+			Request.ExpectedTargetRevision = CodeBBodyContainerExpectedTargetRevision;
+			UGameInstance* CurrentGameInstance = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
+			UCodeBP3UIHostSubsystem* CurrentHost = CurrentGameInstance
+				? CurrentGameInstance->GetSubsystem<UCodeBP3UIHostSubsystem>() : nullptr;
+			Request.bTransientScopeCurrent = bCodeBBodyContainerOpen
+				&& ActiveCodeBBodyContainer.IsValid()
+				&& ActiveCodeBBodyContainer->GetCodeBBodyTargetIdentity()
+					== GCodeBBodyContainerTargetIdentity
+				&& CurrentHost && CurrentHost->IsHostEnabled()
+				&& ProfilePreparationFlow && ProfilePreparationFlow->GetSession()
+				&& ProfilePreparationFlow->GetPhase() == Edemo_mapProfilePreparationFlowPhase::RunActive
+				&& ProfilePreparationFlow->GetStartedRunId() == Request.RunInstanceId
+				&& ProfilePreparationFlow->GetSession()->GetSnapshot().ProfileId == Request.OwnerId
+				&& ProfilePreparationFlow->GetSession()->GetSnapshot().ActiveRunId == Request.RunInstanceId;
+			FCodeBBodyContainerInteractionCommitResult Result;
+			const bool bCommitted = FCodeBRunItemInteractionDomain::CommitAcceptedBodyContainer(
+				Request, AcceptedCommand, PersistedSnapshot, Result, CommitError);
 			if (bCommitted)
 			{
-				CodeBBodyContainerExpectedP6Revision = PersistedSnapshot.Revision;
-				++CodeBBodyContainerExpectedTargetRevision;
+				ApplyCodeBRunItemInteractionResult(Result);
 			}
 			return bCommitted;
 		},
@@ -6671,12 +6889,15 @@ void Ademo_mapV3ProgressionManager::DestroyRuntimeContainers(const FString& Reas
 	{
 		CloseCodeBBodyContainerPage(Reason);
 	}
-	if (bCodeBNormalContainerTargetSpawned && CodeBNormalContainerTarget.IsValid())
+	for (const TWeakObjectPtr<Ademo_mapCodeBNormalContainerActor>& Target : SpawnedCodeBNormalContainerTargets)
 	{
-		CodeBNormalContainerTarget->Destroy();
+		if (Target.IsValid())
+		{
+			Target->Destroy();
+		}
 	}
-	CodeBNormalContainerTarget.Reset();
-	bCodeBNormalContainerTargetSpawned = false;
+	SpawnedCodeBNormalContainerTargets.Reset();
+	CodeBNormalContainerTargets.Reset();
 	CloseSearchContainer(Reason, true);
 	DestroyEnemyEncounterContent();
 	RewardGenerationSession.Reset();
@@ -6905,7 +7126,7 @@ void Ademo_mapV3ProgressionManager::DestroyEnemyEncounterContent()
 bool Ademo_mapV3ProgressionManager::InitializeEnemyEncounterContent()
 {
 	FString ValidationError;
-	if (!Fdemo_mapFixedLootTableRegistry::Validate(&ValidationError)
+	if (!Fdemo_mapItemDefinitions::Validate(&ValidationError)
 		|| !Fdemo_mapEnemyEncounterConfig::Validate(&ValidationError)
 		|| !Fdemo_mapRewardFullMapDistribution::Validate(
 			&ValidationError)
@@ -7217,32 +7438,62 @@ bool Ademo_mapV3ProgressionManager::InitializeCodeBNormalContainerTarget()
 	{
 		return false;
 	}
-	if (CodeBNormalContainerTarget.IsValid())
+	const FName RequiredTargetIds[] =
 	{
-		return CodeBNormalContainerTarget->GetMapTargetIdentity()
-			== GCodeBNormalContainerMapTargetId;
+		GCodeBNormalContainerPrimaryMapTargetId,
+		GCodeBNormalContainerSecondaryMapTargetId
+	};
+	if (CodeBNormalContainerTargets.Num() == UE_ARRAY_COUNT(RequiredTargetIds))
+	{
+		bool bAllRegisteredTargetsRemainValid = true;
+		for (const FName RequiredTargetId : RequiredTargetIds)
+		{
+			bAllRegisteredTargetsRemainValid &= CodeBNormalContainerTargets.ContainsByPredicate(
+				[RequiredTargetId](const TWeakObjectPtr<Ademo_mapCodeBNormalContainerActor>& Target)
+				{
+					return Target.IsValid() && Target->GetMapTargetIdentity() == RequiredTargetId;
+				});
+		}
+		if (bAllRegisteredTargetsRemainValid)
+		{
+			return true;
+		}
 	}
+	for (const TWeakObjectPtr<Ademo_mapCodeBNormalContainerActor>& SpawnedTarget
+		: SpawnedCodeBNormalContainerTargets)
+	{
+		if (SpawnedTarget.IsValid()) SpawnedTarget->Destroy();
+	}
+	CodeBNormalContainerTargets.Reset();
+	SpawnedCodeBNormalContainerTargets.Reset();
 
-	Ademo_mapCodeBNormalContainerActor* ExistingTarget = nullptr;
+	TMap<FName, Ademo_mapCodeBNormalContainerActor*> ExistingTargets;
 	for (TActorIterator<Ademo_mapCodeBNormalContainerActor> It(GetWorld()); It; ++It)
 	{
-		if (It->GetMapTargetIdentity() != GCodeBNormalContainerMapTargetId)
+		const FName TargetIdentity = It->GetMapTargetIdentity();
+		if (!IsCodeBNormalContainerMapTargetIdentity(TargetIdentity))
 		{
 			continue;
 		}
-		if (ExistingTarget)
+		if (ExistingTargets.Contains(TargetIdentity))
 		{
 			UE_LOG(Logdemo_map, Error,
 				TEXT("CODEB_P10_BASIC_CACHE: duplicate map-authored target identity=%s."),
-				*GCodeBNormalContainerMapTargetId.ToString());
+				*TargetIdentity.ToString());
 			return false;
 		}
-		ExistingTarget = *It;
+		ExistingTargets.Add(TargetIdentity, *It);
 	}
-	if (ExistingTarget)
+	if (ExistingTargets.Num() == UE_ARRAY_COUNT(RequiredTargetIds))
 	{
-		CodeBNormalContainerTarget = ExistingTarget;
-		bCodeBNormalContainerTargetSpawned = false;
+		for (const FName TargetIdentity : RequiredTargetIds)
+		{
+			Ademo_mapCodeBNormalContainerActor* Target = ExistingTargets.FindRef(TargetIdentity);
+			CodeBNormalContainerTargets.Add(Target);
+			UE_LOG(Logdemo_map, Log,
+				TEXT("CODEB_P57_BASIC_CACHE: ready target=%s location=%s source=MapAuthored."),
+				*TargetIdentity.ToString(), *Target->GetActorLocation().ToCompactString());
+		}
 		return true;
 	}
 
@@ -7263,41 +7514,79 @@ bool Ademo_mapV3ProgressionManager::InitializeCodeBNormalContainerTarget()
 		return false;
 	}
 
-	const FVector Desired = Anchor->GetActorLocation()
-		+ Anchor->GetActorTransform().TransformVectorNoScale(
-			GCodeBNormalContainerAnchorLocalOffset);
-	FVector Location;
-	if (!Items->ResolveSafeWorldLocation(
-		GetWorld(), Desired, nullptr, Location, GCodeBNormalContainerMapTargetId,
-		nullptr, 64.0f))
+	for (int32 TargetIndex = 0; TargetIndex < UE_ARRAY_COUNT(RequiredTargetIds); ++TargetIndex)
 	{
-		UE_LOG(Logdemo_map, Error,
-			TEXT("CODEB_P10_BASIC_CACHE: no safe projection for target=%s anchor=%s."),
-			*GCodeBNormalContainerMapTargetId.ToString(), *GCodeBNormalContainerAnchorId.ToString());
-		return false;
-	}
-	FActorSpawnParameters Params;
-	Params.Name = FName(TEXT("M01_CodeBNormalContainer_BasicCache"));
-	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-	Ademo_mapCodeBNormalContainerActor* Spawned = GetWorld()->SpawnActor<Ademo_mapCodeBNormalContainerActor>(
-		Ademo_mapCodeBNormalContainerActor::StaticClass(), Location, Anchor->GetActorRotation(), Params);
-	if (!Spawned || Spawned->GetMapTargetIdentity() != GCodeBNormalContainerMapTargetId)
-	{
-		if (Spawned)
+		const FName TargetIdentity = RequiredTargetIds[TargetIndex];
+		Ademo_mapCodeBNormalContainerActor* Target = ExistingTargets.FindRef(TargetIdentity);
+		FVector Location = Target ? Target->GetActorLocation() : FVector::ZeroVector;
+		if (!Target)
 		{
-			Spawned->Destroy();
+			const FVector Desired = Anchor->GetActorLocation()
+				+ Anchor->GetActorTransform().TransformVectorNoScale(
+					CodeBNormalContainerAnchorLocalOffset(TargetIdentity));
+			if (!Items->ResolveSafeWorldLocation(
+				GetWorld(), Desired, nullptr, Location, TargetIdentity, nullptr, 64.0f))
+			{
+				UE_LOG(Logdemo_map, Error,
+					TEXT("CODEB_P57_BASIC_CACHE: no safe projection for target=%s anchor=%s."),
+					*TargetIdentity.ToString(), *GCodeBNormalContainerAnchorId.ToString());
+				for (const TWeakObjectPtr<Ademo_mapCodeBNormalContainerActor>& SpawnedTarget
+					: SpawnedCodeBNormalContainerTargets)
+				{
+					if (SpawnedTarget.IsValid()) SpawnedTarget->Destroy();
+				}
+				CodeBNormalContainerTargets.Reset();
+				SpawnedCodeBNormalContainerTargets.Reset();
+				return false;
+			}
+			FActorSpawnParameters Params;
+			Params.Name = FName(*FString::Printf(TEXT("M01_CodeBNormalContainer_BasicCache_%02d"), TargetIndex + 1));
+			Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			Target = GetWorld()->SpawnActor<Ademo_mapCodeBNormalContainerActor>(
+				Ademo_mapCodeBNormalContainerActor::StaticClass(), Location, Anchor->GetActorRotation(), Params);
+			if (Target)
+			{
+				Target->MapTargetIdentity = TargetIdentity;
+			}
+			if (!Target || Target->GetMapTargetIdentity() != TargetIdentity)
+			{
+				if (Target) Target->Destroy();
+				for (const TWeakObjectPtr<Ademo_mapCodeBNormalContainerActor>& SpawnedTarget
+					: SpawnedCodeBNormalContainerTargets)
+				{
+					if (SpawnedTarget.IsValid()) SpawnedTarget->Destroy();
+				}
+				CodeBNormalContainerTargets.Reset();
+				SpawnedCodeBNormalContainerTargets.Reset();
+				UE_LOG(Logdemo_map, Error,
+					TEXT("CODEB_P57_BASIC_CACHE: target spawn did not retain identity=%s."),
+					*TargetIdentity.ToString());
+				return false;
+			}
+			SpawnedCodeBNormalContainerTargets.Add(Target);
 		}
-		UE_LOG(Logdemo_map, Error,
-			TEXT("CODEB_P10_BASIC_CACHE: target spawn did not retain its exact static identity."));
+		CodeBNormalContainerTargets.Add(Target);
+		UE_LOG(Logdemo_map, Log,
+			TEXT("CODEB_P57_BASIC_CACHE: ready target=%s anchor=%s location=%s source=%s."),
+			*TargetIdentity.ToString(), *GCodeBNormalContainerAnchorId.ToString(),
+			*Location.ToCompactString(), ExistingTargets.Contains(TargetIdentity)
+				? TEXT("MapAuthored") : TEXT("RuntimeAdapter"));
+	}
+	return true;
+}
+
+bool Ademo_mapV3ProgressionManager::IsRegisteredCodeBNormalContainerTarget(
+	const Ademo_mapCodeBNormalContainerActor* Container) const
+{
+	if (!Container || !IsCodeBNormalContainerMapTargetIdentity(Container->GetMapTargetIdentity()))
+	{
 		return false;
 	}
-	CodeBNormalContainerTarget = Spawned;
-	bCodeBNormalContainerTargetSpawned = true;
-	UE_LOG(Logdemo_map, Log,
-		TEXT("CODEB_P10_BASIC_CACHE: ready target=%s anchor=%s location=%s."),
-		*GCodeBNormalContainerMapTargetId.ToString(), *GCodeBNormalContainerAnchorId.ToString(),
-		*Location.ToCompactString());
-	return true;
+	return CodeBNormalContainerTargets.ContainsByPredicate(
+		[Container](const TWeakObjectPtr<Ademo_mapCodeBNormalContainerActor>& Target)
+		{
+			return Target.Get() == Container;
+		});
 }
 
 bool Ademo_mapV3ProgressionManager::InitializeWorldContent()
@@ -8160,7 +8449,7 @@ Fdemo_mapItemOperationResult Ademo_mapV3ProgressionManager::HandleEnemyDeath(
 	const AActor* EnemyActor)
 {
 	const Fdemo_mapFixedLootTableDefinition* Table =
-		Fdemo_mapFixedLootTableRegistry::Find(LootTableId);
+		Fdemo_mapItemDefinitions::FindFixedLootProfile(LootTableId);
 	const Fdemo_mapRewardSourceProjection* Projection =
 		Fdemo_mapRewardSourceProjectionRegistry::
 			FindCorpseByFallbackTable(LootTableId);
@@ -8216,7 +8505,22 @@ Fdemo_mapItemOperationResult Ademo_mapV3ProgressionManager::HandleEnemyDeath(
 	bool bGenerated = false;
 	Fdemo_mapRewardSourceProjectionResult Plan;
 	bool bCorpseInitialized = false;
-	if (Corpse && Projection
+	Fdemo_mapPersistentGeneratedRewardSource ExistingSource;
+	const bool bExistingGeneratedSource = Projection
+		&& FindDurablyAcceptedRewardSource(
+			Items->GetActiveRunId(), Projection->StableSourceRoleId, ExistingSource);
+	if (Corpse && Projection && bExistingGeneratedSource)
+	{
+		bCorpseInitialized = Corpse->InitializeGeneratedCorpse(
+			this,
+			Items.Get(),
+			Items->GetActiveRunId(),
+			LootSourceId,
+			*Projection,
+			Plan);
+		bGenerated = bCorpseInitialized;
+	}
+	else if (Corpse && Projection
 		&& CanGenerateRewardSource(
 			Items->GetActiveRunId(),
 			Projection->StableSourceRoleId))
@@ -8264,16 +8568,7 @@ Fdemo_mapItemOperationResult Ademo_mapV3ProgressionManager::HandleEnemyDeath(
 			LootSourceId,
 			LootTableId);
 	}
-	if (!Corpse || !bCorpseInitialized
-		|| (bGenerated
-			&& !CommitGeneratedRewardSource(
-				Items->GetActiveRunId(),
-				Projection->StableSourceRoleId))
-		|| (bGenerated
-			&& !CommitRewardAffixPity(
-				Items->GetActiveRunId(),
-				Projection->StableSourceRoleId,
-				Plan)))
+	if (!Corpse || !bCorpseInitialized)
 	{
 		UE_LOG(
 			Logdemo_map,
@@ -8339,6 +8634,12 @@ Fdemo_mapItemOperationResult Ademo_mapV3ProgressionManager::HandleM01EnemyDeath(
 	const Fdemo_mapRewardSourceProjection Projection = Slot
 		? Fdemo_mapM01RewardDistribution::BuildProjection(*Slot)
 		: Fdemo_mapRewardSourceProjection();
+	Fdemo_mapPersistentGeneratedRewardSource ExistingSource;
+	const bool bExistingGeneratedSource = Slot
+		&& FindDurablyAcceptedRewardSource(
+			Items.IsValid() ? Items->GetActiveRunId() : FGuid(),
+			Slot->StableSourceRoleId,
+			ExistingSource);
 	if (!Items.IsValid()
 		|| Items->GetRunState() != Edemo_mapRunState::Active
 		|| RewardSourceRoleId.IsNone()
@@ -8350,8 +8651,9 @@ Fdemo_mapItemOperationResult Ademo_mapV3ProgressionManager::HandleM01EnemyDeath(
 		|| EnemyDefinition->RewardSourceRoleId != RewardSourceRoleId
 		|| EnemyDefinition->CorpseIdentity != CorpseIdentity
 		|| Slot->CorpseIdentity != CorpseIdentity
-		|| !CanGenerateRewardSource(
-			Items->GetActiveRunId(), Slot->StableSourceRoleId))
+		|| (!bExistingGeneratedSource
+			&& !CanGenerateRewardSource(
+				Items->GetActiveRunId(), Slot->StableSourceRoleId)))
 	{
 		UE_LOG(Logdemo_map, Error,
 			TEXT("M01_CORPSE_REJECTED role=%s corpse=%s source_valid=%d run_active=%d identity=%d slot=%d projection=%d duplicate=%d can_generate=%d."),
@@ -8380,12 +8682,16 @@ Fdemo_mapItemOperationResult Ademo_mapV3ProgressionManager::HandleM01EnemyDeath(
 			DeathLocation + FVector(0.0f, 0.0f, 24.0f),
 			FRotator::ZeroRotator,
 			Params);
-	const Fdemo_mapRewardSourceProjectionResult Plan =
-		Fdemo_mapRewardSourceProjectionPlanner::Plan(
+	Fdemo_mapRewardSourceProjectionResult Plan;
+	if (!bExistingGeneratedSource)
+	{
+		Plan = Fdemo_mapRewardSourceProjectionPlanner::Plan(
 			Projection,
 			Items->GetActiveRunId(),
 			GetRewardAffixPityState(Items->GetActiveRunId()));
-	const bool bCorpseInitialized = Corpse && Plan.IsSuccess()
+	}
+	const bool bCorpseInitialized = Corpse
+		&& (bExistingGeneratedSource || Plan.IsSuccess())
 		&& Corpse->InitializeM01GeneratedCorpse(
 		this,
 		Items.Get(),
@@ -8394,19 +8700,19 @@ Fdemo_mapItemOperationResult Ademo_mapV3ProgressionManager::HandleM01EnemyDeath(
 		Projection,
 		Plan,
 		CorpseIdentity);
-	const bool bSourceCommitted = bCorpseInitialized && CommitGeneratedRewardSource(
-		Items->GetActiveRunId(), Slot->StableSourceRoleId);
-	const bool bPityCommitted = bSourceCommitted && CommitRewardAffixPity(
-		Items->GetActiveRunId(), Slot->StableSourceRoleId, Plan);
-	if (!Corpse || !Plan.IsSuccess() || !bCorpseInitialized
-		|| !bSourceCommitted || !bPityCommitted)
+	// InitializeM01GeneratedCorpse prepares the durable source candidate before
+	// it projects the container.  A second commit here would both violate that
+	// ordering and reject the already-recorded role as a duplicate.
+	const bool bSourceCommitted = bCorpseInitialized;
+	if (!Corpse || (!bExistingGeneratedSource && !Plan.IsSuccess())
+		|| !bCorpseInitialized
+		|| !bSourceCommitted)
 	{
 		UE_LOG(Logdemo_map, Error,
-			TEXT("M01_CORPSE_GENERATION_FAILED role=%s projection=%s plan_status=%d stacks=%d initialized=%d source_commit=%d pity_commit=%d diagnostic=%s."),
+		TEXT("M01_CORPSE_GENERATION_FAILED role=%s projection=%s plan_status=%d stacks=%d initialized=%d source_commit=%d diagnostic=%s."),
 			*Slot->StableSourceRoleId.ToString(), *Projection.ProjectionId.ToString(),
 			static_cast<int32>(Plan.Status), Plan.PlannedStacks.Num(),
-			bCorpseInitialized ? 1 : 0, bSourceCommitted ? 1 : 0,
-			bPityCommitted ? 1 : 0,
+		bCorpseInitialized ? 1 : 0, bSourceCommitted ? 1 : 0,
 			*FString::Printf(TEXT("%s materialization=%s"),
 				*Plan.Trace.Diagnostic,
 				Corpse ? *Corpse->GetLastContainerDiagnostic() : TEXT("no_actor")));

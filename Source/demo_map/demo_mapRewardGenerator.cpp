@@ -106,6 +106,8 @@ namespace
 		Result.Trace.RequestId = Request.RequestId;
 		Result.Trace.RunId = Request.RunId;
 		Result.Trace.LootSourceId = Request.LootSourceId;
+		Result.Trace.ContentVersionId = Request.ContentVersionId;
+		Result.Trace.ContentDigest = Request.ContentDigest;
 		Result.Trace.BudgetProfileId = Request.BudgetProfileId;
 		Result.Trace.EffectiveSeed = Request.StableSeed;
 		Result.Trace.Diagnostic = Diagnostic;
@@ -163,6 +165,11 @@ Fdemo_mapRewardGenerationResult Fdemo_mapRewardGenerator::GenerateWithData(
 		|| Request.SourceTags.IsEmpty()
 		|| Request.SourceTags.Contains(NAME_None)
 		|| Request.StableSeed == 0
+		|| ((!Request.ContentVersionId.IsNone()
+			|| !Request.ContentDigest.IsEmpty())
+			&& !Fdemo_mapItemDefinitions::IsCurrentContentIdentity(
+				Request.ContentVersionId,
+				Request.ContentDigest))
 		|| Request.TargetCapacity <= 0)
 	{
 		return Failure(
@@ -286,6 +293,8 @@ Fdemo_mapRewardGenerationResult Fdemo_mapRewardGenerator::GenerateWithData(
 	Result.Trace.RequestId = Request.RequestId;
 	Result.Trace.RunId = Request.RunId;
 	Result.Trace.LootSourceId = Request.LootSourceId;
+	Result.Trace.ContentVersionId = Request.ContentVersionId;
+	Result.Trace.ContentDigest = Request.ContentDigest;
 	Result.Trace.BudgetProfileId = Request.BudgetProfileId;
 	Result.Trace.BaseValue = Profile.BaseValue;
 	Result.Trace.MultiplierBps = MultiplierBps;
@@ -475,21 +484,54 @@ bool Fdemo_mapRewardGenerationSession::IsProcessed(
 		&& ProcessedSourceKeys.Contains(MakeKey(RunId, LootSourceId));
 }
 
+const Fdemo_mapRewardSourceAcceptanceReceipt*
+Fdemo_mapRewardGenerationSession::FindAcceptedReceipt(
+	FGuid RunId,
+	FName LootSourceId) const
+{
+	if (!RunId.IsValid() || LootSourceId.IsNone())
+	{
+		return nullptr;
+	}
+	return AcceptedReceipts.Find(MakeKey(RunId, LootSourceId));
+}
+
+bool Fdemo_mapRewardGenerationSession::Commit(
+	const Fdemo_mapRewardSourceAcceptanceReceipt& Receipt)
+{
+	if (!Receipt.IsValid()
+		|| IsProcessed(Receipt.RunId, Receipt.StableSourceRoleId))
+	{
+		return false;
+	}
+	const FString Key = MakeKey(
+		Receipt.RunId,
+		Receipt.StableSourceRoleId);
+	ProcessedSourceKeys.Add(Key);
+	AcceptedReceipts.Add(Key, Receipt);
+	return true;
+}
+
 bool Fdemo_mapRewardGenerationSession::Commit(
 	FGuid RunId,
 	FName LootSourceId)
 {
-	if (!RunId.IsValid()
-		|| LootSourceId.IsNone()
-		|| IsProcessed(RunId, LootSourceId))
-	{
-		return false;
-	}
-	ProcessedSourceKeys.Add(MakeKey(RunId, LootSourceId));
-	return true;
+	Fdemo_mapRewardSourceAcceptanceReceipt LegacyReceipt;
+	LegacyReceipt.RunId = RunId;
+	LegacyReceipt.StableSourceRoleId = LootSourceId;
+	LegacyReceipt.SlotId = LootSourceId;
+	LegacyReceipt.DistributionProfileId = TEXT("Legacy.Unspecified");
+	LegacyReceipt.ContentVersionId = Fdemo_mapItemDefinitions::GetContentVersionId();
+	LegacyReceipt.ContentDigest = Fdemo_mapItemDefinitions::GetContentDigest();
+	LegacyReceipt.BudgetProfileId = FName(TEXT("Legacy.Unspecified"));
+	LegacyReceipt.EffectiveSeed = 1;
+	LegacyReceipt.bLegacyCompatibilityView = true;
+	LegacyReceipt.PlannedStacks.AddDefaulted();
+	return Commit(LegacyReceipt);
 }
 
 void Fdemo_mapRewardGenerationSession::Reset()
 {
 	ProcessedSourceKeys.Reset();
+	AcceptedReceipts.Reset();
 }

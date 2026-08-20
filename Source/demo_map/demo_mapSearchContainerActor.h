@@ -11,6 +11,7 @@ class UStaticMeshComponent;
 class UTextRenderComponent;
 class Udemo_mapItemSubsystem;
 class Ademo_mapV3ProgressionManager;
+struct Fdemo_mapPersistentGeneratedRewardSource;
 
 /** Shared real Actor host for Chest and Corpse Runtime Containers. */
 UCLASS()
@@ -30,6 +31,13 @@ public:
 		Edemo_mapRuntimeContainerKind InKind,
 		FName InStableSourceId,
 		const TArray<Fdemo_mapRuntimeContainerSeedEntry>& Seed);
+	/** P73.4 post-commit view: no new item/container identity is allocated here. */
+	bool InitializeCommittedSearchContainer(
+		Ademo_mapV3ProgressionManager* InManager,
+		Udemo_mapItemSubsystem* InItems,
+		FGuid InRunId,
+		Edemo_mapRuntimeContainerKind InKind,
+		const Fdemo_mapPersistentGeneratedRewardSource& Source);
 	Fdemo_mapRuntimeContainerResult SubmitContainerIntent(
 		const Fdemo_mapRuntimeContainerIntent& Intent,
 		bool bPlayerAlive,
@@ -46,6 +54,10 @@ public:
 	bool IsContainerSearching() const { return ContainerAuthority.IsSearching(); }
 	bool IsContainerOpened() const { return ContainerAuthority.GetState() == Edemo_mapRuntimeContainerState::Opened; }
 	bool IsContainerEmpty() const { return ContainerAuthority.IsEmpty(); }
+	bool IsCommittedRewardSourcePendingReconciliation() const
+	{
+		return bCommittedRewardSourcePendingReconciliation;
+	}
 	FGuid GetContainerId() const { return ContainerAuthority.GetContainerId(); }
 	FGuid GetOwningRunId() const { return ContainerAuthority.GetOwningRunId(); }
 	int32 GetContainerRevision() const { return ContainerAuthority.GetRevision(); }
@@ -73,6 +85,12 @@ protected:
 	{
 		bPlayerDepositAllowed = bAllowed;
 	}
+	void MarkCommittedRewardSourcePendingReconciliation(
+		const FString& InDiagnostic)
+	{
+		bCommittedRewardSourcePendingReconciliation = true;
+		LastDiagnostic = InDiagnostic;
+	}
 	void RefreshContainerPresentation();
 	UStaticMeshComponent* GetContainerMesh() const { return Mesh; }
 
@@ -98,4 +116,5 @@ private:
 	FString LastDiagnostic;
 	bool bCleanupComplete = false;
 	bool bPlayerDepositAllowed = true;
+	bool bCommittedRewardSourcePendingReconciliation = false;
 };

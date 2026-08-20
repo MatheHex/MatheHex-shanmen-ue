@@ -96,6 +96,13 @@ public:
 		, int32 FailureAfterMutation = INDEX_NONE
 #endif
 	);
+	/** Projects a previously accepted Profile source using its durable GUIDs. */
+	Fdemo_mapItemOperationResult MaterializeCommittedContainerItemsAtomically(
+		FGuid ContainerId,
+		const TArray<Fdemo_mapContainerMaterializationRequest>& Requests,
+		const TArray<FGuid>& CommittedInstanceIds,
+		TFunctionRef<bool(const TArray<FGuid>& InstanceIds, FString& OutDiagnostic)> FinalizeMaterialization,
+		TArray<FGuid>& OutInstanceIds);
 	Fdemo_mapItemOperationResult TransferContainerItemToInventory(
 		FGuid ContainerId,
 		FGuid InstanceId,

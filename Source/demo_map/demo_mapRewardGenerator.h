@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "demo_mapRewardGenerationTypes.h"
+#include "demo_mapRewardSourceProjection.h"
 
 /** Pure, deterministic value-first planner. It never creates ItemInstances. */
 struct Fdemo_mapRewardGenerator
@@ -28,6 +28,11 @@ class Fdemo_mapRewardGenerationSession
 {
 public:
 	bool IsProcessed(FGuid RunId, FName LootSourceId) const;
+	const Fdemo_mapRewardSourceAcceptanceReceipt* FindAcceptedReceipt(
+		FGuid RunId,
+		FName LootSourceId) const;
+	bool Commit(const Fdemo_mapRewardSourceAcceptanceReceipt& Receipt);
+	/** Legacy compatibility only; new production callers must commit a receipt. */
 	bool Commit(FGuid RunId, FName LootSourceId);
 	void Reset();
 	int32 Num() const { return ProcessedSourceKeys.Num(); }
@@ -35,5 +40,5 @@ public:
 private:
 	static FString MakeKey(FGuid RunId, FName LootSourceId);
 	TSet<FString> ProcessedSourceKeys;
+	TMap<FString, Fdemo_mapRewardSourceAcceptanceReceipt> AcceptedReceipts;
 };
-
