@@ -13,6 +13,7 @@ public class demo_mapTarget : TargetRules
 		ExtraModuleNames.AddRange(new string[] {
 			"ShanmenCore",
 			"ShanmenCombatCore",
+			"ShanmenItems",
 			"demo_map"
 		});
 	}

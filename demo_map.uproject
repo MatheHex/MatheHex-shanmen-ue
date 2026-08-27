@@ -15,6 +15,11 @@
 			"LoadingPhase": "Default"
 		},
 		{
+			"Name": "ShanmenItems",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
 			"Name": "demo_map",
 			"Type": "Runtime",
 			"LoadingPhase": "Default",
