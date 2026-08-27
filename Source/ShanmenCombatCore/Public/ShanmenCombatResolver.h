@@ -24,7 +24,7 @@ struct SHANMENCOMBATCORE_API FShanmenCombatIdFactory
 class SHANMENCOMBATCORE_API FShanmenImpactLedger
 {
 public:
-	bool TryAccept(const FGuid& ImpactId);
+	bool TryAccept(const FShanmenImpactRequest& Request);
 	bool Contains(const FGuid& ImpactId) const;
 	int32 Num() const;
 	void Reset();

@@ -1,5 +1,6 @@
 #include "ShanmenCombatResolver.h"
 
+#include "ShanmenCombatTags.h"
 #include "ShanmenDeterministicId.h"
 
 namespace
@@ -13,6 +14,54 @@ namespace
 	{
 		return FMath::IsFinite(Value) && Value >= 0.0f && Value <= 1.0f;
 	}
+
+	bool MatchesTags(
+		const FGameplayTagContainer& Available,
+		const FGameplayTagContainer& Required,
+		const FGameplayTagContainer& Blocked)
+	{
+		return Available.HasAll(Required) && !Available.HasAny(Blocked);
+	}
+
+	bool LayerComesBefore(const FShanmenDefenseLayer& Left, const FShanmenDefenseLayer& Right)
+	{
+		if (Left.Order != Right.Order)
+		{
+			return Left.Order < Right.Order;
+		}
+		return GuidDigits(Left.LayerId) < GuidDigits(Right.LayerId);
+	}
+}
+
+bool FShanmenCombatActionCapture::IsValid() const
+{
+	return RunId.IsValid()
+		&& OwnerId.IsValid()
+		&& ActivationId.IsValid()
+		&& SourceEntityId.IsValid()
+		&& !ActionDefinitionId.IsNone()
+		&& Content.IsValid();
+}
+
+bool FShanmenCombatActionSnapshot::TryCapture(
+	const FShanmenCombatActionCapture& Capture,
+	FShanmenCombatActionSnapshot& OutSnapshot)
+{
+	OutSnapshot = FShanmenCombatActionSnapshot();
+	if (!Capture.IsValid())
+	{
+		return false;
+	}
+
+	OutSnapshot.RunId = Capture.RunId;
+	OutSnapshot.OwnerId = Capture.OwnerId;
+	OutSnapshot.ActivationId = Capture.ActivationId;
+	OutSnapshot.SourceEntityId = Capture.SourceEntityId;
+	OutSnapshot.SourceItemInstanceId = Capture.SourceItemInstanceId;
+	OutSnapshot.ActionDefinitionId = Capture.ActionDefinitionId;
+	OutSnapshot.Content = Capture.Content;
+	OutSnapshot.SourceTags = Capture.SourceTags;
+	return true;
 }
 
 bool FShanmenCombatActionSnapshot::IsValid() const
@@ -22,9 +71,7 @@ bool FShanmenCombatActionSnapshot::IsValid() const
 		&& ActivationId.IsValid()
 		&& SourceEntityId.IsValid()
 		&& !ActionDefinitionId.IsNone()
-		&& Content.IsValid()
-		&& FMath::IsFinite(BasePower)
-		&& BasePower >= 0.0f;
+		&& Content.IsValid();
 }
 
 bool FShanmenHitCandidate::IsValid() const
@@ -38,24 +85,100 @@ bool FShanmenHitCandidate::IsValid() const
 		&& !HitNormal.ContainsNaN();
 }
 
+bool FShanmenDamagePacket::IsValid() const
+{
+	return !FormulaId.IsNone()
+		&& FMath::IsFinite(RawDamage)
+		&& RawDamage >= 0.0f
+		&& !DamageTags.IsEmpty();
+}
+
+bool FShanmenTargetVitalitySnapshot::IsValid() const
+{
+	return FMath::IsFinite(CurrentVitality)
+		&& FMath::IsFinite(MaximumVitality)
+		&& CurrentVitality >= 0.0f
+		&& MaximumVitality >= CurrentVitality;
+}
+
+bool FShanmenDefenseLayer::IsValid() const
+{
+	if (!LayerId.IsValid() || RuleId.IsNone() || LayerTags.IsEmpty() || !FMath::IsFinite(Magnitude))
+	{
+		return false;
+	}
+	if (bRequiresCommitOnTrigger && !SourceInstanceId.IsValid())
+	{
+		return false;
+	}
+
+	switch (Operation)
+	{
+	case EShanmenDefenseOperation::PreventAll:
+		return Magnitude >= 0.0f;
+	case EShanmenDefenseOperation::ReduceFraction:
+		return IsFraction(Magnitude);
+	case EShanmenDefenseOperation::AbsorbPoints:
+	case EShanmenDefenseOperation::PreventLethal:
+		return Magnitude >= 0.0f;
+	default:
+		return false;
+	}
+}
+
+bool FShanmenDefenseLayer::IsApplicable(
+	const FGameplayTagContainer& DamageTags,
+	const FGameplayTagContainer& SourceTags,
+	const FGameplayTagContainer& TargetTags) const
+{
+	return MatchesTags(DamageTags, RequiredDamageTags, BlockedDamageTags)
+		&& MatchesTags(SourceTags, RequiredSourceTags, BlockedSourceTags)
+		&& MatchesTags(TargetTags, RequiredTargetTags, BlockedTargetTags);
+}
+
 bool FShanmenDefenseSnapshot::IsValid() const
 {
-	return IsFraction(GuardReductionFraction)
-		&& FMath::IsFinite(ShieldPoints)
-		&& ShieldPoints >= 0.0f
-		&& IsFraction(ArmorResistanceFraction);
+	TSet<FGuid> LayerIds;
+	for (const FShanmenDefenseLayer& Layer : Layers)
+	{
+		if (!Layer.IsValid() || LayerIds.Contains(Layer.LayerId))
+		{
+			return false;
+		}
+		LayerIds.Add(Layer.LayerId);
+	}
+	return true;
 }
 
 bool FShanmenImpactRequest::IsValid() const
 {
-	return ImpactId.IsValid()
-		&& Action.IsValid()
-		&& Candidate.IsValid()
-		&& Defense.IsValid()
-		&& Action.ActivationId == Candidate.ActivationId
-		&& Action.SourceEntityId == Candidate.SourceEntityId
-		&& FMath::IsFinite(IncomingDamage)
-		&& IncomingDamage >= 0.0f;
+	if (!ImpactId.IsValid()
+		|| !Action.IsValid()
+		|| !Candidate.IsValid()
+		|| !Damage.IsValid()
+		|| !TargetVitality.IsValid()
+		|| !Defense.IsValid()
+		|| Action.GetActivationId() != Candidate.ActivationId
+		|| Action.GetSourceEntityId() != Candidate.SourceEntityId)
+	{
+		return false;
+	}
+
+	return ImpactId == FShanmenCombatIdFactory::MakeImpactId(
+		Action.GetRunId(),
+		Candidate.ActivationId,
+		Candidate.DetectorId,
+		Candidate.TargetEntityId,
+		Candidate.HitOrdinal);
+}
+
+bool FShanmenImpactResult::IsConserved(float Tolerance) const
+{
+	return bAccepted
+		&& FMath::IsFinite(RawDamage)
+		&& FMath::IsFinite(PreventedDamage)
+		&& FMath::IsFinite(FinalDamage)
+		&& FMath::IsNearlyEqual(RawDamage, PreventedDamage + FinalDamage, Tolerance);
 }
 
 FGuid FShanmenCombatIdFactory::MakeActivationId(
@@ -102,14 +225,14 @@ FGuid FShanmenCombatIdFactory::MakeImpactId(
 		});
 }
 
-bool FShanmenImpactLedger::TryAccept(const FGuid& ImpactId)
+bool FShanmenImpactLedger::TryAccept(const FShanmenImpactRequest& Request)
 {
-	if (!ImpactId.IsValid() || AcceptedImpactIds.Contains(ImpactId))
+	if (!Request.IsValid() || AcceptedImpactIds.Contains(Request.ImpactId))
 	{
 		return false;
 	}
 
-	AcceptedImpactIds.Add(ImpactId);
+	AcceptedImpactIds.Add(Request.ImpactId);
 	return true;
 }
 
@@ -138,38 +261,101 @@ FShanmenImpactResult FShanmenDefenseResolver::Resolve(const FShanmenImpactReques
 
 	Result.bAccepted = true;
 	Result.ImpactId = Request.ImpactId;
-	Result.RawDamage = Request.IncomingDamage;
+	Result.RawDamage = Request.Damage.RawDamage;
 
-	if (Request.Defense.bDodgeWindowActive)
+	TArray<int32> OrderedLayerIndices;
+	OrderedLayerIndices.Reserve(Request.Defense.Layers.Num());
+	for (int32 Index = 0; Index < Request.Defense.Layers.Num(); ++Index)
+	{
+		OrderedLayerIndices.Add(Index);
+	}
+	OrderedLayerIndices.Sort([&Request](int32 LeftIndex, int32 RightIndex)
+	{
+		return LayerComesBefore(Request.Defense.Layers[LeftIndex], Request.Defense.Layers[RightIndex]);
+	});
+
+	float RemainingDamage = Request.Damage.RawDamage;
+	for (int32 LayerIndex : OrderedLayerIndices)
+	{
+		if (RemainingDamage <= 0.0f)
+		{
+			break;
+		}
+
+		const FShanmenDefenseLayer& Layer = Request.Defense.Layers[LayerIndex];
+		if (!Layer.IsApplicable(
+			Request.Damage.DamageTags,
+			Request.Action.GetSourceTags(),
+			Request.Defense.TargetTags))
+		{
+			continue;
+		}
+
+		float Prevented = 0.0f;
+		switch (Layer.Operation)
+		{
+		case EShanmenDefenseOperation::PreventAll:
+			Prevented = RemainingDamage;
+			break;
+		case EShanmenDefenseOperation::ReduceFraction:
+			Prevented = RemainingDamage * Layer.Magnitude;
+			break;
+		case EShanmenDefenseOperation::AbsorbPoints:
+			Prevented = FMath::Min(RemainingDamage, Layer.Magnitude);
+			break;
+		case EShanmenDefenseOperation::PreventLethal:
+		{
+			const float AllowedDamage = FMath::Max(0.0f, Request.TargetVitality.CurrentVitality - Layer.Magnitude);
+			Prevented = FMath::Max(0.0f, RemainingDamage - AllowedDamage);
+			break;
+		}
+		default:
+			break;
+		}
+
+		Prevented = FMath::Clamp(Prevented, 0.0f, RemainingDamage);
+		if (Prevented <= 0.0f)
+		{
+			continue;
+		}
+
+		RemainingDamage -= Prevented;
+		Result.PreventedDamage += Prevented;
+
+		FShanmenDefenseLayerResult& LayerResult = Result.TriggeredLayers.AddDefaulted_GetRef();
+		LayerResult.LayerId = Layer.LayerId;
+		LayerResult.RuleId = Layer.RuleId;
+		LayerResult.SourceInstanceId = Layer.SourceInstanceId;
+		LayerResult.Operation = Layer.Operation;
+		LayerResult.Order = Layer.Order;
+		LayerResult.PreventedDamage = Prevented;
+		LayerResult.bRequiresCommit = Layer.bRequiresCommitOnTrigger;
+		LayerResult.LayerTags = Layer.LayerTags;
+	}
+
+	Result.FinalDamage = FMath::Max(0.0f, RemainingDamage);
+	if (Result.PreventedDamage <= 0.0f)
+	{
+		Result.Outcome = EShanmenDefenseOutcome::Applied;
+	}
+	else if (Result.FinalDamage > 0.0f)
+	{
+		Result.Outcome = EShanmenDefenseOutcome::Mitigated;
+	}
+	else if (!Result.TriggeredLayers.IsEmpty()
+		&& Result.TriggeredLayers[0].LayerTags.HasTagExact(FShanmenCombatNativeTags::DefenseEvade()))
 	{
 		Result.Outcome = EShanmenDefenseOutcome::Evaded;
-		return Result;
 	}
-
-	if (Request.Defense.bPerfectGuardWindowActive)
+	else if (!Result.TriggeredLayers.IsEmpty()
+		&& Result.TriggeredLayers[0].LayerTags.HasTagExact(FShanmenCombatNativeTags::DefensePerfectGuard()))
 	{
 		Result.Outcome = EShanmenDefenseOutcome::PerfectGuarded;
-		Result.GuardPrevented = Request.IncomingDamage;
-		return Result;
 	}
-
-	float RemainingDamage = Request.IncomingDamage;
-	if (Request.Defense.bGuardActive)
+	else
 	{
-		Result.GuardPrevented = RemainingDamage * Request.Defense.GuardReductionFraction;
-		RemainingDamage -= Result.GuardPrevented;
+		Result.Outcome = EShanmenDefenseOutcome::FullyPrevented;
 	}
 
-	Result.ShieldAbsorbed = FMath::Min(RemainingDamage, Request.Defense.ShieldPoints);
-	RemainingDamage -= Result.ShieldAbsorbed;
-
-	Result.ArmorPrevented = RemainingDamage * Request.Defense.ArmorResistanceFraction;
-	RemainingDamage -= Result.ArmorPrevented;
-	Result.FinalDamage = FMath::Max(0.0f, RemainingDamage);
-
-	const bool bMitigated = Result.GuardPrevented > 0.0f
-		|| Result.ShieldAbsorbed > 0.0f
-		|| Result.ArmorPrevented > 0.0f;
-	Result.Outcome = bMitigated ? EShanmenDefenseOutcome::Mitigated : EShanmenDefenseOutcome::Applied;
 	return Result;
 }
