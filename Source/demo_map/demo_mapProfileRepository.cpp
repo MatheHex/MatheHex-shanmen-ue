@@ -3,6 +3,7 @@
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapRewardAffix.h"
 #include "demo_mapRewardShopStock.h"
+#include "demo_mapShanmenLegacyItemWriteFence.h"
 #include "Dom/JsonObject.h"
 #include "GenericPlatform/GenericPlatformFile.h"
 #include "HAL/FileManager.h"
@@ -1775,6 +1776,39 @@ Fdemo_mapProfileSaveResult Fdemo_mapProfileRepository::SaveProfile(Fdemo_mapPers
 	Result.PrimaryPath = Storage.PrimaryPath(); Result.BackupPath = Storage.BackupPath(); Result.TempPath = Storage.TempPath();
 	FString Error;
 	if (!ValidateProfile(Profile, &Error)) { Result.Status = Edemo_mapProfileSaveStatus::ValidationRejected; Result.Diagnostic = Error; return Result; }
+	const Fdemo_mapShanmenLegacyItemWriteFenceProbe ItemFence =
+		Fdemo_mapShanmenLegacyItemWriteFence::Inspect(
+			Storage.RootDirectory, Profile.ProfileId);
+	if (ItemFence.IsRetired())
+	{
+		const FReadResult PrimaryBefore = ReadProfile(Result.PrimaryPath);
+		const FReadResult BackupBefore = ReadProfile(Result.BackupPath);
+		const Fdemo_mapPersistentProfile* DurableBefore = nullptr;
+		if (PrimaryBefore.Kind == EReadKind::Valid
+			&& PrimaryBefore.Profile.ProfileId == Profile.ProfileId)
+		{
+			DurableBefore = &PrimaryBefore.Profile;
+		}
+		else if (BackupBefore.Kind == EReadKind::Valid
+			&& BackupBefore.Profile.ProfileId == Profile.ProfileId)
+		{
+			DurableBefore = &BackupBefore.Profile;
+		}
+		if (!DurableBefore)
+		{
+			Result.Status = Edemo_mapProfileSaveStatus::ValidationRejected;
+			Result.Diagnostic =
+				TEXT("Legacy Profile item writer is retired and no valid Owner-matched baseline exists; save rejected without disk I/O.");
+			return Result;
+		}
+		if (!Fdemo_mapShanmenLegacyItemWriteFence::
+			PreservesRetiredProfileItems(*DurableBefore, Profile, &Error))
+		{
+			Result.Status = Edemo_mapProfileSaveStatus::ValidationRejected;
+			Result.Diagnostic = Error;
+			return Result;
+		}
+	}
 	if (Profile.SaveGeneration == MAX_int32) { Result.Status = Edemo_mapProfileSaveStatus::ValidationRejected; Result.Diagnostic = TEXT("SaveGeneration cannot be incremented."); return Result; }
 	Fdemo_mapPersistentProfile Candidate = Profile;
 	Candidate.SaveGeneration++;

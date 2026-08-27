@@ -45,6 +45,9 @@ public:
 	bool TryCaptureStableProfileForItemMigration(
 		Fdemo_mapPersistentProfile& OutProfile,
 		FString* OutDiagnostic = nullptr) const;
+	/** Dynamic storage-level gate used by post-cutover UI and orchestration. */
+	bool AreLegacyItemWritesRetired(
+		FString* OutDiagnostic = nullptr) const;
 
 #if WITH_DEV_AUTOMATION_TESTS
 	void SetNextRepositoryFailureForAutomation(Edemo_mapProfileFailureStage Stage) { NextRepositoryFailure = Stage; }

@@ -8,6 +8,7 @@
 #include "demo_mapProfileShopStockTransaction.h"
 #include "demo_mapProfileTradeTransaction.h"
 #include "demo_mapPersistentPreparationTransaction.h"
+#include "demo_mapShanmenLegacyItemWriteFence.h"
 #include "demo_mapSpiritStoneTransaction.h"
 
 	namespace
@@ -974,6 +975,28 @@ TryCaptureStableProfileForItemMigration(
 	return true;
 }
 
+bool Fdemo_mapProfileSessionCoordinator::AreLegacyItemWritesRetired(
+	FString* OutDiagnostic) const
+{
+	if (!CurrentProfile.IsSet() || !StorageContext.IsSet())
+	{
+		if (OutDiagnostic)
+		{
+			*OutDiagnostic =
+				TEXT("Legacy item write-fence status requires a loaded Profile session.");
+		}
+		return false;
+	}
+	const Fdemo_mapShanmenLegacyItemWriteFenceProbe Probe =
+		Fdemo_mapShanmenLegacyItemWriteFence::Inspect(
+			StorageContext->RootDirectory, CurrentProfile->ProfileId);
+	if (OutDiagnostic)
+	{
+		*OutDiagnostic = Probe.Diagnostic;
+	}
+	return Probe.IsRetired();
+}
+
 bool Fdemo_mapProfileSessionCoordinator::EnsureShopStockForPreparation(
 	FString& OutDiagnostic)
 {
@@ -983,6 +1006,12 @@ bool Fdemo_mapProfileSessionCoordinator::EnsureShopStockForPreparation(
 		OutDiagnostic =
 			TEXT("ShopStock preparation requires a loaded Profile and storage.");
 		return false;
+	}
+	if (AreLegacyItemWritesRetired(&OutDiagnostic))
+	{
+		OutDiagnostic =
+			TEXT("0.0.10 authority is active; legacy Profile ShopStock was left read-only.");
+		return true;
 	}
 	const bool bHadUsableStock = CurrentProfile->ShopStock.bInitialized;
 	Fdemo_mapProfileShopStockEnsureResult Ensure =

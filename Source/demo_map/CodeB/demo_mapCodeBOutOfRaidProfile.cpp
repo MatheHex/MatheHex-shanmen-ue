@@ -2,6 +2,7 @@
 
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapPersistentWarehouseTransaction.h"
+#include "demo_mapShanmenLegacyItemWriteFence.h"
 
 #include "Dom/JsonObject.h"
 #include "HAL/FileManager.h"
@@ -6606,6 +6607,16 @@ bool FCodeBOutOfRaidProfileStore::ValidateRecord(const FCodeBOutOfRaidInventoryR
 
 bool FCodeBOutOfRaidProfileStore::SaveRecord(const FCodeBOutOfRaidInventoryRecord& InRecord, FString& OutError) const
 {
+	const Fdemo_mapShanmenLegacyItemWriteFenceProbe ItemFence =
+		Fdemo_mapShanmenLegacyItemWriteFence::Inspect(
+			StorageRoot, OwnerId);
+	if (ItemFence.IsRetired())
+	{
+		OutError = FString::Printf(
+			TEXT("Code B legacy item writer is retired; durable write rejected without disk I/O. %s"),
+			*ItemFence.Diagnostic);
+		return false;
+	}
 	if (!ValidateRecord(InRecord, OutError))
 	{
 		return false;

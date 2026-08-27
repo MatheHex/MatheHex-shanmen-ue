@@ -38,6 +38,8 @@ public:
 	bool CaptureStableItemMigrationRecord(
 		FCodeBOutOfRaidInventoryRecord& OutRecord,
 		FString& OutDiagnostic) const;
+	/** True after the 0.0.10 authority document has retired Code B writes. */
+	bool AreLegacyItemWritesRetired(FString* OutDiagnostic = nullptr) const;
 	void Reset();
 
 private:
@@ -48,4 +50,6 @@ private:
 	TUniquePtr<FCodeBOutOfRaidProfileStore> Store;
 	demo_map_code_b::FCodeBRepository Repository;
 	demo_map_code_b::FCodeBP2PlayerLayout Layout;
+	FString BoundStorageRoot;
+	FGuid BoundOwnerId;
 };

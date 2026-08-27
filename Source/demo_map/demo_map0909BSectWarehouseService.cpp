@@ -1,6 +1,7 @@
 #include "demo_map0909BSectWarehouseService.h"
 
 #include "CodeB/demo_mapCodeBP2.h"
+#include "demo_mapShanmenLegacyItemWriteFence.h"
 
 bool Fdemo_map0909BSectWarehouseService::OpenForSect(
 	const FString& StorageRoot,
@@ -37,6 +38,8 @@ bool Fdemo_map0909BSectWarehouseService::OpenForSect(
 		Reset();
 		return false;
 	}
+	BoundStorageRoot = StorageRoot;
+	BoundOwnerId = ProfileSnapshot.ProfileId;
 	return BuildPresentation(CoordinatorState, OutPresentation, OutDiagnostic);
 }
 
@@ -82,11 +85,26 @@ bool Fdemo_map0909BSectWarehouseService::CaptureStableItemMigrationRecord(
 	return true;
 }
 
+bool Fdemo_map0909BSectWarehouseService::AreLegacyItemWritesRetired(
+	FString* OutDiagnostic) const
+{
+	const Fdemo_mapShanmenLegacyItemWriteFenceProbe Probe =
+		Fdemo_mapShanmenLegacyItemWriteFence::Inspect(
+			BoundStorageRoot, BoundOwnerId);
+	if (OutDiagnostic)
+	{
+		*OutDiagnostic = Probe.Diagnostic;
+	}
+	return Probe.IsRetired();
+}
+
 void Fdemo_map0909BSectWarehouseService::Reset()
 {
 	Store.Reset();
 	Repository = demo_map_code_b::FCodeBRepository();
 	Layout = demo_map_code_b::FCodeBP2PlayerLayout();
+	BoundStorageRoot.Reset();
+	BoundOwnerId.Invalidate();
 }
 
 bool Fdemo_map0909BSectWarehouseService::BuildPresentation(
@@ -120,13 +138,18 @@ bool Fdemo_map0909BSectWarehouseService::BuildPresentation(
 	OutPresentation.bOpen = true;
 	OutPresentation.OwnerId = Store->GetRecord().OwnerId;
 	OutPresentation.PersistentRevision = Store->GetPersistentRevision();
+	FString FenceDiagnostic;
+	const bool bRetired = AreLegacyItemWritesRetired(&FenceDiagnostic);
 	OutPresentation.bCanWrite = CoordinatorState == Edemo_map0909BTopState::AtSect
-		&& !Store->GetRecord().bHasActiveRunInventorySession;
+		&& !Store->GetRecord().bHasActiveRunInventorySession
+		&& !bRetired;
 	OutPresentation.GateDiagnostic = OutPresentation.bCanWrite
 		? TEXT("AtSect：可提交同图 P5 整理事务。")
-		: (CoordinatorState == Edemo_map0909BTopState::PreparingStart
+		: (bRetired
+			? FenceDiagnostic
+			: (CoordinatorState == Edemo_map0909BTopState::PreparingStart
 			|| CoordinatorState == Edemo_map0909BTopState::ActivatingWorld
 			? TEXT("StartAttemptPending：出战尝试处理中，P5 写入暂时拒绝。")
-			: TEXT("只有确认 InRun 才锁定仓库写入。"));
+			: TEXT("只有确认 InRun 才锁定仓库写入。")));
 	return true;
 }

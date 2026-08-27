@@ -385,6 +385,21 @@ TryCaptureStableProfileForItemMigration(
 		OutProfile, OutDiagnostic);
 }
 
+bool Udemo_mapProfileSessionSubsystem::AreLegacyItemWritesRetired(
+	FString* OutDiagnostic) const
+{
+	if (!bExplicitlyInitialized || !Coordinator.IsValid())
+	{
+		if (OutDiagnostic)
+		{
+			*OutDiagnostic =
+				TEXT("Legacy item write-fence status requires an initialized Profile Session.");
+		}
+		return false;
+	}
+	return Coordinator->AreLegacyItemWritesRetired(OutDiagnostic);
+}
+
 Fdemo_mapProfilePreparationSnapshot Udemo_mapProfileSessionSubsystem::GetPreparationSnapshot() const
 {
 	const Fdemo_mapProfileSessionSnapshot SessionSnapshot = GetSnapshot();

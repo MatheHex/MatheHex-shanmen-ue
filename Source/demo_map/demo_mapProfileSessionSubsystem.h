@@ -34,6 +34,8 @@ public:
 	bool TryCaptureStableProfileForItemMigration(
 		Fdemo_mapPersistentProfile& OutProfile,
 		FString* OutDiagnostic = nullptr) const;
+	bool AreLegacyItemWritesRetired(
+		FString* OutDiagnostic = nullptr) const;
 	Fdemo_mapProfilePreparationSnapshot GetPreparationSnapshot() const;
 	Fdemo_mapProfilePreparationSelectionResult SetPreparationEquipment(FName SlotId, const FGuid& ItemInstanceId);
 	Fdemo_mapProfilePreparationSelectionResult SetPreparationMaterial(const FGuid& ItemInstanceId, bool bSelected);
