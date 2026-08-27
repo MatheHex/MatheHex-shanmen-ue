@@ -34,6 +34,10 @@ public:
 	bool CaptureLoadoutSelection(
 		FCodeBLoadoutSelection& OutSelection,
 		FString& OutDiagnostic) const;
+	/** Copies one committed, out-of-raid Code B source without exposing Store writes. */
+	bool CaptureStableItemMigrationRecord(
+		FCodeBOutOfRaidInventoryRecord& OutRecord,
+		FString& OutDiagnostic) const;
 	void Reset();
 
 private:

@@ -38,6 +38,13 @@ public:
 	Fdemo_mapTownUpgradeResult SubmitTownUpgrade(
 		const Fdemo_mapTownUpgradeIntent& Intent);
 	Fdemo_mapProfileSessionSnapshot GetSnapshot() const;
+	/**
+	 * Copies the complete validated Profile only at the stable out-of-raid
+	 * migration boundary. The returned value carries no write capability.
+	 */
+	bool TryCaptureStableProfileForItemMigration(
+		Fdemo_mapPersistentProfile& OutProfile,
+		FString* OutDiagnostic = nullptr) const;
 
 #if WITH_DEV_AUTOMATION_TESTS
 	void SetNextRepositoryFailureForAutomation(Edemo_mapProfileFailureStage Stage) { NextRepositoryFailure = Stage; }

@@ -929,6 +929,51 @@ Fdemo_mapProfileSessionSnapshot Fdemo_mapProfileSessionCoordinator::GetSnapshot(
 	return Snapshot;
 }
 
+bool Fdemo_mapProfileSessionCoordinator::
+TryCaptureStableProfileForItemMigration(
+	Fdemo_mapPersistentProfile& OutProfile,
+	FString* OutDiagnostic) const
+{
+	OutProfile = Fdemo_mapPersistentProfile();
+	if (OutDiagnostic)
+	{
+		OutDiagnostic->Reset();
+	}
+	if (State != Edemo_mapProfileSessionState::ReadyForPreparation
+		|| !CurrentProfile.IsSet())
+	{
+		if (OutDiagnostic)
+		{
+			*OutDiagnostic =
+				TEXT("Item migration requires a loaded Profile in ReadyForPreparation.");
+		}
+		return false;
+	}
+	if (CurrentProfile->ActiveRun.bHasActiveRun)
+	{
+		if (OutDiagnostic)
+		{
+			*OutDiagnostic =
+				TEXT("Item migration cannot capture a Profile with an active Run.");
+		}
+		return false;
+	}
+	FString ValidationError;
+	if (!Repository.ValidateProfile(
+		CurrentProfile.GetValue(), &ValidationError))
+	{
+		if (OutDiagnostic)
+		{
+			*OutDiagnostic = ValidationError.IsEmpty()
+				? TEXT("The current Profile failed migration-boundary validation.")
+				: ValidationError;
+		}
+		return false;
+	}
+	OutProfile = CurrentProfile.GetValue();
+	return true;
+}
+
 bool Fdemo_mapProfileSessionCoordinator::EnsureShopStockForPreparation(
 	FString& OutDiagnostic)
 {

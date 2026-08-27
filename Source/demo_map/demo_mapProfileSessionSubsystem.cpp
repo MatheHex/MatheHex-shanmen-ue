@@ -357,6 +357,34 @@ Fdemo_mapProfileSessionSnapshot Udemo_mapProfileSessionSubsystem::GetSnapshot() 
 		: Fdemo_mapProfileSessionSnapshot();
 }
 
+bool Udemo_mapProfileSessionSubsystem::
+TryCaptureStableProfileForItemMigration(
+	Fdemo_mapPersistentProfile& OutProfile,
+	FString* OutDiagnostic) const
+{
+	OutProfile = Fdemo_mapPersistentProfile();
+	if (!IsInGameThread())
+	{
+		if (OutDiagnostic)
+		{
+			*OutDiagnostic =
+				TEXT("Stable Profile capture is restricted to the Game Thread.");
+		}
+		return false;
+	}
+	if (!bExplicitlyInitialized || !Coordinator.IsValid())
+	{
+		if (OutDiagnostic)
+		{
+			*OutDiagnostic =
+				TEXT("Stable Profile capture requires an explicitly initialized session.");
+		}
+		return false;
+	}
+	return Coordinator->TryCaptureStableProfileForItemMigration(
+		OutProfile, OutDiagnostic);
+}
+
 Fdemo_mapProfilePreparationSnapshot Udemo_mapProfileSessionSubsystem::GetPreparationSnapshot() const
 {
 	const Fdemo_mapProfileSessionSnapshot SessionSnapshot = GetSnapshot();

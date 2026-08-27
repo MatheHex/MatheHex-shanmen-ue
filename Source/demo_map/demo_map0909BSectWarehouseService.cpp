@@ -55,6 +55,33 @@ bool Fdemo_map0909BSectWarehouseService::CaptureLoadoutSelection(
 		Store->GetRecord(), OutSelection, &OutDiagnostic);
 }
 
+bool Fdemo_map0909BSectWarehouseService::CaptureStableItemMigrationRecord(
+	FCodeBOutOfRaidInventoryRecord& OutRecord,
+	FString& OutDiagnostic) const
+{
+	OutRecord = FCodeBOutOfRaidInventoryRecord();
+	OutDiagnostic.Reset();
+	if (!Store || !Store->IsOpen())
+	{
+		OutDiagnostic =
+			TEXT("Stable item migration requires an open Code B out-of-raid record.");
+		return false;
+	}
+	const FCodeBOutOfRaidInventoryRecord& Record = Store->GetRecord();
+	if (!Record.OwnerId.IsValid()
+		|| Record.bHasActiveRunInventorySession
+		|| Record.Receipt.State != ECodeBOutOfRaidHandoffState::Committed
+		|| !Record.RunLocalNormalContainers.IsEmpty()
+		|| !Record.RunLocalBodyContainers.IsEmpty())
+	{
+		OutDiagnostic =
+			TEXT("Code B is not a committed, terminal out-of-raid migration source.");
+		return false;
+	}
+	OutRecord = Record;
+	return true;
+}
+
 void Fdemo_map0909BSectWarehouseService::Reset()
 {
 	Store.Reset();

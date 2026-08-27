@@ -30,6 +30,10 @@ public:
 	Fdemo_mapProfileSessionSettlementResult RetryPendingSettlement();
 	Fdemo_mapProfileTradeResult SubmitTradeIntent(const Fdemo_mapProfileTradeIntent& Intent);
 	Fdemo_mapProfileSessionSnapshot GetSnapshot() const;
+	/** Read-only, stable legacy source capture for the explicit 0.0.10 cutover. */
+	bool TryCaptureStableProfileForItemMigration(
+		Fdemo_mapPersistentProfile& OutProfile,
+		FString* OutDiagnostic = nullptr) const;
 	Fdemo_mapProfilePreparationSnapshot GetPreparationSnapshot() const;
 	Fdemo_mapProfilePreparationSelectionResult SetPreparationEquipment(FName SlotId, const FGuid& ItemInstanceId);
 	Fdemo_mapProfilePreparationSelectionResult SetPreparationMaterial(const FGuid& ItemInstanceId, bool bSelected);
