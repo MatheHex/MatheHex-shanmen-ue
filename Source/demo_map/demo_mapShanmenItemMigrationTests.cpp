@@ -2,6 +2,7 @@
 
 #include "demo_mapShanmenItemMigration.h"
 
+#include "ShanmenItemAuthorityService.h"
 #include "ShanmenItemRepository.h"
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapProfileRepository.h"
@@ -388,6 +389,58 @@ bool FShanmenItemsPersistedMigrationOpenTest::RunTest(const FString&)
 		&& ReadBytes(Storage.PrimaryPath(), AfterReopen)
 		&& AfterReopen == BeforeReopen);
 	TestTrue(TEXT("Publish and reopen never mutate Code A or Code B"),
+		Profile == ProfileBefore
+		&& Record.RepositorySnapshot == CodeBBefore);
+
+	IFileManager::Get().DeleteDirectory(*Root, false, true);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenItemsAuthorizedLifecycleHandoffTest,
+	"Shanmen.0_0_10.Items.Migration.AuthorizedLifecycleHandoff",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenItemsAuthorizedLifecycleHandoffTest::RunTest(const FString&)
+{
+	Fdemo_mapPersistentProfile Profile;
+	FCodeBOutOfRaidInventoryRecord Record;
+	FString Error;
+	TestTrue(TEXT("Lifecycle handoff source fixture builds"),
+		BuildLegacyFixture(Profile, Record, Error));
+	const Fdemo_mapPersistentProfile ProfileBefore = Profile;
+	const FCodeBSnapshot CodeBBefore = Record.RepositorySnapshot;
+	const Fdemo_mapShanmenItemMigrationResult Migration =
+		Fdemo_mapShanmenItemMigration::BuildCandidate(
+			Profile, Record, TargetContent());
+	TestTrue(TEXT("Lifecycle handoff candidate is valid"),
+		Migration.IsSuccess());
+
+	const FString Root = NewMigrationRoot(TEXT("AuthorizedLifecycle"));
+	const FShanmenItemStorageContext Storage =
+		FShanmenItemStorageContext::ForRoot(Root, Profile.ProfileId);
+	FShanmenItemAuthorityService Service;
+	TestTrue(TEXT("Absent authority is detected without importing"),
+		Service.StartExisting(Storage).Status
+			== EShanmenItemAuthorityStartStatus::MigrationRequired
+		&& !IFileManager::Get().FileExists(*Storage.PrimaryPath()));
+
+	const FShanmenItemMigrationEvidence Evidence =
+		Migration.Receipt.ToPersistenceEvidence();
+	const FShanmenItemMigrationAuthorization Authorization =
+		FShanmenItemMigrationAuthorization::Explicit(
+			Migration.Receipt.MigrationId);
+	const FShanmenItemAuthorityStartResult Started =
+		Service.StartFromAuthorizedMigration(
+			Storage, Authorization, Migration.Candidate, Evidence);
+	FShanmenItemAuthoritySnapshot Installed;
+	TestTrue(TEXT("Exact reviewed MigrationId creates the sole authority"),
+		Started.Status
+			== EShanmenItemAuthorityStartStatus::CreatedFromMigration
+		&& Started.DocumentGeneration == 1
+		&& Service.TryCaptureSnapshot(Installed)
+		&& Installed == Migration.Candidate);
+	TestTrue(TEXT("Authorized lifecycle remains read-only to Code A and Code B"),
 		Profile == ProfileBefore
 		&& Record.RepositorySnapshot == CodeBBefore);
 
