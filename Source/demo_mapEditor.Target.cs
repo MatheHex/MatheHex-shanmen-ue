@@ -10,6 +10,10 @@ public class demo_mapEditorTarget : TargetRules
 		Type = TargetType.Editor;
 		DefaultBuildSettings = BuildSettingsVersion.V7;
 		IncludeOrderVersion = EngineIncludeOrderVersion.Unreal5_8;
-		ExtraModuleNames.Add("demo_map");
+		ExtraModuleNames.AddRange(new string[] {
+			"ShanmenCore",
+			"ShanmenCombatCore",
+			"demo_map"
+		});
 	}
 }

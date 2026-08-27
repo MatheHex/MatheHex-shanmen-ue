@@ -5,6 +5,16 @@
 	"Description": "",
 	"Modules": [
 		{
+			"Name": "ShanmenCore",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "ShanmenCombatCore",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
 			"Name": "demo_map",
 			"Type": "Runtime",
 			"LoadingPhase": "Default",
