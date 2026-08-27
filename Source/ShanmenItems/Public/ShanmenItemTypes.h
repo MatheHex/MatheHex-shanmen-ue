@@ -146,6 +146,10 @@ struct SHANMENITEMS_API FShanmenItemInstance
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
 	FGuid ParentContainerId;
 
+	/** Optional item-owned storage. P1.1 retains the legacy one-level container graph. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FGuid ChildContainerId;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
 	int32 SlotIndex = INDEX_NONE;
 

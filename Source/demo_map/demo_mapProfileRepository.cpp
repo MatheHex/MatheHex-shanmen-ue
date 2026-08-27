@@ -915,9 +915,15 @@ namespace
 		return Promoted;
 	}
 
+	bool IsSupportedLegacySchema(int32 SchemaVersion)
+	{
+		return SchemaVersion >= 1
+			&& SchemaVersion < Fdemo_mapPersistentProfile::CurrentSchemaVersion;
+	}
+
 	bool IsExactLegacySourceFor(const Fdemo_mapPersistentProfile& Candidate, const Fdemo_mapPersistentProfile& Legacy)
 	{
-		return (Legacy.SchemaVersion >= 1 && Legacy.SchemaVersion <= 5)
+		return IsSupportedLegacySchema(Legacy.SchemaVersion)
 			&& PromoteLegacyProfile(Legacy) == Candidate;
 	}
 
@@ -1424,7 +1430,13 @@ Fdemo_mapProfileRepository::FReadResult Fdemo_mapProfileRepository::DeserializeP
 	}
 	const int32 Schema = static_cast<int32>(SchemaNumber);
 	if (Schema > Fdemo_mapPersistentProfile::CurrentSchemaVersion) { Result.Kind = EReadKind::FutureSchema; Result.Diagnostic = TEXT("Profile uses a future SchemaVersion."); return Result; }
-	if (Schema != 1 && Schema != 2 && Schema != 3 && Schema != 4 && Schema != 5 && Schema != 6 && Schema != Fdemo_mapPersistentProfile::CurrentSchemaVersion) { Result.Kind = EReadKind::InvalidData; Result.Diagnostic = TEXT("Profile uses an unsupported old SchemaVersion."); return Result; }
+	if (Schema != Fdemo_mapPersistentProfile::CurrentSchemaVersion
+		&& !IsSupportedLegacySchema(Schema))
+	{
+		Result.Kind = EReadKind::InvalidData;
+		Result.Diagnostic = TEXT("Profile uses an unsupported old SchemaVersion.");
+		return Result;
+	}
 
 	Fdemo_mapPersistentProfile Profile;
 	Profile.SchemaVersion = Schema;
@@ -1717,7 +1729,7 @@ Fdemo_mapProfileRepository::FReadResult Fdemo_mapProfileRepository::DeserializeP
 		}
 	}
 	FString ValidationError;
-	if (Schema <= 6)
+	if (IsSupportedLegacySchema(Schema))
 	{
 		const Fdemo_mapPersistentProfile Promoted = PromoteLegacyProfile(Profile);
 		if (!ValidateProfile(Promoted, &ValidationError)) { Result.Kind = EReadKind::InvalidData; Result.Diagnostic = ValidationError; return Result; }

@@ -6467,6 +6467,18 @@ FCodeBOutOfRaidProfileStore::FCodeBOutOfRaidProfileStore(FString InStorageRoot, 
 {
 }
 
+FString FCodeBOutOfRaidProfileStore::ComputeLegacyAffixDigestForMigration(
+	const Fdemo_mapPersistentItemRecord& Item)
+{
+	return LegacyAffixDigest(Item);
+}
+
+FString FCodeBOutOfRaidProfileStore::ComputeProfileSourceFingerprintForMigration(
+	const Fdemo_mapProfileSessionSnapshot& ProfileSnapshot)
+{
+	return SourceFingerprint(ProfileSnapshot);
+}
+
 FString FCodeBOutOfRaidProfileStore::GetPrimaryPath() const
 {
 	return FPaths::Combine(StorageRoot, TEXT("CodeBOutOfRaid"), GuidText(OwnerId) + TEXT(".json"));
@@ -6946,7 +6958,8 @@ bool FCodeBOutOfRaidProfileStore::BuildInitialRecord(const Fdemo_mapProfileSessi
 	OutRecord.CreatedUtc = UtcNow();
 	OutRecord.LastCommittedUtc = OutRecord.CreatedUtc;
 	OutRecord.Receipt.SourceProfileId = OwnerId;
-	OutRecord.Receipt.SourceFingerprint = SourceFingerprint(ProfileSnapshot);
+	OutRecord.Receipt.SourceFingerprint =
+		ComputeProfileSourceFingerprintForMigration(ProfileSnapshot);
 	OutRecord.Receipt.StartedUtc = OutRecord.CreatedUtc;
 	OutRecord.Receipt.State = ECodeBOutOfRaidHandoffState::Prepared;
 

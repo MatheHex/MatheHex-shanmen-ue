@@ -745,6 +745,12 @@ struct FCodeBOutOfRaidOpenResult
 class FCodeBOutOfRaidProfileStore
 {
 public:
+	/** Canonical legacy evidence shared by the P5 handoff and the 0.0.10 read-only migrator. */
+	static FString ComputeLegacyAffixDigestForMigration(
+		const Fdemo_mapPersistentItemRecord& Item);
+	static FString ComputeProfileSourceFingerprintForMigration(
+		const Fdemo_mapProfileSessionSnapshot& ProfileSnapshot);
+
 	FCodeBOutOfRaidProfileStore(FString InStorageRoot, FGuid InOwnerId);
 
 	FCodeBOutOfRaidOpenResult OpenOrMigrate(

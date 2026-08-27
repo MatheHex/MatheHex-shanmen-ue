@@ -27,7 +27,12 @@ public class demo_map : ModuleRules
 			"SlateCore"
 		});
 
-		PrivateDependencyModuleNames.AddRange(new string[] { "Json" });
+		PrivateDependencyModuleNames.AddRange(new string[] {
+			"Json",
+			"GameplayTags",
+			"ShanmenCore",
+			"ShanmenItems"
+		});
 
 		PublicIncludePaths.AddRange(new string[] {
 			"demo_map",

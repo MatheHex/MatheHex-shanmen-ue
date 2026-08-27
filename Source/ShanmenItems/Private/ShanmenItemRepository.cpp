@@ -171,6 +171,7 @@ bool FShanmenItemRepository::ValidateState(
 		}
 	}
 
+	TSet<FGuid> OwnedChildContainerIds;
 	for (const TPair<FGuid, FShanmenItemInstance>& Pair : Candidate.Items)
 	{
 		const FShanmenItemInstance& Item = Pair.Value;
@@ -189,10 +190,26 @@ bool FShanmenItemRepository::ValidateState(
 			return Fail();
 		}
 
+		if (Item.ChildContainerId.IsValid())
+		{
+			const FShanmenItemContainer* ChildContainer =
+				Candidate.Containers.Find(Item.ChildContainerId);
+			if (!ChildContainer
+				|| Item.ChildContainerId == Item.ParentContainerId
+				|| ChildContainer->RunId != Item.RunId
+				|| ChildContainer->OwnerId != Item.OwnerId
+				|| OwnedChildContainerIds.Contains(Item.ChildContainerId))
+			{
+				return Fail();
+			}
+			OwnedChildContainerIds.Add(Item.ChildContainerId);
+		}
+
 		if (Item.State == EShanmenItemInstanceState::Depleted)
 		{
 			if (Item.Quantity != 0
 				|| Item.ParentContainerId.IsValid()
+				|| Item.ChildContainerId.IsValid()
 				|| Item.SlotIndex != INDEX_NONE
 				|| Item.DeploymentReservationId.IsValid()
 				|| !Definition->Supports(EShanmenItemResourceKind::Quantity))
@@ -225,6 +242,33 @@ bool FShanmenItemRepository::ValidateState(
 				|| Deployment->ItemInstanceId != Item.ItemInstanceId
 				|| Deployment->ResourceKind != EShanmenItemResourceKind::DeploymentLock
 				|| Deployment->State != EShanmenItemReservationState::Committed)
+			{
+				return Fail();
+			}
+		}
+	}
+
+	// P1.1 intentionally preserves Code B's one-level item-owned storage. A
+	// nested owner would make the migration graph ambiguous and can introduce a
+	// container cycle, so deeper nesting fails before the authority is replaced.
+	for (const TPair<FGuid, FShanmenItemInstance>& Pair : Candidate.Items)
+	{
+		const FShanmenItemInstance& Owner = Pair.Value;
+		if (!Owner.ChildContainerId.IsValid())
+		{
+			continue;
+		}
+		const FShanmenItemContainer* Child =
+			Candidate.Containers.Find(Owner.ChildContainerId);
+		if (!Child)
+		{
+			return Fail();
+		}
+		for (const FGuid& ChildItemId : Child->Slots)
+		{
+			const FShanmenItemInstance* ChildItem =
+				ChildItemId.IsValid() ? Candidate.Items.Find(ChildItemId) : nullptr;
+			if (ChildItem && ChildItem->ChildContainerId.IsValid())
 			{
 				return Fail();
 			}

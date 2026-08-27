@@ -76,6 +76,7 @@ bool FShanmenItemInstance::operator==(const FShanmenItemInstance& Other) const
 		&& RunId == Other.RunId
 		&& OwnerId == Other.OwnerId
 		&& ParentContainerId == Other.ParentContainerId
+		&& ChildContainerId == Other.ChildContainerId
 		&& SlotIndex == Other.SlotIndex
 		&& Quantity == Other.Quantity
 		&& Durability == Other.Durability
