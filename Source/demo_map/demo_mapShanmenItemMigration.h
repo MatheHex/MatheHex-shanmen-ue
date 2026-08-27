@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "CodeB/demo_mapCodeBOutOfRaidProfile.h"
+#include "ShanmenItemPersistence.h"
 #include "ShanmenItemTypes.h"
 #include "demo_mapPersistentProfileTypes.h"
 
@@ -54,6 +55,8 @@ struct Fdemo_mapShanmenItemMigrationReceipt
 			&& !SourceFingerprint.IsEmpty()
 			&& !CandidateDigest.IsEmpty();
 	}
+
+	FShanmenItemMigrationEvidence ToPersistenceEvidence() const;
 };
 
 struct Fdemo_mapShanmenItemMigrationResult

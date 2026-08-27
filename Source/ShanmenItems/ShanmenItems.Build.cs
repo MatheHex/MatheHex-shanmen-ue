@@ -12,5 +12,14 @@ public class ShanmenItems : ModuleRules
 			"GameplayTags",
 			"ShanmenCore"
 		});
+
+		PrivateDependencyModuleNames.AddRange(new string[] {
+			"Json",
+			"JsonUtilities"
+		});
+
+		// Core's FPlatformMisc SHA-256 hook is not implemented on every runtime
+		// platform. Use the engine-bundled OpenSSL implementation explicitly.
+		AddEngineThirdPartyPrivateStaticDependencies(Target, "OpenSSL");
 	}
 }

@@ -118,6 +118,24 @@ namespace
 	}
 }
 
+FShanmenItemMigrationEvidence
+Fdemo_mapShanmenItemMigrationReceipt::ToPersistenceEvidence() const
+{
+	FShanmenItemMigrationEvidence Evidence;
+	Evidence.MigrationId = MigrationId;
+	Evidence.OwnerId = OwnerId;
+	Evidence.SourceProfileSchema = SourceProfileSchema;
+	Evidence.SourceSaveGeneration = SourceSaveGeneration;
+	Evidence.SourceCodeBPersistentRevision = SourceCodeBPersistentRevision;
+	Evidence.SourceCodeBRepositoryRevision = SourceCodeBRepositoryRevision;
+	Evidence.DefinitionCount = DefinitionCount;
+	Evidence.ContainerCount = ContainerCount;
+	Evidence.ItemCount = ItemCount;
+	Evidence.SourceFingerprint = SourceFingerprint;
+	Evidence.CandidateDigest = CandidateDigest;
+	return Evidence;
+}
+
 Fdemo_mapShanmenItemMigrationResult Fdemo_mapShanmenItemMigration::BuildCandidate(
 	const Fdemo_mapPersistentProfile& CodeAProfile,
 	const FCodeBOutOfRaidInventoryRecord& CodeBRecord,

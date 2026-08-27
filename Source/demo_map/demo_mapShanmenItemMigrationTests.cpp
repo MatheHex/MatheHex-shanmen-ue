@@ -340,4 +340,59 @@ bool FShanmenItemsMigrationAtomicLoadTest::RunTest(const FString&)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenItemsPersistedMigrationOpenTest,
+	"Shanmen.0_0_10.Items.Migration.PersistedIdempotentOpen",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenItemsPersistedMigrationOpenTest::RunTest(const FString&)
+{
+	Fdemo_mapPersistentProfile Profile;
+	FCodeBOutOfRaidInventoryRecord Record;
+	FString Error;
+	TestTrue(TEXT("Legacy source fixture builds"),
+		BuildLegacyFixture(Profile, Record, Error));
+	const Fdemo_mapPersistentProfile ProfileBefore = Profile;
+	const FCodeBSnapshot CodeBBefore = Record.RepositorySnapshot;
+	const Fdemo_mapShanmenItemMigrationResult Migration =
+		Fdemo_mapShanmenItemMigration::BuildCandidate(
+			Profile, Record, TargetContent());
+	TestTrue(TEXT("Legacy migration candidate is valid"),
+		Migration.IsSuccess());
+
+	const FString Root = NewMigrationRoot(TEXT("PersistedAuthority"));
+	const FShanmenItemStorageContext Storage =
+		FShanmenItemStorageContext::ForRoot(Root, Profile.ProfileId);
+	FShanmenItemAuthorityStore Store;
+	const FShanmenItemOpenResult Created =
+		Store.OpenOrCreateFromMigration(
+			Migration.Candidate,
+			Migration.Receipt.ToPersistenceEvidence(),
+			Storage);
+	TestTrue(TEXT("Validated migration atomically publishes generation one"),
+		Created.Status == EShanmenItemOpenStatus::CreatedFromMigration
+		&& Created.Document.SaveGeneration == 1);
+
+	TArray<uint8> BeforeReopen;
+	TestTrue(TEXT("Published authority bytes are readable"),
+		ReadBytes(Storage.PrimaryPath(), BeforeReopen));
+	const FShanmenItemOpenResult Reopened =
+		Store.OpenOrCreateFromMigration(
+			Migration.Candidate,
+			Migration.Receipt.ToPersistenceEvidence(),
+			Storage);
+	TArray<uint8> AfterReopen;
+	TestTrue(TEXT("Same migration reopens the durable authority read-only"),
+		Reopened.Status == EShanmenItemOpenStatus::OpenedExisting
+		&& Reopened.Document == Created.Document
+		&& ReadBytes(Storage.PrimaryPath(), AfterReopen)
+		&& AfterReopen == BeforeReopen);
+	TestTrue(TEXT("Publish and reopen never mutate Code A or Code B"),
+		Profile == ProfileBefore
+		&& Record.RepositorySnapshot == CodeBBefore);
+
+	IFileManager::Get().DeleteDirectory(*Root, false, true);
+	return true;
+}
+
 #endif
