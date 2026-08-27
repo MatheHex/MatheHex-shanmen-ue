@@ -4,12 +4,49 @@
 #include "demo_mapItemSubsystem.h"
 #include "demo_mapProfileTradeTransaction.h"
 #include "demo_mapRewardShopStock.h"
+#include "demo_mapShanmenItemAuthoritySubsystem.h"
+#include "demo_mapShanmenPreparationAdapter.h"
 #include "demo_mapTownProgressionRules.h"
 #include "Engine/GameInstance.h"
 #include "HAL/PlatformTime.h"
 
 namespace
 {
+	Udemo_mapShanmenItemAuthoritySubsystem* FindReadyPreparationAuthority(
+		const Udemo_mapProfileSessionSubsystem& Session)
+	{
+		UGameInstance* GameInstance = Session.GetGameInstance();
+		Udemo_mapShanmenItemAuthoritySubsystem* Authority = GameInstance
+			? GameInstance->GetSubsystem<Udemo_mapShanmenItemAuthoritySubsystem>()
+			: nullptr;
+		return Authority
+			&& Authority->GetLifecycleState()
+				== Edemo_mapShanmenItemAuthorityLifecycleState::Ready
+			? Authority : nullptr;
+	}
+
+	Edemo_mapProfilePreparationSelectionStatus MapPreparationAdapterStatus(
+		Edemo_mapShanmenPreparationAdapterStatus Status)
+	{
+		switch (Status)
+		{
+		case Edemo_mapShanmenPreparationAdapterStatus::Accepted:
+		case Edemo_mapShanmenPreparationAdapterStatus::NoChange:
+			return Edemo_mapProfilePreparationSelectionStatus::Accepted;
+		case Edemo_mapShanmenPreparationAdapterStatus::CleanupPending:
+			return Edemo_mapProfilePreparationSelectionStatus::AuthorityCleanupPending;
+		case Edemo_mapShanmenPreparationAdapterStatus::ItemNotFound:
+			return Edemo_mapProfilePreparationSelectionStatus::ItemNotFound;
+		case Edemo_mapShanmenPreparationAdapterStatus::DuplicateSelection:
+			return Edemo_mapProfilePreparationSelectionStatus::DuplicateSelection;
+		case Edemo_mapShanmenPreparationAdapterStatus::InvalidSlot:
+		case Edemo_mapShanmenPreparationAdapterStatus::SlotRejected:
+			return Edemo_mapProfilePreparationSelectionStatus::EquipmentSlotRejected;
+		default:
+			return Edemo_mapProfilePreparationSelectionStatus::AuthorityCommandRejected;
+		}
+	}
+
 	bool IsPreparationEquipmentSlot(FName SlotId)
 	{
 		return SlotId == Fdemo_mapItemIds::WeaponSlot
@@ -511,6 +548,44 @@ Fdemo_mapProfilePreparationSnapshot Udemo_mapProfileSessionSubsystem::GetPrepara
 			&& CarriedIndex < QuickItemCapacity;
 		Snapshot.OrderedPermanentStashRows.Add(Row);
 	}
+
+	// Once cutover owns a Ready authority, every item-bearing preparation
+	// field is projected from ShanmenItems. Profile data above remains useful
+	// for non-item presentation only and cannot become a fallback write path.
+	if (Udemo_mapShanmenItemAuthoritySubsystem* Authority =
+		FindReadyPreparationAuthority(*this))
+	{
+		FShanmenItemAuthoritySnapshot AuthoritySnapshot;
+		Fdemo_mapShanmenPreparationAuthorityProjection Projection;
+		FString ProjectionDiagnostic;
+		if (Authority->TryCaptureSnapshot(AuthoritySnapshot)
+			&& Fdemo_mapShanmenPreparationAdapter::BuildProjection(
+				AuthoritySnapshot, SessionSnapshot.ProfileId,
+				Projection, &ProjectionDiagnostic))
+		{
+			Snapshot.SaveGeneration = Projection.AuthorityRevision;
+			Snapshot.OrderedPermanentStashRows = MoveTemp(Projection.OrderedRows);
+			Snapshot.WarehouseLayout = MoveTemp(Projection.WarehouseLayout);
+			Snapshot.SelectedWeaponId = Projection.SelectedWeaponId;
+			Snapshot.SelectedArmorId = Projection.SelectedArmorId;
+			Snapshot.SelectedAccessoryId = Projection.SelectedAccessoryId;
+			Snapshot.SelectedSpatialRingId = Projection.SelectedSpatialRingId;
+			Snapshot.SelectedBackpackId = Projection.SelectedBackpackId;
+			Snapshot.OrderedSelectedMaterialIds.Reset();
+			Snapshot.HotbarBindings.SlotBindings.Init(
+				FGuid(), Fdemo_mapPersistentPreparationLayout::HotbarSlotCount);
+			Snapshot.bCanStartRun = false;
+			Snapshot.VisibleDiagnostic = PreparationDiagnostic.IsEmpty()
+				? Projection.Diagnostic : PreparationDiagnostic;
+		}
+		else
+		{
+			Snapshot.bCanStartRun = false;
+			Snapshot.VisibleDiagnostic = ProjectionDiagnostic.IsEmpty()
+				? TEXT("Ready ShanmenItems authority could not be projected; preparation fails closed.")
+				: ProjectionDiagnostic;
+		}
+	}
 	return Snapshot;
 }
 
@@ -531,6 +606,19 @@ Fdemo_mapProfilePreparationSelectionResult Udemo_mapProfileSessionSubsystem::Set
 				? Edemo_mapProfilePreparationSelectionStatus::StaleSelectionCleared
 				: Edemo_mapProfilePreparationSelectionStatus::SessionNotReady,
 			ContextDiagnostic);
+	}
+	if (Udemo_mapShanmenItemAuthoritySubsystem* Authority =
+		FindReadyPreparationAuthority(*this))
+	{
+		const Fdemo_mapShanmenPreparationAdapterResult Adapter =
+			Fdemo_mapShanmenPreparationAdapter::SelectEquipment(
+				*Authority, SlotId, ItemInstanceId);
+		PreparationDiagnostic = Adapter.Diagnostic;
+		const Edemo_mapProfilePreparationSelectionStatus Status =
+			MapPreparationAdapterStatus(Adapter.Status);
+		return Status == Edemo_mapProfilePreparationSelectionStatus::Accepted
+			? AcceptPreparation(Adapter.Diagnostic)
+			: RejectPreparation(Status, Adapter.Diagnostic);
 	}
 	if (!IsPreparationEquipmentSlot(SlotId))
 	{
@@ -622,6 +710,14 @@ Fdemo_mapProfilePreparationSelectionResult Udemo_mapProfileSessionSubsystem::Set
 				: Edemo_mapProfilePreparationSelectionStatus::SessionNotReady,
 			ContextDiagnostic);
 	}
+	if (FindReadyPreparationAuthority(*this))
+	{
+		PreparationDiagnostic =
+			TEXT("P1.6 has retired legacy material writes; the ShanmenItems quantity preparation adapter is scheduled for the next stage.");
+		return RejectPreparation(
+			Edemo_mapProfilePreparationSelectionStatus::AuthorityRunAdapterPending,
+			PreparationDiagnostic);
+	}
 	const Fdemo_mapPersistentItemRecord* Item = SessionSnapshot.OrderedPermanentStash.FindByPredicate(
 		[&ItemInstanceId](const Fdemo_mapPersistentItemRecord& Candidate)
 		{
@@ -690,6 +786,14 @@ Fdemo_mapProfilePreparationSelectionResult Udemo_mapProfileSessionSubsystem::Set
 	FString ContextDiagnostic;
 	if (!EnsurePreparationContext(SessionSnapshot, ContextDiagnostic))
 		return RejectPreparation(Edemo_mapProfilePreparationSelectionStatus::SessionNotReady, ContextDiagnostic);
+	if (FindReadyPreparationAuthority(*this))
+	{
+		PreparationDiagnostic =
+			TEXT("P1.6 has retired legacy Hotbar writes; bindings remain empty until the ShanmenItems run-loadout adapter lands.");
+		return RejectPreparation(
+			Edemo_mapProfilePreparationSelectionStatus::AuthorityRunAdapterPending,
+			PreparationDiagnostic);
+	}
 	if (ExternalSlotNumber < 1 || ExternalSlotNumber > Fdemo_mapPersistentPreparationLayout::HotbarSlotCount)
 		return RejectPreparation(Edemo_mapProfilePreparationSelectionStatus::MaterialRejected, TEXT("Hotbar slot must be 1..9."));
 
@@ -740,6 +844,30 @@ Fdemo_mapProfilePreparationSelectionResult Udemo_mapProfileSessionSubsystem::Cle
 				: Edemo_mapProfilePreparationSelectionStatus::SessionNotReady,
 			ContextDiagnostic);
 	}
+	if (Udemo_mapShanmenItemAuthoritySubsystem* Authority =
+		FindReadyPreparationAuthority(*this))
+	{
+		bool bChanged = false;
+		for (FName SlotId : Fdemo_mapItemDefinitions::GetEquipmentSlotIds())
+		{
+			const Fdemo_mapShanmenPreparationAdapterResult Adapter =
+				Fdemo_mapShanmenPreparationAdapter::SelectEquipment(
+					*Authority, SlotId, FGuid());
+			if (!Adapter.IsAccepted())
+			{
+				PreparationDiagnostic = Adapter.Diagnostic;
+				return RejectPreparation(
+					MapPreparationAdapterStatus(Adapter.Status),
+					Adapter.Diagnostic);
+			}
+			bChanged |= Adapter.Status
+				== Edemo_mapShanmenPreparationAdapterStatus::Accepted;
+		}
+		PreparationDiagnostic = bChanged
+			? TEXT("All authority-native preparation equipment selections were cleared.")
+			: TEXT("Authority-native preparation equipment selections were already empty.");
+		return AcceptPreparation(PreparationDiagnostic);
+	}
 	return CommitPreparationLayout(
 		SessionSnapshot,
 		Fdemo_mapPersistentPreparationLayout(),
@@ -758,6 +886,14 @@ Udemo_mapProfileSessionSubsystem::MoveWarehouseItem(
 			Edemo_mapWarehouseMoveStatus::SessionNotReady;
 		Result.Diagnostic =
 			TEXT("Warehouse moves require the Game Thread and an initialized Profile Session.");
+		return Result;
+	}
+	if (FindReadyPreparationAuthority(*this))
+	{
+		Result.Status = Edemo_mapWarehouseMoveStatus::SessionNotReady;
+		Result.Diagnostic =
+			TEXT("P1.6 cutover rejects the legacy Profile warehouse move path; an authority-native move transaction is required.");
+		PreparationDiagnostic = Result.Diagnostic;
 		return Result;
 	}
 	const Fdemo_mapProfileSessionSnapshot Snapshot = GetSnapshot();
@@ -793,6 +929,10 @@ Udemo_mapProfileSessionSubsystem::ExecutePreparationItemDrop(
 		|| Snapshot.SessionState != Edemo_mapProfileSessionState::ReadyForPreparation)
 	{
 		return Reject(TEXT("战备拖拽仅在已初始化的准备阶段可用。"));
+	}
+	if (FindReadyPreparationAuthority(*this))
+	{
+		return Reject(TEXT("P1.6 cutover rejects legacy preparation drag/drop; use the authority-native equipment selection route."));
 	}
 	if (Intent.ExpectedAuthorityRevision != Snapshot.SaveGeneration)
 	{

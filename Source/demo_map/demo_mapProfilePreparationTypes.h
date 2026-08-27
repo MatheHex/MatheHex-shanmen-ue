@@ -15,7 +15,13 @@ enum class Edemo_mapProfilePreparationSelectionStatus : uint8
 	DuplicateSelection,
 	EquipmentSlotRejected,
 	MaterialRejected,
-	SelectionLimitExceeded
+	SelectionLimitExceeded,
+	/** Authority accepted the newest intent but superseded lock cleanup must retry. */
+	AuthorityCleanupPending,
+	/** ShanmenItems rejected or could not durably persist the equipment command. */
+	AuthorityCommandRejected,
+	/** P1.6 intentionally exposes no legacy material/Hotbar/run-start write path. */
+	AuthorityRunAdapterPending
 };
 
 struct Fdemo_mapProfilePreparationStashRow

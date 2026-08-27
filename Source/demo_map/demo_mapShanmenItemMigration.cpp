@@ -412,6 +412,18 @@ Fdemo_mapShanmenItemMigrationResult Fdemo_mapShanmenItemMigration::BuildCandidat
 			Definition.ItemTags.AddTag(
 				FShanmenItemNativeTags::CapabilityConsumeQuantity());
 		}
+		else if (const Fdemo_mapItemDefinition* ProductDefinition =
+			Fdemo_mapItemDefinitions::Find(DefinitionId);
+			ProductDefinition
+			&& ProductDefinition->MaxStackSize == 1
+			&& !ProductDefinition->CompatibleSlotIds.IsEmpty())
+		{
+			// P1.6 preparation selection is a durable deployment intent. The
+			// capability is derived from the immutable product definition during
+			// the one-time migration; mutable UI/profile state never grants it.
+			Definition.ItemTags.AddTag(
+				FShanmenItemNativeTags::CapabilityDeploy());
+		}
 		Candidate.Definitions.Add(MoveTemp(Definition));
 	}
 
