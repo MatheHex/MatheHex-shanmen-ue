@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "productionPathRegexes": [
+    "^Source/",
+    "^Config/",
+    "^Content/",
+    "^Plugins/",
+    "\\.uproject$",
+    "\\.uplugin$"
+  ],
+  "ignoredPathRegexes": [
+    "^Docs/",
+    "^Scripts/",
+    "^\\.github/",
+    "^README(?:\\.|$)",
+    "^\\.gitignore$",
+    "^\\.gitattributes$"
+  ],
+  "rules": [
+    {
+      "name": "CombatCore",
+      "pathRegex": "^Source/ShanmenCombatCore/",
+      "requiredGroups": [
+        "Shanmen.0_0_10.CombatCore"
+      ]
+    },
+    {
+      "name": "CombatRuntime",
+      "pathRegex": "^Source/ShanmenCombatRuntime/",
+      "requiredGroups": [
+        "Shanmen.0_0_10.CombatRuntime"
+      ]
+    },
+    {
+      "name": "WorldGameplay",
+      "pathRegex": "^Source/ShanmenWorldGameplay/",
+      "requiredGroups": [
+        "Shanmen.0_0_10.WorldGameplay"
+      ]
+    },
+    {
+      "name": "Items",
+      "pathRegex": "^Source/ShanmenItems/",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Items"
+      ]
+    },
+    {
+      "name": "CombatRunCoordinator",
+      "pathRegex": "^Source/demo_map/demo_mapCombatRunCoordinator(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Product.CombatRunCoordinator"
+      ]
+    },
+    {
+      "name": "PlayerVitality",
+      "pathRegex": "^Source/demo_map/demo_mapPlayerVitality(?:AdapterTests|Component)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Product.PlayerVitality",
+        "Shanmen.0_0_10"
+      ]
+    },
+    {
+      "name": "M01GameMode",
+      "pathRegex": "^Source/demo_map/demo_mapGameMode\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10"
+      ]
+    },
+    {
+      "name": "PlayerCombatController",
+      "pathRegex": "^Source/demo_map/demo_mapPlayerController\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10",
+        "demo_map.V2RangedCompatibility"
+      ]
+    },
+    {
+      "name": "SkillAndEnemyCombat",
+      "pathRegex": "^Source/demo_map/demo_map(?:SkillComponent|SkillProjectile|EnemySkillFramework|EnemyCharacter|HeavyEnemyCharacter|RangedEnemyCharacter|M01BossCharacter).*\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10",
+        "demo_map.EnemySkillFramework",
+        "demo_map.V2RangedCompatibility"
+      ]
+    },
+    {
+      "name": "CombatGeometryAndTargeting",
+      "pathRegex": "^Source/demo_map/demo_map(?:CombatTargeting|CombatTypes|SectorGeometry)\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10",
+        "demo_map.EnemySkillFramework",
+        "demo_map.V2RangedCompatibility"
+      ]
+    },
+    {
+      "name": "ProfileAuthority",
+      "pathRegex": "^Source/demo_map/demo_mapProfile.*\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "demo_map.Profile",
+        "demo_map.ItemEconomySchema"
+      ]
+    },
+    {
+      "name": "CodeB",
+      "pathRegex": "^Source/demo_map/CodeB/",
+      "requiredGroups": [
+        "demo_map.CodeB",
+        "Shanmen.0_0_10.Items"
+      ]
+    },
+    {
+      "name": "ItemProductAdapters",
+      "pathRegex": "^Source/demo_map/demo_map(?:ShanmenItem|Item|GridInventory|DualLoot|EntityLoadout|0909BCodeBItemBridge|0909BM01RuntimeAdapter|PreparationAdapter).*\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Items"
+      ]
+    },
+    {
+      "name": "GameplayTags",
+      "pathRegex": "^Config/DefaultGameplayTags\\.ini$",
+      "requiredGroups": [
+        "Shanmen.0_0_10"
+      ]
+    }
+  ]
+}
