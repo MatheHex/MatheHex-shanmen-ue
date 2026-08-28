@@ -9,6 +9,7 @@
 #include "Components/PrimitiveComponent.h"
 #include "Engine/DamageEvents.h"
 #include "Engine/HitResult.h"
+#include "Engine/OverlapResult.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/Pawn.h"
 #include "demo_mapCombatRunCoordinator.h"
@@ -442,6 +443,17 @@ namespace
 		Hit.ImpactNormal = FVector::BackwardVector;
 		Hit.Item = 0;
 		return Hit;
+	}
+
+	FOverlapResult MakeProductShapeOverlap(AActor* TargetActor)
+	{
+		FOverlapResult Overlap;
+		Overlap.OverlapObjectHandle = FActorInstanceHandle(TargetActor);
+		Overlap.Component = TargetActor
+			? Cast<UPrimitiveComponent>(TargetActor->GetRootComponent())
+			: nullptr;
+		Overlap.ItemIndex = 0;
+		return Overlap;
 	}
 }
 
@@ -2537,6 +2549,267 @@ bool FShanmenCombatRunCoordinatorProductSwordFailClosedTest::RunTest(
 		ReplayFixture.bReady
 			&& Replay.IsExecuted()
 			&& Replay.ActivationId == UnregisteredHit.ActivationId);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenCombatRunCoordinatorPlayerShapeSkillsProductTest,
+	"Shanmen.0_0_10.Product.CombatRunCoordinator.PlayerShapeSkillsProduct",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenCombatRunCoordinatorPlayerShapeSkillsProductTest::RunTest(
+	const FString&)
+{
+	FCombatRunCoordinatorFixture Fixture;
+	FM01MeleeEnemyFixture StandardEnemy(false);
+	FM01MeleeEnemyFixture EnhancedEnemy(true);
+	TestTrue(TEXT("Player shape-skill fixtures initialize and register"),
+		Fixture.bReady
+			&& StandardEnemy.bReady
+			&& EnhancedEnemy.bReady
+			&& Fixture.Coordinator.TryRegisterM01Enemy(
+				StandardEnemy.Enemy,
+				Fixture.Diagnostic)
+			&& Fixture.Coordinator.TryRegisterM01Enemy(
+				EnhancedEnemy.Enemy,
+				Fixture.Diagnostic));
+	if (!Fixture.bReady || !StandardEnemy.bReady || !EnhancedEnemy.bReady)
+	{
+		AddError(Fixture.Diagnostic);
+		return false;
+	}
+
+	const FGuid StandardId = StandardEnemy.Enemy->GetCombatEntityId();
+	const FGuid EnhancedId = EnhancedEnemy.Enemy->GetCombatEntityId();
+	const float StandardVitalityBefore =
+		StandardEnemy.Enemy->GetCurrentVitality();
+	const float EnhancedVitalityBefore =
+		EnhancedEnemy.Enemy->GetCurrentVitality();
+	TestTrue(TEXT("Shape-skill vitality baselines are non-zero"),
+		StandardVitalityBefore > 0.0f && EnhancedVitalityBefore > 0.0f);
+	TArray<FGuid> ExpectedOrder = { StandardId, EnhancedId };
+	ExpectedOrder.Sort(
+		[](const FGuid& Left, const FGuid& Right)
+		{
+			return Left.ToString(EGuidFormats::Digits)
+				< Right.ToString(EGuidFormats::Digits);
+		});
+	const TArray<FOverlapResult> ReverseDuplicateContacts = {
+		MakeProductShapeOverlap(EnhancedEnemy.Enemy),
+		MakeProductShapeOverlap(StandardEnemy.Enemy),
+		MakeProductShapeOverlap(EnhancedEnemy.Enemy)
+	};
+	const FGuid ExpectedCircleActivation =
+		FShanmenCombatIdFactory::MakeActivationId(
+			CoordinatorRunA,
+			Fixture.Coordinator.GetPlayerEntityId(),
+			TEXT("Combat.Action.Player.Skill.GroundCircle"),
+			1);
+	const Fdemo_mapPlayerShapeSkillExecutionResult Circle =
+		Fixture.Coordinator.ExecutePlayerShapeSkill(
+			Edemo_mapPlayerShapeSkillFamily::GroundCircle,
+			1.0f,
+			ReverseDuplicateContacts,
+			FVector::ZeroVector);
+	TestTrue(TEXT("Ground Circle owns one deterministic Run-local action"),
+		Circle.IsExecuted()
+			&& Circle.ActivationId == ExpectedCircleActivation
+			&& Fixture.Coordinator.GetNextPlayerShapeSkillActivationSequence(
+				Edemo_mapPlayerShapeSkillFamily::GroundCircle) == 2
+			&& Fixture.Coordinator.GetNextPlayerShapeSkillActivationSequence(
+				Edemo_mapPlayerShapeSkillFamily::SelfSector) == 1);
+	TestTrue(TEXT("Duplicate overlap components collapse into stable target order"),
+		Circle.WorldContactCount == 3
+			&& Circle.ResolvedCandidateCount == 2
+			&& Circle.DeliveredImpactCount == 2
+			&& Circle.CommittedImpactCount == 2
+			&& Circle.AlreadyCommittedImpactCount == 0
+			&& Circle.OrderedTargetEntityIds == ExpectedOrder
+			&& Circle.Impacts.Num() == 2);
+
+	bool bCanonicalCircleReceipts = Circle.Impacts.Num() == 2;
+	for (int32 Index = 0;
+		bCanonicalCircleReceipts && Index < Circle.Impacts.Num();
+		++Index)
+	{
+		const Fdemo_mapPlayerShapeSkillImpactReceipt& Impact =
+			Circle.Impacts[Index];
+		const FShanmenImpactRequest& Request = Impact.GetRequest();
+		bCanonicalCircleReceipts = Impact.IsValid()
+			&& Impact.GetFamily()
+				== Edemo_mapPlayerShapeSkillFamily::GroundCircle
+			&& Request.Action.GetActionDefinitionId()
+				== TEXT("Combat.Action.Player.Skill.GroundCircle")
+			&& Request.Action.GetContent().Version == TEXT("0.0.10.P4.12")
+			&& Request.Candidate.DetectorId
+				== TEXT("Detector.Player.Skill.GroundCircle")
+			&& Request.Candidate.DetectorKind
+				== EShanmenHitDetectorKind::Shape
+			&& Request.Candidate.HitOrdinal == 0
+			&& Request.Candidate.TargetEntityId == ExpectedOrder[Index]
+			&& Request.Damage.FormulaId
+				== TEXT("Combat.Formula.Player.Skill.GroundCircle.r1")
+			&& Request.Damage.DamageTags.HasTag(
+				FShanmenCombatNativeTags::DamagePhysical())
+			&& FMath::IsNearlyEqual(
+				Impact.GetResult().FinalDamage,
+				1.0f)
+			&& Impact.GetResult().IsConserved();
+	}
+	TestTrue(TEXT("Ground Circle receipts freeze the P4.12 shape contract"),
+		bCanonicalCircleReceipts);
+	TestTrue(TEXT("Both M01 vitality hosts commit Ground Circle exactly once"),
+		FMath::IsNearlyEqual(
+			StandardEnemy.Enemy->GetCurrentVitality(),
+			StandardVitalityBefore - 1.0f)
+			&& FMath::IsNearlyEqual(
+				EnhancedEnemy.Enemy->GetCurrentVitality(),
+				EnhancedVitalityBefore - 1.0f)
+			&& StandardEnemy.Enemy->GetCombatAuthorityRevision() == 1
+			&& EnhancedEnemy.Enemy->GetCombatAuthorityRevision() == 1);
+
+	AActor* ReplayTarget = Circle.Impacts[0].GetRequest().Candidate.TargetEntityId
+		== StandardId
+		? static_cast<AActor*>(StandardEnemy.Enemy)
+		: static_cast<AActor*>(EnhancedEnemy.Enemy);
+	Idemo_mapCombatVitalityHost* ReplayHost =
+		Cast<Idemo_mapCombatVitalityHost>(ReplayTarget);
+	const int64 ReplayRevision = ReplayHost
+		? ReplayHost->GetCombatAuthorityRevision()
+		: INDEX_NONE;
+	const Fdemo_mapCombatImpactDeliveryResult Replay =
+		Fixture.Coordinator.DeliverPlayerShapeSkillImpactToM01Enemy(
+			Circle.Impacts[0],
+			ReplayTarget);
+	TestTrue(TEXT("Shape receipt replay is visible and cannot double-write"),
+		Replay.IsSuccess()
+			&& Replay.CommitResult.Status
+				== EShanmenVitalityCommitStatus::AlreadyCommitted
+			&& ReplayHost
+			&& ReplayHost->GetCombatAuthorityRevision() == ReplayRevision);
+
+	const FGuid ExpectedSectorActivation =
+		FShanmenCombatIdFactory::MakeActivationId(
+			CoordinatorRunA,
+			Fixture.Coordinator.GetPlayerEntityId(),
+			TEXT("Combat.Action.Player.Skill.SelfSector"),
+			1);
+	const Fdemo_mapPlayerShapeSkillExecutionResult Sector =
+		Fixture.Coordinator.ExecutePlayerShapeSkill(
+			Edemo_mapPlayerShapeSkillFamily::SelfSector,
+			1.0f,
+			{ MakeProductShapeOverlap(StandardEnemy.Enemy) },
+			FVector::ZeroVector);
+	TestTrue(TEXT("Self Sector owns an independent deterministic sequence"),
+		Sector.IsExecuted()
+			&& Sector.ActivationId == ExpectedSectorActivation
+			&& Sector.DeliveredImpactCount == 1
+			&& Sector.CommittedImpactCount == 1
+			&& Sector.Impacts.Num() == 1
+			&& Sector.Impacts[0].GetFamily()
+				== Edemo_mapPlayerShapeSkillFamily::SelfSector
+			&& Sector.Impacts[0].GetRequest().Candidate.DetectorId
+				== TEXT("Detector.Player.Skill.SelfSector")
+			&& Sector.Impacts[0].GetRequest().Damage.FormulaId
+				== TEXT("Combat.Formula.Player.Skill.SelfSector.r1")
+			&& FMath::IsNearlyEqual(
+				StandardEnemy.Enemy->GetCurrentVitality(),
+				StandardVitalityBefore - 2.0f)
+			&& Fixture.Coordinator.GetNextPlayerShapeSkillActivationSequence(
+				Edemo_mapPlayerShapeSkillFamily::SelfSector) == 2);
+
+	TestTrue(TEXT("Exact Run release resets both player skill sequences"),
+		Fixture.Coordinator.TryEndRun(
+			CoordinatorRunA,
+			Fixture.Diagnostic)
+			&& Fixture.Coordinator.GetNextPlayerShapeSkillActivationSequence(
+				Edemo_mapPlayerShapeSkillFamily::GroundCircle) == 1
+			&& Fixture.Coordinator.GetNextPlayerShapeSkillActivationSequence(
+				Edemo_mapPlayerShapeSkillFamily::SelfSector) == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenCombatRunCoordinatorPlayerShapeSkillsFailClosedTest,
+	"Shanmen.0_0_10.Product.CombatRunCoordinator.PlayerShapeSkillsFailClosed",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenCombatRunCoordinatorPlayerShapeSkillsFailClosedTest::RunTest(
+	const FString&)
+{
+	Fdemo_mapCombatRunCoordinator Empty;
+	const Fdemo_mapPlayerShapeSkillExecutionResult NotReady =
+		Empty.ExecutePlayerShapeSkill(
+			Edemo_mapPlayerShapeSkillFamily::GroundCircle,
+			1.0f,
+			{},
+			FVector::ZeroVector);
+	TestTrue(TEXT("Inactive coordinator rejects before action identity"),
+		NotReady.Error
+			== Edemo_mapPlayerShapeSkillExecutionError::CoordinatorNotReady
+			&& !NotReady.ActivationId.IsValid());
+
+	FCombatRunCoordinatorFixture Fixture;
+	TestTrue(TEXT("Player shape fail-closed fixture initializes"), Fixture.bReady);
+	if (!Fixture.bReady)
+	{
+		AddError(Fixture.Diagnostic);
+		return false;
+	}
+	const Fdemo_mapPlayerShapeSkillExecutionResult InvalidFamily =
+		Fixture.Coordinator.ExecutePlayerShapeSkill(
+			Edemo_mapPlayerShapeSkillFamily::None,
+			1.0f,
+			{},
+			FVector::ZeroVector);
+	const Fdemo_mapPlayerShapeSkillExecutionResult InvalidDamage =
+		Fixture.Coordinator.ExecutePlayerShapeSkill(
+			Edemo_mapPlayerShapeSkillFamily::GroundCircle,
+			std::numeric_limits<float>::quiet_NaN(),
+			{},
+			FVector::ZeroVector);
+	TestTrue(TEXT("Invalid family and damage do not consume either sequence"),
+		InvalidFamily.Error
+				== Edemo_mapPlayerShapeSkillExecutionError::InvalidFamily
+			&& InvalidDamage.Error
+				== Edemo_mapPlayerShapeSkillExecutionError::InvalidDamage
+			&& Fixture.Coordinator.GetNextPlayerShapeSkillActivationSequence(
+				Edemo_mapPlayerShapeSkillFamily::GroundCircle) == 1
+			&& Fixture.Coordinator.GetNextPlayerShapeSkillActivationSequence(
+				Edemo_mapPlayerShapeSkillFamily::SelfSector) == 1);
+
+	Ademo_mapEnemyCharacter* Unregistered =
+		NewObject<Ademo_mapEnemyCharacter>(GetTransientPackage());
+	const float VitalityBefore = Unregistered->GetCurrentVitality();
+	const Fdemo_mapPlayerShapeSkillExecutionResult IgnoredContact =
+		Fixture.Coordinator.ExecutePlayerShapeSkill(
+			Edemo_mapPlayerShapeSkillFamily::GroundCircle,
+			1.0f,
+			{ MakeProductShapeOverlap(Unregistered) },
+			FVector::ZeroVector);
+	TestTrue(TEXT("Unregistered overlap closes without legacy mutation"),
+		IgnoredContact.IsExecuted()
+			&& IgnoredContact.WorldContactCount == 1
+			&& IgnoredContact.ResolvedCandidateCount == 0
+			&& IgnoredContact.DeliveredImpactCount == 0
+			&& !IgnoredContact.AppliedDamage()
+			&& FMath::IsNearlyEqual(
+				Unregistered->GetCurrentVitality(),
+				VitalityBefore)
+			&& !Unregistered->IsCombatEntityBound());
+
+	FCombatRunCoordinatorFixture ReplayFixture;
+	const Fdemo_mapPlayerShapeSkillExecutionResult DeterministicReplay =
+		ReplayFixture.Coordinator.ExecutePlayerShapeSkill(
+			Edemo_mapPlayerShapeSkillFamily::GroundCircle,
+			1.0f,
+			{},
+			FVector::ZeroVector);
+	TestTrue(TEXT("Identical first shape action replays the activation ID"),
+		ReplayFixture.bReady
+			&& DeterministicReplay.IsExecuted()
+			&& DeterministicReplay.ActivationId
+				== IgnoredContact.ActivationId);
 	return true;
 }
 

@@ -36,6 +36,7 @@ class Ademo_mapM01Marker;
 class Ademo_mapM01BossCharacter;
 struct Fdemo_map0909BRunStartResult;
 struct FHitResult;
+struct FOverlapResult;
 
 /** Coordinates the runtime-only three-target mission loop. */
 UCLASS()
@@ -83,6 +84,13 @@ public:
 	Fdemo_mapBasicSwordProductExecutionResult ExecuteM01PlayerBasicSwordSweep(
 		float AttackPower,
 		const TArray<FHitResult>& WorldHits);
+	/** M01 claims player overlap skills only after their canonical Run is active. */
+	bool ShouldUseM01PlayerShapeSkillProductPath() const;
+	Fdemo_mapPlayerShapeSkillExecutionResult ExecuteM01PlayerShapeSkill(
+		Edemo_mapPlayerShapeSkillFamily Family,
+		float RawDamage,
+		const TArray<FOverlapResult>& WorldOverlaps,
+		const FVector& ContactOrigin);
 	/** M01 enemy attacks never fall through to legacy damage when this is true. */
 	bool ShouldUseM01EnemyAttackProductPath() const;
 	Fdemo_mapM01EnemyAttackExecutionResult

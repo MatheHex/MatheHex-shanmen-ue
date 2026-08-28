@@ -159,7 +159,10 @@ bool Udemo_mapSkillComponent::TryCastGroundCircleAt(const FVector& GroundPoint, 
 		return false;
 	}
 	const float DamageSnapshot = Fdemo_mapPlayerCombat::CaptureOutgoingDamage(OwnerActor, 1.0f);
-	ApplyCircleDamage(GroundPoint, DamageSnapshot);
+	if (ApplyCircleDamage(GroundPoint, DamageSnapshot) == INDEX_NONE)
+	{
+		return false;
+	}
 	CircleReadyTime = GetWorldTime()
 		+ Fdemo_mapPlayerCombat::CaptureEffectiveCooldown(
 			OwnerActor,
@@ -184,6 +187,10 @@ int32 Udemo_mapSkillComponent::ApplyCircleDamage(const FVector& Center, float Da
 	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(V2BGroundCircle), false, OwnerActor);
 	World->OverlapMultiByObjectType(Overlaps, Center, FQuat::Identity, ObjectTypes, FCollisionShape::MakeCapsule(CircleParams.Radius, CircleParams.CommonParams.VerticalTolerance), QueryParams);
 	TSet<AActor*> DamagedActors;
+	TArray<FOverlapResult> AuthorizedOverlaps;
+	Ademo_mapGameMode* Mode = Cast<Ademo_mapGameMode>(World->GetAuthGameMode());
+	const bool bUseM01ProductPath = Mode
+		&& Mode->ShouldUseM01PlayerShapeSkillProductPath();
 	for (const FOverlapResult& Overlap : Overlaps)
 	{
 		AActor* Target = Overlap.GetActor();
@@ -192,8 +199,30 @@ int32 Udemo_mapSkillComponent::ApplyCircleDamage(const FVector& Center, float Da
 		if (FMath::Abs(Target->GetActorLocation().Z - Center.Z) > CircleParams.CommonParams.VerticalTolerance + KINDA_SMALL_NUMBER) continue;
 		if (!Fdemo_mapCombatTargeting::CanAffect(OwnerActor, Target, CircleParams.CommonParams.TargetFilter)) continue;
 		DamagedActors.Add(Target);
-		UGameplayStatics::ApplyDamage(Target, DamageSnapshot, OwnerActor->GetInstigatorController(), OwnerActor, nullptr);
-		DrawHitFeedback(Target, FColor::Purple);
+		AuthorizedOverlaps.Add(Overlap);
+		if (!bUseM01ProductPath)
+		{
+			UGameplayStatics::ApplyDamage(Target, DamageSnapshot, OwnerActor->GetInstigatorController(), OwnerActor, nullptr);
+			DrawHitFeedback(Target, FColor::Purple);
+		}
+	}
+	if (bUseM01ProductPath)
+	{
+		const Fdemo_mapPlayerShapeSkillExecutionResult Result =
+			Mode->ExecuteM01PlayerShapeSkill(
+				Edemo_mapPlayerShapeSkillFamily::GroundCircle,
+				DamageSnapshot,
+				AuthorizedOverlaps,
+				Center);
+		if (!Result.IsExecuted())
+		{
+			return INDEX_NONE;
+		}
+		for (const FOverlapResult& Overlap : AuthorizedOverlaps)
+		{
+			DrawHitFeedback(Overlap.GetActor(), FColor::Purple);
+		}
+		return Result.DeliveredImpactCount;
 	}
 	return DamagedActors.Num();
 }
@@ -206,7 +235,10 @@ bool Udemo_mapSkillComponent::TryCastSelfSector(const FVector& AimDirection)
 		return false;
 	}
 	const float DamageSnapshot = Fdemo_mapPlayerCombat::CaptureOutgoingDamage(GetOwner(), 1.0f);
-	ApplySectorDamage(Direction, DamageSnapshot);
+	if (ApplySectorDamage(Direction, DamageSnapshot) == INDEX_NONE)
+	{
+		return false;
+	}
 	ConeReadyTime = GetWorldTime()
 		+ Fdemo_mapPlayerCombat::CaptureEffectiveCooldown(
 			GetOwner(),
@@ -228,6 +260,10 @@ int32 Udemo_mapSkillComponent::ApplySectorDamage(const FVector& Direction, float
 	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(V2BSelfSector), false, OwnerActor);
 	World->OverlapMultiByObjectType(Overlaps, Center, FQuat::Identity, ObjectTypes, FCollisionShape::MakeCapsule(ConeParams.Radius, ConeParams.CommonParams.VerticalTolerance), QueryParams);
 	TSet<AActor*> DamagedActors;
+	TArray<FOverlapResult> AuthorizedOverlaps;
+	Ademo_mapGameMode* Mode = Cast<Ademo_mapGameMode>(World->GetAuthGameMode());
+	const bool bUseM01ProductPath = Mode
+		&& Mode->ShouldUseM01PlayerShapeSkillProductPath();
 	for (const FOverlapResult& Overlap : Overlaps)
 	{
 		AActor* Target = Overlap.GetActor();
@@ -235,8 +271,30 @@ int32 Udemo_mapSkillComponent::ApplySectorDamage(const FVector& Direction, float
 		if (!Fdemo_mapSectorGeometry::IsInsideSectorXY(Center, Direction, Target->GetActorLocation(), ConeParams.Radius, ConeParams.FullAngleDegrees, ConeParams.CommonParams.VerticalTolerance)) continue;
 		if (!Fdemo_mapCombatTargeting::CanAffect(OwnerActor, Target, ConeParams.CommonParams.TargetFilter)) continue;
 		DamagedActors.Add(Target);
-		UGameplayStatics::ApplyDamage(Target, DamageSnapshot, OwnerActor->GetInstigatorController(), OwnerActor, nullptr);
-		DrawHitFeedback(Target, FColor::Orange);
+		AuthorizedOverlaps.Add(Overlap);
+		if (!bUseM01ProductPath)
+		{
+			UGameplayStatics::ApplyDamage(Target, DamageSnapshot, OwnerActor->GetInstigatorController(), OwnerActor, nullptr);
+			DrawHitFeedback(Target, FColor::Orange);
+		}
+	}
+	if (bUseM01ProductPath)
+	{
+		const Fdemo_mapPlayerShapeSkillExecutionResult Result =
+			Mode->ExecuteM01PlayerShapeSkill(
+				Edemo_mapPlayerShapeSkillFamily::SelfSector,
+				DamageSnapshot,
+				AuthorizedOverlaps,
+				Center);
+		if (!Result.IsExecuted())
+		{
+			return INDEX_NONE;
+		}
+		for (const FOverlapResult& Overlap : AuthorizedOverlaps)
+		{
+			DrawHitFeedback(Overlap.GetActor(), FColor::Orange);
+		}
+		return Result.DeliveredImpactCount;
 	}
 	return DamagedActors.Num();
 }

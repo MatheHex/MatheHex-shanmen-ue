@@ -45,6 +45,7 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "Engine/World.h"
 #include "Engine/GameInstance.h"
+#include "Engine/OverlapResult.h"
 #include "EngineUtils.h"
 #include "NavigationSystem.h"
 #include "NavigationPath.h"
@@ -329,6 +330,46 @@ Ademo_mapGameMode::ExecuteM01PlayerBasicSwordSweep(
 	UE_LOG(Logdemo_map,
 		Log,
 		TEXT("0_0_10_BASIC_SWORD Event=ProductSweep Error=%d ActivationId=%s Contacts=%d Candidates=%d Delivered=%d Committed=%d Replayed=%d"),
+		static_cast<int32>(Result.Error),
+		*Result.ActivationId.ToString(EGuidFormats::DigitsWithHyphens),
+		Result.WorldContactCount,
+		Result.ResolvedCandidateCount,
+		Result.DeliveredImpactCount,
+		Result.CommittedImpactCount,
+		Result.AlreadyCommittedImpactCount);
+	return Result;
+}
+
+bool Ademo_mapGameMode::ShouldUseM01PlayerShapeSkillProductPath() const
+{
+	// M01 owns the routing decision even before the coordinator is ready. A
+	// canonical failure must never fall through to the retained V2 damage path.
+	return IsM01ExpeditionMap();
+}
+
+Fdemo_mapPlayerShapeSkillExecutionResult
+Ademo_mapGameMode::ExecuteM01PlayerShapeSkill(
+	Edemo_mapPlayerShapeSkillFamily Family,
+	float RawDamage,
+	const TArray<FOverlapResult>& WorldOverlaps,
+	const FVector& ContactOrigin)
+{
+	Fdemo_mapPlayerShapeSkillExecutionResult Result;
+	Result.Family = Family;
+	if (!ShouldUseM01PlayerShapeSkillProductPath())
+	{
+		return Result;
+	}
+	Result = CombatRunCoordinator.ExecutePlayerShapeSkill(
+		Family,
+		RawDamage,
+		WorldOverlaps,
+		ContactOrigin);
+	UE_LOG(
+		Logdemo_map,
+		Log,
+		TEXT("0_0_10_PLAYER_SHAPE_SKILL Event=ProductOverlap Family=%d Error=%d ActivationId=%s Contacts=%d Candidates=%d Delivered=%d Committed=%d Replayed=%d"),
+		static_cast<int32>(Result.Family),
 		static_cast<int32>(Result.Error),
 		*Result.ActivationId.ToString(EGuidFormats::DigitsWithHyphens),
 		Result.WorldContactCount,

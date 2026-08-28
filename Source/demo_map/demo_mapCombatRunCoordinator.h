@@ -132,6 +132,75 @@ struct Fdemo_mapM01EnemyAttackExecutionResult
 	}
 };
 
+/** Player overlap-skill families whose canonical identity is frozen here. */
+enum class Edemo_mapPlayerShapeSkillFamily : uint8
+{
+	None,
+	GroundCircle,
+	SelfSector
+};
+
+/** Frozen pure-kernel receipt for one player shape-skill target. */
+struct Fdemo_mapPlayerShapeSkillImpactReceipt
+{
+public:
+	bool IsValid() const;
+	Edemo_mapPlayerShapeSkillFamily GetFamily() const { return Family; }
+	const FShanmenImpactRequest& GetRequest() const { return Request; }
+	const FShanmenImpactResult& GetResult() const { return Result; }
+
+private:
+	friend class Fdemo_mapCombatRunCoordinator;
+	Edemo_mapPlayerShapeSkillFamily Family =
+		Edemo_mapPlayerShapeSkillFamily::None;
+	FShanmenImpactRequest Request;
+	FShanmenImpactResult Result;
+};
+
+enum class Edemo_mapPlayerShapeSkillExecutionError : uint8
+{
+	None,
+	CoordinatorNotReady,
+	InvalidFamily,
+	InvalidDamage,
+	SequenceExhausted,
+	ActionConstructionFailed,
+	RuntimeStartFailed,
+	VitalitySnapshotFailed,
+	ImpactResolutionFailed,
+	DeliveryRejected,
+	RuntimeCompletionFailed
+};
+
+/** Auditable summary for one real player overlap-skill action. */
+struct Fdemo_mapPlayerShapeSkillExecutionResult
+{
+	Edemo_mapPlayerShapeSkillExecutionError Error =
+		Edemo_mapPlayerShapeSkillExecutionError::CoordinatorNotReady;
+	Edemo_mapPlayerShapeSkillFamily Family =
+		Edemo_mapPlayerShapeSkillFamily::None;
+	FGuid ActivationId;
+	int32 WorldContactCount = 0;
+	int32 ResolvedCandidateCount = 0;
+	int32 DeliveredImpactCount = 0;
+	int32 CommittedImpactCount = 0;
+	int32 AlreadyCommittedImpactCount = 0;
+	TArray<FGuid> OrderedTargetEntityIds;
+	TArray<Fdemo_mapPlayerShapeSkillImpactReceipt> Impacts;
+
+	bool IsExecuted() const
+	{
+		return Error == Edemo_mapPlayerShapeSkillExecutionError::None
+			&& Family != Edemo_mapPlayerShapeSkillFamily::None
+			&& ActivationId.IsValid();
+	}
+
+	bool AppliedDamage() const
+	{
+		return IsExecuted() && CommittedImpactCount > 0;
+	}
+};
+
 /** Product execution failures before a BasicSword action can close normally. */
 enum class Edemo_mapBasicSwordProductExecutionError : uint8
 {
@@ -217,6 +286,9 @@ public:
 	Fdemo_mapCombatImpactDeliveryResult DeliverBasicSwordImpactToM01Enemy(
 		const FShanmenBasicSwordImpactReceipt& Impact,
 		AActor* TargetEnemy);
+	Fdemo_mapCombatImpactDeliveryResult DeliverPlayerShapeSkillImpactToM01Enemy(
+		const Fdemo_mapPlayerShapeSkillImpactReceipt& Impact,
+		AActor* TargetEnemy);
 	Fdemo_mapCombatImpactDeliveryResult
 	DeliverM01EnemyAttackImpactToPlayer(
 		const Fdemo_mapM01EnemyAttackImpactReceipt& Impact,
@@ -297,10 +369,22 @@ public:
 		const FGuid& SourceItemInstanceId,
 		float AttackPower,
 		const TArray<FHitResult>& WorldHits);
+	/**
+	 * Executes one already-authorized player overlap query. Geometry and faction
+	 * policy stay with SkillComponent; this boundary owns Run-local identity,
+	 * stable target order, pure resolution, and canonical vitality delivery.
+	 */
+	Fdemo_mapPlayerShapeSkillExecutionResult ExecutePlayerShapeSkill(
+		Edemo_mapPlayerShapeSkillFamily Family,
+		float RawDamage,
+		const TArray<struct FOverlapResult>& WorldOverlaps,
+		const FVector& ContactOrigin);
 	uint64 GetNextPlayerBasicSwordActivationSequence() const
 	{
 		return NextPlayerBasicSwordActivationSequence;
 	}
+	uint64 GetNextPlayerShapeSkillActivationSequence(
+		Edemo_mapPlayerShapeSkillFamily Family) const;
 
 private:
 	struct FM01EnemyBinding
@@ -329,4 +413,6 @@ private:
 	TMap<FGuid, FM01EnemyBinding> M01EnemyBindings;
 	TMap<FGuid, uint64> NextM01EnemyBasicMeleeActivationSequences;
 	uint64 NextPlayerBasicSwordActivationSequence = 1;
+	uint64 NextPlayerGroundCircleActivationSequence = 1;
+	uint64 NextPlayerSelfSectorActivationSequence = 1;
 };

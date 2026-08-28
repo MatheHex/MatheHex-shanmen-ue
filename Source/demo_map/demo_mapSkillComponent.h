@@ -51,7 +51,9 @@ public:
 private:
 	bool CanUseSkills() const;
 	float GetWorldTime() const;
+	/** Returns affected targets, or INDEX_NONE when the M01 canonical route rejects. */
 	int32 ApplyCircleDamage(const FVector& Center, float DamageSnapshot);
+	/** Returns affected targets, or INDEX_NONE when the M01 canonical route rejects. */
 	int32 ApplySectorDamage(const FVector& Direction, float DamageSnapshot);
 	void DrawTargetingPreview() const;
 	void DrawCircleCastVisual(const FVector& Center) const;
