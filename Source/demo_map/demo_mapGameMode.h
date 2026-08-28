@@ -91,6 +91,22 @@ public:
 		float RawDamage,
 		const TArray<FOverlapResult>& WorldOverlaps,
 		const FVector& ContactOrigin);
+	/** M01 owns player projectile routing even while its coordinator is unready. */
+	bool ShouldUseM01PlayerProjectileProductPath(
+		const AActor* SourcePlayer) const;
+	Fdemo_mapPlayerProjectileLaunchResult PrepareM01PlayerStraightProjectile(
+		AActor* SourcePlayer,
+		float RawDamage);
+	Fdemo_mapPlayerProjectileImpactResult
+	ExecuteM01PlayerStraightProjectileImpact(
+		AActor* SourcePlayer,
+		AActor* TargetEnemy,
+		UPrimitiveComponent* TargetComponent,
+		uint64 ActivationSequence,
+		const FGuid& ExpectedActivationId,
+		float RawDamage,
+		const FVector& ImpactLocation,
+		const FVector& ImpactNormal);
 	/** M01 enemy attacks never fall through to legacy damage when this is true. */
 	bool ShouldUseM01EnemyAttackProductPath() const;
 	Fdemo_mapM01EnemyAttackExecutionResult

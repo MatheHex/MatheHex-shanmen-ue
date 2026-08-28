@@ -256,6 +256,55 @@ namespace
 		return FShanmenCombatActionSnapshot::TryCapture(Capture, OutAction);
 	}
 
+	struct FPlayerStraightProjectileSpec
+	{
+		FName ActionDefinitionId =
+			TEXT("Combat.Action.Player.Skill.StraightProjectile");
+		FName DetectorId =
+			TEXT("Detector.Player.Skill.StraightProjectile.Projectile");
+		FName FormulaId =
+			TEXT("Combat.Formula.Player.Skill.StraightProjectile.r1");
+		FName ContentVersion = TEXT("0.0.10.P4.13");
+		FString ContentDigest =
+			TEXT("Shanmen.Player.Skill.StraightProjectile.Projectile.r1");
+
+		bool IsValid() const
+		{
+			return !ActionDefinitionId.IsNone()
+				&& !DetectorId.IsNone()
+				&& !FormulaId.IsNone()
+				&& !ContentVersion.IsNone()
+				&& !ContentDigest.IsEmpty();
+		}
+	};
+
+	bool TryBuildPlayerStraightProjectileAction(
+		const FPlayerStraightProjectileSpec& Spec,
+		const FGuid& RunId,
+		const FGuid& PlayerEntityId,
+		uint64 ActivationSequence,
+		FShanmenCombatActionSnapshot& OutAction)
+	{
+		if (!Spec.IsValid() || ActivationSequence == 0)
+		{
+			return false;
+		}
+		FShanmenCombatActionCapture Capture;
+		Capture.RunId = RunId;
+		Capture.OwnerId = PlayerEntityId;
+		Capture.SourceEntityId = PlayerEntityId;
+		Capture.ActionDefinitionId = Spec.ActionDefinitionId;
+		Capture.Content.Version = Spec.ContentVersion;
+		Capture.Content.Digest = Spec.ContentDigest;
+		Capture.SourceTags.AddTag(FShanmenCombatNativeTags::SourcePlayer());
+		Capture.ActivationId = FShanmenCombatIdFactory::MakeActivationId(
+			RunId,
+			PlayerEntityId,
+			Capture.ActionDefinitionId,
+			ActivationSequence);
+		return FShanmenCombatActionSnapshot::TryCapture(Capture, OutAction);
+	}
+
 	bool TryResolveM01MeleeDashFamily(
 		FName SkillProfileId,
 		Edemo_mapM01EnemyAttackFamily& OutFamily)
@@ -407,6 +456,35 @@ bool Fdemo_mapPlayerShapeSkillImpactReceipt::IsValid() const
 		&& Request.Candidate.DetectorId == Spec.DetectorId
 		&& Request.Candidate.DetectorKind
 			== EShanmenHitDetectorKind::Shape
+		&& Request.Candidate.HitOrdinal == 0
+		&& Request.Candidate.SourceEntityId
+			!= Request.Candidate.TargetEntityId
+		&& Request.Damage.FormulaId == Spec.FormulaId
+		&& Request.Damage.DamageTags.HasTag(
+			FShanmenCombatNativeTags::DamagePhysical())
+		&& Request.Defense.TargetTags.HasTag(
+			FShanmenCombatNativeTags::TargetLiving())
+		&& Result.bAccepted
+		&& Result.ImpactId == Request.ImpactId
+		&& Result.IsConserved();
+}
+
+bool Fdemo_mapPlayerProjectileImpactReceipt::IsValid() const
+{
+	const FPlayerStraightProjectileSpec Spec;
+	return Spec.IsValid()
+		&& Request.IsValid()
+		&& Request.Action.GetActionDefinitionId()
+			== Spec.ActionDefinitionId
+		&& Request.Action.GetContent().Version == Spec.ContentVersion
+		&& Request.Action.GetContent().Digest == Spec.ContentDigest
+		&& Request.Action.GetOwnerId()
+			== Request.Action.GetSourceEntityId()
+		&& Request.Action.GetSourceTags().HasTag(
+			FShanmenCombatNativeTags::SourcePlayer())
+		&& Request.Candidate.DetectorId == Spec.DetectorId
+		&& Request.Candidate.DetectorKind
+			== EShanmenHitDetectorKind::Projectile
 		&& Request.Candidate.HitOrdinal == 0
 		&& Request.Candidate.SourceEntityId
 			!= Request.Candidate.TargetEntityId
@@ -723,6 +801,7 @@ bool Fdemo_mapCombatRunCoordinator::TryEndRun(
 	NextPlayerBasicSwordActivationSequence = 1;
 	NextPlayerGroundCircleActivationSequence = 1;
 	NextPlayerSelfSectorActivationSequence = 1;
+	NextPlayerStraightProjectileActivationSequence = 1;
 	OutDiagnostic = TEXT("Combat Run identities released.");
 	return true;
 }
@@ -751,6 +830,7 @@ void Fdemo_mapCombatRunCoordinator::Reset()
 	NextPlayerBasicSwordActivationSequence = 1;
 	NextPlayerGroundCircleActivationSequence = 1;
 	NextPlayerSelfSectorActivationSequence = 1;
+	NextPlayerStraightProjectileActivationSequence = 1;
 }
 
 bool Fdemo_mapCombatRunCoordinator::IsReady() const
@@ -928,6 +1008,32 @@ Fdemo_mapCombatRunCoordinator::DeliverPlayerShapeSkillImpactToM01Enemy(
 	const Fdemo_mapPlayerShapeSkillImpactReceipt& Impact,
 	AActor* TargetEnemy)
 {
+	return DeliverResolvedPlayerImpactToM01Enemy(
+		Impact.IsValid(),
+		Impact.GetRequest(),
+		Impact.GetResult(),
+		TargetEnemy);
+}
+
+Fdemo_mapCombatImpactDeliveryResult
+Fdemo_mapCombatRunCoordinator::DeliverPlayerProjectileImpactToM01Enemy(
+	const Fdemo_mapPlayerProjectileImpactReceipt& Impact,
+	AActor* TargetEnemy)
+{
+	return DeliverResolvedPlayerImpactToM01Enemy(
+		Impact.IsValid(),
+		Impact.GetRequest(),
+		Impact.GetResult(),
+		TargetEnemy);
+}
+
+Fdemo_mapCombatImpactDeliveryResult
+Fdemo_mapCombatRunCoordinator::DeliverResolvedPlayerImpactToM01Enemy(
+	bool bImpactValid,
+	const FShanmenImpactRequest& Request,
+	const FShanmenImpactResult& Result,
+	AActor* TargetEnemy)
+{
 	Fdemo_mapCombatImpactDeliveryResult Delivery;
 	if (!IsReady())
 	{
@@ -935,13 +1041,12 @@ Fdemo_mapCombatRunCoordinator::DeliverPlayerShapeSkillImpactToM01Enemy(
 			Edemo_mapCombatImpactDeliveryError::CoordinatorNotReady;
 		return Delivery;
 	}
-	if (!Impact.IsValid())
+	if (!bImpactValid)
 	{
 		Delivery.Error =
 			Edemo_mapCombatImpactDeliveryError::InvalidImpactReceipt;
 		return Delivery;
 	}
-	const FShanmenImpactRequest& Request = Impact.GetRequest();
 	if (Request.Action.GetRunId() != GetRunId())
 	{
 		Delivery.Error = Edemo_mapCombatImpactDeliveryError::RunMismatch;
@@ -987,7 +1092,7 @@ Fdemo_mapCombatRunCoordinator::DeliverPlayerShapeSkillImpactToM01Enemy(
 
 	FShanmenVitalityCommitCommand Command;
 	if (!FShanmenVitalityCommitCommand::TryCreate(
-		Request, Impact.GetResult(), Command))
+		Request, Result, Command))
 	{
 		Delivery.Error =
 			Edemo_mapCombatImpactDeliveryError::CommandConstructionFailed;
@@ -2010,5 +2115,258 @@ Fdemo_mapCombatRunCoordinator::ExecutePlayerShapeSkill(
 	}
 
 	ProductResult.Error = Edemo_mapPlayerShapeSkillExecutionError::None;
+	return ProductResult;
+}
+
+Fdemo_mapPlayerProjectileLaunchResult
+Fdemo_mapCombatRunCoordinator::PreparePlayerStraightProjectile(
+	AActor* SourcePlayer,
+	float RawDamage)
+{
+	Fdemo_mapPlayerProjectileLaunchResult Launch;
+	if (!IsReady())
+	{
+		return Launch;
+	}
+	if (SourcePlayer != BoundPlayerPawn.Get())
+	{
+		Launch.Error = Edemo_mapPlayerProjectileLaunchError::SourceMismatch;
+		return Launch;
+	}
+	if (!FMath::IsFinite(RawDamage) || RawDamage <= 0.0f)
+	{
+		Launch.Error = Edemo_mapPlayerProjectileLaunchError::InvalidDamage;
+		return Launch;
+	}
+	if (NextPlayerStraightProjectileActivationSequence == 0
+		|| NextPlayerStraightProjectileActivationSequence == MAX_uint64)
+	{
+		Launch.Error =
+			Edemo_mapPlayerProjectileLaunchError::SequenceExhausted;
+		return Launch;
+	}
+
+	const FPlayerStraightProjectileSpec Spec;
+	FShanmenCombatActionSnapshot Action;
+	if (!TryBuildPlayerStraightProjectileAction(
+		Spec,
+		GetRunId(),
+		PlayerEntityId,
+		NextPlayerStraightProjectileActivationSequence,
+		Action))
+	{
+		Launch.Error =
+			Edemo_mapPlayerProjectileLaunchError::ActionConstructionFailed;
+		return Launch;
+	}
+
+	Launch.ActivationSequence =
+		NextPlayerStraightProjectileActivationSequence;
+	Launch.ActivationId = Action.GetActivationId();
+	Launch.RawDamage = RawDamage;
+	Launch.Error = Edemo_mapPlayerProjectileLaunchError::None;
+	++NextPlayerStraightProjectileActivationSequence;
+	return Launch;
+}
+
+Fdemo_mapPlayerProjectileImpactResult
+Fdemo_mapCombatRunCoordinator::ExecutePlayerStraightProjectileImpact(
+	AActor* SourcePlayer,
+	AActor* TargetEnemy,
+	UPrimitiveComponent* TargetComponent,
+	uint64 ActivationSequence,
+	const FGuid& ExpectedActivationId,
+	float RawDamage,
+	const FVector& ImpactLocation,
+	const FVector& ImpactNormal)
+{
+	Fdemo_mapPlayerProjectileImpactResult ProductResult;
+	ProductResult.ActivationSequence = ActivationSequence;
+	if (!IsReady())
+	{
+		return ProductResult;
+	}
+	if (SourcePlayer != BoundPlayerPawn.Get())
+	{
+		ProductResult.Error =
+			Edemo_mapPlayerProjectileImpactError::SourceMismatch;
+		return ProductResult;
+	}
+	if (ActivationSequence == 0 || !ExpectedActivationId.IsValid())
+	{
+		ProductResult.Error =
+			Edemo_mapPlayerProjectileImpactError::InvalidLaunchIdentity;
+		return ProductResult;
+	}
+	if (!FMath::IsFinite(RawDamage) || RawDamage <= 0.0f)
+	{
+		ProductResult.Error =
+			Edemo_mapPlayerProjectileImpactError::InvalidDamage;
+		return ProductResult;
+	}
+	if (ImpactLocation.ContainsNaN() || ImpactNormal.ContainsNaN())
+	{
+		ProductResult.Error =
+			Edemo_mapPlayerProjectileImpactError::InvalidContact;
+		return ProductResult;
+	}
+
+	FGuid TargetEntityId;
+	if (!TargetEnemy
+		|| !EntityRegistry.TryResolveObject(
+			GetRunId(), TargetEnemy, INDEX_NONE, TargetEntityId)
+		|| !M01EnemyBindings.Contains(TargetEntityId))
+	{
+		ProductResult.Error =
+			Edemo_mapPlayerProjectileImpactError::TargetNotRegistered;
+		return ProductResult;
+	}
+
+	const FPlayerStraightProjectileSpec Spec;
+	FShanmenCombatActionSnapshot Action;
+	if (!TryBuildPlayerStraightProjectileAction(
+		Spec,
+		GetRunId(),
+		PlayerEntityId,
+		ActivationSequence,
+		Action))
+	{
+		ProductResult.Error = Edemo_mapPlayerProjectileImpactError::
+			ActionConstructionFailed;
+		return ProductResult;
+	}
+	ProductResult.ActivationId = Action.GetActivationId();
+	if (ProductResult.ActivationId != ExpectedActivationId)
+	{
+		ProductResult.Error =
+			Edemo_mapPlayerProjectileImpactError::InvalidLaunchIdentity;
+		return ProductResult;
+	}
+
+	FShanmenActionOrchestrator ActionRuntime;
+	FShanmenActionTransitionReceipt Transition;
+	if (!FShanmenActionOrchestrator::TryStart(
+		Action,
+		ActionRuntime,
+		Transition)
+		|| !ActionRuntime.TryAdvance(
+			EShanmenCombatActionPhase::Startup,
+			Transition))
+	{
+		ProductResult.Error =
+			Edemo_mapPlayerProjectileImpactError::RuntimeStartFailed;
+		return ProductResult;
+	}
+
+	FShanmenWorldHitContext HitContext;
+	if (!FShanmenWorldHitContext::TryCreate(
+		Action,
+		Spec.DetectorId,
+		EShanmenHitDetectorKind::Projectile,
+		0,
+		HitContext))
+	{
+		ActionRuntime.TryInterrupt(
+			EShanmenCombatActionPhase::Active,
+			Transition);
+		ProductResult.Error = Edemo_mapPlayerProjectileImpactError::
+			ActionConstructionFailed;
+		return ProductResult;
+	}
+
+	FHitResult WorldHit(
+		TargetEnemy,
+		TargetComponent,
+		ImpactLocation,
+		ImpactNormal);
+	WorldHit.ImpactPoint = ImpactLocation;
+	WorldHit.ImpactNormal = ImpactNormal;
+	WorldHit.Item = 0;
+	FShanmenHitCandidate Candidate;
+	if (!FShanmenWorldHitAdapter::TryFromProjectile(
+		HitContext,
+		WorldHit,
+		EntityRegistry,
+		Candidate)
+		|| Candidate.TargetEntityId != TargetEntityId)
+	{
+		ActionRuntime.TryInterrupt(
+			EShanmenCombatActionPhase::Active,
+			Transition);
+		ProductResult.Error = Edemo_mapPlayerProjectileImpactError::
+			CandidateConstructionFailed;
+		return ProductResult;
+	}
+
+	Idemo_mapCombatVitalityHost* VitalityHost =
+		ResolveM01VitalityHost(TargetEnemy);
+	FShanmenTargetVitalitySnapshot Vitality;
+	if (!VitalityHost
+		|| !VitalityHost->IsCombatEntityBound()
+		|| VitalityHost->GetCombatEntityId() != TargetEntityId
+		|| !VitalityHost->TryCaptureCombatVitalitySnapshot(Vitality))
+	{
+		ActionRuntime.TryInterrupt(
+			EShanmenCombatActionPhase::Active,
+			Transition);
+		ProductResult.Error = Edemo_mapPlayerProjectileImpactError::
+			VitalitySnapshotFailed;
+		return ProductResult;
+	}
+
+	FShanmenImpactRequest Request;
+	Request.Action = Action;
+	Request.Candidate = Candidate;
+	Request.Damage.FormulaId = Spec.FormulaId;
+	Request.Damage.RawDamage = RawDamage;
+	Request.Damage.DamageTags.AddTag(
+		FShanmenCombatNativeTags::DamagePhysical());
+	Request.TargetVitality = Vitality;
+	Request.Defense.TargetTags.AddTag(
+		FShanmenCombatNativeTags::TargetLiving());
+	Request.ImpactId = FShanmenCombatIdFactory::MakeImpactId(
+		GetRunId(),
+		Action.GetActivationId(),
+		Candidate.DetectorId,
+		Candidate.TargetEntityId,
+		Candidate.HitOrdinal);
+	ProductResult.Impact.Request = MoveTemp(Request);
+	ProductResult.Impact.Result = FShanmenDefenseResolver::Resolve(
+		ProductResult.Impact.Request);
+	if (!ProductResult.Impact.IsValid())
+	{
+		ActionRuntime.TryInterrupt(
+			EShanmenCombatActionPhase::Active,
+			Transition);
+		ProductResult.Error = Edemo_mapPlayerProjectileImpactError::
+			ImpactResolutionFailed;
+		return ProductResult;
+	}
+
+	ProductResult.Delivery = DeliverPlayerProjectileImpactToM01Enemy(
+		ProductResult.Impact,
+		TargetEnemy);
+	if (!ProductResult.Delivery.IsSuccess())
+	{
+		ActionRuntime.TryInterrupt(
+			EShanmenCombatActionPhase::Active,
+			Transition);
+		ProductResult.Error =
+			Edemo_mapPlayerProjectileImpactError::DeliveryRejected;
+		return ProductResult;
+	}
+	if (!ActionRuntime.TryAdvance(
+		EShanmenCombatActionPhase::Active,
+		Transition)
+		|| !ActionRuntime.TryAdvance(
+			EShanmenCombatActionPhase::Recovery,
+			Transition))
+	{
+		ProductResult.Error = Edemo_mapPlayerProjectileImpactError::
+			RuntimeCompletionFailed;
+		return ProductResult;
+	}
+
+	ProductResult.Error = Edemo_mapPlayerProjectileImpactError::None;
 	return ProductResult;
 }

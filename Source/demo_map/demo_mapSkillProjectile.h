@@ -21,6 +21,13 @@ public:
 	Ademo_mapSkillProjectile();
 	void InitializeProjectile(AActor* InSourceActor, const FVector& Direction, const Fdemo_mapProjectileSkillParams& InParams);
 	void InitializeProjectileWithLaunchSegment(AActor* InSourceActor, const FVector& Direction, const Fdemo_mapProjectileSkillParams& InParams, const FVector& AttackOrigin);
+	void InitializeCanonicalPlayerProjectileWithLaunchSegment(
+		AActor* InSourceActor,
+		const FVector& Direction,
+		const Fdemo_mapProjectileSkillParams& InParams,
+		const FVector& AttackOrigin,
+		uint64 InActivationSequence,
+		const FGuid& InActivationId);
 	void InitializeTargetedProjectile(AActor* InSourceActor, AActor* InIntendedTarget, const FVector& Direction, const Fdemo_mapProjectileSkillParams& InParams, const FLinearColor& InVisualColor);
 	void InitializeTargetedEnemyProjectile(
 		AActor* InSourceActor,
@@ -51,6 +58,11 @@ public:
 	uint64 GetProjectileSequence() const { return ProjectileSequence; }
 	bool IsBossVolleyProjectile() const { return bBossVolleyProjectile; }
 	int32 GetProjectileOrdinal() const { return ProjectileOrdinal; }
+	bool IsCanonicalPlayerProjectile() const
+	{
+		return bCanonicalPlayerProjectile;
+	}
+	const FGuid& GetPlayerActivationId() const { return PlayerActivationId; }
 
 private:
 	UFUNCTION()
@@ -85,10 +97,12 @@ private:
 	FName SourceSkillProfileId = NAME_None;
 	uint64 ProjectileSequence = 0;
 	int32 ProjectileOrdinal = INDEX_NONE;
+	FGuid PlayerActivationId;
 	FVector InitialLocation = FVector::ZeroVector;
 	bool bConsumed = false;
 	bool bIntendedTargetOnly = false;
 	bool bBossVolleyProjectile = false;
+	bool bCanonicalPlayerProjectile = false;
 	TSet<TWeakObjectPtr<AActor>> ContactedActors;
 	FLinearColor VisualColor = FLinearColor(0.0f, 0.75f, 1.0f);
 };

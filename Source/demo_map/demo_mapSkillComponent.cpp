@@ -325,6 +325,13 @@ Ademo_mapSkillProjectile* Udemo_mapSkillComponent::SpawnProjectile(const FVector
 	if (OwnerActor == nullptr || World == nullptr || !Direction.Normalize()) return nullptr;
 	PruneProjectiles();
 	const FVector SpawnLocation = OwnerActor->GetActorLocation() + Direction * 120.0f + FVector(0.0f, 0.0f, 55.0f);
+	Fdemo_mapProjectileSkillParams ProjectileSnapshot = ProjectileParams;
+	ProjectileSnapshot.CommonParams.Damage =
+		Fdemo_mapPlayerCombat::CaptureOutgoingDamage(OwnerActor, 1.0f);
+	Ademo_mapGameMode* Mode = Cast<Ademo_mapGameMode>(
+		World->GetAuthGameMode());
+	const bool bUseM01ProductPath = Mode
+		&& Mode->ShouldUseM01PlayerProjectileProductPath(OwnerActor);
 	FActorSpawnParameters Params;
 	Params.Owner = OwnerActor;
 	Params.Instigator = Cast<APawn>(OwnerActor);
@@ -332,10 +339,35 @@ Ademo_mapSkillProjectile* Udemo_mapSkillComponent::SpawnProjectile(const FVector
 	Ademo_mapSkillProjectile* Projectile = World->SpawnActor<Ademo_mapSkillProjectile>(Ademo_mapSkillProjectile::StaticClass(), SpawnLocation, Direction.Rotation(), Params);
 	if (Projectile != nullptr)
 	{
-		Fdemo_mapProjectileSkillParams ProjectileSnapshot = ProjectileParams;
-		ProjectileSnapshot.CommonParams.Damage = Fdemo_mapPlayerCombat::CaptureOutgoingDamage(OwnerActor, 1.0f);
 		const FVector AttackOrigin = OwnerActor->GetActorLocation() + FVector(0.0f, 0.0f, 55.0f);
-		Projectile->InitializeProjectileWithLaunchSegment(OwnerActor, Direction, ProjectileSnapshot, AttackOrigin);
+		if (bUseM01ProductPath)
+		{
+			const Fdemo_mapPlayerProjectileLaunchResult Launch =
+				Mode->PrepareM01PlayerStraightProjectile(
+					OwnerActor,
+					ProjectileSnapshot.CommonParams.Damage);
+			if (!Launch.IsPrepared())
+			{
+				Projectile->Destroy();
+				return nullptr;
+			}
+			Projectile->
+				InitializeCanonicalPlayerProjectileWithLaunchSegment(
+					OwnerActor,
+					Direction,
+					ProjectileSnapshot,
+					AttackOrigin,
+					Launch.ActivationSequence,
+					Launch.ActivationId);
+		}
+		else
+		{
+			Projectile->InitializeProjectileWithLaunchSegment(
+				OwnerActor,
+				Direction,
+				ProjectileSnapshot,
+				AttackOrigin);
+		}
 		ActiveProjectiles.Add(Projectile);
 		LastSpawnedProjectile = Projectile;
 	}

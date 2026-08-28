@@ -380,6 +380,83 @@ Ademo_mapGameMode::ExecuteM01PlayerShapeSkill(
 	return Result;
 }
 
+bool Ademo_mapGameMode::ShouldUseM01PlayerProjectileProductPath(
+	const AActor* SourcePlayer) const
+{
+	// Source identity is checked against the live local product Pawn so M01
+	// retains ownership even if CombatRunCoordinator is not ready yet.
+	return IsM01ExpeditionMap()
+		&& SourcePlayer != nullptr
+		&& SourcePlayer == GetDemoPawn();
+}
+
+Fdemo_mapPlayerProjectileLaunchResult
+Ademo_mapGameMode::PrepareM01PlayerStraightProjectile(
+	AActor* SourcePlayer,
+	float RawDamage)
+{
+	Fdemo_mapPlayerProjectileLaunchResult Result;
+	if (!ShouldUseM01PlayerProjectileProductPath(SourcePlayer))
+	{
+		return Result;
+	}
+	Result = CombatRunCoordinator.PreparePlayerStraightProjectile(
+		SourcePlayer,
+		RawDamage);
+	UE_LOG(
+		Logdemo_map,
+		Log,
+		TEXT("0_0_10_PLAYER_PROJECTILE Event=LaunchPrepared Error=%d Sequence=%llu ActivationId=%s Damage=%.3f"),
+		static_cast<int32>(Result.Error),
+		static_cast<unsigned long long>(Result.ActivationSequence),
+		*Result.ActivationId.ToString(EGuidFormats::DigitsWithHyphens),
+		Result.RawDamage);
+	return Result;
+}
+
+Fdemo_mapPlayerProjectileImpactResult
+Ademo_mapGameMode::ExecuteM01PlayerStraightProjectileImpact(
+	AActor* SourcePlayer,
+	AActor* TargetEnemy,
+	UPrimitiveComponent* TargetComponent,
+	uint64 ActivationSequence,
+	const FGuid& ExpectedActivationId,
+	float RawDamage,
+	const FVector& ImpactLocation,
+	const FVector& ImpactNormal)
+{
+	Fdemo_mapPlayerProjectileImpactResult Result;
+	Result.ActivationSequence = ActivationSequence;
+	if (!ShouldUseM01PlayerProjectileProductPath(SourcePlayer))
+	{
+		return Result;
+	}
+	Result = CombatRunCoordinator.ExecutePlayerStraightProjectileImpact(
+		SourcePlayer,
+		TargetEnemy,
+		TargetComponent,
+		ActivationSequence,
+		ExpectedActivationId,
+		RawDamage,
+		ImpactLocation,
+		ImpactNormal);
+	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
+	UE_LOG(
+		Logdemo_map,
+		Log,
+		TEXT("0_0_10_PLAYER_PROJECTILE Event=ProductContact Error=%d Sequence=%llu ActivationId=%s ImpactId=%s Raw=%.3f Prevented=%.3f Final=%.3f Commit=%d"),
+		static_cast<int32>(Result.Error),
+		static_cast<unsigned long long>(Result.ActivationSequence),
+		*Result.ActivationId.ToString(EGuidFormats::DigitsWithHyphens),
+		*Result.Impact.GetRequest().ImpactId.ToString(
+			EGuidFormats::DigitsWithHyphens),
+		Resolution.RawDamage,
+		Resolution.PreventedDamage,
+		Resolution.FinalDamage,
+		static_cast<int32>(Result.Delivery.CommitResult.Status));
+	return Result;
+}
+
 bool Ademo_mapGameMode::ShouldUseM01EnemyAttackProductPath() const
 {
 	// M01 owns this routing decision even while the Run is still preparing:

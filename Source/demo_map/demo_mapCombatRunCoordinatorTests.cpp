@@ -455,6 +455,22 @@ namespace
 		Overlap.ItemIndex = 0;
 		return Overlap;
 	}
+
+	FHitResult MakeProductProjectileHit(AActor* TargetActor)
+	{
+		UPrimitiveComponent* TargetRoot = TargetActor
+			? Cast<UPrimitiveComponent>(TargetActor->GetRootComponent())
+			: nullptr;
+		FHitResult Hit(
+			TargetActor,
+			TargetRoot,
+			FVector(600.0, 0.0, 55.0),
+			FVector::BackwardVector);
+		Hit.ImpactPoint = FVector(600.0, 0.0, 55.0);
+		Hit.ImpactNormal = FVector::BackwardVector;
+		Hit.Item = 0;
+		return Hit;
+	}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -2810,6 +2826,263 @@ bool FShanmenCombatRunCoordinatorPlayerShapeSkillsFailClosedTest::RunTest(
 			&& DeterministicReplay.IsExecuted()
 			&& DeterministicReplay.ActivationId
 				== IgnoredContact.ActivationId);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenCombatRunCoordinatorPlayerStraightProjectileProductTest,
+	"Shanmen.0_0_10.Product.CombatRunCoordinator.PlayerStraightProjectileProduct",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenCombatRunCoordinatorPlayerStraightProjectileProductTest::RunTest(
+	const FString&)
+{
+	FCombatRunCoordinatorFixture Fixture;
+	FM01MeleeEnemyFixture EnemyFixture;
+	TestTrue(TEXT("Player projectile fixtures initialize and register"),
+		Fixture.bReady
+			&& EnemyFixture.bReady
+			&& Fixture.Coordinator.TryRegisterM01Enemy(
+				EnemyFixture.Enemy,
+				Fixture.Diagnostic));
+	if (!Fixture.bReady || !EnemyFixture.bReady)
+	{
+		AddError(Fixture.Diagnostic);
+		return false;
+	}
+
+	const float VitalityBefore = EnemyFixture.Enemy->GetCurrentVitality();
+	TestTrue(TEXT("Projectile target baseline is non-zero"),
+		VitalityBefore > 0.0f);
+	const FGuid ExpectedActivation =
+		FShanmenCombatIdFactory::MakeActivationId(
+			CoordinatorRunA,
+			Fixture.Coordinator.GetPlayerEntityId(),
+			TEXT("Combat.Action.Player.Skill.StraightProjectile"),
+			1);
+	const Fdemo_mapPlayerProjectileLaunchResult Launch =
+		Fixture.Coordinator.PreparePlayerStraightProjectile(
+			Fixture.Pawn,
+			1.0f);
+	TestTrue(TEXT("Launch reserves one deterministic projectile action"),
+		Launch.IsPrepared()
+			&& Launch.ActivationSequence == 1
+			&& Launch.ActivationId == ExpectedActivation
+			&& FMath::IsNearlyEqual(Launch.RawDamage, 1.0f)
+			&& Fixture.Coordinator
+				.GetNextPlayerStraightProjectileActivationSequence() == 2
+			&& Fixture.Coordinator.GetNextPlayerShapeSkillActivationSequence(
+				Edemo_mapPlayerShapeSkillFamily::GroundCircle) == 1);
+
+	const FHitResult WorldHit = MakeProductProjectileHit(EnemyFixture.Enemy);
+	const Fdemo_mapPlayerProjectileImpactResult Impact =
+		Fixture.Coordinator.ExecutePlayerStraightProjectileImpact(
+			Fixture.Pawn,
+			EnemyFixture.Enemy,
+			WorldHit.GetComponent(),
+			Launch.ActivationSequence,
+			Launch.ActivationId,
+			Launch.RawDamage,
+			WorldHit.ImpactPoint,
+			WorldHit.ImpactNormal);
+	const FShanmenImpactRequest& Request = Impact.Impact.GetRequest();
+	const FGuid ExpectedImpact = FShanmenCombatIdFactory::MakeImpactId(
+		CoordinatorRunA,
+		ExpectedActivation,
+		TEXT("Detector.Player.Skill.StraightProjectile.Projectile"),
+		EnemyFixture.Enemy->GetCombatEntityId(),
+		0);
+	TestTrue(TEXT("Hostile contact resolves the frozen P4.13 contract"),
+		Impact.IsExecuted()
+			&& Impact.ActivationSequence == 1
+			&& Impact.ActivationId == ExpectedActivation
+			&& Request.Action.GetActionDefinitionId()
+				== TEXT("Combat.Action.Player.Skill.StraightProjectile")
+			&& Request.Action.GetContent().Version == TEXT("0.0.10.P4.13")
+			&& Request.Action.GetContent().Digest
+				== TEXT("Shanmen.Player.Skill.StraightProjectile.Projectile.r1")
+			&& Request.Action.GetSourceTags().HasTag(
+				FShanmenCombatNativeTags::SourcePlayer())
+			&& Request.Candidate.DetectorId
+				== TEXT("Detector.Player.Skill.StraightProjectile.Projectile")
+			&& Request.Candidate.DetectorKind
+				== EShanmenHitDetectorKind::Projectile
+			&& Request.Candidate.HitOrdinal == 0
+			&& Request.Candidate.TargetEntityId
+				== EnemyFixture.Enemy->GetCombatEntityId()
+			&& Request.Damage.FormulaId
+				== TEXT("Combat.Formula.Player.Skill.StraightProjectile.r1")
+			&& Request.Damage.DamageTags.HasTag(
+				FShanmenCombatNativeTags::DamagePhysical())
+			&& Request.ImpactId == ExpectedImpact
+			&& Impact.Impact.GetResult().IsConserved());
+	TestTrue(TEXT("Projectile contact commits target vitality exactly once"),
+		Impact.Delivery.CommitResult.Status
+			== EShanmenVitalityCommitStatus::Committed
+			&& FMath::IsNearlyEqual(
+				Impact.GetNewlyCommittedDamage(),
+				1.0f)
+			&& FMath::IsNearlyEqual(
+				EnemyFixture.Enemy->GetCurrentVitality(),
+				VitalityBefore - 1.0f)
+			&& EnemyFixture.Enemy->GetCombatAuthorityRevision() == 1);
+
+	const Fdemo_mapCombatImpactDeliveryResult Replay =
+		Fixture.Coordinator.DeliverPlayerProjectileImpactToM01Enemy(
+			Impact.Impact,
+			EnemyFixture.Enemy);
+	TestTrue(TEXT("Exact projectile receipt replay cannot double-write"),
+		Replay.IsSuccess()
+			&& Replay.CommitResult.Status
+				== EShanmenVitalityCommitStatus::AlreadyCommitted
+			&& FMath::IsNearlyEqual(
+				EnemyFixture.Enemy->GetCurrentVitality(),
+				VitalityBefore - 1.0f)
+			&& EnemyFixture.Enemy->GetCombatAuthorityRevision() == 1);
+
+	const Fdemo_mapPlayerProjectileLaunchResult SecondLaunch =
+		Fixture.Coordinator.PreparePlayerStraightProjectile(
+			Fixture.Pawn,
+			2.0f);
+	TestTrue(TEXT("Each fired projectile owns the next action identity"),
+		SecondLaunch.IsPrepared()
+			&& SecondLaunch.ActivationSequence == 2
+			&& SecondLaunch.ActivationId
+				!= Launch.ActivationId
+			&& Fixture.Coordinator
+				.GetNextPlayerStraightProjectileActivationSequence() == 3);
+	TestTrue(TEXT("Exact Run release resets projectile sequence"),
+		Fixture.Coordinator.TryEndRun(
+			CoordinatorRunA,
+			Fixture.Diagnostic)
+			&& Fixture.Coordinator
+				.GetNextPlayerStraightProjectileActivationSequence() == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenCombatRunCoordinatorPlayerStraightProjectileFailClosedTest,
+	"Shanmen.0_0_10.Product.CombatRunCoordinator.PlayerStraightProjectileFailClosed",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenCombatRunCoordinatorPlayerStraightProjectileFailClosedTest::
+RunTest(const FString&)
+{
+	Fdemo_mapCombatRunCoordinator Empty;
+	const Fdemo_mapPlayerProjectileLaunchResult NotReady =
+		Empty.PreparePlayerStraightProjectile(nullptr, 1.0f);
+	TestTrue(TEXT("Inactive coordinator rejects launch before identity"),
+		NotReady.Error
+			== Edemo_mapPlayerProjectileLaunchError::CoordinatorNotReady
+			&& !NotReady.ActivationId.IsValid());
+
+	FCombatRunCoordinatorFixture Fixture;
+	FM01MeleeEnemyFixture EnemyFixture;
+	TestTrue(TEXT("Player projectile fail-closed fixtures initialize"),
+		Fixture.bReady
+			&& EnemyFixture.bReady
+			&& Fixture.Coordinator.TryRegisterM01Enemy(
+				EnemyFixture.Enemy,
+				Fixture.Diagnostic));
+	if (!Fixture.bReady || !EnemyFixture.bReady)
+	{
+		AddError(Fixture.Diagnostic);
+		return false;
+	}
+
+	const Fdemo_mapPlayerProjectileLaunchResult WrongSource =
+		Fixture.Coordinator.PreparePlayerStraightProjectile(
+			EnemyFixture.Enemy,
+			1.0f);
+	const Fdemo_mapPlayerProjectileLaunchResult ZeroDamage =
+		Fixture.Coordinator.PreparePlayerStraightProjectile(
+			Fixture.Pawn,
+			0.0f);
+	const Fdemo_mapPlayerProjectileLaunchResult NaNDamage =
+		Fixture.Coordinator.PreparePlayerStraightProjectile(
+			Fixture.Pawn,
+			std::numeric_limits<float>::quiet_NaN());
+	TestTrue(TEXT("Invalid launch inputs do not consume sequence"),
+		WrongSource.Error
+			== Edemo_mapPlayerProjectileLaunchError::SourceMismatch
+			&& ZeroDamage.Error
+				== Edemo_mapPlayerProjectileLaunchError::InvalidDamage
+			&& NaNDamage.Error
+				== Edemo_mapPlayerProjectileLaunchError::InvalidDamage
+			&& Fixture.Coordinator
+				.GetNextPlayerStraightProjectileActivationSequence() == 1);
+
+	const Fdemo_mapPlayerProjectileLaunchResult Launch =
+		Fixture.Coordinator.PreparePlayerStraightProjectile(
+			Fixture.Pawn,
+			1.0f);
+	const FHitResult WorldHit = MakeProductProjectileHit(EnemyFixture.Enemy);
+	const float VitalityBefore = EnemyFixture.Enemy->GetCurrentVitality();
+	const Fdemo_mapPlayerProjectileImpactResult WrongIdentity =
+		Fixture.Coordinator.ExecutePlayerStraightProjectileImpact(
+			Fixture.Pawn,
+			EnemyFixture.Enemy,
+			WorldHit.GetComponent(),
+			Launch.ActivationSequence,
+			FGuid(0x54370001, 0, 0, 1),
+			Launch.RawDamage,
+			WorldHit.ImpactPoint,
+			WorldHit.ImpactNormal);
+	const Fdemo_mapPlayerProjectileImpactResult InvalidContact =
+		Fixture.Coordinator.ExecutePlayerStraightProjectileImpact(
+			Fixture.Pawn,
+			EnemyFixture.Enemy,
+			WorldHit.GetComponent(),
+			Launch.ActivationSequence,
+			Launch.ActivationId,
+			Launch.RawDamage,
+			FVector(
+				std::numeric_limits<double>::quiet_NaN(),
+				0.0,
+				0.0),
+			WorldHit.ImpactNormal);
+	TestTrue(TEXT("Identity and contact corruption fail before mutation"),
+		Launch.IsPrepared()
+			&& WrongIdentity.Error
+				== Edemo_mapPlayerProjectileImpactError::InvalidLaunchIdentity
+			&& InvalidContact.Error
+				== Edemo_mapPlayerProjectileImpactError::InvalidContact
+			&& FMath::IsNearlyEqual(
+				EnemyFixture.Enemy->GetCurrentVitality(),
+				VitalityBefore)
+			&& EnemyFixture.Enemy->GetCombatAuthorityRevision() == 0);
+
+	Ademo_mapEnemyCharacter* Unregistered =
+		NewObject<Ademo_mapEnemyCharacter>(GetTransientPackage());
+	const float UnregisteredVitality = Unregistered->GetCurrentVitality();
+	const FHitResult UnregisteredHit = MakeProductProjectileHit(Unregistered);
+	const Fdemo_mapPlayerProjectileImpactResult UnregisteredContact =
+		Fixture.Coordinator.ExecutePlayerStraightProjectileImpact(
+			Fixture.Pawn,
+			Unregistered,
+			UnregisteredHit.GetComponent(),
+			Launch.ActivationSequence,
+			Launch.ActivationId,
+			Launch.RawDamage,
+			UnregisteredHit.ImpactPoint,
+			UnregisteredHit.ImpactNormal);
+	TestTrue(TEXT("Unregistered hostile contact cannot reach legacy mutation"),
+		UnregisteredContact.Error
+			== Edemo_mapPlayerProjectileImpactError::TargetNotRegistered
+			&& FMath::IsNearlyEqual(
+				Unregistered->GetCurrentVitality(),
+				UnregisteredVitality)
+			&& !Unregistered->IsCombatEntityBound());
+
+	FCombatRunCoordinatorFixture ReplayFixture;
+	const Fdemo_mapPlayerProjectileLaunchResult DeterministicLaunch =
+		ReplayFixture.Coordinator.PreparePlayerStraightProjectile(
+			ReplayFixture.Pawn,
+			1.0f);
+	TestTrue(TEXT("Identical first launch replays deterministic identity"),
+		ReplayFixture.bReady
+			&& DeterministicLaunch.IsPrepared()
+			&& DeterministicLaunch.ActivationId == Launch.ActivationId);
 	return true;
 }
 

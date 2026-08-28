@@ -201,6 +201,96 @@ struct Fdemo_mapPlayerShapeSkillExecutionResult
 	}
 };
 
+enum class Edemo_mapPlayerProjectileLaunchError : uint8
+{
+	None,
+	CoordinatorNotReady,
+	SourceMismatch,
+	InvalidDamage,
+	SequenceExhausted,
+	ActionConstructionFailed
+};
+
+/** Frozen launch identity reserved before a player projectile enables collision. */
+struct Fdemo_mapPlayerProjectileLaunchResult
+{
+	Edemo_mapPlayerProjectileLaunchError Error =
+		Edemo_mapPlayerProjectileLaunchError::CoordinatorNotReady;
+	uint64 ActivationSequence = 0;
+	FGuid ActivationId;
+	float RawDamage = 0.0f;
+
+	bool IsPrepared() const
+	{
+		return Error == Edemo_mapPlayerProjectileLaunchError::None
+			&& ActivationSequence > 0
+			&& ActivationId.IsValid()
+			&& FMath::IsFinite(RawDamage)
+			&& RawDamage > 0.0f;
+	}
+};
+
+/** Frozen pure-kernel receipt for one player Straight Projectile contact. */
+struct Fdemo_mapPlayerProjectileImpactReceipt
+{
+public:
+	bool IsValid() const;
+	const FShanmenImpactRequest& GetRequest() const { return Request; }
+	const FShanmenImpactResult& GetResult() const { return Result; }
+
+private:
+	friend class Fdemo_mapCombatRunCoordinator;
+	FShanmenImpactRequest Request;
+	FShanmenImpactResult Result;
+};
+
+enum class Edemo_mapPlayerProjectileImpactError : uint8
+{
+	None,
+	CoordinatorNotReady,
+	SourceMismatch,
+	InvalidLaunchIdentity,
+	InvalidDamage,
+	InvalidContact,
+	TargetNotRegistered,
+	ActionConstructionFailed,
+	RuntimeStartFailed,
+	CandidateConstructionFailed,
+	VitalitySnapshotFailed,
+	ImpactResolutionFailed,
+	DeliveryRejected,
+	RuntimeCompletionFailed
+};
+
+/** Auditable result for one real player Straight Projectile hostile contact. */
+struct Fdemo_mapPlayerProjectileImpactResult
+{
+	Edemo_mapPlayerProjectileImpactError Error =
+		Edemo_mapPlayerProjectileImpactError::CoordinatorNotReady;
+	uint64 ActivationSequence = 0;
+	FGuid ActivationId;
+	Fdemo_mapPlayerProjectileImpactReceipt Impact;
+	Fdemo_mapCombatImpactDeliveryResult Delivery;
+
+	bool IsExecuted() const
+	{
+		return Error == Edemo_mapPlayerProjectileImpactError::None
+			&& ActivationSequence > 0
+			&& ActivationId.IsValid()
+			&& Impact.IsValid()
+			&& Delivery.IsSuccess();
+	}
+
+	float GetNewlyCommittedDamage() const
+	{
+		return IsExecuted()
+			&& Delivery.CommitResult.Status
+				== EShanmenVitalityCommitStatus::Committed
+			? Delivery.CommitResult.Receipt.GetAppliedDamage()
+			: 0.0f;
+	}
+};
+
 /** Product execution failures before a BasicSword action can close normally. */
 enum class Edemo_mapBasicSwordProductExecutionError : uint8
 {
@@ -288,6 +378,10 @@ public:
 		AActor* TargetEnemy);
 	Fdemo_mapCombatImpactDeliveryResult DeliverPlayerShapeSkillImpactToM01Enemy(
 		const Fdemo_mapPlayerShapeSkillImpactReceipt& Impact,
+		AActor* TargetEnemy);
+	Fdemo_mapCombatImpactDeliveryResult
+	DeliverPlayerProjectileImpactToM01Enemy(
+		const Fdemo_mapPlayerProjectileImpactReceipt& Impact,
 		AActor* TargetEnemy);
 	Fdemo_mapCombatImpactDeliveryResult
 	DeliverM01EnemyAttackImpactToPlayer(
@@ -379,12 +473,31 @@ public:
 		float RawDamage,
 		const TArray<struct FOverlapResult>& WorldOverlaps,
 		const FVector& ContactOrigin);
+	/** Reserves deterministic identity after spawn and before collision starts. */
+	Fdemo_mapPlayerProjectileLaunchResult PreparePlayerStraightProjectile(
+		AActor* SourcePlayer,
+		float RawDamage);
+	/** Resolves one already-authorized hostile projectile contact. */
+	Fdemo_mapPlayerProjectileImpactResult
+	ExecutePlayerStraightProjectileImpact(
+		AActor* SourcePlayer,
+		AActor* TargetEnemy,
+		UPrimitiveComponent* TargetComponent,
+		uint64 ActivationSequence,
+		const FGuid& ExpectedActivationId,
+		float RawDamage,
+		const FVector& ImpactLocation,
+		const FVector& ImpactNormal);
 	uint64 GetNextPlayerBasicSwordActivationSequence() const
 	{
 		return NextPlayerBasicSwordActivationSequence;
 	}
 	uint64 GetNextPlayerShapeSkillActivationSequence(
 		Edemo_mapPlayerShapeSkillFamily Family) const;
+	uint64 GetNextPlayerStraightProjectileActivationSequence() const
+	{
+		return NextPlayerStraightProjectileActivationSequence;
+	}
 
 private:
 	struct FM01EnemyBinding
@@ -404,6 +517,12 @@ private:
 		int32 RequestedHitOrdinal,
 		const FVector& RequestedHitLocation,
 		const FVector& RequestedHitNormal);
+	Fdemo_mapCombatImpactDeliveryResult
+	DeliverResolvedPlayerImpactToM01Enemy(
+		bool bImpactValid,
+		const FShanmenImpactRequest& Request,
+		const FShanmenImpactResult& Result,
+		AActor* TargetEnemy);
 
 	FShanmenWorldEntityRegistry EntityRegistry;
 	FGuid PlayerEntityId;
@@ -415,4 +534,5 @@ private:
 	uint64 NextPlayerBasicSwordActivationSequence = 1;
 	uint64 NextPlayerGroundCircleActivationSequence = 1;
 	uint64 NextPlayerSelfSectorActivationSequence = 1;
+	uint64 NextPlayerStraightProjectileActivationSequence = 1;
 };
