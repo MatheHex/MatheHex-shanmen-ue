@@ -20,7 +20,7 @@ enum class Edemo_mapProfilePreparationSelectionStatus : uint8
 	AuthorityCleanupPending,
 	/** ShanmenItems rejected or could not durably persist the equipment command. */
 	AuthorityCommandRejected,
-	/** P1.6 intentionally exposes no legacy material/Hotbar/run-start write path. */
+	/** ShanmenItems intentionally exposes no legacy path for a not-yet-adapted run operation. */
 	AuthorityRunAdapterPending
 };
 

@@ -42,6 +42,11 @@ namespace
 		case Edemo_mapShanmenPreparationAdapterStatus::InvalidSlot:
 		case Edemo_mapShanmenPreparationAdapterStatus::SlotRejected:
 			return Edemo_mapProfilePreparationSelectionStatus::EquipmentSlotRejected;
+		case Edemo_mapShanmenPreparationAdapterStatus::MaterialRejected:
+		case Edemo_mapShanmenPreparationAdapterStatus::HotbarRejected:
+			return Edemo_mapProfilePreparationSelectionStatus::MaterialRejected;
+		case Edemo_mapShanmenPreparationAdapterStatus::SelectionLimitExceeded:
+			return Edemo_mapProfilePreparationSelectionStatus::SelectionLimitExceeded;
 		default:
 			return Edemo_mapProfilePreparationSelectionStatus::AuthorityCommandRejected;
 		}
@@ -571,9 +576,9 @@ Fdemo_mapProfilePreparationSnapshot Udemo_mapProfileSessionSubsystem::GetPrepara
 			Snapshot.SelectedAccessoryId = Projection.SelectedAccessoryId;
 			Snapshot.SelectedSpatialRingId = Projection.SelectedSpatialRingId;
 			Snapshot.SelectedBackpackId = Projection.SelectedBackpackId;
-			Snapshot.OrderedSelectedMaterialIds.Reset();
-			Snapshot.HotbarBindings.SlotBindings.Init(
-				FGuid(), Fdemo_mapPersistentPreparationLayout::HotbarSlotCount);
+			Snapshot.OrderedSelectedMaterialIds =
+				MoveTemp(Projection.OrderedSelectedMaterialIds);
+			Snapshot.HotbarBindings = MoveTemp(Projection.HotbarBindings);
 			Snapshot.bCanStartRun = false;
 			Snapshot.VisibleDiagnostic = PreparationDiagnostic.IsEmpty()
 				? Projection.Diagnostic : PreparationDiagnostic;
@@ -710,13 +715,18 @@ Fdemo_mapProfilePreparationSelectionResult Udemo_mapProfileSessionSubsystem::Set
 				: Edemo_mapProfilePreparationSelectionStatus::SessionNotReady,
 			ContextDiagnostic);
 	}
-	if (FindReadyPreparationAuthority(*this))
+	if (Udemo_mapShanmenItemAuthoritySubsystem* Authority =
+		FindReadyPreparationAuthority(*this))
 	{
-		PreparationDiagnostic =
-			TEXT("P1.6 has retired legacy material writes; the ShanmenItems quantity preparation adapter is scheduled for the next stage.");
-		return RejectPreparation(
-			Edemo_mapProfilePreparationSelectionStatus::AuthorityRunAdapterPending,
-			PreparationDiagnostic);
+		const Fdemo_mapShanmenPreparationAdapterResult Adapter =
+			Fdemo_mapShanmenPreparationAdapter::SelectMaterial(
+				*Authority, ItemInstanceId, bSelected);
+		PreparationDiagnostic = Adapter.Diagnostic;
+		const Edemo_mapProfilePreparationSelectionStatus Status =
+			MapPreparationAdapterStatus(Adapter.Status);
+		return Status == Edemo_mapProfilePreparationSelectionStatus::Accepted
+			? AcceptPreparation(Adapter.Diagnostic)
+			: RejectPreparation(Status, Adapter.Diagnostic);
 	}
 	const Fdemo_mapPersistentItemRecord* Item = SessionSnapshot.OrderedPermanentStash.FindByPredicate(
 		[&ItemInstanceId](const Fdemo_mapPersistentItemRecord& Candidate)
@@ -786,13 +796,18 @@ Fdemo_mapProfilePreparationSelectionResult Udemo_mapProfileSessionSubsystem::Set
 	FString ContextDiagnostic;
 	if (!EnsurePreparationContext(SessionSnapshot, ContextDiagnostic))
 		return RejectPreparation(Edemo_mapProfilePreparationSelectionStatus::SessionNotReady, ContextDiagnostic);
-	if (FindReadyPreparationAuthority(*this))
+	if (Udemo_mapShanmenItemAuthoritySubsystem* Authority =
+		FindReadyPreparationAuthority(*this))
 	{
-		PreparationDiagnostic =
-			TEXT("P1.6 has retired legacy Hotbar writes; bindings remain empty until the ShanmenItems run-loadout adapter lands.");
-		return RejectPreparation(
-			Edemo_mapProfilePreparationSelectionStatus::AuthorityRunAdapterPending,
-			PreparationDiagnostic);
+		const Fdemo_mapShanmenPreparationAdapterResult Adapter =
+			Fdemo_mapShanmenPreparationAdapter::SetHotbarSlot(
+				*Authority, ExternalSlotNumber, ItemInstanceId);
+		PreparationDiagnostic = Adapter.Diagnostic;
+		const Edemo_mapProfilePreparationSelectionStatus Status =
+			MapPreparationAdapterStatus(Adapter.Status);
+		return Status == Edemo_mapProfilePreparationSelectionStatus::Accepted
+			? AcceptPreparation(Adapter.Diagnostic)
+			: RejectPreparation(Status, Adapter.Diagnostic);
 	}
 	if (ExternalSlotNumber < 1 || ExternalSlotNumber > Fdemo_mapPersistentPreparationLayout::HotbarSlotCount)
 		return RejectPreparation(Edemo_mapProfilePreparationSelectionStatus::MaterialRejected, TEXT("Hotbar slot must be 1..9."));
@@ -848,6 +863,23 @@ Fdemo_mapProfilePreparationSelectionResult Udemo_mapProfileSessionSubsystem::Cle
 		FindReadyPreparationAuthority(*this))
 	{
 		bool bChanged = false;
+		const TArray<FGuid> SelectedMaterials =
+			GetPreparationSnapshot().OrderedSelectedMaterialIds;
+		for (const FGuid& ItemId : SelectedMaterials)
+		{
+			const Fdemo_mapShanmenPreparationAdapterResult Adapter =
+				Fdemo_mapShanmenPreparationAdapter::SelectMaterial(
+					*Authority, ItemId, false);
+			if (!Adapter.IsAccepted())
+			{
+				PreparationDiagnostic = Adapter.Diagnostic;
+				return RejectPreparation(
+					MapPreparationAdapterStatus(Adapter.Status),
+					Adapter.Diagnostic);
+			}
+			bChanged |= Adapter.Status
+				== Edemo_mapShanmenPreparationAdapterStatus::Accepted;
+		}
 		for (FName SlotId : Fdemo_mapItemDefinitions::GetEquipmentSlotIds())
 		{
 			const Fdemo_mapShanmenPreparationAdapterResult Adapter =
@@ -864,8 +896,8 @@ Fdemo_mapProfilePreparationSelectionResult Udemo_mapProfileSessionSubsystem::Cle
 				== Edemo_mapShanmenPreparationAdapterStatus::Accepted;
 		}
 		PreparationDiagnostic = bChanged
-			? TEXT("All authority-native preparation equipment selections were cleared.")
-			: TEXT("Authority-native preparation equipment selections were already empty.");
+			? TEXT("All authority-native preparation selections were cleared.")
+			: TEXT("Authority-native preparation selections were already empty.");
 		return AcceptPreparation(PreparationDiagnostic);
 	}
 	return CommitPreparationLayout(

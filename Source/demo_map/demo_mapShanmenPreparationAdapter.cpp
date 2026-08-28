@@ -338,6 +338,472 @@ namespace
 		}
 		return true;
 	}
+
+	constexpr int32 PreparationHotbarSlotCount =
+		Fdemo_mapPersistentPreparationLayout::HotbarSlotCount;
+	const FString RunInventoryPurposePrefix(
+		TEXT("Shanmen.Preparation.RunInventory.r1.O"));
+
+	struct FRunReservationMetadata
+	{
+		int32 Ordinal = INDEX_NONE;
+		int32 HotbarSlot = 0;
+
+		bool operator==(const FRunReservationMetadata& Other) const
+		{
+			return Ordinal == Other.Ordinal
+				&& HotbarSlot == Other.HotbarSlot;
+		}
+	};
+
+	struct FRunSelectionAnalysis
+	{
+		const FShanmenItemReservationSnapshot* Reservation = nullptr;
+		const FShanmenItemInstance* Item = nullptr;
+		FRunReservationMetadata Metadata;
+		int32 ReserveAuthorityRevision = INDEX_NONE;
+	};
+
+	struct FRunInventoryAnalysis
+	{
+		TArray<FRunSelectionAnalysis> OrderedSelections;
+		int32 NextOrdinal = 0;
+	};
+
+	FName MakeRunInventoryPurpose(const FRunReservationMetadata& Metadata)
+	{
+		return FName(*FString::Printf(
+			TEXT("%s%08d.H%02d"), *RunInventoryPurposePrefix,
+			Metadata.Ordinal, Metadata.HotbarSlot));
+	}
+
+	bool ParseRunInventoryPurpose(
+		FName PurposeId,
+		FRunReservationMetadata& OutMetadata)
+	{
+		OutMetadata = FRunReservationMetadata();
+		const FString Value = PurposeId.ToString();
+		if (!Value.StartsWith(RunInventoryPurposePrefix,
+			ESearchCase::IgnoreCase))
+		{
+			return false;
+		}
+		const FString Payload = Value.Mid(RunInventoryPurposePrefix.Len());
+		FString OrdinalText;
+		FString HotbarText;
+		if (!Payload.Split(TEXT(".H"), &OrdinalText, &HotbarText,
+			ESearchCase::IgnoreCase, ESearchDir::FromStart)
+			|| OrdinalText.Len() != 8 || HotbarText.Len() != 2
+			|| !OrdinalText.IsNumeric() || !HotbarText.IsNumeric())
+		{
+			return false;
+		}
+		OutMetadata.Ordinal = FCString::Atoi(*OrdinalText);
+		OutMetadata.HotbarSlot = FCString::Atoi(*HotbarText);
+		return OutMetadata.Ordinal >= 0
+			&& OutMetadata.HotbarSlot >= 0
+			&& OutMetadata.HotbarSlot <= PreparationHotbarSlotCount;
+	}
+
+	bool HasRunInventoryPurpose(FName PurposeId)
+	{
+		return PurposeId.ToString().StartsWith(
+			RunInventoryPurposePrefix, ESearchCase::IgnoreCase);
+	}
+
+	bool IsRunInventoryDefinition(
+		const FShanmenItemAuthoritySnapshot& Snapshot,
+		const FShanmenItemInstance& Item,
+		const Fdemo_mapItemDefinition** OutLegacyDefinition = nullptr)
+	{
+		const FShanmenItemDefinition* Definition =
+			FindDefinition(Snapshot, Item.DefinitionId);
+		const Fdemo_mapItemDefinition* LegacyDefinition =
+			Fdemo_mapItemDefinitions::Find(Item.DefinitionId);
+		if (OutLegacyDefinition)
+		{
+			*OutLegacyDefinition = LegacyDefinition;
+		}
+		return Definition
+			&& Definition->Supports(EShanmenItemResourceKind::Quantity)
+			&& LegacyDefinition
+			&& (LegacyDefinition->CategoryId
+					== Fdemo_mapItemIds::MaterialCategory
+				|| LegacyDefinition->CategoryId
+					== Fdemo_mapItemIds::ConsumableCategory)
+			&& Item.State == EShanmenItemInstanceState::Stored
+			&& Item.Quantity > 0;
+	}
+
+	bool AnalyzeRunInventory(
+		const FShanmenItemAuthoritySnapshot& Snapshot,
+		FRunInventoryAnalysis& Out,
+		FString& OutDiagnostic)
+	{
+		Out = FRunInventoryAnalysis();
+		TSet<FGuid> ActiveItems;
+		TSet<int32> ActiveOrdinals;
+		TSet<int32> ActiveHotbarSlots;
+		for (const FShanmenItemReservationSnapshot& Reservation :
+			Snapshot.Reservations)
+		{
+			if (Reservation.ResourceKind
+					!= EShanmenItemResourceKind::Quantity
+				|| !HasRunInventoryPurpose(Reservation.PurposeId))
+			{
+				continue;
+			}
+			FRunReservationMetadata Metadata;
+			if (!ParseRunInventoryPurpose(
+				Reservation.PurposeId, Metadata))
+			{
+				OutDiagnostic = FString::Printf(
+					TEXT("Preparation Quantity reservation %s has malformed loadout metadata."),
+					*GuidDigits(Reservation.ReservationId));
+				return false;
+			}
+			const int32 Revision = ReserveRevision(Snapshot, Reservation);
+			if (Revision == INDEX_NONE)
+			{
+				OutDiagnostic = TEXT("Preparation Quantity reservation has no successful Reserve receipt.");
+				return false;
+			}
+			if (Reservation.State
+					!= EShanmenItemReservationState::Reserved)
+			{
+				continue;
+			}
+			const FShanmenItemInstance* Item =
+				FindItem(Snapshot, Reservation.ItemInstanceId);
+			const Fdemo_mapItemDefinition* LegacyDefinition = nullptr;
+			if (!Item || !IsRunInventoryDefinition(
+					Snapshot, *Item, &LegacyDefinition)
+				|| Reservation.Amount != Item->Quantity)
+			{
+				OutDiagnostic = TEXT("Active preparation Quantity intent must reserve one complete eligible stack.");
+				return false;
+			}
+			if (ActiveItems.Contains(Item->ItemInstanceId)
+				|| ActiveOrdinals.Contains(Metadata.Ordinal))
+			{
+				OutDiagnostic = TEXT("Preparation Quantity intents contain duplicate item or order identities.");
+				return false;
+			}
+			if (Metadata.HotbarSlot > 0
+				&& (ActiveHotbarSlots.Contains(Metadata.HotbarSlot)
+					|| !LegacyDefinition->bHotbarEligible
+					|| LegacyDefinition->CategoryId
+						!= Fdemo_mapItemIds::ConsumableCategory))
+			{
+				OutDiagnostic = TEXT("Preparation Hotbar metadata is duplicated or references a non-consumable stack.");
+				return false;
+			}
+			ActiveItems.Add(Item->ItemInstanceId);
+			ActiveOrdinals.Add(Metadata.Ordinal);
+			if (Metadata.HotbarSlot > 0)
+			{
+				ActiveHotbarSlots.Add(Metadata.HotbarSlot);
+			}
+			FRunSelectionAnalysis& Selection =
+				Out.OrderedSelections.AddDefaulted_GetRef();
+			Selection.Reservation = &Reservation;
+			Selection.Item = Item;
+			Selection.Metadata = Metadata;
+			Selection.ReserveAuthorityRevision = Revision;
+			Out.NextOrdinal = FMath::Max(
+				Out.NextOrdinal, Metadata.Ordinal + 1);
+		}
+		Out.OrderedSelections.Sort([](
+			const FRunSelectionAnalysis& Left,
+			const FRunSelectionAnalysis& Right)
+		{
+			if (Left.Metadata.Ordinal != Right.Metadata.Ordinal)
+			{
+				return Left.Metadata.Ordinal < Right.Metadata.Ordinal;
+			}
+			if (Left.ReserveAuthorityRevision
+				!= Right.ReserveAuthorityRevision)
+			{
+				return Left.ReserveAuthorityRevision
+					< Right.ReserveAuthorityRevision;
+			}
+			return GuidLess(
+				Left.Item->ItemInstanceId, Right.Item->ItemInstanceId);
+		});
+		return true;
+	}
+
+	const FRunSelectionAnalysis* FindRunSelection(
+		const FRunInventoryAnalysis& Analysis,
+		const FGuid& ItemId)
+	{
+		return Analysis.OrderedSelections.FindByPredicate(
+			[&ItemId](const FRunSelectionAnalysis& Selection)
+			{
+				return Selection.Item
+					&& Selection.Item->ItemInstanceId == ItemId;
+			});
+	}
+
+	const FShanmenItemReservationSnapshot* FindLatestRunReservation(
+		const FShanmenItemAuthoritySnapshot& Snapshot,
+		const FGuid& ItemId)
+	{
+		const FShanmenItemReservationSnapshot* Latest = nullptr;
+		int32 LatestRevision = INDEX_NONE;
+		for (const FShanmenItemReservationSnapshot& Reservation :
+			Snapshot.Reservations)
+		{
+			if (Reservation.ItemInstanceId != ItemId
+				|| Reservation.ResourceKind
+					!= EShanmenItemResourceKind::Quantity
+				|| !HasRunInventoryPurpose(Reservation.PurposeId))
+			{
+				continue;
+			}
+			const int32 Revision = ReserveRevision(Snapshot, Reservation);
+			if (Revision > LatestRevision
+				|| (Revision == LatestRevision && Latest
+					&& GuidLess(Latest->ReservationId,
+						Reservation.ReservationId)))
+			{
+				Latest = &Reservation;
+				LatestRevision = Revision;
+			}
+		}
+		return Latest;
+	}
+
+	FName DefinitionIdForSelectedItem(
+		const FShanmenItemAuthoritySnapshot& Snapshot,
+		const FGuid& ItemId)
+	{
+		const FShanmenItemInstance* Item = FindItem(Snapshot, ItemId);
+		return Item ? Item->DefinitionId : NAME_None;
+	}
+
+	bool ValidateRunCapacityAndHotbar(
+		const FShanmenItemAuthoritySnapshot& Snapshot,
+		const Fdemo_mapShanmenPreparationAuthorityProjection& Projection,
+		const FRunInventoryAnalysis& Analysis,
+		int32& OutQuickCapacity,
+		FString& OutDiagnostic)
+	{
+		const Fdemo_mapInventoryCapacityResult Capacity =
+			Fdemo_mapItemDefinitions::ResolveInventoryCapacity(
+				DefinitionIdForSelectedItem(
+					Snapshot, Projection.SelectedBackpackId),
+				DefinitionIdForSelectedItem(
+					Snapshot, Projection.SelectedSpatialRingId));
+		if (!Capacity.bSuccess)
+		{
+			OutDiagnostic = Capacity.Diagnostic;
+			return false;
+		}
+		if (Analysis.OrderedSelections.Num() > Capacity.Capacity)
+		{
+			OutDiagnostic = FString::Printf(
+				TEXT("Preparation reserves %d complete stacks but selected storage holds only %d."),
+				Analysis.OrderedSelections.Num(), Capacity.Capacity);
+			return false;
+		}
+		OutQuickCapacity =
+			Fdemo_mapPersistentPreparationLayout::BaseQuickItemSlotCount
+			+ Capacity.RingQuickCapacity;
+		for (int32 Index = 0;
+			Index < Analysis.OrderedSelections.Num(); ++Index)
+		{
+			const FRunSelectionAnalysis& Selection =
+				Analysis.OrderedSelections[Index];
+			if (Selection.Metadata.HotbarSlot > 0
+				&& Index >= OutQuickCapacity)
+			{
+				OutDiagnostic = TEXT("A Hotbar binding references a consumable outside the current Base Quick area.");
+				return false;
+			}
+		}
+		return true;
+	}
+
+	bool CanApplyEquipmentCapacityChange(
+		const FShanmenItemAuthoritySnapshot& Snapshot,
+		const Fdemo_mapShanmenPreparationAuthorityProjection& Projection,
+		FName SlotId,
+		const FGuid& ItemId,
+		FString& OutDiagnostic)
+	{
+		if (SlotId != Fdemo_mapItemIds::BackpackSlot
+			&& SlotId != Fdemo_mapItemIds::SpatialRingSlot)
+		{
+			return true;
+		}
+		Fdemo_mapShanmenPreparationAuthorityProjection Candidate =
+			Projection;
+		FGuid* Field = SelectedField(Candidate, SlotId);
+		if (!Field)
+		{
+			OutDiagnostic = TEXT("Preparation capacity slot mapping is incomplete.");
+			return false;
+		}
+		*Field = ItemId;
+		FRunInventoryAnalysis Analysis;
+		if (!AnalyzeRunInventory(Snapshot, Analysis, OutDiagnostic))
+		{
+			return false;
+		}
+		int32 QuickCapacity = 0;
+		return ValidateRunCapacityAndHotbar(
+			Snapshot, Candidate, Analysis, QuickCapacity, OutDiagnostic);
+	}
+
+	FGuid MakeRunReserveRequestId(
+		const FShanmenItemAuthoritySnapshot& Snapshot,
+		const FGuid& OwnerId,
+		const FGuid& ScopeId,
+		const FShanmenItemInstance& Item,
+		const FRunReservationMetadata& Metadata)
+	{
+		const FShanmenItemReservationSnapshot* Previous =
+			FindLatestRunReservation(Snapshot, Item.ItemInstanceId);
+		return FShanmenDeterministicId::FromCanonicalParts(
+			TEXT("Shanmen.Preparation.RunInventoryReserve.r1"),
+			{
+				GuidDigits(OwnerId), GuidDigits(ScopeId),
+				GuidDigits(Item.ItemInstanceId),
+				Previous ? GuidDigits(Previous->ReservationId) : TEXT("none"),
+				MakeRunInventoryPurpose(Metadata).ToString(),
+				FString::FromInt(Item.Quantity),
+				FString::FromInt(Item.Revision)
+			});
+	}
+
+	FGuid MakeRunCancelRequestId(const FGuid& ReservationId)
+	{
+		return FShanmenDeterministicId::FromCanonicalParts(
+			TEXT("Shanmen.Preparation.RunInventoryCancel.r1"),
+			{ GuidDigits(ReservationId) });
+	}
+
+	bool CancelRunReservation(
+		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+		const FShanmenItemAuthoritySnapshot& Snapshot,
+		const FShanmenItemReservationSnapshot& Reservation,
+		FString& OutDiagnostic)
+	{
+		FShanmenItemReservationActionRequest Request;
+		Request.Context = MakeContext(
+			Snapshot, Reservation.RunId, Reservation.OwnerId,
+			MakeRunCancelRequestId(Reservation.ReservationId));
+		Request.ReservationId = Reservation.ReservationId;
+		const FShanmenItemDurableCommandResult Command =
+			Authority.CancelDurable(Request);
+		if (!Command.IsCommandSuccess())
+		{
+			OutDiagnostic = FString::Printf(
+				TEXT("Authority could not cancel preparation Quantity reservation %s: %s"),
+				*GuidDigits(Reservation.ReservationId), *Command.Diagnostic);
+			return false;
+		}
+		return true;
+	}
+
+	FShanmenItemDurableCommandResult ReserveRunSelection(
+		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+		const FShanmenItemAuthoritySnapshot& Snapshot,
+		const FGuid& OwnerId,
+		const FGuid& ScopeId,
+		const FShanmenItemInstance& Item,
+		const FRunReservationMetadata& Metadata)
+	{
+		FShanmenItemReserveRequest Request;
+		Request.Context = MakeContext(
+			Snapshot, ScopeId, OwnerId,
+			MakeRunReserveRequestId(
+				Snapshot, OwnerId, ScopeId, Item, Metadata));
+		Request.ItemInstanceId = Item.ItemInstanceId;
+		Request.ResourceKind = EShanmenItemResourceKind::Quantity;
+		Request.Amount = Item.Quantity;
+		Request.ExpectedItemRevision = Item.Revision;
+		Request.PurposeId = MakeRunInventoryPurpose(Metadata);
+		return Authority.ReserveDurable(Request);
+	}
+
+	bool ReplaceRunSelectionMetadata(
+		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+		const FRunSelectionAnalysis& Selection,
+		const FRunReservationMetadata& NewMetadata,
+		bool& OutRestored,
+		FString& OutDiagnostic)
+	{
+		OutRestored = false;
+		if (!Selection.Reservation || !Selection.Item)
+		{
+			OutDiagnostic = TEXT("Preparation Quantity metadata replacement has no active selection.");
+			return false;
+		}
+		if (Selection.Metadata == NewMetadata)
+		{
+			return true;
+		}
+		FShanmenItemAuthoritySnapshot Snapshot;
+		if (!Authority.TryCaptureSnapshot(Snapshot)
+			|| !CancelRunReservation(
+				Authority, Snapshot, *Selection.Reservation, OutDiagnostic))
+		{
+			return false;
+		}
+		if (!Authority.TryCaptureSnapshot(Snapshot))
+		{
+			OutDiagnostic = TEXT("Authority snapshot disappeared after cancelling old preparation metadata.");
+			return false;
+		}
+		const FShanmenItemInstance* Item =
+			FindItem(Snapshot, Selection.Item->ItemInstanceId);
+		if (!Item)
+		{
+			OutDiagnostic = TEXT("Preparation stack disappeared while replacing metadata.");
+			return false;
+		}
+		const FShanmenItemDurableCommandResult Replacement =
+			ReserveRunSelection(
+				Authority, Snapshot, Selection.Reservation->OwnerId,
+				Selection.Reservation->RunId, *Item, NewMetadata);
+		if (Replacement.IsCommandSuccess())
+		{
+			return true;
+		}
+
+		const FString ReplacementFailure = Replacement.Diagnostic;
+		if (Authority.TryCaptureSnapshot(Snapshot))
+		{
+			Item = FindItem(Snapshot, Selection.Item->ItemInstanceId);
+			if (Item)
+			{
+				const FShanmenItemDurableCommandResult Rollback =
+					ReserveRunSelection(
+						Authority, Snapshot,
+						Selection.Reservation->OwnerId,
+						Selection.Reservation->RunId,
+						*Item, Selection.Metadata);
+				if (Rollback.IsCommandSuccess())
+				{
+					OutRestored = true;
+					OutDiagnostic = FString::Printf(
+						TEXT("Preparation metadata replacement failed and the previous binding was restored: %s"),
+						*ReplacementFailure);
+					return false;
+				}
+				OutDiagnostic = FString::Printf(
+					TEXT("Preparation metadata replacement failed (%s) and rollback also failed (%s)."),
+					*ReplacementFailure, *Rollback.Diagnostic);
+				return false;
+			}
+		}
+		OutDiagnostic = FString::Printf(
+			TEXT("Preparation metadata replacement failed and rollback state is unavailable: %s"),
+			*ReplacementFailure);
+		return false;
+	}
 }
 
 bool Fdemo_mapShanmenPreparationAdapter::BuildProjection(
@@ -406,6 +872,32 @@ bool Fdemo_mapShanmenPreparationAdapter::BuildProjection(
 		}
 		*Field = Slot.SelectedItemId;
 	}
+	FRunInventoryAnalysis RunInventory;
+	if (!AnalyzeRunInventory(Snapshot, RunInventory, Diagnostic))
+	{
+		return Fail(Diagnostic);
+	}
+	int32 QuickCapacity = 0;
+	if (!ValidateRunCapacityAndHotbar(
+		Snapshot, OutProjection, RunInventory,
+		QuickCapacity, Diagnostic))
+	{
+		return Fail(Diagnostic);
+	}
+	OutProjection.HotbarBindings.SlotBindings.Init(
+		FGuid(), PreparationHotbarSlotCount);
+	for (const FRunSelectionAnalysis& Selection :
+		RunInventory.OrderedSelections)
+	{
+		OutProjection.OrderedSelectedMaterialIds.Add(
+			Selection.Item->ItemInstanceId);
+		if (Selection.Metadata.HotbarSlot > 0)
+		{
+			OutProjection.HotbarBindings.SlotBindings[
+				Selection.Metadata.HotbarSlot - 1] =
+				Selection.Item->ItemInstanceId;
+		}
+	}
 
 	const FShanmenItemContainer* Warehouse = nullptr;
 	for (const FShanmenItemContainer& Container : Snapshot.Containers)
@@ -436,7 +928,11 @@ bool Fdemo_mapShanmenPreparationAdapter::BuildProjection(
 		Row.ItemDefinitionId = Item.DefinitionId;
 		Row.StackCount = Item.Quantity;
 		Row.bSafeInPermanentStash = true;
-		Row.bSelected = IsSelected(OutProjection, Item.ItemInstanceId);
+		const int32 RunInventoryIndex =
+			OutProjection.OrderedSelectedMaterialIds.IndexOfByKey(
+				Item.ItemInstanceId);
+		Row.bSelected = IsSelected(OutProjection, Item.ItemInstanceId)
+			|| RunInventoryIndex != INDEX_NONE;
 		if (const Fdemo_mapItemDefinition* LegacyDefinition =
 			Fdemo_mapItemDefinitions::Find(Item.DefinitionId))
 		{
@@ -445,9 +941,10 @@ bool Fdemo_mapShanmenPreparationAdapter::BuildProjection(
 				LegacyDefinition->CompatibleSlotIds.Num() == 1
 				? LegacyDefinition->CompatibleSlotIds[0] : NAME_None;
 		}
-		// P1.6 deliberately adapts equipment only. Quantity reservation and
-		// Hotbar/run-start orchestration remain disabled until their own stage.
-		Row.bMaterialSelectionEligible = false;
+		Row.bMaterialSelectionEligible =
+			IsRunInventoryDefinition(Snapshot, Item);
+		Row.bInBaseQuickItemArea = RunInventoryIndex >= 0
+			&& RunInventoryIndex < QuickCapacity;
 		OutProjection.OrderedRows.Add(MoveTemp(Row));
 	}
 	OutProjection.OrderedRows.Sort([](
@@ -457,7 +954,7 @@ bool Fdemo_mapShanmenPreparationAdapter::BuildProjection(
 		return GuidLess(Left.ItemInstanceId, Right.ItemInstanceId);
 	});
 	OutProjection.Diagnostic =
-		TEXT("P1.6 equipment selection is projected from ShanmenItems; material, Hotbar, and run-start adapters remain disabled.");
+		TEXT("P1.7 equipment, complete-stack RunInventory reservations, and Hotbar bindings are projected from ShanmenItems; Start Run commit remains disabled.");
 	if (OutDiagnostic) OutDiagnostic->Reset();
 	return true;
 }
@@ -571,6 +1068,13 @@ Fdemo_mapShanmenPreparationAdapter::SelectEquipment(
 					&Authority);
 			}
 		}
+		if (!CanApplyEquipmentCapacityChange(
+			Snapshot, Projection, SlotId, ItemInstanceId, Diagnostic))
+		{
+			return MakeResult(
+				Edemo_mapShanmenPreparationAdapterStatus::SelectionLimitExceeded,
+				Diagnostic, &Authority);
+		}
 
 		if (Slot->SelectedItemId == ItemInstanceId)
 		{
@@ -661,6 +1165,13 @@ Fdemo_mapShanmenPreparationAdapter::SelectEquipment(
 			Edemo_mapShanmenPreparationAdapterStatus::DeployedSelectionLocked,
 			TEXT("A committed deployment cannot be cleared before run settlement."),
 			&Authority);
+	}
+	if (!CanApplyEquipmentCapacityChange(
+		Snapshot, Projection, SlotId, FGuid(), Diagnostic))
+	{
+		return MakeResult(
+			Edemo_mapShanmenPreparationAdapterStatus::SelectionLimitExceeded,
+			Diagnostic, &Authority);
 	}
 	if (!Slot->bHasHistory && !Slot->BaselineItemId.IsValid())
 	{
@@ -759,4 +1270,322 @@ Fdemo_mapShanmenPreparationAdapter::SelectEquipment(
 	return MakeResult(
 		Edemo_mapShanmenPreparationAdapterStatus::Accepted,
 		TEXT("Authority-native equipment slot cleared."), &Authority);
+}
+
+Fdemo_mapShanmenPreparationAdapterResult
+Fdemo_mapShanmenPreparationAdapter::SelectMaterial(
+	Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+	const FGuid& ItemInstanceId,
+	bool bSelected)
+{
+	if (!IsInGameThread()
+		|| Authority.GetLifecycleState()
+			!= Edemo_mapShanmenItemAuthorityLifecycleState::Ready)
+	{
+		return MakeResult(
+			Edemo_mapShanmenPreparationAdapterStatus::AuthorityNotReady,
+			TEXT("Authority-native RunInventory selection requires a Ready ShanmenItems owner."),
+			&Authority);
+	}
+	FShanmenItemAuthoritySnapshot Snapshot;
+	if (!Authority.TryCaptureSnapshot(Snapshot))
+	{
+		return MakeResult(
+			Edemo_mapShanmenPreparationAdapterStatus::InvalidAuthority,
+			TEXT("ShanmenItems snapshot is unavailable."), &Authority);
+	}
+	Fdemo_mapShanmenPreparationAuthorityProjection Projection;
+	FString Diagnostic;
+	if (!BuildProjection(
+		Snapshot, Authority.GetBoundOwnerId(), Projection, &Diagnostic))
+	{
+		return MakeResult(
+			Edemo_mapShanmenPreparationAdapterStatus::InvalidAuthority,
+			Diagnostic, &Authority);
+	}
+	FRunInventoryAnalysis RunInventory;
+	if (!AnalyzeRunInventory(Snapshot, RunInventory, Diagnostic))
+	{
+		return MakeResult(
+			Edemo_mapShanmenPreparationAdapterStatus::InvalidAuthority,
+			Diagnostic, &Authority);
+	}
+	const FRunSelectionAnalysis* Existing =
+		FindRunSelection(RunInventory, ItemInstanceId);
+	const FShanmenItemInstance* Item = FindItem(Snapshot, ItemInstanceId);
+	if (!Item || Item->OwnerId != Projection.OwnerId
+		|| Item->RunId != Projection.ScopeId
+		|| Item->State == EShanmenItemInstanceState::Depleted)
+	{
+		return MakeResult(
+			Edemo_mapShanmenPreparationAdapterStatus::ItemNotFound,
+			TEXT("RunInventory ItemInstanceId is absent from the bound ShanmenItems scope."),
+			&Authority);
+	}
+	if (!IsRunInventoryDefinition(Snapshot, *Item)
+		|| IsSelected(Projection, ItemInstanceId))
+	{
+		return MakeResult(
+			Edemo_mapShanmenPreparationAdapterStatus::MaterialRejected,
+			TEXT("RunInventory accepts complete Material or Consumable stacks that are not equipment selections."),
+			&Authority);
+	}
+
+	if (bSelected)
+	{
+		if (Existing)
+		{
+			return MakeResult(
+				Edemo_mapShanmenPreparationAdapterStatus::DuplicateSelection,
+				TEXT("The same ItemInstanceId cannot appear twice in RunInventory."),
+				&Authority);
+		}
+		if (RunInventory.NextOrdinal >= 100000000)
+		{
+			return MakeResult(
+				Edemo_mapShanmenPreparationAdapterStatus::SelectionLimitExceeded,
+				TEXT("RunInventory ordering metadata is exhausted and requires reconciliation."),
+				&Authority);
+		}
+		FRunSelectionAnalysis CandidateSelection;
+		CandidateSelection.Item = Item;
+		CandidateSelection.Metadata.Ordinal = RunInventory.NextOrdinal;
+		RunInventory.OrderedSelections.Add(CandidateSelection);
+		int32 QuickCapacity = 0;
+		if (!ValidateRunCapacityAndHotbar(
+			Snapshot, Projection, RunInventory,
+			QuickCapacity, Diagnostic))
+		{
+			return MakeResult(
+				Edemo_mapShanmenPreparationAdapterStatus::SelectionLimitExceeded,
+				Diagnostic, &Authority);
+		}
+		const FRunReservationMetadata Metadata =
+			{ RunInventory.NextOrdinal, 0 };
+		const FShanmenItemDurableCommandResult Reserve =
+			ReserveRunSelection(
+				Authority, Snapshot, Projection.OwnerId,
+				Projection.ScopeId, *Item, Metadata);
+		if (!Reserve.IsCommandSuccess())
+		{
+			return MakeResult(
+				Edemo_mapShanmenPreparationAdapterStatus::CommandRejected,
+				FString::Printf(
+					TEXT("Complete-stack preparation reserve was rejected: %s"),
+					*Reserve.Diagnostic),
+				&Authority);
+		}
+		return MakeResult(
+			Edemo_mapShanmenPreparationAdapterStatus::Accepted,
+			TEXT("Complete stack reserved for the next Run without consuming it."),
+			&Authority);
+	}
+
+	if (!Existing)
+	{
+		return MakeResult(
+			Edemo_mapShanmenPreparationAdapterStatus::NoChange,
+			TEXT("RunInventory stack is already unselected."), &Authority);
+	}
+	if (!CancelRunReservation(
+		Authority, Snapshot, *Existing->Reservation, Diagnostic))
+	{
+		return MakeResult(
+			Edemo_mapShanmenPreparationAdapterStatus::CommandRejected,
+			Diagnostic, &Authority);
+	}
+	return MakeResult(
+		Edemo_mapShanmenPreparationAdapterStatus::Accepted,
+		TEXT("Complete-stack preparation reserve released; any Hotbar binding was cleared with it."),
+		&Authority);
+}
+
+Fdemo_mapShanmenPreparationAdapterResult
+Fdemo_mapShanmenPreparationAdapter::SetHotbarSlot(
+	Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+	int32 ExternalSlotNumber,
+	const FGuid& ItemInstanceId)
+{
+	if (!IsInGameThread()
+		|| Authority.GetLifecycleState()
+			!= Edemo_mapShanmenItemAuthorityLifecycleState::Ready)
+	{
+		return MakeResult(
+			Edemo_mapShanmenPreparationAdapterStatus::AuthorityNotReady,
+			TEXT("Authority-native Hotbar binding requires a Ready ShanmenItems owner."),
+			&Authority);
+	}
+	if (ExternalSlotNumber < 1
+		|| ExternalSlotNumber > PreparationHotbarSlotCount)
+	{
+		return MakeResult(
+			Edemo_mapShanmenPreparationAdapterStatus::HotbarRejected,
+			TEXT("Hotbar slot must be 1..9."), &Authority);
+	}
+
+	FShanmenItemAuthoritySnapshot Snapshot;
+	Fdemo_mapShanmenPreparationAuthorityProjection Projection;
+	FRunInventoryAnalysis RunInventory;
+	FString Diagnostic;
+	auto Capture = [&]()
+	{
+		return Authority.TryCaptureSnapshot(Snapshot)
+			&& BuildProjection(
+				Snapshot, Authority.GetBoundOwnerId(),
+				Projection, &Diagnostic)
+			&& AnalyzeRunInventory(
+				Snapshot, RunInventory, Diagnostic);
+	};
+	if (!Capture())
+	{
+		return MakeResult(
+			Edemo_mapShanmenPreparationAdapterStatus::InvalidAuthority,
+			Diagnostic.IsEmpty()
+				? TEXT("ShanmenItems loadout projection is unavailable.")
+				: Diagnostic,
+			&Authority);
+	}
+
+	const FRunSelectionAnalysis* Occupant =
+		RunInventory.OrderedSelections.FindByPredicate(
+			[ExternalSlotNumber](const FRunSelectionAnalysis& Selection)
+			{
+				return Selection.Metadata.HotbarSlot
+					== ExternalSlotNumber;
+			});
+	if (!ItemInstanceId.IsValid())
+	{
+		if (!Occupant)
+		{
+			return MakeResult(
+				Edemo_mapShanmenPreparationAdapterStatus::NoChange,
+				TEXT("Hotbar slot is already empty."), &Authority);
+		}
+		FRunReservationMetadata Cleared = Occupant->Metadata;
+		Cleared.HotbarSlot = 0;
+		bool bRestored = false;
+		if (!ReplaceRunSelectionMetadata(
+			Authority, *Occupant, Cleared, bRestored, Diagnostic))
+		{
+			return MakeResult(
+				bRestored
+					? Edemo_mapShanmenPreparationAdapterStatus::CommandRejected
+					: Edemo_mapShanmenPreparationAdapterStatus::CleanupPending,
+				Diagnostic, &Authority);
+		}
+		return MakeResult(
+			Edemo_mapShanmenPreparationAdapterStatus::Accepted,
+			TEXT("Authority-native Hotbar slot cleared."), &Authority);
+	}
+
+	const FRunSelectionAnalysis* Desired =
+		FindRunSelection(RunInventory, ItemInstanceId);
+	if (!Desired)
+	{
+		return MakeResult(
+			Edemo_mapShanmenPreparationAdapterStatus::HotbarRejected,
+			TEXT("Hotbar accepts only a stack already reserved in RunInventory."),
+			&Authority);
+	}
+	const Fdemo_mapItemDefinition* LegacyDefinition =
+		Fdemo_mapItemDefinitions::Find(Desired->Item->DefinitionId);
+	int32 QuickCapacity = 0;
+	if (!LegacyDefinition || !LegacyDefinition->bHotbarEligible
+		|| LegacyDefinition->CategoryId
+			!= Fdemo_mapItemIds::ConsumableCategory
+		|| !ValidateRunCapacityAndHotbar(
+			Snapshot, Projection, RunInventory,
+			QuickCapacity, Diagnostic)
+		|| RunInventory.OrderedSelections.IndexOfByPredicate(
+			[&ItemInstanceId](const FRunSelectionAnalysis& Selection)
+			{
+				return Selection.Item
+					&& Selection.Item->ItemInstanceId == ItemInstanceId;
+			}) >= QuickCapacity)
+	{
+		return MakeResult(
+			Edemo_mapShanmenPreparationAdapterStatus::HotbarRejected,
+			Diagnostic.IsEmpty()
+				? TEXT("Hotbar accepts only selected Consumables in the current Base Quick area.")
+				: Diagnostic,
+			&Authority);
+	}
+	if (Desired->Metadata.HotbarSlot == ExternalSlotNumber)
+	{
+		return MakeResult(
+			Edemo_mapShanmenPreparationAdapterStatus::NoChange,
+			TEXT("Hotbar binding already matches the durable authority projection."),
+			&Authority);
+	}
+
+	FGuid DisplacedItemId;
+	FRunReservationMetadata DisplacedMetadata;
+	if (Occupant && Occupant->Item->ItemInstanceId != ItemInstanceId)
+	{
+		DisplacedItemId = Occupant->Item->ItemInstanceId;
+		DisplacedMetadata = Occupant->Metadata;
+		FRunReservationMetadata Unbound = DisplacedMetadata;
+		Unbound.HotbarSlot = 0;
+		bool bRestored = false;
+		if (!ReplaceRunSelectionMetadata(
+			Authority, *Occupant, Unbound, bRestored, Diagnostic))
+		{
+			return MakeResult(
+				bRestored
+					? Edemo_mapShanmenPreparationAdapterStatus::CommandRejected
+					: Edemo_mapShanmenPreparationAdapterStatus::CleanupPending,
+				Diagnostic, &Authority);
+		}
+		if (!Capture())
+		{
+			return MakeResult(
+				Edemo_mapShanmenPreparationAdapterStatus::CleanupPending,
+				TEXT("Displaced Hotbar item was unbound but the authority cannot be re-projected."),
+				&Authority);
+		}
+		Desired = FindRunSelection(RunInventory, ItemInstanceId);
+		if (!Desired)
+		{
+			return MakeResult(
+				Edemo_mapShanmenPreparationAdapterStatus::CleanupPending,
+				TEXT("Desired RunInventory stack disappeared after Hotbar displacement."),
+				&Authority);
+		}
+	}
+
+	FRunReservationMetadata Bound = Desired->Metadata;
+	Bound.HotbarSlot = ExternalSlotNumber;
+	bool bDesiredRestored = false;
+	if (!ReplaceRunSelectionMetadata(
+		Authority, *Desired, Bound, bDesiredRestored, Diagnostic))
+	{
+		const FString DesiredFailure = Diagnostic;
+		if (DisplacedItemId.IsValid() && Capture())
+		{
+			const FRunSelectionAnalysis* Displaced =
+				FindRunSelection(RunInventory, DisplacedItemId);
+			bool bDisplacedRestored = false;
+			FString RestoreDiagnostic;
+			if (!Displaced || !ReplaceRunSelectionMetadata(
+				Authority, *Displaced, DisplacedMetadata,
+				bDisplacedRestored, RestoreDiagnostic))
+			{
+				return MakeResult(
+					Edemo_mapShanmenPreparationAdapterStatus::CleanupPending,
+					FString::Printf(
+						TEXT("Desired Hotbar binding failed (%s); displaced binding rollback failed (%s)."),
+						*DesiredFailure, *RestoreDiagnostic),
+					&Authority);
+			}
+		}
+		return MakeResult(
+			bDesiredRestored
+				? Edemo_mapShanmenPreparationAdapterStatus::CommandRejected
+				: Edemo_mapShanmenPreparationAdapterStatus::CleanupPending,
+			DesiredFailure, &Authority);
+	}
+	return MakeResult(
+		Edemo_mapShanmenPreparationAdapterStatus::Accepted,
+		TEXT("Authority-native Hotbar binding committed without consuming the stack."),
+		&Authority);
 }

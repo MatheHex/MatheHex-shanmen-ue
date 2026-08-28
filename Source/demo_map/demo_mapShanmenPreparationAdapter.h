@@ -6,7 +6,7 @@
 
 class Udemo_mapShanmenItemAuthoritySubsystem;
 
-/** Product-facing result of one authority-native preparation equipment command. */
+/** Product-facing result of one authority-native preparation command. */
 enum class Edemo_mapShanmenPreparationAdapterStatus : uint8
 {
 	Accepted,
@@ -18,6 +18,9 @@ enum class Edemo_mapShanmenPreparationAdapterStatus : uint8
 	ItemNotFound,
 	DuplicateSelection,
 	SlotRejected,
+	MaterialRejected,
+	SelectionLimitExceeded,
+	HotbarRejected,
 	CommandRejected,
 	DeployedSelectionLocked
 };
@@ -35,6 +38,8 @@ struct Fdemo_mapShanmenPreparationAuthorityProjection
 	FGuid SelectedAccessoryId;
 	FGuid SelectedSpatialRingId;
 	FGuid SelectedBackpackId;
+	TArray<FGuid> OrderedSelectedMaterialIds;
+	Fdemo_mapHotbarBindingSnapshot HotbarBindings;
 	FString Diagnostic;
 };
 
@@ -55,11 +60,12 @@ struct Fdemo_mapShanmenPreparationAdapterResult
 /**
  * One-way adapter from the existing preparation UI contract into ShanmenItems.
  *
- * A Reserved DeploymentLock is the durable selection intent. Existing migrated
- * equipment containers are read only as the initial baseline when a slot has
- * no reservation history. A terminal latest reservation is an explicit empty
- * tombstone, so clearing a migrated slot survives process restart without a
- * second persistence schema or a legacy Profile write.
+ * Equipment uses a reserved DeploymentLock. Complete Material/Consumable
+ * stacks use a reserved Quantity whose Purpose carries stable order and one
+ * optional Hotbar slot. Existing migrated equipment containers are read only
+ * as the initial baseline when a slot has no reservation history. Terminal
+ * equipment history is an explicit empty tombstone. All durable state remains
+ * inside the sole ShanmenItems document; the retired Profile is never written.
  */
 struct Fdemo_mapShanmenPreparationAdapter
 {
@@ -72,5 +78,17 @@ struct Fdemo_mapShanmenPreparationAdapter
 	static Fdemo_mapShanmenPreparationAdapterResult SelectEquipment(
 		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
 		FName SlotId,
+		const FGuid& ItemInstanceId);
+
+	/** Reserve or release one complete Material/Consumable stack for the next Run. */
+	static Fdemo_mapShanmenPreparationAdapterResult SelectMaterial(
+		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+		const FGuid& ItemInstanceId,
+		bool bSelected);
+
+	/** Bind one selected Base Quick consumable to exactly one external Hotbar slot. */
+	static Fdemo_mapShanmenPreparationAdapterResult SetHotbarSlot(
+		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+		int32 ExternalSlotNumber,
 		const FGuid& ItemInstanceId);
 };
