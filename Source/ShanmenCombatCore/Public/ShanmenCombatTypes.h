@@ -200,6 +200,10 @@ struct SHANMENCOMBATCORE_API FShanmenTargetVitalitySnapshot
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Combat", meta = (ClampMin = "0.0"))
 	float MaximumVitality = 0.0f;
 
+	/** Monotonic target-authority revision sampled with vitality and defense. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Combat", meta = (ClampMin = "0"))
+	int64 AuthorityRevision = 0;
+
 	bool IsValid() const;
 };
 

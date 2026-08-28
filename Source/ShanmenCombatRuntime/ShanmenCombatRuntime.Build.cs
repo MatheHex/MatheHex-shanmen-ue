@@ -16,5 +16,7 @@ public class ShanmenCombatRuntime : ModuleRules
 			"ShanmenCombatCore",
 			"ShanmenWorldGameplay"
 		});
+
+		PrivateDependencyModuleNames.Add("ShanmenCore");
 	}
 }

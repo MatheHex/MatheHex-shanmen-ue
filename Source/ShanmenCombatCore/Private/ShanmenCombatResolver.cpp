@@ -98,7 +98,8 @@ bool FShanmenTargetVitalitySnapshot::IsValid() const
 	return FMath::IsFinite(CurrentVitality)
 		&& FMath::IsFinite(MaximumVitality)
 		&& CurrentVitality >= 0.0f
-		&& MaximumVitality >= CurrentVitality;
+		&& MaximumVitality >= CurrentVitality
+		&& AuthorityRevision >= 0;
 }
 
 bool FShanmenDefenseLayer::IsValid() const
