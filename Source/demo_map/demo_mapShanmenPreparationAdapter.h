@@ -162,4 +162,14 @@ struct Fdemo_mapShanmenPreparationAdapter
 	/** Commit the current loadout and publish its ActiveRunId in one write. */
 	static Fdemo_mapShanmenPreparedLoadoutResult StartPreparedLoadout(
 		Udemo_mapShanmenItemAuthoritySubsystem& Authority);
+
+	/**
+	 * Rebuild the one unfinalized prepared loadout and lifecycle receipt without
+	 * issuing a command or changing authority revision.
+	 */
+	static bool TryInspectActivePreparedLoadout(
+		const Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+		Fdemo_mapShanmenPreparedLoadoutReceipt& OutReceipt,
+		FShanmenItemTransactionReceipt& OutLifecycleReceipt,
+		FString* OutDiagnostic = nullptr);
 };

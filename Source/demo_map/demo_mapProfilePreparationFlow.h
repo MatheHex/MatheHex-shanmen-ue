@@ -11,6 +11,7 @@ class Udemo_mapItemSubsystem;
 class Udemo_mapProfilePreparationWidget;
 class Udemo_mapProfileSessionSubsystem;
 class Udemo_mapShanmenItemAuthoritySubsystem;
+struct Fdemo_mapShanmenRunCorrelation;
 
 enum class Edemo_mapProfilePreparationFlowPhase : uint8
 {
@@ -80,6 +81,10 @@ public:
 	bool UsesShanmenItemLifecycle() const;
 	/** Read-only UI recovery identity; no Runtime or durable mutation occurs. */
 	FGuid GetRecoverableShanmenRunId() const;
+	/** Complete authority-native identity for product world confirmation. */
+	bool TryGetActiveShanmenRunCorrelation(
+		Fdemo_mapShanmenRunCorrelation& OutCorrelation,
+		FString* OutDiagnostic = nullptr) const;
 
 private:
 	Fdemo_mapProfileSessionInitializeResult InitializeWithStorage(

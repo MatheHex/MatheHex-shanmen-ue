@@ -27,7 +27,6 @@ public:
 	 */
 	bool BeginActivation(
 		const FGuid& StartAttemptId,
-		const FCodeBLoadoutSelection& LoadoutSelection,
 		Fdemo_map0909BM01RuntimeReceipt& OutReceipt);
 
 	/**

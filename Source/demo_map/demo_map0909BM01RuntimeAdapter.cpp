@@ -173,7 +173,6 @@ bool Fdemo_map0909BM01RuntimeAdapter::CollectWorldFacts(
 
 bool Fdemo_map0909BM01RuntimeAdapter::BeginActivation(
 	const FGuid& StartAttemptId,
-	const FCodeBLoadoutSelection& LoadoutSelection,
 	Fdemo_map0909BM01RuntimeReceipt& OutReceipt)
 {
 	StartReceipt(StartAttemptId, OutReceipt);
@@ -188,31 +187,44 @@ bool Fdemo_map0909BM01RuntimeAdapter::BeginActivation(
 		OutReceipt.Detail = TEXT("M01 adapter retained one pending StartAttempt and ignored a duplicate request.");
 		return false;
 	}
-	if (!LoadoutSelection.IsUsable())
+	Fdemo_mapProfileSessionSnapshot PreflightSnapshot;
+	FString PreflightDiagnostic;
+	if (!GameMode.IsValid()
+		|| !GameMode->Get0909BProfileSnapshot(
+			PreflightSnapshot, PreflightDiagnostic))
 	{
-		MarkTechnicalFailure(OutReceipt, TEXT("LoadoutSelectionInvalid"),
-			TEXT("M01 activation has no valid read-only P2 LoadoutSelection."));
+		MarkTechnicalFailure(
+			OutReceipt, TEXT("ProfileOwnerUnavailable"),
+			PreflightDiagnostic.IsEmpty()
+				? TEXT("M01 activation could not resolve the authority owner.")
+				: PreflightDiagnostic);
 		return false;
 	}
-	if (!CollectWorldFacts(StartAttemptId, LoadoutSelection.OwnerId, FGuid(), false, OutReceipt))
+	if (!CollectWorldFacts(
+			StartAttemptId, PreflightSnapshot.ProfileId,
+			FGuid(), false, OutReceipt))
 	{
 		return false;
 	}
 	Fdemo_map0909BRunStartResult Begin;
 	if (!GameMode->Prepare0909BRun(Begin) || !Begin.bRunActive
-		|| !Begin.OwnerId.IsValid() || !Begin.RunInstanceId.IsValid())
+		|| !Begin.OwnerId.IsValid() || !Begin.RunInstanceId.IsValid()
+		|| !Begin.RunCorrelation.IsValid())
 	{
 		MarkTechnicalFailure(OutReceipt, TEXT("CodeARunPreparationRejected"), Begin.Diagnostic);
 		return false;
 	}
 	OutReceipt.OwnerId = Begin.OwnerId;
 	OutReceipt.RunInstanceId = Begin.RunInstanceId;
+	OutReceipt.RunCorrelation = Begin.RunCorrelation;
 	OutReceipt.bCodeARunCreated = true;
-	if (Begin.OwnerId != LoadoutSelection.OwnerId)
+	if (Begin.OwnerId != PreflightSnapshot.ProfileId
+		|| Begin.RunCorrelation.OwnerId != Begin.OwnerId
+		|| Begin.RunCorrelation.ActiveRunId != Begin.RunInstanceId)
 	{
 		ActiveAttempt = OutReceipt;
 		MarkTechnicalFailure(OutReceipt, TEXT("PreparedRunOwnerMismatch"),
-			TEXT("The prepared Code A Run OwnerId differs from the immutable P2 selection OwnerId."));
+			TEXT("The prepared Run differs from its preflight owner or immutable authority correlation."));
 		ActiveAttempt = OutReceipt;
 		return false;
 	}

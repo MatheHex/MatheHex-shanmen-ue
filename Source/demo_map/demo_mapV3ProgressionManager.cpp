@@ -4060,6 +4060,14 @@ void Ademo_mapV3ProgressionManager::ObserveCodeBRunAfterActivation(
 	{
 		return;
 	}
+	if (ProfilePreparationFlow->UsesShanmenItemLifecycle())
+	{
+		UE_LOG(LogTemp, Display,
+			TEXT("Shanmen.RunAuthority Event=PostActivationNoLegacyWrite OwnerId=%s RunInstanceId=%s"),
+			*Snapshot.ProfileId.ToString(EGuidFormats::DigitsWithHyphens),
+			*Snapshot.ActiveRunId.ToString(EGuidFormats::DigitsWithHyphens));
+		return;
+	}
 	// This observer is deliberately post-success and one-way: a refusal or
 	// storage fault is audit-only and cannot alter Code A's Run result, player,
 	// world, old inventory, or Runtime authority.
@@ -6752,6 +6760,16 @@ void Ademo_mapV3ProgressionManager::ObserveCodeBRunTerminalAfterCodeACommit(
 		&& CodeBWorldDropRunId == RunInstanceId)
 	{
 		CloseCodeBWorldDropPage();
+	}
+	if (ProfilePreparationFlow->UsesShanmenItemLifecycle())
+	{
+		ClearCodeBWorldDropActors();
+		UE_LOG(LogTemp, Display,
+			TEXT("Shanmen.RunAuthority Event=PostTerminalNoLegacyWrite OwnerId=%s RunInstanceId=%s Terminal=%d"),
+			*OwnerId.ToString(EGuidFormats::DigitsWithHyphens),
+			*RunInstanceId.ToString(EGuidFormats::DigitsWithHyphens),
+			static_cast<int32>(TerminalState));
+		return;
 	}
 	const FCodeBRunInventoryTerminalResult Terminal =
 		FCodeBOutOfRaidProfileStore::NotifyCommittedRunTerminal(

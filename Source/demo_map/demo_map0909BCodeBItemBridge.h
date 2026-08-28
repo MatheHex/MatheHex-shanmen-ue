@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "CodeB/demo_mapCodeBLoadoutSelection.h"
+#include "demo_mapShanmenRunCorrelation.h"
 
 class Ademo_mapGameMode;
 
@@ -15,9 +15,7 @@ public:
 	static FString ObserveConfirmedActivation(
 		Ademo_mapGameMode& GameMode,
 		const FGuid& StartAttemptId,
-		const FGuid& OwnerId,
-		const FGuid& RunInstanceId,
-		const FCodeBLoadoutSelection& LoadoutSelection);
+		const Fdemo_mapShanmenRunCorrelation& RunCorrelation);
 	static bool VerifyNoActiveRunSession(
 		const FString& StorageRoot,
 		const FGuid& OwnerId,

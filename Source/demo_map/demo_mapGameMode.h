@@ -10,6 +10,7 @@
 #include "demo_mapM01EnemyTypes.h"
 #include "demo_mapItemTypes.h"
 #include "demo_mapProfileSessionTypes.h"
+#include "demo_mapShanmenRunCorrelation.h"
 #include "demo_mapGameMode.generated.h"
 
 class APlayerController;
@@ -33,7 +34,6 @@ class Ademo_mapM01ExtractionZone;
 class Ademo_mapM01Marker;
 class Ademo_mapM01BossCharacter;
 struct Fdemo_map0909BRunStartResult;
-struct FCodeBLoadoutSelection;
 
 /** Coordinates the runtime-only three-target mission loop. */
 UCLASS()
@@ -68,9 +68,7 @@ public:
 	FGuid Get0909BRecoverableRunId() const;
 	bool Get0909BProfileSnapshot(Fdemo_mapProfileSessionSnapshot& OutSnapshot, FString& OutDiagnostic) const;
 	void Observe0909BConfirmedRun(
-		const FGuid& OwnerId,
-		const FGuid& RunInstanceId,
-		const FCodeBLoadoutSelection& LoadoutSelection,
+		const Fdemo_mapShanmenRunCorrelation& RunCorrelation,
 		FString& OutDiagnostic);
 	FString Get0909BProfileStorageRoot() const;
 	bool Open0909BOutOfRaidInventory(FString& OutFeedback);
@@ -247,7 +245,7 @@ private:
 	TWeakObjectPtr<Udemo_mapItemSubsystem> PlayerItemSubsystem;
 	TWeakObjectPtr<Ademo_mapV3ProgressionManager> V3ProgressionManager;
 	TWeakObjectPtr<Ademo_map0909BFrameworkHost> Framework0909BHost;
-	TOptional<Fdemo_mapProfileSessionSnapshot> Prepared0909BRunSnapshot;
+	TOptional<Fdemo_mapShanmenRunCorrelation> Prepared0909BRunCorrelation;
 	TArray<TWeakObjectPtr<Ademo_mapM01ExtractionZone>> M01ExtractionZones;
 	TArray<TWeakObjectPtr<AActor>> M01EnemyActors;
 	TWeakObjectPtr<Ademo_mapM01BossCharacter> M01Boss;

@@ -83,39 +83,8 @@ void Ademo_map0909BFrameworkHost::RequestStartM01FromUI()
 		ShowSect(TEXT("远征协调器尚未就绪。"));
 		return;
 	}
-	// Code B selection is retained only as read-only audit correlation. The
-	// actual prepared identities and resource transition come from ShanmenItems.
-	FCodeBLoadoutSelection RecoverableSelection;
-	FString RecoverableSelectionDiagnostic;
-	const bool bHasRecoverableSelection = WarehouseService
-		&& WarehouseService->CaptureLoadoutSelection(
-			RecoverableSelection, RecoverableSelectionDiagnostic);
-	FString WarehouseRefreshDiagnostic;
-	const bool bWarehouseRefreshed =
-		OpenWarehouseService(WarehouseRefreshDiagnostic);
-	if (!bWarehouseRefreshed && !bHasRecoverableSelection)
-	{
-		ShowSect(TEXT("无法刷新当前 P5 战备快照：") + WarehouseRefreshDiagnostic);
-		return;
-	}
-	FCodeBLoadoutSelection Selection;
-	FString SelectionDiagnostic;
-	if (bWarehouseRefreshed)
-	{
-		if (!WarehouseService
-			|| !WarehouseService->CaptureLoadoutSelection(
-				Selection, SelectionDiagnostic))
-		{
-			ShowSect(TEXT("无法取得当前 P5 战备快照：") + SelectionDiagnostic);
-			return;
-		}
-	}
-	else
-	{
-		Selection = RecoverableSelection;
-	}
 	FString Feedback;
-	const bool bStarted = StartCoordinator->StartM01Run(Selection, Feedback);
+	const bool bStarted = StartCoordinator->StartM01Run(Feedback);
 	if (!bStarted)
 	{
 		ShowSect(Feedback);

@@ -5,6 +5,7 @@
 #include "demo_mapItemTypes.h"
 #include "demo_mapProfileRunTypes.h"
 #include "demo_mapShanmenPreparationAdapter.h"
+#include "demo_mapShanmenRunCorrelation.h"
 
 class Udemo_mapItemSubsystem;
 class Udemo_mapShanmenItemAuthoritySubsystem;
@@ -33,6 +34,7 @@ struct Fdemo_mapShanmenRunStartResult
 		Edemo_mapShanmenRunLifecycleStatus::AuthorityNotReady;
 	FString Diagnostic;
 	FGuid ActiveRunId;
+	Fdemo_mapShanmenRunCorrelation RunCorrelation;
 	Fdemo_mapShanmenPreparedLoadoutReceipt PreparedLoadout;
 	FShanmenItemDurableCommandResult StartCommand;
 	Fdemo_mapPreparedRunRuntimeResult RuntimeResult;
@@ -66,6 +68,12 @@ struct Fdemo_mapShanmenRunFinalizeResult
  */
 struct Fdemo_mapShanmenRunLifecycleAdapter
 {
+	/** Rebuild the complete immutable active-Run correlation without mutation. */
+	static bool TryGetActiveRunCorrelation(
+		const Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+		Fdemo_mapShanmenRunCorrelation& OutCorrelation,
+		FString* OutDiagnostic = nullptr);
+
 	/**
 	 * Read-only recovery probe for the one durable Start/Claim that has no
 	 * matching Finalize receipt.  It never prepares or mutates Runtime state.

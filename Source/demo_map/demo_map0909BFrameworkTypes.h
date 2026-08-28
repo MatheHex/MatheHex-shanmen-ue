@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "CodeB/demo_mapCodeBLoadoutSelection.h"
+#include "demo_mapShanmenRunCorrelation.h"
 
 /**
  * The only top-level state vocabulary exposed by the 0.0.9B product shell.
@@ -73,6 +73,7 @@ struct Fdemo_map0909BM01RuntimeReceipt
 	FGuid StartAttemptId;
 	FGuid OwnerId;
 	FGuid RunInstanceId;
+	Fdemo_mapShanmenRunCorrelation RunCorrelation;
 	int64 Sequence = 0;
 	FString MapDescriptor;
 	FString MapIdentity;
@@ -94,7 +95,10 @@ struct Fdemo_map0909BM01RuntimeReceipt
 	bool IsRuntimeReadyFor(const FGuid& AttemptId) const
 	{
 		return bRuntimeReady && ReceiptClass == Edemo_map0909BM01RuntimeReceiptClass::RuntimeReady
-			&& StartAttemptId == AttemptId && OwnerId.IsValid() && RunInstanceId.IsValid();
+			&& StartAttemptId == AttemptId && OwnerId.IsValid()
+			&& RunInstanceId.IsValid() && RunCorrelation.IsValid()
+			&& RunCorrelation.OwnerId == OwnerId
+			&& RunCorrelation.ActiveRunId == RunInstanceId;
 	}
 };
 
@@ -112,10 +116,8 @@ struct Fdemo_map0909BStartDiagnostic
 	FString FailureClass = TEXT("None");
 	FString Sequence;
 	FString Detail;
-	int32 LoadoutPersistentRevision = INDEX_NONE;
-	int32 LoadoutGraphRevision = INDEX_NONE;
-	FString LoadoutSelectionDigest;
-	FString BridgeDiagnostic;
+	Fdemo_mapShanmenRunCorrelation RunCorrelation;
+	FString AuthorityDiagnostic;
 	FString RequestedAtUtc;
 	FString M01MapDescriptor;
 	FString M01MapIdentity;
@@ -124,7 +126,7 @@ struct Fdemo_map0909BStartDiagnostic
 	FString ToLogString() const
 	{
 		return FString::Printf(
-			TEXT("AttemptId=%s AttemptSequence=%lld RuntimeReceiptSequence=%lld OwnerId=%s RunId=%s ReleasedRunId=%s Before=%s After=%s FailureClass=%s RuntimeReceipt=%s MapDescriptor=%s MapIdentity=%s RequestedAt=%s Sequence=%s LoadoutPersistentRevision=%d LoadoutGraphRevision=%d LoadoutDigest=%s Bridge=%s Detail=%s"),
+			TEXT("AttemptId=%s AttemptSequence=%lld RuntimeReceiptSequence=%lld OwnerId=%s RunId=%s ReleasedRunId=%s Before=%s After=%s FailureClass=%s RuntimeReceipt=%s MapDescriptor=%s MapIdentity=%s RequestedAt=%s Sequence=%s RunCorrelation={%s} Authority=%s Detail=%s"),
 			*StartAttemptId.ToString(EGuidFormats::DigitsWithHyphens),
 			AttemptSequence,
 			RuntimeReceiptSequence,
@@ -139,10 +141,8 @@ struct Fdemo_map0909BStartDiagnostic
 			*M01MapIdentity,
 			*RequestedAtUtc,
 			*Sequence,
-			LoadoutPersistentRevision,
-			LoadoutGraphRevision,
-			*LoadoutSelectionDigest,
-			*BridgeDiagnostic,
+			*RunCorrelation.ToLogString(),
+			*AuthorityDiagnostic,
 			*Detail);
 	}
 };
@@ -155,6 +155,7 @@ struct Fdemo_map0909BRunStartResult
 {
 	FGuid OwnerId;
 	FGuid RunInstanceId;
+	Fdemo_mapShanmenRunCorrelation RunCorrelation;
 	FString Diagnostic;
 	bool bRunActive = false;
 };

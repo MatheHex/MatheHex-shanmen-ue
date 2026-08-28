@@ -100,29 +100,31 @@ bool Fdemo_map0909BEditorSupport::ValidateStartAttemptAudit(
 	if (!Diagnostic.StartAttemptId.IsValid() || Diagnostic.AttemptSequence <= 0
 		|| Diagnostic.RequestedAtUtc.IsEmpty()
 		|| Diagnostic.M01MapDescriptor
-			!= Fdemo_map0909BM01RuntimeAdapter::ExpectedM01MapDescriptor()
-		|| Diagnostic.LoadoutPersistentRevision == INDEX_NONE
-		|| Diagnostic.LoadoutGraphRevision == INDEX_NONE
-		|| Diagnostic.LoadoutSelectionDigest.IsEmpty())
+			!= Fdemo_map0909BM01RuntimeAdapter::ExpectedM01MapDescriptor())
 	{
-		OutDiagnostic = TEXT("P3 StartAttempt audit is missing immutable attempt, map or LoadoutSelection correlation evidence.");
+		OutDiagnostic = TEXT("P3 StartAttempt audit is missing immutable attempt or map evidence.");
 		return false;
 	}
 	if (Diagnostic.AfterState == Edemo_map0909BTopState::InRun
 		&& (!Diagnostic.OwnerId.IsValid() || !Diagnostic.RunId.IsValid()
 			|| Diagnostic.RuntimeReceiptClass != TEXT("RuntimeReady")
-			|| Diagnostic.M01MapIdentity.IsEmpty()))
+			|| Diagnostic.M01MapIdentity.IsEmpty()
+			|| !Diagnostic.RunCorrelation.IsValid()
+			|| Diagnostic.RunCorrelation.OwnerId != Diagnostic.OwnerId
+			|| Diagnostic.RunCorrelation.ActiveRunId != Diagnostic.RunId))
 	{
-		OutDiagnostic = TEXT("P3 InRun audit lacks one correlated RuntimeReady identity fact.");
+		OutDiagnostic = TEXT("P3 InRun audit lacks one correlated RuntimeReady and Shanmen authority identity fact.");
 		return false;
 	}
 	if (Diagnostic.AfterState == Edemo_map0909BTopState::AtSect
 		&& Diagnostic.FailureClass != TEXT("None")
-		&& Diagnostic.RunId.IsValid())
+		&& Diagnostic.RunId.IsValid()
+		&& (!Diagnostic.RunCorrelation.IsValid()
+			|| Diagnostic.RunCorrelation.ActiveRunId != Diagnostic.RunId))
 	{
-		OutDiagnostic = TEXT("P3 technical failure left an active Run identity after returning to AtSect.");
+		OutDiagnostic = TEXT("P3 technical failure retained a Run without its exact recoverable Shanmen correlation.");
 		return false;
 	}
-	OutDiagnostic = TEXT("P3 StartAttempt audit is read-only and correlation-complete for the current coordinator state.");
+	OutDiagnostic = TEXT("P3 StartAttempt audit is read-only and Shanmen-correlation-complete for the current coordinator state.");
 	return true;
 }

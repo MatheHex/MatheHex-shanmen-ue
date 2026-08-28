@@ -290,64 +290,48 @@ bool Fdemo_mapShanmenRunLifecycleAdapter::TryFindRecoverableActiveRun(
 	FString* OutDiagnostic)
 {
 	OutActiveRunId.Invalidate();
-	auto Finish = [OutDiagnostic](const FString& Diagnostic, const bool bSuccess)
+	Fdemo_mapShanmenRunCorrelation Correlation;
+	if (!TryGetActiveRunCorrelation(Authority, Correlation, OutDiagnostic))
+	{
+		return false;
+	}
+	OutActiveRunId = Correlation.ActiveRunId;
+	return true;
+}
+
+bool Fdemo_mapShanmenRunLifecycleAdapter::TryGetActiveRunCorrelation(
+	const Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+	Fdemo_mapShanmenRunCorrelation& OutCorrelation,
+	FString* OutDiagnostic)
+{
+	OutCorrelation = Fdemo_mapShanmenRunCorrelation();
+	Fdemo_mapShanmenPreparedLoadoutReceipt Prepared;
+	FShanmenItemTransactionReceipt Lifecycle;
+	FString Diagnostic;
+	if (!Fdemo_mapShanmenPreparationAdapter::TryInspectActivePreparedLoadout(
+			Authority, Prepared, Lifecycle, &Diagnostic))
 	{
 		if (OutDiagnostic)
 		{
 			*OutDiagnostic = Diagnostic;
 		}
-		return bSuccess;
-	};
-	if (Authority.GetLifecycleState()
-			!= Edemo_mapShanmenItemAuthorityLifecycleState::Ready
-		|| !Authority.GetBoundOwnerId().IsValid())
-	{
-		return Finish(TEXT("ShanmenItems authority is not ready for a recovery probe."), false);
+		return false;
 	}
-	FShanmenItemAuthoritySnapshot Snapshot;
-	if (!Authority.TryCaptureSnapshot(Snapshot))
+	if (!Fdemo_mapShanmenRunCorrelation::Build(
+			Prepared, Lifecycle, OutCorrelation, Diagnostic))
 	{
-		return Finish(TEXT("ShanmenItems authority snapshot is unavailable for recovery."), false);
-	}
-
-	TSet<FGuid> FinalizedRunIds;
-	for (const FShanmenItemProcessedRequestSnapshot& Processed :
-		Snapshot.ProcessedRequests)
-	{
-		const FShanmenItemTransactionReceipt& Receipt = Processed.Receipt;
-		if (Receipt.IsSuccess()
-			&& Receipt.Operation
-				== EShanmenItemTransactionOperation::FinalizePreparedRun
-			&& Receipt.ReservationId.IsValid())
+		if (OutDiagnostic)
 		{
-			FinalizedRunIds.Add(Receipt.ReservationId);
+			*OutDiagnostic = Diagnostic;
 		}
+		return false;
 	}
-	for (const FShanmenItemProcessedRequestSnapshot& Processed :
-		Snapshot.ProcessedRequests)
+	if (OutDiagnostic)
 	{
-		const FShanmenItemTransactionReceipt& Receipt = Processed.Receipt;
-		if (!Receipt.IsSuccess()
-			|| (Receipt.Operation
-					!= EShanmenItemTransactionOperation::StartPreparedRun
-				&& Receipt.Operation
-					!= EShanmenItemTransactionOperation::ClaimPreparedRun)
-			|| !Receipt.ReservationId.IsValid()
-			|| FinalizedRunIds.Contains(Receipt.ReservationId))
-		{
-			continue;
-		}
-		if (OutActiveRunId.IsValid()
-			&& OutActiveRunId != Receipt.ReservationId)
-		{
-			OutActiveRunId.Invalidate();
-			return Finish(TEXT("Authority exposes more than one unfinalized prepared Run."), false);
-		}
-		OutActiveRunId = Receipt.ReservationId;
+		*OutDiagnostic =
+			TEXT("Durable active-Run correlation was reconstructed read-only from ShanmenItems receipts.");
 	}
-	return OutActiveRunId.IsValid()
-		? Finish(TEXT("A durable ActiveRun receipt awaits Runtime materialization or continuation."), true)
-		: Finish(TEXT("No unfinalized prepared Run exists."), false);
+	return true;
 }
 
 Fdemo_mapShanmenRunStartResult
@@ -390,6 +374,14 @@ Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
 			TEXT("Prepared loadout has no durable atomic-start receipt."));
 	}
 	Result.ActiveRunId = Result.StartCommand.Receipt.ReservationId;
+	if (!Fdemo_mapShanmenRunCorrelation::Build(
+			Result.PreparedLoadout, Result.StartCommand.Receipt,
+			Result.RunCorrelation, Result.Diagnostic))
+	{
+		Result.Status =
+			Edemo_mapShanmenRunLifecycleStatus::AuthorityStartRejected;
+		return Result;
+	}
 
 	if (Runtime.GetRunState() == Edemo_mapRunState::Active)
 	{

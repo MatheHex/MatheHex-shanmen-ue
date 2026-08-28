@@ -591,6 +591,22 @@ bool FShanmenProductFlowAtomicStartAndTerminalTest::RunTest(const FString&)
 		&& CountSuccessfulAuthorityOperation(
 			ActiveAuthority,
 			EShanmenItemTransactionOperation::ClaimPreparedRun) == 0);
+	Fdemo_mapShanmenRunCorrelation StartCorrelation;
+	Fdemo_mapShanmenRunCorrelation ReplayCorrelation;
+	FShanmenItemAuthorityDocument AfterReadOnlyProbes;
+	TestTrue(TEXT("P1.14 reconstructs one immutable authority Run correlation without a write"),
+		Flow.TryGetActiveShanmenRunCorrelation(StartCorrelation)
+		&& Flow.TryGetActiveShanmenRunCorrelation(ReplayCorrelation)
+		&& StartCorrelation == ReplayCorrelation
+		&& StartCorrelation.OwnerId == Begin.Snapshot.ProfileId
+		&& StartCorrelation.ActiveRunId == ActiveRunId
+		&& StartCorrelation.OrderedPreparedItemInstanceIds.Contains(Blade)
+		&& StartCorrelation.OrderedPreparedItemInstanceIds.Num() == 1
+		&& StartCorrelation.OrderedRunInventoryItemInstanceIds.IsEmpty()
+		&& StartCorrelation.HotbarItemInstanceIds.Num()
+			== Fdemo_mapPersistentPreparationLayout::HotbarSlotCount
+		&& Authority->TryGetDocument(AfterReadOnlyProbes)
+		&& AfterReadOnlyProbes == AfterStart);
 
 	Fdemo_mapSettlementSummary Summary;
 	const Fdemo_mapItemOperationResult RuntimeSettlement =
@@ -602,6 +618,7 @@ bool FShanmenProductFlowAtomicStartAndTerminalTest::RunTest(const FString&)
 			: Fdemo_mapProfileSessionSettlementResult();
 	FShanmenItemAuthoritySnapshot TerminalAuthority;
 	FGuid RecoverableRunId;
+	Fdemo_mapShanmenRunCorrelation TerminalCorrelation;
 	TArray<uint8> ProfileAfter;
 	TestTrue(TEXT("Terminal settlement finalizes only ShanmenItems and clears Runtime"),
 		RuntimeSettlement.bSuccess
@@ -614,6 +631,7 @@ bool FShanmenProductFlowAtomicStartAndTerminalTest::RunTest(const FString&)
 		&& Authority->TryCaptureSnapshot(TerminalAuthority)
 		&& !Fdemo_mapShanmenRunLifecycleAdapter::
 			TryFindRecoverableActiveRun(*Authority, RecoverableRunId)
+		&& !Flow.TryGetActiveShanmenRunCorrelation(TerminalCorrelation)
 		&& CountSuccessfulAuthorityOperation(
 			TerminalAuthority,
 			EShanmenItemTransactionOperation::FinalizePreparedRun) == 1
@@ -664,6 +682,7 @@ bool FShanmenProductFlowRuntimeRecoveryTest::RunTest(const FString&)
 		Fixture.Session->GetPreparationSnapshot();
 	FShanmenItemAuthorityDocument AfterFailure;
 	FShanmenItemAuthoritySnapshot FailedAuthority;
+	Fdemo_mapShanmenRunCorrelation FailureCorrelation;
 	TestTrue(TEXT("Runtime mutation failure exposes one retryable durable identity"),
 		Failed.Status
 			== Edemo_mapProfileSessionBeginStatus::RuntimeMaterializationFailed
@@ -676,6 +695,8 @@ bool FShanmenProductFlowRuntimeRecoveryTest::RunTest(const FString&)
 		&& RecoveryPresentation.VisibleDiagnostic.Contains(TEXT("可恢复"))
 		&& Authority->TryGetDocument(AfterFailure)
 		&& Authority->TryCaptureSnapshot(FailedAuthority)
+		&& Flow.TryGetActiveShanmenRunCorrelation(FailureCorrelation)
+		&& FailureCorrelation.ActiveRunId == ActiveRunId
 		&& CountSuccessfulAuthorityOperation(
 			FailedAuthority,
 			EShanmenItemTransactionOperation::StartPreparedRun) == 1);
@@ -683,10 +704,13 @@ bool FShanmenProductFlowRuntimeRecoveryTest::RunTest(const FString&)
 	const Fdemo_mapProfileSessionBeginResult Recovered =
 		Flow.StartPreparedRunDirect();
 	FShanmenItemAuthorityDocument AfterRecovery;
+	Fdemo_mapShanmenRunCorrelation RecoveryCorrelation;
 	TestTrue(TEXT("Retry rematerializes the same Run without a second durable write"),
 		Recovered.IsRunActive()
 		&& Recovered.Snapshot.ActiveRunId == ActiveRunId
 		&& Fixture.Runtime->GetActiveRunId() == ActiveRunId
+		&& Flow.TryGetActiveShanmenRunCorrelation(RecoveryCorrelation)
+		&& RecoveryCorrelation == FailureCorrelation
 		&& Authority->TryGetDocument(AfterRecovery)
 		&& AfterRecovery == AfterFailure);
 
@@ -694,6 +718,7 @@ bool FShanmenProductFlowRuntimeRecoveryTest::RunTest(const FString&)
 		Flow.CancelActiveRunForActivationFailure();
 	FShanmenItemAuthorityDocument AfterTechnicalRollback;
 	FGuid RollbackRecoveryId;
+	Fdemo_mapShanmenRunCorrelation RollbackCorrelation;
 	TestTrue(TEXT("World activation rollback is Runtime-only and never player Abandon"),
 		TechnicalRollback.Status
 			== Edemo_mapProfileSessionSettlementStatus::RuntimeRollbackReady
@@ -708,12 +733,17 @@ bool FShanmenProductFlowRuntimeRecoveryTest::RunTest(const FString&)
 		&& Fdemo_mapShanmenRunLifecycleAdapter::TryFindRecoverableActiveRun(
 			*Authority, RollbackRecoveryId)
 		&& RollbackRecoveryId == ActiveRunId
+		&& Flow.TryGetActiveShanmenRunCorrelation(RollbackCorrelation)
+		&& RollbackCorrelation == FailureCorrelation
 		&& CountSuccessfulAuthorityOperation(
 			AfterTechnicalRollback.Authority,
 			EShanmenItemTransactionOperation::FinalizePreparedRun) == 0);
 
 	const Fdemo_mapProfileSessionBeginResult RecoveredAgain =
 		Flow.StartPreparedRunDirect();
+	Fdemo_mapShanmenRunCorrelation SecondRecoveryCorrelation;
+	const bool bHasSecondRecoveryCorrelation =
+		Flow.TryGetActiveShanmenRunCorrelation(SecondRecoveryCorrelation);
 	Fdemo_mapSettlementSummary Summary;
 	const Fdemo_mapItemOperationResult RuntimeSettlement =
 		RecoveredAgain.IsRunActive()
@@ -730,12 +760,17 @@ bool FShanmenProductFlowRuntimeRecoveryTest::RunTest(const FString&)
 	TestTrue(TEXT("Recovered identity remains terminally settleable without Profile writes"),
 		RecoveredAgain.IsRunActive()
 		&& RecoveredAgain.Snapshot.ActiveRunId == ActiveRunId
+		&& bHasSecondRecoveryCorrelation
+		&& SecondRecoveryCorrelation == FailureCorrelation
 		&& RuntimeSettlement.bSuccess
 		&& End.IsDurablySettled()
 		&& ReadFlowBytes(
 			Fdemo_mapProfileStorageContext::ForRoot(Root).PrimaryPath(),
 			ProfileAfter)
 		&& ProfileAfter == ProfileBefore);
+	Fdemo_mapShanmenRunCorrelation TerminalCorrelation;
+	TestFalse(TEXT("Finalized Run has no active authority correlation"),
+		Flow.TryGetActiveShanmenRunCorrelation(TerminalCorrelation));
 	return true;
 }
 

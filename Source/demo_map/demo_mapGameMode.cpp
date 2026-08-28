@@ -25,7 +25,6 @@
 #include "demo_map0909BFramework.h"
 #include "demo_mapProfilePreparationFlow.h"
 #include "demo_mapProfileSessionSubsystem.h"
-#include "CodeB/demo_mapCodeBOutOfRaidProfile.h"
 #include "demo_mapM01ExtractionZone.h"
 #include "demo_mapM01Marker.h"
 #include "demo_mapM01GrayboxBlock.h"
@@ -150,7 +149,7 @@ bool Ademo_mapGameMode::Prepare0909BRun(
 	Fdemo_map0909BRunStartResult& OutResult)
 {
 	OutResult = Fdemo_map0909BRunStartResult();
-	Prepared0909BRunSnapshot.Reset();
+	Prepared0909BRunCorrelation.Reset();
 	if (!Is0909BRuntimeReady())
 	{
 		OutResult.Diagnostic = TEXT("The retained M01 runtime is not initialized.");
@@ -166,7 +165,21 @@ bool Ademo_mapGameMode::Prepare0909BRun(
 		&& OutResult.OwnerId.IsValid() && OutResult.RunInstanceId.IsValid();
 	if (OutResult.bRunActive)
 	{
-		Prepared0909BRunSnapshot = Begin.Snapshot;
+		const Fdemo_mapProfilePreparationFlow* Flow =
+			V3ProgressionManager->GetProfilePreparationFlow();
+		FString CorrelationDiagnostic;
+		if (!Flow || !Flow->TryGetActiveShanmenRunCorrelation(
+				OutResult.RunCorrelation, &CorrelationDiagnostic)
+			|| OutResult.RunCorrelation.OwnerId != OutResult.OwnerId
+			|| OutResult.RunCorrelation.ActiveRunId != OutResult.RunInstanceId)
+		{
+			OutResult.bRunActive = false;
+			OutResult.Diagnostic = CorrelationDiagnostic.IsEmpty()
+				? TEXT("Prepared Run lacks matching Shanmen authority correlation.")
+				: CorrelationDiagnostic;
+			return false;
+		}
+		Prepared0909BRunCorrelation = OutResult.RunCorrelation;
 	}
 	return OutResult.bRunActive;
 }
@@ -192,7 +205,7 @@ bool Ademo_mapGameMode::Rollback0909BPreparedRun(FString& OutDiagnostic)
 		V3ProgressionManager->RollbackPreparedProfileRunFor0909B(OutDiagnostic);
 	if (bRolledBack)
 	{
-		Prepared0909BRunSnapshot.Reset();
+		Prepared0909BRunCorrelation.Reset();
 	}
 	return bRolledBack;
 }
@@ -233,43 +246,41 @@ bool Ademo_mapGameMode::Get0909BProfileSnapshot(
 }
 
 void Ademo_mapGameMode::Observe0909BConfirmedRun(
-	const FGuid& OwnerId,
-	const FGuid& RunInstanceId,
-	const FCodeBLoadoutSelection& LoadoutSelection,
+	const Fdemo_mapShanmenRunCorrelation& RunCorrelation,
 	FString& OutDiagnostic)
 {
 	OutDiagnostic.Reset();
-	if (!Is0909BRuntimeReady() || !Prepared0909BRunSnapshot.IsSet()
-		|| Prepared0909BRunSnapshot->ProfileId != OwnerId
-		|| Prepared0909BRunSnapshot->ActiveRunId != RunInstanceId)
+	if (!Is0909BRuntimeReady() || !RunCorrelation.IsValid()
+		|| !Prepared0909BRunCorrelation.IsSet()
+		|| Prepared0909BRunCorrelation.GetValue() != RunCorrelation)
 	{
 		OutDiagnostic = TEXT("RejectedMissingPreparedIdentity");
 		UE_LOG(Logdemo_map, Error,
-			TEXT("0_0_9BFIX_CODEB_BRIDGE Event=RejectedMissingPreparedIdentity OwnerId=%s RunId=%s"),
-			*OwnerId.ToString(EGuidFormats::DigitsWithHyphens),
-			*RunInstanceId.ToString(EGuidFormats::DigitsWithHyphens));
+			TEXT("0_0_10_RUN_AUTHORITY Event=RejectedMissingPreparedIdentity %s"),
+			*RunCorrelation.ToLogString());
 		return;
 	}
 
-	// P6 observes a world-confirmed identity only.  Its selection-aware Code B
-	// result is audit-only and can never reclassify Code A's live world as P8.
-	FCodeBRunInventoryRecoveryContext RecoveryContext;
-	if (const Fdemo_mapProfilePreparationFlow* Flow = V3ProgressionManager->GetProfilePreparationFlow())
+	const Fdemo_mapProfilePreparationFlow* Flow =
+		V3ProgressionManager->GetProfilePreparationFlow();
+	Fdemo_mapShanmenRunCorrelation Current;
+	FString Diagnostic;
+	if (!Flow || !Flow->TryGetActiveShanmenRunCorrelation(
+			Current, &Diagnostic) || Current != RunCorrelation)
 	{
-		if (Flow->GetRecoveredAbandonRunId().IsValid())
-		{
-			RecoveryContext.RecoveredAbandonRunId = Flow->GetRecoveredAbandonRunId();
-			RecoveryContext.CodeATerminalCause = TEXT("RecoveredAbandon");
-		}
+		OutDiagnostic = Diagnostic.IsEmpty()
+			? TEXT("RejectedAuthorityCorrelationChanged") : Diagnostic;
+		UE_LOG(Logdemo_map, Error,
+			TEXT("0_0_10_RUN_AUTHORITY Event=WorldConfirmationRejected Expected={%s} Actual={%s} Diagnostic=%s"),
+			*RunCorrelation.ToLogString(), *Current.ToLogString(),
+			*OutDiagnostic);
+		return;
 	}
-	const FCodeBRunInventoryBridgeResult Bridge =
-		FCodeBOutOfRaidProfileStore::NotifySuccessfulRunWithLoadoutSelection(
-			Get0909BProfileStorageRoot(), OwnerId, RunInstanceId, LoadoutSelection, RecoveryContext);
-	OutDiagnostic = Bridge.Diagnostic;
+	OutDiagnostic =
+		TEXT("World confirmation matched the durable ShanmenItems Run correlation; no Code B write was issued.");
 	UE_LOG(Logdemo_map, Log,
-		TEXT("0_0_9BFIX_CODEB_BRIDGE Event=WorldConfirmedSelectionBridge Status=%d OwnerId=%s RunId=%s LoadoutDigest=%s Diagnostic=%s"),
-		static_cast<int32>(Bridge.Status), *OwnerId.ToString(EGuidFormats::DigitsWithHyphens),
-		*RunInstanceId.ToString(EGuidFormats::DigitsWithHyphens), *LoadoutSelection.Digest, *Bridge.Diagnostic);
+		TEXT("0_0_10_RUN_AUTHORITY Event=WorldConfirmedNoLegacyWrite %s"),
+		*RunCorrelation.ToLogString());
 }
 
 FString Ademo_mapGameMode::Get0909BProfileStorageRoot() const

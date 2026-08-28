@@ -2245,3 +2245,52 @@ Fdemo_mapShanmenPreparationAdapter::StartPreparedLoadout(
 		TEXT("Preparation resources and the ActiveRun marker committed in one authority revision and one durable document write.");
 	return Result;
 }
+
+bool Fdemo_mapShanmenPreparationAdapter::TryInspectActivePreparedLoadout(
+	const Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+	Fdemo_mapShanmenPreparedLoadoutReceipt& OutReceipt,
+	FShanmenItemTransactionReceipt& OutLifecycleReceipt,
+	FString* OutDiagnostic)
+{
+	OutReceipt = Fdemo_mapShanmenPreparedLoadoutReceipt();
+	OutLifecycleReceipt = FShanmenItemTransactionReceipt();
+	auto Finish = [OutDiagnostic](const FString& Diagnostic, const bool bSuccess)
+	{
+		if (OutDiagnostic)
+		{
+			*OutDiagnostic = Diagnostic;
+		}
+		return bSuccess;
+	};
+	if (Authority.GetLifecycleState()
+			!= Edemo_mapShanmenItemAuthorityLifecycleState::Ready
+		|| !Authority.GetBoundOwnerId().IsValid())
+	{
+		return Finish(
+			TEXT("ShanmenItems authority is not ready for active loadout inspection."),
+			false);
+	}
+	FShanmenItemAuthoritySnapshot Snapshot;
+	if (!Authority.TryCaptureSnapshot(Snapshot))
+	{
+		return Finish(
+			TEXT("ShanmenItems authority snapshot is unavailable for active loadout inspection."),
+			false);
+	}
+	if (!FindActivePreparedLoadout(
+			Snapshot, OutReceipt, OutLifecycleReceipt))
+	{
+		return Finish(TEXT("No unfinalized prepared Run exists."), false);
+	}
+	if (OutReceipt.OwnerId != Authority.GetBoundOwnerId())
+	{
+		OutReceipt = Fdemo_mapShanmenPreparedLoadoutReceipt();
+		OutLifecycleReceipt = FShanmenItemTransactionReceipt();
+		return Finish(
+			TEXT("Active prepared Run owner differs from the bound authority owner."),
+			false);
+	}
+	return Finish(
+		TEXT("Active prepared loadout and lifecycle receipts were reconstructed read-only."),
+		true);
+}

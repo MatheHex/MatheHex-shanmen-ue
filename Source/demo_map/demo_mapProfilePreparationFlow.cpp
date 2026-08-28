@@ -677,6 +677,25 @@ FGuid Fdemo_mapProfilePreparationFlow::GetRecoverableShanmenRunId() const
 	return ActiveRunId;
 }
 
+bool Fdemo_mapProfilePreparationFlow::TryGetActiveShanmenRunCorrelation(
+	Fdemo_mapShanmenRunCorrelation& OutCorrelation,
+	FString* OutDiagnostic) const
+{
+	if (const Udemo_mapShanmenItemAuthoritySubsystem* Authority =
+		FindBoundShanmenAuthority())
+	{
+		return Fdemo_mapShanmenRunLifecycleAdapter::TryGetActiveRunCorrelation(
+			*Authority, OutCorrelation, OutDiagnostic);
+	}
+	OutCorrelation = Fdemo_mapShanmenRunCorrelation();
+	if (OutDiagnostic)
+	{
+		*OutDiagnostic =
+			TEXT("No bound ShanmenItems authority exists for Run correlation.");
+	}
+	return false;
+}
+
 Fdemo_mapProfileSessionSnapshot
 Fdemo_mapProfilePreparationFlow::GetPresentationSnapshot() const
 {

@@ -18,7 +18,7 @@ public:
 		Ademo_mapGameMode* InGameMode,
 		Ademo_mapPlayerController* InController);
 
-	bool StartM01Run(const FCodeBLoadoutSelection& LoadoutSelection, FString& OutPlayerFeedback);
+	bool StartM01Run(FString& OutPlayerFeedback);
 	bool IsAtSect() const { return State == Edemo_map0909BTopState::AtSect; }
 	Edemo_map0909BTopState GetState() const { return State; }
 	const Fdemo_map0909BStartDiagnostic& GetLastDiagnostic() const { return LastDiagnostic; }
@@ -40,6 +40,6 @@ private:
 	TUniquePtr<Fdemo_map0909BM01RuntimeAdapter> M01Adapter;
 	Edemo_map0909BTopState State = Edemo_map0909BTopState::AtSect;
 	Fdemo_map0909BStartDiagnostic LastDiagnostic;
-	FCodeBLoadoutSelection AttemptLoadoutSelection;
+	Fdemo_mapShanmenRunCorrelation AttemptRunCorrelation;
 	int64 NextAttemptSequence = 0;
 };

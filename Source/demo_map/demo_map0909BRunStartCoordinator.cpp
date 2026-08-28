@@ -1,7 +1,6 @@
 #include "demo_map0909BRunStartCoordinator.h"
 
 #include "demo_map.h"
-#include "demo_map0909BCodeBItemBridge.h"
 #include "demo_mapGameMode.h"
 #include "demo_mapPlayerController.h"
 
@@ -20,7 +19,7 @@ void Fdemo_map0909BRunStartCoordinator::Initialize(
 void Fdemo_map0909BRunStartCoordinator::BeginAttempt()
 {
 	LastDiagnostic = Fdemo_map0909BStartDiagnostic();
-	AttemptLoadoutSelection = FCodeBLoadoutSelection();
+	AttemptRunCorrelation = Fdemo_mapShanmenRunCorrelation();
 	LastDiagnostic.StartAttemptId = FGuid::NewGuid();
 	LastDiagnostic.BeforeState = State;
 	LastDiagnostic.AfterState = State;
@@ -58,6 +57,12 @@ void Fdemo_map0909BRunStartCoordinator::RecordRuntimeReceipt(
 	{
 		LastDiagnostic.RunId = Receipt.RunInstanceId;
 	}
+	if (Receipt.RunCorrelation.IsValid()
+		&& !AttemptRunCorrelation.IsValid())
+	{
+		AttemptRunCorrelation = Receipt.RunCorrelation;
+		LastDiagnostic.RunCorrelation = Receipt.RunCorrelation;
+	}
 	if (Receipt.ReceiptClass == Edemo_map0909BM01RuntimeReceiptClass::TechnicalFailure
 		&& Receipt.FailureClass != TEXT("None"))
 	{
@@ -80,8 +85,11 @@ bool Fdemo_map0909BRunStartCoordinator::ValidateRuntimeReady(
 		OutDiagnostic = TEXT("RuntimeReady does not match the current ActivatingWorld StartAttempt.");
 		return false;
 	}
-	if (Receipt.OwnerId != AttemptLoadoutSelection.OwnerId
+	if (!AttemptRunCorrelation.IsValid()
+		|| Receipt.RunCorrelation != AttemptRunCorrelation
+		|| Receipt.OwnerId != AttemptRunCorrelation.OwnerId
 		|| !Receipt.RunInstanceId.IsValid()
+		|| Receipt.RunInstanceId != AttemptRunCorrelation.ActiveRunId
 		|| Receipt.MapDescriptor != Fdemo_map0909BM01RuntimeAdapter::ExpectedM01MapDescriptor()
 		|| Receipt.MapIdentity.IsEmpty()
 		|| !Receipt.bActivationRequestAccepted
@@ -92,22 +100,13 @@ bool Fdemo_map0909BRunStartCoordinator::ValidateRuntimeReady(
 		|| !Receipt.bPawnReady
 		|| !Receipt.bInputRestored)
 	{
-		OutDiagnostic = TEXT("RuntimeReady lacks one correlated M01 World, player, input, map or loadout identity fact.");
-		return false;
-	}
-	if (!AttemptLoadoutSelection.IsUsable()
-		|| AttemptLoadoutSelection.PersistentRevision == INDEX_NONE
-		|| AttemptLoadoutSelection.GraphRevision == INDEX_NONE
-		|| AttemptLoadoutSelection.Digest.IsEmpty())
-	{
-		OutDiagnostic = TEXT("The immutable P2 LoadoutSelection lost its Owner/revision/digest correlation before RuntimeReady.");
+		OutDiagnostic = TEXT("RuntimeReady lacks one correlated M01 World, player, input, map or authority-Run identity fact.");
 		return false;
 	}
 	return true;
 }
 
 bool Fdemo_map0909BRunStartCoordinator::StartM01Run(
-	const FCodeBLoadoutSelection& LoadoutSelection,
 	FString& OutPlayerFeedback)
 {
 	OutPlayerFeedback.Reset();
@@ -121,22 +120,11 @@ bool Fdemo_map0909BRunStartCoordinator::StartM01Run(
 		OutPlayerFeedback = TEXT("当前部署尚未结束，不能重复启动 M01。 ");
 		return false;
 	}
-	if (!LoadoutSelection.IsUsable())
-	{
-		OutPlayerFeedback = TEXT("宗门战备快照不可用；未创建 Run，也未移动 P5 物品。");
-		return false;
-	}
-
 	BeginAttempt();
-	AttemptLoadoutSelection = LoadoutSelection;
-	LastDiagnostic.OwnerId = LoadoutSelection.OwnerId;
-	LastDiagnostic.LoadoutPersistentRevision = LoadoutSelection.PersistentRevision;
-	LastDiagnostic.LoadoutGraphRevision = LoadoutSelection.GraphRevision;
-	LastDiagnostic.LoadoutSelectionDigest = LoadoutSelection.Digest;
 	Transition(Edemo_map0909BTopState::PreparingStart, TEXT("PreparingStart"));
 	Fdemo_map0909BM01RuntimeReceipt ActivationReceipt;
 	if (!M01Adapter->BeginActivation(
-		LastDiagnostic.StartAttemptId, AttemptLoadoutSelection, ActivationReceipt))
+		LastDiagnostic.StartAttemptId, ActivationReceipt))
 	{
 		RecordRuntimeReceipt(ActivationReceipt);
 		return ReturnToSectAfterTechnicalFailure(
@@ -171,13 +159,12 @@ bool Fdemo_map0909BRunStartCoordinator::StartM01Run(
 	}
 
 	Transition(Edemo_map0909BTopState::InRun, TEXT("RuntimeReady->InRun"));
-	// The bridge cannot veto the now-confirmed Code A deployment. A P6 refusal
-	// is audit-only and must never reclassify a real M01 run as a technical failure.
-	LastDiagnostic.BridgeDiagnostic = Fdemo_map0909BCodeBItemBridge::ObserveConfirmedActivation(
-		*GameMode, LastDiagnostic.StartAttemptId, LastDiagnostic.OwnerId,
-		LastDiagnostic.RunId, AttemptLoadoutSelection);
+	// World confirmation is a read-only authority comparison. It cannot veto the
+	// now-confirmed deployment and never writes the retired Code B document.
+	GameMode->Observe0909BConfirmedRun(
+		AttemptRunCorrelation, LastDiagnostic.AuthorityDiagnostic);
 	LastDiagnostic.FailureClass = TEXT("None");
-	LastDiagnostic.Detail = TEXT("M01 RuntimeReady was correlated before InRun; the selection-aware P6 observer was then notified.");
+	LastDiagnostic.Detail = TEXT("M01 RuntimeReady was correlated before InRun; world confirmation then re-read the same Shanmen authority identity without a legacy write.");
 	OutPlayerFeedback = TEXT("M01 已部署。真实世界、Run 身份与仓库锁定现在由同一协调器确认。");
 	UE_LOG(Logdemo_map, Log, TEXT("0_0_9BFIX_RUN_COORDINATOR Event=DeploymentSucceeded %s"),
 		*LastDiagnostic.ToLogString());
@@ -195,19 +182,17 @@ bool Fdemo_map0909BRunStartCoordinator::ReturnToSectAfterTechnicalFailure(
 		TEXT("TechnicalStartFailure"));
 
 	FString RollbackDiagnostic;
+	const FGuid AttemptRunId = LastDiagnostic.RunId;
+	const bool bAttemptCreatedRun = AttemptRunId.IsValid();
 	const bool bRolledBack = M01Adapter.IsValid()
 		&& M01Adapter->CancelAttempt(LastDiagnostic.StartAttemptId, RollbackDiagnostic);
-	bool bNoP6Session = false;
-	if (bRolledBack && GameMode.IsValid())
+	const FGuid RecoverableRunId = bRolledBack && GameMode.IsValid()
+		? GameMode->Get0909BRecoverableRunId() : FGuid();
+	const bool bAuthorityIdentityConsistent = bAttemptCreatedRun
+		? RecoverableRunId == AttemptRunId
+		: !RecoverableRunId.IsValid();
+	if (bRolledBack && bAuthorityIdentityConsistent)
 	{
-		bNoP6Session = Fdemo_map0909BCodeBItemBridge::VerifyNoActiveRunSession(
-			GameMode->Get0909BProfileStorageRoot(), LastDiagnostic.OwnerId,
-			RollbackDiagnostic);
-	}
-	if (bRolledBack && bNoP6Session)
-	{
-		const FGuid RecoverableRunId = GameMode.IsValid()
-			? GameMode->Get0909BRecoverableRunId() : FGuid();
 		if (RecoverableRunId.IsValid())
 		{
 			LastDiagnostic.RunId = RecoverableRunId;
@@ -219,6 +204,9 @@ bool Fdemo_map0909BRunStartCoordinator::ReturnToSectAfterTechnicalFailure(
 		}
 		Transition(Edemo_map0909BTopState::AtSect, TEXT("AtSect"));
 		LastDiagnostic.Detail += TEXT(" | ") + RollbackDiagnostic;
+		LastDiagnostic.AuthorityDiagnostic = RecoverableRunId.IsValid()
+			? TEXT("Durable Shanmen Run correlation retained for exact replay.")
+			: TEXT("No durable Run was created before technical failure.");
 		OutPlayerFeedback = RecoverableRunId.IsValid()
 			? TEXT("M01 世界未能启动；瞬态 Runtime 已清理，原远征身份与物资仍由 ShanmenItems 保留。再次开始将恢复同一远征。")
 			: TEXT("M01 未能启动，已作为技术失败安全返回宗门；没有生成玩家放弃记录。");
@@ -228,7 +216,11 @@ bool Fdemo_map0909BRunStartCoordinator::ReturnToSectAfterTechnicalFailure(
 		return false;
 	}
 
-	LastDiagnostic.Detail += TEXT(" | Rollback=") + RollbackDiagnostic;
+	LastDiagnostic.Detail += FString::Printf(
+		TEXT(" | Rollback=%s ExpectedRunId=%s RecoverableRunId=%s"),
+		*RollbackDiagnostic,
+		*AttemptRunId.ToString(EGuidFormats::DigitsWithHyphens),
+		*RecoverableRunId.ToString(EGuidFormats::DigitsWithHyphens));
 	OutPlayerFeedback = TEXT("M01 启动遇到技术错误，自动回滚未完成；请保留诊断并停止继续部署。");
 	UE_LOG(Logdemo_map, Error,
 		TEXT("0_0_9BFIX_RUN_COORDINATOR Event=TechnicalFailureBlocked %s"),
