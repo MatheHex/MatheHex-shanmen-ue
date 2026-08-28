@@ -14,6 +14,7 @@ namespace
 	const FGuid VitalitySourceId(0x54000003, 0, 0, 1);
 	const FGuid VitalityTargetA(0x54000004, 0, 0, 1);
 	const FGuid VitalityTargetB(0x54000005, 0, 0, 1);
+	const FGuid VitalityTargetC(0x54000008, 0, 0, 1);
 
 	FShanmenCombatActionSnapshot MakeAction()
 	{
@@ -311,6 +312,196 @@ bool FShanmenVitalityCanonicalGateTest::RunTest(const FString&)
 			&& RevisionLimit.Error == EShanmenVitalityCommitError::RevisionExhausted
 			&& Exhausted.GetAuthorityRevision() == MAX_int64
 			&& FMath::IsNearlyEqual(Exhausted.GetCurrentVitality(), 100.0f));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenExternalVitalityLedgerCommitTest,
+	"Shanmen.0_0_10.CombatRuntime.VitalityLedger.ExternalStateCommit",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenExternalVitalityLedgerCommitTest::RunTest(const FString&)
+{
+	float CurrentVitality = 100.0f;
+	float MaximumVitality = 100.0f;
+	FShanmenVitalityCommitLedger Ledger;
+	TestTrue(TEXT("External-state ledger binds one target without owning vitality"),
+		FShanmenVitalityCommitLedger::TryCreate(
+			VitalityTargetC,
+			CurrentVitality,
+			MaximumVitality,
+			5,
+			Ledger));
+
+	FShanmenTargetVitalitySnapshot Snapshot;
+	TestTrue(TEXT("Ledger captures the externally owned state"),
+		Ledger.TryCaptureSnapshot(
+			CurrentVitality,
+			MaximumVitality,
+			Snapshot));
+	TestEqual(TEXT("External snapshot exposes ledger revision"),
+		Snapshot.AuthorityRevision,
+		static_cast<int64>(5));
+
+	const FShanmenVitalityCommitCommand Command = MakeCommand(
+		MakeImpactRequest(VitalityTargetC, 0, 30.0f, Snapshot));
+	const FShanmenVitalityCommitResult Committed = Ledger.Commit(
+		Command,
+		CurrentVitality,
+		MaximumVitality);
+	TestTrue(TEXT("Ledger mutates the caller's sole vitality value"),
+		Committed.IsSuccess()
+			&& FMath::IsNearlyEqual(CurrentVitality, 70.0f)
+			&& Ledger.GetAuthorityRevision() == 6
+			&& Ledger.NumCommittedImpacts() == 1);
+
+	const FShanmenVitalityCommitResult Replay = Ledger.Commit(
+		Command,
+		CurrentVitality,
+		MaximumVitality);
+	TestTrue(TEXT("External-state duplicate replays the original receipt"),
+		Replay.IsSuccess()
+			&& Replay.Status == EShanmenVitalityCommitStatus::AlreadyCommitted
+			&& Replay.Receipt.GetResolutionId() == Committed.Receipt.GetResolutionId()
+			&& FMath::IsNearlyEqual(CurrentVitality, 70.0f)
+			&& Ledger.GetAuthorityRevision() == 6);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenExternalVitalityMutationTest,
+	"Shanmen.0_0_10.CombatRuntime.VitalityLedger.ExternalMutationInvalidation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenExternalVitalityMutationTest::RunTest(const FString&)
+{
+	float CurrentVitality = 100.0f;
+	float MaximumVitality = 100.0f;
+	FShanmenVitalityCommitLedger Ledger;
+	check(FShanmenVitalityCommitLedger::TryCreate(
+		VitalityTargetC,
+		CurrentVitality,
+		MaximumVitality,
+		0,
+		Ledger));
+
+	FShanmenTargetVitalitySnapshot Initial;
+	check(Ledger.TryCaptureSnapshot(CurrentVitality, MaximumVitality, Initial));
+	const FShanmenVitalityCommitCommand Stale = MakeCommand(
+		MakeImpactRequest(VitalityTargetC, 0, 10.0f, Initial));
+
+	TestTrue(TEXT("A declared external mutation advances the same revision ledger"),
+		Ledger.TryCommitExternalMutation(
+			CurrentVitality,
+			MaximumVitality,
+			90.0f,
+			MaximumVitality));
+	TestEqual(TEXT("External mutation advances exactly one revision"),
+		Ledger.GetAuthorityRevision(),
+		static_cast<int64>(1));
+	const FShanmenVitalityCommitResult StaleResult = Ledger.Commit(
+		Stale,
+		CurrentVitality,
+		MaximumVitality);
+	TestTrue(TEXT("External mutation invalidates a previously resolved command"),
+		StaleResult.IsValid()
+			&& StaleResult.Error == EShanmenVitalityCommitError::StaleSnapshot
+			&& Ledger.NumCommittedImpacts() == 0
+			&& FMath::IsNearlyEqual(CurrentVitality, 90.0f));
+
+	FShanmenTargetVitalitySnapshot Fresh;
+	check(Ledger.TryCaptureSnapshot(CurrentVitality, MaximumVitality, Fresh));
+	const FShanmenVitalityCommitCommand Retried = MakeCommand(
+		MakeImpactRequest(VitalityTargetC, 0, 10.0f, Fresh));
+	TestTrue(TEXT("Re-resolution retains Impact identity but changes resolution identity"),
+		Retried.GetImpactId() == Stale.GetImpactId()
+			&& Retried.GetResolutionId() != Stale.GetResolutionId());
+	TestTrue(TEXT("Fresh external-state command commits"),
+		Ledger.Commit(Retried, CurrentVitality, MaximumVitality).IsSuccess()
+			&& FMath::IsNearlyEqual(CurrentVitality, 80.0f)
+			&& Ledger.GetAuthorityRevision() == 2);
+
+	TestTrue(TEXT("Later healing is another declared external mutation"),
+		Ledger.TryCommitExternalMutation(
+			CurrentVitality,
+			MaximumVitality,
+			85.0f,
+			MaximumVitality));
+	const FShanmenVitalityCommitResult Replay = Ledger.Commit(
+		Retried,
+		CurrentVitality,
+		MaximumVitality);
+	TestTrue(TEXT("A committed Impact remains idempotent after later state changes"),
+		Replay.Status == EShanmenVitalityCommitStatus::AlreadyCommitted
+			&& FMath::IsNearlyEqual(CurrentVitality, 85.0f)
+			&& Ledger.GetAuthorityRevision() == 3
+			&& Ledger.NumCommittedImpacts() == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenExternalVitalityDesynchronizationTest,
+	"Shanmen.0_0_10.CombatRuntime.VitalityLedger.BypassDetection",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenExternalVitalityDesynchronizationTest::RunTest(const FString&)
+{
+	float CurrentVitality = 100.0f;
+	float MaximumVitality = 100.0f;
+	FShanmenVitalityCommitLedger Ledger;
+	check(FShanmenVitalityCommitLedger::TryCreate(
+		VitalityTargetC,
+		CurrentVitality,
+		MaximumVitality,
+		0,
+		Ledger));
+	FShanmenTargetVitalitySnapshot Snapshot;
+	check(Ledger.TryCaptureSnapshot(CurrentVitality, MaximumVitality, Snapshot));
+	const FShanmenVitalityCommitCommand Command = MakeCommand(
+		MakeImpactRequest(VitalityTargetC, 0, 10.0f, Snapshot));
+
+	CurrentVitality = 99.0f;
+	FShanmenTargetVitalitySnapshot RejectedSnapshot;
+	TestFalse(TEXT("An unannounced product write blocks further snapshot capture"),
+		Ledger.TryCaptureSnapshot(
+			CurrentVitality,
+			MaximumVitality,
+			RejectedSnapshot));
+	const FShanmenVitalityCommitResult Desynchronized = Ledger.Commit(
+		Command,
+		CurrentVitality,
+		MaximumVitality);
+	TestTrue(TEXT("An unannounced write rejects Impact delivery without mutation"),
+		Desynchronized.IsValid()
+			&& Desynchronized.Error == EShanmenVitalityCommitError::StateDesynchronized
+			&& Ledger.GetAuthorityRevision() == 0
+			&& Ledger.NumCommittedImpacts() == 0
+			&& FMath::IsNearlyEqual(CurrentVitality, 99.0f));
+	TestFalse(TEXT("External mutation cannot lie about the ledger's before-state"),
+		Ledger.TryCommitExternalMutation(
+			CurrentVitality,
+			MaximumVitality,
+			90.0f,
+			MaximumVitality));
+
+	FShanmenVitalityCommitLedger Exhausted;
+	float ExhaustedCurrent = 100.0f;
+	float ExhaustedMaximum = 100.0f;
+	check(FShanmenVitalityCommitLedger::TryCreate(
+		VitalityTargetC,
+		ExhaustedCurrent,
+		ExhaustedMaximum,
+		MAX_int64,
+		Exhausted));
+	TestFalse(TEXT("External mutation also fails closed at revision exhaustion"),
+		Exhausted.TryCommitExternalMutation(
+			ExhaustedCurrent,
+			ExhaustedMaximum,
+			90.0f,
+			ExhaustedMaximum));
+	TestEqual(TEXT("Failed external mutation cannot overflow revision"),
+		Exhausted.GetAuthorityRevision(),
+		MAX_int64);
 	return true;
 }
 

@@ -23,7 +23,8 @@ enum class EShanmenVitalityCommitError : uint8
 	TargetMismatch,
 	StaleSnapshot,
 	ImpactConflict,
-	RevisionExhausted
+	RevisionExhausted,
+	StateDesynchronized
 };
 
 /** Immutable application intent built only from a canonical resolved Impact. */
@@ -103,6 +104,7 @@ public:
 
 private:
 	friend class FShanmenVitalityAuthority;
+	friend class FShanmenVitalityCommitLedger;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Shanmen|Combat|Vitality", meta = (AllowPrivateAccess = "true"))
 	FGuid ImpactId;
@@ -155,6 +157,63 @@ struct SHANMENCOMBATRUNTIME_API FShanmenVitalityCommitResult
 };
 
 /**
+ * Version and Impact ledger for vitality stored by an external product owner.
+ *
+ * The ledger retains only exact float fingerprints, never a second mutable
+ * vitality value. Every product-side mutation must pass through Commit() or
+ * TryCommitExternalMutation(); an unannounced write is rejected as a
+ * desynchronized state on the next capture or Impact delivery.
+ */
+class SHANMENCOMBATRUNTIME_API FShanmenVitalityCommitLedger
+{
+public:
+	static bool TryCreate(
+		const FGuid& TargetEntityId,
+		float CurrentVitality,
+		float MaximumVitality,
+		int64 AuthorityRevision,
+		FShanmenVitalityCommitLedger& OutLedger);
+
+	bool IsValid() const;
+	bool IsSynchronized(float CurrentVitality, float MaximumVitality) const;
+	bool TryCaptureSnapshot(
+		float CurrentVitality,
+		float MaximumVitality,
+		FShanmenTargetVitalitySnapshot& OutSnapshot) const;
+	FShanmenVitalityCommitResult Commit(
+		const FShanmenVitalityCommitCommand& Command,
+		float& InOutCurrentVitality,
+		float MaximumVitality);
+	/** Atomically validates and replaces the caller-owned state, then advances revision once. */
+	bool TryCommitExternalMutation(
+		float& InOutCurrentVitality,
+		float& InOutMaximumVitality,
+		float NewCurrentVitality,
+		float NewMaximumVitality);
+	void Reset();
+
+	const FGuid& GetTargetEntityId() const { return TargetEntityId; }
+	int64 GetAuthorityRevision() const { return AuthorityRevision; }
+	int32 NumCommittedImpacts() const { return ProcessedImpacts.Num(); }
+
+private:
+	struct FProcessedImpact
+	{
+		FGuid ResolutionId;
+		FShanmenVitalityCommitReceipt Receipt;
+	};
+
+	FShanmenVitalityCommitResult Reject(EShanmenVitalityCommitError Error) const;
+
+	FGuid TargetEntityId;
+	int64 AuthorityRevision = INDEX_NONE;
+	uint32 CurrentVitalityFingerprint = 0;
+	uint32 MaximumVitalityFingerprint = 0;
+	bool bInitialized = false;
+	TMap<FGuid, FProcessedImpact> ProcessedImpacts;
+};
+
+/**
  * Deterministic in-memory vitality authority for one stable combat EntityId.
  *
  * Product adapters may project this state to presentation, but must not apply
@@ -176,25 +235,14 @@ public:
 	FShanmenVitalityCommitResult Commit(const FShanmenVitalityCommitCommand& Command);
 	void Reset();
 
-	const FGuid& GetTargetEntityId() const { return TargetEntityId; }
+	const FGuid& GetTargetEntityId() const { return CommitLedger.GetTargetEntityId(); }
 	float GetCurrentVitality() const { return CurrentVitality; }
 	float GetMaximumVitality() const { return MaximumVitality; }
-	int64 GetAuthorityRevision() const { return AuthorityRevision; }
-	int32 NumCommittedImpacts() const { return ProcessedImpacts.Num(); }
+	int64 GetAuthorityRevision() const { return CommitLedger.GetAuthorityRevision(); }
+	int32 NumCommittedImpacts() const { return CommitLedger.NumCommittedImpacts(); }
 
 private:
-	struct FProcessedImpact
-	{
-		FGuid ResolutionId;
-		FShanmenVitalityCommitReceipt Receipt;
-	};
-
-	FShanmenVitalityCommitResult Reject(EShanmenVitalityCommitError Error) const;
-
-	FGuid TargetEntityId;
 	float CurrentVitality = 0.0f;
 	float MaximumVitality = 0.0f;
-	int64 AuthorityRevision = INDEX_NONE;
-	bool bInitialized = false;
-	TMap<FGuid, FProcessedImpact> ProcessedImpacts;
+	FShanmenVitalityCommitLedger CommitLedger;
 };

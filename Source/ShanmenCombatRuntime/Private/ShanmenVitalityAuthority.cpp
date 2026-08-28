@@ -10,17 +10,30 @@ namespace
 		return Value.ToString(EGuidFormats::Digits);
 	}
 
-	FString FloatBits(float Value)
+	uint32 FloatValueBits(float Value)
 	{
 		uint32 Bits = 0;
 		static_assert(sizeof(Bits) == sizeof(Value));
 		FMemory::Memcpy(&Bits, &Value, sizeof(Bits));
-		return FString::Printf(TEXT("%08X"), Bits);
+		return Bits;
+	}
+
+	FString FloatBits(float Value)
+	{
+		return FString::Printf(TEXT("%08X"), FloatValueBits(Value));
 	}
 
 	bool FloatsMatchExactly(float Left, float Right)
 	{
-		return FloatBits(Left) == FloatBits(Right);
+		return FloatValueBits(Left) == FloatValueBits(Right);
+	}
+
+	bool IsValidVitalityState(float CurrentVitality, float MaximumVitality)
+	{
+		return FMath::IsFinite(CurrentVitality)
+			&& FMath::IsFinite(MaximumVitality)
+			&& CurrentVitality >= 0.0f
+			&& MaximumVitality >= CurrentVitality;
 	}
 
 	void AppendSortedTags(
@@ -216,48 +229,53 @@ bool FShanmenVitalityCommitResult::IsSuccess() const
 			|| Status == EShanmenVitalityCommitStatus::AlreadyCommitted);
 }
 
-bool FShanmenVitalityAuthority::TryCreate(
+bool FShanmenVitalityCommitLedger::TryCreate(
 	const FGuid& InTargetEntityId,
 	float InCurrentVitality,
 	float InMaximumVitality,
 	int64 InAuthorityRevision,
-	FShanmenVitalityAuthority& OutAuthority)
+	FShanmenVitalityCommitLedger& OutLedger)
 {
-	OutAuthority.Reset();
+	OutLedger.Reset();
 	if (!InTargetEntityId.IsValid()
-		|| !FMath::IsFinite(InCurrentVitality)
-		|| !FMath::IsFinite(InMaximumVitality)
-		|| InCurrentVitality < 0.0f
-		|| InMaximumVitality < InCurrentVitality
+		|| !IsValidVitalityState(InCurrentVitality, InMaximumVitality)
 		|| InAuthorityRevision < 0)
 	{
 		return false;
 	}
 
-	OutAuthority.TargetEntityId = InTargetEntityId;
-	OutAuthority.CurrentVitality = InCurrentVitality;
-	OutAuthority.MaximumVitality = InMaximumVitality;
-	OutAuthority.AuthorityRevision = InAuthorityRevision;
-	OutAuthority.bInitialized = true;
+	OutLedger.TargetEntityId = InTargetEntityId;
+	OutLedger.AuthorityRevision = InAuthorityRevision;
+	OutLedger.CurrentVitalityFingerprint = FloatValueBits(InCurrentVitality);
+	OutLedger.MaximumVitalityFingerprint = FloatValueBits(InMaximumVitality);
+	OutLedger.bInitialized = true;
 	return true;
 }
 
-bool FShanmenVitalityAuthority::IsValid() const
+bool FShanmenVitalityCommitLedger::IsValid() const
 {
 	return bInitialized
 		&& TargetEntityId.IsValid()
-		&& FMath::IsFinite(CurrentVitality)
-		&& FMath::IsFinite(MaximumVitality)
-		&& CurrentVitality >= 0.0f
-		&& MaximumVitality >= CurrentVitality
 		&& AuthorityRevision >= 0;
 }
 
-bool FShanmenVitalityAuthority::TryCaptureSnapshot(
+bool FShanmenVitalityCommitLedger::IsSynchronized(
+	float CurrentVitality,
+	float MaximumVitality) const
+{
+	return IsValid()
+		&& IsValidVitalityState(CurrentVitality, MaximumVitality)
+		&& CurrentVitalityFingerprint == FloatValueBits(CurrentVitality)
+		&& MaximumVitalityFingerprint == FloatValueBits(MaximumVitality);
+}
+
+bool FShanmenVitalityCommitLedger::TryCaptureSnapshot(
+	float CurrentVitality,
+	float MaximumVitality,
 	FShanmenTargetVitalitySnapshot& OutSnapshot) const
 {
 	OutSnapshot = FShanmenTargetVitalitySnapshot();
-	if (!IsValid())
+	if (!IsSynchronized(CurrentVitality, MaximumVitality))
 	{
 		return false;
 	}
@@ -268,8 +286,10 @@ bool FShanmenVitalityAuthority::TryCaptureSnapshot(
 	return OutSnapshot.IsValid();
 }
 
-FShanmenVitalityCommitResult FShanmenVitalityAuthority::Commit(
-	const FShanmenVitalityCommitCommand& Command)
+FShanmenVitalityCommitResult FShanmenVitalityCommitLedger::Commit(
+	const FShanmenVitalityCommitCommand& Command,
+	float& InOutCurrentVitality,
+	float MaximumVitality)
 {
 	if (!Command.IsValid())
 	{
@@ -278,6 +298,10 @@ FShanmenVitalityCommitResult FShanmenVitalityAuthority::Commit(
 	if (!IsValid())
 	{
 		return Reject(EShanmenVitalityCommitError::AuthorityNotReady);
+	}
+	if (!IsSynchronized(InOutCurrentVitality, MaximumVitality))
+	{
+		return Reject(EShanmenVitalityCommitError::StateDesynchronized);
 	}
 
 	if (const FProcessedImpact* Existing = ProcessedImpacts.Find(Command.GetImpactId()))
@@ -298,7 +322,7 @@ FShanmenVitalityCommitResult FShanmenVitalityAuthority::Commit(
 		return Reject(EShanmenVitalityCommitError::TargetMismatch);
 	}
 	if (Command.GetExpectedAuthorityRevision() != AuthorityRevision
-		|| !FloatsMatchExactly(Command.GetExpectedCurrentVitality(), CurrentVitality)
+		|| !FloatsMatchExactly(Command.GetExpectedCurrentVitality(), InOutCurrentVitality)
 		|| !FloatsMatchExactly(Command.GetExpectedMaximumVitality(), MaximumVitality))
 	{
 		return Reject(EShanmenVitalityCommitError::StaleSnapshot);
@@ -314,18 +338,20 @@ FShanmenVitalityCommitResult FShanmenVitalityAuthority::Commit(
 	Receipt.TargetEntityId = TargetEntityId;
 	Receipt.AuthorityRevisionBefore = AuthorityRevision;
 	Receipt.AuthorityRevisionAfter = AuthorityRevision + 1;
-	Receipt.VitalityBefore = CurrentVitality;
+	Receipt.VitalityBefore = InOutCurrentVitality;
 	Receipt.MaximumVitality = MaximumVitality;
 	Receipt.RequestedDamage = Command.GetRequestedDamage();
-	Receipt.AppliedDamage = FMath::Min(CurrentVitality, Command.GetRequestedDamage());
-	Receipt.VitalityAfter = FMath::Max(0.0f, CurrentVitality - Receipt.AppliedDamage);
+	Receipt.AppliedDamage = FMath::Min(InOutCurrentVitality, Command.GetRequestedDamage());
+	Receipt.VitalityAfter = FMath::Max(0.0f, InOutCurrentVitality - Receipt.AppliedDamage);
 	if (!Receipt.IsValid())
 	{
 		return Reject(EShanmenVitalityCommitError::InvalidCommand);
 	}
 
-	CurrentVitality = Receipt.VitalityAfter;
+	InOutCurrentVitality = Receipt.VitalityAfter;
 	AuthorityRevision = Receipt.AuthorityRevisionAfter;
+	CurrentVitalityFingerprint = FloatValueBits(InOutCurrentVitality);
+	MaximumVitalityFingerprint = FloatValueBits(MaximumVitality);
 	FProcessedImpact& Processed = ProcessedImpacts.Add(Receipt.ImpactId);
 	Processed.ResolutionId = Receipt.ResolutionId;
 	Processed.Receipt = Receipt;
@@ -336,16 +362,99 @@ FShanmenVitalityCommitResult FShanmenVitalityAuthority::Commit(
 	return Result;
 }
 
-void FShanmenVitalityAuthority::Reset()
+bool FShanmenVitalityCommitLedger::TryCommitExternalMutation(
+	float& InOutCurrentVitality,
+	float& InOutMaximumVitality,
+	float NewCurrentVitality,
+	float NewMaximumVitality)
 {
-	*this = FShanmenVitalityAuthority();
+	if (!IsSynchronized(InOutCurrentVitality, InOutMaximumVitality)
+		|| !IsValidVitalityState(NewCurrentVitality, NewMaximumVitality))
+	{
+		return false;
+	}
+
+	const uint32 NewCurrentFingerprint = FloatValueBits(NewCurrentVitality);
+	const uint32 NewMaximumFingerprint = FloatValueBits(NewMaximumVitality);
+	if (CurrentVitalityFingerprint == NewCurrentFingerprint
+		&& MaximumVitalityFingerprint == NewMaximumFingerprint)
+	{
+		return true;
+	}
+	if (AuthorityRevision == MAX_int64)
+	{
+		return false;
+	}
+
+	InOutCurrentVitality = NewCurrentVitality;
+	InOutMaximumVitality = NewMaximumVitality;
+	CurrentVitalityFingerprint = NewCurrentFingerprint;
+	MaximumVitalityFingerprint = NewMaximumFingerprint;
+	++AuthorityRevision;
+	return true;
 }
 
-FShanmenVitalityCommitResult FShanmenVitalityAuthority::Reject(
+void FShanmenVitalityCommitLedger::Reset()
+{
+	*this = FShanmenVitalityCommitLedger();
+}
+
+FShanmenVitalityCommitResult FShanmenVitalityCommitLedger::Reject(
 	EShanmenVitalityCommitError Error) const
 {
 	FShanmenVitalityCommitResult Result;
 	Result.Status = EShanmenVitalityCommitStatus::Rejected;
 	Result.Error = Error;
 	return Result;
+}
+
+bool FShanmenVitalityAuthority::TryCreate(
+	const FGuid& InTargetEntityId,
+	float InCurrentVitality,
+	float InMaximumVitality,
+	int64 InAuthorityRevision,
+	FShanmenVitalityAuthority& OutAuthority)
+{
+	OutAuthority.Reset();
+	if (!FShanmenVitalityCommitLedger::TryCreate(
+		InTargetEntityId,
+		InCurrentVitality,
+		InMaximumVitality,
+		InAuthorityRevision,
+		OutAuthority.CommitLedger))
+	{
+		return false;
+	}
+
+	OutAuthority.CurrentVitality = InCurrentVitality;
+	OutAuthority.MaximumVitality = InMaximumVitality;
+	return true;
+}
+
+bool FShanmenVitalityAuthority::IsValid() const
+{
+	return CommitLedger.IsSynchronized(CurrentVitality, MaximumVitality);
+}
+
+bool FShanmenVitalityAuthority::TryCaptureSnapshot(
+	FShanmenTargetVitalitySnapshot& OutSnapshot) const
+{
+	return CommitLedger.TryCaptureSnapshot(
+		CurrentVitality,
+		MaximumVitality,
+		OutSnapshot);
+}
+
+FShanmenVitalityCommitResult FShanmenVitalityAuthority::Commit(
+	const FShanmenVitalityCommitCommand& Command)
+{
+	return CommitLedger.Commit(
+		Command,
+		CurrentVitality,
+		MaximumVitality);
+}
+
+void FShanmenVitalityAuthority::Reset()
+{
+	*this = FShanmenVitalityAuthority();
 }
