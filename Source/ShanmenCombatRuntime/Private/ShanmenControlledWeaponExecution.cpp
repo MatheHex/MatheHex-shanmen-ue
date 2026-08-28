@@ -1,0 +1,467 @@
+#include "ShanmenControlledWeaponExecution.h"
+
+#include "ShanmenCombatTags.h"
+#include "ShanmenDeterministicId.h"
+
+namespace
+{
+	FString GuidDigits(const FGuid& Value)
+	{
+		return Value.ToString(EGuidFormats::Digits);
+	}
+
+	FString DoubleBits(double Value)
+	{
+		uint64 Bits = 0;
+		static_assert(sizeof(Bits) == sizeof(Value));
+		FMemory::Memcpy(&Bits, &Value, sizeof(Bits));
+		return FString::Printf(TEXT("%016llX"), Bits);
+	}
+
+	bool TryCanonicalDirection(
+		EShanmenControlledWeaponCommandKind Kind,
+		const FVector& DesiredDirection,
+		FVector& OutDirection)
+	{
+		OutDirection = FVector::ZeroVector;
+		if (DesiredDirection.ContainsNaN())
+		{
+			return false;
+		}
+
+		if (Kind == EShanmenControlledWeaponCommandKind::Recall)
+		{
+			return DesiredDirection.IsNearlyZero();
+		}
+
+		if (DesiredDirection.IsNearlyZero())
+		{
+			return false;
+		}
+		OutDirection = DesiredDirection.GetSafeNormal();
+		if (OutDirection.IsNearlyZero() || OutDirection.ContainsNaN())
+		{
+			OutDirection = FVector::ZeroVector;
+			return false;
+		}
+
+		if (OutDirection.X == 0.0) OutDirection.X = 0.0;
+		if (OutDirection.Y == 0.0) OutDirection.Y = 0.0;
+		if (OutDirection.Z == 0.0) OutDirection.Z = 0.0;
+		return FMath::IsNearlyEqual(OutDirection.SizeSquared(), 1.0);
+	}
+
+	FGuid MakeCommandId(
+		const FShanmenCombatActionSnapshot& Action,
+		int64 Sequence,
+		EShanmenControlledWeaponCommandKind Kind,
+		const FVector& Direction)
+	{
+		return FShanmenDeterministicId::FromCanonicalParts(
+			TEXT("Shanmen.ControlledWeapon.Command.r1"),
+			{
+				GuidDigits(Action.GetActivationId()),
+				GuidDigits(Action.GetSourceItemInstanceId()),
+				FString::Printf(TEXT("%lld"), Sequence),
+				FString::FromInt(static_cast<int32>(Kind)),
+				DoubleBits(Direction.X),
+				DoubleBits(Direction.Y),
+				DoubleBits(Direction.Z)
+			});
+	}
+
+}
+
+FName FShanmenControlledWeaponDefinition::CanonicalActionDefinitionId()
+{
+	return TEXT("Combat.Action.ControlledWeapon.FlyingSword01");
+}
+
+bool FShanmenControlledWeaponDefinition::TryCapture(
+	const FShanmenControlledWeaponDefinitionCapture& Capture,
+	FShanmenControlledWeaponDefinition& OutDefinition)
+{
+	OutDefinition = FShanmenControlledWeaponDefinition();
+	OutDefinition.ActionDefinitionId = Capture.ActionDefinitionId;
+	OutDefinition.DetectorId = Capture.DetectorId;
+	OutDefinition.FormulaId = Capture.FormulaId;
+	OutDefinition.BaseDamage = Capture.BaseDamage;
+	OutDefinition.ControlPowerCoefficient = Capture.ControlPowerCoefficient;
+	OutDefinition.DamageTags = Capture.DamageTags;
+	OutDefinition.RequiredTargetTags = Capture.RequiredTargetTags;
+	OutDefinition.bRejectSelf = Capture.bRejectSelf;
+	if (!OutDefinition.IsValid())
+	{
+		OutDefinition = FShanmenControlledWeaponDefinition();
+		return false;
+	}
+	return true;
+}
+
+bool FShanmenControlledWeaponDefinition::IsValid() const
+{
+	return ActionDefinitionId == CanonicalActionDefinitionId()
+		&& !DetectorId.IsNone()
+		&& !FormulaId.IsNone()
+		&& FMath::IsFinite(BaseDamage)
+		&& BaseDamage >= 0.0f
+		&& FMath::IsFinite(ControlPowerCoefficient)
+		&& ControlPowerCoefficient >= 0.0f
+		&& DamageTags.HasTag(FShanmenCombatNativeTags::DamagePhysicalSlash())
+		&& RequiredTargetTags.HasTag(FShanmenCombatNativeTags::TargetLiving())
+		&& bRejectSelf;
+}
+
+bool FShanmenControlledWeaponOffenseSnapshot::TryCapture(
+	float ControlPower,
+	FShanmenControlledWeaponOffenseSnapshot& OutSnapshot)
+{
+	OutSnapshot = FShanmenControlledWeaponOffenseSnapshot();
+	if (!FMath::IsFinite(ControlPower) || ControlPower < 0.0f)
+	{
+		return false;
+	}
+	OutSnapshot.ControlPower = ControlPower;
+	OutSnapshot.bCaptured = true;
+	return true;
+}
+
+bool FShanmenControlledWeaponOffenseSnapshot::IsValid() const
+{
+	return bCaptured
+		&& FMath::IsFinite(ControlPower)
+		&& ControlPower >= 0.0f;
+}
+
+bool FShanmenControlledWeaponCommandReceipt::IsValid() const
+{
+	if (!CommandId.IsValid()
+		|| !ActivationId.IsValid()
+		|| !SourceItemInstanceId.IsValid()
+		|| Sequence < 0
+		|| DirectionAfter.ContainsNaN())
+	{
+		return false;
+	}
+
+	switch (Kind)
+	{
+	case EShanmenControlledWeaponCommandKind::Launch:
+		return StateBefore == EShanmenControlledWeaponState::Orbiting
+			&& StateAfter == EShanmenControlledWeaponState::Directed
+			&& FMath::IsNearlyEqual(DirectionAfter.SizeSquared(), 1.0);
+	case EShanmenControlledWeaponCommandKind::Redirect:
+		return StateBefore == EShanmenControlledWeaponState::Directed
+			&& StateAfter == EShanmenControlledWeaponState::Directed
+			&& FMath::IsNearlyEqual(DirectionAfter.SizeSquared(), 1.0);
+	case EShanmenControlledWeaponCommandKind::Recall:
+		return StateBefore == EShanmenControlledWeaponState::Directed
+			&& StateAfter == EShanmenControlledWeaponState::Recalled
+			&& DirectionAfter.IsNearlyZero();
+	}
+	return false;
+}
+
+bool FShanmenControlledWeaponImpactReceipt::IsValid() const
+{
+	return Request.IsValid()
+		&& Request.Action.GetSourceItemInstanceId().IsValid()
+		&& Request.Candidate.DetectorKind
+			== EShanmenHitDetectorKind::ControlledObject
+		&& Result.bAccepted
+		&& Result.ImpactId == Request.ImpactId
+		&& Result.IsConserved();
+}
+
+bool FShanmenControlledWeaponExecution::TryCreate(
+	const FShanmenCombatActionSnapshot& Action,
+	const FShanmenControlledWeaponDefinition& Definition,
+	const FShanmenControlledWeaponOffenseSnapshot& Offense,
+	FShanmenControlledWeaponExecution& OutExecution)
+{
+	const FShanmenCombatActionSnapshot FrozenAction = Action;
+	const FShanmenControlledWeaponDefinition FrozenDefinition = Definition;
+	const FShanmenControlledWeaponOffenseSnapshot FrozenOffense = Offense;
+	OutExecution.Reset();
+	if (!FrozenAction.IsValid()
+		|| !FrozenAction.GetSourceItemInstanceId().IsValid()
+		|| !FrozenDefinition.IsValid()
+		|| !FrozenOffense.IsValid()
+		|| FrozenAction.GetActionDefinitionId()
+			!= FrozenDefinition.GetActionDefinitionId())
+	{
+		return false;
+	}
+
+	FShanmenDetectorEmissionSession PreparedEmission;
+	if (!FShanmenDetectorEmissionSession::TryStart(
+			FrozenAction,
+			FrozenDefinition.GetDetectorId(),
+			EShanmenHitDetectorKind::ControlledObject,
+			PreparedEmission))
+	{
+		return false;
+	}
+
+	OutExecution.Action = FrozenAction;
+	OutExecution.Definition = FrozenDefinition;
+	OutExecution.Offense = FrozenOffense;
+	OutExecution.EmissionSession = MoveTemp(PreparedEmission);
+	OutExecution.bInitialized = true;
+	return OutExecution.IsValid();
+}
+
+bool FShanmenControlledWeaponExecution::IsValid() const
+{
+	return bInitialized
+		&& Action.IsValid()
+		&& Action.GetSourceItemInstanceId().IsValid()
+		&& Definition.IsValid()
+		&& Offense.IsValid()
+		&& Action.GetActionDefinitionId() == Definition.GetActionDefinitionId()
+		&& EmissionSession.IsValid()
+		&& NextCommandSequence >= 0
+		&& CommandLedger.Num() <= NextCommandSequence
+		&& ((State == EShanmenControlledWeaponState::Directed)
+			? FMath::IsNearlyEqual(CurrentDirection.SizeSquared(), 1.0)
+			: CurrentDirection.IsNearlyZero());
+}
+
+bool FShanmenControlledWeaponExecution::TryIssueCommand(
+	const FShanmenActionOrchestrator& ActionRuntime,
+	int64 ExpectedSequence,
+	EShanmenControlledWeaponCommandKind Kind,
+	const FVector& DesiredDirection,
+	FShanmenControlledWeaponCommandReceipt& OutReceipt)
+{
+	OutReceipt = FShanmenControlledWeaponCommandReceipt();
+	FVector Direction;
+	if (!MatchesActionRuntime(ActionRuntime)
+		|| !ActionRuntime.CanEmitCandidates()
+		|| ExpectedSequence < 0
+		|| !TryCanonicalDirection(Kind, DesiredDirection, Direction))
+	{
+		return false;
+	}
+
+	const FGuid CommandId = MakeCommandId(
+		Action, ExpectedSequence, Kind, Direction);
+	if (ExpectedSequence < NextCommandSequence)
+	{
+		const FShanmenControlledWeaponCommandReceipt* Existing =
+			CommandLedger.Find(ExpectedSequence);
+		if (!Existing || Existing->GetCommandId() != CommandId)
+		{
+			return false;
+		}
+		OutReceipt = *Existing;
+		return OutReceipt.IsValid();
+	}
+	if (ExpectedSequence != NextCommandSequence)
+	{
+		return false;
+	}
+
+	const EShanmenControlledWeaponState StateBefore = State;
+	const FVector DirectionBefore = CurrentDirection;
+	switch (Kind)
+	{
+	case EShanmenControlledWeaponCommandKind::Launch:
+		if (State != EShanmenControlledWeaponState::Orbiting)
+		{
+			return false;
+		}
+		State = EShanmenControlledWeaponState::Directed;
+		CurrentDirection = Direction;
+		break;
+
+	case EShanmenControlledWeaponCommandKind::Redirect:
+		if (State != EShanmenControlledWeaponState::Directed)
+		{
+			return false;
+		}
+		CurrentDirection = Direction;
+		break;
+
+	case EShanmenControlledWeaponCommandKind::Recall:
+		if (State != EShanmenControlledWeaponState::Directed
+			|| EmissionSession.IsEmissionActive())
+		{
+			return false;
+		}
+		State = EShanmenControlledWeaponState::Recalled;
+		CurrentDirection = FVector::ZeroVector;
+		break;
+	}
+
+	OutReceipt.CommandId = CommandId;
+	OutReceipt.ActivationId = Action.GetActivationId();
+	OutReceipt.SourceItemInstanceId = Action.GetSourceItemInstanceId();
+	OutReceipt.Sequence = NextCommandSequence;
+	OutReceipt.Kind = Kind;
+	OutReceipt.StateBefore = StateBefore;
+	OutReceipt.StateAfter = State;
+	OutReceipt.DirectionAfter = CurrentDirection;
+	if (!OutReceipt.IsValid())
+	{
+		State = StateBefore;
+		CurrentDirection = DirectionBefore;
+		OutReceipt = FShanmenControlledWeaponCommandReceipt();
+		return false;
+	}
+
+	CommandLedger.Add(NextCommandSequence, OutReceipt);
+	++NextCommandSequence;
+	return IsValid();
+}
+
+bool FShanmenControlledWeaponExecution::TryBeginEmission(
+	const FShanmenActionOrchestrator& ActionRuntime,
+	FShanmenWorldHitContext& OutContext)
+{
+	OutContext = FShanmenWorldHitContext();
+	return MatchesActionRuntime(ActionRuntime)
+		&& ActionRuntime.CanEmitCandidates()
+		&& State == EShanmenControlledWeaponState::Directed
+		&& FMath::IsNearlyEqual(CurrentDirection.SizeSquared(), 1.0)
+		&& EmissionSession.TryBeginEmission(OutContext);
+}
+
+bool FShanmenControlledWeaponExecution::TryResolveCandidate(
+	const FShanmenActionOrchestrator& ActionRuntime,
+	const FShanmenHitCandidate& Candidate,
+	const FShanmenTargetVitalitySnapshot& TargetVitality,
+	const FShanmenDefenseSnapshot& Defense,
+	FShanmenControlledWeaponImpactReceipt& OutReceipt)
+{
+	OutReceipt = FShanmenControlledWeaponImpactReceipt();
+	if (!MatchesActionRuntime(ActionRuntime)
+		|| !ActionRuntime.CanEmitCandidates()
+		|| State != EShanmenControlledWeaponState::Directed
+		|| !EmissionSession.IsEmissionActive()
+		|| !TargetVitality.IsValid()
+		|| !Defense.IsValid()
+		|| !IsTargetAllowed(Candidate, Defense))
+	{
+		return false;
+	}
+
+	FShanmenDamagePacket Damage;
+	if (!TryBuildDamagePacket(Damage))
+	{
+		return false;
+	}
+
+	FShanmenImpactRequest Request;
+	Request.Action = Action;
+	Request.Candidate = Candidate;
+	Request.Damage = Damage;
+	Request.TargetVitality = TargetVitality;
+	Request.Defense = Defense;
+	Request.ImpactId = FShanmenCombatIdFactory::MakeImpactId(
+		Action.GetRunId(),
+		Candidate.ActivationId,
+		Candidate.DetectorId,
+		Candidate.TargetEntityId,
+		Candidate.HitOrdinal);
+	if (!Request.IsValid()
+		|| !EmissionSession.TryAcceptCandidate(Candidate)
+		|| !ImpactLedger.TryAccept(Request))
+	{
+		return false;
+	}
+
+	OutReceipt.Request = Request;
+	OutReceipt.Result = FShanmenDefenseResolver::Resolve(Request);
+	if (!OutReceipt.IsValid())
+	{
+		OutReceipt = FShanmenControlledWeaponImpactReceipt();
+		return false;
+	}
+	return true;
+}
+
+bool FShanmenControlledWeaponExecution::TryEndEmission(
+	const FShanmenActionOrchestrator& ActionRuntime)
+{
+	return MatchesActionRuntime(ActionRuntime)
+		&& ActionRuntime.CanEmitCandidates()
+		&& State == EShanmenControlledWeaponState::Directed
+		&& EmissionSession.TryEndEmission();
+}
+
+void FShanmenControlledWeaponExecution::EndEmissionForTermination()
+{
+	if (EmissionSession.IsEmissionActive())
+	{
+		EmissionSession.TryEndEmission();
+	}
+}
+
+void FShanmenControlledWeaponExecution::Reset()
+{
+	*this = FShanmenControlledWeaponExecution();
+}
+
+bool FShanmenControlledWeaponExecution::MatchesActionRuntime(
+	const FShanmenActionOrchestrator& ActionRuntime) const
+{
+	if (!IsValid() || !ActionRuntime.IsValid())
+	{
+		return false;
+	}
+
+	const FShanmenCombatActionSnapshot& RuntimeAction =
+		ActionRuntime.GetAction();
+	return RuntimeAction.GetRunId() == Action.GetRunId()
+		&& RuntimeAction.GetOwnerId() == Action.GetOwnerId()
+		&& RuntimeAction.GetActivationId() == Action.GetActivationId()
+		&& RuntimeAction.GetSourceEntityId() == Action.GetSourceEntityId()
+		&& RuntimeAction.GetSourceItemInstanceId()
+			== Action.GetSourceItemInstanceId()
+		&& RuntimeAction.GetActionDefinitionId()
+			== Action.GetActionDefinitionId()
+		&& RuntimeAction.GetContent().Version == Action.GetContent().Version
+		&& RuntimeAction.GetContent().Digest == Action.GetContent().Digest
+		&& RuntimeAction.GetSourceTags() == Action.GetSourceTags();
+}
+
+bool FShanmenControlledWeaponExecution::IsTargetAllowed(
+	const FShanmenHitCandidate& Candidate,
+	const FShanmenDefenseSnapshot& Defense) const
+{
+	return Candidate.IsValid()
+		&& Candidate.ActivationId == Action.GetActivationId()
+		&& Candidate.SourceEntityId == Action.GetSourceEntityId()
+		&& Candidate.DetectorId == Definition.GetDetectorId()
+		&& Candidate.DetectorKind
+			== EShanmenHitDetectorKind::ControlledObject
+		&& (!Definition.RejectsSelf()
+			|| Candidate.TargetEntityId != Action.GetSourceEntityId())
+		&& Defense.TargetTags.HasAll(Definition.GetRequiredTargetTags());
+}
+
+bool FShanmenControlledWeaponExecution::TryBuildDamagePacket(
+	FShanmenDamagePacket& OutPacket) const
+{
+	OutPacket = FShanmenDamagePacket();
+	if (!Definition.IsValid() || !Offense.IsValid())
+	{
+		return false;
+	}
+
+	const double RawDamage = static_cast<double>(Definition.GetBaseDamage())
+		+ static_cast<double>(Offense.GetControlPower())
+			* static_cast<double>(Definition.GetControlPowerCoefficient());
+	if (!FMath::IsFinite(RawDamage)
+		|| RawDamage < 0.0
+		|| RawDamage > static_cast<double>(MAX_flt))
+	{
+		return false;
+	}
+
+	OutPacket.FormulaId = Definition.GetFormulaId();
+	OutPacket.RawDamage = static_cast<float>(RawDamage);
+	OutPacket.DamageTags = Definition.GetDamageTags();
+	return OutPacket.IsValid();
+}
