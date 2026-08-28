@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "ShanmenItemAuthorityService.h"
 #include "demo_mapItemTypes.h"
+#include "demo_mapItemUseTypes.h"
 #include "demo_mapProfileRunTypes.h"
 #include "demo_mapShanmenPreparationAdapter.h"
 #include "demo_mapShanmenRunCorrelation.h"
@@ -61,6 +62,34 @@ struct Fdemo_mapShanmenRunFinalizeResult
 	}
 };
 
+enum class Edemo_mapShanmenRunItemUseStatus : uint8
+{
+	Succeeded,
+	AuthorityNotReady,
+	RunCorrelationInvalid,
+	RuntimePreviewRejected,
+	ItemNotPrepared,
+	AuthorityRejected,
+	RuntimeCommitRejected
+};
+
+struct Fdemo_mapShanmenRunItemUseResult
+{
+	Edemo_mapShanmenRunItemUseStatus Status =
+		Edemo_mapShanmenRunItemUseStatus::AuthorityNotReady;
+	FString Diagnostic;
+	Fdemo_mapItemUseResult Preview;
+	FShanmenItemDurableCommandResult AuthorityCommand;
+	Fdemo_mapItemUseResult RuntimeResult;
+
+	bool IsSuccess() const
+	{
+		return Status == Edemo_mapShanmenRunItemUseStatus::Succeeded
+			&& AuthorityCommand.IsCommandSuccess()
+			&& RuntimeResult.IsSuccess();
+	}
+};
+
 /**
  * One-way P1.12 bridge from the durable ShanmenItems prepared receipt into the
  * existing transient Runtime and back through one atomic terminal command. It
@@ -86,6 +115,18 @@ struct Fdemo_mapShanmenRunLifecycleAdapter
 	static Fdemo_mapShanmenRunStartResult StartPreparedRun(
 		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
 		Udemo_mapItemSubsystem& Runtime);
+
+	/** Durable prepared-Run consumption followed by transient effect projection. */
+	static Fdemo_mapShanmenRunItemUseResult UsePreparedRunHotbarSlot(
+		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+		Udemo_mapItemSubsystem& Runtime,
+		int32 HotbarSlotNumber,
+		bool bInputAllowed
+#if WITH_DEV_AUTOMATION_TESTS
+		, Edemo_mapItemUseFailurePoint FailurePoint =
+			Edemo_mapItemUseFailurePoint::None
+#endif
+	);
 
 	static Fdemo_mapShanmenRunFinalizeResult FinalizeSettlement(
 		Udemo_mapShanmenItemAuthoritySubsystem& Authority,

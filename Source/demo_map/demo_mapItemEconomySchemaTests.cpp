@@ -178,10 +178,10 @@ bool FItemEconomySchema01LegacyDefinitions::RunTest(const FString&)
 	const Fdemo_mapItemDefinition* Blade = Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::TrainingBlade);
 	const Fdemo_mapItemDefinition* Vest = Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::TrainingVest);
 	const Fdemo_mapItemDefinition* Talisman = Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::WindTalisman);
-	TestTrue(TEXT("Legacy equipment slots remain exact"), Blade && Vest && Talisman
+	TestTrue(TEXT("Starter equipment slots match the current five-slot contract"), Blade && Vest && Talisman
 		&& Blade->CompatibleSlotIds == TArray<FName>({ Fdemo_mapItemIds::WeaponSlot })
 		&& Vest->CompatibleSlotIds == TArray<FName>({ Fdemo_mapItemIds::ArmorSlot })
-		&& Talisman->CompatibleSlotIds == TArray<FName>({ Fdemo_mapItemIds::AccessorySlot }));
+		&& Talisman->CompatibleSlotIds == TArray<FName>({ Fdemo_mapItemIds::SpatialRingSlot }));
 	TestTrue(TEXT("TrainingBlade modifier unchanged"), Blade && Blade->Modifiers.Num() == 1 && Blade->Modifiers[0].AttributeId == Fdemo_mapAttributeIds::AttackPower && Blade->Modifiers[0].Operation == Edemo_mapModifierOperation::Add && FMath::IsNearlyEqual(Blade->Modifiers[0].Value, 1.0f));
 	TestTrue(TEXT("TrainingVest modifier unchanged"), Vest && Vest->Modifiers.Num() == 1 && Vest->Modifiers[0].AttributeId == Fdemo_mapAttributeIds::MaxHealth && Vest->Modifiers[0].Operation == Edemo_mapModifierOperation::Add && FMath::IsNearlyEqual(Vest->Modifiers[0].Value, 2.0f));
 	TestTrue(TEXT("WindTalisman modifier unchanged"), Talisman && Talisman->Modifiers.Num() == 1 && Talisman->Modifiers[0].AttributeId == Fdemo_mapAttributeIds::MoveSpeed && Talisman->Modifiers[0].Operation == Edemo_mapModifierOperation::Multiply && FMath::IsNearlyEqual(Talisman->Modifiers[0].Value, 1.10f));
@@ -231,7 +231,7 @@ bool FItemEconomySchema04ShapeMetadata::RunTest(const FString&)
 	{
 		TestTrue(TEXT("Level, stack, and 1x1 grid are legal"), Definition.Level >= 0 && Definition.MaxStackSize > 0 && Definition.GridWidth == 1 && Definition.GridHeight == 1);
 	}
-	TestTrue(TEXT("Runtime slots now expose the P2.0 Backpack slot"), Fdemo_mapItemDefinitions::GetEquipmentSlotIds() == TArray<FName>({ Fdemo_mapItemIds::WeaponSlot, Fdemo_mapItemIds::ArmorSlot, Fdemo_mapItemIds::AccessorySlot, Fdemo_mapItemIds::BackpackSlot }));
+	TestTrue(TEXT("Runtime slots expose the complete five-slot contract"), Fdemo_mapItemDefinitions::GetEquipmentSlotIds() == TArray<FName>({ Fdemo_mapItemIds::WeaponSlot, Fdemo_mapItemIds::ArmorSlot, Fdemo_mapItemIds::AccessorySlot, Fdemo_mapItemIds::SpatialRingSlot, Fdemo_mapItemIds::BackpackSlot }));
 	TestTrue(TEXT("Backpack metadata activates its stable runtime slot"), Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::BackpackLevel1)->EquipmentSlotId == Fdemo_mapItemIds::BackpackSlot
 		&& Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::BackpackLevel1)->CompatibleSlotIds == TArray<FName>({ Fdemo_mapItemIds::BackpackSlot })
 		&& Fdemo_mapSpiritStoneRules::BaseInventoryCapacityWithoutBackpack == 6);
@@ -288,7 +288,7 @@ bool FItemEconomySchema07EffectValues::RunTest(const FString&)
 		TestTrue(TEXT("Robe effects exact"), ExactEffect(Robes[Level - 1], Fdemo_mapItemEffectIds::MaxHealthBonus, Level * 2.0) && ExactEffect(Robes[Level - 1], Fdemo_mapItemEffectIds::FlatDamageReduction, Level));
 		TestTrue(TEXT("Accessory effect exact"), ExactEffect(Accessories[Level - 1], Fdemo_mapItemEffectIds::CooldownMultiplier, 1.0 - Level * 0.05));
 	}
-	TestTrue(TEXT("Backpack effects exact"), ExactEffect(Fdemo_mapItemIds::BackpackLevel1, Fdemo_mapItemEffectIds::TotalCapacity, 10.0) && ExactEffect(Fdemo_mapItemIds::BackpackLevel2, Fdemo_mapItemEffectIds::TotalCapacity, 14.0));
+	TestTrue(TEXT("Backpack effects exact"), ExactEffect(Fdemo_mapItemIds::BackpackLevel1, Fdemo_mapItemEffectIds::TotalCapacity, 36.0) && ExactEffect(Fdemo_mapItemIds::BackpackLevel2, Fdemo_mapItemEffectIds::TotalCapacity, 36.0));
 	TestTrue(TEXT("Pill effects exact"), ExactEffect(Fdemo_mapItemIds::HealingPillLevel1, Fdemo_mapItemEffectIds::HealAmount, 1.0) && ExactEffect(Fdemo_mapItemIds::HealingPillLevel2, Fdemo_mapItemEffectIds::HealAmount, 2.0) && ExactEffect(Fdemo_mapItemIds::HealingPillLevel3, Fdemo_mapItemEffectIds::HealAmount, 3.0));
 	for (const Fdemo_mapItemDefinition& Definition : Fdemo_mapItemDefinitions::GetAll())
 		if (Definition.Level > 0) TestTrue(TEXT("New catalog effects are not wired through gameplay modifiers"), Definition.Modifiers.IsEmpty());
@@ -545,7 +545,7 @@ bool FItemEconomySchema20ProtectedIsolation::RunTest(const FString&)
 	const FString UprojectPath = FPaths::Combine(ProjectRoot, TEXT("demo_map.uproject")); TArray<uint8> UprojectBefore; ReadBytesP10(UprojectPath, UprojectBefore);
 
 	Fdemo_mapProfileRepository Repository; const Fdemo_mapPersistentProfile Fresh = Repository.CreateFreshProfile(); FString Error;
-	TestTrue(TEXT("Default V3-facing Profile remains unchanged while Runtime exposes four slots"), Repository.ValidateProfile(Fresh, &Error) && Fdemo_mapItemDefinitions::GetEquipmentSlotIds().Num() == 4 && Fresh.PermanentStash.Num() == 3);
+	TestTrue(TEXT("Default V3-facing Profile remains unchanged while Runtime exposes five slots"), Repository.ValidateProfile(Fresh, &Error) && Fdemo_mapItemDefinitions::GetEquipmentSlotIds().Num() == 5 && Fresh.PermanentStash.Num() == 3);
 
 	for (int32 Index = 0; Index < ProtectedTrees.Num(); ++Index) { TArray<FString> After; SnapshotTreeMetadata(ProtectedTrees[Index], After); TestTrue(TEXT("Protected tree metadata unchanged"), After == BeforeTrees[Index]); }
 	for (int32 Index = 0; Index < ProductionPaths.Num(); ++Index) TestTrue(TEXT("Production save bytes/existence unchanged"), FileStateEqualsP10(ProductionPaths[Index], Existed[Index], ProductionBytes[Index]));

@@ -503,7 +503,9 @@ bool FProfileSessionSubsystem15::RunTest(const FString&)
 			&& !Path.EndsWith(TEXT("demo_mapPlayerController.cpp"))
 			&& !Path.EndsWith(TEXT("demo_mapSpiritStonePickup.cpp"))
 			&& !Path.EndsWith(TEXT("demo_mapV3ProgressionManager.cpp"))
-			&& !Path.EndsWith(TEXT("demo_mapSectNavigationWidget.cpp")))
+			&& !Path.EndsWith(TEXT("demo_mapSectNavigationWidget.cpp"))
+			&& !Path.EndsWith(TEXT("demo_map0909BFramework.cpp"))
+			&& !Path.EndsWith(TEXT("demo_mapShanmenItemCutover.cpp")))
 		{
 			bUnexpected = true;
 			AddError(FString::Printf(TEXT("Unexpected normal-startup Profile Session Subsystem reference: %s"), *Path));

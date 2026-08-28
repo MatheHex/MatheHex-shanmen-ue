@@ -174,6 +174,8 @@ namespace
 		return !Snapshot.SelectedWeaponId.IsValid()
 			&& !Snapshot.SelectedArmorId.IsValid()
 			&& !Snapshot.SelectedAccessoryId.IsValid()
+			&& !Snapshot.SelectedSpatialRingId.IsValid()
+			&& !Snapshot.SelectedBackpackId.IsValid()
 			&& Snapshot.OrderedSelectedMaterialIds.IsEmpty()
 			&& !Snapshot.OrderedPermanentStashRows.ContainsByPredicate(
 				[](const Fdemo_mapProfilePreparationStashRow& Row)
@@ -216,7 +218,7 @@ bool FProfilePreparation02::RunTest(const FString&)
 			&& Snapshot.OrderedPermanentStashRows[1].ItemDefinitionId == Fdemo_mapItemIds::TrainingVest
 			&& Snapshot.OrderedPermanentStashRows[1].CompatibleEquipmentSlotId == Fdemo_mapItemIds::ArmorSlot
 			&& Snapshot.OrderedPermanentStashRows[2].ItemDefinitionId == Fdemo_mapItemIds::WindTalisman
-			&& Snapshot.OrderedPermanentStashRows[2].CompatibleEquipmentSlotId == Fdemo_mapItemIds::AccessorySlot);
+			&& Snapshot.OrderedPermanentStashRows[2].CompatibleEquipmentSlotId == Fdemo_mapItemIds::SpatialRingSlot);
 		for (const auto& Row : Snapshot.OrderedPermanentStashRows) TestTrue(TEXT("Fresh rows are safe and unselected"), Row.bSafeInPermanentStash && !Row.bSelected);
 	}
 	FPreparationFixture Reloaded; if (!Reloaded.Start(*this)) return false;
@@ -233,15 +235,15 @@ bool FProfilePreparation03::RunTest(const FString&)
 	const auto Initial = Fixture.Session->GetPreparationSnapshot();
 	const FGuid Weapon = FindPreparationId(Initial, Fdemo_mapItemIds::TrainingBlade);
 	const FGuid Armor = FindPreparationId(Initial, Fdemo_mapItemIds::TrainingVest);
-	const FGuid Accessory = FindPreparationId(Initial, Fdemo_mapItemIds::WindTalisman);
+	const FGuid SpatialRing = FindPreparationId(Initial, Fdemo_mapItemIds::WindTalisman);
 	const auto Wrong = Fixture.Session->SetPreparationEquipment(Fdemo_mapItemIds::ArmorSlot, Weapon);
 	const auto WeaponResult = Fixture.Session->SetPreparationEquipment(Fdemo_mapItemIds::WeaponSlot, Weapon);
 	const auto ArmorResult = Fixture.Session->SetPreparationEquipment(Fdemo_mapItemIds::ArmorSlot, Armor);
-	const auto AccessoryResult = Fixture.Session->SetPreparationEquipment(Fdemo_mapItemIds::AccessorySlot, Accessory);
+	const auto SpatialRingResult = Fixture.Session->SetPreparationEquipment(Fdemo_mapItemIds::SpatialRingSlot, SpatialRing);
 	const auto Duplicate = Fixture.Session->SetPreparationEquipment(Fdemo_mapItemIds::AccessorySlot, Weapon);
 	const auto Snapshot = Fixture.Session->GetPreparationSnapshot();
 	TestTrue(TEXT("Wrong slot rejects explicitly"), Wrong.Status == Edemo_mapProfilePreparationSelectionStatus::EquipmentSlotRejected);
-	TestTrue(TEXT("All three compatible slots accept original IDs"), WeaponResult.IsAccepted() && ArmorResult.IsAccepted() && AccessoryResult.IsAccepted() && Snapshot.SelectedWeaponId == Weapon && Snapshot.SelectedArmorId == Armor && Snapshot.SelectedAccessoryId == Accessory);
+	TestTrue(TEXT("All three compatible slots accept original IDs"), WeaponResult.IsAccepted() && ArmorResult.IsAccepted() && SpatialRingResult.IsAccepted() && Snapshot.SelectedWeaponId == Weapon && Snapshot.SelectedArmorId == Armor && Snapshot.SelectedSpatialRingId == SpatialRing);
 	TestTrue(TEXT("Cross-slot duplicate ID rejects"), Duplicate.Status == Edemo_mapProfilePreparationSelectionStatus::DuplicateSelection);
 	return true;
 }
@@ -353,19 +355,19 @@ bool FProfilePreparation09::RunTest(const FString&)
 	Fixture.Session->InitializeSession(Storage); const auto Initial = Fixture.Session->GetPreparationSnapshot();
 	const FGuid Weapon = FindPreparationId(Initial, Fdemo_mapItemIds::TrainingBlade);
 	const FGuid Armor = FindPreparationId(Initial, Fdemo_mapItemIds::TrainingVest);
-	const FGuid Accessory = FindPreparationId(Initial, Fdemo_mapItemIds::WindTalisman);
+	const FGuid SpatialRing = FindPreparationId(Initial, Fdemo_mapItemIds::WindTalisman);
 	Fixture.Session->SetPreparationEquipment(Fdemo_mapItemIds::WeaponSlot, Weapon);
 	Fixture.Session->SetPreparationEquipment(Fdemo_mapItemIds::ArmorSlot, Armor);
-	Fixture.Session->SetPreparationEquipment(Fdemo_mapItemIds::AccessorySlot, Accessory);
+	Fixture.Session->SetPreparationEquipment(Fdemo_mapItemIds::SpatialRingSlot, SpatialRing);
 	Fixture.Session->SetPreparationMaterial(Iron, true);
 	Fixture.Session->SetPreparationMaterial(Dust, true);
-	const TArray<FGuid> Expected = { Weapon, Armor, Accessory, Iron, Dust };
+	const TArray<FGuid> Expected = { Weapon, Armor, SpatialRing, Iron, Dust };
 	const auto Begin = Fixture.Session->StartPreparedRun(); const auto ActivePreparation = Fixture.Session->GetPreparationSnapshot();
 	TestTrue(TEXT("Successful Start preserves original identities and one RunId"), Begin.IsRunActive() && Begin.PersistentResult.CommittedLoadoutPlan->DeployedItemIds == Expected && Begin.RuntimeResult.DeployedItemIds == Expected && Begin.Snapshot.ActiveRunId == Fixture.Runtime->GetActiveRunId());
-	TestTrue(TEXT("Successful Start keeps the committed layout visible while disabling edits"), ActivePreparation.SessionState == Edemo_mapProfileSessionState::RunActive && ActivePreparation.SelectedWeaponId == Weapon && ActivePreparation.OrderedSelectedMaterialIds == TArray<FGuid>({ Iron, Dust }) && !ActivePreparation.bCanStartRun);
+	TestTrue(TEXT("Successful Start keeps the committed layout visible while disabling edits"), ActivePreparation.SessionState == Edemo_mapProfileSessionState::RunActive && ActivePreparation.SelectedWeaponId == Weapon && ActivePreparation.SelectedSpatialRingId == SpatialRing && ActivePreparation.OrderedSelectedMaterialIds == TArray<FGuid>({ Iron, Dust }) && !ActivePreparation.bCanStartRun);
 	Fdemo_mapSettlementSummary Summary; TestTrue(TEXT("Runtime Extraction accepted"), Fixture.Runtime->RequestSettlement(Edemo_mapRunEndReason::Extraction, Summary).bSuccess);
 	const auto End = Fixture.Session->CommitRuntimeSettlement(Summary); const auto ReadyPreparation = Fixture.Session->GetPreparationSnapshot();
-	TestTrue(TEXT("Settlement returns Ready with the committed layout available for the next preparation"), End.IsDurablySettled() && ReadyPreparation.SessionState == Edemo_mapProfileSessionState::ReadyForPreparation && ReadyPreparation.SelectedWeaponId == Weapon && ReadyPreparation.OrderedSelectedMaterialIds == TArray<FGuid>({ Iron, Dust }));
+	TestTrue(TEXT("Settlement returns Ready with the committed layout available for the next preparation"), End.IsDurablySettled() && ReadyPreparation.SessionState == Edemo_mapProfileSessionState::ReadyForPreparation && ReadyPreparation.SelectedWeaponId == Weapon && ReadyPreparation.SelectedSpatialRingId == SpatialRing && ReadyPreparation.OrderedSelectedMaterialIds == TArray<FGuid>({ Iron, Dust }));
 	return true;
 }
 
@@ -443,7 +445,11 @@ bool FProfilePreparation13::RunTest(const FString&)
 	{
 		FString Text;
 		if (!FFileHelper::LoadFileToString(Text, *Path)
-			|| (!Text.Contains(TEXT("GetPreparationSnapshot")) && !Text.Contains(TEXT("StartPreparedRun")) && !Text.Contains(TEXT("SetPreparationEquipment"))))
+			|| Path.EndsWith(TEXT("Tests.cpp"))
+			|| (!Text.Contains(TEXT("->InitializeSession("))
+				&& !Text.Contains(TEXT("->StartPreparedRun("))
+				&& !Text.Contains(TEXT("->SetPreparationEquipment("))
+				&& !Text.Contains(TEXT("->SetPreparationMaterial("))))
 		{
 			continue;
 		}
@@ -464,7 +470,7 @@ bool FProfilePreparation13::RunTest(const FString&)
 			AddError(FString::Printf(TEXT("Unexpected normal-startup Preparation activation reference: %s"), *Path));
 		}
 	}
-	TestFalse(TEXT("Only the V3 Manager owns normal-startup Preparation activation"), bUnexpected);
+	TestFalse(TEXT("Only explicit product owners may mutate or initialize Preparation"), bUnexpected);
 	TestTrue(TEXT("Pure Preparation tests leave Production Save unchanged"), Production.IsUnchanged());
 	return true;
 }

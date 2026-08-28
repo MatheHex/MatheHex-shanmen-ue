@@ -56,6 +56,11 @@ public:
 		Udemo_mapProfilePreparationWidget* Widget);
 	/** Product-path Start Run. The selected lifecycle transaction is UI-independent. */
 	Fdemo_mapProfileSessionBeginResult StartPreparedRunDirect();
+	/** Uses one prepared-Run hotbar item without touching Code A/B persistence. */
+	bool UseActiveRunHotbarSlot(
+		int32 HotbarSlotNumber,
+		bool bInputAllowed,
+		FString* OutDiagnostic = nullptr);
 	Fdemo_mapProfileSessionSettlementResult CommitRuntimeSettlement(
 		const Fdemo_mapSettlementSummary& Summary);
 	Fdemo_mapProfileSessionSettlementResult RetryPendingSettlement();

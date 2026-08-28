@@ -825,7 +825,7 @@ void Ademo_mapPlayerController::UseHotbarSlot(int32 SlotNumber)
 		? Cast<Ademo_mapGameMode>(GetWorld()->GetAuthGameMode()) : nullptr;
 	if (Ademo_mapV3ProgressionManager* Manager = Mode ? Mode->GetV3ProgressionManager() : nullptr)
 	{
-		Manager->RequestUseBoundCodeBQuickSlot(SlotNumber);
+		Manager->RequestUseBoundQuickSlot(SlotNumber);
 	}
 }
 

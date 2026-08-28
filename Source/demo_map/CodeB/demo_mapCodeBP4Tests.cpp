@@ -30,6 +30,15 @@ namespace
 		FCodeBP3SlotAddress Source;
 		return MakeAddress(Test, Controller, ContainerId, Slot, Source) && Interaction.BeginDrag(Source, OutPayload);
 	}
+
+	const FCodeBP2SlotView* FindSlot(const FCodeBP2Projection& Projection, const FGuid& ContainerId, const int32 SlotIndex)
+	{
+		const FCodeBP2ContainerView* Container = Projection.Containers.FindByPredicate([&ContainerId](const FCodeBP2ContainerView& Candidate)
+		{
+			return Candidate.ContainerId == ContainerId;
+		});
+		return Container && Container->Slots.IsValidIndex(SlotIndex) ? &Container->Slots[SlotIndex] : nullptr;
+	}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCodeBP4PayloadTest, "demo_map.CodeB.P4.Payload", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -223,9 +232,15 @@ bool FCodeBP4LoadedSpatialAndCloseTest::RunTest(const FString& Parameters)
 		|| !Interaction.CommitDrop(DustPayload, InternalTarget)
 		|| !Payload(*this, Interaction, Controller, Ids->SpatialContainerId, 0, SpatialPayload)
 		|| !MakeAddress(*this, Controller, Ids->WarehouseContainerId, 5, StashTarget)) return false;
-	const int32 RevisionBeforeReject = Controller.GetProjection().Revision;
-	TestFalse(TEXT("Loaded spatial item is rejected before it can be dropped"), Interaction.CommitDrop(SpatialPayload, StashTarget));
-	TestEqual(TEXT("Loaded spatial rejection preserves Revision"), Controller.GetProjection().Revision, RevisionBeforeReject);
+	const FCodeBP2SlotView* ParentBefore = FindSlot(Controller.GetProjection(), Ids->SpatialContainerId, 0);
+	const FGuid ChildContainerId = ParentBefore ? ParentBefore->ChildContainerId : FGuid();
+	const int32 RevisionBeforeMove = Controller.GetProjection().Revision;
+	TestTrue(TEXT("Loaded spatial item moves as one complete graph"), Interaction.CommitDrop(SpatialPayload, StashTarget));
+	const FCodeBP2SlotView* ParentAfter = FindSlot(Controller.GetProjection(), Ids->WarehouseContainerId, 5);
+	const FCodeBP2SlotView* ChildAfter = FindSlot(Controller.GetProjection(), ChildContainerId, 0);
+	TestEqual(TEXT("Loaded spatial whole-graph move increments Revision once"), Controller.GetProjection().Revision, RevisionBeforeMove + 1);
+	TestTrue(TEXT("Loaded spatial parent preserves identity"), ParentAfter && ParentAfter->ItemId == Ids->SpatialItemId && ParentAfter->ChildContainerId == ChildContainerId);
+	TestTrue(TEXT("Loaded spatial child preserves placement"), ChildAfter && ChildAfter->ItemId == Ids->DustAItemId);
 	Controller.Close();
 	TestFalse(TEXT("Closed page payload cannot submit"), Interaction.CommitDrop(SpatialPayload, StashTarget));
 	return true;
@@ -257,9 +272,15 @@ bool FCodeBP4SpatialPouchPolicyTest::RunTest(const FString& Parameters)
 		|| !Interaction.CommitDrop(DustPayload, PouchInternalTarget)
 		|| !Payload(*this, Interaction, Controller, Ids->BasicContainerId, 0, PouchPayload)
 		|| !MakeAddress(*this, Controller, Ids->WarehouseContainerId, 10, WarehouseTarget)) return false;
-	const int32 RevisionBeforeLoadedReject = Controller.GetProjection().Revision;
-	TestFalse(TEXT("Loaded ordinary spatial pouch cannot be moved as a whole"), Interaction.CommitDrop(PouchPayload, WarehouseTarget));
-	TestEqual(TEXT("Loaded pouch rejection keeps the authoritative Revision"), Controller.GetProjection().Revision, RevisionBeforeLoadedReject);
+	const FCodeBP2SlotView* PouchBefore = FindSlot(Controller.GetProjection(), Ids->BasicContainerId, 0);
+	const FGuid PouchChildContainerId = PouchBefore ? PouchBefore->ChildContainerId : FGuid();
+	const int32 RevisionBeforeLoadedMove = Controller.GetProjection().Revision;
+	TestTrue(TEXT("Loaded ordinary spatial pouch moves as a whole"), Interaction.CommitDrop(PouchPayload, WarehouseTarget));
+	const FCodeBP2SlotView* PouchAfter = FindSlot(Controller.GetProjection(), Ids->WarehouseContainerId, 10);
+	const FCodeBP2SlotView* ChildAfter = FindSlot(Controller.GetProjection(), PouchChildContainerId, 0);
+	TestEqual(TEXT("Loaded pouch move increments the authoritative Revision once"), Controller.GetProjection().Revision, RevisionBeforeLoadedMove + 1);
+	TestTrue(TEXT("Loaded pouch preserves parent and child-container identity"), PouchAfter && PouchAfter->ItemId == PouchPayload.ItemId && PouchAfter->ChildContainerId == PouchChildContainerId);
+	TestTrue(TEXT("Loaded pouch preserves child placement"), ChildAfter && ChildAfter->ItemId == Ids->DustAItemId);
 	return true;
 }
 

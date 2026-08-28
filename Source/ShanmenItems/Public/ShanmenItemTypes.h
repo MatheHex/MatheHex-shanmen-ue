@@ -50,7 +50,9 @@ enum class EShanmenItemTransactionOperation : uint8
 	/** Atomically reconciles one claimed Run and publishes its terminal marker. */
 	FinalizePreparedRun,
 	/** Atomically commits all prepared reservations and publishes one active Run. */
-	StartPreparedRun
+	StartPreparedRun,
+	/** Durably consumes one Quantity unit from an already-started prepared Run. */
+	ConsumePreparedRunItem
 };
 
 UENUM(BlueprintType)
@@ -96,7 +98,9 @@ enum class EShanmenItemTransactionError : uint8
 	SecuredItemMismatch,
 	SourcePlacementUnavailable,
 	AcquiredItemMismatch,
-	ImportPlacementUnavailable
+	ImportPlacementUnavailable,
+	/** Runtime's expected prepared-Run quantity no longer matches the durable ledger. */
+	RunItemQuantityConflict
 };
 
 /** Authority-independent terminal reason for one claimed prepared Run. */
@@ -425,6 +429,38 @@ struct SHANMENITEMS_API FShanmenItemRunClaimRequest
 	/** RequestId of the successful preparation CommitBatch to consume. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
 	FGuid PreparedBatchRequestId;
+
+	bool IsValid() const;
+};
+
+/**
+ * Idempotent in-Run consumption against one prepared Quantity reservation.
+ * The persistent item remains a preparation tombstone; active-Run quantity is
+ * reconstructed from the start receipt minus these ordered consumption receipts.
+ */
+USTRUCT(BlueprintType)
+struct SHANMENITEMS_API FShanmenItemRunConsumeRequest
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FShanmenOperationContext Context;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FGuid ActiveRunId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FGuid ItemInstanceId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items", meta = (ClampMin = "1"))
+	int32 Amount = 1;
+
+	/** Compare-and-swap guard from the transient Runtime projection. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items", meta = (ClampMin = "1"))
+	int32 ExpectedQuantityBefore = 1;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FName PurposeId = NAME_None;
 
 	bool IsValid() const;
 };

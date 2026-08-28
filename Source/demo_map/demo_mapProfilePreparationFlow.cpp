@@ -533,6 +533,34 @@ Fdemo_mapProfileSessionBeginResult Fdemo_mapProfilePreparationFlow::StartPrepare
 	return Result;
 }
 
+bool Fdemo_mapProfilePreparationFlow::UseActiveRunHotbarSlot(
+	const int32 HotbarSlotNumber,
+	const bool bInputAllowed,
+	FString* OutDiagnostic)
+{
+	auto Finish = [OutDiagnostic](const bool bSuccess, const FString& Diagnostic)
+	{
+		if (OutDiagnostic)
+		{
+			*OutDiagnostic = Diagnostic;
+		}
+		return bSuccess;
+	};
+	Udemo_mapShanmenItemAuthoritySubsystem* Authority =
+		FindBoundShanmenAuthority();
+	if (Phase != Edemo_mapProfilePreparationFlowPhase::RunActive
+		|| !bShanmenRunMaterialized || !Runtime.IsValid() || !Authority)
+	{
+		return Finish(
+			false,
+			TEXT("Prepared Run hotbar use requires the materialized ShanmenItems RunActive phase."));
+	}
+	const Fdemo_mapShanmenRunItemUseResult Result =
+		Fdemo_mapShanmenRunLifecycleAdapter::UsePreparedRunHotbarSlot(
+			*Authority, *Runtime, HotbarSlotNumber, bInputAllowed);
+	return Finish(Result.IsSuccess(), Result.Diagnostic);
+}
+
 Fdemo_mapProfileSessionSettlementResult Fdemo_mapProfilePreparationFlow::CommitRuntimeSettlement(
 	const Fdemo_mapSettlementSummary& Summary)
 {

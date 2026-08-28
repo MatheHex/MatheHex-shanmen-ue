@@ -169,6 +169,8 @@ public:
 	Fdemo_mapItemOperationResult RequestDropInventory(FGuid InstanceId);
 	/** P15's one gameplay adapter for discrete 1--9 presses; Code B owns item mutation. */
 	bool RequestUseBoundCodeBQuickSlot(int32 SlotIndex);
+	/** Authority-selecting hotbar entry; Shanmen failures never fall back to Code B. */
+	bool RequestUseBoundQuickSlot(int32 SlotIndex);
 	void ToggleInventory();
 	void OpenInventory();
 	void CloseInventory();

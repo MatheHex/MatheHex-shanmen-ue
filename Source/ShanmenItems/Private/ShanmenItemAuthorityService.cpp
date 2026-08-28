@@ -315,6 +315,18 @@ FShanmenItemAuthorityService::ClaimPreparedRunDurable(
 }
 
 FShanmenItemDurableCommandResult
+FShanmenItemAuthorityService::ConsumePreparedRunItemDurable(
+	const FShanmenItemRunConsumeRequest& Request)
+{
+	FScopeLock Lock(&Mutex);
+	return ExecuteCommandLocked(
+		[&Request](FShanmenItemRepository& MutableRepository)
+		{
+			return MutableRepository.ConsumePreparedRunItem(Request);
+		});
+}
+
+FShanmenItemDurableCommandResult
 FShanmenItemAuthorityService::FinalizePreparedRunDurable(
 	const FShanmenItemRunFinalizeRequest& Request)
 {

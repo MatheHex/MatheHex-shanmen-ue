@@ -259,6 +259,16 @@ bool FShanmenItemRunClaimRequest::IsValid() const
 	return Context.IsValid() && PreparedBatchRequestId.IsValid();
 }
 
+bool FShanmenItemRunConsumeRequest::IsValid() const
+{
+	return Context.IsValid()
+		&& ActiveRunId.IsValid()
+		&& ItemInstanceId.IsValid()
+		&& Amount > 0
+		&& ExpectedQuantityBefore >= Amount
+		&& !PurposeId.IsNone();
+}
+
 bool FShanmenItemRunSecuredOriginal::IsValid() const
 {
 	return ItemInstanceId.IsValid() && RemainingQuantity > 0;
@@ -486,6 +496,20 @@ bool FShanmenItemTransactionReceipt::IsValid() const
 			&& Amount == ReservationIds.Num()
 			&& Amount > 0
 			&& bTerminalPurpose;
+	}
+	if (Operation == EShanmenItemTransactionOperation::ConsumePreparedRunItem)
+	{
+		return Error == EShanmenItemTransactionError::None
+			&& Phase == EShanmenItemTransactionPhase::Committed
+			&& ReservationId.IsValid()
+			&& ItemInstanceId.IsValid()
+			&& ResourceKind == EShanmenItemResourceKind::Quantity
+			&& Amount > 0
+			&& ResourceBefore >= Amount
+			&& ResourceAfter == ResourceBefore - Amount
+			&& AvailableAfter == ResourceAfter
+			&& ItemRevision >= 0
+			&& !PurposeId.IsNone();
 	}
 	if (Operation == EShanmenItemTransactionOperation::AmendReservationPurpose
 		&& PurposeId.IsNone())

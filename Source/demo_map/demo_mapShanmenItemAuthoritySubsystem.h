@@ -97,6 +97,8 @@ public:
 		const FShanmenItemReservationActionRequest& Request);
 	FShanmenItemDurableCommandResult ClaimPreparedRunDurable(
 		const FShanmenItemRunClaimRequest& Request);
+	FShanmenItemDurableCommandResult ConsumePreparedRunItemDurable(
+		const FShanmenItemRunConsumeRequest& Request);
 	FShanmenItemDurableCommandResult FinalizePreparedRunDurable(
 		const FShanmenItemRunFinalizeRequest& Request);
 

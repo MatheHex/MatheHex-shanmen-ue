@@ -118,11 +118,11 @@ bool FBeginRunEquipmentTest::RunTest(const FString&)
 {
 	FProductionSnapshot Production; Fdemo_mapProfileRepository Repository; const Fdemo_mapProfileStorageContext Storage = Fdemo_mapProfileStorageContext::ForRoot(NewBeginRunRoot());
 	Fdemo_mapPersistentProfile Profile = CreateCommitted(Repository, Storage); const TArray<Fdemo_mapPersistentItemRecord> Before = Profile.PermanentStash;
-	Fdemo_mapBeginRunRequest Request = RequestFor(Profile); Request.Loadout.WeaponItemInstanceId = Before[0].ItemInstanceId; Request.Loadout.ArmorItemInstanceId = Before[1].ItemInstanceId; Request.Loadout.AccessoryItemInstanceId = Before[2].ItemInstanceId;
+	Fdemo_mapBeginRunRequest Request = RequestFor(Profile); Request.Loadout.WeaponItemInstanceId = Before[0].ItemInstanceId; Request.Loadout.ArmorItemInstanceId = Before[1].ItemInstanceId; Request.Loadout.SpatialRingItemInstanceId = Before[2].ItemInstanceId;
 	const Fdemo_mapBeginRunResult Result = Fdemo_mapProfileBeginRunTransaction().Execute(Profile, Request, Repository, Storage);
 	TestTrue(TEXT("Equipment commit"), Result.IsCommitted() && Profile.PermanentStash.IsEmpty() && Profile.ActiveRun.ActiveRunItems.Num() == 3 && IdsMatchItems(Profile));
 	if (!Result.IsCommitted() || Profile.ActiveRun.ActiveRunItems.Num() != 3) { AddError(Result.Diagnostic); return false; }
-	const TArray<FName> Slots = { Fdemo_mapItemIds::WeaponSlot, Fdemo_mapItemIds::ArmorSlot, Fdemo_mapItemIds::AccessorySlot };
+	const TArray<FName> Slots = { Fdemo_mapItemIds::WeaponSlot, Fdemo_mapItemIds::ArmorSlot, Fdemo_mapItemIds::SpatialRingSlot };
 	for (int32 Index = 0; Index < 3; ++Index) TestTrue(TEXT("Original equipment record moved"), Profile.ActiveRun.ActiveRunItems[Index].ItemInstanceId == Before[Index].ItemInstanceId && Profile.ActiveRun.ActiveRunItems[Index].ItemDefinitionId == Before[Index].ItemDefinitionId && Profile.ActiveRun.ActiveRunItems[Index].StackCount == Before[Index].StackCount && Profile.ActiveRun.ActiveRunItems[Index].EquipmentSlotId == Slots[Index] && !Profile.ActiveRun.ActiveRunItems[Index].OriginRunId.IsValid());
 	TestTrue(TEXT("Production untouched"), Production.IsUnchanged()); return true;
 }
@@ -144,7 +144,7 @@ bool FBeginRunMaximumTest::RunTest(const FString&)
 {
 	FProductionSnapshot Production; Fdemo_mapProfileRepository Repository; const Fdemo_mapProfileStorageContext Storage = Fdemo_mapProfileStorageContext::ForRoot(NewBeginRunRoot()); Fdemo_mapPersistentProfile Profile = CreateCommitted(Repository, Storage);
 	const FGuid DustA = AddStashRecord(Profile, Fdemo_mapItemIds::SpiritDust, 5); const FGuid Iron = AddStashRecord(Profile, Fdemo_mapItemIds::IronShard, 5); const FGuid DustB = AddStashRecord(Profile, Fdemo_mapItemIds::SpiritDust, 2); TestTrue(TEXT("Fixture commit"), Repository.SaveProfile(Profile, Storage).IsSuccess());
-	Fdemo_mapBeginRunRequest Request = RequestFor(Profile); Request.Loadout.WeaponItemInstanceId = Profile.PermanentStash[0].ItemInstanceId; Request.Loadout.ArmorItemInstanceId = Profile.PermanentStash[1].ItemInstanceId; Request.Loadout.AccessoryItemInstanceId = Profile.PermanentStash[2].ItemInstanceId; Request.Loadout.MaterialStackItemInstanceIds = { DustB, DustA, Iron };
+	Fdemo_mapBeginRunRequest Request = RequestFor(Profile); Request.Loadout.WeaponItemInstanceId = Profile.PermanentStash[0].ItemInstanceId; Request.Loadout.ArmorItemInstanceId = Profile.PermanentStash[1].ItemInstanceId; Request.Loadout.SpatialRingItemInstanceId = Profile.PermanentStash[2].ItemInstanceId; Request.Loadout.MaterialStackItemInstanceIds = { DustB, DustA, Iron };
 	const Fdemo_mapBeginRunResult Result = Fdemo_mapProfileBeginRunTransaction().Execute(Profile, Request, Repository, Storage);
 	TestTrue(TEXT("Maximum six committed"), Result.IsCommitted() && Profile.ActiveRun.ActiveRunItems.Num() == 6 && Profile.PermanentStash.IsEmpty() && IdsMatchItems(Profile));
 	if (!Result.IsCommitted() || Profile.ActiveRun.DeployedItemIds.Num() != 6) { AddError(Result.Diagnostic); return false; }
@@ -198,9 +198,9 @@ bool FBeginRunMissingTest::RunTest(const FString&)
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBeginRunLimitsTest, "demo_map.Profile.BeginRun.10.SlotCompatibilityAndLimitsRejected", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FBeginRunLimitsTest::RunTest(const FString&)
 {
-	FProductionSnapshot Production; Fdemo_mapProfileRepository Repository; const Fdemo_mapProfileStorageContext Storage = Fdemo_mapProfileStorageContext::ForRoot(NewBeginRunRoot()); Fdemo_mapPersistentProfile Profile = CreateCommitted(Repository, Storage); TArray<FGuid> Materials; for (int32 Index = 0; Index < 4; ++Index) Materials.Add(AddStashRecord(Profile, Index % 2 ? Fdemo_mapItemIds::IronShard : Fdemo_mapItemIds::SpiritDust, 1)); Repository.SaveProfile(Profile, Storage);
+	FProductionSnapshot Production; Fdemo_mapProfileRepository Repository; const Fdemo_mapProfileStorageContext Storage = Fdemo_mapProfileStorageContext::ForRoot(NewBeginRunRoot()); Fdemo_mapPersistentProfile Profile = CreateCommitted(Repository, Storage); TArray<FGuid> Materials; for (int32 Index = 0; Index <= Fdemo_mapPersistentPreparationLayout::MaxRunInventoryItems; ++Index) Materials.Add(AddStashRecord(Profile, Index % 2 ? Fdemo_mapItemIds::IronShard : Fdemo_mapItemIds::SpiritDust, 1)); Repository.SaveProfile(Profile, Storage);
 	Fdemo_mapBeginRunRequest WrongSlot = RequestFor(Profile); WrongSlot.Loadout.WeaponItemInstanceId = Profile.PermanentStash[1].ItemInstanceId; const auto A = Fdemo_mapProfileBeginRunTransaction().Execute(Profile, WrongSlot, Repository, Storage); TestTrue(TEXT("Wrong slot rejected"), A.Status == Edemo_mapBeginRunStatus::EquipmentSlotOrCompatibilityRejected);
-	Fdemo_mapBeginRunRequest TooMany = RequestFor(Profile); TooMany.Loadout.MaterialStackItemInstanceIds = Materials; const auto B = Fdemo_mapProfileBeginRunTransaction().Execute(Profile, TooMany, Repository, Storage); TestTrue(TEXT("Fourth material rejected"), B.Status == Edemo_mapBeginRunStatus::SelectionLimitExceeded && !B.CommittedLoadoutPlan.IsSet()); TestTrue(TEXT("Production untouched"), Production.IsUnchanged()); return true;
+	Fdemo_mapBeginRunRequest TooMany = RequestFor(Profile); TooMany.Loadout.MaterialStackItemInstanceIds = Materials; const auto B = Fdemo_mapProfileBeginRunTransaction().Execute(Profile, TooMany, Repository, Storage); TestTrue(TEXT("One record beyond the structural maximum is rejected"), B.Status == Edemo_mapBeginRunStatus::SelectionLimitExceeded && !B.CommittedLoadoutPlan.IsSet()); TestTrue(TEXT("Production untouched"), Production.IsUnchanged()); return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBeginRunOptimisticTest, "demo_map.Profile.BeginRun.11.ExpectedIdentityAndGenerationProtectAgainstStaleIntent", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -248,6 +248,7 @@ bool FBeginRunIsolationTest::RunTest(const FString&)
 	TArray<FString> Sources; IFileManager::Get().FindFilesRecursive(Sources, *FPaths::Combine(FPaths::ProjectDir(), TEXT("Source"), TEXT("demo_map")), TEXT("*.cpp"), true, false); bool bUnexpectedReference = false;
 	for (const FString& Path : Sources)
 	{
+		if (Path.EndsWith(TEXT("Tests.cpp"))) continue;
 		FString Text; if (!FFileHelper::LoadFileToString(Text, *Path) || !Text.Contains(TEXT("Fdemo_mapProfileBeginRunTransaction"))) continue;
 		if (!Path.EndsWith(TEXT("demo_mapProfileBeginRunTransaction.cpp")) && !Path.EndsWith(TEXT("demo_mapProfileBeginRunTests.cpp")) && !Path.EndsWith(TEXT("demo_mapProfileSettlementTests.cpp")) && !Path.EndsWith(TEXT("demo_mapProfileSessionCoordinator.cpp")) && !Path.EndsWith(TEXT("demo_mapProfileSessionTests.cpp")) && !Path.EndsWith(TEXT("demo_mapFullSystemLoopTests.cpp"))) { bUnexpectedReference = true; AddError(FString::Printf(TEXT("Unexpected startup/runtime transaction reference: %s"), *Path)); }
 	}

@@ -577,7 +577,10 @@ bool FProfileTrade33::RunTest(const FString&)
 {
 	FTradeFixture F; if (!F.Start(*this)) return false; F.Sell(Fdemo_mapItemIds::TrainingBlade);
 	FString Json; const bool bRead = FFileHelper::LoadFileToString(Json, *F.Storage.PrimaryPath());
-	TestTrue(TEXT("Trade keeps Schema4 Profile JSON shape with no journal"), bRead && Json.Contains(TEXT("\"SchemaVersion\":4"))
+	const FString CurrentSchemaToken = FString::Printf(
+		TEXT("\"SchemaVersion\":%d"),
+		Fdemo_mapPersistentProfile::CurrentSchemaVersion);
+	TestTrue(TEXT("Trade keeps current Profile JSON shape with no journal"), bRead && Json.Contains(CurrentSchemaToken)
 		&& Json.Contains(TEXT("\"PersistentSpiritStones\"")) && Json.Contains(TEXT("\"PermanentStash\""))
 		&& Json.Contains(TEXT("\"ShopStock\"")) && Json.Contains(TEXT("\"ActiveRun\""))
 		&& !Json.Contains(TEXT("TradeJournal")) && !Json.Contains(TEXT("\"Shop\"")));

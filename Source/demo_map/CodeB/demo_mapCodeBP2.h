@@ -91,7 +91,7 @@ namespace demo_map_code_b
 		bool bQuickUsable = false;
 		/** Read-only P1 definition semantic used by P4 to preview the exact equipment target. */
 		ECodeBEquipSlot EquipSlot = ECodeBEquipSlot::None;
-		/** Projection-only parent/child relation used by P4 to reject loaded spatial moves without reading P1. */
+		/** Projection-only parent/child relation used by P4 to retain whole-graph identity without reading P1. */
 		FGuid ChildContainerId;
 
 		bool operator==(const FCodeBP2SlotView& Other) const;

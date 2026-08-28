@@ -4,10 +4,12 @@
 
 #include "ShanmenItemRepository.h"
 #include "demo_map0909BSectWarehouseService.h"
+#include "demo_mapAttributeComponent.h"
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapItemSubsystem.h"
 #include "demo_mapProfileRepository.h"
 #include "demo_mapProfileSessionSubsystem.h"
+#include "demo_mapPlayerHealthComponent.h"
 #include "demo_mapRewardAffix.h"
 #include "demo_mapShanmenItemCutover.h"
 #include "demo_mapShanmenItemMetadataAdapter.h"
@@ -1139,6 +1141,128 @@ bool FShanmenPreparedRunLifecycleRestartTest::RunTest(const FString&)
 	TestTrue(TEXT("Restart keeps one terminal marker and restored originals"),
 		Fixture.Authority->TryCaptureSnapshot(Restarted)
 		&& Restarted == Terminal);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenPreparedRunItemUseTest,
+	"Shanmen.0_0_10.Items.RunLifecycle.DurableHotbarUse",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenPreparedRunItemUseTest::RunTest(const FString&)
+{
+	FPreparationAdapterFixture Fixture;
+	if (!Fixture.StartAndCutover(*this, TEXT("DurableHotbarUse")))
+	{
+		return false;
+	}
+	TestTrue(TEXT("Pill stack and slot are selected through the authority adapter"),
+		Fixture.Session->SetPreparationMaterial(
+			Fixture.PillOneId, true).IsAccepted()
+		&& Fixture.Session->SetPreparationHotbarSlot(
+			4, Fixture.PillOneId).IsAccepted());
+	Udemo_mapItemSubsystem* Runtime =
+		Fixture.GameInstance->GetSubsystem<Udemo_mapItemSubsystem>();
+	Udemo_mapAttributeComponent* Attributes =
+		NewObject<Udemo_mapAttributeComponent>(GetTransientPackage());
+	Udemo_mapPlayerHealthComponent* Health =
+		NewObject<Udemo_mapPlayerHealthComponent>(GetTransientPackage());
+	if (!Runtime || !Attributes || !Health
+		|| !Health->BindAttributeComponent(Attributes, true))
+	{
+		AddError(TEXT("Durable hotbar fixture could not bind Runtime health."));
+		return false;
+	}
+	Runtime->BindAttributeComponent(Attributes);
+	Runtime->BindHealthComponent(Health);
+	const Fdemo_mapShanmenRunStartResult Started =
+		Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
+			*Fixture.Authority, *Runtime);
+	const Fdemo_mapItemInstance* InitialPill =
+		Runtime->GetAuthority().FindInstance(Fixture.PillOneId);
+	TestTrue(TEXT("Prepared pill materializes with its complete stack and binding"),
+		Started.IsStarted() && InitialPill && InitialPill->Quantity == 3
+		&& Runtime->GetHotbarBindingSnapshot().SlotBindings[3]
+			== Fixture.PillOneId);
+	Health->SetCurrentHealthForAutomation(1);
+
+	const Fdemo_mapShanmenRunItemUseResult FailedProjection =
+		Fdemo_mapShanmenRunLifecycleAdapter::UsePreparedRunHotbarSlot(
+			*Fixture.Authority, *Runtime, 4, true,
+			Edemo_mapItemUseFailurePoint::AfterItemMutation);
+	const Fdemo_mapItemInstance* AfterFailure =
+		Runtime->GetAuthority().FindInstance(Fixture.PillOneId);
+	AddInfo(FString::Printf(
+		TEXT("P5.0 injected use status=%d preview=%d authority=%d error=%d runtime=%d health=%d/%d stack=%d diagnostic=%s"),
+		static_cast<int32>(FailedProjection.Status),
+		static_cast<int32>(FailedProjection.Preview.Status),
+		static_cast<int32>(FailedProjection.AuthorityCommand.Status),
+		static_cast<int32>(FailedProjection.AuthorityCommand.Receipt.Error),
+		static_cast<int32>(FailedProjection.RuntimeResult.Status),
+		Health->GetCurrentHealth(), Health->GetMaxHealth(),
+		AfterFailure ? AfterFailure->Quantity : INDEX_NONE,
+		*FailedProjection.Diagnostic));
+	TestTrue(TEXT("Runtime failure retains durable receipt but rolls back local effect"),
+		FailedProjection.Status
+			== Edemo_mapShanmenRunItemUseStatus::RuntimeCommitRejected
+		&& FailedProjection.AuthorityCommand.IsCommandSuccess()
+		&& AfterFailure && AfterFailure->Quantity == 3
+		&& Health->GetCurrentHealth() == 1);
+
+	const Fdemo_mapShanmenRunItemUseResult Retried =
+		Fdemo_mapShanmenRunLifecycleAdapter::UsePreparedRunHotbarSlot(
+			*Fixture.Authority, *Runtime, 4, true);
+	const Fdemo_mapItemInstance* AfterRetry =
+		Runtime->GetAuthority().FindInstance(Fixture.PillOneId);
+	AddInfo(FString::Printf(
+		TEXT("P5.0 retry status=%d preview=%d authority=%d error=%d runtime=%d health=%d/%d stack=%d diagnostic=%s"),
+		static_cast<int32>(Retried.Status),
+		static_cast<int32>(Retried.Preview.Status),
+		static_cast<int32>(Retried.AuthorityCommand.Status),
+		static_cast<int32>(Retried.AuthorityCommand.Receipt.Error),
+		static_cast<int32>(Retried.RuntimeResult.Status),
+		Health->GetCurrentHealth(), Health->GetMaxHealth(),
+		AfterRetry ? AfterRetry->Quantity : INDEX_NONE,
+		*Retried.Diagnostic));
+	TestTrue(TEXT("Exact retry replays authority receipt and commits Runtime once"),
+		Retried.IsSuccess()
+		&& Retried.AuthorityCommand.Status
+			== EShanmenItemDurableCommandStatus::Replayed
+		&& AfterRetry && AfterRetry->Quantity == 2
+		&& Health->GetCurrentHealth() == 2);
+	FShanmenItemAuthoritySnapshot UsedSnapshot;
+	int32 DurableUseCount = 0;
+	if (Fixture.Authority->TryCaptureSnapshot(UsedSnapshot))
+	{
+		for (const FShanmenItemProcessedRequestSnapshot& Processed :
+			UsedSnapshot.ProcessedRequests)
+		{
+			DurableUseCount += Processed.Receipt.IsSuccess()
+				&& Processed.Receipt.Operation
+					== EShanmenItemTransactionOperation::ConsumePreparedRunItem
+				? 1 : 0;
+		}
+	}
+	TestEqual(TEXT("Only one durable consume exists after retry"),
+		DurableUseCount, 1);
+
+	if (!Fixture.RestartAndBind(*this))
+	{
+		return false;
+	}
+	Runtime = Fixture.GameInstance->GetSubsystem<Udemo_mapItemSubsystem>();
+	const Fdemo_mapShanmenRunStartResult Resumed = Runtime
+		? Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
+			*Fixture.Authority, *Runtime)
+		: Fdemo_mapShanmenRunStartResult();
+	const Fdemo_mapItemInstance* RecoveredPill = Runtime
+		? Runtime->GetAuthority().FindInstance(Fixture.PillOneId) : nullptr;
+	TestTrue(TEXT("Restart materialization subtracts durable consumption"),
+		Resumed.IsStarted()
+		&& Resumed.Status == Edemo_mapShanmenRunLifecycleStatus::Resumed
+		&& RecoveredPill && RecoveredPill->Quantity == 2
+		&& Runtime->GetHotbarBindingSnapshot().SlotBindings[3]
+			== Fixture.PillOneId);
 	return true;
 }
 

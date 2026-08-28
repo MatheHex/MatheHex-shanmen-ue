@@ -219,7 +219,10 @@ bool FProfileFutureSchemaTest::RunTest(const FString&)
 	ReadBytes(Storage.PrimaryPath(), Current);
 	FUTF8ToTCHAR Converted(reinterpret_cast<const ANSICHAR*>(Current.GetData()), Current.Num());
 	FString Json(Converted.Length(), Converted.Get());
-	TestTrue(TEXT("Fixture schema token replaced"), Json.ReplaceInline(TEXT("\"SchemaVersion\":3"), TEXT("\"SchemaVersion\":999"), ESearchCase::CaseSensitive) == 1);
+	const FString CurrentSchemaToken = FString::Printf(
+		TEXT("\"SchemaVersion\":%d"),
+		Fdemo_mapPersistentProfile::CurrentSchemaVersion);
+	TestTrue(TEXT("Fixture schema token replaced"), Json.ReplaceInline(*CurrentSchemaToken, TEXT("\"SchemaVersion\":999"), ESearchCase::CaseSensitive) == 1);
 	FTCHARToUTF8 FutureUtf8(*Json);
 	TArray<uint8> Future;
 	Future.Append(reinterpret_cast<const uint8*>(FutureUtf8.Get()), FutureUtf8.Length());

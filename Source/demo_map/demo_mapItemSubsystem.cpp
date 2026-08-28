@@ -946,9 +946,9 @@ void Udemo_mapItemSubsystem::ClearItemUseCooldown()
 	HealingPillCooldownEndTime = 0.0;
 }
 
-Fdemo_mapItemUseResult Udemo_mapItemSubsystem::UseHotbarSlot(
+Fdemo_mapItemUseResult Udemo_mapItemSubsystem::PreviewHotbarSlotUse(
 	const Fdemo_mapItemUseIntent& Intent,
-	bool bInputAllowed)
+	bool bInputAllowed) const
 {
 	Fdemo_mapItemUseResult Result;
 	Result.HotbarSlotNumber = Intent.HotbarSlotNumber;
@@ -1025,15 +1025,17 @@ Fdemo_mapItemUseResult Udemo_mapItemSubsystem::UseHotbarSlot(
 	}
 	Result.DefinitionId = Instance->DefinitionId;
 	Result.BeforeStack = Instance->Quantity;
+	const bool bOwnedByCurrentRun = Instance->OriginRunId == ActiveRunId
+		|| (!Instance->OriginRunId.IsValid() && DeployedItemIds.Contains(BoundId));
 	if (Instance->OwnershipState != Edemo_mapItemOwnershipState::Inventory
 		|| Instance->OwnerId != Fdemo_mapItemIds::LocalPlayerOwner
 		|| Instance->ContainerId != Fdemo_mapItemIds::InventoryContainer
 		|| Authority.FindInventorySlot(BoundId) == INDEX_NONE
-		|| Instance->OriginRunId != ActiveRunId)
+		|| !bOwnedByCurrentRun)
 	{
 		return Reject(
 			Edemo_mapItemUseStatus::WrongOwnership,
-			TEXT("Item use requires current-run local Inventory ownership."));
+			TEXT("Item use requires current-run local Inventory ownership or a deployed prepared original."));
 	}
 	const Fdemo_mapItemDefinition* Definition =
 		Fdemo_mapItemDefinitions::Find(Instance->DefinitionId);
@@ -1104,6 +1106,47 @@ Fdemo_mapItemUseResult Udemo_mapItemSubsystem::UseHotbarSlot(
 			Edemo_mapItemUseStatus::CooldownActive,
 			TEXT("The shared Healing Pill cooldown is active."));
 	}
+	Result.Status = Edemo_mapItemUseStatus::Success;
+	Result.AfterHealth = Result.BeforeHealth;
+	Result.AfterStack = Result.BeforeStack;
+	Result.CooldownAfter = Result.CooldownBefore;
+	Result.Diagnostic =
+		TEXT("Healing Pill use is eligible for one authority transaction.");
+	return Result;
+}
+
+Fdemo_mapItemUseResult Udemo_mapItemSubsystem::UseHotbarSlot(
+	const Fdemo_mapItemUseIntent& Intent,
+	bool bInputAllowed)
+{
+	Fdemo_mapItemUseResult Result =
+		PreviewHotbarSlotUse(Intent, bInputAllowed);
+	if (!Result.IsSuccess())
+	{
+		return Result;
+	}
+	const FGuid BoundId = Result.ItemInstanceId;
+	Udemo_mapPlayerHealthComponent* Health = BoundHealthComponent.Get();
+	if (!Health)
+	{
+		Result.Status = Edemo_mapItemUseStatus::PlayerUnavailable;
+		Result.Diagnostic =
+			TEXT("PlayerHealth disappeared after item-use preflight.");
+		return Result;
+	}
+	const int32 HealAmount = Result.HealRequested;
+	const float VitalityBefore = Health->GetCurrentVitality();
+	const Fdemo_mapItemUseCooldownSnapshot CooldownBefore =
+		GetItemUseCooldownSnapshot();
+	auto Reject = [&Result](
+		Edemo_mapItemUseStatus Status,
+		const TCHAR* Diagnostic)
+	{
+		Result.Status = Status;
+		Result.Diagnostic = Diagnostic;
+		Result.CooldownAfter = Result.CooldownBefore;
+		return Result;
+	};
 
 	const Fdemo_mapItemAuthorityState AuthorityBefore =
 		Authority.CaptureState();

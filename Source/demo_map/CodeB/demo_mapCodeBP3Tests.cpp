@@ -297,18 +297,23 @@ bool FCodeBP3IncompatibleErrorTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCodeBP3LoadedSpatialErrorTest, "demo_map.CodeB.P3.LoadedSpatialError", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-bool FCodeBP3LoadedSpatialErrorTest::RunTest(const FString& Parameters)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCodeBP3LoadedSpatialGraphMoveTest, "demo_map.CodeB.P3.LoadedSpatialGraphMove", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCodeBP3LoadedSpatialGraphMoveTest::RunTest(const FString& Parameters)
 {
 	FCodeBP3UIController Controller;
 	if (!OpenController(*this, Controller)) return false;
 	const FCodeBP2FixtureIds* Ids = Controller.GetFixtureIds();
 	if (!Ids || !Execute(*this, Controller, Ids->WarehouseContainerId, 5, ECodeBP3OperationMode::Equip, Ids->SpatialContainerId, 0)
 		|| !Execute(*this, Controller, Ids->WarehouseContainerId, 6, ECodeBP3OperationMode::Move, Ids->SpatialInternalContainerId, 0)) return false;
-	const int32 RevisionBeforeFailure = Controller.GetProjection().Revision;
-	Execute(*this, Controller, Ids->SpatialContainerId, 0, ECodeBP3OperationMode::Unequip, Ids->WarehouseContainerId, 5, false);
-	TestEqual(TEXT("Loaded spatial rejection keeps Revision"), Controller.GetProjection().Revision, RevisionBeforeFailure);
-	TestTrue(TEXT("Loaded spatial rejection is explicit"), Controller.GetFeedback().Contains(TEXT("LoadedSpatialItemMoveUnsupported")));
+	const FCodeBP2SlotView* ParentBefore = FindSlot(Controller.GetProjection(), Ids->SpatialContainerId, 0);
+	const FGuid ChildContainerId = ParentBefore ? ParentBefore->ChildContainerId : FGuid();
+	const int32 RevisionBeforeMove = Controller.GetProjection().Revision;
+	if (!Execute(*this, Controller, Ids->SpatialContainerId, 0, ECodeBP3OperationMode::Unequip, Ids->WarehouseContainerId, 5)) return false;
+	const FCodeBP2SlotView* ParentAfter = FindSlot(Controller.GetProjection(), Ids->WarehouseContainerId, 5);
+	const FCodeBP2SlotView* ChildAfter = FindSlot(Controller.GetProjection(), ChildContainerId, 0);
+	TestEqual(TEXT("Loaded spatial whole-graph move increments Revision once"), Controller.GetProjection().Revision, RevisionBeforeMove + 1);
+	TestTrue(TEXT("Loaded spatial parent preserves ItemId and ChildContainerId"), ParentAfter && ParentAfter->ItemId == Ids->SpatialItemId && ParentAfter->ChildContainerId == ChildContainerId);
+	TestTrue(TEXT("Loaded spatial child preserves placement"), ChildAfter && ChildAfter->ItemId == Ids->DustAItemId);
 	return true;
 }
 

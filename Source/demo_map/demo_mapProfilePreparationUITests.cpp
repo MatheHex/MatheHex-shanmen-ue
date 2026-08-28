@@ -237,15 +237,16 @@ bool FProfilePreparationUI02::RunTest(const FString&)
 	Udemo_mapProfilePreparationWidget* Widget = Fixture.MakeWidget(*this); if (!Widget) return false;
 	const auto& View = Widget->GetViewState();
 	TestTrue(TEXT("Fresh view is Ready, empty-loadout startable, and button-backed"), Init.IsReady() && View.bPreparationOperationsEnabled && View.bCanStartRun && Widget->GetRowButtonCount() == View.OrderedPermanentStashRows.Num());
-	TestTrue(TEXT("Fresh Stash order remains Weapon Armor Accessory"), View.OrderedPermanentStashRows.Num() == 3
+	TestTrue(TEXT("Fresh Stash order remains Weapon Armor SpatialRing"), View.OrderedPermanentStashRows.Num() == 3
 		&& View.OrderedPermanentStashRows[0].ItemDefinitionId == Fdemo_mapItemIds::TrainingBlade
 		&& View.OrderedPermanentStashRows[1].ItemDefinitionId == Fdemo_mapItemIds::TrainingVest
 		&& View.OrderedPermanentStashRows[2].ItemDefinitionId == Fdemo_mapItemIds::WindTalisman);
-	TestTrue(TEXT("Four ordered P2 equipment slots are presented"), View.OrderedEquipmentSlots.Num() == 4
+	TestTrue(TEXT("Five ordered equipment slots are presented"), View.OrderedEquipmentSlots.Num() == 5
 		&& View.OrderedEquipmentSlots[0].SlotId == Fdemo_mapItemIds::WeaponSlot
 		&& View.OrderedEquipmentSlots[1].SlotId == Fdemo_mapItemIds::ArmorSlot
 		&& View.OrderedEquipmentSlots[2].SlotId == Fdemo_mapItemIds::AccessorySlot
-		&& View.OrderedEquipmentSlots[3].SlotId == Fdemo_mapItemIds::BackpackSlot);
+		&& View.OrderedEquipmentSlots[3].SlotId == Fdemo_mapItemIds::SpatialRingSlot
+		&& View.OrderedEquipmentSlots[4].SlotId == Fdemo_mapItemIds::BackpackSlot);
 	return true;
 }
 
@@ -405,12 +406,12 @@ bool FProfilePreparationUI10::RunTest(const FString&)
 	Udemo_mapProfilePreparationWidget* Widget = Fixture.MakeWidget(*this); if (!Widget) return false;
 	const FGuid Weapon = FindPreparationUIId(Widget->GetViewState(), Fdemo_mapItemIds::TrainingBlade);
 	const FGuid Armor = FindPreparationUIId(Widget->GetViewState(), Fdemo_mapItemIds::TrainingVest);
-	const FGuid Accessory = FindPreparationUIId(Widget->GetViewState(), Fdemo_mapItemIds::WindTalisman);
+	const FGuid SpatialRing = FindPreparationUIId(Widget->GetViewState(), Fdemo_mapItemIds::WindTalisman);
 	Widget->SelectEquipment(Fdemo_mapItemIds::WeaponSlot, Weapon);
 	Widget->SelectEquipment(Fdemo_mapItemIds::ArmorSlot, Armor);
-	Widget->SelectEquipment(Fdemo_mapItemIds::AccessorySlot, Accessory);
+	Widget->SelectEquipment(Fdemo_mapItemIds::SpatialRingSlot, SpatialRing);
 	Widget->SelectMaterial(DustB, true); Widget->SelectMaterial(Iron, true); Widget->SelectMaterial(DustA, true);
-	const TArray<FGuid> Expected = { Weapon, Armor, Accessory, DustB, Iron, DustA };
+	const TArray<FGuid> Expected = { Weapon, Armor, SpatialRing, DustB, Iron, DustA };
 	TestTrue(TEXT("Maximum six committed preparation records display WILL BE AT RISK"), Widget->GetViewState().RiskPhase == Edemo_mapProfilePreparationRiskPhase::WillBeAtRisk && Widget->GetViewState().OrderedSelectedMaterialIds == TArray<FGuid>({ DustB, Iron, DustA }));
 	const auto Result = Widget->RequestStartRun();
 	TestTrue(TEXT("Maximum UI Start preserves original IDs and unique RunId"), Result.IsRunActive() && Result.PersistentResult.CommittedLoadoutPlan.IsSet() && Result.PersistentResult.CommittedLoadoutPlan->DeployedItemIds == Expected && Result.RuntimeResult.DeployedItemIds == Expected && Result.Snapshot.ActiveRunId == Fixture.Runtime->GetActiveRunId());

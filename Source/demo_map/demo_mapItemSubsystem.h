@@ -69,6 +69,10 @@ public:
 	int32 RefreshHotbarBindings();
 	void ClearHotbarBindings();
 	const Fdemo_mapHotbarBindingSnapshot& GetHotbarBindingSnapshot() const { return HotbarBindings; }
+	/** Read-only eligibility/CAS snapshot used before a durable Run-item command. */
+	Fdemo_mapItemUseResult PreviewHotbarSlotUse(
+		const Fdemo_mapItemUseIntent& Intent,
+		bool bInputAllowed) const;
 	Fdemo_mapItemUseResult UseHotbarSlot(
 		const Fdemo_mapItemUseIntent& Intent,
 		bool bInputAllowed);

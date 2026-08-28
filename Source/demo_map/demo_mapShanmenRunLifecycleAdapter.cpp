@@ -70,6 +70,7 @@ namespace
 	}
 
 	bool BuildRuntimePlan(
+		const FShanmenItemAuthoritySnapshot& Snapshot,
 		const Fdemo_mapShanmenPreparedLoadoutReceipt& Prepared,
 		const FShanmenItemTransactionReceipt& Claim,
 		Fdemo_mapCommittedRunLoadoutPlan& OutPlan,
@@ -91,22 +92,33 @@ namespace
 		OutPlan.ProfileId = Prepared.OwnerId;
 		OutPlan.CommittedGeneration = Claim.AuthorityRevision;
 		OutPlan.ActiveRunId = Claim.ReservationId;
+		OutPlan.HotbarItemInstanceIds = Prepared.HotbarItemInstanceIds;
+		TMap<FGuid, int32> ConsumedQuantities;
+		for (const FShanmenItemProcessedRequestSnapshot& Processed :
+			Snapshot.ProcessedRequests)
+		{
+			const FShanmenItemTransactionReceipt& Receipt = Processed.Receipt;
+			if (Receipt.IsSuccess()
+				&& Receipt.Operation
+					== EShanmenItemTransactionOperation::ConsumePreparedRunItem
+				&& Receipt.ReservationId == Claim.ReservationId)
+			{
+				ConsumedQuantities.FindOrAdd(Receipt.ItemInstanceId) +=
+					Receipt.Amount;
+			}
+		}
 		for (const Fdemo_mapShanmenPreparedLoadoutLine& Line :
 			Prepared.OrderedLines)
 		{
-			Fdemo_mapPersistentItemRecord& Item =
-				OutPlan.OrderedItems.AddDefaulted_GetRef();
-			Item.ItemInstanceId = Line.ItemInstanceId;
-			Item.ItemDefinitionId = Line.ItemDefinitionId;
-			Item.StackCount = Line.ResourceKind
-				== EShanmenItemResourceKind::DeploymentLock ? 1 : Line.Amount;
-			Item.PersistentDomain = Edemo_mapPersistentDomain::ActiveRun;
-			Item.EquipmentSlotId = EquipmentSlotFor(
+			const FName EquipmentSlot = EquipmentSlotFor(
 				Prepared, Line.ItemInstanceId);
+			int32 RuntimeQuantity = Line.ResourceKind
+				== EShanmenItemResourceKind::DeploymentLock
+				? 1 : Line.Amount - ConsumedQuantities.FindRef(Line.ItemInstanceId);
 			if (Line.ResourceKind
 				== EShanmenItemResourceKind::DeploymentLock)
 			{
-				if (Item.EquipmentSlotId.IsNone())
+				if (EquipmentSlot.IsNone())
 				{
 					OutDiagnostic =
 						TEXT("Prepared equipment line has no frozen Runtime slot.");
@@ -114,6 +126,7 @@ namespace
 				}
 			}
 			else if (Line.ResourceKind != EShanmenItemResourceKind::Quantity
+				|| RuntimeQuantity < 0
 				|| !Line.SourceContainerId.IsValid()
 				|| Line.SourceSlotIndex < 0)
 			{
@@ -121,9 +134,26 @@ namespace
 					TEXT("Prepared Quantity line has no recoverable source placement.");
 				return false;
 			}
+			if (RuntimeQuantity == 0)
+			{
+				for (FGuid& BoundId : OutPlan.HotbarItemInstanceIds)
+				{
+					if (BoundId == Line.ItemInstanceId)
+					{
+						BoundId.Invalidate();
+					}
+				}
+				continue;
+			}
+			Fdemo_mapPersistentItemRecord& Item =
+				OutPlan.OrderedItems.AddDefaulted_GetRef();
+			Item.ItemInstanceId = Line.ItemInstanceId;
+			Item.ItemDefinitionId = Line.ItemDefinitionId;
+			Item.StackCount = RuntimeQuantity;
+			Item.PersistentDomain = Edemo_mapPersistentDomain::ActiveRun;
+			Item.EquipmentSlotId = EquipmentSlot;
 			OutPlan.DeployedItemIds.Add(Line.ItemInstanceId);
 		}
-		OutPlan.HotbarItemInstanceIds = Prepared.HotbarItemInstanceIds;
 		auto DefinitionFor = [&Prepared](const FGuid& ItemId)
 		{
 			const Fdemo_mapShanmenPreparedLoadoutLine* Line = ItemId.IsValid()
@@ -334,6 +364,151 @@ bool Fdemo_mapShanmenRunLifecycleAdapter::TryGetActiveRunCorrelation(
 	return true;
 }
 
+Fdemo_mapShanmenRunItemUseResult
+Fdemo_mapShanmenRunLifecycleAdapter::UsePreparedRunHotbarSlot(
+	Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+	Udemo_mapItemSubsystem& Runtime,
+	const int32 HotbarSlotNumber,
+	const bool bInputAllowed
+#if WITH_DEV_AUTOMATION_TESTS
+	, const Edemo_mapItemUseFailurePoint FailurePoint
+#endif
+)
+{
+	Fdemo_mapShanmenRunItemUseResult Result;
+	auto Reject = [&Result](
+		Edemo_mapShanmenRunItemUseStatus Status,
+		const FString& Diagnostic)
+	{
+		Result.Status = Status;
+		Result.Diagnostic = Diagnostic;
+		return Result;
+	};
+	if (!IsInGameThread()
+		|| Authority.GetLifecycleState()
+			!= Edemo_mapShanmenItemAuthorityLifecycleState::Ready)
+	{
+		return Reject(
+			Edemo_mapShanmenRunItemUseStatus::AuthorityNotReady,
+			TEXT("Prepared Run item use requires the Ready authority on the Game Thread."));
+	}
+
+	Fdemo_mapShanmenPreparedLoadoutReceipt Prepared;
+	FShanmenItemTransactionReceipt Lifecycle;
+	FString Diagnostic;
+	if (!Fdemo_mapShanmenPreparationAdapter::TryInspectActivePreparedLoadout(
+			Authority, Prepared, Lifecycle, &Diagnostic)
+		|| Runtime.GetRunState() != Edemo_mapRunState::Active
+		|| Runtime.GetActiveRunId() != Lifecycle.ReservationId)
+	{
+		return Reject(
+			Edemo_mapShanmenRunItemUseStatus::RunCorrelationInvalid,
+			Diagnostic.IsEmpty()
+				? TEXT("Runtime and the durable prepared ActiveRun do not correlate.")
+				: Diagnostic);
+	}
+	const Fdemo_mapHotbarBindingSnapshot& Bindings =
+		Runtime.GetHotbarBindingSnapshot();
+	if (HotbarSlotNumber < 1
+		|| HotbarSlotNumber > Fdemo_mapHotbarBindingSnapshot::SlotCount
+		|| Bindings.SlotBindings.Num()
+			!= Fdemo_mapHotbarBindingSnapshot::SlotCount)
+	{
+		return Reject(
+			Edemo_mapShanmenRunItemUseStatus::RuntimePreviewRejected,
+			TEXT("Prepared Run item use requires one Runtime slot in the 1..9 range."));
+	}
+	const FGuid ItemId = Bindings.SlotBindings[HotbarSlotNumber - 1];
+	Fdemo_mapItemUseIntent Intent;
+	Intent.ExpectedRunId = Lifecycle.ReservationId;
+	Intent.HotbarSlotNumber = HotbarSlotNumber;
+	Intent.ExpectedItemInstanceId = ItemId;
+#if WITH_DEV_AUTOMATION_TESTS
+	Intent.FailurePoint = FailurePoint;
+#endif
+	Result.Preview = Runtime.PreviewHotbarSlotUse(Intent, bInputAllowed);
+	if (!Result.Preview.IsSuccess())
+	{
+		return Reject(
+			Edemo_mapShanmenRunItemUseStatus::RuntimePreviewRejected,
+			Result.Preview.Diagnostic);
+	}
+	const Fdemo_mapShanmenPreparedLoadoutLine* PreparedLine =
+		Prepared.OrderedLines.FindByPredicate(
+			[&ItemId](const Fdemo_mapShanmenPreparedLoadoutLine& Line)
+			{
+				return Line.ItemInstanceId == ItemId
+					&& Line.ResourceKind
+						== EShanmenItemResourceKind::Quantity;
+			});
+	if (!PreparedLine)
+	{
+		return Reject(
+			Edemo_mapShanmenRunItemUseStatus::ItemNotPrepared,
+			TEXT("Hotbar item is not one Quantity line of the durable prepared loadout."));
+	}
+	FShanmenItemAuthoritySnapshot Snapshot;
+	if (!Authority.TryCaptureSnapshot(Snapshot))
+	{
+		return Reject(
+			Edemo_mapShanmenRunItemUseStatus::AuthorityNotReady,
+			TEXT("Prepared Run item use could not capture the durable authority snapshot."));
+	}
+	const FName Purpose(TEXT("Shanmen.RunItemUse.HealingPill.r1"));
+	FShanmenItemRunConsumeRequest Request;
+	Request.Context.RunId = Prepared.ScopeId;
+	Request.Context.OwnerId = Prepared.OwnerId;
+	Request.Context.Content = Snapshot.Content;
+	Request.Context.RequestId =
+		FShanmenDeterministicId::FromCanonicalParts(
+			TEXT("demo_map.Shanmen.RunItemUse.Request.r1"),
+			{
+				GuidDigits(Prepared.OwnerId),
+				GuidDigits(Prepared.ScopeId),
+				GuidDigits(Lifecycle.ReservationId),
+				GuidDigits(ItemId),
+				FString::FromInt(HotbarSlotNumber),
+				FString::FromInt(Result.Preview.BeforeStack),
+				Purpose.ToString()
+			});
+	Request.ActiveRunId = Lifecycle.ReservationId;
+	Request.ItemInstanceId = ItemId;
+	Request.Amount = 1;
+	Request.ExpectedQuantityBefore = Result.Preview.BeforeStack;
+	Request.PurposeId = Purpose;
+	Result.AuthorityCommand =
+		Authority.ConsumePreparedRunItemDurable(Request);
+	if (!Result.AuthorityCommand.IsCommandSuccess())
+	{
+		return Reject(
+			Edemo_mapShanmenRunItemUseStatus::AuthorityRejected,
+			Result.AuthorityCommand.Diagnostic.IsEmpty()
+				? TEXT("Durable prepared-Run item consumption was rejected.")
+				: Result.AuthorityCommand.Diagnostic);
+	}
+	const FShanmenItemTransactionReceipt& Consume =
+		Result.AuthorityCommand.Receipt;
+	if (Consume.ResourceBefore != Result.Preview.BeforeStack
+		|| Consume.ResourceAfter != Result.Preview.BeforeStack - 1)
+	{
+		return Reject(
+			Edemo_mapShanmenRunItemUseStatus::AuthorityRejected,
+			TEXT("Durable consumption receipt disagrees with the Runtime CAS preview."));
+	}
+
+	Result.RuntimeResult = Runtime.UseHotbarSlot(Intent, bInputAllowed);
+	if (!Result.RuntimeResult.IsSuccess())
+	{
+		return Reject(
+			Edemo_mapShanmenRunItemUseStatus::RuntimeCommitRejected,
+			TEXT("Durable consumption is retained; Runtime rolled back locally and the exact unchanged intent may be retried."));
+	}
+	Result.Status = Edemo_mapShanmenRunItemUseStatus::Succeeded;
+	Result.Diagnostic =
+		TEXT("Prepared Run item consumption persisted before Runtime effect projection.");
+	return Result;
+}
+
 Fdemo_mapShanmenRunStartResult
 Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
 	Udemo_mapShanmenItemAuthoritySubsystem& Authority,
@@ -400,7 +575,15 @@ Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
 			PreparedRuntime.Diagnostic);
 	}
 	Fdemo_mapPreparedRunRuntimeRequest RuntimeRequest;
+	FShanmenItemAuthoritySnapshot AuthoritySnapshot;
+	if (!Authority.TryCaptureSnapshot(AuthoritySnapshot))
+	{
+		return Reject(
+			Edemo_mapShanmenRunLifecycleStatus::AuthorityNotReady,
+			TEXT("Durable authority snapshot disappeared before Runtime materialization."));
+	}
 	if (!BuildRuntimePlan(
+		AuthoritySnapshot,
 		Prepared.Receipt, Result.StartCommand.Receipt,
 		RuntimeRequest.CommittedPlan, Result.Diagnostic))
 	{

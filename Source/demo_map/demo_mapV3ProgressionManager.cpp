@@ -4313,6 +4313,34 @@ bool Ademo_mapV3ProgressionManager::RequestUseBoundCodeBQuickSlot(const int32 Sl
 	return DeliverPendingCodeBQuickUseReceipts();
 }
 
+bool Ademo_mapV3ProgressionManager::RequestUseBoundQuickSlot(
+	const int32 SlotIndex)
+{
+	if (ProfilePreparationFlow
+		&& ProfilePreparationFlow->UsesShanmenItemLifecycle())
+	{
+		if (!bInitialized || !bProfileWorldActive || bSettlementPending
+			|| bSearchContainerOpen || IsInventoryOpen()
+			|| ProfilePreparationFlow->GetPhase()
+				!= Edemo_mapProfilePreparationFlowPhase::RunActive)
+		{
+			return false;
+		}
+		FString Diagnostic;
+		const bool bUsed = ProfilePreparationFlow->UseActiveRunHotbarSlot(
+			SlotIndex, true, &Diagnostic);
+		if (!bUsed)
+		{
+			UE_LOG(
+				Logdemo_map, Warning,
+				TEXT("SHANMEN_RUN_ITEM_USE: slot=%d rejected: %s"),
+				SlotIndex, *Diagnostic);
+		}
+		return bUsed;
+	}
+	return RequestUseBoundCodeBQuickSlot(SlotIndex);
+}
+
 void Ademo_mapV3ProgressionManager::ShowProfilePreparation()
 {
 	Ademo_mapPlayerController* Controller = GetDemoController();

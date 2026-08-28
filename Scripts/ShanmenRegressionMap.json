@@ -76,6 +76,16 @@
       ]
     },
     {
+      "name": "ProductRunItemUse",
+      "pathRegex": "^Source/demo_map/demo_map(?:ShanmenRunLifecycleAdapter|V3ProgressionManager)\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10",
+        "demo_map.Profile",
+        "demo_map.CodeB",
+        "demo_map.V2RangedCompatibility"
+      ]
+    },
+    {
       "name": "SkillAndEnemyCombat",
       "pathRegex": "^Source/demo_map/demo_map(?:SkillComponent|SkillProjectile|EnemySkillFramework|EnemyCharacter|HeavyEnemyCharacter|RangedEnemyCharacter|M01BossCharacter).*\\.(?:h|cpp)$",
       "requiredGroups": [
@@ -111,7 +121,7 @@
     },
     {
       "name": "ItemProductAdapters",
-      "pathRegex": "^Source/demo_map/demo_map(?:ShanmenItem|Item|GridInventory|DualLoot|EntityLoadout|0909BCodeBItemBridge|0909BM01RuntimeAdapter|PreparationAdapter).*\\.(?:h|cpp)$",
+      "pathRegex": "^Source/demo_map/demo_map(?:ShanmenItem|ShanmenPreparation|Item|GridInventory|DualLoot|EntityLoadout|0909BCodeBItemBridge|0909BM01RuntimeAdapter|PreparationAdapter).*\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10.Items"
       ]

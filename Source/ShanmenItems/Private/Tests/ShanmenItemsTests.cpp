@@ -171,6 +171,23 @@ namespace
 		return Request;
 	}
 
+	FShanmenItemRunConsumeRequest MakeRunConsume(
+		uint32 Sequence,
+		const FGuid& ActiveRunId,
+		const FGuid& ItemId,
+		int32 Amount,
+		int32 ExpectedQuantityBefore)
+	{
+		FShanmenItemRunConsumeRequest Request;
+		Request.Context = MakeContext(Sequence);
+		Request.ActiveRunId = ActiveRunId;
+		Request.ItemInstanceId = ItemId;
+		Request.Amount = Amount;
+		Request.ExpectedQuantityBefore = ExpectedQuantityBefore;
+		Request.PurposeId = TEXT("Test.RunItemUse.r1");
+		return Request;
+	}
+
 	FShanmenItemReservationAmendRequest MakeAmend(
 		uint32 Sequence,
 		const FGuid& ReservationId,
@@ -514,6 +531,93 @@ bool FShanmenItemsAtomicPreparedRunStartTest::RunTest(const FString&)
 			== EShanmenItemInstanceState::Stored
 		&& Restarted.FindItem(DartId)->Quantity == 7
 		&& Restarted.ValidateInvariants());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenItemsPreparedRunConsumptionTest,
+	"Shanmen.0_0_10.Items.PreparedRunConsumption",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenItemsPreparedRunConsumptionTest::RunTest(const FString&)
+{
+	FShanmenItemRepository Repository;
+	if (!LoadFixture(*this, Repository)) return false;
+
+	const FName RecoverablePurpose =
+		FShanmenItemReservationPlacement::Encode(
+			TEXT("Preparation.RunInventory.O00000000.H01"),
+			ContainerId, 0);
+	const FShanmenItemTransactionReceipt Reserved = Repository.Reserve(
+		MakeReserve(300, DartId, EShanmenItemResourceKind::Quantity, 10,
+			RecoverablePurpose));
+	const FShanmenItemTransactionReceipt Started =
+		Repository.StartPreparedRun(
+			MakeRunStart(301, { Reserved.ReservationId }));
+	if (!Reserved.IsSuccess() || !Started.IsSuccess())
+	{
+		AddError(TEXT("Prepared consumption fixture could not start its Run."));
+		return false;
+	}
+
+	const FShanmenItemRunConsumeRequest FirstRequest = MakeRunConsume(
+		302, Started.ReservationId, DartId, 1, 10);
+	const FShanmenItemTransactionReceipt First =
+		Repository.ConsumePreparedRunItem(FirstRequest);
+	TestTrue(TEXT("First use appends one exact active-Run balance receipt"),
+		First.IsSuccess()
+		&& First.Operation
+			== EShanmenItemTransactionOperation::ConsumePreparedRunItem
+		&& First.ReservationId == Started.ReservationId
+		&& First.ItemInstanceId == DartId
+		&& First.ResourceBefore == 10
+		&& First.ResourceAfter == 9
+		&& First.AvailableAfter == 9
+		&& Repository.ConsumePreparedRunItem(FirstRequest) == First);
+
+	FShanmenItemRunConsumeRequest RequestConflict = FirstRequest;
+	RequestConflict.PurposeId = TEXT("Test.RunItemUse.Changed");
+	const int32 RevisionBeforeConflict = Repository.GetAuthorityRevision();
+	TestTrue(TEXT("Same RequestId with another use payload conflicts without mutation"),
+		Repository.ConsumePreparedRunItem(RequestConflict).Error
+			== EShanmenItemTransactionError::RequestIdConflict
+		&& Repository.GetAuthorityRevision() == RevisionBeforeConflict);
+	TestTrue(TEXT("Stale Runtime quantity is rejected explicitly"),
+		Repository.ConsumePreparedRunItem(MakeRunConsume(
+			303, Started.ReservationId, DartId, 1, 10)).Error
+			== EShanmenItemTransactionError::RunItemQuantityConflict);
+	TestTrue(TEXT("Foreign ActiveRun cannot consume a prepared identity"),
+		Repository.ConsumePreparedRunItem(MakeRunConsume(
+			304, FGuid(999, 0, 0, 1), DartId, 1, 9)).Error
+			== EShanmenItemTransactionError::RunNotFound);
+
+	FShanmenItemRepository Restarted;
+	TestTrue(TEXT("Consumption chain survives restart and exact replay"),
+		Restarted.TryLoadSnapshot(Repository.CaptureSnapshot())
+		&& Restarted.ConsumePreparedRunItem(FirstRequest) == First
+		&& Restarted.ValidateInvariants());
+	FShanmenItemRunFinalizeRequest Overclaim;
+	Overclaim.Context = MakeContext(305);
+	Overclaim.ActiveRunId = Started.ReservationId;
+	Overclaim.TerminalReason = EShanmenItemRunTerminalReason::Extraction;
+	Overclaim.SecuredOriginals = { Secured(DartId, 10) };
+	TestTrue(TEXT("Settlement cannot restore a durably consumed unit"),
+		Restarted.FinalizePreparedRun(Overclaim).Error
+			== EShanmenItemTransactionError::SecuredItemMismatch);
+	FShanmenItemRunFinalizeRequest Exact = Overclaim;
+	Exact.Context = MakeContext(306);
+	Exact.SecuredOriginals = { Secured(DartId, 9) };
+	const FShanmenItemTransactionReceipt Finalized =
+		Restarted.FinalizePreparedRun(Exact);
+	TestTrue(TEXT("Exact remaining balance finalizes and remains reload-valid"),
+		Finalized.IsSuccess()
+		&& Restarted.FindItem(DartId)->Quantity == 9
+		&& Restarted.ValidateInvariants());
+	FShanmenItemRepository TerminalRestart;
+	TestTrue(TEXT("Terminal consumption history reloads without resurrecting quantity"),
+		TerminalRestart.TryLoadSnapshot(Restarted.CaptureSnapshot())
+		&& TerminalRestart.FindItem(DartId)->Quantity == 9
+		&& TerminalRestart.ValidateInvariants());
 	return true;
 }
 
