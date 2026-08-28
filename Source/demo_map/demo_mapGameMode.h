@@ -64,6 +64,8 @@ public:
 	bool Prepare0909BRun(Fdemo_map0909BRunStartResult& OutResult);
 	bool Activate0909BM01World(FString& OutDiagnostic);
 	bool Rollback0909BPreparedRun(FString& OutDiagnostic);
+	/** Durable authority identity retained after a reversible technical rollback. */
+	FGuid Get0909BRecoverableRunId() const;
 	bool Get0909BProfileSnapshot(Fdemo_mapProfileSessionSnapshot& OutSnapshot, FString& OutDiagnostic) const;
 	void Observe0909BConfirmedRun(
 		const FGuid& OwnerId,

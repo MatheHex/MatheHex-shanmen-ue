@@ -102,7 +102,9 @@ enum class Edemo_mapProfileSessionSettlementStatus : uint8
 	SessionStateRejected,
 	EvidenceRejected,
 	NoPendingSettlement,
-	FatalProfileError
+	FatalProfileError,
+	/** Runtime-only technical rollback; durable Shanmen ActiveRun remains resumable. */
+	RuntimeRollbackReady
 };
 
 struct Fdemo_mapProfileSessionSettlementResult

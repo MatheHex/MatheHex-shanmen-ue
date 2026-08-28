@@ -197,6 +197,15 @@ bool Ademo_mapGameMode::Rollback0909BPreparedRun(FString& OutDiagnostic)
 	return bRolledBack;
 }
 
+FGuid Ademo_mapGameMode::Get0909BRecoverableRunId() const
+{
+	const Fdemo_mapProfilePreparationFlow* Flow =
+		V3ProgressionManager.IsValid()
+			? V3ProgressionManager->GetProfilePreparationFlow()
+			: nullptr;
+	return Flow ? Flow->GetRecoverableShanmenRunId() : FGuid();
+}
+
 bool Ademo_mapGameMode::Get0909BProfileSnapshot(
 	Fdemo_mapProfileSessionSnapshot& OutSnapshot,
 	FString& OutDiagnostic) const
@@ -214,7 +223,7 @@ bool Ademo_mapGameMode::Get0909BProfileSnapshot(
 		OutDiagnostic = TEXT("The retained Profile adapter has no readable P5 session.");
 		return false;
 	}
-	OutSnapshot = Flow->GetSession()->GetSnapshot();
+	OutSnapshot = Flow->GetPresentationSnapshot();
 	if (!OutSnapshot.ProfileId.IsValid())
 	{
 		OutDiagnostic = TEXT("The retained Profile adapter returned an invalid OwnerId.");

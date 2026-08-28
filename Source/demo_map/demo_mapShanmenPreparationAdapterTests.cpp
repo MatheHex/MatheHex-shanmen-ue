@@ -282,10 +282,11 @@ bool FShanmenPreparationProjectionContractTest::RunTest(const FString&)
 	TestTrue(TEXT("Existing equipment is the no-history migration baseline"),
 		Projection.SelectedWeaponId == Fixture.TrainingBladeId
 		&& Projection.SaveGeneration == AuthoritySnapshot.AuthorityRevision);
-	TestTrue(TEXT("All authority items project and eligible complete stacks are selectable"),
+	TestTrue(TEXT("All authority items project and the atomic product Start is enabled"),
 		Projection.OrderedPermanentStashRows.Num() == AuthoritySnapshot.Items.Num()
 		&& DustRow && DustRow->bMaterialSelectionEligible
-		&& !Projection.bCanStartRun
+		&& Projection.bCanStartRun
+		&& Projection.VisibleDiagnostic.Contains(TEXT("原子"))
 		&& Projection.OrderedSelectedMaterialIds.IsEmpty()
 		&& Projection.HotbarBindings.SlotBindings.Num()
 			== Fdemo_mapPersistentPreparationLayout::HotbarSlotCount);
@@ -335,9 +336,13 @@ bool FShanmenPreparationDurableRestartTest::RunTest(const FString&)
 	FShanmenItemAuthoritySnapshot AfterClearReplay;
 	Fixture.Authority->TryCaptureSnapshot(AfterClearReplay);
 	const int32 ClearRevision = AfterClearReplay.AuthorityRevision;
+	const Fdemo_mapProfilePreparationSnapshot ClearedProjection =
+		Fixture.Session->GetPreparationSnapshot();
 	TestTrue(TEXT("Terminal latest reservation is a durable empty tombstone"),
 		Clear.IsAccepted() && ClearReplay.IsAccepted()
-		&& !Fixture.Session->GetPreparationSnapshot().SelectedWeaponId.IsValid());
+		&& !ClearedProjection.SelectedWeaponId.IsValid()
+		&& !ClearedProjection.bCanStartRun
+		&& ClearedProjection.VisibleDiagnostic.Contains(TEXT("选择")));
 
 	const Fdemo_mapProfilePreparationSelectionResult Reselect =
 		Fixture.Session->SetPreparationEquipment(

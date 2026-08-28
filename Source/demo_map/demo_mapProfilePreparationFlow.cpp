@@ -3,6 +3,8 @@
 #include "demo_mapItemSubsystem.h"
 #include "demo_mapProfilePreparationWidget.h"
 #include "demo_mapProfileSessionSubsystem.h"
+#include "demo_mapShanmenItemAuthoritySubsystem.h"
+#include "demo_mapShanmenRunLifecycleAdapter.h"
 #include "Engine/GameInstance.h"
 #if !UE_BUILD_SHIPPING
 #include "HAL/FileManager.h"
@@ -356,10 +358,13 @@ Fdemo_mapProfileSessionInitializeResult Fdemo_mapProfilePreparationFlow::Initial
 
 	Session = GameInstance->GetSubsystem<Udemo_mapProfileSessionSubsystem>();
 	Runtime = GameInstance->GetSubsystem<Udemo_mapItemSubsystem>();
+	ShanmenAuthority =
+		GameInstance->GetSubsystem<Udemo_mapShanmenItemAuthoritySubsystem>();
 	if (!Session.IsValid() || !Runtime.IsValid())
 	{
 		Session.Reset();
 		Runtime.Reset();
+		ShanmenAuthority.Reset();
 		Result.Status = Edemo_mapProfileSessionInitializeStatus::FatalProfileError;
 		Result.Diagnostic = TEXT("Profile Flow could not bind the existing Session and Runtime authorities.");
 		return Result;
@@ -397,6 +402,12 @@ Fdemo_mapProfileSessionBeginResult Fdemo_mapProfilePreparationFlow::StartPrepare
 	}
 
 	Widget->InitializeForSession(Session.Get());
+	if (UsesShanmenItemLifecycle())
+	{
+		// The retained widget is presentation only after cutover.  Its Start
+		// button must enter the same atomic authority path as the sect CTA.
+		return StartPreparedRunDirect();
+	}
 	Result = Widget->RequestStartRun();
 	if (!Result.IsRunActive())
 	{
@@ -436,6 +447,58 @@ Fdemo_mapProfileSessionBeginResult Fdemo_mapProfilePreparationFlow::StartPrepare
 		Result.Diagnostic = TEXT("Profile Flow Start requires a ready preparation session.");
 		Result.Snapshot = Session.IsValid()
 			? Session->GetSnapshot() : Fdemo_mapProfileSessionSnapshot();
+		return Result;
+	}
+
+	if (Udemo_mapShanmenItemAuthoritySubsystem* Authority =
+		FindBoundShanmenAuthority())
+	{
+		const Fdemo_mapShanmenRunStartResult Start =
+			Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
+				*Authority, *Runtime);
+		Result.Diagnostic = Start.Diagnostic;
+		Result.RuntimeResult = Start.RuntimeResult;
+		if (Start.IsStarted()
+			&& Start.ActiveRunId.IsValid()
+			&& Runtime->GetRunState() == Edemo_mapRunState::Active
+			&& Runtime->GetActiveRunId() == Start.ActiveRunId)
+		{
+			StartedRunId = Start.ActiveRunId;
+			bShanmenRunMaterialized = true;
+			PendingShanmenSettlement.Reset();
+			Phase = Edemo_mapProfilePreparationFlowPhase::RunActive;
+			Result.Status =
+				Edemo_mapProfileSessionBeginStatus::CommittedAndMaterialized;
+			Result.Snapshot = GetPresentationSnapshot();
+			return Result;
+		}
+
+		const FGuid RecoverableRunId = GetRecoverableShanmenRunId();
+		if (RecoverableRunId.IsValid())
+		{
+			StartedRunId = RecoverableRunId;
+			bShanmenRunMaterialized = false;
+			Phase = Edemo_mapProfilePreparationFlowPhase::Preparation;
+			Result.Status =
+				Edemo_mapProfileSessionBeginStatus::RuntimeMaterializationFailed;
+			Result.Diagnostic +=
+				TEXT(" Durable ActiveRun remains recoverable; Start again to rematerialize the same identity.");
+		}
+		else
+		{
+			Result.Status = Start.Status
+					== Edemo_mapShanmenRunLifecycleStatus::PreparedLoadoutRejected
+				? Edemo_mapProfileSessionBeginStatus::StaleIntent
+				: Start.Status
+						== Edemo_mapShanmenRunLifecycleStatus::AuthorityNotReady
+					? Edemo_mapProfileSessionBeginStatus::SessionNotReady
+					: Edemo_mapProfileSessionBeginStatus::RuntimeMaterializationFailed;
+			Phase = Start.Status
+					== Edemo_mapShanmenRunLifecycleStatus::AuthorityNotReady
+				? Edemo_mapProfilePreparationFlowPhase::RecoveryRequired
+				: Edemo_mapProfilePreparationFlowPhase::Preparation;
+		}
+		Result.Snapshot = GetPresentationSnapshot();
 		return Result;
 	}
 
@@ -487,6 +550,11 @@ Fdemo_mapProfileSessionSettlementResult Fdemo_mapProfilePreparationFlow::CommitR
 		return RejectSettlement(TEXT("Profile Flow settlement RunId/reason/evidence did not match the active prepared run."));
 	}
 
+	if (bShanmenRunMaterialized && UsesShanmenItemLifecycle())
+	{
+		return FinalizeShanmenSettlement(Summary, false);
+	}
+
 	++SettlementSubmitCount;
 	const Fdemo_mapProfileSessionSettlementResult Result = Session->CommitRuntimeSettlement(Summary);
 	ApplySettlementResult(Result);
@@ -499,6 +567,12 @@ Fdemo_mapProfileSessionSettlementResult Fdemo_mapProfilePreparationFlow::RetryPe
 	{
 		return RejectSettlement(TEXT("Profile Flow has no explicit pending settlement retry to submit."));
 	}
+	if (bShanmenRunMaterialized && PendingShanmenSettlement.IsSet()
+		&& UsesShanmenItemLifecycle())
+	{
+		return FinalizeShanmenSettlement(
+			PendingShanmenSettlement.GetValue(), true);
+	}
 	++SettlementRetryCount;
 	const Fdemo_mapProfileSessionSettlementResult Result = Session->RetryPendingSettlement();
 	ApplySettlementResult(Result);
@@ -510,6 +584,37 @@ Fdemo_mapProfileSessionSettlementResult Fdemo_mapProfilePreparationFlow::CancelA
 	if (Phase != Edemo_mapProfilePreparationFlowPhase::RunActive || !Runtime.IsValid())
 	{
 		return RejectSettlement(TEXT("Profile Flow has no active prepared run to roll back after world activation failure."));
+	}
+	if (bShanmenRunMaterialized && UsesShanmenItemLifecycle())
+	{
+		Fdemo_mapSettlementSummary Summary;
+		const Fdemo_mapItemOperationResult RuntimeResult =
+			Runtime->RequestSettlement(
+				Edemo_mapRunEndReason::ActivationFailure, Summary);
+		if (!RuntimeResult.bSuccess)
+		{
+			Phase = Edemo_mapProfilePreparationFlowPhase::RecoveryRequired;
+			return RejectSettlement(RuntimeResult.Diagnostic);
+		}
+		++SettlementSubmitCount;
+		const Fdemo_mapItemOperationResult Prepared =
+			Runtime->PrepareForPersistentRun();
+		Fdemo_mapProfileSessionSettlementResult Result;
+		Result.Snapshot = Session->GetSnapshot();
+		Result.Snapshot.LastTerminalReason =
+			Edemo_mapRunEndReason::ActivationFailure;
+		Result.Status = Prepared.bSuccess
+			? Edemo_mapProfileSessionSettlementStatus::RuntimeRollbackReady
+			: Edemo_mapProfileSessionSettlementStatus::FatalProfileError;
+		Result.Diagnostic = Prepared.bSuccess
+			? TEXT("Technical activation rollback cleared only Runtime; the durable Shanmen ActiveRun remains available for exact-identity recovery.")
+			: Prepared.Diagnostic;
+		bShanmenRunMaterialized = false;
+		PendingShanmenSettlement.Reset();
+		Phase = Prepared.bSuccess
+			? Edemo_mapProfilePreparationFlowPhase::Preparation
+			: Edemo_mapProfilePreparationFlowPhase::RecoveryRequired;
+		return Result;
 	}
 	Fdemo_mapSettlementSummary Summary;
 	const Fdemo_mapItemOperationResult RuntimeResult = Runtime->RequestSettlement(
@@ -527,6 +632,7 @@ void Fdemo_mapProfilePreparationFlow::Unbind()
 {
 	Session.Reset();
 	Runtime.Reset();
+	ShanmenAuthority.Reset();
 	StorageRoot.Reset();
 	ProfileId.Invalidate();
 	StartedRunId.Invalidate();
@@ -536,6 +642,130 @@ void Fdemo_mapProfilePreparationFlow::Unbind()
 	Phase = Edemo_mapProfilePreparationFlowPhase::Disabled;
 	SettlementSubmitCount = 0;
 	SettlementRetryCount = 0;
+	bShanmenRunMaterialized = false;
+	PendingShanmenSettlement.Reset();
+}
+
+Udemo_mapShanmenItemAuthoritySubsystem*
+Fdemo_mapProfilePreparationFlow::FindBoundShanmenAuthority() const
+{
+	Udemo_mapShanmenItemAuthoritySubsystem* Authority =
+		ShanmenAuthority.Get();
+	return Authority
+		&& Authority->GetLifecycleState()
+			== Edemo_mapShanmenItemAuthorityLifecycleState::Ready
+		&& Authority->GetBoundOwnerId() == ProfileId
+		&& Authority->GetBoundStorageRoot().Equals(
+			StorageRoot, ESearchCase::IgnoreCase)
+		? Authority : nullptr;
+}
+
+bool Fdemo_mapProfilePreparationFlow::UsesShanmenItemLifecycle() const
+{
+	return FindBoundShanmenAuthority() != nullptr;
+}
+
+FGuid Fdemo_mapProfilePreparationFlow::GetRecoverableShanmenRunId() const
+{
+	FGuid ActiveRunId;
+	if (const Udemo_mapShanmenItemAuthoritySubsystem* Authority =
+		FindBoundShanmenAuthority())
+	{
+		Fdemo_mapShanmenRunLifecycleAdapter::TryFindRecoverableActiveRun(
+			*Authority, ActiveRunId);
+	}
+	return ActiveRunId;
+}
+
+Fdemo_mapProfileSessionSnapshot
+Fdemo_mapProfilePreparationFlow::GetPresentationSnapshot() const
+{
+	Fdemo_mapProfileSessionSnapshot Snapshot = Session.IsValid()
+		? Session->GetSnapshot() : Fdemo_mapProfileSessionSnapshot();
+	if (bShanmenRunMaterialized
+		&& Phase == Edemo_mapProfilePreparationFlowPhase::RunActive
+		&& StartedRunId.IsValid())
+	{
+		Snapshot.SessionState = Edemo_mapProfileSessionState::RunActive;
+		Snapshot.ActiveRunId = StartedRunId;
+		Snapshot.bCanBeginRun = false;
+		Snapshot.bCanRetrySettlement = false;
+		Snapshot.VisibleDiagnostic =
+			TEXT("Runtime is a transient projection of the durable Shanmen ActiveRun.");
+	}
+	return Snapshot;
+}
+
+Fdemo_mapProfileSessionSettlementResult
+Fdemo_mapProfilePreparationFlow::FinalizeShanmenSettlement(
+	const Fdemo_mapSettlementSummary& Summary,
+	const bool bRetry)
+{
+	Fdemo_mapProfileSessionSettlementResult Result;
+	Udemo_mapShanmenItemAuthoritySubsystem* Authority =
+		FindBoundShanmenAuthority();
+	if (!Authority || !Runtime.IsValid())
+	{
+		Result = RejectSettlement(
+			TEXT("Shanmen settlement lost its bound authority or Runtime."));
+		Phase = Edemo_mapProfilePreparationFlowPhase::RecoveryRequired;
+		return Result;
+	}
+	if (bRetry)
+	{
+		++SettlementRetryCount;
+	}
+	else
+	{
+		++SettlementSubmitCount;
+	}
+	const Fdemo_mapShanmenRunFinalizeResult Finalized =
+		Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
+			*Authority, Summary);
+	Result.Snapshot = Session->GetSnapshot();
+	Result.Snapshot.LastTerminalReason = Summary.Reason;
+	Result.Diagnostic = Finalized.Diagnostic;
+	if (Finalized.IsFinalized())
+	{
+		Result.Status = Finalized.Status
+				== Edemo_mapShanmenRunLifecycleStatus::NoChange
+			? Edemo_mapProfileSessionSettlementStatus::AlreadyCommitted
+			: Edemo_mapProfileSessionSettlementStatus::Committed;
+		const Fdemo_mapItemOperationResult RuntimePreparation =
+			Runtime->PrepareForPersistentRun();
+		bShanmenRunMaterialized = false;
+		PendingShanmenSettlement.Reset();
+		StartedRunId.Invalidate();
+		Phase = RuntimePreparation.bSuccess
+			? Edemo_mapProfilePreparationFlowPhase::Preparation
+			: Edemo_mapProfilePreparationFlowPhase::RecoveryRequired;
+		if (!RuntimePreparation.bSuccess)
+		{
+			Result.Status =
+				Edemo_mapProfileSessionSettlementStatus::FatalProfileError;
+			Result.Diagnostic += TEXT(" Runtime cleanup failed: ")
+				+ RuntimePreparation.Diagnostic;
+		}
+		return Result;
+	}
+
+	const bool bRetryable = Finalized.Status
+		== Edemo_mapShanmenRunLifecycleStatus::FinalizeRejected;
+	Result.Status = bRetryable
+		? Edemo_mapProfileSessionSettlementStatus::PendingRetry
+		: Finalized.Status
+			== Edemo_mapShanmenRunLifecycleStatus::SettlementInvalid
+			|| Finalized.Status
+				== Edemo_mapShanmenRunLifecycleStatus::UnsupportedTerminalReason
+		? Edemo_mapProfileSessionSettlementStatus::EvidenceRejected
+		: Edemo_mapProfileSessionSettlementStatus::FatalProfileError;
+	PendingShanmenSettlement = bRetryable
+		? TOptional<Fdemo_mapSettlementSummary>(Summary)
+		: TOptional<Fdemo_mapSettlementSummary>();
+	Phase = bRetryable
+		? Edemo_mapProfilePreparationFlowPhase::SettlementPending
+		: Edemo_mapProfilePreparationFlowPhase::RecoveryRequired;
+	return Result;
 }
 
 Fdemo_mapProfileSessionSettlementResult Fdemo_mapProfilePreparationFlow::RejectSettlement(

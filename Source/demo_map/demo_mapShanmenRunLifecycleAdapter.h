@@ -66,6 +66,15 @@ struct Fdemo_mapShanmenRunFinalizeResult
  */
 struct Fdemo_mapShanmenRunLifecycleAdapter
 {
+	/**
+	 * Read-only recovery probe for the one durable Start/Claim that has no
+	 * matching Finalize receipt.  It never prepares or mutates Runtime state.
+	 */
+	static bool TryFindRecoverableActiveRun(
+		const Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+		FGuid& OutActiveRunId,
+		FString* OutDiagnostic = nullptr);
+
 	static Fdemo_mapShanmenRunStartResult StartPreparedRun(
 		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
 		Udemo_mapItemSubsystem& Runtime);

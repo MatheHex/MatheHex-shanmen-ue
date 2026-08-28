@@ -10,6 +10,7 @@ class UGameInstance;
 class Udemo_mapItemSubsystem;
 class Udemo_mapProfilePreparationWidget;
 class Udemo_mapProfileSessionSubsystem;
+class Udemo_mapShanmenItemAuthoritySubsystem;
 
 enum class Edemo_mapProfilePreparationFlowPhase : uint8
 {
@@ -21,9 +22,9 @@ enum class Edemo_mapProfilePreparationFlowPhase : uint8
 };
 
 /**
- * Non-authoritative, opt-in flow adapter. It retains only weak authority references and
- * transient lifecycle identity; Profile, Runtime items, settlement evidence and disk state
- * remain exclusively owned by the existing Session/Repository/ItemSubsystem stack.
+ * Non-authoritative lifecycle adapter. It retains only weak authority references
+ * and transient run identity: legacy flows remain Profile-owned, while a bound
+ * 0.0.10 product flow delegates item start/finalize durability to ShanmenItems.
  */
 class Fdemo_mapProfilePreparationFlow
 {
@@ -52,7 +53,7 @@ public:
 #endif
 	Fdemo_mapProfileSessionBeginResult StartPreparedRunThroughWidget(
 		Udemo_mapProfilePreparationWidget* Widget);
-	/** Product-path Start Run. The Profile transaction is UI-independent. */
+	/** Product-path Start Run. The selected lifecycle transaction is UI-independent. */
 	Fdemo_mapProfileSessionBeginResult StartPreparedRunDirect();
 	Fdemo_mapProfileSessionSettlementResult CommitRuntimeSettlement(
 		const Fdemo_mapSettlementSummary& Summary);
@@ -73,6 +74,12 @@ public:
 	FGuid GetPreviousSettlementId() const { return PreviousSettlementId; }
 	int32 GetSettlementSubmitCount() const { return SettlementSubmitCount; }
 	int32 GetSettlementRetryCount() const { return SettlementRetryCount; }
+	/** Compatibility presentation only; item authority remains ShanmenItems. */
+	Fdemo_mapProfileSessionSnapshot GetPresentationSnapshot() const;
+	/** True only for the ready authority bound to this exact root and owner. */
+	bool UsesShanmenItemLifecycle() const;
+	/** Read-only UI recovery identity; no Runtime or durable mutation occurs. */
+	FGuid GetRecoverableShanmenRunId() const;
 
 private:
 	Fdemo_mapProfileSessionInitializeResult InitializeWithStorage(
@@ -80,9 +87,14 @@ private:
 		const Fdemo_mapProfileStorageContext& Storage);
 	Fdemo_mapProfileSessionSettlementResult RejectSettlement(const FString& Diagnostic) const;
 	void ApplySettlementResult(const Fdemo_mapProfileSessionSettlementResult& Result);
+	Fdemo_mapProfileSessionSettlementResult FinalizeShanmenSettlement(
+		const Fdemo_mapSettlementSummary& Summary,
+		bool bRetry);
+	Udemo_mapShanmenItemAuthoritySubsystem* FindBoundShanmenAuthority() const;
 
 	TWeakObjectPtr<Udemo_mapProfileSessionSubsystem> Session;
 	TWeakObjectPtr<Udemo_mapItemSubsystem> Runtime;
+	TWeakObjectPtr<Udemo_mapShanmenItemAuthoritySubsystem> ShanmenAuthority;
 	FString StorageRoot;
 	FGuid ProfileId;
 	FGuid StartedRunId;
@@ -92,4 +104,6 @@ private:
 	Edemo_mapProfilePreparationFlowPhase Phase = Edemo_mapProfilePreparationFlowPhase::Disabled;
 	int32 SettlementSubmitCount = 0;
 	int32 SettlementRetryCount = 0;
+	bool bShanmenRunMaterialized = false;
+	TOptional<Fdemo_mapSettlementSummary> PendingShanmenSettlement;
 };

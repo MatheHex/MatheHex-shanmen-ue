@@ -284,6 +284,72 @@ namespace
 	}
 }
 
+bool Fdemo_mapShanmenRunLifecycleAdapter::TryFindRecoverableActiveRun(
+	const Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+	FGuid& OutActiveRunId,
+	FString* OutDiagnostic)
+{
+	OutActiveRunId.Invalidate();
+	auto Finish = [OutDiagnostic](const FString& Diagnostic, const bool bSuccess)
+	{
+		if (OutDiagnostic)
+		{
+			*OutDiagnostic = Diagnostic;
+		}
+		return bSuccess;
+	};
+	if (Authority.GetLifecycleState()
+			!= Edemo_mapShanmenItemAuthorityLifecycleState::Ready
+		|| !Authority.GetBoundOwnerId().IsValid())
+	{
+		return Finish(TEXT("ShanmenItems authority is not ready for a recovery probe."), false);
+	}
+	FShanmenItemAuthoritySnapshot Snapshot;
+	if (!Authority.TryCaptureSnapshot(Snapshot))
+	{
+		return Finish(TEXT("ShanmenItems authority snapshot is unavailable for recovery."), false);
+	}
+
+	TSet<FGuid> FinalizedRunIds;
+	for (const FShanmenItemProcessedRequestSnapshot& Processed :
+		Snapshot.ProcessedRequests)
+	{
+		const FShanmenItemTransactionReceipt& Receipt = Processed.Receipt;
+		if (Receipt.IsSuccess()
+			&& Receipt.Operation
+				== EShanmenItemTransactionOperation::FinalizePreparedRun
+			&& Receipt.ReservationId.IsValid())
+		{
+			FinalizedRunIds.Add(Receipt.ReservationId);
+		}
+	}
+	for (const FShanmenItemProcessedRequestSnapshot& Processed :
+		Snapshot.ProcessedRequests)
+	{
+		const FShanmenItemTransactionReceipt& Receipt = Processed.Receipt;
+		if (!Receipt.IsSuccess()
+			|| (Receipt.Operation
+					!= EShanmenItemTransactionOperation::StartPreparedRun
+				&& Receipt.Operation
+					!= EShanmenItemTransactionOperation::ClaimPreparedRun)
+			|| !Receipt.ReservationId.IsValid()
+			|| FinalizedRunIds.Contains(Receipt.ReservationId))
+		{
+			continue;
+		}
+		if (OutActiveRunId.IsValid()
+			&& OutActiveRunId != Receipt.ReservationId)
+		{
+			OutActiveRunId.Invalidate();
+			return Finish(TEXT("Authority exposes more than one unfinalized prepared Run."), false);
+		}
+		OutActiveRunId = Receipt.ReservationId;
+	}
+	return OutActiveRunId.IsValid()
+		? Finish(TEXT("A durable ActiveRun receipt awaits Runtime materialization or continuation."), true)
+		: Finish(TEXT("No unfinalized prepared Run exists."), false);
+}
+
 Fdemo_mapShanmenRunStartResult
 Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
 	Udemo_mapShanmenItemAuthoritySubsystem& Authority,

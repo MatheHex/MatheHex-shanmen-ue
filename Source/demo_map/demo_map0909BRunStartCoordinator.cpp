@@ -206,11 +206,22 @@ bool Fdemo_map0909BRunStartCoordinator::ReturnToSectAfterTechnicalFailure(
 	}
 	if (bRolledBack && bNoP6Session)
 	{
-		LastDiagnostic.ReleasedRunId = LastDiagnostic.RunId;
-		LastDiagnostic.RunId.Invalidate();
+		const FGuid RecoverableRunId = GameMode.IsValid()
+			? GameMode->Get0909BRecoverableRunId() : FGuid();
+		if (RecoverableRunId.IsValid())
+		{
+			LastDiagnostic.RunId = RecoverableRunId;
+		}
+		else
+		{
+			LastDiagnostic.ReleasedRunId = LastDiagnostic.RunId;
+			LastDiagnostic.RunId.Invalidate();
+		}
 		Transition(Edemo_map0909BTopState::AtSect, TEXT("AtSect"));
 		LastDiagnostic.Detail += TEXT(" | ") + RollbackDiagnostic;
-		OutPlayerFeedback = TEXT("M01 未能启动，已作为技术失败安全返回宗门；仓库和真实 Profile 保持可编辑。");
+		OutPlayerFeedback = RecoverableRunId.IsValid()
+			? TEXT("M01 世界未能启动；瞬态 Runtime 已清理，原远征身份与物资仍由 ShanmenItems 保留。再次开始将恢复同一远征。")
+			: TEXT("M01 未能启动，已作为技术失败安全返回宗门；没有生成玩家放弃记录。");
 		UE_LOG(Logdemo_map, Warning,
 			TEXT("0_0_9BFIX_RUN_COORDINATOR Event=TechnicalFailureRecovered %s"),
 			*LastDiagnostic.ToLogString());

@@ -7,7 +7,11 @@
 #include "demo_map.h"
 #include "demo_mapGameMode.h"
 #include "demo_mapPlayerController.h"
+#include "demo_mapProfileSessionSubsystem.h"
+#include "demo_mapShanmenItemAuthoritySubsystem.h"
+#include "demo_mapShanmenItemCutover.h"
 #include "Blueprint/UserWidget.h"
+#include "Engine/GameInstance.h"
 
 Ademo_map0909BFrameworkHost::Ademo_map0909BFrameworkHost()
 {
@@ -38,20 +42,38 @@ bool Ademo_map0909BFrameworkHost::InitializeForGame(
 	{
 		if (WeakHost.IsValid())
 		{
-			WeakHost->ShowSect(TEXT("已返回宗门；仓库的真实 Profile 修改已保留。"));
+			WeakHost->ShowSect(TEXT("已返回宗门；ShanmenItems 权威终局已经持久化。"));
 		}
 	});
 
+	// Existing authority wins before either legacy source is inspected.  On a
+	// first 0.0.10 launch the unopened warehouse intentionally fails this probe;
+	// the stable sources are then opened once and the same coordinator publishes
+	// generation one.
+	FString CutoverDiagnostic;
+	bool bCutoverReady = EnsureShanmenItemCutover(CutoverDiagnostic);
 	FString WarehouseDiagnostic;
 	const bool bWarehouseReady = OpenWarehouseService(WarehouseDiagnostic);
+	if (!bCutoverReady && bWarehouseReady)
+	{
+		bCutoverReady = EnsureShanmenItemCutover(CutoverDiagnostic);
+	}
 	FString EditorDiagnostic;
 	const bool bEditorEntryValid = Fdemo_map0909BEditorSupport::ValidateDefaultEntry(
 		*InGameMode, EditorDiagnostic);
+	const FGuid RecoverableRunId = InGameMode->Get0909BRecoverableRunId();
+	const bool bRecoverable = RecoverableRunId.IsValid();
 	bInitialized = true;
-	ShowSect(bEditorEntryValid && bWarehouseReady
-		? TEXT("已进入 0.0.9B 宗门入口。仓库可整理；只有真实 M01 成功部署才会锁定。")
-		: TEXT("入口或 P5 战备诊断异常：") + EditorDiagnostic + TEXT(" | ") + WarehouseDiagnostic);
-	return bEditorEntryValid && bWarehouseReady;
+	ShowSect(bEditorEntryValid && bCutoverReady && bWarehouseReady
+		? bRecoverable
+			? FString::Printf(
+				TEXT("检测到可恢复远征 %s；再次进入 M01 将重建同一 Runtime，不会创建第二个 Run。"),
+				*RecoverableRunId.ToString(EGuidFormats::DigitsWithHyphens))
+			: TEXT("已进入 0.0.10 宗门入口。ShanmenItems 是唯一物品权威；真实 M01 部署使用原子 Run-start。")
+		: TEXT("入口、战备或 ShanmenItems cutover 诊断异常：")
+			+ EditorDiagnostic + TEXT(" | ") + WarehouseDiagnostic
+			+ TEXT(" | ") + CutoverDiagnostic);
+	return bEditorEntryValid && bWarehouseReady && bCutoverReady;
 }
 
 void Ademo_map0909BFrameworkHost::RequestStartM01FromUI()
@@ -61,21 +83,36 @@ void Ademo_map0909BFrameworkHost::RequestStartM01FromUI()
 		ShowSect(TEXT("远征协调器尚未就绪。"));
 		return;
 	}
-	// The visible P23 workspace owns all P5 edits. Rehydrate this read-only
-	// selection adapter from the durable graph immediately before StartAttempt
-	// so it can never consume the retired warehouse widget's stale repository.
+	// Code B selection is retained only as read-only audit correlation. The
+	// actual prepared identities and resource transition come from ShanmenItems.
+	FCodeBLoadoutSelection RecoverableSelection;
+	FString RecoverableSelectionDiagnostic;
+	const bool bHasRecoverableSelection = WarehouseService
+		&& WarehouseService->CaptureLoadoutSelection(
+			RecoverableSelection, RecoverableSelectionDiagnostic);
 	FString WarehouseRefreshDiagnostic;
-	if (!OpenWarehouseService(WarehouseRefreshDiagnostic))
+	const bool bWarehouseRefreshed =
+		OpenWarehouseService(WarehouseRefreshDiagnostic);
+	if (!bWarehouseRefreshed && !bHasRecoverableSelection)
 	{
 		ShowSect(TEXT("无法刷新当前 P5 战备快照：") + WarehouseRefreshDiagnostic);
 		return;
 	}
 	FCodeBLoadoutSelection Selection;
 	FString SelectionDiagnostic;
-	if (!WarehouseService || !WarehouseService->CaptureLoadoutSelection(Selection, SelectionDiagnostic))
+	if (bWarehouseRefreshed)
 	{
-		ShowSect(TEXT("无法取得当前 P5 战备快照：") + SelectionDiagnostic);
-		return;
+		if (!WarehouseService
+			|| !WarehouseService->CaptureLoadoutSelection(
+				Selection, SelectionDiagnostic))
+		{
+			ShowSect(TEXT("无法取得当前 P5 战备快照：") + SelectionDiagnostic);
+			return;
+		}
+	}
+	else
+	{
+		Selection = RecoverableSelection;
 	}
 	FString Feedback;
 	const bool bStarted = StartCoordinator->StartM01Run(Selection, Feedback);
@@ -233,6 +270,58 @@ bool Ademo_map0909BFrameworkHost::OpenWarehouseService(FString& OutDiagnostic)
 		static_cast<int32>(Snapshot.SessionState), *Snapshot.ActiveRunId.ToString(EGuidFormats::DigitsWithHyphensLower),
 		static_cast<int32>(Snapshot.LastTerminalReason), *OutDiagnostic);
 	return bProjectionValid;
+}
+
+bool Ademo_map0909BFrameworkHost::EnsureShanmenItemCutover(
+	FString& OutDiagnostic)
+{
+	OutDiagnostic.Reset();
+	if (!GameMode.IsValid() || !WarehouseService)
+	{
+		OutDiagnostic = TEXT("ShanmenItems cutover requires the product host and warehouse adapter.");
+		return false;
+	}
+	UGameInstance* GameInstance = GameMode->GetGameInstance();
+	Udemo_mapProfileSessionSubsystem* ProfileSession = GameInstance
+		? GameInstance->GetSubsystem<Udemo_mapProfileSessionSubsystem>()
+		: nullptr;
+	Udemo_mapShanmenItemAuthoritySubsystem* Authority = GameInstance
+		? GameInstance->GetSubsystem<Udemo_mapShanmenItemAuthoritySubsystem>()
+		: nullptr;
+	Fdemo_mapProfileSessionSnapshot Snapshot;
+	if (!ProfileSession || !Authority
+		|| !GameMode->Get0909BProfileSnapshot(Snapshot, OutDiagnostic))
+	{
+		if (OutDiagnostic.IsEmpty())
+		{
+			OutDiagnostic = TEXT("ShanmenItems cutover dependencies are unavailable.");
+		}
+		return false;
+	}
+	const Fdemo_mapShanmenItemCutoverResult Result =
+		Fdemo_mapShanmenItemCutoverCoordinator::Execute(
+			Fdemo_mapProfileStorageContext::ForRoot(
+				GameMode->Get0909BProfileStorageRoot()),
+			Snapshot.ProfileId, *Authority, *ProfileSession,
+			*WarehouseService);
+	OutDiagnostic = Result.Diagnostic;
+	if (Result.IsReady())
+	{
+		UE_LOG(Logdemo_map, Log,
+			TEXT("SHANMEN_P1_13_PRODUCT_CUTOVER Ready=1 Status=%d OwnerId=%s Diagnostic=%s"),
+			static_cast<int32>(Result.Status),
+			*Snapshot.ProfileId.ToString(EGuidFormats::DigitsWithHyphens),
+			*Result.Diagnostic);
+	}
+	else
+	{
+		UE_LOG(Logdemo_map, Warning,
+			TEXT("SHANMEN_P1_13_PRODUCT_CUTOVER Ready=0 Status=%d OwnerId=%s Diagnostic=%s"),
+			static_cast<int32>(Result.Status),
+			*Snapshot.ProfileId.ToString(EGuidFormats::DigitsWithHyphens),
+			*Result.Diagnostic);
+	}
+	return Result.IsReady();
 }
 
 void Ademo_map0909BFrameworkHost::EndPlay(

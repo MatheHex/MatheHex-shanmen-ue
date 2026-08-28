@@ -46,6 +46,7 @@ private:
 	void ShowSect(const FString& InFeedback);
 	void RefreshSect(const FString& InFeedback);
 	bool OpenWarehouseService(FString& OutDiagnostic);
+	bool EnsureShanmenItemCutover(FString& OutDiagnostic);
 
 	TWeakObjectPtr<Ademo_mapGameMode> GameMode;
 	TWeakObjectPtr<Ademo_mapPlayerController> Controller;

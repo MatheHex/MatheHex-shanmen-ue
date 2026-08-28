@@ -3936,10 +3936,12 @@ bool Ademo_mapV3ProgressionManager::RollbackPreparedProfileRunFor0909B(
 	DeactivateProfileWorld();
 	bSettlementPending = false;
 	const Fdemo_mapProfileSessionSnapshot Snapshot =
-		ProfilePreparationFlow->GetSession()
-			? ProfilePreparationFlow->GetSession()->GetSnapshot()
-			: Fdemo_mapProfileSessionSnapshot();
-	const bool bAtSectReady = Rollback.IsDurablySettled()
+		ProfilePreparationFlow->GetPresentationSnapshot();
+	const bool bTechnicalRuntimeRollback =
+		Rollback.Status
+			== Edemo_mapProfileSessionSettlementStatus::RuntimeRollbackReady;
+	const bool bAtSectReady =
+		(Rollback.IsDurablySettled() || bTechnicalRuntimeRollback)
 		&& Snapshot.SessionState == Edemo_mapProfileSessionState::ReadyForPreparation
 		&& !Snapshot.ActiveRunId.IsValid();
 	OutDiagnostic = FString::Printf(
@@ -4002,7 +4004,7 @@ Fdemo_mapProfileSessionBeginResult Ademo_mapV3ProgressionManager::StartPreparedP
 		return Result;
 	}
 	// The old preparation widget remains only for legacy automation. Product
-	// Start Run is a direct Profile transaction launched from the teleport page.
+	// Start Run is an atomic ShanmenItems lifecycle launched from the teleport page.
 	HideProfilePreparation();
 	Result = ProfilePreparationFlow->StartPreparedRunDirect();
 #if !UE_BUILD_SHIPPING
@@ -4011,7 +4013,7 @@ Fdemo_mapProfileSessionBeginResult Ademo_mapV3ProgressionManager::StartPreparedP
 		LogP6ProductStartBridgeR2Trace(
 			TEXT("CodeAStartRunRequested"), Result.Snapshot, nullptr, nullptr,
 			ECodeBRunInventoryBridgeStatus::StorageFailure,
-			TEXT("Route=StartPreparedProfileRunFromSect>StartPreparedProfileRun>ProfileSession.StartPreparedRunDirect"));
+			TEXT("Route=StartPreparedProfileRunFromSect>StartPreparedProfileRun>ProfileFlow.AtomicAuthorityStart"));
 	}
 #endif
 	if (!Result.IsRunActive())
@@ -4023,9 +4025,7 @@ Fdemo_mapProfileSessionBeginResult Ademo_mapV3ProgressionManager::StartPreparedP
 	{
 		Result.Status = Edemo_mapProfileSessionBeginStatus::RuntimeMaterializationFailed;
 		Result.Diagnostic = TEXT("V3 world activation failed and was rolled back as a technical ActivationFailure, not a player Abandon.");
-		Result.Snapshot = ProfilePreparationFlow->GetSession()
-			? ProfilePreparationFlow->GetSession()->GetSnapshot()
-			: Fdemo_mapProfileSessionSnapshot();
+		Result.Snapshot = ProfilePreparationFlow->GetPresentationSnapshot();
 	}
 	else if (Result.Snapshot.ProfileId.IsValid() && Result.Snapshot.ActiveRunId.IsValid())
 	{

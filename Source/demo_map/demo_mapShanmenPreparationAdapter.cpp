@@ -1258,7 +1258,7 @@ bool Fdemo_mapShanmenPreparationAdapter::BuildProjection(
 		return GuidLess(Left.ItemInstanceId, Right.ItemInstanceId);
 	});
 	OutProjection.Diagnostic =
-		TEXT("P1.8 projects equipment, complete-stack RunInventory, and Hotbar from ShanmenItems; atomic prepared-loadout commit is available while the legacy product Start Run bridge remains disabled.");
+		TEXT("Equipment, complete-stack RunInventory, and Hotbar are projected from ShanmenItems; the product Start button uses the atomic prepared-Run lifecycle.");
 	if (OutDiagnostic) OutDiagnostic->Reset();
 	return true;
 }

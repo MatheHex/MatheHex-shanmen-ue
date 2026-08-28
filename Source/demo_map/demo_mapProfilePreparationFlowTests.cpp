@@ -1,12 +1,16 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "demo_map0909BSectWarehouseService.h"
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapItemSubsystem.h"
 #include "demo_mapProfilePreparationFlow.h"
 #include "demo_mapProfilePreparationWidget.h"
 #include "demo_mapProfileRepository.h"
 #include "demo_mapProfileSessionSubsystem.h"
+#include "demo_mapShanmenItemAuthoritySubsystem.h"
+#include "demo_mapShanmenItemCutover.h"
+#include "demo_mapShanmenRunLifecycleAdapter.h"
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
 #include "HAL/FileManager.h"
@@ -24,6 +28,12 @@ namespace
 			TEXT("Dev.D.UE.0.0.4.14.r0"),
 			TEXT("ProfilePreparationFlow"),
 			FGuid::NewGuid().ToString(EGuidFormats::Digits));
+	}
+
+	bool ReadFlowBytes(const FString& Path, TArray<uint8>& OutBytes)
+	{
+		OutBytes.Reset();
+		return FFileHelper::LoadFileToArray(OutBytes, *Path);
 	}
 
 	bool ContainsItem(const Fdemo_mapProfileSessionSnapshot& Snapshot, const FGuid& ItemId)
@@ -208,6 +218,63 @@ namespace
 			Profile.PermanentStash.Add(Item);
 		}
 		Repository.SaveProfile(Profile, Storage);
+	}
+
+	bool InitializeCutoverFlow(
+		FAutomationTestBase& Test,
+		FFlowFixture& Fixture,
+		Fdemo_mapProfilePreparationFlow& Flow,
+		const FString& Root,
+		Udemo_mapShanmenItemAuthoritySubsystem*& OutAuthority,
+		Fdemo_map0909BSectWarehouseService& OutWarehouse)
+	{
+		OutAuthority = nullptr;
+		if (!InitializeFlow(Test, Fixture, Flow, Root))
+		{
+			return false;
+		}
+		OutAuthority = Fixture.GameInstance->GetSubsystem<
+			Udemo_mapShanmenItemAuthoritySubsystem>();
+		Fdemo_map0909BWarehousePresentation Presentation;
+		FString Diagnostic;
+		if (!OutAuthority
+			|| !OutWarehouse.OpenForSect(
+				Root, Fixture.Session->GetSnapshot(),
+				Edemo_map0909BTopState::AtSect,
+				Presentation, Diagnostic))
+		{
+			Test.AddError(FString::Printf(
+				TEXT("P1.13 could not open the stable Code B migration source: %s"),
+				*Diagnostic));
+			return false;
+		}
+		const Fdemo_mapShanmenItemCutoverResult Cutover =
+			Fdemo_mapShanmenItemCutoverCoordinator::Execute(
+				Fdemo_mapProfileStorageContext::ForRoot(Root),
+				Flow.GetProfileId(), *OutAuthority,
+				*Fixture.Session, OutWarehouse);
+		if (!Cutover.IsReady() || !Flow.UsesShanmenItemLifecycle())
+		{
+			Test.AddError(FString::Printf(
+				TEXT("P1.13 authority cutover did not bind the product Flow: %s"),
+				*Cutover.Diagnostic));
+			return false;
+		}
+		return true;
+	}
+
+	int32 CountSuccessfulAuthorityOperation(
+		const FShanmenItemAuthoritySnapshot& Snapshot,
+		const EShanmenItemTransactionOperation Operation)
+	{
+		int32 Count = 0;
+		for (const FShanmenItemProcessedRequestSnapshot& Processed :
+			Snapshot.ProcessedRequests)
+		{
+			Count += Processed.Receipt.IsSuccess()
+				&& Processed.Receipt.Operation == Operation ? 1 : 0;
+		}
+		return Count;
 	}
 }
 
@@ -460,6 +527,215 @@ bool FProfilePreparationFlow17::RunTest(const FString&)
 			&& ContainsItem(SecondEnd.Snapshot, Blade)
 			&& Flow.GetPhase()
 				== Edemo_mapProfilePreparationFlowPhase::Preparation);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenProductFlowAtomicStartAndTerminalTest,
+	"Shanmen.0_0_10.Items.ProductFlow.AtomicStartAndTerminal",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenProductFlowAtomicStartAndTerminalTest::RunTest(const FString&)
+{
+	const FString Root = NewFlowRoot();
+	FFlowFixture Fixture;
+	Fdemo_mapProfilePreparationFlow Flow;
+	Udemo_mapShanmenItemAuthoritySubsystem* Authority = nullptr;
+	Fdemo_map0909BSectWarehouseService Warehouse;
+	if (!InitializeCutoverFlow(
+			*this, Fixture, Flow, Root, Authority, Warehouse))
+	{
+		return false;
+	}
+
+	const FGuid Blade = FindDefinition(
+		Fixture.Session->GetSnapshot(), Fdemo_mapItemIds::TrainingBlade);
+	TestTrue(TEXT("P1.13 selection writes only the cutover authority"),
+		Blade.IsValid()
+		&& Fixture.Session->SetPreparationEquipment(
+			Fdemo_mapItemIds::WeaponSlot, Blade).IsAccepted());
+	Fixture.Runtime->ResetForAutomation();
+	TArray<uint8> ProfileBefore;
+	FShanmenItemAuthorityDocument BeforeStart;
+	TestTrue(TEXT("P1.13 captures retired Profile and authority baselines"),
+		ReadFlowBytes(
+			Fdemo_mapProfileStorageContext::ForRoot(Root).PrimaryPath(),
+			ProfileBefore)
+		&& Authority->TryGetDocument(BeforeStart));
+
+	const Fdemo_mapProfileSessionBeginResult Begin =
+		Flow.StartPreparedRunDirect();
+	const FGuid ActiveRunId = Begin.Snapshot.ActiveRunId;
+	const Fdemo_mapProfileSessionSnapshot RawProfile =
+		Fixture.Session->GetSnapshot();
+	FShanmenItemAuthorityDocument AfterStart;
+	FShanmenItemAuthoritySnapshot ActiveAuthority;
+	TestTrue(TEXT("Product Start publishes one atomic durable Run before Runtime"),
+		Begin.IsRunActive()
+		&& ActiveRunId.IsValid()
+		&& ActiveRunId == Fixture.Runtime->GetActiveRunId()
+		&& ActiveRunId == Flow.GetStartedRunId()
+		&& Flow.GetPhase() == Edemo_mapProfilePreparationFlowPhase::RunActive
+		&& RawProfile.SessionState
+			== Edemo_mapProfileSessionState::ReadyForPreparation
+		&& !RawProfile.ActiveRunId.IsValid()
+		&& Authority->TryGetDocument(AfterStart)
+		&& Authority->TryCaptureSnapshot(ActiveAuthority)
+		&& AfterStart.SaveGeneration == BeforeStart.SaveGeneration + 1
+		&& CountSuccessfulAuthorityOperation(
+			ActiveAuthority,
+			EShanmenItemTransactionOperation::StartPreparedRun) == 1
+		&& CountSuccessfulAuthorityOperation(
+			ActiveAuthority,
+			EShanmenItemTransactionOperation::CommitBatch) == 0
+		&& CountSuccessfulAuthorityOperation(
+			ActiveAuthority,
+			EShanmenItemTransactionOperation::ClaimPreparedRun) == 0);
+
+	Fdemo_mapSettlementSummary Summary;
+	const Fdemo_mapItemOperationResult RuntimeSettlement =
+		Fixture.Runtime->RequestSettlement(
+			Edemo_mapRunEndReason::Extraction, Summary);
+	const Fdemo_mapProfileSessionSettlementResult End =
+		RuntimeSettlement.bSuccess
+			? Flow.CommitRuntimeSettlement(Summary)
+			: Fdemo_mapProfileSessionSettlementResult();
+	FShanmenItemAuthoritySnapshot TerminalAuthority;
+	FGuid RecoverableRunId;
+	TArray<uint8> ProfileAfter;
+	TestTrue(TEXT("Terminal settlement finalizes only ShanmenItems and clears Runtime"),
+		RuntimeSettlement.bSuccess
+		&& End.Status == Edemo_mapProfileSessionSettlementStatus::Committed
+		&& End.IsDurablySettled()
+		&& Flow.GetPhase()
+			== Edemo_mapProfilePreparationFlowPhase::Preparation
+		&& Fixture.Runtime->GetRunState() == Edemo_mapRunState::Inactive
+		&& !Fixture.Runtime->GetActiveRunId().IsValid()
+		&& Authority->TryCaptureSnapshot(TerminalAuthority)
+		&& !Fdemo_mapShanmenRunLifecycleAdapter::
+			TryFindRecoverableActiveRun(*Authority, RecoverableRunId)
+		&& CountSuccessfulAuthorityOperation(
+			TerminalAuthority,
+			EShanmenItemTransactionOperation::FinalizePreparedRun) == 1
+		&& ReadFlowBytes(
+			Fdemo_mapProfileStorageContext::ForRoot(Root).PrimaryPath(),
+			ProfileAfter)
+		&& ProfileAfter == ProfileBefore);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenProductFlowRuntimeRecoveryTest,
+	"Shanmen.0_0_10.Items.ProductFlow.RuntimeFailureRecovery",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenProductFlowRuntimeRecoveryTest::RunTest(const FString&)
+{
+	const FString Root = NewFlowRoot();
+	FFlowFixture Fixture;
+	Fdemo_mapProfilePreparationFlow Flow;
+	Udemo_mapShanmenItemAuthoritySubsystem* Authority = nullptr;
+	Fdemo_map0909BSectWarehouseService Warehouse;
+	if (!InitializeCutoverFlow(
+			*this, Fixture, Flow, Root, Authority, Warehouse))
+	{
+		return false;
+	}
+
+	const FGuid Blade = FindDefinition(
+		Fixture.Session->GetSnapshot(), Fdemo_mapItemIds::TrainingBlade);
+	if (!Blade.IsValid()
+		|| !Fixture.Session->SetPreparationEquipment(
+			Fdemo_mapItemIds::WeaponSlot, Blade).IsAccepted())
+	{
+		AddError(TEXT("P1.13 recovery fixture could not select the migrated blade."));
+		return false;
+	}
+	Fixture.Runtime->ResetForAutomation();
+	TArray<uint8> ProfileBefore;
+	ReadFlowBytes(
+		Fdemo_mapProfileStorageContext::ForRoot(Root).PrimaryPath(),
+		ProfileBefore);
+	Fixture.Runtime->SetPreparedRunFailureAfterMutationForAutomation(1);
+	const Fdemo_mapProfileSessionBeginResult Failed =
+		Flow.StartPreparedRunDirect();
+	const FGuid ActiveRunId = Flow.GetRecoverableShanmenRunId();
+	const Fdemo_mapProfilePreparationSnapshot RecoveryPresentation =
+		Fixture.Session->GetPreparationSnapshot();
+	FShanmenItemAuthorityDocument AfterFailure;
+	FShanmenItemAuthoritySnapshot FailedAuthority;
+	TestTrue(TEXT("Runtime mutation failure exposes one retryable durable identity"),
+		Failed.Status
+			== Edemo_mapProfileSessionBeginStatus::RuntimeMaterializationFailed
+		&& ActiveRunId.IsValid()
+		&& Flow.GetStartedRunId() == ActiveRunId
+		&& Flow.GetPhase()
+			== Edemo_mapProfilePreparationFlowPhase::Preparation
+		&& Fixture.Runtime->GetRunState() == Edemo_mapRunState::Inactive
+		&& RecoveryPresentation.bCanStartRun
+		&& RecoveryPresentation.VisibleDiagnostic.Contains(TEXT("可恢复"))
+		&& Authority->TryGetDocument(AfterFailure)
+		&& Authority->TryCaptureSnapshot(FailedAuthority)
+		&& CountSuccessfulAuthorityOperation(
+			FailedAuthority,
+			EShanmenItemTransactionOperation::StartPreparedRun) == 1);
+
+	const Fdemo_mapProfileSessionBeginResult Recovered =
+		Flow.StartPreparedRunDirect();
+	FShanmenItemAuthorityDocument AfterRecovery;
+	TestTrue(TEXT("Retry rematerializes the same Run without a second durable write"),
+		Recovered.IsRunActive()
+		&& Recovered.Snapshot.ActiveRunId == ActiveRunId
+		&& Fixture.Runtime->GetActiveRunId() == ActiveRunId
+		&& Authority->TryGetDocument(AfterRecovery)
+		&& AfterRecovery == AfterFailure);
+
+	const Fdemo_mapProfileSessionSettlementResult TechnicalRollback =
+		Flow.CancelActiveRunForActivationFailure();
+	FShanmenItemAuthorityDocument AfterTechnicalRollback;
+	FGuid RollbackRecoveryId;
+	TestTrue(TEXT("World activation rollback is Runtime-only and never player Abandon"),
+		TechnicalRollback.Status
+			== Edemo_mapProfileSessionSettlementStatus::RuntimeRollbackReady
+		&& !TechnicalRollback.IsDurablySettled()
+		&& TechnicalRollback.Snapshot.LastTerminalReason
+			== Edemo_mapRunEndReason::ActivationFailure
+		&& Flow.GetPhase()
+			== Edemo_mapProfilePreparationFlowPhase::Preparation
+		&& Fixture.Runtime->GetRunState() == Edemo_mapRunState::Inactive
+		&& Authority->TryGetDocument(AfterTechnicalRollback)
+		&& AfterTechnicalRollback == AfterFailure
+		&& Fdemo_mapShanmenRunLifecycleAdapter::TryFindRecoverableActiveRun(
+			*Authority, RollbackRecoveryId)
+		&& RollbackRecoveryId == ActiveRunId
+		&& CountSuccessfulAuthorityOperation(
+			AfterTechnicalRollback.Authority,
+			EShanmenItemTransactionOperation::FinalizePreparedRun) == 0);
+
+	const Fdemo_mapProfileSessionBeginResult RecoveredAgain =
+		Flow.StartPreparedRunDirect();
+	Fdemo_mapSettlementSummary Summary;
+	const Fdemo_mapItemOperationResult RuntimeSettlement =
+		RecoveredAgain.IsRunActive()
+			? Fixture.Runtime->RequestSettlement(
+				Edemo_mapRunEndReason::Extraction, Summary)
+			: Fdemo_mapItemOperationResult::Failure(
+				Edemo_mapItemResultCode::RunNotActive,
+				TEXT("P1.13 exact-identity retry did not materialize Runtime."));
+	const Fdemo_mapProfileSessionSettlementResult End =
+		RuntimeSettlement.bSuccess
+			? Flow.CommitRuntimeSettlement(Summary)
+			: Fdemo_mapProfileSessionSettlementResult();
+	TArray<uint8> ProfileAfter;
+	TestTrue(TEXT("Recovered identity remains terminally settleable without Profile writes"),
+		RecoveredAgain.IsRunActive()
+		&& RecoveredAgain.Snapshot.ActiveRunId == ActiveRunId
+		&& RuntimeSettlement.bSuccess
+		&& End.IsDurablySettled()
+		&& ReadFlowBytes(
+			Fdemo_mapProfileStorageContext::ForRoot(Root).PrimaryPath(),
+			ProfileAfter)
+		&& ProfileAfter == ProfileBefore);
 	return true;
 }
 

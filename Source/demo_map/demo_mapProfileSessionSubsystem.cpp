@@ -6,6 +6,7 @@
 #include "demo_mapRewardShopStock.h"
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
 #include "demo_mapShanmenPreparationAdapter.h"
+#include "demo_mapShanmenRunLifecycleAdapter.h"
 #include "demo_mapTownProgressionRules.h"
 #include "Engine/GameInstance.h"
 #include "HAL/PlatformTime.h"
@@ -579,9 +580,31 @@ Fdemo_mapProfilePreparationSnapshot Udemo_mapProfileSessionSubsystem::GetPrepara
 			Snapshot.OrderedSelectedMaterialIds =
 				MoveTemp(Projection.OrderedSelectedMaterialIds);
 			Snapshot.HotbarBindings = MoveTemp(Projection.HotbarBindings);
-			Snapshot.bCanStartRun = false;
-			Snapshot.VisibleDiagnostic = PreparationDiagnostic.IsEmpty()
-				? Projection.Diagnostic : PreparationDiagnostic;
+			FGuid RecoverableRunId;
+			FString RecoveryDiagnostic;
+			const bool bRecoverable =
+				Fdemo_mapShanmenRunLifecycleAdapter::
+					TryFindRecoverableActiveRun(
+						*Authority, RecoverableRunId,
+						&RecoveryDiagnostic);
+			const bool bHasPreparedSelection =
+				Projection.SelectedWeaponId.IsValid()
+				|| Projection.SelectedArmorId.IsValid()
+				|| Projection.SelectedAccessoryId.IsValid()
+				|| Projection.SelectedSpatialRingId.IsValid()
+				|| Projection.SelectedBackpackId.IsValid()
+				|| !Projection.OrderedSelectedMaterialIds.IsEmpty();
+			Snapshot.bCanStartRun = bRecoverable || bHasPreparedSelection;
+			Snapshot.VisibleDiagnostic = bRecoverable
+				? FString::Printf(
+					TEXT("可恢复同一活动远征 %s；再次开始只会重建 Runtime，不会创建第二个 Run。"),
+					*RecoverableRunId.ToString(
+						EGuidFormats::DigitsWithHyphens))
+				: !bHasPreparedSelection
+					? TEXT("请先选择至少一件装备或一组完整局内物资，再使用原子 Run-start。")
+				: PreparationDiagnostic.IsEmpty()
+					? TEXT("ShanmenItems 战备已就绪；开始按钮使用单次原子 Run-start。")
+					: PreparationDiagnostic;
 		}
 		else
 		{
