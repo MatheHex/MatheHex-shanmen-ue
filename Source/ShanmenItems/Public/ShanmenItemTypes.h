@@ -20,7 +20,9 @@ enum class EShanmenItemInstanceState : uint8
 {
 	Stored,
 	Deployed,
-	Depleted
+	Depleted,
+	/** Terminal audit tombstone for an identity lost with a Run. */
+	Destroyed
 };
 
 UENUM(BlueprintType)
@@ -90,10 +92,12 @@ enum class EShanmenItemTransactionError : uint8
 	RunAlreadyFinalized,
 	RunTerminalReasonUnsupported,
 	SecuredItemMismatch,
-	SourcePlacementUnavailable
+	SourcePlacementUnavailable,
+	AcquiredItemMismatch,
+	ImportPlacementUnavailable
 };
 
-/** Authority-independent terminal reason; P1.9 deliberately admits extraction only. */
+/** Authority-independent terminal reason for one claimed prepared Run. */
 UENUM(BlueprintType)
 enum class EShanmenItemRunTerminalReason : uint8
 {
@@ -314,6 +318,36 @@ struct SHANMENITEMS_API FShanmenItemRunSecuredOriginal
 	bool operator==(const FShanmenItemRunSecuredOriginal& Other) const;
 };
 
+/**
+ * One Runtime-created identity accepted into the persistent authority at
+ * extraction. Definition is carried in full so loot can introduce content
+ * that the one-time legacy migration did not already own.
+ */
+USTRUCT(BlueprintType)
+struct SHANMENITEMS_API FShanmenItemRunAcquiredItem
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FGuid ItemInstanceId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FShanmenItemDefinition Definition;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items", meta = (ClampMin = "1"))
+	int32 Quantity = 1;
+
+	/** Optional empty item-owned container created with the acquired identity. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FName ChildContainerType = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items", meta = (ClampMin = "0"))
+	int32 ChildContainerCapacity = 0;
+
+	bool IsValid() const;
+	bool operator==(const FShanmenItemRunAcquiredItem& Other) const;
+};
+
 /** Atomic terminal reconciliation for one already-claimed prepared Run. */
 USTRUCT(BlueprintType)
 struct SHANMENITEMS_API FShanmenItemRunFinalizeRequest
@@ -333,6 +367,10 @@ struct SHANMENITEMS_API FShanmenItemRunFinalizeRequest
 	/** Prepared originals that survived; absence means zero remaining. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
 	TArray<FShanmenItemRunSecuredOriginal> SecuredOriginals;
+
+	/** Runtime-created identities imported only by Extraction. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	TArray<FShanmenItemRunAcquiredItem> AcquiredItems;
 
 	bool IsValid() const;
 };
@@ -361,6 +399,9 @@ struct SHANMENITEMS_API FShanmenItemRunLifecyclePurpose
 {
 	static FName Active();
 	static FName Extraction();
+	static FName Death();
+	static FName Abandon();
+	static FName RecoveredStorage();
 };
 
 USTRUCT(BlueprintType)

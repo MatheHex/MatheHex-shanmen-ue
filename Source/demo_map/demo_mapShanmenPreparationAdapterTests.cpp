@@ -936,16 +936,26 @@ bool FShanmenPreparedRunLifecycleRestartTest::RunTest(const FString&)
 		&& Runtime->GetRunState() == Edemo_mapRunState::Active
 		&& Runtime->GetActiveRunId() == ActiveRunId
 		&& Runtime->GetDeployedItemIds().Num() == 3);
+	TArray<FGuid> AcquiredLootIds;
+	const Fdemo_mapItemOperationResult AcquiredLoot = Runtime
+		? Runtime->AddDefinition(
+			Fdemo_mapItemIds::SpiritOreLevel1, 2, &AcquiredLootIds)
+		: Fdemo_mapItemOperationResult::Failure(
+			Edemo_mapItemResultCode::RunNotActive,
+			TEXT("Runtime fixture is absent."));
+	TestTrue(TEXT("Active Runtime creates one plain loot identity for import"),
+		AcquiredLoot.bSuccess && AcquiredLootIds.Num() == 1
+		&& Runtime->IsItemAtRiskInActiveRun(AcquiredLootIds[0]));
 
 	Fdemo_mapSettlementSummary Summary;
 	const Fdemo_mapItemOperationResult RuntimeSettlement =
 		Runtime->RequestSettlement(
 			Edemo_mapRunEndReason::Extraction, Summary);
-	TestTrue(TEXT("Runtime emits one extraction snapshot for all originals"),
+	TestTrue(TEXT("Runtime emits originals plus the acquired identity"),
 		RuntimeSettlement.bSuccess && Summary.bValid
 		&& Summary.RuntimeSnapshot.bValid
 		&& Summary.RunId == ActiveRunId
-		&& Summary.RuntimeSnapshot.OrderedSecuredItems.Num() == 3);
+		&& Summary.RuntimeSnapshot.OrderedSecuredItems.Num() == 4);
 	Fdemo_mapRuntimeSettlementItem* PartiallyConsumedPill =
 		Summary.RuntimeSnapshot.OrderedSecuredItems.FindByPredicate(
 			[&Fixture](const Fdemo_mapRuntimeSettlementItem& Item)
@@ -958,6 +968,30 @@ bool FShanmenPreparedRunLifecycleRestartTest::RunTest(const FString&)
 	{
 		PartiallyConsumedPill->StackCount = 2;
 	}
+	Fdemo_mapSettlementSummary MetadataSummary = Summary;
+	Fdemo_mapRuntimeSettlementItem* MetadataLoot =
+		AcquiredLootIds.Num() == 1
+		? MetadataSummary.RuntimeSnapshot.OrderedSecuredItems.FindByPredicate(
+			[&AcquiredLootIds](const Fdemo_mapRuntimeSettlementItem& Item)
+			{
+				return Item.ItemInstanceId == AcquiredLootIds[0];
+			}) : nullptr;
+	if (MetadataLoot)
+	{
+		MetadataLoot->RewardSourceRoleId = TEXT("Test.MetadataSource");
+	}
+	FShanmenItemAuthoritySnapshot BeforeMetadataReject;
+	Fixture.Authority->TryCaptureSnapshot(BeforeMetadataReject);
+	const Fdemo_mapShanmenRunFinalizeResult MetadataRejected =
+		Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
+			*Fixture.Authority, MetadataSummary);
+	FShanmenItemAuthoritySnapshot AfterMetadataReject;
+	Fixture.Authority->TryCaptureSnapshot(AfterMetadataReject);
+	TestTrue(TEXT("Metadata-bearing loot fails before any authority mutation"),
+		MetadataLoot
+		&& MetadataRejected.Status
+			== Edemo_mapShanmenRunLifecycleStatus::AcquiredMetadataUnsupported
+		&& AfterMetadataReject == BeforeMetadataReject);
 
 	FShanmenItemAuthoritySnapshot BeforeFinalizeFailure;
 	Fixture.Authority->TryCaptureSnapshot(BeforeFinalizeFailure);
@@ -998,6 +1032,19 @@ bool FShanmenPreparedRunLifecycleRestartTest::RunTest(const FString&)
 		{
 			return Item.ItemInstanceId == Fixture.PillOneId;
 		});
+	const FShanmenItemInstance* ImportedLoot =
+		AcquiredLootIds.Num() == 1
+		? Terminal.Items.FindByPredicate(
+			[&AcquiredLootIds](const FShanmenItemInstance& Item)
+			{
+				return Item.ItemInstanceId == AcquiredLootIds[0];
+			}) : nullptr;
+	const FShanmenItemContainer* Warehouse =
+		Terminal.Containers.FindByPredicate(
+			[](const FShanmenItemContainer& Container)
+			{
+				return Container.ContainerType == FName(TEXT("Warehouse"));
+			});
 	int32 ReleasedLines = 0;
 	int32 FinalizeCount = 0;
 	for (const FShanmenItemReservationSnapshot& Reservation :
@@ -1020,6 +1067,15 @@ bool FShanmenPreparedRunLifecycleRestartTest::RunTest(const FString&)
 		&& Dust->Quantity == 3 && Dust->ParentContainerId.IsValid()
 		&& Pill && Pill->State == EShanmenItemInstanceState::Stored
 		&& Pill->Quantity == 2 && Pill->ParentContainerId.IsValid()
+		&& ImportedLoot
+		&& ImportedLoot->DefinitionId == Fdemo_mapItemIds::SpiritOreLevel1
+		&& ImportedLoot->Quantity == 2
+		&& ImportedLoot->State == EShanmenItemInstanceState::Stored
+		&& Warehouse
+		&& ImportedLoot->ParentContainerId == Warehouse->ContainerId
+		&& Warehouse->Slots.IsValidIndex(ImportedLoot->SlotIndex)
+		&& Warehouse->Slots[ImportedLoot->SlotIndex]
+			== ImportedLoot->ItemInstanceId
 		&& ReleasedLines == 3 && FinalizeCount == 1);
 	const Fdemo_mapShanmenRunFinalizeResult ReplayFinalize =
 		Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
@@ -1041,6 +1097,97 @@ bool FShanmenPreparedRunLifecycleRestartTest::RunTest(const FString&)
 	TestTrue(TEXT("Restart keeps one terminal marker and restored originals"),
 		Fixture.Authority->TryCaptureSnapshot(Restarted)
 		&& Restarted == Terminal);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenPreparedRunDestructiveTerminalTest,
+	"Shanmen.0_0_10.Items.RunLifecycle.DeathAndAbandon",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenPreparedRunDestructiveTerminalTest::RunTest(const FString&)
+{
+	const TArray<Edemo_mapRunEndReason> Reasons =
+	{
+		Edemo_mapRunEndReason::Death,
+		Edemo_mapRunEndReason::Abandon
+	};
+	for (const Edemo_mapRunEndReason Reason : Reasons)
+	{
+		FPreparationAdapterFixture Fixture;
+		const TCHAR* Label = Reason == Edemo_mapRunEndReason::Death
+			? TEXT("RunLifecycleDeath") : TEXT("RunLifecycleAbandon");
+		if (!Fixture.StartAndCutover(*this, Label))
+		{
+			return false;
+		}
+		TArray<uint8> ProfileBefore;
+		TestTrue(TEXT("Retired Profile is captured before destructive terminal"),
+			ReadBytes(Fixture.Storage.PrimaryPath(), ProfileBefore));
+		TestTrue(TEXT("One equipment identity prepares for destructive terminal"),
+			Fixture.Session->SetPreparationEquipment(
+				Fdemo_mapItemIds::WeaponSlot,
+				Fixture.TrainingBladeId).IsAccepted());
+		Udemo_mapItemSubsystem* Runtime =
+			Fixture.GameInstance->GetSubsystem<Udemo_mapItemSubsystem>();
+		if (!Runtime)
+		{
+			AddError(TEXT("Destructive terminal fixture has no Runtime authority."));
+			return false;
+		}
+		Runtime->ResetForAutomation();
+		const Fdemo_mapShanmenRunStartResult Started =
+			Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
+				*Fixture.Authority, *Runtime);
+		Fdemo_mapSettlementSummary Summary;
+		const Fdemo_mapItemOperationResult Settled = Started.IsStarted()
+			? Runtime->RequestSettlement(Reason, Summary)
+			: Fdemo_mapItemOperationResult::Failure(
+				Edemo_mapItemResultCode::RunNotActive,
+				TEXT("Prepared Runtime did not start."));
+		TestTrue(TEXT("Destructive Runtime snapshot secures no identity"),
+			Started.IsStarted() && Settled.bSuccess
+			&& Summary.RuntimeSnapshot.bValid
+			&& Summary.RuntimeSnapshot.OrderedSecuredItems.IsEmpty());
+		const Fdemo_mapShanmenRunFinalizeResult Finalized =
+			Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
+				*Fixture.Authority, Summary);
+		FShanmenItemAuthoritySnapshot Terminal;
+		const FShanmenItemInstance* LostWeapon =
+			Fixture.Authority->TryCaptureSnapshot(Terminal)
+			? Terminal.Items.FindByPredicate(
+				[&Fixture](const FShanmenItemInstance& Item)
+				{
+					return Item.ItemInstanceId == Fixture.TrainingBladeId;
+				}) : nullptr;
+		const FName ExpectedPurpose = Reason == Edemo_mapRunEndReason::Death
+			? FShanmenItemRunLifecyclePurpose::Death()
+			: FShanmenItemRunLifecyclePurpose::Abandon();
+		TestTrue(TEXT("Destructive terminal publishes one reason-specific tombstone"),
+			Finalized.Status == Edemo_mapShanmenRunLifecycleStatus::Finalized
+			&& Finalized.FinalizeCommand.Receipt.PurposeId == ExpectedPurpose
+			&& LostWeapon
+			&& LostWeapon->State == EShanmenItemInstanceState::Destroyed
+			&& !LostWeapon->ParentContainerId.IsValid()
+			&& !LostWeapon->DeploymentReservationId.IsValid());
+		const Fdemo_mapShanmenRunFinalizeResult Replay =
+			Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
+				*Fixture.Authority, Summary);
+		TestTrue(TEXT("Destructive terminal replay performs no second mutation"),
+			Replay.Status == Edemo_mapShanmenRunLifecycleStatus::NoChange);
+		TArray<uint8> ProfileAfter;
+		TestTrue(TEXT("Destructive terminal does not rewrite retired Profile"),
+			ReadBytes(Fixture.Storage.PrimaryPath(), ProfileAfter)
+			&& ProfileAfter == ProfileBefore);
+		if (!Fixture.RestartAndBind(*this))
+		{
+			return false;
+		}
+		FShanmenItemAuthoritySnapshot Restarted;
+		TestTrue(TEXT("Destructive tombstone survives durable restart"),
+			Fixture.Authority->TryCaptureSnapshot(Restarted)
+			&& Restarted == Terminal);
+	}
 	return true;
 }
 

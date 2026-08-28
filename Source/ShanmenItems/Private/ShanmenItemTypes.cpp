@@ -144,6 +144,32 @@ bool FShanmenItemRunSecuredOriginal::operator==(
 		&& RemainingQuantity == Other.RemainingQuantity;
 }
 
+bool FShanmenItemRunAcquiredItem::IsValid() const
+{
+	const bool bHasChild = !ChildContainerType.IsNone()
+		|| ChildContainerCapacity != 0;
+	return ItemInstanceId.IsValid()
+		&& Definition.IsValid()
+		&& Quantity > 0
+		&& Quantity <= Definition.MaxStack
+		&& ((!bHasChild
+				&& ChildContainerType.IsNone()
+				&& ChildContainerCapacity == 0)
+			|| (!ChildContainerType.IsNone()
+				&& ChildContainerCapacity > 0
+				&& ChildContainerCapacity <= 4096));
+}
+
+bool FShanmenItemRunAcquiredItem::operator==(
+	const FShanmenItemRunAcquiredItem& Other) const
+{
+	return ItemInstanceId == Other.ItemInstanceId
+		&& Definition == Other.Definition
+		&& Quantity == Other.Quantity
+		&& ChildContainerType == Other.ChildContainerType
+		&& ChildContainerCapacity == Other.ChildContainerCapacity;
+}
+
 bool FShanmenItemRunFinalizeRequest::IsValid() const
 {
 	if (!Context.IsValid() || !ActiveRunId.IsValid()
@@ -159,6 +185,20 @@ bool FShanmenItemRunFinalizeRequest::IsValid() const
 			return false;
 		}
 		Unique.Add(Original.ItemInstanceId);
+	}
+	for (const FShanmenItemRunAcquiredItem& Acquired : AcquiredItems)
+	{
+		if (!Acquired.IsValid()
+			|| Unique.Contains(Acquired.ItemInstanceId))
+		{
+			return false;
+		}
+		Unique.Add(Acquired.ItemInstanceId);
+	}
+	if (TerminalReason != EShanmenItemRunTerminalReason::Extraction
+		&& (!SecuredOriginals.IsEmpty() || !AcquiredItems.IsEmpty()))
+	{
+		return false;
 	}
 	return true;
 }
@@ -233,6 +273,21 @@ FName FShanmenItemRunLifecyclePurpose::Extraction()
 	return FName(TEXT("Shanmen.RunLifecycle.Extraction.r1"));
 }
 
+FName FShanmenItemRunLifecyclePurpose::Death()
+{
+	return FName(TEXT("Shanmen.RunLifecycle.Death.r1"));
+}
+
+FName FShanmenItemRunLifecyclePurpose::Abandon()
+{
+	return FName(TEXT("Shanmen.RunLifecycle.Abandon.r1"));
+}
+
+FName FShanmenItemRunLifecyclePurpose::RecoveredStorage()
+{
+	return FName(TEXT("Shanmen.RunLifecycle.RecoveredStorage.r1"));
+}
+
 bool FShanmenItemTransactionReceipt::IsSuccess() const
 {
 	return bSuccess && Error == EShanmenItemTransactionError::None && Phase != EShanmenItemTransactionPhase::Rejected;
@@ -281,13 +336,17 @@ bool FShanmenItemTransactionReceipt::IsValid() const
 	}
 	if (Operation == EShanmenItemTransactionOperation::FinalizePreparedRun)
 	{
+		const bool bTerminalPurpose =
+			PurposeId == FShanmenItemRunLifecyclePurpose::Extraction()
+			|| PurposeId == FShanmenItemRunLifecyclePurpose::Death()
+			|| PurposeId == FShanmenItemRunLifecyclePurpose::Abandon();
 		return Error == EShanmenItemTransactionError::None
 			&& Phase == EShanmenItemTransactionPhase::Released
 			&& ReservationId.IsValid()
 			&& ItemInstanceId.IsValid()
 			&& Amount == ReservationIds.Num()
 			&& Amount > 0
-			&& PurposeId == FShanmenItemRunLifecyclePurpose::Extraction();
+			&& bTerminalPurpose;
 	}
 	if (Operation == EShanmenItemTransactionOperation::AmendReservationPurpose
 		&& PurposeId.IsNone())

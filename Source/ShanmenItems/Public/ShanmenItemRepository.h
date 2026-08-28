@@ -73,6 +73,9 @@ private:
 		const FGuid& OwnerId,
 		const FGuid& ScopeId,
 		const FGuid& PreparedBatchRequestId);
+	static FGuid MakeAcquiredChildContainerId(
+		const FGuid& ActiveRunId,
+		const FGuid& ItemInstanceId);
 	static FGuid MakeReceiptId(
 		const FGuid& RequestId,
 		const FGuid& Fingerprint,

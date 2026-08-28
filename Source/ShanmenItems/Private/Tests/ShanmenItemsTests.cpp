@@ -13,6 +13,13 @@ namespace
 	const FGuid SwordId(4, 0, 0, 2);
 	const FGuid MirrorId(4, 0, 0, 3);
 	const FGuid FormationMaterialId(4, 0, 0, 4);
+	const FGuid AcquiredOreId(4, 0, 0, 5);
+	const FGuid RecoveredChildContainerId(4, 0, 0, 6);
+	const FGuid SafeChildItemId(4, 0, 0, 7);
+	const FGuid AcquiredSatchelId(4, 0, 0, 8);
+	const FGuid ForeignContainerId(4, 0, 0, 9);
+	const FGuid ForeignRunId(4, 0, 0, 10);
+	const FGuid ForeignOwnerId(4, 0, 0, 11);
 
 	FShanmenContentStamp MakeContent()
 	{
@@ -104,8 +111,9 @@ namespace
 		Container.ContainerId = ContainerId;
 		Container.RunId = RunId;
 		Container.OwnerId = OwnerId;
-		Container.ContainerType = TEXT("Container.CombatLoadout");
-		Container.Slots = { DartId, SwordId, MirrorId, FormationMaterialId };
+		Container.ContainerType = TEXT("Warehouse");
+		Container.Slots = {
+			DartId, SwordId, MirrorId, FormationMaterialId, FGuid() };
 		Snapshot.Containers.Add(Container);
 
 		Snapshot.Items.Add(MakeItem(DartId, TEXT("Item.Weapon.ThrowingDart"), 0, 10));
@@ -175,6 +183,30 @@ namespace
 		Original.ItemInstanceId = ItemInstanceId;
 		Original.RemainingQuantity = RemainingQuantity;
 		return Original;
+	}
+
+	FShanmenItemRunAcquiredItem AcquiredOre(int32 Quantity = 2)
+	{
+		FShanmenItemRunAcquiredItem Acquired;
+		Acquired.ItemInstanceId = AcquiredOreId;
+		Acquired.Definition = MakeDefinition(
+			TEXT("Item.Material.ExtractedOre"), 10,
+			{ FShanmenItemNativeTags::CapabilityConsumeQuantity() });
+		Acquired.Quantity = Quantity;
+		return Acquired;
+	}
+
+	FShanmenItemRunAcquiredItem AcquiredSatchel()
+	{
+		FShanmenItemRunAcquiredItem Acquired;
+		Acquired.ItemInstanceId = AcquiredSatchelId;
+		Acquired.Definition = MakeDefinition(
+			TEXT("Item.Backpack.ExtractedSatchel"), 1,
+			{ FShanmenItemNativeTags::CapabilityDeploy() });
+		Acquired.Quantity = 1;
+		Acquired.ChildContainerType = TEXT("Backpack");
+		Acquired.ChildContainerCapacity = 2;
+		return Acquired;
 	}
 
 	bool LoadFixture(FAutomationTestBase& Test, FShanmenItemRepository& Repository)
@@ -437,19 +469,90 @@ bool FShanmenItemsPreparedRunLifecycleLedgerTest::RunTest(const FString&)
 	TestTrue(TEXT("Active claim survives restart and replays exactly"),
 		Restarted.TryLoadSnapshot(Repository.CaptureSnapshot())
 		&& Restarted.ClaimPreparedRun(ClaimRequest) == Claim);
+	FShanmenItemAuthoritySnapshot ActiveSnapshot =
+		Restarted.CaptureSnapshot();
+	FShanmenItemContainer ForeignWarehouse;
+	ForeignWarehouse.ContainerId = ForeignContainerId;
+	ForeignWarehouse.RunId = ForeignRunId;
+	ForeignWarehouse.OwnerId = ForeignOwnerId;
+	ForeignWarehouse.ContainerType = TEXT("Warehouse");
+	ForeignWarehouse.Slots = { FGuid() };
+	ActiveSnapshot.Containers.Add(ForeignWarehouse);
+	FShanmenItemAuthoritySnapshot DestructiveSnapshot = ActiveSnapshot;
+	FShanmenItemInstance* DestructiveSword =
+		DestructiveSnapshot.Items.FindByPredicate(
+			[](const FShanmenItemInstance& Item)
+			{
+				return Item.ItemInstanceId == SwordId;
+			});
+	if (DestructiveSword)
+	{
+		DestructiveSword->ChildContainerId = RecoveredChildContainerId;
+	}
+	FShanmenItemContainer SafeChild;
+	SafeChild.ContainerId = RecoveredChildContainerId;
+	SafeChild.RunId = RunId;
+	SafeChild.OwnerId = OwnerId;
+	SafeChild.ContainerType = TEXT("Backpack");
+	SafeChild.Slots = { SafeChildItemId };
+	DestructiveSnapshot.Containers.Add(SafeChild);
+	FShanmenItemInstance SafeItem = MakeItem(
+		SafeChildItemId, TEXT("Item.Material.FormationWood"), 0, 1);
+	SafeItem.ParentContainerId = RecoveredChildContainerId;
+	DestructiveSnapshot.Items.Add(SafeItem);
 
-	FShanmenItemRunFinalizeRequest Unsupported;
-	Unsupported.Context = MakeContext(94);
-	Unsupported.ActiveRunId = Claim.ReservationId;
-	Unsupported.TerminalReason = EShanmenItemRunTerminalReason::Death;
-	Unsupported.SecuredOriginals = {
-		Secured(SwordId, 1), Secured(DartId, 7) };
-	TestTrue(TEXT("Unsupported destructive terminal reason fails closed"),
-		Restarted.FinalizePreparedRun(Unsupported).Error
-			== EShanmenItemTransactionError::RunTerminalReasonUnsupported);
+	FShanmenItemRepository DeathRepository;
+	FShanmenItemRunFinalizeRequest Death;
+	Death.Context = MakeContext(94);
+	Death.ActiveRunId = Claim.ReservationId;
+	Death.TerminalReason = EShanmenItemRunTerminalReason::Death;
+	const FShanmenItemTransactionReceipt DeathReceipt =
+		DeathRepository.TryLoadSnapshot(DestructiveSnapshot)
+		? DeathRepository.FinalizePreparedRun(Death)
+		: FShanmenItemTransactionReceipt();
+	const FShanmenItemContainer* DeathContainer =
+		DeathRepository.FindContainer(ContainerId);
+	TestTrue(TEXT("Death atomically destroys every prepared identity"),
+		DeathReceipt.IsSuccess()
+		&& DeathReceipt.PurposeId
+			== FShanmenItemRunLifecyclePurpose::Death()
+		&& DeathRepository.FindItem(SwordId)->State
+			== EShanmenItemInstanceState::Destroyed
+		&& DeathRepository.FindItem(DartId)->State
+			== EShanmenItemInstanceState::Destroyed
+		&& DeathRepository.FindItem(SafeChildItemId)->State
+			== EShanmenItemInstanceState::Stored
+		&& DeathRepository.FindContainer(RecoveredChildContainerId)
+		&& DeathRepository.FindContainer(RecoveredChildContainerId)->ContainerType
+			== FShanmenItemRunLifecyclePurpose::RecoveredStorage()
+		&& DeathContainer && !DeathContainer->Slots[0].IsValid()
+		&& !DeathContainer->Slots[1].IsValid()
+		&& DeathRepository.FindReservation(Equipment.ReservationId)->State
+			== EShanmenItemReservationState::Released
+		&& DeathRepository.FindReservation(Quantity.ReservationId)->State
+			== EShanmenItemReservationState::Released
+		&& DeathRepository.ValidateInvariants()
+		&& DeathRepository.FinalizePreparedRun(Death) == DeathReceipt);
 
-	FShanmenItemRunFinalizeRequest MissingEquipment = Unsupported;
-	MissingEquipment.Context = MakeContext(95);
+	FShanmenItemRepository AbandonRepository;
+	FShanmenItemRunFinalizeRequest Abandon = Death;
+	Abandon.Context = MakeContext(95);
+	Abandon.TerminalReason = EShanmenItemRunTerminalReason::Abandon;
+	const FShanmenItemTransactionReceipt AbandonReceipt =
+		AbandonRepository.TryLoadSnapshot(DestructiveSnapshot)
+		? AbandonRepository.FinalizePreparedRun(Abandon)
+		: FShanmenItemTransactionReceipt();
+	TestTrue(TEXT("Player abandon uses the same loss policy with its own marker"),
+		AbandonReceipt.IsSuccess()
+		&& AbandonReceipt.PurposeId
+			== FShanmenItemRunLifecyclePurpose::Abandon()
+		&& AbandonRepository.FindItem(SwordId)->State
+			== EShanmenItemInstanceState::Destroyed
+		&& AbandonRepository.ValidateInvariants());
+
+	FShanmenItemRunFinalizeRequest MissingEquipment;
+	MissingEquipment.Context = MakeContext(96);
+	MissingEquipment.ActiveRunId = Claim.ReservationId;
 	MissingEquipment.TerminalReason =
 		EShanmenItemRunTerminalReason::Extraction;
 	MissingEquipment.SecuredOriginals = { Secured(DartId, 7) };
@@ -457,37 +560,100 @@ bool FShanmenItemsPreparedRunLifecycleLedgerTest::RunTest(const FString&)
 		Restarted.FinalizePreparedRun(MissingEquipment).Error
 			== EShanmenItemTransactionError::SecuredItemMismatch);
 
-	FShanmenItemRunFinalizeRequest Finalize = Unsupported;
-	Finalize.Context = MakeContext(96);
+	FShanmenItemAuthoritySnapshot FullWarehouseSnapshot = ActiveSnapshot;
+	FShanmenItemContainer* FullWarehouse =
+		FullWarehouseSnapshot.Containers.FindByPredicate(
+			[](const FShanmenItemContainer& Candidate)
+			{
+				return Candidate.ContainerId == ContainerId;
+			});
+	FShanmenItemInstance CapacityBlocker = MakeItem(
+		SafeChildItemId, TEXT("Item.Material.FormationWood"), 4, 1);
+	if (FullWarehouse && FullWarehouse->Slots.IsValidIndex(4))
+	{
+		FullWarehouse->Slots[4] = SafeChildItemId;
+		FullWarehouseSnapshot.Items.Add(CapacityBlocker);
+	}
+	FShanmenItemRepository CapacityRepository;
+	FShanmenItemRunFinalizeRequest NoCapacity;
+	NoCapacity.Context = MakeContext(97);
+	NoCapacity.ActiveRunId = Claim.ReservationId;
+	NoCapacity.TerminalReason = EShanmenItemRunTerminalReason::Extraction;
+	NoCapacity.SecuredOriginals = {
+		Secured(SwordId, 1), Secured(DartId, 7) };
+	NoCapacity.AcquiredItems = { AcquiredOre() };
+	const FShanmenItemTransactionReceipt CapacityRejected =
+		CapacityRepository.TryLoadSnapshot(FullWarehouseSnapshot)
+		? CapacityRepository.FinalizePreparedRun(NoCapacity)
+		: FShanmenItemTransactionReceipt();
+	TestTrue(TEXT("Extraction capacity failure imports nothing and restores nothing"),
+		CapacityRejected.Error
+			== EShanmenItemTransactionError::ImportPlacementUnavailable
+		&& !CapacityRepository.FindItem(AcquiredOreId)
+		&& CapacityRepository.FindItem(SwordId)->State
+			== EShanmenItemInstanceState::Deployed
+		&& CapacityRepository.FindItem(DartId)->State
+			== EShanmenItemInstanceState::Depleted
+		&& CapacityRepository.ValidateInvariants());
+
+	FShanmenItemRunFinalizeRequest Finalize;
+	Finalize.Context = MakeContext(98);
+	Finalize.ActiveRunId = Claim.ReservationId;
 	Finalize.TerminalReason = EShanmenItemRunTerminalReason::Extraction;
-	const int32 RevisionBeforeFinalize = Restarted.GetAuthorityRevision();
+	Finalize.SecuredOriginals = {
+		Secured(SwordId, 1), Secured(DartId, 7) };
+	Finalize.AcquiredItems = { AcquiredSatchel() };
+	FShanmenItemRepository ExtractionRepository;
+	TestTrue(TEXT("Extraction authority accepts unrelated owner storage"),
+		ExtractionRepository.TryLoadSnapshot(ActiveSnapshot));
+	const int32 RevisionBeforeFinalize =
+		ExtractionRepository.GetAuthorityRevision();
 	const FShanmenItemTransactionReceipt Finalized =
-		Restarted.FinalizePreparedRun(Finalize);
+		ExtractionRepository.FinalizePreparedRun(Finalize);
 	const FShanmenItemContainer* Container =
-		Restarted.FindContainer(ContainerId);
+		ExtractionRepository.FindContainer(ContainerId);
 	TestTrue(TEXT("Extraction atomically restores originals and closes the claim"),
 		Finalized.IsSuccess()
 		&& Finalized.Operation
 			== EShanmenItemTransactionOperation::FinalizePreparedRun
-		&& Restarted.GetAuthorityRevision() == RevisionBeforeFinalize + 1
-		&& Restarted.FindItem(SwordId)->State
+		&& ExtractionRepository.GetAuthorityRevision()
+			== RevisionBeforeFinalize + 1
+		&& ExtractionRepository.FindItem(SwordId)->State
 			== EShanmenItemInstanceState::Stored
-		&& !Restarted.FindItem(SwordId)->DeploymentReservationId.IsValid()
-		&& Restarted.FindItem(DartId)->State
+		&& !ExtractionRepository.FindItem(
+			SwordId)->DeploymentReservationId.IsValid()
+		&& ExtractionRepository.FindItem(DartId)->State
 			== EShanmenItemInstanceState::Stored
-		&& Restarted.FindItem(DartId)->Quantity == 7
+		&& ExtractionRepository.FindItem(DartId)->Quantity == 7
 		&& Container && Container->Slots[0] == DartId
-		&& Restarted.FindReservation(Equipment.ReservationId)->State
+		&& Container->Slots[4] == AcquiredSatchelId
+		&& ExtractionRepository.FindItem(AcquiredSatchelId)
+		&& ExtractionRepository.FindItem(AcquiredSatchelId)->DefinitionId
+			== TEXT("Item.Backpack.ExtractedSatchel")
+		&& ExtractionRepository.FindItem(
+			AcquiredSatchelId)->ChildContainerId.IsValid()
+		&& ExtractionRepository.FindContainer(
+			ExtractionRepository.FindItem(
+				AcquiredSatchelId)->ChildContainerId)
+		&& ExtractionRepository.FindContainer(
+			ExtractionRepository.FindItem(
+				AcquiredSatchelId)->ChildContainerId)->Slots.Num() == 2
+		&& ExtractionRepository.FindDefinition(
+			TEXT("Item.Backpack.ExtractedSatchel"))
+		&& ExtractionRepository.FindReservation(
+			Equipment.ReservationId)->State
 			== EShanmenItemReservationState::Released
-		&& Restarted.FindReservation(Quantity.ReservationId)->State
+		&& ExtractionRepository.FindReservation(
+			Quantity.ReservationId)->State
 			== EShanmenItemReservationState::Released
-		&& Restarted.ValidateInvariants());
+		&& ExtractionRepository.ValidateInvariants());
 	TestTrue(TEXT("Terminal retry replays without another mutation"),
-		Restarted.FinalizePreparedRun(Finalize) == Finalized);
+		ExtractionRepository.FinalizePreparedRun(Finalize) == Finalized);
 
 	FShanmenItemRepository TerminalRestart;
 	TestTrue(TEXT("Terminal marker and restored graph survive restart"),
-		TerminalRestart.TryLoadSnapshot(Restarted.CaptureSnapshot())
+		TerminalRestart.TryLoadSnapshot(
+			ExtractionRepository.CaptureSnapshot())
 		&& TerminalRestart.FinalizePreparedRun(Finalize) == Finalized
 		&& TerminalRestart.ValidateInvariants());
 	return true;

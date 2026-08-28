@@ -1,6 +1,7 @@
 #include "demo_mapShanmenRunLifecycleAdapter.h"
 
 #include "ShanmenDeterministicId.h"
+#include "ShanmenItemTags.h"
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapItemSubsystem.h"
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
@@ -137,12 +138,15 @@ namespace
 	FGuid MakeFinalizeRequestId(
 		const Fdemo_mapShanmenPreparedLoadoutReceipt& Prepared,
 		const FGuid& ActiveRunId,
-		const TArray<FShanmenItemRunSecuredOriginal>& Originals)
+		EShanmenItemRunTerminalReason TerminalReason,
+		const TArray<FShanmenItemRunSecuredOriginal>& Originals,
+		const TArray<FShanmenItemRunAcquiredItem>& AcquiredItems)
 	{
 		TArray<FString> Parts =
 		{
 			GuidDigits(Prepared.OwnerId), GuidDigits(Prepared.ScopeId),
 			GuidDigits(Prepared.BatchRequestId), GuidDigits(ActiveRunId),
+			FString::FromInt(static_cast<int32>(TerminalReason)),
 			FString::FromInt(Originals.Num())
 		};
 		for (const FShanmenItemRunSecuredOriginal& Original : Originals)
@@ -150,8 +154,126 @@ namespace
 			Parts.Add(GuidDigits(Original.ItemInstanceId));
 			Parts.Add(FString::FromInt(Original.RemainingQuantity));
 		}
+		Parts.Add(FString::FromInt(AcquiredItems.Num()));
+		for (const FShanmenItemRunAcquiredItem& Acquired : AcquiredItems)
+		{
+			Parts.Add(GuidDigits(Acquired.ItemInstanceId));
+			Parts.Add(Acquired.Definition.DefinitionId.ToString());
+			Parts.Add(FString::FromInt(Acquired.Quantity));
+			Parts.Add(Acquired.ChildContainerType.ToString());
+			Parts.Add(FString::FromInt(Acquired.ChildContainerCapacity));
+		}
 		return FShanmenDeterministicId::FromCanonicalParts(
-			TEXT("demo_map.ShanmenRun.FinalizeExtraction.r1"), Parts);
+			TEXT("demo_map.ShanmenRun.Finalize.r2"), Parts);
+	}
+
+	bool MapTerminalReason(
+		Edemo_mapRunEndReason RuntimeReason,
+		EShanmenItemRunTerminalReason& OutReason)
+	{
+		switch (RuntimeReason)
+		{
+		case Edemo_mapRunEndReason::Extraction:
+			OutReason = EShanmenItemRunTerminalReason::Extraction;
+			return true;
+		case Edemo_mapRunEndReason::Death:
+			OutReason = EShanmenItemRunTerminalReason::Death;
+			return true;
+		case Edemo_mapRunEndReason::Abandon:
+			OutReason = EShanmenItemRunTerminalReason::Abandon;
+			return true;
+		default:
+			OutReason = EShanmenItemRunTerminalReason::None;
+			return false;
+		}
+	}
+
+	bool HasPersistentMetadata(
+		const Fdemo_mapRuntimeSettlementItem& Item)
+	{
+		return Item.RewardEventKind != Edemo_mapRewardEventKind::None
+			|| Item.RewardEventId.IsValid()
+			|| Item.RewardValueMultiplierBps
+				!= Fdemo_mapRewardEventRules::NormalMultiplierBps
+			|| !Item.RewardSourceRoleId.IsNone()
+			|| Item.RareRewardEventId.IsValid()
+			|| !Item.RareRewardPolicyId.IsNone()
+			|| !Item.RareRewardTierId.IsNone()
+			|| Item.RareRewardBonusValue != 0
+			|| !Item.AffixSet.IsEmpty();
+	}
+
+	bool BuildAcquiredItem(
+		const Fdemo_mapRuntimeSettlementItem& RuntimeItem,
+		FShanmenItemRunAcquiredItem& OutItem,
+		FString& OutDiagnostic)
+	{
+		const Fdemo_mapItemDefinition* ProductDefinition =
+			Fdemo_mapItemDefinitions::Find(RuntimeItem.ItemDefinitionId);
+		if (!ProductDefinition || RuntimeItem.StackCount <= 0
+			|| RuntimeItem.StackCount > ProductDefinition->MaxStackSize)
+		{
+			OutDiagnostic =
+				TEXT("Runtime acquisition has an unknown definition or illegal stack size.");
+			return false;
+		}
+		OutItem = FShanmenItemRunAcquiredItem();
+		OutItem.ItemInstanceId = RuntimeItem.ItemInstanceId;
+		OutItem.Definition.DefinitionId = ProductDefinition->DefinitionId;
+		OutItem.Definition.MaxStack = ProductDefinition->MaxStackSize;
+		OutItem.Quantity = RuntimeItem.StackCount;
+		const bool bQuantityDefinition =
+			ProductDefinition->MaxStackSize > 1
+			|| ProductDefinition->CategoryId
+				== Fdemo_mapItemIds::MaterialCategory
+			|| ProductDefinition->CategoryId
+				== Fdemo_mapItemIds::ConsumableCategory;
+		if (bQuantityDefinition)
+		{
+			OutItem.Definition.ItemTags.AddTag(
+				FShanmenItemNativeTags::CapabilityConsumeQuantity());
+		}
+		else if (!ProductDefinition->CompatibleSlotIds.IsEmpty())
+		{
+			OutItem.Definition.ItemTags.AddTag(
+				FShanmenItemNativeTags::CapabilityDeploy());
+		}
+		if (ProductDefinition->CategoryId
+			== Fdemo_mapItemIds::BackpackCategory)
+		{
+			const Fdemo_mapSpatialStorageCapacityResult Capacity =
+				Fdemo_mapItemDefinitions::ResolveSpatialStorageCapacity(
+					ProductDefinition->DefinitionId);
+			if (!Capacity.bSuccess || Capacity.Capacity <= 0)
+			{
+				OutDiagnostic = Capacity.Diagnostic;
+				return false;
+			}
+			OutItem.ChildContainerType = FName(TEXT("Backpack"));
+			OutItem.ChildContainerCapacity = Capacity.Capacity;
+		}
+		else if (ProductDefinition->CategoryId
+			== Fdemo_mapItemIds::SpatialRingCategory)
+		{
+			const Fdemo_mapSpatialRingCapacityResult Capacity =
+				Fdemo_mapItemDefinitions::ResolveSpatialRingCapacity(
+					ProductDefinition->DefinitionId);
+			if (!Capacity.bSuccess || Capacity.Capacity <= 0)
+			{
+				OutDiagnostic = Capacity.Diagnostic;
+				return false;
+			}
+			OutItem.ChildContainerType = FName(TEXT("SpatialRing"));
+			OutItem.ChildContainerCapacity = Capacity.Capacity;
+		}
+		if (!OutItem.IsValid())
+		{
+			OutDiagnostic =
+				TEXT("Runtime acquisition could not form one canonical authority item.");
+			return false;
+		}
+		OutDiagnostic.Reset();
+		return true;
 	}
 }
 
@@ -280,13 +402,19 @@ Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
 			Edemo_mapShanmenRunLifecycleStatus::SettlementInvalid,
 			TEXT("Runtime settlement snapshot is absent, stale, or internally inconsistent."));
 	}
-	if (Summary.Reason != Edemo_mapRunEndReason::Extraction
-		|| Summary.RuntimeSnapshot.CommittedEndReason
-			!= Edemo_mapRunEndReason::Extraction)
+	if (Summary.Reason != Summary.RuntimeSnapshot.CommittedEndReason)
+	{
+		return Reject(
+			Edemo_mapShanmenRunLifecycleStatus::SettlementInvalid,
+			TEXT("Runtime summary and immutable settlement snapshot disagree on terminal reason."));
+	}
+	EShanmenItemRunTerminalReason TerminalReason =
+		EShanmenItemRunTerminalReason::None;
+	if (!MapTerminalReason(Summary.Reason, TerminalReason))
 	{
 		return Reject(
 			Edemo_mapShanmenRunLifecycleStatus::UnsupportedTerminalReason,
-			TEXT("P1.9 finalizes extraction only; destructive equipment/child-container policy remains closed."));
+			TEXT("Only Extraction, Death, and player Abandon close a claimed prepared Run."));
 	}
 	FShanmenItemAuthoritySnapshot Snapshot;
 	if (!Authority.TryCaptureSnapshot(Snapshot))
@@ -324,39 +452,105 @@ Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
 			Edemo_mapShanmenRunLifecycleStatus::PreparedLoadoutRejected,
 			Prepared.Diagnostic);
 	}
-	TSet<FGuid> PreparedIds;
+	TMap<FGuid, const Fdemo_mapShanmenPreparedLoadoutLine*> PreparedById;
 	for (const Fdemo_mapShanmenPreparedLoadoutLine& Line :
 		Prepared.Receipt.OrderedLines)
 	{
-		PreparedIds.Add(Line.ItemInstanceId);
+		if (PreparedById.Contains(Line.ItemInstanceId))
+		{
+			return Reject(
+				Edemo_mapShanmenRunLifecycleStatus::PreparedLoadoutRejected,
+				TEXT("Prepared receipt contains a duplicate item identity."));
+		}
+		PreparedById.Add(Line.ItemInstanceId, &Line);
 	}
 	TMap<FGuid, int32> SecuredById;
+	TArray<FShanmenItemRunAcquiredItem> AcquiredItems;
 	for (const Fdemo_mapRuntimeSettlementItem& Secured :
 		Summary.RuntimeSnapshot.OrderedSecuredItems)
 	{
-		if (!PreparedIds.Contains(Secured.ItemInstanceId)
+		if (!Secured.ItemInstanceId.IsValid()
 			|| Secured.StackCount <= 0
-			|| SecuredById.Contains(Secured.ItemInstanceId))
+			|| SecuredById.Contains(Secured.ItemInstanceId)
+			|| AcquiredItems.ContainsByPredicate(
+				[&Secured](const FShanmenItemRunAcquiredItem& Candidate)
+				{
+					return Candidate.ItemInstanceId
+						== Secured.ItemInstanceId;
+				}))
 		{
 			return Reject(
 				Edemo_mapShanmenRunLifecycleStatus::UnknownSecuredItem,
-				TEXT("Settlement contains new loot, a duplicate, or an invalid stack; P1.9 refuses to invent its authority placement."));
+				TEXT("Settlement contains a duplicate identity or invalid stack."));
 		}
-		SecuredById.Add(Secured.ItemInstanceId, Secured.StackCount);
-	}
-	TArray<FShanmenItemRunSecuredOriginal> Originals;
-	for (const Fdemo_mapShanmenPreparedLoadoutLine& Line :
-		Prepared.Receipt.OrderedLines)
-	{
-		const int32 Remaining = SecuredById.FindRef(Line.ItemInstanceId);
-		if (Remaining <= 0)
+		const Fdemo_mapShanmenPreparedLoadoutLine* const* PreparedLine =
+			PreparedById.Find(Secured.ItemInstanceId);
+		if (PreparedLine && *PreparedLine)
 		{
+			if (Secured.ItemDefinitionId
+				!= (*PreparedLine)->ItemDefinitionId)
+			{
+				return Reject(
+					Edemo_mapShanmenRunLifecycleStatus::UnknownSecuredItem,
+					TEXT("Prepared Runtime identity changed definition before settlement."));
+			}
+			SecuredById.Add(Secured.ItemInstanceId, Secured.StackCount);
 			continue;
 		}
-		FShanmenItemRunSecuredOriginal& Original =
-			Originals.AddDefaulted_GetRef();
-		Original.ItemInstanceId = Line.ItemInstanceId;
-		Original.RemainingQuantity = Remaining;
+		if (TerminalReason != EShanmenItemRunTerminalReason::Extraction
+			|| Secured.OriginRunId != Summary.RunId)
+		{
+			return Reject(
+				Edemo_mapShanmenRunLifecycleStatus::AcquiredItemRejected,
+				TEXT("Only an extraction may import a Runtime identity created by the exact active Run."));
+		}
+		if (HasPersistentMetadata(Secured))
+		{
+			return Reject(
+				Edemo_mapShanmenRunLifecycleStatus::AcquiredMetadataUnsupported,
+				TEXT("Reward provenance or affixes cannot be discarded; metadata-bearing loot remains closed until its authority schema is versioned."));
+		}
+		FShanmenItemRunAcquiredItem Acquired;
+		FString AcquisitionDiagnostic;
+		if (!BuildAcquiredItem(
+				Secured, Acquired, AcquisitionDiagnostic))
+		{
+			return Reject(
+				Edemo_mapShanmenRunLifecycleStatus::AcquiredItemRejected,
+				AcquisitionDiagnostic);
+		}
+		AcquiredItems.Add(MoveTemp(Acquired));
+	}
+	if (TerminalReason != EShanmenItemRunTerminalReason::Extraction
+		&& !Summary.RuntimeSnapshot.OrderedSecuredItems.IsEmpty())
+	{
+		return Reject(
+			Edemo_mapShanmenRunLifecycleStatus::SettlementInvalid,
+			TEXT("Destructive Runtime settlement must not report secured items."));
+	}
+	AcquiredItems.Sort([](
+		const FShanmenItemRunAcquiredItem& Left,
+		const FShanmenItemRunAcquiredItem& Right)
+	{
+		return GuidDigits(Left.ItemInstanceId)
+			< GuidDigits(Right.ItemInstanceId);
+	});
+	TArray<FShanmenItemRunSecuredOriginal> Originals;
+	if (TerminalReason == EShanmenItemRunTerminalReason::Extraction)
+	{
+		for (const Fdemo_mapShanmenPreparedLoadoutLine& Line :
+			Prepared.Receipt.OrderedLines)
+		{
+			const int32 Remaining = SecuredById.FindRef(Line.ItemInstanceId);
+			if (Remaining <= 0)
+			{
+				continue;
+			}
+			FShanmenItemRunSecuredOriginal& Original =
+				Originals.AddDefaulted_GetRef();
+			Original.ItemInstanceId = Line.ItemInstanceId;
+			Original.RemainingQuantity = Remaining;
+		}
 	}
 
 	if (!Authority.TryCaptureSnapshot(Snapshot))
@@ -368,10 +562,13 @@ Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
 	FShanmenItemRunFinalizeRequest Request;
 	Request.Context = MakeContext(
 		Snapshot, Prepared.Receipt,
-		MakeFinalizeRequestId(Prepared.Receipt, Summary.RunId, Originals));
+		MakeFinalizeRequestId(
+			Prepared.Receipt, Summary.RunId, TerminalReason,
+			Originals, AcquiredItems));
 	Request.ActiveRunId = Summary.RunId;
-	Request.TerminalReason = EShanmenItemRunTerminalReason::Extraction;
+	Request.TerminalReason = TerminalReason;
 	Request.SecuredOriginals = Originals;
+	Request.AcquiredItems = AcquiredItems;
 	Result.ActiveRunId = Summary.RunId;
 	Result.FinalizeCommand = Authority.FinalizePreparedRunDurable(Request);
 	if (!Result.FinalizeCommand.IsCommandSuccess())
@@ -385,6 +582,8 @@ Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
 		? Edemo_mapShanmenRunLifecycleStatus::NoChange
 		: Edemo_mapShanmenRunLifecycleStatus::Finalized;
 	Result.Diagnostic =
-		TEXT("Runtime extraction reconciled every prepared original and published one durable terminal marker.");
+		TerminalReason == EShanmenItemRunTerminalReason::Extraction
+		? TEXT("Runtime extraction restored prepared survivors, imported canonical plain loot, and published one durable terminal marker.")
+		: TEXT("Destructive Runtime outcome converted every prepared identity to an audit tombstone and published one durable terminal marker.");
 	return Result;
 }

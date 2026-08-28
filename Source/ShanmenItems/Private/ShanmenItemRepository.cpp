@@ -26,6 +26,12 @@ namespace
 	{
 		return GuidDigits(Left) < GuidDigits(Right);
 	}
+
+	bool IsUnavailable(EShanmenItemInstanceState State)
+	{
+		return State == EShanmenItemInstanceState::Depleted
+			|| State == EShanmenItemInstanceState::Destroyed;
+	}
 }
 
 bool FShanmenItemRepository::TryLoadSnapshot(
@@ -159,7 +165,7 @@ bool FShanmenItemRepository::ValidateState(
 			}
 			const FShanmenItemInstance* Item = Candidate.Items.Find(ItemId);
 			if (!Item
-				|| Item->State == EShanmenItemInstanceState::Depleted
+				|| IsUnavailable(Item->State)
 				|| Item->ParentContainerId != Container.ContainerId
 				|| Item->SlotIndex != SlotIndex
 				|| Item->RunId != Container.RunId
@@ -217,6 +223,19 @@ bool FShanmenItemRepository::ValidateState(
 				return Fail();
 			}
 		}
+		else if (Item.State == EShanmenItemInstanceState::Destroyed)
+		{
+			if (Item.Quantity != 0
+				|| Item.Durability != 0
+				|| Item.Charges != 0
+				|| Item.ParentContainerId.IsValid()
+				|| Item.ChildContainerId.IsValid()
+				|| Item.SlotIndex != INDEX_NONE
+				|| Item.DeploymentReservationId.IsValid())
+			{
+				return Fail();
+			}
+		}
 		else
 		{
 			if (Item.Quantity < 1
@@ -229,7 +248,10 @@ bool FShanmenItemRepository::ValidateState(
 			}
 		}
 
-		if (Item.State == EShanmenItemInstanceState::Stored && Item.DeploymentReservationId.IsValid())
+		if ((Item.State == EShanmenItemInstanceState::Stored
+				|| Item.State == EShanmenItemInstanceState::Depleted
+				|| Item.State == EShanmenItemInstanceState::Destroyed)
+			&& Item.DeploymentReservationId.IsValid())
 		{
 			return Fail();
 		}
@@ -307,7 +329,7 @@ bool FShanmenItemRepository::ValidateState(
 		}
 
 		if (Reservation.State == EShanmenItemReservationState::Reserved
-			&& (Item->State == EShanmenItemInstanceState::Depleted
+			&& (IsUnavailable(Item->State)
 				|| ((Reservation.ResourceKind == EShanmenItemResourceKind::Quantity
 						|| Reservation.ResourceKind == EShanmenItemResourceKind::DeploymentLock)
 					&& Item->State != EShanmenItemInstanceState::Stored)))
@@ -745,8 +767,30 @@ FGuid FShanmenItemRepository::Fingerprint(
 		Parts.Add(GuidDigits(Original.ItemInstanceId));
 		Parts.Add(FString::FromInt(Original.RemainingQuantity));
 	}
+	Parts.Add(FString::FromInt(Request.AcquiredItems.Num()));
+	for (const FShanmenItemRunAcquiredItem& Acquired :
+		Request.AcquiredItems)
+	{
+		Parts.Add(GuidDigits(Acquired.ItemInstanceId));
+		Parts.Add(Acquired.Definition.DefinitionId.ToString());
+		TArray<FString> OrderedTags;
+		for (const FGameplayTag& Tag :
+			Acquired.Definition.ItemTags.GetGameplayTagArray())
+		{
+			OrderedTags.Add(Tag.ToString());
+		}
+		OrderedTags.Sort();
+		Parts.Add(FString::FromInt(OrderedTags.Num()));
+		Parts.Append(OrderedTags);
+		Parts.Add(FString::FromInt(Acquired.Definition.MaxStack));
+		Parts.Add(FString::FromInt(Acquired.Definition.MaxDurability));
+		Parts.Add(FString::FromInt(Acquired.Definition.MaxCharges));
+		Parts.Add(FString::FromInt(Acquired.Quantity));
+		Parts.Add(Acquired.ChildContainerType.ToString());
+		Parts.Add(FString::FromInt(Acquired.ChildContainerCapacity));
+	}
 	return FShanmenDeterministicId::FromCanonicalParts(
-		TEXT("Shanmen.Items.Command.FinalizePreparedRun.r1"), Parts);
+		TEXT("Shanmen.Items.Command.FinalizePreparedRun.r2"), Parts);
 }
 
 FGuid FShanmenItemRepository::MakeReservationId(const FShanmenItemReserveRequest& Request)
@@ -775,6 +819,15 @@ FGuid FShanmenItemRepository::MakeActiveRunId(
 			GuidDigits(OwnerId), GuidDigits(ScopeId),
 			GuidDigits(PreparedBatchRequestId)
 		});
+}
+
+FGuid FShanmenItemRepository::MakeAcquiredChildContainerId(
+	const FGuid& ActiveRunId,
+	const FGuid& ItemInstanceId)
+{
+	return FShanmenDeterministicId::FromCanonicalParts(
+		TEXT("Shanmen.Items.AcquiredChildContainer.r1"),
+		{ GuidDigits(ActiveRunId), GuidDigits(ItemInstanceId) });
 }
 
 FGuid FShanmenItemRepository::MakeReceiptId(
@@ -913,7 +966,7 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::Reserve(const FShanmenIte
 	{
 		return Reject(EShanmenItemTransactionError::StaleItemRevision);
 	}
-	if (Item->State == EShanmenItemInstanceState::Depleted
+	if (IsUnavailable(Item->State)
 		|| ((Request.ResourceKind == EShanmenItemResourceKind::Quantity
 				|| Request.ResourceKind == EShanmenItemResourceKind::DeploymentLock)
 			&& Item->State != EShanmenItemInstanceState::Stored))
@@ -1540,7 +1593,13 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::FinalizePreparedRun(
 	{
 		return Reject(EShanmenItemTransactionError::ContentMismatch);
 	}
-	if (Request.TerminalReason != EShanmenItemRunTerminalReason::Extraction)
+	const bool bExtraction = Request.TerminalReason
+		== EShanmenItemRunTerminalReason::Extraction;
+	const bool bDestructive = Request.TerminalReason
+		== EShanmenItemRunTerminalReason::Death
+		|| Request.TerminalReason
+			== EShanmenItemRunTerminalReason::Abandon;
+	if (!bExtraction && !bDestructive)
 	{
 		return Reject(
 			EShanmenItemTransactionError::RunTerminalReasonUnsupported);
@@ -1593,8 +1652,16 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::FinalizePreparedRun(
 		{
 			return Reject(EShanmenItemTransactionError::RunNotFound);
 		}
+		if (PreparedItemIds.Contains(Item->ItemInstanceId))
+		{
+			return Reject(EShanmenItemTransactionError::RunNotFound);
+		}
 		PreparedItemIds.Add(Item->ItemInstanceId);
 		const int32 Remaining = SecuredQuantities.FindRef(Item->ItemInstanceId);
+		if (bDestructive)
+		{
+			continue;
+		}
 		if (Reservation->ResourceKind
 			== EShanmenItemResourceKind::DeploymentLock)
 		{
@@ -1644,7 +1711,142 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::FinalizePreparedRun(
 		}
 	}
 
+	TArray<const FShanmenItemRunAcquiredItem*> OrderedAcquired;
+	OrderedAcquired.Reserve(Request.AcquiredItems.Num());
+	TMap<FName, FShanmenItemDefinition> IntroducedDefinitions;
+	TSet<FGuid> AcquiredChildContainerIds;
+	for (const FShanmenItemRunAcquiredItem& Acquired :
+		Request.AcquiredItems)
+	{
+		if (!bExtraction
+			|| PreparedItemIds.Contains(Acquired.ItemInstanceId)
+			|| State.Items.Contains(Acquired.ItemInstanceId))
+		{
+			return Reject(
+				EShanmenItemTransactionError::AcquiredItemMismatch);
+		}
+		const FShanmenItemDefinition* ExistingDefinition =
+			State.Definitions.Find(Acquired.Definition.DefinitionId);
+		if (ExistingDefinition
+			&& !(*ExistingDefinition == Acquired.Definition))
+		{
+			return Reject(
+				EShanmenItemTransactionError::AcquiredItemMismatch);
+		}
+		if (const FShanmenItemDefinition* Introduced =
+			IntroducedDefinitions.Find(Acquired.Definition.DefinitionId))
+		{
+			if (!(*Introduced == Acquired.Definition))
+			{
+				return Reject(
+					EShanmenItemTransactionError::AcquiredItemMismatch);
+			}
+		}
+		else
+		{
+			IntroducedDefinitions.Add(
+				Acquired.Definition.DefinitionId, Acquired.Definition);
+		}
+		if (Acquired.ChildContainerCapacity > 0)
+		{
+			const FGuid ChildContainerId =
+				MakeAcquiredChildContainerId(
+					Request.ActiveRunId, Acquired.ItemInstanceId);
+			if (!ChildContainerId.IsValid()
+				|| State.Containers.Contains(ChildContainerId)
+				|| AcquiredChildContainerIds.Contains(ChildContainerId))
+			{
+				return Reject(
+					EShanmenItemTransactionError::AcquiredItemMismatch);
+			}
+			AcquiredChildContainerIds.Add(ChildContainerId);
+		}
+		OrderedAcquired.Add(&Acquired);
+	}
+	OrderedAcquired.Sort([](
+		const FShanmenItemRunAcquiredItem& Left,
+		const FShanmenItemRunAcquiredItem& Right)
+	{
+		return GuidLess(Left.ItemInstanceId, Right.ItemInstanceId);
+	});
+
+	const FShanmenItemContainer* Warehouse = nullptr;
+	TArray<FGuid> ProjectedWarehouseSlots;
+	TArray<int32> AcquiredWarehouseSlots;
+	if (!OrderedAcquired.IsEmpty())
+	{
+		for (const TPair<FGuid, FShanmenItemContainer>& Pair :
+			State.Containers)
+		{
+			const FShanmenItemContainer& Candidate = Pair.Value;
+			if (Candidate.ContainerType != FName(TEXT("Warehouse"))
+				|| Candidate.OwnerId != Request.Context.OwnerId
+				|| Candidate.RunId != Request.Context.RunId)
+			{
+				continue;
+			}
+			if (Warehouse)
+			{
+				return Reject(
+					EShanmenItemTransactionError::ImportPlacementUnavailable);
+			}
+			Warehouse = &Candidate;
+		}
+		if (!Warehouse)
+		{
+			return Reject(
+				EShanmenItemTransactionError::ImportPlacementUnavailable);
+		}
+		ProjectedWarehouseSlots = Warehouse->Slots;
+		for (const FGuid& ReservationId : Claim->ReservationIds)
+		{
+			const FShanmenItemReservationSnapshot* Reservation =
+				State.Reservations.Find(ReservationId);
+			const FShanmenItemInstance* Item = Reservation
+				? State.Items.Find(Reservation->ItemInstanceId) : nullptr;
+			const int32 Remaining = Item
+				? SecuredQuantities.FindRef(Item->ItemInstanceId) : 0;
+			if (!Reservation || !Item || Remaining <= 0
+				|| Reservation->ResourceKind
+					!= EShanmenItemResourceKind::Quantity)
+			{
+				continue;
+			}
+			FName LogicalPurpose;
+			FGuid SourceContainerId;
+			int32 SourceSlotIndex = INDEX_NONE;
+			if (FShanmenItemReservationPlacement::Decode(
+					Reservation->PurposeId, LogicalPurpose,
+					SourceContainerId, SourceSlotIndex)
+				&& SourceContainerId == Warehouse->ContainerId)
+			{
+				if (!ProjectedWarehouseSlots.IsValidIndex(SourceSlotIndex)
+					|| ProjectedWarehouseSlots[SourceSlotIndex].IsValid())
+				{
+					return Reject(
+						EShanmenItemTransactionError::SourcePlacementUnavailable);
+				}
+				ProjectedWarehouseSlots[SourceSlotIndex] =
+					Item->ItemInstanceId;
+			}
+		}
+		for (const FShanmenItemRunAcquiredItem* Acquired :
+			OrderedAcquired)
+		{
+			const int32 SlotIndex = ProjectedWarehouseSlots.IndexOfByPredicate(
+				[](const FGuid& ItemId) { return !ItemId.IsValid(); });
+			if (!Acquired || SlotIndex == INDEX_NONE)
+			{
+				return Reject(
+					EShanmenItemTransactionError::ImportPlacementUnavailable);
+			}
+			ProjectedWarehouseSlots[SlotIndex] = Acquired->ItemInstanceId;
+			AcquiredWarehouseSlots.Add(SlotIndex);
+		}
+	}
+
 	FState Candidate = State;
+	TSet<FGuid> DetachedChildContainerIds;
 	for (const FGuid& ReservationId : Claim->ReservationIds)
 	{
 		FShanmenItemReservationSnapshot* Reservation =
@@ -1656,7 +1858,41 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::FinalizePreparedRun(
 			return Reject(EShanmenItemTransactionError::InvariantViolation);
 		}
 		const int32 Remaining = SecuredQuantities.FindRef(Item->ItemInstanceId);
-		if (Reservation->ResourceKind
+		if (bDestructive)
+		{
+			if (Item->ParentContainerId.IsValid())
+			{
+				FShanmenItemContainer* Parent =
+					Candidate.Containers.Find(Item->ParentContainerId);
+				if (!Parent || !Parent->Slots.IsValidIndex(Item->SlotIndex)
+					|| Parent->Slots[Item->SlotIndex]
+						!= Item->ItemInstanceId)
+				{
+					return Reject(
+						EShanmenItemTransactionError::InvariantViolation);
+				}
+				Parent->Slots[Item->SlotIndex].Invalidate();
+			}
+			if (Item->ChildContainerId.IsValid())
+			{
+				if (!Candidate.Containers.Contains(Item->ChildContainerId))
+				{
+					return Reject(
+						EShanmenItemTransactionError::InvariantViolation);
+				}
+				DetachedChildContainerIds.Add(Item->ChildContainerId);
+			}
+			Item->ParentContainerId.Invalidate();
+			Item->ChildContainerId.Invalidate();
+			Item->SlotIndex = INDEX_NONE;
+			Item->Quantity = 0;
+			Item->Durability = 0;
+			Item->Charges = 0;
+			Item->State = EShanmenItemInstanceState::Destroyed;
+			Item->DeploymentReservationId.Invalidate();
+			++Item->Revision;
+		}
+		else if (Reservation->ResourceKind
 			== EShanmenItemResourceKind::DeploymentLock)
 		{
 			Item->State = EShanmenItemInstanceState::Stored;
@@ -1686,6 +1922,92 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::FinalizePreparedRun(
 		}
 		Reservation->State = EShanmenItemReservationState::Released;
 	}
+	if (bDestructive)
+	{
+		for (const FGuid& ChildContainerId : DetachedChildContainerIds)
+		{
+			FShanmenItemContainer* Child =
+				Candidate.Containers.Find(ChildContainerId);
+			if (!Child)
+			{
+				return Reject(
+					EShanmenItemTransactionError::InvariantViolation);
+			}
+			const bool bEmpty = !Child->Slots.ContainsByPredicate(
+				[](const FGuid& ItemId) { return ItemId.IsValid(); });
+			if (bEmpty)
+			{
+				Candidate.Containers.Remove(ChildContainerId);
+			}
+			else
+			{
+				Child->ContainerType =
+					FShanmenItemRunLifecyclePurpose::RecoveredStorage();
+			}
+		}
+	}
+	else
+	{
+		const FGuid WarehouseId = Warehouse
+			? Warehouse->ContainerId : FGuid();
+		for (int32 Index = 0; Index < OrderedAcquired.Num(); ++Index)
+		{
+			const FShanmenItemRunAcquiredItem* Acquired =
+				OrderedAcquired[Index];
+			if (!Acquired
+				|| !AcquiredWarehouseSlots.IsValidIndex(Index)
+				|| !WarehouseId.IsValid())
+			{
+				return Reject(
+					EShanmenItemTransactionError::InvariantViolation);
+			}
+			if (!Candidate.Definitions.Contains(
+				Acquired->Definition.DefinitionId))
+			{
+				Candidate.Definitions.Add(
+					Acquired->Definition.DefinitionId,
+					Acquired->Definition);
+			}
+			FGuid ChildContainerId;
+			if (Acquired->ChildContainerCapacity > 0)
+			{
+				ChildContainerId = MakeAcquiredChildContainerId(
+					Request.ActiveRunId, Acquired->ItemInstanceId);
+				FShanmenItemContainer Child;
+				Child.ContainerId = ChildContainerId;
+				Child.RunId = Request.Context.RunId;
+				Child.OwnerId = Request.Context.OwnerId;
+				Child.ContainerType = Acquired->ChildContainerType;
+				Child.Slots.Init(FGuid(), Acquired->ChildContainerCapacity);
+				Candidate.Containers.Add(ChildContainerId, MoveTemp(Child));
+			}
+			FShanmenItemContainer* MutableWarehouse =
+				Candidate.Containers.Find(WarehouseId);
+			if (!MutableWarehouse
+				|| !MutableWarehouse->Slots.IsValidIndex(
+					AcquiredWarehouseSlots[Index])
+				|| MutableWarehouse->Slots[
+					AcquiredWarehouseSlots[Index]].IsValid())
+			{
+				return Reject(
+					EShanmenItemTransactionError::InvariantViolation);
+			}
+			FShanmenItemInstance Item;
+			Item.ItemInstanceId = Acquired->ItemInstanceId;
+			Item.DefinitionId = Acquired->Definition.DefinitionId;
+			Item.RunId = Request.Context.RunId;
+			Item.OwnerId = Request.Context.OwnerId;
+			Item.ParentContainerId = MutableWarehouse->ContainerId;
+			Item.ChildContainerId = ChildContainerId;
+			Item.SlotIndex = AcquiredWarehouseSlots[Index];
+			Item.Quantity = Acquired->Quantity;
+			Item.Durability = Acquired->Definition.MaxDurability;
+			Item.Charges = Acquired->Definition.MaxCharges;
+			Item.State = EShanmenItemInstanceState::Stored;
+			MutableWarehouse->Slots[Item.SlotIndex] = Item.ItemInstanceId;
+			Candidate.Items.Add(Item.ItemInstanceId, MoveTemp(Item));
+		}
+	}
 	++Candidate.AuthorityRevision;
 
 	FShanmenItemTransactionReceipt Receipt;
@@ -1698,7 +2020,11 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::FinalizePreparedRun(
 	Receipt.ItemInstanceId = Claim->ItemInstanceId;
 	Receipt.Amount = Claim->ReservationIds.Num();
 	Receipt.AuthorityRevision = Candidate.AuthorityRevision;
-	Receipt.PurposeId = FShanmenItemRunLifecyclePurpose::Extraction();
+	Receipt.PurposeId = bExtraction
+		? FShanmenItemRunLifecyclePurpose::Extraction()
+		: Request.TerminalReason == EShanmenItemRunTerminalReason::Death
+			? FShanmenItemRunLifecyclePurpose::Death()
+			: FShanmenItemRunLifecyclePurpose::Abandon();
 	Receipt.ReservationIds = Claim->ReservationIds;
 	Receipt.ReceiptId = MakeReceiptId(
 		Request.Context.RequestId, RequestFingerprint,
@@ -1877,7 +2203,7 @@ int32 FShanmenItemRepository::GetResourceTotal(
 	const FShanmenItemInstance& Item,
 	EShanmenItemResourceKind Kind)
 {
-	if (Item.State == EShanmenItemInstanceState::Depleted)
+	if (IsUnavailable(Item.State))
 	{
 		return 0;
 	}

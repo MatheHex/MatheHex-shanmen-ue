@@ -1159,7 +1159,8 @@ bool Fdemo_mapShanmenPreparationAdapter::BuildProjection(
 
 	for (const FShanmenItemInstance& Item : Snapshot.Items)
 	{
-		if (Item.State == EShanmenItemInstanceState::Depleted)
+		if (Item.State == EShanmenItemInstanceState::Depleted
+			|| Item.State == EShanmenItemInstanceState::Destroyed)
 		{
 			continue;
 		}
@@ -1262,7 +1263,8 @@ Fdemo_mapShanmenPreparationAdapter::SelectEquipment(
 		const FShanmenItemInstance* Item = FindItem(Snapshot, ItemInstanceId);
 		if (!Item || Item->OwnerId != Projection.OwnerId
 			|| Item->RunId != Projection.ScopeId
-			|| Item->State == EShanmenItemInstanceState::Depleted)
+			|| Item->State == EShanmenItemInstanceState::Depleted
+			|| Item->State == EShanmenItemInstanceState::Destroyed)
 		{
 			return MakeResult(
 				Edemo_mapShanmenPreparationAdapterStatus::ItemNotFound,
@@ -1563,7 +1565,8 @@ Fdemo_mapShanmenPreparationAdapter::SelectMaterial(
 	const FShanmenItemInstance* Item = FindItem(Snapshot, ItemInstanceId);
 	if (!Item || Item->OwnerId != Projection.OwnerId
 		|| Item->RunId != Projection.ScopeId
-		|| Item->State == EShanmenItemInstanceState::Depleted)
+		|| Item->State == EShanmenItemInstanceState::Depleted
+		|| Item->State == EShanmenItemInstanceState::Destroyed)
 	{
 		return MakeResult(
 			Edemo_mapShanmenPreparationAdapterStatus::ItemNotFound,
