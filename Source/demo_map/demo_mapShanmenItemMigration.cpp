@@ -446,14 +446,19 @@ Fdemo_mapShanmenItemMigrationResult Fdemo_mapShanmenItemMigration::BuildCandidat
 		FShanmenItemDefinition Definition;
 		Definition.DefinitionId = DefinitionId;
 		Definition.MaxStack = SourceDefinition->MaxStack;
+		const Fdemo_mapItemDefinition* ProductDefinition =
+			Fdemo_mapItemDefinitions::Find(DefinitionId);
+		if (ProductDefinition)
+		{
+			Definition.MaxDurability = ProductDefinition->MaxDurability;
+			Definition.MaxCharges = ProductDefinition->MaxCharges;
+		}
 		if (SourceDefinition->bStackable)
 		{
 			Definition.ItemTags.AddTag(
 				FShanmenItemNativeTags::CapabilityConsumeQuantity());
 		}
-		else if (const Fdemo_mapItemDefinition* ProductDefinition =
-			Fdemo_mapItemDefinitions::Find(DefinitionId);
-			ProductDefinition
+		else if (ProductDefinition
 			&& ProductDefinition->MaxStackSize == 1
 			&& !ProductDefinition->CompatibleSlotIds.IsEmpty())
 		{
@@ -462,6 +467,16 @@ Fdemo_mapShanmenItemMigrationResult Fdemo_mapShanmenItemMigration::BuildCandidat
 			// the one-time migration; mutable UI/profile state never grants it.
 			Definition.ItemTags.AddTag(
 				FShanmenItemNativeTags::CapabilityDeploy());
+		}
+		if (Definition.MaxDurability > 0)
+		{
+			Definition.ItemTags.AddTag(
+				FShanmenItemNativeTags::CapabilityDurability());
+		}
+		if (Definition.MaxCharges > 0)
+		{
+			Definition.ItemTags.AddTag(
+				FShanmenItemNativeTags::CapabilityCharges());
 		}
 		Candidate.Definitions.Add(MoveTemp(Definition));
 	}
@@ -516,6 +531,20 @@ Fdemo_mapShanmenItemMigrationResult Fdemo_mapShanmenItemMigration::BuildCandidat
 		Item.ChildContainerId = SourceItem.ChildContainerId;
 		Item.SlotIndex = SourceItem.SlotIndex;
 		Item.Quantity = SourceItem.Quantity;
+		const FShanmenItemDefinition* TargetDefinition =
+			Candidate.Definitions.FindByPredicate(
+				[&Item](const FShanmenItemDefinition& Definition)
+				{
+					return Definition.DefinitionId == Item.DefinitionId;
+				});
+		if (!TargetDefinition)
+		{
+			return Fail(
+				Edemo_mapShanmenItemMigrationError::SourceItemMismatch,
+				TEXT("A normalized item has no target authority definition."));
+		}
+		Item.Durability = TargetDefinition->MaxDurability;
+		Item.Charges = TargetDefinition->MaxCharges;
 		Item.Revision = 0;
 		Item.State = EShanmenItemInstanceState::Stored;
 		Candidate.Items.Add(MoveTemp(Item));

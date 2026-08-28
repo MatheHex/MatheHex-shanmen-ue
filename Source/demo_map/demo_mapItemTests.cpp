@@ -50,7 +50,7 @@ bool Fdemo_mapItemDefinitionsTest::RunTest(const FString&)
 {
 	FString Error;
 	TestTrue(TEXT("Registry validates"), Fdemo_mapItemDefinitions::Validate(&Error));
-	TestEqual(TEXT("P1.0 catalog contains legacy and new definitions"), Fdemo_mapItemDefinitions::GetAll().Num(), 38);
+	TestEqual(TEXT("Current catalog contains legacy and 0.0.10 definitions"), Fdemo_mapItemDefinitions::GetAll().Num(), 39);
 	TestEqual(TEXT("Five stable slots"), Fdemo_mapItemDefinitions::GetEquipmentSlotIds().Num(), 5);
 	const Fdemo_mapItemDefinition* Weapon = Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::TrainingBlade);
 	const Fdemo_mapItemDefinition* Armor = Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::TrainingVest);
@@ -61,8 +61,9 @@ bool Fdemo_mapItemDefinitionsTest::RunTest(const FString&)
 	const Fdemo_mapItemDefinition* ReinforcedArmor = Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::ReinforcedVest);
 	const Fdemo_mapItemDefinition* Iron = Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::IronShard);
 	const Fdemo_mapItemDefinition* Token = Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::AncientToken);
-	TestTrue(TEXT("Required definitions exist"), Weapon && Armor && Accessory && SpatialRing && Material && HeavyWeapon && ReinforcedArmor && Iron && Token);
-	if (!Weapon || !Armor || !Accessory || !SpatialRing || !Material || !HeavyWeapon || !ReinforcedArmor || !Iron || !Token) return false;
+	const Fdemo_mapItemDefinition* SpiritGuard = Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::SpiritGuardRobe);
+	TestTrue(TEXT("Required definitions exist"), Weapon && Armor && Accessory && SpatialRing && Material && HeavyWeapon && ReinforcedArmor && Iron && Token && SpiritGuard);
+	if (!Weapon || !Armor || !Accessory || !SpatialRing || !Material || !HeavyWeapon || !ReinforcedArmor || !Iron || !Token || !SpiritGuard) return false;
 	TestTrue(TEXT("Weapon compatibility"), Weapon->CompatibleSlotIds == TArray<FName>{ Fdemo_mapItemIds::WeaponSlot });
 	TestTrue(TEXT("Armor compatibility"), Armor->CompatibleSlotIds == TArray<FName>{ Fdemo_mapItemIds::ArmorSlot });
 	TestTrue(TEXT("Accessory compatibility"), Accessory->CompatibleSlotIds == TArray<FName>{ Fdemo_mapItemIds::AccessorySlot });
@@ -70,6 +71,7 @@ bool Fdemo_mapItemDefinitionsTest::RunTest(const FString&)
 	TestTrue(TEXT("Material is not equipable"), Material->CompatibleSlotIds.IsEmpty() && Material->Modifiers.IsEmpty());
 	TestEqual(TEXT("SpiritDust max stack"), Material->MaxStackSize, 5);
 	TestTrue(TEXT("New non-equipment loot remains non-equipable"), Iron->CompatibleSlotIds.IsEmpty() && Token->CompatibleSlotIds.IsEmpty() && Token->PrototypeValue == 500);
+	TestTrue(TEXT("Spirit Guard owns explicit durability content"), SpiritGuard->CompatibleSlotIds == TArray<FName>{ Fdemo_mapItemIds::ArmorSlot } && SpiritGuard->MaxDurability == 20 && SpiritGuard->MaxCharges == 0 && SpiritGuard->MaxStackSize == 1);
 	TestTrue(TEXT("Display name is not a key"), Fdemo_mapItemDefinitions::Find(FName(*Weapon->DisplayName.ToString())) == nullptr);
 	TestTrue(TEXT("Deterministic registry order"), Fdemo_mapItemDefinitions::GetAll()[0].DefinitionId == Fdemo_mapItemIds::TrainingBlade && Fdemo_mapItemDefinitions::GetAll()[3].DefinitionId == Fdemo_mapItemIds::SpiritDust && Fdemo_mapItemDefinitions::GetAll()[8].DefinitionId == Fdemo_mapItemIds::AncientToken);
 	return true;
@@ -176,7 +178,7 @@ bool Fdemo_mapItemModifierBridgeTest::RunTest(const FString&)
 	const FGuid Weapon = AddOne(*this, Items, Fdemo_mapItemIds::TrainingBlade);
 	const FGuid Armor = AddOne(*this, Items, Fdemo_mapItemIds::TrainingVest);
 	const FGuid Accessory = AddOne(*this, Items, Fdemo_mapItemIds::WindTalisman);
-	TestTrue(TEXT("Equip three slots"), Items->Equip(Weapon, Fdemo_mapItemIds::WeaponSlot).bSuccess && Items->Equip(Armor, Fdemo_mapItemIds::ArmorSlot).bSuccess && Items->Equip(Accessory, Fdemo_mapItemIds::AccessorySlot).bSuccess);
+	TestTrue(TEXT("Equip three slots"), Items->Equip(Weapon, Fdemo_mapItemIds::WeaponSlot).bSuccess && Items->Equip(Armor, Fdemo_mapItemIds::ArmorSlot).bSuccess && Items->Equip(Accessory, Fdemo_mapItemIds::SpatialRingSlot).bSuccess);
 	TestTrue(TEXT("Weapon modifier"), FMath::IsNearlyEqual(ItemTestAttribute(FirstAttributes, Fdemo_mapAttributeIds::AttackPower), 2.0f));
 	TestTrue(TEXT("Armor modifier"), FMath::IsNearlyEqual(ItemTestAttribute(FirstAttributes, Fdemo_mapAttributeIds::MaxHealth), 7.0f));
 	TestTrue(TEXT("Accessory modifier"), FMath::IsNearlyEqual(ItemTestAttribute(FirstAttributes, Fdemo_mapAttributeIds::MoveSpeed), 660.0f));
@@ -192,7 +194,7 @@ bool Fdemo_mapItemModifierBridgeTest::RunTest(const FString&)
 	TestTrue(TEXT("Old attributes lose equipment only"), FirstAttributes->GetActiveModifierCount() == 1 && FirstAttributes->GetModifierCountBySource(External.SourceId) == 1 && FMath::IsNearlyEqual(ItemTestAttribute(FirstAttributes, Fdemo_mapAttributeIds::AttackPower), 6.0f));
 	TestTrue(TEXT("New attributes receive one set"), FMath::IsNearlyEqual(ItemTestAttribute(SecondAttributes, Fdemo_mapAttributeIds::AttackPower), 2.0f) && FMath::IsNearlyEqual(ItemTestAttribute(SecondAttributes, Fdemo_mapAttributeIds::MaxHealth), 7.0f) && FMath::IsNearlyEqual(ItemTestAttribute(SecondAttributes, Fdemo_mapAttributeIds::MoveSpeed), 660.0f));
 	TestTrue(TEXT("Duplicate replacement bind idempotent"), Items->BindAttributeComponent(SecondAttributes) && Items->GetActiveModifierSources().Num() == 3 && SecondAttributes->GetActiveModifierCount() == 3);
-	TestTrue(TEXT("Unequip one source only"), Items->Unequip(Fdemo_mapItemIds::AccessorySlot).bSuccess && FMath::IsNearlyEqual(ItemTestAttribute(SecondAttributes, Fdemo_mapAttributeIds::MoveSpeed), 600.0f) && FMath::IsNearlyEqual(ItemTestAttribute(SecondAttributes, Fdemo_mapAttributeIds::AttackPower), 2.0f) && FMath::IsNearlyEqual(ItemTestAttribute(SecondAttributes, Fdemo_mapAttributeIds::MaxHealth), 7.0f));
+	TestTrue(TEXT("Unequip one source only"), Items->Unequip(Fdemo_mapItemIds::SpatialRingSlot).bSuccess && FMath::IsNearlyEqual(ItemTestAttribute(SecondAttributes, Fdemo_mapAttributeIds::MoveSpeed), 600.0f) && FMath::IsNearlyEqual(ItemTestAttribute(SecondAttributes, Fdemo_mapAttributeIds::AttackPower), 2.0f) && FMath::IsNearlyEqual(ItemTestAttribute(SecondAttributes, Fdemo_mapAttributeIds::MaxHealth), 7.0f));
 	FString Error;
 	TestTrue(TEXT("Bridge invariants"), Items->ValidateInvariants(&Error));
 

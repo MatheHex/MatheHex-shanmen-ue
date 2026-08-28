@@ -50,6 +50,7 @@ const FName Fdemo_mapItemIds::ArmorRobeLevel1(TEXT("Prototype.Item.Armor.Robe.Le
 const FName Fdemo_mapItemIds::ArmorRobeLevel2(TEXT("Prototype.Item.Armor.Robe.Level2"));
 const FName Fdemo_mapItemIds::ArmorRobeLevel3(TEXT("Prototype.Item.Armor.Robe.Level3"));
 const FName Fdemo_mapItemIds::ArmorRobeLevel4(TEXT("Prototype.Item.Armor.Robe.Level4"));
+const FName Fdemo_mapItemIds::SpiritGuardRobe(TEXT("Prototype.Item.Armor.SpiritGuardRobe"));
 const FName Fdemo_mapItemIds::AccessoryLevel1(TEXT("Prototype.Item.Accessory.Level1"));
 const FName Fdemo_mapItemIds::AccessoryLevel2(TEXT("Prototype.Item.Accessory.Level2"));
 const FName Fdemo_mapItemIds::AccessoryLevel3(TEXT("Prototype.Item.Accessory.Level3"));
@@ -119,7 +120,9 @@ namespace
 		bool bSellable,
 		int64 BuyPrice,
 		int64 SellPrice,
-		int32 PrototypeValue)
+		int32 PrototypeValue,
+		int32 MaxDurability = 0,
+		int32 MaxCharges = 0)
 	{
 		Fdemo_mapItemDefinition Definition;
 		Definition.DefinitionId = Id;
@@ -128,6 +131,8 @@ namespace
 		Definition.CategoryId = Category;
 		Definition.Level = Level;
 		Definition.MaxStackSize = MaxStack;
+		Definition.MaxDurability = MaxDurability;
+		Definition.MaxCharges = MaxCharges;
 		Definition.EquipmentSlotId = EquipmentSlotId;
 		Definition.CompatibleSlotIds = MoveTemp(CompatibleSlots);
 		Definition.Modifiers = MoveTemp(Modifiers);
@@ -349,14 +354,14 @@ bool Fdemo_mapRewardDistributionProfile::IsValid() const
 
 FName Fdemo_mapItemDefinitions::GetContentVersionId()
 {
-	return FName(TEXT("CodeB.Content.P73.3"));
+	return FName(TEXT("CodeB.Content.0.0.10.P5.4"));
 }
 
 const FString& Fdemo_mapItemDefinitions::GetContentDigest()
 {
 	// This is a content-contract digest, not a save migration key. Existing
 	// persisted items keep their DefinitionId and are never remapped by P73.
-	static const FString Digest(TEXT("A263AB7F10B960B30B584A8C67042597E2E1A8967E15B0F998A36D17E1EEA4B2"));
+	static const FString Digest(TEXT("32A1BA2A026369525D43CB56C21311C661E59B22BDFA2C877FE93B5C58F637F4"));
 	return Digest;
 }
 
@@ -373,6 +378,8 @@ bool Fdemo_mapItemDefinitions::IsKnownContentIdentity(
 	const FString& ContentDigest)
 {
 	return IsCurrentContentIdentity(ContentVersionId, ContentDigest)
+		|| (ContentVersionId == FName(TEXT("CodeB.Content.P73.3"))
+			&& ContentDigest == TEXT("A263AB7F10B960B30B584A8C67042597E2E1A8967E15B0F998A36D17E1EEA4B2"))
 		|| (ContentVersionId == FName(TEXT("CodeB.Content.P73.2"))
 			&& ContentDigest == TEXT("BCE122E15F3C3278A2AAC9C09D831DC64C7D13D196009D59161CC382F4C42E4B"))
 		|| (ContentVersionId == FName(TEXT("CodeB.Content.P73.0"))
@@ -401,6 +408,7 @@ const TArray<Fdemo_mapItemDefinition>& Fdemo_mapItemDefinitions::GetAll()
 		MakeDefinition(Fdemo_mapItemIds::ArmorRobeLevel2, TEXT("二阶道袍"), TEXT("TIER 2 DAO ROBE"), Fdemo_mapItemIds::ArmorCategory, 2, 1, Fdemo_mapItemIds::ArmorSlot, { Fdemo_mapItemIds::ArmorSlot }, {}, { MakeEffect(Fdemo_mapItemEffectIds::MaxHealthBonus, 4.0), MakeEffect(Fdemo_mapItemEffectIds::FlatDamageReduction, 2.0) }, true, true, 200, 100, 100),
 		MakeDefinition(Fdemo_mapItemIds::ArmorRobeLevel3, TEXT("三阶道袍"), TEXT("TIER 3 DAO ROBE"), Fdemo_mapItemIds::ArmorCategory, 3, 1, Fdemo_mapItemIds::ArmorSlot, { Fdemo_mapItemIds::ArmorSlot }, {}, { MakeEffect(Fdemo_mapItemEffectIds::MaxHealthBonus, 6.0), MakeEffect(Fdemo_mapItemEffectIds::FlatDamageReduction, 3.0) }, true, true, 400, 200, 200),
 		MakeDefinition(Fdemo_mapItemIds::ArmorRobeLevel4, TEXT("四阶道袍"), TEXT("TIER 4 DAO ROBE"), Fdemo_mapItemIds::ArmorCategory, 4, 1, Fdemo_mapItemIds::ArmorSlot, { Fdemo_mapItemIds::ArmorSlot }, {}, { MakeEffect(Fdemo_mapItemEffectIds::MaxHealthBonus, 8.0), MakeEffect(Fdemo_mapItemEffectIds::FlatDamageReduction, 4.0) }, true, true, 800, 400, 400),
+		MakeDefinition(Fdemo_mapItemIds::SpiritGuardRobe, TEXT("护体法袍"), TEXT("SPIRIT GUARD ROBE"), Fdemo_mapItemIds::ArmorCategory, 2, 1, Fdemo_mapItemIds::ArmorSlot, { Fdemo_mapItemIds::ArmorSlot }, {}, { MakeEffect(Fdemo_mapItemEffectIds::FlatDamageReduction, 2.0) }, false, true, 0, 80, 160, 20),
 
 		MakeDefinition(Fdemo_mapItemIds::AccessoryLevel1, TEXT("一阶纳物戒"), TEXT("TIER 1 SPATIAL RING"), Fdemo_mapItemIds::SpatialRingCategory, 1, 1, Fdemo_mapItemIds::SpatialRingSlot, { Fdemo_mapItemIds::SpatialRingSlot }, {}, { MakeEffect(Fdemo_mapItemEffectIds::CooldownMultiplier, 0.95), MakeEffect(Fdemo_mapItemEffectIds::RingQuickCapacity, 6.0) }, true, true, 80, 40, 40),
 		MakeDefinition(Fdemo_mapItemIds::AccessoryLevel2, TEXT("二阶纳物戒"), TEXT("TIER 2 SPATIAL RING"), Fdemo_mapItemIds::SpatialRingCategory, 2, 1, Fdemo_mapItemIds::SpatialRingSlot, { Fdemo_mapItemIds::SpatialRingSlot }, {}, { MakeEffect(Fdemo_mapItemEffectIds::CooldownMultiplier, 0.90), MakeEffect(Fdemo_mapItemEffectIds::RingQuickCapacity, 8.0) }, false, true, 0, 80, 80),
@@ -549,6 +557,7 @@ Fdemo_mapItemDefinitions::GetGeneratedRewardPool()
 	static const TArray<Fdemo_mapRewardPoolEntry> Entries = {
 		GeneratedPool(TEXT("P1.Pool.Weapon.L1"), Fdemo_mapItemIds::WeaponLevel1, Fdemo_mapRewardTagIds::ItemEquipmentWeapon, 36, 1), GeneratedPool(TEXT("P1.Pool.Weapon.L2"), Fdemo_mapItemIds::WeaponLevel2, Fdemo_mapRewardTagIds::ItemEquipmentWeapon, 24, 1), GeneratedPool(TEXT("P1.Pool.Weapon.L3"), Fdemo_mapItemIds::WeaponLevel3, Fdemo_mapRewardTagIds::ItemEquipmentWeapon, 12, 1), GeneratedPool(TEXT("P1.Pool.Weapon.L4"), Fdemo_mapItemIds::WeaponLevel4, Fdemo_mapRewardTagIds::ItemEquipmentWeapon, 5, 1),
 		GeneratedPool(TEXT("P1.Pool.Robe.L1"), Fdemo_mapItemIds::ArmorRobeLevel1, Fdemo_mapRewardTagIds::ItemEquipmentRobe, 36, 1), GeneratedPool(TEXT("P1.Pool.Robe.L2"), Fdemo_mapItemIds::ArmorRobeLevel2, Fdemo_mapRewardTagIds::ItemEquipmentRobe, 24, 1), GeneratedPool(TEXT("P1.Pool.Robe.L3"), Fdemo_mapItemIds::ArmorRobeLevel3, Fdemo_mapRewardTagIds::ItemEquipmentRobe, 12, 1), GeneratedPool(TEXT("P1.Pool.Robe.L4"), Fdemo_mapItemIds::ArmorRobeLevel4, Fdemo_mapRewardTagIds::ItemEquipmentRobe, 5, 1),
+		GeneratedPool(TEXT("P5.4.Pool.Robe.SpiritGuard"), Fdemo_mapItemIds::SpiritGuardRobe, Fdemo_mapRewardTagIds::ItemEquipmentRobe, 8, 1),
 		GeneratedPool(TEXT("P1.Pool.Accessory.L1"), Fdemo_mapItemIds::AccessoryLevel1, Fdemo_mapRewardTagIds::ItemEquipmentAccessory, 34, 1), GeneratedPool(TEXT("P1.Pool.Accessory.L2"), Fdemo_mapItemIds::AccessoryLevel2, Fdemo_mapRewardTagIds::ItemEquipmentAccessory, 22, 1), GeneratedPool(TEXT("P1.Pool.Accessory.L3"), Fdemo_mapItemIds::AccessoryLevel3, Fdemo_mapRewardTagIds::ItemEquipmentAccessory, 11, 1), GeneratedPool(TEXT("P1.Pool.Accessory.L4"), Fdemo_mapItemIds::AccessoryLevel4, Fdemo_mapRewardTagIds::ItemEquipmentAccessory, 4, 1),
 		GeneratedPool(TEXT("P1.Pool.Backpack.L1"), Fdemo_mapItemIds::BackpackLevel1, Fdemo_mapRewardTagIds::ItemEquipmentBackpack, 24, 1), GeneratedPool(TEXT("P1.Pool.Backpack.L2"), Fdemo_mapItemIds::BackpackLevel2, Fdemo_mapRewardTagIds::ItemEquipmentBackpack, 14, 1),
 		GeneratedPool(TEXT("P1.Pool.Pill.L1"), Fdemo_mapItemIds::HealingPillLevel1, Fdemo_mapRewardTagIds::ItemConsumablePill, 48, 8), GeneratedPool(TEXT("P1.Pool.Pill.L2"), Fdemo_mapItemIds::HealingPillLevel2, Fdemo_mapRewardTagIds::ItemConsumablePill, 32, 6), GeneratedPool(TEXT("P1.Pool.Pill.L3"), Fdemo_mapItemIds::HealingPillLevel3, Fdemo_mapRewardTagIds::ItemConsumablePill, 18, 4),
@@ -818,9 +827,9 @@ Fdemo_mapItemDefinitions::ResolveSpatialRingCapacity(
 
 bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 {
-	if (GetAll().Num() != 38 || GetEquipmentSlotIds().Num() != 5)
+	if (GetAll().Num() != 39 || GetEquipmentSlotIds().Num() != 5)
 	{
-		if (OutError) *OutError = TEXT("P1.0.r6 registry must contain 38 definitions and expose five active runtime slots.");
+		if (OutError) *OutError = TEXT("The current registry must contain 39 definitions and expose five active runtime slots.");
 		return false;
 	}
 	TSet<FName> DefinitionIds;
@@ -845,6 +854,10 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 			|| Definition.CategoryId.IsNone()
 			|| Definition.Level < 0
 			|| Definition.MaxStackSize <= 0
+			|| Definition.MaxDurability < 0
+			|| Definition.MaxCharges < 0
+			|| (Definition.MaxStackSize > 1
+				&& (Definition.MaxDurability > 0 || Definition.MaxCharges > 0))
 			|| Definition.GridWidth != 1
 			|| Definition.GridHeight != 1
 			|| Definition.BuyPrice < 0

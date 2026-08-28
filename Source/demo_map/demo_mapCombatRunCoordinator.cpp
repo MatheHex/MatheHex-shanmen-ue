@@ -12,6 +12,7 @@
 #include "demo_mapEnemyCharacter.h"
 #include "demo_mapEnemySkillTypes.h"
 #include "demo_mapHeavyEnemyCharacter.h"
+#include "demo_mapItemDefinitions.h"
 #include "demo_mapM01BossCharacter.h"
 #include "demo_mapM01EnemyIdentityComponent.h"
 #include "demo_mapM01EnemyTypes.h"
@@ -19,6 +20,7 @@
 #include "demo_mapRangedEnemyCharacter.h"
 #include "demo_mapShanmenDefenseResourceAdapter.h"
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
+#include "demo_mapShanmenRunLifecycleAdapter.h"
 
 namespace
 {
@@ -607,6 +609,7 @@ bool Fdemo_mapCombatRunCoordinator::TryBeginRun(
 			TEXT("Player vitality host rejected the stable World EntityId.");
 		return false;
 	}
+	bool bPreparedPlayerRequiresResourceDefenseAuthority = false;
 	if (UGameInstance* GameInstance = PlayerPawn->GetGameInstance())
 	{
 		if (Udemo_mapShanmenItemAuthoritySubsystem* Authority =
@@ -626,6 +629,49 @@ bool Fdemo_mapCombatRunCoordinator::TryBeginRun(
 					: Recovery.Diagnostic;
 				return false;
 			}
+			const Fdemo_mapShanmenDefenseOrphanRecoveryResult OrphanRecovery =
+				Fdemo_mapShanmenDefenseResourceAdapter::
+					RecoverOrphanedDefenseReservations(*Authority);
+			if (!OrphanRecovery.bSuccess)
+			{
+				PlayerHealth->TryEndCombatEntityBinding(ExpectedEntityId);
+				OutDiagnostic = OrphanRecovery.Diagnostic.IsEmpty()
+					? TEXT("Combat Run binding could not recover a pre-intent defense reservation.")
+					: OrphanRecovery.Diagnostic;
+				return false;
+			}
+			Fdemo_mapShanmenRunCorrelation Correlation;
+			FShanmenItemAuthoritySnapshot Snapshot;
+			FString CorrelationDiagnostic;
+			if (!Fdemo_mapShanmenRunLifecycleAdapter::TryGetActiveRunCorrelation(
+					*Authority, Correlation, &CorrelationDiagnostic)
+				|| !Authority->TryCaptureSnapshot(Snapshot))
+			{
+				PlayerHealth->TryEndCombatEntityBinding(ExpectedEntityId);
+				OutDiagnostic = CorrelationDiagnostic.IsEmpty()
+					? TEXT("Combat Run binding could not inspect prepared armor authority.")
+					: CorrelationDiagnostic;
+				return false;
+			}
+			if (Correlation.ArmorItemInstanceId.IsValid())
+			{
+				const FShanmenItemInstance* Armor =
+					Snapshot.Items.FindByPredicate(
+						[&Correlation](const FShanmenItemInstance& Item)
+						{
+							return Item.ItemInstanceId
+								== Correlation.ArmorItemInstanceId;
+						});
+				if (!Armor)
+				{
+					PlayerHealth->TryEndCombatEntityBinding(ExpectedEntityId);
+					OutDiagnostic =
+						TEXT("Combat Run prepared armor identity is absent from item authority.");
+					return false;
+				}
+				bPreparedPlayerRequiresResourceDefenseAuthority =
+					Armor->DefinitionId == Fdemo_mapItemIds::SpiritGuardRobe;
+			}
 		}
 	}
 
@@ -634,6 +680,8 @@ bool Fdemo_mapCombatRunCoordinator::TryBeginRun(
 	BoundPlayerPawn = PlayerPawn;
 	BoundPlayerHealth = PlayerHealth;
 	BoundPlayerRoot = PlayerRoot;
+	bPlayerRequiresResourceDefenseAuthority =
+		bPreparedPlayerRequiresResourceDefenseAuthority;
 	OutDiagnostic = FString::Printf(
 		TEXT("Combat Run bound: RunId=%s PlayerEntityId=%s."),
 		*RunId.ToString(EGuidFormats::DigitsWithHyphens),
@@ -822,6 +870,7 @@ bool Fdemo_mapCombatRunCoordinator::TryEndRun(
 	BoundPlayerPawn.Reset();
 	BoundPlayerHealth.Reset();
 	BoundPlayerRoot.Reset();
+	bPlayerRequiresResourceDefenseAuthority = false;
 	NextPlayerBasicSwordActivationSequence = 1;
 	NextPlayerGroundCircleActivationSequence = 1;
 	NextPlayerSelfSectorActivationSequence = 1;
@@ -851,6 +900,7 @@ void Fdemo_mapCombatRunCoordinator::Reset()
 	BoundPlayerPawn.Reset();
 	BoundPlayerHealth.Reset();
 	BoundPlayerRoot.Reset();
+	bPlayerRequiresResourceDefenseAuthority = false;
 	NextPlayerBasicSwordActivationSequence = 1;
 	NextPlayerGroundCircleActivationSequence = 1;
 	NextPlayerSelfSectorActivationSequence = 1;
@@ -1653,16 +1703,6 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyAttack(
 	}
 	Candidate.HitOrdinal = RequestedHitOrdinal;
 
-	FShanmenTargetVitalitySnapshot TargetVitality;
-	if (!BoundPlayerHealth->TryCaptureCombatVitalitySnapshot(TargetVitality))
-	{
-		ActionRuntime.TryInterrupt(
-			EShanmenCombatActionPhase::Active,
-			Transition);
-		ProductResult.Error =
-			Edemo_mapM01EnemyAttackExecutionError::VitalitySnapshotFailed;
-		return ProductResult;
-	}
 	const FGuid ImpactId = FShanmenCombatIdFactory::MakeImpactId(
 		GetRunId(),
 		Action.GetActivationId(),
@@ -1679,6 +1719,90 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyAttack(
 			Transition);
 		ProductResult.Error =
 			Edemo_mapM01EnemyAttackExecutionError::DefenseSnapshotFailed;
+		return ProductResult;
+	}
+	Fdemo_mapShanmenDefenseResourcePreparationResult ResourcePreparation;
+	bool bResourceAuthorityInspected = false;
+	if (UGameInstance* GameInstance = TargetPlayer->GetGameInstance())
+	{
+		if (Udemo_mapShanmenItemAuthoritySubsystem* Authority =
+			GameInstance->GetSubsystem<Udemo_mapShanmenItemAuthoritySubsystem>();
+			Authority
+			&& Authority->GetLifecycleState()
+				== Edemo_mapShanmenItemAuthorityLifecycleState::Ready)
+		{
+			bResourceAuthorityInspected = true;
+			ResourcePreparation =
+				Fdemo_mapShanmenDefenseResourceAdapter::PrepareImpactDefense(
+					*Authority, *BoundPlayerHealth, ImpactId, Defense);
+			if (!ResourcePreparation.IsSuccess())
+			{
+				ActionRuntime.TryInterrupt(
+					EShanmenCombatActionPhase::Active,
+					Transition);
+				ProductResult.Error =
+					Edemo_mapM01EnemyAttackExecutionError::
+						ResourceDefensePreparationFailed;
+				return ProductResult;
+			}
+			if (bPlayerRequiresResourceDefenseAuthority
+				&& ResourcePreparation.Status
+					== Edemo_mapShanmenDefenseResourcePreparationStatus::
+						NotApplicable)
+			{
+				ActionRuntime.TryInterrupt(
+					EShanmenCombatActionPhase::Active,
+					Transition);
+				ProductResult.Error =
+					Edemo_mapM01EnemyAttackExecutionError::
+						ResourceDefensePreparationFailed;
+				return ProductResult;
+			}
+		}
+	}
+	if (bPlayerRequiresResourceDefenseAuthority
+		&& !bResourceAuthorityInspected)
+	{
+		ActionRuntime.TryInterrupt(
+			EShanmenCombatActionPhase::Active,
+			Transition);
+		ProductResult.Error =
+			Edemo_mapM01EnemyAttackExecutionError::
+				ResourceDefensePreparationFailed;
+		return ProductResult;
+	}
+
+	auto CancelPreDeliveryResource = [&ResourcePreparation, TargetPlayer]()
+	{
+		if (!ResourcePreparation.HasResourceLayer())
+		{
+			return true;
+		}
+		UGameInstance* GameInstance = TargetPlayer->GetGameInstance();
+		Udemo_mapShanmenItemAuthoritySubsystem* Authority = GameInstance
+			? GameInstance->GetSubsystem<
+				Udemo_mapShanmenItemAuthoritySubsystem>()
+			: nullptr;
+		FString Diagnostic;
+		return Authority
+			&& Fdemo_mapShanmenDefenseResourceAdapter::
+				CancelPreparedDefenseReservation(
+					*Authority, ResourcePreparation, Diagnostic);
+	};
+
+	// Resource recovery may have committed an earlier vitality intent. Sample
+	// the target only after preparation so this request cannot carry stale CAS.
+	FShanmenTargetVitalitySnapshot TargetVitality;
+	if (!BoundPlayerHealth->TryCaptureCombatVitalitySnapshot(TargetVitality))
+	{
+		const bool bCancelled = CancelPreDeliveryResource();
+		ActionRuntime.TryInterrupt(
+			EShanmenCombatActionPhase::Active,
+			Transition);
+		ProductResult.Error = bCancelled
+			? Edemo_mapM01EnemyAttackExecutionError::VitalitySnapshotFailed
+			: Edemo_mapM01EnemyAttackExecutionError::
+				ResourceDefensePreparationFailed;
 		return ProductResult;
 	}
 
@@ -1699,11 +1823,14 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyAttack(
 	ProductResult.Impact.Result = Resolution;
 	if (!ProductResult.Impact.IsValid())
 	{
+		const bool bCancelled = CancelPreDeliveryResource();
 		ActionRuntime.TryInterrupt(
 			EShanmenCombatActionPhase::Active,
 			Transition);
-		ProductResult.Error =
-			Edemo_mapM01EnemyAttackExecutionError::ImpactResolutionFailed;
+		ProductResult.Error = bCancelled
+			? Edemo_mapM01EnemyAttackExecutionError::ImpactResolutionFailed
+			: Edemo_mapM01EnemyAttackExecutionError::
+				ResourceDefensePreparationFailed;
 		return ProductResult;
 	}
 

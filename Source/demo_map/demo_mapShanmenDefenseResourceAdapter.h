@@ -9,6 +9,62 @@
 class Udemo_mapShanmenItemAuthoritySubsystem;
 class Udemo_mapPlayerHealthComponent;
 
+enum class Edemo_mapShanmenDefenseResourcePreparationStatus : uint8
+{
+	Prepared,
+	Replayed,
+	NotApplicable,
+	ResourceUnavailable,
+	AuthorityNotReady,
+	PriorRecoveryRejected,
+	RunCorrelationInvalid,
+	SnapshotInvalid,
+	DefenseMismatch,
+	ReservationRejected,
+	ReservationInvalid
+};
+
+/** Durable reservation and rewritten defense snapshot for one incoming impact. */
+struct Fdemo_mapShanmenDefenseResourcePreparationResult
+{
+	Edemo_mapShanmenDefenseResourcePreparationStatus Status =
+		Edemo_mapShanmenDefenseResourcePreparationStatus::SnapshotInvalid;
+	FString Diagnostic;
+	FShanmenItemReserveRequest ReserveRequest;
+	FShanmenItemDurableCommandResult ReserveCommand;
+	FGuid ReservationId;
+
+	bool IsSuccess() const
+	{
+		return Status
+			== Edemo_mapShanmenDefenseResourcePreparationStatus::Prepared
+			|| Status
+				== Edemo_mapShanmenDefenseResourcePreparationStatus::Replayed
+			|| Status
+				== Edemo_mapShanmenDefenseResourcePreparationStatus::NotApplicable
+			|| Status
+				== Edemo_mapShanmenDefenseResourcePreparationStatus::ResourceUnavailable;
+	}
+
+	bool HasResourceLayer() const
+	{
+		return (Status
+				== Edemo_mapShanmenDefenseResourcePreparationStatus::Prepared
+			|| Status
+				== Edemo_mapShanmenDefenseResourcePreparationStatus::Replayed)
+			&& ReservationId.IsValid();
+	}
+};
+
+/** Cleanup receipt for pre-intent P5.4 reservations left by an interruption. */
+struct Fdemo_mapShanmenDefenseOrphanRecoveryResult
+{
+	bool bSuccess = false;
+	int32 CancelledReservationCount = 0;
+	FString Diagnostic;
+	TArray<FShanmenItemDurableCommandResult> CancellationCommands;
+};
+
 enum class Edemo_mapShanmenDefenseResourceCoordinationStatus : uint8
 {
 	Coordinated,
@@ -52,6 +108,28 @@ struct Fdemo_mapShanmenDefenseResourceCoordinationResult
 /** Recoverable product bridge between CombatCore, vitality, and item resources. */
 struct Fdemo_mapShanmenDefenseResourceAdapter
 {
+	/** Cancels only recognizable P5.4 reservations that never entered an intent. */
+	static Fdemo_mapShanmenDefenseOrphanRecoveryResult
+	RecoverOrphanedDefenseReservations(
+		Udemo_mapShanmenItemAuthoritySubsystem& Authority);
+
+	/**
+	 * Splits the equipped Spirit Guard Robe out of legacy aggregate armor,
+	 * reserves one Durability, and appends the resource-backed canonical layer.
+	 */
+	static Fdemo_mapShanmenDefenseResourcePreparationResult
+	PrepareImpactDefense(
+		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+		Udemo_mapPlayerHealthComponent& VitalityHost,
+		const FGuid& ImpactId,
+		FShanmenDefenseSnapshot& InOutDefense);
+
+	/** Best-effort durable cancellation before an impact enters coordination. */
+	static bool CancelPreparedDefenseReservation(
+		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+		const Fdemo_mapShanmenDefenseResourcePreparationResult& Preparation,
+		FString& OutDiagnostic);
+
 	/** Builds the durable intent with triggered lines first and untriggered lines second. */
 	static bool BuildIntentRequest(
 		const FShanmenImpactRequest& Request,

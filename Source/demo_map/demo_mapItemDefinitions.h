@@ -49,6 +49,8 @@ struct Fdemo_mapItemIds
 	static const FName ArmorRobeLevel2;
 	static const FName ArmorRobeLevel3;
 	static const FName ArmorRobeLevel4;
+	/** First 0.0.10 defense content whose mitigation consumes durable authority. */
+	static const FName SpiritGuardRobe;
 	static const FName AccessoryLevel1;
 	static const FName AccessoryLevel2;
 	static const FName AccessoryLevel3;

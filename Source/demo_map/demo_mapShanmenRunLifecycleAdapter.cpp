@@ -253,6 +253,8 @@ namespace
 		OutItem.ItemInstanceId = RuntimeItem.ItemInstanceId;
 		OutItem.Definition.DefinitionId = ProductDefinition->DefinitionId;
 		OutItem.Definition.MaxStack = ProductDefinition->MaxStackSize;
+		OutItem.Definition.MaxDurability = ProductDefinition->MaxDurability;
+		OutItem.Definition.MaxCharges = ProductDefinition->MaxCharges;
 		OutItem.Quantity = RuntimeItem.StackCount;
 		if (!Fdemo_mapShanmenItemMetadataAdapter::FromRuntimeItem(
 				RuntimeItem, OutItem.RewardMetadata, OutDiagnostic))
@@ -274,6 +276,16 @@ namespace
 		{
 			OutItem.Definition.ItemTags.AddTag(
 				FShanmenItemNativeTags::CapabilityDeploy());
+		}
+		if (ProductDefinition->MaxDurability > 0)
+		{
+			OutItem.Definition.ItemTags.AddTag(
+				FShanmenItemNativeTags::CapabilityDurability());
+		}
+		if (ProductDefinition->MaxCharges > 0)
+		{
+			OutItem.Definition.ItemTags.AddTag(
+				FShanmenItemNativeTags::CapabilityCharges());
 		}
 		if (ProductDefinition->CategoryId
 			== Fdemo_mapItemIds::BackpackCategory)

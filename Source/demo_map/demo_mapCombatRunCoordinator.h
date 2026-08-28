@@ -92,6 +92,7 @@ enum class Edemo_mapM01EnemyAttackExecutionError : uint8
 	RuntimeStartFailed,
 	VitalitySnapshotFailed,
 	DefenseSnapshotFailed,
+	ResourceDefensePreparationFailed,
 	ImpactResolutionFailed,
 	DeliveryRejected,
 	RuntimeCompletionFailed
@@ -530,6 +531,7 @@ private:
 	TWeakObjectPtr<APawn> BoundPlayerPawn;
 	TWeakObjectPtr<Udemo_mapPlayerHealthComponent> BoundPlayerHealth;
 	TWeakObjectPtr<UPrimitiveComponent> BoundPlayerRoot;
+	bool bPlayerRequiresResourceDefenseAuthority = false;
 	TMap<FGuid, FM01EnemyBinding> M01EnemyBindings;
 	TMap<FGuid, uint64> NextM01EnemyBasicMeleeActivationSequences;
 	uint64 NextPlayerBasicSwordActivationSequence = 1;

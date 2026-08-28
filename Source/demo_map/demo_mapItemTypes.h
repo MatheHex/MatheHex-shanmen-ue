@@ -160,6 +160,10 @@ struct Fdemo_mapItemDefinition
 	FName CategoryId = NAME_None;
 	int32 Level = 0;
 	int32 MaxStackSize = 1;
+	/** Explicit 0.0.10 authority resource; zero means durability is unsupported. */
+	int32 MaxDurability = 0;
+	/** Explicit 0.0.10 authority resource; zero means charges are unsupported. */
+	int32 MaxCharges = 0;
 	int32 GridWidth = 1;
 	int32 GridHeight = 1;
 	FName EquipmentSlotId = NAME_None;

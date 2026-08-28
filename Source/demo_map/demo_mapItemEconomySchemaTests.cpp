@@ -194,6 +194,7 @@ bool FItemEconomySchema02NewDefinitionSet::RunTest(const FString&)
 	const TArray<FName> Expected = {
 		Fdemo_mapItemIds::WeaponLevel1, Fdemo_mapItemIds::WeaponLevel2, Fdemo_mapItemIds::WeaponLevel3, Fdemo_mapItemIds::WeaponLevel4,
 		Fdemo_mapItemIds::ArmorRobeLevel1, Fdemo_mapItemIds::ArmorRobeLevel2, Fdemo_mapItemIds::ArmorRobeLevel3, Fdemo_mapItemIds::ArmorRobeLevel4,
+		Fdemo_mapItemIds::SpiritGuardRobe,
 		Fdemo_mapItemIds::AccessoryLevel1, Fdemo_mapItemIds::AccessoryLevel2, Fdemo_mapItemIds::AccessoryLevel3, Fdemo_mapItemIds::AccessoryLevel4,
 		Fdemo_mapItemIds::BackpackLevel1, Fdemo_mapItemIds::BackpackLevel2,
 		Fdemo_mapItemIds::SpiritWoodLevel1, Fdemo_mapItemIds::SpiritWoodLevel2, Fdemo_mapItemIds::SpiritWoodLevel3,
@@ -201,11 +202,11 @@ bool FItemEconomySchema02NewDefinitionSet::RunTest(const FString&)
 		Fdemo_mapItemIds::HealingPillLevel1, Fdemo_mapItemIds::HealingPillLevel2, Fdemo_mapItemIds::HealingPillLevel3,
 		Fdemo_mapItemIds::SoulBone, Fdemo_mapItemIds::SpiritBone, Fdemo_mapItemIds::DaoBone,
 		Fdemo_mapItemIds::InnerCoreLevel5, Fdemo_mapItemIds::InnerCoreLevel10, Fdemo_mapItemIds::InnerCoreLevel15 };
-	TestEqual(TEXT("Exactly 29 new IDs"), Expected.Num(), 29);
+	TestEqual(TEXT("Exactly 30 new IDs"), Expected.Num(), 30);
 	TSet<FName> Unique(Expected);
-	TestEqual(TEXT("New IDs are unique"), Unique.Num(), 29);
+	TestEqual(TEXT("New IDs are unique"), Unique.Num(), 30);
 	for (FName Id : Expected) TestTrue(TEXT("New stable ID resolves"), ContainsDefinition(Expected, Id));
-	TestEqual(TEXT("Legacy nine plus new twenty-nine"), Fdemo_mapItemDefinitions::GetAll().Num(), 38);
+	TestEqual(TEXT("Legacy nine plus new thirty"), Fdemo_mapItemDefinitions::GetAll().Num(), 39);
 	return true;
 }
 
