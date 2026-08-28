@@ -99,7 +99,11 @@ namespace
 		Snapshot.Definitions.Add(MakeDefinition(
 			TEXT("Item.Artifact.HeartMirror"),
 			1,
-			{ FShanmenItemNativeTags::CapabilityCharges(), FShanmenItemNativeTags::ItemArtifactLethalGuard() },
+			{
+				FShanmenItemNativeTags::CapabilityDeploy(),
+				FShanmenItemNativeTags::CapabilityCharges(),
+				FShanmenItemNativeTags::ItemArtifactLethalGuard()
+			},
 			0,
 			1));
 		Snapshot.Definitions.Add(MakeDefinition(
@@ -139,6 +143,29 @@ namespace
 		Request.ExpectedItemRevision = ExpectedRevision;
 		Request.PurposeId = Purpose;
 		return Request;
+	}
+
+	FShanmenItemRunResourceCommitRequest MakeRunResourceCommit(
+		uint32 Sequence,
+		const FGuid& ActiveRunId,
+		const TArray<FShanmenItemRunResourceCommitLine>& OrderedLines)
+	{
+		FShanmenItemRunResourceCommitRequest Request;
+		Request.Context = MakeContext(Sequence);
+		Request.ActiveRunId = ActiveRunId;
+		Request.OrderedLines = OrderedLines;
+		Request.PurposeId = TEXT("Test.Combat.DefenseResources.r1");
+		return Request;
+	}
+
+	FShanmenItemRunResourceCommitLine ResourceLine(
+		const FGuid& ReservationId,
+		const FGuid& ItemInstanceId)
+	{
+		FShanmenItemRunResourceCommitLine Line;
+		Line.ReservationId = ReservationId;
+		Line.ItemInstanceId = ItemInstanceId;
+		return Line;
 	}
 
 	FShanmenItemReservationActionRequest MakeAction(
@@ -929,6 +956,143 @@ bool FShanmenItemsConcurrentReservationTest::RunTest(const FString&)
 	FShanmenItemRepository ReloadedDepleted;
 	TestTrue(TEXT("Depleted audit tombstone survives persistence reload"), ReloadedDepleted.TryLoadSnapshot(Repository.CaptureSnapshot()));
 	TestTrue(TEXT("Reloaded tombstone remains depleted"), ReloadedDepleted.FindItem(DartId)->State == EShanmenItemInstanceState::Depleted);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenItemsPreparedRunDefenseResourceCommitTest,
+	"Shanmen.0_0_10.Items.PreparedRunDefenseResourceCommit",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenItemsPreparedRunDefenseResourceCommitTest::RunTest(
+	const FString&)
+{
+	auto StartFixture = [this](
+		FShanmenItemRepository& Repository,
+		FShanmenItemTransactionReceipt& OutRun,
+		FShanmenItemTransactionReceipt& OutDurability,
+		FShanmenItemTransactionReceipt& OutCharge)
+	{
+		if (!LoadFixture(*this, Repository))
+		{
+			return false;
+		}
+		const FShanmenItemTransactionReceipt SwordDeployment =
+			Repository.Reserve(MakeReserve(
+				300, SwordId, EShanmenItemResourceKind::DeploymentLock,
+				1, TEXT("Preparation.Weapon")));
+		const FShanmenItemTransactionReceipt MirrorDeployment =
+			Repository.Reserve(MakeReserve(
+				301, MirrorId, EShanmenItemResourceKind::DeploymentLock,
+				1, TEXT("Preparation.Accessory")));
+		OutRun = Repository.StartPreparedRun(MakeRunStart(
+			302,
+			{ SwordDeployment.ReservationId,
+				MirrorDeployment.ReservationId }));
+		OutDurability = Repository.Reserve(MakeReserve(
+			303, SwordId, EShanmenItemResourceKind::Durability,
+			2, TEXT("Combat.FlyingSword.Impact"), 1));
+		OutCharge = Repository.Reserve(MakeReserve(
+			304, MirrorId, EShanmenItemResourceKind::Charges,
+			1, TEXT("Defense.Artifact.HeartMirror"), 1));
+		return SwordDeployment.IsSuccess()
+			&& MirrorDeployment.IsSuccess() && OutRun.IsSuccess()
+			&& OutDurability.IsSuccess() && OutCharge.IsSuccess();
+	};
+
+	FShanmenItemRepository Repository;
+	FShanmenItemTransactionReceipt ActiveRun;
+	FShanmenItemTransactionReceipt Durability;
+	FShanmenItemTransactionReceipt Charge;
+	if (!StartFixture(Repository, ActiveRun, Durability, Charge))
+	{
+		AddError(TEXT("Prepared defense-resource fixture failed to start."));
+		return false;
+	}
+	const FShanmenItemRunResourceCommitRequest Request =
+		MakeRunResourceCommit(
+			305, ActiveRun.ReservationId,
+			{
+				ResourceLine(Durability.ReservationId, SwordId),
+				ResourceLine(Charge.ReservationId, MirrorId)
+			});
+	const int32 RevisionBefore = Repository.GetAuthorityRevision();
+	const FShanmenItemTransactionReceipt Committed =
+		Repository.CommitPreparedRunResources(Request);
+	TestTrue(TEXT("One impact commits all triggered resources atomically"),
+		Committed.IsSuccess()
+			&& Committed.Operation
+				== EShanmenItemTransactionOperation::CommitPreparedRunResources
+			&& Committed.ReservationId == ActiveRun.ReservationId
+			&& Committed.ReservationIds
+				== TArray<FGuid>({
+					Durability.ReservationId, Charge.ReservationId })
+			&& Repository.GetAuthorityRevision() == RevisionBefore + 1
+			&& Repository.FindItem(SwordId)->Durability == 98
+			&& Repository.FindItem(MirrorId)->Charges == 0
+			&& Repository.FindReservation(Durability.ReservationId)->State
+				== EShanmenItemReservationState::Committed
+			&& Repository.FindReservation(Charge.ReservationId)->State
+				== EShanmenItemReservationState::Committed
+			&& Repository.ValidateInvariants());
+
+	FShanmenItemRepository Restarted;
+	TestTrue(TEXT("Restart replays the exact impact commit without double spend"),
+		Restarted.TryLoadSnapshot(Repository.CaptureSnapshot())
+			&& Restarted.CommitPreparedRunResources(Request) == Committed
+			&& Restarted.FindItem(SwordId)->Durability == 98
+			&& Restarted.FindItem(MirrorId)->Charges == 0);
+
+	FShanmenItemRunFinalizeRequest Finalize;
+	Finalize.Context = MakeContext(306);
+	Finalize.ActiveRunId = ActiveRun.ReservationId;
+	Finalize.TerminalReason = EShanmenItemRunTerminalReason::Extraction;
+	Finalize.SecuredOriginals = {
+		Secured(SwordId, 1), Secured(MirrorId, 1) };
+	const FShanmenItemTransactionReceipt Finalized =
+		Restarted.FinalizePreparedRun(Finalize);
+	FShanmenItemRunResourceCommitRequest AfterTerminal = Request;
+	AfterTerminal.Context = MakeContext(307);
+	TestTrue(TEXT("Extraction preserves wear and closes new impact commits"),
+		Finalized.IsSuccess()
+			&& Restarted.FindItem(SwordId)->State
+				== EShanmenItemInstanceState::Stored
+			&& Restarted.FindItem(SwordId)->Durability == 98
+			&& Restarted.FindItem(MirrorId)->Charges == 0
+			&& Restarted.CommitPreparedRunResources(AfterTerminal).Error
+				== EShanmenItemTransactionError::RunAlreadyFinalized);
+
+	FShanmenItemRepository AtomicFailure;
+	FShanmenItemTransactionReceipt FailedRun;
+	FShanmenItemTransactionReceipt PendingDurability;
+	FShanmenItemTransactionReceipt PendingCharge;
+	if (!StartFixture(
+			AtomicFailure, FailedRun, PendingDurability, PendingCharge))
+	{
+		AddError(TEXT("Atomic rejection fixture failed to start."));
+		return false;
+	}
+	const FShanmenItemRunResourceCommitRequest Mismatched =
+		MakeRunResourceCommit(
+			308, FailedRun.ReservationId,
+			{
+				ResourceLine(PendingDurability.ReservationId, SwordId),
+				ResourceLine(PendingCharge.ReservationId, SwordId)
+			});
+	const FShanmenItemTransactionReceipt Rejected =
+		AtomicFailure.CommitPreparedRunResources(Mismatched);
+	TestTrue(TEXT("One mismatched source rejects every line without partial wear"),
+		!Rejected.IsSuccess()
+			&& Rejected.Error
+				== EShanmenItemTransactionError::SecuredItemMismatch
+			&& AtomicFailure.FindItem(SwordId)->Durability == 100
+			&& AtomicFailure.FindItem(MirrorId)->Charges == 1
+			&& AtomicFailure.FindReservation(
+				PendingDurability.ReservationId)->State
+				== EShanmenItemReservationState::Reserved
+			&& AtomicFailure.FindReservation(PendingCharge.ReservationId)->State
+				== EShanmenItemReservationState::Reserved
+			&& AtomicFailure.ValidateInvariants());
 	return true;
 }
 

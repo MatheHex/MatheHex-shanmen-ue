@@ -52,7 +52,9 @@ enum class EShanmenItemTransactionOperation : uint8
 	/** Atomically commits all prepared reservations and publishes one active Run. */
 	StartPreparedRun,
 	/** Durably consumes one Quantity unit from an already-started prepared Run. */
-	ConsumePreparedRunItem
+	ConsumePreparedRunItem,
+	/** Atomically commits triggered Durability/Charges reservations for one active Run. */
+	CommitPreparedRunResources
 };
 
 UENUM(BlueprintType)
@@ -458,6 +460,50 @@ struct SHANMENITEMS_API FShanmenItemRunConsumeRequest
 	/** Compare-and-swap guard from the transient Runtime projection. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items", meta = (ClampMin = "1"))
 	int32 ExpectedQuantityBefore = 1;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FName PurposeId = NAME_None;
+
+	bool IsValid() const;
+};
+
+/** One triggered defense source mapped back to its exact pending item reservation. */
+USTRUCT(BlueprintType)
+struct SHANMENITEMS_API FShanmenItemRunResourceCommitLine
+{
+	GENERATED_BODY()
+
+	/** The defense LayerId captured before resolution. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FGuid ReservationId;
+
+	/** The defense SourceInstanceId captured by CombatCore. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FGuid ItemInstanceId;
+
+	bool IsValid() const;
+	bool operator==(const FShanmenItemRunResourceCommitLine& Other) const;
+};
+
+/**
+ * One idempotent commit point for every resource-backed defense layer triggered
+ * by a single accepted impact. The repository accepts only pending Durability
+ * or Charges reservations owned by equipment deployed in the exact ActiveRun.
+ */
+USTRUCT(BlueprintType)
+struct SHANMENITEMS_API FShanmenItemRunResourceCommitRequest
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FShanmenOperationContext Context;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FGuid ActiveRunId;
+
+	/** Resolver trigger order is canonical and therefore part of the fingerprint. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	TArray<FShanmenItemRunResourceCommitLine> OrderedLines;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
 	FName PurposeId = NAME_None;

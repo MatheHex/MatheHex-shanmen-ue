@@ -54,6 +54,9 @@ namespace
 		DeployDefinition.MaxStack = 1;
 		DeployDefinition.ItemTags.AddTag(
 			FShanmenItemNativeTags::CapabilityDeploy());
+		DeployDefinition.MaxDurability = 5;
+		DeployDefinition.ItemTags.AddTag(
+			FShanmenItemNativeTags::CapabilityDurability());
 		Snapshot.Definitions.Add(DeployDefinition);
 
 		FShanmenItemContainer Container;
@@ -82,6 +85,7 @@ namespace
 		DeployItem.ParentContainerId = ServiceContainerId;
 		DeployItem.SlotIndex = 1;
 		DeployItem.Quantity = 1;
+		DeployItem.Durability = 5;
 		Snapshot.Items.Add(DeployItem);
 		return Snapshot;
 	}
@@ -120,12 +124,32 @@ namespace
 		Request.Context.OwnerId = ServiceOwnerId;
 		Request.Context.RequestId = FGuid(0x51310000 + Sequence, 0, 0, 1);
 		Request.Context.Content = ServiceContent();
-		Request.ItemInstanceId = Kind == EShanmenItemResourceKind::DeploymentLock
-			? ServiceDeployItemId : ServiceItemId;
+		Request.ItemInstanceId = Kind == EShanmenItemResourceKind::Quantity
+			? ServiceItemId : ServiceDeployItemId;
 		Request.ResourceKind = Kind;
 		Request.Amount = Amount;
 		Request.ExpectedItemRevision = ExpectedItemRevision;
 		Request.PurposeId = TEXT("Test.AuthorityService.Command");
+		return Request;
+	}
+
+	FShanmenItemRunResourceCommitRequest ServiceRunResourceCommit(
+		uint32 Sequence,
+		const FGuid& ActiveRunId,
+		const FGuid& ReservationId)
+	{
+		FShanmenItemRunResourceCommitRequest Request;
+		Request.Context.RunId = ServiceRunId;
+		Request.Context.OwnerId = ServiceOwnerId;
+		Request.Context.RequestId =
+			FGuid(0x51350000 + Sequence, 0, 0, 1);
+		Request.Context.Content = ServiceContent();
+		Request.ActiveRunId = ActiveRunId;
+		FShanmenItemRunResourceCommitLine& Line =
+			Request.OrderedLines.AddDefaulted_GetRef();
+		Line.ReservationId = ReservationId;
+		Line.ItemInstanceId = ServiceDeployItemId;
+		Request.PurposeId = TEXT("Test.AuthorityService.DefenseResource");
 		return Request;
 	}
 
@@ -775,6 +799,101 @@ bool FShanmenItemAuthorityServiceAtomicRunStartTest::RunTest(const FString&)
 		&& Restarted.TryGetDocument(DocumentAfterReplay)
 		&& DocumentAfterReplay.SaveGeneration
 			== DocumentAfterStart.SaveGeneration);
+	RemoveServiceRoot(Root);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenItemAuthorityServicePreparedRunResourceCommitTest,
+	"Shanmen.0_0_10.Items.AuthorityService.PreparedRunResourceCommitDurability",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenItemAuthorityServicePreparedRunResourceCommitTest::RunTest(
+	const FString&)
+{
+	const FString Root = NewServiceRoot(TEXT("PreparedRunResourceCommit"));
+	const FShanmenItemStorageContext Storage =
+		FShanmenItemStorageContext::ForRoot(Root, ServiceOwnerId);
+	FShanmenItemAuthorityService Service;
+	TestTrue(TEXT("Prepared resource fixture publishes"),
+		CreateService(Service, Storage, 12).IsReady());
+	const FShanmenItemDurableCommandResult Deployment =
+		Service.ReserveDurable(ServiceReserve(
+			130, 1, 0, EShanmenItemResourceKind::DeploymentLock));
+	const FShanmenItemDurableCommandResult Started =
+		Deployment.IsCommandSuccess()
+			? Service.StartPreparedRunDurable(ServiceRunStart(
+				131, { Deployment.Receipt.ReservationId }))
+			: FShanmenItemDurableCommandResult();
+	const FShanmenItemDurableCommandResult Durability =
+		Started.IsCommandSuccess()
+			? Service.ReserveDurable(ServiceReserve(
+				132, 2, 1, EShanmenItemResourceKind::Durability))
+			: FShanmenItemDurableCommandResult();
+	const FShanmenItemRunResourceCommitRequest Request =
+		ServiceRunResourceCommit(
+			133, Started.Receipt.ReservationId,
+			Durability.Receipt.ReservationId);
+	TestTrue(TEXT("Active Run owns one post-start durability intent"),
+		Deployment.IsCommandSuccess() && Started.IsCommandSuccess()
+			&& Durability.IsCommandSuccess() && Request.IsValid());
+
+	FShanmenItemAuthoritySnapshot Before;
+	FShanmenItemAuthorityDocument DocumentBefore;
+	TestTrue(TEXT("Pre-commit durable state is readable"),
+		Service.TryCaptureSnapshot(Before)
+			&& Service.TryGetDocument(DocumentBefore));
+#if WITH_DEV_AUTOMATION_TESTS
+	Service.SetInjectedFailureForTests(
+		EShanmenItemStoreFailureStage::WriteTemp);
+#endif
+	const FShanmenItemDurableCommandResult Failed =
+		Service.CommitPreparedRunResourcesDurable(Request);
+	FShanmenItemAuthoritySnapshot AfterFailure;
+	TestTrue(TEXT("Persistence failure rolls back every triggered resource"),
+		Failed.Status
+			== EShanmenItemDurableCommandStatus::PersistenceFailedRolledBack
+			&& Service.TryCaptureSnapshot(AfterFailure)
+			&& AfterFailure == Before);
+
+#if WITH_DEV_AUTOMATION_TESTS
+	Service.SetInjectedFailureForTests(EShanmenItemStoreFailureStage::None);
+#endif
+	const FShanmenItemDurableCommandResult Committed =
+		Service.CommitPreparedRunResourcesDurable(Request);
+	FShanmenItemAuthoritySnapshot AfterCommit;
+	FShanmenItemAuthorityDocument DocumentAfterCommit;
+	const FShanmenItemInstance* WornItem = nullptr;
+	if (Service.TryCaptureSnapshot(AfterCommit))
+	{
+		WornItem = AfterCommit.Items.FindByPredicate(
+			[](const FShanmenItemInstance& Item)
+			{
+				return Item.ItemInstanceId == ServiceDeployItemId;
+			});
+	}
+	TestTrue(TEXT("Retry durably commits wear in one authority revision"),
+		Committed.Status == EShanmenItemDurableCommandStatus::Persisted
+			&& Committed.IsCommandSuccess()
+			&& Committed.Receipt.Operation
+				== EShanmenItemTransactionOperation::CommitPreparedRunResources
+			&& WornItem && WornItem->Durability == 3
+			&& Service.TryGetDocument(DocumentAfterCommit)
+			&& AfterCommit.AuthorityRevision == Before.AuthorityRevision + 1
+			&& DocumentAfterCommit.SaveGeneration
+				== DocumentBefore.SaveGeneration + 1);
+
+	FShanmenItemAuthorityService Restarted;
+	const FShanmenItemDurableCommandResult Replay =
+		Restarted.StartExisting(Storage).IsReady()
+			? Restarted.CommitPreparedRunResourcesDurable(Request)
+			: FShanmenItemDurableCommandResult();
+	FShanmenItemAuthoritySnapshot RestartedSnapshot;
+	TestTrue(TEXT("Restart replays the exact resource receipt without double wear"),
+		Replay.Status == EShanmenItemDurableCommandStatus::Replayed
+			&& Replay.Receipt == Committed.Receipt
+			&& Restarted.TryCaptureSnapshot(RestartedSnapshot)
+			&& RestartedSnapshot == AfterCommit);
 	RemoveServiceRoot(Root);
 	return true;
 }

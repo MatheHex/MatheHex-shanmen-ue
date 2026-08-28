@@ -129,6 +129,14 @@
       ]
     },
     {
+      "name": "DefenseResourceAdapter",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenDefenseResourceAdapter(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Items",
+        "Shanmen.0_0_10.CombatCore"
+      ]
+    },
+    {
       "name": "GameplayTags",
       "pathRegex": "^Config/DefaultGameplayTags\\.ini$",
       "requiredGroups": [

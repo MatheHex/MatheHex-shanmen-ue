@@ -430,6 +430,22 @@ Udemo_mapShanmenItemAuthoritySubsystem::ConsumePreparedRunItemDurable(
 }
 
 FShanmenItemDurableCommandResult
+Udemo_mapShanmenItemAuthoritySubsystem::CommitPreparedRunResourcesDurable(
+	const FShanmenItemRunResourceCommitRequest& Request)
+{
+	if (!IsInGameThread() || !AuthorityService
+		|| LifecycleState != Edemo_mapShanmenItemAuthorityLifecycleState::Ready)
+	{
+		return RejectCommand(
+			TEXT("Prepared Run resource commit requires the ready GameInstance item authority on the Game Thread."));
+	}
+	FShanmenItemDurableCommandResult Result =
+		AuthorityService->CommitPreparedRunResourcesDurable(Request);
+	SynchronizeCommandState(Result);
+	return Result;
+}
+
+FShanmenItemDurableCommandResult
 Udemo_mapShanmenItemAuthoritySubsystem::FinalizePreparedRunDurable(
 	const FShanmenItemRunFinalizeRequest& Request)
 {
