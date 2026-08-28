@@ -317,6 +317,38 @@ Udemo_mapShanmenItemAuthoritySubsystem::CommitDurable(
 }
 
 FShanmenItemDurableCommandResult
+Udemo_mapShanmenItemAuthoritySubsystem::CommitBatchDurable(
+	const FShanmenItemReservationBatchRequest& Request)
+{
+	if (!IsInGameThread() || !AuthorityService
+		|| LifecycleState != Edemo_mapShanmenItemAuthorityLifecycleState::Ready)
+	{
+		return RejectCommand(
+			TEXT("CommitBatch requires the ready GameInstance item authority on the Game Thread."));
+	}
+	FShanmenItemDurableCommandResult Result =
+		AuthorityService->CommitBatchDurable(Request);
+	SynchronizeCommandState(Result);
+	return Result;
+}
+
+FShanmenItemDurableCommandResult
+Udemo_mapShanmenItemAuthoritySubsystem::AmendReservationPurposeDurable(
+	const FShanmenItemReservationAmendRequest& Request)
+{
+	if (!IsInGameThread() || !AuthorityService
+		|| LifecycleState != Edemo_mapShanmenItemAuthorityLifecycleState::Ready)
+	{
+		return RejectCommand(
+			TEXT("AmendReservationPurpose requires the ready GameInstance item authority on the Game Thread."));
+	}
+	FShanmenItemDurableCommandResult Result =
+		AuthorityService->AmendReservationPurposeDurable(Request);
+	SynchronizeCommandState(Result);
+	return Result;
+}
+
+FShanmenItemDurableCommandResult
 Udemo_mapShanmenItemAuthoritySubsystem::CancelDurable(
 	const FShanmenItemReservationActionRequest& Request)
 {

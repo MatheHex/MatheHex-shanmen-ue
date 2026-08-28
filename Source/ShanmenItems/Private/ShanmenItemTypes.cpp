@@ -101,6 +101,32 @@ bool FShanmenItemReservationActionRequest::IsValid() const
 	return Context.IsValid() && ReservationId.IsValid();
 }
 
+bool FShanmenItemReservationBatchRequest::IsValid() const
+{
+	if (!Context.IsValid() || ReservationIds.IsEmpty())
+	{
+		return false;
+	}
+	TSet<FGuid> Unique;
+	for (const FGuid& ReservationId : ReservationIds)
+	{
+		if (!ReservationId.IsValid() || Unique.Contains(ReservationId))
+		{
+			return false;
+		}
+		Unique.Add(ReservationId);
+	}
+	return true;
+}
+
+bool FShanmenItemReservationAmendRequest::IsValid() const
+{
+	return Context.IsValid()
+		&& ReservationId.IsValid()
+		&& !ExpectedPurposeId.IsNone()
+		&& !PurposeId.IsNone();
+}
+
 bool FShanmenItemTransactionReceipt::IsSuccess() const
 {
 	return bSuccess && Error == EShanmenItemTransactionError::None && Phase != EShanmenItemTransactionPhase::Rejected;
@@ -116,6 +142,31 @@ bool FShanmenItemTransactionReceipt::IsValid() const
 	{
 		return Phase == EShanmenItemTransactionPhase::Rejected
 			&& Error != EShanmenItemTransactionError::None;
+	}
+	if (Operation == EShanmenItemTransactionOperation::CommitBatch)
+	{
+		if (Error != EShanmenItemTransactionError::None
+			|| Phase != EShanmenItemTransactionPhase::Committed
+			|| ReservationIds.IsEmpty())
+		{
+			return false;
+		}
+		TSet<FGuid> Unique;
+		for (const FGuid& ReservationIdEntry : ReservationIds)
+		{
+			if (!ReservationIdEntry.IsValid()
+				|| Unique.Contains(ReservationIdEntry))
+			{
+				return false;
+			}
+			Unique.Add(ReservationIdEntry);
+		}
+		return true;
+	}
+	if (Operation == EShanmenItemTransactionOperation::AmendReservationPurpose
+		&& PurposeId.IsNone())
+	{
+		return false;
 	}
 	return Error == EShanmenItemTransactionError::None
 		&& Phase != EShanmenItemTransactionPhase::Rejected
@@ -144,7 +195,9 @@ bool FShanmenItemTransactionReceipt::operator==(const FShanmenItemTransactionRec
 		&& ResourceAfter == Other.ResourceAfter
 		&& AvailableAfter == Other.AvailableAfter
 		&& ItemRevision == Other.ItemRevision
-		&& AuthorityRevision == Other.AuthorityRevision;
+		&& AuthorityRevision == Other.AuthorityRevision
+		&& PurposeId == Other.PurposeId
+		&& ReservationIds == Other.ReservationIds;
 }
 
 bool FShanmenItemReservationSnapshot::IsValid() const

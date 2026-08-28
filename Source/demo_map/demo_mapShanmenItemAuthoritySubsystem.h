@@ -85,6 +85,10 @@ public:
 		const FShanmenItemReserveRequest& Request);
 	FShanmenItemDurableCommandResult CommitDurable(
 		const FShanmenItemReservationActionRequest& Request);
+	FShanmenItemDurableCommandResult CommitBatchDurable(
+		const FShanmenItemReservationBatchRequest& Request);
+	FShanmenItemDurableCommandResult AmendReservationPurposeDurable(
+		const FShanmenItemReservationAmendRequest& Request);
 	FShanmenItemDurableCommandResult CancelDurable(
 		const FShanmenItemReservationActionRequest& Request);
 	FShanmenItemDurableCommandResult ReleaseDeploymentDurable(

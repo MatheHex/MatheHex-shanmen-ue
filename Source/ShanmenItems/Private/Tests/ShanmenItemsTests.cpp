@@ -143,6 +143,30 @@ namespace
 		return Request;
 	}
 
+	FShanmenItemReservationBatchRequest MakeBatch(
+		uint32 Sequence,
+		const TArray<FGuid>& ReservationIds)
+	{
+		FShanmenItemReservationBatchRequest Request;
+		Request.Context = MakeContext(Sequence);
+		Request.ReservationIds = ReservationIds;
+		return Request;
+	}
+
+	FShanmenItemReservationAmendRequest MakeAmend(
+		uint32 Sequence,
+		const FGuid& ReservationId,
+		FName ExpectedPurposeId,
+		FName PurposeId)
+	{
+		FShanmenItemReservationAmendRequest Request;
+		Request.Context = MakeContext(Sequence);
+		Request.ReservationId = ReservationId;
+		Request.ExpectedPurposeId = ExpectedPurposeId;
+		Request.PurposeId = PurposeId;
+		return Request;
+	}
+
 	bool LoadFixture(FAutomationTestBase& Test, FShanmenItemRepository& Repository)
 	{
 		EShanmenItemTransactionError Error = EShanmenItemTransactionError::None;
@@ -211,6 +235,144 @@ bool FShanmenItemsQuantityCommitTest::RunTest(const FString&)
 	TestTrue(TEXT("Cancel after commit fails closed"), Repository.Cancel(MakeAction(3, Reserved.ReservationId)).Error
 		== EShanmenItemTransactionError::ReservationAlreadyCommitted);
 	TestTrue(TEXT("Post-commit state validates"), Repository.ValidateInvariants());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenItemsAtomicBatchCommitTest,
+	"Shanmen.0_0_10.Items.AtomicBatchCommit",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenItemsAtomicBatchCommitTest::RunTest(const FString&)
+{
+	FShanmenItemRepository Repository;
+	if (!LoadFixture(*this, Repository)) return false;
+
+	const FShanmenItemTransactionReceipt Quantity = Repository.Reserve(
+		MakeReserve(70, DartId, EShanmenItemResourceKind::Quantity, 3,
+			TEXT("Preparation.RunInventory.O00000000.H00")));
+	const FShanmenItemTransactionReceipt Equipment = Repository.Reserve(
+		MakeReserve(71, SwordId,
+			EShanmenItemResourceKind::DeploymentLock, 1,
+			TEXT("Preparation.Weapon")));
+	TestTrue(TEXT("Batch fixture reservations succeed"),
+		Quantity.IsSuccess() && Equipment.IsSuccess());
+
+	const FShanmenItemTransactionReceipt Rejected = Repository.CommitBatch(
+		MakeBatch(72, { Quantity.ReservationId, FGuid(9, 9, 9, 9) }));
+	TestTrue(TEXT("Missing batch line rejects the whole command"),
+		!Rejected.IsSuccess()
+			&& Rejected.Error
+				== EShanmenItemTransactionError::ReservationNotFound);
+	TestEqual(TEXT("Rejected batch consumes no quantity"),
+		Repository.FindItem(DartId)->Quantity, 10);
+	TestTrue(TEXT("Rejected batch deploys no equipment"),
+		Repository.FindItem(SwordId)->State
+			== EShanmenItemInstanceState::Stored);
+	TestTrue(TEXT("Both reservations remain pending after rejection"),
+		Repository.FindReservation(Quantity.ReservationId)->State
+			== EShanmenItemReservationState::Reserved
+		&& Repository.FindReservation(Equipment.ReservationId)->State
+			== EShanmenItemReservationState::Reserved);
+
+	const int32 RevisionBefore = Repository.GetAuthorityRevision();
+	const FShanmenItemReservationBatchRequest Request = MakeBatch(
+		73, { Equipment.ReservationId, Quantity.ReservationId });
+	const FShanmenItemTransactionReceipt Committed =
+		Repository.CommitBatch(Request);
+	TestTrue(TEXT("Valid batch commits"), Committed.IsSuccess()
+		&& Committed.Operation
+			== EShanmenItemTransactionOperation::CommitBatch
+		&& Committed.ReservationIds == Request.ReservationIds);
+	TestEqual(TEXT("Whole batch publishes one authority revision"),
+		Repository.GetAuthorityRevision(), RevisionBefore + 1);
+	TestEqual(TEXT("Batch quantity line consumes exactly once"),
+		Repository.FindItem(DartId)->Quantity, 7);
+	TestTrue(TEXT("Batch equipment line deploys exactly once"),
+		Repository.FindItem(SwordId)->State
+			== EShanmenItemInstanceState::Deployed);
+	TestTrue(TEXT("Exact batch retry replays the aggregate receipt"),
+		Repository.CommitBatch(Request) == Committed);
+	TestEqual(TEXT("Batch replay cannot double-consume"),
+		Repository.FindItem(DartId)->Quantity, 7);
+
+	FShanmenItemRepository Restarted;
+	TestTrue(TEXT("Batch state and aggregate ledger survive reload"),
+		Restarted.TryLoadSnapshot(Repository.CaptureSnapshot())
+		&& Restarted.CommitBatch(Request) == Committed
+		&& Restarted.ValidateInvariants());
+	FShanmenItemReservationBatchRequest Conflict = Request;
+	Conflict.ReservationIds.Swap(0, 1);
+	TestTrue(TEXT("Reordered lines conflict with the same RequestId"),
+		Restarted.CommitBatch(Conflict).Error
+			== EShanmenItemTransactionError::RequestIdConflict);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenItemsReservationPurposeAmendTest,
+	"Shanmen.0_0_10.Items.AtomicReservationPurposeAmend",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenItemsReservationPurposeAmendTest::RunTest(const FString&)
+{
+	FShanmenItemRepository Repository;
+	if (!LoadFixture(*this, Repository)) return false;
+
+	const FName OriginalPurpose(
+		TEXT("Preparation.RunInventory.O00000000.H01"));
+	const FName AmendedPurpose(
+		TEXT("Preparation.RunInventory.O00000000.H02"));
+	const FShanmenItemTransactionReceipt Reserved = Repository.Reserve(
+		MakeReserve(80, DartId, EShanmenItemResourceKind::Quantity, 3,
+			OriginalPurpose));
+	const int32 RevisionBefore = Repository.GetAuthorityRevision();
+	const int32 ItemRevisionBefore = Repository.FindItem(DartId)->Revision;
+	const FShanmenItemReservationAmendRequest Request = MakeAmend(
+		81, Reserved.ReservationId, OriginalPurpose, AmendedPurpose);
+	const FShanmenItemTransactionReceipt Amended =
+		Repository.AmendReservationPurpose(Request);
+	TestTrue(TEXT("Pending reservation Purpose amends atomically"),
+		Amended.IsSuccess()
+		&& Amended.Operation
+			== EShanmenItemTransactionOperation::AmendReservationPurpose
+		&& Amended.ReservationId == Reserved.ReservationId
+		&& Amended.PurposeId == AmendedPurpose
+		&& Repository.FindReservation(Reserved.ReservationId)->PurposeId
+			== AmendedPurpose);
+	TestTrue(TEXT("Purpose amend changes no resource or item revision"),
+		Repository.GetAuthorityRevision() == RevisionBefore + 1
+		&& Repository.FindItem(DartId)->Quantity == 10
+		&& Repository.FindItem(DartId)->Revision == ItemRevisionBefore
+		&& Repository.GetAvailableResource(
+			DartId, EShanmenItemResourceKind::Quantity) == 7);
+	TestTrue(TEXT("Exact Purpose amend retry replays one receipt"),
+		Repository.AmendReservationPurpose(Request) == Amended);
+
+	FShanmenItemReservationAmendRequest Conflict = Request;
+	Conflict.PurposeId = TEXT("Preparation.RunInventory.O00000000.H03");
+	TestTrue(TEXT("Same RequestId cannot amend to another Purpose"),
+		Repository.AmendReservationPurpose(Conflict).Error
+			== EShanmenItemTransactionError::RequestIdConflict);
+	TestTrue(TEXT("Compare-and-swap rejects a stale expected Purpose"),
+		Repository.AmendReservationPurpose(MakeAmend(
+			82, Reserved.ReservationId, OriginalPurpose,
+			TEXT("Preparation.RunInventory.O00000000.H04"))).Error
+			== EShanmenItemTransactionError::ReservationPurposeMismatch
+		&& Repository.FindReservation(Reserved.ReservationId)->PurposeId
+			== AmendedPurpose);
+
+	const FShanmenItemReservationBatchRequest Batch = MakeBatch(
+		83, { Reserved.ReservationId });
+	TestTrue(TEXT("Amended reservation remains batch-committable"),
+		Repository.CommitBatch(Batch).IsSuccess()
+		&& Repository.FindItem(DartId)->Quantity == 7);
+	FShanmenItemRepository Restarted;
+	TestTrue(TEXT("Amend ledger survives terminal commit and restart"),
+		Restarted.TryLoadSnapshot(Repository.CaptureSnapshot())
+		&& Restarted.AmendReservationPurpose(Request) == Amended
+		&& Restarted.CommitBatch(Batch).IsSuccess()
+		&& Restarted.ValidateInvariants());
 	return true;
 }
 

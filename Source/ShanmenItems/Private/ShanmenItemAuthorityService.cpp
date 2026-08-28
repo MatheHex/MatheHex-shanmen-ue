@@ -243,6 +243,30 @@ FShanmenItemAuthorityService::CommitDurable(
 }
 
 FShanmenItemDurableCommandResult
+FShanmenItemAuthorityService::CommitBatchDurable(
+	const FShanmenItemReservationBatchRequest& Request)
+{
+	FScopeLock Lock(&Mutex);
+	return ExecuteCommandLocked(
+		[&Request](FShanmenItemRepository& MutableRepository)
+		{
+			return MutableRepository.CommitBatch(Request);
+		});
+}
+
+FShanmenItemDurableCommandResult
+FShanmenItemAuthorityService::AmendReservationPurposeDurable(
+	const FShanmenItemReservationAmendRequest& Request)
+{
+	FScopeLock Lock(&Mutex);
+	return ExecuteCommandLocked(
+		[&Request](FShanmenItemRepository& MutableRepository)
+		{
+			return MutableRepository.AmendReservationPurpose(Request);
+		});
+}
+
+FShanmenItemDurableCommandResult
 FShanmenItemAuthorityService::CancelDurable(
 	const FShanmenItemReservationActionRequest& Request)
 {

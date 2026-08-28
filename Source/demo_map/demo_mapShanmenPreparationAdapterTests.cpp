@@ -576,6 +576,18 @@ bool FShanmenPreparationRunInventoryFenceTest::RunTest(const FString&)
 			1, Fixture.PillOneId).IsAccepted());
 	FShanmenItemAuthoritySnapshot BeforeFailure;
 	Fixture.Authority->TryCaptureSnapshot(BeforeFailure);
+	const FShanmenItemReservationSnapshot* ReservationBefore =
+		BeforeFailure.Reservations.FindByPredicate(
+			[&Fixture](const FShanmenItemReservationSnapshot& Reservation)
+			{
+				return Reservation.ItemInstanceId == Fixture.PillOneId
+					&& Reservation.ResourceKind
+						== EShanmenItemResourceKind::Quantity
+					&& Reservation.State
+						== EShanmenItemReservationState::Reserved;
+			});
+	const FGuid ReservationIdBefore = ReservationBefore
+		? ReservationBefore->ReservationId : FGuid();
 	Fixture.Authority->SetInjectedFailureForAutomation(
 		EShanmenItemStoreFailureStage::WriteTemp);
 	const Fdemo_mapProfilePreparationSelectionResult Failed =
@@ -584,15 +596,32 @@ bool FShanmenPreparationRunInventoryFenceTest::RunTest(const FString&)
 	Fixture.Authority->TryCaptureSnapshot(AfterFailure);
 	Fixture.Authority->SetInjectedFailureForAutomation(
 		EShanmenItemStoreFailureStage::None);
-	TestTrue(TEXT("Failed metadata transition rolls back before publishing"),
+	TestTrue(TEXT("Failed atomic metadata amendment rolls back before publishing"),
 		!Failed.IsAccepted() && AfterFailure == BeforeFailure
 		&& Fixture.Session->GetPreparationSnapshot()
 			.HotbarBindings.SlotBindings[0] == Fixture.PillOneId
 		&& !Fixture.Session->GetPreparationSnapshot()
 			.HotbarBindings.SlotBindings[1].IsValid());
-	TestTrue(TEXT("Autonomous retry moves the binding once"),
-		Fixture.Session->SetPreparationHotbarSlot(
-			2, Fixture.PillOneId).IsAccepted()
+	const bool bRetryAccepted = Fixture.Session->SetPreparationHotbarSlot(
+		2, Fixture.PillOneId).IsAccepted();
+	FShanmenItemAuthoritySnapshot AfterRetry;
+	Fixture.Authority->TryCaptureSnapshot(AfterRetry);
+	const FShanmenItemReservationSnapshot* ReservationAfter =
+		AfterRetry.Reservations.FindByPredicate(
+			[&Fixture](const FShanmenItemReservationSnapshot& Reservation)
+			{
+				return Reservation.ItemInstanceId == Fixture.PillOneId
+					&& Reservation.ResourceKind
+						== EShanmenItemResourceKind::Quantity
+					&& Reservation.State
+						== EShanmenItemReservationState::Reserved;
+			});
+	TestTrue(TEXT("Autonomous retry atomically amends the same reservation once"),
+		bRetryAccepted
+		&& ReservationIdBefore.IsValid()
+		&& ReservationAfter
+		&& ReservationAfter->ReservationId == ReservationIdBefore
+		&& AfterRetry.AuthorityRevision == BeforeFailure.AuthorityRevision + 1
 		&& !Fixture.Session->GetPreparationSnapshot()
 			.HotbarBindings.SlotBindings[0].IsValid()
 		&& Fixture.Session->GetPreparationSnapshot()
@@ -608,6 +637,123 @@ bool FShanmenPreparationRunInventoryFenceTest::RunTest(const FString&)
 			[](const FGuid& Id) { return Id.IsValid(); })
 		&& !Cleared.SelectedWeaponId.IsValid()
 		&& !Cleared.SelectedBackpackId.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenPreparationAtomicCommitTest,
+	"Shanmen.0_0_10.Items.PreparationAdapter.AtomicPreparedLoadout",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenPreparationAtomicCommitTest::RunTest(const FString&)
+{
+	FPreparationAdapterFixture Fixture;
+	if (!Fixture.StartAndCutover(*this, TEXT("AtomicPreparedLoadout")))
+	{
+		return false;
+	}
+	TArray<uint8> ProfileBefore;
+	TestTrue(TEXT("Retired Profile bytes captured before P1.8 commit"),
+		ReadBytes(Fixture.Storage.PrimaryPath(), ProfileBefore));
+	TestTrue(TEXT("Migrated baseline becomes an explicit pending lock"),
+		Fixture.Session->SetPreparationEquipment(
+			Fdemo_mapItemIds::WeaponSlot,
+			Fixture.TrainingBladeId).IsAccepted());
+	TestTrue(TEXT("Two complete stacks and one Hotbar binding prepare"),
+		Fixture.Session->SetPreparationMaterial(
+			Fixture.DustId, true).IsAccepted()
+		&& Fixture.Session->SetPreparationMaterial(
+			Fixture.PillOneId, true).IsAccepted()
+		&& Fixture.Session->SetPreparationHotbarSlot(
+			3, Fixture.PillOneId).IsAccepted());
+
+	FShanmenItemAuthoritySnapshot Before;
+	FShanmenItemAuthorityDocument DocumentBefore;
+	TestTrue(TEXT("Pre-commit authority and generation captured"),
+		Fixture.Authority->TryCaptureSnapshot(Before)
+		&& Fixture.Authority->TryGetDocument(DocumentBefore));
+	Fixture.Authority->SetInjectedFailureForAutomation(
+		EShanmenItemStoreFailureStage::WriteTemp);
+	const Fdemo_mapShanmenPreparedLoadoutResult Failed =
+		Fdemo_mapShanmenPreparationAdapter::CommitPreparedLoadout(
+			*Fixture.Authority);
+	Fixture.Authority->SetInjectedFailureForAutomation(
+		EShanmenItemStoreFailureStage::None);
+	FShanmenItemAuthoritySnapshot AfterFailure;
+	FShanmenItemAuthorityDocument DocumentAfterFailure;
+	TestTrue(TEXT("Failed durable batch publishes no partial item state"),
+		!Failed.IsCommitted()
+		&& Fixture.Authority->TryCaptureSnapshot(AfterFailure)
+		&& AfterFailure == Before
+		&& Fixture.Authority->TryGetDocument(DocumentAfterFailure)
+		&& DocumentAfterFailure == DocumentBefore);
+
+	const Fdemo_mapShanmenPreparedLoadoutResult Committed =
+		Fdemo_mapShanmenPreparationAdapter::CommitPreparedLoadout(
+			*Fixture.Authority);
+	FShanmenItemAuthoritySnapshot After;
+	FShanmenItemAuthorityDocument DocumentAfter;
+	TestTrue(TEXT("Prepared loadout commits durably"),
+		Committed.IsCommitted()
+		&& Committed.Status
+			== Edemo_mapShanmenPreparationAdapterStatus::Accepted
+		&& Fixture.Authority->TryCaptureSnapshot(After)
+		&& Fixture.Authority->TryGetDocument(DocumentAfter));
+	TestTrue(TEXT("One batch revision and one document generation publish"),
+		After.AuthorityRevision == Before.AuthorityRevision + 1
+		&& DocumentAfter.SaveGeneration
+			== DocumentBefore.SaveGeneration + 1);
+	TestTrue(TEXT("Receipt freezes equipment, order, and Hotbar"),
+		Committed.Receipt.WeaponItemInstanceId
+			== Fixture.TrainingBladeId
+		&& Committed.Receipt.OrderedRunInventoryItemInstanceIds
+			== TArray<FGuid>({ Fixture.DustId, Fixture.PillOneId })
+		&& Committed.Receipt.HotbarItemInstanceIds[2]
+			== Fixture.PillOneId
+		&& Committed.Receipt.OrderedLines.Num() == 3);
+	const FShanmenItemInstance* Weapon = After.Items.FindByPredicate(
+		[&Fixture](const FShanmenItemInstance& Item)
+		{
+			return Item.ItemInstanceId == Fixture.TrainingBladeId;
+		});
+	const FShanmenItemInstance* Dust = After.Items.FindByPredicate(
+		[&Fixture](const FShanmenItemInstance& Item)
+		{
+			return Item.ItemInstanceId == Fixture.DustId;
+		});
+	const FShanmenItemInstance* Pill = After.Items.FindByPredicate(
+		[&Fixture](const FShanmenItemInstance& Item)
+		{
+			return Item.ItemInstanceId == Fixture.PillOneId;
+		});
+	TestTrue(TEXT("Batch deploys equipment and consumes both full stacks"),
+		Weapon && Weapon->State == EShanmenItemInstanceState::Deployed
+		&& Dust && Dust->State == EShanmenItemInstanceState::Depleted
+		&& Pill && Pill->State == EShanmenItemInstanceState::Depleted);
+	TArray<uint8> ProfileAfter;
+	TestTrue(TEXT("Atomic preparation never rewrites retired Profile items"),
+		ReadBytes(Fixture.Storage.PrimaryPath(), ProfileAfter)
+		&& ProfileAfter == ProfileBefore);
+
+	if (!Fixture.RestartAndBind(*this)) return false;
+	const Fdemo_mapShanmenPreparedLoadoutResult Replayed =
+		Fdemo_mapShanmenPreparationAdapter::CommitPreparedLoadout(
+			*Fixture.Authority);
+	TestTrue(TEXT("Restart reconstructs the same committed loadout without another write"),
+		Replayed.IsCommitted()
+		&& Replayed.Status
+			== Edemo_mapShanmenPreparationAdapterStatus::NoChange
+		&& Replayed.Receipt.BatchRequestId
+			== Committed.Receipt.BatchRequestId
+		&& Replayed.Receipt.BatchReceiptId
+			== Committed.Receipt.BatchReceiptId
+		&& Replayed.Receipt.OrderedRunInventoryItemInstanceIds
+			== Committed.Receipt.OrderedRunInventoryItemInstanceIds);
+	FShanmenItemAuthorityDocument RestartedDocument;
+	TestTrue(TEXT("Receipt reconstruction performs no extra persistence"),
+		Fixture.Authority->TryGetDocument(RestartedDocument)
+		&& RestartedDocument.SaveGeneration
+			== DocumentAfter.SaveGeneration);
 	return true;
 }
 

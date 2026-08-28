@@ -38,7 +38,11 @@ enum class EShanmenItemTransactionOperation : uint8
 	Reserve,
 	Commit,
 	Cancel,
-	ReleaseDeployment
+	ReleaseDeployment,
+	/** Atomically commits an ordered set of already-reserved resources. */
+	CommitBatch,
+	/** Atomically replaces metadata on one still-pending reservation. */
+	AmendReservationPurpose
 };
 
 UENUM(BlueprintType)
@@ -73,7 +77,8 @@ enum class EShanmenItemTransactionError : uint8
 	ReservationAlreadyCancelled,
 	ReservationNotCommitted,
 	DeploymentMismatch,
-	InvariantViolation
+	InvariantViolation,
+	ReservationPurposeMismatch
 };
 
 USTRUCT(BlueprintType)
@@ -214,6 +219,47 @@ struct SHANMENITEMS_API FShanmenItemReservationActionRequest
 	bool IsValid() const;
 };
 
+/**
+ * One ordered, idempotent authority command that commits all reservations or
+ * none of them. The order is part of the command fingerprint and is retained
+ * by the receipt so product adapters can rebuild an immutable loadout after a
+ * process restart.
+ */
+USTRUCT(BlueprintType)
+struct SHANMENITEMS_API FShanmenItemReservationBatchRequest
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FShanmenOperationContext Context;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	TArray<FGuid> ReservationIds;
+
+	bool IsValid() const;
+};
+
+USTRUCT(BlueprintType)
+struct SHANMENITEMS_API FShanmenItemReservationAmendRequest
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FShanmenOperationContext Context;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FGuid ReservationId;
+
+	/** Compare-and-swap guard against overwriting newer reservation metadata. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FName ExpectedPurposeId = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FName PurposeId = NAME_None;
+
+	bool IsValid() const;
+};
+
 USTRUCT(BlueprintType)
 struct SHANMENITEMS_API FShanmenItemTransactionReceipt
 {
@@ -263,6 +309,14 @@ struct SHANMENITEMS_API FShanmenItemTransactionReceipt
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Shanmen|Items")
 	int32 AuthorityRevision = INDEX_NONE;
+
+	/** Effective metadata after Reserve or AmendReservationPurpose. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Shanmen|Items")
+	FName PurposeId = NAME_None;
+
+	/** Populated only by CommitBatch; ordered identity of every committed line. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Shanmen|Items")
+	TArray<FGuid> ReservationIds;
 
 	bool IsSuccess() const;
 	bool IsValid() const;

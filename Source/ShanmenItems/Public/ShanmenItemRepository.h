@@ -16,6 +16,9 @@ public:
 
 	FShanmenItemTransactionReceipt Reserve(const FShanmenItemReserveRequest& Request);
 	FShanmenItemTransactionReceipt Commit(const FShanmenItemReservationActionRequest& Request);
+	FShanmenItemTransactionReceipt CommitBatch(const FShanmenItemReservationBatchRequest& Request);
+	FShanmenItemTransactionReceipt AmendReservationPurpose(
+		const FShanmenItemReservationAmendRequest& Request);
 	FShanmenItemTransactionReceipt Cancel(const FShanmenItemReservationActionRequest& Request);
 	FShanmenItemTransactionReceipt ReleaseDeployment(const FShanmenItemReservationActionRequest& Request);
 
@@ -57,6 +60,8 @@ private:
 	static FGuid Fingerprint(
 		EShanmenItemTransactionOperation Operation,
 		const FShanmenItemReservationActionRequest& Request);
+	static FGuid Fingerprint(const FShanmenItemReservationBatchRequest& Request);
+	static FGuid Fingerprint(const FShanmenItemReservationAmendRequest& Request);
 	static FGuid MakeReservationId(const FShanmenItemReserveRequest& Request);
 	static FGuid MakeReceiptId(
 		const FGuid& RequestId,
@@ -83,6 +88,10 @@ private:
 	FShanmenItemTransactionReceipt ResolveReservation(
 		EShanmenItemTransactionOperation Operation,
 		const FShanmenItemReservationActionRequest& Request);
+	static bool ApplyCommit(
+		FState& Candidate,
+		const FGuid& ReservationId,
+		EShanmenItemTransactionError& OutError);
 
 	static int32 GetResourceTotal(
 		const FShanmenItemInstance& Item,

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "ShanmenItemAuthorityService.h"
 #include "ShanmenItemTypes.h"
 #include "demo_mapProfilePreparationTypes.h"
 
@@ -57,6 +58,65 @@ struct Fdemo_mapShanmenPreparationAdapterResult
 	}
 };
 
+/** One immutable line in the authority-native prepared loadout receipt. */
+struct Fdemo_mapShanmenPreparedLoadoutLine
+{
+	FGuid ReservationId;
+	FGuid ItemInstanceId;
+	FName ItemDefinitionId = NAME_None;
+	EShanmenItemResourceKind ResourceKind =
+		EShanmenItemResourceKind::Quantity;
+	int32 Amount = 0;
+	FName PurposeId = NAME_None;
+};
+
+/**
+ * Restart-reconstructible receipt for one atomically committed preparation.
+ * Every field is derived from the ShanmenItems batch ledger and reservations;
+ * no retired Profile item field participates.
+ */
+struct Fdemo_mapShanmenPreparedLoadoutReceipt
+{
+	FGuid BatchRequestId;
+	FGuid BatchReceiptId;
+	FGuid OwnerId;
+	FGuid ScopeId;
+	int32 AuthorityRevision = INDEX_NONE;
+	FGuid WeaponItemInstanceId;
+	FGuid ArmorItemInstanceId;
+	FGuid AccessoryItemInstanceId;
+	FGuid SpatialRingItemInstanceId;
+	FGuid BackpackItemInstanceId;
+	TArray<FGuid> OrderedRunInventoryItemInstanceIds;
+	TArray<FGuid> HotbarItemInstanceIds;
+	TArray<Fdemo_mapShanmenPreparedLoadoutLine> OrderedLines;
+
+	bool IsValid() const
+	{
+		return BatchRequestId.IsValid() && BatchReceiptId.IsValid()
+			&& OwnerId.IsValid() && ScopeId.IsValid()
+			&& AuthorityRevision >= 0 && !OrderedLines.IsEmpty()
+			&& HotbarItemInstanceIds.Num()
+				== Fdemo_mapPersistentPreparationLayout::HotbarSlotCount;
+	}
+};
+
+struct Fdemo_mapShanmenPreparedLoadoutResult
+{
+	Edemo_mapShanmenPreparationAdapterStatus Status =
+		Edemo_mapShanmenPreparationAdapterStatus::InvalidAuthority;
+	FString Diagnostic;
+	FShanmenItemDurableCommandResult Command;
+	Fdemo_mapShanmenPreparedLoadoutReceipt Receipt;
+
+	bool IsCommitted() const
+	{
+		return (Status == Edemo_mapShanmenPreparationAdapterStatus::Accepted
+			|| Status == Edemo_mapShanmenPreparationAdapterStatus::NoChange)
+			&& Receipt.IsValid();
+	}
+};
+
 /**
  * One-way adapter from the existing preparation UI contract into ShanmenItems.
  *
@@ -91,4 +151,8 @@ struct Fdemo_mapShanmenPreparationAdapter
 		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
 		int32 ExternalSlotNumber,
 		const FGuid& ItemInstanceId);
+
+	/** Validate and commit every current equipment and RunInventory intent once. */
+	static Fdemo_mapShanmenPreparedLoadoutResult CommitPreparedLoadout(
+		Udemo_mapShanmenItemAuthoritySubsystem& Authority);
 };

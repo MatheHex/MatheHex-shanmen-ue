@@ -367,6 +367,30 @@ bool FShanmenItemRepository::ValidateState(
 		}
 		if (Processed.Receipt.IsSuccess())
 		{
+			if (Processed.Receipt.Operation
+				== EShanmenItemTransactionOperation::CommitBatch)
+			{
+				if (Processed.Receipt.Phase
+					!= EShanmenItemTransactionPhase::Committed)
+				{
+					return Fail();
+				}
+				for (const FGuid& ReservationId :
+					Processed.Receipt.ReservationIds)
+				{
+					const FShanmenItemReservationSnapshot* BatchReservation =
+						Candidate.Reservations.Find(ReservationId);
+					if (!BatchReservation
+						|| BatchReservation->State
+							!= EShanmenItemReservationState::Committed
+						|| CommittedReservationIds.Contains(ReservationId))
+					{
+						return Fail();
+					}
+					CommittedReservationIds.Add(ReservationId);
+				}
+				continue;
+			}
 			const FShanmenItemReservationSnapshot* Reservation = Candidate.Reservations.Find(Processed.Receipt.ReservationId);
 			if (!Reservation
 				|| Reservation->ItemInstanceId != Processed.Receipt.ItemInstanceId
@@ -379,6 +403,14 @@ bool FShanmenItemRepository::ValidateState(
 			{
 			case EShanmenItemTransactionOperation::Reserve:
 				if (Processed.Receipt.Phase != EShanmenItemTransactionPhase::Reserved) return Fail();
+				break;
+			case EShanmenItemTransactionOperation::AmendReservationPurpose:
+				if (Processed.Receipt.Phase
+						!= EShanmenItemTransactionPhase::Reserved
+					|| Processed.Receipt.PurposeId.IsNone())
+				{
+					return Fail();
+				}
 				break;
 			case EShanmenItemTransactionOperation::Commit:
 				if (Processed.Receipt.Phase != EShanmenItemTransactionPhase::Committed) return Fail();
@@ -543,6 +575,43 @@ FGuid FShanmenItemRepository::Fingerprint(
 			Request.Context.Content.Version.ToString(),
 			Request.Context.Content.Digest,
 			GuidDigits(Request.ReservationId)
+		});
+}
+
+FGuid FShanmenItemRepository::Fingerprint(
+	const FShanmenItemReservationBatchRequest& Request)
+{
+	TArray<FString> Parts =
+	{
+		GuidDigits(Request.Context.RunId),
+		GuidDigits(Request.Context.OwnerId),
+		GuidDigits(Request.Context.RequestId),
+		Request.Context.Content.Version.ToString(),
+		Request.Context.Content.Digest,
+		FString::FromInt(Request.ReservationIds.Num())
+	};
+	for (const FGuid& ReservationId : Request.ReservationIds)
+	{
+		Parts.Add(GuidDigits(ReservationId));
+	}
+	return FShanmenDeterministicId::FromCanonicalParts(
+		TEXT("Shanmen.Items.Command.CommitBatch.r1"), Parts);
+}
+
+FGuid FShanmenItemRepository::Fingerprint(
+	const FShanmenItemReservationAmendRequest& Request)
+{
+	return FShanmenDeterministicId::FromCanonicalParts(
+		TEXT("Shanmen.Items.Command.AmendReservationPurpose.r1"),
+		{
+			GuidDigits(Request.Context.RunId),
+			GuidDigits(Request.Context.OwnerId),
+			GuidDigits(Request.Context.RequestId),
+			Request.Context.Content.Version.ToString(),
+			Request.Context.Content.Digest,
+			GuidDigits(Request.ReservationId),
+			Request.ExpectedPurposeId.ToString(),
+			Request.PurposeId.ToString()
 		});
 }
 
@@ -777,8 +846,132 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::Reserve(const FShanmenIte
 	Receipt.AvailableAfter = GetAvailableResource(Candidate, Request.ItemInstanceId, Request.ResourceKind);
 	Receipt.ItemRevision = Item->Revision;
 	Receipt.AuthorityRevision = Candidate.AuthorityRevision;
+	Receipt.PurposeId = Request.PurposeId;
 	Receipt.ReceiptId = MakeReceiptId(Request.Context.RequestId, RequestFingerprint, Receipt.Phase, Receipt.Error);
 	RecordProcessed(Candidate, Request.Context.RequestId, RequestFingerprint, Receipt);
+
+	EShanmenItemTransactionError ValidationError;
+	if (!Receipt.IsValid() || !ValidateState(Candidate, &ValidationError))
+	{
+		return Reject(EShanmenItemTransactionError::InvariantViolation);
+	}
+	State = MoveTemp(Candidate);
+	return Receipt;
+}
+
+FShanmenItemTransactionReceipt
+FShanmenItemRepository::AmendReservationPurpose(
+	const FShanmenItemReservationAmendRequest& Request)
+{
+	const FGuid RequestFingerprint = Fingerprint(Request);
+	FShanmenItemTransactionReceipt Replayed;
+	if (bInitialized && Request.Context.RequestId.IsValid()
+		&& TryReplay(
+			Request.Context.RequestId, RequestFingerprint,
+			EShanmenItemTransactionOperation::AmendReservationPurpose,
+			Replayed))
+	{
+		return Replayed;
+	}
+
+	auto Reject = [this, &Request, &RequestFingerprint](
+		EShanmenItemTransactionError Error)
+	{
+		FShanmenItemTransactionReceipt Receipt = MakeRejected(
+			EShanmenItemTransactionOperation::AmendReservationPurpose,
+			Request.Context.RequestId, RequestFingerprint, Error);
+		if (bInitialized
+			&& Error != EShanmenItemTransactionError::RequestIdConflict
+			&& Receipt.IsValid())
+		{
+			FState Candidate = State;
+			++Candidate.AuthorityRevision;
+			Receipt.AuthorityRevision = Candidate.AuthorityRevision;
+			RecordProcessed(
+				Candidate, Request.Context.RequestId,
+				RequestFingerprint, Receipt);
+			EShanmenItemTransactionError Ignored;
+			if (ValidateState(Candidate, &Ignored))
+			{
+				State = MoveTemp(Candidate);
+			}
+		}
+		return Receipt;
+	};
+
+	if (!bInitialized)
+	{
+		return Reject(EShanmenItemTransactionError::NotInitialized);
+	}
+	if (!Request.IsValid())
+	{
+		return Reject(EShanmenItemTransactionError::InvalidRequest);
+	}
+	if (!IsSameContent(Request.Context.Content, State.Content))
+	{
+		return Reject(EShanmenItemTransactionError::ContentMismatch);
+	}
+
+	const FShanmenItemReservationSnapshot* Existing =
+		State.Reservations.Find(Request.ReservationId);
+	if (!Existing)
+	{
+		return Reject(EShanmenItemTransactionError::ReservationNotFound);
+	}
+	if (Existing->RunId != Request.Context.RunId
+		|| Existing->OwnerId != Request.Context.OwnerId)
+	{
+		return Reject(EShanmenItemTransactionError::ReservationScopeMismatch);
+	}
+	if (Existing->State != EShanmenItemReservationState::Reserved)
+	{
+		return Reject(
+			Existing->State == EShanmenItemReservationState::Cancelled
+				? EShanmenItemTransactionError::ReservationAlreadyCancelled
+				: EShanmenItemTransactionError::ReservationAlreadyCommitted);
+	}
+	if (Existing->PurposeId != Request.ExpectedPurposeId)
+	{
+		return Reject(
+			EShanmenItemTransactionError::ReservationPurposeMismatch);
+	}
+
+	FState Candidate = State;
+	FShanmenItemReservationSnapshot* Reservation =
+		Candidate.Reservations.Find(Request.ReservationId);
+	const FShanmenItemInstance* Item = Reservation
+		? Candidate.Items.Find(Reservation->ItemInstanceId)
+		: nullptr;
+	if (!Reservation || !Item)
+	{
+		return Reject(EShanmenItemTransactionError::InvariantViolation);
+	}
+	Reservation->PurposeId = Request.PurposeId;
+	++Candidate.AuthorityRevision;
+
+	FShanmenItemTransactionReceipt Receipt;
+	Receipt.bSuccess = true;
+	Receipt.Operation =
+		EShanmenItemTransactionOperation::AmendReservationPurpose;
+	Receipt.Phase = EShanmenItemTransactionPhase::Reserved;
+	Receipt.Error = EShanmenItemTransactionError::None;
+	Receipt.RequestId = Request.Context.RequestId;
+	Receipt.ReservationId = Reservation->ReservationId;
+	Receipt.ItemInstanceId = Reservation->ItemInstanceId;
+	Receipt.ResourceKind = Reservation->ResourceKind;
+	Receipt.Amount = Reservation->Amount;
+	Receipt.ResourceBefore = GetResourceTotal(*Item, Reservation->ResourceKind);
+	Receipt.ResourceAfter = Receipt.ResourceBefore;
+	Receipt.AvailableAfter = GetAvailableResource(
+		Candidate, Reservation->ItemInstanceId, Reservation->ResourceKind);
+	Receipt.ItemRevision = Item->Revision;
+	Receipt.AuthorityRevision = Candidate.AuthorityRevision;
+	Receipt.PurposeId = Request.PurposeId;
+	Receipt.ReceiptId = MakeReceiptId(
+		Request.Context.RequestId, RequestFingerprint,
+		Receipt.Phase, Receipt.Error);
+	RecordProcessed(
+		Candidate, Request.Context.RequestId, RequestFingerprint, Receipt);
 
 	EShanmenItemTransactionError ValidationError;
 	if (!Receipt.IsValid() || !ValidateState(Candidate, &ValidationError))
@@ -805,6 +998,206 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::ReleaseDeployment(
 	const FShanmenItemReservationActionRequest& Request)
 {
 	return ResolveReservation(EShanmenItemTransactionOperation::ReleaseDeployment, Request);
+}
+
+bool FShanmenItemRepository::ApplyCommit(
+	FState& Candidate,
+	const FGuid& ReservationId,
+	EShanmenItemTransactionError& OutError)
+{
+	FShanmenItemReservationSnapshot* Reservation =
+		Candidate.Reservations.Find(ReservationId);
+	FShanmenItemInstance* Item = Reservation
+		? Candidate.Items.Find(Reservation->ItemInstanceId) : nullptr;
+	if (!Reservation || !Item)
+	{
+		OutError = EShanmenItemTransactionError::InvariantViolation;
+		return false;
+	}
+	if (Reservation->State == EShanmenItemReservationState::Cancelled)
+	{
+		OutError = EShanmenItemTransactionError::ReservationAlreadyCancelled;
+		return false;
+	}
+	if (Reservation->State != EShanmenItemReservationState::Reserved)
+	{
+		OutError = EShanmenItemTransactionError::ReservationAlreadyCommitted;
+		return false;
+	}
+
+	const int32 ResourceBefore = GetResourceTotal(
+		*Item, Reservation->ResourceKind);
+	if (Reservation->ResourceKind
+		== EShanmenItemResourceKind::DeploymentLock)
+	{
+		if (Item->State != EShanmenItemInstanceState::Stored
+			|| Item->DeploymentReservationId.IsValid())
+		{
+			OutError = EShanmenItemTransactionError::DeploymentMismatch;
+			return false;
+		}
+		Item->State = EShanmenItemInstanceState::Deployed;
+		Item->DeploymentReservationId = Reservation->ReservationId;
+	}
+	else
+	{
+		if (ResourceBefore < Reservation->Amount)
+		{
+			OutError = EShanmenItemTransactionError::InvariantViolation;
+			return false;
+		}
+		switch (Reservation->ResourceKind)
+		{
+		case EShanmenItemResourceKind::Quantity:
+			Item->Quantity -= Reservation->Amount;
+			if (Item->Quantity == 0)
+			{
+				FShanmenItemContainer* Container =
+					Candidate.Containers.Find(Item->ParentContainerId);
+				if (!Container
+					|| !Container->Slots.IsValidIndex(Item->SlotIndex)
+					|| Container->Slots[Item->SlotIndex]
+						!= Item->ItemInstanceId)
+				{
+					OutError =
+						EShanmenItemTransactionError::InvariantViolation;
+					return false;
+				}
+				Container->Slots[Item->SlotIndex].Invalidate();
+				Item->ParentContainerId.Invalidate();
+				Item->SlotIndex = INDEX_NONE;
+				Item->State = EShanmenItemInstanceState::Depleted;
+			}
+			break;
+		case EShanmenItemResourceKind::Durability:
+			Item->Durability -= Reservation->Amount;
+			break;
+		case EShanmenItemResourceKind::Charges:
+			Item->Charges -= Reservation->Amount;
+			break;
+		default:
+			OutError = EShanmenItemTransactionError::ResourceUnsupported;
+			return false;
+		}
+	}
+	++Item->Revision;
+	Reservation->State = EShanmenItemReservationState::Committed;
+	OutError = EShanmenItemTransactionError::None;
+	return true;
+}
+
+FShanmenItemTransactionReceipt FShanmenItemRepository::CommitBatch(
+	const FShanmenItemReservationBatchRequest& Request)
+{
+	const FGuid RequestFingerprint = Fingerprint(Request);
+	FShanmenItemTransactionReceipt Replayed;
+	if (bInitialized && Request.Context.RequestId.IsValid()
+		&& TryReplay(
+			Request.Context.RequestId, RequestFingerprint,
+			EShanmenItemTransactionOperation::CommitBatch, Replayed))
+	{
+		return Replayed;
+	}
+
+	auto Reject = [this, &Request, &RequestFingerprint](
+		EShanmenItemTransactionError Error)
+	{
+		FShanmenItemTransactionReceipt Receipt = MakeRejected(
+			EShanmenItemTransactionOperation::CommitBatch,
+			Request.Context.RequestId, RequestFingerprint, Error);
+		if (bInitialized
+			&& Error != EShanmenItemTransactionError::RequestIdConflict
+			&& Receipt.IsValid())
+		{
+			FState Candidate = State;
+			++Candidate.AuthorityRevision;
+			Receipt.AuthorityRevision = Candidate.AuthorityRevision;
+			RecordProcessed(
+				Candidate, Request.Context.RequestId,
+				RequestFingerprint, Receipt);
+			EShanmenItemTransactionError Ignored;
+			if (ValidateState(Candidate, &Ignored))
+			{
+				State = MoveTemp(Candidate);
+			}
+		}
+		return Receipt;
+	};
+
+	if (!bInitialized)
+	{
+		return Reject(EShanmenItemTransactionError::NotInitialized);
+	}
+	if (!Request.IsValid())
+	{
+		return Reject(EShanmenItemTransactionError::InvalidRequest);
+	}
+	if (!IsSameContent(Request.Context.Content, State.Content))
+	{
+		return Reject(EShanmenItemTransactionError::ContentMismatch);
+	}
+	for (const FGuid& ReservationId : Request.ReservationIds)
+	{
+		const FShanmenItemReservationSnapshot* Reservation =
+			State.Reservations.Find(ReservationId);
+		if (!Reservation)
+		{
+			return Reject(
+				EShanmenItemTransactionError::ReservationNotFound);
+		}
+		if (Reservation->RunId != Request.Context.RunId
+			|| Reservation->OwnerId != Request.Context.OwnerId)
+		{
+			return Reject(
+				EShanmenItemTransactionError::ReservationScopeMismatch);
+		}
+		if (Reservation->State
+			== EShanmenItemReservationState::Cancelled)
+		{
+			return Reject(
+				EShanmenItemTransactionError::ReservationAlreadyCancelled);
+		}
+		if (Reservation->State
+			!= EShanmenItemReservationState::Reserved)
+		{
+			return Reject(
+				EShanmenItemTransactionError::ReservationAlreadyCommitted);
+		}
+	}
+
+	FState Candidate = State;
+	for (const FGuid& ReservationId : Request.ReservationIds)
+	{
+		EShanmenItemTransactionError CommitError =
+			EShanmenItemTransactionError::None;
+		if (!ApplyCommit(Candidate, ReservationId, CommitError))
+		{
+			return Reject(CommitError);
+		}
+	}
+	++Candidate.AuthorityRevision;
+
+	FShanmenItemTransactionReceipt Receipt;
+	Receipt.bSuccess = true;
+	Receipt.Operation = EShanmenItemTransactionOperation::CommitBatch;
+	Receipt.Phase = EShanmenItemTransactionPhase::Committed;
+	Receipt.Error = EShanmenItemTransactionError::None;
+	Receipt.RequestId = Request.Context.RequestId;
+	Receipt.AuthorityRevision = Candidate.AuthorityRevision;
+	Receipt.ReservationIds = Request.ReservationIds;
+	Receipt.ReceiptId = MakeReceiptId(
+		Request.Context.RequestId, RequestFingerprint,
+		Receipt.Phase, Receipt.Error);
+	RecordProcessed(
+		Candidate, Request.Context.RequestId, RequestFingerprint, Receipt);
+
+	EShanmenItemTransactionError ValidationError;
+	if (!Receipt.IsValid() || !ValidateState(Candidate, &ValidationError))
+	{
+		return Reject(EShanmenItemTransactionError::InvariantViolation);
+	}
+	State = MoveTemp(Candidate);
+	return Receipt;
 }
 
 FShanmenItemTransactionReceipt FShanmenItemRepository::ResolveReservation(
@@ -908,52 +1301,12 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::ResolveReservation(
 	EShanmenItemTransactionPhase Phase = EShanmenItemTransactionPhase::Rejected;
 	if (Operation == EShanmenItemTransactionOperation::Commit)
 	{
-		if (Reservation->ResourceKind == EShanmenItemResourceKind::DeploymentLock)
+		EShanmenItemTransactionError CommitError =
+			EShanmenItemTransactionError::None;
+		if (!ApplyCommit(Candidate, Request.ReservationId, CommitError))
 		{
-			if (Item->State != EShanmenItemInstanceState::Stored || Item->DeploymentReservationId.IsValid())
-			{
-				return Reject(EShanmenItemTransactionError::DeploymentMismatch);
-			}
-			Item->State = EShanmenItemInstanceState::Deployed;
-			Item->DeploymentReservationId = Reservation->ReservationId;
+			return Reject(CommitError);
 		}
-		else
-		{
-			if (ResourceBefore < Reservation->Amount)
-			{
-				return Reject(EShanmenItemTransactionError::InvariantViolation);
-			}
-			switch (Reservation->ResourceKind)
-			{
-			case EShanmenItemResourceKind::Quantity:
-				Item->Quantity -= Reservation->Amount;
-				if (Item->Quantity == 0)
-				{
-					FShanmenItemContainer* Container = Candidate.Containers.Find(Item->ParentContainerId);
-					if (!Container
-						|| !Container->Slots.IsValidIndex(Item->SlotIndex)
-						|| Container->Slots[Item->SlotIndex] != Item->ItemInstanceId)
-					{
-						return Reject(EShanmenItemTransactionError::InvariantViolation);
-					}
-					Container->Slots[Item->SlotIndex].Invalidate();
-					Item->ParentContainerId.Invalidate();
-					Item->SlotIndex = INDEX_NONE;
-					Item->State = EShanmenItemInstanceState::Depleted;
-				}
-				break;
-			case EShanmenItemResourceKind::Durability:
-				Item->Durability -= Reservation->Amount;
-				break;
-			case EShanmenItemResourceKind::Charges:
-				Item->Charges -= Reservation->Amount;
-				break;
-			default:
-				return Reject(EShanmenItemTransactionError::ResourceUnsupported);
-			}
-		}
-		++Item->Revision;
-		Reservation->State = EShanmenItemReservationState::Committed;
 		Phase = EShanmenItemTransactionPhase::Committed;
 	}
 	else if (Operation == EShanmenItemTransactionOperation::Cancel)
@@ -992,6 +1345,7 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::ResolveReservation(
 	Receipt.AvailableAfter = GetAvailableResource(Candidate, Reservation->ItemInstanceId, Reservation->ResourceKind);
 	Receipt.ItemRevision = Item->Revision;
 	Receipt.AuthorityRevision = Candidate.AuthorityRevision;
+	Receipt.PurposeId = Reservation->PurposeId;
 	Receipt.ReceiptId = MakeReceiptId(Request.Context.RequestId, RequestFingerprint, Receipt.Phase, Receipt.Error);
 	RecordProcessed(Candidate, Request.Context.RequestId, RequestFingerprint, Receipt);
 

@@ -141,6 +141,19 @@ namespace
 		return Request;
 	}
 
+	FShanmenItemReservationBatchRequest ServiceBatch(
+		uint32 Sequence, const TArray<FGuid>& ReservationIds)
+	{
+		FShanmenItemReservationBatchRequest Request;
+		Request.Context.RunId = ServiceRunId;
+		Request.Context.OwnerId = ServiceOwnerId;
+		Request.Context.RequestId =
+			FGuid(0x51330000 + Sequence, 0, 0, 1);
+		Request.Context.Content = ServiceContent();
+		Request.ReservationIds = ReservationIds;
+		return Request;
+	}
+
 	FShanmenItemAuthorityStartResult CreateService(
 		FShanmenItemAuthorityService& Service,
 		const FShanmenItemStorageContext& Storage,
@@ -571,6 +584,98 @@ bool FShanmenItemAuthorityServiceNoFallbackTest::RunTest(const FString&)
 		Restarted.ReserveDurable(ServiceReserve(60)).Status
 			== EShanmenItemDurableCommandStatus::RecoveryRequired);
 
+	RemoveServiceRoot(Root);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenItemAuthorityServiceAtomicBatchTest,
+	"Shanmen.0_0_10.Items.AuthorityService.AtomicBatchDurability",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenItemAuthorityServiceAtomicBatchTest::RunTest(const FString&)
+{
+	const FString Root = NewServiceRoot(TEXT("AtomicBatch"));
+	const FShanmenItemStorageContext Storage =
+		FShanmenItemStorageContext::ForRoot(Root, ServiceOwnerId);
+	FShanmenItemAuthorityService Service;
+	TestTrue(TEXT("Atomic batch fixture publishes"),
+		CreateService(Service, Storage, 12).IsReady());
+	const FShanmenItemDurableCommandResult Quantity =
+		Service.ReserveDurable(ServiceReserve(80, 4));
+	const FShanmenItemDurableCommandResult Equipment =
+		Service.ReserveDurable(ServiceReserve(
+			81, 1, 0, EShanmenItemResourceKind::DeploymentLock));
+	TestTrue(TEXT("Atomic batch fixture reserves durably"),
+		Quantity.IsCommandSuccess() && Equipment.IsCommandSuccess());
+	const FShanmenItemReservationBatchRequest Request = ServiceBatch(
+		82, { Equipment.Receipt.ReservationId,
+			Quantity.Receipt.ReservationId });
+
+	FShanmenItemAuthoritySnapshot Before;
+	FShanmenItemAuthorityDocument DocumentBefore;
+	TArray<uint8> BytesBefore;
+	TestTrue(TEXT("Pre-batch durable state is readable"),
+		Service.TryCaptureSnapshot(Before)
+		&& Service.TryGetDocument(DocumentBefore)
+		&& ReadServiceBytes(Storage.PrimaryPath(), BytesBefore));
+#if WITH_DEV_AUTOMATION_TESTS
+	Service.SetInjectedFailureForTests(
+		EShanmenItemStoreFailureStage::WriteTemp);
+#endif
+	const FShanmenItemDurableCommandResult Failed =
+		Service.CommitBatchDurable(Request);
+	FShanmenItemAuthoritySnapshot AfterFailure;
+	FShanmenItemAuthorityDocument DocumentAfterFailure;
+	TArray<uint8> BytesAfterFailure;
+	TestTrue(TEXT("Failed persistence rolls back the whole batch"),
+		Failed.Status
+			== EShanmenItemDurableCommandStatus::PersistenceFailedRolledBack
+		&& Service.TryCaptureSnapshot(AfterFailure)
+		&& AfterFailure == Before
+		&& Service.TryGetDocument(DocumentAfterFailure)
+		&& DocumentAfterFailure == DocumentBefore
+		&& ReadServiceBytes(Storage.PrimaryPath(), BytesAfterFailure)
+		&& BytesAfterFailure == BytesBefore);
+
+#if WITH_DEV_AUTOMATION_TESTS
+	Service.SetInjectedFailureForTests(EShanmenItemStoreFailureStage::None);
+#endif
+	const FShanmenItemDurableCommandResult Committed =
+		Service.CommitBatchDurable(Request);
+	FShanmenItemAuthoritySnapshot AfterCommit;
+	FShanmenItemAuthorityDocument DocumentAfterCommit;
+	TestTrue(TEXT("Retry durably publishes every batch line once"),
+		Committed.Status == EShanmenItemDurableCommandStatus::Persisted
+		&& Committed.IsCommandSuccess()
+		&& Service.TryCaptureSnapshot(AfterCommit)
+		&& Service.TryGetDocument(DocumentAfterCommit)
+		&& AfterCommit.AuthorityRevision == Before.AuthorityRevision + 1
+		&& DocumentAfterCommit.SaveGeneration
+			== DocumentBefore.SaveGeneration + 1);
+	const FShanmenItemInstance* Stack = AfterCommit.Items.FindByPredicate(
+		[](const FShanmenItemInstance& Item)
+		{
+			return Item.ItemInstanceId == ServiceItemId;
+		});
+	const FShanmenItemInstance* Deploy = AfterCommit.Items.FindByPredicate(
+		[](const FShanmenItemInstance& Item)
+		{
+			return Item.ItemInstanceId == ServiceDeployItemId;
+		});
+	TestTrue(TEXT("Durable aggregate applies quantity and deployment"),
+		Stack && Stack->Quantity == 8
+		&& Deploy
+		&& Deploy->State == EShanmenItemInstanceState::Deployed);
+
+	FShanmenItemAuthorityService Restarted;
+	const FShanmenItemDurableCommandResult Replay =
+		Restarted.StartExisting(Storage).IsReady()
+			? Restarted.CommitBatchDurable(Request)
+			: FShanmenItemDurableCommandResult();
+	TestTrue(TEXT("Restart replays the exact durable batch receipt"),
+		Replay.Status == EShanmenItemDurableCommandStatus::Replayed
+		&& Replay.Receipt == Committed.Receipt);
 	RemoveServiceRoot(Root);
 	return true;
 }
