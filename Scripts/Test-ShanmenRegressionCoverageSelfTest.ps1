@@ -96,6 +96,9 @@ try
     $Coordinator = New-AutomationLogFixture `
         -Name 'coordinator.log' `
         -Group 'Shanmen.0_0_10.Product.CombatRunCoordinator'
+    $PlayerVitality = New-AutomationLogFixture `
+        -Name 'player-vitality.log' `
+        -Group 'Shanmen.0_0_10.Product.PlayerVitality'
     $FailedRanged = New-AutomationLogFixture `
         -Name 'ranged-fail.log' `
         -Group 'demo_map.V2RangedCompatibility' `
@@ -117,6 +120,11 @@ try
         -Paths @(
             'Docs/Report/example.md',
             'Scripts/example.ps1')
+
+    Invoke-ExpectedPass `
+        -Name 'player health maps to focused vitality plus full regression' `
+        -Paths @('Source/demo_map/demo_mapPlayerHealthComponent.cpp') `
+        -Logs @($Full, $PlayerVitality)
 
     Invoke-ExpectedFail `
         -Name 'missing mapped group fails closed' `
@@ -148,7 +156,7 @@ try
         -Logs @($Coordinator) `
         -ExpectedText 'missing required groups'
 
-    Write-Output 'SELF_TEST: PASS 7/7'
+    Write-Output 'SELF_TEST: PASS 8/8'
 }
 finally
 {

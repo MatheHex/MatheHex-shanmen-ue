@@ -286,6 +286,20 @@ FShanmenVitalityCommitResult Udemo_mapPlayerHealthComponent::CommitCombatImpact(
 	return Result;
 }
 
+FShanmenVitalityCommitResult Udemo_mapPlayerHealthComponent::RecoverCombatImpact(
+	const FShanmenVitalityCommitCommand& Command)
+{
+	FShanmenVitalityCommitResult Result =
+		CombatVitalityLedger.RecoverPendingExternalCommit(
+			Command, CurrentVitality, MaximumVitality);
+	if (Result.Status == EShanmenVitalityCommitStatus::Committed
+		&& Result.Receipt.GetAppliedDamage() > 0.0f)
+	{
+		PublishAppliedDamage(Result.Receipt.GetAppliedDamage());
+	}
+	return Result;
+}
+
 bool Udemo_mapPlayerHealthComponent::TryCommitVitalityState(
 	float NewCurrentVitality,
 	float NewMaximumVitality)

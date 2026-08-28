@@ -135,6 +135,10 @@ public:
 		const FShanmenItemRunConsumeRequest& Request);
 	FShanmenItemDurableCommandResult CommitPreparedRunResourcesDurable(
 		const FShanmenItemRunResourceCommitRequest& Request);
+	FShanmenItemDurableCommandResult PreparePreparedRunResourceIntentDurable(
+		const FShanmenItemRunResourceIntentRequest& Request);
+	FShanmenItemDurableCommandResult FinalizePreparedRunResourceIntentDurable(
+		const FShanmenItemRunResourceIntentFinalizeRequest& Request);
 	FShanmenItemDurableCommandResult FinalizePreparedRunDurable(
 		const FShanmenItemRunFinalizeRequest& Request);
 

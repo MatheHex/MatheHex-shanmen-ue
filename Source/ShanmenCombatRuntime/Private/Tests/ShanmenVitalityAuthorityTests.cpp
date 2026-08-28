@@ -369,6 +369,100 @@ bool FShanmenExternalVitalityLedgerCommitTest::RunTest(const FString&)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenExternalVitalityIntentRecoveryTest,
+	"Shanmen.0_0_10.CombatRuntime.VitalityLedger.DurableIntentRecovery",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenExternalVitalityIntentRecoveryTest::RunTest(const FString&)
+{
+	FShanmenVitalityAuthority OriginalAuthority;
+	check(FShanmenVitalityAuthority::TryCreate(
+		VitalityTargetC, 100.0f, 100.0f, 7, OriginalAuthority));
+	const FShanmenVitalityCommitCommand Original = MakeCommand(
+		MakeImpactRequest(
+			VitalityTargetC, 3, 30.0f,
+			CaptureVitality(OriginalAuthority)));
+	FShanmenVitalityCommitCommand Restored;
+	TestTrue(TEXT("Integrity-checked intent restores the exact immutable command"),
+		FShanmenVitalityCommitCommand::TryRestoreFromDurableIntent(
+			Original.GetImpactId(), Original.GetResolutionId(),
+			Original.GetTargetEntityId(),
+			Original.GetExpectedAuthorityRevision(),
+			Original.GetExpectedCurrentVitality(),
+			Original.GetExpectedMaximumVitality(),
+			Original.GetRawDamage(), Original.GetPreventedDamage(),
+			Original.GetRequestedDamage(), Original.GetDefenseOutcome(),
+			Restored)
+			&& Restored.GetImpactId() == Original.GetImpactId()
+			&& Restored.GetResolutionId() == Original.GetResolutionId()
+			&& Restored.GetTargetEntityId() == Original.GetTargetEntityId()
+			&& Restored.GetExpectedAuthorityRevision()
+				== Original.GetExpectedAuthorityRevision()
+			&& FMath::IsNearlyEqual(
+				Restored.GetExpectedVitalityAfter(), 70.0f));
+
+	float BeforeCurrent = 100.0f;
+	float BeforeMaximum = 100.0f;
+	FShanmenVitalityCommitLedger BeforeLedger;
+	check(FShanmenVitalityCommitLedger::TryCreate(
+		VitalityTargetC, BeforeCurrent, BeforeMaximum, 0, BeforeLedger));
+	const FShanmenVitalityCommitResult Applied =
+		BeforeLedger.RecoverPendingExternalCommit(
+			Restored, BeforeCurrent, BeforeMaximum);
+	TestTrue(TEXT("Exact before state rebases the lost revision and applies once"),
+		Applied.Status == EShanmenVitalityCommitStatus::Committed
+			&& Applied.IsSuccess()
+			&& FMath::IsNearlyEqual(BeforeCurrent, 70.0f)
+			&& BeforeLedger.GetAuthorityRevision() == 1
+			&& BeforeLedger.NumCommittedImpacts() == 1);
+	TestTrue(TEXT("Recovered before-state application remains idempotent"),
+		BeforeLedger.RecoverPendingExternalCommit(
+				Restored, BeforeCurrent, BeforeMaximum).Status
+				== EShanmenVitalityCommitStatus::AlreadyCommitted
+			&& FMath::IsNearlyEqual(BeforeCurrent, 70.0f)
+			&& BeforeLedger.GetAuthorityRevision() == 1);
+
+	float AfterCurrent = 70.0f;
+	float AfterMaximum = 100.0f;
+	FShanmenVitalityCommitLedger AfterLedger;
+	check(FShanmenVitalityCommitLedger::TryCreate(
+		VitalityTargetC, AfterCurrent, AfterMaximum, 0, AfterLedger));
+	const FShanmenVitalityCommitResult Imported =
+		AfterLedger.RecoverPendingExternalCommit(
+			Restored, AfterCurrent, AfterMaximum);
+	TestTrue(TEXT("Exact after state imports an already-applied receipt without damage"),
+		Imported.Status == EShanmenVitalityCommitStatus::AlreadyCommitted
+			&& Imported.IsSuccess()
+			&& FMath::IsNearlyEqual(AfterCurrent, 70.0f)
+			&& FMath::IsNearlyEqual(
+				Imported.Receipt.GetVitalityBefore(), 100.0f)
+			&& FMath::IsNearlyEqual(
+				Imported.Receipt.GetVitalityAfter(), 70.0f)
+			&& AfterLedger.GetAuthorityRevision() == 1
+			&& AfterLedger.NumCommittedImpacts() == 1);
+
+	float AmbiguousCurrent = 80.0f;
+	float AmbiguousMaximum = 100.0f;
+	FShanmenVitalityCommitLedger AmbiguousLedger;
+	check(FShanmenVitalityCommitLedger::TryCreate(
+		VitalityTargetC,
+		AmbiguousCurrent,
+		AmbiguousMaximum,
+		0,
+		AmbiguousLedger));
+	const FShanmenVitalityCommitResult Ambiguous =
+		AmbiguousLedger.RecoverPendingExternalCommit(
+			Restored, AmbiguousCurrent, AmbiguousMaximum);
+	TestTrue(TEXT("Neither-before-nor-after state fails closed and stays untouched"),
+		Ambiguous.Error == EShanmenVitalityCommitError::StaleSnapshot
+			&& !Ambiguous.IsSuccess()
+			&& FMath::IsNearlyEqual(AmbiguousCurrent, 80.0f)
+			&& AmbiguousLedger.GetAuthorityRevision() == 0
+			&& AmbiguousLedger.NumCommittedImpacts() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FShanmenExternalVitalityMutationTest,
 	"Shanmen.0_0_10.CombatRuntime.VitalityLedger.ExternalMutationInvalidation",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

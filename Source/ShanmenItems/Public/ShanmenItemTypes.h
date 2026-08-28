@@ -54,7 +54,11 @@ enum class EShanmenItemTransactionOperation : uint8
 	/** Durably consumes one Quantity unit from an already-started prepared Run. */
 	ConsumePreparedRunItem,
 	/** Atomically commits triggered Durability/Charges reservations for one active Run. */
-	CommitPreparedRunResources
+	CommitPreparedRunResources,
+	/** Durably freezes one external-impact decision over pending Run resources. */
+	PreparePreparedRunResourceIntent,
+	/** Atomically commits triggered lines and cancels every other prepared line. */
+	FinalizePreparedRunResourceIntent
 };
 
 UENUM(BlueprintType)
@@ -102,7 +106,11 @@ enum class EShanmenItemTransactionError : uint8
 	AcquiredItemMismatch,
 	ImportPlacementUnavailable,
 	/** Runtime's expected prepared-Run quantity no longer matches the durable ledger. */
-	RunItemQuantityConflict
+	RunItemQuantityConflict,
+	/** A resource intent cannot overlap another still-pending external mutation. */
+	ResourceIntentConflict,
+	/** The requested durable resource intent does not exist or has the wrong identity. */
+	ResourceIntentNotFound
 };
 
 /** Authority-independent terminal reason for one claimed prepared Run. */
@@ -507,6 +515,68 @@ struct SHANMENITEMS_API FShanmenItemRunResourceCommitRequest
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
 	FName PurposeId = NAME_None;
+
+	bool IsValid() const;
+};
+
+/**
+ * Durable prepare half of one external-impact saga.
+ *
+ * OrderedLines always stores triggered lines first, followed by non-triggered
+ * lines. TriggeredLineCount freezes the split. The repository changes no
+ * resource totals here; it only pins every still-pending reservation to the
+ * opaque, product-authored IntentMetadata before the external mutation occurs.
+ */
+USTRUCT(BlueprintType)
+struct SHANMENITEMS_API FShanmenItemRunResourceIntentRequest
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FShanmenOperationContext Context;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FGuid ActiveRunId;
+
+	/** Stable external operation identity; Combat uses the exact ImpactId. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FGuid IntentId;
+
+	/** Triggered prefix followed by the ordered non-triggered resource layers. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	TArray<FShanmenItemRunResourceCommitLine> OrderedLines;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items", meta = (ClampMin = "0"))
+	int32 TriggeredLineCount = 0;
+
+	/** Opaque immutable payload required to reconstruct the external CAS command. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FName IntentMetadata = NAME_None;
+
+	bool IsValid() const;
+};
+
+/** Durable terminal decision for one exact prepared external-impact intent. */
+USTRUCT(BlueprintType)
+struct SHANMENITEMS_API FShanmenItemRunResourceIntentFinalizeRequest
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FShanmenOperationContext Context;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FGuid ActiveRunId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FGuid PrepareRequestId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FGuid IntentId;
+
+	/** True only after the external authority committed or replayed this intent. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	bool bExternalCommitSucceeded = false;
 
 	bool IsValid() const;
 };

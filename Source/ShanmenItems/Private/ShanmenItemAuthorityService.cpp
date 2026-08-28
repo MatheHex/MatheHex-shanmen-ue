@@ -339,6 +339,30 @@ FShanmenItemAuthorityService::CommitPreparedRunResourcesDurable(
 }
 
 FShanmenItemDurableCommandResult
+FShanmenItemAuthorityService::PreparePreparedRunResourceIntentDurable(
+	const FShanmenItemRunResourceIntentRequest& Request)
+{
+	FScopeLock Lock(&Mutex);
+	return ExecuteCommandLocked(
+		[&Request](FShanmenItemRepository& MutableRepository)
+		{
+			return MutableRepository.PreparePreparedRunResourceIntent(Request);
+		});
+}
+
+FShanmenItemDurableCommandResult
+FShanmenItemAuthorityService::FinalizePreparedRunResourceIntentDurable(
+	const FShanmenItemRunResourceIntentFinalizeRequest& Request)
+{
+	FScopeLock Lock(&Mutex);
+	return ExecuteCommandLocked(
+		[&Request](FShanmenItemRepository& MutableRepository)
+		{
+			return MutableRepository.FinalizePreparedRunResourceIntent(Request);
+		});
+}
+
+FShanmenItemDurableCommandResult
 FShanmenItemAuthorityService::FinalizePreparedRunDurable(
 	const FShanmenItemRunFinalizeRequest& Request)
 {

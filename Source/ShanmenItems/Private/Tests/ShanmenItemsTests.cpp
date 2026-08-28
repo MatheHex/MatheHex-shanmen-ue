@@ -158,6 +158,39 @@ namespace
 		return Request;
 	}
 
+	FShanmenItemRunResourceIntentRequest MakeRunResourceIntent(
+		uint32 Sequence,
+		const FGuid& ActiveRunId,
+		const FGuid& IntentId,
+		const TArray<FShanmenItemRunResourceCommitLine>& OrderedLines,
+		int32 TriggeredLineCount)
+	{
+		FShanmenItemRunResourceIntentRequest Request;
+		Request.Context = MakeContext(Sequence);
+		Request.ActiveRunId = ActiveRunId;
+		Request.IntentId = IntentId;
+		Request.OrderedLines = OrderedLines;
+		Request.TriggeredLineCount = TriggeredLineCount;
+		Request.IntentMetadata = TEXT("Test.ExternalVitalityCAS.r1");
+		return Request;
+	}
+
+	FShanmenItemRunResourceIntentFinalizeRequest MakeRunResourceIntentFinalize(
+		uint32 Sequence,
+		const FGuid& ActiveRunId,
+		const FGuid& PrepareRequestId,
+		const FGuid& IntentId,
+		bool bExternalCommitSucceeded)
+	{
+		FShanmenItemRunResourceIntentFinalizeRequest Request;
+		Request.Context = MakeContext(Sequence);
+		Request.ActiveRunId = ActiveRunId;
+		Request.PrepareRequestId = PrepareRequestId;
+		Request.IntentId = IntentId;
+		Request.bExternalCommitSucceeded = bExternalCommitSucceeded;
+		return Request;
+	}
+
 	FShanmenItemRunResourceCommitLine ResourceLine(
 		const FGuid& ReservationId,
 		const FGuid& ItemInstanceId)
@@ -1093,6 +1126,204 @@ bool FShanmenItemsPreparedRunDefenseResourceCommitTest::RunTest(
 			&& AtomicFailure.FindReservation(PendingCharge.ReservationId)->State
 				== EShanmenItemReservationState::Reserved
 			&& AtomicFailure.ValidateInvariants());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenItemsPreparedRunDefenseResourceIntentTest,
+	"Shanmen.0_0_10.Items.PreparedRunDefenseResourceIntentRecovery",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenItemsPreparedRunDefenseResourceIntentTest::RunTest(
+	const FString&)
+{
+	auto StartFixture = [this](
+		FShanmenItemRepository& Repository,
+		FShanmenItemTransactionReceipt& OutRun,
+		FShanmenItemTransactionReceipt& OutDurability,
+		FShanmenItemTransactionReceipt& OutCharge)
+	{
+		if (!LoadFixture(*this, Repository))
+		{
+			return false;
+		}
+		const FShanmenItemTransactionReceipt SwordDeployment =
+			Repository.Reserve(MakeReserve(
+				400, SwordId, EShanmenItemResourceKind::DeploymentLock,
+				1, TEXT("Preparation.Weapon")));
+		const FShanmenItemTransactionReceipt MirrorDeployment =
+			Repository.Reserve(MakeReserve(
+				401, MirrorId, EShanmenItemResourceKind::DeploymentLock,
+				1, TEXT("Preparation.Accessory")));
+		OutRun = Repository.StartPreparedRun(MakeRunStart(
+			402,
+			{ SwordDeployment.ReservationId,
+				MirrorDeployment.ReservationId }));
+		OutDurability = Repository.Reserve(MakeReserve(
+			403, SwordId, EShanmenItemResourceKind::Durability,
+			2, TEXT("Combat.FlyingSword.Impact"), 1));
+		OutCharge = Repository.Reserve(MakeReserve(
+			404, MirrorId, EShanmenItemResourceKind::Charges,
+			1, TEXT("Defense.Artifact.HeartMirror"), 1));
+		return SwordDeployment.IsSuccess()
+			&& MirrorDeployment.IsSuccess() && OutRun.IsSuccess()
+			&& OutDurability.IsSuccess() && OutCharge.IsSuccess();
+	};
+
+	FShanmenItemRepository Repository;
+	FShanmenItemTransactionReceipt ActiveRun;
+	FShanmenItemTransactionReceipt Durability;
+	FShanmenItemTransactionReceipt Charge;
+	if (!StartFixture(Repository, ActiveRun, Durability, Charge))
+	{
+		AddError(TEXT("Prepared resource-intent fixture failed to start."));
+		return false;
+	}
+
+	const FGuid IntentId(0x0A001000, 0, 0, 1);
+	const FShanmenItemRunResourceIntentRequest PrepareRequest =
+		MakeRunResourceIntent(
+			405, ActiveRun.ReservationId, IntentId,
+			{
+				ResourceLine(Durability.ReservationId, SwordId),
+				ResourceLine(Charge.ReservationId, MirrorId)
+			},
+			1);
+	const int32 RevisionBeforePrepare = Repository.GetAuthorityRevision();
+	const FShanmenItemTransactionReceipt Prepared =
+		Repository.PreparePreparedRunResourceIntent(PrepareRequest);
+	TestTrue(TEXT("Prepare durably freezes one triggered prefix without spend"),
+		Prepared.IsSuccess()
+			&& Prepared.Operation
+				== EShanmenItemTransactionOperation::PreparePreparedRunResourceIntent
+			&& Prepared.Phase == EShanmenItemTransactionPhase::Reserved
+			&& Prepared.ReservationId == IntentId
+			&& Prepared.ItemInstanceId == ActiveRun.ReservationId
+			&& Prepared.Amount == 1
+			&& Prepared.ReservationIds
+				== TArray<FGuid>({
+					Durability.ReservationId, Charge.ReservationId })
+			&& Repository.GetAuthorityRevision() == RevisionBeforePrepare + 1
+			&& Repository.FindItem(SwordId)->Durability == 100
+			&& Repository.FindItem(MirrorId)->Charges == 1
+			&& Repository.FindReservation(Durability.ReservationId)->State
+				== EShanmenItemReservationState::Reserved
+			&& Repository.FindReservation(Charge.ReservationId)->State
+				== EShanmenItemReservationState::Reserved
+			&& Repository.FindReservation(Durability.ReservationId)->PurposeId
+				== PrepareRequest.IntentMetadata
+			&& Repository.FindReservation(Charge.ReservationId)->PurposeId
+				== PrepareRequest.IntentMetadata
+			&& Repository.ValidateInvariants());
+
+	FShanmenItemRepository Restarted;
+	TestTrue(TEXT("Pending intent and exact prepare replay survive restart"),
+		Restarted.TryLoadSnapshot(Repository.CaptureSnapshot())
+			&& Restarted.PreparePreparedRunResourceIntent(PrepareRequest)
+				== Prepared
+			&& Restarted.FindItem(SwordId)->Durability == 100
+			&& Restarted.FindItem(MirrorId)->Charges == 1);
+
+	FShanmenItemRunResourceIntentRequest Overlap = PrepareRequest;
+	Overlap.Context = MakeContext(406);
+	Overlap.IntentId = FGuid(0x0A001000, 0, 0, 2);
+	TestTrue(TEXT("A second external mutation cannot overlap the pending intent"),
+		Restarted.PreparePreparedRunResourceIntent(Overlap).Error
+			== EShanmenItemTransactionError::ResourceIntentConflict);
+
+	FShanmenItemRunFinalizeRequest PrematureRunFinalize;
+	PrematureRunFinalize.Context = MakeContext(407);
+	PrematureRunFinalize.ActiveRunId = ActiveRun.ReservationId;
+	PrematureRunFinalize.TerminalReason =
+		EShanmenItemRunTerminalReason::Extraction;
+	PrematureRunFinalize.SecuredOriginals = {
+		Secured(SwordId, 1), Secured(MirrorId, 1) };
+	TestTrue(TEXT("Run finalization cannot discard an in-doubt external intent"),
+		Restarted.FinalizePreparedRun(PrematureRunFinalize).Error
+			== EShanmenItemTransactionError::ResourceIntentConflict);
+
+	const FShanmenItemRunResourceIntentFinalizeRequest FinalizeRequest =
+		MakeRunResourceIntentFinalize(
+			408, ActiveRun.ReservationId,
+			PrepareRequest.Context.RequestId, IntentId, true);
+	const int32 RevisionBeforeFinalize = Restarted.GetAuthorityRevision();
+	const FShanmenItemTransactionReceipt Finalized =
+		Restarted.FinalizePreparedRunResourceIntent(FinalizeRequest);
+	TestTrue(TEXT("External success commits only the triggered prefix atomically"),
+		Finalized.IsSuccess()
+			&& Finalized.Operation
+				== EShanmenItemTransactionOperation::FinalizePreparedRunResourceIntent
+			&& Finalized.Phase == EShanmenItemTransactionPhase::Committed
+			&& Finalized.ReservationId == IntentId
+			&& Finalized.ItemInstanceId == PrepareRequest.Context.RequestId
+			&& Restarted.GetAuthorityRevision() == RevisionBeforeFinalize + 1
+			&& Restarted.FindItem(SwordId)->Durability == 98
+			&& Restarted.FindItem(MirrorId)->Charges == 1
+			&& Restarted.FindReservation(Durability.ReservationId)->State
+				== EShanmenItemReservationState::Committed
+			&& Restarted.FindReservation(Charge.ReservationId)->State
+				== EShanmenItemReservationState::Cancelled
+			&& Restarted.ValidateInvariants());
+
+	FShanmenItemRepository FinalizedRestart;
+	TestTrue(TEXT("Final decision replays after restart without double wear"),
+		FinalizedRestart.TryLoadSnapshot(Restarted.CaptureSnapshot())
+			&& FinalizedRestart.FinalizePreparedRunResourceIntent(FinalizeRequest)
+				== Finalized
+			&& FinalizedRestart.FindItem(SwordId)->Durability == 98
+			&& FinalizedRestart.FindItem(MirrorId)->Charges == 1);
+
+	FShanmenItemRunFinalizeRequest RunFinalize = PrematureRunFinalize;
+	RunFinalize.Context = MakeContext(409);
+	TestTrue(TEXT("Run can terminate only after the intent reaches a durable decision"),
+		FinalizedRestart.FinalizePreparedRun(RunFinalize).IsSuccess()
+			&& FinalizedRestart.FindItem(SwordId)->State
+				== EShanmenItemInstanceState::Stored
+			&& FinalizedRestart.FindItem(MirrorId)->State
+				== EShanmenItemInstanceState::Stored);
+
+	FShanmenItemRepository RejectedExternal;
+	FShanmenItemTransactionReceipt RejectedRun;
+	FShanmenItemTransactionReceipt RejectedDurability;
+	FShanmenItemTransactionReceipt RejectedCharge;
+	if (!StartFixture(
+			RejectedExternal, RejectedRun,
+			RejectedDurability, RejectedCharge))
+	{
+		AddError(TEXT("External rejection fixture failed to start."));
+		return false;
+	}
+	const FGuid RejectedIntentId(0x0A001000, 0, 0, 3);
+	const FShanmenItemRunResourceIntentRequest RejectedPrepareRequest =
+		MakeRunResourceIntent(
+			410, RejectedRun.ReservationId, RejectedIntentId,
+			{
+				ResourceLine(RejectedDurability.ReservationId, SwordId),
+				ResourceLine(RejectedCharge.ReservationId, MirrorId)
+			},
+			2);
+	const FShanmenItemTransactionReceipt RejectedPrepared =
+		RejectedExternal.PreparePreparedRunResourceIntent(
+			RejectedPrepareRequest);
+	const FShanmenItemRunResourceIntentFinalizeRequest Rejection =
+		MakeRunResourceIntentFinalize(
+			411, RejectedRun.ReservationId,
+			RejectedPrepareRequest.Context.RequestId,
+			RejectedIntentId, false);
+	const FShanmenItemTransactionReceipt Cancelled =
+		RejectedExternal.FinalizePreparedRunResourceIntent(Rejection);
+	TestTrue(TEXT("External rejection cancels every line and consumes nothing"),
+		RejectedPrepared.IsSuccess() && Cancelled.IsSuccess()
+			&& Cancelled.Phase == EShanmenItemTransactionPhase::Cancelled
+			&& RejectedExternal.FindItem(SwordId)->Durability == 100
+			&& RejectedExternal.FindItem(MirrorId)->Charges == 1
+			&& RejectedExternal.FindReservation(
+				RejectedDurability.ReservationId)->State
+				== EShanmenItemReservationState::Cancelled
+			&& RejectedExternal.FindReservation(
+				RejectedCharge.ReservationId)->State
+				== EShanmenItemReservationState::Cancelled
+			&& RejectedExternal.ValidateInvariants());
 	return true;
 }
 

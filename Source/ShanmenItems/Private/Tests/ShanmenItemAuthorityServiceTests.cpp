@@ -153,6 +153,50 @@ namespace
 		return Request;
 	}
 
+	FShanmenItemRunResourceIntentRequest ServiceRunResourceIntent(
+		uint32 Sequence,
+		const FGuid& ActiveRunId,
+		const FGuid& IntentId,
+		const FGuid& ReservationId)
+	{
+		FShanmenItemRunResourceIntentRequest Request;
+		Request.Context.RunId = ServiceRunId;
+		Request.Context.OwnerId = ServiceOwnerId;
+		Request.Context.RequestId =
+			FGuid(0x51360000 + Sequence, 0, 0, 1);
+		Request.Context.Content = ServiceContent();
+		Request.ActiveRunId = ActiveRunId;
+		Request.IntentId = IntentId;
+		FShanmenItemRunResourceCommitLine& Line =
+			Request.OrderedLines.AddDefaulted_GetRef();
+		Line.ReservationId = ReservationId;
+		Line.ItemInstanceId = ServiceDeployItemId;
+		Request.TriggeredLineCount = 1;
+		Request.IntentMetadata = TEXT("Test.AuthorityService.VitalityCAS.r1");
+		return Request;
+	}
+
+	FShanmenItemRunResourceIntentFinalizeRequest
+	ServiceRunResourceIntentFinalize(
+		uint32 Sequence,
+		const FGuid& ActiveRunId,
+		const FGuid& PrepareRequestId,
+		const FGuid& IntentId,
+		bool bExternalCommitSucceeded)
+	{
+		FShanmenItemRunResourceIntentFinalizeRequest Request;
+		Request.Context.RunId = ServiceRunId;
+		Request.Context.OwnerId = ServiceOwnerId;
+		Request.Context.RequestId =
+			FGuid(0x51370000 + Sequence, 0, 0, 1);
+		Request.Context.Content = ServiceContent();
+		Request.ActiveRunId = ActiveRunId;
+		Request.PrepareRequestId = PrepareRequestId;
+		Request.IntentId = IntentId;
+		Request.bExternalCommitSucceeded = bExternalCommitSucceeded;
+		return Request;
+	}
+
 	FShanmenItemReservationActionRequest ServiceAction(
 		uint32 Sequence, const FGuid& ReservationId)
 	{
@@ -894,6 +938,162 @@ bool FShanmenItemAuthorityServicePreparedRunResourceCommitTest::RunTest(
 			&& Replay.Receipt == Committed.Receipt
 			&& Restarted.TryCaptureSnapshot(RestartedSnapshot)
 			&& RestartedSnapshot == AfterCommit);
+	RemoveServiceRoot(Root);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenItemAuthorityServicePreparedRunResourceIntentTest,
+	"Shanmen.0_0_10.Items.AuthorityService.PreparedRunResourceIntentDurability",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenItemAuthorityServicePreparedRunResourceIntentTest::RunTest(
+	const FString&)
+{
+	const FString Root = NewServiceRoot(TEXT("PreparedRunResourceIntent"));
+	const FShanmenItemStorageContext Storage =
+		FShanmenItemStorageContext::ForRoot(Root, ServiceOwnerId);
+	FShanmenItemAuthorityService Service;
+	TestTrue(TEXT("Prepared resource-intent fixture publishes"),
+		CreateService(Service, Storage, 12).IsReady());
+	const FShanmenItemDurableCommandResult Deployment =
+		Service.ReserveDurable(ServiceReserve(
+			140, 1, 0, EShanmenItemResourceKind::DeploymentLock));
+	const FShanmenItemDurableCommandResult Started =
+		Deployment.IsCommandSuccess()
+			? Service.StartPreparedRunDurable(ServiceRunStart(
+				141, { Deployment.Receipt.ReservationId }))
+			: FShanmenItemDurableCommandResult();
+	const FShanmenItemDurableCommandResult Durability =
+		Started.IsCommandSuccess()
+			? Service.ReserveDurable(ServiceReserve(
+				142, 2, 1, EShanmenItemResourceKind::Durability))
+			: FShanmenItemDurableCommandResult();
+	const FGuid IntentId(0x51380000, 0, 0, 1);
+	const FShanmenItemRunResourceIntentRequest PrepareRequest =
+		ServiceRunResourceIntent(
+			143, Started.Receipt.ReservationId,
+			IntentId, Durability.Receipt.ReservationId);
+	TestTrue(TEXT("Active Run owns one recoverable resource intent"),
+		Deployment.IsCommandSuccess() && Started.IsCommandSuccess()
+			&& Durability.IsCommandSuccess() && PrepareRequest.IsValid());
+
+	FShanmenItemAuthoritySnapshot BeforePrepare;
+	FShanmenItemAuthorityDocument DocumentBeforePrepare;
+	TestTrue(TEXT("Pre-prepare durable state is readable"),
+		Service.TryCaptureSnapshot(BeforePrepare)
+			&& Service.TryGetDocument(DocumentBeforePrepare));
+#if WITH_DEV_AUTOMATION_TESTS
+	Service.SetInjectedFailureForTests(
+		EShanmenItemStoreFailureStage::WriteTemp);
+#endif
+	const FShanmenItemDurableCommandResult FailedPrepare =
+		Service.PreparePreparedRunResourceIntentDurable(PrepareRequest);
+	FShanmenItemAuthoritySnapshot AfterFailedPrepare;
+	TestTrue(TEXT("Prepare write failure exposes neither intent nor partial spend"),
+		FailedPrepare.Status
+			== EShanmenItemDurableCommandStatus::PersistenceFailedRolledBack
+			&& Service.TryCaptureSnapshot(AfterFailedPrepare)
+			&& AfterFailedPrepare == BeforePrepare);
+
+#if WITH_DEV_AUTOMATION_TESTS
+	Service.SetInjectedFailureForTests(EShanmenItemStoreFailureStage::None);
+#endif
+	const FShanmenItemDurableCommandResult Prepared =
+		Service.PreparePreparedRunResourceIntentDurable(PrepareRequest);
+	FShanmenItemAuthoritySnapshot AfterPrepare;
+	FShanmenItemAuthorityDocument DocumentAfterPrepare;
+	const FShanmenItemInstance* PreparedItem = nullptr;
+	if (Service.TryCaptureSnapshot(AfterPrepare))
+	{
+		PreparedItem = AfterPrepare.Items.FindByPredicate(
+			[](const FShanmenItemInstance& Item)
+			{
+				return Item.ItemInstanceId == ServiceDeployItemId;
+			});
+	}
+	TestTrue(TEXT("Prepare persists in one generation without consuming durability"),
+		Prepared.Status == EShanmenItemDurableCommandStatus::Persisted
+			&& Prepared.IsCommandSuccess()
+			&& Prepared.Receipt.Operation
+				== EShanmenItemTransactionOperation::PreparePreparedRunResourceIntent
+			&& PreparedItem && PreparedItem->Durability == 5
+			&& Service.TryGetDocument(DocumentAfterPrepare)
+			&& AfterPrepare.AuthorityRevision
+				== BeforePrepare.AuthorityRevision + 1
+			&& DocumentAfterPrepare.SaveGeneration
+				== DocumentBeforePrepare.SaveGeneration + 1);
+
+	FShanmenItemAuthorityService RestartedPending;
+	FShanmenItemAuthoritySnapshot PendingSnapshot;
+	TestTrue(TEXT("Restart restores the exact pending intent"),
+		RestartedPending.StartExisting(Storage).IsReady()
+			&& RestartedPending.TryCaptureSnapshot(PendingSnapshot)
+			&& PendingSnapshot == AfterPrepare);
+
+	const FShanmenItemRunResourceIntentFinalizeRequest FinalizeRequest =
+		ServiceRunResourceIntentFinalize(
+			144, Started.Receipt.ReservationId,
+			PrepareRequest.Context.RequestId, IntentId, true);
+	FShanmenItemAuthorityDocument DocumentBeforeFinalize;
+	TestTrue(TEXT("Pending document is readable before finalization"),
+		RestartedPending.TryGetDocument(DocumentBeforeFinalize));
+#if WITH_DEV_AUTOMATION_TESTS
+	RestartedPending.SetInjectedFailureForTests(
+		EShanmenItemStoreFailureStage::WriteTemp);
+#endif
+	const FShanmenItemDurableCommandResult FailedFinalize =
+		RestartedPending.FinalizePreparedRunResourceIntentDurable(
+			FinalizeRequest);
+	FShanmenItemAuthoritySnapshot AfterFailedFinalize;
+	TestTrue(TEXT("Finalize write failure preserves the recoverable pending intent"),
+		FailedFinalize.Status
+			== EShanmenItemDurableCommandStatus::PersistenceFailedRolledBack
+			&& RestartedPending.TryCaptureSnapshot(AfterFailedFinalize)
+			&& AfterFailedFinalize == PendingSnapshot);
+
+#if WITH_DEV_AUTOMATION_TESTS
+	RestartedPending.SetInjectedFailureForTests(
+		EShanmenItemStoreFailureStage::None);
+#endif
+	const FShanmenItemDurableCommandResult Finalized =
+		RestartedPending.FinalizePreparedRunResourceIntentDurable(
+			FinalizeRequest);
+	FShanmenItemAuthoritySnapshot AfterFinalize;
+	FShanmenItemAuthorityDocument DocumentAfterFinalize;
+	const FShanmenItemInstance* WornItem = nullptr;
+	if (RestartedPending.TryCaptureSnapshot(AfterFinalize))
+	{
+		WornItem = AfterFinalize.Items.FindByPredicate(
+			[](const FShanmenItemInstance& Item)
+			{
+				return Item.ItemInstanceId == ServiceDeployItemId;
+			});
+	}
+	TestTrue(TEXT("Retry atomically publishes the external success decision"),
+		Finalized.Status == EShanmenItemDurableCommandStatus::Persisted
+			&& Finalized.IsCommandSuccess()
+			&& Finalized.Receipt.Operation
+				== EShanmenItemTransactionOperation::FinalizePreparedRunResourceIntent
+			&& WornItem && WornItem->Durability == 3
+			&& RestartedPending.TryGetDocument(DocumentAfterFinalize)
+			&& AfterFinalize.AuthorityRevision
+				== PendingSnapshot.AuthorityRevision + 1
+			&& DocumentAfterFinalize.SaveGeneration
+				== DocumentBeforeFinalize.SaveGeneration + 1);
+
+	FShanmenItemAuthorityService RestartedFinal;
+	const FShanmenItemDurableCommandResult Replay =
+		RestartedFinal.StartExisting(Storage).IsReady()
+			? RestartedFinal.FinalizePreparedRunResourceIntentDurable(
+				FinalizeRequest)
+			: FShanmenItemDurableCommandResult();
+	FShanmenItemAuthoritySnapshot ReplayedSnapshot;
+	TestTrue(TEXT("Final decision replays after restart without double wear"),
+		Replay.Status == EShanmenItemDurableCommandStatus::Replayed
+			&& Replay.Receipt == Finalized.Receipt
+			&& RestartedFinal.TryCaptureSnapshot(ReplayedSnapshot)
+			&& ReplayedSnapshot == AfterFinalize);
 	RemoveServiceRoot(Root);
 	return true;
 }

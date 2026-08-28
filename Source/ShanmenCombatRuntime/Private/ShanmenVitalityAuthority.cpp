@@ -161,6 +161,33 @@ bool FShanmenVitalityCommitCommand::TryCreate(
 	return OutCommand.IsValid();
 }
 
+bool FShanmenVitalityCommitCommand::TryRestoreFromDurableIntent(
+	const FGuid& InImpactId,
+	const FGuid& InResolutionId,
+	const FGuid& InTargetEntityId,
+	int64 InExpectedAuthorityRevision,
+	float InExpectedCurrentVitality,
+	float InExpectedMaximumVitality,
+	float InRawDamage,
+	float InPreventedDamage,
+	float InRequestedDamage,
+	EShanmenDefenseOutcome InDefenseOutcome,
+	FShanmenVitalityCommitCommand& OutCommand)
+{
+	OutCommand = FShanmenVitalityCommitCommand();
+	OutCommand.ImpactId = InImpactId;
+	OutCommand.ResolutionId = InResolutionId;
+	OutCommand.TargetEntityId = InTargetEntityId;
+	OutCommand.ExpectedAuthorityRevision = InExpectedAuthorityRevision;
+	OutCommand.ExpectedCurrentVitality = InExpectedCurrentVitality;
+	OutCommand.ExpectedMaximumVitality = InExpectedMaximumVitality;
+	OutCommand.RawDamage = InRawDamage;
+	OutCommand.PreventedDamage = InPreventedDamage;
+	OutCommand.RequestedDamage = InRequestedDamage;
+	OutCommand.DefenseOutcome = InDefenseOutcome;
+	return OutCommand.IsValid();
+}
+
 bool FShanmenVitalityCommitCommand::IsValid() const
 {
 	return ImpactId.IsValid()
@@ -358,6 +385,87 @@ FShanmenVitalityCommitResult FShanmenVitalityCommitLedger::Commit(
 
 	FShanmenVitalityCommitResult Result;
 	Result.Status = EShanmenVitalityCommitStatus::Committed;
+	Result.Receipt = Receipt;
+	return Result;
+}
+
+FShanmenVitalityCommitResult
+FShanmenVitalityCommitLedger::RecoverPendingExternalCommit(
+	const FShanmenVitalityCommitCommand& Command,
+	float& InOutCurrentVitality,
+	float MaximumVitality)
+{
+	FShanmenVitalityCommitResult Direct = Commit(
+		Command, InOutCurrentVitality, MaximumVitality);
+	if (Direct.IsSuccess()
+		|| Direct.Error != EShanmenVitalityCommitError::StaleSnapshot)
+	{
+		return Direct;
+	}
+	if (!Command.IsValid() || !IsValid()
+		|| !IsSynchronized(InOutCurrentVitality, MaximumVitality)
+		|| !ProcessedImpacts.IsEmpty()
+		|| Command.GetTargetEntityId() != TargetEntityId
+		|| !FloatsMatchExactly(
+			Command.GetExpectedMaximumVitality(), MaximumVitality))
+	{
+		return Direct;
+	}
+
+	if (FloatsMatchExactly(
+			InOutCurrentVitality, Command.GetExpectedCurrentVitality()))
+	{
+		FShanmenVitalityCommitCommand Rebased;
+		if (!FShanmenVitalityCommitCommand::TryRestoreFromDurableIntent(
+				Command.GetImpactId(), Command.GetResolutionId(),
+				Command.GetTargetEntityId(), AuthorityRevision,
+				Command.GetExpectedCurrentVitality(),
+				Command.GetExpectedMaximumVitality(),
+				Command.GetRawDamage(), Command.GetPreventedDamage(),
+				Command.GetRequestedDamage(), Command.GetDefenseOutcome(),
+				Rebased))
+		{
+			return Reject(EShanmenVitalityCommitError::InvalidCommand);
+		}
+		return Commit(Rebased, InOutCurrentVitality, MaximumVitality);
+	}
+
+	if (!FloatsMatchExactly(
+			InOutCurrentVitality, Command.GetExpectedVitalityAfter()))
+	{
+		return Direct;
+	}
+	if (AuthorityRevision == MAX_int64)
+	{
+		return Reject(EShanmenVitalityCommitError::RevisionExhausted);
+	}
+
+	FShanmenVitalityCommitReceipt Receipt;
+	Receipt.ImpactId = Command.GetImpactId();
+	Receipt.ResolutionId = Command.GetResolutionId();
+	Receipt.TargetEntityId = TargetEntityId;
+	Receipt.AuthorityRevisionBefore = AuthorityRevision;
+	Receipt.AuthorityRevisionAfter = AuthorityRevision + 1;
+	Receipt.VitalityBefore = Command.GetExpectedCurrentVitality();
+	Receipt.VitalityAfter = Command.GetExpectedVitalityAfter();
+	Receipt.MaximumVitality = MaximumVitality;
+	Receipt.RequestedDamage = Command.GetRequestedDamage();
+	Receipt.AppliedDamage = FMath::Min(
+		Receipt.VitalityBefore, Receipt.RequestedDamage);
+	if (!Receipt.IsValid())
+	{
+		return Reject(EShanmenVitalityCommitError::InvalidCommand);
+	}
+
+	AuthorityRevision = Receipt.AuthorityRevisionAfter;
+	CurrentVitalityFingerprint = FloatValueBits(InOutCurrentVitality);
+	MaximumVitalityFingerprint = FloatValueBits(MaximumVitality);
+	FProcessedImpact& Processed = ProcessedImpacts.Add(Receipt.ImpactId);
+	Processed.ResolutionId = Receipt.ResolutionId;
+	Processed.Receipt = Receipt;
+
+	FShanmenVitalityCommitResult Result;
+	Result.Status = EShanmenVitalityCommitStatus::AlreadyCommitted;
 	Result.Receipt = Receipt;
 	return Result;
 }

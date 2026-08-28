@@ -5,6 +5,7 @@
 #include "ShanmenWorldHitAdapter.h"
 #include "Components/PrimitiveComponent.h"
 #include "Engine/EngineTypes.h"
+#include "Engine/GameInstance.h"
 #include "Engine/OverlapResult.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/Pawn.h"
@@ -16,6 +17,8 @@
 #include "demo_mapM01EnemyTypes.h"
 #include "demo_mapPlayerHealthComponent.h"
 #include "demo_mapRangedEnemyCharacter.h"
+#include "demo_mapShanmenDefenseResourceAdapter.h"
+#include "demo_mapShanmenItemAuthoritySubsystem.h"
 
 namespace
 {
@@ -604,6 +607,27 @@ bool Fdemo_mapCombatRunCoordinator::TryBeginRun(
 			TEXT("Player vitality host rejected the stable World EntityId.");
 		return false;
 	}
+	if (UGameInstance* GameInstance = PlayerPawn->GetGameInstance())
+	{
+		if (Udemo_mapShanmenItemAuthoritySubsystem* Authority =
+			GameInstance->GetSubsystem<Udemo_mapShanmenItemAuthoritySubsystem>();
+			Authority
+			&& Authority->GetLifecycleState()
+				== Edemo_mapShanmenItemAuthorityLifecycleState::Ready)
+		{
+			const Fdemo_mapShanmenDefenseResourceCoordinationResult Recovery =
+				Fdemo_mapShanmenDefenseResourceAdapter::RecoverPendingIntent(
+					*Authority, *PlayerHealth);
+			if (!Recovery.IsSuccess())
+			{
+				PlayerHealth->TryEndCombatEntityBinding(ExpectedEntityId);
+				OutDiagnostic = Recovery.Diagnostic.IsEmpty()
+					? TEXT("Combat Run binding found an ambiguous pending defense resource intent.")
+					: Recovery.Diagnostic;
+				return false;
+			}
+		}
+	}
 
 	EntityRegistry = MoveTemp(PreparedRegistry);
 	PlayerEntityId = ExpectedEntityId;
@@ -1168,10 +1192,43 @@ Fdemo_mapCombatRunCoordinator::DeliverM01EnemyAttackImpactToPlayer(
 		return Delivery;
 	}
 
+	const FShanmenImpactResult& ImpactResult = Impact.GetResult();
+	const bool bRequiresResourceCoordination =
+		Request.Defense.Layers.ContainsByPredicate(
+			[](const FShanmenDefenseLayer& Layer)
+			{
+				return Layer.bRequiresCommitOnTrigger;
+			});
+	if (bRequiresResourceCoordination)
+	{
+		UGameInstance* GameInstance = BoundPlayerPawn.IsValid()
+			? BoundPlayerPawn->GetGameInstance() : nullptr;
+		Udemo_mapShanmenItemAuthoritySubsystem* Authority = GameInstance
+			? GameInstance->GetSubsystem<Udemo_mapShanmenItemAuthoritySubsystem>()
+			: nullptr;
+		if (!Authority)
+		{
+			Delivery.Error =
+				Edemo_mapCombatImpactDeliveryError::ResourceCoordinationRejected;
+			return Delivery;
+		}
+		const Fdemo_mapShanmenDefenseResourceCoordinationResult Coordination =
+			Fdemo_mapShanmenDefenseResourceAdapter::CoordinateImpact(
+				*Authority,
+				*BoundPlayerHealth,
+				Request,
+				ImpactResult);
+		Delivery.CommitResult = Coordination.VitalityCommand;
+		Delivery.Error = Coordination.IsSuccess()
+			? Edemo_mapCombatImpactDeliveryError::None
+			: Edemo_mapCombatImpactDeliveryError::ResourceCoordinationRejected;
+		return Delivery;
+	}
+
 	FShanmenVitalityCommitCommand Command;
 	if (!FShanmenVitalityCommitCommand::TryCreate(
 		Request,
-		Impact.GetResult(),
+		ImpactResult,
 		Command))
 	{
 		Delivery.Error =

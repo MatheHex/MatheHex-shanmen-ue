@@ -38,6 +38,19 @@ public:
 		const FShanmenImpactRequest& Request,
 		const FShanmenImpactResult& Result,
 		FShanmenVitalityCommitCommand& OutCommand);
+	/** Rehydrates an integrity-checked durable intent without rerunning resolution. */
+	static bool TryRestoreFromDurableIntent(
+		const FGuid& ImpactId,
+		const FGuid& ResolutionId,
+		const FGuid& TargetEntityId,
+		int64 ExpectedAuthorityRevision,
+		float ExpectedCurrentVitality,
+		float ExpectedMaximumVitality,
+		float RawDamage,
+		float PreventedDamage,
+		float RequestedDamage,
+		EShanmenDefenseOutcome DefenseOutcome,
+		FShanmenVitalityCommitCommand& OutCommand);
 
 	bool IsValid() const;
 	const FGuid& GetImpactId() const { return ImpactId; }
@@ -49,6 +62,10 @@ public:
 	float GetRawDamage() const { return RawDamage; }
 	float GetPreventedDamage() const { return PreventedDamage; }
 	float GetRequestedDamage() const { return RequestedDamage; }
+	float GetExpectedVitalityAfter() const
+	{
+		return FMath::Max(0.0f, ExpectedCurrentVitality - RequestedDamage);
+	}
 	EShanmenDefenseOutcome GetDefenseOutcome() const { return DefenseOutcome; }
 
 private:
@@ -181,6 +198,15 @@ public:
 		float MaximumVitality,
 		FShanmenTargetVitalitySnapshot& OutSnapshot) const;
 	FShanmenVitalityCommitResult Commit(
+		const FShanmenVitalityCommitCommand& Command,
+		float& InOutCurrentVitality,
+		float MaximumVitality);
+	/**
+	 * Recovers one integrity-checked durable external intent after the in-memory
+	 * ledger was lost. Exact before state applies it once; exact after state
+	 * imports the already-applied receipt. Any other state fails closed.
+	 */
+	FShanmenVitalityCommitResult RecoverPendingExternalCommit(
 		const FShanmenVitalityCommitCommand& Command,
 		float& InOutCurrentVitality,
 		float MaximumVitality);

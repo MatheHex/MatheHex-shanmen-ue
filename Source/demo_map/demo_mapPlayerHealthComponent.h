@@ -62,6 +62,9 @@ public:
 		FShanmenDefenseSnapshot& OutSnapshot) const;
 	/** Applies already-resolved final damage without rerunning legacy defense or ApplyDamage. */
 	FShanmenVitalityCommitResult CommitCombatImpact(const FShanmenVitalityCommitCommand& Command);
+	/** Recovers one durable cross-authority intent after a process interruption. */
+	FShanmenVitalityCommitResult RecoverCombatImpact(
+		const FShanmenVitalityCommitCommand& Command);
 
 #if !UE_BUILD_SHIPPING
 	void SetCurrentHealthForAutomation(int32 NewHealth);

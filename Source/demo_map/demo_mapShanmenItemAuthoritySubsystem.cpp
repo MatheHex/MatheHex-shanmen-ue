@@ -430,17 +430,33 @@ Udemo_mapShanmenItemAuthoritySubsystem::ConsumePreparedRunItemDurable(
 }
 
 FShanmenItemDurableCommandResult
-Udemo_mapShanmenItemAuthoritySubsystem::CommitPreparedRunResourcesDurable(
-	const FShanmenItemRunResourceCommitRequest& Request)
+Udemo_mapShanmenItemAuthoritySubsystem::PreparePreparedRunResourceIntentDurable(
+	const FShanmenItemRunResourceIntentRequest& Request)
 {
 	if (!IsInGameThread() || !AuthorityService
 		|| LifecycleState != Edemo_mapShanmenItemAuthorityLifecycleState::Ready)
 	{
 		return RejectCommand(
-			TEXT("Prepared Run resource commit requires the ready GameInstance item authority on the Game Thread."));
+			TEXT("Prepared Run resource intent requires the ready GameInstance item authority on the Game Thread."));
 	}
 	FShanmenItemDurableCommandResult Result =
-		AuthorityService->CommitPreparedRunResourcesDurable(Request);
+		AuthorityService->PreparePreparedRunResourceIntentDurable(Request);
+	SynchronizeCommandState(Result);
+	return Result;
+}
+
+FShanmenItemDurableCommandResult
+Udemo_mapShanmenItemAuthoritySubsystem::FinalizePreparedRunResourceIntentDurable(
+	const FShanmenItemRunResourceIntentFinalizeRequest& Request)
+{
+	if (!IsInGameThread() || !AuthorityService
+		|| LifecycleState != Edemo_mapShanmenItemAuthorityLifecycleState::Ready)
+	{
+		return RejectCommand(
+			TEXT("Prepared Run resource intent finalization requires the ready GameInstance item authority on the Game Thread."));
+	}
+	FShanmenItemDurableCommandResult Result =
+		AuthorityService->FinalizePreparedRunResourceIntentDurable(Request);
 	SynchronizeCommandState(Result);
 	return Result;
 }

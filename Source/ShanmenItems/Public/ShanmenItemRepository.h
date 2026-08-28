@@ -29,6 +29,10 @@ public:
 		const FShanmenItemRunConsumeRequest& Request);
 	FShanmenItemTransactionReceipt CommitPreparedRunResources(
 		const FShanmenItemRunResourceCommitRequest& Request);
+	FShanmenItemTransactionReceipt PreparePreparedRunResourceIntent(
+		const FShanmenItemRunResourceIntentRequest& Request);
+	FShanmenItemTransactionReceipt FinalizePreparedRunResourceIntent(
+		const FShanmenItemRunResourceIntentFinalizeRequest& Request);
 	FShanmenItemTransactionReceipt FinalizePreparedRun(
 		const FShanmenItemRunFinalizeRequest& Request);
 
@@ -77,6 +81,10 @@ private:
 	static FGuid Fingerprint(const FShanmenItemRunConsumeRequest& Request);
 	static FGuid Fingerprint(
 		const FShanmenItemRunResourceCommitRequest& Request);
+	static FGuid Fingerprint(
+		const FShanmenItemRunResourceIntentRequest& Request);
+	static FGuid Fingerprint(
+		const FShanmenItemRunResourceIntentFinalizeRequest& Request);
 	static FGuid Fingerprint(const FShanmenItemRunFinalizeRequest& Request);
 	static FGuid MakeReservationId(const FShanmenItemReserveRequest& Request);
 	static FGuid MakeActiveRunId(

@@ -27,7 +27,8 @@ enum class Edemo_mapCombatImpactDeliveryError : uint8
 	TargetNotRegistered,
 	TargetNotVitalityBound,
 	CommandConstructionFailed,
-	CommitRejected
+	CommitRejected,
+	ResourceCoordinationRejected
 };
 
 /** One product delivery attempt. The nested commit result remains the authority receipt. */

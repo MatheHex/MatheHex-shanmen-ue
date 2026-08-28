@@ -54,7 +54,7 @@
     },
     {
       "name": "PlayerVitality",
-      "pathRegex": "^Source/demo_map/demo_mapPlayerVitality(?:AdapterTests|Component)?\\.(?:h|cpp)$",
+      "pathRegex": "^Source/demo_map/demo_map(?:PlayerHealthComponent|PlayerVitalityAdapterTests)\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10.Product.PlayerVitality",
         "Shanmen.0_0_10"
