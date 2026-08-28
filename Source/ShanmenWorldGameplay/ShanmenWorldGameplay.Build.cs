@@ -10,6 +10,7 @@ public class ShanmenWorldGameplay : ModuleRules
 			"Core",
 			"CoreUObject",
 			"Engine",
+			"ShanmenCore",
 			"ShanmenCombatCore"
 		});
 	}

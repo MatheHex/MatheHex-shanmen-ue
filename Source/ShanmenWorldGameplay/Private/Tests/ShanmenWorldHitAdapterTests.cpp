@@ -16,16 +16,19 @@ namespace
 	public:
 		FGuid EntityId = FGuid(21, 22, 23, 24);
 		bool bResolve = true;
+		mutable FGuid LastExpectedRunId;
 		mutable EShanmenWorldContactSource LastContactSource = EShanmenWorldContactSource::Sweep;
 		mutable int32 LastBodyIndex = INDEX_NONE;
 
 		virtual bool TryResolveEntityId(
+			const FGuid& ExpectedRunId,
 			EShanmenWorldContactSource ContactSource,
 			const AActor*,
 			const UPrimitiveComponent*,
 			int32 BodyIndex,
 			FGuid& OutEntityId) const override
 		{
+			LastExpectedRunId = ExpectedRunId;
 			LastContactSource = ContactSource;
 			LastBodyIndex = BodyIndex;
 			OutEntityId = bResolve ? EntityId : FGuid();
@@ -103,6 +106,8 @@ bool FShanmenWorldSweepAdapterTest::RunTest(const FString&)
 	TestTrue(TEXT("Sweep evidence location is preserved"), Candidate.HitLocation.Equals(Hit.ImpactPoint));
 	TestTrue(TEXT("Sweep source is reported to the resolver"),
 		Resolver.LastContactSource == EShanmenWorldContactSource::Sweep);
+	TestTrue(TEXT("Frozen Run identity is reported to the resolver"),
+		Resolver.LastExpectedRunId == Context.GetAction().GetRunId());
 	TestEqual(TEXT("Sweep body index is reported to the resolver"), Resolver.LastBodyIndex, 7);
 	return true;
 }

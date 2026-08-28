@@ -152,6 +152,7 @@ bool FShanmenWorldHitAdapter::TryBuildCandidate(
 
 	FGuid TargetEntityId;
 	if (!EntityResolver.TryResolveEntityId(
+			Context.GetAction().GetRunId(),
 			ContactSource,
 			Actor,
 			Component,

@@ -69,6 +69,7 @@ public:
 	virtual ~IShanmenWorldEntityResolver() = default;
 
 	virtual bool TryResolveEntityId(
+		const FGuid& ExpectedRunId,
 		EShanmenWorldContactSource ContactSource,
 		const AActor* Actor,
 		const UPrimitiveComponent* Component,
