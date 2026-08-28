@@ -11,6 +11,7 @@ class APawn;
 class UPrimitiveComponent;
 class Udemo_mapPlayerHealthComponent;
 struct Fdemo_mapM01EnemyDefinition;
+struct FShanmenControlledWeaponImpactReceipt;
 struct FHitResult;
 enum class Edemo_mapM01BossAttack : uint8;
 
@@ -384,6 +385,11 @@ public:
 	Fdemo_mapCombatImpactDeliveryResult
 	DeliverPlayerProjectileImpactToM01Enemy(
 		const Fdemo_mapPlayerProjectileImpactReceipt& Impact,
+		AActor* TargetEnemy);
+	/** Delivers an already-resolved controlled-weapon receipt through the canonical vitality authority. */
+	Fdemo_mapCombatImpactDeliveryResult
+	DeliverControlledWeaponImpactToM01Enemy(
+		const FShanmenControlledWeaponImpactReceipt& Impact,
 		AActor* TargetEnemy);
 	Fdemo_mapCombatImpactDeliveryResult
 	DeliverM01EnemyAttackImpactToPlayer(
