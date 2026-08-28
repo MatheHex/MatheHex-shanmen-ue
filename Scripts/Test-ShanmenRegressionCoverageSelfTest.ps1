@@ -126,6 +126,12 @@ try
         -Paths @('Source/demo_map/demo_mapPlayerHealthComponent.cpp') `
         -Logs @($Full, $PlayerVitality)
 
+    Invoke-ExpectedPass `
+        -Name 'controlled weapon run host is covered by the full suite' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenControlledWeaponRunHost.cpp') `
+        -Logs @($Full)
+
     Invoke-ExpectedFail `
         -Name 'missing mapped group fails closed' `
         -Paths @('Source/demo_map/demo_mapSkillComponent.cpp') `
@@ -156,7 +162,14 @@ try
         -Logs @($Coordinator) `
         -ExpectedText 'missing required groups'
 
-    Write-Output 'SELF_TEST: PASS 8/8'
+    Invoke-ExpectedFail `
+        -Name 'run host cannot use coordinator-only evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenControlledWeaponRunHost.cpp') `
+        -Logs @($Coordinator) `
+        -ExpectedText 'missing required groups'
+
+    Write-Output 'SELF_TEST: PASS 10/10'
 }
 finally
 {
