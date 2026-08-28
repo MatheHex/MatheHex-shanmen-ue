@@ -10,6 +10,7 @@
 #include "demo_mapM01EnemyTypes.h"
 #include "demo_mapItemTypes.h"
 #include "demo_mapProfileSessionTypes.h"
+#include "demo_mapPlayerCombatCoordinator.h"
 #include "demo_mapShanmenRunCorrelation.h"
 #include "demo_mapGameMode.generated.h"
 
@@ -70,6 +71,8 @@ public:
 	void Observe0909BConfirmedRun(
 		const Fdemo_mapShanmenRunCorrelation& RunCorrelation,
 		FString& OutDiagnostic);
+	Fdemo_mapCombatImpactDeliveryResult DeliverResolvedPlayerImpact(
+		const FShanmenBasicSwordImpactReceipt& Impact);
 	FString Get0909BProfileStorageRoot() const;
 	bool Open0909BOutOfRaidInventory(FString& OutFeedback);
 	void Set0909BOutOfRaidClosedCallback(TFunction<void()> InCallback);
@@ -105,6 +108,7 @@ private:
 	bool IsV2CMap() const;
 	bool UsesPersistedEncounterMarkers() const;
 	bool InitializeV3Progression(APawn* PlayerPawn, Udemo_mapItemSubsystem* Items);
+	bool TryActivatePlayerCombatRun(APawn* PlayerPawn, FString& OutDiagnostic);
 	void PrepareV2CNavigation();
 	void SpawnExit(APawn* PlayerPawn, const FVector& Forward);
 	void SpawnEnemy(APawn* PlayerPawn, const FVector& Forward, const FVector& Right);
@@ -246,6 +250,7 @@ private:
 	TWeakObjectPtr<Ademo_mapV3ProgressionManager> V3ProgressionManager;
 	TWeakObjectPtr<Ademo_map0909BFrameworkHost> Framework0909BHost;
 	TOptional<Fdemo_mapShanmenRunCorrelation> Prepared0909BRunCorrelation;
+	Fdemo_mapPlayerCombatCoordinator PlayerCombatCoordinator;
 	TArray<TWeakObjectPtr<Ademo_mapM01ExtractionZone>> M01ExtractionZones;
 	TArray<TWeakObjectPtr<AActor>> M01EnemyActors;
 	TWeakObjectPtr<Ademo_mapM01BossCharacter> M01Boss;

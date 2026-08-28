@@ -133,6 +133,25 @@ bool Udemo_mapPlayerHealthComponent::TryBindCombatEntity(const FGuid& TargetEnti
 	return true;
 }
 
+bool Udemo_mapPlayerHealthComponent::TryEndCombatEntityBinding(
+	const FGuid& ExpectedTargetEntityId)
+{
+	if (!ExpectedTargetEntityId.IsValid())
+	{
+		return false;
+	}
+	if (!CombatVitalityLedger.IsValid())
+	{
+		return true;
+	}
+	if (CombatVitalityLedger.GetTargetEntityId() != ExpectedTargetEntityId)
+	{
+		return false;
+	}
+	CombatVitalityLedger.Reset();
+	return true;
+}
+
 bool Udemo_mapPlayerHealthComponent::TryCaptureCombatVitalitySnapshot(
 	FShanmenTargetVitalitySnapshot& OutSnapshot) const
 {

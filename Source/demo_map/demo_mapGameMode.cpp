@@ -283,6 +283,13 @@ void Ademo_mapGameMode::Observe0909BConfirmedRun(
 		*RunCorrelation.ToLogString());
 }
 
+Fdemo_mapCombatImpactDeliveryResult
+Ademo_mapGameMode::DeliverResolvedPlayerImpact(
+	const FShanmenBasicSwordImpactReceipt& Impact)
+{
+	return PlayerCombatCoordinator.DeliverBasicSwordImpact(Impact);
+}
+
 FString Ademo_mapGameMode::Get0909BProfileStorageRoot() const
 {
 	if (!Is0909BRuntimeReady())
@@ -345,6 +352,7 @@ void Ademo_mapGameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	}
 	DestroyM01EnemyContent();
 	DestroyM01ExtractionFoundation();
+	PlayerCombatCoordinator.Reset();
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -474,6 +482,42 @@ void Ademo_mapGameMode::InitializeRuntimeMission()
 	StartRequestedAutomation();
 }
 
+bool Ademo_mapGameMode::TryActivatePlayerCombatRun(
+	APawn* PlayerPawn,
+	FString& OutDiagnostic)
+{
+	OutDiagnostic.Reset();
+	if (!PlayerPawn || !PlayerItemSubsystem.IsValid())
+	{
+		OutDiagnostic =
+			TEXT("Player combat Run binding requires the product Pawn and ItemAuthority.");
+		return false;
+	}
+	const FGuid ActiveRunId = PlayerItemSubsystem->GetActiveRunId();
+	Udemo_mapPlayerHealthComponent* PlayerHealth =
+		EnsurePlayerHealth(PlayerPawn);
+	if (!ActiveRunId.IsValid() || !PlayerHealth)
+	{
+		OutDiagnostic =
+			TEXT("Player combat Run binding requires an active authority Run and health host.");
+		return false;
+	}
+	if (!PlayerCombatCoordinator.TryBeginRun(
+			ActiveRunId,
+			PlayerPawn,
+			PlayerHealth,
+			OutDiagnostic))
+	{
+		return false;
+	}
+	UE_LOG(Logdemo_map, Log,
+		TEXT("0_0_10_PLAYER_COMBAT Event=RunBound RunId=%s EntityId=%s"),
+		*ActiveRunId.ToString(EGuidFormats::DigitsWithHyphens),
+		*PlayerCombatCoordinator.GetPlayerEntityId().ToString(
+			EGuidFormats::DigitsWithHyphens));
+	return true;
+}
+
 bool Ademo_mapGameMode::ActivateV3MissionContentForRun()
 {
 	if (!HasV3ProgressionFeature())
@@ -482,16 +526,23 @@ bool Ademo_mapGameMode::ActivateV3MissionContentForRun()
 	}
 	if (bV3MissionContentActive)
 	{
+		bool bProjectionReady = false;
 		if (IsM01ExpeditionMap())
 		{
-			return bM01ExtractionFoundationActive
+			bProjectionReady = bM01ExtractionFoundationActive
 				&& M01ExtractionZones.Num() == 3
 				&& bM01EnemyContentActive
 				&& M01EnemyActors.Num() == 14;
 		}
-		return SpawnedTargets.Num() == 3
-			&& ExitZone.IsValid()
-			&& FriendlyUnit.IsValid();
+		else
+		{
+			bProjectionReady = SpawnedTargets.Num() == 3
+				&& ExitZone.IsValid()
+				&& FriendlyUnit.IsValid();
+		}
+		FString CombatDiagnostic;
+		return bProjectionReady
+			&& TryActivatePlayerCombatRun(GetDemoPawn(), CombatDiagnostic);
 	}
 	APawn* PlayerPawn = GetDemoPawn();
 	Ademo_mapGameState* MissionState = GetWorld() ? Cast<Ademo_mapGameState>(GetWorld()->GetGameState()) : nullptr;
@@ -525,6 +576,15 @@ bool Ademo_mapGameMode::ActivateV3MissionContentForRun()
 		bV3MissionContentActive = bExtractionReady && bEnemyReady;
 		UE_LOG(Logdemo_map, Log, TEXT("M01_MAP: prepared Run entered authored M01 PlayerStart=%s exits=%d enemies=%d."),
 			*M01PlayerStart->GetName(), M01ExtractionZones.Num(), M01EnemyActors.Num());
+		FString CombatDiagnostic;
+		if (bV3MissionContentActive
+			&& !TryActivatePlayerCombatRun(PlayerPawn, CombatDiagnostic))
+		{
+			UE_LOG(Logdemo_map, Error,
+				TEXT("0_0_10_PLAYER_COMBAT Event=RunBindingRejected Diagnostic=%s"),
+				*CombatDiagnostic);
+			DeactivateV3MissionContentForPreparation();
+		}
 		return bV3MissionContentActive;
 	}
 	MissionState->InitializeMission(3);
@@ -535,6 +595,15 @@ bool Ademo_mapGameMode::ActivateV3MissionContentForRun()
 	if (bV3MissionContentActive)
 	{
 		bV3MissionContentActive = InitializeM01ExtractionFoundation(PlayerPawn);
+		FString CombatDiagnostic;
+		if (bV3MissionContentActive
+			&& !TryActivatePlayerCombatRun(PlayerPawn, CombatDiagnostic))
+		{
+			UE_LOG(Logdemo_map, Error,
+				TEXT("0_0_10_PLAYER_COMBAT Event=RunBindingRejected Diagnostic=%s"),
+				*CombatDiagnostic);
+			bV3MissionContentActive = false;
+		}
 	}
 	if (!bV3MissionContentActive)
 	{
@@ -559,6 +628,26 @@ void Ademo_mapGameMode::BindV3EnemyProjections(
 
 void Ademo_mapGameMode::DeactivateV3MissionContentForPreparation()
 {
+	if (PlayerCombatCoordinator.IsActive())
+	{
+		const FGuid ActiveCombatRunId = PlayerCombatCoordinator.GetRunId();
+		FString CombatDiagnostic;
+		if (!PlayerCombatCoordinator.TryEndRun(
+				ActiveCombatRunId,
+				CombatDiagnostic))
+		{
+			UE_LOG(Logdemo_map, Error,
+				TEXT("0_0_10_PLAYER_COMBAT Event=RunReleaseRejected Diagnostic=%s"),
+				*CombatDiagnostic);
+			PlayerCombatCoordinator.Reset();
+		}
+		else
+		{
+			UE_LOG(Logdemo_map, Log,
+				TEXT("0_0_10_PLAYER_COMBAT Event=RunReleased RunId=%s"),
+				*ActiveCombatRunId.ToString(EGuidFormats::DigitsWithHyphens));
+		}
+	}
 	DestroyM01EnemyContent();
 	DestroyM01ExtractionFoundation();
 	if (IsM01ExpeditionMap())

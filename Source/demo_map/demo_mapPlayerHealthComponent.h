@@ -46,6 +46,8 @@ public:
 	 * random fallback identity is manufactured here.
 	 */
 	bool TryBindCombatEntity(const FGuid& TargetEntityId);
+	/** Releases only the exact Run identity so a persistent Pawn can enter a later Run. */
+	bool TryEndCombatEntityBinding(const FGuid& ExpectedTargetEntityId);
 	bool IsCombatEntityBound() const { return CombatVitalityLedger.IsValid(); }
 	const FGuid& GetCombatEntityId() const { return CombatVitalityLedger.GetTargetEntityId(); }
 	int64 GetCombatAuthorityRevision() const { return CombatVitalityLedger.GetAuthorityRevision(); }
