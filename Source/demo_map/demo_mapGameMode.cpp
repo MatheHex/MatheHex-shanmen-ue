@@ -414,6 +414,47 @@ Ademo_mapGameMode::ExecuteM01EnemyMeleeDashContact(
 	return Result;
 }
 
+Fdemo_mapM01EnemyAttackExecutionResult
+Ademo_mapGameMode::ExecuteM01EnemyRangedProjectileImpact(
+	AActor* SourceEnemy,
+	APawn* TargetPlayer,
+	FName SkillProfileId,
+	uint64 ProjectileSequence,
+	float RawDamage,
+	const FVector& ImpactLocation,
+	const FVector& ImpactNormal)
+{
+	Fdemo_mapM01EnemyAttackExecutionResult Result;
+	if (!ShouldUseM01EnemyAttackProductPath())
+	{
+		return Result;
+	}
+	Result = CombatRunCoordinator.ExecuteM01EnemyRangedProjectileImpact(
+		SourceEnemy,
+		TargetPlayer,
+		SkillProfileId,
+		ProjectileSequence,
+		RawDamage,
+		ImpactLocation,
+		ImpactNormal);
+	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
+	UE_LOG(
+		Logdemo_map,
+		Log,
+		TEXT("0_0_10_ENEMY_PROJECTILE Event=ProductContact Family=%d Error=%d Sequence=%llu ActivationId=%s ImpactId=%s Raw=%.3f Prevented=%.3f Final=%.3f Commit=%d"),
+		static_cast<int32>(Result.Impact.GetFamily()),
+		static_cast<int32>(Result.Error),
+		static_cast<unsigned long long>(ProjectileSequence),
+		*Result.ActivationId.ToString(EGuidFormats::DigitsWithHyphens),
+		*Result.Impact.GetRequest().ImpactId.ToString(
+			EGuidFormats::DigitsWithHyphens),
+		Resolution.RawDamage,
+		Resolution.PreventedDamage,
+		Resolution.FinalDamage,
+		static_cast<int32>(Result.Delivery.CommitResult.Status));
+	return Result;
+}
+
 FString Ademo_mapGameMode::Get0909BProfileStorageRoot() const
 {
 	if (!Is0909BRuntimeReady())

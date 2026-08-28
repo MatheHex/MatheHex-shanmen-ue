@@ -1,6 +1,8 @@
 #include "demo_mapSkillProjectile.h"
+#include "demo_map.h"
 #include "demo_mapCombatTargeting.h"
 #include "demo_mapEnemyCharacter.h"
+#include "demo_mapGameMode.h"
 #include "demo_mapHeavyEnemyCharacter.h"
 #include "demo_mapPlayerHealthComponent.h"
 #include "demo_mapRangedEnemyCharacter.h"
@@ -85,6 +87,25 @@ void Ademo_mapSkillProjectile::InitializeTargetedProjectile(AActor* InSourceActo
 {
 	bIntendedTargetOnly = true;
 	IntendedTarget = InIntendedTarget;
+	SourceSkillProfileId = NAME_None;
+	ProjectileSequence = 0;
+	ApplyConfiguration(InSourceActor, Direction, InParams, InVisualColor);
+	ActivateForFlight();
+}
+
+void Ademo_mapSkillProjectile::InitializeTargetedEnemyProjectile(
+	AActor* InSourceActor,
+	AActor* InIntendedTarget,
+	const FVector& Direction,
+	const Fdemo_mapProjectileSkillParams& InParams,
+	const FLinearColor& InVisualColor,
+	FName InSkillProfileId,
+	uint64 InProjectileSequence)
+{
+	bIntendedTargetOnly = true;
+	IntendedTarget = InIntendedTarget;
+	SourceSkillProfileId = InSkillProfileId;
+	ProjectileSequence = InProjectileSequence;
 	ApplyConfiguration(InSourceActor, Direction, InParams, InVisualColor);
 	ActivateForFlight();
 }
@@ -196,8 +217,43 @@ bool Ademo_mapSkillProjectile::HandleProjectileContact(AActor* OtherActor, UPrim
 	if (Relation != Edemo_mapTargetRelation::Hostile || !Fdemo_mapCombatTargeting::CanAffect(SourceActor, OtherActor, ProjectileParams.CommonParams.TargetFilter)) return false;
 
 	ContactedActors.Add(OtherActor);
+	bool bUsedCanonicalProduct = false;
+	Fdemo_mapM01EnemyAttackExecutionResult ProductResult;
+	if (Ademo_mapRangedEnemyCharacter* RangedSource =
+		Cast<Ademo_mapRangedEnemyCharacter>(SourceActor))
+	{
+		if (Ademo_mapGameMode* GameMode =
+			GetWorld()->GetAuthGameMode<Ademo_mapGameMode>();
+			GameMode && GameMode->ShouldUseM01EnemyAttackProductPath())
+		{
+			bUsedCanonicalProduct = true;
+			const FVector ImpactNormal = HitResult
+				? FVector(HitResult->ImpactNormal)
+				: -Movement->Velocity.GetSafeNormal();
+			ProductResult =
+				GameMode->ExecuteM01EnemyRangedProjectileImpact(
+					RangedSource,
+					Cast<APawn>(OtherActor),
+					SourceSkillProfileId,
+					ProjectileSequence,
+					ProjectileParams.CommonParams.Damage,
+					ImpactLocation,
+					ImpactNormal);
+		}
+	}
 	MarkConsumed();
-	UGameplayStatics::ApplyDamage(OtherActor, ProjectileParams.CommonParams.Damage, SourceActor != nullptr ? SourceActor->GetInstigatorController() : nullptr, SourceActor, nullptr);
+	if (!bUsedCanonicalProduct)
+	{
+		UGameplayStatics::ApplyDamage(OtherActor, ProjectileParams.CommonParams.Damage, SourceActor != nullptr ? SourceActor->GetInstigatorController() : nullptr, SourceActor, nullptr);
+	}
+	UE_LOG(
+		Logdemo_map,
+		Log,
+		TEXT("0_0_10_ENEMY_PROJECTILE Event=ActorContact Canonical=%d Sequence=%llu Error=%d Applied=%.3f"),
+		bUsedCanonicalProduct ? 1 : 0,
+		static_cast<unsigned long long>(ProjectileSequence),
+		static_cast<int32>(ProductResult.Error),
+		ProductResult.GetNewlyCommittedDamage());
 	DrawDebugSphere(GetWorld(), ImpactLocation, ProjectileParams.CollisionRadius * 1.8f, 16, bIntendedTargetOnly ? FColor(245, 40, 255) : FColor::Cyan, false, 0.22f, 0, 4.0f);
 	Destroy();
 	return true;

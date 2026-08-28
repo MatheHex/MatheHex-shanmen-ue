@@ -82,6 +82,20 @@ namespace
 		return nullptr;
 	}
 
+	const Fdemo_mapM01EnemyDefinition* FindM01RangedDefinition()
+	{
+		for (const Fdemo_mapM01EnemyDefinition& Definition :
+			Fdemo_mapM01EnemyConfig::GetDefinitions())
+		{
+			if (Definition.Archetype
+				== Edemo_mapM01EnemyArchetype::StandardRanged)
+			{
+				return &Definition;
+			}
+		}
+		return nullptr;
+	}
+
 	AActor* NewM01ProductActor(
 		const Fdemo_mapM01EnemyDefinition& Definition)
 	{
@@ -164,6 +178,38 @@ namespace
 				? NewObject<Udemo_mapM01EnemyIdentityComponent>(
 					Enemy,
 					TEXT("M01AuthoredIdentity"))
+				: nullptr;
+			if (!Definition || !Enemy || !Identity)
+			{
+				return;
+			}
+			Enemy->AddInstanceComponent(Identity);
+			const Fdemo_mapEnemyEncounterIdentity LegacyIdentity =
+				MakeLegacyEncounterIdentity(*Definition);
+			bReady = Identity->Configure(*Definition)
+				&& Enemy->ConfigureEncounter(
+					LegacyIdentity,
+					Definition->Tuning,
+					Definition->IsElite());
+		}
+	};
+
+	struct FM01RangedEnemyFixture
+	{
+		const Fdemo_mapM01EnemyDefinition* Definition = nullptr;
+		Ademo_mapRangedEnemyCharacter* Enemy = nullptr;
+		Udemo_mapM01EnemyIdentityComponent* Identity = nullptr;
+		bool bReady = false;
+
+		FM01RangedEnemyFixture()
+		{
+			Definition = FindM01RangedDefinition();
+			Enemy = NewObject<Ademo_mapRangedEnemyCharacter>(
+				GetTransientPackage());
+			Identity = Enemy
+				? NewObject<Udemo_mapM01EnemyIdentityComponent>(
+					Enemy,
+					TEXT("M01AuthoredRangedIdentity"))
 				: nullptr;
 			if (!Definition || !Enemy || !Identity)
 			{
@@ -1199,6 +1245,280 @@ bool FShanmenCombatRunCoordinatorM01EnemyMeleeDashProductTest::RunTest(
 			&& !ShouldRequestEnemySkillKnockback(
 				NewRunDash.GetNewlyCommittedDamage(),
 				NewRunDash.DidNewCommitDefeatTarget())
+			&& FMath::IsNearlyEqual(
+				Fixture.Health->GetCurrentVitality(),
+				0.0f)
+			&& Fixture.Health->GetCombatAuthorityRevision() == 1
+			&& Fixture.Health->NumCommittedCombatImpacts() == 1
+			&& Fixture.Health
+				->GetPositiveDamageBroadcastCountForAutomation() == 3);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenCombatRunCoordinatorM01EnemyRangedProjectileProductTest,
+	"Shanmen.0_0_10.Product.CombatRunCoordinator.M01EnemyRangedProjectileProduct",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenCombatRunCoordinatorM01EnemyRangedProjectileProductTest::RunTest(
+	const FString&)
+{
+	FCombatRunCoordinatorFixture Fixture;
+	FM01RangedEnemyFixture RangedEnemy;
+	FM01MeleeEnemyFixture MeleeEnemy;
+	TestTrue(TEXT("Ranged projectile fixtures initialize"),
+		Fixture.bReady && RangedEnemy.bReady && MeleeEnemy.bReady);
+	if (!Fixture.bReady || !RangedEnemy.bReady || !MeleeEnemy.bReady
+		|| !Fixture.Coordinator.TryRegisterM01Enemy(
+			RangedEnemy.Enemy,
+			Fixture.Diagnostic)
+		|| !Fixture.Coordinator.TryRegisterM01Enemy(
+			MeleeEnemy.Enemy,
+			Fixture.Diagnostic))
+	{
+		AddError(Fixture.Diagnostic);
+		return false;
+	}
+
+	Udemo_mapAttributeComponent* Attributes =
+		NewObject<Udemo_mapAttributeComponent>(
+			Fixture.Pawn,
+			TEXT("P49PlayerAttributes"));
+	Fdemo_mapModifierSpec FlatReduction;
+	FlatReduction.SourceId = TEXT("P4.9.Test.FlatReduction");
+	FlatReduction.AttributeId =
+		Fdemo_mapAttributeIds::FlatDamageReduction;
+	FlatReduction.Operation = Edemo_mapModifierOperation::Add;
+	FlatReduction.Value = 0.25f;
+	Fdemo_mapModifierHandle FlatReductionHandle;
+	TestTrue(TEXT("Projectile target defense fixture binds"),
+		Attributes
+			&& Fixture.Health->BindAttributeComponent(Attributes, false)
+			&& Attributes->AddModifier(
+				FlatReduction,
+				FlatReductionHandle));
+
+	const FVector ImpactLocation(100.0, 25.0, 60.0);
+	const FVector ImpactNormal(-1.0, 0.0, 0.0);
+	const Fdemo_mapM01EnemyAttackExecutionResult InvalidProfile =
+		Fixture.Coordinator.ExecuteM01EnemyRangedProjectileImpact(
+			RangedEnemy.Enemy,
+			Fixture.Pawn,
+			Fdemo_mapEnemySkillProfileIds::EnhancedRangedBackstep,
+			1,
+			1.0f,
+			ImpactLocation,
+			ImpactNormal);
+	const Fdemo_mapM01EnemyAttackExecutionResult InvalidSequence =
+		Fixture.Coordinator.ExecuteM01EnemyRangedProjectileImpact(
+			RangedEnemy.Enemy,
+			Fixture.Pawn,
+			RangedEnemy.Definition->SkillProfileId,
+			0,
+			1.0f,
+			ImpactLocation,
+			ImpactNormal);
+	const Fdemo_mapM01EnemyAttackExecutionResult InvalidContact =
+		Fixture.Coordinator.ExecuteM01EnemyRangedProjectileImpact(
+			RangedEnemy.Enemy,
+			Fixture.Pawn,
+			RangedEnemy.Definition->SkillProfileId,
+			1,
+			1.0f,
+			FVector(
+				std::numeric_limits<double>::quiet_NaN(),
+				0.0,
+				0.0),
+			ImpactNormal);
+	const Fdemo_mapM01EnemyAttackExecutionResult WrongSourceFamily =
+		Fixture.Coordinator.ExecuteM01EnemyRangedProjectileImpact(
+			MeleeEnemy.Enemy,
+			Fixture.Pawn,
+			RangedEnemy.Definition->SkillProfileId,
+			1,
+			1.0f,
+			ImpactLocation,
+			ImpactNormal);
+	TestTrue(TEXT("Projectile invalid identity and contact fail before mutation"),
+		InvalidProfile.Error
+			== Edemo_mapM01EnemyAttackExecutionError::InvalidSkillProfile
+			&& InvalidSequence.Error
+				== Edemo_mapM01EnemyAttackExecutionError::InvalidActivationSequence
+			&& InvalidContact.Error
+				== Edemo_mapM01EnemyAttackExecutionError::InvalidContact
+			&& WrongSourceFamily.Error
+				== Edemo_mapM01EnemyAttackExecutionError::InvalidSkillProfile
+			&& !InvalidProfile.ActivationId.IsValid()
+			&& !InvalidSequence.ActivationId.IsValid()
+			&& !InvalidContact.ActivationId.IsValid()
+			&& !WrongSourceFamily.ActivationId.IsValid()
+			&& Fixture.Health->GetCombatAuthorityRevision() == 0
+			&& Fixture.Health->NumCommittedCombatImpacts() == 0);
+
+	const Fdemo_mapM01EnemyAttackExecutionResult First =
+		Fixture.Coordinator.ExecuteM01EnemyRangedProjectileImpact(
+			RangedEnemy.Enemy,
+			Fixture.Pawn,
+			RangedEnemy.Definition->SkillProfileId,
+			1,
+			1.0f,
+			ImpactLocation,
+			ImpactNormal);
+	const FGuid SourceEntityId = RangedEnemy.Enemy->GetCombatEntityId();
+	const FGuid ExpectedActivation =
+		FShanmenCombatIdFactory::MakeActivationId(
+			CoordinatorRunA,
+			SourceEntityId,
+			TEXT("Combat.Action.Enemy.Projectile.StandardRanged"),
+			1);
+	TestTrue(TEXT("Standard ranged projectile resolves and commits fractionally"),
+		First.IsExecuted()
+			&& First.Impact.GetFamily()
+				== Edemo_mapM01EnemyAttackFamily::StandardRangedProjectile
+			&& First.ActivationId == ExpectedActivation
+			&& First.Impact.GetRequest().Action.GetContent().Version
+				== TEXT("0.0.10.P4.9")
+			&& First.Impact.GetRequest().Candidate.DetectorId
+				== TEXT("Detector.Enemy.Projectile.Contact")
+			&& First.Impact.GetRequest().Candidate.DetectorKind
+				== EShanmenHitDetectorKind::Projectile
+			&& First.Impact.GetRequest().Candidate.HitLocation
+				== ImpactLocation
+			&& First.Impact.GetRequest().Candidate.HitNormal
+				== ImpactNormal
+			&& First.Impact.GetRequest().Damage.FormulaId
+				== TEXT("Combat.Formula.Enemy.Projectile.StandardRanged.r1")
+			&& First.Delivery.CommitResult.Status
+				== EShanmenVitalityCommitStatus::Committed
+			&& FMath::IsNearlyEqual(
+				First.Impact.GetResult().PreventedDamage,
+				0.25f)
+			&& FMath::IsNearlyEqual(
+				First.GetNewlyCommittedDamage(),
+				0.75f)
+			&& FMath::IsNearlyEqual(
+				Fixture.Health->GetCurrentVitality(),
+				4.25f)
+			&& Fixture.Health->GetCombatAuthorityRevision() == 1
+			&& Fixture.Health->NumCommittedCombatImpacts() == 1
+			&& Fixture.Health
+				->GetPositiveDamageBroadcastCountForAutomation() == 1);
+
+	const Fdemo_mapCombatImpactDeliveryResult Replay =
+		Fixture.Coordinator.DeliverM01EnemyAttackImpactToPlayer(
+			First.Impact,
+			RangedEnemy.Enemy);
+	TestTrue(TEXT("Exact projectile receipt replay is idempotent"),
+		Replay.IsSuccess()
+			&& Replay.CommitResult.Status
+				== EShanmenVitalityCommitStatus::AlreadyCommitted
+			&& FMath::IsNearlyEqual(
+				Fixture.Health->GetCurrentVitality(),
+				4.25f)
+			&& Fixture.Health->GetCombatAuthorityRevision() == 1
+			&& Fixture.Health->NumCommittedCombatImpacts() == 1
+			&& Fixture.Health
+				->GetPositiveDamageBroadcastCountForAutomation() == 1);
+
+	const Fdemo_mapM01EnemyAttackExecutionResult Reconstruction =
+		Fixture.Coordinator.ExecuteM01EnemyRangedProjectileImpact(
+			RangedEnemy.Enemy,
+			Fixture.Pawn,
+			RangedEnemy.Definition->SkillProfileId,
+			1,
+			1.0f,
+			ImpactLocation,
+			ImpactNormal);
+	TestTrue(TEXT("Same projectile sequence cannot reconstruct a new snapshot"),
+		!Reconstruction.IsExecuted()
+			&& Reconstruction.Error
+				== Edemo_mapM01EnemyAttackExecutionError::DeliveryRejected
+			&& Reconstruction.ActivationId == First.ActivationId
+			&& Reconstruction.Impact.GetRequest().ImpactId
+				== First.Impact.GetRequest().ImpactId
+			&& Reconstruction.Delivery.Error
+				== Edemo_mapCombatImpactDeliveryError::CommitRejected
+			&& FMath::IsNearlyZero(
+				Reconstruction.GetNewlyCommittedDamage())
+			&& FMath::IsNearlyEqual(
+				Fixture.Health->GetCurrentVitality(),
+				4.25f)
+			&& Fixture.Health->GetCombatAuthorityRevision() == 1
+			&& Fixture.Health->NumCommittedCombatImpacts() == 1);
+
+	const Fdemo_mapM01EnemyAttackExecutionResult Second =
+		Fixture.Coordinator.ExecuteM01EnemyRangedProjectileImpact(
+			RangedEnemy.Enemy,
+			Fixture.Pawn,
+			RangedEnemy.Definition->SkillProfileId,
+			2,
+			1.0f,
+			ImpactLocation + FVector(25.0, 0.0, 0.0),
+			ImpactNormal);
+	TestTrue(TEXT("Next projectile sequence owns a distinct canonical action"),
+		Second.IsExecuted()
+			&& Second.ActivationId != First.ActivationId
+			&& FMath::IsNearlyEqual(
+				Second.GetNewlyCommittedDamage(),
+				0.75f)
+			&& FMath::IsNearlyEqual(
+				Fixture.Health->GetCurrentVitality(),
+				3.5f)
+			&& Fixture.Health->GetCombatAuthorityRevision() == 2
+			&& Fixture.Health->NumCommittedCombatImpacts() == 2
+			&& Fixture.Health
+				->GetPositiveDamageBroadcastCountForAutomation() == 2);
+
+	TestTrue(TEXT("Projectile Run release succeeds"),
+		Fixture.Coordinator.TryEndRun(
+			CoordinatorRunA,
+			Fixture.Diagnostic));
+	TestTrue(TEXT("Ranged source binds a fresh Run"),
+		Fixture.Coordinator.TryBeginRun(
+			CoordinatorRunB,
+			Fixture.Pawn,
+			Fixture.Health,
+			Fixture.Diagnostic)
+			&& Fixture.Coordinator.TryRegisterM01Enemy(
+				RangedEnemy.Enemy,
+				Fixture.Diagnostic));
+	const Fdemo_mapCombatImpactDeliveryResult DelayedOldRun =
+		Fixture.Coordinator.DeliverM01EnemyAttackImpactToPlayer(
+			First.Impact,
+			RangedEnemy.Enemy);
+	TestTrue(TEXT("Old-Run projectile receipt cannot mutate rebound player"),
+		DelayedOldRun.Error
+			== Edemo_mapCombatImpactDeliveryError::RunMismatch
+			&& !DelayedOldRun.CommitResult.IsValid()
+			&& FMath::IsNearlyEqual(
+				Fixture.Health->GetCurrentVitality(),
+				3.5f)
+			&& Fixture.Health->GetCombatAuthorityRevision() == 0
+			&& Fixture.Health->NumCommittedCombatImpacts() == 0);
+
+	const Fdemo_mapM01EnemyAttackExecutionResult NewRunFirst =
+		Fixture.Coordinator.ExecuteM01EnemyRangedProjectileImpact(
+			RangedEnemy.Enemy,
+			Fixture.Pawn,
+			RangedEnemy.Definition->SkillProfileId,
+			1,
+			10.0f,
+			ImpactLocation,
+			ImpactNormal);
+	const FGuid ExpectedNewRunActivation =
+		FShanmenCombatIdFactory::MakeActivationId(
+			CoordinatorRunB,
+			RangedEnemy.Enemy->GetCombatEntityId(),
+			TEXT("Combat.Action.Enemy.Projectile.StandardRanged"),
+			1);
+	TestTrue(TEXT("Run-reset projectile sequence derives a new lethal identity"),
+		NewRunFirst.IsExecuted()
+			&& NewRunFirst.ActivationId == ExpectedNewRunActivation
+			&& NewRunFirst.ActivationId != First.ActivationId
+			&& FMath::IsNearlyEqual(
+				NewRunFirst.GetNewlyCommittedDamage(),
+				3.5f)
+			&& NewRunFirst.DidNewCommitDefeatTarget()
 			&& FMath::IsNearlyEqual(
 				Fixture.Health->GetCurrentVitality(),
 				0.0f)

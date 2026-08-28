@@ -22,6 +22,14 @@ public:
 	void InitializeProjectile(AActor* InSourceActor, const FVector& Direction, const Fdemo_mapProjectileSkillParams& InParams);
 	void InitializeProjectileWithLaunchSegment(AActor* InSourceActor, const FVector& Direction, const Fdemo_mapProjectileSkillParams& InParams, const FVector& AttackOrigin);
 	void InitializeTargetedProjectile(AActor* InSourceActor, AActor* InIntendedTarget, const FVector& Direction, const Fdemo_mapProjectileSkillParams& InParams, const FLinearColor& InVisualColor);
+	void InitializeTargetedEnemyProjectile(
+		AActor* InSourceActor,
+		AActor* InIntendedTarget,
+		const FVector& Direction,
+		const Fdemo_mapProjectileSkillParams& InParams,
+		const FLinearColor& InVisualColor,
+		FName InSkillProfileId,
+		uint64 InProjectileSequence);
 
 	float GetConfiguredSpeed() const { return ProjectileParams.Speed; }
 	float GetConfiguredWidth() const { return ProjectileParams.Width; }
@@ -31,6 +39,8 @@ public:
 	bool HasBeenConsumed() const { return bConsumed; }
 	AActor* GetIntendedTarget() const { return IntendedTarget.Get(); }
 	bool IsIntendedTargetOnly() const { return bIntendedTargetOnly; }
+	FName GetSourceSkillProfileId() const { return SourceSkillProfileId; }
+	uint64 GetProjectileSequence() const { return ProjectileSequence; }
 
 private:
 	UFUNCTION()
@@ -62,6 +72,8 @@ private:
 	TWeakObjectPtr<AActor> IntendedTarget;
 
 	Fdemo_mapProjectileSkillParams ProjectileParams;
+	FName SourceSkillProfileId = NAME_None;
+	uint64 ProjectileSequence = 0;
 	FVector InitialLocation = FVector::ZeroVector;
 	bool bConsumed = false;
 	bool bIntendedTargetOnly = false;

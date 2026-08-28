@@ -179,9 +179,9 @@ namespace
 				&& Ranged->GetActiveProjectileCount() == 0);
 		case 20:
 			return Test.TestTrue(
-				TEXT("Diagnostics expose no Profile or schema mutation surface"),
+				TEXT("Diagnostics expose no Profile or current-schema mutation surface"),
 				Ranged->UsesLegacyRangedBehavior()
-				&& Fdemo_mapPersistentProfile::CurrentSchemaVersion == 4);
+				&& Fdemo_mapPersistentProfile::CurrentSchemaVersion == 7);
 		case 21:
 			return Test.TestTrue(
 				TEXT("V2 Final marker requires retreat, safe range, and Windup or fire"),
@@ -206,7 +206,7 @@ namespace
 		case 22:
 			return Test.TestTrue(
 				TEXT("Protected schema and P6/P7 values remain unchanged"),
-				Fdemo_mapPersistentProfile::CurrentSchemaVersion == 4
+				Fdemo_mapPersistentProfile::CurrentSchemaVersion == 7
 				&& StandardSkill
 				&& EnhancedSkill
 				&& StandardSkill->TriggerMaxDistance == 500.0f

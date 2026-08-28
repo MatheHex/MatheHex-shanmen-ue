@@ -229,7 +229,9 @@ namespace
 				&& Params.Speed == 800.0f
 				&& Params.MaxDistance == 1800.0f
 				&& !Params.bPierceHostiles
-				&& Params.bPassThroughFriendlies);
+				&& Params.bPassThroughFriendlies
+				&& GetDefault<Ademo_mapRangedEnemyCharacter>()
+					->GetNextProjectileSequence() == 1);
 		}
 		case 20:
 			return Test.TestTrue(

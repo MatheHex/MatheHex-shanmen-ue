@@ -61,6 +61,10 @@ public:
 	int32 GetRetreatFallbackCount() const { return RetreatFallbackCount; }
 	int32 GetRetreatCandidateRejectCount() const { return RetreatCandidateRejectCount; }
 	int32 GetTotalProjectilesFired() const { return TotalProjectilesFired; }
+	uint64 GetNextProjectileSequence() const
+	{
+		return NextProjectileSequence;
+	}
 	const Fdemo_mapProjectileSkillParams& GetProjectileParams() const
 	{
 		return ProjectileParams;
@@ -205,6 +209,7 @@ private:
 	float RetreatFailureStartTime = -1.0f;
 	float LastRetreatFallbackTime = -1000.0f;
 	int32 TotalProjectilesFired = 0;
+	uint64 NextProjectileSequence = 1;
 	int32 RetreatMoveRequestCount = 0;
 	int32 RetreatFallbackCount = 0;
 	int32 RetreatCandidateRejectCount = 0;

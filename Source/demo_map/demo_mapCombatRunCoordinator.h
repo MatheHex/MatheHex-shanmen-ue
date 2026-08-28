@@ -49,7 +49,8 @@ enum class Edemo_mapM01EnemyAttackFamily : uint8
 	None,
 	BasicMelee,
 	StandardMeleeDash,
-	EnhancedMeleeDash
+	EnhancedMeleeDash,
+	StandardRangedProjectile
 };
 
 /** Frozen pure-kernel receipt for one authored M01 enemy attack contact. */
@@ -78,6 +79,7 @@ enum class Edemo_mapM01EnemyAttackExecutionError : uint8
 	InvalidDamage,
 	InvalidSkillProfile,
 	InvalidActivationSequence,
+	InvalidContact,
 	SequenceExhausted,
 	ActionConstructionFailed,
 	RuntimeStartFailed,
@@ -237,6 +239,20 @@ public:
 		uint32 ActivationSerial,
 		float RawDamage);
 	/**
+	 * Resolves one hostile contact from an authored M01 ranged projectile.
+	 * ProjectileSequence is reserved before flight and reset only with the Run;
+	 * the world contact remains geometry-only input to this canonical boundary.
+	 */
+	Fdemo_mapM01EnemyAttackExecutionResult
+	ExecuteM01EnemyRangedProjectileImpact(
+		AActor* SourceEnemy,
+		APawn* TargetPlayer,
+		FName SkillProfileId,
+		uint64 ProjectileSequence,
+		float RawDamage,
+		const FVector& ImpactLocation,
+		const FVector& ImpactNormal);
+	/**
 	 * Executes one complete player BasicSword action from an already sampled UE
 	 * trajectory. Every accepted contact resolves through this Run's Registry;
 	 * canonical vitality delivery is the only mutable damage path.
@@ -264,7 +280,9 @@ private:
 		APawn* TargetPlayer,
 		float RawDamage,
 		Edemo_mapM01EnemyAttackFamily Family,
-		uint64 RequestedActivationSequence);
+		uint64 RequestedActivationSequence,
+		const FVector& RequestedHitLocation,
+		const FVector& RequestedHitNormal);
 
 	FShanmenWorldEntityRegistry EntityRegistry;
 	FGuid PlayerEntityId;

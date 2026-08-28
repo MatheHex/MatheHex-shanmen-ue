@@ -97,6 +97,15 @@ public:
 		FName SkillProfileId,
 		uint32 ActivationSerial,
 		float RawDamage);
+	Fdemo_mapM01EnemyAttackExecutionResult
+	ExecuteM01EnemyRangedProjectileImpact(
+		AActor* SourceEnemy,
+		APawn* TargetPlayer,
+		FName SkillProfileId,
+		uint64 ProjectileSequence,
+		float RawDamage,
+		const FVector& ImpactLocation,
+		const FVector& ImpactNormal);
 	FString Get0909BProfileStorageRoot() const;
 	bool Open0909BOutOfRaidInventory(FString& OutFeedback);
 	void Set0909BOutOfRaidClosedCallback(TFunction<void()> InCallback);

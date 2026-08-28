@@ -233,7 +233,7 @@ namespace
 			Fdemo_mapEquipmentEffectResolution RingResolution = Ring
 				? Fdemo_mapEquipmentEffectResolver::Resolve(
 					*Ring,
-					Fdemo_mapItemIds::AccessorySlot)
+					Fdemo_mapItemIds::SpatialRingSlot)
 				: Fdemo_mapEquipmentEffectResolution();
 			Fdemo_mapItemDefinition Duplicate = *Weapon;
 			const Fdemo_mapItemEffectParameter DuplicateEffect =
@@ -505,7 +505,7 @@ namespace
 					Test,
 					Fixture,
 					Definitions[Index],
-					Fdemo_mapItemIds::AccessorySlot);
+					Fdemo_mapItemIds::SpatialRingSlot);
 				bAll &= FMath::IsNearlyEqual(
 					P5Final(
 						Fixture.Attributes,
@@ -563,7 +563,7 @@ namespace
 				Test,
 				Wind,
 				Fdemo_mapItemIds::WindTalisman,
-				Fdemo_mapItemIds::AccessorySlot);
+				Fdemo_mapItemIds::SpatialRingSlot);
 			FP5Fixture Evasion;
 			P5Equip(
 				Test,
@@ -981,7 +981,7 @@ namespace
 				TEXT("Materials, bones and inner cores remain unusable"),
 				bAllRejected
 				&& Fdemo_mapPersistentProfile::
-					CurrentSchemaVersion == 4);
+					CurrentSchemaVersion == 7);
 			return true;
 		}
 		case 46:

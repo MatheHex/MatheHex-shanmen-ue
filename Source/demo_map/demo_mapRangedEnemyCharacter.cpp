@@ -511,13 +511,27 @@ bool Ademo_mapRangedEnemyCharacter::FireTargetedProjectile(
 	{
 		return false;
 	}
+	if (NextProjectileSequence == 0
+		|| NextProjectileSequence == MAX_uint64)
+	{
+		return false;
+	}
 	PruneProjectiles();
 	const FVector SpawnLocation = GetActorLocation() + Direction * 105.0f + FVector(0,0,55);
 	FActorSpawnParameters Params; Params.Owner=this; Params.Instigator=this; Params.SpawnCollisionHandlingOverride=ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 	Ademo_mapSkillProjectile* Projectile = GetWorld()->SpawnActor<Ademo_mapSkillProjectile>(Ademo_mapSkillProjectile::StaticClass(), SpawnLocation, Direction.Rotation(), Params);
 	if (Projectile)
 	{
-		Projectile->InitializeTargetedProjectile(this, Player, Direction, ProjectileParams, FLinearColor(0.9f,0.02f,1.0f));
+		const uint64 ProjectileSequence = NextProjectileSequence;
+		++NextProjectileSequence;
+		Projectile->InitializeTargetedEnemyProjectile(
+			this,
+			Player,
+			Direction,
+			ProjectileParams,
+			FLinearColor(0.9f,0.02f,1.0f),
+			SkillProfileId,
+			ProjectileSequence);
 		ActiveProjectiles.Add(Projectile); LastProjectile=Projectile; ++TotalProjectilesFired;
 		DrawDebugSphere(GetWorld(), SpawnLocation, 55.0f, 16, FColor(245,40,255), false, 0.18f, 0, 6.0f);
 #if !UE_BUILD_SHIPPING
@@ -567,6 +581,7 @@ void Ademo_mapRangedEnemyCharacter::ResetEnemySkillForNewRun()
 	CancelWindup();
 	CancelCombatAndProjectiles();
 	NextAttackAllowedTime=0.0f;
+	NextProjectileSequence=1;
 	State=Edemo_mapRangedEnemyState::Idle;
 }
 
@@ -574,6 +589,7 @@ void Ademo_mapRangedEnemyCharacter::ConfigureLegacyBehavior()
 {
 	SkillProfileId = NAME_None;
 	bEnhancedEncounter = false;
+	NextProjectileSequence = 1;
 	if (EnemySkillRuntime)
 	{
 		EnemySkillRuntime->Cancel(true);
@@ -617,6 +633,7 @@ bool Ademo_mapRangedEnemyCharacter::ConfigureEncounter(
 	}
 	EncounterIdentity = InIdentity;
 	SkillProfileId = InIdentity.SkillProfileId;
+	NextProjectileSequence = 1;
 	MovementSpeed = InTuning.MovementSpeed;
 	AttackWindup = InTuning.AttackWindup;
 	AttackCooldown = InTuning.AttackCooldown;
