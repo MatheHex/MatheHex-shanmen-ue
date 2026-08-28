@@ -16,6 +16,7 @@
 #include "demo_mapAttributeComponent.h"
 #include "demo_mapAttributeDefinitions.h"
 #include "demo_mapEnemyCharacter.h"
+#include "demo_mapEnemySkillTypes.h"
 #include "demo_mapHeavyEnemyCharacter.h"
 #include "demo_mapM01BossCharacter.h"
 #include "demo_mapM01EnemyIdentityComponent.h"
@@ -64,13 +65,16 @@ namespace
 		}
 	};
 
-	const Fdemo_mapM01EnemyDefinition* FindM01MeleeDefinition()
+	const Fdemo_mapM01EnemyDefinition* FindM01MeleeDefinition(
+		bool bEnhanced = false)
 	{
+		const Edemo_mapM01EnemyArchetype DesiredArchetype = bEnhanced
+			? Edemo_mapM01EnemyArchetype::EliteStalker
+			: Edemo_mapM01EnemyArchetype::StandardSkirmisher;
 		for (const Fdemo_mapM01EnemyDefinition& Definition :
 			Fdemo_mapM01EnemyConfig::GetDefinitions())
 		{
-			if (Definition.Archetype
-				== Edemo_mapM01EnemyArchetype::StandardSkirmisher)
+			if (Definition.Archetype == DesiredArchetype)
 			{
 				return &Definition;
 			}
@@ -152,9 +156,9 @@ namespace
 		Udemo_mapM01EnemyIdentityComponent* Identity = nullptr;
 		bool bReady = false;
 
-		FM01MeleeEnemyFixture()
+		explicit FM01MeleeEnemyFixture(bool bEnhanced = false)
 		{
-			Definition = FindM01MeleeDefinition();
+			Definition = FindM01MeleeDefinition(bEnhanced);
 			Enemy = NewObject<Ademo_mapEnemyCharacter>(GetTransientPackage());
 			Identity = Enemy
 				? NewObject<Udemo_mapM01EnemyIdentityComponent>(
@@ -737,14 +741,14 @@ bool FShanmenCombatRunCoordinatorM01EnemyBasicMeleeProductTest::RunTest(
 
 	AActor* UnregisteredSource =
 		NewObject<Ademo_mapEnemyCharacter>(GetTransientPackage());
-	const Fdemo_mapM01EnemyBasicMeleeExecutionResult InvalidSource =
+	const Fdemo_mapM01EnemyAttackExecutionResult InvalidSource =
 		Fixture.Coordinator.ExecuteM01EnemyBasicMeleeStrike(
 			UnregisteredSource,
 			Fixture.Pawn,
 			3.0f);
 	TestTrue(TEXT("Unregistered enemy fails before action identity is consumed"),
 		InvalidSource.Error
-			== Edemo_mapM01EnemyBasicMeleeExecutionError::SourceNotRegistered
+			== Edemo_mapM01EnemyAttackExecutionError::SourceNotRegistered
 			&& !InvalidSource.ActivationId.IsValid()
 			&& FMath::IsNearlyEqual(
 				Fixture.Health->GetCurrentVitality(),
@@ -752,7 +756,7 @@ bool FShanmenCombatRunCoordinatorM01EnemyBasicMeleeProductTest::RunTest(
 			&& Fixture.Health->GetCombatAuthorityRevision() == 0);
 
 	const FGuid SourceEntityId = EnemyFixture.Enemy->GetCombatEntityId();
-	const Fdemo_mapM01EnemyBasicMeleeExecutionResult First =
+	const Fdemo_mapM01EnemyAttackExecutionResult First =
 		Fixture.Coordinator.ExecuteM01EnemyBasicMeleeStrike(
 			EnemyFixture.Enemy,
 			Fixture.Pawn,
@@ -789,7 +793,7 @@ bool FShanmenCombatRunCoordinatorM01EnemyBasicMeleeProductTest::RunTest(
 				->GetPositiveDamageBroadcastCountForAutomation() == 1);
 
 	const Fdemo_mapCombatImpactDeliveryResult FirstReplay =
-		Fixture.Coordinator.DeliverM01EnemyBasicMeleeImpactToPlayer(
+		Fixture.Coordinator.DeliverM01EnemyAttackImpactToPlayer(
 			First.Impact,
 			EnemyFixture.Enemy);
 	TestTrue(TEXT("Enemy melee receipt replay cannot double-apply"),
@@ -860,7 +864,7 @@ bool FShanmenCombatRunCoordinatorM01EnemyBasicMeleeProductTest::RunTest(
 	Fdemo_mapModifierHandle RemainingDodgeHandle;
 	TestTrue(TEXT("Full dodge prepares a guaranteed canonical avoidance layer"),
 		Attributes->AddModifier(RemainingDodge, RemainingDodgeHandle));
-	const Fdemo_mapM01EnemyBasicMeleeExecutionResult Evaded =
+	const Fdemo_mapM01EnemyAttackExecutionResult Evaded =
 		Fixture.Coordinator.ExecuteM01EnemyBasicMeleeStrike(
 			EnemyFixture.Enemy,
 			Fixture.Pawn,
@@ -901,7 +905,7 @@ bool FShanmenCombatRunCoordinatorM01EnemyBasicMeleeProductTest::RunTest(
 				EnemyFixture.Enemy,
 				Fixture.Diagnostic));
 	const Fdemo_mapCombatImpactDeliveryResult DelayedOldRun =
-		Fixture.Coordinator.DeliverM01EnemyBasicMeleeImpactToPlayer(
+		Fixture.Coordinator.DeliverM01EnemyAttackImpactToPlayer(
 			First.Impact,
 			EnemyFixture.Enemy);
 	TestTrue(TEXT("Old-Run enemy receipt is rejected before player mutation"),
@@ -915,7 +919,7 @@ bool FShanmenCombatRunCoordinatorM01EnemyBasicMeleeProductTest::RunTest(
 			&& Fixture.Health->NumCommittedCombatImpacts() == 0);
 
 	const FGuid SecondRunSourceId = EnemyFixture.Enemy->GetCombatEntityId();
-	const Fdemo_mapM01EnemyBasicMeleeExecutionResult SecondRunFirst =
+	const Fdemo_mapM01EnemyAttackExecutionResult SecondRunFirst =
 		Fixture.Coordinator.ExecuteM01EnemyBasicMeleeStrike(
 			EnemyFixture.Enemy,
 			Fixture.Pawn,
@@ -936,6 +940,272 @@ bool FShanmenCombatRunCoordinatorM01EnemyBasicMeleeProductTest::RunTest(
 			&& Fixture.Health->NumCommittedCombatImpacts() == 1
 			&& Fixture.Health
 				->GetPositiveDamageBroadcastCountForAutomation() == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenCombatRunCoordinatorM01EnemyMeleeDashProductTest,
+	"Shanmen.0_0_10.Product.CombatRunCoordinator.M01EnemyMeleeDashProduct",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenCombatRunCoordinatorM01EnemyMeleeDashProductTest::RunTest(
+	const FString&)
+{
+	FCombatRunCoordinatorFixture Fixture;
+	FM01MeleeEnemyFixture StandardEnemy;
+	FM01MeleeEnemyFixture EnhancedEnemy(true);
+	TestTrue(TEXT("Standard and enhanced dash fixtures initialize"),
+		Fixture.bReady && StandardEnemy.bReady && EnhancedEnemy.bReady);
+	if (!Fixture.bReady || !StandardEnemy.bReady || !EnhancedEnemy.bReady
+		|| !Fixture.Coordinator.TryRegisterM01Enemy(
+			StandardEnemy.Enemy,
+			Fixture.Diagnostic)
+		|| !Fixture.Coordinator.TryRegisterM01Enemy(
+			EnhancedEnemy.Enemy,
+			Fixture.Diagnostic))
+	{
+		AddError(Fixture.Diagnostic);
+		return false;
+	}
+
+	Udemo_mapAttributeComponent* Attributes =
+		NewObject<Udemo_mapAttributeComponent>(
+			Fixture.Pawn,
+			TEXT("P48PlayerAttributes"));
+	Fdemo_mapModifierSpec FlatReduction;
+	FlatReduction.SourceId = TEXT("P4.8.Test.FlatReduction");
+	FlatReduction.AttributeId =
+		Fdemo_mapAttributeIds::FlatDamageReduction;
+	FlatReduction.Operation = Edemo_mapModifierOperation::Add;
+	FlatReduction.Value = 0.25f;
+	Fdemo_mapModifierHandle FlatReductionHandle;
+	TestTrue(TEXT("Dash target defense fixture binds"),
+		Attributes
+			&& Fixture.Health->BindAttributeComponent(Attributes, false)
+			&& Attributes->AddModifier(
+				FlatReduction,
+				FlatReductionHandle));
+
+	const Fdemo_mapM01EnemyAttackExecutionResult InvalidProfile =
+		Fixture.Coordinator.ExecuteM01EnemyMeleeDashContact(
+			StandardEnemy.Enemy,
+			Fixture.Pawn,
+			TEXT("P4.8.Invalid.MeleeDash"),
+			1,
+			1.0f);
+	const Fdemo_mapM01EnemyAttackExecutionResult InvalidSerial =
+		Fixture.Coordinator.ExecuteM01EnemyMeleeDashContact(
+			StandardEnemy.Enemy,
+			Fixture.Pawn,
+			StandardEnemy.Definition->SkillProfileId,
+			0,
+			1.0f);
+	const Fdemo_mapM01EnemyAttackExecutionResult MismatchedProfile =
+		Fixture.Coordinator.ExecuteM01EnemyMeleeDashContact(
+			StandardEnemy.Enemy,
+			Fixture.Pawn,
+			EnhancedEnemy.Definition->SkillProfileId,
+			1,
+			1.0f);
+	TestTrue(TEXT("Dash identity rejects invalid serial and authored-profile mismatch"),
+		InvalidProfile.Error
+			== Edemo_mapM01EnemyAttackExecutionError::InvalidSkillProfile
+			&& InvalidSerial.Error
+				== Edemo_mapM01EnemyAttackExecutionError::InvalidActivationSequence
+			&& MismatchedProfile.Error
+				== Edemo_mapM01EnemyAttackExecutionError::InvalidSkillProfile
+			&& !InvalidProfile.ActivationId.IsValid()
+			&& !InvalidSerial.ActivationId.IsValid()
+			&& !MismatchedProfile.ActivationId.IsValid()
+			&& Fixture.Health->GetCombatAuthorityRevision() == 0
+			&& Fixture.Health->NumCommittedCombatImpacts() == 0);
+
+	const Fdemo_mapM01EnemyAttackExecutionResult StandardFirst =
+		Fixture.Coordinator.ExecuteM01EnemyMeleeDashContact(
+			StandardEnemy.Enemy,
+			Fixture.Pawn,
+			StandardEnemy.Definition->SkillProfileId,
+			1,
+			1.0f);
+	const FGuid StandardSourceId =
+		StandardEnemy.Enemy->GetCombatEntityId();
+	const FGuid ExpectedStandardActivation =
+		FShanmenCombatIdFactory::MakeActivationId(
+			CoordinatorRunA,
+			StandardSourceId,
+			TEXT("Combat.Action.Enemy.Melee.Dash.Standard"),
+			1);
+	TestTrue(TEXT("Standard dash resolves fractional defense and commits once"),
+		StandardFirst.IsExecuted()
+			&& StandardFirst.Impact.GetFamily()
+				== Edemo_mapM01EnemyAttackFamily::StandardMeleeDash
+			&& StandardFirst.ActivationId == ExpectedStandardActivation
+			&& StandardFirst.Impact.GetRequest().Action
+				.GetActionDefinitionId()
+				== TEXT("Combat.Action.Enemy.Melee.Dash.Standard")
+			&& StandardFirst.Impact.GetRequest().Candidate.DetectorId
+				== TEXT("Detector.Enemy.Melee.DashContact")
+			&& StandardFirst.Impact.GetRequest().Damage.FormulaId
+				== TEXT("Combat.Formula.Enemy.Melee.Dash.r1")
+			&& StandardFirst.Delivery.CommitResult.Status
+				== EShanmenVitalityCommitStatus::Committed
+			&& FMath::IsNearlyEqual(
+				StandardFirst.Impact.GetResult().PreventedDamage,
+				0.25f)
+			&& FMath::IsNearlyEqual(
+				StandardFirst.Impact.GetResult().FinalDamage,
+				0.75f)
+			&& FMath::IsNearlyEqual(
+				StandardFirst.GetNewlyCommittedDamage(),
+				0.75f)
+			&& ShouldRequestEnemySkillKnockback(
+				StandardFirst.GetNewlyCommittedDamage(),
+				Fixture.Health->IsDefeated())
+			&& FMath::IsNearlyEqual(
+				Fixture.Health->GetCurrentVitality(),
+				4.25f)
+			&& Fixture.Health->GetCombatAuthorityRevision() == 1
+			&& Fixture.Health->NumCommittedCombatImpacts() == 1
+			&& Fixture.Health
+				->GetPositiveDamageBroadcastCountForAutomation() == 1);
+
+	const Fdemo_mapCombatImpactDeliveryResult StandardReceiptReplay =
+		Fixture.Coordinator.DeliverM01EnemyAttackImpactToPlayer(
+			StandardFirst.Impact,
+			StandardEnemy.Enemy);
+	TestTrue(TEXT("Exact dash receipt replay is idempotent"),
+		StandardReceiptReplay.IsSuccess()
+			&& StandardReceiptReplay.CommitResult.Status
+				== EShanmenVitalityCommitStatus::AlreadyCommitted
+			&& FMath::IsNearlyEqual(
+				Fixture.Health->GetCurrentVitality(),
+				4.25f)
+			&& Fixture.Health->GetCombatAuthorityRevision() == 1
+			&& Fixture.Health->NumCommittedCombatImpacts() == 1
+			&& Fixture.Health
+				->GetPositiveDamageBroadcastCountForAutomation() == 1);
+
+	const Fdemo_mapM01EnemyAttackExecutionResult StandardReconstruction =
+		Fixture.Coordinator.ExecuteM01EnemyMeleeDashContact(
+			StandardEnemy.Enemy,
+			Fixture.Pawn,
+			StandardEnemy.Definition->SkillProfileId,
+			1,
+			1.0f);
+	TestTrue(TEXT("Same dash serial cannot reconstruct a different snapshot"),
+		!StandardReconstruction.IsExecuted()
+			&& StandardReconstruction.Error
+				== Edemo_mapM01EnemyAttackExecutionError::DeliveryRejected
+			&& StandardReconstruction.ActivationId
+				== StandardFirst.ActivationId
+			&& StandardReconstruction.Impact.GetRequest().ImpactId
+				== StandardFirst.Impact.GetRequest().ImpactId
+			&& StandardReconstruction.Delivery.Error
+				== Edemo_mapCombatImpactDeliveryError::CommitRejected
+			&& FMath::IsNearlyZero(
+				StandardReconstruction.GetNewlyCommittedDamage())
+			&& !ShouldRequestEnemySkillKnockback(
+				StandardReconstruction.GetNewlyCommittedDamage(),
+				Fixture.Health->IsDefeated())
+			&& FMath::IsNearlyEqual(
+				Fixture.Health->GetCurrentVitality(),
+				4.25f)
+			&& Fixture.Health->GetCombatAuthorityRevision() == 1
+			&& Fixture.Health->NumCommittedCombatImpacts() == 1
+			&& Fixture.Health
+				->GetPositiveDamageBroadcastCountForAutomation() == 1);
+
+	const Fdemo_mapM01EnemyAttackExecutionResult EnhancedFirst =
+		Fixture.Coordinator.ExecuteM01EnemyMeleeDashContact(
+			EnhancedEnemy.Enemy,
+			Fixture.Pawn,
+			EnhancedEnemy.Definition->SkillProfileId,
+			1,
+			1.0f);
+	const FGuid ExpectedEnhancedActivation =
+		FShanmenCombatIdFactory::MakeActivationId(
+			CoordinatorRunA,
+			EnhancedEnemy.Enemy->GetCombatEntityId(),
+			TEXT("Combat.Action.Enemy.Melee.Dash.Enhanced"),
+			1);
+	TestTrue(TEXT("Enhanced authored profile owns a distinct frozen dash family"),
+		EnhancedFirst.IsExecuted()
+			&& EnhancedFirst.Impact.GetFamily()
+				== Edemo_mapM01EnemyAttackFamily::EnhancedMeleeDash
+			&& EnhancedFirst.ActivationId == ExpectedEnhancedActivation
+			&& EnhancedFirst.ActivationId != StandardFirst.ActivationId
+			&& EnhancedFirst.Impact.GetRequest().Action
+				.GetActionDefinitionId()
+				== TEXT("Combat.Action.Enemy.Melee.Dash.Enhanced")
+			&& FMath::IsNearlyEqual(
+				EnhancedFirst.GetNewlyCommittedDamage(),
+				0.75f)
+			&& FMath::IsNearlyEqual(
+				Fixture.Health->GetCurrentVitality(),
+				3.5f)
+			&& Fixture.Health->GetCombatAuthorityRevision() == 2
+			&& Fixture.Health->NumCommittedCombatImpacts() == 2
+			&& Fixture.Health
+				->GetPositiveDamageBroadcastCountForAutomation() == 2);
+
+	TestTrue(TEXT("Exact dash Run release succeeds"),
+		Fixture.Coordinator.TryEndRun(
+			CoordinatorRunA,
+			Fixture.Diagnostic));
+	TestTrue(TEXT("Standard dash source binds a fresh Run"),
+		Fixture.Coordinator.TryBeginRun(
+			CoordinatorRunB,
+			Fixture.Pawn,
+			Fixture.Health,
+			Fixture.Diagnostic)
+			&& Fixture.Coordinator.TryRegisterM01Enemy(
+				StandardEnemy.Enemy,
+				Fixture.Diagnostic));
+	const Fdemo_mapCombatImpactDeliveryResult DelayedOldDash =
+		Fixture.Coordinator.DeliverM01EnemyAttackImpactToPlayer(
+			StandardFirst.Impact,
+			StandardEnemy.Enemy);
+	TestTrue(TEXT("Old-Run dash receipt cannot mutate the rebound player"),
+		DelayedOldDash.Error
+			== Edemo_mapCombatImpactDeliveryError::RunMismatch
+			&& !DelayedOldDash.CommitResult.IsValid()
+			&& FMath::IsNearlyEqual(
+				Fixture.Health->GetCurrentVitality(),
+				3.5f)
+			&& Fixture.Health->GetCombatAuthorityRevision() == 0
+			&& Fixture.Health->NumCommittedCombatImpacts() == 0);
+
+	const Fdemo_mapM01EnemyAttackExecutionResult NewRunDash =
+		Fixture.Coordinator.ExecuteM01EnemyMeleeDashContact(
+			StandardEnemy.Enemy,
+			Fixture.Pawn,
+			StandardEnemy.Definition->SkillProfileId,
+			1,
+			10.0f);
+	const FGuid ExpectedNewRunActivation =
+		FShanmenCombatIdFactory::MakeActivationId(
+			CoordinatorRunB,
+			StandardEnemy.Enemy->GetCombatEntityId(),
+			TEXT("Combat.Action.Enemy.Melee.Dash.Standard"),
+			1);
+	TestTrue(TEXT("Run-reset defeating dash has new identity and no knockback"),
+		NewRunDash.IsExecuted()
+			&& NewRunDash.ActivationId == ExpectedNewRunActivation
+			&& NewRunDash.ActivationId != StandardFirst.ActivationId
+			&& FMath::IsNearlyEqual(
+				NewRunDash.GetNewlyCommittedDamage(),
+				3.5f)
+			&& NewRunDash.DidNewCommitDefeatTarget()
+			&& !ShouldRequestEnemySkillKnockback(
+				NewRunDash.GetNewlyCommittedDamage(),
+				NewRunDash.DidNewCommitDefeatTarget())
+			&& FMath::IsNearlyEqual(
+				Fixture.Health->GetCurrentVitality(),
+				0.0f)
+			&& Fixture.Health->GetCombatAuthorityRevision() == 1
+			&& Fixture.Health->NumCommittedCombatImpacts() == 1
+			&& Fixture.Health
+				->GetPositiveDamageBroadcastCountForAutomation() == 3);
 	return true;
 }
 

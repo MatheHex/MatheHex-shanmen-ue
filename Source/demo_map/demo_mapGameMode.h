@@ -83,12 +83,19 @@ public:
 	Fdemo_mapBasicSwordProductExecutionResult ExecuteM01PlayerBasicSwordSweep(
 		float AttackPower,
 		const TArray<FHitResult>& WorldHits);
-	/** M01 enemy melee never falls through to legacy damage when this is true. */
-	bool ShouldUseM01EnemyBasicMeleeProductPath() const;
-	Fdemo_mapM01EnemyBasicMeleeExecutionResult
+	/** M01 enemy attacks never fall through to legacy damage when this is true. */
+	bool ShouldUseM01EnemyAttackProductPath() const;
+	Fdemo_mapM01EnemyAttackExecutionResult
 	ExecuteM01EnemyBasicMeleeStrike(
 		AActor* SourceEnemy,
 		APawn* TargetPlayer,
+		float RawDamage);
+	Fdemo_mapM01EnemyAttackExecutionResult
+	ExecuteM01EnemyMeleeDashContact(
+		AActor* SourceEnemy,
+		APawn* TargetPlayer,
+		FName SkillProfileId,
+		uint32 ActivationSerial,
 		float RawDamage);
 	FString Get0909BProfileStorageRoot() const;
 	bool Open0909BOutOfRaidInventory(FString& OutFeedback);

@@ -339,7 +339,7 @@ Ademo_mapGameMode::ExecuteM01PlayerBasicSwordSweep(
 	return Result;
 }
 
-bool Ademo_mapGameMode::ShouldUseM01EnemyBasicMeleeProductPath() const
+bool Ademo_mapGameMode::ShouldUseM01EnemyAttackProductPath() const
 {
 	// M01 owns this routing decision even while the Run is still preparing:
 	// an unready canonical coordinator fails closed instead of double-writing
@@ -347,14 +347,14 @@ bool Ademo_mapGameMode::ShouldUseM01EnemyBasicMeleeProductPath() const
 	return IsM01ExpeditionMap();
 }
 
-Fdemo_mapM01EnemyBasicMeleeExecutionResult
+Fdemo_mapM01EnemyAttackExecutionResult
 Ademo_mapGameMode::ExecuteM01EnemyBasicMeleeStrike(
 	AActor* SourceEnemy,
 	APawn* TargetPlayer,
 	float RawDamage)
 {
-	Fdemo_mapM01EnemyBasicMeleeExecutionResult Result;
-	if (!ShouldUseM01EnemyBasicMeleeProductPath())
+	Fdemo_mapM01EnemyAttackExecutionResult Result;
+	if (!ShouldUseM01EnemyAttackProductPath())
 	{
 		return Result;
 	}
@@ -367,6 +367,42 @@ Ademo_mapGameMode::ExecuteM01EnemyBasicMeleeStrike(
 		Logdemo_map,
 		Log,
 		TEXT("0_0_10_ENEMY_MELEE Event=ProductStrike Error=%d ActivationId=%s ImpactId=%s Raw=%.3f Prevented=%.3f Final=%.3f Commit=%d"),
+		static_cast<int32>(Result.Error),
+		*Result.ActivationId.ToString(EGuidFormats::DigitsWithHyphens),
+		*Result.Impact.GetRequest().ImpactId.ToString(
+			EGuidFormats::DigitsWithHyphens),
+		Resolution.RawDamage,
+		Resolution.PreventedDamage,
+		Resolution.FinalDamage,
+		static_cast<int32>(Result.Delivery.CommitResult.Status));
+	return Result;
+}
+
+Fdemo_mapM01EnemyAttackExecutionResult
+Ademo_mapGameMode::ExecuteM01EnemyMeleeDashContact(
+	AActor* SourceEnemy,
+	APawn* TargetPlayer,
+	FName SkillProfileId,
+	uint32 ActivationSerial,
+	float RawDamage)
+{
+	Fdemo_mapM01EnemyAttackExecutionResult Result;
+	if (!ShouldUseM01EnemyAttackProductPath())
+	{
+		return Result;
+	}
+	Result = CombatRunCoordinator.ExecuteM01EnemyMeleeDashContact(
+		SourceEnemy,
+		TargetPlayer,
+		SkillProfileId,
+		ActivationSerial,
+		RawDamage);
+	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
+	UE_LOG(
+		Logdemo_map,
+		Log,
+		TEXT("0_0_10_ENEMY_MELEE Event=ProductDashContact Family=%d Error=%d ActivationId=%s ImpactId=%s Raw=%.3f Prevented=%.3f Final=%.3f Commit=%d"),
+		static_cast<int32>(Result.Impact.GetFamily()),
 		static_cast<int32>(Result.Error),
 		*Result.ActivationId.ToString(EGuidFormats::DigitsWithHyphens),
 		*Result.Impact.GetRequest().ImpactId.ToString(

@@ -43,27 +43,41 @@ struct Fdemo_mapCombatImpactDeliveryResult
 	}
 };
 
-/** Frozen pure-kernel receipt for one authored M01 basic melee contact. */
-struct Fdemo_mapM01EnemyBasicMeleeImpactReceipt
+/** Product enemy-attack families whose identity and formula are frozen here. */
+enum class Edemo_mapM01EnemyAttackFamily : uint8
+{
+	None,
+	BasicMelee,
+	StandardMeleeDash,
+	EnhancedMeleeDash
+};
+
+/** Frozen pure-kernel receipt for one authored M01 enemy attack contact. */
+struct Fdemo_mapM01EnemyAttackImpactReceipt
 {
 public:
 	bool IsValid() const;
+	Edemo_mapM01EnemyAttackFamily GetFamily() const { return Family; }
 	const FShanmenImpactRequest& GetRequest() const { return Request; }
 	const FShanmenImpactResult& GetResult() const { return Result; }
 
 private:
 	friend class Fdemo_mapCombatRunCoordinator;
+	Edemo_mapM01EnemyAttackFamily Family =
+		Edemo_mapM01EnemyAttackFamily::None;
 	FShanmenImpactRequest Request;
 	FShanmenImpactResult Result;
 };
 
-enum class Edemo_mapM01EnemyBasicMeleeExecutionError : uint8
+enum class Edemo_mapM01EnemyAttackExecutionError : uint8
 {
 	None,
 	CoordinatorNotReady,
 	SourceNotRegistered,
 	TargetMismatch,
 	InvalidDamage,
+	InvalidSkillProfile,
+	InvalidActivationSequence,
 	SequenceExhausted,
 	ActionConstructionFailed,
 	RuntimeStartFailed,
@@ -74,21 +88,39 @@ enum class Edemo_mapM01EnemyBasicMeleeExecutionError : uint8
 	RuntimeCompletionFailed
 };
 
-/** Auditable result for one real M01 basic melee contact decision. */
-struct Fdemo_mapM01EnemyBasicMeleeExecutionResult
+/** Auditable result for one real M01 enemy attack contact decision. */
+struct Fdemo_mapM01EnemyAttackExecutionResult
 {
-	Edemo_mapM01EnemyBasicMeleeExecutionError Error =
-		Edemo_mapM01EnemyBasicMeleeExecutionError::CoordinatorNotReady;
+	Edemo_mapM01EnemyAttackExecutionError Error =
+		Edemo_mapM01EnemyAttackExecutionError::CoordinatorNotReady;
 	FGuid ActivationId;
-	Fdemo_mapM01EnemyBasicMeleeImpactReceipt Impact;
+	Fdemo_mapM01EnemyAttackImpactReceipt Impact;
 	Fdemo_mapCombatImpactDeliveryResult Delivery;
 
 	bool IsExecuted() const
 	{
-		return Error == Edemo_mapM01EnemyBasicMeleeExecutionError::None
+		return Error == Edemo_mapM01EnemyAttackExecutionError::None
 			&& ActivationId.IsValid()
 			&& Impact.IsValid()
 			&& Delivery.IsSuccess();
+	}
+
+	/** Positive only for the first mutation; replay and prevention return zero. */
+	float GetNewlyCommittedDamage() const
+	{
+		return IsExecuted()
+			&& Delivery.CommitResult.Status
+				== EShanmenVitalityCommitStatus::Committed
+			? Delivery.CommitResult.Receipt.GetAppliedDamage()
+			: 0.0f;
+	}
+
+	bool DidNewCommitDefeatTarget() const
+	{
+		return IsExecuted()
+			&& Delivery.CommitResult.Status
+				== EShanmenVitalityCommitStatus::Committed
+			&& Delivery.CommitResult.Receipt.GetVitalityAfter() <= 0.0f;
 	}
 };
 
@@ -178,8 +210,8 @@ public:
 		const FShanmenBasicSwordImpactReceipt& Impact,
 		AActor* TargetEnemy);
 	Fdemo_mapCombatImpactDeliveryResult
-	DeliverM01EnemyBasicMeleeImpactToPlayer(
-		const Fdemo_mapM01EnemyBasicMeleeImpactReceipt& Impact,
+	DeliverM01EnemyAttackImpactToPlayer(
+		const Fdemo_mapM01EnemyAttackImpactReceipt& Impact,
 		AActor* SourceEnemy);
 	/**
 	 * Resolves one already-authorized M01 basic melee contact. Geometry,
@@ -187,10 +219,22 @@ public:
 	 * owns stable action identity, player defense capture, pure resolution, and
 	 * the only player-vitality write.
 	 */
-	Fdemo_mapM01EnemyBasicMeleeExecutionResult
+	Fdemo_mapM01EnemyAttackExecutionResult
 	ExecuteM01EnemyBasicMeleeStrike(
 		AActor* SourceEnemy,
 		APawn* TargetPlayer,
+		float RawDamage);
+	/**
+	 * Resolves one legal contact from an already-running authored melee dash.
+	 * The skill runtime's Run-reset ActivationSerial is the stable action
+	 * sequence, so repeated delivery of the same contact is idempotent.
+	 */
+	Fdemo_mapM01EnemyAttackExecutionResult
+	ExecuteM01EnemyMeleeDashContact(
+		AActor* SourceEnemy,
+		APawn* TargetPlayer,
+		FName SkillProfileId,
+		uint32 ActivationSerial,
 		float RawDamage);
 	/**
 	 * Executes one complete player BasicSword action from an already sampled UE
@@ -210,9 +254,17 @@ private:
 	struct FM01EnemyBinding
 	{
 		FName SpawnMarkerId = NAME_None;
+		FName SkillProfileId = NAME_None;
 		TWeakObjectPtr<AActor> Actor;
 		TWeakObjectPtr<UPrimitiveComponent> CollisionRoot;
 	};
+
+	Fdemo_mapM01EnemyAttackExecutionResult ExecuteM01EnemyAttack(
+		AActor* SourceEnemy,
+		APawn* TargetPlayer,
+		float RawDamage,
+		Edemo_mapM01EnemyAttackFamily Family,
+		uint64 RequestedActivationSequence);
 
 	FShanmenWorldEntityRegistry EntityRegistry;
 	FGuid PlayerEntityId;

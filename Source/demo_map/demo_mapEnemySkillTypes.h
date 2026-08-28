@@ -152,5 +152,5 @@ bool IsLegalEnemySkillPhaseTransition(
 	Edemo_mapEnemySkillPhase From,
 	Edemo_mapEnemySkillPhase To);
 bool ShouldRequestEnemySkillKnockback(
-	int32 AppliedDamage,
+	float AppliedDamage,
 	bool bTargetDefeated);

@@ -273,12 +273,38 @@ void Ademo_mapEnemyCharacter::HandleDashSegment(
 		{
 			continue;
 		}
-		const int32 AppliedDamage = Health->ApplyIncomingDamage(AttackDamage);
+		const Fdemo_mapEnemySkillRuntimeSnapshot RuntimeSnapshot =
+			EnemySkillRuntime->GetSnapshot();
+		float AppliedDamage = 0.0f;
+		bool bTargetDefeatedAfterDamage = false;
+		bool bUsedCanonicalProduct = false;
+		if (Ademo_mapGameMode* GameMode =
+			GetWorld()->GetAuthGameMode<Ademo_mapGameMode>();
+			GameMode && GameMode->ShouldUseM01EnemyAttackProductPath())
+		{
+			bUsedCanonicalProduct = true;
+			const Fdemo_mapM01EnemyAttackExecutionResult Product =
+				GameMode->ExecuteM01EnemyMeleeDashContact(
+					this,
+					HitCharacter,
+					SkillProfileId,
+					RuntimeSnapshot.ActivationSerial,
+					AttackDamage);
+			AppliedDamage = Product.GetNewlyCommittedDamage();
+			bTargetDefeatedAfterDamage =
+				Product.DidNewCommitDefeatTarget();
+		}
+		else
+		{
+			AppliedDamage = static_cast<float>(
+				Health->ApplyIncomingDamage(AttackDamage));
+			bTargetDefeatedAfterDamage = Health->IsDefeated();
+		}
 		LastAttackTime = GetWorld()->GetTimeSeconds();
 		EnemySkillRuntime->MarkFirstLegalHitAndRecover();
 		if (ShouldRequestEnemySkillKnockback(
 			AppliedDamage,
-			Health->IsDefeated()))
+			bTargetDefeatedAfterDamage))
 		{
 			if (Udemo_mapKnockbackComponent* Knockback =
 				Udemo_mapKnockbackComponent::FindOrCreate(HitCharacter))
@@ -301,7 +327,14 @@ void Ademo_mapEnemyCharacter::HandleDashSegment(
 		UE_LOG(
 			Logdemo_map,
 			Log,
-			TEXT("P6_MELEE_DASH: first legal hit consumed; applied=%d."),
+			TEXT("P6_MELEE_DASH: first legal hit consumed; applied=%.3f."),
+			AppliedDamage);
+		UE_LOG(
+			Logdemo_map,
+			Log,
+			TEXT("0_0_10_ENEMY_MELEE Event=DashActorRoute Canonical=%d ActivationSerial=%u Applied=%.3f"),
+			bUsedCanonicalProduct ? 1 : 0,
+			RuntimeSnapshot.ActivationSerial,
 			AppliedDamage);
 		return;
 	}
@@ -330,9 +363,9 @@ void Ademo_mapEnemyCharacter::AttackPlayer(APawn* PlayerPawn)
 	GetWorldTimerManager().SetTimer(AttackFeedbackTimer, this, &Ademo_mapEnemyCharacter::ClearAttackFeedback, 0.18f, false);
 	if (Ademo_mapGameMode* GameMode =
 		GetWorld()->GetAuthGameMode<Ademo_mapGameMode>();
-		GameMode && GameMode->ShouldUseM01EnemyBasicMeleeProductPath())
+		GameMode && GameMode->ShouldUseM01EnemyAttackProductPath())
 	{
-		const Fdemo_mapM01EnemyBasicMeleeExecutionResult Product =
+		const Fdemo_mapM01EnemyAttackExecutionResult Product =
 			GameMode->ExecuteM01EnemyBasicMeleeStrike(
 				this,
 				PlayerPawn,

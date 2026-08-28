@@ -189,8 +189,10 @@ bool IsLegalEnemySkillPhaseTransition(
 }
 
 bool ShouldRequestEnemySkillKnockback(
-	int32 AppliedDamage,
+	float AppliedDamage,
 	bool bTargetDefeated)
 {
-	return AppliedDamage > 0 && !bTargetDefeated;
+	return FMath::IsFinite(AppliedDamage)
+		&& AppliedDamage > 0.0f
+		&& !bTargetDefeated;
 }

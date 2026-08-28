@@ -453,9 +453,9 @@ namespace
 		{
 			const Fdemo_mapPersistentProfile Profile;
 			return Test.TestTrue(
-				TEXT("Schema, Profile, items, and Spirit Stones remain baseline"),
-				Fdemo_mapPersistentProfile::CurrentSchemaVersion == 4
-				&& Profile.SchemaVersion == 4
+				TEXT("Schema, Profile, items, and Spirit Stones remain at the current project baseline"),
+				Fdemo_mapPersistentProfile::CurrentSchemaVersion == 7
+				&& Profile.SchemaVersion == Fdemo_mapPersistentProfile::CurrentSchemaVersion
 				&& Profile.PersistentSpiritStones == 0
 				&& Profile.ActiveRun.RiskSpiritStones == 0);
 		}
