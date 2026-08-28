@@ -950,6 +950,24 @@ Fdemo_mapItemUseResult Udemo_mapItemSubsystem::PreviewHotbarSlotUse(
 	const Fdemo_mapItemUseIntent& Intent,
 	bool bInputAllowed) const
 {
+	return PreviewItemUse(Intent, bInputAllowed, true);
+}
+
+Fdemo_mapItemUseResult Udemo_mapItemSubsystem::PreviewInventoryItemUse(
+	const FGuid InstanceId,
+	const bool bUIInputAllowed) const
+{
+	Fdemo_mapItemUseIntent Intent;
+	Intent.ExpectedRunId = ActiveRunId;
+	Intent.ExpectedItemInstanceId = InstanceId;
+	return PreviewItemUse(Intent, bUIInputAllowed, false);
+}
+
+Fdemo_mapItemUseResult Udemo_mapItemSubsystem::PreviewItemUse(
+	const Fdemo_mapItemUseIntent& Intent,
+	const bool bInputAllowed,
+	const bool bRequireHotbarBinding) const
+{
 	Fdemo_mapItemUseResult Result;
 	Result.HotbarSlotNumber = Intent.HotbarSlotNumber;
 	Result.ItemInstanceId = Intent.ExpectedItemInstanceId;
@@ -993,35 +1011,40 @@ Fdemo_mapItemUseResult Udemo_mapItemSubsystem::PreviewHotbarSlotUse(
 			Edemo_mapItemUseStatus::InputLocked,
 			TEXT("Current gameplay or UI input lock rejects item use."));
 	}
-	if (Intent.HotbarSlotNumber < 1
-		|| Intent.HotbarSlotNumber > Fdemo_mapHotbarBindingSnapshot::SlotCount
-		|| HotbarBindings.SlotBindings.Num()
-			!= Fdemo_mapHotbarBindingSnapshot::SlotCount)
+	FGuid BoundId = Intent.ExpectedItemInstanceId;
+	if (bRequireHotbarBinding)
 	{
-		return Reject(
-			Edemo_mapItemUseStatus::InvalidHotbarSlot,
-			TEXT("Hotbar item use requires an external slot in the 1..9 range."));
-	}
-	const FGuid BoundId =
-		HotbarBindings.SlotBindings[Intent.HotbarSlotNumber - 1];
-	if (!BoundId.IsValid())
-	{
-		return Reject(
-			Edemo_mapItemUseStatus::EmptyBinding,
-			TEXT("Hotbar slot is empty."));
-	}
-	if (BoundId != Intent.ExpectedItemInstanceId)
-	{
-		return Reject(
-			Edemo_mapItemUseStatus::ExpectedInstanceMismatch,
-			TEXT("Hotbar binding no longer matches the expected ItemInstanceId."));
+		if (Intent.HotbarSlotNumber < 1
+			|| Intent.HotbarSlotNumber
+				> Fdemo_mapHotbarBindingSnapshot::SlotCount
+			|| HotbarBindings.SlotBindings.Num()
+				!= Fdemo_mapHotbarBindingSnapshot::SlotCount)
+		{
+			return Reject(
+				Edemo_mapItemUseStatus::InvalidHotbarSlot,
+				TEXT("Hotbar item use requires an external slot in the 1..9 range."));
+		}
+		BoundId = HotbarBindings.SlotBindings[
+			Intent.HotbarSlotNumber - 1];
+		if (!BoundId.IsValid())
+		{
+			return Reject(
+				Edemo_mapItemUseStatus::EmptyBinding,
+				TEXT("Hotbar slot is empty."));
+		}
+		if (BoundId != Intent.ExpectedItemInstanceId)
+		{
+			return Reject(
+				Edemo_mapItemUseStatus::ExpectedInstanceMismatch,
+				TEXT("Hotbar binding no longer matches the expected ItemInstanceId."));
+		}
 	}
 	const Fdemo_mapItemInstance* Instance = Authority.FindInstance(BoundId);
 	if (!Instance || Instance->OwnershipState == Edemo_mapItemOwnershipState::Destroyed)
 	{
 		return Reject(
 			Edemo_mapItemUseStatus::StaleBinding,
-			TEXT("Hotbar binding references a missing or destroyed ItemInstance."));
+			TEXT("Item use references a missing or destroyed ItemInstance."));
 	}
 	Result.DefinitionId = Instance->DefinitionId;
 	Result.BeforeStack = Instance->Quantity;
@@ -1049,7 +1072,7 @@ Fdemo_mapItemUseResult Udemo_mapItemSubsystem::PreviewHotbarSlotUse(
 	{
 		return Reject(
 			Edemo_mapItemUseStatus::NotConsumable,
-			TEXT("Only Consumable definitions may be used from the Hotbar."));
+			TEXT("Only Consumable definitions may be used."));
 	}
 	if (Instance->Quantity <= 0
 		|| Instance->Quantity > Definition->MaxStackSize)
@@ -1119,8 +1142,15 @@ Fdemo_mapItemUseResult Udemo_mapItemSubsystem::UseHotbarSlot(
 	const Fdemo_mapItemUseIntent& Intent,
 	bool bInputAllowed)
 {
-	Fdemo_mapItemUseResult Result =
-		PreviewHotbarSlotUse(Intent, bInputAllowed);
+	return CommitItemUse(
+		Intent,
+		PreviewHotbarSlotUse(Intent, bInputAllowed));
+}
+
+Fdemo_mapItemUseResult Udemo_mapItemSubsystem::CommitItemUse(
+	const Fdemo_mapItemUseIntent& Intent,
+	Fdemo_mapItemUseResult Result)
+{
 	if (!Result.IsSuccess())
 	{
 		return Result;
@@ -1151,6 +1181,8 @@ Fdemo_mapItemUseResult Udemo_mapItemSubsystem::UseHotbarSlot(
 	const Fdemo_mapItemAuthorityState AuthorityBefore =
 		Authority.CaptureState();
 	const Fdemo_mapHotbarBindingSnapshot HotbarBefore = HotbarBindings;
+	const bool bWasBoundBefore =
+		HotbarBefore.SlotBindings.Contains(BoundId);
 	const double CooldownEndBefore = HealingPillCooldownEndTime;
 	auto Rollback = [&]()
 	{
@@ -1232,8 +1264,8 @@ Fdemo_mapItemUseResult Udemo_mapItemSubsystem::UseHotbarSlot(
 		? AfterInstance->Quantity
 		: 0;
 	Result.bBindingCleared =
-		!HotbarBindings.SlotBindings[
-			Intent.HotbarSlotNumber - 1].IsValid();
+		bWasBoundBefore
+		&& !HotbarBindings.SlotBindings.Contains(BoundId);
 	Result.CooldownAfter =
 		GetItemUseCooldownSnapshot().RemainingSeconds;
 	Result.Diagnostic =
@@ -1243,37 +1275,21 @@ Fdemo_mapItemUseResult Udemo_mapItemSubsystem::UseHotbarSlot(
 
 Fdemo_mapItemUseResult Udemo_mapItemSubsystem::UseInventoryItem(
 	FGuid InstanceId,
-	bool bUIInputAllowed)
+	bool bUIInputAllowed
+#if WITH_DEV_AUTOMATION_TESTS
+	, const Edemo_mapItemUseFailurePoint FailurePoint
+#endif
+)
 {
-	const Fdemo_mapHotbarBindingSnapshot SavedBindings = HotbarBindings;
-	if (HotbarBindings.SlotBindings.Num()
-		!= Fdemo_mapHotbarBindingSnapshot::SlotCount)
-	{
-		HotbarBindings = Fdemo_mapHotbarBindingSnapshot();
-	}
-	int32 SlotIndex =
-		HotbarBindings.SlotBindings.IndexOfByKey(InstanceId);
-	if (SlotIndex == INDEX_NONE)
-	{
-		SlotIndex = HotbarBindings.SlotBindings.IndexOfByPredicate(
-			[](const FGuid& Id) { return !Id.IsValid(); });
-	}
-	if (SlotIndex == INDEX_NONE)
-	{
-		SlotIndex = 0;
-	}
-	HotbarBindings.SlotBindings[SlotIndex] = InstanceId;
 	Fdemo_mapItemUseIntent Intent;
 	Intent.ExpectedRunId = ActiveRunId;
-	Intent.HotbarSlotNumber = SlotIndex + 1;
 	Intent.ExpectedItemInstanceId = InstanceId;
-	Fdemo_mapItemUseResult Result =
-		UseHotbarSlot(Intent, bUIInputAllowed);
-	HotbarBindings = SavedBindings;
-	RefreshHotbarBindings();
-	Result.bBindingCleared =
-		!HotbarBindings.SlotBindings.Contains(InstanceId);
-	return Result;
+#if WITH_DEV_AUTOMATION_TESTS
+	Intent.FailurePoint = FailurePoint;
+#endif
+	return CommitItemUse(
+		Intent,
+		PreviewInventoryItemUse(InstanceId, bUIInputAllowed));
 }
 
 Fdemo_mapItemOperationResult Udemo_mapItemSubsystem::TagAffectedForActiveRun(const Fdemo_mapItemAuthorityState& Before, const Fdemo_mapItemOperationResult& Result, const TArray<FGuid>& Affected)

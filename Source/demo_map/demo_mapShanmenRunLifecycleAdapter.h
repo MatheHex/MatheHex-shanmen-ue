@@ -127,6 +127,17 @@ struct Fdemo_mapShanmenRunLifecycleAdapter
 			Edemo_mapItemUseFailurePoint::None
 #endif
 	);
+	/** Durable prepared-Run consumption for an inventory-selected original. */
+	static Fdemo_mapShanmenRunItemUseResult UsePreparedRunInventoryItem(
+		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+		Udemo_mapItemSubsystem& Runtime,
+		FGuid ItemInstanceId,
+		bool bInputAllowed
+#if WITH_DEV_AUTOMATION_TESTS
+		, Edemo_mapItemUseFailurePoint FailurePoint =
+			Edemo_mapItemUseFailurePoint::None
+#endif
+	);
 
 	static Fdemo_mapShanmenRunFinalizeResult FinalizeSettlement(
 		Udemo_mapShanmenItemAuthoritySubsystem& Authority,

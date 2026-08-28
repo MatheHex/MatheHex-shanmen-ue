@@ -4,6 +4,7 @@
 #if !UE_BUILD_SHIPPING
 #include "demo_mapAutomationRootBoundary.h"
 #endif
+#include "demo_mapItemUseTypes.h"
 #include "demo_mapProfileSessionTypes.h"
 
 class UGameInstance;
@@ -61,6 +62,10 @@ public:
 		int32 HotbarSlotNumber,
 		bool bInputAllowed,
 		FString* OutDiagnostic = nullptr);
+	/** Uses one selected prepared-Run inventory item through durable authority. */
+	Fdemo_mapItemUseResult UseActiveRunInventoryItem(
+		FGuid ItemInstanceId,
+		bool bInputAllowed);
 	Fdemo_mapProfileSessionSettlementResult CommitRuntimeSettlement(
 		const Fdemo_mapSettlementSummary& Summary);
 	Fdemo_mapProfileSessionSettlementResult RetryPendingSettlement();

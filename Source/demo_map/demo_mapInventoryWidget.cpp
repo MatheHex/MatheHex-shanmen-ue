@@ -994,16 +994,13 @@ void Udemo_mapInventoryWidget::HandleMove()
 
 void Udemo_mapInventoryWidget::HandleUse()
 {
-	if (!Manager.IsValid() || !Manager->GetItemSubsystem()
-		|| !SelectedInventoryInstance.IsValid())
+	if (!Manager.IsValid() || !SelectedInventoryInstance.IsValid())
 	{
 		SetFeedback(TEXT("请选择可直接使用的消耗品。"), false);
 		return;
 	}
 	const Fdemo_mapItemUseResult Result =
-		Manager->GetItemSubsystem()->UseInventoryItem(
-			SelectedInventoryInstance,
-			true);
+		Manager->RequestUseInventoryItem(SelectedInventoryInstance);
 	SetFeedback(
 		Result.IsSuccess()
 			? FString::Printf(

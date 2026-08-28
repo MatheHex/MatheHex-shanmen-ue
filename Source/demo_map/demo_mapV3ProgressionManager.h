@@ -171,6 +171,8 @@ public:
 	bool RequestUseBoundCodeBQuickSlot(int32 SlotIndex);
 	/** Authority-selecting hotbar entry; Shanmen failures never fall back to Code B. */
 	bool RequestUseBoundQuickSlot(int32 SlotIndex);
+	/** Authority-selecting inventory entry; Shanmen failures never fall back to Runtime-only use. */
+	Fdemo_mapItemUseResult RequestUseInventoryItem(FGuid ItemInstanceId);
 	void ToggleInventory();
 	void OpenInventory();
 	void CloseInventory();

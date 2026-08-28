@@ -77,7 +77,7 @@
     },
     {
       "name": "ProductRunItemUse",
-      "pathRegex": "^Source/demo_map/demo_map(?:ShanmenRunLifecycleAdapter|V3ProgressionManager)\\.(?:h|cpp)$",
+      "pathRegex": "^Source/demo_map/demo_map(?:ShanmenRunLifecycleAdapter|V3ProgressionManager|InventoryWidget)\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10",
         "demo_map.Profile",
@@ -123,7 +123,9 @@
       "name": "ItemProductAdapters",
       "pathRegex": "^Source/demo_map/demo_map(?:ShanmenItem|ShanmenPreparation|Item|GridInventory|DualLoot|EntityLoadout|0909BCodeBItemBridge|0909BM01RuntimeAdapter|PreparationAdapter).*\\.(?:h|cpp)$",
       "requiredGroups": [
-        "Shanmen.0_0_10.Items"
+        "Shanmen.0_0_10.Items",
+        "demo_map.ItemUseAndArmor",
+        "demo_map.P4.Hotbar"
       ]
     },
     {

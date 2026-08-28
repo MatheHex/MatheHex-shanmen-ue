@@ -73,13 +73,22 @@ public:
 	Fdemo_mapItemUseResult PreviewHotbarSlotUse(
 		const Fdemo_mapItemUseIntent& Intent,
 		bool bInputAllowed) const;
+	/** Read-only direct-inventory eligibility snapshot for durable use routing. */
+	Fdemo_mapItemUseResult PreviewInventoryItemUse(
+		FGuid InstanceId,
+		bool bUIInputAllowed) const;
 	Fdemo_mapItemUseResult UseHotbarSlot(
 		const Fdemo_mapItemUseIntent& Intent,
 		bool bInputAllowed);
 	/** Uses a legal inventory consumable through the same atomic Runtime transaction. */
 	Fdemo_mapItemUseResult UseInventoryItem(
 		FGuid InstanceId,
-		bool bUIInputAllowed);
+		bool bUIInputAllowed
+#if WITH_DEV_AUTOMATION_TESTS
+		, Edemo_mapItemUseFailurePoint FailurePoint =
+			Edemo_mapItemUseFailurePoint::None
+#endif
+	);
 	Fdemo_mapItemUseCooldownSnapshot GetItemUseCooldownSnapshot() const;
 	void ClearItemUseCooldown();
 	void BeginWorld(UWorld* World);
@@ -195,6 +204,13 @@ private:
 	bool BuildDesiredModifierSources(
 		TMap<FName, TArray<Fdemo_mapModifierSpec>>& OutDesired) const;
 	double GetItemUseTimeSeconds() const;
+	Fdemo_mapItemUseResult PreviewItemUse(
+		const Fdemo_mapItemUseIntent& Intent,
+		bool bInputAllowed,
+		bool bRequireHotbarBinding) const;
+	Fdemo_mapItemUseResult CommitItemUse(
+		const Fdemo_mapItemUseIntent& Intent,
+		Fdemo_mapItemUseResult Result);
 
 	Fdemo_mapItemAuthority Authority;
 	Fdemo_mapHotbarBindingSnapshot HotbarBindings;

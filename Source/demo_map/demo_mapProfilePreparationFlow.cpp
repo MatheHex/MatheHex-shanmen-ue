@@ -561,6 +561,51 @@ bool Fdemo_mapProfilePreparationFlow::UseActiveRunHotbarSlot(
 	return Finish(Result.IsSuccess(), Result.Diagnostic);
 }
 
+Fdemo_mapItemUseResult
+Fdemo_mapProfilePreparationFlow::UseActiveRunInventoryItem(
+	const FGuid ItemInstanceId,
+	const bool bInputAllowed)
+{
+	Fdemo_mapItemUseResult Failure;
+	Failure.ItemInstanceId = ItemInstanceId;
+	auto Reject = [&Failure](const FString& Diagnostic)
+	{
+		Failure.Status = Edemo_mapItemUseStatus::CommitFailed;
+		Failure.Diagnostic = Diagnostic;
+		return Failure;
+	};
+	Udemo_mapShanmenItemAuthoritySubsystem* Authority =
+		FindBoundShanmenAuthority();
+	if (Phase != Edemo_mapProfilePreparationFlowPhase::RunActive
+		|| !bShanmenRunMaterialized || !Runtime.IsValid() || !Authority)
+	{
+		return Reject(
+			TEXT("Prepared Run inventory use requires the materialized ShanmenItems RunActive phase."));
+	}
+	const Fdemo_mapShanmenRunItemUseResult Result =
+		Fdemo_mapShanmenRunLifecycleAdapter::UsePreparedRunInventoryItem(
+			*Authority, *Runtime, ItemInstanceId, bInputAllowed);
+	if (Result.IsSuccess())
+	{
+		return Result.RuntimeResult;
+	}
+	if (Result.Status
+		== Edemo_mapShanmenRunItemUseStatus::RuntimePreviewRejected)
+	{
+		return Result.Preview;
+	}
+	if (Result.Status
+		== Edemo_mapShanmenRunItemUseStatus::RuntimeCommitRejected)
+	{
+		Fdemo_mapItemUseResult RuntimeFailure = Result.RuntimeResult;
+		RuntimeFailure.Diagnostic = Result.Diagnostic;
+		return RuntimeFailure;
+	}
+	Failure = Result.Preview;
+	Failure.ItemInstanceId = ItemInstanceId;
+	return Reject(Result.Diagnostic);
+}
+
 Fdemo_mapProfileSessionSettlementResult Fdemo_mapProfilePreparationFlow::CommitRuntimeSettlement(
 	const Fdemo_mapSettlementSummary& Summary)
 {

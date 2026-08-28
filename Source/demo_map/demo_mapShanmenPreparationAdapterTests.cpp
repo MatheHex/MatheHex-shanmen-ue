@@ -1267,6 +1267,127 @@ bool FShanmenPreparedRunItemUseTest::RunTest(const FString&)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenPreparedRunInventoryItemUseTest,
+	"Shanmen.0_0_10.Items.RunLifecycle.DurableInventoryUse",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenPreparedRunInventoryItemUseTest::RunTest(const FString&)
+{
+	FPreparationAdapterFixture Fixture;
+	if (!Fixture.StartAndCutover(*this, TEXT("DurableInventoryUse")))
+	{
+		return false;
+	}
+	TestTrue(TEXT("Pill stack is prepared without a hotbar binding"),
+		Fixture.Session->SetPreparationMaterial(
+			Fixture.PillOneId, true).IsAccepted());
+	Udemo_mapItemSubsystem* Runtime =
+		Fixture.GameInstance->GetSubsystem<Udemo_mapItemSubsystem>();
+	Udemo_mapAttributeComponent* Attributes =
+		NewObject<Udemo_mapAttributeComponent>(GetTransientPackage());
+	Udemo_mapPlayerHealthComponent* Health =
+		NewObject<Udemo_mapPlayerHealthComponent>(GetTransientPackage());
+	if (!Runtime || !Attributes || !Health
+		|| !Health->BindAttributeComponent(Attributes, true))
+	{
+		AddError(TEXT("Durable inventory fixture could not bind Runtime health."));
+		return false;
+	}
+	Runtime->BindAttributeComponent(Attributes);
+	Runtime->BindHealthComponent(Health);
+	const Fdemo_mapShanmenRunStartResult Started =
+		Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
+			*Fixture.Authority, *Runtime);
+	const Fdemo_mapItemInstance* InitialPill =
+		Runtime->GetAuthority().FindInstance(Fixture.PillOneId);
+	const TArray<FGuid> HotbarBefore =
+		Runtime->GetHotbarBindingSnapshot().SlotBindings;
+	TestTrue(TEXT("Prepared unbound pill materializes with its complete stack"),
+		Started.IsStarted() && InitialPill && InitialPill->Quantity == 3
+		&& !HotbarBefore.Contains(Fixture.PillOneId));
+	Health->SetCurrentHealthForAutomation(1);
+
+	const Fdemo_mapShanmenRunItemUseResult FailedProjection =
+		Fdemo_mapShanmenRunLifecycleAdapter::UsePreparedRunInventoryItem(
+			*Fixture.Authority, *Runtime, Fixture.PillOneId, true,
+			Edemo_mapItemUseFailurePoint::AfterItemMutation);
+	const Fdemo_mapItemInstance* AfterFailure =
+		Runtime->GetAuthority().FindInstance(Fixture.PillOneId);
+	TestTrue(TEXT("Failed inventory projection retains durable authority only"),
+		FailedProjection.Status
+			== Edemo_mapShanmenRunItemUseStatus::RuntimeCommitRejected
+		&& FailedProjection.AuthorityCommand.Status
+			== EShanmenItemDurableCommandStatus::Persisted
+		&& AfterFailure && AfterFailure->Quantity == 3
+		&& Health->GetCurrentHealth() == 1
+		&& Runtime->GetHotbarBindingSnapshot().SlotBindings == HotbarBefore);
+
+	const Fdemo_mapShanmenRunItemUseResult Retried =
+		Fdemo_mapShanmenRunLifecycleAdapter::UsePreparedRunInventoryItem(
+			*Fixture.Authority, *Runtime, Fixture.PillOneId, true);
+	const Fdemo_mapItemInstance* AfterRetry =
+		Runtime->GetAuthority().FindInstance(Fixture.PillOneId);
+	TestTrue(TEXT("Exact inventory retry replays receipt and commits Runtime once"),
+		Retried.IsSuccess()
+		&& Retried.AuthorityCommand.Status
+			== EShanmenItemDurableCommandStatus::Replayed
+		&& AfterRetry && AfterRetry->Quantity == 2
+		&& Health->GetCurrentHealth() == 2);
+	TestTrue(TEXT("Direct inventory retry never synthesizes a hotbar binding"),
+		Runtime->GetHotbarBindingSnapshot().SlotBindings == HotbarBefore
+		&& !Retried.RuntimeResult.bBindingCleared);
+
+	FShanmenItemAuthoritySnapshot UsedSnapshot;
+	int32 DurableUseCount = 0;
+	if (Fixture.Authority->TryCaptureSnapshot(UsedSnapshot))
+	{
+		for (const FShanmenItemProcessedRequestSnapshot& Processed :
+			UsedSnapshot.ProcessedRequests)
+		{
+			DurableUseCount += Processed.Receipt.IsSuccess()
+				&& Processed.Receipt.Operation
+					== EShanmenItemTransactionOperation::ConsumePreparedRunItem
+				? 1 : 0;
+		}
+	}
+	TestEqual(TEXT("Inventory use emits exactly one durable consume receipt"),
+		DurableUseCount, 1);
+
+	FString WidgetSource;
+	const bool bReadWidget = FFileHelper::LoadFileToString(
+		WidgetSource,
+		*FPaths::Combine(
+			FPaths::ProjectDir(),
+			TEXT("Source/demo_map/demo_mapInventoryWidget.cpp")));
+	TestTrue(TEXT("Inventory widget source is readable"), bReadWidget);
+	TestTrue(TEXT("Inventory widget routes use through the product manager"),
+		WidgetSource.Contains(
+			TEXT("Manager->RequestUseInventoryItem(")));
+	TestFalse(TEXT("Inventory widget has no Runtime-only item-use bypass"),
+		WidgetSource.Contains(
+			TEXT("GetItemSubsystem()->UseInventoryItem(")));
+
+	if (!Fixture.RestartAndBind(*this))
+	{
+		return false;
+	}
+	Runtime = Fixture.GameInstance->GetSubsystem<Udemo_mapItemSubsystem>();
+	const Fdemo_mapShanmenRunStartResult Resumed = Runtime
+		? Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
+			*Fixture.Authority, *Runtime)
+		: Fdemo_mapShanmenRunStartResult();
+	const Fdemo_mapItemInstance* RecoveredPill = Runtime
+		? Runtime->GetAuthority().FindInstance(Fixture.PillOneId) : nullptr;
+	TestTrue(TEXT("Restart reconstructs decremented quantity without a binding"),
+		Resumed.IsStarted()
+		&& Resumed.Status == Edemo_mapShanmenRunLifecycleStatus::Resumed
+		&& RecoveredPill && RecoveredPill->Quantity == 2
+		&& !Runtime->GetHotbarBindingSnapshot().SlotBindings.Contains(
+			Fixture.PillOneId));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FShanmenPreparedRunDestructiveTerminalTest,
 	"Shanmen.0_0_10.Items.RunLifecycle.DeathAndAbandon",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

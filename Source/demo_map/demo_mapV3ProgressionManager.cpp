@@ -4341,6 +4341,58 @@ bool Ademo_mapV3ProgressionManager::RequestUseBoundQuickSlot(
 	return RequestUseBoundCodeBQuickSlot(SlotIndex);
 }
 
+Fdemo_mapItemUseResult Ademo_mapV3ProgressionManager::RequestUseInventoryItem(
+	const FGuid ItemInstanceId)
+{
+	auto Reject = [ItemInstanceId](
+		const Edemo_mapItemUseStatus Status,
+		const TCHAR* Diagnostic)
+	{
+		Fdemo_mapItemUseResult Result;
+		Result.Status = Status;
+		Result.ItemInstanceId = ItemInstanceId;
+		Result.Diagnostic = Diagnostic;
+		return Result;
+	};
+	if (!ItemInstanceId.IsValid())
+	{
+		return Reject(
+			Edemo_mapItemUseStatus::StaleBinding,
+			TEXT("Inventory use requires one valid ItemInstanceId."));
+	}
+	if (ProfilePreparationFlow
+		&& ProfilePreparationFlow->UsesShanmenItemLifecycle())
+	{
+		if (!bInitialized || !bProfileWorldActive || bSettlementPending
+			|| bSearchContainerOpen
+			|| ProfilePreparationFlow->GetPhase()
+				!= Edemo_mapProfilePreparationFlowPhase::RunActive)
+		{
+			return Reject(
+				Edemo_mapItemUseStatus::InputLocked,
+				TEXT("Inventory item use is unavailable outside the active Shanmen product Run."));
+		}
+		Fdemo_mapItemUseResult Result =
+			ProfilePreparationFlow->UseActiveRunInventoryItem(
+				ItemInstanceId, true);
+		if (!Result.IsSuccess())
+		{
+			UE_LOG(
+				Logdemo_map, Warning,
+				TEXT("SHANMEN_RUN_INVENTORY_ITEM_USE: item=%s rejected: %s"),
+				*ItemInstanceId.ToString(EGuidFormats::DigitsWithHyphens),
+				*Result.Diagnostic);
+		}
+		return Result;
+	}
+	Udemo_mapItemSubsystem* Runtime = Items.Get();
+	return Runtime
+		? Runtime->UseInventoryItem(ItemInstanceId, true)
+		: Reject(
+			Edemo_mapItemUseStatus::PlayerUnavailable,
+			TEXT("Inventory item use requires the Runtime item subsystem."));
+}
+
 void Ademo_mapV3ProgressionManager::ShowProfilePreparation()
 {
 	Ademo_mapPlayerController* Controller = GetDemoController();
