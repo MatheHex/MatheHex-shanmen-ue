@@ -6,6 +6,7 @@
 #include "ShanmenItemRepository.h"
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapProfileRepository.h"
+#include "demo_mapRewardAffix.h"
 
 #include "HAL/FileManager.h"
 #include "Misc/AutomationTest.h"
@@ -78,6 +79,17 @@ namespace
 		}
 		OutProfile.PreparationLayout.SpatialRingItemInstanceId =
 			Ring->ItemInstanceId;
+		Ring->AffixSet.AffixSetEventId = MigrationGuid(90);
+		Ring->AffixSet.AffixPolicyId =
+			Fdemo_mapRewardAffixPolicyRegistry::DefaultPolicyId;
+		Ring->AffixSet.Acquisition =
+			Edemo_mapRewardAffixAcquisition::Natural;
+		Fdemo_mapResolvedRewardAffix& RingAffix =
+			Ring->AffixSet.Affixes.AddDefaulted_GetRef();
+		RingAffix.AffixId = TEXT("Reward.Affix.Accessory.Haste.T1");
+		RingAffix.Tier = Edemo_mapRewardAffixTier::Tier1;
+		RingAffix.ResolvedMagnitudeScaled = -250;
+		RingAffix.ResolvedValue = 50;
 
 		Fdemo_mapPersistentItemRecord Child;
 		Child.ItemInstanceId = MigrationGuid(101);
@@ -85,6 +97,15 @@ namespace
 		Child.StackCount = 2;
 		Child.PersistentDomain = Edemo_mapPersistentDomain::PermanentStash;
 		Child.LegacySpatialParentItemInstanceId = Ring->ItemInstanceId;
+		Child.RewardEventKind = Edemo_mapRewardEventKind::Jackpot;
+		Child.RewardEventId = MigrationGuid(102);
+		Child.RewardValueMultiplierBps =
+			Fdemo_mapRewardEventRules::JackpotMultiplierBps;
+		Child.RewardSourceRoleId = TEXT("Test.Migration.Source");
+		Child.RareRewardEventId = MigrationGuid(103);
+		Child.RareRewardPolicyId = TEXT("Reward.Rare.TestMigration");
+		Child.RareRewardTierId = TEXT("Reward.Rare.Tier2");
+		Child.RareRewardBonusValue = 222;
 		OutProfile.PermanentStash.Add(Child);
 		if (!ProfileRepository.ValidateProfile(OutProfile, &OutError))
 		{
@@ -223,6 +244,14 @@ bool FShanmenItemsLegacyCandidateTest::RunTest(const FString&)
 	TestTrue(TEXT("Item-owned child container topology is preserved"),
 		Parent && Child && Parent->ChildContainerId.IsValid()
 		&& Child->ParentContainerId == Parent->ChildContainerId);
+	TestTrue(TEXT("Legacy reward provenance and affix values enter canonical authority"),
+		Parent && Parent->RewardMetadata.Affixes.Num() == 1
+		&& Parent->RewardMetadata.Affixes[0].AffixId
+			== FName(TEXT("Reward.Affix.Accessory.Haste.T1"))
+		&& Child
+		&& Child->RewardMetadata.RewardEventKind
+			== EShanmenItemRewardEventKind::Jackpot
+		&& Child->RewardMetadata.RareRewardBonusValue == 222);
 	FShanmenItemRepository Repository;
 	EShanmenItemTransactionError LoadError =
 		EShanmenItemTransactionError::None;

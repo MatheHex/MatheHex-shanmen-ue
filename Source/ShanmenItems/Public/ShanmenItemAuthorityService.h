@@ -91,7 +91,7 @@ struct SHANMENITEMS_API FShanmenItemDurableCommandResult
 /**
  * The sole lifecycle/facade permitted to mutate the 0.0.10 item authority.
  *
- * Startup always probes the durable schema-1 document first. A missing
+ * Startup always probes the durable versioned authority document first. A missing
  * document requires an explicit migration capability. Every command is
  * serialized and is reported successful only after the resulting snapshot is
  * durable (or an exact durable replay has been verified). Persistence

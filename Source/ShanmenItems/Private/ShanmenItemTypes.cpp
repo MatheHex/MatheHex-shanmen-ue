@@ -10,6 +10,114 @@ namespace
 	}
 }
 
+bool FShanmenItemResolvedRewardAffix::IsValid() const
+{
+	return !AffixId.IsNone()
+		&& (Tier == EShanmenItemRewardAffixTier::Tier1
+			|| Tier == EShanmenItemRewardAffixTier::Tier2
+			|| Tier == EShanmenItemRewardAffixTier::Tier3)
+		&& ResolvedMagnitudeScaled != 0
+		&& ResolvedValue > 0;
+}
+
+bool FShanmenItemResolvedRewardAffix::operator==(
+	const FShanmenItemResolvedRewardAffix& Other) const
+{
+	return AffixId == Other.AffixId
+		&& Tier == Other.Tier
+		&& ResolvedMagnitudeScaled == Other.ResolvedMagnitudeScaled
+		&& ResolvedValue == Other.ResolvedValue;
+}
+
+bool FShanmenItemRewardMetadata::IsEmpty() const
+{
+	return RewardEventKind == EShanmenItemRewardEventKind::None
+		&& !RewardEventId.IsValid()
+		&& RewardValueMultiplierBps == NormalMultiplierBps
+		&& RewardSourceRoleId.IsNone()
+		&& !RareRewardEventId.IsValid()
+		&& RareRewardPolicyId.IsNone()
+		&& RareRewardTierId.IsNone()
+		&& RareRewardBonusValue == 0
+		&& !AffixSetEventId.IsValid()
+		&& AffixPolicyId.IsNone()
+		&& AffixAcquisition == EShanmenItemRewardAffixAcquisition::None
+		&& Affixes.IsEmpty();
+}
+
+bool FShanmenItemRewardMetadata::IsValid() const
+{
+	const bool bRewardValid = RewardEventKind == EShanmenItemRewardEventKind::None
+		? !RewardEventId.IsValid()
+			&& RewardValueMultiplierBps == NormalMultiplierBps
+		: RewardEventKind == EShanmenItemRewardEventKind::Jackpot
+			&& RewardEventId.IsValid()
+			&& RewardValueMultiplierBps == JackpotMultiplierBps
+			&& !RewardSourceRoleId.IsNone();
+	if (!bRewardValid)
+	{
+		return false;
+	}
+
+	const bool bRareEmpty = !RareRewardEventId.IsValid()
+		&& RareRewardPolicyId.IsNone()
+		&& RareRewardTierId.IsNone()
+		&& RareRewardBonusValue == 0;
+	const bool bRareComplete = RareRewardEventId.IsValid()
+		&& !RareRewardPolicyId.IsNone()
+		&& !RareRewardTierId.IsNone()
+		&& RareRewardBonusValue > 0
+		&& !RewardSourceRoleId.IsNone();
+	if (!bRareEmpty && !bRareComplete)
+	{
+		return false;
+	}
+
+	const bool bAffixEmpty = !AffixSetEventId.IsValid()
+		&& AffixPolicyId.IsNone()
+		&& AffixAcquisition == EShanmenItemRewardAffixAcquisition::None
+		&& Affixes.IsEmpty();
+	const bool bAffixHeaderComplete = AffixSetEventId.IsValid()
+		&& !AffixPolicyId.IsNone()
+		&& (AffixAcquisition
+				== EShanmenItemRewardAffixAcquisition::Natural
+			|| AffixAcquisition
+					== EShanmenItemRewardAffixAcquisition::PityGuaranteed)
+		&& !Affixes.IsEmpty()
+		&& Affixes.Num() <= 16;
+	if (!bAffixEmpty && !bAffixHeaderComplete)
+	{
+		return false;
+	}
+	TSet<FName> UniqueAffixIds;
+	for (const FShanmenItemResolvedRewardAffix& Affix : Affixes)
+	{
+		if (!Affix.IsValid() || UniqueAffixIds.Contains(Affix.AffixId))
+		{
+			return false;
+		}
+		UniqueAffixIds.Add(Affix.AffixId);
+	}
+	return true;
+}
+
+bool FShanmenItemRewardMetadata::operator==(
+	const FShanmenItemRewardMetadata& Other) const
+{
+	return RewardEventKind == Other.RewardEventKind
+		&& RewardEventId == Other.RewardEventId
+		&& RewardValueMultiplierBps == Other.RewardValueMultiplierBps
+		&& RewardSourceRoleId == Other.RewardSourceRoleId
+		&& RareRewardEventId == Other.RareRewardEventId
+		&& RareRewardPolicyId == Other.RareRewardPolicyId
+		&& RareRewardTierId == Other.RareRewardTierId
+		&& RareRewardBonusValue == Other.RareRewardBonusValue
+		&& AffixSetEventId == Other.AffixSetEventId
+		&& AffixPolicyId == Other.AffixPolicyId
+		&& AffixAcquisition == Other.AffixAcquisition
+		&& Affixes == Other.Affixes;
+}
+
 bool FShanmenItemDefinition::IsValid() const
 {
 	const bool bQuantityIsExclusive = !Supports(EShanmenItemResourceKind::Quantity)
@@ -73,6 +181,7 @@ bool FShanmenItemInstance::operator==(const FShanmenItemInstance& Other) const
 {
 	return ItemInstanceId == Other.ItemInstanceId
 		&& DefinitionId == Other.DefinitionId
+		&& RewardMetadata == Other.RewardMetadata
 		&& RunId == Other.RunId
 		&& OwnerId == Other.OwnerId
 		&& ParentContainerId == Other.ParentContainerId
@@ -152,6 +261,7 @@ bool FShanmenItemRunAcquiredItem::IsValid() const
 		&& Definition.IsValid()
 		&& Quantity > 0
 		&& Quantity <= Definition.MaxStack
+		&& RewardMetadata.IsValid()
 		&& ((!bHasChild
 				&& ChildContainerType.IsNone()
 				&& ChildContainerCapacity == 0)
@@ -166,6 +276,7 @@ bool FShanmenItemRunAcquiredItem::operator==(
 	return ItemInstanceId == Other.ItemInstanceId
 		&& Definition == Other.Definition
 		&& Quantity == Other.Quantity
+		&& RewardMetadata == Other.RewardMetadata
 		&& ChildContainerType == Other.ChildContainerType
 		&& ChildContainerCapacity == Other.ChildContainerCapacity;
 }

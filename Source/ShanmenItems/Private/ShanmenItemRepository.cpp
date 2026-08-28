@@ -32,6 +32,31 @@ namespace
 		return State == EShanmenItemInstanceState::Depleted
 			|| State == EShanmenItemInstanceState::Destroyed;
 	}
+
+	void AppendRewardMetadata(
+		const FShanmenItemRewardMetadata& Metadata,
+		TArray<FString>& Parts)
+	{
+		Parts.Add(EnumNumber(static_cast<uint8>(Metadata.RewardEventKind)));
+		Parts.Add(GuidDigits(Metadata.RewardEventId));
+		Parts.Add(FString::FromInt(Metadata.RewardValueMultiplierBps));
+		Parts.Add(Metadata.RewardSourceRoleId.ToString());
+		Parts.Add(GuidDigits(Metadata.RareRewardEventId));
+		Parts.Add(Metadata.RareRewardPolicyId.ToString());
+		Parts.Add(Metadata.RareRewardTierId.ToString());
+		Parts.Add(FString::Printf(TEXT("%lld"), Metadata.RareRewardBonusValue));
+		Parts.Add(GuidDigits(Metadata.AffixSetEventId));
+		Parts.Add(Metadata.AffixPolicyId.ToString());
+		Parts.Add(EnumNumber(static_cast<uint8>(Metadata.AffixAcquisition)));
+		Parts.Add(FString::FromInt(Metadata.Affixes.Num()));
+		for (const FShanmenItemResolvedRewardAffix& Affix : Metadata.Affixes)
+		{
+			Parts.Add(Affix.AffixId.ToString());
+			Parts.Add(EnumNumber(static_cast<uint8>(Affix.Tier)));
+			Parts.Add(FString::FromInt(Affix.ResolvedMagnitudeScaled));
+			Parts.Add(FString::Printf(TEXT("%lld"), Affix.ResolvedValue));
+		}
+	}
 }
 
 bool FShanmenItemRepository::TryLoadSnapshot(
@@ -187,6 +212,7 @@ bool FShanmenItemRepository::ValidateState(
 			|| !Item.RunId.IsValid()
 			|| !Item.OwnerId.IsValid()
 			|| !Definition
+			|| !Item.RewardMetadata.IsValid()
 			|| Item.Revision < 0
 			|| Item.Durability < 0
 			|| Item.Durability > Definition->MaxDurability
@@ -786,11 +812,12 @@ FGuid FShanmenItemRepository::Fingerprint(
 		Parts.Add(FString::FromInt(Acquired.Definition.MaxDurability));
 		Parts.Add(FString::FromInt(Acquired.Definition.MaxCharges));
 		Parts.Add(FString::FromInt(Acquired.Quantity));
+		AppendRewardMetadata(Acquired.RewardMetadata, Parts);
 		Parts.Add(Acquired.ChildContainerType.ToString());
 		Parts.Add(FString::FromInt(Acquired.ChildContainerCapacity));
 	}
 	return FShanmenDeterministicId::FromCanonicalParts(
-		TEXT("Shanmen.Items.Command.FinalizePreparedRun.r2"), Parts);
+		TEXT("Shanmen.Items.Command.FinalizePreparedRun.r3"), Parts);
 }
 
 FGuid FShanmenItemRepository::MakeReservationId(const FShanmenItemReserveRequest& Request)
@@ -1995,6 +2022,7 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::FinalizePreparedRun(
 			FShanmenItemInstance Item;
 			Item.ItemInstanceId = Acquired->ItemInstanceId;
 			Item.DefinitionId = Acquired->Definition.DefinitionId;
+			Item.RewardMetadata = Acquired->RewardMetadata;
 			Item.RunId = Request.Context.RunId;
 			Item.OwnerId = Request.Context.OwnerId;
 			Item.ParentContainerId = MutableWarehouse->ContainerId;

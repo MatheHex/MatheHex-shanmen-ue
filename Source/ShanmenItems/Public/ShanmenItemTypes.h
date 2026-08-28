@@ -107,6 +107,108 @@ enum class EShanmenItemRunTerminalReason : uint8
 	Abandon
 };
 
+/** Authority-owned reward provenance. Product adapters validate policy semantics. */
+UENUM(BlueprintType)
+enum class EShanmenItemRewardEventKind : uint8
+{
+	None,
+	Jackpot
+};
+
+UENUM(BlueprintType)
+enum class EShanmenItemRewardAffixTier : uint8
+{
+	None = 0,
+	Tier1 = 1,
+	Tier2 = 2,
+	Tier3 = 3
+};
+
+UENUM(BlueprintType)
+enum class EShanmenItemRewardAffixAcquisition : uint8
+{
+	None,
+	Natural,
+	PityGuaranteed
+};
+
+/** One resolved, immutable affix value retained independently of product registries. */
+USTRUCT(BlueprintType)
+struct SHANMENITEMS_API FShanmenItemResolvedRewardAffix
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items|Reward")
+	FName AffixId = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items|Reward")
+	EShanmenItemRewardAffixTier Tier = EShanmenItemRewardAffixTier::None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items|Reward")
+	int32 ResolvedMagnitudeScaled = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items|Reward", meta = (ClampMin = "1"))
+	int64 ResolvedValue = 0;
+
+	bool IsValid() const;
+	bool operator==(const FShanmenItemResolvedRewardAffix& Other) const;
+};
+
+/**
+ * Canonical item provenance persisted by ShanmenItems. It carries only resolved
+ * facts; product policy/category validation remains at the demo_map boundary.
+ */
+USTRUCT(BlueprintType)
+struct SHANMENITEMS_API FShanmenItemRewardMetadata
+{
+	GENERATED_BODY()
+
+	static constexpr int32 NormalMultiplierBps = 10000;
+	static constexpr int32 JackpotMultiplierBps = 60000;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items|Reward")
+	EShanmenItemRewardEventKind RewardEventKind =
+		EShanmenItemRewardEventKind::None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items|Reward")
+	FGuid RewardEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items|Reward")
+	int32 RewardValueMultiplierBps = NormalMultiplierBps;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items|Reward")
+	FName RewardSourceRoleId = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items|Reward")
+	FGuid RareRewardEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items|Reward")
+	FName RareRewardPolicyId = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items|Reward")
+	FName RareRewardTierId = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items|Reward", meta = (ClampMin = "0"))
+	int64 RareRewardBonusValue = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items|Reward")
+	FGuid AffixSetEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items|Reward")
+	FName AffixPolicyId = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items|Reward")
+	EShanmenItemRewardAffixAcquisition AffixAcquisition =
+		EShanmenItemRewardAffixAcquisition::None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items|Reward")
+	TArray<FShanmenItemResolvedRewardAffix> Affixes;
+
+	bool IsEmpty() const;
+	bool IsValid() const;
+	bool operator==(const FShanmenItemRewardMetadata& Other) const;
+};
+
 USTRUCT(BlueprintType)
 struct SHANMENITEMS_API FShanmenItemDefinition
 {
@@ -167,6 +269,10 @@ struct SHANMENITEMS_API FShanmenItemInstance
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
 	FName DefinitionId = NAME_None;
+
+	/** Immutable acquisition provenance retained through storage and tombstones. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FShanmenItemRewardMetadata RewardMetadata;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
 	FGuid RunId;
@@ -337,6 +443,9 @@ struct SHANMENITEMS_API FShanmenItemRunAcquiredItem
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items", meta = (ClampMin = "1"))
 	int32 Quantity = 1;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FShanmenItemRewardMetadata RewardMetadata;
+
 	/** Optional empty item-owned container created with the acquired identity. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
 	FName ChildContainerType = NAME_None;
@@ -377,7 +486,7 @@ struct SHANMENITEMS_API FShanmenItemRunFinalizeRequest
 
 /**
  * Backward-compatible placement codec for complete-stack reservations.
- * Placement lives inside PurposeId, so schema-1 snapshot JSON and its SHA stay
+ * Placement lives inside PurposeId, so pre-metadata snapshot JSON and its SHA stay
  * byte-compatible while a committed Quantity can still return to its exact
  * source cell after Runtime extraction.
  */

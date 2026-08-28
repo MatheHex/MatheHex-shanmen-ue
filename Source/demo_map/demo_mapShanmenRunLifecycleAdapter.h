@@ -24,7 +24,6 @@ enum class Edemo_mapShanmenRunLifecycleStatus : uint8
 	UnsupportedTerminalReason,
 	UnknownSecuredItem,
 	AcquiredItemRejected,
-	AcquiredMetadataUnsupported,
 	FinalizeRejected
 };
 
@@ -61,7 +60,7 @@ struct Fdemo_mapShanmenRunFinalizeResult
 };
 
 /**
- * One-way P1.10 bridge from the durable ShanmenItems prepared receipt into the
+ * One-way P1.11 bridge from the durable ShanmenItems prepared receipt into the
  * existing transient Runtime and back through one atomic terminal command. It
  * never writes Profile ActiveRun or Code B.
  */

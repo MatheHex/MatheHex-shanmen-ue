@@ -6,9 +6,13 @@
 #include "ShanmenItemTags.h"
 
 #include "HAL/FileManager.h"
+#include "Dom/JsonObject.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonWriter.h"
 
 namespace
 {
@@ -83,6 +87,107 @@ namespace
 		Evidence.SourceFingerprint = TEXT("P1.2.Persistence.SourceFixture.v1");
 		Evidence.CandidateDigest = TEXT("P1.2.Persistence.CandidateFixture.v1");
 		return Evidence;
+	}
+
+	FShanmenItemAuthoritySnapshot MetadataCandidate()
+	{
+		FShanmenItemAuthoritySnapshot Snapshot = PersistenceCandidate();
+		FShanmenItemRewardMetadata& Metadata =
+			Snapshot.Items[0].RewardMetadata;
+		Metadata.RewardEventKind = EShanmenItemRewardEventKind::Jackpot;
+		Metadata.RewardEventId = FGuid(0x50120100, 0, 0, 1);
+		Metadata.RewardValueMultiplierBps =
+			FShanmenItemRewardMetadata::JackpotMultiplierBps;
+		Metadata.RewardSourceRoleId = TEXT("Test.Persistence.MetadataSource");
+		Metadata.RareRewardEventId = FGuid(0x50120101, 0, 0, 1);
+		Metadata.RareRewardPolicyId = TEXT("Test.Persistence.RarePolicy");
+		Metadata.RareRewardTierId = TEXT("Test.Persistence.RareTier");
+		Metadata.RareRewardBonusValue = 17;
+		Metadata.AffixSetEventId = FGuid(0x50120102, 0, 0, 1);
+		Metadata.AffixPolicyId = TEXT("Test.Persistence.AffixPolicy");
+		Metadata.AffixAcquisition =
+			EShanmenItemRewardAffixAcquisition::Natural;
+		FShanmenItemResolvedRewardAffix& Affix =
+			Metadata.Affixes.AddDefaulted_GetRef();
+		Affix.AffixId = TEXT("Test.Persistence.Affix.Power");
+		Affix.Tier = EShanmenItemRewardAffixTier::Tier2;
+		Affix.ResolvedMagnitudeScaled = 5;
+		Affix.ResolvedValue = 120;
+		return Snapshot;
+	}
+
+	bool WriteLegacySchema1Fixture(
+		const FString& Path,
+		const FShanmenItemAuthorityDocument& CurrentDocument,
+		FString& OutError)
+	{
+		FString Json;
+		if (!FFileHelper::LoadFileToString(Json, *Path))
+		{
+			OutError = TEXT("schema2_fixture_read_failed");
+			return false;
+		}
+		TSharedPtr<FJsonObject> Root;
+		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Json);
+		if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid())
+		{
+			OutError = TEXT("schema2_fixture_parse_failed");
+			return false;
+		}
+		FString LegacyDigest;
+		if (!FShanmenItemAuthorityStore::ComputeLegacySchema1SnapshotDigest(
+				CurrentDocument.Authority, LegacyDigest, &OutError))
+		{
+			return false;
+		}
+		const TSharedPtr<FJsonObject>* Authority = nullptr;
+		const TSharedPtr<FJsonObject>* Migration = nullptr;
+		const TArray<TSharedPtr<FJsonValue>>* Items = nullptr;
+		if (!Root->TryGetObjectField(TEXT("Authority"), Authority)
+			|| !Authority || !Authority->IsValid()
+			|| !(*Authority)->TryGetArrayField(TEXT("Items"), Items)
+			|| !Items
+			|| !Root->TryGetObjectField(TEXT("Migration"), Migration)
+			|| !Migration || !Migration->IsValid())
+		{
+			OutError = TEXT("schema2_fixture_shape_invalid");
+			return false;
+		}
+		for (const TSharedPtr<FJsonValue>& Value : *Items)
+		{
+			const TSharedPtr<FJsonObject> Item = Value.IsValid()
+				? Value->AsObject() : nullptr;
+			if (!Item.IsValid() || !Item->HasField(TEXT("RewardMetadata")))
+			{
+				OutError = TEXT("schema2_fixture_metadata_missing");
+				return false;
+			}
+			Item->RemoveField(TEXT("RewardMetadata"));
+		}
+		Root->SetNumberField(
+			TEXT("SchemaVersion"),
+			FShanmenItemAuthorityDocument::LegacySchemaVersion);
+		Root->SetStringField(TEXT("InitialSnapshotDigest"), LegacyDigest);
+		Root->SetStringField(TEXT("SnapshotDigest"), LegacyDigest);
+		(*Migration)->SetStringField(
+			TEXT("CandidateDigest"),
+			TEXT("P1.2.Persistence.CandidateFixture.LegacySchema1"));
+
+		FString LegacyJson;
+		const TSharedRef<
+			TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+			TJsonWriterFactory<
+				TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&LegacyJson);
+		if (!FJsonSerializer::Serialize(Root.ToSharedRef(), Writer)
+			|| !FFileHelper::SaveStringToFile(
+				LegacyJson, *Path,
+				FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
+		{
+			OutError = TEXT("schema1_fixture_write_failed");
+			return false;
+		}
+		OutError.Reset();
+		return true;
 	}
 
 	FShanmenItemAuthoritySnapshot ReserveOne(
@@ -180,6 +285,72 @@ bool FShanmenItemPersistenceRoundTripTest::RunTest(const FString&)
 		&& Mutable.SaveGeneration == 2
 		&& ReadBytes(Storage.PrimaryPath(), AfterNoOp)
 		&& AfterNoOp == BeforeNoOp);
+
+	RemovePersistenceRoot(Root);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenItemPersistenceSchema1MetadataMigrationTest,
+	"Shanmen.0_0_10.Items.PersistenceDocument.Schema1MetadataMigration",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenItemPersistenceSchema1MetadataMigrationTest::RunTest(
+	const FString&)
+{
+	const FString Root = NewPersistenceRoot(TEXT("Schema1MetadataMigration"));
+	const FShanmenItemStorageContext Storage =
+		FShanmenItemStorageContext::ForRoot(Root, PersistenceOwnerId);
+	const FShanmenItemAuthoritySnapshot Candidate = MetadataCandidate();
+	FShanmenItemMigrationEvidence Evidence = PersistenceEvidence();
+	Evidence.CandidateDigest =
+		TEXT("P1.11.Persistence.CandidateFixture.WithMetadata");
+	FShanmenItemAuthorityStore Store;
+	const FShanmenItemOpenResult Created =
+		Store.OpenOrCreateFromMigration(Candidate, Evidence, Storage);
+	TestTrue(TEXT("Schema-2 metadata fixture publishes"), Created.IsSuccess());
+
+	FString FixtureError;
+	TestTrue(TEXT("Schema-2 fixture rewrites as authentic schema 1"),
+		WriteLegacySchema1Fixture(
+			Storage.PrimaryPath(), Created.Document, FixtureError));
+	const FShanmenItemLoadResult ReadOnlyUpgrade = Store.LoadExisting(Storage);
+	TestTrue(TEXT("Schema 1 validates and upgrades only in memory on read"),
+		ReadOnlyUpgrade.IsSuccess()
+		&& ReadOnlyUpgrade.bSchemaUpgraded
+		&& !ReadOnlyUpgrade.bDiskStateChanged
+		&& ReadOnlyUpgrade.Document.SchemaVersion
+			== FShanmenItemAuthorityDocument::CurrentSchemaVersion
+		&& ReadOnlyUpgrade.Document.Authority.Items.Num() == 1
+		&& ReadOnlyUpgrade.Document.Authority.Items[0]
+			.RewardMetadata.IsEmpty());
+
+	const FShanmenItemOpenResult Upgraded =
+		Store.OpenOrCreateFromMigration(Candidate, Evidence, Storage);
+	TestTrue(TEXT("Open enriches immutable metadata and atomically publishes schema 2"),
+		Upgraded.IsSuccess()
+		&& Upgraded.bDiskStateChanged
+		&& Upgraded.Document.SaveGeneration == 2
+		&& Upgraded.Document.Authority.Items.Num() == 1
+		&& Upgraded.Document.Authority.Items[0].RewardMetadata
+			== Candidate.Items[0].RewardMetadata
+		&& IFileManager::Get().FileExists(*Storage.BackupPath()));
+	FString PrimaryJson;
+	FString BackupJson;
+	TestTrue(TEXT("Primary is schema 2 and backup preserves exact schema-1 evidence"),
+		FFileHelper::LoadFileToString(PrimaryJson, *Storage.PrimaryPath())
+		&& PrimaryJson.Contains(TEXT("\"SchemaVersion\":2"))
+		&& PrimaryJson.Contains(TEXT("\"RewardMetadata\""))
+		&& FFileHelper::LoadFileToString(BackupJson, *Storage.BackupPath())
+		&& BackupJson.Contains(TEXT("\"SchemaVersion\":1"))
+		&& !BackupJson.Contains(TEXT("\"RewardMetadata\"")));
+
+	const FShanmenItemOpenResult Restart =
+		Store.OpenOrCreateFromMigration(Candidate, Evidence, Storage);
+	TestTrue(TEXT("Schema-2 metadata restart is exact and write-free"),
+		Restart.IsSuccess()
+		&& !Restart.bDiskStateChanged
+		&& Restart.Document == Upgraded.Document);
 
 	RemovePersistenceRoot(Root);
 	return true;
@@ -388,7 +559,7 @@ bool FShanmenItemPersistenceRecoveryTest::RunTest(const FString&)
 		FFileHelper::LoadFileToString(FutureJson, *Storage.PrimaryPath()));
 	TestEqual(TEXT("One current schema token becomes future schema"),
 		FutureJson.ReplaceInline(
-			TEXT("\"SchemaVersion\":1"), TEXT("\"SchemaVersion\":2"),
+			TEXT("\"SchemaVersion\":2"), TEXT("\"SchemaVersion\":3"),
 			ESearchCase::CaseSensitive), 1);
 	TestTrue(TEXT("Future schema fixture replaces primary"),
 		FFileHelper::SaveStringToFile(

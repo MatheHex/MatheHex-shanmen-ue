@@ -5,12 +5,38 @@
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapItemSubsystem.h"
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
+#include "demo_mapShanmenItemMetadataAdapter.h"
 
 namespace
 {
 	FString GuidDigits(const FGuid& Value)
 	{
 		return Value.ToString(EGuidFormats::Digits);
+	}
+
+	void AppendRewardMetadata(
+		const FShanmenItemRewardMetadata& Metadata,
+		TArray<FString>& Parts)
+	{
+		Parts.Add(FString::FromInt(static_cast<int32>(Metadata.RewardEventKind)));
+		Parts.Add(GuidDigits(Metadata.RewardEventId));
+		Parts.Add(FString::FromInt(Metadata.RewardValueMultiplierBps));
+		Parts.Add(Metadata.RewardSourceRoleId.ToString());
+		Parts.Add(GuidDigits(Metadata.RareRewardEventId));
+		Parts.Add(Metadata.RareRewardPolicyId.ToString());
+		Parts.Add(Metadata.RareRewardTierId.ToString());
+		Parts.Add(FString::Printf(TEXT("%lld"), Metadata.RareRewardBonusValue));
+		Parts.Add(GuidDigits(Metadata.AffixSetEventId));
+		Parts.Add(Metadata.AffixPolicyId.ToString());
+		Parts.Add(FString::FromInt(static_cast<int32>(Metadata.AffixAcquisition)));
+		Parts.Add(FString::FromInt(Metadata.Affixes.Num()));
+		for (const FShanmenItemResolvedRewardAffix& Affix : Metadata.Affixes)
+		{
+			Parts.Add(Affix.AffixId.ToString());
+			Parts.Add(FString::FromInt(static_cast<int32>(Affix.Tier)));
+			Parts.Add(FString::FromInt(Affix.ResolvedMagnitudeScaled));
+			Parts.Add(FString::Printf(TEXT("%lld"), Affix.ResolvedValue));
+		}
 	}
 
 	FShanmenOperationContext MakeContext(
@@ -160,11 +186,12 @@ namespace
 			Parts.Add(GuidDigits(Acquired.ItemInstanceId));
 			Parts.Add(Acquired.Definition.DefinitionId.ToString());
 			Parts.Add(FString::FromInt(Acquired.Quantity));
+			AppendRewardMetadata(Acquired.RewardMetadata, Parts);
 			Parts.Add(Acquired.ChildContainerType.ToString());
 			Parts.Add(FString::FromInt(Acquired.ChildContainerCapacity));
 		}
 		return FShanmenDeterministicId::FromCanonicalParts(
-			TEXT("demo_map.ShanmenRun.Finalize.r2"), Parts);
+			TEXT("demo_map.ShanmenRun.Finalize.r3"), Parts);
 	}
 
 	bool MapTerminalReason(
@@ -188,21 +215,6 @@ namespace
 		}
 	}
 
-	bool HasPersistentMetadata(
-		const Fdemo_mapRuntimeSettlementItem& Item)
-	{
-		return Item.RewardEventKind != Edemo_mapRewardEventKind::None
-			|| Item.RewardEventId.IsValid()
-			|| Item.RewardValueMultiplierBps
-				!= Fdemo_mapRewardEventRules::NormalMultiplierBps
-			|| !Item.RewardSourceRoleId.IsNone()
-			|| Item.RareRewardEventId.IsValid()
-			|| !Item.RareRewardPolicyId.IsNone()
-			|| !Item.RareRewardTierId.IsNone()
-			|| Item.RareRewardBonusValue != 0
-			|| !Item.AffixSet.IsEmpty();
-	}
-
 	bool BuildAcquiredItem(
 		const Fdemo_mapRuntimeSettlementItem& RuntimeItem,
 		FShanmenItemRunAcquiredItem& OutItem,
@@ -222,6 +234,11 @@ namespace
 		OutItem.Definition.DefinitionId = ProductDefinition->DefinitionId;
 		OutItem.Definition.MaxStack = ProductDefinition->MaxStackSize;
 		OutItem.Quantity = RuntimeItem.StackCount;
+		if (!Fdemo_mapShanmenItemMetadataAdapter::FromRuntimeItem(
+				RuntimeItem, OutItem.RewardMetadata, OutDiagnostic))
+		{
+			return false;
+		}
 		const bool bQuantityDefinition =
 			ProductDefinition->MaxStackSize > 1
 			|| ProductDefinition->CategoryId
@@ -504,12 +521,6 @@ Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
 				Edemo_mapShanmenRunLifecycleStatus::AcquiredItemRejected,
 				TEXT("Only an extraction may import a Runtime identity created by the exact active Run."));
 		}
-		if (HasPersistentMetadata(Secured))
-		{
-			return Reject(
-				Edemo_mapShanmenRunLifecycleStatus::AcquiredMetadataUnsupported,
-				TEXT("Reward provenance or affixes cannot be discarded; metadata-bearing loot remains closed until its authority schema is versioned."));
-		}
 		FShanmenItemRunAcquiredItem Acquired;
 		FString AcquisitionDiagnostic;
 		if (!BuildAcquiredItem(
@@ -583,7 +594,7 @@ Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
 		: Edemo_mapShanmenRunLifecycleStatus::Finalized;
 	Result.Diagnostic =
 		TerminalReason == EShanmenItemRunTerminalReason::Extraction
-		? TEXT("Runtime extraction restored prepared survivors, imported canonical plain loot, and published one durable terminal marker.")
+		? TEXT("Runtime extraction restored prepared survivors, imported canonical loot with reward metadata, and published one durable terminal marker.")
 		: TEXT("Destructive Runtime outcome converted every prepared identity to an audit tombstone and published one durable terminal marker.");
 	return Result;
 }

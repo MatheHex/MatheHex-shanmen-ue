@@ -6,6 +6,7 @@
 #include "ShanmenItemTags.h"
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapProfileRepository.h"
+#include "demo_mapShanmenItemMetadataAdapter.h"
 
 namespace
 {
@@ -69,7 +70,9 @@ namespace
 			&& Item->SlotIndex == 0;
 	}
 
-	FString BuildCandidateDigest(const FShanmenItemAuthoritySnapshot& Candidate)
+	FString BuildCandidateDigest(
+		const FShanmenItemAuthoritySnapshot& Candidate,
+		bool bIncludeRewardMetadata)
 	{
 		TArray<FString> Parts;
 		Parts.Add(Candidate.Content.Version.ToString());
@@ -111,6 +114,34 @@ namespace
 				*GuidDigits(Item.ChildContainerId),
 				Item.SlotIndex,
 				Item.Quantity));
+			if (bIncludeRewardMetadata && !Item.RewardMetadata.IsEmpty())
+			{
+				const FShanmenItemRewardMetadata& Metadata = Item.RewardMetadata;
+				Parts.Add(FString::Printf(
+					TEXT("M:%d:%s:%d:%s:%s:%s:%s:%lld:%s:%s:%d:%d"),
+					static_cast<int32>(Metadata.RewardEventKind),
+					*GuidDigits(Metadata.RewardEventId),
+					Metadata.RewardValueMultiplierBps,
+					*Metadata.RewardSourceRoleId.ToString(),
+					*GuidDigits(Metadata.RareRewardEventId),
+					*Metadata.RareRewardPolicyId.ToString(),
+					*Metadata.RareRewardTierId.ToString(),
+					Metadata.RareRewardBonusValue,
+					*GuidDigits(Metadata.AffixSetEventId),
+					*Metadata.AffixPolicyId.ToString(),
+					static_cast<int32>(Metadata.AffixAcquisition),
+					Metadata.Affixes.Num()));
+				for (const FShanmenItemResolvedRewardAffix& Affix :
+					Metadata.Affixes)
+				{
+					Parts.Add(FString::Printf(
+						TEXT("A:%s:%d:%d:%lld"),
+						*Affix.AffixId.ToString(),
+						static_cast<int32>(Affix.Tier),
+						Affix.ResolvedMagnitudeScaled,
+						Affix.ResolvedValue));
+				}
+			}
 		}
 		return FShanmenDeterministicId::FromCanonicalParts(
 			FName(TEXT("Shanmen.Items.MigrationCandidateDigest")), Parts)
@@ -255,6 +286,7 @@ Fdemo_mapShanmenItemMigrationResult Fdemo_mapShanmenItemMigration::BuildCandidat
 	}
 
 	TSet<FName> UsedDefinitionIds;
+	TMap<FGuid, const Fdemo_mapPersistentItemRecord*> CodeAItemsById;
 	TSet<FGuid> CodeBChildContainerIds;
 	for (const TPair<FGuid, FCodeBItemInstance>& Pair :
 		CodeBRecord.RepositorySnapshot.Items)
@@ -273,6 +305,13 @@ Fdemo_mapShanmenItemMigrationResult Fdemo_mapShanmenItemMigration::BuildCandidat
 	for (const Fdemo_mapPersistentItemRecord& CodeAItem :
 		CodeAProfile.PermanentStash)
 	{
+		if (CodeAItemsById.Contains(CodeAItem.ItemInstanceId))
+		{
+			return Fail(
+				Edemo_mapShanmenItemMigrationError::SourceItemMismatch,
+				TEXT("Code A contains duplicate persistent item identities."));
+		}
+		CodeAItemsById.Add(CodeAItem.ItemInstanceId, &CodeAItem);
 		const FCodeBItemInstance* CodeBItem =
 			CodeBRecord.RepositorySnapshot.Items.Find(CodeAItem.ItemInstanceId);
 		const FCodeBItemDefinition* CodeBDefinition = CodeBItem
@@ -450,9 +489,27 @@ Fdemo_mapShanmenItemMigrationResult Fdemo_mapShanmenItemMigration::BuildCandidat
 	{
 		const FCodeBItemInstance& SourceItem =
 			CodeBRecord.RepositorySnapshot.Items.FindChecked(ItemId);
+		const Fdemo_mapPersistentItemRecord* SourceMetadata =
+			CodeAItemsById.FindRef(ItemId);
+		if (!SourceMetadata)
+		{
+			return Fail(
+				Edemo_mapShanmenItemMigrationError::SourceItemMismatch,
+				TEXT("Code A metadata source disappeared during normalization."));
+		}
 		FShanmenItemInstance Item;
 		Item.ItemInstanceId = SourceItem.ItemId;
 		Item.DefinitionId = SourceItem.DefinitionId;
+		FString MetadataError;
+		if (!Fdemo_mapShanmenItemMetadataAdapter::FromPersistentItem(
+				*SourceMetadata, Item.RewardMetadata, MetadataError))
+		{
+			return Fail(
+				Edemo_mapShanmenItemMigrationError::SourceItemMismatch,
+				FString::Printf(
+					TEXT("Code A reward metadata is invalid for item %s: %s"),
+					*GuidDigits(ItemId), *MetadataError));
+		}
 		Item.RunId = ScopeId;
 		Item.OwnerId = CodeAProfile.ProfileId;
 		Item.ParentContainerId = SourceItem.ParentContainerId;
@@ -476,7 +533,10 @@ Fdemo_mapShanmenItemMigrationResult Fdemo_mapShanmenItemMigration::BuildCandidat
 				static_cast<int32>(CandidateError)));
 	}
 	Candidate = ValidationRepository.CaptureSnapshot();
-	const FString CandidateDigest = BuildCandidateDigest(Candidate);
+	const FString CandidateDigest = BuildCandidateDigest(Candidate, true);
+	// MigrationId remains compatible with schema-1 authorities that omitted
+	// reward metadata. CandidateDigest still seals the complete schema-2 value.
+	const FString IdentityCandidateDigest = BuildCandidateDigest(Candidate, false);
 	const FGuid MigrationId = FShanmenDeterministicId::FromCanonicalParts(
 		FName(TEXT("Shanmen.Items.LegacyMigration")),
 		{
@@ -485,7 +545,7 @@ Fdemo_mapShanmenItemMigrationResult Fdemo_mapShanmenItemMigration::BuildCandidat
 			FString::FromInt(CodeBRecord.PersistentRevision),
 			TargetContent.Version.ToString(),
 			TargetContent.Digest,
-			CandidateDigest
+			IdentityCandidateDigest
 		});
 
 	Fdemo_mapShanmenItemMigrationResult Result;

@@ -8,7 +8,9 @@
 #include "demo_mapItemSubsystem.h"
 #include "demo_mapProfileRepository.h"
 #include "demo_mapProfileSessionSubsystem.h"
+#include "demo_mapRewardAffix.h"
 #include "demo_mapShanmenItemCutover.h"
+#include "demo_mapShanmenItemMetadataAdapter.h"
 #include "demo_mapShanmenRunLifecycleAdapter.h"
 
 #include "Engine/Engine.h"
@@ -939,11 +941,11 @@ bool FShanmenPreparedRunLifecycleRestartTest::RunTest(const FString&)
 	TArray<FGuid> AcquiredLootIds;
 	const Fdemo_mapItemOperationResult AcquiredLoot = Runtime
 		? Runtime->AddDefinition(
-			Fdemo_mapItemIds::SpiritOreLevel1, 2, &AcquiredLootIds)
+			Fdemo_mapItemIds::TrainingBlade, 1, &AcquiredLootIds)
 		: Fdemo_mapItemOperationResult::Failure(
 			Edemo_mapItemResultCode::RunNotActive,
 			TEXT("Runtime fixture is absent."));
-	TestTrue(TEXT("Active Runtime creates one plain loot identity for import"),
+	TestTrue(TEXT("Active Runtime creates one equipment loot identity for metadata import"),
 		AcquiredLoot.bSuccess && AcquiredLootIds.Num() == 1
 		&& Runtime->IsItemAtRiskInActiveRun(AcquiredLootIds[0]));
 
@@ -978,20 +980,35 @@ bool FShanmenPreparedRunLifecycleRestartTest::RunTest(const FString&)
 			}) : nullptr;
 	if (MetadataLoot)
 	{
+		MetadataLoot->RewardEventKind = Edemo_mapRewardEventKind::Jackpot;
+		MetadataLoot->RewardEventId = FGuid(0x51100001, 0, 0, 1);
+		MetadataLoot->RewardValueMultiplierBps =
+			Fdemo_mapRewardEventRules::JackpotMultiplierBps;
 		MetadataLoot->RewardSourceRoleId = TEXT("Test.MetadataSource");
+		MetadataLoot->RareRewardEventId = FGuid(0x51100002, 0, 0, 1);
+		MetadataLoot->RareRewardPolicyId = TEXT("Reward.Rare.TestPolicy");
+		MetadataLoot->RareRewardTierId = TEXT("Reward.Rare.Tier3");
+		MetadataLoot->RareRewardBonusValue = 777;
+		MetadataLoot->AffixSet.AffixSetEventId =
+			FGuid(0x51100003, 0, 0, 1);
+		MetadataLoot->AffixSet.AffixPolicyId =
+			Fdemo_mapRewardAffixPolicyRegistry::DefaultPolicyId;
+		MetadataLoot->AffixSet.Acquisition =
+			Edemo_mapRewardAffixAcquisition::Natural;
+		Fdemo_mapResolvedRewardAffix& Affix =
+			MetadataLoot->AffixSet.Affixes.AddDefaulted_GetRef();
+		Affix.AffixId = TEXT("Reward.Affix.Weapon.Power.T2");
+		Affix.Tier = Edemo_mapRewardAffixTier::Tier2;
+		Affix.ResolvedMagnitudeScaled = 5;
+		Affix.ResolvedValue = 120;
 	}
-	FShanmenItemAuthoritySnapshot BeforeMetadataReject;
-	Fixture.Authority->TryCaptureSnapshot(BeforeMetadataReject);
-	const Fdemo_mapShanmenRunFinalizeResult MetadataRejected =
-		Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
-			*Fixture.Authority, MetadataSummary);
-	FShanmenItemAuthoritySnapshot AfterMetadataReject;
-	Fixture.Authority->TryCaptureSnapshot(AfterMetadataReject);
-	TestTrue(TEXT("Metadata-bearing loot fails before any authority mutation"),
+	FShanmenItemRewardMetadata ExpectedMetadata;
+	FString MetadataDiagnostic;
+	TestTrue(TEXT("Product reward metadata maps to one canonical authority value"),
 		MetadataLoot
-		&& MetadataRejected.Status
-			== Edemo_mapShanmenRunLifecycleStatus::AcquiredMetadataUnsupported
-		&& AfterMetadataReject == BeforeMetadataReject);
+		&& Fdemo_mapShanmenItemMetadataAdapter::FromRuntimeItem(
+			*MetadataLoot, ExpectedMetadata, MetadataDiagnostic)
+		&& ExpectedMetadata.Affixes.Num() == 1);
 
 	FShanmenItemAuthoritySnapshot BeforeFinalizeFailure;
 	Fixture.Authority->TryCaptureSnapshot(BeforeFinalizeFailure);
@@ -999,7 +1016,7 @@ bool FShanmenPreparedRunLifecycleRestartTest::RunTest(const FString&)
 		EShanmenItemStoreFailureStage::WriteTemp);
 	const Fdemo_mapShanmenRunFinalizeResult FailedFinalize =
 		Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
-			*Fixture.Authority, Summary);
+			*Fixture.Authority, MetadataSummary);
 	Fixture.Authority->SetInjectedFailureForAutomation(
 		EShanmenItemStoreFailureStage::None);
 	FShanmenItemAuthoritySnapshot AfterFinalizeFailure;
@@ -1010,7 +1027,7 @@ bool FShanmenPreparedRunLifecycleRestartTest::RunTest(const FString&)
 
 	const Fdemo_mapShanmenRunFinalizeResult Finalized =
 		Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
-			*Fixture.Authority, Summary);
+			*Fixture.Authority, MetadataSummary);
 	FShanmenItemAuthoritySnapshot Terminal;
 	TestTrue(TEXT("Autonomous retry atomically finalizes extraction"),
 		Finalized.IsFinalized()
@@ -1068,8 +1085,15 @@ bool FShanmenPreparedRunLifecycleRestartTest::RunTest(const FString&)
 		&& Pill && Pill->State == EShanmenItemInstanceState::Stored
 		&& Pill->Quantity == 2 && Pill->ParentContainerId.IsValid()
 		&& ImportedLoot
-		&& ImportedLoot->DefinitionId == Fdemo_mapItemIds::SpiritOreLevel1
-		&& ImportedLoot->Quantity == 2
+		&& ImportedLoot->DefinitionId == Fdemo_mapItemIds::TrainingBlade
+		&& ImportedLoot->Quantity == 1
+		&& ImportedLoot->RewardMetadata == ExpectedMetadata
+		&& ImportedLoot->RewardMetadata.RewardEventKind
+			== EShanmenItemRewardEventKind::Jackpot
+		&& ImportedLoot->RewardMetadata.RareRewardBonusValue == 777
+		&& ImportedLoot->RewardMetadata.Affixes.Num() == 1
+		&& ImportedLoot->RewardMetadata.Affixes[0].AffixId
+			== FName(TEXT("Reward.Affix.Weapon.Power.T2"))
 		&& ImportedLoot->State == EShanmenItemInstanceState::Stored
 		&& Warehouse
 		&& ImportedLoot->ParentContainerId == Warehouse->ContainerId
@@ -1079,7 +1103,7 @@ bool FShanmenPreparedRunLifecycleRestartTest::RunTest(const FString&)
 		&& ReleasedLines == 3 && FinalizeCount == 1);
 	const Fdemo_mapShanmenRunFinalizeResult ReplayFinalize =
 		Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
-			*Fixture.Authority, Summary);
+			*Fixture.Authority, MetadataSummary);
 	TestTrue(TEXT("Repeated settlement observes terminal marker without another write"),
 		ReplayFinalize.IsFinalized()
 		&& ReplayFinalize.Status
