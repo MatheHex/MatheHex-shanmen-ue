@@ -880,6 +880,19 @@ bool Ademo_mapPlayerController::TryBasicAttack()
 	TArray<FHitResult> Hits;
 	World->SweepMultiByObjectType(Hits, Start, End, FQuat::Identity, ObjectQueryParams, AttackSphere, QueryParams);
 
+	if (Ademo_mapGameMode* Mode = Cast<Ademo_mapGameMode>(
+		World->GetAuthGameMode());
+		Mode && Mode->ShouldUseM01BasicSwordProductPath())
+	{
+		const Fdemo_mapBasicSwordProductExecutionResult ProductResult =
+			Mode->ExecuteM01PlayerBasicSwordSweep(
+				Fdemo_mapPlayerCombat::CaptureAttackPower(ControlledPawn),
+				Hits);
+		// M01 is an atomic route switch. A rejected product action must not
+		// fall through to the retained ApplyDamage compatibility writer.
+		return ProductResult.AppliedDamage();
+	}
+
 	TSet<AActor*> DamagedActors;
 	bool bAppliedDamage = false;
 	const float DamageSnapshot = Fdemo_mapPlayerCombat::CaptureOutgoingDamage(ControlledPawn, BasicAttackCoefficient);

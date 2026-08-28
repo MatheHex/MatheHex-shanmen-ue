@@ -19,6 +19,8 @@
 #include "demo_mapPlayerHealthComponent.h"
 #include "demo_mapRangedEnemyCharacter.h"
 
+#include <limits>
+
 namespace
 {
 	const FGuid CoordinatorRunA(0x54300001, 0, 0, 1);
@@ -236,6 +238,22 @@ namespace
 			Vitality,
 			Defense,
 			OutImpact);
+	}
+
+	FHitResult MakeProductSwordHit(AActor* TargetActor)
+	{
+		UPrimitiveComponent* TargetRoot = TargetActor
+			? Cast<UPrimitiveComponent>(TargetActor->GetRootComponent())
+			: nullptr;
+		FHitResult Hit(
+			TargetActor,
+			TargetRoot,
+			FVector(40.0, 0.0, 50.0),
+			FVector::BackwardVector);
+		Hit.ImpactPoint = FVector(40.0, 0.0, 50.0);
+		Hit.ImpactNormal = FVector::BackwardVector;
+		Hit.Item = 0;
+		return Hit;
 	}
 }
 
@@ -631,6 +649,178 @@ bool FShanmenCombatRunCoordinatorM01DeliveryTest::RunTest(const FString&)
 			&& EnemyFixture.Enemy->NumCommittedCombatImpacts() == 0
 			&& EnemyFixture.Enemy
 				->GetPositiveCombatDamageCountForAutomation() == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenCombatRunCoordinatorProductSwordSweepTest,
+	"Shanmen.0_0_10.Product.CombatRunCoordinator.ProductBasicSwordSweep",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenCombatRunCoordinatorProductSwordSweepTest::RunTest(
+	const FString&)
+{
+	FCombatRunCoordinatorFixture Fixture;
+	FM01MeleeEnemyFixture EnemyFixture;
+	TestTrue(TEXT("Product sweep fixtures initialize"),
+		Fixture.bReady && EnemyFixture.bReady
+			&& Fixture.Coordinator.TryRegisterM01Enemy(
+				EnemyFixture.Enemy,
+				Fixture.Diagnostic));
+	if (!Fixture.bReady || !EnemyFixture.bReady)
+	{
+		AddError(Fixture.Diagnostic);
+		return false;
+	}
+
+	const FGuid WeaponInstanceId(0x54350001, 0, 0, 1);
+	const FGuid ExpectedActivation = FShanmenCombatIdFactory::MakeActivationId(
+		CoordinatorRunA,
+		Fixture.Coordinator.GetPlayerEntityId(),
+		FShanmenBasicSwordDefinition::CanonicalActionDefinitionId(),
+		1);
+	const float VitalityBefore = EnemyFixture.Enemy->GetCurrentVitality();
+	const FHitResult Hit = MakeProductSwordHit(EnemyFixture.Enemy);
+	const Fdemo_mapBasicSwordProductExecutionResult First =
+		Fixture.Coordinator.ExecutePlayerBasicSwordSweep(
+			WeaponInstanceId,
+			1.0f,
+			{ Hit, Hit });
+	TestTrue(TEXT("One real trajectory action has deterministic identity"),
+		First.IsExecuted()
+			&& First.ActivationId == ExpectedActivation
+			&& Fixture.Coordinator
+				.GetNextPlayerBasicSwordActivationSequence() == 2);
+	TestTrue(TEXT("Duplicate geometry contacts commit the target exactly once"),
+		First.WorldContactCount == 2
+			&& First.ResolvedCandidateCount == 2
+			&& First.DeliveredImpactCount == 1
+			&& First.CommittedImpactCount == 1
+			&& First.AlreadyCommittedImpactCount == 0
+			&& FMath::IsNearlyEqual(
+				EnemyFixture.Enemy->GetCurrentVitality(),
+				VitalityBefore - 1.0f)
+			&& EnemyFixture.Enemy->GetCombatAuthorityRevision() == 1
+			&& EnemyFixture.Enemy->NumCommittedCombatImpacts() == 1
+			&& EnemyFixture.Enemy
+				->GetPositiveCombatDamageCountForAutomation() == 1);
+
+	const Fdemo_mapBasicSwordProductExecutionResult Miss =
+		Fixture.Coordinator.ExecutePlayerBasicSwordSweep(
+			WeaponInstanceId,
+			1.0f,
+			{});
+	TestTrue(TEXT("A legal miss closes normally and consumes a new activation"),
+		Miss.IsExecuted()
+			&& !Miss.AppliedDamage()
+			&& Miss.ActivationId != First.ActivationId
+			&& Miss.WorldContactCount == 0
+			&& Miss.DeliveredImpactCount == 0
+			&& Fixture.Coordinator
+				.GetNextPlayerBasicSwordActivationSequence() == 3
+			&& FMath::IsNearlyEqual(
+				EnemyFixture.Enemy->GetCurrentVitality(),
+				VitalityBefore - 1.0f));
+
+	TestTrue(TEXT("Exact Run release resets the product activation sequence"),
+		Fixture.Coordinator.TryEndRun(
+			CoordinatorRunA,
+			Fixture.Diagnostic)
+			&& Fixture.Coordinator
+				.GetNextPlayerBasicSwordActivationSequence() == 1);
+	TestTrue(TEXT("Persistent hosts bind a second product Run"),
+		Fixture.Coordinator.TryBeginRun(
+			CoordinatorRunB,
+			Fixture.Pawn,
+			Fixture.Health,
+			Fixture.Diagnostic)
+			&& Fixture.Coordinator.TryRegisterM01Enemy(
+				EnemyFixture.Enemy,
+				Fixture.Diagnostic));
+	const Fdemo_mapBasicSwordProductExecutionResult NextRun =
+		Fixture.Coordinator.ExecutePlayerBasicSwordSweep(
+			WeaponInstanceId,
+			1.0f,
+			{});
+	TestTrue(TEXT("Sequence one in a new Run derives a different activation"),
+		NextRun.IsExecuted()
+			&& NextRun.ActivationId != First.ActivationId
+			&& NextRun.ActivationId
+				== FShanmenCombatIdFactory::MakeActivationId(
+					CoordinatorRunB,
+					Fixture.Coordinator.GetPlayerEntityId(),
+					FShanmenBasicSwordDefinition::
+						CanonicalActionDefinitionId(),
+					1));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenCombatRunCoordinatorProductSwordFailClosedTest,
+	"Shanmen.0_0_10.Product.CombatRunCoordinator.ProductBasicSwordFailClosed",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenCombatRunCoordinatorProductSwordFailClosedTest::RunTest(
+	const FString&)
+{
+	Fdemo_mapCombatRunCoordinator Empty;
+	const FGuid WeaponInstanceId(0x54350002, 0, 0, 1);
+	const Fdemo_mapBasicSwordProductExecutionResult NotReady =
+		Empty.ExecutePlayerBasicSwordSweep(WeaponInstanceId, 1.0f, {});
+	TestTrue(TEXT("Inactive coordinator rejects before action creation"),
+		NotReady.Error
+			== Edemo_mapBasicSwordProductExecutionError::CoordinatorNotReady
+			&& !NotReady.ActivationId.IsValid());
+
+	FCombatRunCoordinatorFixture Fixture;
+	TestTrue(TEXT("Fail-closed fixture initializes"), Fixture.bReady);
+	if (!Fixture.bReady)
+	{
+		AddError(Fixture.Diagnostic);
+		return false;
+	}
+	const Fdemo_mapBasicSwordProductExecutionResult MissingWeapon =
+		Fixture.Coordinator.ExecutePlayerBasicSwordSweep(FGuid(), 1.0f, {});
+	const Fdemo_mapBasicSwordProductExecutionResult InvalidOffense =
+		Fixture.Coordinator.ExecutePlayerBasicSwordSweep(
+			WeaponInstanceId,
+			std::numeric_limits<float>::quiet_NaN(),
+			{});
+	TestTrue(TEXT("Missing item and invalid offense fail without consuming sequence"),
+		MissingWeapon.Error
+				== Edemo_mapBasicSwordProductExecutionError::InvalidSourceItem
+			&& InvalidOffense.Error
+				== Edemo_mapBasicSwordProductExecutionError::InvalidOffense
+			&& Fixture.Coordinator
+				.GetNextPlayerBasicSwordActivationSequence() == 1);
+
+	Ademo_mapEnemyCharacter* Unregistered =
+		NewObject<Ademo_mapEnemyCharacter>(GetTransientPackage());
+	const float UnregisteredVitality = Unregistered->GetCurrentVitality();
+	const Fdemo_mapBasicSwordProductExecutionResult UnregisteredHit =
+		Fixture.Coordinator.ExecutePlayerBasicSwordSweep(
+			WeaponInstanceId,
+			1.0f,
+			{ MakeProductSwordHit(Unregistered) });
+	TestTrue(TEXT("Unregistered world contact is ignored without legacy mutation"),
+		UnregisteredHit.IsExecuted()
+			&& !UnregisteredHit.AppliedDamage()
+			&& UnregisteredHit.ResolvedCandidateCount == 0
+			&& FMath::IsNearlyEqual(
+				Unregistered->GetCurrentVitality(),
+				UnregisteredVitality)
+			&& !Unregistered->IsCombatEntityBound());
+
+	FCombatRunCoordinatorFixture ReplayFixture;
+	const Fdemo_mapBasicSwordProductExecutionResult Replay =
+		ReplayFixture.Coordinator.ExecutePlayerBasicSwordSweep(
+			WeaponInstanceId,
+			1.0f,
+			{});
+	TestTrue(TEXT("Identical Run inputs replay the same first activation ID"),
+		ReplayFixture.bReady
+			&& Replay.IsExecuted()
+			&& Replay.ActivationId == UnregisteredHit.ActivationId);
 	return true;
 }
 

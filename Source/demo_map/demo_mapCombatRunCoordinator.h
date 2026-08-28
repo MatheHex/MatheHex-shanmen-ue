@@ -11,6 +11,7 @@ class UPrimitiveComponent;
 class Udemo_mapPlayerHealthComponent;
 class Ademo_mapEnemyCharacter;
 struct Fdemo_mapM01EnemyDefinition;
+struct FHitResult;
 
 /** Product-bound failures that occur before or around a canonical vitality commit. */
 enum class Edemo_mapCombatImpactDeliveryError : uint8
@@ -38,6 +39,47 @@ struct Fdemo_mapCombatImpactDeliveryResult
 	{
 		return Error == Edemo_mapCombatImpactDeliveryError::None
 			&& CommitResult.IsSuccess();
+	}
+};
+
+/** Product execution failures before a BasicSword action can close normally. */
+enum class Edemo_mapBasicSwordProductExecutionError : uint8
+{
+	None,
+	CoordinatorNotReady,
+	InvalidSourceItem,
+	InvalidOffense,
+	ActionConstructionFailed,
+	RuntimeStartFailed,
+	DefinitionConstructionFailed,
+	ExecutionConstructionFailed,
+	EmissionStartFailed,
+	DeliveryRejected,
+	EmissionEndFailed,
+	RuntimeCompletionFailed
+};
+
+/** Auditable summary for one real player-input BasicSword trajectory sample. */
+struct Fdemo_mapBasicSwordProductExecutionResult
+{
+	Edemo_mapBasicSwordProductExecutionError Error =
+		Edemo_mapBasicSwordProductExecutionError::CoordinatorNotReady;
+	FGuid ActivationId;
+	int32 WorldContactCount = 0;
+	int32 ResolvedCandidateCount = 0;
+	int32 DeliveredImpactCount = 0;
+	int32 CommittedImpactCount = 0;
+	int32 AlreadyCommittedImpactCount = 0;
+
+	bool IsExecuted() const
+	{
+		return Error == Edemo_mapBasicSwordProductExecutionError::None
+			&& ActivationId.IsValid();
+	}
+
+	bool AppliedDamage() const
+	{
+		return IsExecuted() && CommittedImpactCount > 0;
 	}
 };
 
@@ -85,6 +127,19 @@ public:
 	Fdemo_mapCombatImpactDeliveryResult DeliverBasicSwordImpactToM01Enemy(
 		const FShanmenBasicSwordImpactReceipt& Impact,
 		Ademo_mapEnemyCharacter* TargetEnemy);
+	/**
+	 * Executes one complete player BasicSword action from an already sampled UE
+	 * trajectory. Every accepted contact resolves through this Run's Registry;
+	 * canonical vitality delivery is the only mutable damage path.
+	 */
+	Fdemo_mapBasicSwordProductExecutionResult ExecutePlayerBasicSwordSweep(
+		const FGuid& SourceItemInstanceId,
+		float AttackPower,
+		const TArray<FHitResult>& WorldHits);
+	uint64 GetNextPlayerBasicSwordActivationSequence() const
+	{
+		return NextPlayerBasicSwordActivationSequence;
+	}
 
 private:
 	struct FM01EnemyBinding
@@ -101,4 +156,5 @@ private:
 	TWeakObjectPtr<Udemo_mapPlayerHealthComponent> BoundPlayerHealth;
 	TWeakObjectPtr<UPrimitiveComponent> BoundPlayerRoot;
 	TMap<FGuid, FM01EnemyBinding> M01EnemyBindings;
+	uint64 NextPlayerBasicSwordActivationSequence = 1;
 };

@@ -35,6 +35,7 @@ class Ademo_mapM01ExtractionZone;
 class Ademo_mapM01Marker;
 class Ademo_mapM01BossCharacter;
 struct Fdemo_map0909BRunStartResult;
+struct FHitResult;
 
 /** Coordinates the runtime-only three-target mission loop. */
 UCLASS()
@@ -76,6 +77,12 @@ public:
 	Fdemo_mapCombatImpactDeliveryResult DeliverResolvedM01MeleeImpact(
 		const FShanmenBasicSwordImpactReceipt& Impact,
 		Ademo_mapEnemyCharacter* TargetEnemy);
+	/** M01 claims primary attack input only after its canonical Run is active. */
+	bool ShouldUseM01BasicSwordProductPath() const;
+	/** Executes one real primary-input sweep without falling through to ApplyDamage. */
+	Fdemo_mapBasicSwordProductExecutionResult ExecuteM01PlayerBasicSwordSweep(
+		float AttackPower,
+		const TArray<FHitResult>& WorldHits);
 	FString Get0909BProfileStorageRoot() const;
 	bool Open0909BOutOfRaidInventory(FString& OutFeedback);
 	void Set0909BOutOfRaidClosedCallback(TFunction<void()> InCallback);

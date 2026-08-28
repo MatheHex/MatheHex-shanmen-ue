@@ -300,6 +300,45 @@ Ademo_mapGameMode::DeliverResolvedM01MeleeImpact(
 		TargetEnemy);
 }
 
+bool Ademo_mapGameMode::ShouldUseM01BasicSwordProductPath() const
+{
+	// M01 never falls back to the legacy damage writer. Before its Combat Run
+	// is ready, input is rejected by the product execution gate instead.
+	return IsM01ExpeditionMap();
+}
+
+Fdemo_mapBasicSwordProductExecutionResult
+Ademo_mapGameMode::ExecuteM01PlayerBasicSwordSweep(
+	float AttackPower,
+	const TArray<FHitResult>& WorldHits)
+{
+	Fdemo_mapBasicSwordProductExecutionResult Result;
+	if (!ShouldUseM01BasicSwordProductPath()
+		|| !CombatRunCoordinator.IsReady()
+		|| !PlayerItemSubsystem.IsValid())
+	{
+		return Result;
+	}
+
+	const FGuid WeaponInstanceId = PlayerItemSubsystem->GetAuthority()
+		.GetEquippedInstance(Fdemo_mapItemIds::WeaponSlot);
+	Result = CombatRunCoordinator.ExecutePlayerBasicSwordSweep(
+		WeaponInstanceId,
+		AttackPower,
+		WorldHits);
+	UE_LOG(Logdemo_map,
+		Log,
+		TEXT("0_0_10_BASIC_SWORD Event=ProductSweep Error=%d ActivationId=%s Contacts=%d Candidates=%d Delivered=%d Committed=%d Replayed=%d"),
+		static_cast<int32>(Result.Error),
+		*Result.ActivationId.ToString(EGuidFormats::DigitsWithHyphens),
+		Result.WorldContactCount,
+		Result.ResolvedCandidateCount,
+		Result.DeliveredImpactCount,
+		Result.CommittedImpactCount,
+		Result.AlreadyCommittedImpactCount);
+	return Result;
+}
+
 FString Ademo_mapGameMode::Get0909BProfileStorageRoot() const
 {
 	if (!Is0909BRuntimeReady())

@@ -2,7 +2,7 @@
 #include "demo_mapAttributeComponent.h"
 #include "demo_mapAttributeDefinitions.h"
 
-float Fdemo_mapPlayerCombat::CaptureOutgoingDamage(const AActor* SourceActor, float AttackCoefficient)
+float Fdemo_mapPlayerCombat::CaptureAttackPower(const AActor* SourceActor)
 {
 	float AttackPower = 1.0f;
 	if (SourceActor != nullptr)
@@ -12,7 +12,17 @@ float Fdemo_mapPlayerCombat::CaptureOutgoingDamage(const AActor* SourceActor, fl
 			Attributes->GetFinalValue(Fdemo_mapAttributeIds::AttackPower, AttackPower);
 		}
 	}
-	return FMath::Max(0.0f, AttackPower * FMath::Max(0.0f, AttackCoefficient));
+	return FMath::IsFinite(AttackPower)
+		? FMath::Max(0.0f, AttackPower)
+		: 0.0f;
+}
+
+float Fdemo_mapPlayerCombat::CaptureOutgoingDamage(
+	const AActor* SourceActor,
+	float AttackCoefficient)
+{
+	return CaptureAttackPower(SourceActor)
+		* FMath::Max(0.0f, AttackCoefficient);
 }
 
 float Fdemo_mapPlayerCombat::CaptureCooldownMultiplier(

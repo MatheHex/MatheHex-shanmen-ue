@@ -1,6 +1,10 @@
 #include "demo_mapCombatRunCoordinator.h"
 
+#include "ShanmenCombatResolver.h"
+#include "ShanmenCombatTags.h"
+#include "ShanmenWorldHitAdapter.h"
 #include "Components/PrimitiveComponent.h"
+#include "Engine/EngineTypes.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/Pawn.h"
 #include "demo_mapEnemyCharacter.h"
@@ -38,6 +42,54 @@ namespace
 		default:
 			return false;
 		}
+	}
+
+	bool TryBuildProductBasicSwordDefinition(
+		FShanmenBasicSwordDefinition& OutDefinition)
+	{
+		FShanmenBasicSwordDefinitionCapture Capture;
+		Capture.ActionDefinitionId =
+			FShanmenBasicSwordDefinition::CanonicalActionDefinitionId();
+		Capture.DetectorId = TEXT("Detector.Weapon.Main");
+		Capture.FormulaId = TEXT("Combat.Formula.Sword.Basic01.Product.r1");
+		Capture.BaseDamage = 0.0f;
+		Capture.AttackPowerCoefficient = 1.0f;
+		Capture.DamageTags.AddTag(
+			FShanmenCombatNativeTags::DamagePhysicalSlash());
+		Capture.RequiredTargetTags.AddTag(
+			FShanmenCombatNativeTags::TargetLiving());
+		Capture.bRejectSelf = true;
+		return FShanmenBasicSwordDefinition::TryCapture(
+			Capture,
+			OutDefinition);
+	}
+
+	bool TryBuildProductBasicSwordAction(
+		const FGuid& RunId,
+		const FGuid& PlayerEntityId,
+		const FGuid& SourceItemInstanceId,
+		uint64 ActivationSequence,
+		FShanmenCombatActionSnapshot& OutAction)
+	{
+		FShanmenCombatActionCapture Capture;
+		Capture.RunId = RunId;
+		// The local player entity is also the action owner for this product
+		// slice. Persistent profile identity remains outside CombatCore.
+		Capture.OwnerId = PlayerEntityId;
+		Capture.SourceEntityId = PlayerEntityId;
+		Capture.SourceItemInstanceId = SourceItemInstanceId;
+		Capture.ActionDefinitionId =
+			FShanmenBasicSwordDefinition::CanonicalActionDefinitionId();
+		Capture.Content.Version = TEXT("0.0.10.P4.5");
+		Capture.Content.Digest =
+			TEXT("Shanmen.BasicSword.ProductTrajectory.r1");
+		Capture.SourceTags.AddTag(FShanmenCombatNativeTags::SourcePlayer());
+		Capture.ActivationId = FShanmenCombatIdFactory::MakeActivationId(
+			RunId,
+			PlayerEntityId,
+			Capture.ActionDefinitionId,
+			ActivationSequence);
+		return FShanmenCombatActionSnapshot::TryCapture(Capture, OutAction);
 	}
 }
 
@@ -325,6 +377,7 @@ bool Fdemo_mapCombatRunCoordinator::TryEndRun(
 	BoundPlayerPawn.Reset();
 	BoundPlayerHealth.Reset();
 	BoundPlayerRoot.Reset();
+	NextPlayerBasicSwordActivationSequence = 1;
 	OutDiagnostic = TEXT("Combat Run identities released.");
 	return true;
 }
@@ -348,6 +401,7 @@ void Fdemo_mapCombatRunCoordinator::Reset()
 	BoundPlayerPawn.Reset();
 	BoundPlayerHealth.Reset();
 	BoundPlayerRoot.Reset();
+	NextPlayerBasicSwordActivationSequence = 1;
 }
 
 bool Fdemo_mapCombatRunCoordinator::IsReady() const
@@ -515,4 +569,178 @@ Fdemo_mapCombatRunCoordinator::DeliverBasicSwordImpactToM01Enemy(
 		? Edemo_mapCombatImpactDeliveryError::None
 		: Edemo_mapCombatImpactDeliveryError::CommitRejected;
 	return Delivery;
+}
+
+Fdemo_mapBasicSwordProductExecutionResult
+Fdemo_mapCombatRunCoordinator::ExecutePlayerBasicSwordSweep(
+	const FGuid& SourceItemInstanceId,
+	float AttackPower,
+	const TArray<FHitResult>& WorldHits)
+{
+	Fdemo_mapBasicSwordProductExecutionResult ProductResult;
+	ProductResult.WorldContactCount = WorldHits.Num();
+	if (!IsReady() || NextPlayerBasicSwordActivationSequence == MAX_uint64)
+	{
+		ProductResult.Error =
+			Edemo_mapBasicSwordProductExecutionError::CoordinatorNotReady;
+		return ProductResult;
+	}
+	if (!SourceItemInstanceId.IsValid())
+	{
+		ProductResult.Error =
+			Edemo_mapBasicSwordProductExecutionError::InvalidSourceItem;
+		return ProductResult;
+	}
+
+	FShanmenBasicSwordOffenseSnapshot Offense;
+	if (!FShanmenBasicSwordOffenseSnapshot::TryCapture(
+			AttackPower,
+			Offense))
+	{
+		ProductResult.Error =
+			Edemo_mapBasicSwordProductExecutionError::InvalidOffense;
+		return ProductResult;
+	}
+
+	FShanmenCombatActionSnapshot Action;
+	if (!TryBuildProductBasicSwordAction(
+			GetRunId(),
+			PlayerEntityId,
+			SourceItemInstanceId,
+			NextPlayerBasicSwordActivationSequence,
+			Action))
+	{
+		ProductResult.Error =
+			Edemo_mapBasicSwordProductExecutionError::ActionConstructionFailed;
+		return ProductResult;
+	}
+
+	FShanmenBasicSwordDefinition Definition;
+	if (!TryBuildProductBasicSwordDefinition(Definition))
+	{
+		ProductResult.Error = Edemo_mapBasicSwordProductExecutionError::
+			DefinitionConstructionFailed;
+		return ProductResult;
+	}
+	FShanmenBasicSwordExecution SwordExecution;
+	if (!FShanmenBasicSwordExecution::TryCreate(
+			Action,
+			Definition,
+			Offense,
+			SwordExecution))
+	{
+		ProductResult.Error = Edemo_mapBasicSwordProductExecutionError::
+			ExecutionConstructionFailed;
+		return ProductResult;
+	}
+
+	FShanmenActionOrchestrator ActionRuntime;
+	FShanmenActionTransitionReceipt Transition;
+	if (!FShanmenActionOrchestrator::TryStart(
+			Action,
+			ActionRuntime,
+			Transition)
+		|| !ActionRuntime.TryAdvance(
+			EShanmenCombatActionPhase::Startup,
+			Transition))
+	{
+		ProductResult.Error =
+			Edemo_mapBasicSwordProductExecutionError::RuntimeStartFailed;
+		return ProductResult;
+	}
+	ProductResult.ActivationId = Action.GetActivationId();
+	++NextPlayerBasicSwordActivationSequence;
+
+	FShanmenWorldHitContext HitContext;
+	if (!SwordExecution.TryBeginEmission(ActionRuntime, HitContext))
+	{
+		ProductResult.Error =
+			Edemo_mapBasicSwordProductExecutionError::EmissionStartFailed;
+		return ProductResult;
+	}
+
+	for (const FHitResult& WorldHit : WorldHits)
+	{
+		Ademo_mapEnemyCharacter* TargetEnemy =
+			Cast<Ademo_mapEnemyCharacter>(WorldHit.GetActor());
+		if (!TargetEnemy || !TargetEnemy->IsCombatEntityBound())
+		{
+			continue;
+		}
+
+		FShanmenHitCandidate Candidate;
+		if (!FShanmenWorldHitAdapter::TryFromSweep(
+				HitContext,
+				WorldHit,
+				EntityRegistry,
+				Candidate))
+		{
+			continue;
+		}
+		++ProductResult.ResolvedCandidateCount;
+
+		FShanmenTargetVitalitySnapshot Vitality;
+		if (!TargetEnemy->TryCaptureCombatVitalitySnapshot(Vitality))
+		{
+			continue;
+		}
+		FShanmenDefenseSnapshot Defense;
+		Defense.TargetTags.AddTag(
+			FShanmenCombatNativeTags::TargetLiving());
+		FShanmenBasicSwordImpactReceipt Impact;
+		if (!SwordExecution.TryResolveCandidate(
+				ActionRuntime,
+				Candidate,
+				Vitality,
+				Defense,
+				Impact))
+		{
+			continue;
+		}
+
+		const Fdemo_mapCombatImpactDeliveryResult Delivery =
+			DeliverBasicSwordImpactToM01Enemy(Impact, TargetEnemy);
+		if (!Delivery.IsSuccess())
+		{
+			SwordExecution.EndEmissionForTermination();
+			ActionRuntime.TryInterrupt(
+				EShanmenCombatActionPhase::Active,
+				Transition);
+			ProductResult.Error = Edemo_mapBasicSwordProductExecutionError::
+				DeliveryRejected;
+			return ProductResult;
+		}
+		++ProductResult.DeliveredImpactCount;
+		if (Delivery.CommitResult.Status
+			== EShanmenVitalityCommitStatus::Committed)
+		{
+			++ProductResult.CommittedImpactCount;
+		}
+		else if (Delivery.CommitResult.Status
+			== EShanmenVitalityCommitStatus::AlreadyCommitted)
+		{
+			++ProductResult.AlreadyCommittedImpactCount;
+		}
+	}
+
+	if (!SwordExecution.TryEndEmission(ActionRuntime))
+	{
+		ProductResult.Error =
+			Edemo_mapBasicSwordProductExecutionError::EmissionEndFailed;
+		return ProductResult;
+	}
+	if (!ActionRuntime.TryAdvance(
+			EShanmenCombatActionPhase::Active,
+			Transition)
+		|| !ActionRuntime.TryAdvance(
+			EShanmenCombatActionPhase::Recovery,
+			Transition))
+	{
+		ProductResult.Error = Edemo_mapBasicSwordProductExecutionError::
+			RuntimeCompletionFailed;
+		return ProductResult;
+	}
+
+	ProductResult.Error = Edemo_mapBasicSwordProductExecutionError::None;
+	return ProductResult;
 }
