@@ -121,6 +121,8 @@ public:
 		const FShanmenItemReservationActionRequest& Request);
 	FShanmenItemDurableCommandResult CommitBatchDurable(
 		const FShanmenItemReservationBatchRequest& Request);
+	FShanmenItemDurableCommandResult StartPreparedRunDurable(
+		const FShanmenItemRunStartRequest& Request);
 	FShanmenItemDurableCommandResult AmendReservationPurposeDurable(
 		const FShanmenItemReservationAmendRequest& Request);
 	FShanmenItemDurableCommandResult CancelDurable(

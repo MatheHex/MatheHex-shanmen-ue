@@ -17,6 +17,8 @@ public:
 	FShanmenItemTransactionReceipt Reserve(const FShanmenItemReserveRequest& Request);
 	FShanmenItemTransactionReceipt Commit(const FShanmenItemReservationActionRequest& Request);
 	FShanmenItemTransactionReceipt CommitBatch(const FShanmenItemReservationBatchRequest& Request);
+	FShanmenItemTransactionReceipt StartPreparedRun(
+		const FShanmenItemRunStartRequest& Request);
 	FShanmenItemTransactionReceipt AmendReservationPurpose(
 		const FShanmenItemReservationAmendRequest& Request);
 	FShanmenItemTransactionReceipt Cancel(const FShanmenItemReservationActionRequest& Request);
@@ -65,6 +67,7 @@ private:
 		EShanmenItemTransactionOperation Operation,
 		const FShanmenItemReservationActionRequest& Request);
 	static FGuid Fingerprint(const FShanmenItemReservationBatchRequest& Request);
+	static FGuid Fingerprint(const FShanmenItemRunStartRequest& Request);
 	static FGuid Fingerprint(const FShanmenItemReservationAmendRequest& Request);
 	static FGuid Fingerprint(const FShanmenItemRunClaimRequest& Request);
 	static FGuid Fingerprint(const FShanmenItemRunFinalizeRequest& Request);

@@ -52,18 +52,6 @@ namespace
 		return Context;
 	}
 
-	FGuid MakeClaimRequestId(
-		const Fdemo_mapShanmenPreparedLoadoutReceipt& Prepared)
-	{
-		return FShanmenDeterministicId::FromCanonicalParts(
-			TEXT("demo_map.ShanmenRun.Claim.r1"),
-			{
-				GuidDigits(Prepared.OwnerId), GuidDigits(Prepared.ScopeId),
-				GuidDigits(Prepared.BatchRequestId),
-				GuidDigits(Prepared.BatchReceiptId)
-			});
-	}
-
 	FName EquipmentSlotFor(
 		const Fdemo_mapShanmenPreparedLoadoutReceipt& Prepared,
 		const FGuid& ItemId)
@@ -88,9 +76,11 @@ namespace
 		FString& OutDiagnostic)
 	{
 		OutPlan = Fdemo_mapCommittedRunLoadoutPlan();
-		if (!Prepared.IsValid() || !Claim.IsSuccess()
+		const bool bLifecycleStart = Claim.Operation
+			== EShanmenItemTransactionOperation::ClaimPreparedRun
 			|| Claim.Operation
-				!= EShanmenItemTransactionOperation::ClaimPreparedRun
+				== EShanmenItemTransactionOperation::StartPreparedRun;
+		if (!Prepared.IsValid() || !Claim.IsSuccess() || !bLifecycleStart
 			|| Claim.ItemInstanceId != Prepared.BatchRequestId
 			|| Claim.ReservationIds.Num() != Prepared.OrderedLines.Num())
 		{
@@ -318,7 +308,7 @@ Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
 	}
 
 	const Fdemo_mapShanmenPreparedLoadoutResult Prepared =
-		Fdemo_mapShanmenPreparationAdapter::CommitPreparedLoadout(Authority);
+		Fdemo_mapShanmenPreparationAdapter::StartPreparedLoadout(Authority);
 	if (!Prepared.IsCommitted())
 	{
 		return Reject(
@@ -326,25 +316,14 @@ Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
 			Prepared.Diagnostic);
 	}
 	Result.PreparedLoadout = Prepared.Receipt;
-	FShanmenItemAuthoritySnapshot Snapshot;
-	if (!Authority.TryCaptureSnapshot(Snapshot))
+	Result.StartCommand = Prepared.Command;
+	if (!Result.StartCommand.IsCommandSuccess())
 	{
 		return Reject(
-			Edemo_mapShanmenRunLifecycleStatus::AuthorityNotReady,
-			TEXT("Authority disappeared before prepared Run claim."));
+			Edemo_mapShanmenRunLifecycleStatus::AuthorityStartRejected,
+			TEXT("Prepared loadout has no durable atomic-start receipt."));
 	}
-	FShanmenItemRunClaimRequest ClaimRequest;
-	ClaimRequest.Context = MakeContext(
-		Snapshot, Prepared.Receipt, MakeClaimRequestId(Prepared.Receipt));
-	ClaimRequest.PreparedBatchRequestId = Prepared.Receipt.BatchRequestId;
-	Result.ClaimCommand = Authority.ClaimPreparedRunDurable(ClaimRequest);
-	if (!Result.ClaimCommand.IsCommandSuccess())
-	{
-		return Reject(
-			Edemo_mapShanmenRunLifecycleStatus::ClaimRejected,
-			Result.ClaimCommand.Diagnostic);
-	}
-	Result.ActiveRunId = Result.ClaimCommand.Receipt.ReservationId;
+	Result.ActiveRunId = Result.StartCommand.Receipt.ReservationId;
 
 	if (Runtime.GetRunState() == Edemo_mapRunState::Active)
 	{
@@ -364,7 +343,7 @@ Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
 	}
 	Fdemo_mapPreparedRunRuntimeRequest RuntimeRequest;
 	if (!BuildRuntimePlan(
-		Prepared.Receipt, Result.ClaimCommand.Receipt,
+		Prepared.Receipt, Result.StartCommand.Receipt,
 		RuntimeRequest.CommittedPlan, Result.Diagnostic))
 	{
 		Result.Status =
@@ -378,14 +357,14 @@ Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
 			Edemo_mapShanmenRunLifecycleStatus::RuntimeMaterializationRejected,
 			Result.RuntimeResult.Diagnostic);
 	}
-	Result.Status = Result.ClaimCommand.Status
+	Result.Status = Result.StartCommand.Status
 		== EShanmenItemDurableCommandStatus::Replayed
 		? Edemo_mapShanmenRunLifecycleStatus::Resumed
 		: Edemo_mapShanmenRunLifecycleStatus::Started;
 	Result.Diagnostic = Result.Status
 		== Edemo_mapShanmenRunLifecycleStatus::Started
-		? TEXT("Prepared receipt was durably claimed and materialized into Runtime.")
-		: TEXT("The same durable claim was replayed and rematerialized after Runtime restart.");
+		? TEXT("Preparation commit and ActiveRun publication were durably atomic before Runtime materialization.")
+		: TEXT("The same atomic prepared Run was reconstructed and rematerialized after Runtime restart.");
 	return Result;
 }
 
@@ -462,7 +441,7 @@ Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
 	}
 
 	const Fdemo_mapShanmenPreparedLoadoutResult Prepared =
-		Fdemo_mapShanmenPreparationAdapter::CommitPreparedLoadout(Authority);
+		Fdemo_mapShanmenPreparationAdapter::StartPreparedLoadout(Authority);
 	if (!Prepared.IsCommitted())
 	{
 		return Reject(

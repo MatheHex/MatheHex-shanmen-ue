@@ -158,4 +158,8 @@ struct Fdemo_mapShanmenPreparationAdapter
 	/** Validate and commit every current equipment and RunInventory intent once. */
 	static Fdemo_mapShanmenPreparedLoadoutResult CommitPreparedLoadout(
 		Udemo_mapShanmenItemAuthoritySubsystem& Authority);
+
+	/** Commit the current loadout and publish its ActiveRunId in one write. */
+	static Fdemo_mapShanmenPreparedLoadoutResult StartPreparedLoadout(
+		Udemo_mapShanmenItemAuthoritySubsystem& Authority);
 };

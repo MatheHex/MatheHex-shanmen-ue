@@ -228,6 +228,24 @@ bool FShanmenItemReservationBatchRequest::IsValid() const
 	return true;
 }
 
+bool FShanmenItemRunStartRequest::IsValid() const
+{
+	if (!Context.IsValid() || ReservationIds.IsEmpty())
+	{
+		return false;
+	}
+	TSet<FGuid> Unique;
+	for (const FGuid& ReservationId : ReservationIds)
+	{
+		if (!ReservationId.IsValid() || Unique.Contains(ReservationId))
+		{
+			return false;
+		}
+		Unique.Add(ReservationId);
+	}
+	return true;
+}
+
 bool FShanmenItemReservationAmendRequest::IsValid() const
 {
 	return Context.IsValid()
@@ -441,6 +459,16 @@ bool FShanmenItemTransactionReceipt::IsValid() const
 			&& Phase == EShanmenItemTransactionPhase::Committed
 			&& ReservationId.IsValid()
 			&& ItemInstanceId.IsValid()
+			&& Amount == ReservationIds.Num()
+			&& Amount > 0
+			&& PurposeId == FShanmenItemRunLifecyclePurpose::Active();
+	}
+	if (Operation == EShanmenItemTransactionOperation::StartPreparedRun)
+	{
+		return Error == EShanmenItemTransactionError::None
+			&& Phase == EShanmenItemTransactionPhase::Committed
+			&& ReservationId.IsValid()
+			&& ItemInstanceId == RequestId
 			&& Amount == ReservationIds.Num()
 			&& Amount > 0
 			&& PurposeId == FShanmenItemRunLifecyclePurpose::Active();

@@ -333,6 +333,23 @@ Udemo_mapShanmenItemAuthoritySubsystem::CommitBatchDurable(
 }
 
 FShanmenItemDurableCommandResult
+Udemo_mapShanmenItemAuthoritySubsystem::StartPreparedRunDurable(
+	const FShanmenItemRunStartRequest& Request)
+{
+	if (!IsInGameThread() || !AuthorityService
+		|| LifecycleState
+			!= Edemo_mapShanmenItemAuthorityLifecycleState::Ready)
+	{
+		return RejectCommand(
+			TEXT("Atomic prepared Run start requires the Ready authority on the Game Thread."));
+	}
+	const FShanmenItemDurableCommandResult Result =
+		AuthorityService->StartPreparedRunDurable(Request);
+	SynchronizeCommandState(Result);
+	return Result;
+}
+
+FShanmenItemDurableCommandResult
 Udemo_mapShanmenItemAuthoritySubsystem::AmendReservationPurposeDurable(
 	const FShanmenItemReservationAmendRequest& Request)
 {

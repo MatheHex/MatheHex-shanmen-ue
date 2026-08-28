@@ -414,19 +414,35 @@ bool FShanmenItemRepository::ValidateState(
 		const FShanmenItemTransactionReceipt& Receipt = Processed.Receipt;
 		if (Pair.Key != Processed.RequestId || !Processed.IsValid()
 			|| Receipt.AuthorityRevision > Candidate.AuthorityRevision
-			|| !Receipt.IsSuccess()
-			|| Receipt.Operation
-				!= EShanmenItemTransactionOperation::ClaimPreparedRun)
+			|| !Receipt.IsSuccess())
 		{
 			continue;
 		}
-		const FShanmenItemProcessedRequestSnapshot* Batch =
-			Candidate.ProcessedRequests.Find(Receipt.ItemInstanceId);
-		if (!Batch || !Batch->Receipt.IsSuccess()
-			|| Batch->Receipt.Operation
-				!= EShanmenItemTransactionOperation::CommitBatch
-			|| Batch->Receipt.ReservationIds != Receipt.ReservationIds
-			|| ClaimsByRunId.Contains(Receipt.ReservationId)
+		const bool bLegacyClaim = Receipt.Operation
+			== EShanmenItemTransactionOperation::ClaimPreparedRun;
+		const bool bAtomicStart = Receipt.Operation
+			== EShanmenItemTransactionOperation::StartPreparedRun;
+		if (!bLegacyClaim && !bAtomicStart)
+		{
+			continue;
+		}
+		if (bLegacyClaim)
+		{
+			const FShanmenItemProcessedRequestSnapshot* Batch =
+				Candidate.ProcessedRequests.Find(Receipt.ItemInstanceId);
+			if (!Batch || !Batch->Receipt.IsSuccess()
+				|| Batch->Receipt.Operation
+					!= EShanmenItemTransactionOperation::CommitBatch
+				|| Batch->Receipt.ReservationIds != Receipt.ReservationIds)
+			{
+				return Fail();
+			}
+		}
+		if (Receipt.ItemInstanceId != Receipt.RequestId && bAtomicStart)
+		{
+			return Fail();
+		}
+		if (ClaimsByRunId.Contains(Receipt.ReservationId)
 			|| ClaimsByBatchId.Contains(Receipt.ItemInstanceId))
 		{
 			return Fail();
@@ -509,7 +525,9 @@ bool FShanmenItemRepository::ValidateState(
 				continue;
 			}
 			if (Processed.Receipt.Operation
-				== EShanmenItemTransactionOperation::CommitBatch)
+					== EShanmenItemTransactionOperation::CommitBatch
+				|| Processed.Receipt.Operation
+					== EShanmenItemTransactionOperation::StartPreparedRun)
 			{
 				if (Processed.Receipt.Phase
 					!= EShanmenItemTransactionPhase::Committed)
@@ -739,6 +757,26 @@ FGuid FShanmenItemRepository::Fingerprint(
 	}
 	return FShanmenDeterministicId::FromCanonicalParts(
 		TEXT("Shanmen.Items.Command.CommitBatch.r1"), Parts);
+}
+
+FGuid FShanmenItemRepository::Fingerprint(
+	const FShanmenItemRunStartRequest& Request)
+{
+	TArray<FString> Parts =
+	{
+		GuidDigits(Request.Context.RunId),
+		GuidDigits(Request.Context.OwnerId),
+		GuidDigits(Request.Context.RequestId),
+		Request.Context.Content.Version.ToString(),
+		Request.Context.Content.Digest,
+		FString::FromInt(Request.ReservationIds.Num())
+	};
+	for (const FGuid& ReservationId : Request.ReservationIds)
+	{
+		Parts.Add(GuidDigits(ReservationId));
+	}
+	return FShanmenDeterministicId::FromCanonicalParts(
+		TEXT("Shanmen.Items.Command.StartPreparedRun.r1"), Parts);
 }
 
 FGuid FShanmenItemRepository::Fingerprint(
@@ -1427,6 +1465,158 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::CommitBatch(
 	return Receipt;
 }
 
+FShanmenItemTransactionReceipt FShanmenItemRepository::StartPreparedRun(
+	const FShanmenItemRunStartRequest& Request)
+{
+	const FGuid RequestFingerprint = Fingerprint(Request);
+	FShanmenItemTransactionReceipt Replayed;
+	if (bInitialized && Request.Context.RequestId.IsValid()
+		&& TryReplay(
+			Request.Context.RequestId, RequestFingerprint,
+			EShanmenItemTransactionOperation::StartPreparedRun, Replayed))
+	{
+		return Replayed;
+	}
+
+	auto Reject = [this, &Request, &RequestFingerprint](
+		EShanmenItemTransactionError Error)
+	{
+		FShanmenItemTransactionReceipt Receipt = MakeRejected(
+			EShanmenItemTransactionOperation::StartPreparedRun,
+			Request.Context.RequestId, RequestFingerprint, Error);
+		if (bInitialized
+			&& Error != EShanmenItemTransactionError::RequestIdConflict
+			&& Receipt.IsValid())
+		{
+			FState Candidate = State;
+			++Candidate.AuthorityRevision;
+			Receipt.AuthorityRevision = Candidate.AuthorityRevision;
+			RecordProcessed(
+				Candidate, Request.Context.RequestId,
+				RequestFingerprint, Receipt);
+			EShanmenItemTransactionError Ignored;
+			if (ValidateState(Candidate, &Ignored))
+			{
+				State = MoveTemp(Candidate);
+			}
+		}
+		return Receipt;
+	};
+
+	if (!bInitialized)
+	{
+		return Reject(EShanmenItemTransactionError::NotInitialized);
+	}
+	if (!Request.IsValid())
+	{
+		return Reject(EShanmenItemTransactionError::InvalidRequest);
+	}
+	if (!IsSameContent(Request.Context.Content, State.Content))
+	{
+		return Reject(EShanmenItemTransactionError::ContentMismatch);
+	}
+
+	for (const TPair<FGuid, FShanmenItemProcessedRequestSnapshot>& Pair :
+		State.ProcessedRequests)
+	{
+		const FShanmenItemTransactionReceipt& Existing = Pair.Value.Receipt;
+		if (!Existing.IsSuccess()
+			|| (Existing.Operation
+					!= EShanmenItemTransactionOperation::ClaimPreparedRun
+				&& Existing.Operation
+					!= EShanmenItemTransactionOperation::StartPreparedRun))
+		{
+			continue;
+		}
+		bool bFinalized = false;
+		for (const TPair<FGuid, FShanmenItemProcessedRequestSnapshot>&
+			FinalizePair : State.ProcessedRequests)
+		{
+			const FShanmenItemTransactionReceipt& Finalize =
+				FinalizePair.Value.Receipt;
+			if (Finalize.IsSuccess()
+				&& Finalize.Operation
+					== EShanmenItemTransactionOperation::FinalizePreparedRun
+				&& Finalize.ReservationId == Existing.ReservationId)
+			{
+				bFinalized = true;
+				break;
+			}
+		}
+		if (!bFinalized)
+		{
+			return Reject(EShanmenItemTransactionError::ActiveRunConflict);
+		}
+	}
+
+	for (const FGuid& ReservationId : Request.ReservationIds)
+	{
+		const FShanmenItemReservationSnapshot* Reservation =
+			State.Reservations.Find(ReservationId);
+		if (!Reservation)
+		{
+			return Reject(EShanmenItemTransactionError::ReservationNotFound);
+		}
+		if (Reservation->RunId != Request.Context.RunId
+			|| Reservation->OwnerId != Request.Context.OwnerId)
+		{
+			return Reject(
+				EShanmenItemTransactionError::ReservationScopeMismatch);
+		}
+		if (Reservation->State
+			== EShanmenItemReservationState::Cancelled)
+		{
+			return Reject(
+				EShanmenItemTransactionError::ReservationAlreadyCancelled);
+		}
+		if (Reservation->State != EShanmenItemReservationState::Reserved)
+		{
+			return Reject(
+				EShanmenItemTransactionError::ReservationAlreadyCommitted);
+		}
+	}
+
+	FState Candidate = State;
+	for (const FGuid& ReservationId : Request.ReservationIds)
+	{
+		EShanmenItemTransactionError CommitError =
+			EShanmenItemTransactionError::None;
+		if (!ApplyCommit(Candidate, ReservationId, CommitError))
+		{
+			return Reject(CommitError);
+		}
+	}
+	++Candidate.AuthorityRevision;
+
+	FShanmenItemTransactionReceipt Receipt;
+	Receipt.bSuccess = true;
+	Receipt.Operation = EShanmenItemTransactionOperation::StartPreparedRun;
+	Receipt.Phase = EShanmenItemTransactionPhase::Committed;
+	Receipt.Error = EShanmenItemTransactionError::None;
+	Receipt.RequestId = Request.Context.RequestId;
+	Receipt.ReservationId = MakeActiveRunId(
+		Request.Context.OwnerId, Request.Context.RunId,
+		Request.Context.RequestId);
+	Receipt.ItemInstanceId = Request.Context.RequestId;
+	Receipt.Amount = Request.ReservationIds.Num();
+	Receipt.AuthorityRevision = Candidate.AuthorityRevision;
+	Receipt.PurposeId = FShanmenItemRunLifecyclePurpose::Active();
+	Receipt.ReservationIds = Request.ReservationIds;
+	Receipt.ReceiptId = MakeReceiptId(
+		Request.Context.RequestId, RequestFingerprint,
+		Receipt.Phase, Receipt.Error);
+	RecordProcessed(
+		Candidate, Request.Context.RequestId, RequestFingerprint, Receipt);
+
+	EShanmenItemTransactionError ValidationError;
+	if (!Receipt.IsValid() || !ValidateState(Candidate, &ValidationError))
+	{
+		return Reject(EShanmenItemTransactionError::InvariantViolation);
+	}
+	State = MoveTemp(Candidate);
+	return Receipt;
+}
+
 FShanmenItemTransactionReceipt FShanmenItemRepository::ClaimPreparedRun(
 	const FShanmenItemRunClaimRequest& Request)
 {
@@ -1491,8 +1681,10 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::ClaimPreparedRun(
 	{
 		const FShanmenItemTransactionReceipt& Existing = Pair.Value.Receipt;
 		if (!Existing.IsSuccess()
-			|| Existing.Operation
-				!= EShanmenItemTransactionOperation::ClaimPreparedRun)
+			|| (Existing.Operation
+					!= EShanmenItemTransactionOperation::ClaimPreparedRun
+				&& Existing.Operation
+					!= EShanmenItemTransactionOperation::StartPreparedRun))
 		{
 			continue;
 		}
@@ -1638,8 +1830,10 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::FinalizePreparedRun(
 	{
 		const FShanmenItemTransactionReceipt& Existing = Pair.Value.Receipt;
 		if (Existing.IsSuccess()
-			&& Existing.Operation
-				== EShanmenItemTransactionOperation::ClaimPreparedRun
+			&& (Existing.Operation
+					== EShanmenItemTransactionOperation::ClaimPreparedRun
+				|| Existing.Operation
+					== EShanmenItemTransactionOperation::StartPreparedRun)
 			&& Existing.ReservationId == Request.ActiveRunId)
 		{
 			Claim = &Existing;

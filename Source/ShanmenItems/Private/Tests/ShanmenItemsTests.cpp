@@ -161,6 +161,16 @@ namespace
 		return Request;
 	}
 
+	FShanmenItemRunStartRequest MakeRunStart(
+		uint32 Sequence,
+		const TArray<FGuid>& ReservationIds)
+	{
+		FShanmenItemRunStartRequest Request;
+		Request.Context = MakeContext(Sequence);
+		Request.ReservationIds = ReservationIds;
+		return Request;
+	}
+
 	FShanmenItemReservationAmendRequest MakeAmend(
 		uint32 Sequence,
 		const FGuid& ReservationId,
@@ -414,6 +424,95 @@ bool FShanmenItemsReservationPurposeAmendTest::RunTest(const FString&)
 		Restarted.TryLoadSnapshot(Repository.CaptureSnapshot())
 		&& Restarted.AmendReservationPurpose(Request) == Amended
 		&& Restarted.CommitBatch(Batch).IsSuccess()
+		&& Restarted.ValidateInvariants());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenItemsAtomicPreparedRunStartTest,
+	"Shanmen.0_0_10.Items.AtomicPreparedRunStart",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenItemsAtomicPreparedRunStartTest::RunTest(const FString&)
+{
+	FShanmenItemRepository Repository;
+	if (!LoadFixture(*this, Repository)) return false;
+
+	const FName RecoverablePurpose =
+		FShanmenItemReservationPlacement::Encode(
+			TEXT("Preparation.RunInventory.O00000000.H00"),
+			ContainerId, 0);
+	const FShanmenItemTransactionReceipt Equipment = Repository.Reserve(
+		MakeReserve(86, SwordId,
+			EShanmenItemResourceKind::DeploymentLock, 1,
+			TEXT("Preparation.Weapon")));
+	const FShanmenItemTransactionReceipt Quantity = Repository.Reserve(
+		MakeReserve(87, DartId, EShanmenItemResourceKind::Quantity, 10,
+			RecoverablePurpose));
+	FShanmenItemRunStartRequest StartRequest = MakeRunStart(
+		88, { Equipment.ReservationId, Quantity.ReservationId });
+	const int32 RevisionBeforeStart = Repository.GetAuthorityRevision();
+	const FShanmenItemTransactionReceipt Started =
+		Repository.StartPreparedRun(StartRequest);
+	TestTrue(TEXT("One command commits resources and publishes ActiveRunId"),
+		Equipment.IsSuccess() && Quantity.IsSuccess()
+		&& Started.IsSuccess()
+		&& Started.Operation
+			== EShanmenItemTransactionOperation::StartPreparedRun
+		&& Started.ItemInstanceId == StartRequest.Context.RequestId
+		&& Started.ReservationId.IsValid()
+		&& Repository.GetAuthorityRevision() == RevisionBeforeStart + 1
+		&& Repository.FindItem(SwordId)->State
+			== EShanmenItemInstanceState::Deployed
+		&& Repository.FindItem(DartId)->State
+			== EShanmenItemInstanceState::Depleted);
+
+	int32 AtomicStartCount = 0;
+	int32 LegacyBatchOrClaimCount = 0;
+	for (const FShanmenItemProcessedRequestSnapshot& Processed :
+		Repository.CaptureSnapshot().ProcessedRequests)
+	{
+		AtomicStartCount += Processed.Receipt.IsSuccess()
+			&& Processed.Receipt.Operation
+				== EShanmenItemTransactionOperation::StartPreparedRun ? 1 : 0;
+		LegacyBatchOrClaimCount += Processed.Receipt.IsSuccess()
+			&& (Processed.Receipt.Operation
+					== EShanmenItemTransactionOperation::CommitBatch
+				|| Processed.Receipt.Operation
+					== EShanmenItemTransactionOperation::ClaimPreparedRun) ? 1 : 0;
+	}
+	TestTrue(TEXT("Atomic start writes no intermediate batch or claim marker"),
+		AtomicStartCount == 1 && LegacyBatchOrClaimCount == 0
+		&& Repository.StartPreparedRun(StartRequest) == Started);
+
+	FShanmenItemRunStartRequest Conflict = StartRequest;
+	Swap(Conflict.ReservationIds[0], Conflict.ReservationIds[1]);
+	const int32 RevisionBeforeConflict = Repository.GetAuthorityRevision();
+	TestTrue(TEXT("Same start RequestId with another ordered plan conflicts without mutation"),
+		Repository.StartPreparedRun(Conflict).Error
+			== EShanmenItemTransactionError::RequestIdConflict
+		&& Repository.GetAuthorityRevision() == RevisionBeforeConflict);
+
+	FShanmenItemRepository Restarted;
+	TestTrue(TEXT("Atomic start survives restart and replays exactly"),
+		Restarted.TryLoadSnapshot(Repository.CaptureSnapshot())
+		&& Restarted.StartPreparedRun(StartRequest) == Started);
+
+	FShanmenItemRunFinalizeRequest Finalize;
+	Finalize.Context = MakeContext(89);
+	Finalize.ActiveRunId = Started.ReservationId;
+	Finalize.TerminalReason = EShanmenItemRunTerminalReason::Extraction;
+	Finalize.SecuredOriginals = {
+		Secured(SwordId, 1), Secured(DartId, 7) };
+	const FShanmenItemTransactionReceipt Finalized =
+		Restarted.FinalizePreparedRun(Finalize);
+	TestTrue(TEXT("Atomic-start receipt is accepted by terminal reconciliation"),
+		Finalized.IsSuccess()
+		&& Restarted.FindItem(SwordId)->State
+			== EShanmenItemInstanceState::Stored
+		&& Restarted.FindItem(DartId)->State
+			== EShanmenItemInstanceState::Stored
+		&& Restarted.FindItem(DartId)->Quantity == 7
 		&& Restarted.ValidateInvariants());
 	return true;
 }

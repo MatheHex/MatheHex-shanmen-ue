@@ -17,7 +17,7 @@ enum class Edemo_mapShanmenRunLifecycleStatus : uint8
 	NoChange,
 	AuthorityNotReady,
 	PreparedLoadoutRejected,
-	ClaimRejected,
+	AuthorityStartRejected,
 	RuntimeConflict,
 	RuntimeMaterializationRejected,
 	SettlementInvalid,
@@ -34,7 +34,7 @@ struct Fdemo_mapShanmenRunStartResult
 	FString Diagnostic;
 	FGuid ActiveRunId;
 	Fdemo_mapShanmenPreparedLoadoutReceipt PreparedLoadout;
-	FShanmenItemDurableCommandResult ClaimCommand;
+	FShanmenItemDurableCommandResult StartCommand;
 	Fdemo_mapPreparedRunRuntimeResult RuntimeResult;
 
 	bool IsStarted() const
@@ -60,7 +60,7 @@ struct Fdemo_mapShanmenRunFinalizeResult
 };
 
 /**
- * One-way P1.11 bridge from the durable ShanmenItems prepared receipt into the
+ * One-way P1.12 bridge from the durable ShanmenItems prepared receipt into the
  * existing transient Runtime and back through one atomic terminal command. It
  * never writes Profile ActiveRun or Code B.
  */

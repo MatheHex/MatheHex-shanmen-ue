@@ -154,6 +154,19 @@ namespace
 		return Request;
 	}
 
+	FShanmenItemRunStartRequest ServiceRunStart(
+		uint32 Sequence, const TArray<FGuid>& ReservationIds)
+	{
+		FShanmenItemRunStartRequest Request;
+		Request.Context.RunId = ServiceRunId;
+		Request.Context.OwnerId = ServiceOwnerId;
+		Request.Context.RequestId =
+			FGuid(0x51340000 + Sequence, 0, 0, 1);
+		Request.Context.Content = ServiceContent();
+		Request.ReservationIds = ReservationIds;
+		return Request;
+	}
+
 	FShanmenItemAuthorityStartResult CreateService(
 		FShanmenItemAuthorityService& Service,
 		const FShanmenItemStorageContext& Storage,
@@ -676,6 +689,92 @@ bool FShanmenItemAuthorityServiceAtomicBatchTest::RunTest(const FString&)
 	TestTrue(TEXT("Restart replays the exact durable batch receipt"),
 		Replay.Status == EShanmenItemDurableCommandStatus::Replayed
 		&& Replay.Receipt == Committed.Receipt);
+	RemoveServiceRoot(Root);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenItemAuthorityServiceAtomicRunStartTest,
+	"Shanmen.0_0_10.Items.AuthorityService.AtomicPreparedRunStartDurability",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenItemAuthorityServiceAtomicRunStartTest::RunTest(const FString&)
+{
+	const FString Root = NewServiceRoot(TEXT("AtomicRunStart"));
+	const FShanmenItemStorageContext Storage =
+		FShanmenItemStorageContext::ForRoot(Root, ServiceOwnerId);
+	FShanmenItemAuthorityService Service;
+	TestTrue(TEXT("Atomic Run-start fixture publishes"),
+		CreateService(Service, Storage, 12).IsReady());
+	const FShanmenItemDurableCommandResult Quantity =
+		Service.ReserveDurable(ServiceReserve(83, 4));
+	const FShanmenItemDurableCommandResult Equipment =
+		Service.ReserveDurable(ServiceReserve(
+			84, 1, 0, EShanmenItemResourceKind::DeploymentLock));
+	const FShanmenItemRunStartRequest Request = ServiceRunStart(
+		85, { Equipment.Receipt.ReservationId,
+			Quantity.Receipt.ReservationId });
+	TestTrue(TEXT("Atomic Run-start fixture reserves durably"),
+		Quantity.IsCommandSuccess() && Equipment.IsCommandSuccess()
+		&& Request.IsValid());
+
+	FShanmenItemAuthoritySnapshot Before;
+	FShanmenItemAuthorityDocument DocumentBefore;
+	TArray<uint8> BytesBefore;
+	TestTrue(TEXT("Pre-start durable state is readable"),
+		Service.TryCaptureSnapshot(Before)
+		&& Service.TryGetDocument(DocumentBefore)
+		&& ReadServiceBytes(Storage.PrimaryPath(), BytesBefore));
+#if WITH_DEV_AUTOMATION_TESTS
+	Service.SetInjectedFailureForTests(
+		EShanmenItemStoreFailureStage::WriteTemp);
+#endif
+	const FShanmenItemDurableCommandResult Failed =
+		Service.StartPreparedRunDurable(Request);
+	FShanmenItemAuthoritySnapshot AfterFailure;
+	FShanmenItemAuthorityDocument DocumentAfterFailure;
+	TArray<uint8> BytesAfterFailure;
+	TestTrue(TEXT("Failed persistence exposes no partial commit or ActiveRun"),
+		Failed.Status
+			== EShanmenItemDurableCommandStatus::PersistenceFailedRolledBack
+		&& Service.TryCaptureSnapshot(AfterFailure)
+		&& AfterFailure == Before
+		&& Service.TryGetDocument(DocumentAfterFailure)
+		&& DocumentAfterFailure == DocumentBefore
+		&& ReadServiceBytes(Storage.PrimaryPath(), BytesAfterFailure)
+		&& BytesAfterFailure == BytesBefore);
+
+#if WITH_DEV_AUTOMATION_TESTS
+	Service.SetInjectedFailureForTests(EShanmenItemStoreFailureStage::None);
+#endif
+	const FShanmenItemDurableCommandResult Started =
+		Service.StartPreparedRunDurable(Request);
+	FShanmenItemAuthoritySnapshot AfterStart;
+	FShanmenItemAuthorityDocument DocumentAfterStart;
+	TestTrue(TEXT("Retry commits preparation and ActiveRun in one generation"),
+		Started.Status == EShanmenItemDurableCommandStatus::Persisted
+		&& Started.IsCommandSuccess()
+		&& Started.Receipt.Operation
+			== EShanmenItemTransactionOperation::StartPreparedRun
+		&& Service.TryCaptureSnapshot(AfterStart)
+		&& Service.TryGetDocument(DocumentAfterStart)
+		&& AfterStart.AuthorityRevision == Before.AuthorityRevision + 1
+		&& DocumentAfterStart.SaveGeneration
+			== DocumentBefore.SaveGeneration + 1);
+
+	FShanmenItemAuthorityService Restarted;
+	const bool bRestarted = Restarted.StartExisting(Storage).IsReady();
+	const FShanmenItemDurableCommandResult Replay = bRestarted
+		? Restarted.StartPreparedRunDurable(Request)
+		: FShanmenItemDurableCommandResult();
+	FShanmenItemAuthorityDocument DocumentAfterReplay;
+	TestTrue(TEXT("Restart replays the exact atomic-start receipt without a write"),
+		bRestarted
+		&& Replay.Status == EShanmenItemDurableCommandStatus::Replayed
+		&& Replay.Receipt == Started.Receipt
+		&& Restarted.TryGetDocument(DocumentAfterReplay)
+		&& DocumentAfterReplay.SaveGeneration
+			== DocumentAfterStart.SaveGeneration);
 	RemoveServiceRoot(Root);
 	return true;
 }

@@ -889,37 +889,50 @@ bool FShanmenPreparedRunLifecycleRestartTest::RunTest(const FString&)
 		return false;
 	}
 	Runtime->ResetForAutomation();
+	FShanmenItemAuthorityDocument BeforeStartDocument;
+	TestTrue(TEXT("Authority generation captured before atomic Run start"),
+		Fixture.Authority->TryGetDocument(BeforeStartDocument));
 	Runtime->SetPreparedRunFailureAfterMutationForAutomation(1);
 	const Fdemo_mapShanmenRunStartResult FailedStart =
 		Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
 			*Fixture.Authority, *Runtime);
 	AddInfo(FString::Printf(
-		TEXT("P1.9 first start status=%d diagnostic=%s claim_status=%d claim_error=%d runtime_status=%d"),
+		TEXT("P1.12 first start status=%d diagnostic=%s start_status=%d start_error=%d runtime_status=%d"),
 		static_cast<int32>(FailedStart.Status), *FailedStart.Diagnostic,
-		static_cast<int32>(FailedStart.ClaimCommand.Status),
-		static_cast<int32>(FailedStart.ClaimCommand.Receipt.Error),
+		static_cast<int32>(FailedStart.StartCommand.Status),
+		static_cast<int32>(FailedStart.StartCommand.Receipt.Error),
 		static_cast<int32>(FailedStart.RuntimeResult.Status)));
 	FShanmenItemAuthoritySnapshot Claimed;
+	FShanmenItemAuthorityDocument AfterStartDocument;
 	const bool bCapturedClaimed =
-		Fixture.Authority->TryCaptureSnapshot(Claimed);
-	TestTrue(TEXT("Runtime failure rolls back transient items but retains one durable claim"),
+		Fixture.Authority->TryCaptureSnapshot(Claimed)
+		&& Fixture.Authority->TryGetDocument(AfterStartDocument);
+	TestTrue(TEXT("Runtime failure rolls back transient items but retains one atomic durable start"),
 		!FailedStart.IsStarted()
 		&& FailedStart.Status
 			== Edemo_mapShanmenRunLifecycleStatus::RuntimeMaterializationRejected
 		&& FailedStart.ActiveRunId.IsValid()
 		&& Runtime->GetRunState() == Edemo_mapRunState::Inactive
 		&& Runtime->GetAuthority().GetInstanceSnapshot().IsEmpty()
-		&& bCapturedClaimed);
-	int32 ClaimCount = 0;
+		&& bCapturedClaimed
+		&& AfterStartDocument.SaveGeneration
+			== BeforeStartDocument.SaveGeneration + 1);
+	int32 AtomicStartCount = 0;
+	int32 IntermediateBatchOrClaimCount = 0;
 	for (const FShanmenItemProcessedRequestSnapshot& Processed :
 		Claimed.ProcessedRequests)
 	{
-		ClaimCount += Processed.Receipt.IsSuccess()
+		AtomicStartCount += Processed.Receipt.IsSuccess()
 			&& Processed.Receipt.Operation
-				== EShanmenItemTransactionOperation::ClaimPreparedRun ? 1 : 0;
+				== EShanmenItemTransactionOperation::StartPreparedRun ? 1 : 0;
+		IntermediateBatchOrClaimCount += Processed.Receipt.IsSuccess()
+			&& (Processed.Receipt.Operation
+					== EShanmenItemTransactionOperation::CommitBatch
+				|| Processed.Receipt.Operation
+					== EShanmenItemTransactionOperation::ClaimPreparedRun) ? 1 : 0;
 	}
-	TestEqual(TEXT("Exactly one claim marker survives Runtime rollback"),
-		ClaimCount, 1);
+	TestTrue(TEXT("Exactly one start marker survives with no intermediate batch or claim"),
+		AtomicStartCount == 1 && IntermediateBatchOrClaimCount == 0);
 
 	const FGuid ActiveRunId = FailedStart.ActiveRunId;
 	if (!Fixture.RestartAndBind(*this))

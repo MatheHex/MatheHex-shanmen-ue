@@ -255,6 +255,18 @@ FShanmenItemAuthorityService::CommitBatchDurable(
 }
 
 FShanmenItemDurableCommandResult
+FShanmenItemAuthorityService::StartPreparedRunDurable(
+	const FShanmenItemRunStartRequest& Request)
+{
+	FScopeLock Lock(&Mutex);
+	return ExecuteCommandLocked(
+		[&Request](FShanmenItemRepository& MutableRepository)
+		{
+			return MutableRepository.StartPreparedRun(Request);
+		});
+}
+
+FShanmenItemDurableCommandResult
 FShanmenItemAuthorityService::AmendReservationPurposeDurable(
 	const FShanmenItemReservationAmendRequest& Request)
 {

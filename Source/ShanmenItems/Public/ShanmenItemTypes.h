@@ -48,7 +48,9 @@ enum class EShanmenItemTransactionOperation : uint8
 	/** Durably claims one committed preparation batch as the only active Run. */
 	ClaimPreparedRun,
 	/** Atomically reconciles one claimed Run and publishes its terminal marker. */
-	FinalizePreparedRun
+	FinalizePreparedRun,
+	/** Atomically commits all prepared reservations and publishes one active Run. */
+	StartPreparedRun
 };
 
 UENUM(BlueprintType)
@@ -371,6 +373,25 @@ struct SHANMENITEMS_API FShanmenItemReservationBatchRequest
 	bool IsValid() const;
 };
 
+/**
+ * One ordered command that consumes every pending preparation reservation and
+ * publishes the only active Run in the same authority revision. RequestId is
+ * also the stable prepared-batch identity used to derive ActiveRunId.
+ */
+USTRUCT(BlueprintType)
+struct SHANMENITEMS_API FShanmenItemRunStartRequest
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FShanmenOperationContext Context;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	TArray<FGuid> ReservationIds;
+
+	bool IsValid() const;
+};
+
 USTRUCT(BlueprintType)
 struct SHANMENITEMS_API FShanmenItemReservationAmendRequest
 {
@@ -392,7 +413,7 @@ struct SHANMENITEMS_API FShanmenItemReservationAmendRequest
 	bool IsValid() const;
 };
 
-/** Idempotent claim of one successful CommitBatch ledger entry. */
+/** Legacy-compatible idempotent claim of one successful CommitBatch entry. */
 USTRUCT(BlueprintType)
 struct SHANMENITEMS_API FShanmenItemRunClaimRequest
 {

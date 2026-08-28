@@ -879,12 +879,14 @@ namespace
 		FString& OutDiagnostic)
 	{
 		OutReceipt = Fdemo_mapShanmenPreparedLoadoutReceipt();
-		if (!Batch.IsSuccess()
+		const bool bPreparedReceipt = Batch.Operation
+			== EShanmenItemTransactionOperation::CommitBatch
 			|| Batch.Operation
-				!= EShanmenItemTransactionOperation::CommitBatch
+				== EShanmenItemTransactionOperation::StartPreparedRun;
+		if (!Batch.IsSuccess() || !bPreparedReceipt
 			|| Batch.Phase != EShanmenItemTransactionPhase::Committed)
 		{
-			OutDiagnostic = TEXT("Prepared loadout requires a successful CommitBatch receipt.");
+			OutDiagnostic = TEXT("Prepared loadout requires a successful batch or atomic-start receipt.");
 			return false;
 		}
 
@@ -1043,6 +1045,67 @@ namespace
 			}
 		}
 		return BestRevision != INDEX_NONE;
+	}
+
+	bool FindActivePreparedLoadout(
+		const FShanmenItemAuthoritySnapshot& Snapshot,
+		Fdemo_mapShanmenPreparedLoadoutReceipt& OutReceipt,
+		FShanmenItemTransactionReceipt& OutLifecycleReceipt)
+	{
+		for (const FShanmenItemProcessedRequestSnapshot& Processed :
+			Snapshot.ProcessedRequests)
+		{
+			const FShanmenItemTransactionReceipt& Lifecycle = Processed.Receipt;
+			if (!Lifecycle.IsSuccess()
+				|| (Lifecycle.Operation
+						!= EShanmenItemTransactionOperation::ClaimPreparedRun
+					&& Lifecycle.Operation
+						!= EShanmenItemTransactionOperation::StartPreparedRun))
+			{
+				continue;
+			}
+			const bool bFinalized = Snapshot.ProcessedRequests.ContainsByPredicate(
+				[&Lifecycle](
+					const FShanmenItemProcessedRequestSnapshot& Candidate)
+				{
+					return Candidate.Receipt.IsSuccess()
+						&& Candidate.Receipt.Operation
+							== EShanmenItemTransactionOperation::FinalizePreparedRun
+						&& Candidate.Receipt.ReservationId
+							== Lifecycle.ReservationId;
+				});
+			if (bFinalized)
+			{
+				continue;
+			}
+
+			const FShanmenItemTransactionReceipt* Prepared = &Lifecycle;
+			if (Lifecycle.Operation
+				== EShanmenItemTransactionOperation::ClaimPreparedRun)
+			{
+				const FShanmenItemProcessedRequestSnapshot* Batch =
+					Snapshot.ProcessedRequests.FindByPredicate(
+						[&Lifecycle](
+							const FShanmenItemProcessedRequestSnapshot& Candidate)
+					{
+						return Candidate.RequestId == Lifecycle.ItemInstanceId
+							&& Candidate.Receipt.IsSuccess()
+							&& Candidate.Receipt.Operation
+								== EShanmenItemTransactionOperation::CommitBatch;
+					});
+				Prepared = Batch ? &Batch->Receipt : nullptr;
+			}
+			FString Diagnostic;
+			if (Prepared
+				&& Prepared->ReservationIds == Lifecycle.ReservationIds
+				&& BuildPreparedLoadoutReceipt(
+					Snapshot, *Prepared, OutReceipt, Diagnostic))
+			{
+				OutLifecycleReceipt = Lifecycle;
+				return true;
+			}
+		}
+		return false;
 	}
 }
 
@@ -2009,5 +2072,176 @@ Fdemo_mapShanmenPreparationAdapter::CommitPreparedLoadout(
 		: Edemo_mapShanmenPreparationAdapterStatus::Accepted;
 	Result.Diagnostic =
 		TEXT("Equipment DeploymentLocks and complete-stack Quantity reservations committed in one authority revision and one durable document write.");
+	return Result;
+}
+
+Fdemo_mapShanmenPreparedLoadoutResult
+Fdemo_mapShanmenPreparationAdapter::StartPreparedLoadout(
+	Udemo_mapShanmenItemAuthoritySubsystem& Authority)
+{
+	Fdemo_mapShanmenPreparedLoadoutResult Result;
+	auto Reject = [&Result](
+		Edemo_mapShanmenPreparationAdapterStatus Status,
+		const FString& Diagnostic)
+	{
+		Result.Status = Status;
+		Result.Diagnostic = Diagnostic;
+		return Result;
+	};
+	if (!IsInGameThread()
+		|| Authority.GetLifecycleState()
+			!= Edemo_mapShanmenItemAuthorityLifecycleState::Ready)
+	{
+		return Reject(
+			Edemo_mapShanmenPreparationAdapterStatus::AuthorityNotReady,
+			TEXT("Atomic prepared Run start requires a Ready ShanmenItems owner on the Game Thread."));
+	}
+
+	FShanmenItemAuthoritySnapshot Snapshot;
+	if (!Authority.TryCaptureSnapshot(Snapshot))
+	{
+		return Reject(
+			Edemo_mapShanmenPreparationAdapterStatus::InvalidAuthority,
+			TEXT("ShanmenItems snapshot is unavailable for atomic prepared Run start."));
+	}
+	FShanmenItemTransactionReceipt ActiveReceipt;
+	if (FindActivePreparedLoadout(
+		Snapshot, Result.Receipt, ActiveReceipt))
+	{
+		Result.Command.Status = EShanmenItemDurableCommandStatus::Replayed;
+		Result.Command.Receipt = ActiveReceipt;
+		Result.Status = Edemo_mapShanmenPreparationAdapterStatus::NoChange;
+		Result.Diagnostic =
+			TEXT("The active prepared Run was reconstructed from its durable lifecycle receipt without another write.");
+		return Result;
+	}
+
+	Fdemo_mapShanmenPreparationAuthorityProjection Projection;
+	TArray<FSlotAnalysis> Slots;
+	FString Diagnostic;
+	if (!BuildProjection(
+		Snapshot, Authority.GetBoundOwnerId(), Projection, &Diagnostic)
+		|| !AnalyzeAllSlots(Snapshot, Slots, Diagnostic))
+	{
+		return Reject(
+			Edemo_mapShanmenPreparationAdapterStatus::InvalidAuthority,
+			Diagnostic.IsEmpty()
+				? TEXT("Preparation projection failed before atomic Run start.")
+				: Diagnostic);
+	}
+
+	// One-time migrated equipment baselines are converted into normal pending
+	// DeploymentLocks before the final command. These reserves are harmless
+	// intent; no item is consumed or deployed until StartPreparedRun succeeds.
+	TArray<TPair<FName, FGuid>> BaselinesToReserve;
+	for (const FSlotAnalysis& Slot : Slots)
+	{
+		if (Slot.Spec && Slot.SelectedItemId.IsValid() && !Slot.Latest)
+		{
+			BaselinesToReserve.Emplace(
+				Slot.Spec->SlotId, Slot.SelectedItemId);
+		}
+	}
+	for (const TPair<FName, FGuid>& Baseline : BaselinesToReserve)
+	{
+		const Fdemo_mapShanmenPreparationAdapterResult Reserved =
+			SelectEquipment(Authority, Baseline.Key, Baseline.Value);
+		if (!Reserved.IsAccepted())
+		{
+			return Reject(
+				Reserved.Status,
+				FString::Printf(
+					TEXT("Preparation baseline could not become a pending DeploymentLock: %s"),
+					*Reserved.Diagnostic));
+		}
+	}
+	if (!Authority.TryCaptureSnapshot(Snapshot)
+		|| !BuildProjection(
+			Snapshot, Authority.GetBoundOwnerId(), Projection, &Diagnostic)
+		|| !AnalyzeAllSlots(Snapshot, Slots, Diagnostic))
+	{
+		return Reject(
+			Edemo_mapShanmenPreparationAdapterStatus::InvalidAuthority,
+			Diagnostic.IsEmpty()
+				? TEXT("Preparation projection failed after baseline lock materialization.")
+				: Diagnostic);
+	}
+	FRunInventoryAnalysis RunInventory;
+	if (!AnalyzeRunInventory(Snapshot, RunInventory, Diagnostic))
+	{
+		return Reject(
+			Edemo_mapShanmenPreparationAdapterStatus::InvalidAuthority,
+			Diagnostic);
+	}
+
+	TArray<FGuid> ReservationIds;
+	for (const FSlotAnalysis& Slot : Slots)
+	{
+		if (!Slot.SelectedItemId.IsValid())
+		{
+			continue;
+		}
+		if (!Slot.Latest
+			|| Slot.Latest->State != EShanmenItemReservationState::Reserved
+			|| Slot.Latest->ItemInstanceId != Slot.SelectedItemId)
+		{
+			return Reject(
+				Edemo_mapShanmenPreparationAdapterStatus::DeployedSelectionLocked,
+				TEXT("Every selected equipment slot requires one pending DeploymentLock before atomic Run start."));
+		}
+		ReservationIds.Add(Slot.Latest->ReservationId);
+	}
+	for (const FRunSelectionAnalysis& Selection :
+		RunInventory.OrderedSelections)
+	{
+		if (!Selection.Reservation || !Selection.Item
+			|| Selection.Reservation->State
+				!= EShanmenItemReservationState::Reserved)
+		{
+			return Reject(
+				Edemo_mapShanmenPreparationAdapterStatus::MaterialRejected,
+				TEXT("Every selected RunInventory stack requires one pending full-Quantity reservation."));
+		}
+		ReservationIds.Add(Selection.Reservation->ReservationId);
+	}
+	if (ReservationIds.IsEmpty())
+	{
+		return Reject(
+			Edemo_mapShanmenPreparationAdapterStatus::MaterialRejected,
+			TEXT("Atomic prepared Run start requires at least one selected equipment or RunInventory reservation."));
+	}
+
+	FShanmenItemRunStartRequest Request;
+	Request.Context = MakeContext(
+		Snapshot, Projection.ScopeId, Projection.OwnerId,
+		MakePreparedBatchRequestId(
+			Projection.OwnerId, Projection.ScopeId, ReservationIds));
+	Request.ReservationIds = ReservationIds;
+	Result.Command = Authority.StartPreparedRunDurable(Request);
+	if (!Result.Command.IsCommandSuccess())
+	{
+		return Reject(
+			Edemo_mapShanmenPreparationAdapterStatus::CommandRejected,
+			FString::Printf(
+				TEXT("Atomic StartPreparedRun was rejected or not durable: %s"),
+				*Result.Command.Diagnostic));
+	}
+	if (!Authority.TryCaptureSnapshot(Snapshot)
+		|| !BuildPreparedLoadoutReceipt(
+			Snapshot, Result.Command.Receipt,
+			Result.Receipt, Diagnostic))
+	{
+		return Reject(
+			Edemo_mapShanmenPreparationAdapterStatus::InvalidAuthority,
+			Diagnostic.IsEmpty()
+				? TEXT("Durable atomic start could not be reconstructed as a prepared loadout receipt.")
+				: Diagnostic);
+	}
+	Result.Status = Result.Command.Status
+		== EShanmenItemDurableCommandStatus::Replayed
+		? Edemo_mapShanmenPreparationAdapterStatus::NoChange
+		: Edemo_mapShanmenPreparationAdapterStatus::Accepted;
+	Result.Diagnostic =
+		TEXT("Preparation resources and the ActiveRun marker committed in one authority revision and one durable document write.");
 	return Result;
 }
