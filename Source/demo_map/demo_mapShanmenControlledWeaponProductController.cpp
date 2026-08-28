@@ -1,0 +1,474 @@
+#include "demo_mapShanmenControlledWeaponProductController.h"
+
+#include "Components/PrimitiveComponent.h"
+#include "Engine/HitResult.h"
+#include "Engine/OverlapResult.h"
+#include "GameFramework/Actor.h"
+
+namespace
+{
+	bool IsFiniteVector(const FVector& Value)
+	{
+		return !Value.ContainsNaN();
+	}
+}
+
+bool Fdemo_mapShanmenControlledWeaponMotionCapture::IsValid() const
+{
+	return FMath::IsFinite(DirectedSpeed)
+		&& DirectedSpeed > 0.0f
+		&& FMath::IsFinite(MaximumStepSeconds)
+		&& MaximumStepSeconds > 0.0f;
+}
+
+bool Fdemo_mapShanmenControlledWeaponMovementReceipt::IsValid() const
+{
+	return ActivationId.IsValid()
+		&& SourceItemInstanceId.IsValid()
+		&& CommandSequence >= 0
+		&& IsFiniteVector(Direction)
+		&& Direction.IsNormalized()
+		&& IsFiniteVector(StartLocation)
+		&& IsFiniteVector(RequestedEndLocation)
+		&& IsFiniteVector(ActualEndLocation)
+		&& FMath::IsFinite(DeltaSeconds)
+		&& DeltaSeconds > 0.0f
+		&& (bMoved || bBlockingHit);
+}
+
+Fdemo_mapShanmenControlledWeaponProductStartResult
+Fdemo_mapShanmenControlledWeaponProductController::TryStart(
+	const Fdemo_mapShanmenControlledWeaponPrepareResult& Prepared,
+	Fdemo_mapCombatRunCoordinator& Coordinator,
+	AActor* RequestedSourceActor,
+	AActor* RequestedWeaponActor,
+	UPrimitiveComponent* RequestedWeaponCollisionRoot,
+	const Fdemo_mapShanmenControlledWeaponMotionCapture& RequestedMotion,
+	Fdemo_mapShanmenControlledWeaponProductController& OutController)
+{
+	OutController.Reset();
+	Fdemo_mapShanmenControlledWeaponProductStartResult Result;
+	if (!Coordinator.IsReady())
+	{
+		return Result;
+	}
+	if (!Prepared.IsPrepared()
+		|| Prepared.Action.GetRunId() != Coordinator.GetRunId())
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponProductStartError::PreparedInvalid;
+		return Result;
+	}
+	if (!RequestedMotion.IsValid())
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponProductStartError::MotionInvalid;
+		return Result;
+	}
+	if (!RequestedSourceActor
+		|| !RequestedWeaponActor
+		|| RequestedSourceActor == RequestedWeaponActor
+		|| !RequestedWeaponCollisionRoot
+		|| RequestedWeaponCollisionRoot->GetOwner() != RequestedWeaponActor
+		|| RequestedWeaponActor->GetRootComponent()
+			!= RequestedWeaponCollisionRoot)
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponProductStartError::ActorBindingInvalid;
+		return Result;
+	}
+
+	FGuid ResolvedSourceEntityId;
+	if (!Coordinator.GetEntityRegistry().TryResolveObject(
+			Coordinator.GetRunId(),
+			RequestedSourceActor,
+			INDEX_NONE,
+			ResolvedSourceEntityId))
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponProductStartError::SourceNotRegistered;
+		return Result;
+	}
+	if (ResolvedSourceEntityId != Coordinator.GetPlayerEntityId()
+		|| Prepared.Action.GetSourceEntityId() != ResolvedSourceEntityId)
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponProductStartError::SourceMismatch;
+		return Result;
+	}
+
+	Fdemo_mapShanmenControlledWeaponProductController Candidate;
+	Candidate.RunId = Coordinator.GetRunId();
+	Candidate.SourceEntityId = ResolvedSourceEntityId;
+	Candidate.SourceActor = RequestedSourceActor;
+	Candidate.WeaponActor = RequestedWeaponActor;
+	Candidate.WeaponCollisionRoot = RequestedWeaponCollisionRoot;
+	Candidate.Motion = RequestedMotion;
+	if (!Fdemo_mapShanmenControlledWeaponSession::TryStart(
+			Prepared,
+			Candidate.Session,
+			Result.Startup,
+			Result.Active)
+		|| !Candidate.IsValid())
+	{
+		Result = Fdemo_mapShanmenControlledWeaponProductStartResult();
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponProductStartError::SessionStartRejected;
+		return Result;
+	}
+
+	OutController = MoveTemp(Candidate);
+	Result.Error =
+		Edemo_mapShanmenControlledWeaponProductStartError::None;
+	return Result;
+}
+
+bool Fdemo_mapShanmenControlledWeaponProductController::IsValid() const
+{
+	AActor* BoundSourceActor = SourceActor.Get();
+	AActor* BoundWeaponActor = WeaponActor.Get();
+	UPrimitiveComponent* BoundCollisionRoot = WeaponCollisionRoot.Get();
+	if (!RunId.IsValid()
+		|| !SourceEntityId.IsValid()
+		|| !BoundSourceActor
+		|| !BoundWeaponActor
+		|| BoundSourceActor == BoundWeaponActor
+		|| !BoundCollisionRoot
+		|| BoundCollisionRoot->GetOwner() != BoundWeaponActor
+		|| BoundWeaponActor->GetRootComponent() != BoundCollisionRoot
+		|| !Motion.IsValid()
+		|| !Session.IsValid()
+		|| Session.GetActionRuntime().GetAction().GetRunId() != RunId
+		|| Session.GetActionRuntime().GetAction().GetSourceEntityId()
+			!= SourceEntityId)
+	{
+		return false;
+	}
+
+	return Session.GetExecution().IsEmissionActive()
+		? ContactContextMatchesSession()
+		: !ActiveContactContext.IsValid();
+}
+
+bool Fdemo_mapShanmenControlledWeaponProductController::IsActive() const
+{
+	return IsValid() && Session.IsActive();
+}
+
+bool Fdemo_mapShanmenControlledWeaponProductController::IsDirected() const
+{
+	return IsActive()
+		&& Session.GetExecution().GetState()
+			== EShanmenControlledWeaponState::Directed;
+}
+
+bool Fdemo_mapShanmenControlledWeaponProductController::HasActiveContactWindow() const
+{
+	return IsValid()
+		&& Session.GetExecution().IsEmissionActive()
+		&& ActiveContactContext.IsValid();
+}
+
+bool Fdemo_mapShanmenControlledWeaponProductController::TryLaunch(
+	int64 ExpectedSequence,
+	const FVector& DesiredDirection,
+	FShanmenControlledWeaponCommandReceipt& OutReceipt)
+{
+	OutReceipt = FShanmenControlledWeaponCommandReceipt();
+	if (!IsActive())
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenControlledWeaponProductController Candidate = *this;
+	if (!Candidate.Session.TryIssueControl(
+			ExpectedSequence,
+			EShanmenControlledWeaponCommandKind::Launch,
+			DesiredDirection,
+			OutReceipt)
+		|| !Candidate.IsValid())
+	{
+		OutReceipt = FShanmenControlledWeaponCommandReceipt();
+		return false;
+	}
+	*this = MoveTemp(Candidate);
+	return true;
+}
+
+bool Fdemo_mapShanmenControlledWeaponProductController::TryRedirect(
+	int64 ExpectedSequence,
+	const FVector& DesiredDirection,
+	FShanmenControlledWeaponCommandReceipt& OutReceipt)
+{
+	OutReceipt = FShanmenControlledWeaponCommandReceipt();
+	if (!IsDirected())
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenControlledWeaponProductController Candidate = *this;
+	if (!Candidate.Session.TryIssueControl(
+			ExpectedSequence,
+			EShanmenControlledWeaponCommandKind::Redirect,
+			DesiredDirection,
+			OutReceipt)
+		|| !Candidate.IsValid())
+	{
+		OutReceipt = FShanmenControlledWeaponCommandReceipt();
+		return false;
+	}
+	*this = MoveTemp(Candidate);
+	return true;
+}
+
+bool Fdemo_mapShanmenControlledWeaponProductController::TryAdvanceDirected(
+	float DeltaSeconds,
+	Fdemo_mapShanmenControlledWeaponMovementReceipt& OutReceipt,
+	FHitResult& OutBlockingHit)
+{
+	OutReceipt = Fdemo_mapShanmenControlledWeaponMovementReceipt();
+	OutBlockingHit = FHitResult();
+	if (!IsDirected()
+		|| !FMath::IsFinite(DeltaSeconds)
+		|| DeltaSeconds <= 0.0f
+		|| DeltaSeconds > Motion.MaximumStepSeconds)
+	{
+		return false;
+	}
+
+	AActor* BoundWeaponActor = WeaponActor.Get();
+	const FVector Direction =
+		Session.GetExecution().GetCurrentDirection();
+	const FVector StartLocation = BoundWeaponActor->GetActorLocation();
+	const FVector RequestedEndLocation =
+		StartLocation + Direction * Motion.DirectedSpeed * DeltaSeconds;
+	if (!IsFiniteVector(Direction)
+		|| !Direction.IsNormalized()
+		|| !IsFiniteVector(StartLocation)
+		|| !IsFiniteVector(RequestedEndLocation))
+	{
+		return false;
+	}
+
+	const bool bMoved = BoundWeaponActor->SetActorLocation(
+		RequestedEndLocation,
+		true,
+		&OutBlockingHit,
+		ETeleportType::None);
+	const FVector ActualEndLocation = BoundWeaponActor->GetActorLocation();
+	OutReceipt.ActivationId =
+		Session.GetActionRuntime().GetAction().GetActivationId();
+	OutReceipt.SourceItemInstanceId =
+		Session.GetEvidence().ItemInstanceId;
+	OutReceipt.CommandSequence =
+		Session.GetExecution().GetNextCommandSequence() - 1;
+	OutReceipt.Direction = Direction;
+	OutReceipt.StartLocation = StartLocation;
+	OutReceipt.RequestedEndLocation = RequestedEndLocation;
+	OutReceipt.ActualEndLocation = ActualEndLocation;
+	OutReceipt.DeltaSeconds = DeltaSeconds;
+	OutReceipt.bMoved = bMoved
+		|| !ActualEndLocation.Equals(StartLocation, KINDA_SMALL_NUMBER);
+	OutReceipt.bBlockingHit = OutBlockingHit.bBlockingHit;
+	if (!OutReceipt.IsValid())
+	{
+		OutReceipt = Fdemo_mapShanmenControlledWeaponMovementReceipt();
+		OutBlockingHit = FHitResult();
+		return false;
+	}
+	return true;
+}
+
+bool Fdemo_mapShanmenControlledWeaponProductController::TryBeginContactWindow(
+	FShanmenWorldHitContext& OutContext)
+{
+	OutContext = FShanmenWorldHitContext();
+	if (!IsDirected() || HasActiveContactWindow())
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenControlledWeaponProductController Candidate = *this;
+	if (!Candidate.Session.TryBeginContactWindow(
+			Candidate.ActiveContactContext)
+		|| !Candidate.IsValid())
+	{
+		return false;
+	}
+	OutContext = Candidate.ActiveContactContext;
+	*this = MoveTemp(Candidate);
+	return true;
+}
+
+Fdemo_mapShanmenControlledWeaponWorldDeliveryResult
+Fdemo_mapShanmenControlledWeaponProductController::ResolveSweepContact(
+	Fdemo_mapCombatRunCoordinator& Coordinator,
+	const FHitResult& Hit)
+{
+	Fdemo_mapShanmenControlledWeaponWorldDeliveryResult Result;
+	if (!HasActiveContactWindow() || !CoordinatorMatches(Coordinator))
+	{
+		return Result;
+	}
+
+	Fdemo_mapShanmenControlledWeaponProductController Candidate = *this;
+	Result = Fdemo_mapShanmenControlledWeaponWorldAdapter::ResolveSweepContact(
+		Candidate.Session,
+		Coordinator,
+		Candidate.ActiveContactContext,
+		Hit);
+	if (Result.IsDelivered())
+	{
+		*this = MoveTemp(Candidate);
+	}
+	return Result;
+}
+
+Fdemo_mapShanmenControlledWeaponWorldDeliveryResult
+Fdemo_mapShanmenControlledWeaponProductController::ResolveOverlapContact(
+	Fdemo_mapCombatRunCoordinator& Coordinator,
+	const FOverlapResult& Overlap,
+	const FVector& ContactLocation,
+	const FVector& ContactNormal)
+{
+	Fdemo_mapShanmenControlledWeaponWorldDeliveryResult Result;
+	if (!HasActiveContactWindow() || !CoordinatorMatches(Coordinator))
+	{
+		return Result;
+	}
+
+	Fdemo_mapShanmenControlledWeaponProductController Candidate = *this;
+	Result = Fdemo_mapShanmenControlledWeaponWorldAdapter::ResolveOverlapContact(
+		Candidate.Session,
+		Coordinator,
+		Candidate.ActiveContactContext,
+		Overlap,
+		ContactLocation,
+		ContactNormal);
+	if (Result.IsDelivered())
+	{
+		*this = MoveTemp(Candidate);
+	}
+	return Result;
+}
+
+bool Fdemo_mapShanmenControlledWeaponProductController::TryEndContactWindow()
+{
+	if (!HasActiveContactWindow())
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenControlledWeaponProductController Candidate = *this;
+	if (!Candidate.Session.TryEndContactWindow())
+	{
+		return false;
+	}
+	Candidate.ActiveContactContext = FShanmenWorldHitContext();
+	if (!Candidate.IsValid())
+	{
+		return false;
+	}
+	*this = MoveTemp(Candidate);
+	return true;
+}
+
+bool Fdemo_mapShanmenControlledWeaponProductController::TryRecallAndComplete(
+	int64 ExpectedSequence,
+	FShanmenControlledWeaponCommandReceipt& OutRecall,
+	FShanmenActionTransitionReceipt& OutRecovery,
+	FShanmenActionTransitionReceipt& OutCompleted)
+{
+	OutRecall = FShanmenControlledWeaponCommandReceipt();
+	OutRecovery = FShanmenActionTransitionReceipt();
+	OutCompleted = FShanmenActionTransitionReceipt();
+	if (!IsActive() || HasActiveContactWindow())
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenControlledWeaponProductController Candidate = *this;
+	if (!Candidate.Session.TryRecallAndComplete(
+			ExpectedSequence,
+			OutRecall,
+			OutRecovery,
+			OutCompleted)
+		|| !Candidate.IsValid())
+	{
+		OutRecall = FShanmenControlledWeaponCommandReceipt();
+		OutRecovery = FShanmenActionTransitionReceipt();
+		OutCompleted = FShanmenActionTransitionReceipt();
+		return false;
+	}
+	*this = MoveTemp(Candidate);
+	return true;
+}
+
+bool Fdemo_mapShanmenControlledWeaponProductController::TryInterrupt(
+	FShanmenActionTransitionReceipt& OutInterrupted)
+{
+	OutInterrupted = FShanmenActionTransitionReceipt();
+	if (!IsActive())
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenControlledWeaponProductController Candidate = *this;
+	if (!Candidate.Session.TryInterrupt(OutInterrupted))
+	{
+		OutInterrupted = FShanmenActionTransitionReceipt();
+		return false;
+	}
+	Candidate.ActiveContactContext = FShanmenWorldHitContext();
+	if (!Candidate.IsValid())
+	{
+		OutInterrupted = FShanmenActionTransitionReceipt();
+		return false;
+	}
+	*this = MoveTemp(Candidate);
+	return true;
+}
+
+void Fdemo_mapShanmenControlledWeaponProductController::Reset()
+{
+	*this = Fdemo_mapShanmenControlledWeaponProductController();
+}
+
+bool Fdemo_mapShanmenControlledWeaponProductController::CoordinatorMatches(
+	const Fdemo_mapCombatRunCoordinator& Coordinator) const
+{
+	if (!IsActive()
+		|| !Coordinator.IsReady()
+		|| Coordinator.GetRunId() != RunId
+		|| Coordinator.GetPlayerEntityId() != SourceEntityId)
+	{
+		return false;
+	}
+
+	FGuid ResolvedSourceEntityId;
+	return Coordinator.GetEntityRegistry().TryResolveObject(
+			RunId,
+			SourceActor.Get(),
+			INDEX_NONE,
+			ResolvedSourceEntityId)
+		&& ResolvedSourceEntityId == SourceEntityId;
+}
+
+bool Fdemo_mapShanmenControlledWeaponProductController::
+ContactContextMatchesSession() const
+{
+	const FShanmenCombatActionSnapshot& Action =
+		Session.GetActionRuntime().GetAction();
+	return ActiveContactContext.IsValid()
+		&& ActiveContactContext.GetDetectorKind()
+			== EShanmenHitDetectorKind::ControlledObject
+		&& ActiveContactContext.GetDetectorId()
+			== Session.GetExecution().GetDefinition().GetDetectorId()
+		&& ActiveContactContext.GetAction().GetRunId() == Action.GetRunId()
+		&& ActiveContactContext.GetAction().GetActivationId()
+			== Action.GetActivationId()
+		&& ActiveContactContext.GetAction().GetSourceEntityId()
+			== Action.GetSourceEntityId()
+		&& ActiveContactContext.GetAction().GetSourceItemInstanceId()
+			== Action.GetSourceItemInstanceId();
+}
