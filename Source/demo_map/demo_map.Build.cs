@@ -24,7 +24,10 @@ public class demo_map : ModuleRules
 			"Niagara",
 			"UMG",
 			"Slate",
-			"SlateCore"
+			"SlateCore",
+			"ShanmenCombatCore",
+			"ShanmenCombatRuntime",
+			"ShanmenWorldGameplay"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] {

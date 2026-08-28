@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "ShanmenVitalityAuthority.h"
 #include "demo_mapAttributeTypes.h"
 #include "demo_mapPlayerHealthComponent.generated.h"
 
@@ -22,8 +23,12 @@ public:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void BeginPlay() override;
 
-	int32 GetMaxHealth() const { return MaxHealth; }
-	int32 GetCurrentHealth() const { return CurrentHealth; }
+	/** Compatibility projection for the existing integer UI and item surfaces. */
+	int32 GetMaxHealth() const { return FMath::CeilToInt(MaximumVitality); }
+	/** Positive fractional vitality remains visibly alive in legacy integer UI. */
+	int32 GetCurrentHealth() const { return FMath::CeilToInt(CurrentVitality); }
+	float GetMaximumVitality() const { return MaximumVitality; }
+	float GetCurrentVitality() const { return CurrentVitality; }
 	bool IsDefeated() const { return bIsDefeated; }
 	static bool ShouldDodge(float DodgeChance, float NormalizedRoll);
 	static int32 ResolveAppliedDamage(float RawDamage, float FlatDamageReduction);
@@ -31,10 +36,23 @@ public:
 	int32 ApplyHealing(int32 RequestedHealing);
 	/** P15 Code A receipt adapter: applies at most once for this pawn/run health lifetime. */
 	bool ApplyRestoreHealthReceipt(const FGuid& ReceiptId, int32 RestoreAmount, bool& bOutAlreadyProcessed);
-	void RestoreCurrentHealthAfterItemUseRollback(int32 PreviousHealth);
+	void RestoreCurrentVitalityAfterItemUseRollback(float PreviousVitality);
 	bool BindAttributeComponent(
 		class Udemo_mapAttributeComponent* Attributes,
 		bool bInitializeCurrentHealth);
+	/**
+	 * Binds the stable World EntityId supplied by the run/spawn registry.
+	 * A live component may be rebound only to the same id; no pointer-derived or
+	 * random fallback identity is manufactured here.
+	 */
+	bool TryBindCombatEntity(const FGuid& TargetEntityId);
+	bool IsCombatEntityBound() const { return CombatVitalityLedger.IsValid(); }
+	const FGuid& GetCombatEntityId() const { return CombatVitalityLedger.GetTargetEntityId(); }
+	int64 GetCombatAuthorityRevision() const { return CombatVitalityLedger.GetAuthorityRevision(); }
+	int32 NumCommittedCombatImpacts() const { return CombatVitalityLedger.NumCommittedImpacts(); }
+	bool TryCaptureCombatVitalitySnapshot(FShanmenTargetVitalitySnapshot& OutSnapshot) const;
+	/** Applies already-resolved final damage without rerunning legacy defense or ApplyDamage. */
+	FShanmenVitalityCommitResult CommitCombatImpact(const FShanmenVitalityCommitCommand& Command);
 
 #if !UE_BUILD_SHIPPING
 	void SetCurrentHealthForAutomation(int32 NewHealth);
@@ -60,12 +78,15 @@ private:
 	void HandleAttributeChanged(const Fdemo_mapAttributeChange& Change);
 	void BindAttributes();
 	void ApplyMaxHealthFromAttributes(bool bInitial);
+	bool TryCommitVitalityState(float NewCurrentVitality, float NewMaximumVitality);
+	void PublishAppliedDamage(float AppliedDamage);
+
+	/** Sole mutable player-health truth; the combat ledger stores fingerprints only. */
+	UPROPERTY(VisibleAnywhere, Category="Health")
+	float MaximumVitality = 5.0f;
 
 	UPROPERTY(VisibleAnywhere, Category="Health")
-	int32 MaxHealth = 5;
-
-	UPROPERTY(VisibleAnywhere, Category="Health")
-	int32 CurrentHealth = 5;
+	float CurrentVitality = 5.0f;
 
 	UPROPERTY(VisibleAnywhere, Category="Health")
 	bool bIsDefeated = false;
@@ -73,6 +94,7 @@ private:
 	FTimerHandle DamageFeedbackTimer;
 	FDelegateHandle AttributeChangedHandle;
 	TWeakObjectPtr<class Udemo_mapAttributeComponent> AttributeComponent;
+	FShanmenVitalityCommitLedger CombatVitalityLedger;
 	/** Delivery ids only; Code B remains the sole owner of item and receipt truth. */
 	TSet<FGuid> ProcessedRestoreHealthReceiptIds;
 #if WITH_DEV_AUTOMATION_TESTS

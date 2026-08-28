@@ -1088,10 +1088,11 @@ Fdemo_mapItemUseResult Udemo_mapItemSubsystem::UseHotbarSlot(
 	}
 
 	Result.HealRequested = HealAmount;
+	const float VitalityBefore = Health->GetCurrentVitality();
 	Result.BeforeHealth = Health->GetCurrentHealth();
 	Result.MaxHealth = Health->GetMaxHealth();
 	if (!Fdemo_mapItemUsePrototypeConfig::AllowHealingPillAtFullHealth
-		&& Result.BeforeHealth >= Result.MaxHealth)
+		&& VitalityBefore >= Health->GetMaximumVitality())
 	{
 		return Reject(
 			Edemo_mapItemUseStatus::FullHealth,
@@ -1112,8 +1113,8 @@ Fdemo_mapItemUseResult Udemo_mapItemSubsystem::UseHotbarSlot(
 	{
 		Authority.RestoreState(AuthorityBefore);
 		HotbarBindings = HotbarBefore;
-		Health->RestoreCurrentHealthAfterItemUseRollback(
-			Result.BeforeHealth);
+		Health->RestoreCurrentVitalityAfterItemUseRollback(
+			VitalityBefore);
 		HealingPillCooldownEndTime = CooldownEndBefore;
 		Result.AfterHealth = Result.BeforeHealth;
 		Result.AfterStack = Result.BeforeStack;
@@ -2671,9 +2672,9 @@ Fdemo_mapItemOperationResult Udemo_mapItemSubsystem::FinalizeTransaction(const F
 	if (!CoreResult.bSuccess) return CoreResult;
 	Udemo_mapPlayerHealthComponent* Health =
 		BoundHealthComponent.Get();
-	const int32 HealthBefore = Health
-		? Health->GetCurrentHealth()
-		: 0;
+	const float VitalityBefore = Health
+		? Health->GetCurrentVitality()
+		: 0.0f;
 	if (SynchronizeEquipmentModifiers()) return CoreResult;
 	Authority.RestoreState(Before);
 	if (!SynchronizeEquipmentModifiers())
@@ -2682,8 +2683,8 @@ Fdemo_mapItemOperationResult Udemo_mapItemSubsystem::FinalizeTransaction(const F
 	}
 	if (Health)
 	{
-		Health->RestoreCurrentHealthAfterItemUseRollback(
-			HealthBefore);
+		Health->RestoreCurrentVitalityAfterItemUseRollback(
+			VitalityBefore);
 	}
 	return Fdemo_mapItemOperationResult::Failure(Edemo_mapItemResultCode::ModifierApplicationFailed, TEXT("Equipment transaction rolled back because its modifiers could not be applied."), CoreResult.RelatedInstanceId, CoreResult.RelatedDefinitionId, CoreResult.RelatedSlotId);
 }
@@ -2777,9 +2778,9 @@ bool Udemo_mapItemSubsystem::SynchronizeEquipmentModifiers()
 	}
 	Udemo_mapPlayerHealthComponent* Health =
 		BoundHealthComponent.Get();
-	const int32 CurrentHealthBefore = Health
-		? Health->GetCurrentHealth()
-		: 0;
+	const float CurrentVitalityBefore = Health
+		? Health->GetCurrentVitality()
+		: 0.0f;
 	TMap<FName, TArray<Fdemo_mapModifierSpec>> Desired;
 	if (!BuildDesiredModifierSources(Desired)) return false;
 	for (auto It = ActiveModifierSources.CreateIterator(); It; ++It)
@@ -2817,8 +2818,8 @@ bool Udemo_mapItemSubsystem::SynchronizeEquipmentModifiers()
 	}
 	if (Health)
 	{
-		Health->RestoreCurrentHealthAfterItemUseRollback(
-			CurrentHealthBefore);
+		Health->RestoreCurrentVitalityAfterItemUseRollback(
+			CurrentVitalityBefore);
 	}
 	return true;
 }

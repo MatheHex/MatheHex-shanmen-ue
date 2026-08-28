@@ -17,6 +17,7 @@ Udemo_mapPlayerHealthComponent::Udemo_mapPlayerHealthComponent()
 void Udemo_mapPlayerHealthComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	ProcessedRestoreHealthReceiptIds.Reset();
+	CombatVitalityLedger.Reset();
 	if (AttributeComponent.IsValid() && AttributeChangedHandle.IsValid())
 	{
 		AttributeComponent->OnAttributeChanged.Remove(AttributeChangedHandle);
@@ -96,10 +97,89 @@ void Udemo_mapPlayerHealthComponent::ApplyMaxHealthFromAttributes(bool bInitial)
 {
 	float FinalMaxHealth = 5.0f;
 	if (AttributeComponent.IsValid()) AttributeComponent->GetFinalValue(Fdemo_mapAttributeIds::MaxHealth, FinalMaxHealth);
-	const int32 NewMaximum = FMath::Max(1, FMath::RoundToInt(FinalMaxHealth));
-	MaxHealth = NewMaximum;
-	if (bInitial) CurrentHealth = MaxHealth;
-	else CurrentHealth = FMath::Clamp(CurrentHealth, 0, MaxHealth);
+	const float NewMaximum = static_cast<float>(FMath::Max(1, FMath::RoundToInt(FinalMaxHealth)));
+	const float NewCurrent = bInitial
+		? NewMaximum
+		: FMath::Clamp(CurrentVitality, 0.0f, NewMaximum);
+	if (!TryCommitVitalityState(NewCurrent, NewMaximum))
+	{
+		UE_LOG(Logdemo_map, Error, TEXT("0.0.10 P4.2: rejected desynchronized MaxHealth mutation."));
+	}
+}
+
+bool Udemo_mapPlayerHealthComponent::TryBindCombatEntity(const FGuid& TargetEntityId)
+{
+	if (!TargetEntityId.IsValid())
+	{
+		return false;
+	}
+	if (CombatVitalityLedger.IsValid())
+	{
+		return CombatVitalityLedger.GetTargetEntityId() == TargetEntityId
+			&& CombatVitalityLedger.IsSynchronized(CurrentVitality, MaximumVitality);
+	}
+
+	FShanmenVitalityCommitLedger NewLedger;
+	if (!FShanmenVitalityCommitLedger::TryCreate(
+		TargetEntityId,
+		CurrentVitality,
+		MaximumVitality,
+		0,
+		NewLedger))
+	{
+		return false;
+	}
+	CombatVitalityLedger = MoveTemp(NewLedger);
+	return true;
+}
+
+bool Udemo_mapPlayerHealthComponent::TryCaptureCombatVitalitySnapshot(
+	FShanmenTargetVitalitySnapshot& OutSnapshot) const
+{
+	return CombatVitalityLedger.TryCaptureSnapshot(
+		CurrentVitality,
+		MaximumVitality,
+		OutSnapshot);
+}
+
+FShanmenVitalityCommitResult Udemo_mapPlayerHealthComponent::CommitCombatImpact(
+	const FShanmenVitalityCommitCommand& Command)
+{
+	FShanmenVitalityCommitResult Result = CombatVitalityLedger.Commit(
+		Command,
+		CurrentVitality,
+		MaximumVitality);
+	if (Result.Status == EShanmenVitalityCommitStatus::Committed
+		&& Result.Receipt.GetAppliedDamage() > 0.0f)
+	{
+		PublishAppliedDamage(Result.Receipt.GetAppliedDamage());
+	}
+	return Result;
+}
+
+bool Udemo_mapPlayerHealthComponent::TryCommitVitalityState(
+	float NewCurrentVitality,
+	float NewMaximumVitality)
+{
+	if (!FMath::IsFinite(NewCurrentVitality)
+		|| !FMath::IsFinite(NewMaximumVitality)
+		|| NewMaximumVitality <= 0.0f
+		|| NewCurrentVitality < 0.0f
+		|| NewCurrentVitality > NewMaximumVitality)
+	{
+		return false;
+	}
+	if (CombatVitalityLedger.IsValid())
+	{
+		return CombatVitalityLedger.TryCommitExternalMutation(
+			CurrentVitality,
+			MaximumVitality,
+			NewCurrentVitality,
+			NewMaximumVitality);
+	}
+	CurrentVitality = NewCurrentVitality;
+	MaximumVitality = NewMaximumVitality;
+	return true;
 }
 
 void Udemo_mapPlayerHealthComponent::HandleAttributeChanged(const Fdemo_mapAttributeChange& Change)
@@ -158,12 +238,36 @@ int32 Udemo_mapPlayerHealthComponent::ApplyIncomingDamage(float RawDamage)
 		return 0;
 	}
 
-	CurrentHealth = FMath::Max(0, CurrentHealth - AppliedDamage);
+	const float BeforeVitality = CurrentVitality;
+	const float AfterVitality = FMath::Max(
+		0.0f,
+		CurrentVitality - static_cast<float>(AppliedDamage));
+	if (!TryCommitVitalityState(AfterVitality, MaximumVitality))
+	{
+		UE_LOG(Logdemo_map, Error, TEXT("0.0.10 P4.2: rejected desynchronized legacy damage mutation."));
+		return 0;
+	}
+	PublishAppliedDamage(BeforeVitality - AfterVitality);
+	return AppliedDamage;
+}
+
+void Udemo_mapPlayerHealthComponent::PublishAppliedDamage(float AppliedDamage)
+{
+	if (!FMath::IsFinite(AppliedDamage) || AppliedDamage <= 0.0f)
+	{
+		return;
+	}
 #if WITH_DEV_AUTOMATION_TESTS
 	++PositiveDamageBroadcastCount;
 #endif
-	OnPlayerDamaged.Broadcast(AppliedDamage);
-	UE_LOG(Logdemo_map, Log, TEXT("T7: player damaged; health=%d/%d."), CurrentHealth, MaxHealth);
+	const int32 CompatibilityDamage = FMath::Max(1, FMath::CeilToInt(AppliedDamage));
+	OnPlayerDamaged.Broadcast(CompatibilityDamage);
+	UE_LOG(
+		Logdemo_map,
+		Log,
+		TEXT("0.0.10 P4.2: player damaged; vitality=%.3f/%.3f."),
+		CurrentVitality,
+		MaximumVitality);
 	if (AActor* Owner = GetOwner(); Owner != nullptr && GetWorld() != nullptr)
 	{
 		UPointLightComponent* Flash = Owner->FindComponentByClass<UPointLightComponent>();
@@ -178,27 +282,31 @@ int32 Udemo_mapPlayerHealthComponent::ApplyIncomingDamage(float RawDamage)
 		Flash->SetIntensity(9000.0f);
 		GetWorld()->GetTimerManager().SetTimer(DamageFeedbackTimer, this, &Udemo_mapPlayerHealthComponent::ClearDamageFeedback, 0.22f, false);
 	}
-	if (CurrentHealth == 0)
+	if (CurrentVitality <= 0.0f)
 	{
 		EnterDefeatedState();
 	}
-	return AppliedDamage;
 }
 
 int32 Udemo_mapPlayerHealthComponent::ApplyHealing(int32 RequestedHealing)
 {
 	if (RequestedHealing <= 0
 		|| bIsDefeated
-		|| CurrentHealth >= MaxHealth)
+		|| CurrentVitality >= MaximumVitality)
 	{
 		return 0;
 	}
-	const int32 Before = CurrentHealth;
-	CurrentHealth = FMath::Clamp(
-		CurrentHealth + RequestedHealing,
-		0,
-		MaxHealth);
-	return CurrentHealth - Before;
+	const float Before = CurrentVitality;
+	const float After = FMath::Clamp(
+		CurrentVitality + static_cast<float>(RequestedHealing),
+		0.0f,
+		MaximumVitality);
+	if (!TryCommitVitalityState(After, MaximumVitality))
+	{
+		UE_LOG(Logdemo_map, Error, TEXT("0.0.10 P4.2: rejected desynchronized healing mutation."));
+		return 0;
+	}
+	return FMath::RoundToInt(After - Before);
 }
 
 bool Udemo_mapPlayerHealthComponent::ApplyRestoreHealthReceipt(
@@ -223,16 +331,23 @@ bool Udemo_mapPlayerHealthComponent::ApplyRestoreHealthReceipt(
 	return true;
 }
 
-void Udemo_mapPlayerHealthComponent::RestoreCurrentHealthAfterItemUseRollback(
-	int32 PreviousHealth)
+void Udemo_mapPlayerHealthComponent::RestoreCurrentVitalityAfterItemUseRollback(
+	float PreviousVitality)
 {
-	CurrentHealth = FMath::Clamp(PreviousHealth, 0, MaxHealth);
+	if (!TryCommitVitalityState(
+		FMath::Clamp(PreviousVitality, 0.0f, MaximumVitality),
+		MaximumVitality))
+	{
+		UE_LOG(Logdemo_map, Error, TEXT("0.0.10 P4.2: rejected desynchronized item rollback."));
+	}
 }
 
 #if !UE_BUILD_SHIPPING
 void Udemo_mapPlayerHealthComponent::SetCurrentHealthForAutomation(int32 NewHealth)
 {
-	CurrentHealth = FMath::Clamp(NewHealth, 0, MaxHealth);
+	TryCommitVitalityState(
+		FMath::Clamp(static_cast<float>(NewHealth), 0.0f, MaximumVitality),
+		MaximumVitality);
 }
 #endif
 
