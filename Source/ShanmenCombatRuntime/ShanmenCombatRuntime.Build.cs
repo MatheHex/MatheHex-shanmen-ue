@@ -13,7 +13,8 @@ public class ShanmenCombatRuntime : ModuleRules
 			"GameplayAbilities",
 			"GameplayTags",
 			"GameplayTasks",
-			"ShanmenCombatCore"
+			"ShanmenCombatCore",
+			"ShanmenWorldGameplay"
 		});
 	}
 }
