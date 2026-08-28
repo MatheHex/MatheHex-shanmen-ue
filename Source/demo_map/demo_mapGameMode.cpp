@@ -457,6 +457,22 @@ Ademo_mapGameMode::ExecuteM01PlayerStraightProjectileImpact(
 	return Result;
 }
 
+Fdemo_mapShanmenControlledWeaponHostAttachResult
+Ademo_mapGameMode::AttachControlledWeaponToActiveCombatRun(
+	const Fdemo_mapShanmenControlledWeaponPrepareResult& Prepared,
+	AActor* WeaponActor,
+	UPrimitiveComponent* WeaponCollisionRoot,
+	const Fdemo_mapShanmenControlledWeaponMotionCapture& Motion)
+{
+	return ControlledWeaponRunHost.TryAttach(
+		Prepared,
+		CombatRunCoordinator,
+		GetDemoPawn(),
+		WeaponActor,
+		WeaponCollisionRoot,
+		Motion);
+}
+
 bool Ademo_mapGameMode::ShouldUseM01EnemyAttackProductPath() const
 {
 	// M01 owns this routing decision even while the Run is still preparing:
@@ -748,9 +764,9 @@ void Ademo_mapGameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)
 			Target->OnDestroyed.RemoveDynamic(this, &Ademo_mapGameMode::HandleTrainingTargetDestroyed);
 		}
 	}
+	ReleaseControlledWeaponCombatRun(TEXT("EndPlay"));
 	DestroyM01EnemyContent();
 	DestroyM01ExtractionFoundation();
-	CombatRunCoordinator.Reset();
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -885,6 +901,12 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 	FString& OutDiagnostic)
 {
 	OutDiagnostic.Reset();
+	if (!ControlledWeaponRunHost.IsEmpty())
+	{
+		OutDiagnostic =
+			TEXT("Player combat Run binding rejected a stale controlled-weapon Host.");
+		return false;
+	}
 	if (!PlayerPawn || !PlayerItemSubsystem.IsValid())
 	{
 		OutDiagnostic =
@@ -946,6 +968,49 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 		CombatRunCoordinator.NumRegisteredM01Enemies(),
 		CombatRunCoordinator.NumVitalityBoundM01Enemies());
 	return true;
+}
+
+bool Ademo_mapGameMode::ReleaseControlledWeaponCombatRun(
+	const TCHAR* Context)
+{
+	const TCHAR* SafeContext = Context ? Context : TEXT("Unknown");
+	if (!CombatRunCoordinator.IsActive())
+	{
+		if (ControlledWeaponRunHost.IsEmpty())
+		{
+			return true;
+		}
+		UE_LOG(Logdemo_map, Error,
+			TEXT("0_0_10_COMBAT_RUN Event=OrphanedControlledWeaponHost Context=%s BoundItems=%d"),
+			SafeContext,
+			ControlledWeaponRunHost.NumBound());
+		ControlledWeaponRunHost.Reset();
+		return false;
+	}
+
+	const Fdemo_mapShanmenControlledWeaponRunEndResult Result =
+		Fdemo_mapShanmenControlledWeaponRunLifecycle::TryEndRun(
+			ControlledWeaponRunHost,
+			CombatRunCoordinator);
+	if (Result.IsEnded())
+	{
+		UE_LOG(Logdemo_map, Log,
+			TEXT("0_0_10_COMBAT_RUN Event=RunReleased RunId=%s Context=%s ControlledBound=%d ControlledInterrupted=%d"),
+			*Result.RunId.ToString(EGuidFormats::DigitsWithHyphens),
+			SafeContext,
+			Result.BoundItemCount,
+			Result.InterruptedItemCount);
+		return true;
+	}
+
+	UE_LOG(Logdemo_map, Error,
+		TEXT("0_0_10_COMBAT_RUN Event=RunReleaseRejected Context=%s Status=%d Diagnostic=%s"),
+		SafeContext,
+		static_cast<int32>(Result.Status),
+		*Result.Diagnostic);
+	ControlledWeaponRunHost.Reset();
+	CombatRunCoordinator.Reset();
+	return false;
 }
 
 bool Ademo_mapGameMode::ActivateV3MissionContentForRun()
@@ -1058,26 +1123,7 @@ void Ademo_mapGameMode::BindV3EnemyProjections(
 
 void Ademo_mapGameMode::DeactivateV3MissionContentForPreparation()
 {
-	if (CombatRunCoordinator.IsActive())
-	{
-		const FGuid ActiveCombatRunId = CombatRunCoordinator.GetRunId();
-		FString CombatDiagnostic;
-		if (!CombatRunCoordinator.TryEndRun(
-				ActiveCombatRunId,
-				CombatDiagnostic))
-		{
-			UE_LOG(Logdemo_map, Error,
-				TEXT("0_0_10_COMBAT_RUN Event=RunReleaseRejected Diagnostic=%s"),
-				*CombatDiagnostic);
-			CombatRunCoordinator.Reset();
-		}
-		else
-		{
-			UE_LOG(Logdemo_map, Log,
-				TEXT("0_0_10_COMBAT_RUN Event=RunReleased RunId=%s"),
-				*ActiveCombatRunId.ToString(EGuidFormats::DigitsWithHyphens));
-		}
-	}
+	ReleaseControlledWeaponCombatRun(TEXT("PreparationDeactivation"));
 	DestroyM01EnemyContent();
 	DestroyM01ExtractionFoundation();
 	if (IsM01ExpeditionMap())

@@ -11,6 +11,7 @@
 #include "demo_mapItemTypes.h"
 #include "demo_mapProfileSessionTypes.h"
 #include "demo_mapCombatRunCoordinator.h"
+#include "demo_mapShanmenControlledWeaponRunLifecycle.h"
 #include "demo_mapShanmenRunCorrelation.h"
 #include "demo_mapGameMode.generated.h"
 
@@ -27,6 +28,7 @@ class Udemo_mapPlayerHealthComponent;
 class Udemo_mapSkillComponent;
 class Udemo_mapAttributeComponent;
 class Udemo_mapItemSubsystem;
+class UPrimitiveComponent;
 class Ademo_mapSkillProjectile;
 class Ademo_mapEncounterMarker;
 class Ademo_mapV3ProgressionManager;
@@ -107,6 +109,18 @@ public:
 		float RawDamage,
 		const FVector& ImpactLocation,
 		const FVector& ImpactNormal);
+	/** Attaches one externally spawned exact item to the active combat Run. */
+	Fdemo_mapShanmenControlledWeaponHostAttachResult
+	AttachControlledWeaponToActiveCombatRun(
+		const Fdemo_mapShanmenControlledWeaponPrepareResult& Prepared,
+		AActor* WeaponActor,
+		UPrimitiveComponent* WeaponCollisionRoot,
+		const Fdemo_mapShanmenControlledWeaponMotionCapture& Motion);
+	const Fdemo_mapShanmenControlledWeaponRunHost&
+	GetControlledWeaponRunHost() const
+	{
+		return ControlledWeaponRunHost;
+	}
 	/** M01 enemy attacks never fall through to legacy damage when this is true. */
 	bool ShouldUseM01EnemyAttackProductPath() const;
 	Fdemo_mapM01EnemyAttackExecutionResult
@@ -187,6 +201,7 @@ private:
 	bool UsesPersistedEncounterMarkers() const;
 	bool InitializeV3Progression(APawn* PlayerPawn, Udemo_mapItemSubsystem* Items);
 	bool TryActivateCombatRun(APawn* PlayerPawn, FString& OutDiagnostic);
+	bool ReleaseControlledWeaponCombatRun(const TCHAR* Context);
 	void PrepareV2CNavigation();
 	void SpawnExit(APawn* PlayerPawn, const FVector& Forward);
 	void SpawnEnemy(APawn* PlayerPawn, const FVector& Forward, const FVector& Right);
@@ -329,6 +344,7 @@ private:
 	TWeakObjectPtr<Ademo_map0909BFrameworkHost> Framework0909BHost;
 	TOptional<Fdemo_mapShanmenRunCorrelation> Prepared0909BRunCorrelation;
 	Fdemo_mapCombatRunCoordinator CombatRunCoordinator;
+	Fdemo_mapShanmenControlledWeaponRunHost ControlledWeaponRunHost;
 	TArray<TWeakObjectPtr<Ademo_mapM01ExtractionZone>> M01ExtractionZones;
 	TArray<TWeakObjectPtr<AActor>> M01EnemyActors;
 	TWeakObjectPtr<Ademo_mapM01BossCharacter> M01Boss;

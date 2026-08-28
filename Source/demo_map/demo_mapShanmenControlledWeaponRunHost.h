@@ -100,6 +100,8 @@ public:
 
 	bool IsEmpty() const { return Controllers.IsEmpty(); }
 	bool IsValid() const;
+	const FGuid& GetRunId() const { return RunId; }
+	const FGuid& GetSourceEntityId() const { return SourceEntityId; }
 	int32 NumBound() const { return Controllers.Num(); }
 	int32 NumActive() const;
 	TArray<FGuid> GetOrderedItemInstanceIds() const;

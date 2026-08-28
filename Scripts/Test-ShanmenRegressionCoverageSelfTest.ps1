@@ -132,6 +132,12 @@ try
             'Source/demo_map/demo_mapShanmenControlledWeaponRunHost.cpp') `
         -Logs @($Full)
 
+    Invoke-ExpectedPass `
+        -Name 'controlled weapon Run lifecycle is covered by the full suite' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenControlledWeaponRunLifecycle.cpp') `
+        -Logs @($Full)
+
     Invoke-ExpectedFail `
         -Name 'missing mapped group fails closed' `
         -Paths @('Source/demo_map/demo_mapSkillComponent.cpp') `
@@ -169,7 +175,14 @@ try
         -Logs @($Coordinator) `
         -ExpectedText 'missing required groups'
 
-    Write-Output 'SELF_TEST: PASS 10/10'
+    Invoke-ExpectedFail `
+        -Name 'Run lifecycle cannot use coordinator-only evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenControlledWeaponRunLifecycle.cpp') `
+        -Logs @($Coordinator) `
+        -ExpectedText 'missing required groups'
+
+    Write-Output 'SELF_TEST: PASS 12/12'
 }
 finally
 {

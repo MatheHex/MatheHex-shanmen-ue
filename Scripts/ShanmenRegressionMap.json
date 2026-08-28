@@ -203,6 +203,19 @@
       ]
     },
     {
+      "name": "ControlledWeaponRunLifecycle",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenControlledWeaponRunLifecycle(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Product.ControlledWeaponRunLifecycle",
+        "Shanmen.0_0_10.Product.ControlledWeaponRunHost",
+        "Shanmen.0_0_10.Product.ControlledWeaponController",
+        "Shanmen.0_0_10.Product.CombatRunCoordinator",
+        "Shanmen.0_0_10.Items",
+        "Shanmen.0_0_10.WorldGameplay",
+        "Shanmen.0_0_10.CombatRuntime"
+      ]
+    },
+    {
       "name": "GameplayTags",
       "pathRegex": "^Config/DefaultGameplayTags\\.ini$",
       "requiredGroups": [
