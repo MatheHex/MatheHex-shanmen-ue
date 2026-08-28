@@ -112,6 +112,14 @@
       ]
     },
     {
+      "name": "PreparationProjectionConsumers",
+      "pathRegex": "^Source/demo_map/demo_mapProfilePreparation(?:Types|Presenter|Widget).*\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "demo_map.GridInventory",
+        "demo_map.P2.EntityLoadout"
+      ]
+    },
+    {
       "name": "CodeB",
       "pathRegex": "^Source/demo_map/CodeB/",
       "requiredGroups": [

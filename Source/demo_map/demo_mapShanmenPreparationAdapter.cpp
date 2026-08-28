@@ -1231,6 +1231,20 @@ bool Fdemo_mapShanmenPreparationAdapter::BuildProjection(
 		Row.ItemInstanceId = Item.ItemInstanceId;
 		Row.ItemDefinitionId = Item.DefinitionId;
 		Row.StackCount = Item.Quantity;
+		const FShanmenItemDefinition* AuthorityDefinition =
+			FindDefinition(Snapshot, Item.DefinitionId);
+		if (!AuthorityDefinition)
+		{
+			return Fail(TEXT("Preparation authority item has no canonical definition."));
+		}
+		Row.Durability = Item.Durability;
+		Row.MaxDurability = AuthorityDefinition->MaxDurability;
+		Row.Charges = Item.Charges;
+		Row.MaxCharges = AuthorityDefinition->MaxCharges;
+		if (!Row.HasValidResourceState())
+		{
+			return Fail(TEXT("Preparation authority item resource projection is out of range."));
+		}
 		Row.bSafeInPermanentStash = true;
 		const int32 RunInventoryIndex =
 			OutProjection.OrderedSelectedMaterialIds.IndexOfByKey(

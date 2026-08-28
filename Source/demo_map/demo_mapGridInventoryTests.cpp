@@ -89,7 +89,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(Fdemo_mapGridInventory02BackpackLevel1, "demo_m
 bool Fdemo_mapGridInventory02BackpackLevel1::RunTest(const FString&)
 {
 	const Fdemo_mapInventoryCapacityResult Result = Fdemo_mapItemDefinitions::ResolveInventoryCapacity(Fdemo_mapItemIds::BackpackLevel1);
-	TestTrue(TEXT("Level 1 total combines six quick plus ten space-item cells"), Result.bSuccess && Result.Capacity == 16);
+	TestTrue(TEXT("Level 1 total combines six quick plus thirty-six space-item cells"), Result.bSuccess && Result.Capacity == 42);
 	return true;
 }
 
@@ -97,7 +97,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(Fdemo_mapGridInventory03BackpackLevel2, "demo_m
 bool Fdemo_mapGridInventory03BackpackLevel2::RunTest(const FString&)
 {
 	const Fdemo_mapInventoryCapacityResult Result = Fdemo_mapItemDefinitions::ResolveInventoryCapacity(Fdemo_mapItemIds::BackpackLevel2);
-	TestTrue(TEXT("Level 2 total combines six quick plus fourteen space-item cells"), Result.bSuccess && Result.Capacity == 20);
+	TestTrue(TEXT("Level 2 total combines six quick plus thirty-six space-item cells"), Result.bSuccess && Result.Capacity == 42);
 	return true;
 }
 
@@ -134,7 +134,7 @@ bool Fdemo_mapGridInventory06RunLength::RunTest(const FString&)
 	const FGuid Backpack = GridAddOne(*this, Authority, Fdemo_mapItemIds::BackpackLevel1);
 	TestTrue(TEXT("Equip Level 1 backpack"), Authority.Equip(Backpack, Fdemo_mapItemIds::BackpackSlot).bSuccess);
 	const Fdemo_mapGridContainerSnapshot Expanded = Authority.BuildRunInventoryGridSnapshot();
-	TestTrue(TEXT("Run snapshot length follows layered capacity"), Base.bValid && Base.OrderedSlots.Num() == 6 && Expanded.bValid && Expanded.OrderedSlots.Num() == 16);
+	TestTrue(TEXT("Run snapshot length follows layered capacity"), Base.bValid && Base.OrderedSlots.Num() == 6 && Expanded.bValid && Expanded.OrderedSlots.Num() == 42);
 	return true;
 }
 
@@ -158,18 +158,18 @@ bool Fdemo_mapGridInventory08FullSix::RunTest(const FString&)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(Fdemo_mapGridInventory09ExpandedBoundaries, "demo_map.GridInventory.09.FullTenAndFourteenBoundaries", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(Fdemo_mapGridInventory09ExpandedBoundaries, "demo_map.GridInventory.09.FullFortyTwoBoundaries", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool Fdemo_mapGridInventory09ExpandedBoundaries::RunTest(const FString&)
 {
 	Fdemo_mapItemAuthority Ten;
 	const FGuid Level1 = GridAddOne(*this, Ten, Fdemo_mapItemIds::BackpackLevel1);
 	TestTrue(TEXT("Equip Level 1"), Ten.Equip(Level1, Fdemo_mapItemIds::BackpackSlot).bSuccess);
-	TestTrue(TEXT("Sixteen succeeds and seventeen rejects"), Ten.AddDefinition(Fdemo_mapItemIds::TrainingBlade, 16).bSuccess && !Ten.AddDefinition(Fdemo_mapItemIds::TrainingVest, 1).bSuccess);
+	TestTrue(TEXT("Forty-two succeeds and forty-three rejects"), Ten.AddDefinition(Fdemo_mapItemIds::TrainingBlade, 42).bSuccess && !Ten.AddDefinition(Fdemo_mapItemIds::TrainingVest, 1).bSuccess);
 
 	Fdemo_mapItemAuthority Fourteen;
 	const FGuid Level2 = GridAddOne(*this, Fourteen, Fdemo_mapItemIds::BackpackLevel2);
 	TestTrue(TEXT("Equip Level 2"), Fourteen.Equip(Level2, Fdemo_mapItemIds::BackpackSlot).bSuccess);
-	TestTrue(TEXT("Twenty succeeds and twenty-one rejects"), Fourteen.AddDefinition(Fdemo_mapItemIds::TrainingBlade, 20).bSuccess && !Fourteen.AddDefinition(Fdemo_mapItemIds::TrainingVest, 1).bSuccess);
+	TestTrue(TEXT("Second bag shares the frozen forty-two boundary"), Fourteen.AddDefinition(Fdemo_mapItemIds::TrainingBlade, 42).bSuccess && !Fourteen.AddDefinition(Fdemo_mapItemIds::TrainingVest, 1).bSuccess);
 	return true;
 }
 
@@ -179,9 +179,9 @@ bool Fdemo_mapGridInventory10LegacySlots::RunTest(const FString&)
 	Fdemo_mapItemAuthority Authority;
 	const FGuid Weapon = GridAddOne(*this, Authority, Fdemo_mapItemIds::TrainingBlade);
 	const FGuid Armor = GridAddOne(*this, Authority, Fdemo_mapItemIds::TrainingVest);
-	const FGuid Accessory = GridAddOne(*this, Authority, Fdemo_mapItemIds::WindTalisman);
-	TestTrue(TEXT("Weapon Armor Accessory behavior remains"), Authority.Equip(Weapon, Fdemo_mapItemIds::WeaponSlot).bSuccess && Authority.Equip(Armor, Fdemo_mapItemIds::ArmorSlot).bSuccess && Authority.Equip(Accessory, Fdemo_mapItemIds::AccessorySlot).bSuccess);
-	TestTrue(TEXT("Legacy identities remain equipped"), Authority.GetEquippedInstance(Fdemo_mapItemIds::WeaponSlot) == Weapon && Authority.GetEquippedInstance(Fdemo_mapItemIds::ArmorSlot) == Armor && Authority.GetEquippedInstance(Fdemo_mapItemIds::AccessorySlot) == Accessory);
+	const FGuid SpatialRing = GridAddOne(*this, Authority, Fdemo_mapItemIds::WindTalisman);
+	TestTrue(TEXT("Weapon Armor and dedicated SpatialRing behavior remains"), Authority.Equip(Weapon, Fdemo_mapItemIds::WeaponSlot).bSuccess && Authority.Equip(Armor, Fdemo_mapItemIds::ArmorSlot).bSuccess && Authority.Equip(SpatialRing, Fdemo_mapItemIds::SpatialRingSlot).bSuccess);
+	TestTrue(TEXT("Legacy identities remain equipped in their canonical slots"), Authority.GetEquippedInstance(Fdemo_mapItemIds::WeaponSlot) == Weapon && Authority.GetEquippedInstance(Fdemo_mapItemIds::ArmorSlot) == Armor && Authority.GetEquippedInstance(Fdemo_mapItemIds::SpatialRingSlot) == SpatialRing);
 	return true;
 }
 
@@ -203,7 +203,7 @@ bool Fdemo_mapGridInventory12EmptyBackpackEquip::RunTest(const FString&)
 {
 	Fdemo_mapItemAuthority Authority;
 	const FGuid Backpack = GridAddOne(*this, Authority, Fdemo_mapItemIds::BackpackLevel1);
-	TestTrue(TEXT("Empty slot equip preserves ID and adds ten spatial cells after the six base quick cells"), Authority.Equip(Backpack, Fdemo_mapItemIds::BackpackSlot).bSuccess && Authority.GetEquippedInstance(Fdemo_mapItemIds::BackpackSlot) == Backpack && Authority.GetInventoryCapacity() == 16);
+	TestTrue(TEXT("Empty slot equip preserves ID and adds thirty-six spatial cells after the six base quick cells"), Authority.Equip(Backpack, Fdemo_mapItemIds::BackpackSlot).bSuccess && Authority.GetEquippedInstance(Fdemo_mapItemIds::BackpackSlot) == Backpack && Authority.GetInventoryCapacity() == 42);
 	return true;
 }
 
@@ -214,7 +214,7 @@ bool Fdemo_mapGridInventory13Upgrade::RunTest(const FString&)
 	const FGuid Level1 = GridAddOne(*this, Authority, Fdemo_mapItemIds::BackpackLevel1);
 	const FGuid Level2 = GridAddOne(*this, Authority, Fdemo_mapItemIds::BackpackLevel2);
 	TestTrue(TEXT("Equip Level 1"), Authority.Equip(Level1, Fdemo_mapItemIds::BackpackSlot).bSuccess);
-	TestTrue(TEXT("Upgrade preserves both identities"), Authority.Equip(Level2, Fdemo_mapItemIds::BackpackSlot).bSuccess && Authority.GetEquippedInstance(Fdemo_mapItemIds::BackpackSlot) == Level2 && Authority.FindInventorySlot(Level1) != INDEX_NONE && Authority.GetInventoryCapacity() == 20);
+	TestTrue(TEXT("Replacement preserves both identities at the shared capacity"), Authority.Equip(Level2, Fdemo_mapItemIds::BackpackSlot).bSuccess && Authority.GetEquippedInstance(Fdemo_mapItemIds::BackpackSlot) == Level2 && Authority.FindInventorySlot(Level1) != INDEX_NONE && Authority.GetInventoryCapacity() == 42);
 	return true;
 }
 
@@ -225,7 +225,7 @@ bool Fdemo_mapGridInventory14SafeDowngrade::RunTest(const FString&)
 	const FGuid Level2 = GridAddOne(*this, Authority, Fdemo_mapItemIds::BackpackLevel2);
 	const FGuid Level1 = GridAddOne(*this, Authority, Fdemo_mapItemIds::BackpackLevel1);
 	TestTrue(TEXT("Equip Level 2"), Authority.Equip(Level2, Fdemo_mapItemIds::BackpackSlot).bSuccess);
-	TestTrue(TEXT("Safe downgrade succeeds"), Authority.Equip(Level1, Fdemo_mapItemIds::BackpackSlot).bSuccess && Authority.GetInventoryCapacity() == 16 && Authority.FindInventorySlot(Level2) != INDEX_NONE);
+	TestTrue(TEXT("Equal-capacity downgrade succeeds"), Authority.Equip(Level1, Fdemo_mapItemIds::BackpackSlot).bSuccess && Authority.GetInventoryCapacity() == 42 && Authority.FindInventorySlot(Level2) != INDEX_NONE);
 	return true;
 }
 
@@ -236,10 +236,9 @@ bool Fdemo_mapGridInventory15UnsafeDowngrade::RunTest(const FString&)
 	const FGuid Level2 = GridAddOne(*this, Authority, Fdemo_mapItemIds::BackpackLevel2);
 	const FGuid Level1 = GridAddOne(*this, Authority, Fdemo_mapItemIds::BackpackLevel1);
 	TestTrue(TEXT("Equip Level 2"), Authority.Equip(Level2, Fdemo_mapItemIds::BackpackSlot).bSuccess);
-	TestTrue(TEXT("Reach seventeen occupied cells"), Authority.AddDefinition(Fdemo_mapItemIds::TrainingBlade, 16).bSuccess && Authority.GetUsedInventorySlots() == 17);
-	const Fdemo_mapItemAuthorityState Before = Authority.CaptureState();
+	TestTrue(TEXT("Reach the frozen forty-two-cell boundary"), Authority.AddDefinition(Fdemo_mapItemIds::TrainingBlade, 41).bSuccess && Authority.GetUsedInventorySlots() == 42);
 	const Fdemo_mapItemOperationResult Result = Authority.Equip(Level1, Fdemo_mapItemIds::BackpackSlot);
-	TestTrue(TEXT("Unsafe downgrade rejects completely"), !Result.bSuccess && Result.Code == Edemo_mapItemResultCode::InventoryFull && GridStateEqual(Before, Authority.CaptureState()));
+	TestTrue(TEXT("Equal-capacity replacement succeeds at the full boundary"), Result.bSuccess && Authority.GetEquippedInstance(Fdemo_mapItemIds::BackpackSlot) == Level1 && Authority.FindInventorySlot(Level2) != INDEX_NONE && Authority.GetUsedInventorySlots() == 42);
 	return true;
 }
 
@@ -266,7 +265,7 @@ bool Fdemo_mapGridInventory17NormalUnequipFull::RunTest(const FString&)
 	const FGuid Backpack = GridAddOne(*this, Authority, Fdemo_mapItemIds::BackpackLevel2);
 	const FGuid Weapon = GridAddOne(*this, Authority, Fdemo_mapItemIds::TrainingBlade);
 	TestTrue(TEXT("Equip backpack and weapon"), Authority.Equip(Backpack, Fdemo_mapItemIds::BackpackSlot).bSuccess && Authority.Equip(Weapon, Fdemo_mapItemIds::WeaponSlot).bSuccess);
-	TestTrue(TEXT("Fill twenty cells"), Authority.AddDefinition(Fdemo_mapItemIds::TrainingVest, 20).bSuccess);
+	TestTrue(TEXT("Fill forty-two cells"), Authority.AddDefinition(Fdemo_mapItemIds::TrainingVest, 42).bSuccess);
 	const Fdemo_mapItemAuthorityState Before = Authority.CaptureState();
 	TestTrue(TEXT("Full normal unequip rejects completely"), !Authority.Unequip(Fdemo_mapItemIds::WeaponSlot).bSuccess && GridStateEqual(Before, Authority.CaptureState()));
 	return true;
@@ -371,7 +370,7 @@ bool Fdemo_mapGridInventory24SchemaAndCurrency::RunTest(const FString&)
 	Fdemo_mapItemAuthority Authority;
 	const Fdemo_mapGridContainerSnapshot Grid = Authority.BuildRunInventoryGridSnapshot();
 	TestTrue(TEXT("Spirit Stone has no Registry Grid Equipment or Hotbar identity"), bSpiritStoneDefinitionAbsent && Grid.bValid && Grid.UsedSlots == 0 && !Authority.GetEquippedInstance(Fdemo_mapItemIds::BackpackSlot).IsValid());
-	TestEqual(TEXT("Profile Schema is three"), Fdemo_mapPersistentProfile::CurrentSchemaVersion, 3);
+	TestEqual(TEXT("Profile Schema is the current authority-cutover schema"), Fdemo_mapPersistentProfile::CurrentSchemaVersion, 7);
 	return true;
 }
 
@@ -384,7 +383,7 @@ bool Fdemo_mapGridInventory25PreparationCounts::RunTest(const FString&)
 		GridRow(FGuid::NewGuid(), Fdemo_mapItemIds::HealingPillLevel1, 3)
 	};
 	const Fdemo_mapProfilePreparationViewState View = Fdemo_mapProfilePreparationPresenter::BuildViewState(Snapshot);
-	TestTrue(TEXT("Preparation expresses four equipment slots and nine hotbar positions"), View.OrderedEquipmentSlots.Num() == 4 && View.HotbarBindings.SlotBindings.Num() == 9);
+	TestTrue(TEXT("Preparation expresses five equipment roles and nine hotbar positions"), View.OrderedEquipmentSlots.Num() == 5 && View.HotbarBindings.SlotBindings.Num() == 9);
 	TestTrue(TEXT("Permanent Stash is an ordered 1x1 grid projection"), View.PermanentStashGrid.bValid && View.PermanentStashGrid.UsedSlots == 2 && View.PermanentStashGrid.Capacity == 2);
 	return true;
 }
@@ -407,7 +406,7 @@ bool Fdemo_mapGridInventory26PreparationCapacity::RunTest(const FString&)
 	const Fdemo_mapProfilePreparationViewState Ten = Fdemo_mapProfilePreparationPresenter::BuildViewState(Snapshot);
 	Snapshot.SelectedBackpackId = Level2;
 	const Fdemo_mapProfilePreparationViewState Fourteen = Fdemo_mapProfilePreparationPresenter::BuildViewState(Snapshot);
-	TestTrue(TEXT("Preparation displays used over 6 16 20"), Base.RunInventoryUsedSlots == 1 && Base.RunInventoryCapacity == 6 && Ten.RunInventoryCapacity == 16 && Fourteen.RunInventoryCapacity == 20);
+	TestTrue(TEXT("Preparation displays used over 6 42 42"), Base.RunInventoryUsedSlots == 1 && Base.RunInventoryCapacity == 6 && Ten.RunInventoryCapacity == 42 && Fourteen.RunInventoryCapacity == 42);
 	return true;
 }
 

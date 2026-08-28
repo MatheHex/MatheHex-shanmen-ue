@@ -78,15 +78,15 @@ bool FP2EntityLoadoutCapacityTest::RunTest(const FString&)
 		EmptySpatial.bSuccess
 			&& EmptySpatial.Capacity == 0
 			&& LevelOneSpatial.bSuccess
-			&& LevelOneSpatial.Capacity == 10
+			&& LevelOneSpatial.Capacity == 36
 			&& LevelTwoSpatial.bSuccess
-			&& LevelTwoSpatial.Capacity == 14);
+			&& LevelTwoSpatial.Capacity == 36);
 	TestTrue(
 		TEXT("Total carried capacity combines fixed and dynamic layers"),
 		LevelOneTotal.bSuccess
-			&& LevelOneTotal.Capacity == 16
+			&& LevelOneTotal.Capacity == 42
 			&& LevelTwoTotal.bSuccess
-			&& LevelTwoTotal.Capacity == 20);
+			&& LevelTwoTotal.Capacity == 42);
 	return true;
 }
 
@@ -133,9 +133,9 @@ bool FP2EntityLoadoutProjectionTest::RunTest(const FString&)
 		Fdemo_mapEntityLoadoutPresenter::BuildPlayerPreparationView(
 			Snapshot);
 	TestTrue(
-		TEXT("Shared equipment structure exposes 1/1/1/1 slots"),
+		TEXT("Shared equipment structure exposes five product roles"),
 		View.bValid
-			&& View.EquipmentSlots.Num() == 4
+			&& View.EquipmentSlots.Num() == 5
 			&& View.AccessorySlotCount == 1);
 	TestTrue(
 		TEXT("First six GUIDs stay in fixed quick cells"),
@@ -146,7 +146,7 @@ bool FP2EntityLoadoutProjectionTest::RunTest(const FString&)
 				== Selected[5]);
 	TestTrue(
 		TEXT("Overflow enters Definition-backed space-item storage"),
-		View.SpatialStorageSlots.Num() == 10
+		View.SpatialStorageSlots.Num() == 36
 			&& View.SpatialStorageSlots[0].ItemInstanceId
 				== Selected[6]
 			&& View.SpatialStorageSlots[0].Quantity == 7);
@@ -194,15 +194,15 @@ bool FP2EntityLoadoutCapacityGuardTest::RunTest(const FString&)
 		TEXT("Capacity rejection explains why nothing moved"),
 		Diagnostic.Contains(TEXT("移回仓库")));
 	TestTrue(
-		TEXT("Sixteen items fit level-one space item"),
+		TEXT("Forty-two items fit level-one space item"),
 		Fdemo_mapEntityLoadoutRules::CanFitSelectedItems(
-			16,
+			42,
 			Fdemo_mapItemIds::BackpackLevel1,
 			&Diagnostic));
 	TestFalse(
-		TEXT("Seventeen items reject level-one space item"),
+		TEXT("Forty-third item rejects level-one space item"),
 		Fdemo_mapEntityLoadoutRules::CanFitSelectedItems(
-			17,
+			43,
 			Fdemo_mapItemIds::BackpackLevel1,
 			&Diagnostic));
 	return true;
@@ -223,7 +223,7 @@ bool FP2EntityLoadoutConfigAndWidgetTest::RunTest(const FString&)
 	TestTrue(
 		TEXT("Accessory slot count is configurable"),
 		Configurable.AccessorySlotCount == 3
-			&& Configurable.EquipmentSlots.Num() == 6);
+			&& Configurable.EquipmentSlots.Num() == 7);
 
 	Udemo_mapProfilePreparationWidget* Widget =
 		NewObject<Udemo_mapProfilePreparationWidget>();

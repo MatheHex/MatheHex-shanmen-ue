@@ -29,6 +29,11 @@ struct Fdemo_mapProfilePreparationStashRow
 	FGuid ItemInstanceId;
 	FName ItemDefinitionId = NAME_None;
 	int32 StackCount = 0;
+	/** Current/max durable resources projected from the sole ShanmenItems authority. */
+	int32 Durability = 0;
+	int32 MaxDurability = 0;
+	int32 Charges = 0;
+	int32 MaxCharges = 0;
 	Edemo_mapRewardEventKind RewardEventKind = Edemo_mapRewardEventKind::None;
 	FGuid RewardEventId;
 	int32 RewardValueMultiplierBps = Fdemo_mapRewardEventRules::NormalMultiplierBps;
@@ -44,6 +49,12 @@ struct Fdemo_mapProfilePreparationStashRow
 	bool bInBaseQuickItemArea = false;
 	bool bSelected = false;
 	bool bSafeInPermanentStash = false;
+
+	bool HasValidResourceState() const
+	{
+		return Durability >= 0 && Durability <= MaxDurability
+			&& Charges >= 0 && Charges <= MaxCharges;
+	}
 };
 
 struct Fdemo_mapProfilePreparationSnapshot

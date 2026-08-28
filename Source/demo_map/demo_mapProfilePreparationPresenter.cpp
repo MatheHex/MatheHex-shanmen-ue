@@ -25,6 +25,23 @@ namespace
 		if (SlotId == Fdemo_mapItemIds::SpatialRingSlot) return Snapshot.SelectedSpatialRingId;
 		return Snapshot.SelectedBackpackId;
 	}
+
+	FString ResourceLabelFor(
+		const Fdemo_mapProfilePreparationStashRow& Row)
+	{
+		TArray<FString> Parts;
+		if (Row.MaxDurability > 0)
+		{
+			Parts.Add(FString::Printf(
+				TEXT("DUR %d/%d"), Row.Durability, Row.MaxDurability));
+		}
+		if (Row.MaxCharges > 0)
+		{
+			Parts.Add(FString::Printf(
+				TEXT("CHG %d/%d"), Row.Charges, Row.MaxCharges));
+		}
+		return FString::Join(Parts, TEXT(" | "));
+	}
 }
 
 Fdemo_mapProfilePreparationViewState Fdemo_mapProfilePreparationPresenter::BuildViewState(
@@ -103,6 +120,11 @@ Fdemo_mapProfilePreparationViewState Fdemo_mapProfilePreparationPresenter::Build
 			Row.ItemDefinitionId = Source.ItemDefinitionId;
 			Row.DisplayName = DisplayNameFor(Source);
 			Row.StackCount = Source.StackCount;
+			Row.Durability = Source.Durability;
+			Row.MaxDurability = Source.MaxDurability;
+			Row.Charges = Source.Charges;
+			Row.MaxCharges = Source.MaxCharges;
+			Row.ResourceLabel = ResourceLabelFor(Source);
 			Row.RewardEventKind = Source.RewardEventKind;
 			Row.RewardEventId = Source.RewardEventId;
 			Row.RewardValueMultiplierBps = Source.RewardValueMultiplierBps;

@@ -405,14 +405,18 @@ void Udemo_mapProfilePreparationWidget::RebuildStashRows()
 	{
 		const Fdemo_mapProfilePreparationRowView& Row = ViewState.OrderedPermanentStashRows[Index];
 		const FString Selectable = Row.bStashOnly ? TEXT("STASH-ONLY") : (Row.bSelected ? TEXT("SELECTED") : TEXT("SELECT"));
+		const FString ResourceSuffix = Row.ResourceLabel.IsEmpty()
+			? FString()
+			: TEXT("  ") + Row.ResourceLabel;
 		const FString Line = FString::Printf(
-			TEXT("%02d  %s [%s] ×%d  %s  %s"),
+			TEXT("%02d  %s [%s] ×%d  %s  %s%s"),
 			Index + 1,
 			*Row.DisplayName,
 			*Row.ItemDefinitionId.ToString(),
 			Row.StackCount,
 			*Row.RiskLabel,
-			*Selectable);
+			*Selectable,
+			*ResourceSuffix);
 		UHorizontalBox* LineBox = WidgetTree->ConstructWidget<UHorizontalBox>();
 		UButton* Button = WidgetTree->ConstructWidget<UButton>();
 		Button->SetContent(PreparationText(WidgetTree, Line, 16));
@@ -837,10 +841,11 @@ void Udemo_mapProfilePreparationWidget::RefreshText()
 		}))
 	{
 		Details = FString::Printf(
-			TEXT("%s\nDefinition: %s\nStackCount: %d\nItemInstanceId: %s\nGridIndex: %d\nSlot / Category: %s\nRisk: %s\nSelection: %s"),
+			TEXT("%s\nDefinition: %s\nStackCount: %d\nResources: %s\nItemInstanceId: %s\nGridIndex: %d\nSlot / Category: %s\nRisk: %s\nSelection: %s"),
 			*Row->DisplayName,
 			*Row->ItemDefinitionId.ToString(),
 			Row->StackCount,
+			Row->ResourceLabel.IsEmpty() ? TEXT("NONE") : *Row->ResourceLabel,
 			*Row->ItemInstanceId.ToString(EGuidFormats::DigitsWithHyphens),
 			Row->GridIndex,
 			*Row->SlotOrCategoryLabel,

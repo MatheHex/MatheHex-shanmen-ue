@@ -9,6 +9,7 @@
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapItemSubsystem.h"
 #include "demo_mapPlayerHealthComponent.h"
+#include "demo_mapProfilePreparationPresenter.h"
 #include "demo_mapProfileRepository.h"
 #include "demo_mapProfilePreparationTypes.h"
 #include "demo_mapProfileSessionSubsystem.h"
@@ -140,6 +141,18 @@ namespace
 			[&ItemInstanceId](const FShanmenItemInstance& Item)
 			{
 				return Item.ItemInstanceId == ItemInstanceId;
+			});
+	}
+
+	const Fdemo_mapProfilePreparationStashRow* FindPreparationRow(
+		const Fdemo_mapProfilePreparationSnapshot& Snapshot,
+		const FGuid& ItemInstanceId)
+	{
+		return Snapshot.OrderedPermanentStashRows.FindByPredicate(
+			[&ItemInstanceId](
+				const Fdemo_mapProfilePreparationStashRow& Row)
+			{
+				return Row.ItemInstanceId == ItemInstanceId;
 			});
 	}
 
@@ -587,6 +600,204 @@ bool Fdemo_mapSpiritGuardTriggeredDurabilityTest::RunTest(const FString&)
 			Health->GetCurrentVitality(),
 			BeforeVitality.CurrentVitality - 2.0f)
 		&& ReplayedArmor && ReplayedArmor->Durability == 19);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapSpiritGuardDurableLifecycleTest,
+	"Shanmen.0_0_10.Items.DefenseResourceAdapter.SpiritGuardDurableLifecycle",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapSpiritGuardDurableLifecycleTest::RunTest(const FString&)
+{
+	FP54DefenseFixture Fixture;
+	if (!Fixture.SeedAndStart(*this, TEXT("DurableLifecycle")))
+	{
+		return false;
+	}
+	const FGuid FirstRunId = Fixture.Started.ActiveRunId;
+	Udemo_mapPlayerHealthComponent* FirstHealth =
+		NewObject<Udemo_mapPlayerHealthComponent>(GetTransientPackage());
+	if (!FirstHealth
+		|| !FirstHealth->TryBindCombatEntity(
+			FGuid(0xD3550100, 0, 0, 1)))
+	{
+		AddError(TEXT("P5.5 first Run could not bind vitality."));
+		return false;
+	}
+	FShanmenImpactRequest FirstRequest;
+	FShanmenImpactResult FirstImpact;
+	FString Diagnostic;
+	if (!BuildP54Impact(
+		Fixture, *FirstHealth, 1, MakeP54BaseDefense(false),
+		FirstRequest, FirstImpact, Diagnostic))
+	{
+		AddError(Diagnostic);
+		return false;
+	}
+	const Fdemo_mapShanmenDefenseResourceCoordinationResult FirstWear =
+		Fdemo_mapShanmenDefenseResourceAdapter::CoordinateImpact(
+			*Fixture.Authority, *FirstHealth,
+			FirstRequest, FirstImpact);
+	FShanmenItemAuthoritySnapshot WornInFirstRun;
+	const FShanmenItemInstance* FirstWornArmor =
+		Fixture.Authority->TryCaptureSnapshot(WornInFirstRun)
+		? FindAuthorityItem(WornInFirstRun, Fixture.SpiritGuardId)
+		: nullptr;
+	TestTrue(TEXT("First Run durably wears the robe from twenty to nineteen"),
+		FirstWear.IsSuccess()
+		&& FirstWornArmor && FirstWornArmor->Durability == 19);
+
+	Fdemo_mapSettlementSummary ExtractionSummary;
+	const Fdemo_mapItemOperationResult RuntimeExtraction =
+		Fixture.Runtime->RequestSettlement(
+			Edemo_mapRunEndReason::Extraction, ExtractionSummary);
+	const Fdemo_mapShanmenRunFinalizeResult Extraction =
+		RuntimeExtraction.bSuccess
+		? Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
+			*Fixture.Authority, ExtractionSummary)
+		: Fdemo_mapShanmenRunFinalizeResult();
+	FShanmenItemAuthoritySnapshot Extracted;
+	const FShanmenItemInstance* ExtractedArmor =
+		Fixture.Authority->TryCaptureSnapshot(Extracted)
+		? FindAuthorityItem(Extracted, Fixture.SpiritGuardId)
+		: nullptr;
+	const Fdemo_mapProfilePreparationSnapshot ExtractedPreparation =
+		Fixture.Session->GetPreparationSnapshot();
+	const Fdemo_mapProfilePreparationStashRow* ExtractedRow =
+		FindPreparationRow(
+			ExtractedPreparation, Fixture.SpiritGuardId);
+	const Fdemo_mapProfilePreparationViewState ExtractedView =
+		Fdemo_mapProfilePreparationPresenter::BuildViewState(
+			ExtractedPreparation);
+	const Fdemo_mapProfilePreparationRowView* ExtractedViewRow =
+		ExtractedView.OrderedPermanentStashRows.FindByPredicate(
+			[&Fixture](const Fdemo_mapProfilePreparationRowView& Row)
+			{
+				return Row.ItemInstanceId == Fixture.SpiritGuardId;
+			});
+	TestTrue(TEXT("Extraction preserves wear and exposes it in preparation"),
+		Extraction.IsFinalized()
+		&& ExtractedArmor
+		&& ExtractedArmor->State == EShanmenItemInstanceState::Stored
+		&& ExtractedArmor->Durability == 19
+		&& ExtractedRow
+		&& ExtractedRow->Durability == 19
+		&& ExtractedRow->MaxDurability == 20
+		&& ExtractedRow->HasValidResourceState()
+		&& ExtractedViewRow
+		&& ExtractedViewRow->ResourceLabel == TEXT("DUR 19/20"));
+
+	if (!Fixture.RestartAndBind(*this))
+	{
+		return false;
+	}
+	FShanmenItemAuthoritySnapshot RestartedAfterExtraction;
+	const FShanmenItemInstance* RestartedArmor =
+		Fixture.Authority->TryCaptureSnapshot(RestartedAfterExtraction)
+		? FindAuthorityItem(
+			RestartedAfterExtraction, Fixture.SpiritGuardId)
+		: nullptr;
+	const Fdemo_mapProfilePreparationSnapshot RestartedPreparation =
+		Fixture.Session->GetPreparationSnapshot();
+	const Fdemo_mapProfilePreparationStashRow* RestartedRow =
+		FindPreparationRow(
+			RestartedPreparation, Fixture.SpiritGuardId);
+	TestTrue(TEXT("Process restart preserves nineteen durability"),
+		RestartedArmor && RestartedArmor->Durability == 19
+		&& RestartedRow
+		&& RestartedRow->Durability == 19
+		&& RestartedRow->MaxDurability == 20);
+
+	const Fdemo_mapProfilePreparationSelectionResult Reselected =
+		Fixture.Session->SetPreparationEquipment(
+			Fdemo_mapItemIds::ArmorSlot, Fixture.SpiritGuardId);
+	Fixture.Runtime->ResetForAutomation();
+	Fixture.Started =
+		Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
+			*Fixture.Authority, *Fixture.Runtime);
+	TestTrue(TEXT("A later Run reuses the same worn identity"),
+		Reselected.IsAccepted()
+		&& Fixture.Started.IsStarted()
+		&& Fixture.Started.ActiveRunId != FirstRunId
+		&& Fixture.Started.RunCorrelation.ArmorItemInstanceId
+			== Fixture.SpiritGuardId);
+
+	Udemo_mapPlayerHealthComponent* SecondHealth =
+		NewObject<Udemo_mapPlayerHealthComponent>(GetTransientPackage());
+	if (!SecondHealth
+		|| !SecondHealth->TryBindCombatEntity(
+			FGuid(0xD3550200, 0, 0, 1)))
+	{
+		AddError(TEXT("P5.5 second Run could not bind vitality."));
+		return false;
+	}
+	FShanmenImpactRequest SecondRequest;
+	FShanmenImpactResult SecondImpact;
+	if (!BuildP54Impact(
+		Fixture, *SecondHealth, 2, MakeP54BaseDefense(false),
+		SecondRequest, SecondImpact, Diagnostic))
+	{
+		AddError(Diagnostic);
+		return false;
+	}
+	const Fdemo_mapShanmenDefenseResourceCoordinationResult SecondWear =
+		Fdemo_mapShanmenDefenseResourceAdapter::CoordinateImpact(
+			*Fixture.Authority, *SecondHealth,
+			SecondRequest, SecondImpact);
+	FShanmenItemAuthoritySnapshot WornInSecondRun;
+	const FShanmenItemInstance* SecondWornArmor =
+		Fixture.Authority->TryCaptureSnapshot(WornInSecondRun)
+		? FindAuthorityItem(WornInSecondRun, Fixture.SpiritGuardId)
+		: nullptr;
+	TestTrue(TEXT("Later Run continues wear from nineteen to eighteen"),
+		SecondWear.IsSuccess()
+		&& SecondWornArmor && SecondWornArmor->Durability == 18);
+
+	Fdemo_mapSettlementSummary DeathSummary;
+	const Fdemo_mapItemOperationResult RuntimeDeath =
+		Fixture.Runtime->RequestSettlement(
+			Edemo_mapRunEndReason::Death, DeathSummary);
+	const Fdemo_mapShanmenRunFinalizeResult Death = RuntimeDeath.bSuccess
+		? Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
+			*Fixture.Authority, DeathSummary)
+		: Fdemo_mapShanmenRunFinalizeResult();
+	FShanmenItemAuthoritySnapshot Destroyed;
+	const FShanmenItemInstance* DestroyedArmor =
+		Fixture.Authority->TryCaptureSnapshot(Destroyed)
+		? FindAuthorityItem(Destroyed, Fixture.SpiritGuardId)
+		: nullptr;
+	const Fdemo_mapProfilePreparationSnapshot DestroyedPreparation =
+		Fixture.Session->GetPreparationSnapshot();
+	TestTrue(TEXT("Death converts the worn identity to a zeroed tombstone"),
+		Death.IsFinalized()
+		&& DestroyedArmor
+		&& DestroyedArmor->State == EShanmenItemInstanceState::Destroyed
+		&& DestroyedArmor->Quantity == 0
+		&& DestroyedArmor->Durability == 0
+		&& DestroyedArmor->Charges == 0
+		&& !FindPreparationRow(
+			DestroyedPreparation, Fixture.SpiritGuardId));
+
+	if (!Fixture.RestartAndBind(*this))
+	{
+		return false;
+	}
+	FShanmenItemAuthoritySnapshot RestartedAfterDeath;
+	const FShanmenItemInstance* RestartedTombstone =
+		Fixture.Authority->TryCaptureSnapshot(RestartedAfterDeath)
+		? FindAuthorityItem(
+			RestartedAfterDeath, Fixture.SpiritGuardId)
+		: nullptr;
+	TestTrue(TEXT("Destroyed resource state remains terminal after restart"),
+		RestartedTombstone
+		&& RestartedTombstone->State
+			== EShanmenItemInstanceState::Destroyed
+		&& RestartedTombstone->Quantity == 0
+		&& RestartedTombstone->Durability == 0
+		&& !FindPreparationRow(
+			Fixture.Session->GetPreparationSnapshot(),
+			Fixture.SpiritGuardId));
 	return true;
 }
 

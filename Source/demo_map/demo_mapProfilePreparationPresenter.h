@@ -17,6 +17,11 @@ struct Fdemo_mapProfilePreparationRowView
 	FName ItemDefinitionId = NAME_None;
 	FString DisplayName;
 	int32 StackCount = 0;
+	int32 Durability = 0;
+	int32 MaxDurability = 0;
+	int32 Charges = 0;
+	int32 MaxCharges = 0;
+	FString ResourceLabel;
 	Edemo_mapRewardEventKind RewardEventKind = Edemo_mapRewardEventKind::None;
 	FGuid RewardEventId;
 	int32 RewardValueMultiplierBps = Fdemo_mapRewardEventRules::NormalMultiplierBps;
