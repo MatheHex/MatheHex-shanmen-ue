@@ -287,7 +287,17 @@ Fdemo_mapCombatImpactDeliveryResult
 Ademo_mapGameMode::DeliverResolvedPlayerImpact(
 	const FShanmenBasicSwordImpactReceipt& Impact)
 {
-	return PlayerCombatCoordinator.DeliverBasicSwordImpact(Impact);
+	return CombatRunCoordinator.DeliverBasicSwordImpactToPlayer(Impact);
+}
+
+Fdemo_mapCombatImpactDeliveryResult
+Ademo_mapGameMode::DeliverResolvedM01MeleeImpact(
+	const FShanmenBasicSwordImpactReceipt& Impact,
+	Ademo_mapEnemyCharacter* TargetEnemy)
+{
+	return CombatRunCoordinator.DeliverBasicSwordImpactToM01Enemy(
+		Impact,
+		TargetEnemy);
 }
 
 FString Ademo_mapGameMode::Get0909BProfileStorageRoot() const
@@ -352,7 +362,7 @@ void Ademo_mapGameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	}
 	DestroyM01EnemyContent();
 	DestroyM01ExtractionFoundation();
-	PlayerCombatCoordinator.Reset();
+	CombatRunCoordinator.Reset();
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -482,7 +492,7 @@ void Ademo_mapGameMode::InitializeRuntimeMission()
 	StartRequestedAutomation();
 }
 
-bool Ademo_mapGameMode::TryActivatePlayerCombatRun(
+bool Ademo_mapGameMode::TryActivateCombatRun(
 	APawn* PlayerPawn,
 	FString& OutDiagnostic)
 {
@@ -502,7 +512,7 @@ bool Ademo_mapGameMode::TryActivatePlayerCombatRun(
 			TEXT("Player combat Run binding requires an active authority Run and health host.");
 		return false;
 	}
-	if (!PlayerCombatCoordinator.TryBeginRun(
+	if (!CombatRunCoordinator.TryBeginRun(
 			ActiveRunId,
 			PlayerPawn,
 			PlayerHealth,
@@ -510,11 +520,43 @@ bool Ademo_mapGameMode::TryActivatePlayerCombatRun(
 	{
 		return false;
 	}
+	if (IsM01ExpeditionMap()
+		&& CombatRunCoordinator.NumRegisteredM01Enemies() == 0)
+	{
+		for (const TWeakObjectPtr<AActor>& EnemyActor : M01EnemyActors)
+		{
+			if (!EnemyActor.IsValid()
+				|| !CombatRunCoordinator.TryRegisterM01Enemy(
+					EnemyActor.Get(),
+					OutDiagnostic))
+			{
+				FString ReleaseDiagnostic;
+				CombatRunCoordinator.TryEndRun(
+					ActiveRunId,
+					ReleaseDiagnostic);
+				return false;
+			}
+		}
+	}
+	if (IsM01ExpeditionMap()
+		&& CombatRunCoordinator.NumRegisteredM01Enemies()
+			!= M01EnemyActors.Num())
+	{
+		OutDiagnostic =
+			TEXT("Combat Run did not register the complete authored M01 enemy set.");
+		FString ReleaseDiagnostic;
+		CombatRunCoordinator.TryEndRun(
+			ActiveRunId,
+			ReleaseDiagnostic);
+		return false;
+	}
 	UE_LOG(Logdemo_map, Log,
-		TEXT("0_0_10_PLAYER_COMBAT Event=RunBound RunId=%s EntityId=%s"),
+		TEXT("0_0_10_COMBAT_RUN Event=RunBound RunId=%s PlayerEntityId=%s M01Entities=%d M01VitalityHosts=%d"),
 		*ActiveRunId.ToString(EGuidFormats::DigitsWithHyphens),
-		*PlayerCombatCoordinator.GetPlayerEntityId().ToString(
-			EGuidFormats::DigitsWithHyphens));
+		*CombatRunCoordinator.GetPlayerEntityId().ToString(
+			EGuidFormats::DigitsWithHyphens),
+		CombatRunCoordinator.NumRegisteredM01Enemies(),
+		CombatRunCoordinator.NumVitalityBoundM01Enemies());
 	return true;
 }
 
@@ -542,7 +584,7 @@ bool Ademo_mapGameMode::ActivateV3MissionContentForRun()
 		}
 		FString CombatDiagnostic;
 		return bProjectionReady
-			&& TryActivatePlayerCombatRun(GetDemoPawn(), CombatDiagnostic);
+			&& TryActivateCombatRun(GetDemoPawn(), CombatDiagnostic);
 	}
 	APawn* PlayerPawn = GetDemoPawn();
 	Ademo_mapGameState* MissionState = GetWorld() ? Cast<Ademo_mapGameState>(GetWorld()->GetGameState()) : nullptr;
@@ -578,10 +620,10 @@ bool Ademo_mapGameMode::ActivateV3MissionContentForRun()
 			*M01PlayerStart->GetName(), M01ExtractionZones.Num(), M01EnemyActors.Num());
 		FString CombatDiagnostic;
 		if (bV3MissionContentActive
-			&& !TryActivatePlayerCombatRun(PlayerPawn, CombatDiagnostic))
+			&& !TryActivateCombatRun(PlayerPawn, CombatDiagnostic))
 		{
 			UE_LOG(Logdemo_map, Error,
-				TEXT("0_0_10_PLAYER_COMBAT Event=RunBindingRejected Diagnostic=%s"),
+				TEXT("0_0_10_COMBAT_RUN Event=RunBindingRejected Diagnostic=%s"),
 				*CombatDiagnostic);
 			DeactivateV3MissionContentForPreparation();
 		}
@@ -597,10 +639,10 @@ bool Ademo_mapGameMode::ActivateV3MissionContentForRun()
 		bV3MissionContentActive = InitializeM01ExtractionFoundation(PlayerPawn);
 		FString CombatDiagnostic;
 		if (bV3MissionContentActive
-			&& !TryActivatePlayerCombatRun(PlayerPawn, CombatDiagnostic))
+			&& !TryActivateCombatRun(PlayerPawn, CombatDiagnostic))
 		{
 			UE_LOG(Logdemo_map, Error,
-				TEXT("0_0_10_PLAYER_COMBAT Event=RunBindingRejected Diagnostic=%s"),
+				TEXT("0_0_10_COMBAT_RUN Event=RunBindingRejected Diagnostic=%s"),
 				*CombatDiagnostic);
 			bV3MissionContentActive = false;
 		}
@@ -628,23 +670,23 @@ void Ademo_mapGameMode::BindV3EnemyProjections(
 
 void Ademo_mapGameMode::DeactivateV3MissionContentForPreparation()
 {
-	if (PlayerCombatCoordinator.IsActive())
+	if (CombatRunCoordinator.IsActive())
 	{
-		const FGuid ActiveCombatRunId = PlayerCombatCoordinator.GetRunId();
+		const FGuid ActiveCombatRunId = CombatRunCoordinator.GetRunId();
 		FString CombatDiagnostic;
-		if (!PlayerCombatCoordinator.TryEndRun(
+		if (!CombatRunCoordinator.TryEndRun(
 				ActiveCombatRunId,
 				CombatDiagnostic))
 		{
 			UE_LOG(Logdemo_map, Error,
-				TEXT("0_0_10_PLAYER_COMBAT Event=RunReleaseRejected Diagnostic=%s"),
+				TEXT("0_0_10_COMBAT_RUN Event=RunReleaseRejected Diagnostic=%s"),
 				*CombatDiagnostic);
-			PlayerCombatCoordinator.Reset();
+			CombatRunCoordinator.Reset();
 		}
 		else
 		{
 			UE_LOG(Logdemo_map, Log,
-				TEXT("0_0_10_PLAYER_COMBAT Event=RunReleased RunId=%s"),
+				TEXT("0_0_10_COMBAT_RUN Event=RunReleased RunId=%s"),
 				*ActiveCombatRunId.ToString(EGuidFormats::DigitsWithHyphens));
 		}
 	}

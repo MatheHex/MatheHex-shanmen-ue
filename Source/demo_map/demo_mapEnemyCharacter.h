@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "ShanmenVitalityAuthority.h"
 #include "demo_mapEnemyEncounterTypes.h"
 #include "demo_mapEnemySkillTypes.h"
 #include "demo_mapEnemyCharacter.generated.h"
@@ -35,8 +36,11 @@ public:
 	virtual float TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser) override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
-	int32 GetMaxHealth() const { return MaxHealth; }
-	int32 GetCurrentHealth() const { return CurrentHealth; }
+	/** Compatibility projections for retained integer UI and mission checks. */
+	int32 GetMaxHealth() const { return FMath::CeilToInt(MaximumVitality); }
+	int32 GetCurrentHealth() const { return FMath::CeilToInt(CurrentVitality); }
+	float GetMaximumVitality() const { return MaximumVitality; }
+	float GetCurrentVitality() const { return CurrentVitality; }
 	bool IsDead() const { return EnemyState == Edemo_mapEnemyState::Dead; }
 	Edemo_mapEnemyState GetEnemyState() const { return EnemyState; }
 	float GetAttackCooldown() const { return AttackCooldown; }
@@ -52,12 +56,38 @@ public:
 		const Fdemo_mapEnemyEncounterIdentity& InIdentity,
 		const Fdemo_mapEnemyCombatTuning& InTuning,
 		bool bInEnhanced);
+	bool TryBindCombatEntity(const FGuid& TargetEntityId);
+	bool TryEndCombatEntityBinding(const FGuid& ExpectedTargetEntityId);
+	bool IsCombatEntityBound() const { return CombatVitalityLedger.IsValid(); }
+	const FGuid& GetCombatEntityId() const
+	{
+		return CombatVitalityLedger.GetTargetEntityId();
+	}
+	int64 GetCombatAuthorityRevision() const
+	{
+		return CombatVitalityLedger.GetAuthorityRevision();
+	}
+	int32 NumCommittedCombatImpacts() const
+	{
+		return CombatVitalityLedger.NumCommittedImpacts();
+	}
+	bool TryCaptureCombatVitalitySnapshot(
+		FShanmenTargetVitalitySnapshot& OutSnapshot) const;
+	FShanmenVitalityCommitResult CommitCombatImpact(
+		const FShanmenVitalityCommitCommand& Command);
 	const Fdemo_mapEnemyEncounterIdentity& GetEncounterIdentity() const
 	{
 		return EncounterIdentity;
 	}
 	float GetMovementSpeed() const { return MovementSpeed; }
 	bool IsEnhancedEncounter() const { return bEnhancedEncounter; }
+
+#if WITH_DEV_AUTOMATION_TESTS
+	int32 GetPositiveCombatDamageCountForAutomation() const
+	{
+		return PositiveCombatDamageCount;
+	}
+#endif
 
 private:
 	void UpdateBehavior();
@@ -71,6 +101,10 @@ private:
 	void ClearDamageFeedback();
 	void ShowDamageFeedback();
 	void RefreshPresentation();
+	bool TryCommitVitalityState(
+		float NewCurrentVitality,
+		float NewMaximumVitality);
+	void PublishAppliedDamage(float AppliedDamage);
 	APawn* GetPlayerPawn() const;
 
 	UPROPERTY(VisibleAnywhere, Category="Enemy")
@@ -92,10 +126,10 @@ private:
 	TObjectPtr<UMaterialInstanceDynamic> VisibleMaterial;
 
 	UPROPERTY(VisibleAnywhere, Category="Enemy")
-	int32 MaxHealth = 3;
+	float MaximumVitality = 3.0f;
 
 	UPROPERTY(VisibleAnywhere, Category="Enemy")
-	int32 CurrentHealth = 3;
+	float CurrentVitality = 3.0f;
 
 	UPROPERTY(VisibleAnywhere, Category="Enemy")
 	Edemo_mapEnemyState EnemyState = Edemo_mapEnemyState::Idle;
@@ -114,6 +148,10 @@ private:
 	FName SkillProfileId =
 		Fdemo_mapEnemySkillProfileIds::StandardMeleeDash;
 	FGuid LootSourceId = FGuid::NewGuid();
+	FShanmenVitalityCommitLedger CombatVitalityLedger;
+#if WITH_DEV_AUTOMATION_TESTS
+	int32 PositiveCombatDamageCount = 0;
+#endif
 	FTimerHandle DestroyTimerHandle;
 	FTimerHandle AttackFeedbackTimer;
 	FTimerHandle DamageFeedbackTimer;
