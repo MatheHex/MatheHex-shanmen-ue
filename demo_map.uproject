@@ -25,6 +25,11 @@
 			"LoadingPhase": "Default"
 		},
 		{
+			"Name": "ShanmenCombatRuntime",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
 			"Name": "demo_map",
 			"Type": "Runtime",
 			"LoadingPhase": "Default",
@@ -48,6 +53,10 @@
 		},
 		{
 			"Name": "GameplayStateTree",
+			"Enabled": true
+		},
+		{
+			"Name": "GameplayAbilities",
 			"Enabled": true
 		},
 		{

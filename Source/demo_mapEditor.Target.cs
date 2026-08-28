@@ -15,6 +15,7 @@ public class demo_mapEditorTarget : TargetRules
 			"ShanmenCombatCore",
 			"ShanmenItems",
 			"ShanmenWorldGameplay",
+			"ShanmenCombatRuntime",
 			"demo_map"
 		});
 	}
