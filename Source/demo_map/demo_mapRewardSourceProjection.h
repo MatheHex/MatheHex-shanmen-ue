@@ -81,6 +81,9 @@ struct Fdemo_mapRewardSourceProjection
 	int32 RequiredEquipmentCount = 0;
 	FString SourceDisplayLabel;
 
+	/** Validate the canonical policy prototype before a map slot binds it. */
+	bool IsPolicyPrototypeValid() const;
+	/** Validate a concrete source projection with immutable distribution/slot identity. */
 	bool IsValid() const;
 };
 

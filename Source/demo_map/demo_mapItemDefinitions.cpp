@@ -985,7 +985,7 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 	for (const Fdemo_mapRewardSourceProjection& Projection :
 		GetGeneratedRewardProjectionProfiles())
 	{
-		if (!Projection.IsValid()
+		if (!Projection.IsPolicyPrototypeValid()
 			|| ProjectionIds.Contains(Projection.ProjectionId)
 			|| ProjectionRoles.Contains(Projection.StableSourceRoleId)
 			|| !FindGeneratedRewardBudgetProfile(

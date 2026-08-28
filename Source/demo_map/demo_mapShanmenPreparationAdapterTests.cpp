@@ -5,9 +5,11 @@
 #include "ShanmenItemRepository.h"
 #include "demo_map0909BSectWarehouseService.h"
 #include "demo_mapItemDefinitions.h"
+#include "demo_mapItemSubsystem.h"
 #include "demo_mapProfileRepository.h"
 #include "demo_mapProfileSessionSubsystem.h"
 #include "demo_mapShanmenItemCutover.h"
+#include "demo_mapShanmenRunLifecycleAdapter.h"
 
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
@@ -754,6 +756,291 @@ bool FShanmenPreparationAtomicCommitTest::RunTest(const FString&)
 		Fixture.Authority->TryGetDocument(RestartedDocument)
 		&& RestartedDocument.SaveGeneration
 			== DocumentAfter.SaveGeneration);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenPreparationPlainPurposeCompatibilityTest,
+	"Shanmen.0_0_10.Items.PreparationAdapter.PlainPurposeReceiptCompatibility",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenPreparationPlainPurposeCompatibilityTest::RunTest(const FString&)
+{
+	FPreparationAdapterFixture Fixture;
+	if (!Fixture.StartAndCutover(*this, TEXT("PlainPurposeCompatibility")))
+	{
+		return false;
+	}
+
+	FShanmenItemAuthoritySnapshot Before;
+	if (!Fixture.Authority->TryCaptureSnapshot(Before))
+	{
+		AddError(TEXT("Could not capture authority before the compatibility reserve."));
+		return false;
+	}
+	const FShanmenItemInstance* Dust = Before.Items.FindByPredicate(
+		[&Fixture](const FShanmenItemInstance& Item)
+		{
+			return Item.ItemInstanceId == Fixture.DustId;
+		});
+	if (!Dust)
+	{
+		AddError(TEXT("Compatibility fixture is missing its Spirit Dust stack."));
+		return false;
+	}
+
+	// P1.7/P1.8 persisted the logical purpose directly, before P1.9 began
+	// appending an exact source-cell placement envelope for settlement.
+	const FName PlainPurpose(
+		TEXT("Shanmen.Preparation.RunInventory.r1.O00000000.H00"));
+	FShanmenItemReserveRequest ReserveRequest;
+	ReserveRequest.Context.RunId = Dust->RunId;
+	ReserveRequest.Context.OwnerId = Dust->OwnerId;
+	ReserveRequest.Context.RequestId = FGuid::NewGuid();
+	ReserveRequest.Context.Content = Before.Content;
+	ReserveRequest.ItemInstanceId = Dust->ItemInstanceId;
+	ReserveRequest.ResourceKind = EShanmenItemResourceKind::Quantity;
+	ReserveRequest.Amount = Dust->Quantity;
+	ReserveRequest.ExpectedItemRevision = Dust->Revision;
+	ReserveRequest.PurposeId = PlainPurpose;
+	const FShanmenItemDurableCommandResult Reserved =
+		Fixture.Authority->ReserveDurable(ReserveRequest);
+	TestTrue(TEXT("Legacy plain-purpose Quantity intent remains durable"),
+		Reserved.IsCommandSuccess());
+
+	const Fdemo_mapShanmenPreparedLoadoutResult Committed =
+		Fdemo_mapShanmenPreparationAdapter::CommitPreparedLoadout(
+			*Fixture.Authority);
+	const Fdemo_mapShanmenPreparedLoadoutLine* DustLine =
+		Committed.Receipt.OrderedLines.FindByPredicate(
+			[&Fixture](const Fdemo_mapShanmenPreparedLoadoutLine& Line)
+			{
+				return Line.ItemInstanceId == Fixture.DustId;
+			});
+	TestTrue(TEXT("Atomic commit accepts the pre-placement plain purpose"),
+		Committed.IsCommitted()
+		&& Committed.Receipt.OrderedRunInventoryItemInstanceIds
+			== TArray<FGuid>({ Fixture.DustId })
+		&& DustLine
+		&& DustLine->PurposeId == PlainPurpose
+		&& !DustLine->SourceContainerId.IsValid()
+		&& DustLine->SourceSlotIndex == INDEX_NONE);
+
+	if (!Fixture.RestartAndBind(*this))
+	{
+		return false;
+	}
+	const Fdemo_mapShanmenPreparedLoadoutResult Replayed =
+		Fdemo_mapShanmenPreparationAdapter::CommitPreparedLoadout(
+			*Fixture.Authority);
+	const Fdemo_mapShanmenPreparedLoadoutLine* ReplayedDustLine =
+		Replayed.Receipt.OrderedLines.FindByPredicate(
+			[&Fixture](const Fdemo_mapShanmenPreparedLoadoutLine& Line)
+			{
+				return Line.ItemInstanceId == Fixture.DustId;
+			});
+	TestTrue(TEXT("Restart reconstructs the legacy receipt without another write"),
+		Replayed.IsCommitted()
+		&& Replayed.Status == Edemo_mapShanmenPreparationAdapterStatus::NoChange
+		&& Replayed.Receipt.BatchRequestId == Committed.Receipt.BatchRequestId
+		&& ReplayedDustLine
+		&& ReplayedDustLine->PurposeId == PlainPurpose
+		&& !ReplayedDustLine->SourceContainerId.IsValid()
+		&& ReplayedDustLine->SourceSlotIndex == INDEX_NONE);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenPreparedRunLifecycleRestartTest,
+	"Shanmen.0_0_10.Items.RunLifecycle.ClaimRestartFinalize",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenPreparedRunLifecycleRestartTest::RunTest(const FString&)
+{
+	FString DefinitionsError;
+	TestTrue(TEXT("Runtime dependency manifest validates before lifecycle handoff"),
+		Fdemo_mapItemDefinitions::Validate(&DefinitionsError));
+	FPreparationAdapterFixture Fixture;
+	if (!Fixture.StartAndCutover(*this, TEXT("RunLifecycle")))
+	{
+		return false;
+	}
+	TArray<uint8> ProfileBefore;
+	TestTrue(TEXT("Retired Profile captured before P1.9 lifecycle"),
+		ReadBytes(Fixture.Storage.PrimaryPath(), ProfileBefore));
+	TestTrue(TEXT("Recoverable equipment and complete stacks prepare"),
+		Fixture.Session->SetPreparationEquipment(
+			Fdemo_mapItemIds::WeaponSlot,
+			Fixture.TrainingBladeId).IsAccepted()
+		&& Fixture.Session->SetPreparationMaterial(
+			Fixture.DustId, true).IsAccepted()
+		&& Fixture.Session->SetPreparationMaterial(
+			Fixture.PillOneId, true).IsAccepted()
+		&& Fixture.Session->SetPreparationHotbarSlot(
+			4, Fixture.PillOneId).IsAccepted());
+
+	Udemo_mapItemSubsystem* Runtime =
+		Fixture.GameInstance->GetSubsystem<Udemo_mapItemSubsystem>();
+	if (!Runtime)
+	{
+		AddError(TEXT("P1.9 fixture has no Runtime item subsystem."));
+		return false;
+	}
+	Runtime->ResetForAutomation();
+	Runtime->SetPreparedRunFailureAfterMutationForAutomation(1);
+	const Fdemo_mapShanmenRunStartResult FailedStart =
+		Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
+			*Fixture.Authority, *Runtime);
+	AddInfo(FString::Printf(
+		TEXT("P1.9 first start status=%d diagnostic=%s claim_status=%d claim_error=%d runtime_status=%d"),
+		static_cast<int32>(FailedStart.Status), *FailedStart.Diagnostic,
+		static_cast<int32>(FailedStart.ClaimCommand.Status),
+		static_cast<int32>(FailedStart.ClaimCommand.Receipt.Error),
+		static_cast<int32>(FailedStart.RuntimeResult.Status)));
+	FShanmenItemAuthoritySnapshot Claimed;
+	const bool bCapturedClaimed =
+		Fixture.Authority->TryCaptureSnapshot(Claimed);
+	TestTrue(TEXT("Runtime failure rolls back transient items but retains one durable claim"),
+		!FailedStart.IsStarted()
+		&& FailedStart.Status
+			== Edemo_mapShanmenRunLifecycleStatus::RuntimeMaterializationRejected
+		&& FailedStart.ActiveRunId.IsValid()
+		&& Runtime->GetRunState() == Edemo_mapRunState::Inactive
+		&& Runtime->GetAuthority().GetInstanceSnapshot().IsEmpty()
+		&& bCapturedClaimed);
+	int32 ClaimCount = 0;
+	for (const FShanmenItemProcessedRequestSnapshot& Processed :
+		Claimed.ProcessedRequests)
+	{
+		ClaimCount += Processed.Receipt.IsSuccess()
+			&& Processed.Receipt.Operation
+				== EShanmenItemTransactionOperation::ClaimPreparedRun ? 1 : 0;
+	}
+	TestEqual(TEXT("Exactly one claim marker survives Runtime rollback"),
+		ClaimCount, 1);
+
+	const FGuid ActiveRunId = FailedStart.ActiveRunId;
+	if (!Fixture.RestartAndBind(*this))
+	{
+		return false;
+	}
+	Runtime = Fixture.GameInstance->GetSubsystem<Udemo_mapItemSubsystem>();
+	const Fdemo_mapShanmenRunStartResult Resumed = Runtime
+		? Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
+			*Fixture.Authority, *Runtime)
+		: Fdemo_mapShanmenRunStartResult();
+	TestTrue(TEXT("Restart replays claim and materializes the same ActiveRunId"),
+		Runtime && Resumed.IsStarted()
+		&& Resumed.Status == Edemo_mapShanmenRunLifecycleStatus::Resumed
+		&& Resumed.ActiveRunId == ActiveRunId
+		&& Runtime->GetRunState() == Edemo_mapRunState::Active
+		&& Runtime->GetActiveRunId() == ActiveRunId
+		&& Runtime->GetDeployedItemIds().Num() == 3);
+
+	Fdemo_mapSettlementSummary Summary;
+	const Fdemo_mapItemOperationResult RuntimeSettlement =
+		Runtime->RequestSettlement(
+			Edemo_mapRunEndReason::Extraction, Summary);
+	TestTrue(TEXT("Runtime emits one extraction snapshot for all originals"),
+		RuntimeSettlement.bSuccess && Summary.bValid
+		&& Summary.RuntimeSnapshot.bValid
+		&& Summary.RunId == ActiveRunId
+		&& Summary.RuntimeSnapshot.OrderedSecuredItems.Num() == 3);
+	Fdemo_mapRuntimeSettlementItem* PartiallyConsumedPill =
+		Summary.RuntimeSnapshot.OrderedSecuredItems.FindByPredicate(
+			[&Fixture](const Fdemo_mapRuntimeSettlementItem& Item)
+			{
+				return Item.ItemInstanceId == Fixture.PillOneId;
+			});
+	TestTrue(TEXT("Fixture models one consumed pill in the immutable Runtime handoff"),
+		PartiallyConsumedPill != nullptr);
+	if (PartiallyConsumedPill)
+	{
+		PartiallyConsumedPill->StackCount = 2;
+	}
+
+	FShanmenItemAuthoritySnapshot BeforeFinalizeFailure;
+	Fixture.Authority->TryCaptureSnapshot(BeforeFinalizeFailure);
+	Fixture.Authority->SetInjectedFailureForAutomation(
+		EShanmenItemStoreFailureStage::WriteTemp);
+	const Fdemo_mapShanmenRunFinalizeResult FailedFinalize =
+		Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
+			*Fixture.Authority, Summary);
+	Fixture.Authority->SetInjectedFailureForAutomation(
+		EShanmenItemStoreFailureStage::None);
+	FShanmenItemAuthoritySnapshot AfterFinalizeFailure;
+	Fixture.Authority->TryCaptureSnapshot(AfterFinalizeFailure);
+	TestTrue(TEXT("Failed terminal save restores exact active authority"),
+		!FailedFinalize.IsFinalized()
+		&& AfterFinalizeFailure == BeforeFinalizeFailure);
+
+	const Fdemo_mapShanmenRunFinalizeResult Finalized =
+		Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
+			*Fixture.Authority, Summary);
+	FShanmenItemAuthoritySnapshot Terminal;
+	TestTrue(TEXT("Autonomous retry atomically finalizes extraction"),
+		Finalized.IsFinalized()
+		&& Finalized.Status
+			== Edemo_mapShanmenRunLifecycleStatus::Finalized
+		&& Fixture.Authority->TryCaptureSnapshot(Terminal));
+	const FShanmenItemInstance* Weapon = Terminal.Items.FindByPredicate(
+		[&Fixture](const FShanmenItemInstance& Item)
+		{
+			return Item.ItemInstanceId == Fixture.TrainingBladeId;
+		});
+	const FShanmenItemInstance* Dust = Terminal.Items.FindByPredicate(
+		[&Fixture](const FShanmenItemInstance& Item)
+		{
+			return Item.ItemInstanceId == Fixture.DustId;
+		});
+	const FShanmenItemInstance* Pill = Terminal.Items.FindByPredicate(
+		[&Fixture](const FShanmenItemInstance& Item)
+		{
+			return Item.ItemInstanceId == Fixture.PillOneId;
+		});
+	int32 ReleasedLines = 0;
+	int32 FinalizeCount = 0;
+	for (const FShanmenItemReservationSnapshot& Reservation :
+		Terminal.Reservations)
+	{
+		ReleasedLines += Reservation.State
+			== EShanmenItemReservationState::Released ? 1 : 0;
+	}
+	for (const FShanmenItemProcessedRequestSnapshot& Processed :
+		Terminal.ProcessedRequests)
+	{
+		FinalizeCount += Processed.Receipt.IsSuccess()
+			&& Processed.Receipt.Operation
+				== EShanmenItemTransactionOperation::FinalizePreparedRun ? 1 : 0;
+	}
+	TestTrue(TEXT("Terminal candidate restores exact source cells and releases every line"),
+		Weapon && Weapon->State == EShanmenItemInstanceState::Stored
+		&& !Weapon->DeploymentReservationId.IsValid()
+		&& Dust && Dust->State == EShanmenItemInstanceState::Stored
+		&& Dust->Quantity == 3 && Dust->ParentContainerId.IsValid()
+		&& Pill && Pill->State == EShanmenItemInstanceState::Stored
+		&& Pill->Quantity == 2 && Pill->ParentContainerId.IsValid()
+		&& ReleasedLines == 3 && FinalizeCount == 1);
+	const Fdemo_mapShanmenRunFinalizeResult ReplayFinalize =
+		Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
+			*Fixture.Authority, Summary);
+	TestTrue(TEXT("Repeated settlement observes terminal marker without another write"),
+		ReplayFinalize.IsFinalized()
+		&& ReplayFinalize.Status
+			== Edemo_mapShanmenRunLifecycleStatus::NoChange);
+
+	TArray<uint8> ProfileAfter;
+	TestTrue(TEXT("P1.9 lifecycle never rewrites retired Profile bytes"),
+		ReadBytes(Fixture.Storage.PrimaryPath(), ProfileAfter)
+		&& ProfileAfter == ProfileBefore);
+	if (!Fixture.RestartAndBind(*this))
+	{
+		return false;
+	}
+	FShanmenItemAuthoritySnapshot Restarted;
+	TestTrue(TEXT("Restart keeps one terminal marker and restored originals"),
+		Fixture.Authority->TryCaptureSnapshot(Restarted)
+		&& Restarted == Terminal);
 	return true;
 }
 

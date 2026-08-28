@@ -97,6 +97,12 @@ bool Fdemo_mapRewardSourceProjectionTests::RunTest(
 	{
 		FString Error;
 		TestTrue(TEXT("Registry validates"), Fdemo_mapRewardSourceProjectionRegistry::Validate(&Error));
+		TestTrue(TEXT("Canonical manifest entries are valid unbound policy prototypes"),
+			!All.ContainsByPredicate([](const auto& Projection)
+			{
+				return !Projection.IsPolicyPrototypeValid()
+					|| Projection.IsValid();
+			}));
 		break;
 	}
 	case 1:

@@ -67,13 +67,12 @@ bool Fdemo_mapRewardProjectionSection::IsValid() const
 		&& ResidualRedistributionPriority >= 0;
 }
 
-bool Fdemo_mapRewardSourceProjection::IsValid() const
+bool Fdemo_mapRewardSourceProjection::IsPolicyPrototypeValid() const
 {
 	if (ProjectionId.IsNone()
 		|| ContentVersionId.IsNone()
 		|| ContentDigest.IsEmpty()
 		|| StableSourceRoleId.IsNone()
-		|| SlotId.IsNone()
 		|| BudgetProfileId.IsNone()
 		|| JackpotPolicyId.IsNone()
 		|| RareExtremePolicyId.IsNone()
@@ -117,6 +116,13 @@ bool Fdemo_mapRewardSourceProjection::IsValid() const
 		&& (MaxGeneratedStacks == 0
 			|| MaxGeneratedStacks <= Capacity)
 		&& RequiredEquipmentCount <= EquipmentCapacity;
+}
+
+bool Fdemo_mapRewardSourceProjection::IsValid() const
+{
+	return !DistributionProfileId.IsNone()
+		&& !SlotId.IsNone()
+		&& IsPolicyPrototypeValid();
 }
 
 bool Fdemo_mapRewardSourceAcceptanceReceipt::IsValid() const
@@ -343,7 +349,7 @@ bool Fdemo_mapRewardSourceProjectionRegistry::Validate(FString* OutError)
 	TSet<FName> RoleIds;
 	for (const Fdemo_mapRewardSourceProjection& Projection : GetAll())
 	{
-		if (!Projection.IsValid()
+		if (!Projection.IsPolicyPrototypeValid()
 			|| ProjectionIds.Contains(Projection.ProjectionId)
 			|| RoleIds.Contains(Projection.StableSourceRoleId)
 			|| !Fdemo_mapRewardGenerationRegistry::FindBudgetProfile(

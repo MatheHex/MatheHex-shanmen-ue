@@ -1330,7 +1330,7 @@ Fdemo_mapPreparedRunRuntimeResult Udemo_mapItemSubsystem::MaterializePreparedRun
 	if (!Plan.ActiveRunId.IsValid() || Plan.ActiveRunId == Plan.ProfileId)
 		return Reject(Edemo_mapPreparedRunRuntimeStatus::RunIdInvalidOrConflicting, TEXT("Committed ActiveRunId is invalid or conflicts with ProfileId."));
 	if (Plan.OrderedItems.Num()
-			> 4 + Fdemo_mapPersistentPreparationLayout::MaxRunInventoryItems
+			> 5 + Fdemo_mapPersistentPreparationLayout::MaxRunInventoryItems
 		|| Plan.DeployedItemIds.Num() != Plan.OrderedItems.Num())
 	{
 		return Reject(

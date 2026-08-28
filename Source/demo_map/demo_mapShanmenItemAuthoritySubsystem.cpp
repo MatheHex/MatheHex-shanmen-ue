@@ -380,6 +380,38 @@ Udemo_mapShanmenItemAuthoritySubsystem::ReleaseDeploymentDurable(
 	return Result;
 }
 
+FShanmenItemDurableCommandResult
+Udemo_mapShanmenItemAuthoritySubsystem::ClaimPreparedRunDurable(
+	const FShanmenItemRunClaimRequest& Request)
+{
+	if (!IsInGameThread() || !AuthorityService
+		|| LifecycleState != Edemo_mapShanmenItemAuthorityLifecycleState::Ready)
+	{
+		return RejectCommand(
+			TEXT("Prepared Run claim requires the ready GameInstance item authority on the Game Thread."));
+	}
+	FShanmenItemDurableCommandResult Result =
+		AuthorityService->ClaimPreparedRunDurable(Request);
+	SynchronizeCommandState(Result);
+	return Result;
+}
+
+FShanmenItemDurableCommandResult
+Udemo_mapShanmenItemAuthoritySubsystem::FinalizePreparedRunDurable(
+	const FShanmenItemRunFinalizeRequest& Request)
+{
+	if (!IsInGameThread() || !AuthorityService
+		|| LifecycleState != Edemo_mapShanmenItemAuthorityLifecycleState::Ready)
+	{
+		return RejectCommand(
+			TEXT("Prepared Run finalization requires the ready GameInstance item authority on the Game Thread."));
+	}
+	FShanmenItemDurableCommandResult Result =
+		AuthorityService->FinalizePreparedRunDurable(Request);
+	SynchronizeCommandState(Result);
+	return Result;
+}
+
 bool Udemo_mapShanmenItemAuthoritySubsystem::TryCaptureSnapshot(
 	FShanmenItemAuthoritySnapshot& OutSnapshot) const
 {

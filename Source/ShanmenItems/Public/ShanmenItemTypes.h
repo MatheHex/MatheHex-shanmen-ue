@@ -42,7 +42,11 @@ enum class EShanmenItemTransactionOperation : uint8
 	/** Atomically commits an ordered set of already-reserved resources. */
 	CommitBatch,
 	/** Atomically replaces metadata on one still-pending reservation. */
-	AmendReservationPurpose
+	AmendReservationPurpose,
+	/** Durably claims one committed preparation batch as the only active Run. */
+	ClaimPreparedRun,
+	/** Atomically reconciles one claimed Run and publishes its terminal marker. */
+	FinalizePreparedRun
 };
 
 UENUM(BlueprintType)
@@ -78,7 +82,25 @@ enum class EShanmenItemTransactionError : uint8
 	ReservationNotCommitted,
 	DeploymentMismatch,
 	InvariantViolation,
-	ReservationPurposeMismatch
+	ReservationPurposeMismatch,
+	PreparedBatchNotFound,
+	PreparedBatchAlreadyClaimed,
+	ActiveRunConflict,
+	RunNotFound,
+	RunAlreadyFinalized,
+	RunTerminalReasonUnsupported,
+	SecuredItemMismatch,
+	SourcePlacementUnavailable
+};
+
+/** Authority-independent terminal reason; P1.9 deliberately admits extraction only. */
+UENUM(BlueprintType)
+enum class EShanmenItemRunTerminalReason : uint8
+{
+	None,
+	Extraction,
+	Death,
+	Abandon
 };
 
 USTRUCT(BlueprintType)
@@ -258,6 +280,87 @@ struct SHANMENITEMS_API FShanmenItemReservationAmendRequest
 	FName PurposeId = NAME_None;
 
 	bool IsValid() const;
+};
+
+/** Idempotent claim of one successful CommitBatch ledger entry. */
+USTRUCT(BlueprintType)
+struct SHANMENITEMS_API FShanmenItemRunClaimRequest
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FShanmenOperationContext Context;
+
+	/** RequestId of the successful preparation CommitBatch to consume. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FGuid PreparedBatchRequestId;
+
+	bool IsValid() const;
+};
+
+/** Remaining quantity of one prepared original observed in Runtime settlement. */
+USTRUCT(BlueprintType)
+struct SHANMENITEMS_API FShanmenItemRunSecuredOriginal
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FGuid ItemInstanceId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items", meta = (ClampMin = "1"))
+	int32 RemainingQuantity = 1;
+
+	bool IsValid() const;
+	bool operator==(const FShanmenItemRunSecuredOriginal& Other) const;
+};
+
+/** Atomic terminal reconciliation for one already-claimed prepared Run. */
+USTRUCT(BlueprintType)
+struct SHANMENITEMS_API FShanmenItemRunFinalizeRequest
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FShanmenOperationContext Context;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FGuid ActiveRunId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	EShanmenItemRunTerminalReason TerminalReason =
+		EShanmenItemRunTerminalReason::None;
+
+	/** Prepared originals that survived; absence means zero remaining. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	TArray<FShanmenItemRunSecuredOriginal> SecuredOriginals;
+
+	bool IsValid() const;
+};
+
+/**
+ * Backward-compatible placement codec for complete-stack reservations.
+ * Placement lives inside PurposeId, so schema-1 snapshot JSON and its SHA stay
+ * byte-compatible while a committed Quantity can still return to its exact
+ * source cell after Runtime extraction.
+ */
+struct SHANMENITEMS_API FShanmenItemReservationPlacement
+{
+	static FName Encode(
+		FName LogicalPurposeId,
+		const FGuid& SourceContainerId,
+		int32 SourceSlotIndex);
+	static bool Decode(
+		FName EncodedPurposeId,
+		FName& OutLogicalPurposeId,
+		FGuid& OutSourceContainerId,
+		int32& OutSourceSlotIndex);
+};
+
+/** Stable semantic values stored in lifecycle receipts' existing PurposeId. */
+struct SHANMENITEMS_API FShanmenItemRunLifecyclePurpose
+{
+	static FName Active();
+	static FName Extraction();
 };
 
 USTRUCT(BlueprintType)

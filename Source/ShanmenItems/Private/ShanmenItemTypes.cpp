@@ -127,6 +127,112 @@ bool FShanmenItemReservationAmendRequest::IsValid() const
 		&& !PurposeId.IsNone();
 }
 
+bool FShanmenItemRunClaimRequest::IsValid() const
+{
+	return Context.IsValid() && PreparedBatchRequestId.IsValid();
+}
+
+bool FShanmenItemRunSecuredOriginal::IsValid() const
+{
+	return ItemInstanceId.IsValid() && RemainingQuantity > 0;
+}
+
+bool FShanmenItemRunSecuredOriginal::operator==(
+	const FShanmenItemRunSecuredOriginal& Other) const
+{
+	return ItemInstanceId == Other.ItemInstanceId
+		&& RemainingQuantity == Other.RemainingQuantity;
+}
+
+bool FShanmenItemRunFinalizeRequest::IsValid() const
+{
+	if (!Context.IsValid() || !ActiveRunId.IsValid()
+		|| TerminalReason == EShanmenItemRunTerminalReason::None)
+	{
+		return false;
+	}
+	TSet<FGuid> Unique;
+	for (const FShanmenItemRunSecuredOriginal& Original : SecuredOriginals)
+	{
+		if (!Original.IsValid() || Unique.Contains(Original.ItemInstanceId))
+		{
+			return false;
+		}
+		Unique.Add(Original.ItemInstanceId);
+	}
+	return true;
+}
+
+FName FShanmenItemReservationPlacement::Encode(
+	FName LogicalPurposeId,
+	const FGuid& SourceContainerId,
+	int32 SourceSlotIndex)
+{
+	if (LogicalPurposeId.IsNone() || !SourceContainerId.IsValid()
+		|| SourceSlotIndex < 0)
+	{
+		return NAME_None;
+	}
+	return FName(*FString::Printf(
+		TEXT("%s.PC%s.PS%08d"),
+		*LogicalPurposeId.ToString(),
+		*SourceContainerId.ToString(EGuidFormats::Digits),
+		SourceSlotIndex));
+}
+
+bool FShanmenItemReservationPlacement::Decode(
+	FName EncodedPurposeId,
+	FName& OutLogicalPurposeId,
+	FGuid& OutSourceContainerId,
+	int32& OutSourceSlotIndex)
+{
+	OutLogicalPurposeId = NAME_None;
+	OutSourceContainerId.Invalidate();
+	OutSourceSlotIndex = INDEX_NONE;
+	const FString Encoded = EncodedPurposeId.ToString();
+	const int32 ContainerMarker = Encoded.Find(
+		TEXT(".PC"), ESearchCase::CaseSensitive, ESearchDir::FromEnd);
+	if (ContainerMarker <= 0)
+	{
+		return false;
+	}
+	const int32 SlotMarker = Encoded.Find(
+		TEXT(".PS"), ESearchCase::CaseSensitive, ESearchDir::FromEnd);
+	if (SlotMarker != ContainerMarker + 35
+		|| SlotMarker + 11 != Encoded.Len())
+	{
+		return false;
+	}
+	FGuid ContainerId;
+	const FString ContainerText = Encoded.Mid(ContainerMarker + 3, 32);
+	const FString SlotText = Encoded.Mid(SlotMarker + 3, 8);
+	if (!FGuid::ParseExact(
+		ContainerText, EGuidFormats::Digits, ContainerId)
+		|| !SlotText.IsNumeric())
+	{
+		return false;
+	}
+	const int32 SlotIndex = FCString::Atoi(*SlotText);
+	if (SlotIndex < 0)
+	{
+		return false;
+	}
+	OutLogicalPurposeId = FName(*Encoded.Left(ContainerMarker));
+	OutSourceContainerId = ContainerId;
+	OutSourceSlotIndex = SlotIndex;
+	return !OutLogicalPurposeId.IsNone();
+}
+
+FName FShanmenItemRunLifecyclePurpose::Active()
+{
+	return FName(TEXT("Shanmen.RunLifecycle.Active.r1"));
+}
+
+FName FShanmenItemRunLifecyclePurpose::Extraction()
+{
+	return FName(TEXT("Shanmen.RunLifecycle.Extraction.r1"));
+}
+
 bool FShanmenItemTransactionReceipt::IsSuccess() const
 {
 	return bSuccess && Error == EShanmenItemTransactionError::None && Phase != EShanmenItemTransactionPhase::Rejected;
@@ -162,6 +268,26 @@ bool FShanmenItemTransactionReceipt::IsValid() const
 			Unique.Add(ReservationIdEntry);
 		}
 		return true;
+	}
+	if (Operation == EShanmenItemTransactionOperation::ClaimPreparedRun)
+	{
+		return Error == EShanmenItemTransactionError::None
+			&& Phase == EShanmenItemTransactionPhase::Committed
+			&& ReservationId.IsValid()
+			&& ItemInstanceId.IsValid()
+			&& Amount == ReservationIds.Num()
+			&& Amount > 0
+			&& PurposeId == FShanmenItemRunLifecyclePurpose::Active();
+	}
+	if (Operation == EShanmenItemTransactionOperation::FinalizePreparedRun)
+	{
+		return Error == EShanmenItemTransactionError::None
+			&& Phase == EShanmenItemTransactionPhase::Released
+			&& ReservationId.IsValid()
+			&& ItemInstanceId.IsValid()
+			&& Amount == ReservationIds.Num()
+			&& Amount > 0
+			&& PurposeId == FShanmenItemRunLifecyclePurpose::Extraction();
 	}
 	if (Operation == EShanmenItemTransactionOperation::AmendReservationPurpose
 		&& PurposeId.IsNone())

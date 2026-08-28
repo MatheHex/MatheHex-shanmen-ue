@@ -21,6 +21,10 @@ public:
 		const FShanmenItemReservationAmendRequest& Request);
 	FShanmenItemTransactionReceipt Cancel(const FShanmenItemReservationActionRequest& Request);
 	FShanmenItemTransactionReceipt ReleaseDeployment(const FShanmenItemReservationActionRequest& Request);
+	FShanmenItemTransactionReceipt ClaimPreparedRun(
+		const FShanmenItemRunClaimRequest& Request);
+	FShanmenItemTransactionReceipt FinalizePreparedRun(
+		const FShanmenItemRunFinalizeRequest& Request);
 
 	FShanmenItemAuthoritySnapshot CaptureSnapshot() const;
 	bool ValidateInvariants(EShanmenItemTransactionError* OutError = nullptr) const;
@@ -62,7 +66,13 @@ private:
 		const FShanmenItemReservationActionRequest& Request);
 	static FGuid Fingerprint(const FShanmenItemReservationBatchRequest& Request);
 	static FGuid Fingerprint(const FShanmenItemReservationAmendRequest& Request);
+	static FGuid Fingerprint(const FShanmenItemRunClaimRequest& Request);
+	static FGuid Fingerprint(const FShanmenItemRunFinalizeRequest& Request);
 	static FGuid MakeReservationId(const FShanmenItemReserveRequest& Request);
+	static FGuid MakeActiveRunId(
+		const FGuid& OwnerId,
+		const FGuid& ScopeId,
+		const FGuid& PreparedBatchRequestId);
 	static FGuid MakeReceiptId(
 		const FGuid& RequestId,
 		const FGuid& Fingerprint,

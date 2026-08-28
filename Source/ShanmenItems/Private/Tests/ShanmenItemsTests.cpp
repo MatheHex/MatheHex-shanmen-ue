@@ -167,6 +167,16 @@ namespace
 		return Request;
 	}
 
+	FShanmenItemRunSecuredOriginal Secured(
+		const FGuid& ItemInstanceId,
+		int32 RemainingQuantity)
+	{
+		FShanmenItemRunSecuredOriginal Original;
+		Original.ItemInstanceId = ItemInstanceId;
+		Original.RemainingQuantity = RemainingQuantity;
+		return Original;
+	}
+
 	bool LoadFixture(FAutomationTestBase& Test, FShanmenItemRepository& Repository)
 	{
 		EShanmenItemTransactionError Error = EShanmenItemTransactionError::None;
@@ -373,6 +383,113 @@ bool FShanmenItemsReservationPurposeAmendTest::RunTest(const FString&)
 		&& Restarted.AmendReservationPurpose(Request) == Amended
 		&& Restarted.CommitBatch(Batch).IsSuccess()
 		&& Restarted.ValidateInvariants());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenItemsPreparedRunLifecycleLedgerTest,
+	"Shanmen.0_0_10.Items.PreparedRunLifecycleLedger",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenItemsPreparedRunLifecycleLedgerTest::RunTest(const FString&)
+{
+	FShanmenItemRepository Repository;
+	if (!LoadFixture(*this, Repository)) return false;
+
+	const FName RecoverablePurpose =
+		FShanmenItemReservationPlacement::Encode(
+			TEXT("Preparation.RunInventory.O00000000.H00"),
+			ContainerId, 0);
+	const FShanmenItemTransactionReceipt Equipment = Repository.Reserve(
+		MakeReserve(90, SwordId,
+			EShanmenItemResourceKind::DeploymentLock, 1,
+			TEXT("Preparation.Weapon")));
+	const FShanmenItemTransactionReceipt Quantity = Repository.Reserve(
+		MakeReserve(91, DartId, EShanmenItemResourceKind::Quantity, 10,
+			RecoverablePurpose));
+	FShanmenItemReservationBatchRequest Batch = MakeBatch(
+		92, { Equipment.ReservationId, Quantity.ReservationId });
+	const FShanmenItemTransactionReceipt Committed =
+		Repository.CommitBatch(Batch);
+	TestTrue(TEXT("Prepared originals commit as one batch"),
+		Equipment.IsSuccess() && Quantity.IsSuccess()
+		&& Committed.IsSuccess()
+		&& Repository.FindItem(SwordId)->State
+			== EShanmenItemInstanceState::Deployed
+		&& Repository.FindItem(DartId)->State
+			== EShanmenItemInstanceState::Depleted);
+
+	FShanmenItemRunClaimRequest ClaimRequest;
+	ClaimRequest.Context = MakeContext(93);
+	ClaimRequest.PreparedBatchRequestId = Batch.Context.RequestId;
+	const int32 RevisionBeforeClaim = Repository.GetAuthorityRevision();
+	const FShanmenItemTransactionReceipt Claim =
+		Repository.ClaimPreparedRun(ClaimRequest);
+	TestTrue(TEXT("Claim publishes one deterministic active-Run marker"),
+		Claim.IsSuccess()
+		&& Claim.Operation
+			== EShanmenItemTransactionOperation::ClaimPreparedRun
+		&& Claim.ReservationId.IsValid()
+		&& Repository.GetAuthorityRevision() == RevisionBeforeClaim + 1
+		&& Repository.ClaimPreparedRun(ClaimRequest) == Claim);
+
+	FShanmenItemRepository Restarted;
+	TestTrue(TEXT("Active claim survives restart and replays exactly"),
+		Restarted.TryLoadSnapshot(Repository.CaptureSnapshot())
+		&& Restarted.ClaimPreparedRun(ClaimRequest) == Claim);
+
+	FShanmenItemRunFinalizeRequest Unsupported;
+	Unsupported.Context = MakeContext(94);
+	Unsupported.ActiveRunId = Claim.ReservationId;
+	Unsupported.TerminalReason = EShanmenItemRunTerminalReason::Death;
+	Unsupported.SecuredOriginals = {
+		Secured(SwordId, 1), Secured(DartId, 7) };
+	TestTrue(TEXT("Unsupported destructive terminal reason fails closed"),
+		Restarted.FinalizePreparedRun(Unsupported).Error
+			== EShanmenItemTransactionError::RunTerminalReasonUnsupported);
+
+	FShanmenItemRunFinalizeRequest MissingEquipment = Unsupported;
+	MissingEquipment.Context = MakeContext(95);
+	MissingEquipment.TerminalReason =
+		EShanmenItemRunTerminalReason::Extraction;
+	MissingEquipment.SecuredOriginals = { Secured(DartId, 7) };
+	TestTrue(TEXT("Extraction cannot silently lose deployed equipment"),
+		Restarted.FinalizePreparedRun(MissingEquipment).Error
+			== EShanmenItemTransactionError::SecuredItemMismatch);
+
+	FShanmenItemRunFinalizeRequest Finalize = Unsupported;
+	Finalize.Context = MakeContext(96);
+	Finalize.TerminalReason = EShanmenItemRunTerminalReason::Extraction;
+	const int32 RevisionBeforeFinalize = Restarted.GetAuthorityRevision();
+	const FShanmenItemTransactionReceipt Finalized =
+		Restarted.FinalizePreparedRun(Finalize);
+	const FShanmenItemContainer* Container =
+		Restarted.FindContainer(ContainerId);
+	TestTrue(TEXT("Extraction atomically restores originals and closes the claim"),
+		Finalized.IsSuccess()
+		&& Finalized.Operation
+			== EShanmenItemTransactionOperation::FinalizePreparedRun
+		&& Restarted.GetAuthorityRevision() == RevisionBeforeFinalize + 1
+		&& Restarted.FindItem(SwordId)->State
+			== EShanmenItemInstanceState::Stored
+		&& !Restarted.FindItem(SwordId)->DeploymentReservationId.IsValid()
+		&& Restarted.FindItem(DartId)->State
+			== EShanmenItemInstanceState::Stored
+		&& Restarted.FindItem(DartId)->Quantity == 7
+		&& Container && Container->Slots[0] == DartId
+		&& Restarted.FindReservation(Equipment.ReservationId)->State
+			== EShanmenItemReservationState::Released
+		&& Restarted.FindReservation(Quantity.ReservationId)->State
+			== EShanmenItemReservationState::Released
+		&& Restarted.ValidateInvariants());
+	TestTrue(TEXT("Terminal retry replays without another mutation"),
+		Restarted.FinalizePreparedRun(Finalize) == Finalized);
+
+	FShanmenItemRepository TerminalRestart;
+	TestTrue(TEXT("Terminal marker and restored graph survive restart"),
+		TerminalRestart.TryLoadSnapshot(Restarted.CaptureSnapshot())
+		&& TerminalRestart.FinalizePreparedRun(Finalize) == Finalized
+		&& TerminalRestart.ValidateInvariants());
 	return true;
 }
 

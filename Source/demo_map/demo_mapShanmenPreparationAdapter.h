@@ -68,6 +68,9 @@ struct Fdemo_mapShanmenPreparedLoadoutLine
 		EShanmenItemResourceKind::Quantity;
 	int32 Amount = 0;
 	FName PurposeId = NAME_None;
+	/** Exact cell captured before a complete Quantity stack is consumed. */
+	FGuid SourceContainerId;
+	int32 SourceSlotIndex = INDEX_NONE;
 };
 
 /**

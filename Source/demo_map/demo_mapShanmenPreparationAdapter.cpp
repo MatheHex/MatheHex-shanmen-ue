@@ -348,11 +348,15 @@ namespace
 	{
 		int32 Ordinal = INDEX_NONE;
 		int32 HotbarSlot = 0;
+		FGuid SourceContainerId;
+		int32 SourceSlotIndex = INDEX_NONE;
 
 		bool operator==(const FRunReservationMetadata& Other) const
 		{
 			return Ordinal == Other.Ordinal
-				&& HotbarSlot == Other.HotbarSlot;
+				&& HotbarSlot == Other.HotbarSlot
+				&& SourceContainerId == Other.SourceContainerId
+				&& SourceSlotIndex == Other.SourceSlotIndex;
 		}
 	};
 
@@ -372,9 +376,15 @@ namespace
 
 	FName MakeRunInventoryPurpose(const FRunReservationMetadata& Metadata)
 	{
-		return FName(*FString::Printf(
+		const FName LogicalPurpose(*FString::Printf(
 			TEXT("%s%08d.H%02d"), *RunInventoryPurposePrefix,
 			Metadata.Ordinal, Metadata.HotbarSlot));
+		return Metadata.SourceContainerId.IsValid()
+			&& Metadata.SourceSlotIndex >= 0
+			? FShanmenItemReservationPlacement::Encode(
+				LogicalPurpose, Metadata.SourceContainerId,
+				Metadata.SourceSlotIndex)
+			: LogicalPurpose;
 	}
 
 	bool ParseRunInventoryPurpose(
@@ -382,7 +392,16 @@ namespace
 		FRunReservationMetadata& OutMetadata)
 	{
 		OutMetadata = FRunReservationMetadata();
-		const FString Value = PurposeId.ToString();
+		FName LogicalPurpose = PurposeId;
+		FName DecodedLogicalPurpose;
+		if (FShanmenItemReservationPlacement::Decode(
+			PurposeId, DecodedLogicalPurpose,
+			OutMetadata.SourceContainerId,
+			OutMetadata.SourceSlotIndex))
+		{
+			LogicalPurpose = DecodedLogicalPurpose;
+		}
+		const FString Value = LogicalPurpose.ToString();
 		if (!Value.StartsWith(RunInventoryPurposePrefix,
 			ESearchCase::IgnoreCase))
 		{
@@ -407,7 +426,17 @@ namespace
 
 	bool HasRunInventoryPurpose(FName PurposeId)
 	{
-		return PurposeId.ToString().StartsWith(
+		FName LogicalPurpose = PurposeId;
+		FName DecodedLogicalPurpose;
+		FGuid IgnoredContainerId;
+		int32 IgnoredSlotIndex = INDEX_NONE;
+		if (FShanmenItemReservationPlacement::Decode(
+			PurposeId, DecodedLogicalPurpose,
+			IgnoredContainerId, IgnoredSlotIndex))
+		{
+			LogicalPurpose = DecodedLogicalPurpose;
+		}
+		return LogicalPurpose.ToString().StartsWith(
 			RunInventoryPurposePrefix, ESearchCase::IgnoreCase);
 	}
 
@@ -948,6 +977,8 @@ namespace
 				OutDiagnostic = TEXT("Prepared RunInventory receipt metadata is malformed or duplicated.");
 				return false;
 			}
+			Line.SourceContainerId = Metadata.SourceContainerId;
+			Line.SourceSlotIndex = Metadata.SourceSlotIndex;
 			Ordinals.Add(Metadata.Ordinal);
 			if (Metadata.HotbarSlot > 0)
 			{
@@ -1577,8 +1608,11 @@ Fdemo_mapShanmenPreparationAdapter::SelectMaterial(
 				Edemo_mapShanmenPreparationAdapterStatus::SelectionLimitExceeded,
 				Diagnostic, &Authority);
 		}
-		const FRunReservationMetadata Metadata =
-			{ RunInventory.NextOrdinal, 0 };
+		FRunReservationMetadata Metadata;
+		Metadata.Ordinal = RunInventory.NextOrdinal;
+		Metadata.HotbarSlot = 0;
+		Metadata.SourceContainerId = Item->ParentContainerId;
+		Metadata.SourceSlotIndex = Item->SlotIndex;
 		const FShanmenItemDurableCommandResult Reserve =
 			ReserveRunSelection(
 				Authority, Snapshot, Projection.OwnerId,

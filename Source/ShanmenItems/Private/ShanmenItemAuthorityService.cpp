@@ -291,6 +291,30 @@ FShanmenItemAuthorityService::ReleaseDeploymentDurable(
 }
 
 FShanmenItemDurableCommandResult
+FShanmenItemAuthorityService::ClaimPreparedRunDurable(
+	const FShanmenItemRunClaimRequest& Request)
+{
+	FScopeLock Lock(&Mutex);
+	return ExecuteCommandLocked(
+		[&Request](FShanmenItemRepository& MutableRepository)
+		{
+			return MutableRepository.ClaimPreparedRun(Request);
+		});
+}
+
+FShanmenItemDurableCommandResult
+FShanmenItemAuthorityService::FinalizePreparedRunDurable(
+	const FShanmenItemRunFinalizeRequest& Request)
+{
+	FScopeLock Lock(&Mutex);
+	return ExecuteCommandLocked(
+		[&Request](FShanmenItemRepository& MutableRepository)
+		{
+			return MutableRepository.FinalizePreparedRun(Request);
+		});
+}
+
+FShanmenItemDurableCommandResult
 FShanmenItemAuthorityService::ExecuteCommandLocked(
 	TFunctionRef<FShanmenItemTransactionReceipt(FShanmenItemRepository&)>
 		Command)
