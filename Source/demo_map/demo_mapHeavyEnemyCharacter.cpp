@@ -105,7 +105,7 @@ bool Ademo_mapHeavyEnemyCharacter::ConfigureEncounter(
 	const Fdemo_mapEnemyCombatTuning& InTuning)
 {
 	if(!InIdentity.IsValid()||!InIdentity.SkillProfileId.IsNone()||!InTuning.IsValid())return false;
-	EncounterIdentity=InIdentity;MaxHealth=InTuning.MaxHealth;CurrentHealth=MaxHealth;MovementSpeed=InTuning.MovementSpeed;AttackDamage=InTuning.AttackDamage;WindupDuration=InTuning.AttackWindup;AttackCooldown=InTuning.AttackCooldown;GetCharacterMovement()->MaxWalkSpeed=MovementSpeed;RefreshPresentation();return true;
+	const float ConfiguredVitality=static_cast<float>(InTuning.MaxHealth);if(!TryCommitVitalityState(ConfiguredVitality,ConfiguredVitality))return false;EncounterIdentity=InIdentity;MovementSpeed=InTuning.MovementSpeed;AttackDamage=InTuning.AttackDamage;WindupDuration=InTuning.AttackWindup;AttackCooldown=InTuning.AttackCooldown;GetCharacterMovement()->MaxWalkSpeed=MovementSpeed;RefreshPresentation();return true;
 }
 
 void Ademo_mapHeavyEnemyCharacter::DrawSectorFeedback(const FColor& Color,float Duration,float Thickness) const
@@ -117,9 +117,51 @@ void Ademo_mapHeavyEnemyCharacter::DrawSectorFeedback(const FColor& Color,float 
 #endif
 }
 
+bool Ademo_mapHeavyEnemyCharacter::TryBindCombatEntity(
+	const FGuid& TargetEntityId)
+{
+	if(!TargetEntityId.IsValid())return false;
+	if(CombatVitalityLedger.IsValid())return CombatVitalityLedger.GetTargetEntityId()==TargetEntityId&&CombatVitalityLedger.IsSynchronized(CurrentVitality,MaximumVitality);
+	FShanmenVitalityCommitLedger NewLedger;if(!FShanmenVitalityCommitLedger::TryCreate(TargetEntityId,CurrentVitality,MaximumVitality,0,NewLedger))return false;CombatVitalityLedger=MoveTemp(NewLedger);return true;
+}
+
+bool Ademo_mapHeavyEnemyCharacter::TryEndCombatEntityBinding(
+	const FGuid& ExpectedTargetEntityId)
+{
+	if(!ExpectedTargetEntityId.IsValid())return false;if(!CombatVitalityLedger.IsValid())return true;if(CombatVitalityLedger.GetTargetEntityId()!=ExpectedTargetEntityId)return false;CombatVitalityLedger.Reset();return true;
+}
+
+bool Ademo_mapHeavyEnemyCharacter::TryCaptureCombatVitalitySnapshot(
+	FShanmenTargetVitalitySnapshot& OutSnapshot) const
+{
+	return CombatVitalityLedger.TryCaptureSnapshot(CurrentVitality,MaximumVitality,OutSnapshot);
+}
+
+FShanmenVitalityCommitResult Ademo_mapHeavyEnemyCharacter::CommitCombatImpact(
+	const FShanmenVitalityCommitCommand& Command)
+{
+	FShanmenVitalityCommitResult Result=CombatVitalityLedger.Commit(Command,CurrentVitality,MaximumVitality);if(Result.Status==EShanmenVitalityCommitStatus::Committed&&Result.Receipt.GetAppliedDamage()>0.0f)PublishAppliedDamage(Result.Receipt.GetAppliedDamage());return Result;
+}
+
+bool Ademo_mapHeavyEnemyCharacter::TryCommitVitalityState(
+	float NewCurrentVitality,
+	float NewMaximumVitality)
+{
+	if(!FMath::IsFinite(NewCurrentVitality)||!FMath::IsFinite(NewMaximumVitality)||NewMaximumVitality<=0.0f||NewCurrentVitality<0.0f||NewCurrentVitality>NewMaximumVitality)return false;if(CombatVitalityLedger.IsValid())return CombatVitalityLedger.TryCommitExternalMutation(CurrentVitality,MaximumVitality,NewCurrentVitality,NewMaximumVitality);CurrentVitality=NewCurrentVitality;MaximumVitality=NewMaximumVitality;return true;
+}
+
 float Ademo_mapHeavyEnemyCharacter::TakeDamage(float DamageAmount,FDamageEvent const&,AController*,AActor*)
 {
-	if(IsDead()||DamageAmount<=0)return 0;const int32 Applied=FMath::Min(CurrentHealth,FMath::Max(0,FMath::FloorToInt(DamageAmount)));if(Applied<=0)return 0;CurrentHealth-=Applied;RefreshPresentation();ShowDamageFeedback();UE_LOG(Logdemo_map,Log,TEXT("V2D: heavy damaged health=%d/%d."),CurrentHealth,MaxHealth);if(CurrentHealth==0)EnterDeadState();return static_cast<float>(Applied);
+	if(IsDead()||!FMath::IsFinite(DamageAmount)||DamageAmount<=0.0f)return 0.0f;const float RequestedDamage=static_cast<float>(FMath::Max(0,FMath::FloorToInt(DamageAmount)));const float AppliedDamage=FMath::Min(CurrentVitality,RequestedDamage);if(AppliedDamage<=0.0f||!TryCommitVitalityState(FMath::Max(0.0f,CurrentVitality-AppliedDamage),MaximumVitality))return 0.0f;PublishAppliedDamage(AppliedDamage);return AppliedDamage;
+}
+
+void Ademo_mapHeavyEnemyCharacter::PublishAppliedDamage(float AppliedDamage)
+{
+	if(!FMath::IsFinite(AppliedDamage)||AppliedDamage<=0.0f)return;
+#if WITH_DEV_AUTOMATION_TESTS
+	++PositiveCombatDamageCount;
+#endif
+	RefreshPresentation();ShowDamageFeedback();UE_LOG(Logdemo_map,Log,TEXT("0.0.10 P4.6: heavy enemy damaged; vitality=%.3f/%.3f."),CurrentVitality,MaximumVitality);if(CurrentVitality<=0.0f)EnterDeadState();
 }
 
 void Ademo_mapHeavyEnemyCharacter::EnterDeadState()
@@ -136,7 +178,7 @@ void Ademo_mapHeavyEnemyCharacter::EnterDeadState()
 	State=Edemo_mapHeavyEnemyState::Dead;SetCanBeDamaged(false);SetActorEnableCollision(false);GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);GetCharacterMovement()->DisableMovement();StopMovement();CancelPendingAttack();GetWorldTimerManager().ClearTimer(AIUpdateTimer);RefreshPresentation();if(VisibleMaterial){VisibleMaterial->SetVectorParameterValue(TEXT("Color"),FLinearColor(0.10f,0.04f,0.01f));VisibleMaterial->SetVectorParameterValue(TEXT("BaseColor"),FLinearColor(0.10f,0.04f,0.01f));}GetWorldTimerManager().SetTimer(DestroyTimer,this,&Ademo_mapHeavyEnemyCharacter::DestroyAfterDeath,1.0f,false);UE_LOG(Logdemo_map,Log,TEXT("V2D: heavy enemy died."));
 }
 void Ademo_mapHeavyEnemyCharacter::DestroyAfterDeath(){Destroy();}
-void Ademo_mapHeavyEnemyCharacter::RefreshPresentation(){FString Name=TEXT("HEAVY");FLinearColor Color(1.0f,0.20f,0.01f);if(const Udemo_mapM01EnemyIdentityComponent* M01=FindComponentByClass<Udemo_mapM01EnemyIdentityComponent>();M01&&M01->IsConfigured()){const bool bElite=M01->GetDefinition().Archetype==Edemo_mapM01EnemyArchetype::EliteBulwark;Name=bElite?TEXT("M01 ELITE BULWARK"):TEXT("M01 BRUISER");Color=bElite?FLinearColor(1.0f,0.70f,0.04f):FLinearColor(1.0f,0.28f,0.03f);if(VisibleMesh)VisibleMesh->SetRelativeScale3D(bElite?FVector(1.55f,1.35f,1.95f):FVector(1.20f,1.05f,1.65f));if(ShoulderMesh)ShoulderMesh->SetRelativeScale3D(bElite?FVector(2.05f,1.55f,0.52f):FVector(1.65f,1.25f,0.40f));if(Label)Label->SetTextRenderColor(bElite?FColor(255,205,45):FColor(255,115,15));}if(VisibleMaterial){VisibleMaterial->SetVectorParameterValue(TEXT("Color"),Color);VisibleMaterial->SetVectorParameterValue(TEXT("BaseColor"),Color);}if(EnemyLight)EnemyLight->SetLightColor(Color);if(Label)Label->SetText(FText::FromString(IsDead()?FString::Printf(TEXT("%s\nDEFEATED"),*Name):FString::Printf(TEXT("%s\n%d / %d"),*Name,CurrentHealth,MaxHealth)));}
-void Ademo_mapHeavyEnemyCharacter::ShowDamageFeedback(){if(VisibleMaterial){VisibleMaterial->SetVectorParameterValue(TEXT("Color"),FLinearColor::White);VisibleMaterial->SetVectorParameterValue(TEXT("BaseColor"),FLinearColor::White);}if(EnemyLight)EnemyLight->SetLightColor(FLinearColor(1.0f,0.85f,0.20f));GetWorldTimerManager().SetTimer(DamageFeedbackTimer,this,&Ademo_mapHeavyEnemyCharacter::ClearDamageFeedback,0.20f,false);}
+void Ademo_mapHeavyEnemyCharacter::RefreshPresentation(){FString Name=TEXT("HEAVY");FLinearColor Color(1.0f,0.20f,0.01f);if(const Udemo_mapM01EnemyIdentityComponent* M01=FindComponentByClass<Udemo_mapM01EnemyIdentityComponent>();M01&&M01->IsConfigured()){const bool bElite=M01->GetDefinition().Archetype==Edemo_mapM01EnemyArchetype::EliteBulwark;Name=bElite?TEXT("M01 ELITE BULWARK"):TEXT("M01 BRUISER");Color=bElite?FLinearColor(1.0f,0.70f,0.04f):FLinearColor(1.0f,0.28f,0.03f);if(VisibleMesh)VisibleMesh->SetRelativeScale3D(bElite?FVector(1.55f,1.35f,1.95f):FVector(1.20f,1.05f,1.65f));if(ShoulderMesh)ShoulderMesh->SetRelativeScale3D(bElite?FVector(2.05f,1.55f,0.52f):FVector(1.65f,1.25f,0.40f));if(Label)Label->SetTextRenderColor(bElite?FColor(255,205,45):FColor(255,115,15));}if(VisibleMaterial){VisibleMaterial->SetVectorParameterValue(TEXT("Color"),Color);VisibleMaterial->SetVectorParameterValue(TEXT("BaseColor"),Color);}if(EnemyLight)EnemyLight->SetLightColor(Color);if(Label)Label->SetText(FText::FromString(IsDead()?FString::Printf(TEXT("%s\nDEFEATED"),*Name):FString::Printf(TEXT("%s\n%d / %d"),*Name,GetCurrentHealth(),GetMaxHealth())));}
+void Ademo_mapHeavyEnemyCharacter::ShowDamageFeedback(){if(VisibleMaterial){VisibleMaterial->SetVectorParameterValue(TEXT("Color"),FLinearColor::White);VisibleMaterial->SetVectorParameterValue(TEXT("BaseColor"),FLinearColor::White);}if(EnemyLight)EnemyLight->SetLightColor(FLinearColor(1.0f,0.85f,0.20f));if(GetWorld())GetWorldTimerManager().SetTimer(DamageFeedbackTimer,this,&Ademo_mapHeavyEnemyCharacter::ClearDamageFeedback,0.20f,false);}
 void Ademo_mapHeavyEnemyCharacter::ClearDamageFeedback(){if(IsDead())return;RefreshPresentation();}
-void Ademo_mapHeavyEnemyCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason){GetWorldTimerManager().ClearTimer(AIUpdateTimer);GetWorldTimerManager().ClearTimer(WindupTimer);GetWorldTimerManager().ClearTimer(RecoveryTimer);GetWorldTimerManager().ClearTimer(DestroyTimer);GetWorldTimerManager().ClearTimer(DamageFeedbackTimer);Super::EndPlay(EndPlayReason);}
+void Ademo_mapHeavyEnemyCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason){GetWorldTimerManager().ClearTimer(AIUpdateTimer);GetWorldTimerManager().ClearTimer(WindupTimer);GetWorldTimerManager().ClearTimer(RecoveryTimer);GetWorldTimerManager().ClearTimer(DestroyTimer);GetWorldTimerManager().ClearTimer(DamageFeedbackTimer);CombatVitalityLedger.Reset();Super::EndPlay(EndPlayReason);}

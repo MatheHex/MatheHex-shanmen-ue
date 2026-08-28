@@ -610,10 +610,13 @@ bool Ademo_mapRangedEnemyCharacter::ConfigureEncounter(
 	{
 		return false;
 	}
+	const float ConfiguredVitality = static_cast<float>(InTuning.MaxHealth);
+	if (!TryCommitVitalityState(ConfiguredVitality, ConfiguredVitality))
+	{
+		return false;
+	}
 	EncounterIdentity = InIdentity;
 	SkillProfileId = InIdentity.SkillProfileId;
-	MaxHealth = InTuning.MaxHealth;
-	CurrentHealth = MaxHealth;
 	MovementSpeed = InTuning.MovementSpeed;
 	AttackWindup = InTuning.AttackWindup;
 	AttackCooldown = InTuning.AttackCooldown;
@@ -643,12 +646,131 @@ int32 Ademo_mapRangedEnemyCharacter::GetActiveProjectileCount() const
 	return Count;
 }
 
-float Ademo_mapRangedEnemyCharacter::TakeDamage(float DamageAmount, FDamageEvent const&, AController*, AActor*)
+bool Ademo_mapRangedEnemyCharacter::TryBindCombatEntity(
+	const FGuid& TargetEntityId)
 {
-	if(IsDead()||DamageAmount<=0)return 0;
-	const int32 Applied=FMath::Min(CurrentHealth,FMath::Max(0,FMath::FloorToInt(DamageAmount)));if(Applied<=0)return 0;
-	CurrentHealth-=Applied;RefreshPresentation();ShowDamageFeedback();UE_LOG(Logdemo_map,Log,TEXT("V2D: ranged damaged health=%d/%d."),CurrentHealth,MaxHealth);
-	if(CurrentHealth==0)EnterDeadState();return static_cast<float>(Applied);
+	if (!TargetEntityId.IsValid()) return false;
+	if (CombatVitalityLedger.IsValid())
+	{
+		return CombatVitalityLedger.GetTargetEntityId() == TargetEntityId
+			&& CombatVitalityLedger.IsSynchronized(
+				CurrentVitality,
+				MaximumVitality);
+	}
+	FShanmenVitalityCommitLedger NewLedger;
+	if (!FShanmenVitalityCommitLedger::TryCreate(
+			TargetEntityId,
+			CurrentVitality,
+			MaximumVitality,
+			0,
+			NewLedger))
+	{
+		return false;
+	}
+	CombatVitalityLedger = MoveTemp(NewLedger);
+	return true;
+}
+
+bool Ademo_mapRangedEnemyCharacter::TryEndCombatEntityBinding(
+	const FGuid& ExpectedTargetEntityId)
+{
+	if (!ExpectedTargetEntityId.IsValid()) return false;
+	if (!CombatVitalityLedger.IsValid()) return true;
+	if (CombatVitalityLedger.GetTargetEntityId() != ExpectedTargetEntityId)
+	{
+		return false;
+	}
+	CombatVitalityLedger.Reset();
+	return true;
+}
+
+bool Ademo_mapRangedEnemyCharacter::TryCaptureCombatVitalitySnapshot(
+	FShanmenTargetVitalitySnapshot& OutSnapshot) const
+{
+	return CombatVitalityLedger.TryCaptureSnapshot(
+		CurrentVitality,
+		MaximumVitality,
+		OutSnapshot);
+}
+
+FShanmenVitalityCommitResult
+Ademo_mapRangedEnemyCharacter::CommitCombatImpact(
+	const FShanmenVitalityCommitCommand& Command)
+{
+	FShanmenVitalityCommitResult Result = CombatVitalityLedger.Commit(
+		Command,
+		CurrentVitality,
+		MaximumVitality);
+	if (Result.Status == EShanmenVitalityCommitStatus::Committed
+		&& Result.Receipt.GetAppliedDamage() > 0.0f)
+	{
+		PublishAppliedDamage(Result.Receipt.GetAppliedDamage());
+	}
+	return Result;
+}
+
+bool Ademo_mapRangedEnemyCharacter::TryCommitVitalityState(
+	float NewCurrentVitality,
+	float NewMaximumVitality)
+{
+	if (!FMath::IsFinite(NewCurrentVitality)
+		|| !FMath::IsFinite(NewMaximumVitality)
+		|| NewMaximumVitality <= 0.0f
+		|| NewCurrentVitality < 0.0f
+		|| NewCurrentVitality > NewMaximumVitality)
+	{
+		return false;
+	}
+	if (CombatVitalityLedger.IsValid())
+	{
+		return CombatVitalityLedger.TryCommitExternalMutation(
+			CurrentVitality,
+			MaximumVitality,
+			NewCurrentVitality,
+			NewMaximumVitality);
+	}
+	CurrentVitality = NewCurrentVitality;
+	MaximumVitality = NewMaximumVitality;
+	return true;
+}
+
+float Ademo_mapRangedEnemyCharacter::TakeDamage(
+	float DamageAmount,
+	FDamageEvent const&,
+	AController*,
+	AActor*)
+{
+	if (IsDead() || !FMath::IsFinite(DamageAmount) || DamageAmount <= 0.0f)
+	{
+		return 0.0f;
+	}
+	const float RequestedDamage = static_cast<float>(
+		FMath::Max(0, FMath::FloorToInt(DamageAmount)));
+	const float AppliedDamage = FMath::Min(CurrentVitality, RequestedDamage);
+	if (AppliedDamage <= 0.0f
+		|| !TryCommitVitalityState(
+			FMath::Max(0.0f, CurrentVitality - AppliedDamage),
+			MaximumVitality))
+	{
+		return 0.0f;
+	}
+	PublishAppliedDamage(AppliedDamage);
+	return AppliedDamage;
+}
+
+void Ademo_mapRangedEnemyCharacter::PublishAppliedDamage(float AppliedDamage)
+{
+	if (!FMath::IsFinite(AppliedDamage) || AppliedDamage <= 0.0f) return;
+#if WITH_DEV_AUTOMATION_TESTS
+	++PositiveCombatDamageCount;
+#endif
+	RefreshPresentation();
+	ShowDamageFeedback();
+	UE_LOG(Logdemo_map, Log,
+		TEXT("0.0.10 P4.6: ranged enemy damaged; vitality=%.3f/%.3f."),
+		CurrentVitality,
+		MaximumVitality);
+	if (CurrentVitality <= 0.0f) EnterDeadState();
 }
 
 void Ademo_mapRangedEnemyCharacter::EnterDeadState()
@@ -697,13 +819,13 @@ void Ademo_mapRangedEnemyCharacter::RefreshPresentation()
 	if(EnemyLight)EnemyLight->SetLightColor(Color);
 	if(Label)
 	{
-		Label->SetText(FText::FromString(IsDead()?FString::Printf(TEXT("%s\nDEFEATED"),*Name):FString::Printf(TEXT("%s\n%d / %d"),*Name,CurrentHealth,MaxHealth)));
+		Label->SetText(FText::FromString(IsDead()?FString::Printf(TEXT("%s\nDEFEATED"),*Name):FString::Printf(TEXT("%s\n%d / %d"),*Name,GetCurrentHealth(),GetMaxHealth())));
 	}
 }
-void Ademo_mapRangedEnemyCharacter::ShowDamageFeedback(){if(VisibleMaterial){VisibleMaterial->SetVectorParameterValue(TEXT("Color"),FLinearColor::White);VisibleMaterial->SetVectorParameterValue(TEXT("BaseColor"),FLinearColor::White);}if(EnemyLight)EnemyLight->SetLightColor(FLinearColor(1.0f,0.8f,0.2f));GetWorldTimerManager().SetTimer(DamageFeedbackTimer,this,&Ademo_mapRangedEnemyCharacter::ClearDamageFeedback,0.20f,false);}
+void Ademo_mapRangedEnemyCharacter::ShowDamageFeedback(){if(VisibleMaterial){VisibleMaterial->SetVectorParameterValue(TEXT("Color"),FLinearColor::White);VisibleMaterial->SetVectorParameterValue(TEXT("BaseColor"),FLinearColor::White);}if(EnemyLight)EnemyLight->SetLightColor(FLinearColor(1.0f,0.8f,0.2f));if(GetWorld())GetWorldTimerManager().SetTimer(DamageFeedbackTimer,this,&Ademo_mapRangedEnemyCharacter::ClearDamageFeedback,0.20f,false);}
 void Ademo_mapRangedEnemyCharacter::ClearDamageFeedback(){if(IsDead())return;RefreshPresentation();}
 
 void Ademo_mapRangedEnemyCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	if(EnemySkillRuntime)EnemySkillRuntime->Cancel(true);GetWorldTimerManager().ClearTimer(AIUpdateTimer);GetWorldTimerManager().ClearTimer(WindupTimer);GetWorldTimerManager().ClearTimer(FireStateTimer);GetWorldTimerManager().ClearTimer(DestroyTimer);GetWorldTimerManager().ClearTimer(DamageFeedbackTimer);CancelCombatAndProjectiles();Super::EndPlay(EndPlayReason);
+	if(EnemySkillRuntime)EnemySkillRuntime->Cancel(true);GetWorldTimerManager().ClearTimer(AIUpdateTimer);GetWorldTimerManager().ClearTimer(WindupTimer);GetWorldTimerManager().ClearTimer(FireStateTimer);GetWorldTimerManager().ClearTimer(DestroyTimer);GetWorldTimerManager().ClearTimer(DamageFeedbackTimer);CancelCombatAndProjectiles();CombatVitalityLedger.Reset();Super::EndPlay(EndPlayReason);
 }

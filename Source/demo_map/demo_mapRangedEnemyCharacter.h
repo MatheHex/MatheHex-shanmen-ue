@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "demo_mapCombatVitalityHost.h"
 #include "demo_mapCombatTypes.h"
 #include "demo_mapEnemyEncounterTypes.h"
 #include "demo_mapEnemySkillTypes.h"
@@ -29,7 +30,8 @@ enum class Edemo_mapRangedEnemyState : uint8
 
 /** Timer-driven hostile that maintains range and fires a locked straight projectile. */
 UCLASS()
-class Ademo_mapRangedEnemyCharacter : public ACharacter
+class Ademo_mapRangedEnemyCharacter : public ACharacter,
+	public Idemo_mapCombatVitalityHost
 {
 	GENERATED_BODY()
 
@@ -39,8 +41,10 @@ public:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual float TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser) override;
 
-	int32 GetMaxHealth() const { return MaxHealth; }
-	int32 GetCurrentHealth() const { return CurrentHealth; }
+	int32 GetMaxHealth() const { return FMath::CeilToInt(MaximumVitality); }
+	int32 GetCurrentHealth() const { return FMath::CeilToInt(CurrentVitality); }
+	float GetMaximumVitality() const { return MaximumVitality; }
+	float GetCurrentVitality() const { return CurrentVitality; }
 	bool IsDead() const { return State == Edemo_mapRangedEnemyState::Dead; }
 	Edemo_mapRangedEnemyState GetRangedState() const { return State; }
 	bool HasActiveWindup() const { return State == Edemo_mapRangedEnemyState::Windup; }
@@ -108,6 +112,37 @@ public:
 		return EncounterIdentity;
 	}
 	bool IsEnhancedEncounter() const { return bEnhancedEncounter; }
+	virtual bool TryBindCombatEntity(
+		const FGuid& TargetEntityId) override;
+	virtual bool TryEndCombatEntityBinding(
+		const FGuid& ExpectedTargetEntityId) override;
+	virtual bool IsCombatEntityBound() const override
+	{
+		return CombatVitalityLedger.IsValid();
+	}
+	virtual const FGuid& GetCombatEntityId() const override
+	{
+		return CombatVitalityLedger.GetTargetEntityId();
+	}
+	virtual int64 GetCombatAuthorityRevision() const override
+	{
+		return CombatVitalityLedger.GetAuthorityRevision();
+	}
+	virtual int32 NumCommittedCombatImpacts() const override
+	{
+		return CombatVitalityLedger.NumCommittedImpacts();
+	}
+	virtual bool TryCaptureCombatVitalitySnapshot(
+		FShanmenTargetVitalitySnapshot& OutSnapshot) const override;
+	virtual FShanmenVitalityCommitResult CommitCombatImpact(
+		const FShanmenVitalityCommitCommand& Command) override;
+
+#if WITH_DEV_AUTOMATION_TESTS
+	virtual int32 GetPositiveCombatDamageCountForAutomation() const override
+	{
+		return PositiveCombatDamageCount;
+	}
+#endif
 
 private:
 	void UpdateBehavior();
@@ -131,6 +166,10 @@ private:
 	void RefreshPresentation();
 	void ShowDamageFeedback();
 	void ClearDamageFeedback();
+	bool TryCommitVitalityState(
+		float NewCurrentVitality,
+		float NewMaximumVitality);
+	void PublishAppliedDamage(float AppliedDamage);
 	void DrawWindupFeedback() const;
 	APawn* GetPlayerPawn() const;
 	bool HasWorldStaticLineOfSight(const APawn* PlayerPawn) const;
@@ -146,8 +185,8 @@ private:
 	UPROPERTY() TArray<TWeakObjectPtr<Ademo_mapSkillProjectile>> ActiveProjectiles;
 	TWeakObjectPtr<Ademo_mapSkillProjectile> LastProjectile;
 
-	int32 MaxHealth = 3;
-	int32 CurrentHealth = 3;
+	float MaximumVitality = 3.0f;
+	float CurrentVitality = 3.0f;
 	Edemo_mapRangedEnemyState State = Edemo_mapRangedEnemyState::Idle;
 	Fdemo_mapProjectileSkillParams ProjectileParams;
 	FVector LockedDirection = FVector::ForwardVector;
@@ -174,6 +213,10 @@ private:
 	Fdemo_mapEnemyEncounterIdentity EncounterIdentity;
 	FName SkillProfileId = NAME_None;
 	FGuid LootSourceId = FGuid::NewGuid();
+	FShanmenVitalityCommitLedger CombatVitalityLedger;
+#if WITH_DEV_AUTOMATION_TESTS
+	int32 PositiveCombatDamageCount = 0;
+#endif
 #if !UE_BUILD_SHIPPING
 	bool bV2DiagLegacyLogged = false;
 	bool bV2DiagRetreatLogged = false;

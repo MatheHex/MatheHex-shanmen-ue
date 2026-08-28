@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "ShanmenVitalityAuthority.h"
+#include "demo_mapCombatVitalityHost.h"
 #include "demo_mapEnemyEncounterTypes.h"
 #include "demo_mapEnemySkillTypes.h"
 #include "demo_mapEnemyCharacter.generated.h"
@@ -25,7 +26,8 @@ enum class Edemo_mapEnemyState : uint8
 
 /** A single minimal NavMesh-driven hostile melee enemy. */
 UCLASS()
-class Ademo_mapEnemyCharacter : public ACharacter
+class Ademo_mapEnemyCharacter : public ACharacter,
+	public Idemo_mapCombatVitalityHost
 {
 	GENERATED_BODY()
 
@@ -56,25 +58,30 @@ public:
 		const Fdemo_mapEnemyEncounterIdentity& InIdentity,
 		const Fdemo_mapEnemyCombatTuning& InTuning,
 		bool bInEnhanced);
-	bool TryBindCombatEntity(const FGuid& TargetEntityId);
-	bool TryEndCombatEntityBinding(const FGuid& ExpectedTargetEntityId);
-	bool IsCombatEntityBound() const { return CombatVitalityLedger.IsValid(); }
-	const FGuid& GetCombatEntityId() const
+	virtual bool TryBindCombatEntity(
+		const FGuid& TargetEntityId) override;
+	virtual bool TryEndCombatEntityBinding(
+		const FGuid& ExpectedTargetEntityId) override;
+	virtual bool IsCombatEntityBound() const override
+	{
+		return CombatVitalityLedger.IsValid();
+	}
+	virtual const FGuid& GetCombatEntityId() const override
 	{
 		return CombatVitalityLedger.GetTargetEntityId();
 	}
-	int64 GetCombatAuthorityRevision() const
+	virtual int64 GetCombatAuthorityRevision() const override
 	{
 		return CombatVitalityLedger.GetAuthorityRevision();
 	}
-	int32 NumCommittedCombatImpacts() const
+	virtual int32 NumCommittedCombatImpacts() const override
 	{
 		return CombatVitalityLedger.NumCommittedImpacts();
 	}
-	bool TryCaptureCombatVitalitySnapshot(
-		FShanmenTargetVitalitySnapshot& OutSnapshot) const;
-	FShanmenVitalityCommitResult CommitCombatImpact(
-		const FShanmenVitalityCommitCommand& Command);
+	virtual bool TryCaptureCombatVitalitySnapshot(
+		FShanmenTargetVitalitySnapshot& OutSnapshot) const override;
+	virtual FShanmenVitalityCommitResult CommitCombatImpact(
+		const FShanmenVitalityCommitCommand& Command) override;
 	const Fdemo_mapEnemyEncounterIdentity& GetEncounterIdentity() const
 	{
 		return EncounterIdentity;
@@ -83,7 +90,7 @@ public:
 	bool IsEnhancedEncounter() const { return bEnhancedEncounter; }
 
 #if WITH_DEV_AUTOMATION_TESTS
-	int32 GetPositiveCombatDamageCountForAutomation() const
+	virtual int32 GetPositiveCombatDamageCountForAutomation() const override
 	{
 		return PositiveCombatDamageCount;
 	}

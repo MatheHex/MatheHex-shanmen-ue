@@ -291,9 +291,9 @@ Ademo_mapGameMode::DeliverResolvedPlayerImpact(
 }
 
 Fdemo_mapCombatImpactDeliveryResult
-Ademo_mapGameMode::DeliverResolvedM01MeleeImpact(
+Ademo_mapGameMode::DeliverResolvedM01EnemyImpact(
 	const FShanmenBasicSwordImpactReceipt& Impact,
-	Ademo_mapEnemyCharacter* TargetEnemy)
+	AActor* TargetEnemy)
 {
 	return CombatRunCoordinator.DeliverBasicSwordImpactToM01Enemy(
 		Impact,

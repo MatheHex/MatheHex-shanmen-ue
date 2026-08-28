@@ -44,6 +44,13 @@ namespace
 		}
 	}
 
+	Idemo_mapCombatVitalityHost* ResolveM01VitalityHost(AActor* EnemyActor)
+	{
+		return EnemyActor
+			? Cast<Idemo_mapCombatVitalityHost>(EnemyActor)
+			: nullptr;
+	}
+
 	bool TryBuildProductBasicSwordDefinition(
 		FShanmenBasicSwordDefinition& OutDefinition)
 	{
@@ -248,11 +255,11 @@ bool Fdemo_mapCombatRunCoordinator::TryRegisterM01Enemy(
 
 	if (const FM01EnemyBinding* Existing = M01EnemyBindings.Find(EntityId))
 	{
-		const Ademo_mapEnemyCharacter* ExpectedVitalityHost =
-			Cast<Ademo_mapEnemyCharacter>(EnemyActor);
+		Idemo_mapCombatVitalityHost* ExpectedVitalityHost =
+			ResolveM01VitalityHost(EnemyActor);
 		if (Existing->Actor.Get() != EnemyActor
 			|| Existing->SpawnMarkerId != Definition.SpawnMarkerId
-			|| Existing->VitalityHost.Get() != ExpectedVitalityHost)
+			|| !ExpectedVitalityHost)
 		{
 			OutDiagnostic =
 				TEXT("M01 authored EntityId is already owned by a different product actor.");
@@ -293,12 +300,12 @@ bool Fdemo_mapCombatRunCoordinator::TryRegisterM01Enemy(
 		return false;
 	}
 
-	Ademo_mapEnemyCharacter* VitalityHost =
-		Cast<Ademo_mapEnemyCharacter>(EnemyActor);
-	if (VitalityHost && !VitalityHost->TryBindCombatEntity(EntityId))
+	Idemo_mapCombatVitalityHost* VitalityHost =
+		ResolveM01VitalityHost(EnemyActor);
+	if (!VitalityHost || !VitalityHost->TryBindCombatEntity(EntityId))
 	{
 		OutDiagnostic =
-			TEXT("M01 melee vitality host rejected its authored World EntityId.");
+			TEXT("M01 vitality host rejected its authored World EntityId.");
 		return false;
 	}
 
@@ -307,12 +314,11 @@ bool Fdemo_mapCombatRunCoordinator::TryRegisterM01Enemy(
 	Added.SpawnMarkerId = Definition.SpawnMarkerId;
 	Added.Actor = EnemyActor;
 	Added.CollisionRoot = CollisionRoot;
-	Added.VitalityHost = VitalityHost;
 	OutDiagnostic = FString::Printf(
 		TEXT("M01 enemy registered: SpawnMarkerId=%s EntityId=%s Vitality=%d."),
 		*Definition.SpawnMarkerId.ToString(),
 		*EntityId.ToString(EGuidFormats::DigitsWithHyphens),
-		VitalityHost ? 1 : 0);
+		1);
 	return true;
 }
 
@@ -339,9 +345,11 @@ bool Fdemo_mapCombatRunCoordinator::TryEndRun(
 	}
 	for (const TPair<FGuid, FM01EnemyBinding>& Pair : M01EnemyBindings)
 	{
-		if (Pair.Value.VitalityHost.IsValid()
-			&& Pair.Value.VitalityHost->IsCombatEntityBound()
-			&& Pair.Value.VitalityHost->GetCombatEntityId() != Pair.Key)
+		Idemo_mapCombatVitalityHost* VitalityHost =
+			ResolveM01VitalityHost(Pair.Value.Actor.Get());
+		if (VitalityHost
+			&& VitalityHost->IsCombatEntityBound()
+			&& VitalityHost->GetCombatEntityId() != Pair.Key)
 		{
 			OutDiagnostic =
 				TEXT("An M01 vitality host no longer owns its authored Run identity.");
@@ -351,8 +359,10 @@ bool Fdemo_mapCombatRunCoordinator::TryEndRun(
 
 	for (const TPair<FGuid, FM01EnemyBinding>& Pair : M01EnemyBindings)
 	{
-		if (Pair.Value.VitalityHost.IsValid()
-			&& !Pair.Value.VitalityHost->TryEndCombatEntityBinding(Pair.Key))
+		Idemo_mapCombatVitalityHost* VitalityHost =
+			ResolveM01VitalityHost(Pair.Value.Actor.Get());
+		if (VitalityHost
+			&& !VitalityHost->TryEndCombatEntityBinding(Pair.Key))
 		{
 			OutDiagnostic =
 				TEXT("An M01 vitality host rejected the exact Run identity release.");
@@ -386,9 +396,10 @@ void Fdemo_mapCombatRunCoordinator::Reset()
 {
 	for (const TPair<FGuid, FM01EnemyBinding>& Pair : M01EnemyBindings)
 	{
-		if (Pair.Value.VitalityHost.IsValid())
+		if (Idemo_mapCombatVitalityHost* VitalityHost =
+			ResolveM01VitalityHost(Pair.Value.Actor.Get()))
 		{
-			Pair.Value.VitalityHost->TryEndCombatEntityBinding(Pair.Key);
+			VitalityHost->TryEndCombatEntityBinding(Pair.Key);
 		}
 	}
 	if (BoundPlayerHealth.IsValid() && PlayerEntityId.IsValid())
@@ -436,9 +447,11 @@ int32 Fdemo_mapCombatRunCoordinator::NumVitalityBoundM01Enemies() const
 	int32 Count = 0;
 	for (const TPair<FGuid, FM01EnemyBinding>& Pair : M01EnemyBindings)
 	{
-		if (Pair.Value.VitalityHost.IsValid()
-			&& Pair.Value.VitalityHost->IsCombatEntityBound()
-			&& Pair.Value.VitalityHost->GetCombatEntityId() == Pair.Key)
+		Idemo_mapCombatVitalityHost* VitalityHost =
+			ResolveM01VitalityHost(Pair.Value.Actor.Get());
+		if (VitalityHost
+			&& VitalityHost->IsCombatEntityBound()
+			&& VitalityHost->GetCombatEntityId() == Pair.Key)
 		{
 			++Count;
 		}
@@ -493,7 +506,7 @@ Fdemo_mapCombatRunCoordinator::DeliverBasicSwordImpactToPlayer(
 Fdemo_mapCombatImpactDeliveryResult
 Fdemo_mapCombatRunCoordinator::DeliverBasicSwordImpactToM01Enemy(
 	const FShanmenBasicSwordImpactReceipt& Impact,
-	Ademo_mapEnemyCharacter* TargetEnemy)
+	AActor* TargetEnemy)
 {
 	Fdemo_mapCombatImpactDeliveryResult Delivery;
 	if (!IsReady())
@@ -545,10 +558,11 @@ Fdemo_mapCombatRunCoordinator::DeliverBasicSwordImpactToM01Enemy(
 			Edemo_mapCombatImpactDeliveryError::TargetNotRegistered;
 		return Delivery;
 	}
-	if (!Binding->VitalityHost.IsValid()
-		|| Binding->VitalityHost.Get() != TargetEnemy
-		|| !TargetEnemy->IsCombatEntityBound()
-		|| TargetEnemy->GetCombatEntityId() != TargetEntityId)
+	Idemo_mapCombatVitalityHost* VitalityHost =
+		ResolveM01VitalityHost(TargetEnemy);
+	if (!VitalityHost
+		|| !VitalityHost->IsCombatEntityBound()
+		|| VitalityHost->GetCombatEntityId() != TargetEntityId)
 	{
 		Delivery.Error =
 			Edemo_mapCombatImpactDeliveryError::TargetNotVitalityBound;
@@ -564,7 +578,7 @@ Fdemo_mapCombatRunCoordinator::DeliverBasicSwordImpactToM01Enemy(
 		return Delivery;
 	}
 
-	Delivery.CommitResult = TargetEnemy->CommitCombatImpact(Command);
+	Delivery.CommitResult = VitalityHost->CommitCombatImpact(Command);
 	Delivery.Error = Delivery.CommitResult.IsSuccess()
 		? Edemo_mapCombatImpactDeliveryError::None
 		: Edemo_mapCombatImpactDeliveryError::CommitRejected;
@@ -661,9 +675,10 @@ Fdemo_mapCombatRunCoordinator::ExecutePlayerBasicSwordSweep(
 
 	for (const FHitResult& WorldHit : WorldHits)
 	{
-		Ademo_mapEnemyCharacter* TargetEnemy =
-			Cast<Ademo_mapEnemyCharacter>(WorldHit.GetActor());
-		if (!TargetEnemy || !TargetEnemy->IsCombatEntityBound())
+		AActor* TargetEnemy = WorldHit.GetActor();
+		Idemo_mapCombatVitalityHost* VitalityHost =
+			ResolveM01VitalityHost(TargetEnemy);
+		if (!VitalityHost || !VitalityHost->IsCombatEntityBound())
 		{
 			continue;
 		}
@@ -680,7 +695,7 @@ Fdemo_mapCombatRunCoordinator::ExecutePlayerBasicSwordSweep(
 		++ProductResult.ResolvedCandidateCount;
 
 		FShanmenTargetVitalitySnapshot Vitality;
-		if (!TargetEnemy->TryCaptureCombatVitalitySnapshot(Vitality))
+		if (!VitalityHost->TryCaptureCombatVitalitySnapshot(Vitality))
 		{
 			continue;
 		}

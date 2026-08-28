@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "demo_mapCombatVitalityHost.h"
 #include "demo_mapEnemyEncounterTypes.h"
 #include "demo_mapHeavyEnemyCharacter.generated.h"
 
@@ -24,7 +25,8 @@ enum class Edemo_mapHeavyEnemyState : uint8
 
 /** Slow hostile with a locked, telegraphed, single-resolution sector attack. */
 UCLASS()
-class Ademo_mapHeavyEnemyCharacter : public ACharacter
+class Ademo_mapHeavyEnemyCharacter : public ACharacter,
+	public Idemo_mapCombatVitalityHost
 {
 	GENERATED_BODY()
 
@@ -34,8 +36,10 @@ public:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual float TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser) override;
 
-	int32 GetMaxHealth() const { return MaxHealth; }
-	int32 GetCurrentHealth() const { return CurrentHealth; }
+	int32 GetMaxHealth() const { return FMath::CeilToInt(MaximumVitality); }
+	int32 GetCurrentHealth() const { return FMath::CeilToInt(CurrentVitality); }
+	float GetMaximumVitality() const { return MaximumVitality; }
+	float GetCurrentVitality() const { return CurrentVitality; }
 	bool IsDead() const { return State == Edemo_mapHeavyEnemyState::Dead; }
 	Edemo_mapHeavyEnemyState GetHeavyState() const { return State; }
 	bool HasActiveTelegraph() const { return State == Edemo_mapHeavyEnemyState::Windup; }
@@ -57,6 +61,37 @@ public:
 	{
 		return EncounterIdentity;
 	}
+	virtual bool TryBindCombatEntity(
+		const FGuid& TargetEntityId) override;
+	virtual bool TryEndCombatEntityBinding(
+		const FGuid& ExpectedTargetEntityId) override;
+	virtual bool IsCombatEntityBound() const override
+	{
+		return CombatVitalityLedger.IsValid();
+	}
+	virtual const FGuid& GetCombatEntityId() const override
+	{
+		return CombatVitalityLedger.GetTargetEntityId();
+	}
+	virtual int64 GetCombatAuthorityRevision() const override
+	{
+		return CombatVitalityLedger.GetAuthorityRevision();
+	}
+	virtual int32 NumCommittedCombatImpacts() const override
+	{
+		return CombatVitalityLedger.NumCommittedImpacts();
+	}
+	virtual bool TryCaptureCombatVitalitySnapshot(
+		FShanmenTargetVitalitySnapshot& OutSnapshot) const override;
+	virtual FShanmenVitalityCommitResult CommitCombatImpact(
+		const FShanmenVitalityCommitCommand& Command) override;
+
+#if WITH_DEV_AUTOMATION_TESTS
+	virtual int32 GetPositiveCombatDamageCountForAutomation() const override
+	{
+		return PositiveCombatDamageCount;
+	}
+#endif
 
 private:
 	void UpdateBehavior();
@@ -70,6 +105,10 @@ private:
 	void RefreshPresentation();
 	void ShowDamageFeedback();
 	void ClearDamageFeedback();
+	bool TryCommitVitalityState(
+		float NewCurrentVitality,
+		float NewMaximumVitality);
+	void PublishAppliedDamage(float AppliedDamage);
 	void DrawSectorFeedback(const FColor& Color, float Duration, float Thickness) const;
 	bool HasWorldStaticLineOfSight(const APawn* PlayerPawn) const;
 	APawn* GetPlayerPawn() const;
@@ -81,8 +120,8 @@ private:
 	UPROPERTY(VisibleAnywhere) TObjectPtr<Udemo_mapFactionComponent> FactionComponent;
 	UPROPERTY(Transient) TObjectPtr<UMaterialInstanceDynamic> VisibleMaterial;
 
-	int32 MaxHealth = 5;
-	int32 CurrentHealth = 5;
+	float MaximumVitality = 5.0f;
+	float CurrentVitality = 5.0f;
 	Edemo_mapHeavyEnemyState State = Edemo_mapHeavyEnemyState::Idle;
 	FVector LockedDirection = FVector::ForwardVector;
 	float MovementSpeed = 180.0f;
@@ -103,6 +142,10 @@ private:
 	bool bCombatSuppressed = false;
 	Fdemo_mapEnemyEncounterIdentity EncounterIdentity;
 	FGuid LootSourceId = FGuid::NewGuid();
+	FShanmenVitalityCommitLedger CombatVitalityLedger;
+#if WITH_DEV_AUTOMATION_TESTS
+	int32 PositiveCombatDamageCount = 0;
+#endif
 	FTimerHandle AIUpdateTimer;
 	FTimerHandle WindupTimer;
 	FTimerHandle RecoveryTimer;

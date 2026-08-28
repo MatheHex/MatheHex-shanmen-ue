@@ -7,10 +7,12 @@
 #include "ShanmenWorldHitAdapter.h"
 #include "Components/BoxComponent.h"
 #include "Components/PrimitiveComponent.h"
+#include "Engine/DamageEvents.h"
 #include "Engine/HitResult.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/Pawn.h"
 #include "demo_mapCombatRunCoordinator.h"
+#include "demo_mapCombatVitalityHost.h"
 #include "demo_mapEnemyCharacter.h"
 #include "demo_mapHeavyEnemyCharacter.h"
 #include "demo_mapM01BossCharacter.h"
@@ -96,6 +98,51 @@ namespace
 		}
 	}
 
+	Fdemo_mapEnemyEncounterIdentity MakeLegacyEncounterIdentity(
+		const Fdemo_mapM01EnemyDefinition& Definition)
+	{
+		Fdemo_mapEnemyEncounterIdentity Identity;
+		Identity.EncounterId = Definition.EncounterId;
+		Identity.RouteId = Definition.RouteId;
+		Identity.SpawnMarkerId = Definition.SpawnMarkerId;
+		Identity.LootTableId = Definition.CorpseIdentity;
+		Identity.SkillProfileId = Definition.SkillProfileId;
+		return Identity;
+	}
+
+	bool ConfigureM01ProductActor(
+		const Fdemo_mapM01EnemyDefinition& Definition,
+		AActor* EnemyActor)
+	{
+		const Fdemo_mapEnemyEncounterIdentity LegacyIdentity =
+			MakeLegacyEncounterIdentity(Definition);
+		switch (Definition.Archetype)
+		{
+		case Edemo_mapM01EnemyArchetype::StandardSkirmisher:
+		case Edemo_mapM01EnemyArchetype::EliteStalker:
+			return CastChecked<Ademo_mapEnemyCharacter>(EnemyActor)
+				->ConfigureEncounter(
+					LegacyIdentity,
+					Definition.Tuning,
+					Definition.IsElite());
+		case Edemo_mapM01EnemyArchetype::StandardRanged:
+			return CastChecked<Ademo_mapRangedEnemyCharacter>(EnemyActor)
+				->ConfigureEncounter(
+					LegacyIdentity,
+					Definition.Tuning,
+					Definition.IsElite());
+		case Edemo_mapM01EnemyArchetype::StandardBruiser:
+		case Edemo_mapM01EnemyArchetype::EliteBulwark:
+			return CastChecked<Ademo_mapHeavyEnemyCharacter>(EnemyActor)
+				->ConfigureEncounter(LegacyIdentity, Definition.Tuning);
+		case Edemo_mapM01EnemyArchetype::BossMain:
+			return CastChecked<Ademo_mapM01BossCharacter>(EnemyActor)
+				->ConfigureBoss(Definition);
+		default:
+			return false;
+		}
+	}
+
 	struct FM01MeleeEnemyFixture
 	{
 		const Fdemo_mapM01EnemyDefinition* Definition = nullptr;
@@ -117,12 +164,8 @@ namespace
 				return;
 			}
 			Enemy->AddInstanceComponent(Identity);
-			Fdemo_mapEnemyEncounterIdentity LegacyIdentity;
-			LegacyIdentity.EncounterId = Definition->EncounterId;
-			LegacyIdentity.RouteId = Definition->RouteId;
-			LegacyIdentity.SpawnMarkerId = Definition->SpawnMarkerId;
-			LegacyIdentity.LootTableId = Definition->CorpseIdentity;
-			LegacyIdentity.SkillProfileId = Definition->SkillProfileId;
+			const Fdemo_mapEnemyEncounterIdentity LegacyIdentity =
+				MakeLegacyEncounterIdentity(*Definition);
 			bReady = Identity->Configure(*Definition)
 				&& Enemy->ConfigureEncounter(
 					LegacyIdentity,
@@ -133,7 +176,8 @@ namespace
 
 	FShanmenCombatActionSnapshot MakeCoordinatorAction(
 		const FGuid& RunId,
-		const FGuid& SourceEntityId)
+		const FGuid& SourceEntityId,
+		uint64 ActivationSequence = 1)
 	{
 		FShanmenCombatActionCapture Capture;
 		Capture.RunId = RunId;
@@ -150,21 +194,22 @@ namespace
 			Capture.RunId,
 			Capture.SourceEntityId,
 			Capture.ActionDefinitionId,
-			1);
+			ActivationSequence);
 
 		FShanmenCombatActionSnapshot Action;
 		check(FShanmenCombatActionSnapshot::TryCapture(Capture, Action));
 		return Action;
 	}
 
-	FShanmenBasicSwordDefinition MakeCoordinatorSwordDefinition()
+	FShanmenBasicSwordDefinition MakeCoordinatorSwordDefinition(
+		float BaseDamage = 2.0f)
 	{
 		FShanmenBasicSwordDefinitionCapture Capture;
 		Capture.ActionDefinitionId =
 			FShanmenBasicSwordDefinition::CanonicalActionDefinitionId();
 		Capture.DetectorId = TEXT("Detector.Weapon.Main");
 		Capture.FormulaId = TEXT("Combat.Formula.Sword.Basic01.r1");
-		Capture.BaseDamage = 2.0f;
+		Capture.BaseDamage = BaseDamage;
 		Capture.AttackPowerCoefficient = 0.0f;
 		Capture.DamageTags.AddTag(
 			FShanmenCombatNativeTags::DamagePhysicalSlash());
@@ -182,7 +227,8 @@ namespace
 		AActor* TargetActor,
 		UPrimitiveComponent* TargetRoot,
 		const FShanmenTargetVitalitySnapshot& Vitality,
-		FShanmenBasicSwordImpactReceipt& OutImpact)
+		FShanmenBasicSwordImpactReceipt& OutImpact,
+		float BaseDamage = 2.0f)
 	{
 		FShanmenActionOrchestrator Runtime;
 		FShanmenActionTransitionReceipt Phase;
@@ -200,7 +246,7 @@ namespace
 		FShanmenBasicSwordExecution Sword;
 		if (!FShanmenBasicSwordExecution::TryCreate(
 			Action,
-			MakeCoordinatorSwordDefinition(),
+			MakeCoordinatorSwordDefinition(BaseDamage),
 			Offense,
 			Sword))
 		{
@@ -492,6 +538,7 @@ bool FShanmenCombatRunCoordinatorM01IdentityTest::RunTest(const FString&)
 		const bool bRegistered = AuthoredActor
 			&& AuthoredIdentity
 			&& AuthoredIdentity->Configure(Definition)
+			&& ConfigureM01ProductActor(Definition, AuthoredActor)
 			&& !AuthoredEntityIds.Contains(AuthoredEntityId)
 			&& Fixture.Coordinator.TryRegisterM01Enemy(
 				AuthoredActor,
@@ -510,26 +557,21 @@ bool FShanmenCombatRunCoordinatorM01IdentityTest::RunTest(const FString&)
 	TestTrue(TEXT("All 14 authored enemies share one Run registry"),
 		Fixture.Coordinator.NumRegisteredM01Enemies() == 14
 			&& AuthoredEntityIds.Num() == 14);
-	int32 ExpectedMeleeVitalityHosts = 0;
-	for (const Fdemo_mapM01EnemyDefinition& Definition :
-		Fdemo_mapM01EnemyConfig::GetDefinitions())
+	TestTrue(TEXT("Every authored M01 actor owns one vitality ledger"),
+		Fixture.Coordinator.NumVitalityBoundM01Enemies() == 14);
+	bool bAllEnemyBindingsReleased = Fixture.Coordinator.TryEndRun(
+		CoordinatorRunA,
+		Fixture.Diagnostic);
+	for (AActor* AuthoredActor : OtherAuthoredActors)
 	{
-		if (Definition.Archetype
-				== Edemo_mapM01EnemyArchetype::StandardSkirmisher
-			|| Definition.Archetype
-				== Edemo_mapM01EnemyArchetype::EliteStalker)
-		{
-			++ExpectedMeleeVitalityHosts;
-		}
+		const Idemo_mapCombatVitalityHost* VitalityHost =
+			Cast<Idemo_mapCombatVitalityHost>(AuthoredActor);
+		bAllEnemyBindingsReleased = bAllEnemyBindingsReleased
+			&& VitalityHost
+			&& !VitalityHost->IsCombatEntityBound();
 	}
-	TestTrue(TEXT("Every migrated melee actor owns one vitality ledger"),
-		ExpectedMeleeVitalityHosts > 0
-			&& Fixture.Coordinator.NumVitalityBoundM01Enemies()
-				== ExpectedMeleeVitalityHosts);
-	TestTrue(TEXT("Exact Run release clears player and enemy vitality ledgers"),
-		Fixture.Coordinator.TryEndRun(
-			CoordinatorRunA,
-			Fixture.Diagnostic)
+	TestTrue(TEXT("Exact Run release clears player and all enemy ledgers"),
+		bAllEnemyBindingsReleased
 			&& !Fixture.Health->IsCombatEntityBound()
 			&& !EnemyFixture.Enemy->IsCombatEntityBound());
 
@@ -649,6 +691,189 @@ bool FShanmenCombatRunCoordinatorM01DeliveryTest::RunTest(const FString&)
 			&& EnemyFixture.Enemy->NumCommittedCombatImpacts() == 0
 			&& EnemyFixture.Enemy
 				->GetPositiveCombatDamageCountForAutomation() == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenCombatRunCoordinatorAllM01VitalityHostsTest,
+	"Shanmen.0_0_10.Product.CombatRunCoordinator.AllM01VitalityHosts",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenCombatRunCoordinatorAllM01VitalityHostsTest::RunTest(
+	const FString&)
+{
+	FCombatRunCoordinatorFixture Fixture;
+	TestTrue(TEXT("All-host fixture initializes"), Fixture.bReady);
+	if (!Fixture.bReady)
+	{
+		AddError(Fixture.Diagnostic);
+		return false;
+	}
+
+	const FShanmenCombatActionSnapshot Action = MakeCoordinatorAction(
+		CoordinatorRunA,
+		Fixture.Coordinator.GetPlayerEntityId(),
+		99);
+	TArray<AActor*> AuthoredActors;
+	int32 VerifiedHosts = 0;
+	for (const Fdemo_mapM01EnemyDefinition& Definition :
+		Fdemo_mapM01EnemyConfig::GetDefinitions())
+	{
+		AActor* EnemyActor = NewM01ProductActor(Definition);
+		Udemo_mapM01EnemyIdentityComponent* Identity = EnemyActor
+			? NewObject<Udemo_mapM01EnemyIdentityComponent>(EnemyActor)
+			: nullptr;
+		if (EnemyActor && Identity)
+		{
+			EnemyActor->AddInstanceComponent(Identity);
+		}
+		Idemo_mapCombatVitalityHost* VitalityHost = EnemyActor
+			? Cast<Idemo_mapCombatVitalityHost>(EnemyActor)
+			: nullptr;
+		const bool bPrepared = EnemyActor
+			&& Identity
+			&& Identity->Configure(Definition)
+			&& ConfigureM01ProductActor(Definition, EnemyActor)
+			&& VitalityHost
+			&& Fixture.Coordinator.TryRegisterM01Enemy(
+				EnemyActor,
+				Fixture.Diagnostic);
+		TestTrue(
+			FString::Printf(TEXT("Host prepares: %s"),
+				*Definition.SpawnMarkerId.ToString()),
+			bPrepared);
+		if (!bPrepared)
+		{
+			continue;
+		}
+		AuthoredActors.Add(EnemyActor);
+
+		FShanmenTargetVitalitySnapshot Before;
+		FShanmenBasicSwordImpactReceipt Impact;
+		const bool bResolved =
+			VitalityHost->TryCaptureCombatVitalitySnapshot(Before)
+			&& TryResolveSwordImpact(
+				Fixture.Coordinator,
+				Action,
+				EnemyActor,
+				Cast<UPrimitiveComponent>(EnemyActor->GetRootComponent()),
+				Before,
+				Impact,
+				0.5f);
+		TestTrue(
+			FString::Printf(TEXT("Fractional Impact resolves: %s"),
+				*Definition.SpawnMarkerId.ToString()),
+			bResolved);
+		if (!bResolved)
+		{
+			continue;
+		}
+
+		const Fdemo_mapCombatImpactDeliveryResult First =
+			Fixture.Coordinator.DeliverBasicSwordImpactToM01Enemy(
+				Impact,
+				EnemyActor);
+		const Fdemo_mapCombatImpactDeliveryResult Replay =
+			Fixture.Coordinator.DeliverBasicSwordImpactToM01Enemy(
+				Impact,
+				EnemyActor);
+		FShanmenTargetVitalitySnapshot AfterCanonical;
+		const bool bCanonical = First.IsSuccess()
+			&& First.CommitResult.Status
+				== EShanmenVitalityCommitStatus::Committed
+			&& Replay.IsSuccess()
+			&& Replay.CommitResult.Status
+				== EShanmenVitalityCommitStatus::AlreadyCommitted
+			&& VitalityHost->TryCaptureCombatVitalitySnapshot(AfterCanonical)
+			&& FMath::IsNearlyEqual(
+				AfterCanonical.CurrentVitality,
+				Before.CurrentVitality - 0.5f)
+			&& AfterCanonical.AuthorityRevision == 1
+			&& VitalityHost->NumCommittedCombatImpacts() == 1
+			&& VitalityHost->GetPositiveCombatDamageCountForAutomation() == 1;
+		TestTrue(
+			FString::Printf(TEXT("Canonical commit is fractional and idempotent: %s"),
+				*Definition.SpawnMarkerId.ToString()),
+			bCanonical);
+
+		FDamageEvent LegacyDamageEvent;
+		const float LegacyApplied = EnemyActor->TakeDamage(
+			1.0f,
+			LegacyDamageEvent,
+			nullptr,
+			nullptr);
+		FShanmenTargetVitalitySnapshot AfterLegacy;
+		const bool bLegacySynchronized = FMath::IsNearlyEqual(
+				LegacyApplied,
+				1.0f)
+			&& VitalityHost->TryCaptureCombatVitalitySnapshot(AfterLegacy)
+			&& FMath::IsNearlyEqual(
+				AfterLegacy.CurrentVitality,
+				AfterCanonical.CurrentVitality - 1.0f)
+			&& AfterLegacy.AuthorityRevision == 2
+			&& VitalityHost->NumCommittedCombatImpacts() == 1
+			&& VitalityHost->GetPositiveCombatDamageCountForAutomation() == 2;
+		TestTrue(
+			FString::Printf(TEXT("Retained legacy mutation advances the shared revision: %s"),
+				*Definition.SpawnMarkerId.ToString()),
+			bLegacySynchronized);
+		if (bCanonical && bLegacySynchronized)
+		{
+			++VerifiedHosts;
+		}
+	}
+
+	TestTrue(TEXT("All 14 authored host instances pass the same contract"),
+		AuthoredActors.Num() == 14
+			&& VerifiedHosts == 14
+			&& Fixture.Coordinator.NumVitalityBoundM01Enemies() == 14);
+
+	TArray<FHitResult> ProductHits;
+	TArray<float> VitalityBeforeProduct;
+	for (AActor* EnemyActor : AuthoredActors)
+	{
+		Idemo_mapCombatVitalityHost* VitalityHost =
+			Cast<Idemo_mapCombatVitalityHost>(EnemyActor);
+		FShanmenTargetVitalitySnapshot Snapshot;
+		if (!VitalityHost
+			|| !VitalityHost->TryCaptureCombatVitalitySnapshot(Snapshot))
+		{
+			continue;
+		}
+		ProductHits.Add(MakeProductSwordHit(EnemyActor));
+		VitalityBeforeProduct.Add(Snapshot.CurrentVitality);
+	}
+	const Fdemo_mapBasicSwordProductExecutionResult ProductSweep =
+		Fixture.Coordinator.ExecutePlayerBasicSwordSweep(
+			FGuid(0x54360001, 0, 0, 1),
+			1.0f,
+			ProductHits);
+	bool bAllProductHostsCommitted = ProductHits.Num() == 14
+		&& VitalityBeforeProduct.Num() == 14
+		&& ProductSweep.IsExecuted()
+		&& ProductSweep.WorldContactCount == 14
+		&& ProductSweep.ResolvedCandidateCount == 14
+		&& ProductSweep.DeliveredImpactCount == 14
+		&& ProductSweep.CommittedImpactCount == 14
+		&& ProductSweep.AlreadyCommittedImpactCount == 0;
+	for (int32 Index = 0;
+		bAllProductHostsCommitted && Index < AuthoredActors.Num();
+		++Index)
+	{
+		Idemo_mapCombatVitalityHost* VitalityHost =
+			Cast<Idemo_mapCombatVitalityHost>(AuthoredActors[Index]);
+		FShanmenTargetVitalitySnapshot Snapshot;
+		bAllProductHostsCommitted = VitalityHost
+			&& VitalityHost->TryCaptureCombatVitalitySnapshot(Snapshot)
+			&& FMath::IsNearlyEqual(
+				Snapshot.CurrentVitality,
+				VitalityBeforeProduct[Index] - 1.0f)
+			&& Snapshot.AuthorityRevision == 3
+			&& VitalityHost->NumCommittedCombatImpacts() == 2
+			&& VitalityHost->GetPositiveCombatDamageCountForAutomation() == 3;
+	}
+	TestTrue(TEXT("One product sweep commits all 14 authored M01 host classes"),
+		bAllProductHostsCommitted);
 	return true;
 }
 

@@ -118,9 +118,13 @@ bool Ademo_mapM01BossCharacter::ConfigureBoss(
 	{
 		return false;
 	}
+	const float ConfiguredVitality =
+		static_cast<float>(InDefinition.Tuning.MaxHealth);
+	if (!TryCommitVitalityState(ConfiguredVitality, ConfiguredVitality))
+	{
+		return false;
+	}
 	Definition = InDefinition;
-	MaxHealth = InDefinition.Tuning.MaxHealth;
-	CurrentHealth = MaxHealth;
 	MovementSpeed = InDefinition.Tuning.MovementSpeed;
 	AttackDamage = InDefinition.Tuning.AttackDamage;
 	AttackCooldown = InDefinition.Tuning.AttackCooldown;
@@ -325,22 +329,131 @@ void Ademo_mapM01BossCharacter::FinishRecovery()
 	}
 }
 
+bool Ademo_mapM01BossCharacter::TryBindCombatEntity(
+	const FGuid& TargetEntityId)
+{
+	if (!TargetEntityId.IsValid()) return false;
+	if (CombatVitalityLedger.IsValid())
+	{
+		return CombatVitalityLedger.GetTargetEntityId() == TargetEntityId
+			&& CombatVitalityLedger.IsSynchronized(
+				CurrentVitality,
+				MaximumVitality);
+	}
+	FShanmenVitalityCommitLedger NewLedger;
+	if (!FShanmenVitalityCommitLedger::TryCreate(
+			TargetEntityId,
+			CurrentVitality,
+			MaximumVitality,
+			0,
+			NewLedger))
+	{
+		return false;
+	}
+	CombatVitalityLedger = MoveTemp(NewLedger);
+	return true;
+}
+
+bool Ademo_mapM01BossCharacter::TryEndCombatEntityBinding(
+	const FGuid& ExpectedTargetEntityId)
+{
+	if (!ExpectedTargetEntityId.IsValid()) return false;
+	if (!CombatVitalityLedger.IsValid()) return true;
+	if (CombatVitalityLedger.GetTargetEntityId() != ExpectedTargetEntityId)
+	{
+		return false;
+	}
+	CombatVitalityLedger.Reset();
+	return true;
+}
+
+bool Ademo_mapM01BossCharacter::TryCaptureCombatVitalitySnapshot(
+	FShanmenTargetVitalitySnapshot& OutSnapshot) const
+{
+	return CombatVitalityLedger.TryCaptureSnapshot(
+		CurrentVitality,
+		MaximumVitality,
+		OutSnapshot);
+}
+
+FShanmenVitalityCommitResult Ademo_mapM01BossCharacter::CommitCombatImpact(
+	const FShanmenVitalityCommitCommand& Command)
+{
+	FShanmenVitalityCommitResult Result = CombatVitalityLedger.Commit(
+		Command,
+		CurrentVitality,
+		MaximumVitality);
+	if (Result.Status == EShanmenVitalityCommitStatus::Committed
+		&& Result.Receipt.GetAppliedDamage() > 0.0f)
+	{
+		PublishAppliedDamage(Result.Receipt.GetAppliedDamage());
+	}
+	return Result;
+}
+
+bool Ademo_mapM01BossCharacter::TryCommitVitalityState(
+	float NewCurrentVitality,
+	float NewMaximumVitality)
+{
+	if (!FMath::IsFinite(NewCurrentVitality)
+		|| !FMath::IsFinite(NewMaximumVitality)
+		|| NewMaximumVitality <= 0.0f
+		|| NewCurrentVitality < 0.0f
+		|| NewCurrentVitality > NewMaximumVitality)
+	{
+		return false;
+	}
+	if (CombatVitalityLedger.IsValid())
+	{
+		return CombatVitalityLedger.TryCommitExternalMutation(
+			CurrentVitality,
+			MaximumVitality,
+			NewCurrentVitality,
+			NewMaximumVitality);
+	}
+	CurrentVitality = NewCurrentVitality;
+	MaximumVitality = NewMaximumVitality;
+	return true;
+}
+
 float Ademo_mapM01BossCharacter::TakeDamage(
 	float DamageAmount,
 	FDamageEvent const&,
 	AController*,
 	AActor*)
 {
-	if (IsDead() || DamageAmount <= 0.0f) return 0.0f;
-	const int32 Applied = FMath::Min(
-		CurrentHealth,
+	if (IsDead() || !FMath::IsFinite(DamageAmount)
+		|| DamageAmount <= 0.0f)
+	{
+		return 0.0f;
+	}
+	const float RequestedDamage = static_cast<float>(
 		FMath::Max(0, FMath::FloorToInt(DamageAmount)));
-	if (Applied <= 0) return 0.0f;
-	CurrentHealth -= Applied;
+	const float AppliedDamage = FMath::Min(CurrentVitality, RequestedDamage);
+	if (AppliedDamage <= 0.0f
+		|| !TryCommitVitalityState(
+			FMath::Max(0.0f, CurrentVitality - AppliedDamage),
+			MaximumVitality))
+	{
+		return 0.0f;
+	}
+	PublishAppliedDamage(AppliedDamage);
+	return AppliedDamage;
+}
+
+void Ademo_mapM01BossCharacter::PublishAppliedDamage(float AppliedDamage)
+{
+	if (!FMath::IsFinite(AppliedDamage) || AppliedDamage <= 0.0f) return;
+#if WITH_DEV_AUTOMATION_TESTS
+	++PositiveCombatDamageCount;
+#endif
 	RefreshPresentation();
 	ShowDamageFeedback();
-	if (CurrentHealth == 0) EnterDeadState();
-	return static_cast<float>(Applied);
+	UE_LOG(Logdemo_map, Log,
+		TEXT("0.0.10 P4.6: boss damaged; vitality=%.3f/%.3f."),
+		CurrentVitality,
+		MaximumVitality);
+	if (CurrentVitality <= 0.0f) EnterDeadState();
 }
 
 void Ademo_mapM01BossCharacter::EnterDeadState()
@@ -439,7 +552,7 @@ void Ademo_mapM01BossCharacter::RefreshPresentation()
 			IsDead()
 				? TEXT("M01 BOSS MAIN\nDEFEATED")
 				: FString::Printf(TEXT("M01 BOSS MAIN\n%d / %d\n%s"),
-					CurrentHealth, MaxHealth, StateLabel)));
+					GetCurrentHealth(), GetMaxHealth(), StateLabel)));
 	}
 }
 
@@ -450,12 +563,15 @@ void Ademo_mapM01BossCharacter::ShowDamageFeedback()
 		BodyMaterial->SetVectorParameterValue(TEXT("Color"), FLinearColor::White);
 		BodyMaterial->SetVectorParameterValue(TEXT("BaseColor"), FLinearColor::White);
 	}
-	GetWorldTimerManager().SetTimer(
-		DamageFeedbackTimer,
-		this,
-		&Ademo_mapM01BossCharacter::ClearDamageFeedback,
-		0.20f,
-		false);
+	if (GetWorld())
+	{
+		GetWorldTimerManager().SetTimer(
+			DamageFeedbackTimer,
+			this,
+			&Ademo_mapM01BossCharacter::ClearDamageFeedback,
+			0.20f,
+			false);
+	}
 }
 
 void Ademo_mapM01BossCharacter::ClearDamageFeedback()
@@ -511,5 +627,6 @@ void Ademo_mapM01BossCharacter::EndPlay(
 	GetWorldTimerManager().ClearTimer(DestroyTimer);
 	GetWorldTimerManager().ClearTimer(DamageFeedbackTimer);
 	CancelCombat();
+	CombatVitalityLedger.Reset();
 	Super::EndPlay(EndPlayReason);
 }

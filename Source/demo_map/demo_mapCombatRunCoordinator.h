@@ -4,12 +4,12 @@
 #include "ShanmenBasicSwordExecution.h"
 #include "ShanmenVitalityAuthority.h"
 #include "ShanmenWorldEntityRegistry.h"
+#include "demo_mapCombatVitalityHost.h"
 
 class AActor;
 class APawn;
 class UPrimitiveComponent;
 class Udemo_mapPlayerHealthComponent;
-class Ademo_mapEnemyCharacter;
 struct Fdemo_mapM01EnemyDefinition;
 struct FHitResult;
 
@@ -90,8 +90,8 @@ struct Fdemo_mapBasicSwordProductExecutionResult
  * Entity Registry. Player identity uses the fixed primary-player tuple. M01
  * identity uses only the authored SpawnMarkerId and ordinal zero; transient
  * actor addresses, object names, random loot ids, and spawn callback order
- * never participate. Vitality is bound only for product hosts migrated to the
- * canonical ledger.
+ * never participate. Every authored M01 product host binds the same canonical
+ * vitality-host contract and ledger.
  */
 class Fdemo_mapCombatRunCoordinator
 {
@@ -126,7 +126,7 @@ public:
 		const FShanmenBasicSwordImpactReceipt& Impact);
 	Fdemo_mapCombatImpactDeliveryResult DeliverBasicSwordImpactToM01Enemy(
 		const FShanmenBasicSwordImpactReceipt& Impact,
-		Ademo_mapEnemyCharacter* TargetEnemy);
+		AActor* TargetEnemy);
 	/**
 	 * Executes one complete player BasicSword action from an already sampled UE
 	 * trajectory. Every accepted contact resolves through this Run's Registry;
@@ -147,7 +147,6 @@ private:
 		FName SpawnMarkerId = NAME_None;
 		TWeakObjectPtr<AActor> Actor;
 		TWeakObjectPtr<UPrimitiveComponent> CollisionRoot;
-		TWeakObjectPtr<Ademo_mapEnemyCharacter> VitalityHost;
 	};
 
 	FShanmenWorldEntityRegistry EntityRegistry;

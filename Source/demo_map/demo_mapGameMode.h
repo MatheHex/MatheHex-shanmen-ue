@@ -74,9 +74,9 @@ public:
 		FString& OutDiagnostic);
 	Fdemo_mapCombatImpactDeliveryResult DeliverResolvedPlayerImpact(
 		const FShanmenBasicSwordImpactReceipt& Impact);
-	Fdemo_mapCombatImpactDeliveryResult DeliverResolvedM01MeleeImpact(
+	Fdemo_mapCombatImpactDeliveryResult DeliverResolvedM01EnemyImpact(
 		const FShanmenBasicSwordImpactReceipt& Impact,
-		Ademo_mapEnemyCharacter* TargetEnemy);
+		AActor* TargetEnemy);
 	/** M01 claims primary attack input only after its canonical Run is active. */
 	bool ShouldUseM01BasicSwordProductPath() const;
 	/** Executes one real primary-input sweep without falling through to ApplyDamage. */
