@@ -113,6 +113,19 @@ namespace
 		return nullptr;
 	}
 
+	const Fdemo_mapM01EnemyDefinition* FindM01BossDefinition()
+	{
+		for (const Fdemo_mapM01EnemyDefinition& Definition :
+			Fdemo_mapM01EnemyConfig::GetDefinitions())
+		{
+			if (Definition.Archetype == Edemo_mapM01EnemyArchetype::BossMain)
+			{
+				return &Definition;
+			}
+		}
+		return nullptr;
+	}
+
 	AActor* NewM01ProductActor(
 		const Fdemo_mapM01EnemyDefinition& Definition)
 	{
@@ -273,6 +286,33 @@ namespace
 				&& Enemy->ConfigureEncounter(
 					LegacyIdentity,
 					Definition->Tuning);
+		}
+	};
+
+	struct FM01BossEnemyFixture
+	{
+		const Fdemo_mapM01EnemyDefinition* Definition = nullptr;
+		Ademo_mapM01BossCharacter* Enemy = nullptr;
+		Udemo_mapM01EnemyIdentityComponent* Identity = nullptr;
+		bool bReady = false;
+
+		FM01BossEnemyFixture()
+		{
+			Definition = FindM01BossDefinition();
+			Enemy = NewObject<Ademo_mapM01BossCharacter>(
+				GetTransientPackage());
+			Identity = Enemy
+				? NewObject<Udemo_mapM01EnemyIdentityComponent>(
+					Enemy,
+					TEXT("M01AuthoredBossIdentity"))
+				: nullptr;
+			if (!Definition || !Enemy || !Identity)
+			{
+				return;
+			}
+			Enemy->AddInstanceComponent(Identity);
+			bReady = Identity->Configure(*Definition)
+				&& Enemy->ConfigureBoss(*Definition);
 		}
 	};
 
@@ -1841,6 +1881,307 @@ bool FShanmenCombatRunCoordinatorM01EnemyHeavySectorProductTest::RunTest(
 			&& Fixture.Health->NumCommittedCombatImpacts() == 1
 			&& Fixture.Health
 				->GetPositiveDamageBroadcastCountForAutomation() == 4);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenCombatRunCoordinatorM01BossAttackProductTest,
+	"Shanmen.0_0_10.Product.CombatRunCoordinator.M01BossAttackProduct",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenCombatRunCoordinatorM01BossAttackProductTest::RunTest(
+	const FString&)
+{
+	FCombatRunCoordinatorFixture Fixture;
+	FM01BossEnemyFixture Boss;
+	FM01HeavyEnemyFixture Heavy;
+	TestTrue(TEXT("Boss attack fixtures initialize"),
+		Fixture.bReady && Boss.bReady && Heavy.bReady);
+	if (!Fixture.bReady || !Boss.bReady || !Heavy.bReady
+		|| !Fixture.Coordinator.TryRegisterM01Enemy(
+			Boss.Enemy,
+			Fixture.Diagnostic)
+		|| !Fixture.Coordinator.TryRegisterM01Enemy(
+			Heavy.Enemy,
+			Fixture.Diagnostic))
+	{
+		AddError(Fixture.Diagnostic);
+		return false;
+	}
+	TestTrue(TEXT("Boss registration resets the Run-local action sequence"),
+		Boss.Enemy->GetNextAttackSequence() == 1
+			&& Boss.Enemy->GetActiveAttackSequence() == 0);
+
+	const FVector ImpactLocation(240.0, 35.0, 70.0);
+	const FVector ImpactNormal(-1.0, 0.0, 0.0);
+	const Fdemo_mapM01EnemyAttackExecutionResult InvalidShapeSequence =
+		Fixture.Coordinator.ExecuteM01BossShapeAttack(
+			Boss.Enemy,
+			Fixture.Pawn,
+			Edemo_mapM01BossAttack::Sweep,
+			0,
+			0.5f);
+	const Fdemo_mapM01EnemyAttackExecutionResult ExhaustedShapeSequence =
+		Fixture.Coordinator.ExecuteM01BossShapeAttack(
+			Boss.Enemy,
+			Fixture.Pawn,
+			Edemo_mapM01BossAttack::Sweep,
+			MAX_uint64,
+			0.5f);
+	const Fdemo_mapM01EnemyAttackExecutionResult InvalidShapeFamily =
+		Fixture.Coordinator.ExecuteM01BossShapeAttack(
+			Boss.Enemy,
+			Fixture.Pawn,
+			Edemo_mapM01BossAttack::Volley,
+			1,
+			0.5f);
+	const Fdemo_mapM01EnemyAttackExecutionResult WrongBossSource =
+		Fixture.Coordinator.ExecuteM01BossShapeAttack(
+			Heavy.Enemy,
+			Fixture.Pawn,
+			Edemo_mapM01BossAttack::Sweep,
+			1,
+			0.5f);
+	const Fdemo_mapM01EnemyAttackExecutionResult InvalidVolleySequence =
+		Fixture.Coordinator.ExecuteM01BossVolleyProjectileImpact(
+			Boss.Enemy,
+			Fixture.Pawn,
+			0,
+			0,
+			0.5f,
+			ImpactLocation,
+			ImpactNormal);
+	const Fdemo_mapM01EnemyAttackExecutionResult InvalidLowOrdinal =
+		Fixture.Coordinator.ExecuteM01BossVolleyProjectileImpact(
+			Boss.Enemy,
+			Fixture.Pawn,
+			1,
+			-1,
+			0.5f,
+			ImpactLocation,
+			ImpactNormal);
+	const Fdemo_mapM01EnemyAttackExecutionResult InvalidHighOrdinal =
+		Fixture.Coordinator.ExecuteM01BossVolleyProjectileImpact(
+			Boss.Enemy,
+			Fixture.Pawn,
+			1,
+			3,
+			0.5f,
+			ImpactLocation,
+			ImpactNormal);
+	const Fdemo_mapM01EnemyAttackExecutionResult InvalidVolleyContact =
+		Fixture.Coordinator.ExecuteM01BossVolleyProjectileImpact(
+			Boss.Enemy,
+			Fixture.Pawn,
+			1,
+			0,
+			0.5f,
+			FVector(
+				std::numeric_limits<double>::quiet_NaN(),
+				0.0,
+				0.0),
+			ImpactNormal);
+	TestTrue(TEXT("Boss malformed identity and contact fail before mutation"),
+		InvalidShapeSequence.Error
+			== Edemo_mapM01EnemyAttackExecutionError::InvalidActivationSequence
+			&& ExhaustedShapeSequence.Error
+				== Edemo_mapM01EnemyAttackExecutionError::SequenceExhausted
+			&& InvalidShapeFamily.Error
+				== Edemo_mapM01EnemyAttackExecutionError::InvalidSkillProfile
+			&& WrongBossSource.Error
+				== Edemo_mapM01EnemyAttackExecutionError::InvalidSkillProfile
+			&& InvalidVolleySequence.Error
+				== Edemo_mapM01EnemyAttackExecutionError::InvalidActivationSequence
+			&& InvalidLowOrdinal.Error
+				== Edemo_mapM01EnemyAttackExecutionError::InvalidHitOrdinal
+			&& InvalidHighOrdinal.Error
+				== Edemo_mapM01EnemyAttackExecutionError::InvalidHitOrdinal
+			&& InvalidVolleyContact.Error
+				== Edemo_mapM01EnemyAttackExecutionError::InvalidContact
+			&& Fixture.Health->GetCombatAuthorityRevision() == 0
+			&& Fixture.Health->NumCommittedCombatImpacts() == 0);
+
+	const Fdemo_mapM01EnemyAttackExecutionResult Sweep =
+		Fixture.Coordinator.ExecuteM01BossShapeAttack(
+			Boss.Enemy,
+			Fixture.Pawn,
+			Edemo_mapM01BossAttack::Sweep,
+			1,
+			0.5f);
+	const FGuid SourceEntityId = Boss.Enemy->GetCombatEntityId();
+	const FGuid ExpectedSweepActivation =
+		FShanmenCombatIdFactory::MakeActivationId(
+			CoordinatorRunA,
+			SourceEntityId,
+			TEXT("Combat.Action.Enemy.Boss.Sweep"),
+			1);
+	TestTrue(TEXT("Boss sweep uses the frozen canonical shape contract"),
+		Sweep.IsExecuted()
+			&& Sweep.Impact.GetFamily()
+				== Edemo_mapM01EnemyAttackFamily::BossSweep
+			&& Sweep.ActivationId == ExpectedSweepActivation
+			&& Sweep.Impact.GetRequest().Action.GetContent().Version
+				== TEXT("0.0.10.P4.11")
+			&& Sweep.Impact.GetRequest().Candidate.DetectorId
+				== TEXT("Detector.Enemy.Boss.Sweep")
+			&& Sweep.Impact.GetRequest().Candidate.DetectorKind
+				== EShanmenHitDetectorKind::Shape
+			&& Sweep.Impact.GetRequest().Candidate.HitOrdinal == 0
+			&& Sweep.Impact.GetRequest().Damage.FormulaId
+				== TEXT("Combat.Formula.Enemy.Boss.Sweep.r1")
+			&& FMath::IsNearlyEqual(Sweep.GetNewlyCommittedDamage(), 0.5f)
+			&& FMath::IsNearlyEqual(
+				Fixture.Health->GetCurrentVitality(),
+				4.5f));
+
+	const Fdemo_mapCombatImpactDeliveryResult SweepReplay =
+		Fixture.Coordinator.DeliverM01EnemyAttackImpactToPlayer(
+			Sweep.Impact,
+			Boss.Enemy);
+	TestTrue(TEXT("Exact Boss sweep receipt replay is idempotent"),
+		SweepReplay.IsSuccess()
+			&& SweepReplay.CommitResult.Status
+				== EShanmenVitalityCommitStatus::AlreadyCommitted
+			&& Fixture.Health->GetCombatAuthorityRevision() == 1);
+
+	const Fdemo_mapM01EnemyAttackExecutionResult Charge =
+		Fixture.Coordinator.ExecuteM01BossShapeAttack(
+			Boss.Enemy,
+			Fixture.Pawn,
+			Edemo_mapM01BossAttack::Charge,
+			2,
+			0.5f);
+	TestTrue(TEXT("Boss charge owns a distinct frozen action identity"),
+		Charge.IsExecuted()
+			&& Charge.Impact.GetFamily()
+				== Edemo_mapM01EnemyAttackFamily::BossCharge
+			&& Charge.ActivationId != Sweep.ActivationId
+			&& Charge.Impact.GetRequest().Candidate.DetectorId
+				== TEXT("Detector.Enemy.Boss.Charge")
+			&& Charge.Impact.GetRequest().Damage.FormulaId
+				== TEXT("Combat.Formula.Enemy.Boss.Charge.r1")
+			&& FMath::IsNearlyEqual(
+				Fixture.Health->GetCurrentVitality(),
+				4.0f));
+
+	Fdemo_mapM01EnemyAttackExecutionResult Volley[3];
+	for (int32 Ordinal = 0; Ordinal < 3; ++Ordinal)
+	{
+		Volley[Ordinal] =
+			Fixture.Coordinator.ExecuteM01BossVolleyProjectileImpact(
+				Boss.Enemy,
+				Fixture.Pawn,
+				3,
+				Ordinal,
+				0.5f,
+				ImpactLocation + FVector(25.0 * Ordinal, 0.0, 0.0),
+				ImpactNormal);
+	}
+	const FGuid ExpectedVolleyActivation =
+		FShanmenCombatIdFactory::MakeActivationId(
+			CoordinatorRunA,
+			SourceEntityId,
+			TEXT("Combat.Action.Enemy.Boss.Volley"),
+			3);
+	TestTrue(TEXT("Boss volley shares one action and owns three impacts"),
+		Volley[0].IsExecuted()
+			&& Volley[1].IsExecuted()
+			&& Volley[2].IsExecuted()
+			&& Volley[0].Impact.GetFamily()
+				== Edemo_mapM01EnemyAttackFamily::BossVolleyProjectile
+			&& Volley[0].ActivationId == ExpectedVolleyActivation
+			&& Volley[1].ActivationId == ExpectedVolleyActivation
+			&& Volley[2].ActivationId == ExpectedVolleyActivation
+			&& Volley[0].Impact.GetRequest().Candidate.HitOrdinal == 0
+			&& Volley[1].Impact.GetRequest().Candidate.HitOrdinal == 1
+			&& Volley[2].Impact.GetRequest().Candidate.HitOrdinal == 2
+			&& Volley[0].Impact.GetRequest().ImpactId
+				!= Volley[1].Impact.GetRequest().ImpactId
+			&& Volley[1].Impact.GetRequest().ImpactId
+				!= Volley[2].Impact.GetRequest().ImpactId
+			&& Volley[0].Impact.GetRequest().Candidate.DetectorKind
+				== EShanmenHitDetectorKind::Projectile
+			&& Volley[0].Impact.GetRequest().Candidate.HitLocation
+				== ImpactLocation
+			&& Volley[2].Impact.GetRequest().Candidate.HitLocation
+				== ImpactLocation + FVector(50.0, 0.0, 0.0)
+			&& Volley[0].Impact.GetRequest().Damage.FormulaId
+				== TEXT("Combat.Formula.Enemy.Boss.Volley.r1")
+			&& FMath::IsNearlyEqual(
+				Fixture.Health->GetCurrentVitality(),
+				2.5f)
+			&& Fixture.Health->GetCombatAuthorityRevision() == 5
+			&& Fixture.Health->NumCommittedCombatImpacts() == 5
+			&& Fixture.Health
+				->GetPositiveDamageBroadcastCountForAutomation() == 5);
+
+	const Fdemo_mapM01EnemyAttackExecutionResult VolleyReconstruction =
+		Fixture.Coordinator.ExecuteM01BossVolleyProjectileImpact(
+			Boss.Enemy,
+			Fixture.Pawn,
+			3,
+			1,
+			0.5f,
+			ImpactLocation + FVector(25.0, 0.0, 0.0),
+			ImpactNormal);
+	TestTrue(TEXT("Same Boss volley ordinal cannot reconstruct a snapshot"),
+		!VolleyReconstruction.IsExecuted()
+			&& VolleyReconstruction.Error
+				== Edemo_mapM01EnemyAttackExecutionError::DeliveryRejected
+			&& VolleyReconstruction.Impact.GetRequest().ImpactId
+				== Volley[1].Impact.GetRequest().ImpactId
+			&& Fixture.Health->GetCombatAuthorityRevision() == 5);
+
+	TestTrue(TEXT("Boss attack Run release succeeds"),
+		Fixture.Coordinator.TryEndRun(
+			CoordinatorRunA,
+			Fixture.Diagnostic));
+	TestTrue(TEXT("Boss source binds a fresh Run"),
+		Fixture.Coordinator.TryBeginRun(
+			CoordinatorRunB,
+			Fixture.Pawn,
+			Fixture.Health,
+			Fixture.Diagnostic)
+			&& Fixture.Coordinator.TryRegisterM01Enemy(
+				Boss.Enemy,
+				Fixture.Diagnostic)
+			&& Boss.Enemy->GetNextAttackSequence() == 1
+			&& Boss.Enemy->GetActiveAttackSequence() == 0);
+	const Fdemo_mapCombatImpactDeliveryResult DelayedOldRun =
+		Fixture.Coordinator.DeliverM01EnemyAttackImpactToPlayer(
+			Sweep.Impact,
+			Boss.Enemy);
+	TestTrue(TEXT("Old-Run Boss receipt cannot mutate rebound player"),
+		DelayedOldRun.Error
+			== Edemo_mapCombatImpactDeliveryError::RunMismatch
+			&& Fixture.Health->GetCombatAuthorityRevision() == 0
+			&& Fixture.Health->NumCommittedCombatImpacts() == 0);
+
+	const Fdemo_mapM01EnemyAttackExecutionResult NewRunSweep =
+		Fixture.Coordinator.ExecuteM01BossShapeAttack(
+			Boss.Enemy,
+			Fixture.Pawn,
+			Edemo_mapM01BossAttack::Sweep,
+			1,
+			10.0f);
+	const FGuid ExpectedNewRunActivation =
+		FShanmenCombatIdFactory::MakeActivationId(
+			CoordinatorRunB,
+			Boss.Enemy->GetCombatEntityId(),
+			TEXT("Combat.Action.Enemy.Boss.Sweep"),
+			1);
+	TestTrue(TEXT("Run-reset Boss sequence derives a new lethal identity"),
+		NewRunSweep.IsExecuted()
+			&& NewRunSweep.ActivationId == ExpectedNewRunActivation
+			&& NewRunSweep.ActivationId != Sweep.ActivationId
+			&& FMath::IsNearlyEqual(
+				NewRunSweep.GetNewlyCommittedDamage(),
+				2.5f)
+			&& NewRunSweep.DidNewCommitDefeatTarget()
+			&& Fixture.Health->GetCombatAuthorityRevision() == 1
+			&& Fixture.Health->NumCommittedCombatImpacts() == 1
+			&& Fixture.Health
+				->GetPositiveDamageBroadcastCountForAutomation() == 6);
 	return true;
 }
 

@@ -53,6 +53,9 @@ public:
 	int32 GetSweepResolveCount() const { return SweepResolveCount; }
 	int32 GetChargeResolveCount() const { return ChargeResolveCount; }
 	int32 GetVolleyResolveCount() const { return VolleyResolveCount; }
+	uint64 GetNextAttackSequence() const { return NextAttackSequence; }
+	uint64 GetActiveAttackSequence() const { return ActiveAttackSequence; }
+	void ResetBossAttackForNewRun();
 	virtual bool TryBindCombatEntity(
 		const FGuid& TargetEntityId) override;
 	virtual bool TryEndCombatEntityBinding(
@@ -133,6 +136,8 @@ private:
 	int32 SweepResolveCount = 0;
 	int32 ChargeResolveCount = 0;
 	int32 VolleyResolveCount = 0;
+	uint64 NextAttackSequence = 1;
+	uint64 ActiveAttackSequence = 0;
 	bool bCombatSuppressed = false;
 	bool bDeathCommitted = false;
 	FShanmenVitalityCommitLedger CombatVitalityLedger;

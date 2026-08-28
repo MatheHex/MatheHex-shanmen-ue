@@ -128,6 +128,8 @@ bool Ademo_mapM01BossCharacter::ConfigureBoss(
 	MovementSpeed = InDefinition.Tuning.MovementSpeed;
 	AttackDamage = InDefinition.Tuning.AttackDamage;
 	AttackCooldown = InDefinition.Tuning.AttackCooldown;
+	NextAttackSequence = 1;
+	ActiveAttackSequence = 0;
 	GetCharacterMovement()->MaxWalkSpeed = MovementSpeed;
 	RefreshPresentation();
 	return true;
@@ -207,6 +209,22 @@ void Ademo_mapM01BossCharacter::BeginAttack(
 	LockedDirection = PlayerPawn->GetActorLocation() - GetActorLocation();
 	LockedDirection.Z = 0.0f;
 	if (!LockedDirection.Normalize()) return;
+	if (NextAttackSequence == 0 || NextAttackSequence == MAX_uint64)
+	{
+		if (GetWorld())
+		{
+			NextAttackAllowedTime =
+				GetWorld()->GetTimeSeconds() + AttackCooldown;
+		}
+		UE_LOG(
+			Logdemo_map,
+			Error,
+			TEXT("0_0_10_BOSS_ATTACK Event=SequenceExhausted Next=%llu"),
+			static_cast<unsigned long long>(NextAttackSequence));
+		return;
+	}
+	ActiveAttackSequence = NextAttackSequence;
+	++NextAttackSequence;
 	PendingAttack = Attack;
 	LastAttack = Attack;
 	State = Edemo_mapM01BossState::Windup;
@@ -221,7 +239,12 @@ void Ademo_mapM01BossCharacter::BeginAttack(
 		&Ademo_mapM01BossCharacter::ResolveAttack,
 		Windup,
 		false);
-	UE_LOG(Logdemo_map, Log, TEXT("M01_BOSS_WINDUP attack=%d."), static_cast<int32>(Attack));
+	UE_LOG(
+		Logdemo_map,
+		Log,
+		TEXT("M01_BOSS_WINDUP attack=%d sequence=%llu."),
+		static_cast<int32>(Attack),
+		static_cast<unsigned long long>(ActiveAttackSequence));
 }
 
 bool Ademo_mapM01BossCharacter::HasWorldStaticLineOfSight(
@@ -252,6 +275,46 @@ void Ademo_mapM01BossCharacter::ResolveAttack()
 	Fdemo_mapTargetFilter Filter;
 	const bool bCanAffect = Player
 		&& Fdemo_mapCombatTargeting::CanAffect(this, Player, Filter);
+	const uint64 ResolvingSequence = ActiveAttackSequence;
+	auto ResolveShapeContact =
+		[this, Player, ResolvingSequence](Edemo_mapM01BossAttack Attack)
+		{
+			bool bUsedCanonicalProduct = false;
+			float AppliedDamage = 0.0f;
+			Fdemo_mapM01EnemyAttackExecutionResult ProductResult;
+			if (Ademo_mapGameMode* GameMode = GetWorld()
+				? GetWorld()->GetAuthGameMode<Ademo_mapGameMode>()
+				: nullptr;
+				GameMode && GameMode->ShouldUseM01EnemyAttackProductPath())
+			{
+				bUsedCanonicalProduct = true;
+				ProductResult = GameMode->ExecuteM01BossShapeAttack(
+					this,
+					Player,
+					Attack,
+					ResolvingSequence,
+					AttackDamage);
+				AppliedDamage = ProductResult.GetNewlyCommittedDamage();
+			}
+			else
+			{
+				AppliedDamage = UGameplayStatics::ApplyDamage(
+					Player,
+					AttackDamage,
+					GetController(),
+					this,
+					nullptr);
+			}
+			UE_LOG(
+				Logdemo_map,
+				Log,
+				TEXT("0_0_10_BOSS_ATTACK Event=ShapeActorRoute Attack=%d Canonical=%d Sequence=%llu Error=%d Applied=%.3f"),
+				static_cast<int32>(Attack),
+				bUsedCanonicalProduct ? 1 : 0,
+				static_cast<unsigned long long>(ResolvingSequence),
+				static_cast<int32>(ProductResult.Error),
+				AppliedDamage);
+		};
 	if (PendingAttack == Edemo_mapM01BossAttack::Sweep)
 	{
 		++SweepResolveCount;
@@ -262,7 +325,7 @@ void Ademo_mapM01BossCharacter::ResolveAttack()
 				GetActorLocation(), LockedDirection, Player->GetActorLocation(),
 				340.0f, 118.0f, 180.0f))
 		{
-			UGameplayStatics::ApplyDamage(Player, AttackDamage, GetController(), this, nullptr);
+			ResolveShapeContact(Edemo_mapM01BossAttack::Sweep);
 		}
 	}
 	else if (PendingAttack == Edemo_mapM01BossAttack::Charge)
@@ -274,7 +337,7 @@ void Ademo_mapM01BossCharacter::ResolveAttack()
 			FColor::Yellow, false, 0.28f, 0, 15.0f);
 		if (bCanAffect && FVector::Dist2D(GetActorLocation(), Player->GetActorLocation()) <= 190.0f)
 		{
-			UGameplayStatics::ApplyDamage(Player, AttackDamage, GetController(), this, nullptr);
+			ResolveShapeContact(Edemo_mapM01BossAttack::Charge);
 		}
 	}
 	else
@@ -282,8 +345,12 @@ void Ademo_mapM01BossCharacter::ResolveAttack()
 		++VolleyResolveCount;
 		if (Player)
 		{
-			for (const float Angle : { -11.0f, 0.0f, 11.0f })
+			const float Angles[] = { -11.0f, 0.0f, 11.0f };
+			for (int32 ProjectileOrdinal = 0;
+				ProjectileOrdinal < UE_ARRAY_COUNT(Angles);
+				++ProjectileOrdinal)
 			{
+				const float Angle = Angles[ProjectileOrdinal];
 				const FVector Direction = LockedDirection.RotateAngleAxis(Angle, FVector::UpVector);
 				const FVector SpawnLocation = GetActorLocation()
 					+ Direction * 130.0f + FVector(0.0f, 0.0f, 78.0f);
@@ -300,16 +367,21 @@ void Ademo_mapM01BossCharacter::ResolveAttack()
 						Params);
 				if (Projectile)
 				{
-					Projectile->InitializeTargetedProjectile(
+					Projectile->InitializeTargetedBossProjectile(
 						this, Player, Direction, ProjectileParams,
-						FLinearColor(0.85f, 0.05f, 1.0f));
+						FLinearColor(0.85f, 0.05f, 1.0f),
+						ResolvingSequence,
+						ProjectileOrdinal);
 					ActiveProjectiles.Add(Projectile);
 				}
 			}
 		}
 	}
-	UE_LOG(Logdemo_map, Log, TEXT("M01_BOSS_RESOLVE attack=%d sweep=%d charge=%d volley=%d."),
-		static_cast<int32>(PendingAttack), SweepResolveCount, ChargeResolveCount, VolleyResolveCount);
+	UE_LOG(Logdemo_map, Log, TEXT("M01_BOSS_RESOLVE attack=%d sequence=%llu sweep=%d charge=%d volley=%d."),
+		static_cast<int32>(PendingAttack),
+		static_cast<unsigned long long>(ResolvingSequence),
+		SweepResolveCount, ChargeResolveCount, VolleyResolveCount);
+	ActiveAttackSequence = 0;
 	NextAttackAllowedTime = GetWorld()->GetTimeSeconds() + AttackCooldown;
 	State = Edemo_mapM01BossState::Recovery;
 	GetWorldTimerManager().SetTimer(
@@ -322,6 +394,7 @@ void Ademo_mapM01BossCharacter::ResolveAttack()
 
 void Ademo_mapM01BossCharacter::FinishRecovery()
 {
+	ActiveAttackSequence = 0;
 	if (!IsDead() && !bCombatSuppressed)
 	{
 		State = Edemo_mapM01BossState::Idle;
@@ -507,10 +580,21 @@ void Ademo_mapM01BossCharacter::SetCombatSuppressed(bool bSuppressed)
 	if (bSuppressed) CancelCombat();
 }
 
+void Ademo_mapM01BossCharacter::ResetBossAttackForNewRun()
+{
+	CancelCombat();
+	NextAttackAllowedTime = 0.0f;
+	NextAttackSequence = 1;
+	ActiveAttackSequence = 0;
+}
+
 void Ademo_mapM01BossCharacter::CancelCombat()
 {
-	GetWorldTimerManager().ClearTimer(WindupTimer);
-	GetWorldTimerManager().ClearTimer(RecoveryTimer);
+	if (GetWorld())
+	{
+		GetWorldTimerManager().ClearTimer(WindupTimer);
+		GetWorldTimerManager().ClearTimer(RecoveryTimer);
+	}
 	StopMovement();
 	PruneProjectiles();
 	for (TWeakObjectPtr<Ademo_mapSkillProjectile>& Projectile : ActiveProjectiles)
@@ -518,6 +602,7 @@ void Ademo_mapM01BossCharacter::CancelCombat()
 		if (Projectile.IsValid()) Projectile->Destroy();
 	}
 	ActiveProjectiles.Reset();
+	ActiveAttackSequence = 0;
 	if (!IsDead()) State = Edemo_mapM01BossState::Idle;
 	GetCharacterMovement()->bOrientRotationToMovement = true;
 }

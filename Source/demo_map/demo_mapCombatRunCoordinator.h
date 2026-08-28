@@ -12,6 +12,7 @@ class UPrimitiveComponent;
 class Udemo_mapPlayerHealthComponent;
 struct Fdemo_mapM01EnemyDefinition;
 struct FHitResult;
+enum class Edemo_mapM01BossAttack : uint8;
 
 /** Product-bound failures that occur before or around a canonical vitality commit. */
 enum class Edemo_mapCombatImpactDeliveryError : uint8
@@ -51,7 +52,10 @@ enum class Edemo_mapM01EnemyAttackFamily : uint8
 	StandardMeleeDash,
 	EnhancedMeleeDash,
 	StandardRangedProjectile,
-	HeavySector
+	HeavySector,
+	BossSweep,
+	BossCharge,
+	BossVolleyProjectile
 };
 
 /** Frozen pure-kernel receipt for one authored M01 enemy attack contact. */
@@ -81,6 +85,7 @@ enum class Edemo_mapM01EnemyAttackExecutionError : uint8
 	InvalidSkillProfile,
 	InvalidActivationSequence,
 	InvalidContact,
+	InvalidHitOrdinal,
 	SequenceExhausted,
 	ActionConstructionFailed,
 	RuntimeStartFailed,
@@ -264,6 +269,25 @@ public:
 		APawn* TargetPlayer,
 		uint64 AttackSequence,
 		float RawDamage);
+	/** Resolves one legal sweep or charge contact from the authored M01 Boss. */
+	Fdemo_mapM01EnemyAttackExecutionResult ExecuteM01BossShapeAttack(
+		AActor* SourceBoss,
+		APawn* TargetPlayer,
+		Edemo_mapM01BossAttack Attack,
+		uint64 AttackSequence,
+		float RawDamage);
+	/**
+	 * Resolves one projectile in an authored three-shot Boss volley. All three
+	 * contacts share AttackSequence and differ only by ProjectileOrdinal 0..2.
+	 */
+	Fdemo_mapM01EnemyAttackExecutionResult ExecuteM01BossVolleyProjectileImpact(
+		AActor* SourceBoss,
+		APawn* TargetPlayer,
+		uint64 AttackSequence,
+		int32 ProjectileOrdinal,
+		float RawDamage,
+		const FVector& ImpactLocation,
+		const FVector& ImpactNormal);
 	/**
 	 * Executes one complete player BasicSword action from an already sampled UE
 	 * trajectory. Every accepted contact resolves through this Run's Registry;
@@ -293,6 +317,7 @@ private:
 		float RawDamage,
 		Edemo_mapM01EnemyAttackFamily Family,
 		uint64 RequestedActivationSequence,
+		int32 RequestedHitOrdinal,
 		const FVector& RequestedHitLocation,
 		const FVector& RequestedHitNormal);
 

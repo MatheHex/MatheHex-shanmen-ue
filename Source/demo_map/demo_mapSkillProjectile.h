@@ -30,6 +30,14 @@ public:
 		const FLinearColor& InVisualColor,
 		FName InSkillProfileId,
 		uint64 InProjectileSequence);
+	void InitializeTargetedBossProjectile(
+		AActor* InSourceActor,
+		AActor* InIntendedTarget,
+		const FVector& Direction,
+		const Fdemo_mapProjectileSkillParams& InParams,
+		const FLinearColor& InVisualColor,
+		uint64 InAttackSequence,
+		int32 InProjectileOrdinal);
 
 	float GetConfiguredSpeed() const { return ProjectileParams.Speed; }
 	float GetConfiguredWidth() const { return ProjectileParams.Width; }
@@ -41,6 +49,8 @@ public:
 	bool IsIntendedTargetOnly() const { return bIntendedTargetOnly; }
 	FName GetSourceSkillProfileId() const { return SourceSkillProfileId; }
 	uint64 GetProjectileSequence() const { return ProjectileSequence; }
+	bool IsBossVolleyProjectile() const { return bBossVolleyProjectile; }
+	int32 GetProjectileOrdinal() const { return ProjectileOrdinal; }
 
 private:
 	UFUNCTION()
@@ -74,9 +84,11 @@ private:
 	Fdemo_mapProjectileSkillParams ProjectileParams;
 	FName SourceSkillProfileId = NAME_None;
 	uint64 ProjectileSequence = 0;
+	int32 ProjectileOrdinal = INDEX_NONE;
 	FVector InitialLocation = FVector::ZeroVector;
 	bool bConsumed = false;
 	bool bIntendedTargetOnly = false;
+	bool bBossVolleyProjectile = false;
 	TSet<TWeakObjectPtr<AActor>> ContactedActors;
 	FLinearColor VisualColor = FLinearColor(0.0f, 0.75f, 1.0f);
 };

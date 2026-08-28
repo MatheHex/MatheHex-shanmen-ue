@@ -4,6 +4,7 @@
 #include "demo_mapEnemyCharacter.h"
 #include "demo_mapGameMode.h"
 #include "demo_mapHeavyEnemyCharacter.h"
+#include "demo_mapM01BossCharacter.h"
 #include "demo_mapPlayerHealthComponent.h"
 #include "demo_mapRangedEnemyCharacter.h"
 #include "demo_mapTrainingTarget.h"
@@ -66,7 +67,11 @@ Ademo_mapSkillProjectile::Ademo_mapSkillProjectile()
 void Ademo_mapSkillProjectile::InitializeProjectile(AActor* InSourceActor, const FVector& Direction, const Fdemo_mapProjectileSkillParams& InParams)
 {
 	bIntendedTargetOnly = false;
+	bBossVolleyProjectile = false;
 	IntendedTarget.Reset();
+	SourceSkillProfileId = NAME_None;
+	ProjectileSequence = 0;
+	ProjectileOrdinal = INDEX_NONE;
 	ApplyConfiguration(InSourceActor, Direction, InParams, FLinearColor(0.0f, 0.75f, 1.0f));
 	ActivateForFlight();
 }
@@ -74,7 +79,11 @@ void Ademo_mapSkillProjectile::InitializeProjectile(AActor* InSourceActor, const
 void Ademo_mapSkillProjectile::InitializeProjectileWithLaunchSegment(AActor* InSourceActor, const FVector& Direction, const Fdemo_mapProjectileSkillParams& InParams, const FVector& AttackOrigin)
 {
 	bIntendedTargetOnly = false;
+	bBossVolleyProjectile = false;
 	IntendedTarget.Reset();
+	SourceSkillProfileId = NAME_None;
+	ProjectileSequence = 0;
+	ProjectileOrdinal = INDEX_NONE;
 	ApplyConfiguration(InSourceActor, Direction, InParams, FLinearColor(0.0f, 0.75f, 1.0f));
 	const FVector SpawnLocation = GetActorLocation();
 	InitialLocation = AttackOrigin;
@@ -86,9 +95,11 @@ void Ademo_mapSkillProjectile::InitializeProjectileWithLaunchSegment(AActor* InS
 void Ademo_mapSkillProjectile::InitializeTargetedProjectile(AActor* InSourceActor, AActor* InIntendedTarget, const FVector& Direction, const Fdemo_mapProjectileSkillParams& InParams, const FLinearColor& InVisualColor)
 {
 	bIntendedTargetOnly = true;
+	bBossVolleyProjectile = false;
 	IntendedTarget = InIntendedTarget;
 	SourceSkillProfileId = NAME_None;
 	ProjectileSequence = 0;
+	ProjectileOrdinal = INDEX_NONE;
 	ApplyConfiguration(InSourceActor, Direction, InParams, InVisualColor);
 	ActivateForFlight();
 }
@@ -103,9 +114,30 @@ void Ademo_mapSkillProjectile::InitializeTargetedEnemyProjectile(
 	uint64 InProjectileSequence)
 {
 	bIntendedTargetOnly = true;
+	bBossVolleyProjectile = false;
 	IntendedTarget = InIntendedTarget;
 	SourceSkillProfileId = InSkillProfileId;
 	ProjectileSequence = InProjectileSequence;
+	ProjectileOrdinal = 0;
+	ApplyConfiguration(InSourceActor, Direction, InParams, InVisualColor);
+	ActivateForFlight();
+}
+
+void Ademo_mapSkillProjectile::InitializeTargetedBossProjectile(
+	AActor* InSourceActor,
+	AActor* InIntendedTarget,
+	const FVector& Direction,
+	const Fdemo_mapProjectileSkillParams& InParams,
+	const FLinearColor& InVisualColor,
+	uint64 InAttackSequence,
+	int32 InProjectileOrdinal)
+{
+	bIntendedTargetOnly = true;
+	bBossVolleyProjectile = true;
+	IntendedTarget = InIntendedTarget;
+	SourceSkillProfileId = NAME_None;
+	ProjectileSequence = InAttackSequence;
+	ProjectileOrdinal = InProjectileOrdinal;
 	ApplyConfiguration(InSourceActor, Direction, InParams, InVisualColor);
 	ActivateForFlight();
 }
@@ -219,12 +251,33 @@ bool Ademo_mapSkillProjectile::HandleProjectileContact(AActor* OtherActor, UPrim
 	ContactedActors.Add(OtherActor);
 	bool bUsedCanonicalProduct = false;
 	Fdemo_mapM01EnemyAttackExecutionResult ProductResult;
-	if (Ademo_mapRangedEnemyCharacter* RangedSource =
+	Ademo_mapGameMode* GameMode = GetWorld()
+		? GetWorld()->GetAuthGameMode<Ademo_mapGameMode>()
+		: nullptr;
+	if (Ademo_mapM01BossCharacter* BossSource =
+		Cast<Ademo_mapM01BossCharacter>(SourceActor))
+	{
+		if (GameMode && GameMode->ShouldUseM01EnemyAttackProductPath())
+		{
+			bUsedCanonicalProduct = true;
+			const FVector ImpactNormal = HitResult
+				? FVector(HitResult->ImpactNormal)
+				: -Movement->Velocity.GetSafeNormal();
+			ProductResult =
+				GameMode->ExecuteM01BossVolleyProjectileImpact(
+					BossSource,
+					Cast<APawn>(OtherActor),
+					ProjectileSequence,
+					ProjectileOrdinal,
+					ProjectileParams.CommonParams.Damage,
+					ImpactLocation,
+					ImpactNormal);
+		}
+	}
+	else if (Ademo_mapRangedEnemyCharacter* RangedSource =
 		Cast<Ademo_mapRangedEnemyCharacter>(SourceActor))
 	{
-		if (Ademo_mapGameMode* GameMode =
-			GetWorld()->GetAuthGameMode<Ademo_mapGameMode>();
-			GameMode && GameMode->ShouldUseM01EnemyAttackProductPath())
+		if (GameMode && GameMode->ShouldUseM01EnemyAttackProductPath())
 		{
 			bUsedCanonicalProduct = true;
 			const FVector ImpactNormal = HitResult
@@ -249,9 +302,11 @@ bool Ademo_mapSkillProjectile::HandleProjectileContact(AActor* OtherActor, UPrim
 	UE_LOG(
 		Logdemo_map,
 		Log,
-		TEXT("0_0_10_ENEMY_PROJECTILE Event=ActorContact Canonical=%d Sequence=%llu Error=%d Applied=%.3f"),
+		TEXT("0_0_10_ENEMY_PROJECTILE Event=ActorContact Canonical=%d BossVolley=%d Sequence=%llu Ordinal=%d Error=%d Applied=%.3f"),
 		bUsedCanonicalProduct ? 1 : 0,
+		bBossVolleyProjectile ? 1 : 0,
 		static_cast<unsigned long long>(ProjectileSequence),
+		ProjectileOrdinal,
 		static_cast<int32>(ProductResult.Error),
 		ProductResult.GetNewlyCommittedDamage());
 	DrawDebugSphere(GetWorld(), ImpactLocation, ProjectileParams.CollisionRadius * 1.8f, 16, bIntendedTargetOnly ? FColor(245, 40, 255) : FColor::Cyan, false, 0.22f, 0, 4.0f);

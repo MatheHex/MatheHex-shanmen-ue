@@ -490,6 +490,86 @@ Ademo_mapGameMode::ExecuteM01EnemyHeavySectorAttack(
 	return Result;
 }
 
+Fdemo_mapM01EnemyAttackExecutionResult
+Ademo_mapGameMode::ExecuteM01BossShapeAttack(
+	AActor* SourceBoss,
+	APawn* TargetPlayer,
+	Edemo_mapM01BossAttack Attack,
+	uint64 AttackSequence,
+	float RawDamage)
+{
+	Fdemo_mapM01EnemyAttackExecutionResult Result;
+	if (!ShouldUseM01EnemyAttackProductPath())
+	{
+		return Result;
+	}
+	Result = CombatRunCoordinator.ExecuteM01BossShapeAttack(
+		SourceBoss,
+		TargetPlayer,
+		Attack,
+		AttackSequence,
+		RawDamage);
+	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
+	UE_LOG(
+		Logdemo_map,
+		Log,
+		TEXT("0_0_10_BOSS_ATTACK Event=ProductShape Attack=%d Family=%d Error=%d Sequence=%llu ActivationId=%s ImpactId=%s Raw=%.3f Prevented=%.3f Final=%.3f Commit=%d"),
+		static_cast<int32>(Attack),
+		static_cast<int32>(Result.Impact.GetFamily()),
+		static_cast<int32>(Result.Error),
+		static_cast<unsigned long long>(AttackSequence),
+		*Result.ActivationId.ToString(EGuidFormats::DigitsWithHyphens),
+		*Result.Impact.GetRequest().ImpactId.ToString(
+			EGuidFormats::DigitsWithHyphens),
+		Resolution.RawDamage,
+		Resolution.PreventedDamage,
+		Resolution.FinalDamage,
+		static_cast<int32>(Result.Delivery.CommitResult.Status));
+	return Result;
+}
+
+Fdemo_mapM01EnemyAttackExecutionResult
+Ademo_mapGameMode::ExecuteM01BossVolleyProjectileImpact(
+	AActor* SourceBoss,
+	APawn* TargetPlayer,
+	uint64 AttackSequence,
+	int32 ProjectileOrdinal,
+	float RawDamage,
+	const FVector& ImpactLocation,
+	const FVector& ImpactNormal)
+{
+	Fdemo_mapM01EnemyAttackExecutionResult Result;
+	if (!ShouldUseM01EnemyAttackProductPath())
+	{
+		return Result;
+	}
+	Result = CombatRunCoordinator.ExecuteM01BossVolleyProjectileImpact(
+		SourceBoss,
+		TargetPlayer,
+		AttackSequence,
+		ProjectileOrdinal,
+		RawDamage,
+		ImpactLocation,
+		ImpactNormal);
+	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
+	UE_LOG(
+		Logdemo_map,
+		Log,
+		TEXT("0_0_10_BOSS_ATTACK Event=ProductVolley Family=%d Error=%d Sequence=%llu Ordinal=%d ActivationId=%s ImpactId=%s Raw=%.3f Prevented=%.3f Final=%.3f Commit=%d"),
+		static_cast<int32>(Result.Impact.GetFamily()),
+		static_cast<int32>(Result.Error),
+		static_cast<unsigned long long>(AttackSequence),
+		ProjectileOrdinal,
+		*Result.ActivationId.ToString(EGuidFormats::DigitsWithHyphens),
+		*Result.Impact.GetRequest().ImpactId.ToString(
+			EGuidFormats::DigitsWithHyphens),
+		Resolution.RawDamage,
+		Resolution.PreventedDamage,
+		Resolution.FinalDamage,
+		static_cast<int32>(Result.Delivery.CommitResult.Status));
+	return Result;
+}
+
 FString Ademo_mapGameMode::Get0909BProfileStorageRoot() const
 {
 	if (!Is0909BRuntimeReady())

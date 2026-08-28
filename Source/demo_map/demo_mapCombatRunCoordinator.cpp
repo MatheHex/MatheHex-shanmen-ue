@@ -63,6 +63,7 @@ namespace
 		FName FormulaId = NAME_None;
 		FName ContentVersion = NAME_None;
 		FString ContentDigest;
+		int32 MaxHitOrdinal = 0;
 
 		bool IsValid() const
 		{
@@ -71,7 +72,8 @@ namespace
 				&& !DetectorId.IsNone()
 				&& !FormulaId.IsNone()
 				&& !ContentVersion.IsNone()
-				&& !ContentDigest.IsEmpty();
+				&& !ContentDigest.IsEmpty()
+				&& MaxHitOrdinal >= 0;
 		}
 	};
 
@@ -137,6 +139,36 @@ namespace
 				TEXT("Combat.Formula.Enemy.Heavy.Sector.r1");
 			OutSpec.ContentDigest =
 				TEXT("Shanmen.M01Enemy.Heavy.Sector.r1");
+			break;
+		case Edemo_mapM01EnemyAttackFamily::BossSweep:
+			OutSpec.DetectorId = TEXT("Detector.Enemy.Boss.Sweep");
+			OutSpec.ContentVersion = TEXT("0.0.10.P4.11");
+			OutSpec.ActionDefinitionId =
+				TEXT("Combat.Action.Enemy.Boss.Sweep");
+			OutSpec.FormulaId =
+				TEXT("Combat.Formula.Enemy.Boss.Sweep.r1");
+			OutSpec.ContentDigest = TEXT("Shanmen.M01Boss.Sweep.r1");
+			break;
+		case Edemo_mapM01EnemyAttackFamily::BossCharge:
+			OutSpec.DetectorId = TEXT("Detector.Enemy.Boss.Charge");
+			OutSpec.ContentVersion = TEXT("0.0.10.P4.11");
+			OutSpec.ActionDefinitionId =
+				TEXT("Combat.Action.Enemy.Boss.Charge");
+			OutSpec.FormulaId =
+				TEXT("Combat.Formula.Enemy.Boss.Charge.r1");
+			OutSpec.ContentDigest = TEXT("Shanmen.M01Boss.Charge.r1");
+			break;
+		case Edemo_mapM01EnemyAttackFamily::BossVolleyProjectile:
+			OutSpec.DetectorId =
+				TEXT("Detector.Enemy.Boss.Volley.Projectile");
+			OutSpec.DetectorKind = EShanmenHitDetectorKind::Projectile;
+			OutSpec.ContentVersion = TEXT("0.0.10.P4.11");
+			OutSpec.ActionDefinitionId =
+				TEXT("Combat.Action.Enemy.Boss.Volley");
+			OutSpec.FormulaId =
+				TEXT("Combat.Formula.Enemy.Boss.Volley.r1");
+			OutSpec.ContentDigest = TEXT("Shanmen.M01Boss.Volley.r1");
+			OutSpec.MaxHitOrdinal = 2;
 			break;
 		default:
 			return false;
@@ -265,7 +297,8 @@ bool Fdemo_mapM01EnemyAttackImpactReceipt::IsValid() const
 			== Request.Action.GetSourceEntityId()
 		&& Request.Candidate.DetectorId == Spec.DetectorId
 		&& Request.Candidate.DetectorKind == Spec.DetectorKind
-		&& Request.Candidate.HitOrdinal == 0
+		&& Request.Candidate.HitOrdinal >= 0
+		&& Request.Candidate.HitOrdinal <= Spec.MaxHitOrdinal
 		&& Request.Candidate.SourceEntityId
 			!= Request.Candidate.TargetEntityId
 		&& Request.Damage.FormulaId == Spec.FormulaId
@@ -491,6 +524,11 @@ bool Fdemo_mapCombatRunCoordinator::TryRegisterM01Enemy(
 		Cast<Ademo_mapHeavyEnemyCharacter>(EnemyActor))
 	{
 		HeavyEnemy->ResetHeavyAttackForNewRun();
+	}
+	if (Ademo_mapM01BossCharacter* BossEnemy =
+		Cast<Ademo_mapM01BossCharacter>(EnemyActor))
+	{
+		BossEnemy->ResetBossAttackForNewRun();
 	}
 
 	EntityRegistry = MoveTemp(PreparedRegistry);
@@ -863,6 +901,7 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyBasicMeleeStrike(
 		RawDamage,
 		Edemo_mapM01EnemyAttackFamily::BasicMelee,
 		0,
+		0,
 		FVector::ZeroVector,
 		FVector::ZeroVector);
 }
@@ -896,6 +935,7 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyMeleeDashContact(
 		RawDamage,
 		Family,
 		static_cast<uint64>(ActivationSerial),
+		0,
 		FVector::ZeroVector,
 		FVector::ZeroVector);
 }
@@ -937,6 +977,7 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyRangedProjectileImpact(
 		RawDamage,
 		Family,
 		ProjectileSequence,
+		0,
 		ImpactLocation,
 		ImpactNormal);
 }
@@ -967,8 +1008,106 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyHeavySectorAttack(
 		RawDamage,
 		Edemo_mapM01EnemyAttackFamily::HeavySector,
 		AttackSequence,
+		0,
 		FVector::ZeroVector,
 		FVector::ZeroVector);
+}
+
+Fdemo_mapM01EnemyAttackExecutionResult
+Fdemo_mapCombatRunCoordinator::ExecuteM01BossShapeAttack(
+	AActor* SourceBoss,
+	APawn* TargetPlayer,
+	Edemo_mapM01BossAttack Attack,
+	uint64 AttackSequence,
+	float RawDamage)
+{
+	Fdemo_mapM01EnemyAttackExecutionResult ProductResult;
+	if (AttackSequence == 0)
+	{
+		ProductResult.Error =
+			Edemo_mapM01EnemyAttackExecutionError::InvalidActivationSequence;
+		return ProductResult;
+	}
+	if (AttackSequence == MAX_uint64)
+	{
+		ProductResult.Error =
+			Edemo_mapM01EnemyAttackExecutionError::SequenceExhausted;
+		return ProductResult;
+	}
+
+	Edemo_mapM01EnemyAttackFamily Family =
+		Edemo_mapM01EnemyAttackFamily::None;
+	if (Attack == Edemo_mapM01BossAttack::Sweep)
+	{
+		Family = Edemo_mapM01EnemyAttackFamily::BossSweep;
+	}
+	else if (Attack == Edemo_mapM01BossAttack::Charge)
+	{
+		Family = Edemo_mapM01EnemyAttackFamily::BossCharge;
+	}
+	else
+	{
+		ProductResult.Error =
+			Edemo_mapM01EnemyAttackExecutionError::InvalidSkillProfile;
+		return ProductResult;
+	}
+
+	return ExecuteM01EnemyAttack(
+		SourceBoss,
+		TargetPlayer,
+		RawDamage,
+		Family,
+		AttackSequence,
+		0,
+		FVector::ZeroVector,
+		FVector::ZeroVector);
+}
+
+Fdemo_mapM01EnemyAttackExecutionResult
+Fdemo_mapCombatRunCoordinator::ExecuteM01BossVolleyProjectileImpact(
+	AActor* SourceBoss,
+	APawn* TargetPlayer,
+	uint64 AttackSequence,
+	int32 ProjectileOrdinal,
+	float RawDamage,
+	const FVector& ImpactLocation,
+	const FVector& ImpactNormal)
+{
+	Fdemo_mapM01EnemyAttackExecutionResult ProductResult;
+	if (AttackSequence == 0)
+	{
+		ProductResult.Error =
+			Edemo_mapM01EnemyAttackExecutionError::InvalidActivationSequence;
+		return ProductResult;
+	}
+	if (AttackSequence == MAX_uint64)
+	{
+		ProductResult.Error =
+			Edemo_mapM01EnemyAttackExecutionError::SequenceExhausted;
+		return ProductResult;
+	}
+	if (ProjectileOrdinal < 0 || ProjectileOrdinal > 2)
+	{
+		ProductResult.Error =
+			Edemo_mapM01EnemyAttackExecutionError::InvalidHitOrdinal;
+		return ProductResult;
+	}
+	if (ImpactLocation.ContainsNaN() || ImpactNormal.ContainsNaN())
+	{
+		ProductResult.Error =
+			Edemo_mapM01EnemyAttackExecutionError::InvalidContact;
+		return ProductResult;
+	}
+
+	return ExecuteM01EnemyAttack(
+		SourceBoss,
+		TargetPlayer,
+		RawDamage,
+		Edemo_mapM01EnemyAttackFamily::BossVolleyProjectile,
+		AttackSequence,
+		ProjectileOrdinal,
+		ImpactLocation,
+		ImpactNormal);
 }
 
 Fdemo_mapM01EnemyAttackExecutionResult
@@ -978,6 +1117,7 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyAttack(
 	float RawDamage,
 	Edemo_mapM01EnemyAttackFamily Family,
 	uint64 RequestedActivationSequence,
+	int32 RequestedHitOrdinal,
 	const FVector& RequestedHitLocation,
 	const FVector& RequestedHitNormal)
 {
@@ -987,6 +1127,13 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyAttack(
 	{
 		ProductResult.Error =
 			Edemo_mapM01EnemyAttackExecutionError::InvalidSkillProfile;
+		return ProductResult;
+	}
+	if (RequestedHitOrdinal < 0
+		|| RequestedHitOrdinal > Spec.MaxHitOrdinal)
+	{
+		ProductResult.Error =
+			Edemo_mapM01EnemyAttackExecutionError::InvalidHitOrdinal;
 		return ProductResult;
 	}
 	if (!IsReady())
@@ -1050,13 +1197,21 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyAttack(
 		Family == Edemo_mapM01EnemyAttackFamily::HeavySector
 		&& Binding->SkillProfileId.IsNone()
 		&& SourceEnemy->IsA<Ademo_mapHeavyEnemyCharacter>();
+	const bool bBossAttack =
+		(Family == Edemo_mapM01EnemyAttackFamily::BossSweep
+			|| Family == Edemo_mapM01EnemyAttackFamily::BossCharge
+			|| Family
+				== Edemo_mapM01EnemyAttackFamily::BossVolleyProjectile)
+		&& Binding->SkillProfileId.IsNone()
+		&& SourceEnemy->IsA<Ademo_mapM01BossCharacter>();
 	const bool bFamilyMatchesBinding =
 		(Family == Edemo_mapM01EnemyAttackFamily::BasicMelee
 			&& bMeleeProfile)
 		|| (Family != Edemo_mapM01EnemyAttackFamily::BasicMelee
 			&& (bMeleeProfile || bRangedProfile)
 			&& Family == BoundProfileFamily)
-		|| bHeavySector;
+		|| bHeavySector
+		|| bBossAttack;
 	if (!bFamilyMatchesBinding)
 	{
 		ProductResult.Error =
@@ -1143,7 +1298,7 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyAttack(
 			? -SourceToTarget
 			: FVector::UpVector;
 	}
-	Candidate.HitOrdinal = 0;
+	Candidate.HitOrdinal = RequestedHitOrdinal;
 
 	FShanmenTargetVitalitySnapshot TargetVitality;
 	if (!BoundPlayerHealth->TryCaptureCombatVitalitySnapshot(TargetVitality))

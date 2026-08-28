@@ -112,6 +112,21 @@ public:
 		APawn* TargetPlayer,
 		uint64 AttackSequence,
 		float RawDamage);
+	Fdemo_mapM01EnemyAttackExecutionResult ExecuteM01BossShapeAttack(
+		AActor* SourceBoss,
+		APawn* TargetPlayer,
+		Edemo_mapM01BossAttack Attack,
+		uint64 AttackSequence,
+		float RawDamage);
+	Fdemo_mapM01EnemyAttackExecutionResult
+	ExecuteM01BossVolleyProjectileImpact(
+		AActor* SourceBoss,
+		APawn* TargetPlayer,
+		uint64 AttackSequence,
+		int32 ProjectileOrdinal,
+		float RawDamage,
+		const FVector& ImpactLocation,
+		const FVector& ImpactNormal);
 	FString Get0909BProfileStorageRoot() const;
 	bool Open0909BOutOfRaidInventory(FString& OutFeedback);
 	void Set0909BOutOfRaidClosedCallback(TFunction<void()> InCallback);
