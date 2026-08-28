@@ -52,7 +52,10 @@ public:
 	float GetRecoveryDuration() const { return RecoveryDuration; }
 	float GetAttackCooldown() const { return AttackCooldown; }
 	int32 GetResolveCount() const { return ResolveCount; }
+	uint64 GetNextAttackSequence() const { return NextAttackSequence; }
+	uint64 GetActiveAttackSequence() const { return ActiveAttackSequence; }
 	void SetCombatSuppressed(bool bSuppressed);
+	void ResetHeavyAttackForNewRun();
 	FGuid GetLootSourceId() const { return LootSourceId; }
 	bool ConfigureEncounter(
 		const Fdemo_mapEnemyEncounterIdentity& InIdentity,
@@ -139,6 +142,8 @@ private:
 	float LastMoveRequestTime = -1000.0f;
 	float NextAttackAllowedTime = 0.0f;
 	int32 ResolveCount = 0;
+	uint64 NextAttackSequence = 1;
+	uint64 ActiveAttackSequence = 0;
 	bool bCombatSuppressed = false;
 	Fdemo_mapEnemyEncounterIdentity EncounterIdentity;
 	FGuid LootSourceId = FGuid::NewGuid();

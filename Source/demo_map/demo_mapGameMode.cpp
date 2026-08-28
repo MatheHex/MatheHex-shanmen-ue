@@ -455,6 +455,41 @@ Ademo_mapGameMode::ExecuteM01EnemyRangedProjectileImpact(
 	return Result;
 }
 
+Fdemo_mapM01EnemyAttackExecutionResult
+Ademo_mapGameMode::ExecuteM01EnemyHeavySectorAttack(
+	AActor* SourceEnemy,
+	APawn* TargetPlayer,
+	uint64 AttackSequence,
+	float RawDamage)
+{
+	Fdemo_mapM01EnemyAttackExecutionResult Result;
+	if (!ShouldUseM01EnemyAttackProductPath())
+	{
+		return Result;
+	}
+	Result = CombatRunCoordinator.ExecuteM01EnemyHeavySectorAttack(
+		SourceEnemy,
+		TargetPlayer,
+		AttackSequence,
+		RawDamage);
+	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
+	UE_LOG(
+		Logdemo_map,
+		Log,
+		TEXT("0_0_10_ENEMY_HEAVY Event=ProductSector Family=%d Error=%d Sequence=%llu ActivationId=%s ImpactId=%s Raw=%.3f Prevented=%.3f Final=%.3f Commit=%d"),
+		static_cast<int32>(Result.Impact.GetFamily()),
+		static_cast<int32>(Result.Error),
+		static_cast<unsigned long long>(AttackSequence),
+		*Result.ActivationId.ToString(EGuidFormats::DigitsWithHyphens),
+		*Result.Impact.GetRequest().ImpactId.ToString(
+			EGuidFormats::DigitsWithHyphens),
+		Resolution.RawDamage,
+		Resolution.PreventedDamage,
+		Resolution.FinalDamage,
+		static_cast<int32>(Result.Delivery.CommitResult.Status));
+	return Result;
+}
+
 FString Ademo_mapGameMode::Get0909BProfileStorageRoot() const
 {
 	if (!Is0909BRuntimeReady())

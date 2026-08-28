@@ -449,7 +449,9 @@ namespace
 				&& Heavy->GetFullAngleDegrees() == 100.0f
 				&& Heavy->GetWindupDuration() == 0.85f
 				&& Heavy->GetRecoveryDuration() == 0.50f
-				&& Heavy->GetAttackCooldown() == 2.40f);
+				&& Heavy->GetAttackCooldown() == 2.40f
+				&& Heavy->GetNextAttackSequence() == 1
+				&& Heavy->GetActiveAttackSequence() == 0);
 		}
 		case 44:
 		{

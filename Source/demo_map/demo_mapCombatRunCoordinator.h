@@ -50,7 +50,8 @@ enum class Edemo_mapM01EnemyAttackFamily : uint8
 	BasicMelee,
 	StandardMeleeDash,
 	EnhancedMeleeDash,
-	StandardRangedProjectile
+	StandardRangedProjectile,
+	HeavySector
 };
 
 /** Frozen pure-kernel receipt for one authored M01 enemy attack contact. */
@@ -252,6 +253,17 @@ public:
 		float RawDamage,
 		const FVector& ImpactLocation,
 		const FVector& ImpactNormal);
+	/**
+	 * Resolves one authorized M01 heavy-sector contact. AttackSequence is
+	 * reserved when the windup begins and therefore survives delayed resolve
+	 * without borrowing the legacy ResolveCount diagnostic.
+	 */
+	Fdemo_mapM01EnemyAttackExecutionResult
+	ExecuteM01EnemyHeavySectorAttack(
+		AActor* SourceEnemy,
+		APawn* TargetPlayer,
+		uint64 AttackSequence,
+		float RawDamage);
 	/**
 	 * Executes one complete player BasicSword action from an already sampled UE
 	 * trajectory. Every accepted contact resolves through this Run's Registry;

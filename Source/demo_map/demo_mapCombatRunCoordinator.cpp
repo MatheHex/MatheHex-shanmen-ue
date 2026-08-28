@@ -128,6 +128,16 @@ namespace
 			OutSpec.ContentDigest =
 				TEXT("Shanmen.M01Enemy.StandardRanged.Projectile.r1");
 			break;
+		case Edemo_mapM01EnemyAttackFamily::HeavySector:
+			OutSpec.DetectorId = TEXT("Detector.Enemy.Heavy.Sector");
+			OutSpec.ContentVersion = TEXT("0.0.10.P4.10");
+			OutSpec.ActionDefinitionId =
+				TEXT("Combat.Action.Enemy.Heavy.Sector");
+			OutSpec.FormulaId =
+				TEXT("Combat.Formula.Enemy.Heavy.Sector.r1");
+			OutSpec.ContentDigest =
+				TEXT("Shanmen.M01Enemy.Heavy.Sector.r1");
+			break;
 		default:
 			return false;
 		}
@@ -476,6 +486,11 @@ bool Fdemo_mapCombatRunCoordinator::TryRegisterM01Enemy(
 		OutDiagnostic =
 			TEXT("M01 vitality host rejected its authored World EntityId.");
 		return false;
+	}
+	if (Ademo_mapHeavyEnemyCharacter* HeavyEnemy =
+		Cast<Ademo_mapHeavyEnemyCharacter>(EnemyActor))
+	{
+		HeavyEnemy->ResetHeavyAttackForNewRun();
 	}
 
 	EntityRegistry = MoveTemp(PreparedRegistry);
@@ -927,6 +942,36 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyRangedProjectileImpact(
 }
 
 Fdemo_mapM01EnemyAttackExecutionResult
+Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyHeavySectorAttack(
+	AActor* SourceEnemy,
+	APawn* TargetPlayer,
+	uint64 AttackSequence,
+	float RawDamage)
+{
+	Fdemo_mapM01EnemyAttackExecutionResult ProductResult;
+	if (AttackSequence == 0)
+	{
+		ProductResult.Error =
+			Edemo_mapM01EnemyAttackExecutionError::InvalidActivationSequence;
+		return ProductResult;
+	}
+	if (AttackSequence == MAX_uint64)
+	{
+		ProductResult.Error =
+			Edemo_mapM01EnemyAttackExecutionError::SequenceExhausted;
+		return ProductResult;
+	}
+	return ExecuteM01EnemyAttack(
+		SourceEnemy,
+		TargetPlayer,
+		RawDamage,
+		Edemo_mapM01EnemyAttackFamily::HeavySector,
+		AttackSequence,
+		FVector::ZeroVector,
+		FVector::ZeroVector);
+}
+
+Fdemo_mapM01EnemyAttackExecutionResult
 Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyAttack(
 	AActor* SourceEnemy,
 	APawn* TargetPlayer,
@@ -1001,12 +1046,17 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyAttack(
 		&& TryResolveM01RangedProjectileFamily(
 			Binding->SkillProfileId,
 			BoundProfileFamily);
+	const bool bHeavySector =
+		Family == Edemo_mapM01EnemyAttackFamily::HeavySector
+		&& Binding->SkillProfileId.IsNone()
+		&& SourceEnemy->IsA<Ademo_mapHeavyEnemyCharacter>();
 	const bool bFamilyMatchesBinding =
 		(Family == Edemo_mapM01EnemyAttackFamily::BasicMelee
 			&& bMeleeProfile)
 		|| (Family != Edemo_mapM01EnemyAttackFamily::BasicMelee
 			&& (bMeleeProfile || bRangedProfile)
-			&& Family == BoundProfileFamily);
+			&& Family == BoundProfileFamily)
+		|| bHeavySector;
 	if (!bFamilyMatchesBinding)
 	{
 		ProductResult.Error =

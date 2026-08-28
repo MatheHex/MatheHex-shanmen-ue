@@ -72,6 +72,13 @@ void Ademo_mapHeavyEnemyCharacter::UpdateBehavior()
 void Ademo_mapHeavyEnemyCharacter::BeginWindup(APawn* PlayerPawn)
 {
 	FVector Direction=PlayerPawn->GetActorLocation()-GetActorLocation();Direction.Z=0;if(!Direction.Normalize())return;
+	if(NextAttackSequence==0||NextAttackSequence==MAX_uint64)
+	{
+		if(GetWorld())NextAttackAllowedTime=GetWorld()->GetTimeSeconds()+AttackCooldown;
+		UE_LOG(Logdemo_map,Error,TEXT("0_0_10_ENEMY_HEAVY Event=SequenceExhausted Next=%llu"),static_cast<unsigned long long>(NextAttackSequence));
+		return;
+	}
+	ActiveAttackSequence=NextAttackSequence;++NextAttackSequence;
 	LockedDirection=Direction;State=Edemo_mapHeavyEnemyState::Windup;StopMovement();GetCharacterMovement()->bOrientRotationToMovement=false;SetActorRotation(LockedDirection.Rotation());
 	GetWorldTimerManager().SetTimer(WindupTimer,this,&Ademo_mapHeavyEnemyCharacter::ResolveAttack,WindupDuration,false);DrawSectorFeedback(FColor(255,70,0),AIUpdateInterval+0.04f,7.0f);UE_LOG(Logdemo_map,Log,TEXT("V2D: heavy telegraph started."));
 }
@@ -91,21 +98,33 @@ void Ademo_mapHeavyEnemyCharacter::ResolveAttack()
 	const bool bInside=Player&&Fdemo_mapSectorGeometry::IsInsideSectorXY(GetActorLocation(),LockedDirection,Player->GetActorLocation(),SectorRadius,FullAngleDegrees,VerticalTolerance);
 	if(bInside&&HasWorldStaticLineOfSight(Player)&&Fdemo_mapCombatTargeting::CanAffect(this,Player,Filter))
 	{
-		UGameplayStatics::ApplyDamage(Player,AttackDamage,GetController(),this,nullptr);UE_LOG(Logdemo_map,Log,TEXT("V2D: heavy sector applied damage=1."));
+		float AppliedDamage=0.0f;bool bUsedCanonicalProduct=false;
+		if(Ademo_mapGameMode* GameMode=GetWorld()?GetWorld()->GetAuthGameMode<Ademo_mapGameMode>():nullptr;GameMode&&GameMode->ShouldUseM01EnemyAttackProductPath())
+		{
+			bUsedCanonicalProduct=true;
+			const Fdemo_mapM01EnemyAttackExecutionResult Product=GameMode->ExecuteM01EnemyHeavySectorAttack(this,Player,ActiveAttackSequence,AttackDamage);
+			AppliedDamage=Product.GetNewlyCommittedDamage();
+		}
+		else
+		{
+			AppliedDamage=UGameplayStatics::ApplyDamage(Player,AttackDamage,GetController(),this,nullptr);
+		}
+		UE_LOG(Logdemo_map,Log,TEXT("0_0_10_ENEMY_HEAVY Event=SectorActorRoute Canonical=%d Sequence=%llu Applied=%.3f"),bUsedCanonicalProduct?1:0,static_cast<unsigned long long>(ActiveAttackSequence),AppliedDamage);
 	}
-	NextAttackAllowedTime=GetWorld()->GetTimeSeconds()+AttackCooldown;State=Edemo_mapHeavyEnemyState::Recovery;GetWorldTimerManager().SetTimer(RecoveryTimer,this,&Ademo_mapHeavyEnemyCharacter::FinishRecovery,RecoveryDuration,false);
+	ActiveAttackSequence=0;NextAttackAllowedTime=GetWorld()->GetTimeSeconds()+AttackCooldown;State=Edemo_mapHeavyEnemyState::Recovery;GetWorldTimerManager().SetTimer(RecoveryTimer,this,&Ademo_mapHeavyEnemyCharacter::FinishRecovery,RecoveryDuration,false);
 }
 
-void Ademo_mapHeavyEnemyCharacter::FinishRecovery(){if(!IsDead()&&!bCombatSuppressed){State=Edemo_mapHeavyEnemyState::Idle;GetCharacterMovement()->bOrientRotationToMovement=true;}}
-void Ademo_mapHeavyEnemyCharacter::CancelPendingAttack(){GetWorldTimerManager().ClearTimer(WindupTimer);GetWorldTimerManager().ClearTimer(RecoveryTimer);if(State==Edemo_mapHeavyEnemyState::Windup||State==Edemo_mapHeavyEnemyState::Resolve||State==Edemo_mapHeavyEnemyState::Recovery)State=Edemo_mapHeavyEnemyState::Idle;GetCharacterMovement()->bOrientRotationToMovement=true;}
+void Ademo_mapHeavyEnemyCharacter::FinishRecovery(){ActiveAttackSequence=0;if(!IsDead()&&!bCombatSuppressed){State=Edemo_mapHeavyEnemyState::Idle;GetCharacterMovement()->bOrientRotationToMovement=true;}}
+void Ademo_mapHeavyEnemyCharacter::CancelPendingAttack(){if(GetWorld()){GetWorldTimerManager().ClearTimer(WindupTimer);GetWorldTimerManager().ClearTimer(RecoveryTimer);}ActiveAttackSequence=0;if(State==Edemo_mapHeavyEnemyState::Windup||State==Edemo_mapHeavyEnemyState::Resolve||State==Edemo_mapHeavyEnemyState::Recovery)State=Edemo_mapHeavyEnemyState::Idle;GetCharacterMovement()->bOrientRotationToMovement=true;}
 void Ademo_mapHeavyEnemyCharacter::SetCombatSuppressed(bool bSuppressed){bCombatSuppressed=bSuppressed;if(bSuppressed){CancelPendingAttack();StopMovement();}}
+void Ademo_mapHeavyEnemyCharacter::ResetHeavyAttackForNewRun(){CancelPendingAttack();NextAttackAllowedTime=0.0f;NextAttackSequence=1;ActiveAttackSequence=0;}
 
 bool Ademo_mapHeavyEnemyCharacter::ConfigureEncounter(
 	const Fdemo_mapEnemyEncounterIdentity& InIdentity,
 	const Fdemo_mapEnemyCombatTuning& InTuning)
 {
 	if(!InIdentity.IsValid()||!InIdentity.SkillProfileId.IsNone()||!InTuning.IsValid())return false;
-	const float ConfiguredVitality=static_cast<float>(InTuning.MaxHealth);if(!TryCommitVitalityState(ConfiguredVitality,ConfiguredVitality))return false;EncounterIdentity=InIdentity;MovementSpeed=InTuning.MovementSpeed;AttackDamage=InTuning.AttackDamage;WindupDuration=InTuning.AttackWindup;AttackCooldown=InTuning.AttackCooldown;GetCharacterMovement()->MaxWalkSpeed=MovementSpeed;RefreshPresentation();return true;
+	const float ConfiguredVitality=static_cast<float>(InTuning.MaxHealth);if(!TryCommitVitalityState(ConfiguredVitality,ConfiguredVitality))return false;EncounterIdentity=InIdentity;MovementSpeed=InTuning.MovementSpeed;AttackDamage=InTuning.AttackDamage;WindupDuration=InTuning.AttackWindup;AttackCooldown=InTuning.AttackCooldown;NextAttackSequence=1;ActiveAttackSequence=0;GetCharacterMovement()->MaxWalkSpeed=MovementSpeed;RefreshPresentation();return true;
 }
 
 void Ademo_mapHeavyEnemyCharacter::DrawSectorFeedback(const FColor& Color,float Duration,float Thickness) const

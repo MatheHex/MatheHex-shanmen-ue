@@ -106,6 +106,12 @@ public:
 		float RawDamage,
 		const FVector& ImpactLocation,
 		const FVector& ImpactNormal);
+	Fdemo_mapM01EnemyAttackExecutionResult
+	ExecuteM01EnemyHeavySectorAttack(
+		AActor* SourceEnemy,
+		APawn* TargetPlayer,
+		uint64 AttackSequence,
+		float RawDamage);
 	FString Get0909BProfileStorageRoot() const;
 	bool Open0909BOutOfRaidInventory(FString& OutFeedback);
 	void Set0909BOutOfRaidClosedCallback(TFunction<void()> InCallback);

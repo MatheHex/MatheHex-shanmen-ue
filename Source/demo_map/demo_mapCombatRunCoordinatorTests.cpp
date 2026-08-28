@@ -96,6 +96,23 @@ namespace
 		return nullptr;
 	}
 
+	const Fdemo_mapM01EnemyDefinition* FindM01HeavyDefinition(
+		bool bElite = false)
+	{
+		const Edemo_mapM01EnemyArchetype DesiredArchetype = bElite
+			? Edemo_mapM01EnemyArchetype::EliteBulwark
+			: Edemo_mapM01EnemyArchetype::StandardBruiser;
+		for (const Fdemo_mapM01EnemyDefinition& Definition :
+			Fdemo_mapM01EnemyConfig::GetDefinitions())
+		{
+			if (Definition.Archetype == DesiredArchetype)
+			{
+				return &Definition;
+			}
+		}
+		return nullptr;
+	}
+
 	AActor* NewM01ProductActor(
 		const Fdemo_mapM01EnemyDefinition& Definition)
 	{
@@ -223,6 +240,39 @@ namespace
 					LegacyIdentity,
 					Definition->Tuning,
 					Definition->IsElite());
+		}
+	};
+
+	struct FM01HeavyEnemyFixture
+	{
+		const Fdemo_mapM01EnemyDefinition* Definition = nullptr;
+		Ademo_mapHeavyEnemyCharacter* Enemy = nullptr;
+		Udemo_mapM01EnemyIdentityComponent* Identity = nullptr;
+		bool bReady = false;
+
+		explicit FM01HeavyEnemyFixture(bool bElite = false)
+		{
+			Definition = FindM01HeavyDefinition(bElite);
+			Enemy = NewObject<Ademo_mapHeavyEnemyCharacter>(
+				GetTransientPackage());
+			Identity = Enemy
+				? NewObject<Udemo_mapM01EnemyIdentityComponent>(
+					Enemy,
+					bElite
+						? TEXT("M01AuthoredEliteHeavyIdentity")
+						: TEXT("M01AuthoredHeavyIdentity"))
+				: nullptr;
+			if (!Definition || !Enemy || !Identity)
+			{
+				return;
+			}
+			Enemy->AddInstanceComponent(Identity);
+			const Fdemo_mapEnemyEncounterIdentity LegacyIdentity =
+				MakeLegacyEncounterIdentity(*Definition);
+			bReady = Identity->Configure(*Definition)
+				&& Enemy->ConfigureEncounter(
+					LegacyIdentity,
+					Definition->Tuning);
 		}
 	};
 
@@ -1526,6 +1576,271 @@ bool FShanmenCombatRunCoordinatorM01EnemyRangedProjectileProductTest::RunTest(
 			&& Fixture.Health->NumCommittedCombatImpacts() == 1
 			&& Fixture.Health
 				->GetPositiveDamageBroadcastCountForAutomation() == 3);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenCombatRunCoordinatorM01EnemyHeavySectorProductTest,
+	"Shanmen.0_0_10.Product.CombatRunCoordinator.M01EnemyHeavySectorProduct",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenCombatRunCoordinatorM01EnemyHeavySectorProductTest::RunTest(
+	const FString&)
+{
+	FCombatRunCoordinatorFixture Fixture;
+	FM01HeavyEnemyFixture StandardHeavy;
+	FM01HeavyEnemyFixture EliteHeavy(true);
+	FM01RangedEnemyFixture RangedEnemy;
+	TestTrue(TEXT("Heavy-sector fixtures initialize"),
+		Fixture.bReady
+			&& StandardHeavy.bReady
+			&& EliteHeavy.bReady
+			&& RangedEnemy.bReady);
+	if (!Fixture.bReady
+		|| !StandardHeavy.bReady
+		|| !EliteHeavy.bReady
+		|| !RangedEnemy.bReady
+		|| !Fixture.Coordinator.TryRegisterM01Enemy(
+			StandardHeavy.Enemy,
+			Fixture.Diagnostic)
+		|| !Fixture.Coordinator.TryRegisterM01Enemy(
+			EliteHeavy.Enemy,
+			Fixture.Diagnostic)
+		|| !Fixture.Coordinator.TryRegisterM01Enemy(
+			RangedEnemy.Enemy,
+			Fixture.Diagnostic))
+	{
+		AddError(Fixture.Diagnostic);
+		return false;
+	}
+	TestTrue(TEXT("Heavy registration resets the Run-local action sequence"),
+		StandardHeavy.Enemy->GetNextAttackSequence() == 1
+			&& StandardHeavy.Enemy->GetActiveAttackSequence() == 0
+			&& EliteHeavy.Enemy->GetNextAttackSequence() == 1
+			&& EliteHeavy.Enemy->GetActiveAttackSequence() == 0);
+
+	Udemo_mapAttributeComponent* Attributes =
+		NewObject<Udemo_mapAttributeComponent>(
+			Fixture.Pawn,
+			TEXT("P410PlayerAttributes"));
+	Fdemo_mapModifierSpec FlatReduction;
+	FlatReduction.SourceId = TEXT("P4.10.Test.FlatReduction");
+	FlatReduction.AttributeId =
+		Fdemo_mapAttributeIds::FlatDamageReduction;
+	FlatReduction.Operation = Edemo_mapModifierOperation::Add;
+	FlatReduction.Value = 0.25f;
+	Fdemo_mapModifierHandle FlatReductionHandle;
+	TestTrue(TEXT("Heavy target defense fixture binds"),
+		Attributes
+			&& Fixture.Health->BindAttributeComponent(Attributes, false)
+			&& Attributes->AddModifier(
+				FlatReduction,
+				FlatReductionHandle));
+
+	const Fdemo_mapM01EnemyAttackExecutionResult InvalidSequence =
+		Fixture.Coordinator.ExecuteM01EnemyHeavySectorAttack(
+			StandardHeavy.Enemy,
+			Fixture.Pawn,
+			0,
+			2.0f);
+	const Fdemo_mapM01EnemyAttackExecutionResult ExhaustedSequence =
+		Fixture.Coordinator.ExecuteM01EnemyHeavySectorAttack(
+			StandardHeavy.Enemy,
+			Fixture.Pawn,
+			MAX_uint64,
+			2.0f);
+	const Fdemo_mapM01EnemyAttackExecutionResult WrongSourceFamily =
+		Fixture.Coordinator.ExecuteM01EnemyHeavySectorAttack(
+			RangedEnemy.Enemy,
+			Fixture.Pawn,
+			1,
+			2.0f);
+	TestTrue(TEXT("Heavy invalid identity fails before vitality mutation"),
+		InvalidSequence.Error
+			== Edemo_mapM01EnemyAttackExecutionError::InvalidActivationSequence
+			&& ExhaustedSequence.Error
+				== Edemo_mapM01EnemyAttackExecutionError::SequenceExhausted
+			&& WrongSourceFamily.Error
+				== Edemo_mapM01EnemyAttackExecutionError::InvalidSkillProfile
+			&& !InvalidSequence.ActivationId.IsValid()
+			&& !ExhaustedSequence.ActivationId.IsValid()
+			&& !WrongSourceFamily.ActivationId.IsValid()
+			&& Fixture.Health->GetCombatAuthorityRevision() == 0
+			&& Fixture.Health->NumCommittedCombatImpacts() == 0);
+
+	const Fdemo_mapM01EnemyAttackExecutionResult First =
+		Fixture.Coordinator.ExecuteM01EnemyHeavySectorAttack(
+			StandardHeavy.Enemy,
+			Fixture.Pawn,
+			1,
+			2.0f);
+	const FGuid FirstSourceEntityId =
+		StandardHeavy.Enemy->GetCombatEntityId();
+	const FGuid ExpectedActivation =
+		FShanmenCombatIdFactory::MakeActivationId(
+			CoordinatorRunA,
+			FirstSourceEntityId,
+			TEXT("Combat.Action.Enemy.Heavy.Sector"),
+			1);
+	TestTrue(TEXT("Standard heavy sector resolves through canonical defense"),
+		First.IsExecuted()
+			&& First.Impact.GetFamily()
+				== Edemo_mapM01EnemyAttackFamily::HeavySector
+			&& First.ActivationId == ExpectedActivation
+			&& First.Impact.GetRequest().Action.GetContent().Version
+				== TEXT("0.0.10.P4.10")
+			&& First.Impact.GetRequest().Candidate.DetectorId
+				== TEXT("Detector.Enemy.Heavy.Sector")
+			&& First.Impact.GetRequest().Candidate.DetectorKind
+				== EShanmenHitDetectorKind::Shape
+			&& First.Impact.GetRequest().Damage.FormulaId
+				== TEXT("Combat.Formula.Enemy.Heavy.Sector.r1")
+			&& First.Delivery.CommitResult.Status
+				== EShanmenVitalityCommitStatus::Committed
+			&& FMath::IsNearlyEqual(
+				First.Impact.GetResult().PreventedDamage,
+				0.25f)
+			&& FMath::IsNearlyEqual(
+				First.GetNewlyCommittedDamage(),
+				1.75f)
+			&& FMath::IsNearlyEqual(
+				Fixture.Health->GetCurrentVitality(),
+				3.25f)
+			&& Fixture.Health->GetCombatAuthorityRevision() == 1
+			&& Fixture.Health->NumCommittedCombatImpacts() == 1
+			&& Fixture.Health
+				->GetPositiveDamageBroadcastCountForAutomation() == 1);
+
+	const Fdemo_mapCombatImpactDeliveryResult Replay =
+		Fixture.Coordinator.DeliverM01EnemyAttackImpactToPlayer(
+			First.Impact,
+			StandardHeavy.Enemy);
+	const Fdemo_mapM01EnemyAttackExecutionResult Reconstruction =
+		Fixture.Coordinator.ExecuteM01EnemyHeavySectorAttack(
+			StandardHeavy.Enemy,
+			Fixture.Pawn,
+			1,
+			2.0f);
+	TestTrue(TEXT("Heavy receipt replay is idempotent and reconstruction fails"),
+		Replay.IsSuccess()
+			&& Replay.CommitResult.Status
+				== EShanmenVitalityCommitStatus::AlreadyCommitted
+			&& !Reconstruction.IsExecuted()
+			&& Reconstruction.Error
+				== Edemo_mapM01EnemyAttackExecutionError::DeliveryRejected
+			&& Reconstruction.ActivationId == First.ActivationId
+			&& Reconstruction.Impact.GetRequest().ImpactId
+				== First.Impact.GetRequest().ImpactId
+			&& Reconstruction.Delivery.Error
+				== Edemo_mapCombatImpactDeliveryError::CommitRejected
+			&& FMath::IsNearlyEqual(
+				Fixture.Health->GetCurrentVitality(),
+				3.25f)
+			&& Fixture.Health->GetCombatAuthorityRevision() == 1
+			&& Fixture.Health->NumCommittedCombatImpacts() == 1
+			&& Fixture.Health
+				->GetPositiveDamageBroadcastCountForAutomation() == 1);
+
+	const Fdemo_mapM01EnemyAttackExecutionResult Elite =
+		Fixture.Coordinator.ExecuteM01EnemyHeavySectorAttack(
+			EliteHeavy.Enemy,
+			Fixture.Pawn,
+			1,
+			3.0f);
+	TestTrue(TEXT("Elite bulwark shares formula but keeps source identity"),
+		Elite.IsExecuted()
+			&& Elite.Impact.GetFamily()
+				== Edemo_mapM01EnemyAttackFamily::HeavySector
+			&& Elite.ActivationId != First.ActivationId
+			&& Elite.Impact.GetRequest().Action.GetSourceEntityId()
+				== EliteHeavy.Enemy->GetCombatEntityId()
+			&& FMath::IsNearlyEqual(
+				Elite.GetNewlyCommittedDamage(),
+				2.75f)
+			&& FMath::IsNearlyEqual(
+				Fixture.Health->GetCurrentVitality(),
+				0.5f)
+			&& Fixture.Health->GetCombatAuthorityRevision() == 2
+			&& Fixture.Health->NumCommittedCombatImpacts() == 2
+			&& Fixture.Health
+				->GetPositiveDamageBroadcastCountForAutomation() == 2);
+
+	const Fdemo_mapM01EnemyAttackExecutionResult Second =
+		Fixture.Coordinator.ExecuteM01EnemyHeavySectorAttack(
+			StandardHeavy.Enemy,
+			Fixture.Pawn,
+			2,
+			0.5f);
+	TestTrue(TEXT("Next heavy sequence owns a distinct canonical action"),
+		Second.IsExecuted()
+			&& Second.ActivationId != First.ActivationId
+			&& FMath::IsNearlyEqual(
+				Second.GetNewlyCommittedDamage(),
+				0.25f)
+			&& FMath::IsNearlyEqual(
+				Fixture.Health->GetCurrentVitality(),
+				0.25f)
+			&& Fixture.Health->GetCombatAuthorityRevision() == 3
+			&& Fixture.Health->NumCommittedCombatImpacts() == 3
+			&& Fixture.Health
+				->GetPositiveDamageBroadcastCountForAutomation() == 3);
+
+	TestTrue(TEXT("Heavy-sector Run release succeeds"),
+		Fixture.Coordinator.TryEndRun(
+			CoordinatorRunA,
+			Fixture.Diagnostic));
+	TestTrue(TEXT("Heavy source binds a fresh Run"),
+		Fixture.Coordinator.TryBeginRun(
+			CoordinatorRunB,
+			Fixture.Pawn,
+			Fixture.Health,
+			Fixture.Diagnostic)
+			&& Fixture.Coordinator.TryRegisterM01Enemy(
+				StandardHeavy.Enemy,
+				Fixture.Diagnostic));
+	const Fdemo_mapCombatImpactDeliveryResult DelayedOldRun =
+		Fixture.Coordinator.DeliverM01EnemyAttackImpactToPlayer(
+			First.Impact,
+			StandardHeavy.Enemy);
+	TestTrue(TEXT("Old-Run heavy receipt cannot mutate rebound player"),
+		DelayedOldRun.Error
+			== Edemo_mapCombatImpactDeliveryError::RunMismatch
+			&& !DelayedOldRun.CommitResult.IsValid()
+			&& FMath::IsNearlyEqual(
+				Fixture.Health->GetCurrentVitality(),
+				0.25f)
+			&& Fixture.Health->GetCombatAuthorityRevision() == 0
+			&& Fixture.Health->NumCommittedCombatImpacts() == 0
+			&& StandardHeavy.Enemy->GetNextAttackSequence() == 1
+			&& StandardHeavy.Enemy->GetActiveAttackSequence() == 0);
+
+	const Fdemo_mapM01EnemyAttackExecutionResult NewRunFirst =
+		Fixture.Coordinator.ExecuteM01EnemyHeavySectorAttack(
+			StandardHeavy.Enemy,
+			Fixture.Pawn,
+			1,
+			10.0f);
+	const FGuid ExpectedNewRunActivation =
+		FShanmenCombatIdFactory::MakeActivationId(
+			CoordinatorRunB,
+			StandardHeavy.Enemy->GetCombatEntityId(),
+			TEXT("Combat.Action.Enemy.Heavy.Sector"),
+			1);
+	TestTrue(TEXT("Run-reset heavy sequence derives a new lethal identity"),
+		NewRunFirst.IsExecuted()
+			&& NewRunFirst.ActivationId == ExpectedNewRunActivation
+			&& NewRunFirst.ActivationId != First.ActivationId
+			&& FMath::IsNearlyEqual(
+				NewRunFirst.GetNewlyCommittedDamage(),
+				0.25f)
+			&& NewRunFirst.DidNewCommitDefeatTarget()
+			&& FMath::IsNearlyEqual(
+				Fixture.Health->GetCurrentVitality(),
+				0.0f)
+			&& Fixture.Health->GetCombatAuthorityRevision() == 1
+			&& Fixture.Health->NumCommittedCombatImpacts() == 1
+			&& Fixture.Health
+				->GetPositiveDamageBroadcastCountForAutomation() == 4);
 	return true;
 }
 
