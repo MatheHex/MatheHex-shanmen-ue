@@ -13,6 +13,8 @@
 #include "GameFramework/Pawn.h"
 #include "demo_mapCombatRunCoordinator.h"
 #include "demo_mapCombatVitalityHost.h"
+#include "demo_mapAttributeComponent.h"
+#include "demo_mapAttributeDefinitions.h"
 #include "demo_mapEnemyCharacter.h"
 #include "demo_mapHeavyEnemyCharacter.h"
 #include "demo_mapM01BossCharacter.h"
@@ -691,6 +693,249 @@ bool FShanmenCombatRunCoordinatorM01DeliveryTest::RunTest(const FString&)
 			&& EnemyFixture.Enemy->NumCommittedCombatImpacts() == 0
 			&& EnemyFixture.Enemy
 				->GetPositiveCombatDamageCountForAutomation() == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenCombatRunCoordinatorM01EnemyBasicMeleeProductTest,
+	"Shanmen.0_0_10.Product.CombatRunCoordinator.M01EnemyBasicMeleeProduct",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenCombatRunCoordinatorM01EnemyBasicMeleeProductTest::RunTest(
+	const FString&)
+{
+	FCombatRunCoordinatorFixture Fixture;
+	FM01MeleeEnemyFixture EnemyFixture;
+	TestTrue(TEXT("Enemy-to-player product fixtures initialize"),
+		Fixture.bReady && EnemyFixture.bReady);
+	if (!Fixture.bReady || !EnemyFixture.bReady
+		|| !Fixture.Coordinator.TryRegisterM01Enemy(
+			EnemyFixture.Enemy,
+			Fixture.Diagnostic))
+	{
+		AddError(Fixture.Diagnostic);
+		return false;
+	}
+
+	Udemo_mapAttributeComponent* Attributes =
+		NewObject<Udemo_mapAttributeComponent>(
+			Fixture.Pawn,
+			TEXT("P47PlayerAttributes"));
+	Fdemo_mapModifierSpec FlatReduction;
+	FlatReduction.SourceId = TEXT("P4.7.Test.FlatReduction");
+	FlatReduction.AttributeId =
+		Fdemo_mapAttributeIds::FlatDamageReduction;
+	FlatReduction.Operation = Edemo_mapModifierOperation::Add;
+	FlatReduction.Value = 1.0f;
+	Fdemo_mapModifierHandle FlatReductionHandle;
+	TestTrue(TEXT("Player canonical defense fixture binds"),
+		Attributes
+			&& Fixture.Health->BindAttributeComponent(Attributes, false)
+			&& Attributes->AddModifier(
+				FlatReduction,
+				FlatReductionHandle));
+
+	AActor* UnregisteredSource =
+		NewObject<Ademo_mapEnemyCharacter>(GetTransientPackage());
+	const Fdemo_mapM01EnemyBasicMeleeExecutionResult InvalidSource =
+		Fixture.Coordinator.ExecuteM01EnemyBasicMeleeStrike(
+			UnregisteredSource,
+			Fixture.Pawn,
+			3.0f);
+	TestTrue(TEXT("Unregistered enemy fails before action identity is consumed"),
+		InvalidSource.Error
+			== Edemo_mapM01EnemyBasicMeleeExecutionError::SourceNotRegistered
+			&& !InvalidSource.ActivationId.IsValid()
+			&& FMath::IsNearlyEqual(
+				Fixture.Health->GetCurrentVitality(),
+				5.0f)
+			&& Fixture.Health->GetCombatAuthorityRevision() == 0);
+
+	const FGuid SourceEntityId = EnemyFixture.Enemy->GetCombatEntityId();
+	const Fdemo_mapM01EnemyBasicMeleeExecutionResult First =
+		Fixture.Coordinator.ExecuteM01EnemyBasicMeleeStrike(
+			EnemyFixture.Enemy,
+			Fixture.Pawn,
+			3.0f);
+	const FShanmenImpactResult& FirstResolution =
+		First.Impact.GetResult();
+	const FGuid ExpectedFirstActivation =
+		FShanmenCombatIdFactory::MakeActivationId(
+			CoordinatorRunA,
+			SourceEntityId,
+			First.Impact.GetRequest().Action.GetActionDefinitionId(),
+			1);
+	TestTrue(TEXT("First real enemy melee strike resolves player armor and commits"),
+		First.IsExecuted()
+			&& First.ActivationId == ExpectedFirstActivation
+			&& First.Delivery.CommitResult.Status
+				== EShanmenVitalityCommitStatus::Committed
+			&& FirstResolution.Outcome
+				== EShanmenDefenseOutcome::Mitigated
+			&& FMath::IsNearlyEqual(FirstResolution.RawDamage, 3.0f)
+			&& FMath::IsNearlyEqual(
+				FirstResolution.PreventedDamage,
+				1.0f)
+			&& FMath::IsNearlyEqual(FirstResolution.FinalDamage, 2.0f)
+			&& FirstResolution.TriggeredLayers.Num() == 1
+			&& FirstResolution.TriggeredLayers[0].Operation
+				== EShanmenDefenseOperation::AbsorbPoints
+			&& FMath::IsNearlyEqual(
+				Fixture.Health->GetCurrentVitality(),
+				3.0f)
+			&& Fixture.Health->GetCombatAuthorityRevision() == 1
+			&& Fixture.Health->NumCommittedCombatImpacts() == 1
+			&& Fixture.Health
+				->GetPositiveDamageBroadcastCountForAutomation() == 1);
+
+	const Fdemo_mapCombatImpactDeliveryResult FirstReplay =
+		Fixture.Coordinator.DeliverM01EnemyBasicMeleeImpactToPlayer(
+			First.Impact,
+			EnemyFixture.Enemy);
+	TestTrue(TEXT("Enemy melee receipt replay cannot double-apply"),
+		FirstReplay.IsSuccess()
+			&& FirstReplay.CommitResult.Status
+				== EShanmenVitalityCommitStatus::AlreadyCommitted
+			&& FMath::IsNearlyEqual(
+				Fixture.Health->GetCurrentVitality(),
+				3.0f)
+			&& Fixture.Health->GetCombatAuthorityRevision() == 1
+			&& Fixture.Health->NumCommittedCombatImpacts() == 1
+			&& Fixture.Health
+				->GetPositiveDamageBroadcastCountForAutomation() == 1);
+
+	Fdemo_mapModifierSpec HalfDodge;
+	HalfDodge.SourceId = TEXT("P4.7.Test.HalfDodge");
+	HalfDodge.AttributeId = Fdemo_mapAttributeIds::DodgeChance;
+	HalfDodge.Operation = Edemo_mapModifierOperation::Add;
+	HalfDodge.Value = 0.5f;
+	Fdemo_mapModifierHandle HalfDodgeHandle;
+	TestTrue(TEXT("Half-dodge modifier prepares deterministic sampling"),
+		Attributes->AddModifier(HalfDodge, HalfDodgeHandle));
+	const FGuid ExpectedSecondActivation =
+		FShanmenCombatIdFactory::MakeActivationId(
+			CoordinatorRunA,
+			SourceEntityId,
+			First.Impact.GetRequest().Action.GetActionDefinitionId(),
+			2);
+	const FGuid ExpectedSecondImpact =
+		FShanmenCombatIdFactory::MakeImpactId(
+			CoordinatorRunA,
+			ExpectedSecondActivation,
+			First.Impact.GetRequest().Candidate.DetectorId,
+			Fixture.Coordinator.GetPlayerEntityId(),
+			0);
+	FShanmenDefenseSnapshot DefenseA;
+	FShanmenDefenseSnapshot DefenseB;
+	bool bDefenseReplayStable =
+		Fixture.Health->TryCaptureCombatDefenseSnapshot(
+			ExpectedSecondImpact,
+			DefenseA)
+		&& Fixture.Health->TryCaptureCombatDefenseSnapshot(
+			ExpectedSecondImpact,
+			DefenseB)
+		&& DefenseA.Layers.Num() == DefenseB.Layers.Num();
+	for (int32 Index = 0;
+		bDefenseReplayStable && Index < DefenseA.Layers.Num();
+		++Index)
+	{
+		bDefenseReplayStable =
+			DefenseA.Layers[Index].LayerId
+				== DefenseB.Layers[Index].LayerId
+			&& DefenseA.Layers[Index].RuleId
+				== DefenseB.Layers[Index].RuleId
+			&& DefenseA.Layers[Index].Operation
+				== DefenseB.Layers[Index].Operation
+			&& DefenseA.Layers[Index].Order
+				== DefenseB.Layers[Index].Order
+			&& FMath::IsNearlyEqual(
+				DefenseA.Layers[Index].Magnitude,
+				DefenseB.Layers[Index].Magnitude);
+	}
+	TestTrue(TEXT("Same ImpactId captures the same ordered player defense"),
+		bDefenseReplayStable);
+
+	Fdemo_mapModifierSpec RemainingDodge = HalfDodge;
+	RemainingDodge.SourceId = TEXT("P4.7.Test.RemainingDodge");
+	Fdemo_mapModifierHandle RemainingDodgeHandle;
+	TestTrue(TEXT("Full dodge prepares a guaranteed canonical avoidance layer"),
+		Attributes->AddModifier(RemainingDodge, RemainingDodgeHandle));
+	const Fdemo_mapM01EnemyBasicMeleeExecutionResult Evaded =
+		Fixture.Coordinator.ExecuteM01EnemyBasicMeleeStrike(
+			EnemyFixture.Enemy,
+			Fixture.Pawn,
+			3.0f);
+	TestTrue(TEXT("Second strike records full avoidance without a damage broadcast"),
+		Evaded.IsExecuted()
+			&& Evaded.ActivationId == ExpectedSecondActivation
+			&& Evaded.Impact.GetResult().Outcome
+				== EShanmenDefenseOutcome::Evaded
+			&& FMath::IsNearlyEqual(
+				Evaded.Impact.GetResult().PreventedDamage,
+				3.0f)
+			&& FMath::IsNearlyEqual(
+				Evaded.Impact.GetResult().FinalDamage,
+				0.0f)
+			&& Evaded.Impact.GetResult().TriggeredLayers.Num() == 1
+			&& Evaded.Impact.GetResult().TriggeredLayers[0].Operation
+				== EShanmenDefenseOperation::PreventAll
+			&& FMath::IsNearlyEqual(
+				Fixture.Health->GetCurrentVitality(),
+				3.0f)
+			&& Fixture.Health->GetCombatAuthorityRevision() == 2
+			&& Fixture.Health->NumCommittedCombatImpacts() == 2
+			&& Fixture.Health
+				->GetPositiveDamageBroadcastCountForAutomation() == 1);
+
+	TestTrue(TEXT("Exact first Run release succeeds"),
+		Fixture.Coordinator.TryEndRun(
+			CoordinatorRunA,
+			Fixture.Diagnostic));
+	TestTrue(TEXT("Persistent combatants bind the next Run"),
+		Fixture.Coordinator.TryBeginRun(
+			CoordinatorRunB,
+			Fixture.Pawn,
+			Fixture.Health,
+			Fixture.Diagnostic)
+			&& Fixture.Coordinator.TryRegisterM01Enemy(
+				EnemyFixture.Enemy,
+				Fixture.Diagnostic));
+	const Fdemo_mapCombatImpactDeliveryResult DelayedOldRun =
+		Fixture.Coordinator.DeliverM01EnemyBasicMeleeImpactToPlayer(
+			First.Impact,
+			EnemyFixture.Enemy);
+	TestTrue(TEXT("Old-Run enemy receipt is rejected before player mutation"),
+		DelayedOldRun.Error
+			== Edemo_mapCombatImpactDeliveryError::RunMismatch
+			&& !DelayedOldRun.CommitResult.IsValid()
+			&& FMath::IsNearlyEqual(
+				Fixture.Health->GetCurrentVitality(),
+				3.0f)
+			&& Fixture.Health->GetCombatAuthorityRevision() == 0
+			&& Fixture.Health->NumCommittedCombatImpacts() == 0);
+
+	const FGuid SecondRunSourceId = EnemyFixture.Enemy->GetCombatEntityId();
+	const Fdemo_mapM01EnemyBasicMeleeExecutionResult SecondRunFirst =
+		Fixture.Coordinator.ExecuteM01EnemyBasicMeleeStrike(
+			EnemyFixture.Enemy,
+			Fixture.Pawn,
+			3.0f);
+	const FGuid ExpectedSecondRunFirstActivation =
+		FShanmenCombatIdFactory::MakeActivationId(
+			CoordinatorRunB,
+			SecondRunSourceId,
+			SecondRunFirst.Impact.GetRequest().Action
+				.GetActionDefinitionId(),
+			1);
+	TestTrue(TEXT("New Run restarts per-enemy sequence under a distinct RunId"),
+		SecondRunFirst.IsExecuted()
+			&& SecondRunFirst.ActivationId
+				== ExpectedSecondRunFirstActivation
+			&& SecondRunFirst.ActivationId != First.ActivationId
+			&& Fixture.Health->GetCombatAuthorityRevision() == 1
+			&& Fixture.Health->NumCommittedCombatImpacts() == 1
+			&& Fixture.Health
+				->GetPositiveDamageBroadcastCountForAutomation() == 1);
 	return true;
 }
 

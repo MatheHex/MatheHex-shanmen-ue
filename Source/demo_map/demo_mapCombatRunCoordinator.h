@@ -21,6 +21,7 @@ enum class Edemo_mapCombatImpactDeliveryError : uint8
 	InvalidImpactReceipt,
 	RunMismatch,
 	SourceMismatch,
+	SourceNotRegistered,
 	TargetMismatch,
 	TargetNotRegistered,
 	TargetNotVitalityBound,
@@ -39,6 +40,55 @@ struct Fdemo_mapCombatImpactDeliveryResult
 	{
 		return Error == Edemo_mapCombatImpactDeliveryError::None
 			&& CommitResult.IsSuccess();
+	}
+};
+
+/** Frozen pure-kernel receipt for one authored M01 basic melee contact. */
+struct Fdemo_mapM01EnemyBasicMeleeImpactReceipt
+{
+public:
+	bool IsValid() const;
+	const FShanmenImpactRequest& GetRequest() const { return Request; }
+	const FShanmenImpactResult& GetResult() const { return Result; }
+
+private:
+	friend class Fdemo_mapCombatRunCoordinator;
+	FShanmenImpactRequest Request;
+	FShanmenImpactResult Result;
+};
+
+enum class Edemo_mapM01EnemyBasicMeleeExecutionError : uint8
+{
+	None,
+	CoordinatorNotReady,
+	SourceNotRegistered,
+	TargetMismatch,
+	InvalidDamage,
+	SequenceExhausted,
+	ActionConstructionFailed,
+	RuntimeStartFailed,
+	VitalitySnapshotFailed,
+	DefenseSnapshotFailed,
+	ImpactResolutionFailed,
+	DeliveryRejected,
+	RuntimeCompletionFailed
+};
+
+/** Auditable result for one real M01 basic melee contact decision. */
+struct Fdemo_mapM01EnemyBasicMeleeExecutionResult
+{
+	Edemo_mapM01EnemyBasicMeleeExecutionError Error =
+		Edemo_mapM01EnemyBasicMeleeExecutionError::CoordinatorNotReady;
+	FGuid ActivationId;
+	Fdemo_mapM01EnemyBasicMeleeImpactReceipt Impact;
+	Fdemo_mapCombatImpactDeliveryResult Delivery;
+
+	bool IsExecuted() const
+	{
+		return Error == Edemo_mapM01EnemyBasicMeleeExecutionError::None
+			&& ActivationId.IsValid()
+			&& Impact.IsValid()
+			&& Delivery.IsSuccess();
 	}
 };
 
@@ -127,6 +177,21 @@ public:
 	Fdemo_mapCombatImpactDeliveryResult DeliverBasicSwordImpactToM01Enemy(
 		const FShanmenBasicSwordImpactReceipt& Impact,
 		AActor* TargetEnemy);
+	Fdemo_mapCombatImpactDeliveryResult
+	DeliverM01EnemyBasicMeleeImpactToPlayer(
+		const Fdemo_mapM01EnemyBasicMeleeImpactReceipt& Impact,
+		AActor* SourceEnemy);
+	/**
+	 * Resolves one already-authorized M01 basic melee contact. Geometry,
+	 * cooldown, faction, and range stay with the product Actor; this boundary
+	 * owns stable action identity, player defense capture, pure resolution, and
+	 * the only player-vitality write.
+	 */
+	Fdemo_mapM01EnemyBasicMeleeExecutionResult
+	ExecuteM01EnemyBasicMeleeStrike(
+		AActor* SourceEnemy,
+		APawn* TargetPlayer,
+		float RawDamage);
 	/**
 	 * Executes one complete player BasicSword action from an already sampled UE
 	 * trajectory. Every accepted contact resolves through this Run's Registry;
@@ -155,5 +220,6 @@ private:
 	TWeakObjectPtr<Udemo_mapPlayerHealthComponent> BoundPlayerHealth;
 	TWeakObjectPtr<UPrimitiveComponent> BoundPlayerRoot;
 	TMap<FGuid, FM01EnemyBinding> M01EnemyBindings;
+	TMap<FGuid, uint64> NextM01EnemyBasicMeleeActivationSequences;
 	uint64 NextPlayerBasicSwordActivationSequence = 1;
 };

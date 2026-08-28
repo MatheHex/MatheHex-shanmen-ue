@@ -339,6 +339,45 @@ Ademo_mapGameMode::ExecuteM01PlayerBasicSwordSweep(
 	return Result;
 }
 
+bool Ademo_mapGameMode::ShouldUseM01EnemyBasicMeleeProductPath() const
+{
+	// M01 owns this routing decision even while the Run is still preparing:
+	// an unready canonical coordinator fails closed instead of double-writing
+	// through the retained legacy damage delegate.
+	return IsM01ExpeditionMap();
+}
+
+Fdemo_mapM01EnemyBasicMeleeExecutionResult
+Ademo_mapGameMode::ExecuteM01EnemyBasicMeleeStrike(
+	AActor* SourceEnemy,
+	APawn* TargetPlayer,
+	float RawDamage)
+{
+	Fdemo_mapM01EnemyBasicMeleeExecutionResult Result;
+	if (!ShouldUseM01EnemyBasicMeleeProductPath())
+	{
+		return Result;
+	}
+	Result = CombatRunCoordinator.ExecuteM01EnemyBasicMeleeStrike(
+		SourceEnemy,
+		TargetPlayer,
+		RawDamage);
+	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
+	UE_LOG(
+		Logdemo_map,
+		Log,
+		TEXT("0_0_10_ENEMY_MELEE Event=ProductStrike Error=%d ActivationId=%s ImpactId=%s Raw=%.3f Prevented=%.3f Final=%.3f Commit=%d"),
+		static_cast<int32>(Result.Error),
+		*Result.ActivationId.ToString(EGuidFormats::DigitsWithHyphens),
+		*Result.Impact.GetRequest().ImpactId.ToString(
+			EGuidFormats::DigitsWithHyphens),
+		Resolution.RawDamage,
+		Resolution.PreventedDamage,
+		Resolution.FinalDamage,
+		static_cast<int32>(Result.Delivery.CommitResult.Status));
+	return Result;
+}
+
 FString Ademo_mapGameMode::Get0909BProfileStorageRoot() const
 {
 	if (!Is0909BRuntimeReady())

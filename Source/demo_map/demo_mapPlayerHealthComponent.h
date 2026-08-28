@@ -53,6 +53,13 @@ public:
 	int64 GetCombatAuthorityRevision() const { return CombatVitalityLedger.GetAuthorityRevision(); }
 	int32 NumCommittedCombatImpacts() const { return CombatVitalityLedger.NumCommittedImpacts(); }
 	bool TryCaptureCombatVitalitySnapshot(FShanmenTargetVitalitySnapshot& OutSnapshot) const;
+	/**
+	 * Captures legacy player avoidance and flat reduction as deterministic,
+	 * ordered canonical defense layers for one stable ImpactId.
+	 */
+	bool TryCaptureCombatDefenseSnapshot(
+		const FGuid& ImpactId,
+		FShanmenDefenseSnapshot& OutSnapshot) const;
 	/** Applies already-resolved final damage without rerunning legacy defense or ApplyDamage. */
 	FShanmenVitalityCommitResult CommitCombatImpact(const FShanmenVitalityCommitCommand& Command);
 

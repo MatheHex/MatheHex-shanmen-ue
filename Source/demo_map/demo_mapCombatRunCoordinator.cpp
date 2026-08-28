@@ -51,6 +51,42 @@ namespace
 			: nullptr;
 	}
 
+	FName M01EnemyBasicMeleeActionDefinitionId()
+	{
+		return TEXT("Combat.Action.Enemy.Melee.Basic01");
+	}
+
+	FName M01EnemyBasicMeleeDetectorId()
+	{
+		return TEXT("Detector.Enemy.Melee.Contact");
+	}
+
+	FName M01EnemyBasicMeleeFormulaId()
+	{
+		return TEXT("Combat.Formula.Enemy.Melee.Basic01.r1");
+	}
+
+	bool TryBuildM01EnemyBasicMeleeAction(
+		const FGuid& RunId,
+		const FGuid& SourceEntityId,
+		uint64 ActivationSequence,
+		FShanmenCombatActionSnapshot& OutAction)
+	{
+		FShanmenCombatActionCapture Capture;
+		Capture.RunId = RunId;
+		Capture.OwnerId = SourceEntityId;
+		Capture.SourceEntityId = SourceEntityId;
+		Capture.ActionDefinitionId = M01EnemyBasicMeleeActionDefinitionId();
+		Capture.Content.Version = TEXT("0.0.10.P4.7");
+		Capture.Content.Digest = TEXT("Shanmen.M01Enemy.BasicMelee.Contact.r1");
+		Capture.ActivationId = FShanmenCombatIdFactory::MakeActivationId(
+			RunId,
+			SourceEntityId,
+			Capture.ActionDefinitionId,
+			ActivationSequence);
+		return FShanmenCombatActionSnapshot::TryCapture(Capture, OutAction);
+	}
+
 	bool TryBuildProductBasicSwordDefinition(
 		FShanmenBasicSwordDefinition& OutDefinition)
 	{
@@ -98,6 +134,27 @@ namespace
 			ActivationSequence);
 		return FShanmenCombatActionSnapshot::TryCapture(Capture, OutAction);
 	}
+}
+
+bool Fdemo_mapM01EnemyBasicMeleeImpactReceipt::IsValid() const
+{
+	return Request.IsValid()
+		&& Request.Action.GetActionDefinitionId()
+			== M01EnemyBasicMeleeActionDefinitionId()
+		&& Request.Action.GetOwnerId()
+			== Request.Action.GetSourceEntityId()
+		&& Request.Candidate.DetectorId == M01EnemyBasicMeleeDetectorId()
+		&& Request.Candidate.DetectorKind == EShanmenHitDetectorKind::Shape
+		&& Request.Candidate.SourceEntityId
+			!= Request.Candidate.TargetEntityId
+		&& Request.Damage.FormulaId == M01EnemyBasicMeleeFormulaId()
+		&& Request.Damage.DamageTags.HasTag(
+			FShanmenCombatNativeTags::DamagePhysical())
+		&& Request.Defense.TargetTags.HasTag(
+			FShanmenCombatNativeTags::TargetLiving())
+		&& Result.bAccepted
+		&& Result.ImpactId == Request.ImpactId
+		&& Result.IsConserved();
 }
 
 FName Fdemo_mapCombatRunCoordinator::PlayerSpawnSourceId()
@@ -383,6 +440,7 @@ bool Fdemo_mapCombatRunCoordinator::TryEndRun(
 	}
 
 	M01EnemyBindings.Reset();
+	NextM01EnemyBasicMeleeActivationSequences.Reset();
 	PlayerEntityId.Invalidate();
 	BoundPlayerPawn.Reset();
 	BoundPlayerHealth.Reset();
@@ -408,6 +466,7 @@ void Fdemo_mapCombatRunCoordinator::Reset()
 	}
 	EntityRegistry.Reset();
 	M01EnemyBindings.Reset();
+	NextM01EnemyBasicMeleeActivationSequences.Reset();
 	PlayerEntityId.Invalidate();
 	BoundPlayerPawn.Reset();
 	BoundPlayerHealth.Reset();
@@ -583,6 +642,280 @@ Fdemo_mapCombatRunCoordinator::DeliverBasicSwordImpactToM01Enemy(
 		? Edemo_mapCombatImpactDeliveryError::None
 		: Edemo_mapCombatImpactDeliveryError::CommitRejected;
 	return Delivery;
+}
+
+Fdemo_mapCombatImpactDeliveryResult
+Fdemo_mapCombatRunCoordinator::DeliverM01EnemyBasicMeleeImpactToPlayer(
+	const Fdemo_mapM01EnemyBasicMeleeImpactReceipt& Impact,
+	AActor* SourceEnemy)
+{
+	Fdemo_mapCombatImpactDeliveryResult Delivery;
+	if (!IsReady())
+	{
+		Delivery.Error =
+			Edemo_mapCombatImpactDeliveryError::CoordinatorNotReady;
+		return Delivery;
+	}
+	if (!Impact.IsValid())
+	{
+		Delivery.Error =
+			Edemo_mapCombatImpactDeliveryError::InvalidImpactReceipt;
+		return Delivery;
+	}
+	const FShanmenImpactRequest& Request = Impact.GetRequest();
+	if (Request.Action.GetRunId() != GetRunId())
+	{
+		Delivery.Error = Edemo_mapCombatImpactDeliveryError::RunMismatch;
+		return Delivery;
+	}
+	if (!SourceEnemy)
+	{
+		Delivery.Error =
+			Edemo_mapCombatImpactDeliveryError::SourceNotRegistered;
+		return Delivery;
+	}
+
+	FGuid SourceEntityId;
+	if (!EntityRegistry.TryResolveObject(
+		GetRunId(), SourceEnemy, INDEX_NONE, SourceEntityId))
+	{
+		Delivery.Error =
+			Edemo_mapCombatImpactDeliveryError::SourceNotRegistered;
+		return Delivery;
+	}
+	const FM01EnemyBinding* Binding = M01EnemyBindings.Find(SourceEntityId);
+	Idemo_mapCombatVitalityHost* SourceVitalityHost =
+		ResolveM01VitalityHost(SourceEnemy);
+	if (!Binding || Binding->Actor.Get() != SourceEnemy
+		|| !SourceVitalityHost
+		|| !SourceVitalityHost->IsCombatEntityBound()
+		|| SourceVitalityHost->GetCombatEntityId() != SourceEntityId)
+	{
+		Delivery.Error =
+			Edemo_mapCombatImpactDeliveryError::SourceNotRegistered;
+		return Delivery;
+	}
+	if (Request.Action.GetSourceEntityId() != SourceEntityId)
+	{
+		Delivery.Error = Edemo_mapCombatImpactDeliveryError::SourceMismatch;
+		return Delivery;
+	}
+	if (Request.Candidate.TargetEntityId != PlayerEntityId)
+	{
+		Delivery.Error = Edemo_mapCombatImpactDeliveryError::TargetMismatch;
+		return Delivery;
+	}
+
+	FShanmenVitalityCommitCommand Command;
+	if (!FShanmenVitalityCommitCommand::TryCreate(
+		Request,
+		Impact.GetResult(),
+		Command))
+	{
+		Delivery.Error =
+			Edemo_mapCombatImpactDeliveryError::CommandConstructionFailed;
+		return Delivery;
+	}
+	Delivery.CommitResult = BoundPlayerHealth->CommitCombatImpact(Command);
+	Delivery.Error = Delivery.CommitResult.IsSuccess()
+		? Edemo_mapCombatImpactDeliveryError::None
+		: Edemo_mapCombatImpactDeliveryError::CommitRejected;
+	return Delivery;
+}
+
+Fdemo_mapM01EnemyBasicMeleeExecutionResult
+Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyBasicMeleeStrike(
+	AActor* SourceEnemy,
+	APawn* TargetPlayer,
+	float RawDamage)
+{
+	Fdemo_mapM01EnemyBasicMeleeExecutionResult ProductResult;
+	if (!IsReady())
+	{
+		return ProductResult;
+	}
+	if (TargetPlayer != BoundPlayerPawn.Get())
+	{
+		ProductResult.Error =
+			Edemo_mapM01EnemyBasicMeleeExecutionError::TargetMismatch;
+		return ProductResult;
+	}
+	if (!FMath::IsFinite(RawDamage) || RawDamage <= 0.0f)
+	{
+		ProductResult.Error =
+			Edemo_mapM01EnemyBasicMeleeExecutionError::InvalidDamage;
+		return ProductResult;
+	}
+	if (BoundPlayerHealth->IsDefeated())
+	{
+		ProductResult.Error =
+			Edemo_mapM01EnemyBasicMeleeExecutionError::TargetMismatch;
+		return ProductResult;
+	}
+
+	FGuid SourceEntityId;
+	if (!SourceEnemy
+		|| !EntityRegistry.TryResolveObject(
+			GetRunId(), SourceEnemy, INDEX_NONE, SourceEntityId))
+	{
+		ProductResult.Error =
+			Edemo_mapM01EnemyBasicMeleeExecutionError::SourceNotRegistered;
+		return ProductResult;
+	}
+	const FM01EnemyBinding* Binding = M01EnemyBindings.Find(SourceEntityId);
+	Idemo_mapCombatVitalityHost* SourceVitalityHost =
+		ResolveM01VitalityHost(SourceEnemy);
+	FShanmenTargetVitalitySnapshot SourceVitality;
+	if (!Binding || Binding->Actor.Get() != SourceEnemy
+		|| !SourceVitalityHost
+		|| !SourceVitalityHost->IsCombatEntityBound()
+		|| SourceVitalityHost->GetCombatEntityId() != SourceEntityId
+		|| !SourceVitalityHost->TryCaptureCombatVitalitySnapshot(
+			SourceVitality)
+		|| SourceVitality.CurrentVitality <= 0.0f)
+	{
+		ProductResult.Error =
+			Edemo_mapM01EnemyBasicMeleeExecutionError::SourceNotRegistered;
+		return ProductResult;
+	}
+
+	uint64 ActivationSequence = 1;
+	if (const uint64* Existing =
+		NextM01EnemyBasicMeleeActivationSequences.Find(SourceEntityId))
+	{
+		ActivationSequence = *Existing;
+	}
+	if (ActivationSequence == 0 || ActivationSequence == MAX_uint64)
+	{
+		ProductResult.Error =
+			Edemo_mapM01EnemyBasicMeleeExecutionError::SequenceExhausted;
+		return ProductResult;
+	}
+
+	FShanmenCombatActionSnapshot Action;
+	if (!TryBuildM01EnemyBasicMeleeAction(
+		GetRunId(),
+		SourceEntityId,
+		ActivationSequence,
+		Action))
+	{
+		ProductResult.Error =
+			Edemo_mapM01EnemyBasicMeleeExecutionError::ActionConstructionFailed;
+		return ProductResult;
+	}
+	FShanmenActionOrchestrator ActionRuntime;
+	FShanmenActionTransitionReceipt Transition;
+	if (!FShanmenActionOrchestrator::TryStart(
+		Action,
+		ActionRuntime,
+		Transition)
+		|| !ActionRuntime.TryAdvance(
+			EShanmenCombatActionPhase::Startup,
+			Transition))
+	{
+		ProductResult.Error =
+			Edemo_mapM01EnemyBasicMeleeExecutionError::RuntimeStartFailed;
+		return ProductResult;
+	}
+	ProductResult.ActivationId = Action.GetActivationId();
+	NextM01EnemyBasicMeleeActivationSequences.Add(
+		SourceEntityId,
+		ActivationSequence + 1);
+
+	FShanmenHitCandidate Candidate;
+	Candidate.ActivationId = Action.GetActivationId();
+	Candidate.SourceEntityId = SourceEntityId;
+	Candidate.TargetEntityId = PlayerEntityId;
+	Candidate.DetectorId = M01EnemyBasicMeleeDetectorId();
+	Candidate.DetectorKind = EShanmenHitDetectorKind::Shape;
+	Candidate.HitLocation = TargetPlayer->GetActorLocation();
+	FVector SourceToTarget =
+		TargetPlayer->GetActorLocation() - SourceEnemy->GetActorLocation();
+	Candidate.HitNormal = SourceToTarget.Normalize()
+		? -SourceToTarget
+		: FVector::UpVector;
+	Candidate.HitOrdinal = 0;
+
+	FShanmenTargetVitalitySnapshot TargetVitality;
+	if (!BoundPlayerHealth->TryCaptureCombatVitalitySnapshot(TargetVitality))
+	{
+		ActionRuntime.TryInterrupt(
+			EShanmenCombatActionPhase::Active,
+			Transition);
+		ProductResult.Error =
+			Edemo_mapM01EnemyBasicMeleeExecutionError::VitalitySnapshotFailed;
+		return ProductResult;
+	}
+	const FGuid ImpactId = FShanmenCombatIdFactory::MakeImpactId(
+		GetRunId(),
+		Action.GetActivationId(),
+		Candidate.DetectorId,
+		PlayerEntityId,
+		Candidate.HitOrdinal);
+	FShanmenDefenseSnapshot Defense;
+	if (!BoundPlayerHealth->TryCaptureCombatDefenseSnapshot(
+		ImpactId,
+		Defense))
+	{
+		ActionRuntime.TryInterrupt(
+			EShanmenCombatActionPhase::Active,
+			Transition);
+		ProductResult.Error =
+			Edemo_mapM01EnemyBasicMeleeExecutionError::DefenseSnapshotFailed;
+		return ProductResult;
+	}
+
+	FShanmenImpactRequest Request;
+	Request.ImpactId = ImpactId;
+	Request.Action = Action;
+	Request.Candidate = Candidate;
+	Request.Damage.FormulaId = M01EnemyBasicMeleeFormulaId();
+	Request.Damage.RawDamage = RawDamage;
+	Request.Damage.DamageTags.AddTag(
+		FShanmenCombatNativeTags::DamagePhysical());
+	Request.TargetVitality = TargetVitality;
+	Request.Defense = Defense;
+	const FShanmenImpactResult Resolution =
+		FShanmenDefenseResolver::Resolve(Request);
+	ProductResult.Impact.Request = MoveTemp(Request);
+	ProductResult.Impact.Result = Resolution;
+	if (!ProductResult.Impact.IsValid())
+	{
+		ActionRuntime.TryInterrupt(
+			EShanmenCombatActionPhase::Active,
+			Transition);
+		ProductResult.Error =
+			Edemo_mapM01EnemyBasicMeleeExecutionError::ImpactResolutionFailed;
+		return ProductResult;
+	}
+
+	ProductResult.Delivery = DeliverM01EnemyBasicMeleeImpactToPlayer(
+		ProductResult.Impact,
+		SourceEnemy);
+	if (!ProductResult.Delivery.IsSuccess())
+	{
+		ActionRuntime.TryInterrupt(
+			EShanmenCombatActionPhase::Active,
+			Transition);
+		ProductResult.Error =
+			Edemo_mapM01EnemyBasicMeleeExecutionError::DeliveryRejected;
+		return ProductResult;
+	}
+	if (!ActionRuntime.TryAdvance(
+		EShanmenCombatActionPhase::Active,
+		Transition)
+		|| !ActionRuntime.TryAdvance(
+			EShanmenCombatActionPhase::Recovery,
+			Transition))
+	{
+		ProductResult.Error =
+			Edemo_mapM01EnemyBasicMeleeExecutionError::RuntimeCompletionFailed;
+		return ProductResult;
+	}
+
+	ProductResult.Error =
+		Edemo_mapM01EnemyBasicMeleeExecutionError::None;
+	return ProductResult;
 }
 
 Fdemo_mapBasicSwordProductExecutionResult

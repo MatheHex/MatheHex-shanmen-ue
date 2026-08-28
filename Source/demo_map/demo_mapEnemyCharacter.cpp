@@ -328,8 +328,25 @@ void Ademo_mapEnemyCharacter::AttackPlayer(APawn* PlayerPawn)
 	}
 	if (EnemyLight != nullptr) EnemyLight->SetLightColor(FLinearColor::Yellow);
 	GetWorldTimerManager().SetTimer(AttackFeedbackTimer, this, &Ademo_mapEnemyCharacter::ClearAttackFeedback, 0.18f, false);
+	if (Ademo_mapGameMode* GameMode =
+		GetWorld()->GetAuthGameMode<Ademo_mapGameMode>();
+		GameMode && GameMode->ShouldUseM01EnemyBasicMeleeProductPath())
+	{
+		const Fdemo_mapM01EnemyBasicMeleeExecutionResult Product =
+			GameMode->ExecuteM01EnemyBasicMeleeStrike(
+				this,
+				PlayerPawn,
+				AttackDamage);
+		UE_LOG(
+			Logdemo_map,
+			Log,
+			TEXT("0_0_10_ENEMY_MELEE Event=ActorRoute Executed=%d Error=%d"),
+			Product.IsExecuted() ? 1 : 0,
+			static_cast<int32>(Product.Error));
+		return;
+	}
 	UGameplayStatics::ApplyDamage(PlayerPawn, AttackDamage, GetController(), this, nullptr);
-	UE_LOG(Logdemo_map, Log, TEXT("T7: enemy attack applied; damage=1 cooldown=%.2f."), AttackCooldown);
+	UE_LOG(Logdemo_map, Log, TEXT("T7: enemy attack applied; damage=%.2f cooldown=%.2f."), AttackDamage, AttackCooldown);
 	UE_LOG(Logdemo_map, Log, TEXT("T7R: enemy attack applied damage."));
 }
 

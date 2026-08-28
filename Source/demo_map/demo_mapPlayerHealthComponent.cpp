@@ -1,5 +1,7 @@
 #include "demo_mapPlayerHealthComponent.h"
 #include "demo_map.h"
+#include "ShanmenCombatTags.h"
+#include "ShanmenDeterministicId.h"
 #include "demo_mapAttributeComponent.h"
 #include "demo_mapAttributeDefinitions.h"
 #include "GameFramework/Character.h"
@@ -8,6 +10,45 @@
 #include "Components/PointLightComponent.h"
 #include "Components/TextRenderComponent.h"
 #include "TimerManager.h"
+
+namespace
+{
+	FName PlayerAvoidanceRuleId()
+	{
+		return TEXT("Combat.Defense.Player.Dodge.r1");
+	}
+
+	FName PlayerFlatReductionRuleId()
+	{
+		return TEXT("Combat.Defense.Player.FlatDamageReduction.r1");
+	}
+
+	FGuid MakePlayerDefenseLayerId(
+		const FGuid& TargetEntityId,
+		FName RuleId)
+	{
+		return FShanmenDeterministicId::FromCanonicalParts(
+			TEXT("Shanmen.Combat.PlayerDefenseLayer.r1"),
+			{
+				TargetEntityId.ToString(EGuidFormats::Digits),
+				RuleId.ToString()
+			});
+	}
+
+	float MakeDeterministicDefenseRoll(
+		const FGuid& ImpactId,
+		FName RuleId)
+	{
+		const FGuid RollId = FShanmenDeterministicId::FromCanonicalParts(
+			TEXT("Shanmen.Combat.PlayerDefenseRoll.r1"),
+			{
+				ImpactId.ToString(EGuidFormats::Digits),
+				RuleId.ToString()
+			});
+		return static_cast<float>(
+			static_cast<double>(RollId.A) / 4294967296.0);
+	}
+}
 
 Udemo_mapPlayerHealthComponent::Udemo_mapPlayerHealthComponent()
 {
@@ -159,6 +200,75 @@ bool Udemo_mapPlayerHealthComponent::TryCaptureCombatVitalitySnapshot(
 		CurrentVitality,
 		MaximumVitality,
 		OutSnapshot);
+}
+
+bool Udemo_mapPlayerHealthComponent::TryCaptureCombatDefenseSnapshot(
+	const FGuid& ImpactId,
+	FShanmenDefenseSnapshot& OutSnapshot) const
+{
+	OutSnapshot = FShanmenDefenseSnapshot();
+	if (!ImpactId.IsValid() || !CombatVitalityLedger.IsValid()
+		|| bIsDefeated)
+	{
+		return false;
+	}
+
+	float DodgeChance = 0.0f;
+	float FlatDamageReduction = 0.0f;
+	if (AttributeComponent.IsValid())
+	{
+		AttributeComponent->GetFinalValue(
+			Fdemo_mapAttributeIds::DodgeChance,
+			DodgeChance);
+		AttributeComponent->GetFinalValue(
+			Fdemo_mapAttributeIds::FlatDamageReduction,
+			FlatDamageReduction);
+	}
+	if (!FMath::IsFinite(DodgeChance)
+		|| !FMath::IsFinite(FlatDamageReduction))
+	{
+		return false;
+	}
+
+	OutSnapshot.TargetTags.AddTag(
+		FShanmenCombatNativeTags::TargetLiving());
+	const FName AvoidanceRule = PlayerAvoidanceRuleId();
+	if (ShouldDodge(
+		DodgeChance,
+		MakeDeterministicDefenseRoll(ImpactId, AvoidanceRule)))
+	{
+		FShanmenDefenseLayer& Avoidance = OutSnapshot.Layers.AddDefaulted_GetRef();
+		Avoidance.LayerId = MakePlayerDefenseLayerId(
+			CombatVitalityLedger.GetTargetEntityId(),
+			AvoidanceRule);
+		Avoidance.RuleId = AvoidanceRule;
+		Avoidance.Operation = EShanmenDefenseOperation::PreventAll;
+		Avoidance.Order = FShanmenDefenseOrder::Avoidance;
+		Avoidance.LayerTags.AddTag(
+			FShanmenCombatNativeTags::DefenseEvade());
+		Avoidance.RequiredTargetTags.AddTag(
+			FShanmenCombatNativeTags::TargetLiving());
+	}
+
+	const float Reduction = FMath::Max(0.0f, FlatDamageReduction);
+	if (Reduction > 0.0f)
+	{
+		const FName ReductionRule = PlayerFlatReductionRuleId();
+		FShanmenDefenseLayer& Armor = OutSnapshot.Layers.AddDefaulted_GetRef();
+		Armor.LayerId = MakePlayerDefenseLayerId(
+			CombatVitalityLedger.GetTargetEntityId(),
+			ReductionRule);
+		Armor.RuleId = ReductionRule;
+		Armor.Operation = EShanmenDefenseOperation::AbsorbPoints;
+		Armor.Order = FShanmenDefenseOrder::Resistance;
+		Armor.Magnitude = Reduction;
+		Armor.LayerTags.AddTag(
+			FShanmenCombatNativeTags::DefenseArmor());
+		Armor.RequiredTargetTags.AddTag(
+			FShanmenCombatNativeTags::TargetLiving());
+	}
+
+	return OutSnapshot.IsValid();
 }
 
 FShanmenVitalityCommitResult Udemo_mapPlayerHealthComponent::CommitCombatImpact(
