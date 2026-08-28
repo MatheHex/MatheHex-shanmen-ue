@@ -8,6 +8,44 @@
 
 namespace
 {
+	bool ActionsMatch(
+		const FShanmenCombatActionSnapshot& Left,
+		const FShanmenCombatActionSnapshot& Right)
+	{
+		return Left.IsValid()
+			&& Right.IsValid()
+			&& Left.GetRunId() == Right.GetRunId()
+			&& Left.GetOwnerId() == Right.GetOwnerId()
+			&& Left.GetActivationId() == Right.GetActivationId()
+			&& Left.GetSourceEntityId() == Right.GetSourceEntityId()
+			&& Left.GetSourceItemInstanceId()
+				== Right.GetSourceItemInstanceId()
+			&& Left.GetActionDefinitionId()
+				== Right.GetActionDefinitionId()
+			&& Left.GetContent().Version == Right.GetContent().Version
+			&& Left.GetContent().Digest == Right.GetContent().Digest
+			&& Left.GetSourceTags() == Right.GetSourceTags();
+	}
+
+	bool DefinitionsMatch(
+		const FShanmenControlledWeaponDefinition& Left,
+		const FShanmenControlledWeaponDefinition& Right)
+	{
+		return Left.IsValid()
+			&& Right.IsValid()
+			&& Left.GetActionDefinitionId()
+				== Right.GetActionDefinitionId()
+			&& Left.GetDetectorId() == Right.GetDetectorId()
+			&& Left.GetFormulaId() == Right.GetFormulaId()
+			&& Left.GetBaseDamage() == Right.GetBaseDamage()
+			&& Left.GetControlPowerCoefficient()
+				== Right.GetControlPowerCoefficient()
+			&& Left.GetDamageTags() == Right.GetDamageTags()
+			&& Left.GetRequiredTargetTags()
+				== Right.GetRequiredTargetTags()
+			&& Left.RejectsSelf() == Right.RejectsSelf();
+	}
+
 	template <typename TValue>
 	const TValue* FindById(
 		const TArray<TValue>& Values,
@@ -58,7 +96,17 @@ bool Fdemo_mapShanmenControlledWeaponPrepareResult::IsPrepared() const
 		&& Execution.IsValid()
 		&& Action.GetRunId() == Evidence.ActiveRunId
 		&& Action.GetOwnerId() == Evidence.OwnerId
-		&& Action.GetSourceItemInstanceId() == Evidence.ItemInstanceId;
+		&& Action.GetSourceItemInstanceId() == Evidence.ItemInstanceId
+		&& Action.GetContent().Version == Evidence.Content.Version
+		&& Action.GetContent().Digest == Evidence.Content.Digest
+		&& Action.GetSourceTags().HasTagExact(
+			FShanmenItemNativeTags::ItemWeaponFlyingSword())
+		&& Action.GetActionDefinitionId()
+			== Definition.GetActionDefinitionId()
+		&& ActionsMatch(Action, Execution.GetAction())
+		&& DefinitionsMatch(Definition, Execution.GetDefinition())
+		&& Offense.GetControlPower()
+			== Execution.GetOffense().GetControlPower();
 }
 
 Fdemo_mapShanmenControlledWeaponPrepareResult

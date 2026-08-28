@@ -234,6 +234,7 @@ public:
 	int32 NumAcceptedImpacts() const { return ImpactLedger.Num(); }
 	const FShanmenCombatActionSnapshot& GetAction() const { return Action; }
 	const FShanmenControlledWeaponDefinition& GetDefinition() const { return Definition; }
+	const FShanmenControlledWeaponOffenseSnapshot& GetOffense() const { return Offense; }
 
 private:
 	bool MatchesActionRuntime(const FShanmenActionOrchestrator& ActionRuntime) const;
