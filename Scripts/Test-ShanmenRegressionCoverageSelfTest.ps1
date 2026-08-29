@@ -135,6 +135,9 @@ try
     $FormationCoverageCoordinator = New-AutomationLogFixture `
         -Name 'formation-coverage-coordinator.log' `
         -Group 'Shanmen.0_0_10.Product.FormationCoverageCoordinator'
+    $FormationInfluenceIntents = New-AutomationLogFixture `
+        -Name 'formation-influence-intents.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationInfluenceIntents'
     $Legacy = New-AutomationLogFixture `
         -Name 'legacy.log' `
         -Group 'demo_map'
@@ -218,6 +221,12 @@ try
         -Name 'formation coverage coordinator is covered by broad full evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationCoverageCoordinator.cpp') `
+        -Logs @($Full)
+
+    Invoke-ExpectedPass `
+        -Name 'formation influence intents are covered by broad full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceIntentPlanner.cpp') `
         -Logs @($Full)
 
     Invoke-ExpectedPass `
@@ -403,6 +412,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationCoverageCoordinator.cpp') `
         -Logs @($FormationCoverageCoordinator) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'formation influence child evidence cannot replace transition and World contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceIntentPlanner.cpp') `
+        -Logs @($FormationInfluenceIntents) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
