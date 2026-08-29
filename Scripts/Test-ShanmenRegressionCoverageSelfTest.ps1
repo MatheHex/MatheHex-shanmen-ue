@@ -102,6 +102,9 @@ try
     $ItemUse = New-AutomationLogFixture `
         -Name 'item-use.log' `
         -Group 'demo_map.ItemUseAndArmor'
+    $ThrownRuntime = New-AutomationLogFixture `
+        -Name 'thrown-runtime.log' `
+        -Group 'Shanmen.0_0_10.CombatRuntime.ThrownWeapon'
     $Legacy = New-AutomationLogFixture `
         -Name 'legacy.log' `
         -Group 'demo_map'
@@ -126,6 +129,12 @@ try
         -Paths @(
             'Docs/Report/example.md',
             'Scripts/example.ps1')
+
+    Invoke-ExpectedPass `
+        -Name 'formation deployment core is covered by broad full evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Private/ShanmenFormationDeployment.cpp') `
+        -Logs @($Full)
 
     Invoke-ExpectedPass `
         -Name 'player health maps to focused vitality plus full regression' `
@@ -243,6 +252,13 @@ try
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
+        -Name 'unrelated thrown runtime evidence cannot cover formation deployment' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Private/ShanmenFormationDeployment.cpp') `
+        -Logs @($ThrownRuntime) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
         -Name 'run host cannot use coordinator-only evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenControlledWeaponRunHost.cpp') `
@@ -312,7 +328,7 @@ try
         -Logs @($Full) `
         -ExpectedText 'missing required groups'
 
-    Write-Output 'SELF_TEST: PASS 30/30'
+    Write-Output 'SELF_TEST: PASS 32/32'
 }
 finally
 {

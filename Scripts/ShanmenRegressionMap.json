@@ -32,6 +32,13 @@
       ]
     },
     {
+      "name": "FormationDeploymentCore",
+      "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenFormationDeployment\\.h|Private/(?:ShanmenFormationDeployment\\.cpp|Tests/ShanmenFormationDeploymentTests\\.cpp))$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.CombatRuntime.FormationDeployment"
+      ]
+    },
+    {
       "name": "WorldGameplay",
       "pathRegex": "^Source/ShanmenWorldGameplay/",
       "requiredGroups": [
