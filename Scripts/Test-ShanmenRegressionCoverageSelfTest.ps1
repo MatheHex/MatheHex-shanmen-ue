@@ -9,6 +9,7 @@ $Mapping = Join-Path $PSScriptRoot 'ShanmenRegressionMap.json'
 $FixtureRoot = Join-Path ([System.IO.Path]::GetTempPath()) (
     'shanmen-regression-coverage-' + [guid]::NewGuid().ToString('N'))
 [void](New-Item -ItemType Directory -Path $FixtureRoot)
+$script:SelfTestPassCount = 0
 
 function New-AutomationLogFixture {
     param(
@@ -48,6 +49,7 @@ function Invoke-ExpectedPass {
             throw 'PASS marker missing'
         }
         Write-Output "SELF_TEST: PASS $Name"
+        $script:SelfTestPassCount++
     }
     catch
     {
@@ -77,6 +79,7 @@ function Invoke-ExpectedFail {
             throw "SELF_TEST: $Name failed for the wrong reason: $($_.Exception.Message)"
         }
         Write-Output "SELF_TEST: PASS $Name"
+        $script:SelfTestPassCount++
         return
     }
     throw "SELF_TEST: expected failure for $Name"
@@ -129,6 +132,9 @@ try
     $FormationCoverageTracker = New-AutomationLogFixture `
         -Name 'formation-coverage-tracker.log' `
         -Group 'Shanmen.0_0_10.Product.FormationCoverageTracker'
+    $FormationCoverageCoordinator = New-AutomationLogFixture `
+        -Name 'formation-coverage-coordinator.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationCoverageCoordinator'
     $Legacy = New-AutomationLogFixture `
         -Name 'legacy.log' `
         -Group 'demo_map'
@@ -206,6 +212,12 @@ try
         -Name 'formation coverage tracker is covered by broad full evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationCoverageTracker.cpp') `
+        -Logs @($Full)
+
+    Invoke-ExpectedPass `
+        -Name 'formation coverage coordinator is covered by broad full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationCoverageCoordinator.cpp') `
         -Logs @($Full)
 
     Invoke-ExpectedPass `
@@ -387,6 +399,13 @@ try
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
+        -Name 'formation coordinator child evidence cannot replace tracker and World contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationCoverageCoordinator.cpp') `
+        -Logs @($FormationCoverageCoordinator) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
         -Name 'run host cannot use coordinator-only evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenControlledWeaponRunHost.cpp') `
@@ -456,7 +475,8 @@ try
         -Logs @($Full) `
         -ExpectedText 'missing required groups'
 
-    Write-Output 'SELF_TEST: PASS 49/49'
+    Write-Output (
+        'SELF_TEST: PASS {0}/{0}' -f $script:SelfTestPassCount)
 }
 finally
 {
