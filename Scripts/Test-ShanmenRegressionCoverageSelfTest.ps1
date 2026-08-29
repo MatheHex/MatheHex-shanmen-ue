@@ -175,6 +175,12 @@ try
             'Source/demo_map/demo_mapShanmenThrownWeaponRunCommandRouter.cpp') `
         -Logs @($Full)
 
+    Invoke-ExpectedPass `
+        -Name 'thrown weapon product controller maps selection through every authority seam' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenThrownWeaponProductController.cpp') `
+        -Logs @($Full)
+
     Invoke-ExpectedFail `
         -Name 'missing mapped group fails closed' `
         -Paths @('Source/demo_map/demo_mapSkillComponent.cpp') `
@@ -240,7 +246,14 @@ try
         -Logs @($Coordinator) `
         -ExpectedText 'missing required groups'
 
-    Write-Output 'SELF_TEST: PASS 20/20'
+    Invoke-ExpectedFail `
+        -Name 'thrown product controller cannot use coordinator-only evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenThrownWeaponProductController.cpp') `
+        -Logs @($Coordinator) `
+        -ExpectedText 'missing required groups'
+
+    Write-Output 'SELF_TEST: PASS 22/22'
 }
 finally
 {

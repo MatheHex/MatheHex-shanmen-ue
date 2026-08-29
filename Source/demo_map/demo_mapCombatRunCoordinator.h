@@ -234,6 +234,18 @@ struct Fdemo_mapPlayerProjectileLaunchResult
 	}
 };
 
+/** Run-owned deterministic identity reserved for one exact physical throw. */
+struct Fdemo_mapPlayerThrownWeaponActionReservation
+{
+	uint64 ActivationSequence = 0;
+	FGuid ActivationId;
+	FGuid RunId;
+	FGuid SourceEntityId;
+	FGuid SourceItemInstanceId;
+
+	bool IsValid() const;
+};
+
 /** Frozen pure-kernel receipt for one player Straight Projectile contact. */
 struct Fdemo_mapPlayerProjectileImpactReceipt
 {
@@ -491,6 +503,11 @@ public:
 	Fdemo_mapPlayerProjectileLaunchResult PreparePlayerStraightProjectile(
 		AActor* SourcePlayer,
 		float RawDamage);
+	/** Reserves the next Run-local action identity without choosing product data. */
+	bool TryReservePlayerThrownWeaponAction(
+		const FGuid& SourceItemInstanceId,
+		Fdemo_mapPlayerThrownWeaponActionReservation& OutReservation,
+		FString& OutDiagnostic);
 	/** Resolves one already-authorized hostile projectile contact. */
 	Fdemo_mapPlayerProjectileImpactResult
 	ExecutePlayerStraightProjectileImpact(
@@ -511,6 +528,10 @@ public:
 	uint64 GetNextPlayerStraightProjectileActivationSequence() const
 	{
 		return NextPlayerStraightProjectileActivationSequence;
+	}
+	uint64 GetNextPlayerThrownWeaponActivationSequence() const
+	{
+		return NextPlayerThrownWeaponActivationSequence;
 	}
 
 private:
@@ -550,4 +571,5 @@ private:
 	uint64 NextPlayerGroundCircleActivationSequence = 1;
 	uint64 NextPlayerSelfSectorActivationSequence = 1;
 	uint64 NextPlayerStraightProjectileActivationSequence = 1;
+	uint64 NextPlayerThrownWeaponActivationSequence = 1;
 };

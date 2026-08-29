@@ -505,6 +505,20 @@ bool Fdemo_mapPlayerProjectileImpactReceipt::IsValid() const
 		&& Result.IsConserved();
 }
 
+bool Fdemo_mapPlayerThrownWeaponActionReservation::IsValid() const
+{
+	return ActivationSequence > 0
+		&& ActivationId.IsValid()
+		&& RunId.IsValid()
+		&& SourceEntityId.IsValid()
+		&& SourceItemInstanceId.IsValid()
+		&& ActivationId == FShanmenCombatIdFactory::MakeActivationId(
+			RunId,
+			SourceEntityId,
+			FShanmenThrownWeaponDefinition::CanonicalActionDefinitionId(),
+			ActivationSequence);
+}
+
 FName Fdemo_mapCombatRunCoordinator::PlayerSpawnSourceId()
 {
 	return TEXT("Spawn.Player.Primary");
@@ -877,6 +891,7 @@ bool Fdemo_mapCombatRunCoordinator::TryEndRun(
 	NextPlayerGroundCircleActivationSequence = 1;
 	NextPlayerSelfSectorActivationSequence = 1;
 	NextPlayerStraightProjectileActivationSequence = 1;
+	NextPlayerThrownWeaponActivationSequence = 1;
 	OutDiagnostic = TEXT("Combat Run identities released.");
 	return true;
 }
@@ -907,6 +922,7 @@ void Fdemo_mapCombatRunCoordinator::Reset()
 	NextPlayerGroundCircleActivationSequence = 1;
 	NextPlayerSelfSectorActivationSequence = 1;
 	NextPlayerStraightProjectileActivationSequence = 1;
+	NextPlayerThrownWeaponActivationSequence = 1;
 }
 
 bool Fdemo_mapCombatRunCoordinator::IsReady() const
@@ -2377,6 +2393,54 @@ Fdemo_mapCombatRunCoordinator::PreparePlayerStraightProjectile(
 	Launch.Error = Edemo_mapPlayerProjectileLaunchError::None;
 	++NextPlayerStraightProjectileActivationSequence;
 	return Launch;
+}
+
+bool Fdemo_mapCombatRunCoordinator::TryReservePlayerThrownWeaponAction(
+	const FGuid& SourceItemInstanceId,
+	Fdemo_mapPlayerThrownWeaponActionReservation& OutReservation,
+	FString& OutDiagnostic)
+{
+	OutReservation = Fdemo_mapPlayerThrownWeaponActionReservation();
+	OutDiagnostic.Reset();
+	if (!IsReady())
+	{
+		OutDiagnostic =
+			TEXT("Thrown-weapon identity requires one ready combat Run.");
+		return false;
+	}
+	if (!SourceItemInstanceId.IsValid())
+	{
+		OutDiagnostic =
+			TEXT("Thrown-weapon identity requires one exact source item.");
+		return false;
+	}
+	if (NextPlayerThrownWeaponActivationSequence == 0
+		|| NextPlayerThrownWeaponActivationSequence == MAX_uint64)
+	{
+		OutDiagnostic = TEXT("Thrown-weapon activation sequence is exhausted.");
+		return false;
+	}
+
+	OutReservation.ActivationSequence =
+		NextPlayerThrownWeaponActivationSequence;
+	OutReservation.RunId = GetRunId();
+	OutReservation.SourceEntityId = PlayerEntityId;
+	OutReservation.SourceItemInstanceId = SourceItemInstanceId;
+	OutReservation.ActivationId = FShanmenCombatIdFactory::MakeActivationId(
+		OutReservation.RunId,
+		OutReservation.SourceEntityId,
+		FShanmenThrownWeaponDefinition::CanonicalActionDefinitionId(),
+		OutReservation.ActivationSequence);
+	if (!OutReservation.IsValid())
+	{
+		OutReservation = Fdemo_mapPlayerThrownWeaponActionReservation();
+		OutDiagnostic =
+			TEXT("Thrown-weapon deterministic action identity failed closed.");
+		return false;
+	}
+	++NextPlayerThrownWeaponActivationSequence;
+	OutDiagnostic = TEXT("Thrown-weapon action identity reserved by the Run.");
+	return true;
 }
 
 Fdemo_mapPlayerProjectileImpactResult
