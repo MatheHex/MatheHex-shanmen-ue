@@ -33,6 +33,16 @@ namespace
 			&& SameContent(Left.Content, Right.Content);
 	}
 
+	bool InfluencePoliciesMatch(
+		const Fdemo_mapShanmenFormationInfluencePolicy& Left,
+		const Fdemo_mapShanmenFormationInfluencePolicy& Right)
+	{
+		return Left.IsValid() && Right.IsValid()
+			&& Left.PolicyDefinitionId == Right.PolicyDefinitionId
+			&& Left.InfluenceDefinitionId == Right.InfluenceDefinitionId
+			&& SameContent(Left.Content, Right.Content);
+	}
+
 	Fdemo_mapShanmenFormationHostResult Reject(
 		const Edemo_mapShanmenFormationHostStatus Status,
 		FString Diagnostic)
@@ -48,6 +58,16 @@ namespace
 		FString Diagnostic)
 	{
 		Fdemo_mapShanmenFormationHostCoverageResult Result;
+		Result.Status = Status;
+		Result.Diagnostic = MoveTemp(Diagnostic);
+		return Result;
+	}
+
+	Fdemo_mapShanmenFormationHostInfluenceResult RejectInfluence(
+		const Edemo_mapShanmenFormationHostInfluenceStatus Status,
+		FString Diagnostic)
+	{
+		Fdemo_mapShanmenFormationHostInfluenceResult Result;
 		Result.Status = Status;
 		Result.Diagnostic = MoveTemp(Diagnostic);
 		return Result;
@@ -93,6 +113,37 @@ bool Fdemo_mapShanmenFormationHostCoverageResult::IsSuccess() const
 	case Edemo_mapShanmenFormationHostCoverageStatus::ResetReplayed:
 		return !Area.IsSuccess() && !Coordination.IsSuccess()
 			&& TrackerReset.IsSuccess();
+	default:
+		return false;
+	}
+}
+
+bool Fdemo_mapShanmenFormationHostInfluenceResult::IsSuccess() const
+{
+	const bool bHasTransition = TransitionPlan.IsSuccess();
+	const bool bHasReconciliation = ReconciliationPlan.IsSuccess();
+	switch (Status)
+	{
+	case Edemo_mapShanmenFormationHostInfluenceStatus::Coordinated:
+	case Edemo_mapShanmenFormationHostInfluenceStatus::CoordinateReplayed:
+		return Coverage.IsSuccess() && Dispatch.IsSuccess()
+			&& bHasTransition != bHasReconciliation;
+	case Edemo_mapShanmenFormationHostInfluenceStatus::Reset:
+	case Edemo_mapShanmenFormationHostInfluenceStatus::ResetReplayed:
+		return Coverage.IsSuccess() && !bHasTransition
+			&& bHasReconciliation && Dispatch.IsSuccess();
+	case Edemo_mapShanmenFormationHostInfluenceStatus::TerminalPrepared:
+	case Edemo_mapShanmenFormationHostInfluenceStatus::TerminalReplayed:
+		return !Coverage.IsSuccess() && !bHasTransition
+			&& bHasReconciliation && Dispatch.IsSuccess();
+	case Edemo_mapShanmenFormationHostInfluenceStatus::RetryRecorded:
+	case Edemo_mapShanmenFormationHostInfluenceStatus::RetryReplayed:
+	case Edemo_mapShanmenFormationHostInfluenceStatus::Acknowledged:
+	case Edemo_mapShanmenFormationHostInfluenceStatus::AcknowledgementReplayed:
+		return Acknowledgement.IsSuccess();
+	case Edemo_mapShanmenFormationHostInfluenceStatus::Sealed:
+	case Edemo_mapShanmenFormationHostInfluenceStatus::SealReplayed:
+		return Seal.IsSuccess();
 	default:
 		return false;
 	}
@@ -425,6 +476,13 @@ Fdemo_mapShanmenFormationProductHost::TryCancelAndTeardown(
 			Edemo_mapShanmenFormationHostStatus::PlacementBindingConflict,
 			TEXT("Terminal cleanup must use the World frozen by placement recovery."));
 	}
+	FString InfluenceDiagnostic;
+	if (!CanTeardownInfluence(InfluenceDiagnostic))
+	{
+		return Reject(
+			Edemo_mapShanmenFormationHostStatus::InfluenceTerminalRequired,
+			MoveTemp(InfluenceDiagnostic));
+	}
 
 	Fdemo_mapShanmenFormationHostResult Result;
 	if (Session.GetState()
@@ -456,6 +514,8 @@ Fdemo_mapShanmenFormationProductHost::TryCancelAndTeardown(
 	}
 	ClearPendingPlacement();
 	CoverageTracker.Reset();
+	ActiveInfluenceScope.Reset();
+	bInfluenceTerminalPrepared = false;
 	Result.Status = Result.World.Status
 		== Edemo_mapShanmenFormationWorldStatus::TeardownReplayed
 		? Edemo_mapShanmenFormationHostStatus::TeardownReplayed
@@ -496,6 +556,13 @@ Fdemo_mapShanmenFormationProductHost::TryEndAndTeardown(
 			Edemo_mapShanmenFormationHostStatus::TerminalConflict,
 			TEXT("A cancelled formation cannot replay the completion path."));
 	}
+	FString InfluenceDiagnostic;
+	if (!CanTeardownInfluence(InfluenceDiagnostic))
+	{
+		return Reject(
+			Edemo_mapShanmenFormationHostStatus::InfluenceTerminalRequired,
+			MoveTemp(InfluenceDiagnostic));
+	}
 
 	Fdemo_mapShanmenFormationHostResult Result;
 	if (Session.GetState() != Edemo_mapShanmenFormationSessionState::Ended)
@@ -524,6 +591,8 @@ Fdemo_mapShanmenFormationProductHost::TryEndAndTeardown(
 		return Result;
 	}
 	CoverageTracker.Reset();
+	ActiveInfluenceScope.Reset();
+	bInfluenceTerminalPrepared = false;
 	Result.Status = Result.World.Status
 		== Edemo_mapShanmenFormationWorldStatus::TeardownReplayed
 		? Edemo_mapShanmenFormationHostStatus::TeardownReplayed
@@ -534,6 +603,30 @@ Fdemo_mapShanmenFormationProductHost::TryEndAndTeardown(
 
 Fdemo_mapShanmenFormationHostCoverageResult
 Fdemo_mapShanmenFormationProductHost::TryCoordinateCoverage(
+	UWorld* World,
+	const FShanmenWorldEntityRegistry& EntityRegistry,
+	const TArray<AActor*>& SourceActors,
+	const Fdemo_mapShanmenRunCorrelation& RequestedCorrelation,
+	const Fdemo_mapShanmenFormationCoverageCommand& Command)
+{
+	if (!IsValid())
+	{
+		return RejectCoverage(
+			Edemo_mapShanmenFormationHostCoverageStatus::HostInvalid,
+			TEXT("Coverage coordination requires one valid product host."));
+	}
+	if (HasInfluenceAuthority())
+	{
+		return RejectCoverage(
+			Edemo_mapShanmenFormationHostCoverageStatus::InfluenceOrchestrationRequired,
+			TEXT("An influence-enabled host must coordinate coverage through its planner and dispatch ledger."));
+	}
+	return CoordinateCoverageInternal(
+		World, EntityRegistry, SourceActors, RequestedCorrelation, Command);
+}
+
+Fdemo_mapShanmenFormationHostCoverageResult
+Fdemo_mapShanmenFormationProductHost::CoordinateCoverageInternal(
 	UWorld* World,
 	const FShanmenWorldEntityRegistry& EntityRegistry,
 	const TArray<AActor*>& SourceActors,
@@ -653,6 +746,25 @@ Fdemo_mapShanmenFormationProductHost::TryResetCoverage(
 			Edemo_mapShanmenFormationHostCoverageStatus::HostInvalid,
 			TEXT("Coverage reset requires one valid product host."));
 	}
+	if (HasInfluenceAuthority())
+	{
+		return RejectCoverage(
+			Edemo_mapShanmenFormationHostCoverageStatus::InfluenceOrchestrationRequired,
+			TEXT("An influence-enabled host must reset through lifecycle reconciliation."));
+	}
+	return ResetCoverageInternal(RequestedCorrelation);
+}
+
+Fdemo_mapShanmenFormationHostCoverageResult
+Fdemo_mapShanmenFormationProductHost::ResetCoverageInternal(
+	const Fdemo_mapShanmenRunCorrelation& RequestedCorrelation)
+{
+	if (!IsValid())
+	{
+		return RejectCoverage(
+			Edemo_mapShanmenFormationHostCoverageStatus::HostInvalid,
+			TEXT("Coverage reset requires one valid product host."));
+	}
 	if (RequestedCorrelation != Session.GetCorrelation())
 	{
 		return RejectCoverage(
@@ -678,14 +790,549 @@ Fdemo_mapShanmenFormationProductHost::TryResetCoverage(
 	return Result;
 }
 
+Fdemo_mapShanmenFormationHostInfluenceResult
+Fdemo_mapShanmenFormationProductHost::TryCoordinateInfluence(
+	UWorld* World,
+	const FShanmenWorldEntityRegistry& EntityRegistry,
+	const TArray<AActor*>& SourceActors,
+	const Fdemo_mapShanmenRunCorrelation& RequestedCorrelation,
+	const Fdemo_mapShanmenFormationCoverageCommand& Command,
+	const Fdemo_mapShanmenFormationInfluencePolicy& Policy)
+{
+	if (!IsValid())
+	{
+		return RejectInfluence(
+			Edemo_mapShanmenFormationHostInfluenceStatus::HostInvalid,
+			TEXT("Influence coordination requires one valid product host."));
+	}
+	if (RequestedCorrelation != Session.GetCorrelation())
+	{
+		return RejectInfluence(
+			Edemo_mapShanmenFormationHostInfluenceStatus::CorrelationMismatch,
+			TEXT("Influence coordination rejected a stale or foreign Run correlation."));
+	}
+	const FShanmenCombatActionSnapshot& Action =
+		Session.GetActionRuntime().GetAction();
+	if (!Command.IsValid() || !Policy.IsValid()
+		|| !SameContent(Policy.Content, Action.GetContent()))
+	{
+		return RejectInfluence(
+			Edemo_mapShanmenFormationHostInfluenceStatus::RequestInvalid,
+			TEXT("Influence coordination requires one valid command and action-content policy."));
+	}
+	if (bInfluenceTerminalPrepared)
+	{
+		return RejectInfluence(
+			Edemo_mapShanmenFormationHostInfluenceStatus::LifecycleConflict,
+			TEXT("Terminal influence cleanup is already prepared; no later coverage command may overtake it."));
+	}
+
+	switch (Command.Mode)
+	{
+	case Edemo_mapShanmenFormationCoverageCommandMode::Prime:
+		if (ActiveInfluenceScope.IsSet()
+			&& !InfluencePoliciesMatch(
+				ActiveInfluenceScope->Policy, Policy))
+		{
+			return RejectInfluence(
+				Edemo_mapShanmenFormationHostInfluenceStatus::LifecycleConflict,
+				TEXT("Prime replay cannot replace the active influence policy."));
+		}
+		break;
+	case Edemo_mapShanmenFormationCoverageCommandMode::Advance:
+		if (!ActiveInfluenceScope.IsSet()
+			|| !InfluencePoliciesMatch(
+				ActiveInfluenceScope->Policy, Policy))
+		{
+			return RejectInfluence(
+				Edemo_mapShanmenFormationHostInfluenceStatus::LifecycleConflict,
+				TEXT("Advance requires one active scope with the exact retained policy."));
+		}
+		break;
+	case Edemo_mapShanmenFormationCoverageCommandMode::Rebase:
+		if (!ActiveInfluenceScope.IsSet())
+		{
+			return RejectInfluence(
+				Edemo_mapShanmenFormationHostInfluenceStatus::LifecycleConflict,
+				TEXT("Rebase requires one active influence scope."));
+		}
+		break;
+	default:
+		return RejectInfluence(
+			Edemo_mapShanmenFormationHostInfluenceStatus::RequestInvalid,
+			TEXT("Unknown influence coverage command mode."));
+	}
+
+	const TOptional<Fdemo_mapShanmenFormationInfluenceScope> Previous =
+		ActiveInfluenceScope;
+	Fdemo_mapShanmenFormationProductHost Candidate = *this;
+	Fdemo_mapShanmenFormationHostInfluenceResult Result;
+	Result.Coverage = Candidate.CoordinateCoverageInternal(
+		World, EntityRegistry, SourceActors, RequestedCorrelation, Command);
+	if (!Result.Coverage.IsSuccess())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationHostInfluenceStatus::CoverageRejected;
+		Result.Diagnostic = Result.Coverage.Diagnostic;
+		return Result;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceScope Current;
+	Current.Area = Result.Coverage.Area.Area;
+	Current.Policy = Policy;
+	Current.Coverage =
+		Result.Coverage.Coordination.Sample.Coverage.Receipt;
+	if (!Current.IsValid())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationHostInfluenceStatus::PlannerRejected;
+		Result.Diagnostic =
+			TEXT("Host coverage could not form one valid influence scope.");
+		return Result;
+	}
+
+	const FGuid SourceEntityId = Action.GetSourceEntityId();
+	switch (Command.Mode)
+	{
+	case Edemo_mapShanmenFormationCoverageCommandMode::Prime:
+		Result.ReconciliationPlan =
+			Fdemo_mapShanmenFormationInfluenceReconciliationPlanner::PlanPrime(
+				SourceEntityId, Current);
+		if (Result.ReconciliationPlan.IsSuccess())
+		{
+			Result.Dispatch = Candidate.InfluenceLedger.Accept(
+				Result.ReconciliationPlan.Batch);
+		}
+		break;
+	case Edemo_mapShanmenFormationCoverageCommandMode::Advance:
+		Result.TransitionPlan =
+			Fdemo_mapShanmenFormationInfluenceIntentPlanner::PlanTransition(
+				Current.Area, SourceEntityId, Policy,
+				Result.Coverage.Coordination.TrackerResult.Transition.Receipt);
+		if (Result.TransitionPlan.IsSuccess())
+		{
+			Result.Dispatch = Candidate.InfluenceLedger.Accept(
+				Result.TransitionPlan.Batch);
+		}
+		break;
+	case Edemo_mapShanmenFormationCoverageCommandMode::Rebase:
+		Result.ReconciliationPlan =
+			Fdemo_mapShanmenFormationInfluenceReconciliationPlanner::PlanRebase(
+				SourceEntityId, Previous.GetValue(), Current);
+		if (Result.ReconciliationPlan.IsSuccess())
+		{
+			Result.Dispatch = Candidate.InfluenceLedger.Accept(
+				Result.ReconciliationPlan.Batch);
+		}
+		break;
+	default:
+		break;
+	}
+	if (!Result.TransitionPlan.IsSuccess()
+		&& !Result.ReconciliationPlan.IsSuccess())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationHostInfluenceStatus::PlannerRejected;
+		Result.Diagnostic = Result.TransitionPlan.Diagnostic.IsEmpty()
+			? Result.ReconciliationPlan.Diagnostic
+			: Result.TransitionPlan.Diagnostic;
+		return Result;
+	}
+	if (!Result.Dispatch.IsSuccess())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationHostInfluenceStatus::DispatchRejected;
+		Result.Diagnostic = Result.Dispatch.Diagnostic;
+		return Result;
+	}
+
+	Candidate.InfluenceSourceEntityId = SourceEntityId;
+	Candidate.ActiveInfluenceScope = MoveTemp(Current);
+	Candidate.LastInfluenceClearBatch.Reset();
+	Candidate.bInfluenceTerminalPrepared = false;
+	if (!Candidate.IsValid())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationHostInfluenceStatus::StateInvalid;
+		Result.Diagnostic =
+			TEXT("Influence coordination failed final host self-validation.");
+		return Result;
+	}
+	*this = MoveTemp(Candidate);
+	Result.Status = Result.Dispatch.Status
+		== Edemo_mapShanmenFormationInfluenceSubmitStatus::Replayed
+		? Edemo_mapShanmenFormationHostInfluenceStatus::CoordinateReplayed
+		: Edemo_mapShanmenFormationHostInfluenceStatus::Coordinated;
+	Result.Diagnostic = Result.Dispatch.Status
+		== Edemo_mapShanmenFormationInfluenceSubmitStatus::Replayed
+		? TEXT("The exact host coverage and influence dispatch replayed.")
+		: TEXT("Host coverage committed with one canonical influence dispatch batch.");
+	return Result;
+}
+
+Fdemo_mapShanmenFormationHostInfluenceResult
+Fdemo_mapShanmenFormationProductHost::TryResetInfluence(
+	const Fdemo_mapShanmenRunCorrelation& RequestedCorrelation)
+{
+	if (!IsValid())
+	{
+		return RejectInfluence(
+			Edemo_mapShanmenFormationHostInfluenceStatus::HostInvalid,
+			TEXT("Influence reset requires one valid product host."));
+	}
+	if (RequestedCorrelation != Session.GetCorrelation())
+	{
+		return RejectInfluence(
+			Edemo_mapShanmenFormationHostInfluenceStatus::CorrelationMismatch,
+			TEXT("Influence reset rejected a stale or foreign Run correlation."));
+	}
+	if (bInfluenceTerminalPrepared)
+	{
+		return RejectInfluence(
+			Edemo_mapShanmenFormationHostInfluenceStatus::LifecycleConflict,
+			TEXT("Reset cannot overtake prepared terminal influence cleanup."));
+	}
+
+	TOptional<Fdemo_mapShanmenFormationInfluenceScope> Previous =
+		ActiveInfluenceScope;
+	if (!Previous.IsSet()
+		&& LastInfluenceClearBatch.IsSet()
+		&& LastInfluenceClearBatch->Mode
+			== Edemo_mapShanmenFormationInfluenceReconciliationMode::Reset)
+	{
+		Previous = LastInfluenceClearBatch->Previous;
+	}
+	if (!Previous.IsSet())
+	{
+		return RejectInfluence(
+			Edemo_mapShanmenFormationHostInfluenceStatus::LifecycleConflict,
+			TEXT("Influence reset requires an active scope or exact reset replay evidence."));
+	}
+
+	Fdemo_mapShanmenFormationProductHost Candidate = *this;
+	Fdemo_mapShanmenFormationHostInfluenceResult Result;
+	Result.ReconciliationPlan =
+		Fdemo_mapShanmenFormationInfluenceReconciliationPlanner::PlanClear(
+			Edemo_mapShanmenFormationInfluenceReconciliationMode::Reset,
+			InfluenceSourceEntityId, Previous.GetValue());
+	if (!Result.ReconciliationPlan.IsSuccess())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationHostInfluenceStatus::PlannerRejected;
+		Result.Diagnostic = Result.ReconciliationPlan.Diagnostic;
+		return Result;
+	}
+	Result.Coverage = Candidate.ResetCoverageInternal(RequestedCorrelation);
+	if (!Result.Coverage.IsSuccess())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationHostInfluenceStatus::CoverageRejected;
+		Result.Diagnostic = Result.Coverage.Diagnostic;
+		return Result;
+	}
+	Result.Dispatch = Candidate.InfluenceLedger.Accept(
+		Result.ReconciliationPlan.Batch);
+	if (!Result.Dispatch.IsSuccess())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationHostInfluenceStatus::DispatchRejected;
+		Result.Diagnostic = Result.Dispatch.Diagnostic;
+		return Result;
+	}
+	Candidate.ActiveInfluenceScope.Reset();
+	Candidate.LastInfluenceClearBatch = Result.ReconciliationPlan.Batch;
+	Candidate.bInfluenceTerminalPrepared = false;
+	if (!Candidate.IsValid())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationHostInfluenceStatus::StateInvalid;
+		Result.Diagnostic =
+			TEXT("Influence reset failed final host self-validation.");
+		return Result;
+	}
+	*this = MoveTemp(Candidate);
+	Result.Status = Result.Dispatch.Status
+		== Edemo_mapShanmenFormationInfluenceSubmitStatus::Replayed
+		? Edemo_mapShanmenFormationHostInfluenceStatus::ResetReplayed
+		: Edemo_mapShanmenFormationHostInfluenceStatus::Reset;
+	Result.Diagnostic = Result.Dispatch.Diagnostic;
+	return Result;
+}
+
+Fdemo_mapShanmenFormationHostInfluenceResult
+Fdemo_mapShanmenFormationProductHost::TryPrepareTerminalInfluence(
+	const Fdemo_mapShanmenRunCorrelation& RequestedCorrelation)
+{
+	if (!IsValid())
+	{
+		return RejectInfluence(
+			Edemo_mapShanmenFormationHostInfluenceStatus::HostInvalid,
+			TEXT("Terminal influence preparation requires one valid product host."));
+	}
+	if (RequestedCorrelation != Session.GetCorrelation())
+	{
+		return RejectInfluence(
+			Edemo_mapShanmenFormationHostInfluenceStatus::CorrelationMismatch,
+			TEXT("Terminal influence preparation rejected a foreign Run correlation."));
+	}
+
+	TOptional<Fdemo_mapShanmenFormationInfluenceScope> Previous =
+		ActiveInfluenceScope;
+	if (!Previous.IsSet()
+		&& LastInfluenceClearBatch.IsSet()
+		&& LastInfluenceClearBatch->Mode
+			== Edemo_mapShanmenFormationInfluenceReconciliationMode::Terminal)
+	{
+		Previous = LastInfluenceClearBatch->Previous;
+	}
+	if (!Previous.IsSet())
+	{
+		return RejectInfluence(
+			Edemo_mapShanmenFormationHostInfluenceStatus::LifecycleConflict,
+			TEXT("Terminal influence preparation requires an active scope or exact terminal replay evidence."));
+	}
+
+	Fdemo_mapShanmenFormationProductHost Candidate = *this;
+	Fdemo_mapShanmenFormationHostInfluenceResult Result;
+	Result.ReconciliationPlan =
+		Fdemo_mapShanmenFormationInfluenceReconciliationPlanner::PlanClear(
+			Edemo_mapShanmenFormationInfluenceReconciliationMode::Terminal,
+			InfluenceSourceEntityId, Previous.GetValue());
+	if (!Result.ReconciliationPlan.IsSuccess())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationHostInfluenceStatus::PlannerRejected;
+		Result.Diagnostic = Result.ReconciliationPlan.Diagnostic;
+		return Result;
+	}
+	Result.Dispatch = Candidate.InfluenceLedger.Accept(
+		Result.ReconciliationPlan.Batch);
+	if (!Result.Dispatch.IsSuccess())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationHostInfluenceStatus::DispatchRejected;
+		Result.Diagnostic = Result.Dispatch.Diagnostic;
+		return Result;
+	}
+	Candidate.LastInfluenceClearBatch = Result.ReconciliationPlan.Batch;
+	Candidate.bInfluenceTerminalPrepared =
+		Candidate.ActiveInfluenceScope.IsSet();
+	if (!Candidate.IsValid())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationHostInfluenceStatus::StateInvalid;
+		Result.Diagnostic =
+			TEXT("Terminal influence preparation failed host self-validation.");
+		return Result;
+	}
+	*this = MoveTemp(Candidate);
+	Result.Status = Result.Dispatch.Status
+		== Edemo_mapShanmenFormationInfluenceSubmitStatus::Replayed
+		? Edemo_mapShanmenFormationHostInfluenceStatus::TerminalReplayed
+		: Edemo_mapShanmenFormationHostInfluenceStatus::TerminalPrepared;
+	Result.Diagnostic = Result.Dispatch.Diagnostic;
+	return Result;
+}
+
+Fdemo_mapShanmenFormationHostInfluenceResult
+Fdemo_mapShanmenFormationProductHost::TryAcknowledgeInfluence(
+	const Fdemo_mapShanmenRunCorrelation& RequestedCorrelation,
+	const Fdemo_mapShanmenFormationInfluenceAttemptCommand& Command)
+{
+	if (!IsValid())
+	{
+		return RejectInfluence(
+			Edemo_mapShanmenFormationHostInfluenceStatus::HostInvalid,
+			TEXT("Influence acknowledgement requires one valid product host."));
+	}
+	if (RequestedCorrelation != Session.GetCorrelation())
+	{
+		return RejectInfluence(
+			Edemo_mapShanmenFormationHostInfluenceStatus::CorrelationMismatch,
+			TEXT("Influence acknowledgement rejected a foreign Run correlation."));
+	}
+	Fdemo_mapShanmenFormationProductHost Candidate = *this;
+	Fdemo_mapShanmenFormationHostInfluenceResult Result;
+	Result.Acknowledgement = Candidate.InfluenceLedger.Acknowledge(Command);
+	if (!Result.Acknowledgement.IsSuccess())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationHostInfluenceStatus::AcknowledgementRejected;
+		Result.Diagnostic = Result.Acknowledgement.Diagnostic;
+		return Result;
+	}
+	if (!Candidate.IsValid())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationHostInfluenceStatus::StateInvalid;
+		Result.Diagnostic =
+			TEXT("Influence acknowledgement failed host self-validation.");
+		return Result;
+	}
+	*this = MoveTemp(Candidate);
+	switch (Result.Acknowledgement.Status)
+	{
+	case Edemo_mapShanmenFormationInfluenceAcknowledgeStatus::RetryRecorded:
+		Result.Status =
+			Edemo_mapShanmenFormationHostInfluenceStatus::RetryRecorded;
+		break;
+	case Edemo_mapShanmenFormationInfluenceAcknowledgeStatus::RetryReplayed:
+		Result.Status =
+			Edemo_mapShanmenFormationHostInfluenceStatus::RetryReplayed;
+		break;
+	case Edemo_mapShanmenFormationInfluenceAcknowledgeStatus::Acknowledged:
+		Result.Status =
+			Edemo_mapShanmenFormationHostInfluenceStatus::Acknowledged;
+		break;
+	case Edemo_mapShanmenFormationInfluenceAcknowledgeStatus::AcknowledgementReplayed:
+		Result.Status = Edemo_mapShanmenFormationHostInfluenceStatus::
+			AcknowledgementReplayed;
+		break;
+	default:
+		Result.Status =
+			Edemo_mapShanmenFormationHostInfluenceStatus::StateInvalid;
+		break;
+	}
+	Result.Diagnostic = Result.Acknowledgement.Diagnostic;
+	return Result;
+}
+
+Fdemo_mapShanmenFormationHostInfluenceResult
+Fdemo_mapShanmenFormationProductHost::TrySealInfluence(
+	const Fdemo_mapShanmenRunCorrelation& RequestedCorrelation)
+{
+	if (!IsValid())
+	{
+		return RejectInfluence(
+			Edemo_mapShanmenFormationHostInfluenceStatus::HostInvalid,
+			TEXT("Influence seal requires one valid product host."));
+	}
+	if (RequestedCorrelation != Session.GetCorrelation())
+	{
+		return RejectInfluence(
+			Edemo_mapShanmenFormationHostInfluenceStatus::CorrelationMismatch,
+			TEXT("Influence seal rejected a foreign Run correlation."));
+	}
+	if (ActiveInfluenceScope.IsSet() && !bInfluenceTerminalPrepared)
+	{
+		return RejectInfluence(
+			Edemo_mapShanmenFormationHostInfluenceStatus::LifecycleConflict,
+			TEXT("An active influence scope must prepare terminal removal before ledger seal."));
+	}
+	Fdemo_mapShanmenFormationProductHost Candidate = *this;
+	Fdemo_mapShanmenFormationHostInfluenceResult Result;
+	Result.Seal = Candidate.InfluenceLedger.Seal();
+	if (!Result.Seal.IsSuccess())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationHostInfluenceStatus::SealRejected;
+		Result.Diagnostic = Result.Seal.Diagnostic;
+		return Result;
+	}
+	if (!Candidate.IsValid())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationHostInfluenceStatus::StateInvalid;
+		Result.Diagnostic =
+			TEXT("Influence seal failed host self-validation.");
+		return Result;
+	}
+	*this = MoveTemp(Candidate);
+	Result.Status = Result.Seal.Status
+		== Edemo_mapShanmenFormationInfluenceSealStatus::SealReplayed
+		? Edemo_mapShanmenFormationHostInfluenceStatus::SealReplayed
+		: Edemo_mapShanmenFormationHostInfluenceStatus::Sealed;
+	Result.Diagnostic = Result.Seal.Diagnostic;
+	return Result;
+}
+
 bool Fdemo_mapShanmenFormationProductHost::IsValid() const
 {
 	if (!Session.IsValid() || !WorldAdapter.IsValid()
-		|| !CoverageTracker.IsConsistent()
+		|| !CoverageTracker.IsConsistent() || !InfluenceLedger.IsConsistent()
 		|| (WorldAdapter.IsTeardownComplete() && CoverageTracker.IsPrimed()))
 	{
 		return false;
 	}
+
+	const bool bHasInfluenceAuthority =
+		InfluenceLedger.GetLedgerId().IsValid();
+	if (!bHasInfluenceAuthority)
+	{
+		if (InfluenceSourceEntityId.IsValid()
+			|| ActiveInfluenceScope.IsSet()
+			|| LastInfluenceClearBatch.IsSet()
+			|| bInfluenceTerminalPrepared)
+		{
+			return false;
+		}
+	}
+	else
+	{
+		const FShanmenCombatActionSnapshot& Action =
+			Session.GetActionRuntime().GetAction();
+		if (!InfluenceSourceEntityId.IsValid()
+			|| InfluenceSourceEntityId != Action.GetSourceEntityId()
+			|| (LastInfluenceClearBatch.IsSet()
+				&& (!LastInfluenceClearBatch->IsValid()
+					|| LastInfluenceClearBatch->SourceEntityId
+						!= InfluenceSourceEntityId)))
+		{
+			return false;
+		}
+
+		if (ActiveInfluenceScope.IsSet())
+		{
+			Fdemo_mapShanmenFormationCoverageReceipt Baseline;
+			if (!ActiveInfluenceScope->IsValid()
+				|| ActiveInfluenceScope->Area.RunId
+					!= Session.GetCorrelation().ActiveRunId
+				|| ActiveInfluenceScope->Area.OwnerId
+					!= Session.GetCorrelation().OwnerId
+				|| ActiveInfluenceScope->Area.DeploymentId
+					!= Session.GetDeployment().GetDeploymentId()
+				|| !SameContent(
+					ActiveInfluenceScope->Policy.Content,
+					Action.GetContent())
+				|| !CoverageTracker.TryGetBaseline(Baseline)
+				|| Baseline.ReceiptId
+					!= ActiveInfluenceScope->Coverage.ReceiptId
+				|| (InfluenceLedger.IsSealed()
+					&& !bInfluenceTerminalPrepared))
+			{
+				return false;
+			}
+			if (bInfluenceTerminalPrepared)
+			{
+				if (!LastInfluenceClearBatch.IsSet()
+					|| LastInfluenceClearBatch->Mode
+						!= Edemo_mapShanmenFormationInfluenceReconciliationMode::Terminal
+					|| !LastInfluenceClearBatch->Previous.IsSet()
+					|| LastInfluenceClearBatch->Previous->Coverage.ReceiptId
+						!= ActiveInfluenceScope->Coverage.ReceiptId)
+				{
+					return false;
+				}
+			}
+			else if (LastInfluenceClearBatch.IsSet())
+			{
+				return false;
+			}
+		}
+		else
+		{
+			if (CoverageTracker.IsPrimed() || bInfluenceTerminalPrepared
+				|| !LastInfluenceClearBatch.IsSet()
+				|| (LastInfluenceClearBatch->Mode
+					!= Edemo_mapShanmenFormationInfluenceReconciliationMode::Reset
+					&& LastInfluenceClearBatch->Mode
+						!= Edemo_mapShanmenFormationInfluenceReconciliationMode::Terminal))
+			{
+				return false;
+			}
+		}
+	}
+
 	if (!bHasPendingPlacement)
 	{
 		return !PendingPlacement.IsValid() && !bPlacementBindingFrozen
@@ -710,6 +1357,35 @@ bool Fdemo_mapShanmenFormationProductHost::IsValid() const
 	return BoundPlacementWorld.IsValid() && BoundPlacementClass
 		&& !BoundPlacementClassPath.IsEmpty()
 		&& BoundPlacementClass->GetPathName() == BoundPlacementClassPath;
+}
+
+bool Fdemo_mapShanmenFormationProductHost::CanTeardownInfluence(
+	FString& OutDiagnostic) const
+{
+	OutDiagnostic.Reset();
+	if (!HasInfluenceAuthority())
+	{
+		return true;
+	}
+	if (!InfluenceLedger.IsConsistent())
+	{
+		OutDiagnostic =
+			TEXT("Influence dispatch ledger is internally inconsistent.");
+		return false;
+	}
+	if (ActiveInfluenceScope.IsSet() && !bInfluenceTerminalPrepared)
+	{
+		OutDiagnostic =
+			TEXT("Prepare terminal influence removals before formation teardown.");
+		return false;
+	}
+	if (!InfluenceLedger.IsSealed())
+	{
+		OutDiagnostic =
+			TEXT("Acknowledge every influence intent and seal the ledger before formation teardown.");
+		return false;
+	}
+	return true;
 }
 
 void Fdemo_mapShanmenFormationProductHost::ClearPendingPlacement()

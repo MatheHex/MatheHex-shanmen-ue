@@ -120,6 +120,9 @@ try
     $FormationHost = New-AutomationLogFixture `
         -Name 'formation-host.log' `
         -Group 'Shanmen.0_0_10.Product.FormationProductHost'
+    $FormationInfluenceHost = New-AutomationLogFixture `
+        -Name 'formation-influence-host.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationInfluenceHost'
     $FormationArea = New-AutomationLogFixture `
         -Name 'formation-area.log' `
         -Group 'Shanmen.0_0_10.Product.FormationAreaProvider'
@@ -391,10 +394,10 @@ try
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
-        -Name 'formation host child evidence cannot replace owned authority contracts' `
+        -Name 'formation host focused evidence cannot replace owned authority contracts' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationProductHost.cpp') `
-        -Logs @($FormationHost) `
+        -Logs @($FormationHost, $FormationInfluenceHost) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

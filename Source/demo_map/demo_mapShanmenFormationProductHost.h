@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "demo_mapShanmenFormationCoverageCoordinator.h"
+#include "demo_mapShanmenFormationInfluenceDispatchLedger.h"
 #include "demo_mapShanmenFormationWorldAdapter.h"
 
 class AActor;
@@ -26,7 +27,8 @@ enum class Edemo_mapShanmenFormationHostStatus : uint8
 	SessionRejected,
 	WorldRejected,
 	TerminalConflict,
-	TerminalRecoveryRequired
+	TerminalRecoveryRequired,
+	InfluenceTerminalRequired
 };
 
 /** One explicit product-host operation result; nested authority receipts remain visible. */
@@ -55,7 +57,8 @@ enum class Edemo_mapShanmenFormationHostCoverageStatus : uint8
 	PlacementIncomplete,
 	WorldMismatch,
 	AreaRejected,
-	CoordinatorRejected
+	CoordinatorRejected,
+	InfluenceOrchestrationRequired
 };
 
 /** Coverage operation result owned by the existing formation product host. */
@@ -67,6 +70,48 @@ struct Fdemo_mapShanmenFormationHostCoverageResult
 	Fdemo_mapShanmenFormationAreaBuildResult Area;
 	Fdemo_mapShanmenFormationCoverageCoordinatorResult Coordination;
 	Fdemo_mapShanmenFormationCoverageTrackerResult TrackerReset;
+
+	bool IsSuccess() const;
+};
+
+enum class Edemo_mapShanmenFormationHostInfluenceStatus : uint8
+{
+	Coordinated,
+	CoordinateReplayed,
+	Reset,
+	ResetReplayed,
+	TerminalPrepared,
+	TerminalReplayed,
+	RetryRecorded,
+	RetryReplayed,
+	Acknowledged,
+	AcknowledgementReplayed,
+	Sealed,
+	SealReplayed,
+	HostInvalid,
+	CorrelationMismatch,
+	RequestInvalid,
+	LifecycleConflict,
+	CoverageRejected,
+	PlannerRejected,
+	DispatchRejected,
+	AcknowledgementRejected,
+	SealRejected,
+	StateInvalid
+};
+
+/** One host-owned orchestration result with every nested immutable receipt. */
+struct Fdemo_mapShanmenFormationHostInfluenceResult
+{
+	Edemo_mapShanmenFormationHostInfluenceStatus Status =
+		Edemo_mapShanmenFormationHostInfluenceStatus::RequestInvalid;
+	FString Diagnostic;
+	Fdemo_mapShanmenFormationHostCoverageResult Coverage;
+	Fdemo_mapShanmenFormationInfluencePlanResult TransitionPlan;
+	Fdemo_mapShanmenFormationInfluenceReconciliationResult ReconciliationPlan;
+	Fdemo_mapShanmenFormationInfluenceSubmitResult Dispatch;
+	Fdemo_mapShanmenFormationInfluenceAcknowledgeResult Acknowledgement;
+	Fdemo_mapShanmenFormationInfluenceSealResult Seal;
 
 	bool IsSuccess() const;
 };
@@ -125,9 +170,51 @@ public:
 		const Fdemo_mapShanmenFormationCoverageCommand& Command);
 	Fdemo_mapShanmenFormationHostCoverageResult TryResetCoverage(
 		const Fdemo_mapShanmenRunCorrelation& RequestedCorrelation);
+	Fdemo_mapShanmenFormationHostInfluenceResult TryCoordinateInfluence(
+		UWorld* World,
+		const FShanmenWorldEntityRegistry& EntityRegistry,
+		const TArray<AActor*>& SourceActors,
+		const Fdemo_mapShanmenRunCorrelation& RequestedCorrelation,
+		const Fdemo_mapShanmenFormationCoverageCommand& Command,
+		const Fdemo_mapShanmenFormationInfluencePolicy& Policy);
+	Fdemo_mapShanmenFormationHostInfluenceResult TryResetInfluence(
+		const Fdemo_mapShanmenRunCorrelation& RequestedCorrelation);
+	Fdemo_mapShanmenFormationHostInfluenceResult TryPrepareTerminalInfluence(
+		const Fdemo_mapShanmenRunCorrelation& RequestedCorrelation);
+	Fdemo_mapShanmenFormationHostInfluenceResult TryAcknowledgeInfluence(
+		const Fdemo_mapShanmenRunCorrelation& RequestedCorrelation,
+		const Fdemo_mapShanmenFormationInfluenceAttemptCommand& Command);
+	Fdemo_mapShanmenFormationHostInfluenceResult TrySealInfluence(
+		const Fdemo_mapShanmenRunCorrelation& RequestedCorrelation);
 
 	bool IsValid() const;
 	bool HasCoverageBaseline() const { return CoverageTracker.IsPrimed(); }
+	bool HasInfluenceAuthority() const
+	{
+		return InfluenceLedger.GetLedgerId().IsValid();
+	}
+	bool HasActiveInfluenceScope() const
+	{
+		return ActiveInfluenceScope.IsSet();
+	}
+	bool IsInfluenceTerminalPrepared() const
+	{
+		return bInfluenceTerminalPrepared;
+	}
+	int32 GetPendingInfluenceIntentCount() const
+	{
+		return InfluenceLedger.GetPendingIntentCount();
+	}
+	bool TryPeekNextInfluenceIntent(
+		Fdemo_mapShanmenFormationInfluenceIntent& OutIntent) const
+	{
+		return InfluenceLedger.TryPeekNextPending(OutIntent);
+	}
+	const Fdemo_mapShanmenFormationInfluenceDispatchLedger&
+	GetInfluenceLedger() const
+	{
+		return InfluenceLedger;
+	}
 	bool TryGetCoverageBaseline(
 		Fdemo_mapShanmenFormationCoverageReceipt& OutBaseline) const
 	{
@@ -149,16 +236,31 @@ public:
 	}
 
 private:
+	Fdemo_mapShanmenFormationHostCoverageResult CoordinateCoverageInternal(
+		UWorld* World,
+		const FShanmenWorldEntityRegistry& EntityRegistry,
+		const TArray<AActor*>& SourceActors,
+		const Fdemo_mapShanmenRunCorrelation& RequestedCorrelation,
+		const Fdemo_mapShanmenFormationCoverageCommand& Command);
+	Fdemo_mapShanmenFormationHostCoverageResult ResetCoverageInternal(
+		const Fdemo_mapShanmenRunCorrelation& RequestedCorrelation);
+	bool CanTeardownInfluence(FString& OutDiagnostic) const;
 	void ClearPendingPlacement();
 	bool PendingMatches(FName AnchorDefinitionId, const FGuid& AttemptId) const;
 
 	Fdemo_mapShanmenFormationProductSession Session;
 	Fdemo_mapShanmenFormationWorldAdapter WorldAdapter;
 	Fdemo_mapShanmenFormationCoverageTracker CoverageTracker;
+	Fdemo_mapShanmenFormationInfluenceDispatchLedger InfluenceLedger;
+	TOptional<Fdemo_mapShanmenFormationInfluenceScope> ActiveInfluenceScope;
+	TOptional<Fdemo_mapShanmenFormationInfluenceReconciliationBatch>
+		LastInfluenceClearBatch;
+	FGuid InfluenceSourceEntityId;
 	Fdemo_mapShanmenFormationAnchorPlacementIntent PendingPlacement;
 	TWeakObjectPtr<UWorld> BoundPlacementWorld;
 	TSubclassOf<AActor> BoundPlacementClass;
 	FString BoundPlacementClassPath;
 	bool bHasPendingPlacement = false;
 	bool bPlacementBindingFrozen = false;
+	bool bInfluenceTerminalPrepared = false;
 };

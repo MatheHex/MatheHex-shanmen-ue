@@ -425,6 +425,65 @@ namespace
 			Stop();
 		}
 	};
+
+	Fdemo_mapShanmenFormationInfluencePolicy MakeHostInfluencePolicy(
+		const Fdemo_mapShanmenFormationProductHost& Host,
+		const TCHAR* InfluenceId = TEXT("Formation.Influence.Test.HostWard"))
+	{
+		Fdemo_mapShanmenFormationInfluencePolicy Policy;
+		Policy.PolicyDefinitionId = TEXT("Formation.Policy.Test.ProductHost");
+		Policy.InfluenceDefinitionId = FName(InfluenceId);
+		Policy.Content =
+			Host.GetSession().GetActionRuntime().GetAction().GetContent();
+		check(Policy.IsValid());
+		return Policy;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceAttemptCommand MakeHostInfluenceAttempt(
+		const FGuid& IntentId,
+		const int32 Ordinal,
+		const Edemo_mapShanmenFormationInfluenceAttemptOutcome Outcome)
+	{
+		Fdemo_mapShanmenFormationInfluenceAttemptCommand Command;
+		Command.IntentId = IntentId;
+		Command.AttemptId = FGuid(0xF8410000 + Ordinal, 0, 0, 1);
+		Command.ExecutorReceiptId =
+			FGuid(0xF8420000 + Ordinal, 0, 0, 1);
+		Command.Outcome = Outcome;
+		check(Command.IsValid());
+		return Command;
+	}
+
+	bool AcknowledgeNextHostInfluence(
+		FAutomationTestBase& Test,
+		FFormationHostFixture& Fixture,
+		const int32 Ordinal,
+		Fdemo_mapShanmenFormationInfluenceAttemptCommand* OutCommand = nullptr)
+	{
+		Fdemo_mapShanmenFormationInfluenceIntent Intent;
+		if (!Fixture.Host.TryPeekNextInfluenceIntent(Intent))
+		{
+			Test.AddError(TEXT("P8.14 expected one pending influence intent."));
+			return false;
+		}
+		const auto Command = MakeHostInfluenceAttempt(
+			Intent.IntentId, Ordinal,
+			Edemo_mapShanmenFormationInfluenceAttemptOutcome::Succeeded);
+		const auto Result = Fixture.Host.TryAcknowledgeInfluence(
+			Fixture.Correlation, Command);
+		if (!Result.IsSuccess())
+		{
+			Test.AddError(FString::Printf(
+				TEXT("P8.14 acknowledgement failed: %s"),
+				*Result.Diagnostic));
+			return false;
+		}
+		if (OutCommand)
+		{
+			*OutCommand = Command;
+		}
+		return true;
+	}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -886,6 +945,356 @@ bool Fdemo_mapFormationHostCoverageLifecycleTest::RunTest(const FString&)
 				== Edemo_mapShanmenFormationHostCoverageStatus::SessionTerminal
 			&& EndReplay.Status
 				== Edemo_mapShanmenFormationHostStatus::TeardownReplayed
+			&& Fixture.Host.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationHostInfluencePrimeAdvanceTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceHost.PrimeAdvanceReplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationHostInfluencePrimeAdvanceTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture Fixture;
+	if (!Fixture.Start(*this, TEXT("InfluencePrimeAdvance"), true)
+		|| !Fixture.CommitAndPlaceCoverageDiagram(*this))
+	{
+		return false;
+	}
+	FShanmenWorldEntityRegistry Registry;
+	AActor* Subject = Fixture.SpawnCoverageSubject(
+		FVector(50.0, 50.0, 900.0));
+	if (!Subject
+		|| !Registry.TryBeginRun(Fixture.Correlation.ActiveRunId)
+		|| Registry.BindObject(
+			Fixture.Correlation.ActiveRunId, Subject,
+			HostCoverageSubjectId, INDEX_NONE)
+			!= EShanmenWorldBindingResult::Bound)
+	{
+		return false;
+	}
+	const auto Policy = MakeHostInfluencePolicy(Fixture.Host);
+	const auto Prime = Fixture.Host.TryCoordinateInfluence(
+		Fixture.World, Registry, { Subject }, Fixture.Correlation,
+		Fdemo_mapShanmenFormationCoverageCommand::MakePrime(), Policy);
+	const auto PrimeReplay = Fixture.Host.TryCoordinateInfluence(
+		Fixture.World, Registry, { Subject }, Fixture.Correlation,
+		Fdemo_mapShanmenFormationCoverageCommand::MakePrime(), Policy);
+	Fdemo_mapShanmenFormationCoverageReceipt PrimeBaseline;
+	const bool bReadPrime =
+		Fixture.Host.TryGetCoverageBaseline(PrimeBaseline);
+	if (!AcknowledgeNextHostInfluence(*this, Fixture, 1))
+	{
+		return false;
+	}
+	Subject->SetActorLocation(
+		FVector(150.0, 50.0, 900.0), false, nullptr,
+		ETeleportType::TeleportPhysics);
+	const auto AdvanceCommand =
+		Fdemo_mapShanmenFormationCoverageCommand::MakeAdvance(
+			PrimeBaseline.ReceiptId);
+	const auto Advance = Fixture.Host.TryCoordinateInfluence(
+		Fixture.World, Registry, { Subject }, Fixture.Correlation,
+		AdvanceCommand, Policy);
+	const auto AdvanceReplay = Fixture.Host.TryCoordinateInfluence(
+		Fixture.World, Registry, { Subject }, Fixture.Correlation,
+		AdvanceCommand, Policy);
+	const auto RawCoverage = Fixture.Host.TryCoordinateCoverage(
+		Fixture.World, Registry, { Subject }, Fixture.Correlation,
+		AdvanceCommand);
+
+	TestTrue(TEXT("Prime publishes and owns one Apply intent"),
+		Prime.IsSuccess()
+			&& Prime.Status
+				== Edemo_mapShanmenFormationHostInfluenceStatus::Coordinated
+			&& Prime.ReconciliationPlan.Batch.ApplyCount == 1
+			&& Prime.ReconciliationPlan.Batch.RemoveCount == 0
+			&& Prime.Dispatch.PendingIntentCount == 1
+			&& Fixture.Host.HasInfluenceAuthority());
+	TestTrue(TEXT("Exact Prime replays without another dispatch batch"),
+		PrimeReplay.IsSuccess()
+			&& PrimeReplay.Status
+				== Edemo_mapShanmenFormationHostInfluenceStatus::CoordinateReplayed
+			&& PrimeReplay.Dispatch.BatchRecordId
+				== Prime.Dispatch.BatchRecordId);
+	TestTrue(TEXT("Advance emits the exact Left transition Remove"),
+		bReadPrime && Advance.IsSuccess()
+			&& Advance.TransitionPlan.Batch.ApplyCount == 0
+			&& Advance.TransitionPlan.Batch.RemoveCount == 1
+			&& Advance.TransitionPlan.Batch.Intents[0].SubjectEntityId
+				== HostCoverageSubjectId
+			&& Fixture.Host.GetPendingInfluenceIntentCount() == 1);
+	TestTrue(TEXT("Exact Advance replays without queue duplication"),
+		AdvanceReplay.IsSuccess()
+			&& AdvanceReplay.Status
+				== Edemo_mapShanmenFormationHostInfluenceStatus::CoordinateReplayed
+			&& Fixture.Host.GetInfluenceLedger().GetAcceptedBatchCount() == 2);
+	TestTrue(TEXT("Raw coverage cannot bypass established influence authority"),
+		RawCoverage.Status
+			== Edemo_mapShanmenFormationHostCoverageStatus::
+				InfluenceOrchestrationRequired
+			&& Fixture.Host.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationHostInfluenceRebaseTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceHost.PolicyRebase",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationHostInfluenceRebaseTest::RunTest(const FString&)
+{
+	FFormationHostFixture Fixture;
+	if (!Fixture.Start(*this, TEXT("InfluenceRebase"), true)
+		|| !Fixture.CommitAndPlaceCoverageDiagram(*this))
+	{
+		return false;
+	}
+	FShanmenWorldEntityRegistry Registry;
+	AActor* Subject = Fixture.SpawnCoverageSubject(
+		FVector(50.0, 50.0, 900.0));
+	if (!Subject
+		|| !Registry.TryBeginRun(Fixture.Correlation.ActiveRunId)
+		|| Registry.BindObject(
+			Fixture.Correlation.ActiveRunId, Subject,
+			HostCoverageSubjectId, INDEX_NONE)
+			!= EShanmenWorldBindingResult::Bound)
+	{
+		return false;
+	}
+	const auto FirstPolicy = MakeHostInfluencePolicy(Fixture.Host);
+	const auto Prime = Fixture.Host.TryCoordinateInfluence(
+		Fixture.World, Registry, { Subject }, Fixture.Correlation,
+		Fdemo_mapShanmenFormationCoverageCommand::MakePrime(), FirstPolicy);
+	Fdemo_mapShanmenFormationCoverageReceipt Baseline;
+	if (!Prime.IsSuccess()
+		|| !Fixture.Host.TryGetCoverageBaseline(Baseline)
+		|| !AcknowledgeNextHostInfluence(*this, Fixture, 20))
+	{
+		return false;
+	}
+	const auto ReplacementPolicy = MakeHostInfluencePolicy(
+		Fixture.Host, TEXT("Formation.Influence.Test.HostSpiritShield"));
+	const auto Rebase = Fixture.Host.TryCoordinateInfluence(
+		Fixture.World, Registry, { Subject }, Fixture.Correlation,
+		Fdemo_mapShanmenFormationCoverageCommand::MakeRebase(
+			Baseline.ReceiptId),
+		ReplacementPolicy);
+	Fdemo_mapShanmenFormationCoverageReceipt RebasedBaseline;
+	const bool bReadRebased =
+		Fixture.Host.TryGetCoverageBaseline(RebasedBaseline);
+	const int32 BatchCountAfterRebase =
+		Fixture.Host.GetInfluenceLedger().GetAcceptedBatchCount();
+	const auto PolicyDriftAdvance = Fixture.Host.TryCoordinateInfluence(
+		Fixture.World, Registry, { Subject }, Fixture.Correlation,
+		Fdemo_mapShanmenFormationCoverageCommand::MakeAdvance(
+			RebasedBaseline.ReceiptId),
+		FirstPolicy);
+	Fdemo_mapShanmenFormationCoverageReceipt AfterRejectedAdvance;
+	const bool bReadAfterReject =
+		Fixture.Host.TryGetCoverageBaseline(AfterRejectedAdvance);
+
+	TestTrue(TEXT("Policy replacement uses explicit Rebase reconciliation"),
+		Rebase.IsSuccess()
+			&& Rebase.ReconciliationPlan.Batch.Mode
+				== Edemo_mapShanmenFormationInfluenceReconciliationMode::Rebase
+			&& Rebase.ReconciliationPlan.Batch.RemoveCount == 1
+			&& Rebase.ReconciliationPlan.Batch.ApplyCount == 1
+			&& Rebase.Dispatch.PendingIntentCount == 2
+			&& bReadRebased);
+	TestTrue(TEXT("Old policy cannot drift through Advance"),
+		PolicyDriftAdvance.Status
+			== Edemo_mapShanmenFormationHostInfluenceStatus::LifecycleConflict
+			&& bReadAfterReject
+			&& AfterRejectedAdvance.ReceiptId == RebasedBaseline.ReceiptId
+			&& Fixture.Host.GetInfluenceLedger().GetAcceptedBatchCount()
+				== BatchCountAfterRebase
+			&& Fixture.Host.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationHostInfluenceResetTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceHost.RetryResetSeal",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationHostInfluenceResetTest::RunTest(const FString&)
+{
+	FFormationHostFixture Fixture;
+	if (!Fixture.Start(*this, TEXT("InfluenceReset"), true)
+		|| !Fixture.CommitAndPlaceCoverageDiagram(*this))
+	{
+		return false;
+	}
+	FShanmenWorldEntityRegistry Registry;
+	AActor* Subject = Fixture.SpawnCoverageSubject(
+		FVector(50.0, 50.0, 900.0));
+	if (!Subject
+		|| !Registry.TryBeginRun(Fixture.Correlation.ActiveRunId)
+		|| Registry.BindObject(
+			Fixture.Correlation.ActiveRunId, Subject,
+			HostCoverageSubjectId, INDEX_NONE)
+			!= EShanmenWorldBindingResult::Bound)
+	{
+		return false;
+	}
+	const auto Prime = Fixture.Host.TryCoordinateInfluence(
+		Fixture.World, Registry, { Subject }, Fixture.Correlation,
+		Fdemo_mapShanmenFormationCoverageCommand::MakePrime(),
+		MakeHostInfluencePolicy(Fixture.Host));
+	Fdemo_mapShanmenFormationInfluenceIntent ApplyIntent;
+	if (!Prime.IsSuccess()
+		|| !Fixture.Host.TryPeekNextInfluenceIntent(ApplyIntent))
+	{
+		return false;
+	}
+	const auto RetryCommand = MakeHostInfluenceAttempt(
+		ApplyIntent.IntentId, 30,
+		Edemo_mapShanmenFormationInfluenceAttemptOutcome::RetryableFailure);
+	const auto Retry = Fixture.Host.TryAcknowledgeInfluence(
+		Fixture.Correlation, RetryCommand);
+	const auto RetryReplay = Fixture.Host.TryAcknowledgeInfluence(
+		Fixture.Correlation, RetryCommand);
+	const auto SuccessCommand = MakeHostInfluenceAttempt(
+		ApplyIntent.IntentId, 31,
+		Edemo_mapShanmenFormationInfluenceAttemptOutcome::Succeeded);
+	const auto Success = Fixture.Host.TryAcknowledgeInfluence(
+		Fixture.Correlation, SuccessCommand);
+	const auto Reset = Fixture.Host.TryResetInfluence(Fixture.Correlation);
+	const auto ResetReplay =
+		Fixture.Host.TryResetInfluence(Fixture.Correlation);
+	if (!AcknowledgeNextHostInfluence(*this, Fixture, 32))
+	{
+		return false;
+	}
+	const auto Seal = Fixture.Host.TrySealInfluence(Fixture.Correlation);
+	const auto SealReplay =
+		Fixture.Host.TrySealInfluence(Fixture.Correlation);
+	const auto Ended = Fixture.Host.TryEndAndTeardown(
+		Fixture.World, Fixture.Correlation);
+
+	TestTrue(TEXT("Retry is retained and exact retry replays"),
+		Retry.Status
+			== Edemo_mapShanmenFormationHostInfluenceStatus::RetryRecorded
+			&& RetryReplay.Status
+				== Edemo_mapShanmenFormationHostInfluenceStatus::RetryReplayed
+			&& Retry.Acknowledgement.PendingIntentCount == 1);
+	TestTrue(TEXT("Later success drains the Apply intent"),
+		Success.Status
+			== Edemo_mapShanmenFormationHostInfluenceStatus::Acknowledged
+			&& Success.Acknowledgement.PendingIntentCount == 0);
+	TestTrue(TEXT("Reset publishes one Remove and exact replay is idempotent"),
+		Reset.IsSuccess()
+			&& Reset.Status
+				== Edemo_mapShanmenFormationHostInfluenceStatus::Reset
+			&& Reset.ReconciliationPlan.Batch.RemoveCount == 1
+			&& ResetReplay.Status
+				== Edemo_mapShanmenFormationHostInfluenceStatus::ResetReplayed
+			&& !Fixture.Host.HasActiveInfluenceScope()
+			&& !Fixture.Host.HasCoverageBaseline());
+	TestTrue(TEXT("Drained Reset ledger seals and permits terminal teardown"),
+		Seal.Status == Edemo_mapShanmenFormationHostInfluenceStatus::Sealed
+			&& SealReplay.Status
+				== Edemo_mapShanmenFormationHostInfluenceStatus::SealReplayed
+			&& Ended.Status == Edemo_mapShanmenFormationHostStatus::Ended
+			&& Fixture.Host.GetInfluenceLedger().IsSealed()
+			&& Fixture.Host.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationHostInfluenceTerminalTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceHost.TerminalDrainGate",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationHostInfluenceTerminalTest::RunTest(const FString&)
+{
+	FFormationHostFixture Fixture;
+	if (!Fixture.Start(*this, TEXT("InfluenceTerminal"), true)
+		|| !Fixture.CommitAndPlaceCoverageDiagram(*this))
+	{
+		return false;
+	}
+	FShanmenWorldEntityRegistry Registry;
+	AActor* Subject = Fixture.SpawnCoverageSubject(
+		FVector(50.0, 50.0, 900.0));
+	if (!Subject
+		|| !Registry.TryBeginRun(Fixture.Correlation.ActiveRunId)
+		|| Registry.BindObject(
+			Fixture.Correlation.ActiveRunId, Subject,
+			HostCoverageSubjectId, INDEX_NONE)
+			!= EShanmenWorldBindingResult::Bound)
+	{
+		return false;
+	}
+	const auto Prime = Fixture.Host.TryCoordinateInfluence(
+		Fixture.World, Registry, { Subject }, Fixture.Correlation,
+		Fdemo_mapShanmenFormationCoverageCommand::MakePrime(),
+		MakeHostInfluencePolicy(Fixture.Host));
+	if (!Prime.IsSuccess()
+		|| !AcknowledgeNextHostInfluence(*this, Fixture, 40))
+	{
+		return false;
+	}
+	const auto BeforePrepare = Fixture.Host.TryEndAndTeardown(
+		Fixture.World, Fixture.Correlation);
+	const bool bStayedActiveBeforePrepare =
+		Fixture.Host.GetSession().GetState()
+			== Edemo_mapShanmenFormationSessionState::Active;
+	const auto Prepared =
+		Fixture.Host.TryPrepareTerminalInfluence(Fixture.Correlation);
+	const auto PreparedReplay =
+		Fixture.Host.TryPrepareTerminalInfluence(Fixture.Correlation);
+	const auto BeforeDrain = Fixture.Host.TryEndAndTeardown(
+		Fixture.World, Fixture.Correlation);
+	Fdemo_mapShanmenFormationInfluenceAttemptCommand RemoveCommand;
+	if (!AcknowledgeNextHostInfluence(
+			*this, Fixture, 41, &RemoveCommand))
+	{
+		return false;
+	}
+	const auto BeforeSeal = Fixture.Host.TryEndAndTeardown(
+		Fixture.World, Fixture.Correlation);
+	const auto Seal = Fixture.Host.TrySealInfluence(Fixture.Correlation);
+	const auto Ended = Fixture.Host.TryEndAndTeardown(
+		Fixture.World, Fixture.Correlation);
+	const auto TerminalReplay =
+		Fixture.Host.TryPrepareTerminalInfluence(Fixture.Correlation);
+	const auto AcknowledgementReplay =
+		Fixture.Host.TryAcknowledgeInfluence(
+			Fixture.Correlation, RemoveCommand);
+	const auto EndReplay = Fixture.Host.TryEndAndTeardown(
+		Fixture.World, Fixture.Correlation);
+
+	TestTrue(TEXT("Active influence blocks teardown before Terminal planning"),
+		BeforePrepare.Status
+			== Edemo_mapShanmenFormationHostStatus::InfluenceTerminalRequired
+			&& bStayedActiveBeforePrepare);
+	TestTrue(TEXT("Terminal plan emits one Remove and exact plan replays"),
+		Prepared.IsSuccess()
+			&& Prepared.ReconciliationPlan.Batch.RemoveCount == 1
+			&& PreparedReplay.Status
+				== Edemo_mapShanmenFormationHostInfluenceStatus::TerminalReplayed
+			&& BeforeDrain.Status
+				== Edemo_mapShanmenFormationHostStatus::InfluenceTerminalRequired);
+	TestTrue(TEXT("Successful removals still require an explicit ledger seal"),
+		BeforeSeal.Status
+			== Edemo_mapShanmenFormationHostStatus::InfluenceTerminalRequired
+			&& Seal.Status
+				== Edemo_mapShanmenFormationHostInfluenceStatus::Sealed);
+	TestTrue(TEXT("Sealed terminal evidence permits teardown and all exact replay"),
+		Ended.Status == Edemo_mapShanmenFormationHostStatus::Ended
+			&& TerminalReplay.Status
+				== Edemo_mapShanmenFormationHostInfluenceStatus::TerminalReplayed
+			&& AcknowledgementReplay.Status
+				== Edemo_mapShanmenFormationHostInfluenceStatus::
+					AcknowledgementReplayed
+			&& EndReplay.Status
+				== Edemo_mapShanmenFormationHostStatus::TeardownReplayed
+			&& !Fixture.Host.HasActiveInfluenceScope()
+			&& !Fixture.Host.IsInfluenceTerminalPrepared()
 			&& Fixture.Host.IsValid());
 	return true;
 }
