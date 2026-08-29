@@ -216,6 +216,22 @@
       ]
     },
     {
+      "name": "ControlledWeaponRunCommandRouter",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenControlledWeaponRunCommandRouter(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Product.ControlledWeaponRunCommandRouter",
+        "Shanmen.0_0_10.Product.ControlledWeaponRunHost",
+        "Shanmen.0_0_10.Product.ControlledWeaponController",
+        "Shanmen.0_0_10.Product.ControlledWeaponWorldDelivery",
+        "Shanmen.0_0_10.Product.ControlledWeaponSession",
+        "Shanmen.0_0_10.Product.ControlledWeaponAdapter",
+        "Shanmen.0_0_10.Product.CombatRunCoordinator",
+        "Shanmen.0_0_10.Items",
+        "Shanmen.0_0_10.WorldGameplay",
+        "Shanmen.0_0_10.CombatRuntime"
+      ]
+    },
+    {
       "name": "GameplayTags",
       "pathRegex": "^Config/DefaultGameplayTags\\.ini$",
       "requiredGroups": [

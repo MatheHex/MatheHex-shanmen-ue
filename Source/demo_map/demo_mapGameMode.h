@@ -11,6 +11,7 @@
 #include "demo_mapItemTypes.h"
 #include "demo_mapProfileSessionTypes.h"
 #include "demo_mapCombatRunCoordinator.h"
+#include "demo_mapShanmenControlledWeaponRunCommandRouter.h"
 #include "demo_mapShanmenControlledWeaponRunLifecycle.h"
 #include "demo_mapShanmenRunCorrelation.h"
 #include "demo_mapGameMode.generated.h"
@@ -116,10 +117,19 @@ public:
 		AActor* WeaponActor,
 		UPrimitiveComponent* WeaponCollisionRoot,
 		const Fdemo_mapShanmenControlledWeaponMotionCapture& Motion);
+	/** Routes an input-independent exact-item intent through the active Run. */
+	Fdemo_mapShanmenControlledWeaponRunCommandResult
+	RouteControlledWeaponIntent(
+		const Fdemo_mapShanmenControlledWeaponRunCommandIntent& Intent);
 	const Fdemo_mapShanmenControlledWeaponRunHost&
 	GetControlledWeaponRunHost() const
 	{
 		return ControlledWeaponRunHost;
+	}
+	const Fdemo_mapShanmenControlledWeaponRunCommandRouter&
+	GetControlledWeaponRunCommandRouter() const
+	{
+		return ControlledWeaponRunCommandRouter;
 	}
 	/** M01 enemy attacks never fall through to legacy damage when this is true. */
 	bool ShouldUseM01EnemyAttackProductPath() const;
@@ -345,6 +355,8 @@ private:
 	TOptional<Fdemo_mapShanmenRunCorrelation> Prepared0909BRunCorrelation;
 	Fdemo_mapCombatRunCoordinator CombatRunCoordinator;
 	Fdemo_mapShanmenControlledWeaponRunHost ControlledWeaponRunHost;
+	Fdemo_mapShanmenControlledWeaponRunCommandRouter
+		ControlledWeaponRunCommandRouter;
 	TArray<TWeakObjectPtr<Ademo_mapM01ExtractionZone>> M01ExtractionZones;
 	TArray<TWeakObjectPtr<AActor>> M01EnemyActors;
 	TWeakObjectPtr<Ademo_mapM01BossCharacter> M01Boss;
