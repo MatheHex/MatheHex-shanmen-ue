@@ -518,6 +518,126 @@ bool FShanmenControlledWeaponOrbitThreatPolicyTest::RunTest(const FString&)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenControlledWeaponOrbitThreatPresenceTest,
+	"Shanmen.0_0_10.CombatRuntime.ControlledWeapon.OrbitThreatPresenceIntents",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenControlledWeaponOrbitThreatPresenceTest::RunTest(
+	const FString&)
+{
+	FShanmenActionOrchestrator ActionRuntime;
+	FShanmenControlledWeaponExecution Execution;
+	FShanmenActionTransitionReceipt PhaseReceipt;
+	StartActiveControlledWeapon(ActionRuntime, Execution, PhaseReceipt);
+
+	FShanmenWorldHitContext FirstContext;
+	if (!Execution.TryBeginOrbitThreatEmission(ActionRuntime, FirstContext))
+	{
+		AddError(TEXT("Could not open P6.14 threat-presence fixture."));
+		return false;
+	}
+	const FShanmenHitCandidate MissingTags =
+		MakeControlledCandidate(FirstContext, ControlledTargetB);
+	const FShanmenHitCandidate Self =
+		MakeControlledCandidate(FirstContext, ControlledSourceEntityId);
+	const FShanmenHitCandidate Living =
+		MakeControlledCandidate(FirstContext, ControlledTargetA);
+	FShanmenDetectorEmissionReceipt FirstEmission;
+	TestTrue(TEXT("Presence fixture closes one canonical geometry sample"),
+		Execution.TryAcceptOrbitThreatCandidate(ActionRuntime, MissingTags)
+		&& Execution.TryAcceptOrbitThreatCandidate(ActionRuntime, Self)
+		&& Execution.TryAcceptOrbitThreatCandidate(ActionRuntime, Living)
+		&& Execution.TryEndOrbitThreatEmission(
+			ActionRuntime, FirstEmission));
+
+	TArray<FShanmenControlledWeaponThreatTargetEvidence> Evidence;
+	Evidence.Add(MakeThreatEvidence(ControlledTargetB, false));
+	Evidence.Add(MakeThreatEvidence(ControlledTargetA, true));
+	Evidence.Add(MakeThreatEvidence(ControlledSourceEntityId, true));
+	FShanmenControlledWeaponThreatPolicyReceipt FirstPolicy;
+	FShanmenControlledWeaponThreatPresenceReceipt FirstPresence;
+	TestTrue(TEXT("Only accepted targets become threat-presence intents"),
+		Execution.TryEvaluateOrbitThreatReceipt(
+			ActionRuntime, FirstEmission, Evidence, FirstPolicy)
+		&& Execution.TryBuildOrbitThreatPresenceIntents(
+			ActionRuntime, FirstPolicy, FirstPresence)
+		&& FirstPresence.IsValid()
+		&& FirstPresence.GetIntents().Num() == 1
+		&& FirstPresence.GetIntents()[0].GetCandidate().TargetEntityId
+			== ControlledTargetA
+		&& FirstPresence.GetIntents()[0].GetSourceItemInstanceId()
+			== FirstContext.GetAction().GetSourceItemInstanceId()
+		&& FirstPresence.GetIntents()[0].GetRunId()
+			== FirstContext.GetAction().GetRunId()
+		&& FirstPresence.GetIntents()[0].GetIntentId().IsValid()
+		&& Execution.NumAcceptedImpacts() == 0
+		&& Execution.GetState()
+			== EShanmenControlledWeaponState::Orbiting);
+
+	FShanmenControlledWeaponThreatPresenceReceipt ReplayPresence;
+	TestTrue(TEXT("Exact policy replay keeps the deterministic intent identity"),
+		Execution.TryBuildOrbitThreatPresenceIntents(
+			ActionRuntime, FirstPolicy, ReplayPresence)
+		&& ReplayPresence.IsValid()
+		&& ReplayPresence.GetIntents().Num() == 1
+		&& ReplayPresence.GetIntents()[0].GetIntentId()
+			== FirstPresence.GetIntents()[0].GetIntentId());
+
+	FShanmenWorldHitContext SecondContext;
+	FShanmenDetectorEmissionReceipt SecondEmission;
+	FShanmenControlledWeaponThreatPolicyReceipt SecondPolicy;
+	FShanmenControlledWeaponThreatPresenceReceipt SecondPresence;
+	TestTrue(TEXT("A later explicit sample receives a distinct intent identity"),
+		Execution.TryBeginOrbitThreatEmission(ActionRuntime, SecondContext)
+		&& Execution.TryAcceptOrbitThreatCandidate(
+			ActionRuntime,
+			MakeControlledCandidate(SecondContext, ControlledTargetA))
+		&& Execution.TryEndOrbitThreatEmission(
+			ActionRuntime, SecondEmission)
+		&& Execution.TryEvaluateOrbitThreatReceipt(
+			ActionRuntime,
+			SecondEmission,
+			{ MakeThreatEvidence(ControlledTargetA, true) },
+			SecondPolicy)
+		&& Execution.TryBuildOrbitThreatPresenceIntents(
+			ActionRuntime, SecondPolicy, SecondPresence)
+		&& SecondPresence.IsValid()
+		&& SecondContext.GetHitOrdinal()
+			== FirstContext.GetHitOrdinal() + 1
+		&& SecondPresence.GetIntents()[0].GetIntentId()
+			!= FirstPresence.GetIntents()[0].GetIntentId()
+		&& Execution.NumAcceptedImpacts() == 0);
+
+	FShanmenWorldHitContext EmptyContext;
+	FShanmenDetectorEmissionReceipt EmptyEmission;
+	FShanmenControlledWeaponThreatPolicyReceipt EmptyPolicy;
+	FShanmenControlledWeaponThreatPresenceReceipt EmptyPresence;
+	TestTrue(TEXT("A no-target sample emits an explicit empty receipt"),
+		Execution.TryBeginOrbitThreatEmission(ActionRuntime, EmptyContext)
+		&& Execution.TryEndOrbitThreatEmission(ActionRuntime, EmptyEmission)
+		&& Execution.TryEvaluateOrbitThreatReceipt(
+			ActionRuntime, EmptyEmission, {}, EmptyPolicy)
+		&& Execution.TryBuildOrbitThreatPresenceIntents(
+			ActionRuntime, EmptyPolicy, EmptyPresence)
+		&& EmptyPresence.IsValid()
+		&& EmptyPresence.GetIntents().IsEmpty());
+
+	FShanmenControlledWeaponCommandReceipt Launch;
+	TestTrue(TEXT("Presence intent production leaves command ownership explicit"),
+		Execution.TryIssueCommand(
+			ActionRuntime,
+			0,
+			EShanmenControlledWeaponCommandKind::Launch,
+			FVector::ForwardVector,
+			Launch));
+	FShanmenControlledWeaponThreatPresenceReceipt Rejected;
+	TestFalse(TEXT("An old Orbit policy cannot emit after state transition"),
+		Execution.TryBuildOrbitThreatPresenceIntents(
+			ActionRuntime, FirstPolicy, Rejected));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FShanmenControlledWeaponImpactTest,
 	"Shanmen.0_0_10.CombatRuntime.ControlledWeapon.ControlledObjectImpacts",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

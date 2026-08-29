@@ -159,6 +159,9 @@ public:
 		Fdemo_mapShanmenControlledWeaponThreatEvidenceCaptureResult&
 			OutEvidence,
 		FShanmenControlledWeaponThreatPolicyReceipt& OutReceipt) const;
+	bool TryBuildOrbitThreatPresenceIntents(
+		const FShanmenControlledWeaponThreatPolicyReceipt& Policy,
+		FShanmenControlledWeaponThreatPresenceReceipt& OutReceipt) const;
 
 	/** Moves the physical Actor with sweep enabled; contact delivery is explicit. */
 	bool TryAdvanceDirected(

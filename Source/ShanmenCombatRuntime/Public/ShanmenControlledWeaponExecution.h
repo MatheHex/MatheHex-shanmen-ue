@@ -276,6 +276,54 @@ private:
 	TArray<FShanmenControlledWeaponThreatTargetReceipt> Targets;
 };
 
+/** One sample-scoped observation that a legal target is inside the threat envelope. */
+class SHANMENCOMBATRUNTIME_API FShanmenControlledWeaponThreatPresenceIntent
+{
+public:
+	bool IsValid() const;
+	const FGuid& GetIntentId() const { return IntentId; }
+	const FGuid& GetRunId() const { return RunId; }
+	const FGuid& GetSourceItemInstanceId() const
+	{
+		return SourceItemInstanceId;
+	}
+	const FShanmenHitCandidate& GetCandidate() const { return Candidate; }
+
+private:
+	friend class FShanmenControlledWeaponExecution;
+	friend class FShanmenControlledWeaponThreatPresenceReceipt;
+
+	FGuid IntentId;
+	FGuid RunId;
+	FGuid SourceItemInstanceId;
+	FShanmenHitCandidate Candidate;
+};
+
+/**
+ * Deterministic, zero-magnitude output for one completed target-policy sample.
+ * Consumers may deduplicate exact replay by IntentId; this receipt owns no
+ * cross-sample cooldown, duration, damage, control, or World mutation.
+ */
+class SHANMENCOMBATRUNTIME_API FShanmenControlledWeaponThreatPresenceReceipt
+{
+public:
+	bool IsValid() const;
+	const FShanmenControlledWeaponThreatPolicyReceipt& GetPolicy() const
+	{
+		return Policy;
+	}
+	const TArray<FShanmenControlledWeaponThreatPresenceIntent>& GetIntents() const
+	{
+		return Intents;
+	}
+
+private:
+	friend class FShanmenControlledWeaponExecution;
+
+	FShanmenControlledWeaponThreatPolicyReceipt Policy;
+	TArray<FShanmenControlledWeaponThreatPresenceIntent> Intents;
+};
+
 /**
  * Deterministic pure runtime for one physically sourced controlled weapon.
  *
@@ -323,6 +371,11 @@ public:
 		const FShanmenDetectorEmissionReceipt& Emission,
 		const TArray<FShanmenControlledWeaponThreatTargetEvidence>& TargetEvidence,
 		FShanmenControlledWeaponThreatPolicyReceipt& OutReceipt) const;
+	/** Emits one deterministic presence intent per accepted target. */
+	bool TryBuildOrbitThreatPresenceIntents(
+		const FShanmenActionOrchestrator& ActionRuntime,
+		const FShanmenControlledWeaponThreatPolicyReceipt& Policy,
+		FShanmenControlledWeaponThreatPresenceReceipt& OutReceipt) const;
 	bool TryResolveCandidate(
 		const FShanmenActionOrchestrator& ActionRuntime,
 		const FShanmenHitCandidate& Candidate,

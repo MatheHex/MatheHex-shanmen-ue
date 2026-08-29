@@ -46,6 +46,9 @@ public:
 		const FShanmenDetectorEmissionReceipt& Emission,
 		const TArray<FShanmenControlledWeaponThreatTargetEvidence>& TargetEvidence,
 		FShanmenControlledWeaponThreatPolicyReceipt& OutReceipt) const;
+	bool TryBuildOrbitThreatPresenceIntents(
+		const FShanmenControlledWeaponThreatPolicyReceipt& Policy,
+		FShanmenControlledWeaponThreatPresenceReceipt& OutReceipt) const;
 	bool TryBeginContactWindow(FShanmenWorldHitContext& OutContext);
 	bool TryResolveCandidate(
 		const FShanmenHitCandidate& Candidate,

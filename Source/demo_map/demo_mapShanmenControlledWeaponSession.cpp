@@ -258,6 +258,17 @@ bool Fdemo_mapShanmenControlledWeaponSession::TryEvaluateOrbitThreatReceipt(
 			ActionRuntime, Emission, TargetEvidence, OutReceipt);
 }
 
+bool Fdemo_mapShanmenControlledWeaponSession::
+TryBuildOrbitThreatPresenceIntents(
+	const FShanmenControlledWeaponThreatPolicyReceipt& Policy,
+	FShanmenControlledWeaponThreatPresenceReceipt& OutReceipt) const
+{
+	OutReceipt = FShanmenControlledWeaponThreatPresenceReceipt();
+	return IsActive()
+		&& Execution.TryBuildOrbitThreatPresenceIntents(
+			ActionRuntime, Policy, OutReceipt);
+}
+
 bool Fdemo_mapShanmenControlledWeaponSession::TryResolveCandidate(
 	const FShanmenHitCandidate& Candidate,
 	const FShanmenTargetVitalitySnapshot& TargetVitality,

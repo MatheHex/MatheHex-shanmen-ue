@@ -70,6 +70,45 @@ namespace
 			});
 	}
 
+	FGuid MakeThreatPresenceIntentId(
+		const FGuid& RunId,
+		const FGuid& SourceItemInstanceId,
+		const FShanmenHitCandidate& Candidate)
+	{
+		return FShanmenDeterministicId::FromCanonicalParts(
+			TEXT("Shanmen.ControlledWeapon.ThreatPresence.r1"),
+			{
+				GuidDigits(RunId),
+				GuidDigits(Candidate.ActivationId),
+				GuidDigits(Candidate.SourceEntityId),
+				GuidDigits(SourceItemInstanceId),
+				Candidate.DetectorId.ToString(),
+				FString::FromInt(
+					static_cast<int32>(Candidate.DetectorKind)),
+				FString::FromInt(Candidate.HitOrdinal),
+				GuidDigits(Candidate.TargetEntityId)
+			});
+	}
+
+	bool ActionsMatch(
+		const FShanmenCombatActionSnapshot& Left,
+		const FShanmenCombatActionSnapshot& Right)
+	{
+		return Left.IsValid()
+			&& Right.IsValid()
+			&& Left.GetRunId() == Right.GetRunId()
+			&& Left.GetOwnerId() == Right.GetOwnerId()
+			&& Left.GetActivationId() == Right.GetActivationId()
+			&& Left.GetSourceEntityId() == Right.GetSourceEntityId()
+			&& Left.GetSourceItemInstanceId()
+				== Right.GetSourceItemInstanceId()
+			&& Left.GetActionDefinitionId()
+				== Right.GetActionDefinitionId()
+			&& Left.GetContent().Version == Right.GetContent().Version
+			&& Left.GetContent().Digest == Right.GetContent().Digest
+			&& Left.GetSourceTags() == Right.GetSourceTags();
+	}
+
 	bool CandidatesMatch(
 		const FShanmenHitCandidate& Left,
 		const FShanmenHitCandidate& Right)
@@ -275,6 +314,58 @@ int32 FShanmenControlledWeaponThreatPolicyReceipt::NumAcceptedTargets() const
 		Count += Target.IsAccepted() ? 1 : 0;
 	}
 	return Count;
+}
+
+bool FShanmenControlledWeaponThreatPresenceIntent::IsValid() const
+{
+	return IntentId.IsValid()
+		&& RunId.IsValid()
+		&& SourceItemInstanceId.IsValid()
+		&& Candidate.IsValid()
+		&& Candidate.DetectorKind
+			== EShanmenHitDetectorKind::ControlledObject
+		&& IntentId == MakeThreatPresenceIntentId(
+			RunId, SourceItemInstanceId, Candidate);
+}
+
+bool FShanmenControlledWeaponThreatPresenceReceipt::IsValid() const
+{
+	if (!Policy.IsValid()
+		|| Intents.Num() != Policy.NumAcceptedTargets())
+	{
+		return false;
+	}
+
+	const FShanmenCombatActionSnapshot& PolicyAction =
+		Policy.GetEmission().GetContext().GetAction();
+	TSet<FGuid> IntentIds;
+	int32 IntentIndex = 0;
+	for (const FShanmenControlledWeaponThreatTargetReceipt& Target :
+		Policy.GetTargets())
+	{
+		if (!Target.IsAccepted())
+		{
+			continue;
+		}
+
+		if (!Intents.IsValidIndex(IntentIndex))
+		{
+			return false;
+		}
+		const FShanmenControlledWeaponThreatPresenceIntent& Intent =
+			Intents[IntentIndex++];
+		if (!Intent.IsValid()
+			|| Intent.RunId != PolicyAction.GetRunId()
+			|| Intent.SourceItemInstanceId
+				!= PolicyAction.GetSourceItemInstanceId()
+			|| !CandidatesMatch(Intent.Candidate, Target.GetCandidate())
+			|| IntentIds.Contains(Intent.IntentId))
+		{
+			return false;
+		}
+		IntentIds.Add(Intent.IntentId);
+	}
+	return IntentIndex == Intents.Num();
 }
 
 bool FShanmenControlledWeaponExecution::TryCreate(
@@ -548,6 +639,59 @@ bool FShanmenControlledWeaponExecution::TryEvaluateOrbitThreatReceipt(
 	if (!OutReceipt.IsValid())
 	{
 		OutReceipt = FShanmenControlledWeaponThreatPolicyReceipt();
+		return false;
+	}
+	return true;
+}
+
+bool FShanmenControlledWeaponExecution::TryBuildOrbitThreatPresenceIntents(
+	const FShanmenActionOrchestrator& ActionRuntime,
+	const FShanmenControlledWeaponThreatPolicyReceipt& Policy,
+	FShanmenControlledWeaponThreatPresenceReceipt& OutReceipt) const
+{
+	OutReceipt = FShanmenControlledWeaponThreatPresenceReceipt();
+	if (!MatchesActionRuntime(ActionRuntime)
+		|| !ActionRuntime.CanEmitCandidates()
+		|| State != EShanmenControlledWeaponState::Orbiting
+		|| EmissionSession.IsEmissionActive()
+		|| !Policy.IsValid()
+		|| Policy.GetEmission().GetContext().GetDetectorKind()
+			!= EShanmenHitDetectorKind::ControlledObject
+		|| Policy.GetEmission().GetContext().GetDetectorId()
+			!= Definition.GetDetectorId()
+		|| !ActionsMatch(
+			Policy.GetEmission().GetContext().GetAction(), Action)
+		|| Policy.GetRequiredTargetTags()
+			!= Definition.GetRequiredTargetTags()
+		|| Policy.RejectsSelf() != Definition.RejectsSelf())
+	{
+		return false;
+	}
+
+	OutReceipt.Policy = Policy;
+	OutReceipt.Intents.Reserve(Policy.NumAcceptedTargets());
+	for (const FShanmenControlledWeaponThreatTargetReceipt& Target :
+		Policy.GetTargets())
+	{
+		if (!Target.IsAccepted())
+		{
+			continue;
+		}
+
+		FShanmenControlledWeaponThreatPresenceIntent Intent;
+		Intent.RunId = Action.GetRunId();
+		Intent.SourceItemInstanceId = Action.GetSourceItemInstanceId();
+		Intent.Candidate = Target.GetCandidate();
+		Intent.IntentId = MakeThreatPresenceIntentId(
+			Intent.RunId,
+			Intent.SourceItemInstanceId,
+			Intent.Candidate);
+		OutReceipt.Intents.Add(MoveTemp(Intent));
+	}
+
+	if (!OutReceipt.IsValid())
+	{
+		OutReceipt = FShanmenControlledWeaponThreatPresenceReceipt();
 		return false;
 	}
 	return true;

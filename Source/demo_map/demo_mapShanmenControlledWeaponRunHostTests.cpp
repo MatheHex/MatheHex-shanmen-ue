@@ -684,6 +684,7 @@ bool Fdemo_mapControlledWeaponRunHostOrbitThreatTest::RunTest(
 			== Projected.Candidate.TargetEntityId
 		&& ThreatPolicy.IsValid()
 		&& ThreatPolicy.NumAcceptedTargets() == 1);
+	FShanmenControlledWeaponThreatPolicyReceipt RejectedPolicy;
 	TestFalse(TEXT("Unknown item cannot capture another item's targets"),
 		Host.TryEvaluateOrbitThreatActors(
 			HostHighItemId,
@@ -691,8 +692,21 @@ bool Fdemo_mapControlledWeaponRunHostOrbitThreatTest::RunTest(
 			ThreatReceipt,
 			{ Fixture.Enemy },
 			Evidence,
-			ThreatPolicy));
-	TestTrue(TEXT("Policy audit leaves the item free to Launch"),
+			RejectedPolicy));
+	FShanmenControlledWeaponThreatPresenceReceipt Presence;
+	TestTrue(TEXT("Host emits threat presence for the exact routed item"),
+		Host.TryBuildOrbitThreatPresenceIntents(
+			HostLowItemId, ThreatPolicy, Presence)
+		&& Presence.IsValid()
+		&& Presence.GetIntents().Num() == 1
+		&& Presence.GetIntents()[0].GetSourceItemInstanceId()
+			== HostLowItemId
+		&& Presence.GetIntents()[0].GetCandidate().TargetEntityId
+			== Projected.Candidate.TargetEntityId);
+	TestFalse(TEXT("Unknown item cannot borrow another item's presence policy"),
+		Host.TryBuildOrbitThreatPresenceIntents(
+			HostHighItemId, ThreatPolicy, Presence));
+	TestTrue(TEXT("Presence audit leaves the item free to Launch"),
 		Host.TryLaunch(
 			HostLowItemId, 0, FVector::ForwardVector, Launch));
 	FShanmenWorldHitContext DirectedContext;

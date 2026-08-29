@@ -217,6 +217,10 @@ public:
 		Fdemo_mapShanmenControlledWeaponThreatEvidenceCaptureResult&
 			OutEvidence,
 		FShanmenControlledWeaponThreatPolicyReceipt& OutReceipt) const;
+	bool TryBuildOrbitThreatPresenceIntents(
+		const FGuid& ItemInstanceId,
+		const FShanmenControlledWeaponThreatPolicyReceipt& Policy,
+		FShanmenControlledWeaponThreatPresenceReceipt& OutReceipt) const;
 
 	/** Preflights every directed sword, then advances each in stable item order. */
 	bool TryAdvanceDirectedInOrder(

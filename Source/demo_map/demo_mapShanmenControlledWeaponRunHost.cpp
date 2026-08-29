@@ -497,6 +497,20 @@ bool Fdemo_mapShanmenControlledWeaponRunHost::TryEvaluateOrbitThreatActors(
 			OutReceipt);
 }
 
+bool Fdemo_mapShanmenControlledWeaponRunHost::
+TryBuildOrbitThreatPresenceIntents(
+	const FGuid& ItemInstanceId,
+	const FShanmenControlledWeaponThreatPolicyReceipt& Policy,
+	FShanmenControlledWeaponThreatPresenceReceipt& OutReceipt) const
+{
+	OutReceipt = FShanmenControlledWeaponThreatPresenceReceipt();
+	const Fdemo_mapShanmenControlledWeaponProductController* Controller =
+		IsValid() ? Controllers.Find(ItemInstanceId) : nullptr;
+	return Controller
+		&& Controller->TryBuildOrbitThreatPresenceIntents(
+			Policy, OutReceipt);
+}
+
 bool Fdemo_mapShanmenControlledWeaponRunHost::TryAdvanceDirectedInOrder(
 	float DeltaSeconds,
 	Fdemo_mapShanmenControlledWeaponHostMovementBatch& OutBatch)

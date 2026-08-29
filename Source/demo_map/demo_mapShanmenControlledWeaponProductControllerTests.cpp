@@ -623,8 +623,23 @@ bool Fdemo_mapControlledWeaponProductOrbitThreatTest::RunTest(
 		&& FMath::IsNearlyEqual(
 			AfterProjection.CurrentVitality,
 			Before.CurrentVitality)
-		&& Controller.GetSession().GetExecution().NumAcceptedImpacts() == 0
-		&& Controller.TryLaunch(0, FVector::ForwardVector, Launch));
+		&& Controller.GetSession().GetExecution().NumAcceptedImpacts() == 0);
+	FShanmenControlledWeaponThreatPresenceReceipt Presence;
+	TestTrue(TEXT("Product emits one exact-item threat-presence intent"),
+		Controller.TryBuildOrbitThreatPresenceIntents(
+			ThreatPolicy, Presence)
+		&& Presence.IsValid()
+		&& Presence.GetIntents().Num() == 1
+		&& Presence.GetIntents()[0].GetCandidate().TargetEntityId
+			== EnemyEntityId
+		&& Presence.GetIntents()[0].GetSourceItemInstanceId()
+			== ProductItemId
+		&& FMath::IsNearlyEqual(
+			AfterProjection.CurrentVitality,
+			Before.CurrentVitality)
+		&& Controller.GetSession().GetExecution().NumAcceptedImpacts() == 0);
+	TestTrue(TEXT("Presence intent leaves the item free to Launch"),
+		Controller.TryLaunch(0, FVector::ForwardVector, Launch));
 	FShanmenWorldHitContext DirectedContext;
 	TestTrue(TEXT("Directed contact continues the shared detector ordinal"),
 		Controller.TryBeginContactWindow(DirectedContext)
