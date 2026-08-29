@@ -483,6 +483,16 @@ Ademo_mapGameMode::RouteControlledWeaponIntent(
 		Intent);
 }
 
+Fdemo_mapShanmenControlledWeaponThreatSampleResult
+Ademo_mapGameMode::RouteControlledWeaponThreatSampleIntent(
+	const Fdemo_mapShanmenControlledWeaponThreatSampleIntent& Intent)
+{
+	return ControlledWeaponThreatSampleRouter.TryRoute(
+		ControlledWeaponRunHost,
+		CombatRunCoordinator,
+		Intent);
+}
+
 bool Ademo_mapGameMode::AdvanceControlledWeaponOrbit(
 	float DeltaSeconds,
 	Fdemo_mapShanmenControlledWeaponHostOrbitBatch& OutBatch)
@@ -960,7 +970,8 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 {
 	OutDiagnostic.Reset();
 	if (!ControlledWeaponRunHost.IsEmpty()
-		|| !ControlledWeaponRunCommandRouter.IsEmpty())
+		|| !ControlledWeaponRunCommandRouter.IsEmpty()
+		|| !ControlledWeaponThreatSampleRouter.IsEmpty())
 	{
 		OutDiagnostic =
 			TEXT("Player combat Run binding rejected stale controlled-weapon state.");
@@ -1036,17 +1047,21 @@ bool Ademo_mapGameMode::ReleaseControlledWeaponCombatRun(
 	if (!CombatRunCoordinator.IsActive())
 	{
 		if (ControlledWeaponRunHost.IsEmpty()
-			&& ControlledWeaponRunCommandRouter.IsEmpty())
+			&& ControlledWeaponRunCommandRouter.IsEmpty()
+			&& ControlledWeaponThreatSampleRouter.IsEmpty())
 		{
 			return true;
 		}
 		UE_LOG(Logdemo_map, Error,
-			TEXT("0_0_10_COMBAT_RUN Event=OrphanedControlledWeaponState Context=%s BoundItems=%d RoutedIntents=%d"),
+			TEXT("0_0_10_COMBAT_RUN Event=OrphanedControlledWeaponState Context=%s BoundItems=%d RoutedIntents=%d ThreatSamples=%lld"),
 			SafeContext,
 			ControlledWeaponRunHost.NumBound(),
-			ControlledWeaponRunCommandRouter.NumProcessedIntents());
+			ControlledWeaponRunCommandRouter.NumProcessedIntents(),
+			static_cast<long long>(
+				ControlledWeaponThreatSampleRouter.NumAcceptedSamples()));
 		ControlledWeaponRunHost.Reset();
 		ControlledWeaponRunCommandRouter.Reset();
+		ControlledWeaponThreatSampleRouter.Reset();
 		return false;
 	}
 
@@ -1058,14 +1073,18 @@ bool Ademo_mapGameMode::ReleaseControlledWeaponCombatRun(
 	{
 		const int32 RoutedIntentCount =
 			ControlledWeaponRunCommandRouter.NumProcessedIntents();
+		const int64 ThreatSampleCount =
+			ControlledWeaponThreatSampleRouter.NumAcceptedSamples();
 		ControlledWeaponRunCommandRouter.Reset();
+		ControlledWeaponThreatSampleRouter.Reset();
 		UE_LOG(Logdemo_map, Log,
-			TEXT("0_0_10_COMBAT_RUN Event=RunReleased RunId=%s Context=%s ControlledBound=%d ControlledInterrupted=%d RoutedIntents=%d"),
+			TEXT("0_0_10_COMBAT_RUN Event=RunReleased RunId=%s Context=%s ControlledBound=%d ControlledInterrupted=%d RoutedIntents=%d ThreatSamples=%lld"),
 			*Result.RunId.ToString(EGuidFormats::DigitsWithHyphens),
 			SafeContext,
 			Result.BoundItemCount,
 			Result.InterruptedItemCount,
-			RoutedIntentCount);
+			RoutedIntentCount,
+			static_cast<long long>(ThreatSampleCount));
 		return true;
 	}
 
@@ -1075,6 +1094,7 @@ bool Ademo_mapGameMode::ReleaseControlledWeaponCombatRun(
 		static_cast<int32>(Result.Status),
 		*Result.Diagnostic);
 	ControlledWeaponRunCommandRouter.Reset();
+	ControlledWeaponThreatSampleRouter.Reset();
 	ControlledWeaponRunHost.Reset();
 	CombatRunCoordinator.Reset();
 	return false;

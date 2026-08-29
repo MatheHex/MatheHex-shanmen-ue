@@ -144,6 +144,12 @@ try
             'Source/demo_map/demo_mapShanmenControlledWeaponRunCommandRouter.cpp') `
         -Logs @($Full)
 
+    Invoke-ExpectedPass `
+        -Name 'controlled weapon threat sample router is covered by the full suite' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenControlledWeaponThreatSampleRouter.cpp') `
+        -Logs @($Full)
+
     Invoke-ExpectedFail `
         -Name 'missing mapped group fails closed' `
         -Paths @('Source/demo_map/demo_mapSkillComponent.cpp') `
@@ -195,7 +201,14 @@ try
         -Logs @($Coordinator) `
         -ExpectedText 'missing required groups'
 
-    Write-Output 'SELF_TEST: PASS 14/14'
+    Invoke-ExpectedFail `
+        -Name 'threat sample router cannot use coordinator-only evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenControlledWeaponThreatSampleRouter.cpp') `
+        -Logs @($Coordinator) `
+        -ExpectedText 'missing required groups'
+
+    Write-Output 'SELF_TEST: PASS 16/16'
 }
 finally
 {

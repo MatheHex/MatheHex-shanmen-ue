@@ -13,6 +13,7 @@
 #include "demo_mapCombatRunCoordinator.h"
 #include "demo_mapShanmenControlledWeaponRunCommandRouter.h"
 #include "demo_mapShanmenControlledWeaponRunLifecycle.h"
+#include "demo_mapShanmenControlledWeaponThreatSampleRouter.h"
 #include "demo_mapShanmenRunCorrelation.h"
 #include "demo_mapGameMode.generated.h"
 
@@ -121,6 +122,10 @@ public:
 	Fdemo_mapShanmenControlledWeaponRunCommandResult
 	RouteControlledWeaponIntent(
 		const Fdemo_mapShanmenControlledWeaponRunCommandIntent& Intent);
+	/** Routes one caller-timed, explicit threat sample through the active Run. */
+	Fdemo_mapShanmenControlledWeaponThreatSampleResult
+	RouteControlledWeaponThreatSampleIntent(
+		const Fdemo_mapShanmenControlledWeaponThreatSampleIntent& Intent);
 	/** Advances only the active Run's explicit, non-damaging Orbit poses. */
 	bool AdvanceControlledWeaponOrbit(
 		float DeltaSeconds,
@@ -137,6 +142,11 @@ public:
 	GetControlledWeaponRunCommandRouter() const
 	{
 		return ControlledWeaponRunCommandRouter;
+	}
+	const Fdemo_mapShanmenControlledWeaponThreatSampleRouter&
+	GetControlledWeaponThreatSampleRouter() const
+	{
+		return ControlledWeaponThreatSampleRouter;
 	}
 	/** M01 enemy attacks never fall through to legacy damage when this is true. */
 	bool ShouldUseM01EnemyAttackProductPath() const;
@@ -364,6 +374,8 @@ private:
 	Fdemo_mapShanmenControlledWeaponRunHost ControlledWeaponRunHost;
 	Fdemo_mapShanmenControlledWeaponRunCommandRouter
 		ControlledWeaponRunCommandRouter;
+	Fdemo_mapShanmenControlledWeaponThreatSampleRouter
+		ControlledWeaponThreatSampleRouter;
 	TArray<TWeakObjectPtr<Ademo_mapM01ExtractionZone>> M01ExtractionZones;
 	TArray<TWeakObjectPtr<AActor>> M01EnemyActors;
 	TWeakObjectPtr<Ademo_mapM01BossCharacter> M01Boss;
