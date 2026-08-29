@@ -14,6 +14,7 @@
 #include "demo_mapShanmenControlledWeaponRunCommandRouter.h"
 #include "demo_mapShanmenControlledWeaponRunLifecycle.h"
 #include "demo_mapShanmenControlledWeaponThreatSampleRouter.h"
+#include "demo_mapShanmenThrownWeaponInputAdapter.h"
 #include "demo_mapShanmenThrownWeaponProductLifecycle.h"
 #include "demo_mapShanmenRunCorrelation.h"
 #include "demo_mapGameMode.generated.h"
@@ -152,6 +153,11 @@ public:
 	/** Routes one already-captured, device-independent hotbar trajectory. */
 	Fdemo_mapShanmenThrownWeaponSessionResult RouteThrownWeaponHotbarIntent(
 		const Fdemo_mapShanmenThrownWeaponHotbarIntent& Intent);
+	/** Classifies one physical hotbar press before any transform/aim sampling. */
+	Fdemo_mapShanmenThrownWeaponInputResult RouteThrownWeaponHotbarInput(
+		int32 HotbarSlotNumber,
+		AActor* SourceActor,
+		TFunctionRef<FVector()> SampleAimDirection);
 	/** Retries only the durable cancellation associated with this exact intent. */
 	Fdemo_mapShanmenThrownWeaponSessionResult
 	RecoverThrownWeaponCancellation(
@@ -393,6 +399,7 @@ private:
 		ControlledWeaponThreatSampleRouter;
 	Fdemo_mapShanmenThrownWeaponProductLifecycle
 		ThrownWeaponProductLifecycle;
+	Fdemo_mapShanmenThrownWeaponInputAdapter ThrownWeaponInputAdapter;
 	TArray<TWeakObjectPtr<Ademo_mapM01ExtractionZone>> M01ExtractionZones;
 	TArray<TWeakObjectPtr<AActor>> M01EnemyActors;
 	TWeakObjectPtr<Ademo_mapM01BossCharacter> M01Boss;

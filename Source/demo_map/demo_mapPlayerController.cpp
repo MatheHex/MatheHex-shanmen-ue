@@ -823,6 +823,18 @@ void Ademo_mapPlayerController::UseHotbarSlot(int32 SlotNumber)
 	}
 	Ademo_mapGameMode* Mode = GetWorld()
 		? Cast<Ademo_mapGameMode>(GetWorld()->GetAuthGameMode()) : nullptr;
+	if (Mode)
+	{
+		const Fdemo_mapShanmenThrownWeaponInputResult ThrownRoute =
+			Mode->RouteThrownWeaponHotbarInput(
+				SlotNumber,
+				GetPawn(),
+				[this]() { return GetLastValidAimDirection(); });
+		if (!ThrownRoute.ShouldPassThrough())
+		{
+			return;
+		}
+	}
 	if (Ademo_mapV3ProgressionManager* Manager = Mode ? Mode->GetV3ProgressionManager() : nullptr)
 	{
 		Manager->RequestUseBoundQuickSlot(SlotNumber);

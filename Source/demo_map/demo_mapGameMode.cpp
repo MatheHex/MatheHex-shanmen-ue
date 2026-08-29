@@ -520,6 +520,27 @@ Ademo_mapGameMode::RouteThrownWeaponHotbarIntent(
 		Intent);
 }
 
+Fdemo_mapShanmenThrownWeaponInputResult
+Ademo_mapGameMode::RouteThrownWeaponHotbarInput(
+	const int32 HotbarSlotNumber,
+	AActor* SourceActor,
+	TFunctionRef<FVector()> SampleAimDirection)
+{
+	Udemo_mapShanmenItemAuthoritySubsystem* Authority = GetGameInstance()
+		? GetGameInstance()->GetSubsystem<
+			Udemo_mapShanmenItemAuthoritySubsystem>()
+		: nullptr;
+	return ThrownWeaponInputAdapter.RouteHotbarInput(
+		Authority,
+		ThrownWeaponProductLifecycle,
+		CombatRunCoordinator,
+		GetWorld(),
+		Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+		SourceActor,
+		HotbarSlotNumber,
+		SampleAimDirection);
+}
+
 Fdemo_mapShanmenThrownWeaponSessionResult
 Ademo_mapGameMode::RecoverThrownWeaponCancellation(
 	const Fdemo_mapShanmenThrownWeaponHotbarIntent& Intent)
@@ -1082,6 +1103,7 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 			return false;
 		}
 	}
+	ThrownWeaponInputAdapter.Reset();
 	UE_LOG(Logdemo_map, Log,
 		TEXT("0_0_10_COMBAT_RUN Event=RunBound RunId=%s PlayerEntityId=%s M01Entities=%d M01VitalityHosts=%d ThrownWeaponLifecycle=%d"),
 		*ActiveRunId.ToString(EGuidFormats::DigitsWithHyphens),
@@ -1109,6 +1131,7 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 			*ThrownDiagnostic);
 		return false;
 	}
+	ThrownWeaponInputAdapter.Reset();
 	if (!CombatRunCoordinator.IsActive())
 	{
 		if (ControlledWeaponRunHost.IsEmpty()

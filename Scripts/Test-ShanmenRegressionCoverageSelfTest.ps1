@@ -200,6 +200,12 @@ try
         -Logs @($Full, $ItemUse)
 
     Invoke-ExpectedPass `
+        -Name 'thrown weapon input adapter maps typed hotbar and fallback seams' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenThrownWeaponInputAdapter.cpp') `
+        -Logs @($Full, $ItemUse)
+
+    Invoke-ExpectedPass `
         -Name 'canonical item catalog requires every direct product consumer' `
         -Paths @(
             'Source/demo_map/demo_mapItemDefinitions.cpp',
@@ -293,13 +299,20 @@ try
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
+        -Name 'thrown input adapter requires ordinary hotbar fallback evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenThrownWeaponInputAdapter.cpp') `
+        -Logs @($Full) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
         -Name 'canonical item catalog cannot use new-module evidence alone' `
         -Paths @(
             'Source/demo_map/demo_mapItemDefinitions.cpp') `
         -Logs @($Full) `
         -ExpectedText 'missing required groups'
 
-    Write-Output 'SELF_TEST: PASS 28/28'
+    Write-Output 'SELF_TEST: PASS 30/30'
 }
 finally
 {
