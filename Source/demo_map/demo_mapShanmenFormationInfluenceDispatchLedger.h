@@ -148,6 +148,13 @@ public:
 	int32 GetPendingIntentCount() const;
 	bool TryPeekNextPending(
 		Fdemo_mapShanmenFormationInfluenceIntent& OutIntent) const;
+	bool TryGetIntent(
+		const FGuid& IntentId,
+		Fdemo_mapShanmenFormationInfluenceIntent& OutIntent) const;
+	bool TryGetAttemptReceipt(
+		const FGuid& IntentId,
+		const FGuid& AttemptId,
+		Fdemo_mapShanmenFormationInfluenceAttemptReceipt& OutReceipt) const;
 	bool TryGetSuccessfulReceipt(
 		const FGuid& IntentId,
 		Fdemo_mapShanmenFormationInfluenceAttemptReceipt& OutReceipt) const;

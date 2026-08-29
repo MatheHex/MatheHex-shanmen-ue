@@ -147,6 +147,9 @@ try
     $FormationInfluenceDispatch = New-AutomationLogFixture `
         -Name 'formation-influence-dispatch.log' `
         -Group 'Shanmen.0_0_10.Product.FormationInfluenceDispatch'
+    $FormationInfluenceExecutor = New-AutomationLogFixture `
+        -Name 'formation-influence-executor.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationInfluenceExecutor'
     $Legacy = New-AutomationLogFixture `
         -Name 'legacy.log' `
         -Group 'demo_map'
@@ -248,6 +251,12 @@ try
         -Name 'formation influence dispatch is covered by broad full evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceDispatchLedger.cpp') `
+        -Logs @($Full)
+
+    Invoke-ExpectedPass `
+        -Name 'formation influence executor is covered by broad full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceExecutorAdapter.cpp') `
         -Logs @($Full)
 
     Invoke-ExpectedPass `
@@ -454,6 +463,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceDispatchLedger.cpp') `
         -Logs @($FormationInfluenceDispatch) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'formation executor child evidence cannot replace Host and ledger contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceExecutorAdapter.cpp') `
+        -Logs @($FormationInfluenceExecutor) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

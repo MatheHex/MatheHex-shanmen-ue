@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS && !UE_BUILD_SHIPPING
 
 #include "demo_mapShanmenFormationProductHost.h"
+#include "demo_mapShanmenFormationInfluenceExecutorAdapter.h"
 
 #include "ShanmenCombatResolver.h"
 #include "demo_map0909BSectWarehouseService.h"
@@ -483,6 +484,103 @@ namespace
 			*OutCommand = Command;
 		}
 		return true;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceExecutionCommand
+	MakeHostExecutionCommand(
+		const FGuid& IntentId,
+		const int32 Ordinal)
+	{
+		Fdemo_mapShanmenFormationInfluenceExecutionCommand Command;
+		Command.IntentId = IntentId;
+		Command.AttemptId = FGuid(0xF8510000 + Ordinal, 0, 0, 1);
+		check(Command.IsValid());
+		return Command;
+	}
+
+	class FScriptedHostInfluenceExecutor final
+		: public Idemo_mapShanmenFormationInfluenceExecutor
+	{
+	public:
+		TArray<Edemo_mapShanmenFormationInfluenceAttemptOutcome> Outcomes;
+		int32 InvocationCount = 0;
+		bool bRejectNext = false;
+		bool bCorruptNextIntent = false;
+
+		virtual Fdemo_mapShanmenFormationInfluenceExecutorResult Execute(
+			const Fdemo_mapShanmenFormationInfluenceExecutorInvocation& Invocation)
+			override
+		{
+			++InvocationCount;
+			Fdemo_mapShanmenFormationInfluenceExecutorResult Result;
+			if (bRejectNext)
+			{
+				bRejectNext = false;
+				Result.Status =
+					Edemo_mapShanmenFormationInfluenceExecutorStatus::Rejected;
+				Result.Diagnostic = TEXT("Scripted executor rejection.");
+				return Result;
+			}
+			Result.Status =
+				Edemo_mapShanmenFormationInfluenceExecutorStatus::Completed;
+			Result.Diagnostic = TEXT("Scripted opaque execution receipt.");
+			Result.Receipt.LedgerId = Invocation.LedgerId;
+			Result.Receipt.IntentId = Invocation.Intent.IntentId;
+			Result.Receipt.AttemptId = Invocation.AttemptId;
+			Result.Receipt.ExecutorReceiptId =
+				FGuid(0xF8520000 + InvocationCount, 0, 0, 1);
+			Result.Receipt.Outcome = Outcomes.IsValidIndex(
+					InvocationCount - 1)
+				? Outcomes[InvocationCount - 1]
+				: Edemo_mapShanmenFormationInfluenceAttemptOutcome::Succeeded;
+			if (bCorruptNextIntent)
+			{
+				bCorruptNextIntent = false;
+				Result.Receipt.IntentId = FGuid(0xF852FFFF, 0, 0, 1);
+			}
+			return Result;
+		}
+	};
+
+	bool PrimeHostExecutorInfluence(
+		FAutomationTestBase& Test,
+		FFormationHostFixture& Fixture,
+		FShanmenWorldEntityRegistry& Registry,
+		const TCHAR* Label,
+		const int32 SubjectCount,
+		Fdemo_mapShanmenFormationHostInfluenceResult& OutPrime,
+		TArray<AActor*>& OutSubjects)
+	{
+		OutSubjects.Reset();
+		if (SubjectCount <= 0
+			|| !Fixture.Start(Test, Label, true)
+			|| !Fixture.CommitAndPlaceCoverageDiagram(Test)
+			|| !Registry.TryBeginRun(Fixture.Correlation.ActiveRunId))
+		{
+			return false;
+		}
+		for (int32 Index = 0; Index < SubjectCount; ++Index)
+		{
+			AActor* Subject = Fixture.SpawnCoverageSubject(
+				FVector(25.0 + Index * 25.0, 25.0, 900.0));
+			const FGuid SubjectId(0xF8530000 + Index, 0, 0, 1);
+			if (!Subject
+				|| Registry.BindObject(
+					Fixture.Correlation.ActiveRunId, Subject,
+					SubjectId, INDEX_NONE)
+					!= EShanmenWorldBindingResult::Bound)
+			{
+				return false;
+			}
+			OutSubjects.Add(Subject);
+		}
+		OutPrime = Fixture.Host.TryCoordinateInfluence(
+			Fixture.World, Registry, OutSubjects, Fixture.Correlation,
+			Fdemo_mapShanmenFormationCoverageCommand::MakePrime(),
+			MakeHostInfluencePolicy(Fixture.Host));
+		return OutPrime.IsSuccess()
+			&& OutPrime.ReconciliationPlan.Batch.Intents.Num()
+				== SubjectCount;
 	}
 }
 
@@ -1295,6 +1393,239 @@ bool Fdemo_mapFormationHostInfluenceTerminalTest::RunTest(const FString&)
 				== Edemo_mapShanmenFormationHostStatus::TeardownReplayed
 			&& !Fixture.Host.HasActiveInfluenceScope()
 			&& !Fixture.Host.IsInfluenceTerminalPrepared()
+			&& Fixture.Host.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceExecutorSuccessReplayTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceExecutor.SuccessReplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceExecutorSuccessReplayTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("ExecutorSuccessReplay"),
+			1, Prime, Subjects))
+	{
+		return false;
+	}
+	const auto Command = MakeHostExecutionCommand(
+		Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 1);
+	FScriptedHostInfluenceExecutor Executor;
+	const auto First =
+		Fdemo_mapShanmenFormationInfluenceExecutorAdapter::TryExecute(
+			Fixture.Host, Fixture.Correlation, Command, Executor);
+	const auto Replay =
+		Fdemo_mapShanmenFormationInfluenceExecutorAdapter::TryExecute(
+			Fixture.Host, Fixture.Correlation, Command, Executor);
+	Fdemo_mapShanmenFormationInfluenceAttemptReceipt Stored;
+
+	TestTrue(TEXT("Successful execution acknowledges the canonical intent"),
+		First.IsSuccess()
+			&& First.Status
+				== Edemo_mapShanmenFormationInfluenceExecutionStatus::Succeeded
+			&& First.bExecutorInvoked
+			&& Fixture.Host.GetPendingInfluenceIntentCount() == 0);
+	TestTrue(TEXT("Exact success replay does not invoke the executor again"),
+		Replay.IsSuccess()
+			&& Replay.Status
+				== Edemo_mapShanmenFormationInfluenceExecutionStatus::
+					AttemptReplayed
+			&& !Replay.bExecutorInvoked
+			&& Executor.InvocationCount == 1
+			&& Replay.Executor.Receipt.ExecutorReceiptId
+				== First.Executor.Receipt.ExecutorReceiptId);
+	TestTrue(TEXT("Ledger exposes the exact immutable attempt evidence"),
+		Fixture.Host.GetInfluenceLedger().TryGetAttemptReceipt(
+			Command.IntentId, Command.AttemptId, Stored)
+			&& Stored.ExecutorReceiptId
+				== First.Executor.Receipt.ExecutorReceiptId
+			&& Fixture.Host.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceExecutorRetryTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceExecutor.RetryThenSuccess",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceExecutorRetryTest::RunTest(const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("ExecutorRetry"),
+			1, Prime, Subjects))
+	{
+		return false;
+	}
+	const FGuid IntentId =
+		Prime.ReconciliationPlan.Batch.Intents[0].IntentId;
+	const auto RetryCommand = MakeHostExecutionCommand(IntentId, 10);
+	const auto SuccessCommand = MakeHostExecutionCommand(IntentId, 11);
+	FScriptedHostInfluenceExecutor Executor;
+	Executor.Outcomes = {
+		Edemo_mapShanmenFormationInfluenceAttemptOutcome::RetryableFailure,
+		Edemo_mapShanmenFormationInfluenceAttemptOutcome::Succeeded
+	};
+	const auto Retry =
+		Fdemo_mapShanmenFormationInfluenceExecutorAdapter::TryExecute(
+			Fixture.Host, Fixture.Correlation, RetryCommand, Executor);
+	const auto RetryReplay =
+		Fdemo_mapShanmenFormationInfluenceExecutorAdapter::TryExecute(
+			Fixture.Host, Fixture.Correlation, RetryCommand, Executor);
+	const auto Success =
+		Fdemo_mapShanmenFormationInfluenceExecutorAdapter::TryExecute(
+			Fixture.Host, Fixture.Correlation, SuccessCommand, Executor);
+
+	TestTrue(TEXT("Retry remains pending and exact retry is executor-free"),
+		Retry.IsSuccess()
+			&& Retry.Status
+				== Edemo_mapShanmenFormationInfluenceExecutionStatus::RetryRecorded
+			&& RetryReplay.Status
+				== Edemo_mapShanmenFormationInfluenceExecutionStatus::
+					AttemptReplayed
+			&& !RetryReplay.bExecutorInvoked
+			&& Retry.HostAcknowledgement.Acknowledgement.PendingIntentCount == 1);
+	TestTrue(TEXT("A new attempt can later complete the same pending intent"),
+		Success.IsSuccess()
+			&& Success.Status
+				== Edemo_mapShanmenFormationInfluenceExecutionStatus::Succeeded
+			&& Executor.InvocationCount == 2
+			&& Fixture.Host.GetPendingInfluenceIntentCount() == 0
+			&& Fixture.Host.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceExecutorFenceTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceExecutor.OrderAndEvidenceFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceExecutorFenceTest::RunTest(const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("ExecutorFence"),
+			2, Prime, Subjects))
+	{
+		return false;
+	}
+	const FGuid FirstIntent =
+		Prime.ReconciliationPlan.Batch.Intents[0].IntentId;
+	const FGuid SecondIntent =
+		Prime.ReconciliationPlan.Batch.Intents[1].IntentId;
+	FScriptedHostInfluenceExecutor Executor;
+	const auto OutOfOrder =
+		Fdemo_mapShanmenFormationInfluenceExecutorAdapter::TryExecute(
+			Fixture.Host, Fixture.Correlation,
+			MakeHostExecutionCommand(SecondIntent, 20), Executor);
+	Executor.bRejectNext = true;
+	const auto Rejected =
+		Fdemo_mapShanmenFormationInfluenceExecutorAdapter::TryExecute(
+			Fixture.Host, Fixture.Correlation,
+			MakeHostExecutionCommand(FirstIntent, 21), Executor);
+	const int32 PendingAfterReject =
+		Fixture.Host.GetPendingInfluenceIntentCount();
+	Executor.bCorruptNextIntent = true;
+	const auto Corrupt =
+		Fdemo_mapShanmenFormationInfluenceExecutorAdapter::TryExecute(
+			Fixture.Host, Fixture.Correlation,
+			MakeHostExecutionCommand(FirstIntent, 22), Executor);
+	const int32 PendingAfterCorrupt =
+		Fixture.Host.GetPendingInfluenceIntentCount();
+	const auto Recovered =
+		Fdemo_mapShanmenFormationInfluenceExecutorAdapter::TryExecute(
+			Fixture.Host, Fixture.Correlation,
+			MakeHostExecutionCommand(FirstIntent, 22), Executor);
+
+	TestTrue(TEXT("Out-of-order work is rejected before executor invocation"),
+		OutOfOrder.Status
+			== Edemo_mapShanmenFormationInfluenceExecutionStatus::IntentOutOfOrder
+			&& !OutOfOrder.bExecutorInvoked
+			&& Rejected.Status
+				== Edemo_mapShanmenFormationInfluenceExecutionStatus::
+					ExecutorRejected
+			&& PendingAfterReject == 2
+			&& Corrupt.Status
+				== Edemo_mapShanmenFormationInfluenceExecutionStatus::
+					ExecutorEvidenceMismatch
+			&& PendingAfterCorrupt == 2);
+	TestTrue(TEXT("Mismatched evidence cannot acknowledge but exact command may retry"),
+		Recovered.IsSuccess()
+			&& Recovered.Status
+				== Edemo_mapShanmenFormationInfluenceExecutionStatus::Succeeded
+			&& Executor.InvocationCount == 3
+			&& Fixture.Host.GetPendingInfluenceIntentCount() == 1
+			&& Fixture.Host.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceExecutorTerminalTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceExecutor.TerminalDrainSeal",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceExecutorTerminalTest::RunTest(const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("ExecutorTerminal"),
+			1, Prime, Subjects))
+	{
+		return false;
+	}
+	FScriptedHostInfluenceExecutor Executor;
+	const auto ApplyCommand = MakeHostExecutionCommand(
+		Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 30);
+	const auto Apply =
+		Fdemo_mapShanmenFormationInfluenceExecutorAdapter::TryExecute(
+			Fixture.Host, Fixture.Correlation, ApplyCommand, Executor);
+	const auto Terminal =
+		Fixture.Host.TryPrepareTerminalInfluence(Fixture.Correlation);
+	Fdemo_mapShanmenFormationInfluenceIntent RemoveIntent;
+	if (!Apply.IsSuccess() || !Terminal.IsSuccess()
+		|| !Fixture.Host.TryPeekNextInfluenceIntent(RemoveIntent))
+	{
+		return false;
+	}
+	const auto RemoveCommand =
+		MakeHostExecutionCommand(RemoveIntent.IntentId, 31);
+	const auto Remove =
+		Fdemo_mapShanmenFormationInfluenceExecutorAdapter::TryExecute(
+			Fixture.Host, Fixture.Correlation, RemoveCommand, Executor);
+	const auto Seal = Fixture.Host.TrySealInfluence(Fixture.Correlation);
+	const auto End = Fixture.Host.TryEndAndTeardown(
+		Fixture.World, Fixture.Correlation);
+	const auto RemoveReplay =
+		Fdemo_mapShanmenFormationInfluenceExecutorAdapter::TryExecute(
+			Fixture.Host, Fixture.Correlation, RemoveCommand, Executor);
+
+	TestTrue(TEXT("Adapter drains terminal Remove and sealed replay is executor-free"),
+		Remove.IsSuccess()
+			&& RemoveReplay.Status
+				== Edemo_mapShanmenFormationInfluenceExecutionStatus::
+					AttemptReplayed
+			&& !RemoveReplay.bExecutorInvoked
+			&& Executor.InvocationCount == 2);
+	TestTrue(TEXT("Drained adapter evidence seals and permits teardown"),
+		Seal.IsSuccess()
+			&& End.Status == Edemo_mapShanmenFormationHostStatus::Ended
+			&& Fixture.Host.GetInfluenceLedger().IsSealed()
 			&& Fixture.Host.IsValid());
 	return true;
 }

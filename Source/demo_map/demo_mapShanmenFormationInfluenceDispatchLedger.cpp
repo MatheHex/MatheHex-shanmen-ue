@@ -694,6 +694,50 @@ bool Fdemo_mapShanmenFormationInfluenceDispatchLedger::TryPeekNextPending(
 	return false;
 }
 
+bool Fdemo_mapShanmenFormationInfluenceDispatchLedger::TryGetIntent(
+	const FGuid& IntentId,
+	Fdemo_mapShanmenFormationInfluenceIntent& OutIntent) const
+{
+	OutIntent = Fdemo_mapShanmenFormationInfluenceIntent();
+	if (!IsConsistent() || !IntentId.IsValid())
+	{
+		return false;
+	}
+	const FIntentEntry* Entry = FindEntry(IntentId);
+	if (!Entry)
+	{
+		return false;
+	}
+	OutIntent = Entry->Intent;
+	return true;
+}
+
+bool Fdemo_mapShanmenFormationInfluenceDispatchLedger::TryGetAttemptReceipt(
+	const FGuid& IntentId,
+	const FGuid& AttemptId,
+	Fdemo_mapShanmenFormationInfluenceAttemptReceipt& OutReceipt) const
+{
+	OutReceipt = Fdemo_mapShanmenFormationInfluenceAttemptReceipt();
+	if (!IsConsistent() || !IntentId.IsValid() || !AttemptId.IsValid())
+	{
+		return false;
+	}
+	const FIntentEntry* Entry = FindEntry(IntentId);
+	if (!Entry)
+	{
+		return false;
+	}
+	for (const auto& Attempt : Entry->Attempts)
+	{
+		if (Attempt.AttemptId == AttemptId)
+		{
+			OutReceipt = Attempt;
+			return true;
+		}
+	}
+	return false;
+}
+
 bool Fdemo_mapShanmenFormationInfluenceDispatchLedger::TryGetSuccessfulReceipt(
 	const FGuid& IntentId,
 	Fdemo_mapShanmenFormationInfluenceAttemptReceipt& OutReceipt) const
