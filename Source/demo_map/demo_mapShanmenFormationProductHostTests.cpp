@@ -2,6 +2,7 @@
 
 #include "demo_mapShanmenFormationProductHost.h"
 #include "demo_mapShanmenFormationInfluenceExecutorAdapter.h"
+#include "demo_mapShanmenFormationInfluenceLeaseExecutor.h"
 
 #include "ShanmenCombatResolver.h"
 #include "demo_map0909BSectWarehouseService.h"
@@ -581,6 +582,33 @@ namespace
 		return OutPrime.IsSuccess()
 			&& OutPrime.ReconciliationPlan.Batch.Intents.Num()
 				== SubjectCount;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceExecutorInvocation MakeLeaseInvocation(
+		const Fdemo_mapShanmenFormationProductHost& Host,
+		const Fdemo_mapShanmenFormationInfluenceIntent& Intent,
+		const int32 Ordinal)
+	{
+		Fdemo_mapShanmenFormationInfluenceExecutorInvocation Invocation;
+		Invocation.LedgerId = Host.GetInfluenceLedger().GetLedgerId();
+		Invocation.Intent = Intent;
+		Invocation.AttemptId = FGuid(0xF8610000 + Ordinal, 0, 0, 1);
+		check(Invocation.IsValid());
+		return Invocation;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceIntent MakeLeaseIntent(
+		const Fdemo_mapShanmenFormationInfluenceScope& Scope,
+		const FGuid& SourceEntityId,
+		const FGuid& SubjectEntityId,
+		const Edemo_mapShanmenFormationInfluenceOperation Operation,
+		const int32 CauseOrdinal)
+	{
+		const auto Intent = Fdemo_mapShanmenFormationInfluenceIntent::Make(
+			Scope.Area, SourceEntityId, Scope.Policy, SubjectEntityId,
+			Operation, FGuid(0xF8620000 + CauseOrdinal, 0, 0, 1));
+		check(Intent.IsValid());
+		return Intent;
 	}
 }
 
@@ -1627,6 +1655,213 @@ bool Fdemo_mapFormationInfluenceExecutorTerminalTest::RunTest(const FString&)
 			&& End.Status == Edemo_mapShanmenFormationHostStatus::Ended
 			&& Fixture.Host.GetInfluenceLedger().IsSealed()
 			&& Fixture.Host.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceLeaseIntegrationTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceLeaseExecutor.ApplyRemoveIntegration",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceLeaseIntegrationTest::RunTest(const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("LeaseIntegration"),
+			1, Prime, Subjects))
+	{
+		return false;
+	}
+	Fdemo_mapShanmenFormationInfluenceLeaseExecutor Executor;
+	const auto ApplyCommand = MakeHostExecutionCommand(
+		Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 100);
+	const auto Apply =
+		Fdemo_mapShanmenFormationInfluenceExecutorAdapter::TryExecute(
+			Fixture.Host, Fixture.Correlation, ApplyCommand, Executor);
+	const auto Terminal =
+		Fixture.Host.TryPrepareTerminalInfluence(Fixture.Correlation);
+	Fdemo_mapShanmenFormationInfluenceIntent RemoveIntent;
+	if (!Apply.IsSuccess() || !Terminal.IsSuccess()
+		|| !Fixture.Host.TryPeekNextInfluenceIntent(RemoveIntent))
+	{
+		return false;
+	}
+	const auto Remove =
+		Fdemo_mapShanmenFormationInfluenceExecutorAdapter::TryExecute(
+			Fixture.Host, Fixture.Correlation,
+			MakeHostExecutionCommand(RemoveIntent.IntentId, 101), Executor);
+	const auto Seal = Fixture.Host.TrySealInfluence(Fixture.Correlation);
+	const auto End = Fixture.Host.TryEndAndTeardown(
+		Fixture.World, Fixture.Correlation);
+
+	TestTrue(TEXT("Concrete lease executor applies and removes through the adapter"),
+		Apply.IsSuccess() && Remove.IsSuccess()
+			&& Executor.GetActiveLeaseCount() == 0
+			&& Executor.GetCompletedIntentCount() == 2
+			&& Executor.GetAttemptCount() == 2);
+	TestTrue(TEXT("Lease drain permits the existing Host seal and teardown"),
+		Seal.IsSuccess()
+			&& End.Status == Edemo_mapShanmenFormationHostStatus::Ended
+			&& Executor.IsConsistent() && Fixture.Host.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceLeaseLostAckTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceLeaseExecutor.LostAckRecovery",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceLeaseLostAckTest::RunTest(const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("LeaseLostAck"),
+			1, Prime, Subjects))
+	{
+		return false;
+	}
+	const auto& ApplyIntent = Prime.ReconciliationPlan.Batch.Intents[0];
+	Fdemo_mapShanmenFormationInfluenceLeaseExecutor Executor;
+	const auto FirstInvocation = MakeLeaseInvocation(
+		Fixture.Host, ApplyIntent, 110);
+	const auto First = Executor.Execute(FirstInvocation);
+	const auto ExactReplay = Executor.Execute(FirstInvocation);
+	Fdemo_mapShanmenFormationInfluenceExecutorResult StoredFirst;
+	const bool bReadStoredFirst = Executor.TryGetAttemptResult(
+		FirstInvocation.AttemptId, StoredFirst);
+	const auto RecoveryCommand = MakeHostExecutionCommand(
+		ApplyIntent.IntentId, 111);
+	const auto Recovered =
+		Fdemo_mapShanmenFormationInfluenceExecutorAdapter::TryExecute(
+			Fixture.Host, Fixture.Correlation, RecoveryCommand, Executor);
+	const auto HostReplay =
+		Fdemo_mapShanmenFormationInfluenceExecutorAdapter::TryExecute(
+			Fixture.Host, Fixture.Correlation, RecoveryCommand, Executor);
+
+	TestTrue(TEXT("Exact executor attempt replays one receipt without new state"),
+		First.IsSuccess() && ExactReplay.IsSuccess() && bReadStoredFirst
+			&& First.Receipt.ExecutorReceiptId
+				== ExactReplay.Receipt.ExecutorReceiptId
+			&& First.Receipt.ExecutorReceiptId
+				== StoredFirst.Receipt.ExecutorReceiptId
+			&& Executor.GetAttemptCount() == 2);
+	TestTrue(TEXT("New attempt recovers a lost acknowledgement without duplicate lease"),
+		Recovered.IsSuccess() && HostReplay.IsSuccess()
+			&& Recovered.bExecutorInvoked && !HostReplay.bExecutorInvoked
+			&& Executor.GetActiveLeaseCount() == 1
+			&& Executor.GetCompletedIntentCount() == 1
+			&& Fixture.Host.GetPendingInfluenceIntentCount() == 0
+			&& Executor.IsConsistent());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceLeaseConflictTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceLeaseExecutor.ConflictAndMissing",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceLeaseConflictTest::RunTest(const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("LeaseConflict"),
+			1, Prime, Subjects))
+	{
+		return false;
+	}
+	const auto& Scope = Prime.ReconciliationPlan.Batch.Current.GetValue();
+	const auto& ApplyA = Prime.ReconciliationPlan.Batch.Intents[0];
+	const auto ApplyB = MakeLeaseIntent(
+		Scope, ApplyA.SourceEntityId, ApplyA.SubjectEntityId,
+		Edemo_mapShanmenFormationInfluenceOperation::Apply, 120);
+	const auto Remove = MakeLeaseIntent(
+		Scope, ApplyA.SourceEntityId, ApplyA.SubjectEntityId,
+		Edemo_mapShanmenFormationInfluenceOperation::Remove, 121);
+	Fdemo_mapShanmenFormationInfluenceLeaseExecutor Executor;
+	const auto Missing = Executor.Execute(
+		MakeLeaseInvocation(Fixture.Host, Remove, 120));
+	const auto MissingReplay = Executor.Execute(
+		MakeLeaseInvocation(Fixture.Host, Remove, 120));
+	const auto AttemptCollision = Executor.Execute(
+		MakeLeaseInvocation(Fixture.Host, ApplyA, 120));
+	const auto Applied = Executor.Execute(
+		MakeLeaseInvocation(Fixture.Host, ApplyA, 121));
+	const auto Conflict = Executor.Execute(
+		MakeLeaseInvocation(Fixture.Host, ApplyB, 122));
+	const auto Removed = Executor.Execute(
+		MakeLeaseInvocation(Fixture.Host, Remove, 123));
+
+	TestTrue(TEXT("Missing Remove rejection is exact-attempt stable"),
+		!Missing.IsSuccess() && !MissingReplay.IsSuccess()
+			&& !AttemptCollision.IsSuccess()
+			&& Executor.GetAttemptCount() == 4);
+	TestTrue(TEXT("Different Apply cannot steal an active lease"),
+		Applied.IsSuccess() && !Conflict.IsSuccess() && Removed.IsSuccess()
+			&& Executor.GetActiveLeaseCount() == 0
+			&& Executor.GetCompletedIntentCount() == 2
+			&& Executor.IsConsistent());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceLeaseStaleRemoveTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceLeaseExecutor.StaleRemoveAfterReapply",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceLeaseStaleRemoveTest::RunTest(const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("LeaseStaleRemove"),
+			1, Prime, Subjects))
+	{
+		return false;
+	}
+	const auto& Scope = Prime.ReconciliationPlan.Batch.Current.GetValue();
+	const auto& ApplyA = Prime.ReconciliationPlan.Batch.Intents[0];
+	const auto RemoveA = MakeLeaseIntent(
+		Scope, ApplyA.SourceEntityId, ApplyA.SubjectEntityId,
+		Edemo_mapShanmenFormationInfluenceOperation::Remove, 130);
+	const auto ApplyB = MakeLeaseIntent(
+		Scope, ApplyA.SourceEntityId, ApplyA.SubjectEntityId,
+		Edemo_mapShanmenFormationInfluenceOperation::Apply, 131);
+	Fdemo_mapShanmenFormationInfluenceLeaseExecutor Executor;
+	const auto FirstApply = Executor.Execute(
+		MakeLeaseInvocation(Fixture.Host, ApplyA, 130));
+	const auto FirstRemove = Executor.Execute(
+		MakeLeaseInvocation(Fixture.Host, RemoveA, 131));
+	const auto SecondApply = Executor.Execute(
+		MakeLeaseInvocation(Fixture.Host, ApplyB, 132));
+	const auto StaleRemoveRecovery = Executor.Execute(
+		MakeLeaseInvocation(Fixture.Host, RemoveA, 133));
+	Fdemo_mapShanmenFormationInfluenceLeaseKey Key;
+	Fdemo_mapShanmenFormationInfluenceLeaseSnapshot Active;
+	const bool bReadActive =
+		Fdemo_mapShanmenFormationInfluenceLeaseKey::TryFromIntent(
+			ApplyB, Key)
+		&& Executor.TryGetActiveLease(Key, Active);
+
+	TestTrue(TEXT("Completed old Remove recovers without touching a newer lease"),
+		FirstApply.IsSuccess() && FirstRemove.IsSuccess()
+			&& SecondApply.IsSuccess() && StaleRemoveRecovery.IsSuccess()
+			&& bReadActive && Active.ApplyIntentId == ApplyB.IntentId
+			&& Executor.GetActiveLeaseCount() == 1);
+	TestTrue(TEXT("Reapply history remains internally consistent"),
+		Executor.GetCompletedIntentCount() == 3
+			&& Executor.GetAttemptCount() == 4
+			&& Executor.IsConsistent());
 	return true;
 }
 
