@@ -42,6 +42,10 @@ public:
 	bool TryAcceptOrbitThreatCandidate(const FShanmenHitCandidate& Candidate);
 	bool TryEndOrbitThreatWindow(FShanmenDetectorEmissionReceipt& OutReceipt);
 	bool TryEndOrbitThreatWindow();
+	bool TryEvaluateOrbitThreatReceipt(
+		const FShanmenDetectorEmissionReceipt& Emission,
+		const TArray<FShanmenControlledWeaponThreatTargetEvidence>& TargetEvidence,
+		FShanmenControlledWeaponThreatPolicyReceipt& OutReceipt) const;
 	bool TryBeginContactWindow(FShanmenWorldHitContext& OutContext);
 	bool TryResolveCandidate(
 		const FShanmenHitCandidate& Candidate,

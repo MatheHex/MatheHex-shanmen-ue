@@ -70,6 +70,38 @@ namespace
 			});
 	}
 
+	bool CandidatesMatch(
+		const FShanmenHitCandidate& Left,
+		const FShanmenHitCandidate& Right)
+	{
+		return Left.IsValid()
+			&& Right.IsValid()
+			&& Left.ActivationId == Right.ActivationId
+			&& Left.SourceEntityId == Right.SourceEntityId
+			&& Left.TargetEntityId == Right.TargetEntityId
+			&& Left.DetectorId == Right.DetectorId
+			&& Left.DetectorKind == Right.DetectorKind
+			&& Left.HitOrdinal == Right.HitOrdinal
+			&& Left.HitLocation.Equals(Right.HitLocation)
+			&& Left.HitNormal.Equals(Right.HitNormal);
+	}
+
+	EShanmenControlledWeaponThreatTargetDecision EvaluateThreatTarget(
+		const FGuid& SourceEntityId,
+		bool bRejectSelf,
+		const FGameplayTagContainer& RequiredTargetTags,
+		const FGuid& TargetEntityId,
+		const FGameplayTagContainer& TargetTags)
+	{
+		if (bRejectSelf && TargetEntityId == SourceEntityId)
+		{
+			return EShanmenControlledWeaponThreatTargetDecision::RejectedSelf;
+		}
+		return TargetTags.HasAll(RequiredTargetTags)
+			? EShanmenControlledWeaponThreatTargetDecision::Accepted
+			: EShanmenControlledWeaponThreatTargetDecision::RejectedMissingRequiredTags;
+	}
+
 }
 
 FName FShanmenControlledWeaponDefinition::CanonicalActionDefinitionId()
@@ -171,6 +203,78 @@ bool FShanmenControlledWeaponImpactReceipt::IsValid() const
 		&& Result.bAccepted
 		&& Result.ImpactId == Request.ImpactId
 		&& Result.IsConserved();
+}
+
+bool FShanmenControlledWeaponThreatTargetEvidence::TryCapture(
+	const FGuid& TargetEntityId,
+	const FGameplayTagContainer& TargetTags,
+	FShanmenControlledWeaponThreatTargetEvidence& OutEvidence)
+{
+	OutEvidence = FShanmenControlledWeaponThreatTargetEvidence();
+	if (!TargetEntityId.IsValid())
+	{
+		return false;
+	}
+	OutEvidence.TargetEntityId = TargetEntityId;
+	OutEvidence.TargetTags = TargetTags;
+	return true;
+}
+
+bool FShanmenControlledWeaponThreatTargetReceipt::IsValid() const
+{
+	if (!Candidate.IsValid())
+	{
+		return false;
+	}
+	return Decision
+		== EShanmenControlledWeaponThreatTargetDecision::Accepted
+		|| Decision
+			== EShanmenControlledWeaponThreatTargetDecision::RejectedSelf
+		|| Decision
+			== EShanmenControlledWeaponThreatTargetDecision::RejectedMissingRequiredTags;
+}
+
+bool FShanmenControlledWeaponThreatPolicyReceipt::IsValid() const
+{
+	if (!Emission.IsValid()
+		|| RequiredTargetTags.IsEmpty()
+		|| !bRejectSelf
+		|| Targets.Num() != Emission.GetCandidates().Num())
+	{
+		return false;
+	}
+
+	const FGuid& SourceEntityId =
+		Emission.GetContext().GetAction().GetSourceEntityId();
+	for (int32 Index = 0; Index < Targets.Num(); ++Index)
+	{
+		const FShanmenControlledWeaponThreatTargetReceipt& Target =
+			Targets[Index];
+		if (!Target.IsValid()
+			|| !CandidatesMatch(
+				Target.Candidate,
+				Emission.GetCandidates()[Index])
+			|| Target.Decision != EvaluateThreatTarget(
+				SourceEntityId,
+				bRejectSelf,
+				RequiredTargetTags,
+				Target.Candidate.TargetEntityId,
+				Target.TargetTags))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+int32 FShanmenControlledWeaponThreatPolicyReceipt::NumAcceptedTargets() const
+{
+	int32 Count = 0;
+	for (const FShanmenControlledWeaponThreatTargetReceipt& Target : Targets)
+	{
+		Count += Target.IsAccepted() ? 1 : 0;
+	}
+	return Count;
 }
 
 bool FShanmenControlledWeaponExecution::TryCreate(
@@ -367,6 +471,86 @@ bool FShanmenControlledWeaponExecution::TryEndOrbitThreatEmission(
 {
 	FShanmenDetectorEmissionReceipt Ignored;
 	return TryEndOrbitThreatEmission(ActionRuntime, Ignored);
+}
+
+bool FShanmenControlledWeaponExecution::TryEvaluateOrbitThreatReceipt(
+	const FShanmenActionOrchestrator& ActionRuntime,
+	const FShanmenDetectorEmissionReceipt& Emission,
+	const TArray<FShanmenControlledWeaponThreatTargetEvidence>& TargetEvidence,
+	FShanmenControlledWeaponThreatPolicyReceipt& OutReceipt) const
+{
+	OutReceipt = FShanmenControlledWeaponThreatPolicyReceipt();
+	if (!MatchesActionRuntime(ActionRuntime)
+		|| State != EShanmenControlledWeaponState::Orbiting
+		|| EmissionSession.IsEmissionActive()
+		|| !Emission.IsValid()
+		|| Emission.GetContext().GetDetectorKind()
+			!= EShanmenHitDetectorKind::ControlledObject
+		|| Emission.GetContext().GetDetectorId() != Definition.GetDetectorId()
+		|| Emission.GetContext().GetAction().GetRunId() != Action.GetRunId()
+		|| Emission.GetContext().GetAction().GetOwnerId() != Action.GetOwnerId()
+		|| Emission.GetContext().GetAction().GetActivationId()
+			!= Action.GetActivationId()
+		|| Emission.GetContext().GetAction().GetSourceEntityId()
+			!= Action.GetSourceEntityId()
+		|| Emission.GetContext().GetAction().GetSourceItemInstanceId()
+			!= Action.GetSourceItemInstanceId()
+		|| Emission.GetContext().GetAction().GetActionDefinitionId()
+			!= Action.GetActionDefinitionId()
+		|| Emission.GetContext().GetAction().GetContent().Version
+			!= Action.GetContent().Version
+		|| Emission.GetContext().GetAction().GetContent().Digest
+			!= Action.GetContent().Digest
+		|| Emission.GetContext().GetAction().GetSourceTags()
+			!= Action.GetSourceTags()
+		|| TargetEvidence.Num() != Emission.GetCandidates().Num())
+	{
+		return false;
+	}
+
+	TMap<FGuid, FShanmenControlledWeaponThreatTargetEvidence> EvidenceByTarget;
+	for (const FShanmenControlledWeaponThreatTargetEvidence& Evidence :
+		TargetEvidence)
+	{
+		if (!Evidence.IsValid()
+			|| EvidenceByTarget.Contains(Evidence.GetTargetEntityId()))
+		{
+			return false;
+		}
+		EvidenceByTarget.Add(Evidence.GetTargetEntityId(), Evidence);
+	}
+
+	OutReceipt.Emission = Emission;
+	OutReceipt.RequiredTargetTags = Definition.GetRequiredTargetTags();
+	OutReceipt.bRejectSelf = Definition.RejectsSelf();
+	for (const FShanmenHitCandidate& Candidate : Emission.GetCandidates())
+	{
+		const FShanmenControlledWeaponThreatTargetEvidence* Evidence =
+			EvidenceByTarget.Find(Candidate.TargetEntityId);
+		if (!Evidence)
+		{
+			OutReceipt = FShanmenControlledWeaponThreatPolicyReceipt();
+			return false;
+		}
+
+		FShanmenControlledWeaponThreatTargetReceipt TargetReceipt;
+		TargetReceipt.Candidate = Candidate;
+		TargetReceipt.TargetTags = Evidence->GetTargetTags();
+		TargetReceipt.Decision = EvaluateThreatTarget(
+			Action.GetSourceEntityId(),
+			Definition.RejectsSelf(),
+			Definition.GetRequiredTargetTags(),
+			Candidate.TargetEntityId,
+			Evidence->GetTargetTags());
+		OutReceipt.Targets.Add(MoveTemp(TargetReceipt));
+	}
+
+	if (!OutReceipt.IsValid())
+	{
+		OutReceipt = FShanmenControlledWeaponThreatPolicyReceipt();
+		return false;
+	}
+	return true;
 }
 
 bool FShanmenControlledWeaponExecution::TryResolveCandidate(

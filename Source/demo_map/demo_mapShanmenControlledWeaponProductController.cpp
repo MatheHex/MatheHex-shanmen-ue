@@ -504,6 +504,19 @@ TryEndOrbitThreatWindow()
 	return TryEndOrbitThreatWindow(Ignored);
 }
 
+bool Fdemo_mapShanmenControlledWeaponProductController::
+TryEvaluateOrbitThreatReceipt(
+	const FShanmenDetectorEmissionReceipt& Emission,
+	const TArray<FShanmenControlledWeaponThreatTargetEvidence>& TargetEvidence,
+	FShanmenControlledWeaponThreatPolicyReceipt& OutReceipt) const
+{
+	OutReceipt = FShanmenControlledWeaponThreatPolicyReceipt();
+	return IsOrbiting()
+		&& !HasActiveContactWindow()
+		&& Session.TryEvaluateOrbitThreatReceipt(
+			Emission, TargetEvidence, OutReceipt);
+}
+
 bool Fdemo_mapShanmenControlledWeaponProductController::TryAdvanceDirected(
 	float DeltaSeconds,
 	Fdemo_mapShanmenControlledWeaponMovementReceipt& OutReceipt,

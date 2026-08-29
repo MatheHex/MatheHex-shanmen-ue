@@ -459,6 +459,20 @@ bool Fdemo_mapShanmenControlledWeaponRunHost::TryEndOrbitThreatWindow(
 	return TryEndOrbitThreatWindow(ItemInstanceId, Ignored);
 }
 
+bool Fdemo_mapShanmenControlledWeaponRunHost::TryEvaluateOrbitThreatReceipt(
+	const FGuid& ItemInstanceId,
+	const FShanmenDetectorEmissionReceipt& Emission,
+	const TArray<FShanmenControlledWeaponThreatTargetEvidence>& TargetEvidence,
+	FShanmenControlledWeaponThreatPolicyReceipt& OutReceipt) const
+{
+	OutReceipt = FShanmenControlledWeaponThreatPolicyReceipt();
+	const Fdemo_mapShanmenControlledWeaponProductController* Controller =
+		IsValid() ? Controllers.Find(ItemInstanceId) : nullptr;
+	return Controller
+		&& Controller->TryEvaluateOrbitThreatReceipt(
+			Emission, TargetEvidence, OutReceipt);
+}
+
 bool Fdemo_mapShanmenControlledWeaponRunHost::TryAdvanceDirectedInOrder(
 	float DeltaSeconds,
 	Fdemo_mapShanmenControlledWeaponHostMovementBatch& OutBatch)

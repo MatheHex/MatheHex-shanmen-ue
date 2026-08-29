@@ -189,6 +189,93 @@ private:
 	FShanmenImpactResult Result;
 };
 
+/** Caller-captured target identity and tags for one completed threat sample. */
+class SHANMENCOMBATRUNTIME_API FShanmenControlledWeaponThreatTargetEvidence
+{
+public:
+	static bool TryCapture(
+		const FGuid& TargetEntityId,
+		const FGameplayTagContainer& TargetTags,
+		FShanmenControlledWeaponThreatTargetEvidence& OutEvidence);
+
+	bool IsValid() const { return TargetEntityId.IsValid(); }
+	const FGuid& GetTargetEntityId() const { return TargetEntityId; }
+	const FGameplayTagContainer& GetTargetTags() const { return TargetTags; }
+
+private:
+	FGuid TargetEntityId;
+	FGameplayTagContainer TargetTags;
+};
+
+/** Explicit outcome of the frozen controlled-weapon target policy. */
+enum class EShanmenControlledWeaponThreatTargetDecision : uint8
+{
+	Accepted,
+	RejectedSelf,
+	RejectedMissingRequiredTags
+};
+
+/** One candidate aligned with its target evidence and policy decision. */
+class SHANMENCOMBATRUNTIME_API FShanmenControlledWeaponThreatTargetReceipt
+{
+public:
+	bool IsValid() const;
+	const FShanmenHitCandidate& GetCandidate() const { return Candidate; }
+	const FGameplayTagContainer& GetTargetTags() const { return TargetTags; }
+	EShanmenControlledWeaponThreatTargetDecision GetDecision() const
+	{
+		return Decision;
+	}
+	bool IsAccepted() const
+	{
+		return Decision
+			== EShanmenControlledWeaponThreatTargetDecision::Accepted;
+	}
+
+private:
+	friend class FShanmenControlledWeaponExecution;
+	friend class FShanmenControlledWeaponThreatPolicyReceipt;
+
+	FShanmenHitCandidate Candidate;
+	FGameplayTagContainer TargetTags;
+	EShanmenControlledWeaponThreatTargetDecision Decision =
+		EShanmenControlledWeaponThreatTargetDecision::RejectedMissingRequiredTags;
+};
+
+/**
+ * Deterministic policy audit for one completed Orbit threat emission.
+ *
+ * It retains the canonical geometry receipt, the exact frozen target policy,
+ * and one decision per target. It never produces damage or changes authority.
+ */
+class SHANMENCOMBATRUNTIME_API FShanmenControlledWeaponThreatPolicyReceipt
+{
+public:
+	bool IsValid() const;
+	const FShanmenDetectorEmissionReceipt& GetEmission() const
+	{
+		return Emission;
+	}
+	const FGameplayTagContainer& GetRequiredTargetTags() const
+	{
+		return RequiredTargetTags;
+	}
+	bool RejectsSelf() const { return bRejectSelf; }
+	const TArray<FShanmenControlledWeaponThreatTargetReceipt>& GetTargets() const
+	{
+		return Targets;
+	}
+	int32 NumAcceptedTargets() const;
+
+private:
+	friend class FShanmenControlledWeaponExecution;
+
+	FShanmenDetectorEmissionReceipt Emission;
+	FGameplayTagContainer RequiredTargetTags;
+	bool bRejectSelf = false;
+	TArray<FShanmenControlledWeaponThreatTargetReceipt> Targets;
+};
+
 /**
  * Deterministic pure runtime for one physically sourced controlled weapon.
  *
@@ -230,6 +317,12 @@ public:
 		FShanmenDetectorEmissionReceipt& OutReceipt);
 	bool TryEndOrbitThreatEmission(
 		const FShanmenActionOrchestrator& ActionRuntime);
+	/** Applies only the already-frozen definition target policy to completed geometry. */
+	bool TryEvaluateOrbitThreatReceipt(
+		const FShanmenActionOrchestrator& ActionRuntime,
+		const FShanmenDetectorEmissionReceipt& Emission,
+		const TArray<FShanmenControlledWeaponThreatTargetEvidence>& TargetEvidence,
+		FShanmenControlledWeaponThreatPolicyReceipt& OutReceipt) const;
 	bool TryResolveCandidate(
 		const FShanmenActionOrchestrator& ActionRuntime,
 		const FShanmenHitCandidate& Candidate,

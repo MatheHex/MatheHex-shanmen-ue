@@ -98,6 +98,21 @@ namespace
 		return Candidate;
 	}
 
+	FShanmenControlledWeaponThreatTargetEvidence MakeThreatEvidence(
+		const FGuid& TargetId,
+		bool bLiving)
+	{
+		FGameplayTagContainer TargetTags;
+		if (bLiving)
+		{
+			TargetTags.AddTag(FShanmenCombatNativeTags::TargetLiving());
+		}
+		FShanmenControlledWeaponThreatTargetEvidence Evidence;
+		check(FShanmenControlledWeaponThreatTargetEvidence::TryCapture(
+			TargetId, TargetTags, Evidence));
+		return Evidence;
+	}
+
 	void StartActiveControlledWeapon(
 		FShanmenActionOrchestrator& OutActionRuntime,
 		FShanmenControlledWeaponExecution& OutExecution,
@@ -371,6 +386,134 @@ bool FShanmenControlledWeaponOrbitThreatTest::RunTest(const FString&)
 		&& Impact.IsValid()
 		&& Execution.NumAcceptedImpacts() == 1
 		&& Execution.TryEndEmission(ActionRuntime));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenControlledWeaponOrbitThreatPolicyTest,
+	"Shanmen.0_0_10.CombatRuntime.ControlledWeapon.OrbitThreatTargetPolicy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenControlledWeaponOrbitThreatPolicyTest::RunTest(const FString&)
+{
+	FShanmenActionOrchestrator ActionRuntime;
+	FShanmenControlledWeaponExecution Execution;
+	FShanmenActionTransitionReceipt PhaseReceipt;
+	StartActiveControlledWeapon(ActionRuntime, Execution, PhaseReceipt);
+
+	FShanmenWorldHitContext Context;
+	if (!Execution.TryBeginOrbitThreatEmission(ActionRuntime, Context))
+	{
+		AddError(TEXT("Could not open P6.12 Orbit policy fixture."));
+		return false;
+	}
+	const FShanmenHitCandidate Living =
+		MakeControlledCandidate(Context, ControlledTargetA);
+	const FShanmenHitCandidate MissingTags =
+		MakeControlledCandidate(Context, ControlledTargetB);
+	const FShanmenHitCandidate Self =
+		MakeControlledCandidate(Context, ControlledSourceEntityId);
+	FShanmenDetectorEmissionReceipt Emission;
+	TestTrue(TEXT("Geometry authority accepts candidates without policy decisions"),
+		Execution.TryAcceptOrbitThreatCandidate(
+			ActionRuntime, MissingTags)
+		&& Execution.TryAcceptOrbitThreatCandidate(ActionRuntime, Self)
+		&& Execution.TryAcceptOrbitThreatCandidate(ActionRuntime, Living)
+		&& Execution.TryEndOrbitThreatEmission(ActionRuntime, Emission));
+
+	TArray<FShanmenControlledWeaponThreatTargetEvidence> Evidence;
+	Evidence.Add(MakeThreatEvidence(ControlledTargetB, false));
+	Evidence.Add(MakeThreatEvidence(ControlledTargetA, true));
+	Evidence.Add(MakeThreatEvidence(ControlledSourceEntityId, true));
+	FShanmenControlledWeaponThreatPolicyReceipt Policy;
+	TestTrue(TEXT("Policy joins reverse-order evidence to canonical geometry"),
+		Execution.TryEvaluateOrbitThreatReceipt(
+			ActionRuntime, Emission, Evidence, Policy)
+		&& Policy.IsValid()
+		&& Policy.GetEmission().GetContext().GetHitOrdinal()
+			== Context.GetHitOrdinal()
+		&& Policy.GetRequiredTargetTags().HasTag(
+			FShanmenCombatNativeTags::TargetLiving())
+		&& Policy.RejectsSelf()
+		&& Policy.GetTargets().Num() == 3
+		&& Policy.NumAcceptedTargets() == 1);
+
+	const FShanmenControlledWeaponThreatTargetReceipt* SelfResult =
+		Policy.GetTargets().FindByPredicate(
+			[](const FShanmenControlledWeaponThreatTargetReceipt& Target)
+			{
+				return Target.GetCandidate().TargetEntityId
+					== ControlledSourceEntityId;
+			});
+	const FShanmenControlledWeaponThreatTargetReceipt* LivingResult =
+		Policy.GetTargets().FindByPredicate(
+			[](const FShanmenControlledWeaponThreatTargetReceipt& Target)
+			{
+				return Target.GetCandidate().TargetEntityId
+					== ControlledTargetA;
+			});
+	const FShanmenControlledWeaponThreatTargetReceipt* MissingResult =
+		Policy.GetTargets().FindByPredicate(
+			[](const FShanmenControlledWeaponThreatTargetReceipt& Target)
+			{
+				return Target.GetCandidate().TargetEntityId
+					== ControlledTargetB;
+			});
+	TestTrue(TEXT("Every target has an explicit auditable decision"),
+		SelfResult
+		&& SelfResult->GetDecision()
+			== EShanmenControlledWeaponThreatTargetDecision::RejectedSelf
+		&& LivingResult
+		&& LivingResult->GetDecision()
+			== EShanmenControlledWeaponThreatTargetDecision::Accepted
+		&& MissingResult
+		&& MissingResult->GetDecision()
+			== EShanmenControlledWeaponThreatTargetDecision::RejectedMissingRequiredTags);
+	TestEqual(TEXT("Policy evaluation never writes the impact ledger"),
+		Execution.NumAcceptedImpacts(), 0);
+
+	FShanmenControlledWeaponThreatPolicyReceipt Replay;
+	TestTrue(TEXT("Exact evidence replay is deterministic and side-effect free"),
+		Execution.TryEvaluateOrbitThreatReceipt(
+			ActionRuntime, Emission, Evidence, Replay)
+		&& Replay.IsValid()
+		&& Replay.NumAcceptedTargets() == Policy.NumAcceptedTargets());
+
+	TArray<FShanmenControlledWeaponThreatTargetEvidence> MissingEvidence = Evidence;
+	MissingEvidence.Pop();
+	FShanmenControlledWeaponThreatPolicyReceipt Rejected;
+	TestFalse(TEXT("Incomplete evidence fails closed"),
+		Execution.TryEvaluateOrbitThreatReceipt(
+			ActionRuntime, Emission, MissingEvidence, Rejected));
+	TArray<FShanmenControlledWeaponThreatTargetEvidence> DuplicateEvidence = Evidence;
+	DuplicateEvidence[2] = DuplicateEvidence[1];
+	TestFalse(TEXT("Duplicate evidence fails closed"),
+		Execution.TryEvaluateOrbitThreatReceipt(
+			ActionRuntime, Emission, DuplicateEvidence, Rejected));
+
+	FShanmenWorldHitContext EmptyContext;
+	FShanmenDetectorEmissionReceipt EmptyEmission;
+	FShanmenControlledWeaponThreatPolicyReceipt EmptyPolicy;
+	TestTrue(TEXT("A completed no-target sample remains explicit evidence"),
+		Execution.TryBeginOrbitThreatEmission(ActionRuntime, EmptyContext)
+		&& Execution.TryEndOrbitThreatEmission(ActionRuntime, EmptyEmission)
+		&& Execution.TryEvaluateOrbitThreatReceipt(
+			ActionRuntime, EmptyEmission, {}, EmptyPolicy)
+		&& EmptyPolicy.IsValid()
+		&& EmptyPolicy.GetTargets().IsEmpty()
+		&& EmptyPolicy.NumAcceptedTargets() == 0);
+
+	FShanmenControlledWeaponCommandReceipt Launch;
+	TestTrue(TEXT("Completed policy does not prevent the later Launch command"),
+		Execution.TryIssueCommand(
+			ActionRuntime,
+			0,
+			EShanmenControlledWeaponCommandKind::Launch,
+			FVector::ForwardVector,
+			Launch));
+	TestFalse(TEXT("An old Orbit receipt cannot be evaluated after state change"),
+		Execution.TryEvaluateOrbitThreatReceipt(
+			ActionRuntime, Emission, Evidence, Rejected));
 	return true;
 }
 

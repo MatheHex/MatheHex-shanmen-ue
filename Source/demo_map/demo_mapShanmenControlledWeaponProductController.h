@@ -147,6 +147,10 @@ public:
 		const FVector& ContactNormal);
 	bool TryEndOrbitThreatWindow(FShanmenDetectorEmissionReceipt& OutReceipt);
 	bool TryEndOrbitThreatWindow();
+	bool TryEvaluateOrbitThreatReceipt(
+		const FShanmenDetectorEmissionReceipt& Emission,
+		const TArray<FShanmenControlledWeaponThreatTargetEvidence>& TargetEvidence,
+		FShanmenControlledWeaponThreatPolicyReceipt& OutReceipt) const;
 
 	/** Moves the physical Actor with sweep enabled; contact delivery is explicit. */
 	bool TryAdvanceDirected(

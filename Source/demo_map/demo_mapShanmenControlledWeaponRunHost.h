@@ -204,6 +204,11 @@ public:
 		const FGuid& ItemInstanceId,
 		FShanmenDetectorEmissionReceipt& OutReceipt);
 	bool TryEndOrbitThreatWindow(const FGuid& ItemInstanceId);
+	bool TryEvaluateOrbitThreatReceipt(
+		const FGuid& ItemInstanceId,
+		const FShanmenDetectorEmissionReceipt& Emission,
+		const TArray<FShanmenControlledWeaponThreatTargetEvidence>& TargetEvidence,
+		FShanmenControlledWeaponThreatPolicyReceipt& OutReceipt) const;
 
 	/** Preflights every directed sword, then advances each in stable item order. */
 	bool TryAdvanceDirectedInOrder(

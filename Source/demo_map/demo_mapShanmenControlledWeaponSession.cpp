@@ -247,6 +247,17 @@ bool Fdemo_mapShanmenControlledWeaponSession::TryEndOrbitThreatWindow()
 	return TryEndOrbitThreatWindow(Ignored);
 }
 
+bool Fdemo_mapShanmenControlledWeaponSession::TryEvaluateOrbitThreatReceipt(
+	const FShanmenDetectorEmissionReceipt& Emission,
+	const TArray<FShanmenControlledWeaponThreatTargetEvidence>& TargetEvidence,
+	FShanmenControlledWeaponThreatPolicyReceipt& OutReceipt) const
+{
+	OutReceipt = FShanmenControlledWeaponThreatPolicyReceipt();
+	return IsActive()
+		&& Execution.TryEvaluateOrbitThreatReceipt(
+			ActionRuntime, Emission, TargetEvidence, OutReceipt);
+}
+
 bool Fdemo_mapShanmenControlledWeaponSession::TryResolveCandidate(
 	const FShanmenHitCandidate& Candidate,
 	const FShanmenTargetVitalitySnapshot& TargetVitality,

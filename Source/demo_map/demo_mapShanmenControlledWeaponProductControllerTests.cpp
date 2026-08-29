@@ -567,7 +567,24 @@ bool Fdemo_mapControlledWeaponProductOrbitThreatTest::RunTest(
 		&& ThreatReceipt.GetCandidates()[0].TargetEntityId == EnemyEntityId
 		&& ThreatReceipt.GetContext().GetAction().GetSourceItemInstanceId()
 			== ProductItemId
-		&& !Controller.HasActiveContactWindow()
+		&& !Controller.HasActiveContactWindow());
+	FGameplayTagContainer LivingTags;
+	LivingTags.AddTag(FShanmenCombatNativeTags::TargetLiving());
+	FShanmenControlledWeaponThreatTargetEvidence EnemyEvidence;
+	check(FShanmenControlledWeaponThreatTargetEvidence::TryCapture(
+		EnemyEntityId, LivingTags, EnemyEvidence));
+	FShanmenControlledWeaponThreatPolicyReceipt ThreatPolicy;
+	TestTrue(TEXT("Product exposes the frozen target-policy audit without damage"),
+		Controller.TryEvaluateOrbitThreatReceipt(
+			ThreatReceipt, { EnemyEvidence }, ThreatPolicy)
+		&& ThreatPolicy.IsValid()
+		&& ThreatPolicy.NumAcceptedTargets() == 1
+		&& ThreatPolicy.GetTargets()[0].GetCandidate().TargetEntityId
+			== EnemyEntityId
+		&& FMath::IsNearlyEqual(
+			AfterProjection.CurrentVitality,
+			Before.CurrentVitality)
+		&& Controller.GetSession().GetExecution().NumAcceptedImpacts() == 0
 		&& Controller.TryLaunch(0, FVector::ForwardVector, Launch));
 	FShanmenWorldHitContext DirectedContext;
 	TestTrue(TEXT("Directed contact continues the shared detector ordinal"),

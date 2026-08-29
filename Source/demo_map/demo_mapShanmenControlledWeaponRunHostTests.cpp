@@ -667,8 +667,29 @@ bool Fdemo_mapControlledWeaponRunHostOrbitThreatTest::RunTest(
 		&& ThreatReceipt.GetCandidates()[0].TargetEntityId
 			== Projected.Candidate.TargetEntityId
 		&& ThreatReceipt.GetContext().GetAction().GetSourceItemInstanceId()
-			== HostLowItemId
-		&& Host.TryLaunch(
+			== HostLowItemId);
+	FGameplayTagContainer LivingTags;
+	LivingTags.AddTag(FShanmenCombatNativeTags::TargetLiving());
+	FShanmenControlledWeaponThreatTargetEvidence EnemyEvidence;
+	check(FShanmenControlledWeaponThreatTargetEvidence::TryCapture(
+		Projected.Candidate.TargetEntityId, LivingTags, EnemyEvidence));
+	FShanmenControlledWeaponThreatPolicyReceipt ThreatPolicy;
+	TestTrue(TEXT("Host routes policy evaluation to the exact item"),
+		Host.TryEvaluateOrbitThreatReceipt(
+			HostLowItemId,
+			ThreatReceipt,
+			{ EnemyEvidence },
+			ThreatPolicy)
+		&& ThreatPolicy.IsValid()
+		&& ThreatPolicy.NumAcceptedTargets() == 1);
+	TestFalse(TEXT("Unknown item cannot evaluate another item's receipt"),
+		Host.TryEvaluateOrbitThreatReceipt(
+			HostHighItemId,
+			ThreatReceipt,
+			{ EnemyEvidence },
+			ThreatPolicy));
+	TestTrue(TEXT("Policy audit leaves the item free to Launch"),
+		Host.TryLaunch(
 			HostLowItemId, 0, FVector::ForwardVector, Launch));
 	FShanmenWorldHitContext DirectedContext;
 	TestTrue(TEXT("Host-directed window follows the same detector ordinal"),
