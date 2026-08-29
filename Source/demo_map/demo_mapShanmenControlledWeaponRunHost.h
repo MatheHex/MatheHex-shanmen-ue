@@ -126,6 +126,39 @@ struct Fdemo_mapShanmenControlledWeaponOrbitFrameResult
 	}
 };
 
+/**
+ * Complete audit for one caller-owned, already-ended Orbit threat sample.
+ * No field implies a time cadence or applies a gameplay effect.
+ */
+class Fdemo_mapShanmenControlledWeaponThreatFinalizationResult
+{
+public:
+	bool IsFinalized() const;
+	const FGuid& GetItemInstanceId() const { return ItemInstanceId; }
+	const Fdemo_mapShanmenControlledWeaponThreatEvidenceCaptureResult&
+	GetEvidence() const
+	{
+		return Evidence;
+	}
+	const FShanmenControlledWeaponThreatPresenceReceipt& GetPresence() const
+	{
+		return Presence;
+	}
+	const FShanmenControlledWeaponThreatPresenceConsumeResult&
+	GetConsumption() const
+	{
+		return Consumption;
+	}
+
+private:
+	friend class Fdemo_mapShanmenControlledWeaponRunHost;
+
+	FGuid ItemInstanceId;
+	Fdemo_mapShanmenControlledWeaponThreatEvidenceCaptureResult Evidence;
+	FShanmenControlledWeaponThreatPresenceReceipt Presence;
+	FShanmenControlledWeaponThreatPresenceConsumeResult Consumption;
+};
+
 /** One item-scoped terminal receipt from an atomic host-wide interrupt. */
 struct Fdemo_mapShanmenControlledWeaponHostInterruptReceipt
 {
@@ -227,6 +260,16 @@ public:
 		const FGuid& ItemInstanceId,
 		const FShanmenControlledWeaponThreatPresenceReceipt& Presence,
 		FShanmenControlledWeaponThreatPresenceConsumeResult& OutResult);
+	/**
+	 * Atomically closes evidence, policy, presence, and consumption for one
+	 * explicit completed sample. The caller remains the sole cadence owner.
+	 */
+	bool TryFinalizeOrbitThreatSample(
+		const FGuid& ItemInstanceId,
+		const Fdemo_mapCombatRunCoordinator& Coordinator,
+		const FShanmenDetectorEmissionReceipt& Emission,
+		const TArray<AActor*>& TargetActors,
+		Fdemo_mapShanmenControlledWeaponThreatFinalizationResult& OutResult);
 	int32 NumConsumedThreatPresenceIntents() const
 	{
 		return ThreatPresenceAuthority.NumConsumedIntents();
@@ -283,6 +326,9 @@ private:
 	bool HasWeaponBinding(
 		const AActor* WeaponActor,
 		const UPrimitiveComponent* CollisionRoot) const;
+	bool PresenceMatchesController(
+		const FGuid& ItemInstanceId,
+		const FShanmenControlledWeaponThreatPresenceReceipt& Presence) const;
 	TArray<FGuid> GetOrderedActiveItemInstanceIds() const;
 
 	FGuid RunId;

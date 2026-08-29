@@ -708,33 +708,83 @@ bool Fdemo_mapControlledWeaponRunHostOrbitThreatTest::RunTest(
 		Host.TryBuildOrbitThreatPresenceIntents(
 			HostHighItemId, ThreatPolicy, RejectedPresence));
 
-	FShanmenControlledWeaponThreatPresenceConsumeResult FirstConsume;
-	TestTrue(TEXT("Run Host consumes exact-item presence once"),
-		Host.TryConsumeOrbitThreatPresence(
-			HostLowItemId, Presence, FirstConsume)
-		&& FirstConsume.IsSuccess()
-		&& FirstConsume.GetStatus()
+	Fdemo_mapShanmenControlledWeaponThreatFinalizationResult FirstFinalized;
+	TestTrue(TEXT("Run Host atomically finalizes exact-item threat evidence"),
+		Host.TryFinalizeOrbitThreatSample(
+			HostLowItemId,
+			Fixture.Coordinator,
+			ThreatReceipt,
+			{ Fixture.Enemy },
+			FirstFinalized)
+		&& FirstFinalized.IsFinalized()
+		&& FirstFinalized.GetItemInstanceId() == HostLowItemId
+		&& FirstFinalized.GetEvidence().TargetEvidence.Num() == 1
+		&& FirstFinalized.GetPresence().GetIntents().Num() == 1
+		&& FirstFinalized.GetConsumption().GetStatus()
 			== EShanmenControlledWeaponThreatPresenceConsumeStatus::Consumed
-		&& FirstConsume.GetReceipts().Num() == 1
-		&& FirstConsume.GetReceipts()[0].GetIntent().GetSourceItemInstanceId()
-			== HostLowItemId
-		&& FirstConsume.GetReceipts()[0].GetIntent().GetCandidate()
-			.TargetEntityId == Projected.Candidate.TargetEntityId
+		&& FirstFinalized.GetConsumption().GetReceipts().Num() == 1
+		&& FirstFinalized.GetConsumption().GetReceipts()[0].GetIntent()
+			.GetCandidate().TargetEntityId
+			== Projected.Candidate.TargetEntityId
 		&& Host.NumConsumedThreatPresenceIntents() == 1
 		&& Host.GetThreatPresenceAuthority().GetAuthorityRevision() == 1);
-	FShanmenControlledWeaponThreatPresenceConsumeResult ReplayConsume;
-	TestTrue(TEXT("Run Host exact replay is idempotent"),
-		Host.TryConsumeOrbitThreatPresence(
-			HostLowItemId, Presence, ReplayConsume)
-		&& ReplayConsume.GetStatus()
+	Fdemo_mapShanmenControlledWeaponThreatFinalizationResult ReplayFinalized;
+	TestTrue(TEXT("Atomic threat finalization is exact-replay idempotent"),
+		Host.TryFinalizeOrbitThreatSample(
+			HostLowItemId,
+			Fixture.Coordinator,
+			ThreatReceipt,
+			{ Fixture.Enemy },
+			ReplayFinalized)
+		&& ReplayFinalized.IsFinalized()
+		&& ReplayFinalized.GetConsumption().GetStatus()
 			== EShanmenControlledWeaponThreatPresenceConsumeStatus::AlreadyConsumed
-		&& ReplayConsume.GetReceipts()[0].GetAuthorityRevision()
-			== FirstConsume.GetReceipts()[0].GetAuthorityRevision()
-		&& Host.NumConsumedThreatPresenceIntents() == 1);
-	FShanmenControlledWeaponThreatPresenceConsumeResult UnknownConsume;
-	TestFalse(TEXT("Unknown item cannot consume another item's presence"),
-		Host.TryConsumeOrbitThreatPresence(
-			HostHighItemId, Presence, UnknownConsume));
+		&& ReplayFinalized.GetConsumption().GetReceipts()[0]
+			.GetAuthorityRevision()
+			== FirstFinalized.GetConsumption().GetReceipts()[0]
+				.GetAuthorityRevision()
+		&& Host.NumConsumedThreatPresenceIntents() == 1
+		&& Host.GetThreatPresenceAuthority().GetAuthorityRevision() == 1);
+	Fdemo_mapShanmenControlledWeaponThreatFinalizationResult RejectedFinalized;
+	TestFalse(TEXT("Unknown item cannot finalize another item's threat sample"),
+		Host.TryFinalizeOrbitThreatSample(
+			HostHighItemId,
+			Fixture.Coordinator,
+			ThreatReceipt,
+			{ Fixture.Enemy },
+			RejectedFinalized));
+	TestFalse(TEXT("Incomplete world evidence cannot partially consume"),
+		Host.TryFinalizeOrbitThreatSample(
+			HostLowItemId,
+			Fixture.Coordinator,
+			ThreatReceipt,
+			{},
+			RejectedFinalized));
+	TestTrue(TEXT("Rejected finalization preserves the authority ledger"),
+		!RejectedFinalized.IsFinalized()
+		&& Host.NumConsumedThreatPresenceIntents() == 1
+		&& Host.GetThreatPresenceAuthority().GetAuthorityRevision() == 1);
+
+	FShanmenWorldHitContext EmptyThreatContext;
+	FShanmenDetectorEmissionReceipt EmptyThreatReceipt;
+	Fdemo_mapShanmenControlledWeaponThreatFinalizationResult EmptyFinalized;
+	TestTrue(TEXT("Explicit empty threat samples finalize as a zero-effect no-op"),
+		Host.TryBeginOrbitThreatWindow(HostLowItemId, EmptyThreatContext)
+		&& Host.TryEndOrbitThreatWindow(HostLowItemId, EmptyThreatReceipt)
+		&& EmptyThreatReceipt.GetCandidates().IsEmpty()
+		&& Host.TryFinalizeOrbitThreatSample(
+			HostLowItemId,
+			Fixture.Coordinator,
+			EmptyThreatReceipt,
+			{},
+			EmptyFinalized)
+		&& EmptyFinalized.IsFinalized()
+		&& EmptyFinalized.GetEvidence().TargetEvidence.IsEmpty()
+		&& EmptyFinalized.GetPresence().GetIntents().IsEmpty()
+		&& EmptyFinalized.GetConsumption().GetStatus()
+			== EShanmenControlledWeaponThreatPresenceConsumeStatus::NoOp
+		&& Host.NumConsumedThreatPresenceIntents() == 1
+		&& Host.GetThreatPresenceAuthority().GetAuthorityRevision() == 1);
 	FShanmenTargetVitalitySnapshot AfterConsume;
 	check(Fixture.Enemy->TryCaptureCombatVitalitySnapshot(AfterConsume));
 	TestTrue(TEXT("Presence consumption mutates no vitality or impact ledger"),
@@ -750,7 +800,7 @@ bool Fdemo_mapControlledWeaponRunHostOrbitThreatTest::RunTest(
 	TestTrue(TEXT("Host-directed window follows the same detector ordinal"),
 		Host.TryBeginContactWindow(HostLowItemId, DirectedContext)
 		&& DirectedContext.GetHitOrdinal()
-			== ThreatContext.GetHitOrdinal() + 1
+			== EmptyThreatContext.GetHitOrdinal() + 1
 		&& Host.TryEndContactWindow(HostLowItemId));
 	FShanmenControlledWeaponCommandReceipt Recall;
 	FShanmenActionTransitionReceipt Recovery;
