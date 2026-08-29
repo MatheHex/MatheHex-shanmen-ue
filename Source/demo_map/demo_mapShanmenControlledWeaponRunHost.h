@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/HitResult.h"
+#include "Engine/OverlapResult.h"
 #include "ShanmenControlledWeaponThreatPresenceAuthority.h"
 #include "demo_mapShanmenControlledWeaponProductController.h"
 
@@ -124,6 +125,14 @@ struct Fdemo_mapShanmenControlledWeaponOrbitFrameResult
 			&& Status
 				== Edemo_mapShanmenControlledWeaponOrbitFrameStatus::NoOrbitingItems;
 	}
+};
+
+/** One caller-owned overlap observation in an explicit Orbit threat sample. */
+struct Fdemo_mapShanmenControlledWeaponOrbitThreatContact
+{
+	FOverlapResult Overlap;
+	FVector ContactLocation = FVector::ZeroVector;
+	FVector ContactNormal = FVector::ZeroVector;
 };
 
 /**
@@ -260,6 +269,17 @@ public:
 		const FGuid& ItemInstanceId,
 		const FShanmenControlledWeaponThreatPresenceReceipt& Presence,
 		FShanmenControlledWeaponThreatPresenceConsumeResult& OutResult);
+	/**
+	 * Runs Begin/Project/End/Finalize on a complete Host candidate. Any rejected
+	 * contact or evidence step rolls back the sample ordinal and authority.
+	 * The caller remains the sole owner of cadence and overlap collection.
+	 */
+	bool TrySampleOrbitThreat(
+		const FGuid& ItemInstanceId,
+		const Fdemo_mapCombatRunCoordinator& Coordinator,
+		const TArray<Fdemo_mapShanmenControlledWeaponOrbitThreatContact>&
+			Contacts,
+		Fdemo_mapShanmenControlledWeaponThreatFinalizationResult& OutResult);
 	/**
 	 * Atomically closes evidence, policy, presence, and consumption for one
 	 * explicit completed sample. The caller remains the sole cadence owner.

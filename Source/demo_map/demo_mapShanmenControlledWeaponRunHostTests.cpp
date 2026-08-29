@@ -265,6 +265,16 @@ namespace
 		Overlap.ItemIndex = 0;
 		return Overlap;
 	}
+
+	Fdemo_mapShanmenControlledWeaponOrbitThreatContact MakeHostThreatContact(
+		const FControlledWeaponHostFixture& Fixture)
+	{
+		Fdemo_mapShanmenControlledWeaponOrbitThreatContact Contact;
+		Contact.Overlap = MakeHostOverlap(Fixture);
+		Contact.ContactLocation = FVector(80.0, 20.0, 30.0);
+		Contact.ContactNormal = FVector::BackwardVector;
+		return Contact;
+	}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -850,6 +860,161 @@ bool Fdemo_mapControlledWeaponRunHostOrbitThreatTest::RunTest(
 		&& Host.GetThreatPresenceAuthority().NumTrackedSamples() == 0
 		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
 			== INDEX_NONE);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapControlledWeaponRunHostAtomicThreatSampleTest,
+	"Shanmen.0_0_10.Product.ControlledWeaponRunHost.AtomicThreatSamplingTransaction",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapControlledWeaponRunHostAtomicThreatSampleTest::RunTest(
+	const FString&)
+{
+	FControlledWeaponHostFixture Fixture;
+	Fdemo_mapShanmenControlledWeaponRunHost Host;
+	if (!Fixture.bReady || !Fixture.GetEnemyRoot()
+		|| !AttachHostWeapon(
+			Fixture, Host, HostLowItemId, 1, 0).IsAttached()
+		|| !AttachHostWeapon(
+			Fixture, Host, HostHighItemId, 2, 1).IsAttached())
+	{
+		AddError(TEXT("Could not prepare P6.20 atomic sample fixture."));
+		return false;
+	}
+
+	FShanmenTargetVitalitySnapshot Before;
+	check(Fixture.Enemy->TryCaptureCombatVitalitySnapshot(Before));
+	const TArray<Fdemo_mapShanmenControlledWeaponOrbitThreatContact>
+		OneContact = { MakeHostThreatContact(Fixture) };
+	Fdemo_mapShanmenControlledWeaponThreatFinalizationResult First;
+	TestTrue(TEXT("One call commits the complete exact-item sample transaction"),
+		Host.TrySampleOrbitThreat(
+			HostLowItemId, Fixture.Coordinator, OneContact, First)
+		&& First.IsFinalized()
+		&& First.GetItemInstanceId() == HostLowItemId
+		&& First.GetEvidence().ExpectedTargetCount == 1
+		&& First.GetPresence().GetPolicy().GetEmission()
+			.GetContext().GetHitOrdinal() == 0
+		&& First.GetPresence().GetIntents().Num() == 1
+		&& First.GetConsumption().GetStatus()
+			== EShanmenControlledWeaponThreatPresenceConsumeStatus::Consumed
+		&& Host.NumConsumedThreatPresenceIntents() == 1
+		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
+			== 1
+		&& Host.GetThreatPresenceAuthority().GetAuthorityRevision() == 1
+		&& Host.FindController(HostLowItemId)
+		&& !Host.FindController(HostLowItemId)->HasActiveContactWindow());
+
+	const TArray<Fdemo_mapShanmenControlledWeaponOrbitThreatContact>
+		DuplicateContacts = {
+			MakeHostThreatContact(Fixture),
+			MakeHostThreatContact(Fixture)
+		};
+	Fdemo_mapShanmenControlledWeaponThreatFinalizationResult Rejected;
+	TestFalse(TEXT("One rejected contact rolls back the entire Host candidate"),
+		Host.TrySampleOrbitThreat(
+			HostLowItemId,
+			Fixture.Coordinator,
+			DuplicateContacts,
+			Rejected));
+	TestTrue(TEXT("Rejected batch leaks no window, checkpoint, or authority"),
+		!Rejected.IsFinalized()
+		&& Host.FindController(HostLowItemId)
+		&& !Host.FindController(HostLowItemId)->HasActiveContactWindow()
+		&& Host.NumConsumedThreatPresenceIntents() == 1
+		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
+			== 1
+		&& Host.GetThreatPresenceAuthority().GetAuthorityRevision() == 1);
+
+	Fdemo_mapShanmenControlledWeaponThreatFinalizationResult Empty;
+	TestTrue(TEXT("Retry reuses the rolled-back ordinal as an explicit no-op"),
+		Host.TrySampleOrbitThreat(
+			HostLowItemId,
+			Fixture.Coordinator,
+			{},
+			Empty)
+		&& Empty.IsFinalized()
+		&& Empty.GetEvidence().ExpectedTargetCount == 0
+		&& Empty.GetEvidence().TargetEvidence.IsEmpty()
+		&& Empty.GetPresence().GetPolicy().GetEmission()
+			.GetContext().GetHitOrdinal() == 1
+		&& Empty.GetPresence().GetIntents().IsEmpty()
+		&& Empty.GetConsumption().GetStatus()
+			== EShanmenControlledWeaponThreatPresenceConsumeStatus::NoOp
+		&& Host.NumConsumedThreatPresenceIntents() == 1
+		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
+			== 2
+		&& Host.GetThreatPresenceAuthority().GetLatestSampleOrdinal(
+			HostLowItemId) == 1
+		&& Host.GetThreatPresenceAuthority().GetAuthorityRevision() == 1);
+
+	Fdemo_mapShanmenControlledWeaponOrbitThreatContact InvalidContact;
+	InvalidContact.ContactLocation = FVector(80.0, 20.0, 30.0);
+	InvalidContact.ContactNormal = FVector::BackwardVector;
+	TestFalse(TEXT("Unresolved geometry also fails the whole transaction"),
+		Host.TrySampleOrbitThreat(
+			HostLowItemId,
+			Fixture.Coordinator,
+			{ InvalidContact },
+			Rejected));
+	TestFalse(TEXT("Unknown items cannot open an atomic sample transaction"),
+		Host.TrySampleOrbitThreat(
+			HostThirdItemId,
+			Fixture.Coordinator,
+			{},
+			Rejected));
+	TestTrue(TEXT("All rejected transactions preserve the last exact sample"),
+		!Rejected.IsFinalized()
+		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
+			== 2
+		&& Host.GetThreatPresenceAuthority().GetLatestSampleOrdinal(
+			HostLowItemId) == 1
+		&& Host.GetThreatPresenceAuthority().GetAuthorityRevision() == 1
+		&& Host.FindController(HostLowItemId)
+		&& !Host.FindController(HostLowItemId)->HasActiveContactWindow());
+
+	Fdemo_mapShanmenControlledWeaponThreatFinalizationResult Retry;
+	TestTrue(TEXT("A valid retry proves failed geometry did not spend ordinal two"),
+		Host.TrySampleOrbitThreat(
+			HostLowItemId, Fixture.Coordinator, OneContact, Retry)
+		&& Retry.IsFinalized()
+		&& Retry.GetPresence().GetPolicy().GetEmission()
+			.GetContext().GetHitOrdinal() == 2
+		&& Host.NumConsumedThreatPresenceIntents() == 2
+		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
+			== 3
+		&& Host.GetThreatPresenceAuthority().GetAuthorityRevision() == 2);
+
+	Fdemo_mapShanmenControlledWeaponThreatFinalizationResult High;
+	TestTrue(TEXT("Failed low-item work cannot advance another item ordinal"),
+		Host.TrySampleOrbitThreat(
+			HostHighItemId,
+			Fixture.Coordinator,
+			{},
+			High)
+		&& High.IsFinalized()
+		&& High.GetItemInstanceId() == HostHighItemId
+		&& High.GetPresence().GetPolicy().GetEmission()
+			.GetContext().GetHitOrdinal() == 0
+		&& High.GetConsumption().GetStatus()
+			== EShanmenControlledWeaponThreatPresenceConsumeStatus::NoOp
+		&& Host.GetThreatPresenceAuthority().NumTrackedSamples() == 2
+		&& Host.GetThreatPresenceAuthority().GetLatestSampleOrdinal(
+			HostLowItemId) == 2
+		&& Host.GetThreatPresenceAuthority().GetLatestSampleOrdinal(
+			HostHighItemId) == 0
+		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
+			== 4
+		&& Host.GetThreatPresenceAuthority().GetAuthorityRevision() == 2);
+
+	FShanmenTargetVitalitySnapshot After;
+	check(Fixture.Enemy->TryCaptureCombatVitalitySnapshot(After));
+	TestTrue(TEXT("Atomic sampling remains presence-only and zero-impact"),
+		FMath::IsNearlyEqual(Before.CurrentVitality, After.CurrentVitality)
+		&& Host.FindController(HostLowItemId)
+		&& Host.FindController(HostLowItemId)->GetSession().GetExecution()
+			.NumAcceptedImpacts() == 0);
 	return true;
 }
 

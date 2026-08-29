@@ -622,6 +622,71 @@ TryConsumeOrbitThreatPresence(
 	return IsValid();
 }
 
+bool Fdemo_mapShanmenControlledWeaponRunHost::TrySampleOrbitThreat(
+	const FGuid& ItemInstanceId,
+	const Fdemo_mapCombatRunCoordinator& Coordinator,
+	const TArray<Fdemo_mapShanmenControlledWeaponOrbitThreatContact>& Contacts,
+	Fdemo_mapShanmenControlledWeaponThreatFinalizationResult& OutResult)
+{
+	OutResult = Fdemo_mapShanmenControlledWeaponThreatFinalizationResult();
+	if (!IsValid()
+		|| !CoordinatorMatches(Coordinator)
+		|| !Controllers.Contains(ItemInstanceId))
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenControlledWeaponRunHost Candidate = *this;
+	FShanmenWorldHitContext Context;
+	if (!Candidate.TryBeginOrbitThreatWindow(ItemInstanceId, Context))
+	{
+		return false;
+	}
+
+	TArray<AActor*> TargetActors;
+	TargetActors.Reserve(Contacts.Num());
+	for (const Fdemo_mapShanmenControlledWeaponOrbitThreatContact& Contact :
+		Contacts)
+	{
+		const Fdemo_mapShanmenControlledWeaponOrbitThreatResult Projected =
+			Candidate.ProjectOrbitThreatOverlap(
+				ItemInstanceId,
+				Coordinator,
+				Contact.Overlap,
+				Contact.ContactLocation,
+				Contact.ContactNormal);
+		AActor* TargetActor = Contact.Overlap.GetActor();
+		if (!Projected.IsProjected() || !TargetActor)
+		{
+			return false;
+		}
+		TargetActors.Add(TargetActor);
+	}
+
+	FShanmenDetectorEmissionReceipt Emission;
+	if (!Candidate.TryEndOrbitThreatWindow(ItemInstanceId, Emission))
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenControlledWeaponThreatFinalizationResult Result;
+	if (!Candidate.TryFinalizeOrbitThreatSample(
+			ItemInstanceId,
+			Coordinator,
+			Emission,
+			TargetActors,
+			Result)
+		|| !Result.IsFinalized()
+		|| !Candidate.IsValid())
+	{
+		return false;
+	}
+
+	*this = MoveTemp(Candidate);
+	OutResult = MoveTemp(Result);
+	return true;
+}
+
 bool Fdemo_mapShanmenControlledWeaponRunHost::
 TryFinalizeOrbitThreatSample(
 	const FGuid& ItemInstanceId,
