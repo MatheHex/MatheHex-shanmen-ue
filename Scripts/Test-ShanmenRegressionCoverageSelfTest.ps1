@@ -141,6 +141,9 @@ try
     $FormationInfluenceReconciliation = New-AutomationLogFixture `
         -Name 'formation-influence-reconciliation.log' `
         -Group 'Shanmen.0_0_10.Product.FormationInfluenceReconciliation'
+    $FormationInfluenceDispatch = New-AutomationLogFixture `
+        -Name 'formation-influence-dispatch.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationInfluenceDispatch'
     $Legacy = New-AutomationLogFixture `
         -Name 'legacy.log' `
         -Group 'demo_map'
@@ -236,6 +239,12 @@ try
         -Name 'formation influence reconciliation is covered by broad full evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceReconciliationPlanner.cpp') `
+        -Logs @($Full)
+
+    Invoke-ExpectedPass `
+        -Name 'formation influence dispatch is covered by broad full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceDispatchLedger.cpp') `
         -Logs @($Full)
 
     Invoke-ExpectedPass `
@@ -435,6 +444,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceReconciliationPlanner.cpp') `
         -Logs @($FormationInfluenceReconciliation) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'formation dispatch child evidence cannot replace planners and World contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceDispatchLedger.cpp') `
+        -Logs @($FormationInfluenceDispatch) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
