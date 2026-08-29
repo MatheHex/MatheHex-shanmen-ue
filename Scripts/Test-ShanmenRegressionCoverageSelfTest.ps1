@@ -126,6 +126,9 @@ try
     $FormationCoverageTransitions = New-AutomationLogFixture `
         -Name 'formation-coverage-transitions.log' `
         -Group 'Shanmen.0_0_10.Product.FormationCoverageTransitions'
+    $FormationCoverageTracker = New-AutomationLogFixture `
+        -Name 'formation-coverage-tracker.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationCoverageTracker'
     $Legacy = New-AutomationLogFixture `
         -Name 'legacy.log' `
         -Group 'demo_map'
@@ -197,6 +200,12 @@ try
         -Name 'formation coverage transitions are covered by broad full evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationCoverageTransitionReducer.cpp') `
+        -Logs @($Full)
+
+    Invoke-ExpectedPass `
+        -Name 'formation coverage tracker is covered by broad full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationCoverageTracker.cpp') `
         -Logs @($Full)
 
     Invoke-ExpectedPass `
@@ -371,6 +380,13 @@ try
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
+        -Name 'formation tracker child evidence cannot replace transition and coverage contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationCoverageTracker.cpp') `
+        -Logs @($FormationCoverageTracker) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
         -Name 'run host cannot use coordinator-only evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenControlledWeaponRunHost.cpp') `
@@ -440,7 +456,7 @@ try
         -Logs @($Full) `
         -ExpectedText 'missing required groups'
 
-    Write-Output 'SELF_TEST: PASS 47/47'
+    Write-Output 'SELF_TEST: PASS 49/49'
 }
 finally
 {
