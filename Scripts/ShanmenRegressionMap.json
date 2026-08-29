@@ -289,6 +289,20 @@
       ]
     },
     {
+      "name": "ThrownWeaponRunCommandRouter",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponRunCommandRouter(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Product.ThrownWeaponRunCommand",
+        "Shanmen.0_0_10.Product.ThrownWeaponRunHost",
+        "Shanmen.0_0_10.Product.ThrownWeaponWorldDelivery",
+        "Shanmen.0_0_10.Product.ThrownWeaponItemAdapter",
+        "Shanmen.0_0_10.Product.CombatRunCoordinator",
+        "Shanmen.0_0_10.Items",
+        "Shanmen.0_0_10.WorldGameplay",
+        "Shanmen.0_0_10.CombatRuntime"
+      ]
+    },
+    {
       "name": "GameplayTags",
       "pathRegex": "^Config/DefaultGameplayTags\\.ini$",
       "requiredGroups": [

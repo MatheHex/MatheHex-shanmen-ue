@@ -169,6 +169,12 @@ try
             'Source/demo_map/demo_mapShanmenThrownWeaponRunHost.cpp') `
         -Logs @($Full)
 
+    Invoke-ExpectedPass `
+        -Name 'thrown weapon Run command router maps to every routed authority seam' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenThrownWeaponRunCommandRouter.cpp') `
+        -Logs @($Full)
+
     Invoke-ExpectedFail `
         -Name 'missing mapped group fails closed' `
         -Paths @('Source/demo_map/demo_mapSkillComponent.cpp') `
@@ -227,7 +233,14 @@ try
         -Logs @($Coordinator) `
         -ExpectedText 'missing required groups'
 
-    Write-Output 'SELF_TEST: PASS 18/18'
+    Invoke-ExpectedFail `
+        -Name 'thrown command router cannot use coordinator-only evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenThrownWeaponRunCommandRouter.cpp') `
+        -Logs @($Coordinator) `
+        -ExpectedText 'missing required groups'
+
+    Write-Output 'SELF_TEST: PASS 20/20'
 }
 finally
 {
