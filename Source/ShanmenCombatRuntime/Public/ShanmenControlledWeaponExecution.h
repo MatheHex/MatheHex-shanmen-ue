@@ -168,6 +168,36 @@ private:
 	FVector DirectionAfter = FVector::ZeroVector;
 };
 
+/**
+ * Immutable proof that one exact controlled item was still in its zero-effect
+ * Orbiting preparation state at a command-sequence checkpoint.
+ *
+ * This receipt is deliberately not a defense layer: it contains no angle,
+ * timing window, mitigation value, resource cost, or impact mutation.
+ */
+class SHANMENCOMBATRUNTIME_API
+FShanmenControlledWeaponDefenseReadinessReceipt
+{
+public:
+	bool IsValid() const;
+	const FGuid& GetReadinessId() const { return ReadinessId; }
+	const FShanmenCombatActionSnapshot& GetAction() const { return Action; }
+	int64 GetCommandSequenceCheckpoint() const
+	{
+		return CommandSequenceCheckpoint;
+	}
+	EShanmenControlledWeaponState GetState() const { return State; }
+
+private:
+	friend class FShanmenControlledWeaponExecution;
+
+	FGuid ReadinessId;
+	FShanmenCombatActionSnapshot Action;
+	int64 CommandSequenceCheckpoint = INDEX_NONE;
+	EShanmenControlledWeaponState State =
+		EShanmenControlledWeaponState::Recalled;
+};
+
 /** Auditable pure-kernel result for one controlled-object contact. */
 USTRUCT(BlueprintType)
 struct SHANMENCOMBATRUNTIME_API FShanmenControlledWeaponImpactReceipt
@@ -349,6 +379,14 @@ public:
 		EShanmenControlledWeaponCommandKind Kind,
 		const FVector& DesiredDirection,
 		FShanmenControlledWeaponCommandReceipt& OutReceipt);
+	/** Captures identity/state only; product pose evidence remains outside. */
+	bool TryCaptureOrbitDefenseReadiness(
+		const FShanmenActionOrchestrator& ActionRuntime,
+		FShanmenControlledWeaponDefenseReadinessReceipt& OutReceipt) const;
+	/** Rejects a receipt after launch, recall, action termination, or rebinding. */
+	bool IsOrbitDefenseReadinessCurrent(
+		const FShanmenActionOrchestrator& ActionRuntime,
+		const FShanmenControlledWeaponDefenseReadinessReceipt& Receipt) const;
 	bool TryBeginEmission(
 		const FShanmenActionOrchestrator& ActionRuntime,
 		FShanmenWorldHitContext& OutContext);

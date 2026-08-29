@@ -4,10 +4,40 @@
 #include "Engine/HitResult.h"
 #include "Engine/OverlapResult.h"
 #include "GameFramework/Actor.h"
+#include "ShanmenDeterministicId.h"
 
 namespace
 {
 	constexpr float OrbitTwoPi = 2.0f * UE_PI;
+
+	FString GuidDigits(const FGuid& Value)
+	{
+		return Value.ToString(EGuidFormats::Digits);
+	}
+
+	FString FloatBits(float Value)
+	{
+		if (Value == 0.0f)
+		{
+			Value = 0.0f;
+		}
+		uint32 Bits = 0;
+		static_assert(sizeof(Bits) == sizeof(Value));
+		FMemory::Memcpy(&Bits, &Value, sizeof(Bits));
+		return FString::Printf(TEXT("%08X"), Bits);
+	}
+
+	FString DoubleBits(double Value)
+	{
+		if (Value == 0.0)
+		{
+			Value = 0.0;
+		}
+		uint64 Bits = 0;
+		static_assert(sizeof(Bits) == sizeof(Value));
+		FMemory::Memcpy(&Bits, &Value, sizeof(Bits));
+		return FString::Printf(TEXT("%016llX"), Bits);
+	}
 
 	bool IsFiniteVector(const FVector& Value)
 	{
@@ -47,6 +77,36 @@ namespace
 		return Center + Radius * (
 			ReferenceAxis * FMath::Cos(PhaseRadians)
 			+ Tangent * FMath::Sin(PhaseRadians));
+	}
+
+	FGuid MakeOrbitDefenseReadinessSnapshotId(
+		const FShanmenControlledWeaponDefenseReadinessReceipt& Runtime,
+		const FVector& Center,
+		const FVector& PlaneNormal,
+		const FVector& ReferenceAxis,
+		float Radius,
+		float PhaseRadians,
+		const FVector& WeaponLocation)
+	{
+		return FShanmenDeterministicId::FromCanonicalParts(
+			TEXT("Shanmen.ControlledWeapon.OrbitDefenseReadinessPose.r1"),
+			{
+				GuidDigits(Runtime.GetReadinessId()),
+				DoubleBits(Center.X),
+				DoubleBits(Center.Y),
+				DoubleBits(Center.Z),
+				DoubleBits(PlaneNormal.X),
+				DoubleBits(PlaneNormal.Y),
+				DoubleBits(PlaneNormal.Z),
+				DoubleBits(ReferenceAxis.X),
+				DoubleBits(ReferenceAxis.Y),
+				DoubleBits(ReferenceAxis.Z),
+				FloatBits(Radius),
+				FloatBits(PhaseRadians),
+				DoubleBits(WeaponLocation.X),
+				DoubleBits(WeaponLocation.Y),
+				DoubleBits(WeaponLocation.Z)
+			});
 	}
 }
 
@@ -131,6 +191,45 @@ bool Fdemo_mapShanmenControlledWeaponOrbitMovementReceipt::IsValid() const
 			RequestedEndLocation, KINDA_SMALL_NUMBER)
 		&& bMoved == !ActualEndLocation.Equals(
 			StartLocation, KINDA_SMALL_NUMBER);
+}
+
+bool Fdemo_mapShanmenControlledWeaponOrbitDefenseReadinessReceipt::
+IsValid() const
+{
+	if (!SnapshotId.IsValid()
+		|| !Runtime.IsValid()
+		|| !IsFiniteVector(Center)
+		|| !IsFiniteVector(PlaneNormal)
+		|| !PlaneNormal.IsNormalized()
+		|| !IsFiniteVector(ReferenceAxis)
+		|| !ReferenceAxis.IsNormalized()
+		|| !FMath::IsNearlyZero(FVector::DotProduct(
+			PlaneNormal, ReferenceAxis))
+		|| !FVector::CrossProduct(
+			PlaneNormal, ReferenceAxis).IsNormalized()
+		|| !FMath::IsFinite(Radius)
+		|| Radius <= 0.0f
+		|| !IsCanonicalOrbitPhase(PhaseRadians)
+		|| !IsFiniteVector(WeaponLocation))
+	{
+		return false;
+	}
+
+	const FVector ExpectedLocation = MakeOrbitLocation(
+		Center,
+		ReferenceAxis,
+		PlaneNormal,
+		Radius,
+		PhaseRadians);
+	return WeaponLocation.Equals(ExpectedLocation, KINDA_SMALL_NUMBER)
+		&& SnapshotId == MakeOrbitDefenseReadinessSnapshotId(
+			Runtime,
+			Center,
+			PlaneNormal,
+			ReferenceAxis,
+			Radius,
+			PhaseRadians,
+			WeaponLocation);
 }
 
 Fdemo_mapShanmenControlledWeaponProductStartResult
@@ -341,6 +440,68 @@ bool Fdemo_mapShanmenControlledWeaponProductController::TryRedirect(
 	}
 	*this = MoveTemp(Candidate);
 	return true;
+}
+
+bool Fdemo_mapShanmenControlledWeaponProductController::
+TryCaptureOrbitDefenseReadiness(
+	Fdemo_mapShanmenControlledWeaponOrbitDefenseReadinessReceipt&
+		OutReceipt) const
+{
+	OutReceipt =
+		Fdemo_mapShanmenControlledWeaponOrbitDefenseReadinessReceipt();
+	AActor* BoundSourceActor = SourceActor.Get();
+	AActor* BoundWeaponActor = WeaponActor.Get();
+	if (!IsOrbiting() || !BoundSourceActor || !BoundWeaponActor)
+	{
+		return false;
+	}
+
+	FShanmenControlledWeaponDefenseReadinessReceipt Runtime;
+	if (!Session.TryCaptureOrbitDefenseReadiness(Runtime))
+	{
+		return false;
+	}
+
+	OutReceipt.Runtime = MoveTemp(Runtime);
+	OutReceipt.Center =
+		BoundSourceActor->GetActorLocation() + Motion.OrbitCenterOffset;
+	OutReceipt.PlaneNormal = Motion.OrbitPlaneNormal;
+	OutReceipt.ReferenceAxis = Motion.OrbitReferenceAxis;
+	OutReceipt.Radius = Motion.OrbitRadius;
+	OutReceipt.PhaseRadians = CurrentOrbitPhaseRadians;
+	OutReceipt.WeaponLocation = BoundWeaponActor->GetActorLocation();
+	OutReceipt.SnapshotId = MakeOrbitDefenseReadinessSnapshotId(
+		OutReceipt.Runtime,
+		OutReceipt.Center,
+		OutReceipt.PlaneNormal,
+		OutReceipt.ReferenceAxis,
+		OutReceipt.Radius,
+		OutReceipt.PhaseRadians,
+		OutReceipt.WeaponLocation);
+	if (!OutReceipt.IsValid())
+	{
+		OutReceipt =
+			Fdemo_mapShanmenControlledWeaponOrbitDefenseReadinessReceipt();
+		return false;
+	}
+	return true;
+}
+
+bool Fdemo_mapShanmenControlledWeaponProductController::
+IsOrbitDefenseReadinessCurrent(
+	const Fdemo_mapShanmenControlledWeaponOrbitDefenseReadinessReceipt&
+		Receipt) const
+{
+	if (!Receipt.IsValid()
+		|| !IsOrbiting()
+		|| !Session.IsOrbitDefenseReadinessCurrent(Receipt.GetRuntime()))
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenControlledWeaponOrbitDefenseReadinessReceipt Current;
+	return TryCaptureOrbitDefenseReadiness(Current)
+		&& Current.GetSnapshotId() == Receipt.GetSnapshotId();
 }
 
 bool Fdemo_mapShanmenControlledWeaponProductController::TryAdvanceOrbiting(

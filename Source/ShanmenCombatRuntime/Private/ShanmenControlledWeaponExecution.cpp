@@ -70,6 +70,28 @@ namespace
 			});
 	}
 
+	FGuid MakeDefenseReadinessId(
+		const FShanmenCombatActionSnapshot& Action,
+		int64 CommandSequenceCheckpoint)
+	{
+		return FShanmenDeterministicId::FromCanonicalParts(
+			TEXT("Shanmen.ControlledWeapon.DefenseReadiness.r1"),
+			{
+				GuidDigits(Action.GetRunId()),
+				GuidDigits(Action.GetOwnerId()),
+				GuidDigits(Action.GetActivationId()),
+				GuidDigits(Action.GetSourceEntityId()),
+				GuidDigits(Action.GetSourceItemInstanceId()),
+				Action.GetActionDefinitionId().ToString(),
+				Action.GetContent().Version.ToString(),
+				Action.GetContent().Digest,
+				FString::Printf(
+					TEXT("%lld"), CommandSequenceCheckpoint),
+				FString::FromInt(static_cast<int32>(
+					EShanmenControlledWeaponState::Orbiting))
+			});
+	}
+
 	FGuid MakeThreatPresenceIntentId(
 		const FGuid& RunId,
 		const FGuid& SourceItemInstanceId,
@@ -231,6 +253,17 @@ bool FShanmenControlledWeaponCommandReceipt::IsValid() const
 			&& DirectionAfter.IsNearlyZero();
 	}
 	return false;
+}
+
+bool FShanmenControlledWeaponDefenseReadinessReceipt::IsValid() const
+{
+	return ReadinessId.IsValid()
+		&& Action.IsValid()
+		&& Action.GetSourceItemInstanceId().IsValid()
+		&& CommandSequenceCheckpoint >= 0
+		&& State == EShanmenControlledWeaponState::Orbiting
+		&& ReadinessId == MakeDefenseReadinessId(
+			Action, CommandSequenceCheckpoint);
 }
 
 bool FShanmenControlledWeaponImpactReceipt::IsValid() const
@@ -509,6 +542,49 @@ bool FShanmenControlledWeaponExecution::TryIssueCommand(
 	CommandLedger.Add(NextCommandSequence, OutReceipt);
 	++NextCommandSequence;
 	return IsValid();
+}
+
+bool FShanmenControlledWeaponExecution::TryCaptureOrbitDefenseReadiness(
+	const FShanmenActionOrchestrator& ActionRuntime,
+	FShanmenControlledWeaponDefenseReadinessReceipt& OutReceipt) const
+{
+	OutReceipt = FShanmenControlledWeaponDefenseReadinessReceipt();
+	if (!MatchesActionRuntime(ActionRuntime)
+		|| !ActionRuntime.CanEmitCandidates()
+		|| State != EShanmenControlledWeaponState::Orbiting
+		|| !CurrentDirection.IsNearlyZero()
+		|| NextCommandSequence < 0)
+	{
+		return false;
+	}
+
+	OutReceipt.Action = Action;
+	OutReceipt.CommandSequenceCheckpoint = NextCommandSequence;
+	OutReceipt.State = State;
+	OutReceipt.ReadinessId = MakeDefenseReadinessId(
+		Action, NextCommandSequence);
+	if (!OutReceipt.IsValid())
+	{
+		OutReceipt = FShanmenControlledWeaponDefenseReadinessReceipt();
+		return false;
+	}
+	return true;
+}
+
+bool FShanmenControlledWeaponExecution::IsOrbitDefenseReadinessCurrent(
+	const FShanmenActionOrchestrator& ActionRuntime,
+	const FShanmenControlledWeaponDefenseReadinessReceipt& Receipt) const
+{
+	return Receipt.IsValid()
+		&& MatchesActionRuntime(ActionRuntime)
+		&& ActionRuntime.CanEmitCandidates()
+		&& State == EShanmenControlledWeaponState::Orbiting
+		&& CurrentDirection.IsNearlyZero()
+		&& Receipt.GetState() == State
+		&& Receipt.GetCommandSequenceCheckpoint() == NextCommandSequence
+		&& ActionsMatch(Receipt.GetAction(), Action)
+		&& Receipt.GetReadinessId() == MakeDefenseReadinessId(
+			Action, NextCommandSequence);
 }
 
 bool FShanmenControlledWeaponExecution::TryBeginEmission(

@@ -157,6 +157,25 @@ bool Fdemo_mapShanmenControlledWeaponSession::TryIssueControl(
 	return true;
 }
 
+bool Fdemo_mapShanmenControlledWeaponSession::
+TryCaptureOrbitDefenseReadiness(
+	FShanmenControlledWeaponDefenseReadinessReceipt& OutReceipt) const
+{
+	OutReceipt = FShanmenControlledWeaponDefenseReadinessReceipt();
+	return IsActive()
+		&& Execution.TryCaptureOrbitDefenseReadiness(
+			ActionRuntime, OutReceipt);
+}
+
+bool Fdemo_mapShanmenControlledWeaponSession::
+IsOrbitDefenseReadinessCurrent(
+	const FShanmenControlledWeaponDefenseReadinessReceipt& Receipt) const
+{
+	return IsActive()
+		&& Execution.IsOrbitDefenseReadinessCurrent(
+			ActionRuntime, Receipt);
+}
+
 bool Fdemo_mapShanmenControlledWeaponSession::TryBeginContactWindow(
 	FShanmenWorldHitContext& OutContext)
 {

@@ -425,6 +425,128 @@ bool Fdemo_mapControlledWeaponRunHostOrbitOrderTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapControlledWeaponRunHostDefenseReadinessTest,
+	"Shanmen.0_0_10.Product.ControlledWeaponRunHost.OrbitDefenseReadiness",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapControlledWeaponRunHostDefenseReadinessTest::RunTest(
+	const FString&)
+{
+	FControlledWeaponHostFixture Fixture;
+	Fdemo_mapShanmenControlledWeaponRunHost Host;
+	if (!Fixture.bReady
+		|| !AttachHostWeapon(
+			Fixture, Host, HostHighItemId, 2, 1, UE_PI).IsAttached()
+		|| !AttachHostWeapon(
+			Fixture, Host, HostLowItemId, 1, 0, 0.0f).IsAttached())
+	{
+		AddError(TEXT("Could not prepare P6.23 defense-readiness fixture."));
+		return false;
+	}
+
+	const TArray<FGuid> ReverseRequested = {
+		HostHighItemId, HostLowItemId };
+	Fdemo_mapShanmenControlledWeaponDefenseReadinessBatch Batch;
+	TestFalse(TEXT("Logical Orbiting alone cannot claim an unplaced world pose"),
+		Host.TryCaptureOrbitDefenseReadinessInOrder(
+			ReverseRequested, Batch));
+	TestFalse(TEXT("Rejected capture leaves no partial readiness evidence"),
+		Batch.IsFullyCaptured());
+
+	Fdemo_mapShanmenControlledWeaponHostOrbitBatch Orbit;
+	TestTrue(TEXT("One explicit orbit step places both exact items"),
+		Host.TryAdvanceOrbitingInOrder(0.1f, Orbit)
+		&& Orbit.IsFullyAdvanced());
+	TestTrue(TEXT("Caller-selected items capture atomically in stable GUID order"),
+		Host.TryCaptureOrbitDefenseReadinessInOrder(
+			ReverseRequested, Batch)
+		&& Batch.IsFullyCaptured()
+		&& Batch.RunId == HostRunId
+		&& Batch.SourceEntityId == Fixture.Coordinator.GetPlayerEntityId()
+		&& Batch.RequestedCount == 2
+		&& Batch.Entries[0].ItemInstanceId == HostLowItemId
+		&& Batch.Entries[1].ItemInstanceId == HostHighItemId
+		&& Host.IsOrbitDefenseReadinessCurrent(Batch));
+
+	const FGuid LowPoseId = Batch.Entries[0].Readiness.GetSnapshotId();
+	const FGuid HighPoseId = Batch.Entries[1].Readiness.GetSnapshotId();
+	const FGuid LowRuntimeId = Batch.Entries[0].Readiness.GetRuntime()
+		.GetReadinessId();
+	const FGuid HighRuntimeId = Batch.Entries[1].Readiness.GetRuntime()
+		.GetReadinessId();
+	TestTrue(TEXT("Every entry proves the exact item and physical orbit equation"),
+		LowPoseId.IsValid()
+		&& HighPoseId.IsValid()
+		&& LowPoseId != HighPoseId
+		&& Batch.Entries[0].Readiness.GetWeaponLocation().Equals(
+			Fixture.Weapons[0]->GetActorLocation())
+		&& Batch.Entries[1].Readiness.GetWeaponLocation().Equals(
+			Fixture.Weapons[1]->GetActorLocation()));
+
+	Fdemo_mapShanmenControlledWeaponDefenseReadinessBatch Rejected;
+	const TArray<FGuid> DuplicateRequested = {
+		HostLowItemId, HostLowItemId };
+	TestFalse(TEXT("Duplicate exact-item participation fails closed"),
+		Host.TryCaptureOrbitDefenseReadinessInOrder(
+			DuplicateRequested, Rejected));
+	const TArray<FGuid> UnknownRequested = {
+		FGuid(0xD36500FF, 0, 0, 1) };
+	TestFalse(TEXT("Unknown exact item cannot enter readiness evidence"),
+		Host.TryCaptureOrbitDefenseReadinessInOrder(
+			UnknownRequested, Rejected));
+	TestFalse(TEXT("Empty participation policy is not inferred by the Host"),
+		Host.TryCaptureOrbitDefenseReadinessInOrder(
+			TArray<FGuid>(), Rejected));
+	TestFalse(TEXT("Every rejected subset clears its output"),
+		Rejected.IsFullyCaptured());
+
+	TestTrue(TEXT("A later orbit pose advances without changing command state"),
+		Host.TryAdvanceOrbitingInOrder(0.1f, Orbit));
+	TestFalse(TEXT("Prior physical pose evidence becomes stale after movement"),
+		Host.IsOrbitDefenseReadinessCurrent(Batch));
+	Fdemo_mapShanmenControlledWeaponDefenseReadinessBatch Moved;
+	TestTrue(TEXT("Fresh pose recaptures the same logical readiness checkpoint"),
+		Host.TryCaptureOrbitDefenseReadinessInOrder(
+			ReverseRequested, Moved)
+		&& Moved.Entries[0].Readiness.GetSnapshotId() != LowPoseId
+		&& Moved.Entries[1].Readiness.GetSnapshotId() != HighPoseId
+		&& Moved.Entries[0].Readiness.GetRuntime().GetReadinessId()
+			== LowRuntimeId
+		&& Moved.Entries[1].Readiness.GetRuntime().GetReadinessId()
+			== HighRuntimeId);
+
+	FShanmenControlledWeaponCommandReceipt Launch;
+	TestTrue(TEXT("One exact item may leave readiness by launching"),
+		Host.TryLaunch(
+			HostLowItemId, 0, FVector::ForwardVector, Launch));
+	TestFalse(TEXT("Launch invalidates any batch containing that item"),
+		Host.IsOrbitDefenseReadinessCurrent(Moved));
+	TestFalse(TEXT("Mixed Orbiting and Directed subset fails atomically"),
+		Host.TryCaptureOrbitDefenseReadinessInOrder(
+			ReverseRequested, Rejected));
+	const TArray<FGuid> HighOnly = { HostHighItemId };
+	Fdemo_mapShanmenControlledWeaponDefenseReadinessBatch HighReady;
+	TestTrue(TEXT("Caller may explicitly retain only the remaining Orbiting item"),
+		Host.TryCaptureOrbitDefenseReadinessInOrder(
+			HighOnly, HighReady)
+		&& HighReady.IsFullyCaptured()
+		&& Host.IsOrbitDefenseReadinessCurrent(HighReady));
+
+	Fixture.Pawn->SetActorLocation(FVector(25.0, -10.0, 5.0));
+	TestFalse(TEXT("Moving the source anchor stales old pose evidence"),
+		Host.IsOrbitDefenseReadinessCurrent(HighReady));
+	TestFalse(TEXT("Unfollowed source anchor cannot produce fresh readiness"),
+		Host.TryCaptureOrbitDefenseReadinessInOrder(
+			HighOnly, Rejected));
+	TestTrue(TEXT("Next explicit orbit step restores physical preparation"),
+		Host.TryAdvanceOrbitingInOrder(0.1f, Orbit)
+		&& Host.TryCaptureOrbitDefenseReadinessInOrder(
+			HighOnly, HighReady)
+		&& Host.IsOrbitDefenseReadinessCurrent(HighReady));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	Fdemo_mapControlledWeaponRunHostFrameOwnerTest,
 	"Shanmen.0_0_10.Product.ControlledWeaponRunHost.FrameOwnerResult",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

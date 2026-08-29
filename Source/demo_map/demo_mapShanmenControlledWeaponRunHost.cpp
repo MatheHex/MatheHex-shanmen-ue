@@ -52,6 +52,38 @@ bool Fdemo_mapShanmenControlledWeaponHostOrbitBatch::IsFullyAdvanced() const
 	return true;
 }
 
+bool Fdemo_mapShanmenControlledWeaponDefenseReadinessBatch::
+IsFullyCaptured() const
+{
+	if (!RunId.IsValid()
+		|| !SourceEntityId.IsValid()
+		|| RequestedCount <= 0
+		|| CapturedCount != RequestedCount
+		|| Entries.Num() != RequestedCount)
+	{
+		return false;
+	}
+
+	FGuid PreviousItemInstanceId;
+	for (const Fdemo_mapShanmenControlledWeaponDefenseReadinessEntry& Entry :
+		Entries)
+	{
+		const FShanmenCombatActionSnapshot& Action =
+			Entry.Readiness.GetRuntime().GetAction();
+		if (!Entry.IsValid()
+			|| Action.GetRunId() != RunId
+			|| Action.GetSourceEntityId() != SourceEntityId
+			|| (PreviousItemInstanceId.IsValid()
+				&& !GuidLess(
+					PreviousItemInstanceId, Entry.ItemInstanceId)))
+		{
+			return false;
+		}
+		PreviousItemInstanceId = Entry.ItemInstanceId;
+	}
+	return true;
+}
+
 bool Fdemo_mapShanmenControlledWeaponOrbitFrameResult::IsValid() const
 {
 	const bool bFinitePositiveDelta =
@@ -491,6 +523,88 @@ bool Fdemo_mapShanmenControlledWeaponRunHost::TryAdvanceOrbitingInOrder(
 		OutBatch.Entries.Add(MoveTemp(Entry));
 	}
 	return OutBatch.IsFullyAdvanced();
+}
+
+bool Fdemo_mapShanmenControlledWeaponRunHost::
+TryCaptureOrbitDefenseReadinessInOrder(
+	const TArray<FGuid>& ItemInstanceIds,
+	Fdemo_mapShanmenControlledWeaponDefenseReadinessBatch& OutBatch) const
+{
+	OutBatch = Fdemo_mapShanmenControlledWeaponDefenseReadinessBatch();
+	if (!IsValid() || ItemInstanceIds.IsEmpty())
+	{
+		return false;
+	}
+
+	TArray<FGuid> Ordered = ItemInstanceIds;
+	Ordered.Sort(GuidLess);
+	FGuid PreviousItemInstanceId;
+	for (const FGuid& ItemInstanceId : Ordered)
+	{
+		if (!ItemInstanceId.IsValid()
+			|| (PreviousItemInstanceId.IsValid()
+				&& PreviousItemInstanceId == ItemInstanceId))
+		{
+			return false;
+		}
+		PreviousItemInstanceId = ItemInstanceId;
+	}
+
+	OutBatch.RunId = RunId;
+	OutBatch.SourceEntityId = SourceEntityId;
+	OutBatch.RequestedCount = Ordered.Num();
+	OutBatch.Entries.Reserve(Ordered.Num());
+	for (const FGuid& ItemInstanceId : Ordered)
+	{
+		const Fdemo_mapShanmenControlledWeaponProductController* Controller =
+			Controllers.Find(ItemInstanceId);
+		Fdemo_mapShanmenControlledWeaponDefenseReadinessEntry Entry;
+		Entry.ItemInstanceId = ItemInstanceId;
+		if (!Controller
+			|| !Controller->TryCaptureOrbitDefenseReadiness(
+				Entry.Readiness))
+		{
+			OutBatch =
+				Fdemo_mapShanmenControlledWeaponDefenseReadinessBatch();
+			return false;
+		}
+		++OutBatch.CapturedCount;
+		OutBatch.Entries.Add(MoveTemp(Entry));
+	}
+
+	if (!OutBatch.IsFullyCaptured())
+	{
+		OutBatch = Fdemo_mapShanmenControlledWeaponDefenseReadinessBatch();
+		return false;
+	}
+	return true;
+}
+
+bool Fdemo_mapShanmenControlledWeaponRunHost::
+IsOrbitDefenseReadinessCurrent(
+	const Fdemo_mapShanmenControlledWeaponDefenseReadinessBatch& Batch) const
+{
+	if (!IsValid()
+		|| !Batch.IsFullyCaptured()
+		|| Batch.RunId != RunId
+		|| Batch.SourceEntityId != SourceEntityId)
+	{
+		return false;
+	}
+
+	for (const Fdemo_mapShanmenControlledWeaponDefenseReadinessEntry& Entry :
+		Batch.Entries)
+	{
+		const Fdemo_mapShanmenControlledWeaponProductController* Controller =
+			Controllers.Find(Entry.ItemInstanceId);
+		if (!Controller
+			|| !Controller->IsOrbitDefenseReadinessCurrent(
+				Entry.Readiness))
+		{
+			return false;
+		}
+	}
+	return true;
 }
 
 Fdemo_mapShanmenControlledWeaponOrbitFrameResult

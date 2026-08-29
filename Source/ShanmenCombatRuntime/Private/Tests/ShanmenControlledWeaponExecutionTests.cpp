@@ -339,6 +339,84 @@ bool FShanmenControlledWeaponCommandSequenceTest::RunTest(const FString&)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenControlledWeaponDefenseReadinessTest,
+	"Shanmen.0_0_10.CombatRuntime.ControlledWeapon.OrbitDefenseReadiness",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenControlledWeaponDefenseReadinessTest::RunTest(const FString&)
+{
+	FShanmenActionOrchestrator ActionRuntime;
+	FShanmenControlledWeaponExecution Execution;
+	FShanmenActionTransitionReceipt PhaseReceipt;
+	StartActiveControlledWeapon(ActionRuntime, Execution, PhaseReceipt);
+
+	FShanmenControlledWeaponDefenseReadinessReceipt First;
+	TestFalse(TEXT("Default readiness evidence is invalid"), First.IsValid());
+	TestTrue(TEXT("Active Orbiting exact item captures readiness"),
+		Execution.TryCaptureOrbitDefenseReadiness(
+			ActionRuntime, First));
+	TestTrue(TEXT("Readiness freezes exact action item and command checkpoint"),
+		First.IsValid()
+		&& First.GetAction().GetRunId() == ControlledRunId
+		&& First.GetAction().GetSourceEntityId()
+			== ControlledSourceEntityId
+		&& First.GetAction().GetSourceItemInstanceId()
+			== ControlledItemId
+		&& First.GetCommandSequenceCheckpoint() == 0
+		&& First.GetState()
+			== EShanmenControlledWeaponState::Orbiting
+		&& Execution.IsOrbitDefenseReadinessCurrent(
+			ActionRuntime, First));
+
+	FShanmenActionOrchestrator ReplayAction;
+	FShanmenControlledWeaponExecution ReplayExecution;
+	StartActiveControlledWeapon(
+		ReplayAction, ReplayExecution, PhaseReceipt);
+	FShanmenControlledWeaponDefenseReadinessReceipt Replay;
+	TestTrue(TEXT("Equivalent frozen action reproduces readiness identity"),
+		ReplayExecution.TryCaptureOrbitDefenseReadiness(
+			ReplayAction, Replay)
+		&& Replay.GetReadinessId() == First.GetReadinessId());
+
+	FShanmenWorldHitContext ThreatContext;
+	TestTrue(TEXT("Candidate-only threat sampling does not consume posture"),
+		Execution.TryBeginOrbitThreatEmission(
+			ActionRuntime, ThreatContext)
+		&& Execution.IsOrbitDefenseReadinessCurrent(
+			ActionRuntime, First));
+	FShanmenDetectorEmissionReceipt ThreatReceipt;
+	TestTrue(TEXT("Closing a zero-effect sample keeps the same readiness"),
+		Execution.TryEndOrbitThreatEmission(
+			ActionRuntime, ThreatReceipt)
+		&& Execution.IsOrbitDefenseReadinessCurrent(
+			ActionRuntime, First));
+
+	FShanmenControlledWeaponCommandReceipt Launch;
+	TestTrue(TEXT("Launch leaves the preparation posture"),
+		Execution.TryIssueCommand(
+			ActionRuntime,
+			0,
+			EShanmenControlledWeaponCommandKind::Launch,
+			FVector::ForwardVector,
+			Launch));
+	TestFalse(TEXT("Launch invalidates the prior readiness checkpoint"),
+		Execution.IsOrbitDefenseReadinessCurrent(
+			ActionRuntime, First));
+	FShanmenControlledWeaponDefenseReadinessReceipt DirectedRejected;
+	TestFalse(TEXT("Directed flight cannot claim Orbit defense readiness"),
+		Execution.TryCaptureOrbitDefenseReadiness(
+			ActionRuntime, DirectedRejected));
+
+	TestTrue(TEXT("Action interruption invalidates otherwise Orbiting evidence"),
+		ReplayAction.TryInterrupt(
+			EShanmenCombatActionPhase::Active, PhaseReceipt));
+	TestFalse(TEXT("Terminal action cannot retain defense readiness"),
+		ReplayExecution.IsOrbitDefenseReadinessCurrent(
+			ReplayAction, Replay));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FShanmenControlledWeaponOrbitThreatTest,
 	"Shanmen.0_0_10.CombatRuntime.ControlledWeapon.OrbitThreatCandidateOnly",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

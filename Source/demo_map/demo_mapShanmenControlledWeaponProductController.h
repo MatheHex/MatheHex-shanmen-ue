@@ -62,6 +62,39 @@ struct Fdemo_mapShanmenControlledWeaponOrbitMovementReceipt
 	bool IsValid() const;
 };
 
+/**
+ * Exact-item proof that logical Orbiting readiness is backed by the current
+ * authored world pose. It is evidence only and cannot mitigate an Impact.
+ */
+class Fdemo_mapShanmenControlledWeaponOrbitDefenseReadinessReceipt
+{
+public:
+	bool IsValid() const;
+	const FGuid& GetSnapshotId() const { return SnapshotId; }
+	const FShanmenControlledWeaponDefenseReadinessReceipt& GetRuntime() const
+	{
+		return Runtime;
+	}
+	const FVector& GetCenter() const { return Center; }
+	const FVector& GetPlaneNormal() const { return PlaneNormal; }
+	const FVector& GetReferenceAxis() const { return ReferenceAxis; }
+	float GetRadius() const { return Radius; }
+	float GetPhaseRadians() const { return PhaseRadians; }
+	const FVector& GetWeaponLocation() const { return WeaponLocation; }
+
+private:
+	friend class Fdemo_mapShanmenControlledWeaponProductController;
+
+	FGuid SnapshotId;
+	FShanmenControlledWeaponDefenseReadinessReceipt Runtime;
+	FVector Center = FVector::ZeroVector;
+	FVector PlaneNormal = FVector::ZeroVector;
+	FVector ReferenceAxis = FVector::ZeroVector;
+	float Radius = 0.0f;
+	float PhaseRadians = 0.0f;
+	FVector WeaponLocation = FVector::ZeroVector;
+};
+
 /** Product binding failures before a physical flying sword owns a live Session. */
 enum class Edemo_mapShanmenControlledWeaponProductStartError : uint8
 {
@@ -129,6 +162,12 @@ public:
 		int64 ExpectedSequence,
 		const FVector& DesiredDirection,
 		FShanmenControlledWeaponCommandReceipt& OutReceipt);
+	bool TryCaptureOrbitDefenseReadiness(
+		Fdemo_mapShanmenControlledWeaponOrbitDefenseReadinessReceipt&
+			OutReceipt) const;
+	bool IsOrbitDefenseReadinessCurrent(
+		const Fdemo_mapShanmenControlledWeaponOrbitDefenseReadinessReceipt&
+			Receipt) const;
 
 	/**
 	 * Advances the explicit world-space orbit without sweep or hit emission.

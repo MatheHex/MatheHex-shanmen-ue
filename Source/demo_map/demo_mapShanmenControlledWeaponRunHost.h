@@ -91,6 +91,36 @@ struct Fdemo_mapShanmenControlledWeaponHostOrbitBatch
 	bool IsFullyAdvanced() const;
 };
 
+/** One stable-order exact item in a caller-selected defense-readiness set. */
+struct Fdemo_mapShanmenControlledWeaponDefenseReadinessEntry
+{
+	FGuid ItemInstanceId;
+	Fdemo_mapShanmenControlledWeaponOrbitDefenseReadinessReceipt Readiness;
+
+	bool IsValid() const
+	{
+		return ItemInstanceId.IsValid()
+			&& Readiness.IsValid()
+			&& Readiness.GetRuntime().GetAction()
+				.GetSourceItemInstanceId() == ItemInstanceId;
+	}
+};
+
+/**
+ * Atomic read-only snapshot of an explicit item subset in stable GUID order.
+ * The caller, not the Host, owns which flying swords participate in defense.
+ */
+struct Fdemo_mapShanmenControlledWeaponDefenseReadinessBatch
+{
+	FGuid RunId;
+	FGuid SourceEntityId;
+	int32 RequestedCount = 0;
+	int32 CapturedCount = 0;
+	TArray<Fdemo_mapShanmenControlledWeaponDefenseReadinessEntry> Entries;
+
+	bool IsFullyCaptured() const;
+};
+
 /** Why one owner-supplied frame delta did or did not advance Orbiting items. */
 enum class Edemo_mapShanmenControlledWeaponOrbitFrameStatus : uint8
 {
@@ -263,6 +293,13 @@ public:
 	bool TryAdvanceOrbitingInOrder(
 		float DeltaSeconds,
 		Fdemo_mapShanmenControlledWeaponHostOrbitBatch& OutBatch);
+	/** Captures only the explicit exact-item subset; no participation policy is inferred. */
+	bool TryCaptureOrbitDefenseReadinessInOrder(
+		const TArray<FGuid>& ItemInstanceIds,
+		Fdemo_mapShanmenControlledWeaponDefenseReadinessBatch& OutBatch) const;
+	/** Revalidates logical state, command checkpoint, source anchor, and pose. */
+	bool IsOrbitDefenseReadinessCurrent(
+		const Fdemo_mapShanmenControlledWeaponDefenseReadinessBatch& Batch) const;
 	/** Adapts an owner frame delta into an auditable Orbit advance/no-op. */
 	Fdemo_mapShanmenControlledWeaponOrbitFrameResult AdvanceOrbitingFrame(
 		float DeltaSeconds);
