@@ -99,6 +99,9 @@ try
     $PlayerVitality = New-AutomationLogFixture `
         -Name 'player-vitality.log' `
         -Group 'Shanmen.0_0_10.Product.PlayerVitality'
+    $ItemUse = New-AutomationLogFixture `
+        -Name 'item-use.log' `
+        -Group 'demo_map.ItemUseAndArmor'
     $FailedRanged = New-AutomationLogFixture `
         -Name 'ranged-fail.log' `
         -Group 'demo_map.V2RangedCompatibility' `
@@ -181,6 +184,12 @@ try
             'Source/demo_map/demo_mapShanmenThrownWeaponProductController.cpp') `
         -Logs @($Full)
 
+    Invoke-ExpectedPass `
+        -Name 'thrown weapon product session maps hotbar and combat stat seams' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenThrownWeaponProductSession.cpp') `
+        -Logs @($Full, $ItemUse)
+
     Invoke-ExpectedFail `
         -Name 'missing mapped group fails closed' `
         -Paths @('Source/demo_map/demo_mapSkillComponent.cpp') `
@@ -253,7 +262,14 @@ try
         -Logs @($Coordinator) `
         -ExpectedText 'missing required groups'
 
-    Write-Output 'SELF_TEST: PASS 22/22'
+    Invoke-ExpectedFail `
+        -Name 'thrown product session requires legacy combat snapshot evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenThrownWeaponProductSession.cpp') `
+        -Logs @($Full) `
+        -ExpectedText 'missing required groups'
+
+    Write-Output 'SELF_TEST: PASS 24/24'
 }
 finally
 {
