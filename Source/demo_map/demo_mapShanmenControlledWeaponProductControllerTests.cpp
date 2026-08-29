@@ -480,6 +480,112 @@ bool Fdemo_mapControlledWeaponProductContactCompletionTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapControlledWeaponProductOrbitThreatTest,
+	"Shanmen.0_0_10.Product.ControlledWeaponController.OrbitThreatProjection",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapControlledWeaponProductOrbitThreatTest::RunTest(
+	const FString&)
+{
+	FControlledWeaponProductFixture Fixture;
+	Fdemo_mapShanmenControlledWeaponProductController Controller;
+	if (!Fixture.bReady || !Fixture.GetEnemyRoot()
+		|| !StartProduct(Fixture, Controller).IsStarted())
+	{
+		AddError(TEXT("Could not prepare P6.10 Orbit threat fixture."));
+		return false;
+	}
+
+	FGuid EnemyEntityId;
+	if (!Fixture.Coordinator.GetEntityRegistry().TryResolveObject(
+			Fixture.Coordinator.GetRunId(),
+			Fixture.Enemy,
+			INDEX_NONE,
+			EnemyEntityId))
+	{
+		AddError(TEXT("P6.10 fixture enemy has no canonical entity identity."));
+		return false;
+	}
+
+	FShanmenTargetVitalitySnapshot Before;
+	check(Fixture.Enemy->TryCaptureCombatVitalitySnapshot(Before));
+	FShanmenWorldHitContext ThreatContext;
+	TestTrue(TEXT("Orbiting item opens a candidate-only threat window"),
+		Controller.TryBeginOrbitThreatWindow(ThreatContext)
+		&& Controller.HasActiveOrbitThreatWindow()
+		&& !Controller.HasActiveDirectedContactWindow()
+		&& ThreatContext.GetHitOrdinal() == 0);
+
+	const Fdemo_mapShanmenControlledWeaponOrbitThreatResult First =
+		Controller.ProjectOrbitThreatOverlap(
+			Fixture.Coordinator,
+			MakeProductOverlap(Fixture),
+			FVector(90.0, 20.0, 30.0),
+			FVector::BackwardVector);
+	FShanmenTargetVitalitySnapshot AfterProjection;
+	check(Fixture.Enemy->TryCaptureCombatVitalitySnapshot(AfterProjection));
+	TestTrue(TEXT("Explicit overlap projects one canonical threat candidate"),
+		First.IsProjected()
+		&& First.Context.GetAction().GetSourceItemInstanceId()
+			== ProductItemId
+		&& First.Candidate.TargetEntityId == EnemyEntityId
+		&& First.Candidate.HitOrdinal == 0);
+	TestTrue(TEXT("Threat projection cannot mutate vitality or impact ledger"),
+		FMath::IsNearlyEqual(
+			Before.CurrentVitality,
+			AfterProjection.CurrentVitality)
+		&& Controller.GetSession().GetExecution().NumAcceptedImpacts() == 0);
+
+	const Fdemo_mapShanmenControlledWeaponOrbitThreatResult Duplicate =
+		Controller.ProjectOrbitThreatOverlap(
+			Fixture.Coordinator,
+			MakeProductOverlap(Fixture),
+			FVector(91.0, 20.0, 30.0),
+			FVector::BackwardVector);
+	TestTrue(TEXT("One threat sample accepts each target at most once"),
+		Duplicate.Error
+			== Edemo_mapShanmenControlledWeaponOrbitThreatError::CandidateRejected);
+
+	FShanmenControlledWeaponCommandReceipt Launch;
+	Fdemo_mapShanmenControlledWeaponOrbitMovementReceipt Orbit;
+	TestFalse(TEXT("Open threat sample fences Launch"),
+		Controller.TryLaunch(0, FVector::ForwardVector, Launch));
+	TestFalse(TEXT("Open threat sample fences Orbit movement"),
+		Controller.TryAdvanceOrbiting(0.1f, Orbit));
+	TestFalse(TEXT("Orbit window cannot call the directed damage adapter"),
+		Controller.ResolveOverlapContact(
+			Fixture.Coordinator,
+			MakeProductOverlap(Fixture),
+			FVector(90.0, 20.0, 30.0),
+			FVector::BackwardVector).IsDelivered());
+
+	TestTrue(TEXT("Threat window closes before canonical Launch"),
+		Controller.TryEndOrbitThreatWindow()
+		&& !Controller.HasActiveContactWindow()
+		&& Controller.TryLaunch(0, FVector::ForwardVector, Launch));
+	FShanmenWorldHitContext DirectedContext;
+	TestTrue(TEXT("Directed contact continues the shared detector ordinal"),
+		Controller.TryBeginContactWindow(DirectedContext)
+		&& DirectedContext.GetHitOrdinal()
+			== ThreatContext.GetHitOrdinal() + 1);
+	const Fdemo_mapShanmenControlledWeaponWorldDeliveryResult Delivered =
+		Controller.ResolveOverlapContact(
+			Fixture.Coordinator,
+			MakeProductOverlap(Fixture),
+			FVector(110.0, 20.0, 30.0),
+			FVector::BackwardVector);
+	FShanmenTargetVitalitySnapshot AfterDirected;
+	check(Fixture.Enemy->TryCaptureCombatVitalitySnapshot(AfterDirected));
+	TestTrue(TEXT("Only the later Directed candidate reaches damage authority"),
+		Delivered.IsDelivered()
+		&& Controller.GetSession().GetExecution().NumAcceptedImpacts() == 1
+		&& AfterDirected.CurrentVitality
+			< AfterProjection.CurrentVitality
+		&& Controller.TryEndContactWindow());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	Fdemo_mapControlledWeaponProductAtomicFenceTest,
 	"Shanmen.0_0_10.Product.ControlledWeaponController.AtomicFences",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

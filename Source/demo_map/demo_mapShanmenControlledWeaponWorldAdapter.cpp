@@ -28,6 +28,67 @@ namespace
 	}
 }
 
+Fdemo_mapShanmenControlledWeaponOrbitThreatResult
+Fdemo_mapShanmenControlledWeaponWorldAdapter::ProjectOrbitThreatOverlap(
+	Fdemo_mapShanmenControlledWeaponSession& Session,
+	const Fdemo_mapCombatRunCoordinator& Coordinator,
+	const FShanmenWorldHitContext& Context,
+	const FOverlapResult& Overlap,
+	const FVector& ContactLocation,
+	const FVector& ContactNormal)
+{
+	Fdemo_mapShanmenControlledWeaponOrbitThreatResult Result;
+	if (!Coordinator.IsReady())
+	{
+		return Result;
+	}
+	if (!Session.IsActive())
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponOrbitThreatError::SessionNotActive;
+		return Result;
+	}
+	if (!ContextMatchesSession(
+			Session, Context, EShanmenControlledWeaponState::Orbiting))
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponOrbitThreatError::ContextMismatch;
+		return Result;
+	}
+
+	FShanmenHitCandidate Candidate;
+	if (!FShanmenWorldHitAdapter::TryFromOverlap(
+			Context,
+			Overlap,
+			ContactLocation,
+			ContactNormal,
+			Coordinator.GetEntityRegistry(),
+			Candidate))
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponOrbitThreatError::ContactNotResolved;
+		return Result;
+	}
+
+	Fdemo_mapShanmenControlledWeaponSession SessionCandidate = Session;
+	if (!SessionCandidate.TryAcceptOrbitThreatCandidate(Candidate))
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponOrbitThreatError::CandidateRejected;
+		return Result;
+	}
+
+	Result.Context = Context;
+	Result.Candidate = Candidate;
+	Result.Error = Edemo_mapShanmenControlledWeaponOrbitThreatError::None;
+	if (!Result.IsProjected())
+	{
+		return Fdemo_mapShanmenControlledWeaponOrbitThreatResult();
+	}
+	Session = MoveTemp(SessionCandidate);
+	return Result;
+}
+
 Fdemo_mapShanmenControlledWeaponWorldDeliveryResult
 Fdemo_mapShanmenControlledWeaponWorldAdapter::ResolveSweepContact(
 	Fdemo_mapShanmenControlledWeaponSession& Session,
@@ -46,7 +107,8 @@ Fdemo_mapShanmenControlledWeaponWorldAdapter::ResolveSweepContact(
 			Edemo_mapShanmenControlledWeaponWorldDeliveryError::SessionNotActive;
 		return Result;
 	}
-	if (!ContextMatchesSession(Session, Context))
+	if (!ContextMatchesSession(
+			Session, Context, EShanmenControlledWeaponState::Directed))
 	{
 		Result.Error =
 			Edemo_mapShanmenControlledWeaponWorldDeliveryError::ContextMismatch;
@@ -88,7 +150,8 @@ Fdemo_mapShanmenControlledWeaponWorldAdapter::ResolveOverlapContact(
 			Edemo_mapShanmenControlledWeaponWorldDeliveryError::SessionNotActive;
 		return Result;
 	}
-	if (!ContextMatchesSession(Session, Context))
+	if (!ContextMatchesSession(
+			Session, Context, EShanmenControlledWeaponState::Directed))
 	{
 		Result.Error =
 			Edemo_mapShanmenControlledWeaponWorldDeliveryError::ContextMismatch;
@@ -114,10 +177,12 @@ Fdemo_mapShanmenControlledWeaponWorldAdapter::ResolveOverlapContact(
 
 bool Fdemo_mapShanmenControlledWeaponWorldAdapter::ContextMatchesSession(
 	const Fdemo_mapShanmenControlledWeaponSession& Session,
-	const FShanmenWorldHitContext& Context)
+	const FShanmenWorldHitContext& Context,
+	EShanmenControlledWeaponState ExpectedState)
 {
 	return Session.IsActive()
 		&& Session.GetExecution().IsEmissionActive()
+		&& Session.GetExecution().GetState() == ExpectedState
 		&& Context.IsValid()
 		&& Context.GetDetectorKind()
 			== EShanmenHitDetectorKind::ControlledObject

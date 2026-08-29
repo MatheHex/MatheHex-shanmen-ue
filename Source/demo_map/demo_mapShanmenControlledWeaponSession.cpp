@@ -178,6 +178,64 @@ bool Fdemo_mapShanmenControlledWeaponSession::TryBeginContactWindow(
 	return true;
 }
 
+bool Fdemo_mapShanmenControlledWeaponSession::TryBeginOrbitThreatWindow(
+	FShanmenWorldHitContext& OutContext)
+{
+	OutContext = FShanmenWorldHitContext();
+	if (!IsActive())
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenControlledWeaponSession Candidate = *this;
+	if (!Candidate.Execution.TryBeginOrbitThreatEmission(
+			Candidate.ActionRuntime, OutContext)
+		|| !Candidate.IsValid())
+	{
+		OutContext = FShanmenWorldHitContext();
+		return false;
+	}
+	*this = MoveTemp(Candidate);
+	return true;
+}
+
+bool Fdemo_mapShanmenControlledWeaponSession::TryAcceptOrbitThreatCandidate(
+	const FShanmenHitCandidate& Candidate)
+{
+	if (!IsActive())
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenControlledWeaponSession SessionCandidate = *this;
+	if (!SessionCandidate.Execution.TryAcceptOrbitThreatCandidate(
+			SessionCandidate.ActionRuntime, Candidate)
+		|| !SessionCandidate.IsValid())
+	{
+		return false;
+	}
+	*this = MoveTemp(SessionCandidate);
+	return true;
+}
+
+bool Fdemo_mapShanmenControlledWeaponSession::TryEndOrbitThreatWindow()
+{
+	if (!IsActive())
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenControlledWeaponSession Candidate = *this;
+	if (!Candidate.Execution.TryEndOrbitThreatEmission(
+			Candidate.ActionRuntime)
+		|| !Candidate.IsValid())
+	{
+		return false;
+	}
+	*this = MoveTemp(Candidate);
+	return true;
+}
+
 bool Fdemo_mapShanmenControlledWeaponSession::TryResolveCandidate(
 	const FShanmenHitCandidate& Candidate,
 	const FShanmenTargetVitalitySnapshot& TargetVitality,

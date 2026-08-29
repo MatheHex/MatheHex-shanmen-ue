@@ -610,6 +610,69 @@ bool Fdemo_mapControlledWeaponRunHostIndependentLifecycleTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapControlledWeaponRunHostOrbitThreatTest,
+	"Shanmen.0_0_10.Product.ControlledWeaponRunHost.OrbitThreatRouting",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapControlledWeaponRunHostOrbitThreatTest::RunTest(
+	const FString&)
+{
+	FControlledWeaponHostFixture Fixture;
+	Fdemo_mapShanmenControlledWeaponRunHost Host;
+	if (!Fixture.bReady || !Fixture.GetEnemyRoot()
+		|| !AttachHostWeapon(
+			Fixture, Host, HostLowItemId, 1, 0).IsAttached())
+	{
+		AddError(TEXT("Could not prepare P6.10 Host Orbit threat fixture."));
+		return false;
+	}
+
+	FShanmenTargetVitalitySnapshot Before;
+	check(Fixture.Enemy->TryCaptureCombatVitalitySnapshot(Before));
+	FShanmenWorldHitContext ThreatContext;
+	TestTrue(TEXT("Host routes threat window to the exact Orbiting item"),
+		Host.TryBeginOrbitThreatWindow(HostLowItemId, ThreatContext));
+	const Fdemo_mapShanmenControlledWeaponOrbitThreatResult Projected =
+		Host.ProjectOrbitThreatOverlap(
+			HostLowItemId,
+			Fixture.Coordinator,
+			MakeHostOverlap(Fixture),
+			FVector(80.0, 20.0, 30.0),
+			FVector::BackwardVector);
+	FShanmenTargetVitalitySnapshot After;
+	check(Fixture.Enemy->TryCaptureCombatVitalitySnapshot(After));
+	TestTrue(TEXT("Host projection retains exact item and zero-damage boundary"),
+		Projected.IsProjected()
+		&& Projected.Context.GetAction().GetSourceItemInstanceId()
+			== HostLowItemId
+		&& FMath::IsNearlyEqual(
+			Before.CurrentVitality, After.CurrentVitality));
+	TestFalse(TEXT("Unknown item cannot borrow another item's threat window"),
+		Host.ProjectOrbitThreatOverlap(
+			HostHighItemId,
+			Fixture.Coordinator,
+			MakeHostOverlap(Fixture),
+			FVector(80.0, 20.0, 30.0),
+			FVector::BackwardVector).IsProjected());
+
+	FShanmenControlledWeaponCommandReceipt Launch;
+	TestFalse(TEXT("Host Launch is fenced while threat sample is active"),
+		Host.TryLaunch(
+			HostLowItemId, 0, FVector::ForwardVector, Launch));
+	TestTrue(TEXT("Host closes threat sample before exact-item Launch"),
+		Host.TryEndOrbitThreatWindow(HostLowItemId)
+		&& Host.TryLaunch(
+			HostLowItemId, 0, FVector::ForwardVector, Launch));
+	FShanmenWorldHitContext DirectedContext;
+	TestTrue(TEXT("Host-directed window follows the same detector ordinal"),
+		Host.TryBeginContactWindow(HostLowItemId, DirectedContext)
+		&& DirectedContext.GetHitOrdinal()
+			== ThreatContext.GetHitOrdinal() + 1
+		&& Host.TryEndContactWindow(HostLowItemId));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	Fdemo_mapControlledWeaponRunHostAtomicFenceTest,
 	"Shanmen.0_0_10.Product.ControlledWeaponRunHost.AttachFencesAndAtomicInterrupt",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

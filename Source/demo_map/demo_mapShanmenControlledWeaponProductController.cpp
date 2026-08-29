@@ -279,6 +279,18 @@ bool Fdemo_mapShanmenControlledWeaponProductController::HasActiveContactWindow()
 		&& ActiveContactContext.IsValid();
 }
 
+bool Fdemo_mapShanmenControlledWeaponProductController::
+HasActiveOrbitThreatWindow() const
+{
+	return HasActiveContactWindow() && IsOrbiting();
+}
+
+bool Fdemo_mapShanmenControlledWeaponProductController::
+HasActiveDirectedContactWindow() const
+{
+	return HasActiveContactWindow() && IsDirected();
+}
+
 bool Fdemo_mapShanmenControlledWeaponProductController::TryLaunch(
 	int64 ExpectedSequence,
 	const FVector& DesiredDirection,
@@ -338,6 +350,7 @@ bool Fdemo_mapShanmenControlledWeaponProductController::TryAdvanceOrbiting(
 	OutReceipt =
 		Fdemo_mapShanmenControlledWeaponOrbitMovementReceipt();
 	if (!IsOrbiting()
+		|| HasActiveContactWindow()
 		|| !FMath::IsFinite(DeltaSeconds)
 		|| DeltaSeconds <= 0.0f
 		|| DeltaSeconds > Motion.MaximumStepSeconds)
@@ -405,6 +418,77 @@ bool Fdemo_mapShanmenControlledWeaponProductController::TryAdvanceOrbiting(
 		return false;
 	}
 
+	*this = MoveTemp(Candidate);
+	return true;
+}
+
+bool Fdemo_mapShanmenControlledWeaponProductController::
+TryBeginOrbitThreatWindow(FShanmenWorldHitContext& OutContext)
+{
+	OutContext = FShanmenWorldHitContext();
+	if (!IsOrbiting() || HasActiveContactWindow())
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenControlledWeaponProductController Candidate = *this;
+	if (!Candidate.Session.TryBeginOrbitThreatWindow(
+			Candidate.ActiveContactContext)
+		|| !Candidate.IsValid())
+	{
+		return false;
+	}
+	OutContext = Candidate.ActiveContactContext;
+	*this = MoveTemp(Candidate);
+	return true;
+}
+
+Fdemo_mapShanmenControlledWeaponOrbitThreatResult
+Fdemo_mapShanmenControlledWeaponProductController::ProjectOrbitThreatOverlap(
+	const Fdemo_mapCombatRunCoordinator& Coordinator,
+	const FOverlapResult& Overlap,
+	const FVector& ContactLocation,
+	const FVector& ContactNormal)
+{
+	if (!HasActiveOrbitThreatWindow() || !CoordinatorMatches(Coordinator))
+	{
+		return Fdemo_mapShanmenControlledWeaponOrbitThreatResult();
+	}
+
+	Fdemo_mapShanmenControlledWeaponProductController Candidate = *this;
+	Fdemo_mapShanmenControlledWeaponOrbitThreatResult Result =
+		Fdemo_mapShanmenControlledWeaponWorldAdapter::ProjectOrbitThreatOverlap(
+			Candidate.Session,
+			Coordinator,
+			Candidate.ActiveContactContext,
+			Overlap,
+			ContactLocation,
+			ContactNormal);
+	if (Result.IsProjected())
+	{
+		*this = MoveTemp(Candidate);
+	}
+	return Result;
+}
+
+bool Fdemo_mapShanmenControlledWeaponProductController::
+TryEndOrbitThreatWindow()
+{
+	if (!HasActiveOrbitThreatWindow())
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenControlledWeaponProductController Candidate = *this;
+	if (!Candidate.Session.TryEndOrbitThreatWindow())
+	{
+		return false;
+	}
+	Candidate.ActiveContactContext = FShanmenWorldHitContext();
+	if (!Candidate.IsValid())
+	{
+		return false;
+	}
 	*this = MoveTemp(Candidate);
 	return true;
 }
@@ -494,7 +578,7 @@ Fdemo_mapShanmenControlledWeaponProductController::ResolveSweepContact(
 	const FHitResult& Hit)
 {
 	Fdemo_mapShanmenControlledWeaponWorldDeliveryResult Result;
-	if (!HasActiveContactWindow() || !CoordinatorMatches(Coordinator))
+	if (!HasActiveDirectedContactWindow() || !CoordinatorMatches(Coordinator))
 	{
 		return Result;
 	}
@@ -520,7 +604,7 @@ Fdemo_mapShanmenControlledWeaponProductController::ResolveOverlapContact(
 	const FVector& ContactNormal)
 {
 	Fdemo_mapShanmenControlledWeaponWorldDeliveryResult Result;
-	if (!HasActiveContactWindow() || !CoordinatorMatches(Coordinator))
+	if (!HasActiveDirectedContactWindow() || !CoordinatorMatches(Coordinator))
 	{
 		return Result;
 	}
@@ -542,7 +626,7 @@ Fdemo_mapShanmenControlledWeaponProductController::ResolveOverlapContact(
 
 bool Fdemo_mapShanmenControlledWeaponProductController::TryEndContactWindow()
 {
-	if (!HasActiveContactWindow())
+	if (!HasActiveDirectedContactWindow())
 	{
 		return false;
 	}

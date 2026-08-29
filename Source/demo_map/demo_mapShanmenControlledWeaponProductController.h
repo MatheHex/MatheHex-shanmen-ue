@@ -118,6 +118,8 @@ public:
 	bool IsOrbiting() const;
 	bool IsDirected() const;
 	bool HasActiveContactWindow() const;
+	bool HasActiveOrbitThreatWindow() const;
+	bool HasActiveDirectedContactWindow() const;
 
 	bool TryLaunch(
 		int64 ExpectedSequence,
@@ -135,6 +137,15 @@ public:
 	bool TryAdvanceOrbiting(
 		float DeltaSeconds,
 		Fdemo_mapShanmenControlledWeaponOrbitMovementReceipt& OutReceipt);
+	/** Projects externally sampled overlap evidence without resolving damage. */
+	bool TryBeginOrbitThreatWindow(FShanmenWorldHitContext& OutContext);
+	Fdemo_mapShanmenControlledWeaponOrbitThreatResult
+	ProjectOrbitThreatOverlap(
+		const Fdemo_mapCombatRunCoordinator& Coordinator,
+		const FOverlapResult& Overlap,
+		const FVector& ContactLocation,
+		const FVector& ContactNormal);
+	bool TryEndOrbitThreatWindow();
 
 	/** Moves the physical Actor with sweep enabled; contact delivery is explicit. */
 	bool TryAdvanceDirected(

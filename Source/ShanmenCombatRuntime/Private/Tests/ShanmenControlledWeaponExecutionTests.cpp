@@ -289,6 +289,79 @@ bool FShanmenControlledWeaponCommandSequenceTest::RunTest(const FString&)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenControlledWeaponOrbitThreatTest,
+	"Shanmen.0_0_10.CombatRuntime.ControlledWeapon.OrbitThreatCandidateOnly",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenControlledWeaponOrbitThreatTest::RunTest(const FString&)
+{
+	FShanmenActionOrchestrator ActionRuntime;
+	FShanmenControlledWeaponExecution Execution;
+	FShanmenActionTransitionReceipt PhaseReceipt;
+	StartActiveControlledWeapon(ActionRuntime, Execution, PhaseReceipt);
+
+	FShanmenWorldHitContext OrbitContext;
+	TestTrue(TEXT("Orbiting execution opens a candidate-only emission"),
+		Execution.TryBeginOrbitThreatEmission(
+			ActionRuntime, OrbitContext)
+		&& OrbitContext.GetHitOrdinal() == 0
+		&& Execution.GetState()
+			== EShanmenControlledWeaponState::Orbiting);
+	const FShanmenHitCandidate Threat =
+		MakeControlledCandidate(OrbitContext, ControlledTargetA);
+	TestTrue(TEXT("One target is accepted once as near-threat geometry"),
+		Execution.TryAcceptOrbitThreatCandidate(ActionRuntime, Threat));
+	TestFalse(TEXT("Duplicate near-threat geometry is rejected"),
+		Execution.TryAcceptOrbitThreatCandidate(ActionRuntime, Threat));
+
+	FShanmenControlledWeaponImpactReceipt Impact;
+	TestFalse(TEXT("Orbit threat candidate cannot enter the damage resolver"),
+		Execution.TryResolveCandidate(
+			ActionRuntime,
+			Threat,
+			MakeControlledVitality(),
+			MakeControlledDefense(),
+			Impact));
+	TestEqual(TEXT("Candidate-only observation does not write impact ledger"),
+		Execution.NumAcceptedImpacts(), 0);
+
+	FShanmenControlledWeaponCommandReceipt Command;
+	TestFalse(TEXT("Launch cannot change state while Orbit sample is open"),
+		Execution.TryIssueCommand(
+			ActionRuntime,
+			0,
+			EShanmenControlledWeaponCommandKind::Launch,
+			FVector::ForwardVector,
+			Command));
+	TestTrue(TEXT("Closing Orbit sample preserves the shared ordinal stream"),
+		Execution.TryEndOrbitThreatEmission(ActionRuntime)
+		&& Execution.TryIssueCommand(
+			ActionRuntime,
+			0,
+			EShanmenControlledWeaponCommandKind::Launch,
+			FVector::ForwardVector,
+			Command));
+
+	FShanmenWorldHitContext DirectedContext;
+	TestTrue(TEXT("First Directed sample follows the Orbit ordinal"),
+		Execution.TryBeginEmission(ActionRuntime, DirectedContext)
+		&& DirectedContext.GetHitOrdinal() == 1);
+	const FShanmenHitCandidate Directed =
+		MakeControlledCandidate(DirectedContext, ControlledTargetA);
+	TestTrue(TEXT("Directed candidate still resolves through the damage path"),
+		Execution.TryResolveCandidate(
+			ActionRuntime,
+			Directed,
+			MakeControlledVitality(),
+			MakeControlledDefense(),
+			Impact)
+		&& Impact.IsValid()
+		&& Execution.NumAcceptedImpacts() == 1
+		&& Execution.TryEndEmission(ActionRuntime));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FShanmenControlledWeaponImpactTest,
 	"Shanmen.0_0_10.CombatRuntime.ControlledWeapon.ControlledObjectImpacts",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

@@ -217,6 +217,16 @@ public:
 	bool TryBeginEmission(
 		const FShanmenActionOrchestrator& ActionRuntime,
 		FShanmenWorldHitContext& OutContext);
+	/** Opens a candidate-only Orbit sample on the same authoritative ordinal stream. */
+	bool TryBeginOrbitThreatEmission(
+		const FShanmenActionOrchestrator& ActionRuntime,
+		FShanmenWorldHitContext& OutContext);
+	/** Accepts geometry identity only; this path never builds or resolves damage. */
+	bool TryAcceptOrbitThreatCandidate(
+		const FShanmenActionOrchestrator& ActionRuntime,
+		const FShanmenHitCandidate& Candidate);
+	bool TryEndOrbitThreatEmission(
+		const FShanmenActionOrchestrator& ActionRuntime);
 	bool TryResolveCandidate(
 		const FShanmenActionOrchestrator& ActionRuntime,
 		const FShanmenHitCandidate& Candidate,

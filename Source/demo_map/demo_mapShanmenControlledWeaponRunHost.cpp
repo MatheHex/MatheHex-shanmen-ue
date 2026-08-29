@@ -413,6 +413,43 @@ Fdemo_mapShanmenControlledWeaponRunHost::AdvanceOrbitingFrame(
 	return Result;
 }
 
+bool Fdemo_mapShanmenControlledWeaponRunHost::TryBeginOrbitThreatWindow(
+	const FGuid& ItemInstanceId,
+	FShanmenWorldHitContext& OutContext)
+{
+	OutContext = FShanmenWorldHitContext();
+	Fdemo_mapShanmenControlledWeaponProductController* Controller =
+		IsValid() ? Controllers.Find(ItemInstanceId) : nullptr;
+	return Controller
+		&& Controller->TryBeginOrbitThreatWindow(OutContext);
+}
+
+Fdemo_mapShanmenControlledWeaponOrbitThreatResult
+Fdemo_mapShanmenControlledWeaponRunHost::ProjectOrbitThreatOverlap(
+	const FGuid& ItemInstanceId,
+	const Fdemo_mapCombatRunCoordinator& Coordinator,
+	const FOverlapResult& Overlap,
+	const FVector& ContactLocation,
+	const FVector& ContactNormal)
+{
+	Fdemo_mapShanmenControlledWeaponProductController* Controller =
+		IsValid() && CoordinatorMatches(Coordinator)
+			? Controllers.Find(ItemInstanceId)
+			: nullptr;
+	return Controller
+		? Controller->ProjectOrbitThreatOverlap(
+			Coordinator, Overlap, ContactLocation, ContactNormal)
+		: Fdemo_mapShanmenControlledWeaponOrbitThreatResult();
+}
+
+bool Fdemo_mapShanmenControlledWeaponRunHost::TryEndOrbitThreatWindow(
+	const FGuid& ItemInstanceId)
+{
+	Fdemo_mapShanmenControlledWeaponProductController* Controller =
+		IsValid() ? Controllers.Find(ItemInstanceId) : nullptr;
+	return Controller && Controller->TryEndOrbitThreatWindow();
+}
+
 bool Fdemo_mapShanmenControlledWeaponRunHost::TryAdvanceDirectedInOrder(
 	float DeltaSeconds,
 	Fdemo_mapShanmenControlledWeaponHostMovementBatch& OutBatch)

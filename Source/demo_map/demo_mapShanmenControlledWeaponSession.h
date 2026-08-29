@@ -38,6 +38,9 @@ public:
 		EShanmenControlledWeaponCommandKind Kind,
 		const FVector& DesiredDirection,
 		FShanmenControlledWeaponCommandReceipt& OutReceipt);
+	bool TryBeginOrbitThreatWindow(FShanmenWorldHitContext& OutContext);
+	bool TryAcceptOrbitThreatCandidate(const FShanmenHitCandidate& Candidate);
+	bool TryEndOrbitThreatWindow();
 	bool TryBeginContactWindow(FShanmenWorldHitContext& OutContext);
 	bool TryResolveCandidate(
 		const FShanmenHitCandidate& Candidate,

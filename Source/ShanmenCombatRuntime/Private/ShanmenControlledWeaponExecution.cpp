@@ -267,7 +267,8 @@ bool FShanmenControlledWeaponExecution::TryIssueCommand(
 	switch (Kind)
 	{
 	case EShanmenControlledWeaponCommandKind::Launch:
-		if (State != EShanmenControlledWeaponState::Orbiting)
+		if (State != EShanmenControlledWeaponState::Orbiting
+			|| EmissionSession.IsEmissionActive())
 		{
 			return false;
 		}
@@ -325,6 +326,38 @@ bool FShanmenControlledWeaponExecution::TryBeginEmission(
 		&& State == EShanmenControlledWeaponState::Directed
 		&& FMath::IsNearlyEqual(CurrentDirection.SizeSquared(), 1.0)
 		&& EmissionSession.TryBeginEmission(OutContext);
+}
+
+bool FShanmenControlledWeaponExecution::TryBeginOrbitThreatEmission(
+	const FShanmenActionOrchestrator& ActionRuntime,
+	FShanmenWorldHitContext& OutContext)
+{
+	OutContext = FShanmenWorldHitContext();
+	return MatchesActionRuntime(ActionRuntime)
+		&& ActionRuntime.CanEmitCandidates()
+		&& State == EShanmenControlledWeaponState::Orbiting
+		&& CurrentDirection.IsNearlyZero()
+		&& EmissionSession.TryBeginEmission(OutContext);
+}
+
+bool FShanmenControlledWeaponExecution::TryAcceptOrbitThreatCandidate(
+	const FShanmenActionOrchestrator& ActionRuntime,
+	const FShanmenHitCandidate& Candidate)
+{
+	return MatchesActionRuntime(ActionRuntime)
+		&& ActionRuntime.CanEmitCandidates()
+		&& State == EShanmenControlledWeaponState::Orbiting
+		&& EmissionSession.IsEmissionActive()
+		&& EmissionSession.TryAcceptCandidate(Candidate);
+}
+
+bool FShanmenControlledWeaponExecution::TryEndOrbitThreatEmission(
+	const FShanmenActionOrchestrator& ActionRuntime)
+{
+	return MatchesActionRuntime(ActionRuntime)
+		&& ActionRuntime.CanEmitCandidates()
+		&& State == EShanmenControlledWeaponState::Orbiting
+		&& EmissionSession.TryEndEmission();
 }
 
 bool FShanmenControlledWeaponExecution::TryResolveCandidate(

@@ -48,6 +48,41 @@ struct Fdemo_mapShanmenControlledWeaponWorldDeliveryResult
 	}
 };
 
+/** Candidate-only projection status for one externally supplied Orbit overlap. */
+enum class Edemo_mapShanmenControlledWeaponOrbitThreatError : uint8
+{
+	None,
+	CoordinatorNotReady,
+	SessionNotActive,
+	ContextMismatch,
+	ContactNotResolved,
+	CandidateRejected
+};
+
+/** Auditable near-threat observation; it intentionally contains no damage receipt. */
+struct Fdemo_mapShanmenControlledWeaponOrbitThreatResult
+{
+	Edemo_mapShanmenControlledWeaponOrbitThreatError Error =
+		Edemo_mapShanmenControlledWeaponOrbitThreatError::CoordinatorNotReady;
+	FShanmenWorldHitContext Context;
+	FShanmenHitCandidate Candidate;
+
+	bool IsProjected() const
+	{
+		return Error
+			== Edemo_mapShanmenControlledWeaponOrbitThreatError::None
+			&& Context.IsValid()
+			&& Candidate.IsValid()
+			&& Candidate.ActivationId
+				== Context.GetAction().GetActivationId()
+			&& Candidate.SourceEntityId
+				== Context.GetAction().GetSourceEntityId()
+			&& Candidate.DetectorId == Context.GetDetectorId()
+			&& Candidate.DetectorKind == Context.GetDetectorKind()
+			&& Candidate.HitOrdinal == Context.GetHitOrdinal();
+	}
+};
+
 /**
  * Converts UE contacts into the frozen controlled-weapon contract and commits
  * them through CombatRunCoordinator. Session state advances only after the
@@ -56,6 +91,15 @@ struct Fdemo_mapShanmenControlledWeaponWorldDeliveryResult
 class Fdemo_mapShanmenControlledWeaponWorldAdapter
 {
 public:
+	static Fdemo_mapShanmenControlledWeaponOrbitThreatResult
+	ProjectOrbitThreatOverlap(
+		Fdemo_mapShanmenControlledWeaponSession& Session,
+		const Fdemo_mapCombatRunCoordinator& Coordinator,
+		const FShanmenWorldHitContext& Context,
+		const FOverlapResult& Overlap,
+		const FVector& ContactLocation,
+		const FVector& ContactNormal);
+
 	static Fdemo_mapShanmenControlledWeaponWorldDeliveryResult
 	ResolveSweepContact(
 		Fdemo_mapShanmenControlledWeaponSession& Session,
@@ -75,7 +119,8 @@ public:
 private:
 	static bool ContextMatchesSession(
 		const Fdemo_mapShanmenControlledWeaponSession& Session,
-		const FShanmenWorldHitContext& Context);
+		const FShanmenWorldHitContext& Context,
+		EShanmenControlledWeaponState ExpectedState);
 	static Fdemo_mapShanmenControlledWeaponWorldDeliveryResult
 	ResolveCandidateAndDeliver(
 		Fdemo_mapShanmenControlledWeaponSession& Session,

@@ -190,6 +190,17 @@ public:
 	/** Adapts an owner frame delta into an auditable Orbit advance/no-op. */
 	Fdemo_mapShanmenControlledWeaponOrbitFrameResult AdvanceOrbitingFrame(
 		float DeltaSeconds);
+	bool TryBeginOrbitThreatWindow(
+		const FGuid& ItemInstanceId,
+		FShanmenWorldHitContext& OutContext);
+	Fdemo_mapShanmenControlledWeaponOrbitThreatResult
+	ProjectOrbitThreatOverlap(
+		const FGuid& ItemInstanceId,
+		const Fdemo_mapCombatRunCoordinator& Coordinator,
+		const FOverlapResult& Overlap,
+		const FVector& ContactLocation,
+		const FVector& ContactNormal);
+	bool TryEndOrbitThreatWindow(const FGuid& ItemInstanceId);
 
 	/** Preflights every directed sword, then advances each in stable item order. */
 	bool TryAdvanceDirectedInOrder(
