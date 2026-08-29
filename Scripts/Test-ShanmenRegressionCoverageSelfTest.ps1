@@ -111,6 +111,9 @@ try
     $FormationSession = New-AutomationLogFixture `
         -Name 'formation-session.log' `
         -Group 'Shanmen.0_0_10.Product.FormationSession'
+    $FormationWorld = New-AutomationLogFixture `
+        -Name 'formation-world.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationWorldDelivery'
     $Legacy = New-AutomationLogFixture `
         -Name 'legacy.log' `
         -Group 'demo_map'
@@ -152,6 +155,12 @@ try
         -Name 'formation product session is covered by broad full evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationProductSession.cpp') `
+        -Logs @($Full)
+
+    Invoke-ExpectedPass `
+        -Name 'formation world delivery is covered by broad full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationWorldAdapter.cpp') `
         -Logs @($Full)
 
     Invoke-ExpectedPass `
@@ -291,6 +300,13 @@ try
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
+        -Name 'formation world child evidence cannot replace session and world contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationWorldAdapter.cpp') `
+        -Logs @($FormationWorld) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
         -Name 'run host cannot use coordinator-only evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenControlledWeaponRunHost.cpp') `
@@ -360,7 +376,7 @@ try
         -Logs @($Full) `
         -ExpectedText 'missing required groups'
 
-    Write-Output 'SELF_TEST: PASS 37/37'
+    Write-Output 'SELF_TEST: PASS 39/39'
 }
 finally
 {
