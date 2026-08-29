@@ -66,6 +66,7 @@ const FName Fdemo_mapItemIds::SpiritOreLevel3(TEXT("Prototype.Item.Material.Spir
 const FName Fdemo_mapItemIds::HealingPillLevel1(TEXT("Prototype.Item.Consumable.HealingPill.Level1"));
 const FName Fdemo_mapItemIds::HealingPillLevel2(TEXT("Prototype.Item.Consumable.HealingPill.Level2"));
 const FName Fdemo_mapItemIds::HealingPillLevel3(TEXT("Prototype.Item.Consumable.HealingPill.Level3"));
+const FName Fdemo_mapItemIds::TrainingThrowingKnife(TEXT("Prototype.Item.Consumable.TrainingThrowingKnife"));
 const FName Fdemo_mapItemIds::SoulBone(TEXT("Prototype.Item.Material.SoulBone"));
 const FName Fdemo_mapItemIds::SpiritBone(TEXT("Prototype.Item.Material.SpiritBone"));
 const FName Fdemo_mapItemIds::DaoBone(TEXT("Prototype.Item.Material.DaoBone"));
@@ -122,7 +123,8 @@ namespace
 		int64 SellPrice,
 		int32 PrototypeValue,
 		int32 MaxDurability = 0,
-		int32 MaxCharges = 0)
+		int32 MaxCharges = 0,
+		TArray<Edemo_mapItemGameplaySemantic> GameplaySemantics = {})
 	{
 		Fdemo_mapItemDefinition Definition;
 		Definition.DefinitionId = Id;
@@ -137,6 +139,7 @@ namespace
 		Definition.CompatibleSlotIds = MoveTemp(CompatibleSlots);
 		Definition.Modifiers = MoveTemp(Modifiers);
 		Definition.EffectParameters = MoveTemp(Effects);
+		Definition.GameplaySemantics = MoveTemp(GameplaySemantics);
 		Definition.bPurchasable = bPurchasable;
 		Definition.bSellable = bSellable;
 		Definition.BuyPrice = BuyPrice;
@@ -354,14 +357,14 @@ bool Fdemo_mapRewardDistributionProfile::IsValid() const
 
 FName Fdemo_mapItemDefinitions::GetContentVersionId()
 {
-	return FName(TEXT("CodeB.Content.0.0.10.P5.4"));
+	return FName(TEXT("CodeB.Content.0.0.10.P7.7"));
 }
 
 const FString& Fdemo_mapItemDefinitions::GetContentDigest()
 {
 	// This is a content-contract digest, not a save migration key. Existing
 	// persisted items keep their DefinitionId and are never remapped by P73.
-	static const FString Digest(TEXT("32A1BA2A026369525D43CB56C21311C661E59B22BDFA2C877FE93B5C58F637F4"));
+	static const FString Digest(TEXT("6C30E84A05386A7986A2344DB8247961E75F0FE2179F41927A0C7DF950F45A00"));
 	return Digest;
 }
 
@@ -378,6 +381,8 @@ bool Fdemo_mapItemDefinitions::IsKnownContentIdentity(
 	const FString& ContentDigest)
 {
 	return IsCurrentContentIdentity(ContentVersionId, ContentDigest)
+		|| (ContentVersionId == FName(TEXT("CodeB.Content.0.0.10.P5.4"))
+			&& ContentDigest == TEXT("32A1BA2A026369525D43CB56C21311C661E59B22BDFA2C877FE93B5C58F637F4"))
 		|| (ContentVersionId == FName(TEXT("CodeB.Content.P73.3"))
 			&& ContentDigest == TEXT("A263AB7F10B960B30B584A8C67042597E2E1A8967E15B0F998A36D17E1EEA4B2"))
 		|| (ContentVersionId == FName(TEXT("CodeB.Content.P73.2"))
@@ -428,6 +433,7 @@ const TArray<Fdemo_mapItemDefinition>& Fdemo_mapItemDefinitions::GetAll()
 		MakeDefinition(Fdemo_mapItemIds::HealingPillLevel1, TEXT("一阶丹药"), TEXT("TIER 1 HEALING PILL"), Fdemo_mapItemIds::ConsumableCategory, 1, 20, NAME_None, {}, {}, { MakeEffect(Fdemo_mapItemEffectIds::HealAmount, 1.0) }, true, true, 30, 15, 15),
 		MakeDefinition(Fdemo_mapItemIds::HealingPillLevel2, TEXT("二阶丹药"), TEXT("TIER 2 HEALING PILL"), Fdemo_mapItemIds::ConsumableCategory, 2, 20, NAME_None, {}, {}, { MakeEffect(Fdemo_mapItemEffectIds::HealAmount, 2.0) }, true, true, 60, 30, 30),
 		MakeDefinition(Fdemo_mapItemIds::HealingPillLevel3, TEXT("三阶丹药"), TEXT("TIER 3 HEALING PILL"), Fdemo_mapItemIds::ConsumableCategory, 3, 20, NAME_None, {}, {}, { MakeEffect(Fdemo_mapItemEffectIds::HealAmount, 3.0) }, true, true, 120, 60, 60),
+		MakeDefinition(Fdemo_mapItemIds::TrainingThrowingKnife, TEXT("练习飞刀"), TEXT("TRAINING THROWING KNIFE"), Fdemo_mapItemIds::ConsumableCategory, 1, 20, NAME_None, {}, {}, {}, true, true, 30, 15, 15, 0, 0, { Edemo_mapItemGameplaySemantic::ThrownWeapon }),
 
 		MakeDefinition(Fdemo_mapItemIds::SoulBone, TEXT("魂骨"), TEXT("SOUL BONE"), Fdemo_mapItemIds::MaterialCategory, 1, 99, NAME_None, {}, {}, {}, false, true, 0, 100, 100),
 		MakeDefinition(Fdemo_mapItemIds::SpiritBone, TEXT("灵骨"), TEXT("SPIRIT BONE"), Fdemo_mapItemIds::MaterialCategory, 2, 99, NAME_None, {}, {}, {}, false, true, 0, 250, 250),
@@ -827,14 +833,15 @@ Fdemo_mapItemDefinitions::ResolveSpatialRingCapacity(
 
 bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 {
-	if (GetAll().Num() != 39 || GetEquipmentSlotIds().Num() != 5)
+	if (GetAll().Num() != 40 || GetEquipmentSlotIds().Num() != 5)
 	{
-		if (OutError) *OutError = TEXT("The current registry must contain 39 definitions and expose five active runtime slots.");
+		if (OutError) *OutError = TEXT("The current registry must contain 40 definitions and expose five active runtime slots.");
 		return false;
 	}
 	TSet<FName> DefinitionIds;
 	TSet<FString> WorldLabels;
 	TSet<FName> SlotIds;
+	int32 ThrownWeaponDefinitionCount = 0;
 	for (FName SlotId : GetEquipmentSlotIds())
 	{
 		if (SlotId.IsNone() || SlotIds.Contains(SlotId))
@@ -846,6 +853,23 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 	}
 	for (const Fdemo_mapItemDefinition& Definition : GetAll())
 	{
+		TSet<Edemo_mapItemGameplaySemantic> UniqueSemantics;
+		for (Edemo_mapItemGameplaySemantic Semantic : Definition.GameplaySemantics)
+		{
+			if (Semantic == Edemo_mapItemGameplaySemantic::None
+				|| UniqueSemantics.Contains(Semantic))
+			{
+				if (OutError) *OutError = FString::Printf(TEXT("Invalid or duplicate gameplay semantic on definition: %s"), *Definition.DefinitionId.ToString());
+				return false;
+			}
+			UniqueSemantics.Add(Semantic);
+		}
+		const bool bThrownWeapon = Definition.HasGameplaySemantic(
+			Edemo_mapItemGameplaySemantic::ThrownWeapon);
+		if (bThrownWeapon)
+		{
+			++ThrownWeaponDefinitionCount;
+		}
 		if (Definition.DefinitionId.IsNone()
 			|| DefinitionIds.Contains(Definition.DefinitionId)
 			|| Definition.DisplayName.ToString().IsEmpty()
@@ -872,6 +896,14 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 				Definition.ContentDigest)
 			|| (Definition.bHotbarEligible
 				!= (Definition.CategoryId == Fdemo_mapItemIds::ConsumableCategory))
+			|| (bThrownWeapon
+				&& (Definition.CategoryId != Fdemo_mapItemIds::ConsumableCategory
+					|| Definition.MaxStackSize <= 1
+					|| !Definition.bHotbarEligible
+					|| !Definition.EquipmentSlotId.IsNone()
+					|| !Definition.CompatibleSlotIds.IsEmpty()
+					|| Definition.MaxDurability != 0
+					|| Definition.MaxCharges != 0))
 			|| (!Definition.EquipmentSlotId.IsNone()
 				&& (Definition.MaxStackSize != 1
 					|| Definition.CompatibleSlotIds.IsEmpty()
@@ -911,6 +943,11 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 			EffectIds.Add(Effect.ParameterId);
 		}
 	}
+	if (ThrownWeaponDefinitionCount != 1)
+	{
+		if (OutError) *OutError = TEXT("P7.7 requires exactly one canonical thrown-weapon product definition.");
+		return false;
+	}
 	TSet<FName> FixedProfileIds;
 	int32 CorpseProfileCount = 0;
 	int32 ChestProfileCount = 0;
@@ -948,9 +985,10 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 		Fdemo_mapItemIds::BackpackLevel1,
 		Fdemo_mapItemIds::HealingPillLevel1,
 		Fdemo_mapItemIds::HealingPillLevel2,
-		Fdemo_mapItemIds::HealingPillLevel3 }))
+		Fdemo_mapItemIds::HealingPillLevel3,
+		Fdemo_mapItemIds::TrainingThrowingKnife }))
 	{
-		if (OutError) *OutError = TEXT("Purchasable definition ordering drifted from the P1.0 catalog.");
+		if (OutError) *OutError = TEXT("Purchasable definition ordering drifted from the current content catalog.");
 		return false;
 	}
 	const Fdemo_mapSpatialStorageCapacityResult EmptyStorage =

@@ -50,7 +50,7 @@ bool Fdemo_mapItemDefinitionsTest::RunTest(const FString&)
 {
 	FString Error;
 	TestTrue(TEXT("Registry validates"), Fdemo_mapItemDefinitions::Validate(&Error));
-	TestEqual(TEXT("Current catalog contains legacy and 0.0.10 definitions"), Fdemo_mapItemDefinitions::GetAll().Num(), 39);
+	TestEqual(TEXT("Current catalog contains legacy and 0.0.10 definitions"), Fdemo_mapItemDefinitions::GetAll().Num(), 40);
 	TestEqual(TEXT("Five stable slots"), Fdemo_mapItemDefinitions::GetEquipmentSlotIds().Num(), 5);
 	const Fdemo_mapItemDefinition* Weapon = Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::TrainingBlade);
 	const Fdemo_mapItemDefinition* Armor = Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::TrainingVest);
@@ -62,8 +62,9 @@ bool Fdemo_mapItemDefinitionsTest::RunTest(const FString&)
 	const Fdemo_mapItemDefinition* Iron = Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::IronShard);
 	const Fdemo_mapItemDefinition* Token = Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::AncientToken);
 	const Fdemo_mapItemDefinition* SpiritGuard = Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::SpiritGuardRobe);
-	TestTrue(TEXT("Required definitions exist"), Weapon && Armor && Accessory && SpatialRing && Material && HeavyWeapon && ReinforcedArmor && Iron && Token && SpiritGuard);
-	if (!Weapon || !Armor || !Accessory || !SpatialRing || !Material || !HeavyWeapon || !ReinforcedArmor || !Iron || !Token || !SpiritGuard) return false;
+	const Fdemo_mapItemDefinition* ThrowingKnife = Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::TrainingThrowingKnife);
+	TestTrue(TEXT("Required definitions exist"), Weapon && Armor && Accessory && SpatialRing && Material && HeavyWeapon && ReinforcedArmor && Iron && Token && SpiritGuard && ThrowingKnife);
+	if (!Weapon || !Armor || !Accessory || !SpatialRing || !Material || !HeavyWeapon || !ReinforcedArmor || !Iron || !Token || !SpiritGuard || !ThrowingKnife) return false;
 	TestTrue(TEXT("Weapon compatibility"), Weapon->CompatibleSlotIds == TArray<FName>{ Fdemo_mapItemIds::WeaponSlot });
 	TestTrue(TEXT("Armor compatibility"), Armor->CompatibleSlotIds == TArray<FName>{ Fdemo_mapItemIds::ArmorSlot });
 	TestTrue(TEXT("Accessory compatibility"), Accessory->CompatibleSlotIds == TArray<FName>{ Fdemo_mapItemIds::AccessorySlot });
@@ -72,6 +73,7 @@ bool Fdemo_mapItemDefinitionsTest::RunTest(const FString&)
 	TestEqual(TEXT("SpiritDust max stack"), Material->MaxStackSize, 5);
 	TestTrue(TEXT("New non-equipment loot remains non-equipable"), Iron->CompatibleSlotIds.IsEmpty() && Token->CompatibleSlotIds.IsEmpty() && Token->PrototypeValue == 500);
 	TestTrue(TEXT("Spirit Guard owns explicit durability content"), SpiritGuard->CompatibleSlotIds == TArray<FName>{ Fdemo_mapItemIds::ArmorSlot } && SpiritGuard->MaxDurability == 20 && SpiritGuard->MaxCharges == 0 && SpiritGuard->MaxStackSize == 1);
+	TestTrue(TEXT("Training throwing knife owns exact typed product semantics"), ThrowingKnife->CategoryId == Fdemo_mapItemIds::ConsumableCategory && ThrowingKnife->MaxStackSize == 20 && ThrowingKnife->bHotbarEligible && ThrowingKnife->HasGameplaySemantic(Edemo_mapItemGameplaySemantic::ThrownWeapon) && ThrowingKnife->GameplaySemantics.Num() == 1 && ThrowingKnife->CompatibleSlotIds.IsEmpty());
 	TestTrue(TEXT("Display name is not a key"), Fdemo_mapItemDefinitions::Find(FName(*Weapon->DisplayName.ToString())) == nullptr);
 	TestTrue(TEXT("Deterministic registry order"), Fdemo_mapItemDefinitions::GetAll()[0].DefinitionId == Fdemo_mapItemIds::TrainingBlade && Fdemo_mapItemDefinitions::GetAll()[3].DefinitionId == Fdemo_mapItemIds::SpiritDust && Fdemo_mapItemDefinitions::GetAll()[8].DefinitionId == Fdemo_mapItemIds::AncientToken);
 	return true;

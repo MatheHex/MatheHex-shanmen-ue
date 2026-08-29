@@ -102,6 +102,9 @@ try
     $ItemUse = New-AutomationLogFixture `
         -Name 'item-use.log' `
         -Group 'demo_map.ItemUseAndArmor'
+    $Legacy = New-AutomationLogFixture `
+        -Name 'legacy.log' `
+        -Group 'demo_map'
     $FailedRanged = New-AutomationLogFixture `
         -Name 'ranged-fail.log' `
         -Group 'demo_map.V2RangedCompatibility' `
@@ -190,6 +193,13 @@ try
             'Source/demo_map/demo_mapShanmenThrownWeaponProductSession.cpp') `
         -Logs @($Full, $ItemUse)
 
+    Invoke-ExpectedPass `
+        -Name 'canonical item catalog requires every direct product consumer' `
+        -Paths @(
+            'Source/demo_map/demo_mapItemDefinitions.cpp',
+            'Source/demo_map/demo_mapWorldInteractionTests.cpp') `
+        -Logs @($Full, $Legacy)
+
     Invoke-ExpectedFail `
         -Name 'missing mapped group fails closed' `
         -Paths @('Source/demo_map/demo_mapSkillComponent.cpp') `
@@ -269,7 +279,14 @@ try
         -Logs @($Full) `
         -ExpectedText 'missing required groups'
 
-    Write-Output 'SELF_TEST: PASS 24/24'
+    Invoke-ExpectedFail `
+        -Name 'canonical item catalog cannot use new-module evidence alone' `
+        -Paths @(
+            'Source/demo_map/demo_mapItemDefinitions.cpp') `
+        -Logs @($Full) `
+        -ExpectedText 'missing required groups'
+
+    Write-Output 'SELF_TEST: PASS 26/26'
 }
 finally
 {

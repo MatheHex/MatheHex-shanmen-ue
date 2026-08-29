@@ -149,6 +149,19 @@ struct Fdemo_mapItemEffectParameter
 	double Value = 0.0;
 };
 
+/**
+ * Stable product semantics that may project into the 0.0.10 item authority.
+ * This is an extensible typed set rather than a collection of independent
+ * booleans; category, display name, and DefinitionId never grant gameplay
+ * capabilities by inference.
+ */
+UENUM()
+enum class Edemo_mapItemGameplaySemantic : uint8
+{
+	None,
+	ThrownWeapon
+};
+
 USTRUCT()
 struct Fdemo_mapItemDefinition
 {
@@ -170,6 +183,8 @@ struct Fdemo_mapItemDefinition
 	TArray<FName> CompatibleSlotIds;
 	TArray<Fdemo_mapModifierSpec> Modifiers;
 	TArray<Fdemo_mapItemEffectParameter> EffectParameters;
+	/** Immutable product semantics consumed only by explicit authority adapters. */
+	TArray<Edemo_mapItemGameplaySemantic> GameplaySemantics;
 	bool bPurchasable = false;
 	bool bSellable = false;
 	int64 BuyPrice = 0;
@@ -183,6 +198,12 @@ struct Fdemo_mapItemDefinition
 	bool bWorldDropEligible = false;
 	/** Canonical content rule consumed by the hotbar projection/validator. */
 	bool bHotbarEligible = false;
+
+	bool HasGameplaySemantic(Edemo_mapItemGameplaySemantic Semantic) const
+	{
+		return Semantic != Edemo_mapItemGameplaySemantic::None
+			&& GameplaySemantics.Contains(Semantic);
+	}
 };
 
 USTRUCT()

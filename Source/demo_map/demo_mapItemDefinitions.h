@@ -66,6 +66,8 @@ struct Fdemo_mapItemIds
 	static const FName HealingPillLevel1;
 	static const FName HealingPillLevel2;
 	static const FName HealingPillLevel3;
+	/** First real product item accepted by the 0.0.10 thrown-weapon pipeline. */
+	static const FName TrainingThrowingKnife;
 	static const FName SoulBone;
 	static const FName SpiritBone;
 	static const FName DaoBone;

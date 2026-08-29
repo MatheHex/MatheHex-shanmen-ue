@@ -200,13 +200,14 @@ bool FItemEconomySchema02NewDefinitionSet::RunTest(const FString&)
 		Fdemo_mapItemIds::SpiritWoodLevel1, Fdemo_mapItemIds::SpiritWoodLevel2, Fdemo_mapItemIds::SpiritWoodLevel3,
 		Fdemo_mapItemIds::SpiritOreLevel1, Fdemo_mapItemIds::SpiritOreLevel2, Fdemo_mapItemIds::SpiritOreLevel3,
 		Fdemo_mapItemIds::HealingPillLevel1, Fdemo_mapItemIds::HealingPillLevel2, Fdemo_mapItemIds::HealingPillLevel3,
+		Fdemo_mapItemIds::TrainingThrowingKnife,
 		Fdemo_mapItemIds::SoulBone, Fdemo_mapItemIds::SpiritBone, Fdemo_mapItemIds::DaoBone,
 		Fdemo_mapItemIds::InnerCoreLevel5, Fdemo_mapItemIds::InnerCoreLevel10, Fdemo_mapItemIds::InnerCoreLevel15 };
-	TestEqual(TEXT("Exactly 30 new IDs"), Expected.Num(), 30);
+	TestEqual(TEXT("Exactly 31 new IDs"), Expected.Num(), 31);
 	TSet<FName> Unique(Expected);
-	TestEqual(TEXT("New IDs are unique"), Unique.Num(), 30);
+	TestEqual(TEXT("New IDs are unique"), Unique.Num(), 31);
 	for (FName Id : Expected) TestTrue(TEXT("New stable ID resolves"), ContainsDefinition(Expected, Id));
-	TestEqual(TEXT("Legacy nine plus new thirty"), Fdemo_mapItemDefinitions::GetAll().Num(), 39);
+	TestEqual(TEXT("Legacy nine plus new thirty-one"), Fdemo_mapItemDefinitions::GetAll().Num(), 40);
 	return true;
 }
 
@@ -238,8 +239,8 @@ bool FItemEconomySchema04ShapeMetadata::RunTest(const FString&)
 		&& Fdemo_mapSpiritStoneRules::BaseInventoryCapacityWithoutBackpack == 6);
 	for (FName Id : { Fdemo_mapItemIds::SpiritWoodLevel1, Fdemo_mapItemIds::SpiritOreLevel1, Fdemo_mapItemIds::SoulBone, Fdemo_mapItemIds::InnerCoreLevel15 })
 		TestEqual(TEXT("Material/core stack is 99"), Fdemo_mapItemDefinitions::Find(Id)->MaxStackSize, 99);
-	for (FName Id : { Fdemo_mapItemIds::HealingPillLevel1, Fdemo_mapItemIds::HealingPillLevel2, Fdemo_mapItemIds::HealingPillLevel3 })
-		TestEqual(TEXT("Pill stack is 20"), Fdemo_mapItemDefinitions::Find(Id)->MaxStackSize, 20);
+	for (FName Id : { Fdemo_mapItemIds::HealingPillLevel1, Fdemo_mapItemIds::HealingPillLevel2, Fdemo_mapItemIds::HealingPillLevel3, Fdemo_mapItemIds::TrainingThrowingKnife })
+		TestEqual(TEXT("Consumable stack is 20"), Fdemo_mapItemDefinitions::Find(Id)->MaxStackSize, 20);
 	return true;
 }
 
@@ -255,6 +256,7 @@ bool FItemEconomySchema05EconomyValues::RunTest(const FString&)
 		{Fdemo_mapItemIds::SpiritWoodLevel1,false,true,0,10},{Fdemo_mapItemIds::SpiritWoodLevel2,false,true,0,25},{Fdemo_mapItemIds::SpiritWoodLevel3,false,true,0,60},
 		{Fdemo_mapItemIds::SpiritOreLevel1,false,true,0,15},{Fdemo_mapItemIds::SpiritOreLevel2,false,true,0,35},{Fdemo_mapItemIds::SpiritOreLevel3,false,true,0,80},
 		{Fdemo_mapItemIds::HealingPillLevel1,true,true,30,15},{Fdemo_mapItemIds::HealingPillLevel2,true,true,60,30},{Fdemo_mapItemIds::HealingPillLevel3,true,true,120,60},
+		{Fdemo_mapItemIds::TrainingThrowingKnife,true,true,30,15},
 		{Fdemo_mapItemIds::SoulBone,false,true,0,100},{Fdemo_mapItemIds::SpiritBone,false,true,0,250},{Fdemo_mapItemIds::DaoBone,false,true,0,600},
 		{Fdemo_mapItemIds::InnerCoreLevel5,false,true,0,150},{Fdemo_mapItemIds::InnerCoreLevel10,false,true,0,400},{Fdemo_mapItemIds::InnerCoreLevel15,false,true,0,1000} };
 	for (const FEconomyExpectation& Row : Expected)
@@ -272,7 +274,8 @@ bool FItemEconomySchema06PurchasableOrder::RunTest(const FString&)
 		Fdemo_mapItemIds::WeaponLevel1, Fdemo_mapItemIds::WeaponLevel2, Fdemo_mapItemIds::WeaponLevel3, Fdemo_mapItemIds::WeaponLevel4,
 		Fdemo_mapItemIds::ArmorRobeLevel1, Fdemo_mapItemIds::ArmorRobeLevel2, Fdemo_mapItemIds::ArmorRobeLevel3, Fdemo_mapItemIds::ArmorRobeLevel4,
 		Fdemo_mapItemIds::AccessoryLevel1,
-		Fdemo_mapItemIds::BackpackLevel1, Fdemo_mapItemIds::HealingPillLevel1, Fdemo_mapItemIds::HealingPillLevel2, Fdemo_mapItemIds::HealingPillLevel3 };
+		Fdemo_mapItemIds::BackpackLevel1, Fdemo_mapItemIds::HealingPillLevel1, Fdemo_mapItemIds::HealingPillLevel2, Fdemo_mapItemIds::HealingPillLevel3,
+		Fdemo_mapItemIds::TrainingThrowingKnife };
 	TestTrue(TEXT("Purchasable set and order derive exactly from definitions"), Fdemo_mapItemDefinitions::GetPurchasableDefinitionIds() == Expected);
 	return true;
 }

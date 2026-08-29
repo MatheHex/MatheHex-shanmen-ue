@@ -232,12 +232,12 @@ bool FProfileTrade01::RunTest(const FString&)
 	const TArray<FName> Expected = { Fdemo_mapItemIds::WeaponLevel1, Fdemo_mapItemIds::WeaponLevel2, Fdemo_mapItemIds::WeaponLevel3, Fdemo_mapItemIds::WeaponLevel4,
 		Fdemo_mapItemIds::ArmorRobeLevel1, Fdemo_mapItemIds::ArmorRobeLevel2, Fdemo_mapItemIds::ArmorRobeLevel3, Fdemo_mapItemIds::ArmorRobeLevel4,
 		Fdemo_mapItemIds::AccessoryLevel1, Fdemo_mapItemIds::BackpackLevel1, Fdemo_mapItemIds::HealingPillLevel1,
-		Fdemo_mapItemIds::HealingPillLevel2, Fdemo_mapItemIds::HealingPillLevel3 };
-	const TArray<int64> Prices = { 100, 200, 400, 800, 100, 200, 400, 800, 80, 120, 30, 60, 120 };
+		Fdemo_mapItemIds::HealingPillLevel2, Fdemo_mapItemIds::HealingPillLevel3, Fdemo_mapItemIds::TrainingThrowingKnife };
+	const TArray<int64> Prices = { 100, 200, 400, 800, 100, 200, 400, 800, 80, 120, 30, 60, 120, 30 };
 	bool bExact = Rows.Num() == Expected.Num();
 	for (int32 Index = 0; bExact && Index < Rows.Num(); ++Index)
 		bExact = Rows[Index].ItemDefinitionId == Expected[Index] && Rows[Index].BuyPrice == Prices[Index];
-	TestTrue(TEXT("Catalog is exactly the P1 ordered purchasable registry projection"), bExact);
+	TestTrue(TEXT("Catalog is exactly the current ordered purchasable registry projection"), bExact);
 	return true;
 }
 

@@ -478,6 +478,13 @@ Fdemo_mapShanmenItemMigrationResult Fdemo_mapShanmenItemMigration::BuildCandidat
 			Definition.ItemTags.AddTag(
 				FShanmenItemNativeTags::CapabilityCharges());
 		}
+		if (ProductDefinition
+			&& ProductDefinition->HasGameplaySemantic(
+				Edemo_mapItemGameplaySemantic::ThrownWeapon))
+		{
+			Definition.ItemTags.AddTag(
+				FShanmenItemNativeTags::ItemWeaponThrown());
+		}
 		Candidate.Definitions.Add(MoveTemp(Definition));
 	}
 

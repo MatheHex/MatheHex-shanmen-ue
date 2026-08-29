@@ -137,6 +137,26 @@
       ]
     },
     {
+      "name": "CanonicalItemCatalog",
+      "pathRegex": "^Source/demo_map/demo_mapItem(?:Definitions|Types|EconomySchemaTests|Tests)\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Items",
+        "demo_map.ItemEconomySchema",
+        "demo_map.Profile",
+        "demo_map.CodeB",
+        "demo_map.ItemUseAndArmor",
+        "demo_map.P4.Hotbar",
+        "demo_map.V3.WorldInteraction"
+      ]
+    },
+    {
+      "name": "WorldInteractionContract",
+      "pathRegex": "^Source/demo_map/demo_mapWorldInteractionTests\\.cpp$",
+      "requiredGroups": [
+        "demo_map.V3.WorldInteraction"
+      ]
+    },
+    {
       "name": "DefenseResourceAdapter",
       "pathRegex": "^Source/demo_map/demo_mapShanmenDefenseResourceAdapter(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [

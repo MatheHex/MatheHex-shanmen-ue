@@ -4,6 +4,7 @@
 
 #include "ShanmenItemAuthorityService.h"
 #include "ShanmenItemRepository.h"
+#include "ShanmenItemTags.h"
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapProfileRepository.h"
 #include "demo_mapRewardAffix.h"
@@ -107,6 +108,15 @@ namespace
 		Child.RareRewardTierId = TEXT("Reward.Rare.Tier2");
 		Child.RareRewardBonusValue = 222;
 		OutProfile.PermanentStash.Add(Child);
+
+		Fdemo_mapPersistentItemRecord ThrowingKnife;
+		ThrowingKnife.ItemInstanceId = MigrationGuid(104);
+		ThrowingKnife.ItemDefinitionId =
+			Fdemo_mapItemIds::TrainingThrowingKnife;
+		ThrowingKnife.StackCount = 3;
+		ThrowingKnife.PersistentDomain =
+			Edemo_mapPersistentDomain::PermanentStash;
+		OutProfile.PermanentStash.Add(ThrowingKnife);
 		if (!ProfileRepository.ValidateProfile(OutProfile, &OutError))
 		{
 			return false;
@@ -193,6 +203,79 @@ bool FShanmenItemsSchema6MigrationTest::RunTest(const FString&)
 	TestTrue(TEXT("Subsequent current-schema load is read-only"),
 		Reopened.IsSuccess() && Reopened.Profile == Migrated.Profile);
 	IFileManager::Get().DeleteDirectory(*Root, false, true);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenThrownWeaponProductContentTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponContent.CanonicalAuthorityProjection",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenThrownWeaponProductContentTest::RunTest(const FString&)
+{
+	const Fdemo_mapItemDefinition* Product =
+		Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::TrainingThrowingKnife);
+	TestTrue(TEXT("Canonical product definition is a stackable hotbar thrown weapon"),
+		Product
+		&& Product->DefinitionId == Fdemo_mapItemIds::TrainingThrowingKnife
+		&& Product->CategoryId == Fdemo_mapItemIds::ConsumableCategory
+		&& Product->MaxStackSize == 20
+		&& Product->bHotbarEligible
+		&& Product->bPurchasable
+		&& Product->BuyPrice == 30
+		&& Product->SellPrice == 15
+		&& Product->HasGameplaySemantic(
+			Edemo_mapItemGameplaySemantic::ThrownWeapon));
+	TestTrue(TEXT("P7.7 content identity is current"),
+		Fdemo_mapItemDefinitions::IsCurrentContentIdentity(
+			TEXT("CodeB.Content.0.0.10.P7.7"),
+			TEXT("6C30E84A05386A7986A2344DB8247961E75F0FE2179F41927A0C7DF950F45A00")));
+	TestTrue(TEXT("P5.4 identity remains known historical evidence"),
+		Fdemo_mapItemDefinitions::IsKnownContentIdentity(
+			TEXT("CodeB.Content.0.0.10.P5.4"),
+			TEXT("32A1BA2A026369525D43CB56C21311C661E59B22BDFA2C877FE93B5C58F637F4")));
+
+	Fdemo_mapPersistentProfile Profile;
+	FCodeBOutOfRaidInventoryRecord Record;
+	FString Error;
+	TestTrue(TEXT("Product source fixture builds"),
+		BuildLegacyFixture(Profile, Record, Error));
+	const FCodeBItemDefinition* CodeBDefinition =
+		Record.RepositorySnapshot.Definitions.Find(
+			Fdemo_mapItemIds::TrainingThrowingKnife);
+	TestTrue(TEXT("Code B projects the product as one quick stack"),
+		CodeBDefinition && CodeBDefinition->bStackable
+		&& CodeBDefinition->bQuickUsable
+		&& CodeBDefinition->MaxStack == 20);
+
+	const Fdemo_mapShanmenItemMigrationResult Migration =
+		Fdemo_mapShanmenItemMigration::BuildCandidate(
+			Profile, Record, TargetContent());
+	const FShanmenItemDefinition* AuthorityDefinition =
+		Migration.Candidate.Definitions.FindByPredicate([](
+			const FShanmenItemDefinition& Definition)
+		{
+			return Definition.DefinitionId
+				== Fdemo_mapItemIds::TrainingThrowingKnife;
+		});
+	const FShanmenItemInstance* AuthorityItem =
+		Migration.Candidate.Items.FindByPredicate([](
+			const FShanmenItemInstance& Item)
+		{
+			return Item.ItemInstanceId == MigrationGuid(104);
+		});
+	TestTrue(TEXT("Migration projects exact quantity and authority tags"),
+		Migration.IsSuccess()
+		&& AuthorityDefinition
+		&& AuthorityDefinition->MaxStack == 20
+		&& AuthorityDefinition->ItemTags.HasTagExact(
+			FShanmenItemNativeTags::CapabilityConsumeQuantity())
+		&& AuthorityDefinition->ItemTags.HasTagExact(
+			FShanmenItemNativeTags::ItemWeaponThrown())
+		&& AuthorityItem
+		&& AuthorityItem->DefinitionId
+			== Fdemo_mapItemIds::TrainingThrowingKnife
+		&& AuthorityItem->Quantity == 3);
 	return true;
 }
 

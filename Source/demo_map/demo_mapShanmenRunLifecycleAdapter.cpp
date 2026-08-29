@@ -294,6 +294,12 @@ namespace
 			OutItem.Definition.ItemTags.AddTag(
 				FShanmenItemNativeTags::CapabilityCharges());
 		}
+		if (ProductDefinition->HasGameplaySemantic(
+			Edemo_mapItemGameplaySemantic::ThrownWeapon))
+		{
+			OutItem.Definition.ItemTags.AddTag(
+				FShanmenItemNativeTags::ItemWeaponThrown());
+		}
 		if (ProductDefinition->CategoryId
 			== Fdemo_mapItemIds::BackpackCategory)
 		{
