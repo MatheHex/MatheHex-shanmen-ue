@@ -19,6 +19,8 @@ enum class EShanmenControlledWeaponThreatPresenceConsumeError : uint8
 	AuthorityNotReady,
 	RunMismatch,
 	SourceMismatch,
+	ItemNotRegistered,
+	ActivationMismatch,
 	SampleExpired,
 	SampleConflict,
 	IntentConflict,
@@ -93,8 +95,9 @@ private:
 /**
  * Run-scoped idempotency authority for presence observations.
  *
- * The authority records consumption only. It never owns cadence, duration,
- * target state, damage, control, Actor, World, item, or inventory mutation.
+ * The authority records admitted item activations and presence consumption.
+ * It never owns cadence, duration, target state, damage, control, Actor,
+ * World, physical item state, or inventory mutation.
  */
 class SHANMENCOMBATRUNTIME_API
 FShanmenControlledWeaponThreatPresenceAuthority
@@ -106,6 +109,12 @@ public:
 		FShanmenControlledWeaponThreatPresenceAuthority& OutAuthority);
 
 	bool IsValid() const;
+	bool TryRegisterItemActivation(
+		const FGuid& SourceItemInstanceId,
+		const FGuid& ActivationId);
+	bool TryRetireItemActivation(
+		const FGuid& SourceItemInstanceId,
+		const FGuid& ActivationId);
 	FShanmenControlledWeaponThreatPresenceConsumeResult Consume(
 		const FShanmenControlledWeaponThreatPresenceReceipt& Presence);
 	void Reset();
@@ -117,6 +126,12 @@ public:
 	{
 		return SampleCheckpointRevision;
 	}
+	int32 NumRegisteredItemActivations() const
+	{
+		return RegisteredItemActivations.Num();
+	}
+	FGuid GetRegisteredActivationId(
+		const FGuid& SourceItemInstanceId) const;
 	int32 NumTrackedSamples() const { return LatestSamples.Num(); }
 	int32 NumRetainedIntents() const { return ProcessedIntents.Num(); }
 	/** Lifetime accepted-intent count; retained replay receipts are bounded. */
@@ -154,6 +169,7 @@ private:
 	FGuid SourceEntityId;
 	int64 AuthorityRevision = INDEX_NONE;
 	int64 SampleCheckpointRevision = INDEX_NONE;
+	TMap<FGuid, FGuid> RegisteredItemActivations;
 	TMap<FGuid, FShanmenControlledWeaponThreatPresenceConsumeReceipt>
 		ProcessedIntents;
 	TMap<FGuid, FSampleCheckpoint> LatestSamples;

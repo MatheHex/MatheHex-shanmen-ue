@@ -702,6 +702,14 @@ bool FShanmenControlledWeaponThreatPresenceAuthorityTest::RunTest(
 			ConflictActionRuntime,
 			ConflictExecution,
 			{ ControlledTargetA });
+	const FShanmenCombatActionSnapshot& PresenceAction =
+		FirstPresence.GetPolicy().GetEmission().GetContext().GetAction();
+	const FGuid ReplacementActivationId =
+		FShanmenCombatIdFactory::MakeActivationId(
+			ControlledRunId,
+			ControlledSourceEntityId,
+			FShanmenControlledWeaponDefinition::CanonicalActionDefinitionId(),
+			7);
 	FShanmenControlledWeaponThreatPresenceAuthority Authority;
 	TestTrue(TEXT("Run-scoped presence authority captures exact ownership"),
 		FShanmenControlledWeaponThreatPresenceAuthority::TryCreate(
@@ -712,8 +720,31 @@ bool FShanmenControlledWeaponThreatPresenceAuthorityTest::RunTest(
 		&& Authority.GetAuthorityRevision() == 0
 		&& Authority.GetSampleCheckpointRevision() == 0
 		&& Authority.NumConsumedIntents() == 0
+		&& Authority.NumRegisteredItemActivations() == 0
 		&& Authority.NumTrackedSamples() == 0
 		&& Authority.GetLatestSampleOrdinal(ControlledItemId) == INDEX_NONE);
+	const FShanmenControlledWeaponThreatPresenceConsumeResult Unregistered =
+		Authority.Consume(FirstPresence);
+	TestTrue(TEXT("An unregistered item activation cannot enter the ledger"),
+		Unregistered.IsValid()
+		&& !Unregistered.IsSuccess()
+		&& Unregistered.GetError()
+			== EShanmenControlledWeaponThreatPresenceConsumeError::
+				ItemNotRegistered
+		&& Authority.GetAuthorityRevision() == 0
+		&& Authority.GetSampleCheckpointRevision() == 0);
+	TestTrue(TEXT("Activation admission is exact, unique, and idempotent"),
+		Authority.TryRegisterItemActivation(
+			ControlledItemId, PresenceAction.GetActivationId())
+		&& Authority.TryRegisterItemActivation(
+			ControlledItemId, PresenceAction.GetActivationId())
+		&& !Authority.TryRegisterItemActivation(
+			ControlledItemId, ReplacementActivationId)
+		&& !Authority.TryRegisterItemActivation(
+			ControlledTargetA, PresenceAction.GetActivationId())
+		&& Authority.NumRegisteredItemActivations() == 1
+		&& Authority.GetRegisteredActivationId(ControlledItemId)
+			== PresenceAction.GetActivationId());
 
 	const FShanmenControlledWeaponThreatPresenceConsumeResult First =
 		Authority.Consume(FirstPresence);
@@ -849,6 +880,39 @@ bool FShanmenControlledWeaponThreatPresenceAuthorityTest::RunTest(
 		&& Authority.GetAuthorityRevision() == 3
 		&& Authority.GetSampleCheckpointRevision() == 3
 		&& Authority.NumRetainedIntents() == 0);
+	TestFalse(TEXT("Retirement requires the exact active activation"),
+		Authority.TryRetireItemActivation(
+			ControlledItemId, ReplacementActivationId));
+	TestTrue(TEXT("Exact retirement prunes the item's sample checkpoint"),
+		Authority.TryRetireItemActivation(
+			ControlledItemId, PresenceAction.GetActivationId())
+		&& Authority.IsValid()
+		&& Authority.GetAuthorityRevision() == 3
+		&& Authority.GetSampleCheckpointRevision() == 4
+		&& Authority.NumRegisteredItemActivations() == 0
+		&& Authority.NumTrackedSamples() == 0
+		&& Authority.NumRetainedIntents() == 0);
+	TestTrue(TEXT("The same physical item can admit a new activation"),
+		Authority.TryRegisterItemActivation(
+			ControlledItemId, ReplacementActivationId)
+		&& Authority.NumRegisteredItemActivations() == 1
+		&& Authority.GetRegisteredActivationId(ControlledItemId)
+			== ReplacementActivationId
+		&& Authority.GetSampleCheckpointRevision() == 4);
+	const FShanmenControlledWeaponThreatPresenceConsumeResult StaleActivation =
+		Authority.Consume(EmptyPresence);
+	TestTrue(TEXT("A prior activation stays rejected after item re-admission"),
+		StaleActivation.IsValid()
+		&& !StaleActivation.IsSuccess()
+		&& StaleActivation.GetError()
+			== EShanmenControlledWeaponThreatPresenceConsumeError::
+				ActivationMismatch
+		&& Authority.GetSampleCheckpointRevision() == 4);
+	TestTrue(TEXT("A checkpoint-free replacement activation retires cleanly"),
+		Authority.TryRetireItemActivation(
+			ControlledItemId, ReplacementActivationId)
+		&& Authority.NumRegisteredItemActivations() == 0
+		&& Authority.GetSampleCheckpointRevision() == 4);
 
 	FShanmenControlledWeaponThreatPresenceAuthority ForeignRun;
 	check(FShanmenControlledWeaponThreatPresenceAuthority::TryCreate(

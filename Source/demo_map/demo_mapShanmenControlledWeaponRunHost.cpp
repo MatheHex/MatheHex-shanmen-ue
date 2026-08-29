@@ -257,6 +257,13 @@ Fdemo_mapShanmenControlledWeaponRunHost::TryAttach(
 		}
 	}
 	Candidate.Controllers.Add(Result.ItemInstanceId, MoveTemp(Controller));
+	if (!Candidate.ThreatPresenceAuthority.TryRegisterItemActivation(
+			Result.ItemInstanceId, Result.ActivationId))
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponHostAttachError::ProductStartRejected;
+		return Result;
+	}
 	if (!Candidate.IsValid())
 	{
 		Result.Error =
@@ -278,7 +285,9 @@ bool Fdemo_mapShanmenControlledWeaponRunHost::IsValid() const
 		|| !BoundSourceActor
 		|| !ThreatPresenceAuthority.IsValid()
 		|| ThreatPresenceAuthority.GetRunId() != RunId
-		|| ThreatPresenceAuthority.GetSourceEntityId() != SourceEntityId)
+		|| ThreatPresenceAuthority.GetSourceEntityId() != SourceEntityId
+		|| ThreatPresenceAuthority.NumRegisteredItemActivations()
+			!= Controllers.Num())
 	{
 		return false;
 	}
@@ -302,6 +311,8 @@ bool Fdemo_mapShanmenControlledWeaponRunHost::IsValid() const
 			|| Controller.GetSession().GetEvidence().ItemInstanceId
 				!= ItemInstanceId
 			|| Action.GetSourceItemInstanceId() != ItemInstanceId
+			|| ThreatPresenceAuthority.GetRegisteredActivationId(
+				ItemInstanceId) != Action.GetActivationId()
 			|| Action.GetRunId() != RunId
 			|| Action.GetSourceEntityId() != SourceEntityId
 			|| Controller.GetSourceActor() != BoundSourceActor
@@ -845,6 +856,13 @@ bool Fdemo_mapShanmenControlledWeaponRunHost::TryRemoveTerminal(
 	}
 
 	Fdemo_mapShanmenControlledWeaponRunHost Candidate = *this;
+	const FGuid ActivationId = Controller->GetSession().GetActionRuntime()
+		.GetAction().GetActivationId();
+	if (!Candidate.ThreatPresenceAuthority.TryRetireItemActivation(
+			ItemInstanceId, ActivationId))
+	{
+		return false;
+	}
 	Candidate.Controllers.Remove(ItemInstanceId);
 	if (Candidate.Controllers.IsEmpty())
 	{

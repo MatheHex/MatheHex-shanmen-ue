@@ -175,6 +175,7 @@ bool FShanmenControlledWeaponThreatPresenceAuthority::IsValid() const
 		|| AuthorityRevision < 0
 		|| SampleCheckpointRevision < 0
 		|| SampleCheckpointRevision < LatestSamples.Num()
+		|| LatestSamples.Num() > RegisteredItemActivations.Num()
 		|| AuthorityRevision < ProcessedIntents.Num())
 	{
 		return false;
@@ -182,6 +183,17 @@ bool FShanmenControlledWeaponThreatPresenceAuthority::IsValid() const
 
 	TSet<int64> Revisions;
 	TSet<FGuid> ReferencedIntentIds;
+	TSet<FGuid> ActivationIds;
+	for (const TPair<FGuid, FGuid>& Pair : RegisteredItemActivations)
+	{
+		if (!Pair.Key.IsValid()
+			|| !Pair.Value.IsValid()
+			|| ActivationIds.Contains(Pair.Value))
+		{
+			return false;
+		}
+		ActivationIds.Add(Pair.Value);
+	}
 	for (const TPair<FGuid, FSampleCheckpoint>& Pair : LatestSamples)
 	{
 		if (!IsCheckpointValid(Pair.Key, Pair.Value))
@@ -220,6 +232,82 @@ bool FShanmenControlledWeaponThreatPresenceAuthority::IsValid() const
 		&& ReferencedIntentIds.Num() == ProcessedIntents.Num();
 }
 
+bool FShanmenControlledWeaponThreatPresenceAuthority::
+TryRegisterItemActivation(
+	const FGuid& SourceItemInstanceId,
+	const FGuid& ActivationId)
+{
+	if (!IsValid()
+		|| !SourceItemInstanceId.IsValid()
+		|| !ActivationId.IsValid())
+	{
+		return false;
+	}
+
+	if (const FGuid* Existing =
+		RegisteredItemActivations.Find(SourceItemInstanceId))
+	{
+		return *Existing == ActivationId;
+	}
+	for (const TPair<FGuid, FGuid>& Pair : RegisteredItemActivations)
+	{
+		if (Pair.Value == ActivationId)
+		{
+			return false;
+		}
+	}
+
+	FShanmenControlledWeaponThreatPresenceAuthority Candidate = *this;
+	Candidate.RegisteredItemActivations.Add(
+		SourceItemInstanceId, ActivationId);
+	if (!Candidate.IsValid())
+	{
+		return false;
+	}
+	*this = MoveTemp(Candidate);
+	return true;
+}
+
+bool FShanmenControlledWeaponThreatPresenceAuthority::
+TryRetireItemActivation(
+	const FGuid& SourceItemInstanceId,
+	const FGuid& ActivationId)
+{
+	if (!IsValid()
+		|| !SourceItemInstanceId.IsValid()
+		|| !ActivationId.IsValid())
+	{
+		return false;
+	}
+	const FGuid* Existing =
+		RegisteredItemActivations.Find(SourceItemInstanceId);
+	if (!Existing || *Existing != ActivationId)
+	{
+		return false;
+	}
+
+	const bool bHadCheckpoint =
+		LatestSamples.Contains(SourceItemInstanceId);
+	if (bHadCheckpoint && SampleCheckpointRevision == MAX_int64)
+	{
+		return false;
+	}
+
+	FShanmenControlledWeaponThreatPresenceAuthority Candidate = *this;
+	Candidate.PruneCheckpointIntents(SourceItemInstanceId);
+	Candidate.RegisteredItemActivations.Remove(SourceItemInstanceId);
+	if (bHadCheckpoint)
+	{
+		++Candidate.SampleCheckpointRevision;
+	}
+	if (!Candidate.IsValid())
+	{
+		return false;
+	}
+	*this = MoveTemp(Candidate);
+	return true;
+}
+
 FShanmenControlledWeaponThreatPresenceConsumeResult
 FShanmenControlledWeaponThreatPresenceAuthority::Consume(
 	const FShanmenControlledWeaponThreatPresenceReceipt& Presence)
@@ -246,6 +334,20 @@ FShanmenControlledWeaponThreatPresenceAuthority::Consume(
 	{
 		return Reject(
 			EShanmenControlledWeaponThreatPresenceConsumeError::SourceMismatch);
+	}
+	const FGuid* RegisteredActivationId =
+		RegisteredItemActivations.Find(Action.GetSourceItemInstanceId());
+	if (!RegisteredActivationId)
+	{
+		return Reject(
+			EShanmenControlledWeaponThreatPresenceConsumeError::
+				ItemNotRegistered);
+	}
+	if (*RegisteredActivationId != Action.GetActivationId())
+	{
+		return Reject(
+			EShanmenControlledWeaponThreatPresenceConsumeError::
+				ActivationMismatch);
 	}
 
 	FSampleCheckpoint IncomingCheckpoint;
@@ -461,7 +563,11 @@ bool FShanmenControlledWeaponThreatPresenceAuthority::IsCheckpointValid(
 	const FGuid& SourceItemInstanceId,
 	const FSampleCheckpoint& Checkpoint) const
 {
+	const FGuid* RegisteredActivationId =
+		RegisteredItemActivations.Find(SourceItemInstanceId);
 	if (!SourceItemInstanceId.IsValid()
+		|| !RegisteredActivationId
+		|| *RegisteredActivationId != Checkpoint.ActivationId
 		|| !Checkpoint.SampleId.IsValid()
 		|| !Checkpoint.ActivationId.IsValid()
 		|| Checkpoint.DetectorId.IsNone()
@@ -529,6 +635,15 @@ bool FShanmenControlledWeaponThreatPresenceAuthority::Contains(
 	const FGuid& IntentId) const
 {
 	return IntentId.IsValid() && ProcessedIntents.Contains(IntentId);
+}
+
+FGuid FShanmenControlledWeaponThreatPresenceAuthority::
+GetRegisteredActivationId(const FGuid& SourceItemInstanceId) const
+{
+	const FGuid* ActivationId = SourceItemInstanceId.IsValid()
+		? RegisteredItemActivations.Find(SourceItemInstanceId)
+		: nullptr;
+	return ActivationId ? *ActivationId : FGuid();
 }
 
 int32 FShanmenControlledWeaponThreatPresenceAuthority::

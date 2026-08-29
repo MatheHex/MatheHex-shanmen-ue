@@ -863,9 +863,15 @@ bool Fdemo_mapControlledWeaponRunHostThreatWatermarkTest::RunTest(
 		|| !AttachHostWeapon(
 			Fixture, Host, HostHighItemId, 2, 1).IsAttached())
 	{
-		AddError(TEXT("Could not prepare P6.17 watermark fixture."));
+		AddError(TEXT("Could not prepare P6.18 activation lifecycle fixture."));
 		return false;
 	}
+	TestTrue(TEXT("Host admits one exact activation per attached item"),
+		Host.GetThreatPresenceAuthority().NumRegisteredItemActivations() == 2
+		&& Host.GetThreatPresenceAuthority().GetRegisteredActivationId(
+			HostLowItemId).IsValid()
+		&& Host.GetThreatPresenceAuthority().GetRegisteredActivationId(
+			HostHighItemId).IsValid());
 
 	FShanmenWorldHitContext LowFirstContext;
 	FShanmenDetectorEmissionReceipt LowFirstEmission;
@@ -959,16 +965,100 @@ bool Fdemo_mapControlledWeaponRunHostThreatWatermarkTest::RunTest(
 			== 3
 		&& Host.NumConsumedThreatPresenceIntents() == 0);
 
+	FShanmenControlledWeaponCommandReceipt Launch;
+	FShanmenControlledWeaponCommandReceipt Recall;
+	FShanmenActionTransitionReceipt Recovery;
+	FShanmenActionTransitionReceipt Completed;
+	TestTrue(TEXT("One terminal item retires only its own activation and sample"),
+		Host.TryLaunch(
+			HostLowItemId, 0, FVector::ForwardVector, Launch)
+		&& Host.TryRecallAndComplete(
+			HostLowItemId, 1, Recall, Recovery, Completed)
+		&& Host.TryRemoveTerminal(HostLowItemId)
+		&& Host.IsValid()
+		&& Host.NumBound() == 1
+		&& Host.GetThreatPresenceAuthority().NumRegisteredItemActivations() == 1
+		&& !Host.GetThreatPresenceAuthority().GetRegisteredActivationId(
+			HostLowItemId).IsValid()
+		&& Host.GetThreatPresenceAuthority().NumTrackedSamples() == 1
+		&& Host.GetThreatPresenceAuthority().GetLatestSampleOrdinal(
+			HostLowItemId) == INDEX_NONE
+		&& Host.GetThreatPresenceAuthority().GetLatestSampleOrdinal(
+			HostHighItemId) == HighFirstContext.GetHitOrdinal()
+		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
+			== 4);
+
+	const Fdemo_mapShanmenControlledWeaponHostAttachResult Replacement =
+		AttachHostWeapon(Fixture, Host, HostLowItemId, 3, 0);
+	TestTrue(TEXT("The same physical item can attach with a new activation"),
+		Replacement.IsAttached()
+		&& Replacement.ActivationId
+			!= LowFirstContext.GetAction().GetActivationId()
+		&& Host.IsValid()
+		&& Host.NumBound() == 2
+		&& Host.GetThreatPresenceAuthority().NumRegisteredItemActivations() == 2
+		&& Host.GetThreatPresenceAuthority().GetRegisteredActivationId(
+			HostLowItemId) == Replacement.ActivationId
+		&& Host.GetThreatPresenceAuthority().GetLatestSampleOrdinal(
+			HostLowItemId) == INDEX_NONE
+		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
+			== 4);
+
+	FShanmenWorldHitContext ReplacementContext;
+	FShanmenDetectorEmissionReceipt ReplacementEmission;
+	Fdemo_mapShanmenControlledWeaponThreatFinalizationResult
+		ReplacementFinalized;
+	TestTrue(TEXT("The replacement activation starts a fresh ordinal stream"),
+		Host.TryBeginOrbitThreatWindow(
+			HostLowItemId, ReplacementContext)
+		&& Host.TryEndOrbitThreatWindow(
+			HostLowItemId, ReplacementEmission)
+		&& Host.TryFinalizeOrbitThreatSample(
+			HostLowItemId,
+			Fixture.Coordinator,
+			ReplacementEmission,
+			{},
+			ReplacementFinalized)
+		&& ReplacementFinalized.IsFinalized()
+		&& ReplacementContext.GetAction().GetActivationId()
+			== Replacement.ActivationId
+		&& ReplacementContext.GetHitOrdinal() == 0
+		&& Host.GetThreatPresenceAuthority().NumTrackedSamples() == 2
+		&& Host.GetThreatPresenceAuthority().GetLatestSampleOrdinal(
+			HostLowItemId) == 0
+		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
+			== 5);
+	TestFalse(TEXT("The retired activation cannot replay after reattachment"),
+		Host.TryFinalizeOrbitThreatSample(
+			HostLowItemId,
+			Fixture.Coordinator,
+			LowLaterEmission,
+			{},
+			Replay));
+	TestTrue(TEXT("Reattachment preserves the other item's exact replay"),
+		!Replay.IsFinalized()
+		&& Host.TryFinalizeOrbitThreatSample(
+			HostHighItemId,
+			Fixture.Coordinator,
+			HighFirstEmission,
+			{},
+			Replay)
+		&& Replay.IsFinalized()
+		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
+			== 5);
+
 	TArray<Fdemo_mapShanmenControlledWeaponHostInterruptReceipt> Interrupted;
-	TestTrue(TEXT("Run teardown clears every per-item watermark"),
+	TestTrue(TEXT("Run teardown clears reattached activation watermarks"),
 		Host.TryInterruptAll(Interrupted)
 		&& Interrupted.Num() == 2
 		&& Host.TryRemoveTerminal(HostLowItemId)
-		&& Host.GetThreatPresenceAuthority().NumTrackedSamples() == 2
+		&& Host.GetThreatPresenceAuthority().NumRegisteredItemActivations() == 1
+		&& Host.GetThreatPresenceAuthority().NumTrackedSamples() == 1
 		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
-			== 3
+			== 6
 		&& Host.TryRemoveTerminal(HostHighItemId)
 		&& Host.IsEmpty()
+		&& Host.GetThreatPresenceAuthority().NumRegisteredItemActivations() == 0
 		&& Host.GetThreatPresenceAuthority().NumTrackedSamples() == 0
 		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
 			== INDEX_NONE);
