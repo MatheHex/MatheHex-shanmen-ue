@@ -89,6 +89,42 @@ struct Fdemo_mapShanmenControlledWeaponHostOrbitBatch
 	bool IsFullyAdvanced() const;
 };
 
+/** Why one owner-supplied frame delta did or did not advance Orbiting items. */
+enum class Edemo_mapShanmenControlledWeaponOrbitFrameStatus : uint8
+{
+	NoOrbitingItems,
+	Advanced,
+	DeltaInvalid,
+	HostInvalid,
+	MovementRejected
+};
+
+/** Self-checking owner receipt for one frame-level Orbit pump. */
+struct Fdemo_mapShanmenControlledWeaponOrbitFrameResult
+{
+	Edemo_mapShanmenControlledWeaponOrbitFrameStatus Status =
+		Edemo_mapShanmenControlledWeaponOrbitFrameStatus::DeltaInvalid;
+	FGuid RunId;
+	float DeltaSeconds = 0.0f;
+	int32 BoundCount = 0;
+	int32 OrbitingCount = 0;
+	Fdemo_mapShanmenControlledWeaponHostOrbitBatch Batch;
+
+	bool IsValid() const;
+	bool IsAdvanced() const
+	{
+		return IsValid()
+			&& Status
+				== Edemo_mapShanmenControlledWeaponOrbitFrameStatus::Advanced;
+	}
+	bool IsNoOp() const
+	{
+		return IsValid()
+			&& Status
+				== Edemo_mapShanmenControlledWeaponOrbitFrameStatus::NoOrbitingItems;
+	}
+};
+
 /** One item-scoped terminal receipt from an atomic host-wide interrupt. */
 struct Fdemo_mapShanmenControlledWeaponHostInterruptReceipt
 {
@@ -130,6 +166,7 @@ public:
 	const FGuid& GetSourceEntityId() const { return SourceEntityId; }
 	int32 NumBound() const { return Controllers.Num(); }
 	int32 NumActive() const;
+	int32 NumOrbiting() const;
 	TArray<FGuid> GetOrderedItemInstanceIds() const;
 
 	const Fdemo_mapShanmenControlledWeaponProductController* FindController(
@@ -150,6 +187,9 @@ public:
 	bool TryAdvanceOrbitingInOrder(
 		float DeltaSeconds,
 		Fdemo_mapShanmenControlledWeaponHostOrbitBatch& OutBatch);
+	/** Adapts an owner frame delta into an auditable Orbit advance/no-op. */
+	Fdemo_mapShanmenControlledWeaponOrbitFrameResult AdvanceOrbitingFrame(
+		float DeltaSeconds);
 
 	/** Preflights every directed sword, then advances each in stable item order. */
 	bool TryAdvanceDirectedInOrder(

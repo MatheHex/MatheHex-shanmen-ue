@@ -415,6 +415,100 @@ bool Fdemo_mapControlledWeaponRunHostOrbitOrderTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapControlledWeaponRunHostFrameOwnerTest,
+	"Shanmen.0_0_10.Product.ControlledWeaponRunHost.FrameOwnerResult",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapControlledWeaponRunHostFrameOwnerTest::RunTest(
+	const FString&)
+{
+	FControlledWeaponHostFixture Fixture;
+	Fdemo_mapShanmenControlledWeaponRunHost Host;
+	if (!Fixture.bReady)
+	{
+		AddError(TEXT("Could not prepare P6.9 frame-owner fixture."));
+		return false;
+	}
+
+	const Fdemo_mapShanmenControlledWeaponOrbitFrameResult InvalidDelta =
+		Host.AdvanceOrbitingFrame(0.0f);
+	const Fdemo_mapShanmenControlledWeaponOrbitFrameResult Empty =
+		Host.AdvanceOrbitingFrame(0.1f);
+	TestTrue(TEXT("Frame result separates invalid delta from an empty no-op"),
+		InvalidDelta.IsValid()
+		&& InvalidDelta.Status
+			== Edemo_mapShanmenControlledWeaponOrbitFrameStatus::DeltaInvalid
+		&& Empty.IsNoOp()
+		&& !Empty.RunId.IsValid()
+		&& Empty.BoundCount == 0);
+
+	if (!AttachHostWeapon(
+			Fixture, Host, HostHighItemId, 2, 1, UE_PI).IsAttached()
+		|| !AttachHostWeapon(
+			Fixture, Host, HostLowItemId, 1, 0).IsAttached())
+	{
+		AddError(TEXT("Could not attach P6.9 frame-owner items."));
+		return false;
+	}
+	TestEqual(TEXT("Both newly attached items are Orbiting"),
+		Host.NumOrbiting(), 2);
+
+	const Fdemo_mapShanmenControlledWeaponOrbitFrameResult Advanced =
+		Host.AdvanceOrbitingFrame(0.25f);
+	TestTrue(TEXT("Owner frame advances all Orbiting items in one batch"),
+		Advanced.IsAdvanced()
+		&& Advanced.RunId == HostRunId
+		&& Advanced.BoundCount == 2
+		&& Advanced.OrbitingCount == 2
+		&& Advanced.Batch.Entries.Num() == 2
+		&& Advanced.Batch.Entries[0].ItemInstanceId == HostLowItemId
+		&& Advanced.Batch.Entries[1].ItemInstanceId == HostHighItemId);
+
+	const FVector LowBeforeRejected =
+		Fixture.Weapons[0]->GetActorLocation();
+	const FVector HighBeforeRejected =
+		Fixture.Weapons[1]->GetActorLocation();
+	const Fdemo_mapShanmenControlledWeaponOrbitFrameResult Rejected =
+		Host.AdvanceOrbitingFrame(0.75f);
+	TestTrue(TEXT("Oversized owner frame is an auditable rejection"),
+		Rejected.IsValid()
+		&& Rejected.Status
+			== Edemo_mapShanmenControlledWeaponOrbitFrameStatus::MovementRejected
+		&& Rejected.RunId == HostRunId
+		&& Rejected.BoundCount == 2
+		&& Rejected.OrbitingCount == 2
+		&& Rejected.Batch.AttemptedCount == 0
+		&& Fixture.Weapons[0]->GetActorLocation().Equals(LowBeforeRejected)
+		&& Fixture.Weapons[1]->GetActorLocation().Equals(
+			HighBeforeRejected));
+
+	FShanmenControlledWeaponCommandReceipt Command;
+	TestTrue(TEXT("Canonical Launch removes both items from Orbit cadence"),
+		Host.TryLaunch(
+			HostLowItemId, 0, FVector::ForwardVector, Command)
+		&& Host.TryLaunch(
+			HostHighItemId, 0, FVector::RightVector, Command)
+		&& Host.NumOrbiting() == 0);
+	const Fdemo_mapShanmenControlledWeaponOrbitFrameResult DirectedNoOp =
+		Host.AdvanceOrbitingFrame(0.1f);
+	TestTrue(TEXT("A valid Host with no Orbiting items is a clean no-op"),
+		DirectedNoOp.IsNoOp()
+		&& DirectedNoOp.RunId == HostRunId
+		&& DirectedNoOp.BoundCount == 2);
+
+	Fixture.Weapons[0]->SetRootComponent(nullptr);
+	const Fdemo_mapShanmenControlledWeaponOrbitFrameResult Corrupted =
+		Host.AdvanceOrbitingFrame(0.1f);
+	TestTrue(TEXT("Corrupted non-empty Host is never reported as idle"),
+		Corrupted.IsValid()
+		&& Corrupted.Status
+			== Edemo_mapShanmenControlledWeaponOrbitFrameStatus::HostInvalid
+		&& Corrupted.RunId == HostRunId
+		&& Corrupted.BoundCount == 2);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	Fdemo_mapControlledWeaponRunHostIndependentLifecycleTest,
 	"Shanmen.0_0_10.Product.ControlledWeaponRunHost.IndependentContactAndLifecycle",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

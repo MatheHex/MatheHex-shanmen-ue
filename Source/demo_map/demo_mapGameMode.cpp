@@ -491,6 +491,12 @@ bool Ademo_mapGameMode::AdvanceControlledWeaponOrbit(
 		DeltaSeconds, OutBatch);
 }
 
+Fdemo_mapShanmenControlledWeaponOrbitFrameResult
+Ademo_mapGameMode::AdvanceControlledWeaponOrbitFrame(float DeltaSeconds)
+{
+	return ControlledWeaponRunHost.AdvanceOrbitingFrame(DeltaSeconds);
+}
+
 bool Ademo_mapGameMode::ShouldUseM01EnemyAttackProductPath() const
 {
 	// M01 owns this routing decision even while the Run is still preparing:
@@ -791,6 +797,40 @@ void Ademo_mapGameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void Ademo_mapGameMode::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	if (!ControlledWeaponRunHost.IsEmpty())
+	{
+		const Fdemo_mapShanmenControlledWeaponOrbitFrameResult OrbitFrame =
+			AdvanceControlledWeaponOrbitFrame(DeltaSeconds);
+		if (!OrbitFrame.IsValid()
+			|| OrbitFrame.Status
+				== Edemo_mapShanmenControlledWeaponOrbitFrameStatus::HostInvalid)
+		{
+			UE_LOG(Logdemo_map, Error,
+				TEXT("0_0_10_CONTROLLED_WEAPON Event=OrbitFrameInvalid RunId=%s Status=%d Delta=%.6f Bound=%d Orbiting=%d Attempted=%d Advanced=%d"),
+				*OrbitFrame.RunId.ToString(EGuidFormats::DigitsWithHyphens),
+				static_cast<int32>(OrbitFrame.Status),
+				DeltaSeconds,
+				OrbitFrame.BoundCount,
+				OrbitFrame.OrbitingCount,
+				OrbitFrame.Batch.AttemptedCount,
+				OrbitFrame.Batch.AdvancedCount);
+		}
+		else if (OrbitFrame.Status
+			== Edemo_mapShanmenControlledWeaponOrbitFrameStatus::DeltaInvalid
+			|| OrbitFrame.Status
+				== Edemo_mapShanmenControlledWeaponOrbitFrameStatus::MovementRejected)
+		{
+			UE_LOG(Logdemo_map, Warning,
+				TEXT("0_0_10_CONTROLLED_WEAPON Event=OrbitFrameRejected RunId=%s Status=%d Delta=%.6f Bound=%d Orbiting=%d Attempted=%d Advanced=%d"),
+				*OrbitFrame.RunId.ToString(EGuidFormats::DigitsWithHyphens),
+				static_cast<int32>(OrbitFrame.Status),
+				DeltaSeconds,
+				OrbitFrame.BoundCount,
+				OrbitFrame.OrbitingCount,
+				OrbitFrame.Batch.AttemptedCount,
+				OrbitFrame.Batch.AdvancedCount);
+		}
+	}
 	if (!bM01ExtractionFoundationActive || M01ExtractionAuthority.IsRunTerminal()) return;
 	if (PlayerItemSubsystem.IsValid())
 	{

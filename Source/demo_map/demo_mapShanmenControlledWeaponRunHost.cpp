@@ -52,6 +52,57 @@ bool Fdemo_mapShanmenControlledWeaponHostOrbitBatch::IsFullyAdvanced() const
 	return true;
 }
 
+bool Fdemo_mapShanmenControlledWeaponOrbitFrameResult::IsValid() const
+{
+	const bool bFinitePositiveDelta =
+		FMath::IsFinite(DeltaSeconds) && DeltaSeconds > 0.0f;
+	const bool bEmptyBatch = Batch.AttemptedCount == 0
+		&& Batch.AdvancedCount == 0
+		&& Batch.Entries.IsEmpty();
+	switch (Status)
+	{
+	case Edemo_mapShanmenControlledWeaponOrbitFrameStatus::NoOrbitingItems:
+		return bFinitePositiveDelta
+			&& OrbitingCount == 0
+			&& bEmptyBatch
+			&& ((BoundCount == 0 && !RunId.IsValid())
+				|| (BoundCount > 0 && RunId.IsValid()));
+	case Edemo_mapShanmenControlledWeaponOrbitFrameStatus::Advanced:
+		return bFinitePositiveDelta
+			&& RunId.IsValid()
+			&& BoundCount >= OrbitingCount
+			&& OrbitingCount > 0
+			&& Batch.AttemptedCount == OrbitingCount
+			&& Batch.IsFullyAdvanced();
+	case Edemo_mapShanmenControlledWeaponOrbitFrameStatus::DeltaInvalid:
+		return !bFinitePositiveDelta
+			&& BoundCount >= 0
+			&& OrbitingCount == 0
+			&& bEmptyBatch;
+	case Edemo_mapShanmenControlledWeaponOrbitFrameStatus::HostInvalid:
+		return bFinitePositiveDelta
+			&& BoundCount > 0
+			&& OrbitingCount == 0
+			&& bEmptyBatch;
+	case Edemo_mapShanmenControlledWeaponOrbitFrameStatus::MovementRejected:
+		if (!bFinitePositiveDelta
+			|| !RunId.IsValid()
+			|| BoundCount < OrbitingCount
+			|| OrbitingCount <= 0
+			|| Batch.IsFullyAdvanced())
+		{
+			return false;
+		}
+		return bEmptyBatch
+			|| (Batch.AttemptedCount == OrbitingCount
+				&& Batch.Entries.Num() == OrbitingCount
+				&& Batch.AdvancedCount >= 0
+				&& Batch.AdvancedCount < OrbitingCount);
+	default:
+		return false;
+	}
+}
+
 Fdemo_mapShanmenControlledWeaponHostAttachResult
 Fdemo_mapShanmenControlledWeaponRunHost::TryAttach(
 	const Fdemo_mapShanmenControlledWeaponPrepareResult& Prepared,
@@ -207,6 +258,21 @@ int32 Fdemo_mapShanmenControlledWeaponRunHost::NumActive() const
 	return Result;
 }
 
+int32 Fdemo_mapShanmenControlledWeaponRunHost::NumOrbiting() const
+{
+	if (!IsValid())
+	{
+		return 0;
+	}
+	int32 Result = 0;
+	for (const TPair<FGuid,
+		Fdemo_mapShanmenControlledWeaponProductController>& Pair : Controllers)
+	{
+		Result += Pair.Value.IsOrbiting() ? 1 : 0;
+	}
+	return Result;
+}
+
 TArray<FGuid>
 Fdemo_mapShanmenControlledWeaponRunHost::GetOrderedItemInstanceIds() const
 {
@@ -301,6 +367,50 @@ bool Fdemo_mapShanmenControlledWeaponRunHost::TryAdvanceOrbitingInOrder(
 		OutBatch.Entries.Add(MoveTemp(Entry));
 	}
 	return OutBatch.IsFullyAdvanced();
+}
+
+Fdemo_mapShanmenControlledWeaponOrbitFrameResult
+Fdemo_mapShanmenControlledWeaponRunHost::AdvanceOrbitingFrame(
+	float DeltaSeconds)
+{
+	Fdemo_mapShanmenControlledWeaponOrbitFrameResult Result;
+	Result.DeltaSeconds = DeltaSeconds;
+	if (!IsEmpty())
+	{
+		Result.RunId = RunId;
+		Result.BoundCount = NumBound();
+	}
+	if (!FMath::IsFinite(DeltaSeconds) || DeltaSeconds <= 0.0f)
+	{
+		Result.Status =
+			Edemo_mapShanmenControlledWeaponOrbitFrameStatus::DeltaInvalid;
+		return Result;
+	}
+	if (IsEmpty())
+	{
+		Result.Status =
+			Edemo_mapShanmenControlledWeaponOrbitFrameStatus::NoOrbitingItems;
+		return Result;
+	}
+	if (!IsValid())
+	{
+		Result.Status =
+			Edemo_mapShanmenControlledWeaponOrbitFrameStatus::HostInvalid;
+		return Result;
+	}
+
+	Result.OrbitingCount = NumOrbiting();
+	if (Result.OrbitingCount == 0)
+	{
+		Result.Status =
+			Edemo_mapShanmenControlledWeaponOrbitFrameStatus::NoOrbitingItems;
+		return Result;
+	}
+	Result.Status = TryAdvanceOrbitingInOrder(
+		DeltaSeconds, Result.Batch)
+		? Edemo_mapShanmenControlledWeaponOrbitFrameStatus::Advanced
+		: Edemo_mapShanmenControlledWeaponOrbitFrameStatus::MovementRejected;
+	return Result;
 }
 
 bool Fdemo_mapShanmenControlledWeaponRunHost::TryAdvanceDirectedInOrder(

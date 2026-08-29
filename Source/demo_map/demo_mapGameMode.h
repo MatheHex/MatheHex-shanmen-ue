@@ -125,6 +125,9 @@ public:
 	bool AdvanceControlledWeaponOrbit(
 		float DeltaSeconds,
 		Fdemo_mapShanmenControlledWeaponHostOrbitBatch& OutBatch);
+	/** One frame-owner pump; no fixed cadence or substep policy is implied. */
+	Fdemo_mapShanmenControlledWeaponOrbitFrameResult
+	AdvanceControlledWeaponOrbitFrame(float DeltaSeconds);
 	const Fdemo_mapShanmenControlledWeaponRunHost&
 	GetControlledWeaponRunHost() const
 	{
