@@ -28,6 +28,145 @@ namespace
 	}
 }
 
+Fdemo_mapShanmenControlledWeaponThreatEvidenceCaptureResult
+Fdemo_mapShanmenControlledWeaponWorldAdapter::
+CaptureOrbitThreatTargetEvidence(
+	const Fdemo_mapCombatRunCoordinator& Coordinator,
+	const FShanmenDetectorEmissionReceipt& Emission,
+	const TArray<AActor*>& TargetActors)
+{
+	Fdemo_mapShanmenControlledWeaponThreatEvidenceCaptureResult Result;
+	if (!Coordinator.IsReady())
+	{
+		return Result;
+	}
+	if (!Emission.IsValid())
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponThreatEvidenceError::EmissionInvalid;
+		return Result;
+	}
+	if (Emission.GetContext().GetAction().GetRunId()
+		!= Coordinator.GetRunId())
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponThreatEvidenceError::RunMismatch;
+		return Result;
+	}
+
+	const TArray<FShanmenHitCandidate>& Candidates =
+		Emission.GetCandidates();
+	Result.ExpectedTargetCount = Candidates.Num();
+	TSet<FGuid> CandidateTargetIds;
+	CandidateTargetIds.Reserve(Candidates.Num());
+	for (const FShanmenHitCandidate& Candidate : Candidates)
+	{
+		CandidateTargetIds.Add(Candidate.TargetEntityId);
+	}
+
+	TMap<FGuid, AActor*> ActorsByTargetId;
+	ActorsByTargetId.Reserve(TargetActors.Num());
+	for (AActor* TargetActor : TargetActors)
+	{
+		if (!TargetActor)
+		{
+			Result.Error =
+				Edemo_mapShanmenControlledWeaponThreatEvidenceError::
+				TargetActorInvalid;
+			return Result;
+		}
+
+		FGuid TargetEntityId;
+		if (!Coordinator.GetEntityRegistry().TryResolveObject(
+				Coordinator.GetRunId(),
+				TargetActor,
+				INDEX_NONE,
+				TargetEntityId))
+		{
+			Result.Error =
+				Edemo_mapShanmenControlledWeaponThreatEvidenceError::
+				TargetNotRegistered;
+			return Result;
+		}
+		if (!CandidateTargetIds.Contains(TargetEntityId))
+		{
+			Result.Error =
+				Edemo_mapShanmenControlledWeaponThreatEvidenceError::
+				TargetOutsideEmission;
+			return Result;
+		}
+		if (ActorsByTargetId.Contains(TargetEntityId))
+		{
+			Result.Error =
+				Edemo_mapShanmenControlledWeaponThreatEvidenceError::
+				DuplicateTarget;
+			return Result;
+		}
+		ActorsByTargetId.Add(TargetEntityId, TargetActor);
+	}
+
+	if (ActorsByTargetId.Num() != Candidates.Num())
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponThreatEvidenceError::MissingTarget;
+		return Result;
+	}
+
+	Result.TargetEvidence.Reserve(Candidates.Num());
+	for (const FShanmenHitCandidate& Candidate : Candidates)
+	{
+		AActor* const* TargetActor =
+			ActorsByTargetId.Find(Candidate.TargetEntityId);
+		if (!TargetActor || !*TargetActor)
+		{
+			Result.Error =
+				Edemo_mapShanmenControlledWeaponThreatEvidenceError::MissingTarget;
+			Result.TargetEvidence.Reset();
+			return Result;
+		}
+
+		FGameplayTagContainer TargetTags;
+		if (Idemo_mapCombatVitalityHost* VitalityHost =
+				Cast<Idemo_mapCombatVitalityHost>(*TargetActor))
+		{
+			if (!VitalityHost->IsCombatEntityBound()
+				|| VitalityHost->GetCombatEntityId()
+					!= Candidate.TargetEntityId)
+			{
+				Result.Error =
+					Edemo_mapShanmenControlledWeaponThreatEvidenceError::
+					TargetIdentityMismatch;
+				Result.TargetEvidence.Reset();
+				return Result;
+			}
+			TargetTags.AddTag(FShanmenCombatNativeTags::TargetLiving());
+		}
+
+		FShanmenControlledWeaponThreatTargetEvidence Evidence;
+		if (!FShanmenControlledWeaponThreatTargetEvidence::TryCapture(
+				Candidate.TargetEntityId, TargetTags, Evidence))
+		{
+			Result.Error =
+				Edemo_mapShanmenControlledWeaponThreatEvidenceError::
+				EvidenceRejected;
+			Result.TargetEvidence.Reset();
+			return Result;
+		}
+		Result.TargetEvidence.Add(MoveTemp(Evidence));
+	}
+
+	Result.Error =
+		Edemo_mapShanmenControlledWeaponThreatEvidenceError::None;
+	if (!Result.IsCaptured())
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponThreatEvidenceError::
+			EvidenceRejected;
+		Result.TargetEvidence.Reset();
+	}
+	return Result;
+}
+
 Fdemo_mapShanmenControlledWeaponOrbitThreatResult
 Fdemo_mapShanmenControlledWeaponWorldAdapter::ProjectOrbitThreatOverlap(
 	Fdemo_mapShanmenControlledWeaponSession& Session,

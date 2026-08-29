@@ -668,25 +668,29 @@ bool Fdemo_mapControlledWeaponRunHostOrbitThreatTest::RunTest(
 			== Projected.Candidate.TargetEntityId
 		&& ThreatReceipt.GetContext().GetAction().GetSourceItemInstanceId()
 			== HostLowItemId);
-	FGameplayTagContainer LivingTags;
-	LivingTags.AddTag(FShanmenCombatNativeTags::TargetLiving());
-	FShanmenControlledWeaponThreatTargetEvidence EnemyEvidence;
-	check(FShanmenControlledWeaponThreatTargetEvidence::TryCapture(
-		Projected.Candidate.TargetEntityId, LivingTags, EnemyEvidence));
+	Fdemo_mapShanmenControlledWeaponThreatEvidenceCaptureResult Evidence;
 	FShanmenControlledWeaponThreatPolicyReceipt ThreatPolicy;
-	TestTrue(TEXT("Host routes policy evaluation to the exact item"),
-		Host.TryEvaluateOrbitThreatReceipt(
+	TestTrue(TEXT("Host captures world evidence for the exact item"),
+		Host.TryEvaluateOrbitThreatActors(
 			HostLowItemId,
+			Fixture.Coordinator,
 			ThreatReceipt,
-			{ EnemyEvidence },
+			{ Fixture.Enemy },
+			Evidence,
 			ThreatPolicy)
+		&& Evidence.IsCaptured()
+		&& Evidence.TargetEvidence.Num() == 1
+		&& Evidence.TargetEvidence[0].GetTargetEntityId()
+			== Projected.Candidate.TargetEntityId
 		&& ThreatPolicy.IsValid()
 		&& ThreatPolicy.NumAcceptedTargets() == 1);
-	TestFalse(TEXT("Unknown item cannot evaluate another item's receipt"),
-		Host.TryEvaluateOrbitThreatReceipt(
+	TestFalse(TEXT("Unknown item cannot capture another item's targets"),
+		Host.TryEvaluateOrbitThreatActors(
 			HostHighItemId,
+			Fixture.Coordinator,
 			ThreatReceipt,
-			{ EnemyEvidence },
+			{ Fixture.Enemy },
+			Evidence,
 			ThreatPolicy));
 	TestTrue(TEXT("Policy audit leaves the item free to Launch"),
 		Host.TryLaunch(

@@ -473,6 +473,30 @@ bool Fdemo_mapShanmenControlledWeaponRunHost::TryEvaluateOrbitThreatReceipt(
 			Emission, TargetEvidence, OutReceipt);
 }
 
+bool Fdemo_mapShanmenControlledWeaponRunHost::TryEvaluateOrbitThreatActors(
+	const FGuid& ItemInstanceId,
+	const Fdemo_mapCombatRunCoordinator& Coordinator,
+	const FShanmenDetectorEmissionReceipt& Emission,
+	const TArray<AActor*>& TargetActors,
+	Fdemo_mapShanmenControlledWeaponThreatEvidenceCaptureResult& OutEvidence,
+	FShanmenControlledWeaponThreatPolicyReceipt& OutReceipt) const
+{
+	OutEvidence =
+		Fdemo_mapShanmenControlledWeaponThreatEvidenceCaptureResult();
+	OutReceipt = FShanmenControlledWeaponThreatPolicyReceipt();
+	const Fdemo_mapShanmenControlledWeaponProductController* Controller =
+		IsValid() && CoordinatorMatches(Coordinator)
+			? Controllers.Find(ItemInstanceId)
+			: nullptr;
+	return Controller
+		&& Controller->TryEvaluateOrbitThreatActors(
+			Coordinator,
+			Emission,
+			TargetActors,
+			OutEvidence,
+			OutReceipt);
+}
+
 bool Fdemo_mapShanmenControlledWeaponRunHost::TryAdvanceDirectedInOrder(
 	float DeltaSeconds,
 	Fdemo_mapShanmenControlledWeaponHostMovementBatch& OutBatch)

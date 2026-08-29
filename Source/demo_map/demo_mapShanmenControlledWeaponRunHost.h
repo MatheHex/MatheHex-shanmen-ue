@@ -209,6 +209,14 @@ public:
 		const FShanmenDetectorEmissionReceipt& Emission,
 		const TArray<FShanmenControlledWeaponThreatTargetEvidence>& TargetEvidence,
 		FShanmenControlledWeaponThreatPolicyReceipt& OutReceipt) const;
+	bool TryEvaluateOrbitThreatActors(
+		const FGuid& ItemInstanceId,
+		const Fdemo_mapCombatRunCoordinator& Coordinator,
+		const FShanmenDetectorEmissionReceipt& Emission,
+		const TArray<AActor*>& TargetActors,
+		Fdemo_mapShanmenControlledWeaponThreatEvidenceCaptureResult&
+			OutEvidence,
+		FShanmenControlledWeaponThreatPolicyReceipt& OutReceipt) const;
 
 	/** Preflights every directed sword, then advances each in stable item order. */
 	bool TryAdvanceDirectedInOrder(

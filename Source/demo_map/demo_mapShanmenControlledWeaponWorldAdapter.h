@@ -83,6 +83,58 @@ struct Fdemo_mapShanmenControlledWeaponOrbitThreatResult
 	}
 };
 
+/** Product-side failure while converting sampled Actors into target tags. */
+enum class Edemo_mapShanmenControlledWeaponThreatEvidenceError : uint8
+{
+	None,
+	CoordinatorNotReady,
+	EmissionInvalid,
+	RunMismatch,
+	TargetActorInvalid,
+	TargetNotRegistered,
+	TargetOutsideEmission,
+	DuplicateTarget,
+	MissingTarget,
+	TargetIdentityMismatch,
+	EvidenceRejected
+};
+
+/**
+ * Transient, canonical target evidence captured from one completed sample.
+ * It is not a second geometry receipt and never retains Actor references.
+ */
+struct Fdemo_mapShanmenControlledWeaponThreatEvidenceCaptureResult
+{
+	Edemo_mapShanmenControlledWeaponThreatEvidenceError Error =
+		Edemo_mapShanmenControlledWeaponThreatEvidenceError::CoordinatorNotReady;
+	int32 ExpectedTargetCount = INDEX_NONE;
+	TArray<FShanmenControlledWeaponThreatTargetEvidence> TargetEvidence;
+
+	bool IsCaptured() const
+	{
+		if (Error
+				!= Edemo_mapShanmenControlledWeaponThreatEvidenceError::None
+			|| ExpectedTargetCount < 0
+			|| TargetEvidence.Num() != ExpectedTargetCount)
+		{
+			return false;
+		}
+
+		TSet<FGuid> TargetIds;
+		for (const FShanmenControlledWeaponThreatTargetEvidence& Evidence :
+			TargetEvidence)
+		{
+			if (!Evidence.IsValid()
+				|| TargetIds.Contains(Evidence.GetTargetEntityId()))
+			{
+				return false;
+			}
+			TargetIds.Add(Evidence.GetTargetEntityId());
+		}
+		return true;
+	}
+};
+
 /**
  * Converts UE contacts into the frozen controlled-weapon contract and commits
  * them through CombatRunCoordinator. Session state advances only after the
@@ -91,6 +143,16 @@ struct Fdemo_mapShanmenControlledWeaponOrbitThreatResult
 class Fdemo_mapShanmenControlledWeaponWorldAdapter
 {
 public:
+	/**
+	 * Joins a completed canonical threat receipt with the exact Actors sampled
+	 * by its owner. Actor order is ignored; output follows receipt order.
+	 */
+	static Fdemo_mapShanmenControlledWeaponThreatEvidenceCaptureResult
+	CaptureOrbitThreatTargetEvidence(
+		const Fdemo_mapCombatRunCoordinator& Coordinator,
+		const FShanmenDetectorEmissionReceipt& Emission,
+		const TArray<AActor*>& TargetActors);
+
 	static Fdemo_mapShanmenControlledWeaponOrbitThreatResult
 	ProjectOrbitThreatOverlap(
 		Fdemo_mapShanmenControlledWeaponSession& Session,

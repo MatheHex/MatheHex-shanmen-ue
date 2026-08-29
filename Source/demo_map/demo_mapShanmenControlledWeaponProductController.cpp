@@ -517,6 +517,32 @@ TryEvaluateOrbitThreatReceipt(
 			Emission, TargetEvidence, OutReceipt);
 }
 
+bool Fdemo_mapShanmenControlledWeaponProductController::
+TryEvaluateOrbitThreatActors(
+	const Fdemo_mapCombatRunCoordinator& Coordinator,
+	const FShanmenDetectorEmissionReceipt& Emission,
+	const TArray<AActor*>& TargetActors,
+	Fdemo_mapShanmenControlledWeaponThreatEvidenceCaptureResult& OutEvidence,
+	FShanmenControlledWeaponThreatPolicyReceipt& OutReceipt) const
+{
+	OutEvidence =
+		Fdemo_mapShanmenControlledWeaponThreatEvidenceCaptureResult();
+	OutReceipt = FShanmenControlledWeaponThreatPolicyReceipt();
+	if (!IsOrbiting()
+		|| HasActiveContactWindow()
+		|| !CoordinatorMatches(Coordinator))
+	{
+		return false;
+	}
+
+	OutEvidence = Fdemo_mapShanmenControlledWeaponWorldAdapter::
+		CaptureOrbitThreatTargetEvidence(
+			Coordinator, Emission, TargetActors);
+	return OutEvidence.IsCaptured()
+		&& TryEvaluateOrbitThreatReceipt(
+			Emission, OutEvidence.TargetEvidence, OutReceipt);
+}
+
 bool Fdemo_mapShanmenControlledWeaponProductController::TryAdvanceDirected(
 	float DeltaSeconds,
 	Fdemo_mapShanmenControlledWeaponMovementReceipt& OutReceipt,

@@ -151,6 +151,14 @@ public:
 		const FShanmenDetectorEmissionReceipt& Emission,
 		const TArray<FShanmenControlledWeaponThreatTargetEvidence>& TargetEvidence,
 		FShanmenControlledWeaponThreatPolicyReceipt& OutReceipt) const;
+	/** Captures canonical world evidence and evaluates the same frozen policy. */
+	bool TryEvaluateOrbitThreatActors(
+		const Fdemo_mapCombatRunCoordinator& Coordinator,
+		const FShanmenDetectorEmissionReceipt& Emission,
+		const TArray<AActor*>& TargetActors,
+		Fdemo_mapShanmenControlledWeaponThreatEvidenceCaptureResult&
+			OutEvidence,
+		FShanmenControlledWeaponThreatPolicyReceipt& OutReceipt) const;
 
 	/** Moves the physical Actor with sweep enabled; contact delivery is explicit. */
 	bool TryAdvanceDirected(

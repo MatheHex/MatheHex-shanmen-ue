@@ -568,15 +568,54 @@ bool Fdemo_mapControlledWeaponProductOrbitThreatTest::RunTest(
 		&& ThreatReceipt.GetContext().GetAction().GetSourceItemInstanceId()
 			== ProductItemId
 		&& !Controller.HasActiveContactWindow());
-	FGameplayTagContainer LivingTags;
-	LivingTags.AddTag(FShanmenCombatNativeTags::TargetLiving());
-	FShanmenControlledWeaponThreatTargetEvidence EnemyEvidence;
-	check(FShanmenControlledWeaponThreatTargetEvidence::TryCapture(
-		EnemyEntityId, LivingTags, EnemyEvidence));
+	Fdemo_mapShanmenControlledWeaponThreatEvidenceCaptureResult Evidence;
 	FShanmenControlledWeaponThreatPolicyReceipt ThreatPolicy;
+	TestFalse(TEXT("Missing sampled Actor fails closed before target policy"),
+		Controller.TryEvaluateOrbitThreatActors(
+			Fixture.Coordinator,
+			ThreatReceipt,
+			{},
+			Evidence,
+			ThreatPolicy));
+	TestTrue(TEXT("Missing Actor exposes an explicit evidence error"),
+		Evidence.Error
+			== Edemo_mapShanmenControlledWeaponThreatEvidenceError::
+			MissingTarget);
+	TestFalse(TEXT("Duplicate sampled Actor cannot forge two evidence rows"),
+		Controller.TryEvaluateOrbitThreatActors(
+			Fixture.Coordinator,
+			ThreatReceipt,
+			{ Fixture.Enemy, Fixture.Enemy },
+			Evidence,
+			ThreatPolicy));
+	TestTrue(TEXT("Duplicate entity identity is distinguished from missing"),
+		Evidence.Error
+			== Edemo_mapShanmenControlledWeaponThreatEvidenceError::
+			DuplicateTarget);
+	TestFalse(TEXT("Registered source Actor cannot replace sampled target"),
+		Controller.TryEvaluateOrbitThreatActors(
+			Fixture.Coordinator,
+			ThreatReceipt,
+			{ Fixture.Pawn },
+			Evidence,
+			ThreatPolicy));
+	TestTrue(TEXT("Out-of-receipt entity is rejected explicitly"),
+		Evidence.Error
+			== Edemo_mapShanmenControlledWeaponThreatEvidenceError::
+			TargetOutsideEmission);
 	TestTrue(TEXT("Product exposes the frozen target-policy audit without damage"),
-		Controller.TryEvaluateOrbitThreatReceipt(
-			ThreatReceipt, { EnemyEvidence }, ThreatPolicy)
+		Controller.TryEvaluateOrbitThreatActors(
+			Fixture.Coordinator,
+			ThreatReceipt,
+			{ Fixture.Enemy },
+			Evidence,
+			ThreatPolicy)
+		&& Evidence.IsCaptured()
+		&& Evidence.ExpectedTargetCount == 1
+		&& Evidence.TargetEvidence.Num() == 1
+		&& Evidence.TargetEvidence[0].GetTargetEntityId() == EnemyEntityId
+		&& Evidence.TargetEvidence[0].GetTargetTags().HasTagExact(
+			FShanmenCombatNativeTags::TargetLiving())
 		&& ThreatPolicy.IsValid()
 		&& ThreatPolicy.NumAcceptedTargets() == 1
 		&& ThreatPolicy.GetTargets()[0].GetCandidate().TargetEntityId

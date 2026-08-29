@@ -228,6 +228,134 @@ namespace
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapControlledWeaponWorldThreatEvidenceTest,
+	"Shanmen.0_0_10.Product.ControlledWeaponWorldDelivery.ThreatEvidenceCapture",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapControlledWeaponWorldThreatEvidenceTest::RunTest(
+	const FString&)
+{
+	FControlledWeaponWorldFixture Fixture;
+	if (!Fixture.bReady || !Fixture.GetEnemyRoot())
+	{
+		AddError(FString::Printf(
+			TEXT("Could not prepare P6.13 threat evidence fixture: %s"),
+			*Fixture.Diagnostic));
+		return false;
+	}
+
+	const Fdemo_mapShanmenControlledWeaponThreatEvidenceCaptureResult
+		InvalidEmission = Fdemo_mapShanmenControlledWeaponWorldAdapter::
+			CaptureOrbitThreatTargetEvidence(
+				Fixture.Coordinator,
+				FShanmenDetectorEmissionReceipt(),
+				{ Fixture.Enemy });
+	TestTrue(TEXT("Unfinished geometry cannot be treated as target evidence"),
+		InvalidEmission.Error
+			== Edemo_mapShanmenControlledWeaponThreatEvidenceError::
+			EmissionInvalid);
+
+	Fdemo_mapShanmenControlledWeaponSession Session;
+	FShanmenActionTransitionReceipt Startup;
+	FShanmenActionTransitionReceipt Active;
+	FShanmenWorldHitContext Context;
+	if (!Fdemo_mapShanmenControlledWeaponSession::TryStart(
+			MakePrepared(
+				Fixture.Coordinator,
+				Fixture.Coordinator.GetPlayerEntityId()),
+			Session,
+			Startup,
+			Active)
+		|| !Session.TryBeginOrbitThreatWindow(Context))
+	{
+		AddError(TEXT("Could not start P6.13 Orbit threat session."));
+		return false;
+	}
+
+	FShanmenTargetVitalitySnapshot Before;
+	check(Fixture.Enemy->TryCaptureCombatVitalitySnapshot(Before));
+	const Fdemo_mapShanmenControlledWeaponOrbitThreatResult Projected =
+		Fdemo_mapShanmenControlledWeaponWorldAdapter::
+		ProjectOrbitThreatOverlap(
+			Session,
+			Fixture.Coordinator,
+			Context,
+			MakeOverlap(Fixture),
+			FVector(75.0, 20.0, 30.0),
+			FVector::BackwardVector);
+	FShanmenDetectorEmissionReceipt Emission;
+	if (!Projected.IsProjected()
+		|| !Session.TryEndOrbitThreatWindow(Emission))
+	{
+		AddError(TEXT("Could not close P6.13 canonical geometry receipt."));
+		return false;
+	}
+
+	AActor* Unregistered = NewObject<AActor>(GetTransientPackage());
+	const Fdemo_mapShanmenControlledWeaponThreatEvidenceCaptureResult NullActor =
+		Fdemo_mapShanmenControlledWeaponWorldAdapter::
+		CaptureOrbitThreatTargetEvidence(
+			Fixture.Coordinator, Emission, { nullptr });
+	const Fdemo_mapShanmenControlledWeaponThreatEvidenceCaptureResult
+		UnregisteredActor = Fdemo_mapShanmenControlledWeaponWorldAdapter::
+			CaptureOrbitThreatTargetEvidence(
+				Fixture.Coordinator, Emission, { Unregistered });
+	const Fdemo_mapShanmenControlledWeaponThreatEvidenceCaptureResult
+		OutsideEmission = Fdemo_mapShanmenControlledWeaponWorldAdapter::
+			CaptureOrbitThreatTargetEvidence(
+				Fixture.Coordinator, Emission, { Fixture.Pawn });
+	const Fdemo_mapShanmenControlledWeaponThreatEvidenceCaptureResult Missing =
+		Fdemo_mapShanmenControlledWeaponWorldAdapter::
+		CaptureOrbitThreatTargetEvidence(
+			Fixture.Coordinator, Emission, {});
+	const Fdemo_mapShanmenControlledWeaponThreatEvidenceCaptureResult Duplicate =
+		Fdemo_mapShanmenControlledWeaponWorldAdapter::
+		CaptureOrbitThreatTargetEvidence(
+			Fixture.Coordinator,
+			Emission,
+			{ Fixture.Enemy, Fixture.Enemy });
+	TestTrue(TEXT("Null target fails closed explicitly"),
+		NullActor.Error
+			== Edemo_mapShanmenControlledWeaponThreatEvidenceError::
+			TargetActorInvalid);
+	TestTrue(TEXT("Unregistered target fails before tag inference"),
+		UnregisteredActor.Error
+			== Edemo_mapShanmenControlledWeaponThreatEvidenceError::
+			TargetNotRegistered);
+	TestTrue(TEXT("Registered Actor outside the receipt cannot replace target"),
+		OutsideEmission.Error
+			== Edemo_mapShanmenControlledWeaponThreatEvidenceError::
+			TargetOutsideEmission);
+	TestTrue(TEXT("One Actor is required for every canonical candidate"),
+		Missing.Error
+			== Edemo_mapShanmenControlledWeaponThreatEvidenceError::
+			MissingTarget);
+	TestTrue(TEXT("Entity aliases cannot duplicate one evidence row"),
+		Duplicate.Error
+			== Edemo_mapShanmenControlledWeaponThreatEvidenceError::
+			DuplicateTarget);
+
+	const Fdemo_mapShanmenControlledWeaponThreatEvidenceCaptureResult Captured =
+		Fdemo_mapShanmenControlledWeaponWorldAdapter::
+		CaptureOrbitThreatTargetEvidence(
+			Fixture.Coordinator, Emission, { Fixture.Enemy });
+	FShanmenTargetVitalitySnapshot After;
+	check(Fixture.Enemy->TryCaptureCombatVitalitySnapshot(After));
+	TestTrue(TEXT("Canonical vitality host supplies Living target evidence"),
+		Captured.IsCaptured()
+		&& Captured.ExpectedTargetCount == 1
+		&& Captured.TargetEvidence.Num() == 1
+		&& Captured.TargetEvidence[0].GetTargetEntityId()
+			== Projected.Candidate.TargetEntityId
+		&& Captured.TargetEvidence[0].GetTargetTags().HasTagExact(
+			FShanmenCombatNativeTags::TargetLiving()));
+	TestTrue(TEXT("Evidence capture cannot mutate vitality or impact state"),
+		FMath::IsNearlyEqual(Before.CurrentVitality, After.CurrentVitality)
+		&& Session.GetExecution().NumAcceptedImpacts() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	Fdemo_mapControlledWeaponWorldSweepOverlapTest,
 	"Shanmen.0_0_10.Product.ControlledWeaponWorldDelivery.SweepOverlapAtomicity",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
