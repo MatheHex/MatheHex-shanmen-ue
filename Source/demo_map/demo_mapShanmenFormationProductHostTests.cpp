@@ -3,6 +3,7 @@
 #include "demo_mapShanmenFormationProductHost.h"
 #include "demo_mapShanmenFormationInfluenceExecutorAdapter.h"
 #include "demo_mapShanmenFormationInfluenceLeaseExecutor.h"
+#include "demo_mapShanmenFormationInfluenceProductRuntime.h"
 
 #include "ShanmenCombatResolver.h"
 #include "demo_map0909BSectWarehouseService.h"
@@ -1862,6 +1863,252 @@ bool Fdemo_mapFormationInfluenceLeaseStaleRemoveTest::RunTest(const FString&)
 		Executor.GetCompletedIntentCount() == 3
 			&& Executor.GetAttemptCount() == 4
 			&& Executor.IsConsistent());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceProductRuntimeSingleStepTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceProductRuntime.SingleStepAndReplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceProductRuntimeSingleStepTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("ProductRuntimeSingleStep"),
+			2, Prime, Subjects))
+	{
+		return false;
+	}
+	Fdemo_mapShanmenFormationInfluenceProductRuntime Runtime;
+	const auto OutOfOrderCommand = MakeHostExecutionCommand(
+		Prime.ReconciliationPlan.Batch.Intents[1].IntentId, 200);
+	const auto OutOfOrder = Runtime.TryExecuteOne(
+		Fixture.Host, Fixture.Correlation, OutOfOrderCommand);
+	const bool bUnboundAfterOutOfOrder = !Runtime.IsBound()
+		&& Runtime.GetExecutorAttemptCount() == 0
+		&& Fixture.Host.GetPendingInfluenceIntentCount() == 2;
+	const auto FirstCommand = MakeHostExecutionCommand(
+		Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 201);
+	const auto First = Runtime.TryExecuteOne(
+		Fixture.Host, Fixture.Correlation, FirstCommand);
+	const auto Replay = Runtime.TryExecuteOne(
+		Fixture.Host, Fixture.Correlation, FirstCommand);
+	const auto SecondCommand = MakeHostExecutionCommand(
+		Prime.ReconciliationPlan.Batch.Intents[1].IntentId, 202);
+	const auto Second = Runtime.TryExecuteOne(
+		Fixture.Host, Fixture.Correlation, SecondCommand);
+
+	TestTrue(TEXT("Rejected first command leaves the product runtime unbound"),
+		!OutOfOrder.IsSuccess()
+			&& OutOfOrder.Status
+				== Edemo_mapShanmenFormationInfluenceExecutionStatus::
+					IntentOutOfOrder
+			&& bUnboundAfterOutOfOrder);
+	TestTrue(TEXT("Runtime binds once and executes one canonical intent per call"),
+		First.IsSuccess() && First.bExecutorInvoked
+			&& Replay.IsSuccess() && !Replay.bExecutorInvoked
+			&& Second.IsSuccess() && Second.bExecutorInvoked
+			&& Runtime.IsBound() && Runtime.IsValid()
+			&& Runtime.GetBoundCorrelation() == Fixture.Correlation
+			&& Runtime.GetBoundLedgerId()
+				== Fixture.Host.GetInfluenceLedger().GetLedgerId()
+			&& Runtime.GetExecutorAttemptCount() == 2
+			&& Runtime.GetActiveLeaseCount() == 2
+			&& Fixture.Host.GetPendingInfluenceIntentCount() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceProductRuntimeBindingFenceTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceProductRuntime.BindingAndCorrelationFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceProductRuntimeBindingFenceTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture FirstFixture;
+	FFormationHostFixture OtherFixture;
+	FShanmenWorldEntityRegistry FirstRegistry;
+	FShanmenWorldEntityRegistry OtherRegistry;
+	Fdemo_mapShanmenFormationHostInfluenceResult FirstPrime;
+	Fdemo_mapShanmenFormationHostInfluenceResult OtherPrime;
+	TArray<AActor*> FirstSubjects;
+	TArray<AActor*> OtherSubjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, FirstFixture, FirstRegistry, TEXT("ProductRuntimeBindingA"),
+			1, FirstPrime, FirstSubjects)
+		|| !PrimeHostExecutorInfluence(
+			*this, OtherFixture, OtherRegistry, TEXT("ProductRuntimeBindingB"),
+			1, OtherPrime, OtherSubjects))
+	{
+		return false;
+	}
+	Fdemo_mapShanmenFormationInfluenceProductRuntime Runtime;
+	const auto FirstCommand = MakeHostExecutionCommand(
+		FirstPrime.ReconciliationPlan.Batch.Intents[0].IntentId, 210);
+	const auto First = Runtime.TryExecuteOne(
+		FirstFixture.Host, FirstFixture.Correlation, FirstCommand);
+	const auto OtherCommand = MakeHostExecutionCommand(
+		OtherPrime.ReconciliationPlan.Batch.Intents[0].IntentId, 211);
+	const auto ForeignHost = Runtime.TryExecuteOne(
+		OtherFixture.Host, OtherFixture.Correlation, OtherCommand);
+	const auto StaleCorrelation = Runtime.TryExecuteOne(
+		FirstFixture.Host, OtherFixture.Correlation, FirstCommand);
+
+	TestTrue(TEXT("Runtime rejects a different Host binding without execution"),
+		First.IsSuccess() && !ForeignHost.IsSuccess()
+			&& !ForeignHost.bExecutorInvoked
+			&& ForeignHost.Status
+				== Edemo_mapShanmenFormationInfluenceExecutionStatus::StateInvalid
+			&& OtherFixture.Host.GetPendingInfluenceIntentCount() == 1);
+	TestTrue(TEXT("Runtime rejects stale correlation without mutating its lease"),
+		!StaleCorrelation.IsSuccess()
+			&& !StaleCorrelation.bExecutorInvoked
+			&& StaleCorrelation.Status
+				== Edemo_mapShanmenFormationInfluenceExecutionStatus::
+					CorrelationMismatch
+			&& Runtime.GetActiveLeaseCount() == 1
+			&& Runtime.GetExecutorAttemptCount() == 1
+			&& Runtime.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceProductRuntimeLateAttachTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceProductRuntime.LateAttachmentFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceProductRuntimeLateAttachTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("ProductRuntimeLateAttach"),
+			1, Prime, Subjects))
+	{
+		return false;
+	}
+	const auto& Intent = Prime.ReconciliationPlan.Batch.Intents[0];
+	const auto Manual = MakeHostInfluenceAttempt(
+		Intent.IntentId, 220,
+		Edemo_mapShanmenFormationInfluenceAttemptOutcome::Succeeded);
+	const auto Acknowledged = Fixture.Host.TryAcknowledgeInfluence(
+		Fixture.Correlation, Manual);
+	Fdemo_mapShanmenFormationInfluenceExecutionCommand ReplayCommand;
+	ReplayCommand.IntentId = Intent.IntentId;
+	ReplayCommand.AttemptId = Manual.AttemptId;
+	Fdemo_mapShanmenFormationInfluenceProductRuntime Runtime;
+	const auto LateAttach = Runtime.TryExecuteOne(
+		Fixture.Host, Fixture.Correlation, ReplayCommand);
+
+	TestTrue(TEXT("Unbound runtime rejects Host history with a missing lease"),
+		Acknowledged.IsSuccess() && !LateAttach.IsSuccess()
+			&& LateAttach.Status
+				== Edemo_mapShanmenFormationInfluenceExecutionStatus::StateInvalid
+			&& !LateAttach.bExecutorInvoked && !Runtime.IsBound()
+			&& Runtime.GetActiveLeaseCount() == 0
+			&& Runtime.GetCompletedIntentCount() == 0
+			&& Runtime.GetExecutorAttemptCount() == 0
+			&& Runtime.IsValid());
+
+	FFormationHostFixture RetryFixture;
+	FShanmenWorldEntityRegistry RetryRegistry;
+	Fdemo_mapShanmenFormationHostInfluenceResult RetryPrime;
+	TArray<AActor*> RetrySubjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, RetryFixture, RetryRegistry,
+			TEXT("ProductRuntimeRetryAttach"), 1,
+			RetryPrime, RetrySubjects))
+	{
+		return false;
+	}
+	const auto& RetryIntent =
+		RetryPrime.ReconciliationPlan.Batch.Intents[0];
+	const auto ManualRetry = MakeHostInfluenceAttempt(
+		RetryIntent.IntentId, 221,
+		Edemo_mapShanmenFormationInfluenceAttemptOutcome::RetryableFailure);
+	const auto RetryRecorded = RetryFixture.Host.TryAcknowledgeInfluence(
+		RetryFixture.Correlation, ManualRetry);
+	Fdemo_mapShanmenFormationInfluenceExecutionCommand RetryReplayCommand;
+	RetryReplayCommand.IntentId = RetryIntent.IntentId;
+	RetryReplayCommand.AttemptId = ManualRetry.AttemptId;
+	Fdemo_mapShanmenFormationInfluenceProductRuntime RetryRuntime;
+	const auto RetryReplay = RetryRuntime.TryExecuteOne(
+		RetryFixture.Host, RetryFixture.Correlation, RetryReplayCommand);
+	const auto RetryRecovered = RetryRuntime.TryExecuteOne(
+		RetryFixture.Host, RetryFixture.Correlation,
+		MakeHostExecutionCommand(RetryIntent.IntentId, 222));
+	TestTrue(TEXT("Retry-only Host history can bind before semantic mutation"),
+		RetryRecorded.IsSuccess() && RetryReplay.IsSuccess()
+			&& !RetryReplay.bExecutorInvoked && RetryRecovered.IsSuccess()
+			&& RetryRecovered.bExecutorInvoked && RetryRuntime.IsBound()
+			&& RetryRuntime.GetExecutorAttemptCount() == 1
+			&& RetryRuntime.GetActiveLeaseCount() == 1
+			&& RetryFixture.Host.GetPendingInfluenceIntentCount() == 0
+			&& RetryRuntime.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceProductRuntimeTerminalTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceProductRuntime.TerminalDrainReplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceProductRuntimeTerminalTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("ProductRuntimeTerminal"),
+			1, Prime, Subjects))
+	{
+		return false;
+	}
+	Fdemo_mapShanmenFormationInfluenceProductRuntime Runtime;
+	const auto ApplyCommand = MakeHostExecutionCommand(
+		Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 230);
+	const auto Apply = Runtime.TryExecuteOne(
+		Fixture.Host, Fixture.Correlation, ApplyCommand);
+	const auto Terminal = Fixture.Host.TryPrepareTerminalInfluence(
+		Fixture.Correlation);
+	Fdemo_mapShanmenFormationInfluenceIntent RemoveIntent;
+	if (!Apply.IsSuccess() || !Terminal.IsSuccess()
+		|| !Fixture.Host.TryPeekNextInfluenceIntent(RemoveIntent))
+	{
+		return false;
+	}
+	const auto RemoveCommand = MakeHostExecutionCommand(
+		RemoveIntent.IntentId, 231);
+	const auto Remove = Runtime.TryExecuteOne(
+		Fixture.Host, Fixture.Correlation, RemoveCommand);
+	const auto Seal = Fixture.Host.TrySealInfluence(Fixture.Correlation);
+	const auto End = Fixture.Host.TryEndAndTeardown(
+		Fixture.World, Fixture.Correlation);
+	const auto RemoveReplay = Runtime.TryExecuteOne(
+		Fixture.Host, Fixture.Correlation, RemoveCommand);
+
+	TestTrue(TEXT("Runtime drains Apply and Remove before Host seal"),
+		Remove.IsSuccess() && Seal.IsSuccess()
+			&& End.Status == Edemo_mapShanmenFormationHostStatus::Ended
+			&& Runtime.GetActiveLeaseCount() == 0
+			&& Runtime.GetCompletedIntentCount() == 2
+			&& Runtime.GetExecutorAttemptCount() == 2);
+	TestTrue(TEXT("Sealed exact replay never invokes the owned executor again"),
+		RemoveReplay.IsSuccess() && !RemoveReplay.bExecutorInvoked
+			&& Runtime.GetExecutorAttemptCount() == 2
+			&& Runtime.IsBound() && Runtime.IsValid()
+			&& Fixture.Host.IsValid());
 	return true;
 }
 

@@ -153,6 +153,9 @@ try
     $FormationInfluenceLeaseExecutor = New-AutomationLogFixture `
         -Name 'formation-influence-lease-executor.log' `
         -Group 'Shanmen.0_0_10.Product.FormationInfluenceLeaseExecutor'
+    $FormationInfluenceProductRuntime = New-AutomationLogFixture `
+        -Name 'formation-influence-product-runtime.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationInfluenceProductRuntime'
     $Legacy = New-AutomationLogFixture `
         -Name 'legacy.log' `
         -Group 'demo_map'
@@ -266,6 +269,12 @@ try
         -Name 'formation influence lease executor is covered by broad full evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceLeaseExecutor.cpp') `
+        -Logs @($Full)
+
+    Invoke-ExpectedPass `
+        -Name 'formation influence product runtime is covered by broad full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceProductRuntime.cpp') `
         -Logs @($Full)
 
     Invoke-ExpectedPass `
@@ -486,6 +495,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceLeaseExecutor.cpp') `
         -Logs @($FormationInfluenceLeaseExecutor) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'formation product runtime child evidence cannot replace lease Host and planner contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceProductRuntime.cpp') `
+        -Logs @($FormationInfluenceProductRuntime) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
