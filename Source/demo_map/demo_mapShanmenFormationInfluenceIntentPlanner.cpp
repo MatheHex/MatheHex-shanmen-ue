@@ -130,6 +130,37 @@ bool Fdemo_mapShanmenFormationInfluencePolicy::IsValid() const
 		&& Content.IsValid();
 }
 
+Fdemo_mapShanmenFormationInfluenceIntent
+Fdemo_mapShanmenFormationInfluenceIntent::Make(
+	const Fdemo_mapShanmenFormationAreaSnapshot& Area,
+	const FGuid& SourceEntityId,
+	const Fdemo_mapShanmenFormationInfluencePolicy& Policy,
+	const FGuid& SubjectEntityId,
+	const Edemo_mapShanmenFormationInfluenceOperation Operation,
+	const FGuid& CauseId)
+{
+	Fdemo_mapShanmenFormationInfluenceIntent Intent;
+	if (!Area.IsValid() || !SourceEntityId.IsValid() || !Policy.IsValid()
+		|| !SubjectEntityId.IsValid() || !IsKnownOperation(Operation)
+		|| !CauseId.IsValid() || !ContentMatches(Area.Content, Policy.Content))
+	{
+		return Intent;
+	}
+	Intent.RunId = Area.RunId;
+	Intent.OwnerId = Area.OwnerId;
+	Intent.SourceEntityId = SourceEntityId;
+	Intent.DeploymentId = Area.DeploymentId;
+	Intent.AreaId = Area.AreaId;
+	Intent.SubjectEntityId = SubjectEntityId;
+	Intent.PolicyDefinitionId = Policy.PolicyDefinitionId;
+	Intent.InfluenceDefinitionId = Policy.InfluenceDefinitionId;
+	Intent.Operation = Operation;
+	Intent.CauseId = CauseId;
+	Intent.Content = Policy.Content;
+	Intent.IntentId = MakeIntentId(Intent);
+	return Intent;
+}
+
 bool Fdemo_mapShanmenFormationInfluenceIntent::IsValid() const
 {
 	return IntentId.IsValid() && MakeIntentId(*this) == IntentId;
@@ -271,20 +302,10 @@ Fdemo_mapShanmenFormationInfluenceIntentPlanner::PlanTransition(
 			continue;
 		}
 
-		Fdemo_mapShanmenFormationInfluenceIntent& Intent =
-			Result.Batch.Intents.AddDefaulted_GetRef();
-		Intent.RunId = Area.RunId;
-		Intent.OwnerId = Area.OwnerId;
-		Intent.SourceEntityId = SourceEntityId;
-		Intent.DeploymentId = Area.DeploymentId;
-		Intent.AreaId = Area.AreaId;
-		Intent.SubjectEntityId = Fact.SubjectEntityId;
-		Intent.PolicyDefinitionId = Policy.PolicyDefinitionId;
-		Intent.InfluenceDefinitionId = Policy.InfluenceDefinitionId;
-		Intent.Operation = Operation;
-		Intent.CauseId = Fact.FactId;
-		Intent.Content = Policy.Content;
-		Intent.IntentId = MakeIntentId(Intent);
+		Result.Batch.Intents.Add(
+			Fdemo_mapShanmenFormationInfluenceIntent::Make(
+				Area, SourceEntityId, Policy, Fact.SubjectEntityId,
+				Operation, Fact.FactId));
 	}
 	Result.Batch.BatchId = MakeBatchId(Result.Batch);
 	if (!Result.Batch.IsValid())

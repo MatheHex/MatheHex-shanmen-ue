@@ -166,6 +166,22 @@
       ]
     },
     {
+      "name": "FormationInfluenceReconciliation",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenFormationInfluenceReconciliationPlanner(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Product.FormationInfluenceReconciliation",
+        "Shanmen.0_0_10.Product.FormationInfluenceIntents",
+        "Shanmen.0_0_10.Product.FormationCoverageCoordinator",
+        "Shanmen.0_0_10.Product.FormationCoverageTracker",
+        "Shanmen.0_0_10.Product.FormationWorldCoverage",
+        "Shanmen.0_0_10.Product.FormationAreaProvider",
+        "Shanmen.0_0_10.Product.FormationProductHost",
+        "Shanmen.0_0_10.Product.FormationWorldDelivery",
+        "Shanmen.0_0_10.WorldGameplay",
+        "Shanmen.0_0_10.CombatRuntime.FormationDeployment"
+      ]
+    },
+    {
       "name": "WorldGameplay",
       "pathRegex": "^Source/ShanmenWorldGameplay/",
       "requiredGroups": [

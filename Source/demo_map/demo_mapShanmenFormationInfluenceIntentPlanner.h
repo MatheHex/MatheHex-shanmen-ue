@@ -42,6 +42,13 @@ struct Fdemo_mapShanmenFormationInfluenceIntent
 	FGuid CauseId;
 	FShanmenContentStamp Content;
 
+	static Fdemo_mapShanmenFormationInfluenceIntent Make(
+		const Fdemo_mapShanmenFormationAreaSnapshot& Area,
+		const FGuid& SourceEntityId,
+		const Fdemo_mapShanmenFormationInfluencePolicy& Policy,
+		const FGuid& SubjectEntityId,
+		Edemo_mapShanmenFormationInfluenceOperation Operation,
+		const FGuid& CauseId);
 	bool IsValid() const;
 };
 
