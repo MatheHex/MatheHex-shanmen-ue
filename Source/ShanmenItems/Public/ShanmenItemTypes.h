@@ -58,7 +58,11 @@ enum class EShanmenItemTransactionOperation : uint8
 	/** Durably freezes one external-impact decision over pending Run resources. */
 	PreparePreparedRunResourceIntent,
 	/** Atomically commits triggered lines and cancels every other prepared line. */
-	FinalizePreparedRunResourceIntent
+	FinalizePreparedRunResourceIntent,
+	/** Durably reserves active-Run Quantity for one external action intent. */
+	PreparePreparedRunQuantityIntent,
+	/** Commits or cancels one prepared active-Run Quantity intent. */
+	FinalizePreparedRunQuantityIntent
 };
 
 UENUM(BlueprintType)
@@ -110,7 +114,11 @@ enum class EShanmenItemTransactionError : uint8
 	/** A resource intent cannot overlap another still-pending external mutation. */
 	ResourceIntentConflict,
 	/** The requested durable resource intent does not exist or has the wrong identity. */
-	ResourceIntentNotFound
+	ResourceIntentNotFound,
+	/** An active-Run Quantity intent overlaps or disagrees with another decision. */
+	RunItemIntentConflict,
+	/** The requested active-Run Quantity prepare receipt is missing or mismatched. */
+	RunItemIntentNotFound
 };
 
 /** Authority-independent terminal reason for one claimed prepared Run. */
@@ -471,6 +479,72 @@ struct SHANMENITEMS_API FShanmenItemRunConsumeRequest
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
 	FName PurposeId = NAME_None;
+
+	bool IsValid() const;
+};
+
+/**
+ * Durable prepare half of one external action consuming active-Run Quantity.
+ *
+ * The prepared stack already belongs to the active Run and is represented by
+ * an append-only balance, not by the depleted persistent item tombstone. This
+ * command therefore reserves from that balance without changing it. IntentId
+ * is the external action identity (for thrown weapons, the exact ActivationId).
+ */
+USTRUCT(BlueprintType)
+struct SHANMENITEMS_API FShanmenItemRunQuantityIntentRequest
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FShanmenOperationContext Context;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FGuid ActiveRunId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FGuid IntentId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FGuid ItemInstanceId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items", meta = (ClampMin = "1"))
+	int32 Amount = 1;
+
+	/** Compare-and-swap guard against the committed active-Run balance. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items", meta = (ClampMin = "1"))
+	int32 ExpectedQuantityBefore = 1;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FName PurposeId = NAME_None;
+
+	bool IsValid() const;
+};
+
+/** Durable terminal decision for one exact prepared active-Run Quantity intent. */
+USTRUCT(BlueprintType)
+struct SHANMENITEMS_API FShanmenItemRunQuantityIntentFinalizeRequest
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FShanmenOperationContext Context;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FGuid ActiveRunId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FGuid PrepareRequestId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FGuid IntentId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	FGuid ItemInstanceId;
+
+	/** True only after the external action reached its irreversible commit point. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
+	bool bCommit = false;
 
 	bool IsValid() const;
 };

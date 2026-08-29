@@ -133,6 +133,10 @@ public:
 		const FShanmenItemRunClaimRequest& Request);
 	FShanmenItemDurableCommandResult ConsumePreparedRunItemDurable(
 		const FShanmenItemRunConsumeRequest& Request);
+	FShanmenItemDurableCommandResult PreparePreparedRunQuantityIntentDurable(
+		const FShanmenItemRunQuantityIntentRequest& Request);
+	FShanmenItemDurableCommandResult FinalizePreparedRunQuantityIntentDurable(
+		const FShanmenItemRunQuantityIntentFinalizeRequest& Request);
 	FShanmenItemDurableCommandResult CommitPreparedRunResourcesDurable(
 		const FShanmenItemRunResourceCommitRequest& Request);
 	FShanmenItemDurableCommandResult PreparePreparedRunResourceIntentDurable(

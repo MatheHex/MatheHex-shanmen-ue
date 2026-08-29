@@ -150,6 +150,12 @@ try
             'Source/demo_map/demo_mapShanmenControlledWeaponThreatSampleRouter.cpp') `
         -Logs @($Full)
 
+    Invoke-ExpectedPass `
+        -Name 'thrown weapon item adapter maps to product, items, and runtime' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenThrownWeaponItemAdapter.cpp') `
+        -Logs @($Full)
+
     Invoke-ExpectedFail `
         -Name 'missing mapped group fails closed' `
         -Paths @('Source/demo_map/demo_mapSkillComponent.cpp') `
@@ -208,7 +214,7 @@ try
         -Logs @($Coordinator) `
         -ExpectedText 'missing required groups'
 
-    Write-Output 'SELF_TEST: PASS 16/16'
+    Write-Output 'SELF_TEST: PASS 17/17'
 }
 finally
 {

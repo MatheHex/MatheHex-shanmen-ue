@@ -197,6 +197,50 @@ namespace
 		return Request;
 	}
 
+	FShanmenItemRunQuantityIntentRequest ServiceRunQuantityIntent(
+		uint32 Sequence,
+		const FGuid& ActiveRunId,
+		const FGuid& IntentId,
+		int32 Amount,
+		int32 ExpectedQuantityBefore)
+	{
+		FShanmenItemRunQuantityIntentRequest Request;
+		Request.Context.RunId = ServiceRunId;
+		Request.Context.OwnerId = ServiceOwnerId;
+		Request.Context.RequestId =
+			FGuid(0x51390000 + Sequence, 0, 0, 1);
+		Request.Context.Content = ServiceContent();
+		Request.ActiveRunId = ActiveRunId;
+		Request.IntentId = IntentId;
+		Request.ItemInstanceId = ServiceItemId;
+		Request.Amount = Amount;
+		Request.ExpectedQuantityBefore = ExpectedQuantityBefore;
+		Request.PurposeId = TEXT("Test.AuthorityService.ThrownLaunch.r1");
+		return Request;
+	}
+
+	FShanmenItemRunQuantityIntentFinalizeRequest
+	ServiceRunQuantityIntentFinalize(
+		uint32 Sequence,
+		const FGuid& ActiveRunId,
+		const FGuid& PrepareRequestId,
+		const FGuid& IntentId,
+		bool bCommit)
+	{
+		FShanmenItemRunQuantityIntentFinalizeRequest Request;
+		Request.Context.RunId = ServiceRunId;
+		Request.Context.OwnerId = ServiceOwnerId;
+		Request.Context.RequestId =
+			FGuid(0x513A0000 + Sequence, 0, 0, 1);
+		Request.Context.Content = ServiceContent();
+		Request.ActiveRunId = ActiveRunId;
+		Request.PrepareRequestId = PrepareRequestId;
+		Request.IntentId = IntentId;
+		Request.ItemInstanceId = ServiceItemId;
+		Request.bCommit = bCommit;
+		return Request;
+	}
+
 	FShanmenItemReservationActionRequest ServiceAction(
 		uint32 Sequence, const FGuid& ReservationId)
 	{
@@ -1090,6 +1134,144 @@ bool FShanmenItemAuthorityServicePreparedRunResourceIntentTest::RunTest(
 			: FShanmenItemDurableCommandResult();
 	FShanmenItemAuthoritySnapshot ReplayedSnapshot;
 	TestTrue(TEXT("Final decision replays after restart without double wear"),
+		Replay.Status == EShanmenItemDurableCommandStatus::Replayed
+			&& Replay.Receipt == Finalized.Receipt
+			&& RestartedFinal.TryCaptureSnapshot(ReplayedSnapshot)
+			&& ReplayedSnapshot == AfterFinalize);
+	RemoveServiceRoot(Root);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenItemAuthorityServicePreparedRunQuantityIntentTest,
+	"Shanmen.0_0_10.Items.AuthorityService.PreparedRunQuantityIntentDurability",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenItemAuthorityServicePreparedRunQuantityIntentTest::RunTest(
+	const FString&)
+{
+	const FString Root = NewServiceRoot(TEXT("PreparedRunQuantityIntent"));
+	const FShanmenItemStorageContext Storage =
+		FShanmenItemStorageContext::ForRoot(Root, ServiceOwnerId);
+	FShanmenItemAuthorityService Service;
+	TestTrue(TEXT("Prepared quantity-intent fixture publishes"),
+		CreateService(Service, Storage, 8).IsReady());
+	const FShanmenItemDurableCommandResult Quantity =
+		Service.ReserveDurable(ServiceReserve(150, 8));
+	const FShanmenItemDurableCommandResult Started =
+		Quantity.IsCommandSuccess()
+			? Service.StartPreparedRunDurable(ServiceRunStart(
+				151, { Quantity.Receipt.ReservationId }))
+			: FShanmenItemDurableCommandResult();
+	const FGuid IntentId(0x513B0000, 0, 0, 1);
+	const FShanmenItemRunQuantityIntentRequest PrepareRequest =
+		ServiceRunQuantityIntent(
+			152, Started.Receipt.ReservationId, IntentId, 2, 8);
+	TestTrue(TEXT("Active Run owns one durable stack intent"),
+		Quantity.IsCommandSuccess() && Started.IsCommandSuccess()
+			&& PrepareRequest.IsValid());
+
+	FShanmenItemAuthoritySnapshot BeforePrepare;
+	FShanmenItemAuthorityDocument DocumentBeforePrepare;
+	TestTrue(TEXT("Pre-prepare quantity state is readable"),
+		Service.TryCaptureSnapshot(BeforePrepare)
+			&& Service.TryGetDocument(DocumentBeforePrepare));
+#if WITH_DEV_AUTOMATION_TESTS
+	Service.SetInjectedFailureForTests(
+		EShanmenItemStoreFailureStage::WriteTemp);
+#endif
+	const FShanmenItemDurableCommandResult FailedPrepare =
+		Service.PreparePreparedRunQuantityIntentDurable(PrepareRequest);
+	FShanmenItemAuthoritySnapshot AfterFailedPrepare;
+	TestTrue(TEXT("Prepare write failure exposes no partial stack intent"),
+		FailedPrepare.Status
+			== EShanmenItemDurableCommandStatus::PersistenceFailedRolledBack
+			&& Service.TryCaptureSnapshot(AfterFailedPrepare)
+			&& AfterFailedPrepare == BeforePrepare);
+
+#if WITH_DEV_AUTOMATION_TESTS
+	Service.SetInjectedFailureForTests(EShanmenItemStoreFailureStage::None);
+#endif
+	const FShanmenItemDurableCommandResult Prepared =
+		Service.PreparePreparedRunQuantityIntentDurable(PrepareRequest);
+	FShanmenItemAuthoritySnapshot AfterPrepare;
+	FShanmenItemAuthorityDocument DocumentAfterPrepare;
+	TestTrue(TEXT("Prepare persists one unchanged eight-unit balance"),
+		Prepared.Status == EShanmenItemDurableCommandStatus::Persisted
+			&& Prepared.IsCommandSuccess()
+			&& Prepared.Receipt.Operation
+				== EShanmenItemTransactionOperation::PreparePreparedRunQuantityIntent
+			&& Prepared.Receipt.ResourceBefore == 8
+			&& Prepared.Receipt.ResourceAfter == 8
+			&& Prepared.Receipt.AvailableAfter == 6
+			&& Service.TryCaptureSnapshot(AfterPrepare)
+			&& Service.TryGetDocument(DocumentAfterPrepare)
+			&& AfterPrepare.AuthorityRevision
+				== BeforePrepare.AuthorityRevision + 1
+			&& DocumentAfterPrepare.SaveGeneration
+				== DocumentBeforePrepare.SaveGeneration + 1);
+
+	FShanmenItemAuthorityService RestartedPending;
+	FShanmenItemAuthoritySnapshot PendingSnapshot;
+	TestTrue(TEXT("Restart restores the exact pending stack intent"),
+		RestartedPending.StartExisting(Storage).IsReady()
+			&& RestartedPending.TryCaptureSnapshot(PendingSnapshot)
+			&& PendingSnapshot == AfterPrepare);
+
+	const FShanmenItemRunQuantityIntentFinalizeRequest FinalizeRequest =
+		ServiceRunQuantityIntentFinalize(
+			153, Started.Receipt.ReservationId,
+			PrepareRequest.Context.RequestId, IntentId, true);
+	FShanmenItemAuthorityDocument DocumentBeforeFinalize;
+	TestTrue(TEXT("Pending stack document is readable before finalization"),
+		RestartedPending.TryGetDocument(DocumentBeforeFinalize));
+#if WITH_DEV_AUTOMATION_TESTS
+	RestartedPending.SetInjectedFailureForTests(
+		EShanmenItemStoreFailureStage::WriteTemp);
+#endif
+	const FShanmenItemDurableCommandResult FailedFinalize =
+		RestartedPending.FinalizePreparedRunQuantityIntentDurable(
+			FinalizeRequest);
+	FShanmenItemAuthoritySnapshot AfterFailedFinalize;
+	TestTrue(TEXT("Finalize write failure preserves the pending stack intent"),
+		FailedFinalize.Status
+			== EShanmenItemDurableCommandStatus::PersistenceFailedRolledBack
+			&& RestartedPending.TryCaptureSnapshot(AfterFailedFinalize)
+			&& AfterFailedFinalize == PendingSnapshot);
+
+#if WITH_DEV_AUTOMATION_TESTS
+	RestartedPending.SetInjectedFailureForTests(
+		EShanmenItemStoreFailureStage::None);
+#endif
+	const FShanmenItemDurableCommandResult Finalized =
+		RestartedPending.FinalizePreparedRunQuantityIntentDurable(
+			FinalizeRequest);
+	FShanmenItemAuthoritySnapshot AfterFinalize;
+	FShanmenItemAuthorityDocument DocumentAfterFinalize;
+	TestTrue(TEXT("Retry atomically publishes one two-unit launch consumption"),
+		Finalized.Status == EShanmenItemDurableCommandStatus::Persisted
+			&& Finalized.IsCommandSuccess()
+			&& Finalized.Receipt.Operation
+				== EShanmenItemTransactionOperation::FinalizePreparedRunQuantityIntent
+			&& Finalized.Receipt.Phase
+				== EShanmenItemTransactionPhase::Committed
+			&& Finalized.Receipt.ResourceBefore == 8
+			&& Finalized.Receipt.ResourceAfter == 6
+			&& RestartedPending.TryCaptureSnapshot(AfterFinalize)
+			&& RestartedPending.TryGetDocument(DocumentAfterFinalize)
+			&& AfterFinalize.AuthorityRevision
+				== PendingSnapshot.AuthorityRevision + 1
+			&& DocumentAfterFinalize.SaveGeneration
+				== DocumentBeforeFinalize.SaveGeneration + 1);
+
+	FShanmenItemAuthorityService RestartedFinal;
+	const FShanmenItemDurableCommandResult Replay =
+		RestartedFinal.StartExisting(Storage).IsReady()
+			? RestartedFinal.FinalizePreparedRunQuantityIntentDurable(
+				FinalizeRequest)
+			: FShanmenItemDurableCommandResult();
+	FShanmenItemAuthoritySnapshot ReplayedSnapshot;
+	TestTrue(TEXT("Final launch decision replays without double consumption"),
 		Replay.Status == EShanmenItemDurableCommandStatus::Replayed
 			&& Replay.Receipt == Finalized.Receipt
 			&& RestartedFinal.TryCaptureSnapshot(ReplayedSnapshot)

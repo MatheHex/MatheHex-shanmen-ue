@@ -98,10 +98,17 @@ namespace
 			Snapshot.ProcessedRequests)
 		{
 			const FShanmenItemTransactionReceipt& Receipt = Processed.Receipt;
-			if (Receipt.IsSuccess()
+			const bool bDirectConsume = Receipt.IsSuccess()
 				&& Receipt.Operation
 					== EShanmenItemTransactionOperation::ConsumePreparedRunItem
-				&& Receipt.ReservationId == Claim.ReservationId)
+				&& Receipt.ReservationId == Claim.ReservationId;
+			const bool bQuantityIntentCommit = Receipt.IsSuccess()
+				&& Receipt.Operation
+					== EShanmenItemTransactionOperation::FinalizePreparedRunQuantityIntent
+				&& Receipt.Phase == EShanmenItemTransactionPhase::Committed
+				&& Receipt.ReservationIds.Num() == 2
+				&& Receipt.ReservationIds[0] == Claim.ReservationId;
+			if (bDirectConsume || bQuantityIntentCommit)
 			{
 				ConsumedQuantities.FindOrAdd(Receipt.ItemInstanceId) +=
 					Receipt.Amount;

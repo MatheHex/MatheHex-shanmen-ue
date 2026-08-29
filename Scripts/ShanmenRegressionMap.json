@@ -255,6 +255,15 @@
       ]
     },
     {
+      "name": "ThrownWeaponItemAdapter",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponItemAdapter(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Product.ThrownWeaponItemAdapter",
+        "Shanmen.0_0_10.Items",
+        "Shanmen.0_0_10.CombatRuntime"
+      ]
+    },
+    {
       "name": "GameplayTags",
       "pathRegex": "^Config/DefaultGameplayTags\\.ini$",
       "requiredGroups": [

@@ -1267,6 +1267,100 @@ bool FShanmenPreparedRunItemUseTest::RunTest(const FString&)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenPreparedRunQuantityIntentRestartProjectionTest,
+	"Shanmen.0_0_10.Items.RunLifecycle.QuantityIntentRestartProjection",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenPreparedRunQuantityIntentRestartProjectionTest::RunTest(
+	const FString&)
+{
+	FPreparationAdapterFixture Fixture;
+	if (!Fixture.StartAndCutover(
+		*this, TEXT("QuantityIntentRestartProjection")))
+	{
+		return false;
+	}
+	TestTrue(TEXT("Pill stack is selected for the restart projection fixture"),
+		Fixture.Session->SetPreparationMaterial(
+			Fixture.PillOneId, true).IsAccepted());
+	Udemo_mapItemSubsystem* Runtime =
+		Fixture.GameInstance->GetSubsystem<Udemo_mapItemSubsystem>();
+	const Fdemo_mapShanmenRunStartResult Started = Runtime
+		? Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
+			*Fixture.Authority, *Runtime)
+		: Fdemo_mapShanmenRunStartResult();
+	const Fdemo_mapItemInstance* InitialPill = Runtime
+		? Runtime->GetAuthority().FindInstance(Fixture.PillOneId) : nullptr;
+	FShanmenItemAuthoritySnapshot BeforePrepare;
+	if (!Started.IsStarted() || !Started.RunCorrelation.IsValid()
+		|| !InitialPill || InitialPill->Quantity != 3
+		|| !Fixture.Authority->TryCaptureSnapshot(BeforePrepare))
+	{
+		AddError(TEXT("Could not establish the active-Run Quantity fixture."));
+		return false;
+	}
+
+	const FGuid IntentId(0xD3710201, 0, 0, 1);
+	FShanmenItemRunQuantityIntentRequest PrepareRequest;
+	PrepareRequest.Context.RunId = Started.RunCorrelation.ScopeId;
+	PrepareRequest.Context.OwnerId = Started.RunCorrelation.OwnerId;
+	PrepareRequest.Context.RequestId = FGuid(0xD3710202, 0, 0, 1);
+	PrepareRequest.Context.Content = BeforePrepare.Content;
+	PrepareRequest.ActiveRunId = Started.ActiveRunId;
+	PrepareRequest.IntentId = IntentId;
+	PrepareRequest.ItemInstanceId = Fixture.PillOneId;
+	PrepareRequest.Amount = 1;
+	PrepareRequest.ExpectedQuantityBefore = 3;
+	PrepareRequest.PurposeId =
+		TEXT("Test.RunLifecycle.QuantityIntentRestart.r1");
+	const FShanmenItemDurableCommandResult Prepared =
+		Fixture.Authority->PreparePreparedRunQuantityIntentDurable(
+			PrepareRequest);
+
+	FShanmenItemRunQuantityIntentFinalizeRequest FinalizeRequest;
+	FinalizeRequest.Context.RunId = Started.RunCorrelation.ScopeId;
+	FinalizeRequest.Context.OwnerId = Started.RunCorrelation.OwnerId;
+	FinalizeRequest.Context.RequestId = FGuid(0xD3710203, 0, 0, 1);
+	FinalizeRequest.Context.Content = BeforePrepare.Content;
+	FinalizeRequest.ActiveRunId = Started.ActiveRunId;
+	FinalizeRequest.PrepareRequestId = PrepareRequest.Context.RequestId;
+	FinalizeRequest.IntentId = IntentId;
+	FinalizeRequest.ItemInstanceId = Fixture.PillOneId;
+	FinalizeRequest.bCommit = true;
+	const FShanmenItemDurableCommandResult Finalized =
+		Prepared.IsCommandSuccess()
+			? Fixture.Authority->FinalizePreparedRunQuantityIntentDurable(
+				FinalizeRequest)
+			: FShanmenItemDurableCommandResult();
+	TestTrue(TEXT("Committed Quantity intent records one terminal decrement"),
+		Prepared.IsCommandSuccess()
+		&& Finalized.IsCommandSuccess()
+		&& Finalized.Receipt.Operation
+			== EShanmenItemTransactionOperation::FinalizePreparedRunQuantityIntent
+		&& Finalized.Receipt.Phase
+			== EShanmenItemTransactionPhase::Committed
+		&& Finalized.Receipt.ResourceBefore == 3
+		&& Finalized.Receipt.ResourceAfter == 2);
+
+	if (!Fixture.RestartAndBind(*this))
+	{
+		return false;
+	}
+	Runtime = Fixture.GameInstance->GetSubsystem<Udemo_mapItemSubsystem>();
+	const Fdemo_mapShanmenRunStartResult Resumed = Runtime
+		? Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
+			*Fixture.Authority, *Runtime)
+		: Fdemo_mapShanmenRunStartResult();
+	const Fdemo_mapItemInstance* RecoveredPill = Runtime
+		? Runtime->GetAuthority().FindInstance(Fixture.PillOneId) : nullptr;
+	TestTrue(TEXT("Restart projection preserves committed launch consumption"),
+		Resumed.IsStarted()
+		&& Resumed.Status == Edemo_mapShanmenRunLifecycleStatus::Resumed
+		&& RecoveredPill && RecoveredPill->Quantity == 2);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FShanmenPreparedRunInventoryItemUseTest,
 	"Shanmen.0_0_10.Items.RunLifecycle.DurableInventoryUse",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

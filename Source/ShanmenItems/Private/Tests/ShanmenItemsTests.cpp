@@ -248,6 +248,44 @@ namespace
 		return Request;
 	}
 
+	FShanmenItemRunQuantityIntentRequest MakeRunQuantityIntent(
+		uint32 Sequence,
+		const FGuid& ActiveRunId,
+		const FGuid& IntentId,
+		const FGuid& ItemId,
+		int32 Amount,
+		int32 ExpectedQuantityBefore)
+	{
+		FShanmenItemRunQuantityIntentRequest Request;
+		Request.Context = MakeContext(Sequence);
+		Request.ActiveRunId = ActiveRunId;
+		Request.IntentId = IntentId;
+		Request.ItemInstanceId = ItemId;
+		Request.Amount = Amount;
+		Request.ExpectedQuantityBefore = ExpectedQuantityBefore;
+		Request.PurposeId = TEXT("Test.ThrownWeapon.Launch.r1");
+		return Request;
+	}
+
+	FShanmenItemRunQuantityIntentFinalizeRequest
+	MakeRunQuantityIntentFinalize(
+		uint32 Sequence,
+		const FGuid& ActiveRunId,
+		const FGuid& PrepareRequestId,
+		const FGuid& IntentId,
+		const FGuid& ItemId,
+		bool bCommit)
+	{
+		FShanmenItemRunQuantityIntentFinalizeRequest Request;
+		Request.Context = MakeContext(Sequence);
+		Request.ActiveRunId = ActiveRunId;
+		Request.PrepareRequestId = PrepareRequestId;
+		Request.IntentId = IntentId;
+		Request.ItemInstanceId = ItemId;
+		Request.bCommit = bCommit;
+		return Request;
+	}
+
 	FShanmenItemReservationAmendRequest MakeAmend(
 		uint32 Sequence,
 		const FGuid& ReservationId,
@@ -678,6 +716,142 @@ bool FShanmenItemsPreparedRunConsumptionTest::RunTest(const FString&)
 		TerminalRestart.TryLoadSnapshot(Restarted.CaptureSnapshot())
 		&& TerminalRestart.FindItem(DartId)->Quantity == 9
 		&& TerminalRestart.ValidateInvariants());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenItemsPreparedRunQuantityIntentTest,
+	"Shanmen.0_0_10.Items.PreparedRunQuantityIntent",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenItemsPreparedRunQuantityIntentTest::RunTest(const FString&)
+{
+	FShanmenItemRepository Repository;
+	if (!LoadFixture(*this, Repository)) return false;
+
+	const FName RecoverablePurpose =
+		FShanmenItemReservationPlacement::Encode(
+			TEXT("Preparation.RunInventory.O00000000.H02"),
+			ContainerId, 0);
+	const FShanmenItemTransactionReceipt Reserved = Repository.Reserve(
+		MakeReserve(320, DartId, EShanmenItemResourceKind::Quantity, 10,
+			RecoverablePurpose));
+	const FShanmenItemTransactionReceipt Started = Repository.StartPreparedRun(
+		MakeRunStart(321, { Reserved.ReservationId }));
+	if (!Reserved.IsSuccess() || !Started.IsSuccess())
+	{
+		AddError(TEXT("Quantity-intent fixture could not start its Run."));
+		return false;
+	}
+
+	const FGuid CancelIntent(320, 0, 0, 1);
+	const FShanmenItemRunQuantityIntentRequest PrepareCancel =
+		MakeRunQuantityIntent(
+			322, Started.ReservationId, CancelIntent, DartId, 1, 10);
+	const FShanmenItemTransactionReceipt Prepared =
+		Repository.PreparePreparedRunQuantityIntent(PrepareCancel);
+	TestTrue(TEXT("Prepare durably reserves without consuming active-Run balance"),
+		Prepared.IsSuccess()
+		&& Prepared.Operation
+			== EShanmenItemTransactionOperation::PreparePreparedRunQuantityIntent
+		&& Prepared.Phase == EShanmenItemTransactionPhase::Reserved
+		&& Prepared.ReservationId == CancelIntent
+		&& Prepared.ItemInstanceId == DartId
+		&& Prepared.ReservationIds == TArray<FGuid>({ Started.ReservationId })
+		&& Prepared.ResourceBefore == 10
+		&& Prepared.ResourceAfter == 10
+		&& Prepared.AvailableAfter == 9
+		&& Repository.PreparePreparedRunQuantityIntent(PrepareCancel)
+			== Prepared);
+	TestTrue(TEXT("A pending intent fences both another prepare and direct use"),
+		Repository.PreparePreparedRunQuantityIntent(
+			MakeRunQuantityIntent(
+				323, Started.ReservationId,
+				FGuid(320, 0, 0, 2), DartId, 1, 10)).Error
+			== EShanmenItemTransactionError::RunItemIntentConflict
+		&& Repository.ConsumePreparedRunItem(
+			MakeRunConsume(324, Started.ReservationId, DartId, 1, 10)).Error
+			== EShanmenItemTransactionError::RunItemIntentConflict);
+
+	const FShanmenItemRunQuantityIntentFinalizeRequest Cancel =
+		MakeRunQuantityIntentFinalize(
+			325, Started.ReservationId, PrepareCancel.Context.RequestId,
+			CancelIntent, DartId, false);
+	const FShanmenItemTransactionReceipt Cancelled =
+		Repository.FinalizePreparedRunQuantityIntent(Cancel);
+	TestTrue(TEXT("Cancel releases the intent and preserves all ten units"),
+		Cancelled.IsSuccess()
+		&& Cancelled.Phase == EShanmenItemTransactionPhase::Cancelled
+		&& Cancelled.ResourceBefore == 10
+		&& Cancelled.ResourceAfter == 10
+		&& Cancelled.AvailableAfter == 10
+		&& Repository.FinalizePreparedRunQuantityIntent(Cancel) == Cancelled);
+	FShanmenItemRunQuantityIntentFinalizeRequest CancelConflict = Cancel;
+	CancelConflict.bCommit = true;
+	TestTrue(TEXT("One finalize RequestId cannot change its terminal decision"),
+		Repository.FinalizePreparedRunQuantityIntent(CancelConflict).Error
+			== EShanmenItemTransactionError::RequestIdConflict);
+
+	const FShanmenItemTransactionReceipt Direct =
+		Repository.ConsumePreparedRunItem(
+			MakeRunConsume(326, Started.ReservationId, DartId, 1, 10));
+	const FGuid CommitIntent(320, 0, 0, 3);
+	const FShanmenItemRunQuantityIntentRequest PrepareCommit =
+		MakeRunQuantityIntent(
+			327, Started.ReservationId, CommitIntent, DartId, 1, 9);
+	const FShanmenItemTransactionReceipt PreparedCommit =
+		Repository.PreparePreparedRunQuantityIntent(PrepareCommit);
+	const FShanmenItemRunQuantityIntentFinalizeRequest Commit =
+		MakeRunQuantityIntentFinalize(
+			328, Started.ReservationId, PrepareCommit.Context.RequestId,
+			CommitIntent, DartId, true);
+	const FShanmenItemTransactionReceipt Committed =
+		Repository.FinalizePreparedRunQuantityIntent(Commit);
+	TestTrue(TEXT("Committed intent joins the same ordered balance as direct use"),
+		Direct.IsSuccess() && Direct.ResourceAfter == 9
+		&& PreparedCommit.IsSuccess()
+		&& PreparedCommit.ResourceBefore == 9
+		&& Committed.IsSuccess()
+		&& Committed.Phase == EShanmenItemTransactionPhase::Committed
+		&& Committed.ResourceBefore == 9
+		&& Committed.ResourceAfter == 8
+		&& Repository.ValidateInvariants());
+
+	const FGuid PendingIntent(320, 0, 0, 4);
+	const FShanmenItemRunQuantityIntentRequest Pending =
+		MakeRunQuantityIntent(
+			329, Started.ReservationId, PendingIntent, DartId, 1, 8);
+	TestTrue(TEXT("A third launch may prepare at the exact remaining balance"),
+		Repository.PreparePreparedRunQuantityIntent(Pending).IsSuccess());
+	FShanmenItemRunFinalizeRequest BlockedFinalize;
+	BlockedFinalize.Context = MakeContext(330);
+	BlockedFinalize.ActiveRunId = Started.ReservationId;
+	BlockedFinalize.TerminalReason =
+		EShanmenItemRunTerminalReason::Extraction;
+	BlockedFinalize.SecuredOriginals = { Secured(DartId, 8) };
+	TestTrue(TEXT("Run terminal settlement cannot strand a pending action intent"),
+		Repository.FinalizePreparedRun(BlockedFinalize).Error
+			== EShanmenItemTransactionError::RunItemIntentConflict);
+	const FShanmenItemRunQuantityIntentFinalizeRequest CancelPending =
+		MakeRunQuantityIntentFinalize(
+			331, Started.ReservationId, Pending.Context.RequestId,
+			PendingIntent, DartId, false);
+	TestTrue(TEXT("Explicit cancellation reopens terminal settlement"),
+		Repository.FinalizePreparedRunQuantityIntent(CancelPending).IsSuccess());
+	BlockedFinalize.Context = MakeContext(332);
+	const FShanmenItemTransactionReceipt Finalized =
+		Repository.FinalizePreparedRun(BlockedFinalize);
+	TestTrue(TEXT("Extraction restores only the exact eight-unit durable balance"),
+		Finalized.IsSuccess()
+		&& Repository.FindItem(DartId)->Quantity == 8
+		&& Repository.ValidateInvariants());
+
+	FShanmenItemRepository Restarted;
+	TestTrue(TEXT("Prepared, cancelled, and committed intent history survives reload"),
+		Restarted.TryLoadSnapshot(Repository.CaptureSnapshot())
+		&& Restarted.FinalizePreparedRunQuantityIntent(Commit) == Committed
+		&& Restarted.FindItem(DartId)->Quantity == 8
+		&& Restarted.ValidateInvariants());
 	return true;
 }
 

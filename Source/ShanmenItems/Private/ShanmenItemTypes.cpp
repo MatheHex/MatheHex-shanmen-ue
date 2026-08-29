@@ -269,6 +269,26 @@ bool FShanmenItemRunConsumeRequest::IsValid() const
 		&& !PurposeId.IsNone();
 }
 
+bool FShanmenItemRunQuantityIntentRequest::IsValid() const
+{
+	return Context.IsValid()
+		&& ActiveRunId.IsValid()
+		&& IntentId.IsValid()
+		&& ItemInstanceId.IsValid()
+		&& Amount > 0
+		&& ExpectedQuantityBefore >= Amount
+		&& !PurposeId.IsNone();
+}
+
+bool FShanmenItemRunQuantityIntentFinalizeRequest::IsValid() const
+{
+	return Context.IsValid()
+		&& ActiveRunId.IsValid()
+		&& PrepareRequestId.IsValid()
+		&& IntentId.IsValid()
+		&& ItemInstanceId.IsValid();
+}
+
 bool FShanmenItemRunResourceCommitLine::IsValid() const
 {
 	return ReservationId.IsValid() && ItemInstanceId.IsValid();
@@ -569,6 +589,45 @@ bool FShanmenItemTransactionReceipt::IsValid() const
 			&& AvailableAfter == ResourceAfter
 			&& ItemRevision >= 0
 			&& !PurposeId.IsNone();
+	}
+	if (Operation
+		== EShanmenItemTransactionOperation::PreparePreparedRunQuantityIntent)
+	{
+		return Error == EShanmenItemTransactionError::None
+			&& Phase == EShanmenItemTransactionPhase::Reserved
+			&& ReservationId.IsValid()
+			&& ItemInstanceId.IsValid()
+			&& ResourceKind == EShanmenItemResourceKind::Quantity
+			&& Amount > 0
+			&& ResourceBefore >= Amount
+			&& ResourceAfter == ResourceBefore
+			&& AvailableAfter == ResourceBefore - Amount
+			&& ItemRevision >= 0
+			&& !PurposeId.IsNone()
+			&& ReservationIds.Num() == 1
+			&& ReservationIds[0].IsValid();
+	}
+	if (Operation
+		== EShanmenItemTransactionOperation::FinalizePreparedRunQuantityIntent)
+	{
+		const bool bCommitted =
+			Phase == EShanmenItemTransactionPhase::Committed;
+		return Error == EShanmenItemTransactionError::None
+			&& (bCommitted
+				|| Phase == EShanmenItemTransactionPhase::Cancelled)
+			&& ReservationId.IsValid()
+			&& ItemInstanceId.IsValid()
+			&& ResourceKind == EShanmenItemResourceKind::Quantity
+			&& Amount > 0
+			&& ResourceBefore >= Amount
+			&& ResourceAfter
+				== (bCommitted ? ResourceBefore - Amount : ResourceBefore)
+			&& AvailableAfter == ResourceAfter
+			&& ItemRevision >= 0
+			&& !PurposeId.IsNone()
+			&& ReservationIds.Num() == 2
+			&& ReservationIds[0].IsValid()
+			&& ReservationIds[1].IsValid();
 	}
 	if (Operation
 		== EShanmenItemTransactionOperation::CommitPreparedRunResources)
