@@ -703,10 +703,47 @@ bool Fdemo_mapControlledWeaponRunHostOrbitThreatTest::RunTest(
 			== HostLowItemId
 		&& Presence.GetIntents()[0].GetCandidate().TargetEntityId
 			== Projected.Candidate.TargetEntityId);
+	FShanmenControlledWeaponThreatPresenceReceipt RejectedPresence;
 	TestFalse(TEXT("Unknown item cannot borrow another item's presence policy"),
 		Host.TryBuildOrbitThreatPresenceIntents(
-			HostHighItemId, ThreatPolicy, Presence));
-	TestTrue(TEXT("Presence audit leaves the item free to Launch"),
+			HostHighItemId, ThreatPolicy, RejectedPresence));
+
+	FShanmenControlledWeaponThreatPresenceConsumeResult FirstConsume;
+	TestTrue(TEXT("Run Host consumes exact-item presence once"),
+		Host.TryConsumeOrbitThreatPresence(
+			HostLowItemId, Presence, FirstConsume)
+		&& FirstConsume.IsSuccess()
+		&& FirstConsume.GetStatus()
+			== EShanmenControlledWeaponThreatPresenceConsumeStatus::Consumed
+		&& FirstConsume.GetReceipts().Num() == 1
+		&& FirstConsume.GetReceipts()[0].GetIntent().GetSourceItemInstanceId()
+			== HostLowItemId
+		&& FirstConsume.GetReceipts()[0].GetIntent().GetCandidate()
+			.TargetEntityId == Projected.Candidate.TargetEntityId
+		&& Host.NumConsumedThreatPresenceIntents() == 1
+		&& Host.GetThreatPresenceAuthority().GetAuthorityRevision() == 1);
+	FShanmenControlledWeaponThreatPresenceConsumeResult ReplayConsume;
+	TestTrue(TEXT("Run Host exact replay is idempotent"),
+		Host.TryConsumeOrbitThreatPresence(
+			HostLowItemId, Presence, ReplayConsume)
+		&& ReplayConsume.GetStatus()
+			== EShanmenControlledWeaponThreatPresenceConsumeStatus::AlreadyConsumed
+		&& ReplayConsume.GetReceipts()[0].GetAuthorityRevision()
+			== FirstConsume.GetReceipts()[0].GetAuthorityRevision()
+		&& Host.NumConsumedThreatPresenceIntents() == 1);
+	FShanmenControlledWeaponThreatPresenceConsumeResult UnknownConsume;
+	TestFalse(TEXT("Unknown item cannot consume another item's presence"),
+		Host.TryConsumeOrbitThreatPresence(
+			HostHighItemId, Presence, UnknownConsume));
+	FShanmenTargetVitalitySnapshot AfterConsume;
+	check(Fixture.Enemy->TryCaptureCombatVitalitySnapshot(AfterConsume));
+	TestTrue(TEXT("Presence consumption mutates no vitality or impact ledger"),
+		FMath::IsNearlyEqual(
+			Before.CurrentVitality, AfterConsume.CurrentVitality)
+		&& Host.FindController(HostLowItemId)
+		&& Host.FindController(HostLowItemId)->GetSession().GetExecution()
+			.NumAcceptedImpacts() == 0);
+	TestTrue(TEXT("Consumed presence leaves the item free to Launch"),
 		Host.TryLaunch(
 			HostLowItemId, 0, FVector::ForwardVector, Launch));
 	FShanmenWorldHitContext DirectedContext;
@@ -715,6 +752,16 @@ bool Fdemo_mapControlledWeaponRunHostOrbitThreatTest::RunTest(
 		&& DirectedContext.GetHitOrdinal()
 			== ThreatContext.GetHitOrdinal() + 1
 		&& Host.TryEndContactWindow(HostLowItemId));
+	FShanmenControlledWeaponCommandReceipt Recall;
+	FShanmenActionTransitionReceipt Recovery;
+	FShanmenActionTransitionReceipt Completed;
+	TestTrue(TEXT("Last-item retirement clears the Run-scoped authority"),
+		Host.TryRecallAndComplete(
+			HostLowItemId, 1, Recall, Recovery, Completed)
+		&& Host.NumConsumedThreatPresenceIntents() == 1
+		&& Host.TryRemoveTerminal(HostLowItemId)
+		&& Host.IsEmpty()
+		&& Host.NumConsumedThreatPresenceIntents() == 0);
 	return true;
 }
 

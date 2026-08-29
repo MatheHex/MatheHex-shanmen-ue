@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/HitResult.h"
+#include "ShanmenControlledWeaponThreatPresenceAuthority.h"
 #include "demo_mapShanmenControlledWeaponProductController.h"
 
 /** Run-host failure before another physical controlled weapon can be attached. */
@@ -147,7 +148,8 @@ struct Fdemo_mapShanmenControlledWeaponHostInterruptReceipt
  * Stable GUID ordering, rather than attach order or pointer address, controls
  * batch movement and host-wide interruption. Each sword keeps independent
  * commands, contact windows, impact ledger, and terminal lifecycle. The host
- * does not create items or Actors and does not merge their damage identities.
+ * owns one Run-scoped threat-presence consumption authority, but does not
+ * create items or Actors and does not merge their damage identities.
  */
 class Fdemo_mapShanmenControlledWeaponRunHost
 {
@@ -221,6 +223,19 @@ public:
 		const FGuid& ItemInstanceId,
 		const FShanmenControlledWeaponThreatPolicyReceipt& Policy,
 		FShanmenControlledWeaponThreatPresenceReceipt& OutReceipt) const;
+	bool TryConsumeOrbitThreatPresence(
+		const FGuid& ItemInstanceId,
+		const FShanmenControlledWeaponThreatPresenceReceipt& Presence,
+		FShanmenControlledWeaponThreatPresenceConsumeResult& OutResult);
+	int32 NumConsumedThreatPresenceIntents() const
+	{
+		return ThreatPresenceAuthority.NumConsumedIntents();
+	}
+	const FShanmenControlledWeaponThreatPresenceAuthority&
+	GetThreatPresenceAuthority() const
+	{
+		return ThreatPresenceAuthority;
+	}
 
 	/** Preflights every directed sword, then advances each in stable item order. */
 	bool TryAdvanceDirectedInOrder(
@@ -274,4 +289,5 @@ private:
 	FGuid SourceEntityId;
 	TWeakObjectPtr<AActor> SourceActor;
 	TMap<FGuid, Fdemo_mapShanmenControlledWeaponProductController> Controllers;
+	FShanmenControlledWeaponThreatPresenceAuthority ThreatPresenceAuthority;
 };

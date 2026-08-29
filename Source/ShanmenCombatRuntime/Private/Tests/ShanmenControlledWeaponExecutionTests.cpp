@@ -3,6 +3,7 @@
 #include "Misc/AutomationTest.h"
 #include "ShanmenCombatTags.h"
 #include "ShanmenControlledWeaponExecution.h"
+#include "ShanmenControlledWeaponThreatPresenceAuthority.h"
 
 namespace
 {
@@ -128,6 +129,40 @@ namespace
 			OutExecution));
 		check(OutActionRuntime.TryAdvance(
 			EShanmenCombatActionPhase::Startup, OutPhaseReceipt));
+	}
+
+	FShanmenControlledWeaponThreatPresenceReceipt BuildLivingThreatPresence(
+		FShanmenActionOrchestrator& ActionRuntime,
+		FShanmenControlledWeaponExecution& Execution,
+		const TArray<FGuid>& TargetIds)
+	{
+		FShanmenWorldHitContext Context;
+		check(Execution.TryBeginOrbitThreatEmission(
+			ActionRuntime, Context));
+		for (const FGuid& TargetId : TargetIds)
+		{
+			check(Execution.TryAcceptOrbitThreatCandidate(
+				ActionRuntime,
+				MakeControlledCandidate(Context, TargetId)));
+		}
+
+		FShanmenDetectorEmissionReceipt Emission;
+		check(Execution.TryEndOrbitThreatEmission(
+			ActionRuntime, Emission));
+		TArray<FShanmenControlledWeaponThreatTargetEvidence> Evidence;
+		Evidence.Reserve(TargetIds.Num());
+		for (const FGuid& TargetId : TargetIds)
+		{
+			Evidence.Add(MakeThreatEvidence(TargetId, true));
+		}
+
+		FShanmenControlledWeaponThreatPolicyReceipt Policy;
+		check(Execution.TryEvaluateOrbitThreatReceipt(
+			ActionRuntime, Emission, Evidence, Policy));
+		FShanmenControlledWeaponThreatPresenceReceipt Presence;
+		check(Execution.TryBuildOrbitThreatPresenceIntents(
+			ActionRuntime, Policy, Presence));
+		return Presence;
 	}
 
 	bool CommandReceiptsMatch(
@@ -634,6 +669,131 @@ bool FShanmenControlledWeaponOrbitThreatPresenceTest::RunTest(
 	TestFalse(TEXT("An old Orbit policy cannot emit after state transition"),
 		Execution.TryBuildOrbitThreatPresenceIntents(
 			ActionRuntime, FirstPolicy, Rejected));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenControlledWeaponThreatPresenceAuthorityTest,
+	"Shanmen.0_0_10.CombatRuntime.ControlledWeapon.ThreatPresenceAuthority",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenControlledWeaponThreatPresenceAuthorityTest::RunTest(
+	const FString&)
+{
+	FShanmenActionOrchestrator ActionRuntime;
+	FShanmenControlledWeaponExecution Execution;
+	FShanmenActionTransitionReceipt PhaseReceipt;
+	StartActiveControlledWeapon(ActionRuntime, Execution, PhaseReceipt);
+
+	const FShanmenControlledWeaponThreatPresenceReceipt FirstPresence =
+		BuildLivingThreatPresence(
+			ActionRuntime,
+			Execution,
+			{ ControlledTargetB, ControlledTargetA });
+	FShanmenControlledWeaponThreatPresenceAuthority Authority;
+	TestTrue(TEXT("Run-scoped presence authority captures exact ownership"),
+		FShanmenControlledWeaponThreatPresenceAuthority::TryCreate(
+			ControlledRunId,
+			ControlledSourceEntityId,
+			Authority)
+		&& Authority.IsValid()
+		&& Authority.GetAuthorityRevision() == 0
+		&& Authority.NumConsumedIntents() == 0);
+
+	const FShanmenControlledWeaponThreatPresenceConsumeResult First =
+		Authority.Consume(FirstPresence);
+	TestTrue(TEXT("First batch consumes every intent atomically"),
+		First.IsSuccess()
+		&& First.GetStatus()
+			== EShanmenControlledWeaponThreatPresenceConsumeStatus::Consumed
+		&& First.GetAuthorityRevisionBefore() == 0
+		&& First.GetAuthorityRevisionAfter() == 2
+		&& First.GetReceipts().Num() == 2
+		&& First.GetReceipts()[0].GetAuthorityRevision() == 1
+		&& First.GetReceipts()[1].GetAuthorityRevision() == 2
+		&& First.GetReceipts()[0].GetIntent().GetCandidate().TargetEntityId
+			== ControlledTargetA
+		&& First.GetReceipts()[1].GetIntent().GetCandidate().TargetEntityId
+			== ControlledTargetB
+		&& Authority.GetAuthorityRevision() == 2
+		&& Authority.NumConsumedIntents() == 2
+		&& Authority.Contains(
+			First.GetReceipts()[0].GetIntent().GetIntentId()));
+
+	const FShanmenControlledWeaponThreatPresenceConsumeResult Replay =
+		Authority.Consume(FirstPresence);
+	TestTrue(TEXT("Exact replay returns the original audit without mutation"),
+		Replay.IsSuccess()
+		&& Replay.GetStatus()
+			== EShanmenControlledWeaponThreatPresenceConsumeStatus::AlreadyConsumed
+		&& Replay.GetAuthorityRevisionBefore() == 2
+		&& Replay.GetAuthorityRevisionAfter() == 2
+		&& Replay.GetReceipts().Num() == 2
+		&& Replay.GetReceipts()[0].GetAuthorityRevision()
+			== First.GetReceipts()[0].GetAuthorityRevision()
+		&& Replay.GetReceipts()[1].GetAuthorityRevision()
+			== First.GetReceipts()[1].GetAuthorityRevision()
+		&& Authority.NumConsumedIntents() == 2);
+
+	const FShanmenControlledWeaponThreatPresenceReceipt LaterPresence =
+		BuildLivingThreatPresence(
+			ActionRuntime, Execution, { ControlledTargetA });
+	const FShanmenControlledWeaponThreatPresenceConsumeResult Later =
+		Authority.Consume(LaterPresence);
+	TestTrue(TEXT("A later sample advances the authority exactly once"),
+		Later.IsSuccess()
+		&& Later.GetStatus()
+			== EShanmenControlledWeaponThreatPresenceConsumeStatus::Consumed
+		&& Later.GetAuthorityRevisionBefore() == 2
+		&& Later.GetAuthorityRevisionAfter() == 3
+		&& Later.GetReceipts().Num() == 1
+		&& Later.GetReceipts()[0].GetAuthorityRevision() == 3
+		&& Authority.NumConsumedIntents() == 3);
+
+	const FShanmenControlledWeaponThreatPresenceReceipt EmptyPresence =
+		BuildLivingThreatPresence(ActionRuntime, Execution, {});
+	const FShanmenControlledWeaponThreatPresenceConsumeResult Empty =
+		Authority.Consume(EmptyPresence);
+	TestTrue(TEXT("A completed empty sample is an explicit no-op"),
+		Empty.IsSuccess()
+		&& Empty.GetStatus()
+			== EShanmenControlledWeaponThreatPresenceConsumeStatus::NoOp
+		&& Empty.GetAuthorityRevisionBefore() == 3
+		&& Empty.GetAuthorityRevisionAfter() == 3
+		&& Empty.GetReceipts().IsEmpty()
+		&& Authority.NumConsumedIntents() == 3);
+
+	FShanmenControlledWeaponThreatPresenceAuthority ForeignRun;
+	check(FShanmenControlledWeaponThreatPresenceAuthority::TryCreate(
+		FGuid(0x56F00001, 0, 0, 1),
+		ControlledSourceEntityId,
+		ForeignRun));
+	const FShanmenControlledWeaponThreatPresenceConsumeResult RunRejected =
+		ForeignRun.Consume(FirstPresence);
+	TestTrue(TEXT("A foreign Run rejects the complete batch without mutation"),
+		RunRejected.IsValid()
+		&& !RunRejected.IsSuccess()
+		&& RunRejected.GetError()
+			== EShanmenControlledWeaponThreatPresenceConsumeError::RunMismatch
+		&& ForeignRun.NumConsumedIntents() == 0);
+
+	FShanmenControlledWeaponThreatPresenceAuthority ForeignSource;
+	check(FShanmenControlledWeaponThreatPresenceAuthority::TryCreate(
+		ControlledRunId,
+		FGuid(0x56F00002, 0, 0, 1),
+		ForeignSource));
+	const FShanmenControlledWeaponThreatPresenceConsumeResult SourceRejected =
+		ForeignSource.Consume(FirstPresence);
+	TestTrue(TEXT("A foreign source rejects the batch without mutation"),
+		SourceRejected.IsValid()
+		&& !SourceRejected.IsSuccess()
+		&& SourceRejected.GetError()
+			== EShanmenControlledWeaponThreatPresenceConsumeError::SourceMismatch
+		&& ForeignSource.NumConsumedIntents() == 0);
+	TestTrue(TEXT("Consumption remains a zero-effect audit boundary"),
+		Execution.NumAcceptedImpacts() == 0
+		&& Execution.GetState()
+			== EShanmenControlledWeaponState::Orbiting);
 	return true;
 }
 

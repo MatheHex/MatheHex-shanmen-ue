@@ -181,6 +181,16 @@ Fdemo_mapShanmenControlledWeaponRunHost::TryAttach(
 		Candidate.RunId = Coordinator.GetRunId();
 		Candidate.SourceEntityId = Coordinator.GetPlayerEntityId();
 		Candidate.SourceActor = RequestedSourceActor;
+		if (!FShanmenControlledWeaponThreatPresenceAuthority::TryCreate(
+				Candidate.RunId,
+				Candidate.SourceEntityId,
+				Candidate.ThreatPresenceAuthority))
+		{
+			Result.Error =
+				Edemo_mapShanmenControlledWeaponHostAttachError::
+				ProductStartRejected;
+			return Result;
+		}
 	}
 	Candidate.Controllers.Add(Result.ItemInstanceId, MoveTemp(Controller));
 	if (!Candidate.IsValid())
@@ -201,7 +211,10 @@ bool Fdemo_mapShanmenControlledWeaponRunHost::IsValid() const
 	if (Controllers.IsEmpty()
 		|| !RunId.IsValid()
 		|| !SourceEntityId.IsValid()
-		|| !BoundSourceActor)
+		|| !BoundSourceActor
+		|| !ThreatPresenceAuthority.IsValid()
+		|| ThreatPresenceAuthority.GetRunId() != RunId
+		|| ThreatPresenceAuthority.GetSourceEntityId() != SourceEntityId)
 	{
 		return false;
 	}
@@ -509,6 +522,53 @@ TryBuildOrbitThreatPresenceIntents(
 	return Controller
 		&& Controller->TryBuildOrbitThreatPresenceIntents(
 			Policy, OutReceipt);
+}
+
+bool Fdemo_mapShanmenControlledWeaponRunHost::
+TryConsumeOrbitThreatPresence(
+	const FGuid& ItemInstanceId,
+	const FShanmenControlledWeaponThreatPresenceReceipt& Presence,
+	FShanmenControlledWeaponThreatPresenceConsumeResult& OutResult)
+{
+	OutResult = FShanmenControlledWeaponThreatPresenceConsumeResult();
+	const Fdemo_mapShanmenControlledWeaponProductController* Controller =
+		IsValid() ? Controllers.Find(ItemInstanceId) : nullptr;
+	if (!Controller || !Presence.IsValid())
+	{
+		return false;
+	}
+
+	const FShanmenCombatActionSnapshot& PresenceAction =
+		Presence.GetPolicy().GetEmission().GetContext().GetAction();
+	const FShanmenCombatActionSnapshot& ControllerAction =
+		Controller->GetSession().GetActionRuntime().GetAction();
+	if (PresenceAction.GetRunId() != RunId
+		|| PresenceAction.GetOwnerId() != ControllerAction.GetOwnerId()
+		|| PresenceAction.GetActivationId()
+			!= ControllerAction.GetActivationId()
+		|| PresenceAction.GetSourceEntityId() != SourceEntityId
+		|| PresenceAction.GetSourceItemInstanceId() != ItemInstanceId
+		|| PresenceAction.GetActionDefinitionId()
+			!= ControllerAction.GetActionDefinitionId()
+		|| PresenceAction.GetContent().Version
+			!= ControllerAction.GetContent().Version
+		|| PresenceAction.GetContent().Digest
+			!= ControllerAction.GetContent().Digest
+		|| PresenceAction.GetSourceTags()
+			!= ControllerAction.GetSourceTags())
+	{
+		return false;
+	}
+
+	FShanmenControlledWeaponThreatPresenceAuthority Candidate =
+		ThreatPresenceAuthority;
+	OutResult = Candidate.Consume(Presence);
+	if (!OutResult.IsSuccess() || !Candidate.IsValid())
+	{
+		return false;
+	}
+	ThreatPresenceAuthority = MoveTemp(Candidate);
+	return IsValid();
 }
 
 bool Fdemo_mapShanmenControlledWeaponRunHost::TryAdvanceDirectedInOrder(
