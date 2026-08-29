@@ -14,6 +14,7 @@
 #include "demo_mapShanmenControlledWeaponRunCommandRouter.h"
 #include "demo_mapShanmenControlledWeaponRunLifecycle.h"
 #include "demo_mapShanmenControlledWeaponThreatSampleRouter.h"
+#include "demo_mapShanmenThrownWeaponProductLifecycle.h"
 #include "demo_mapShanmenRunCorrelation.h"
 #include "demo_mapGameMode.generated.h"
 
@@ -148,6 +149,20 @@ public:
 	{
 		return ControlledWeaponThreatSampleRouter;
 	}
+	/** Routes one already-captured, device-independent hotbar trajectory. */
+	Fdemo_mapShanmenThrownWeaponSessionResult RouteThrownWeaponHotbarIntent(
+		const Fdemo_mapShanmenThrownWeaponHotbarIntent& Intent);
+	/** Retries only the durable cancellation associated with this exact intent. */
+	Fdemo_mapShanmenThrownWeaponSessionResult
+	RecoverThrownWeaponCancellation(
+		const Fdemo_mapShanmenThrownWeaponHotbarIntent& Intent);
+	bool InterruptThrownWeaponFlight();
+	bool ExpireThrownWeaponRange();
+	const Fdemo_mapShanmenThrownWeaponProductLifecycle&
+	GetThrownWeaponProductLifecycle() const
+	{
+		return ThrownWeaponProductLifecycle;
+	}
 	/** M01 enemy attacks never fall through to legacy damage when this is true. */
 	bool ShouldUseM01EnemyAttackProductPath() const;
 	Fdemo_mapM01EnemyAttackExecutionResult
@@ -228,7 +243,7 @@ private:
 	bool UsesPersistedEncounterMarkers() const;
 	bool InitializeV3Progression(APawn* PlayerPawn, Udemo_mapItemSubsystem* Items);
 	bool TryActivateCombatRun(APawn* PlayerPawn, FString& OutDiagnostic);
-	bool ReleaseControlledWeaponCombatRun(const TCHAR* Context);
+	bool ReleaseCombatProductRun(const TCHAR* Context);
 	void PrepareV2CNavigation();
 	void SpawnExit(APawn* PlayerPawn, const FVector& Forward);
 	void SpawnEnemy(APawn* PlayerPawn, const FVector& Forward, const FVector& Right);
@@ -376,6 +391,8 @@ private:
 		ControlledWeaponRunCommandRouter;
 	Fdemo_mapShanmenControlledWeaponThreatSampleRouter
 		ControlledWeaponThreatSampleRouter;
+	Fdemo_mapShanmenThrownWeaponProductLifecycle
+		ThrownWeaponProductLifecycle;
 	TArray<TWeakObjectPtr<Ademo_mapM01ExtractionZone>> M01ExtractionZones;
 	TArray<TWeakObjectPtr<AActor>> M01EnemyActors;
 	TWeakObjectPtr<Ademo_mapM01BossCharacter> M01Boss;

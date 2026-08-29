@@ -194,6 +194,12 @@ try
         -Logs @($Full, $ItemUse)
 
     Invoke-ExpectedPass `
+        -Name 'thrown weapon product lifecycle maps every owned authority seam' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenThrownWeaponProductLifecycle.cpp') `
+        -Logs @($Full, $ItemUse)
+
+    Invoke-ExpectedPass `
         -Name 'canonical item catalog requires every direct product consumer' `
         -Paths @(
             'Source/demo_map/demo_mapItemDefinitions.cpp',
@@ -280,13 +286,20 @@ try
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
+        -Name 'thrown product lifecycle requires legacy combat snapshot evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenThrownWeaponProductLifecycle.cpp') `
+        -Logs @($Full) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
         -Name 'canonical item catalog cannot use new-module evidence alone' `
         -Paths @(
             'Source/demo_map/demo_mapItemDefinitions.cpp') `
         -Logs @($Full) `
         -ExpectedText 'missing required groups'
 
-    Write-Output 'SELF_TEST: PASS 26/26'
+    Write-Output 'SELF_TEST: PASS 28/28'
 }
 finally
 {

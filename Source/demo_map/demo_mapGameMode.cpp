@@ -33,6 +33,8 @@
 #include "demo_mapM01ArtProp.h"
 #include "demo_mapM01EnemyIdentityComponent.h"
 #include "demo_mapM01EnemyTypes.h"
+#include "demo_mapShanmenItemAuthoritySubsystem.h"
+#include "demo_mapShanmenThrownWeaponProjectile.h"
 #include "demo_mapLootChest.h"
 #include "demo_mapCorpseContainerActor.h"
 #include "Algo/AllOf.h"
@@ -507,6 +509,34 @@ Ademo_mapGameMode::AdvanceControlledWeaponOrbitFrame(float DeltaSeconds)
 	return ControlledWeaponRunHost.AdvanceOrbitingFrame(DeltaSeconds);
 }
 
+Fdemo_mapShanmenThrownWeaponSessionResult
+Ademo_mapGameMode::RouteThrownWeaponHotbarIntent(
+	const Fdemo_mapShanmenThrownWeaponHotbarIntent& Intent)
+{
+	return ThrownWeaponProductLifecycle.TrySubmitHotbar(
+		GetWorld(),
+		Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+		CombatRunCoordinator,
+		Intent);
+}
+
+Fdemo_mapShanmenThrownWeaponSessionResult
+Ademo_mapGameMode::RecoverThrownWeaponCancellation(
+	const Fdemo_mapShanmenThrownWeaponHotbarIntent& Intent)
+{
+	return ThrownWeaponProductLifecycle.TryRecoverCancellation(Intent);
+}
+
+bool Ademo_mapGameMode::InterruptThrownWeaponFlight()
+{
+	return ThrownWeaponProductLifecycle.TryInterruptFlight();
+}
+
+bool Ademo_mapGameMode::ExpireThrownWeaponRange()
+{
+	return ThrownWeaponProductLifecycle.TryExpireRange();
+}
+
 bool Ademo_mapGameMode::ShouldUseM01EnemyAttackProductPath() const
 {
 	// M01 owns this routing decision even while the Run is still preparing:
@@ -798,7 +828,7 @@ void Ademo_mapGameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)
 			Target->OnDestroyed.RemoveDynamic(this, &Ademo_mapGameMode::HandleTrainingTargetDestroyed);
 		}
 	}
-	ReleaseControlledWeaponCombatRun(TEXT("EndPlay"));
+	ReleaseCombatProductRun(TEXT("EndPlay"));
 	DestroyM01EnemyContent();
 	DestroyM01ExtractionFoundation();
 	Super::EndPlay(EndPlayReason);
@@ -971,10 +1001,11 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 	OutDiagnostic.Reset();
 	if (!ControlledWeaponRunHost.IsEmpty()
 		|| !ControlledWeaponRunCommandRouter.IsEmpty()
-		|| !ControlledWeaponThreatSampleRouter.IsEmpty())
+		|| !ControlledWeaponThreatSampleRouter.IsEmpty()
+		|| !ThrownWeaponProductLifecycle.IsEmpty())
 	{
 		OutDiagnostic =
-			TEXT("Player combat Run binding rejected stale controlled-weapon state.");
+			TEXT("Player combat Run binding rejected stale product-lifecycle state.");
 		return false;
 	}
 	if (!PlayerPawn || !PlayerItemSubsystem.IsValid())
@@ -1030,20 +1061,54 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 			ReleaseDiagnostic);
 		return false;
 	}
+	if (UGameInstance* GameInstance = PlayerPawn->GetGameInstance())
+	{
+		if (Udemo_mapShanmenItemAuthoritySubsystem* Authority =
+			GameInstance->GetSubsystem<
+				Udemo_mapShanmenItemAuthoritySubsystem>();
+			Authority
+			&& Authority->GetLifecycleState()
+				== Edemo_mapShanmenItemAuthorityLifecycleState::Ready
+			&& !ThrownWeaponProductLifecycle.TryBegin(
+				*Authority,
+				*PlayerPawn,
+				CombatRunCoordinator,
+				OutDiagnostic))
+		{
+			FString ReleaseDiagnostic;
+			CombatRunCoordinator.TryEndRun(
+				ActiveRunId,
+				ReleaseDiagnostic);
+			return false;
+		}
+	}
 	UE_LOG(Logdemo_map, Log,
-		TEXT("0_0_10_COMBAT_RUN Event=RunBound RunId=%s PlayerEntityId=%s M01Entities=%d M01VitalityHosts=%d"),
+		TEXT("0_0_10_COMBAT_RUN Event=RunBound RunId=%s PlayerEntityId=%s M01Entities=%d M01VitalityHosts=%d ThrownWeaponLifecycle=%d"),
 		*ActiveRunId.ToString(EGuidFormats::DigitsWithHyphens),
 		*CombatRunCoordinator.GetPlayerEntityId().ToString(
 			EGuidFormats::DigitsWithHyphens),
 		CombatRunCoordinator.NumRegisteredM01Enemies(),
-		CombatRunCoordinator.NumVitalityBoundM01Enemies());
+		CombatRunCoordinator.NumVitalityBoundM01Enemies(),
+		ThrownWeaponProductLifecycle.IsActive() ? 1 : 0);
 	return true;
 }
 
-bool Ademo_mapGameMode::ReleaseControlledWeaponCombatRun(
+bool Ademo_mapGameMode::ReleaseCombatProductRun(
 	const TCHAR* Context)
 {
 	const TCHAR* SafeContext = Context ? Context : TEXT("Unknown");
+	const int32 ThrownSelectionCount =
+		ThrownWeaponProductLifecycle.NumCapturedSelections();
+	FString ThrownDiagnostic;
+	if (!ThrownWeaponProductLifecycle.TryEnd(ThrownDiagnostic))
+	{
+		UE_LOG(Logdemo_map, Error,
+			TEXT("0_0_10_COMBAT_RUN Event=ThrownWeaponRunReleaseRejected Context=%s CapturedSelections=%d Diagnostic=%s"),
+			SafeContext,
+			ThrownSelectionCount,
+			*ThrownDiagnostic);
+		return false;
+	}
 	if (!CombatRunCoordinator.IsActive())
 	{
 		if (ControlledWeaponRunHost.IsEmpty()
@@ -1078,13 +1143,14 @@ bool Ademo_mapGameMode::ReleaseControlledWeaponCombatRun(
 		ControlledWeaponRunCommandRouter.Reset();
 		ControlledWeaponThreatSampleRouter.Reset();
 		UE_LOG(Logdemo_map, Log,
-			TEXT("0_0_10_COMBAT_RUN Event=RunReleased RunId=%s Context=%s ControlledBound=%d ControlledInterrupted=%d RoutedIntents=%d ThreatSamples=%lld"),
+			TEXT("0_0_10_COMBAT_RUN Event=RunReleased RunId=%s Context=%s ControlledBound=%d ControlledInterrupted=%d RoutedIntents=%d ThreatSamples=%lld ThrownSelections=%d"),
 			*Result.RunId.ToString(EGuidFormats::DigitsWithHyphens),
 			SafeContext,
 			Result.BoundItemCount,
 			Result.InterruptedItemCount,
 			RoutedIntentCount,
-			static_cast<long long>(ThreatSampleCount));
+			static_cast<long long>(ThreatSampleCount),
+			ThrownSelectionCount);
 		return true;
 	}
 
@@ -1210,7 +1276,7 @@ void Ademo_mapGameMode::BindV3EnemyProjections(
 
 void Ademo_mapGameMode::DeactivateV3MissionContentForPreparation()
 {
-	ReleaseControlledWeaponCombatRun(TEXT("PreparationDeactivation"));
+	ReleaseCombatProductRun(TEXT("PreparationDeactivation"));
 	DestroyM01EnemyContent();
 	DestroyM01ExtractionFoundation();
 	if (IsM01ExpeditionMap())
