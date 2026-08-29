@@ -939,7 +939,10 @@ bool Fdemo_mapShanmenControlledWeaponRunHost::PresenceMatchesController(
 {
 	const Fdemo_mapShanmenControlledWeaponProductController* Controller =
 		IsValid() ? Controllers.Find(ItemInstanceId) : nullptr;
-	if (!Controller || !Presence.IsValid())
+	if (!Controller
+		|| !Controller->IsOrbiting()
+		|| Controller->HasActiveContactWindow()
+		|| !Presence.IsValid())
 	{
 		return false;
 	}
@@ -948,7 +951,10 @@ bool Fdemo_mapShanmenControlledWeaponRunHost::PresenceMatchesController(
 		Presence.GetPolicy().GetEmission().GetContext().GetAction();
 	const FShanmenCombatActionSnapshot& ControllerAction =
 		Controller->GetSession().GetActionRuntime().GetAction();
-	return PresenceAction.GetRunId() == RunId
+	return Controller->GetSession().GetExecution()
+			.IsLatestCompletedOrbitThreatEmission(
+				Presence.GetPolicy().GetEmission())
+		&& PresenceAction.GetRunId() == RunId
 		&& PresenceAction.GetOwnerId() == ControllerAction.GetOwnerId()
 		&& PresenceAction.GetActivationId()
 			== ControllerAction.GetActivationId()

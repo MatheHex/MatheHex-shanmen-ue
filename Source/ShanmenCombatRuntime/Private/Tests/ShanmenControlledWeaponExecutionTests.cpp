@@ -529,14 +529,21 @@ bool FShanmenControlledWeaponOrbitThreatPolicyTest::RunTest(const FString&)
 	FShanmenWorldHitContext EmptyContext;
 	FShanmenDetectorEmissionReceipt EmptyEmission;
 	FShanmenControlledWeaponThreatPolicyReceipt EmptyPolicy;
+	TestTrue(TEXT("A newer Orbit sample opens after policy replay"),
+		Execution.TryBeginOrbitThreatEmission(ActionRuntime, EmptyContext));
+	TestFalse(TEXT("An open newer sample fences prior policy evaluation"),
+		Execution.TryEvaluateOrbitThreatReceipt(
+			ActionRuntime, Emission, Evidence, Rejected));
 	TestTrue(TEXT("A completed no-target sample remains explicit evidence"),
-		Execution.TryBeginOrbitThreatEmission(ActionRuntime, EmptyContext)
-		&& Execution.TryEndOrbitThreatEmission(ActionRuntime, EmptyEmission)
+		Execution.TryEndOrbitThreatEmission(ActionRuntime, EmptyEmission)
 		&& Execution.TryEvaluateOrbitThreatReceipt(
 			ActionRuntime, EmptyEmission, {}, EmptyPolicy)
 		&& EmptyPolicy.IsValid()
 		&& EmptyPolicy.GetTargets().IsEmpty()
 		&& EmptyPolicy.NumAcceptedTargets() == 0);
+	TestFalse(TEXT("A completed newer sample expires prior policy evaluation"),
+		Execution.TryEvaluateOrbitThreatReceipt(
+			ActionRuntime, Emission, Evidence, Rejected));
 
 	FShanmenControlledWeaponCommandReceipt Launch;
 	TestTrue(TEXT("Completed policy does not prevent the later Launch command"),
@@ -622,14 +629,19 @@ bool FShanmenControlledWeaponOrbitThreatPresenceTest::RunTest(
 	FShanmenDetectorEmissionReceipt SecondEmission;
 	FShanmenControlledWeaponThreatPolicyReceipt SecondPolicy;
 	FShanmenControlledWeaponThreatPresenceReceipt SecondPresence;
+	FShanmenControlledWeaponThreatPresenceReceipt Rejected;
 	TestTrue(TEXT("A later explicit sample receives a distinct intent identity"),
 		Execution.TryBeginOrbitThreatEmission(ActionRuntime, SecondContext)
 		&& Execution.TryAcceptOrbitThreatCandidate(
 			ActionRuntime,
 			MakeControlledCandidate(SecondContext, ControlledTargetA))
 		&& Execution.TryEndOrbitThreatEmission(
-			ActionRuntime, SecondEmission)
-		&& Execution.TryEvaluateOrbitThreatReceipt(
+			ActionRuntime, SecondEmission));
+	TestFalse(TEXT("A completed newer sample expires an older policy"),
+		Execution.TryBuildOrbitThreatPresenceIntents(
+			ActionRuntime, FirstPolicy, Rejected));
+	TestTrue(TEXT("Only the latest completed policy can emit presence"),
+		Execution.TryEvaluateOrbitThreatReceipt(
 			ActionRuntime,
 			SecondEmission,
 			{ MakeThreatEvidence(ControlledTargetA, true) },
@@ -665,7 +677,6 @@ bool FShanmenControlledWeaponOrbitThreatPresenceTest::RunTest(
 			EShanmenControlledWeaponCommandKind::Launch,
 			FVector::ForwardVector,
 			Launch));
-	FShanmenControlledWeaponThreatPresenceReceipt Rejected;
 	TestFalse(TEXT("An old Orbit policy cannot emit after state transition"),
 		Execution.TryBuildOrbitThreatPresenceIntents(
 			ActionRuntime, FirstPolicy, Rejected));

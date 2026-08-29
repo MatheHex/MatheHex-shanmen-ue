@@ -564,6 +564,27 @@ bool FShanmenControlledWeaponExecution::TryEndOrbitThreatEmission(
 	return TryEndOrbitThreatEmission(ActionRuntime, Ignored);
 }
 
+bool FShanmenControlledWeaponExecution::
+IsLatestCompletedOrbitThreatEmission(
+	const FShanmenDetectorEmissionReceipt& Emission) const
+{
+	if (!IsValid()
+		|| State != EShanmenControlledWeaponState::Orbiting
+		|| EmissionSession.IsEmissionActive()
+		|| !Emission.IsValid())
+	{
+		return false;
+	}
+
+	const FShanmenWorldHitContext& Context = Emission.GetContext();
+	return Context.GetDetectorKind()
+			== EShanmenHitDetectorKind::ControlledObject
+		&& Context.GetDetectorId() == Definition.GetDetectorId()
+		&& ActionsMatch(Context.GetAction(), Action)
+		&& static_cast<int64>(Context.GetHitOrdinal()) + 1
+			== EmissionSession.GetNextEmissionOrdinal();
+}
+
 bool FShanmenControlledWeaponExecution::TryEvaluateOrbitThreatReceipt(
 	const FShanmenActionOrchestrator& ActionRuntime,
 	const FShanmenDetectorEmissionReceipt& Emission,
@@ -572,28 +593,8 @@ bool FShanmenControlledWeaponExecution::TryEvaluateOrbitThreatReceipt(
 {
 	OutReceipt = FShanmenControlledWeaponThreatPolicyReceipt();
 	if (!MatchesActionRuntime(ActionRuntime)
-		|| State != EShanmenControlledWeaponState::Orbiting
-		|| EmissionSession.IsEmissionActive()
-		|| !Emission.IsValid()
-		|| Emission.GetContext().GetDetectorKind()
-			!= EShanmenHitDetectorKind::ControlledObject
-		|| Emission.GetContext().GetDetectorId() != Definition.GetDetectorId()
-		|| Emission.GetContext().GetAction().GetRunId() != Action.GetRunId()
-		|| Emission.GetContext().GetAction().GetOwnerId() != Action.GetOwnerId()
-		|| Emission.GetContext().GetAction().GetActivationId()
-			!= Action.GetActivationId()
-		|| Emission.GetContext().GetAction().GetSourceEntityId()
-			!= Action.GetSourceEntityId()
-		|| Emission.GetContext().GetAction().GetSourceItemInstanceId()
-			!= Action.GetSourceItemInstanceId()
-		|| Emission.GetContext().GetAction().GetActionDefinitionId()
-			!= Action.GetActionDefinitionId()
-		|| Emission.GetContext().GetAction().GetContent().Version
-			!= Action.GetContent().Version
-		|| Emission.GetContext().GetAction().GetContent().Digest
-			!= Action.GetContent().Digest
-		|| Emission.GetContext().GetAction().GetSourceTags()
-			!= Action.GetSourceTags()
+		|| !ActionRuntime.CanEmitCandidates()
+		|| !IsLatestCompletedOrbitThreatEmission(Emission)
 		|| TargetEvidence.Num() != Emission.GetCandidates().Num())
 	{
 		return false;
@@ -652,15 +653,8 @@ bool FShanmenControlledWeaponExecution::TryBuildOrbitThreatPresenceIntents(
 	OutReceipt = FShanmenControlledWeaponThreatPresenceReceipt();
 	if (!MatchesActionRuntime(ActionRuntime)
 		|| !ActionRuntime.CanEmitCandidates()
-		|| State != EShanmenControlledWeaponState::Orbiting
-		|| EmissionSession.IsEmissionActive()
 		|| !Policy.IsValid()
-		|| Policy.GetEmission().GetContext().GetDetectorKind()
-			!= EShanmenHitDetectorKind::ControlledObject
-		|| Policy.GetEmission().GetContext().GetDetectorId()
-			!= Definition.GetDetectorId()
-		|| !ActionsMatch(
-			Policy.GetEmission().GetContext().GetAction(), Action)
+		|| !IsLatestCompletedOrbitThreatEmission(Policy.GetEmission())
 		|| Policy.GetRequiredTargetTags()
 			!= Definition.GetRequiredTargetTags()
 		|| Policy.RejectsSelf() != Definition.RejectsSelf())

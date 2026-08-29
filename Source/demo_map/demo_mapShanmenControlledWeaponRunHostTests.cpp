@@ -822,6 +822,12 @@ bool Fdemo_mapControlledWeaponRunHostOrbitThreatTest::RunTest(
 	TestTrue(TEXT("Consumed presence leaves the item free to Launch"),
 		Host.TryLaunch(
 			HostLowItemId, 0, FVector::ForwardVector, Launch));
+	FShanmenControlledWeaponThreatPresenceConsumeResult StateRejected;
+	TestFalse(TEXT("A Directed item cannot replay its latest Orbit presence"),
+		Host.TryConsumeOrbitThreatPresence(
+			HostLowItemId,
+			EmptyFinalized.GetPresence(),
+			StateRejected));
 	FShanmenWorldHitContext DirectedContext;
 	TestTrue(TEXT("Host-directed window follows the same detector ordinal"),
 		Host.TryBeginContactWindow(HostLowItemId, DirectedContext)
@@ -918,11 +924,24 @@ bool Fdemo_mapControlledWeaponRunHostThreatWatermarkTest::RunTest(
 	FShanmenWorldHitContext LowLaterContext;
 	FShanmenDetectorEmissionReceipt LowLaterEmission;
 	Fdemo_mapShanmenControlledWeaponThreatFinalizationResult LowLater;
-	TestTrue(TEXT("Only the low-item watermark advances on its next sample"),
-		Host.TryBeginOrbitThreatWindow(HostLowItemId, LowLaterContext)
-		&& Host.TryEndOrbitThreatWindow(
-			HostLowItemId, LowLaterEmission)
-		&& Host.TryFinalizeOrbitThreatSample(
+	FShanmenControlledWeaponThreatPresenceConsumeResult StaleConsumption;
+	TestTrue(TEXT("The low item opens its next explicit sample"),
+		Host.TryBeginOrbitThreatWindow(HostLowItemId, LowLaterContext));
+	TestFalse(TEXT("An open newer sample fences direct prior-presence replay"),
+		Host.TryConsumeOrbitThreatPresence(
+			HostLowItemId,
+			LowFirst.GetPresence(),
+			StaleConsumption));
+	TestTrue(TEXT("The low item closes its newer geometry sample"),
+		Host.TryEndOrbitThreatWindow(
+			HostLowItemId, LowLaterEmission));
+	TestFalse(TEXT("Completed newer geometry expires prior presence immediately"),
+		Host.TryConsumeOrbitThreatPresence(
+			HostLowItemId,
+			LowFirst.GetPresence(),
+			StaleConsumption));
+	TestTrue(TEXT("Only the low-item watermark advances on finalization"),
+		Host.TryFinalizeOrbitThreatSample(
 			HostLowItemId,
 			Fixture.Coordinator,
 			LowLaterEmission,

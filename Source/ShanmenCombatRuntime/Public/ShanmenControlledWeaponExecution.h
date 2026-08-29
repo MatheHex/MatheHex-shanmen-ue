@@ -365,6 +365,9 @@ public:
 		FShanmenDetectorEmissionReceipt& OutReceipt);
 	bool TryEndOrbitThreatEmission(
 		const FShanmenActionOrchestrator& ActionRuntime);
+	/** True only for this activation's most recently completed Orbit sample. */
+	bool IsLatestCompletedOrbitThreatEmission(
+		const FShanmenDetectorEmissionReceipt& Emission) const;
 	/** Applies only the already-frozen definition target policy to completed geometry. */
 	bool TryEvaluateOrbitThreatReceipt(
 		const FShanmenActionOrchestrator& ActionRuntime,
