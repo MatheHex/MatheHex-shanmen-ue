@@ -1,0 +1,570 @@
+#if WITH_DEV_AUTOMATION_TESTS && !UE_BUILD_SHIPPING
+
+#include "demo_mapShanmenThrownWeaponWorldAdapter.h"
+
+#include "Components/BoxComponent.h"
+#include "Components/SphereComponent.h"
+#include "Engine/Engine.h"
+#include "Engine/GameInstance.h"
+#include "Engine/HitResult.h"
+#include "GameFramework/Pawn.h"
+#include "GameFramework/ProjectileMovementComponent.h"
+#include "Misc/AutomationTest.h"
+#include "ShanmenCombatTags.h"
+#include "demo_mapCombatVitalityHost.h"
+#include "demo_mapEnemyCharacter.h"
+#include "demo_mapM01EnemyIdentityComponent.h"
+#include "demo_mapM01EnemyTypes.h"
+#include "demo_mapPlayerHealthComponent.h"
+#include "demo_mapProfilePreparationTypes.h"
+#include "demo_mapShanmenItemAuthoritySubsystem.h"
+
+namespace
+{
+	const FGuid WorldRunId(0xD3720001, 0, 0, 1);
+	const FGuid WorldOwnerId(0xD3720002, 0, 0, 1);
+	const FGuid WorldScopeId(0xD3720003, 0, 0, 1);
+	const FGuid WorldItemId(0xD3720004, 0, 0, 1);
+	const FName LaunchPurpose(TEXT("Shanmen.ThrownWeapon.StraightLaunch.r1"));
+
+	const Fdemo_mapM01EnemyDefinition* FindMeleeDefinition()
+	{
+		for (const Fdemo_mapM01EnemyDefinition& Definition :
+			Fdemo_mapM01EnemyConfig::GetDefinitions())
+		{
+			if (Definition.Archetype
+				== Edemo_mapM01EnemyArchetype::StandardSkirmisher)
+			{
+				return &Definition;
+			}
+		}
+		return nullptr;
+	}
+
+	Fdemo_mapEnemyEncounterIdentity MakeEncounterIdentity(
+		const Fdemo_mapM01EnemyDefinition& Definition)
+	{
+		Fdemo_mapEnemyEncounterIdentity Identity;
+		Identity.EncounterId = Definition.EncounterId;
+		Identity.RouteId = Definition.RouteId;
+		Identity.SpawnMarkerId = Definition.SpawnMarkerId;
+		Identity.LootTableId = Definition.CorpseIdentity;
+		Identity.SkillProfileId = Definition.SkillProfileId;
+		return Identity;
+	}
+
+	struct FThrownWorldFixture
+	{
+		APawn* Pawn = nullptr;
+		UBoxComponent* PlayerRoot = nullptr;
+		Udemo_mapPlayerHealthComponent* PlayerHealth = nullptr;
+		Ademo_mapEnemyCharacter* Enemy = nullptr;
+		Udemo_mapM01EnemyIdentityComponent* EnemyIdentity = nullptr;
+		Fdemo_mapCombatRunCoordinator Coordinator;
+		FString Diagnostic;
+		bool bReady = false;
+
+		FThrownWorldFixture()
+		{
+			Pawn = NewObject<APawn>(GetTransientPackage());
+			PlayerRoot = Pawn
+				? NewObject<UBoxComponent>(Pawn, TEXT("P72PlayerRoot"))
+				: nullptr;
+			PlayerHealth = Pawn
+				? NewObject<Udemo_mapPlayerHealthComponent>(
+					Pawn, TEXT("P72PlayerHealth"))
+				: nullptr;
+			if (Pawn && PlayerRoot)
+			{
+				Pawn->SetRootComponent(PlayerRoot);
+			}
+
+			const Fdemo_mapM01EnemyDefinition* Definition =
+				FindMeleeDefinition();
+			Enemy = NewObject<Ademo_mapEnemyCharacter>(GetTransientPackage());
+			EnemyIdentity = Enemy
+				? NewObject<Udemo_mapM01EnemyIdentityComponent>(
+					Enemy, TEXT("P72EnemyIdentity"))
+				: nullptr;
+			if (!Pawn || !PlayerRoot || !PlayerHealth
+				|| !Definition || !Enemy || !EnemyIdentity)
+			{
+				return;
+			}
+			Enemy->AddInstanceComponent(EnemyIdentity);
+			bReady = EnemyIdentity->Configure(*Definition)
+				&& Enemy->ConfigureEncounter(
+					MakeEncounterIdentity(*Definition),
+					Definition->Tuning,
+					Definition->IsElite())
+				&& Coordinator.TryBeginRun(
+					WorldRunId, Pawn, PlayerHealth, Diagnostic)
+				&& Coordinator.TryRegisterM01Enemy(Enemy, Diagnostic);
+		}
+
+		UPrimitiveComponent* GetEnemyRoot() const
+		{
+			return Enemy
+				? Cast<UPrimitiveComponent>(Enemy->GetRootComponent())
+				: nullptr;
+		}
+	};
+
+	FShanmenContentStamp MakeContent()
+	{
+		FShanmenContentStamp Content;
+		Content.Version = TEXT("Shanmen.0.0.10.P7.2");
+		Content.Digest = TEXT("P7.2.ThrownWeaponWorldDelivery.v1");
+		return Content;
+	}
+
+	Fdemo_mapShanmenRunCorrelation MakeCorrelation()
+	{
+		Fdemo_mapShanmenRunCorrelation Correlation;
+		Correlation.CorrelationId = FGuid(0xD3720010, 0, 0, 1);
+		Correlation.OwnerId = WorldOwnerId;
+		Correlation.ScopeId = WorldScopeId;
+		Correlation.ActiveRunId = WorldRunId;
+		Correlation.PreparedRequestId = FGuid(0xD3720011, 0, 0, 1);
+		Correlation.PreparedReceiptId = FGuid(0xD3720012, 0, 0, 1);
+		Correlation.LifecycleRequestId = FGuid(0xD3720013, 0, 0, 1);
+		Correlation.LifecycleReceiptId = FGuid(0xD3720014, 0, 0, 1);
+		Correlation.PreparedAuthorityRevision = 4;
+		Correlation.LifecycleAuthorityRevision = 5;
+		Correlation.OrderedPreparedItemInstanceIds.Add(WorldItemId);
+		Correlation.OrderedRunInventoryItemInstanceIds.Add(WorldItemId);
+		Correlation.HotbarItemInstanceIds.SetNum(
+			Fdemo_mapPersistentPreparationLayout::HotbarSlotCount);
+		Correlation.HotbarItemInstanceIds[0] = WorldItemId;
+		check(Correlation.IsValid());
+		return Correlation;
+	}
+
+	FShanmenCombatActionSnapshot MakeAction(
+		const Fdemo_mapCombatRunCoordinator& Coordinator)
+	{
+		FShanmenCombatActionCapture Capture;
+		Capture.RunId = Coordinator.GetRunId();
+		Capture.OwnerId = WorldOwnerId;
+		Capture.SourceEntityId = Coordinator.GetPlayerEntityId();
+		Capture.SourceItemInstanceId = WorldItemId;
+		Capture.ActionDefinitionId =
+			FShanmenThrownWeaponDefinition::CanonicalActionDefinitionId();
+		Capture.Content = MakeContent();
+		Capture.SourceTags.AddTag(FShanmenCombatNativeTags::SourcePlayer());
+		Capture.ActivationId = FShanmenCombatIdFactory::MakeActivationId(
+			Capture.RunId,
+			Capture.SourceEntityId,
+			Capture.ActionDefinitionId,
+			2);
+		FShanmenCombatActionSnapshot Action;
+		check(FShanmenCombatActionSnapshot::TryCapture(Capture, Action));
+		return Action;
+	}
+
+	FShanmenThrownWeaponDefinition MakeDefinition()
+	{
+		FShanmenThrownWeaponDefinitionCapture Capture;
+		Capture.ActionDefinitionId =
+			FShanmenThrownWeaponDefinition::CanonicalActionDefinitionId();
+		Capture.DetectorId = TEXT("Detector.ThrownWeapon.P7.2.Product");
+		Capture.FormulaId = TEXT("Formula.ThrownWeapon.P7.2.Product");
+		// Keep this transient Actor fixture alive; death behavior belongs to the
+		// coordinator suite and requires a registered World.
+		Capture.BaseDamage = 0.5f;
+		Capture.TechniquePowerCoefficient = 0.01f;
+		Capture.LaunchSpeed = 750.0f;
+		Capture.DamageTags.AddTag(
+			FShanmenCombatNativeTags::DamagePhysicalSlash());
+		Capture.RequiredTargetTags.AddTag(
+			FShanmenCombatNativeTags::TargetLiving());
+		FShanmenThrownWeaponDefinition Definition;
+		check(FShanmenThrownWeaponDefinition::TryCapture(
+			Capture, Definition));
+		return Definition;
+	}
+
+	void StartAction(
+		const Fdemo_mapCombatRunCoordinator& Coordinator,
+		FShanmenActionOrchestrator& OutRuntime,
+		FShanmenThrownWeaponExecution& OutExecution,
+		FShanmenCombatActionSnapshot& OutAction)
+	{
+		OutAction = MakeAction(Coordinator);
+		FShanmenActionTransitionReceipt Transition;
+		check(FShanmenActionOrchestrator::TryStart(
+			OutAction, OutRuntime, Transition));
+		check(OutRuntime.TryAdvance(
+			EShanmenCombatActionPhase::Startup, Transition));
+		FShanmenThrownWeaponOffenseSnapshot Offense;
+		check(FShanmenThrownWeaponOffenseSnapshot::TryCapture(
+			20.0f, Offense));
+		check(FShanmenThrownWeaponExecution::TryCreate(
+			OutAction, MakeDefinition(), Offense, OutExecution));
+	}
+
+	FShanmenItemTransactionReceipt MakePrepareReceipt(
+		const FShanmenItemRunQuantityIntentRequest& Request,
+		const FGuid& ReceiptId)
+	{
+		FShanmenItemTransactionReceipt Receipt;
+		Receipt.bSuccess = true;
+		Receipt.Operation =
+			EShanmenItemTransactionOperation::PreparePreparedRunQuantityIntent;
+		Receipt.Phase = EShanmenItemTransactionPhase::Reserved;
+		Receipt.Error = EShanmenItemTransactionError::None;
+		Receipt.ReceiptId = ReceiptId;
+		Receipt.RequestId = Request.Context.RequestId;
+		Receipt.ReservationId = Request.IntentId;
+		Receipt.ItemInstanceId = Request.ItemInstanceId;
+		Receipt.ResourceKind = EShanmenItemResourceKind::Quantity;
+		Receipt.Amount = Request.Amount;
+		Receipt.ResourceBefore = Request.ExpectedQuantityBefore;
+		Receipt.ResourceAfter = Request.ExpectedQuantityBefore;
+		Receipt.AvailableAfter =
+			Request.ExpectedQuantityBefore - Request.Amount;
+		Receipt.ItemRevision = 2;
+		Receipt.AuthorityRevision = 6;
+		Receipt.PurposeId = Request.PurposeId;
+		Receipt.ReservationIds.Add(Request.ActiveRunId);
+		check(Receipt.IsValid());
+		return Receipt;
+	}
+
+	Fdemo_mapShanmenThrownWeaponItemResult MakePrepared(
+		const FShanmenCombatActionSnapshot& Action)
+	{
+		Fdemo_mapShanmenThrownWeaponItemResult Prepared;
+		Prepared.Status = Edemo_mapShanmenThrownWeaponItemStatus::Prepared;
+		Prepared.Action = Action;
+		Prepared.PrepareRequest.Context.RunId = WorldScopeId;
+		Prepared.PrepareRequest.Context.OwnerId = WorldOwnerId;
+		Prepared.PrepareRequest.Context.RequestId =
+			FGuid(0xD3720020, 0, 0, 1);
+		Prepared.PrepareRequest.Context.Content = MakeContent();
+		Prepared.PrepareRequest.ActiveRunId = WorldRunId;
+		Prepared.PrepareRequest.IntentId = Action.GetActivationId();
+		Prepared.PrepareRequest.ItemInstanceId = WorldItemId;
+		Prepared.PrepareRequest.Amount = 1;
+		Prepared.PrepareRequest.ExpectedQuantityBefore = 3;
+		Prepared.PrepareRequest.PurposeId = LaunchPurpose;
+		Prepared.PrepareCommand.Status =
+			EShanmenItemDurableCommandStatus::Persisted;
+		Prepared.PrepareCommand.Receipt = MakePrepareReceipt(
+			Prepared.PrepareRequest, FGuid(0xD3720021, 0, 0, 1));
+		check(Prepared.IsPrepared());
+		return Prepared;
+	}
+
+	Fdemo_mapShanmenThrownWeaponItemResult MakeCommitted(
+		const Fdemo_mapShanmenThrownWeaponLaunchPlan& Plan)
+	{
+		Fdemo_mapShanmenThrownWeaponItemResult Committed =
+			Plan.ItemCommitRequest;
+		Committed.Status = Edemo_mapShanmenThrownWeaponItemStatus::Committed;
+		Committed.FinalizeCommand.Status =
+			EShanmenItemDurableCommandStatus::Persisted;
+		FShanmenItemTransactionReceipt& Receipt =
+			Committed.FinalizeCommand.Receipt;
+		Receipt.bSuccess = true;
+		Receipt.Operation =
+			EShanmenItemTransactionOperation::FinalizePreparedRunQuantityIntent;
+		Receipt.Phase = EShanmenItemTransactionPhase::Committed;
+		Receipt.Error = EShanmenItemTransactionError::None;
+		Receipt.ReceiptId = FGuid(0xD3720022, 0, 0, 1);
+		Receipt.RequestId = Committed.FinalizeRequest.Context.RequestId;
+		Receipt.ReservationId = Committed.FinalizeRequest.IntentId;
+		Receipt.ItemInstanceId = Committed.FinalizeRequest.ItemInstanceId;
+		Receipt.ResourceKind = EShanmenItemResourceKind::Quantity;
+		Receipt.Amount = 1;
+		Receipt.ResourceBefore = 3;
+		Receipt.ResourceAfter = 2;
+		Receipt.AvailableAfter = 2;
+		Receipt.ItemRevision = 3;
+		Receipt.AuthorityRevision = 7;
+		Receipt.PurposeId = LaunchPurpose;
+		Receipt.ReservationIds =
+		{
+			Committed.FinalizeRequest.ActiveRunId,
+			Committed.FinalizeRequest.PrepareRequestId
+		};
+		check(Receipt.IsValid());
+		check(Committed.IsFinalized());
+		return Committed;
+	}
+
+	FHitResult MakeEnemyHit(const FThrownWorldFixture& Fixture)
+	{
+		FHitResult Hit(
+			Fixture.Enemy,
+			Fixture.GetEnemyRoot(),
+			FVector(120.0, 10.0, 40.0),
+			FVector::BackwardVector);
+		Hit.ImpactPoint = FVector(120.0, 10.0, 40.0);
+		Hit.ImpactNormal = FVector::BackwardVector;
+		Hit.Item = 0;
+		return Hit;
+	}
+
+	bool StageAndPublish(
+		const FThrownWorldFixture& Fixture,
+		FShanmenActionOrchestrator& OutRuntime,
+		FShanmenThrownWeaponExecution& OutExecution,
+		Ademo_mapShanmenThrownWeaponProjectile*& OutProjectile)
+	{
+		FShanmenCombatActionSnapshot Action;
+		StartAction(Fixture.Coordinator, OutRuntime, OutExecution, Action);
+		OutProjectile = NewObject<Ademo_mapShanmenThrownWeaponProjectile>(
+			GetTransientPackage());
+		if (!OutProjectile)
+		{
+			return false;
+		}
+		const Fdemo_mapShanmenThrownWeaponLaunchResult Staged =
+			Fdemo_mapShanmenThrownWeaponWorldAdapter::StagePreparedLaunch(
+				MakeCorrelation(),
+				MakePrepared(Action),
+				OutRuntime,
+				OutExecution,
+				*OutProjectile,
+				Fixture.Pawn,
+				FVector(10.0, 20.0, 30.0),
+				FVector::ForwardVector);
+		return Staged.IsStaged()
+			&& Fdemo_mapShanmenThrownWeaponWorldAdapter::PublishCommittedLaunch(
+				OutRuntime,
+				Staged.Plan,
+				MakeCommitted(Staged.Plan),
+				OutExecution,
+				*OutProjectile);
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponWorldDurableGateTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponWorldDelivery.DurableLaunchGate",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
+{
+	FThrownWorldFixture Fixture;
+	if (!Fixture.bReady)
+	{
+		AddError(TEXT("Could not build the P7.2 launch fixture."));
+		return false;
+	}
+	FShanmenActionOrchestrator Runtime;
+	FShanmenThrownWeaponExecution Execution;
+	FShanmenCombatActionSnapshot Action;
+	StartAction(Fixture.Coordinator, Runtime, Execution, Action);
+	Ademo_mapShanmenThrownWeaponProjectile* Projectile =
+		NewObject<Ademo_mapShanmenThrownWeaponProjectile>(GetTransientPackage());
+	if (!Projectile)
+	{
+		return false;
+	}
+	const Fdemo_mapShanmenThrownWeaponLaunchResult Staged =
+		Fdemo_mapShanmenThrownWeaponWorldAdapter::StagePreparedLaunch(
+			MakeCorrelation(),
+			MakePrepared(Action),
+			Runtime,
+			Execution,
+			*Projectile,
+			Fixture.Pawn,
+			FVector(10.0, 20.0, 30.0),
+			FVector(4.0, 0.0, 0.0));
+	TestTrue(TEXT("Staging freezes canonical launch evidence"),
+		Staged.IsStaged()
+			&& Projectile->GetProjectileState()
+				== Edemo_mapShanmenThrownWeaponProjectileState::Staged);
+	TestTrue(TEXT("Staging cannot publish movement, collision, or live execution"),
+		Execution.GetState() == EShanmenThrownWeaponState::Ready
+			&& !Execution.IsEmissionActive()
+			&& Projectile->GetCollisionComponent()->GetCollisionEnabled()
+				== ECollisionEnabled::NoCollision
+			&& !Projectile->GetMovementComponent()->IsActive());
+
+	if (!GEngine)
+	{
+		AddError(TEXT("GEngine is unavailable for the P7.2 authority gate."));
+		return false;
+	}
+	UGameInstance* GameInstance = NewObject<UGameInstance>(
+		GEngine, NAME_None, RF_Transient);
+	GameInstance->AddToRoot();
+	GameInstance->Init();
+	Udemo_mapShanmenItemAuthoritySubsystem* Unbound =
+		GameInstance->GetSubsystem<Udemo_mapShanmenItemAuthoritySubsystem>();
+	const Fdemo_mapShanmenThrownWeaponLaunchResult Rejected =
+		Fdemo_mapShanmenThrownWeaponWorldAdapter::CommitStagedLaunch(
+			*Unbound, Runtime, Staged.Plan, Execution, *Projectile);
+	TestTrue(TEXT("An unavailable durable authority cancels the inert Actor"),
+		Rejected.Error
+			== Edemo_mapShanmenThrownWeaponLaunchError::AuthorityCommitRejected
+			&& Execution.GetState() == EShanmenThrownWeaponState::Ready
+			&& Projectile->GetProjectileState()
+				== Edemo_mapShanmenThrownWeaponProjectileState::Empty);
+	GameInstance->Shutdown();
+	GameInstance->RemoveFromRoot();
+	GameInstance->MarkAsGarbage();
+
+	const Fdemo_mapShanmenThrownWeaponLaunchResult Restaged =
+		Fdemo_mapShanmenThrownWeaponWorldAdapter::StagePreparedLaunch(
+			MakeCorrelation(),
+			MakePrepared(Action),
+			Runtime,
+			Execution,
+			*Projectile,
+			Fixture.Pawn,
+			FVector(10.0, 20.0, 30.0),
+			FVector::ForwardVector);
+	const bool bPublished = Restaged.IsStaged()
+		&& Fdemo_mapShanmenThrownWeaponWorldAdapter::PublishCommittedLaunch(
+			Runtime,
+			Restaged.Plan,
+			MakeCommitted(Restaged.Plan),
+			Execution,
+			*Projectile);
+	TestTrue(TEXT("Exact durable proof atomically publishes straight flight"),
+		bPublished
+			&& Execution.GetState() == EShanmenThrownWeaponState::InFlight
+			&& Execution.IsEmissionActive()
+			&& Projectile->GetProjectileState()
+				== Edemo_mapShanmenThrownWeaponProjectileState::InFlight
+			&& Projectile->GetCollisionComponent()->GetCollisionEnabled()
+				== ECollisionEnabled::QueryOnly
+			&& Projectile->GetMovementComponent()->IsActive()
+			&& Projectile->GetMovementComponent()->Velocity.Equals(
+				FVector::ForwardVector * 750.0f));
+	TestTrue(TEXT("Physical contract has no gravity, bounce, or homing"),
+		Projectile->GetMovementComponent()->ProjectileGravityScale == 0.0f
+			&& !Projectile->GetMovementComponent()->bShouldBounce
+			&& !Projectile->GetMovementComponent()->bIsHomingProjectile);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponWorldDeliveryTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponWorldDelivery.ContactToVitality",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponWorldDeliveryTest::RunTest(const FString&)
+{
+	FThrownWorldFixture Fixture;
+	FShanmenActionOrchestrator Runtime;
+	FShanmenThrownWeaponExecution Execution;
+	Ademo_mapShanmenThrownWeaponProjectile* Projectile = nullptr;
+	if (!Fixture.bReady || !Fixture.GetEnemyRoot()
+		|| !StageAndPublish(Fixture, Runtime, Execution, Projectile))
+	{
+		AddError(TEXT("Could not build the P7.2 delivery fixture."));
+		return false;
+	}
+	Idemo_mapCombatVitalityHost* VitalityHost =
+		Cast<Idemo_mapCombatVitalityHost>(Fixture.Enemy);
+	FShanmenTargetVitalitySnapshot Before;
+	FShanmenTargetVitalitySnapshot After;
+	if (!VitalityHost
+		|| !VitalityHost->TryCaptureCombatVitalitySnapshot(Before))
+	{
+		return false;
+	}
+	const Fdemo_mapShanmenThrownWeaponWorldDeliveryResult Delivered =
+		Fdemo_mapShanmenThrownWeaponWorldAdapter::ResolveProjectileContact(
+			Runtime,
+			Execution,
+			*Projectile,
+			Fixture.Coordinator,
+			MakeEnemyHit(Fixture));
+	VitalityHost->TryCaptureCombatVitalitySnapshot(After);
+	TestTrue(TEXT("Projectile evidence reaches the canonical vitality authority"),
+		Delivered.IsDelivered());
+	TestTrue(TEXT("Resolver reports the frozen non-lethal formula result"),
+		FMath::IsNearlyEqual(
+			Delivered.GetNewlyCommittedDamage(), 0.7f));
+	TestTrue(TEXT("Enemy vitality commits the exact resolved damage"),
+		FMath::IsNearlyEqual(
+			Before.CurrentVitality - After.CurrentVitality,
+			0.7f,
+			KINDA_SMALL_NUMBER));
+	TestEqual(TEXT("Enemy vitality authority advances exactly once"),
+		After.AuthorityRevision, Before.AuthorityRevision + 1);
+	TestTrue(TEXT("First successful impact terminally spends the physical item"),
+		Execution.GetState() == EShanmenThrownWeaponState::Spent
+			&& !Execution.IsEmissionActive()
+			&& Execution.NumAcceptedImpacts() == 1
+			&& Projectile->GetProjectileState()
+				== Edemo_mapShanmenThrownWeaponProjectileState::Spent
+			&& Projectile->GetCollisionComponent()->GetCollisionEnabled()
+				== ECollisionEnabled::NoCollision);
+
+	const Fdemo_mapShanmenThrownWeaponWorldDeliveryResult Replay =
+		Fdemo_mapShanmenThrownWeaponWorldAdapter::ResolveProjectileContact(
+			Runtime,
+			Execution,
+			*Projectile,
+			Fixture.Coordinator,
+			MakeEnemyHit(Fixture));
+	FShanmenTargetVitalitySnapshot AfterReplay;
+	VitalityHost->TryCaptureCombatVitalitySnapshot(AfterReplay);
+	TestTrue(TEXT("A spent projectile cannot deliver the callback twice"),
+		Replay.Error
+			== Edemo_mapShanmenThrownWeaponWorldDeliveryError::FlightNotActive
+			&& AfterReplay.AuthorityRevision == After.AuthorityRevision
+			&& FMath::IsNearlyEqual(
+				AfterReplay.CurrentVitality, After.CurrentVitality));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponWorldMissTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponWorldDelivery.FailClosedAndMiss",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponWorldMissTest::RunTest(const FString&)
+{
+	FThrownWorldFixture Fixture;
+	FShanmenActionOrchestrator Runtime;
+	FShanmenThrownWeaponExecution Execution;
+	Ademo_mapShanmenThrownWeaponProjectile* Projectile = nullptr;
+	if (!Fixture.bReady
+		|| !StageAndPublish(Fixture, Runtime, Execution, Projectile))
+	{
+		return false;
+	}
+	AActor* Unregistered = NewObject<AActor>(GetTransientPackage());
+	UBoxComponent* UnregisteredRoot = NewObject<UBoxComponent>(
+		Unregistered, TEXT("P72UnregisteredRoot"));
+	Unregistered->SetRootComponent(UnregisteredRoot);
+	FHitResult UnregisteredHit(
+		Unregistered,
+		UnregisteredRoot,
+		FVector(200.0, 0.0, 30.0),
+		FVector::BackwardVector);
+	UnregisteredHit.ImpactPoint = FVector(200.0, 0.0, 30.0);
+	UnregisteredHit.ImpactNormal = FVector::BackwardVector;
+	const Fdemo_mapShanmenThrownWeaponWorldDeliveryResult Rejected =
+		Fdemo_mapShanmenThrownWeaponWorldAdapter::ResolveProjectileContact(
+			Runtime,
+			Execution,
+			*Projectile,
+			Fixture.Coordinator,
+			UnregisteredHit);
+	TestTrue(TEXT("Unregistered world contacts fail without consuming flight"),
+		Rejected.Error
+			== Edemo_mapShanmenThrownWeaponWorldDeliveryError::ContactNotResolved
+			&& Execution.GetState() == EShanmenThrownWeaponState::InFlight
+			&& Execution.NumAcceptedImpacts() == 0
+			&& Projectile->GetProjectileState()
+				== Edemo_mapShanmenThrownWeaponProjectileState::InFlight);
+	TestTrue(TEXT("Range expiry has an explicit no-impact terminal path"),
+		Fdemo_mapShanmenThrownWeaponWorldAdapter::FinishFlightWithoutImpact(
+			Runtime, Execution, *Projectile)
+			&& Execution.GetState() == EShanmenThrownWeaponState::Spent
+			&& Execution.NumAcceptedImpacts() == 0
+			&& Projectile->GetProjectileState()
+				== Edemo_mapShanmenThrownWeaponProjectileState::Spent);
+	return true;
+}
+
+#endif

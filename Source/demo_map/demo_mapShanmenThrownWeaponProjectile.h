@@ -1,0 +1,109 @@
+#pragma once
+
+#include "CoreMinimal.h"
+#include "GameFramework/Actor.h"
+#include "ShanmenThrownWeaponExecution.h"
+#include "ShanmenWorldHitAdapter.h"
+
+#include "demo_mapShanmenThrownWeaponProjectile.generated.h"
+
+class UPrimitiveComponent;
+class UProjectileMovementComponent;
+class USphereComponent;
+struct FHitResult;
+struct Fdemo_mapShanmenThrownWeaponWorldAdapter;
+
+/** Product-visible lifecycle of one physical straight thrown item. */
+enum class Edemo_mapShanmenThrownWeaponProjectileState : uint8
+{
+	Empty,
+	/** Frozen launch evidence exists, but collision and movement are still inert. */
+	Staged,
+	InFlight,
+	Spent
+};
+
+class Ademo_mapShanmenThrownWeaponProjectile;
+
+/** Native contact seam consumed by the product host; the Actor never resolves damage. */
+DECLARE_MULTICAST_DELEGATE_TwoParams(
+	Fdemo_mapShanmenThrownWeaponContact,
+	Ademo_mapShanmenThrownWeaponProjectile&,
+	const FHitResult&);
+
+/**
+ * Minimal physical carrier for the P7 straight thrown-item contract.
+ *
+ * Staging is deliberately inert. Only an exact durable Quantity commit may
+ * call ActivateCommittedLaunch. Geometry is emitted through OnContact; this
+ * Actor never chooses a target, mutates inventory, or applies damage itself.
+ */
+UCLASS()
+class Ademo_mapShanmenThrownWeaponProjectile : public AActor
+{
+	GENERATED_BODY()
+
+public:
+	Ademo_mapShanmenThrownWeaponProjectile();
+
+	bool TryStageLaunch(
+		const FShanmenThrownWeaponLaunchReceipt& InLaunch,
+		const FShanmenWorldHitContext& InContext,
+		AActor* InSourceActor);
+	bool IsStagedFor(
+		const FShanmenThrownWeaponLaunchReceipt& InLaunch,
+		const FShanmenWorldHitContext& InContext) const;
+	bool IsInFlightFor(
+		const FShanmenThrownWeaponLaunchReceipt& InLaunch,
+		const FShanmenWorldHitContext& InContext) const;
+	bool CancelStagedLaunch();
+
+	Edemo_mapShanmenThrownWeaponProjectileState GetProjectileState() const
+	{
+		return State;
+	}
+	const FShanmenThrownWeaponLaunchReceipt& GetLaunchReceipt() const
+	{
+		return LaunchReceipt;
+	}
+	const FShanmenWorldHitContext& GetHitContext() const
+	{
+		return HitContext;
+	}
+	USphereComponent* GetCollisionComponent() const { return Collision; }
+	UProjectileMovementComponent* GetMovementComponent() const
+	{
+		return Movement;
+	}
+	Fdemo_mapShanmenThrownWeaponContact& OnContact() { return ContactEvent; }
+
+private:
+	friend struct Fdemo_mapShanmenThrownWeaponWorldAdapter;
+
+	/** No-fail publication reserved for the durable product adapter. */
+	void ActivateCommittedLaunch();
+	bool MarkSpent();
+
+	UFUNCTION()
+	void HandleHit(
+		UPrimitiveComponent* HitComponent,
+		AActor* OtherActor,
+		UPrimitiveComponent* OtherComponent,
+		FVector NormalImpulse,
+		const FHitResult& Hit);
+
+	UPROPERTY(VisibleAnywhere)
+	TObjectPtr<USphereComponent> Collision;
+
+	UPROPERTY(VisibleAnywhere)
+	TObjectPtr<UProjectileMovementComponent> Movement;
+
+	UPROPERTY()
+	TObjectPtr<AActor> SourceActor;
+
+	FShanmenThrownWeaponLaunchReceipt LaunchReceipt;
+	FShanmenWorldHitContext HitContext;
+	Fdemo_mapShanmenThrownWeaponContact ContactEvent;
+	Edemo_mapShanmenThrownWeaponProjectileState State =
+		Edemo_mapShanmenThrownWeaponProjectileState::Empty;
+};

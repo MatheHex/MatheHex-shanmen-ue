@@ -3,6 +3,7 @@
 #include "ShanmenCombatResolver.h"
 #include "ShanmenCombatTags.h"
 #include "ShanmenControlledWeaponExecution.h"
+#include "ShanmenThrownWeaponExecution.h"
 #include "ShanmenWorldHitAdapter.h"
 #include "Components/PrimitiveComponent.h"
 #include "Engine/EngineTypes.h"
@@ -1105,6 +1106,18 @@ Fdemo_mapCombatRunCoordinator::DeliverPlayerProjectileImpactToM01Enemy(
 Fdemo_mapCombatImpactDeliveryResult
 Fdemo_mapCombatRunCoordinator::DeliverControlledWeaponImpactToM01Enemy(
 	const FShanmenControlledWeaponImpactReceipt& Impact,
+	AActor* TargetEnemy)
+{
+	return DeliverResolvedPlayerImpactToM01Enemy(
+		Impact.IsValid(),
+		Impact.GetRequest(),
+		Impact.GetResult(),
+		TargetEnemy);
+}
+
+Fdemo_mapCombatImpactDeliveryResult
+Fdemo_mapCombatRunCoordinator::DeliverThrownWeaponImpactToM01Enemy(
+	const FShanmenThrownWeaponImpactReceipt& Impact,
 	AActor* TargetEnemy)
 {
 	return DeliverResolvedPlayerImpactToM01Enemy(

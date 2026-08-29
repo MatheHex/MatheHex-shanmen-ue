@@ -156,6 +156,13 @@ try
             'Source/demo_map/demo_mapShanmenThrownWeaponItemAdapter.cpp') `
         -Logs @($Full)
 
+    Invoke-ExpectedPass `
+        -Name 'thrown weapon world delivery is covered by the full suite' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenThrownWeaponWorldAdapter.cpp',
+            'Source/demo_map/demo_mapShanmenThrownWeaponProjectile.cpp') `
+        -Logs @($Full)
+
     Invoke-ExpectedFail `
         -Name 'missing mapped group fails closed' `
         -Paths @('Source/demo_map/demo_mapSkillComponent.cpp') `
@@ -214,7 +221,7 @@ try
         -Logs @($Coordinator) `
         -ExpectedText 'missing required groups'
 
-    Write-Output 'SELF_TEST: PASS 17/17'
+    Write-Output 'SELF_TEST: PASS 18/18'
 }
 finally
 {
