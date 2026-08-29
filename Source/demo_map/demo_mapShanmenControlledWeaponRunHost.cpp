@@ -443,11 +443,20 @@ Fdemo_mapShanmenControlledWeaponRunHost::ProjectOrbitThreatOverlap(
 }
 
 bool Fdemo_mapShanmenControlledWeaponRunHost::TryEndOrbitThreatWindow(
-	const FGuid& ItemInstanceId)
+	const FGuid& ItemInstanceId,
+	FShanmenDetectorEmissionReceipt& OutReceipt)
 {
+	OutReceipt = FShanmenDetectorEmissionReceipt();
 	Fdemo_mapShanmenControlledWeaponProductController* Controller =
 		IsValid() ? Controllers.Find(ItemInstanceId) : nullptr;
-	return Controller && Controller->TryEndOrbitThreatWindow();
+	return Controller && Controller->TryEndOrbitThreatWindow(OutReceipt);
+}
+
+bool Fdemo_mapShanmenControlledWeaponRunHost::TryEndOrbitThreatWindow(
+	const FGuid& ItemInstanceId)
+{
+	FShanmenDetectorEmissionReceipt Ignored;
+	return TryEndOrbitThreatWindow(ItemInstanceId, Ignored);
 }
 
 bool Fdemo_mapShanmenControlledWeaponRunHost::TryAdvanceDirectedInOrder(

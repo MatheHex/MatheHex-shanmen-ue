@@ -40,6 +40,7 @@ public:
 		FShanmenControlledWeaponCommandReceipt& OutReceipt);
 	bool TryBeginOrbitThreatWindow(FShanmenWorldHitContext& OutContext);
 	bool TryAcceptOrbitThreatCandidate(const FShanmenHitCandidate& Candidate);
+	bool TryEndOrbitThreatWindow(FShanmenDetectorEmissionReceipt& OutReceipt);
 	bool TryEndOrbitThreatWindow();
 	bool TryBeginContactWindow(FShanmenWorldHitContext& OutContext);
 	bool TryResolveCandidate(

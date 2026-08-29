@@ -145,6 +145,7 @@ public:
 		const FOverlapResult& Overlap,
 		const FVector& ContactLocation,
 		const FVector& ContactNormal);
+	bool TryEndOrbitThreatWindow(FShanmenDetectorEmissionReceipt& OutReceipt);
 	bool TryEndOrbitThreatWindow();
 
 	/** Moves the physical Actor with sweep enabled; contact delivery is explicit. */

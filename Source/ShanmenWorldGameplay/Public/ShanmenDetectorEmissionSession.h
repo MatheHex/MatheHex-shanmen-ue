@@ -3,6 +3,24 @@
 #include "CoreMinimal.h"
 #include "ShanmenWorldHitAdapter.h"
 
+/** Canonically ordered evidence emitted by one completed detector sample. */
+class SHANMENWORLDGAMEPLAY_API FShanmenDetectorEmissionReceipt
+{
+public:
+	bool IsValid() const;
+	const FShanmenWorldHitContext& GetContext() const { return Context; }
+	const TArray<FShanmenHitCandidate>& GetCandidates() const
+	{
+		return Candidates;
+	}
+
+private:
+	friend class FShanmenDetectorEmissionSession;
+
+	FShanmenWorldHitContext Context;
+	TArray<FShanmenHitCandidate> Candidates;
+};
+
 /**
  * Authoritative ordinal and duplicate gate for one Action + Detector pair.
  *
@@ -23,12 +41,13 @@ public:
 	bool IsValid() const;
 	bool TryBeginEmission(FShanmenWorldHitContext& OutContext);
 	bool TryAcceptCandidate(const FShanmenHitCandidate& Candidate);
+	bool TryEndEmission(FShanmenDetectorEmissionReceipt& OutReceipt);
 	bool TryEndEmission();
 	void Reset();
 
 	bool IsEmissionActive() const { return bEmissionActive; }
 	int64 GetNextEmissionOrdinal() const { return NextEmissionOrdinal; }
-	int32 NumAcceptedTargets() const { return AcceptedTargetIds.Num(); }
+	int32 NumAcceptedTargets() const { return AcceptedCandidates.Num(); }
 
 private:
 	FShanmenCombatActionSnapshot Action;
@@ -36,5 +55,6 @@ private:
 	EShanmenHitDetectorKind DetectorKind = EShanmenHitDetectorKind::Shape;
 	int64 NextEmissionOrdinal = 0;
 	bool bEmissionActive = false;
-	TSet<FGuid> AcceptedTargetIds;
+	FShanmenWorldHitContext ActiveContext;
+	TMap<FGuid, FShanmenHitCandidate> AcceptedCandidates;
 };

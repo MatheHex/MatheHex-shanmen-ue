@@ -309,8 +309,11 @@ bool FShanmenControlledWeaponOrbitThreatTest::RunTest(const FString&)
 			== EShanmenControlledWeaponState::Orbiting);
 	const FShanmenHitCandidate Threat =
 		MakeControlledCandidate(OrbitContext, ControlledTargetA);
-	TestTrue(TEXT("One target is accepted once as near-threat geometry"),
-		Execution.TryAcceptOrbitThreatCandidate(ActionRuntime, Threat));
+	const FShanmenHitCandidate ThreatB =
+		MakeControlledCandidate(OrbitContext, ControlledTargetB);
+	TestTrue(TEXT("Two targets are accepted in callback order as geometry"),
+		Execution.TryAcceptOrbitThreatCandidate(ActionRuntime, ThreatB)
+			&& Execution.TryAcceptOrbitThreatCandidate(ActionRuntime, Threat));
 	TestFalse(TEXT("Duplicate near-threat geometry is rejected"),
 		Execution.TryAcceptOrbitThreatCandidate(ActionRuntime, Threat));
 
@@ -333,9 +336,19 @@ bool FShanmenControlledWeaponOrbitThreatTest::RunTest(const FString&)
 			EShanmenControlledWeaponCommandKind::Launch,
 			FVector::ForwardVector,
 			Command));
-	TestTrue(TEXT("Closing Orbit sample preserves the shared ordinal stream"),
-		Execution.TryEndOrbitThreatEmission(ActionRuntime)
-		&& Execution.TryIssueCommand(
+	FShanmenDetectorEmissionReceipt ThreatReceipt;
+	TestTrue(TEXT("Closing Orbit sample returns canonical geometry evidence"),
+		Execution.TryEndOrbitThreatEmission(ActionRuntime, ThreatReceipt)
+		&& ThreatReceipt.IsValid()
+		&& ThreatReceipt.GetCandidates().Num() == 2
+		&& ThreatReceipt.GetContext().GetAction().GetSourceItemInstanceId()
+			== ControlledItemId
+		&& ThreatReceipt.GetCandidates()[0].TargetEntityId
+			.ToString(EGuidFormats::Digits)
+			< ThreatReceipt.GetCandidates()[1].TargetEntityId
+				.ToString(EGuidFormats::Digits));
+	TestTrue(TEXT("Canonical receipt preserves the shared ordinal stream"),
+		Execution.TryIssueCommand(
 			ActionRuntime,
 			0,
 			EShanmenControlledWeaponCommandKind::Launch,

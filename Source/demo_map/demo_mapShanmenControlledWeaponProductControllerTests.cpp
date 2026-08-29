@@ -559,8 +559,14 @@ bool Fdemo_mapControlledWeaponProductOrbitThreatTest::RunTest(
 			FVector(90.0, 20.0, 30.0),
 			FVector::BackwardVector).IsDelivered());
 
-	TestTrue(TEXT("Threat window closes before canonical Launch"),
-		Controller.TryEndOrbitThreatWindow()
+	FShanmenDetectorEmissionReceipt ThreatReceipt;
+	TestTrue(TEXT("Threat window closes with exact canonical evidence"),
+		Controller.TryEndOrbitThreatWindow(ThreatReceipt)
+		&& ThreatReceipt.IsValid()
+		&& ThreatReceipt.GetCandidates().Num() == 1
+		&& ThreatReceipt.GetCandidates()[0].TargetEntityId == EnemyEntityId
+		&& ThreatReceipt.GetContext().GetAction().GetSourceItemInstanceId()
+			== ProductItemId
 		&& !Controller.HasActiveContactWindow()
 		&& Controller.TryLaunch(0, FVector::ForwardVector, Launch));
 	FShanmenWorldHitContext DirectedContext;

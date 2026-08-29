@@ -208,12 +208,21 @@ bool FShanmenDetectorEmissionSessionTest::RunTest(const FString&)
 	FShanmenHitCandidate TargetB = TargetA;
 	TargetB.TargetEntityId = FShanmenWorldEntityIdFactory::MakeEntityId(
 		RegistryRunId, TEXT("Spawn.Enemy.Wolf"), 1);
-	TestTrue(TEXT("First target is accepted"), Session.TryAcceptCandidate(TargetA));
-	TestTrue(TEXT("Second target shares the same emission ordinal"), Session.TryAcceptCandidate(TargetB));
+	TestTrue(TEXT("Second target may arrive before the first"), Session.TryAcceptCandidate(TargetB));
+	TestTrue(TEXT("First target shares the same emission ordinal"), Session.TryAcceptCandidate(TargetA));
 	TestFalse(TEXT("Repeated target in one emission is deduplicated"), Session.TryAcceptCandidate(TargetA));
 	TestEqual(TEXT("Two target identities are retained independent of callback order"),
 		Session.NumAcceptedTargets(), 2);
-	TestTrue(TEXT("First emission ends"), Session.TryEndEmission());
+	FShanmenDetectorEmissionReceipt FirstReceipt;
+	TestTrue(TEXT("First emission returns canonical candidate evidence"),
+		Session.TryEndEmission(FirstReceipt)
+			&& FirstReceipt.IsValid()
+			&& FirstReceipt.GetContext().GetHitOrdinal() == 0
+			&& FirstReceipt.GetCandidates().Num() == 2
+			&& FirstReceipt.GetCandidates()[0].TargetEntityId
+				.ToString(EGuidFormats::Digits)
+				< FirstReceipt.GetCandidates()[1].TargetEntityId
+					.ToString(EGuidFormats::Digits));
 	TestFalse(TEXT("Candidate outside an emission is rejected"), Session.TryAcceptCandidate(TargetA));
 
 	FShanmenWorldHitContext SecondEmission;
@@ -234,6 +243,20 @@ bool FShanmenDetectorEmissionSessionTest::RunTest(const FString&)
 	FShanmenWorldHitContext ReplayFirst;
 	TestTrue(TEXT("Replay first emission begins"), Replay.TryBeginEmission(ReplayFirst));
 	TestEqual(TEXT("Replay begins from the same ordinal"), ReplayFirst.GetHitOrdinal(), 0);
+	TargetA.HitOrdinal = 0;
+	TestTrue(TEXT("Replay accepts the opposite callback order"),
+		Replay.TryAcceptCandidate(TargetA)
+			&& Replay.TryAcceptCandidate(TargetB));
+	FShanmenDetectorEmissionReceipt ReplayReceipt;
+	TestTrue(TEXT("Canonical receipt is independent of callback order"),
+		Replay.TryEndEmission(ReplayReceipt)
+			&& ReplayReceipt.IsValid()
+			&& ReplayReceipt.GetCandidates().Num()
+				== FirstReceipt.GetCandidates().Num()
+			&& ReplayReceipt.GetCandidates()[0].TargetEntityId
+				== FirstReceipt.GetCandidates()[0].TargetEntityId
+			&& ReplayReceipt.GetCandidates()[1].TargetEntityId
+				== FirstReceipt.GetCandidates()[1].TargetEntityId);
 	return true;
 }
 

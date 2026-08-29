@@ -218,22 +218,33 @@ bool Fdemo_mapShanmenControlledWeaponSession::TryAcceptOrbitThreatCandidate(
 	return true;
 }
 
-bool Fdemo_mapShanmenControlledWeaponSession::TryEndOrbitThreatWindow()
+bool Fdemo_mapShanmenControlledWeaponSession::TryEndOrbitThreatWindow(
+	FShanmenDetectorEmissionReceipt& OutReceipt)
 {
+	OutReceipt = FShanmenDetectorEmissionReceipt();
 	if (!IsActive())
 	{
 		return false;
 	}
 
 	Fdemo_mapShanmenControlledWeaponSession Candidate = *this;
+	FShanmenDetectorEmissionReceipt Receipt;
 	if (!Candidate.Execution.TryEndOrbitThreatEmission(
-			Candidate.ActionRuntime)
+			Candidate.ActionRuntime, Receipt)
+		|| !Receipt.IsValid()
 		|| !Candidate.IsValid())
 	{
 		return false;
 	}
+	OutReceipt = MoveTemp(Receipt);
 	*this = MoveTemp(Candidate);
 	return true;
+}
+
+bool Fdemo_mapShanmenControlledWeaponSession::TryEndOrbitThreatWindow()
+{
+	FShanmenDetectorEmissionReceipt Ignored;
+	return TryEndOrbitThreatWindow(Ignored);
 }
 
 bool Fdemo_mapShanmenControlledWeaponSession::TryResolveCandidate(

@@ -659,8 +659,15 @@ bool Fdemo_mapControlledWeaponRunHostOrbitThreatTest::RunTest(
 	TestFalse(TEXT("Host Launch is fenced while threat sample is active"),
 		Host.TryLaunch(
 			HostLowItemId, 0, FVector::ForwardVector, Launch));
-	TestTrue(TEXT("Host closes threat sample before exact-item Launch"),
-		Host.TryEndOrbitThreatWindow(HostLowItemId)
+	FShanmenDetectorEmissionReceipt ThreatReceipt;
+	TestTrue(TEXT("Host returns exact-item canonical threat evidence"),
+		Host.TryEndOrbitThreatWindow(HostLowItemId, ThreatReceipt)
+		&& ThreatReceipt.IsValid()
+		&& ThreatReceipt.GetCandidates().Num() == 1
+		&& ThreatReceipt.GetCandidates()[0].TargetEntityId
+			== Projected.Candidate.TargetEntityId
+		&& ThreatReceipt.GetContext().GetAction().GetSourceItemInstanceId()
+			== HostLowItemId
 		&& Host.TryLaunch(
 			HostLowItemId, 0, FVector::ForwardVector, Launch));
 	FShanmenWorldHitContext DirectedContext;

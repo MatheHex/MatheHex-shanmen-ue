@@ -472,15 +472,18 @@ Fdemo_mapShanmenControlledWeaponProductController::ProjectOrbitThreatOverlap(
 }
 
 bool Fdemo_mapShanmenControlledWeaponProductController::
-TryEndOrbitThreatWindow()
+TryEndOrbitThreatWindow(FShanmenDetectorEmissionReceipt& OutReceipt)
 {
+	OutReceipt = FShanmenDetectorEmissionReceipt();
 	if (!HasActiveOrbitThreatWindow())
 	{
 		return false;
 	}
 
 	Fdemo_mapShanmenControlledWeaponProductController Candidate = *this;
-	if (!Candidate.Session.TryEndOrbitThreatWindow())
+	FShanmenDetectorEmissionReceipt Receipt;
+	if (!Candidate.Session.TryEndOrbitThreatWindow(Receipt)
+		|| !Receipt.IsValid())
 	{
 		return false;
 	}
@@ -489,8 +492,16 @@ TryEndOrbitThreatWindow()
 	{
 		return false;
 	}
+	OutReceipt = MoveTemp(Receipt);
 	*this = MoveTemp(Candidate);
 	return true;
+}
+
+bool Fdemo_mapShanmenControlledWeaponProductController::
+TryEndOrbitThreatWindow()
+{
+	FShanmenDetectorEmissionReceipt Ignored;
+	return TryEndOrbitThreatWindow(Ignored);
 }
 
 bool Fdemo_mapShanmenControlledWeaponProductController::TryAdvanceDirected(

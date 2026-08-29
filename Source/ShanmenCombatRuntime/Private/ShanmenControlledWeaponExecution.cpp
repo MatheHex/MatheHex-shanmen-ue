@@ -352,12 +352,21 @@ bool FShanmenControlledWeaponExecution::TryAcceptOrbitThreatCandidate(
 }
 
 bool FShanmenControlledWeaponExecution::TryEndOrbitThreatEmission(
-	const FShanmenActionOrchestrator& ActionRuntime)
+	const FShanmenActionOrchestrator& ActionRuntime,
+	FShanmenDetectorEmissionReceipt& OutReceipt)
 {
+	OutReceipt = FShanmenDetectorEmissionReceipt();
 	return MatchesActionRuntime(ActionRuntime)
 		&& ActionRuntime.CanEmitCandidates()
 		&& State == EShanmenControlledWeaponState::Orbiting
-		&& EmissionSession.TryEndEmission();
+		&& EmissionSession.TryEndEmission(OutReceipt);
+}
+
+bool FShanmenControlledWeaponExecution::TryEndOrbitThreatEmission(
+	const FShanmenActionOrchestrator& ActionRuntime)
+{
+	FShanmenDetectorEmissionReceipt Ignored;
+	return TryEndOrbitThreatEmission(ActionRuntime, Ignored);
 }
 
 bool FShanmenControlledWeaponExecution::TryResolveCandidate(

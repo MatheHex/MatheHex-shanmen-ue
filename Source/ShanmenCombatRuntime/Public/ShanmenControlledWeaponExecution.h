@@ -226,6 +226,9 @@ public:
 		const FShanmenActionOrchestrator& ActionRuntime,
 		const FShanmenHitCandidate& Candidate);
 	bool TryEndOrbitThreatEmission(
+		const FShanmenActionOrchestrator& ActionRuntime,
+		FShanmenDetectorEmissionReceipt& OutReceipt);
+	bool TryEndOrbitThreatEmission(
 		const FShanmenActionOrchestrator& ActionRuntime);
 	bool TryResolveCandidate(
 		const FShanmenActionOrchestrator& ActionRuntime,

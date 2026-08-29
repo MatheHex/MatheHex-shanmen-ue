@@ -200,6 +200,9 @@ public:
 		const FOverlapResult& Overlap,
 		const FVector& ContactLocation,
 		const FVector& ContactNormal);
+	bool TryEndOrbitThreatWindow(
+		const FGuid& ItemInstanceId,
+		FShanmenDetectorEmissionReceipt& OutReceipt);
 	bool TryEndOrbitThreatWindow(const FGuid& ItemInstanceId);
 
 	/** Preflights every directed sword, then advances each in stable item order. */

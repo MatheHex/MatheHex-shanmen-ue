@@ -1,5 +1,51 @@
 #include "ShanmenDetectorEmissionSession.h"
 
+namespace
+{
+	bool GuidLess(const FGuid& Left, const FGuid& Right)
+	{
+		return Left.ToString(EGuidFormats::Digits)
+			< Right.ToString(EGuidFormats::Digits);
+	}
+
+	bool CandidateMatchesContext(
+		const FShanmenHitCandidate& Candidate,
+		const FShanmenWorldHitContext& Context)
+	{
+		return Candidate.IsValid()
+			&& Context.IsValid()
+			&& Candidate.ActivationId
+				== Context.GetAction().GetActivationId()
+			&& Candidate.SourceEntityId
+				== Context.GetAction().GetSourceEntityId()
+			&& Candidate.DetectorId == Context.GetDetectorId()
+			&& Candidate.DetectorKind == Context.GetDetectorKind()
+			&& Candidate.HitOrdinal == Context.GetHitOrdinal();
+	}
+}
+
+bool FShanmenDetectorEmissionReceipt::IsValid() const
+{
+	if (!Context.IsValid())
+	{
+		return false;
+	}
+
+	for (int32 Index = 0; Index < Candidates.Num(); ++Index)
+	{
+		const FShanmenHitCandidate& Candidate = Candidates[Index];
+		if (!CandidateMatchesContext(Candidate, Context)
+			|| (Index > 0
+				&& !GuidLess(
+					Candidates[Index - 1].TargetEntityId,
+					Candidate.TargetEntityId)))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
 bool FShanmenDetectorEmissionSession::TryStart(
 	const FShanmenCombatActionSnapshot& Action,
 	FName DetectorId,
@@ -26,10 +72,39 @@ bool FShanmenDetectorEmissionSession::TryStart(
 
 bool FShanmenDetectorEmissionSession::IsValid() const
 {
-	return Action.IsValid()
-		&& !DetectorId.IsNone()
-		&& NextEmissionOrdinal >= 0
-		&& NextEmissionOrdinal <= MAX_int32;
+	if (!Action.IsValid()
+		|| DetectorId.IsNone()
+		|| NextEmissionOrdinal < 0
+		|| NextEmissionOrdinal > MAX_int32)
+	{
+		return false;
+	}
+
+	if (!bEmissionActive)
+	{
+		return !ActiveContext.IsValid() && AcceptedCandidates.IsEmpty();
+	}
+	if (!ActiveContext.IsValid()
+		|| ActiveContext.GetAction().GetActivationId()
+			!= Action.GetActivationId()
+		|| ActiveContext.GetAction().GetSourceEntityId()
+			!= Action.GetSourceEntityId()
+		|| ActiveContext.GetDetectorId() != DetectorId
+		|| ActiveContext.GetDetectorKind() != DetectorKind
+		|| ActiveContext.GetHitOrdinal()
+			!= static_cast<int32>(NextEmissionOrdinal))
+	{
+		return false;
+	}
+	for (const TPair<FGuid, FShanmenHitCandidate>& Entry : AcceptedCandidates)
+	{
+		if (Entry.Key != Entry.Value.TargetEntityId
+			|| !CandidateMatchesContext(Entry.Value, ActiveContext))
+		{
+			return false;
+		}
+	}
+	return true;
 }
 
 bool FShanmenDetectorEmissionSession::TryBeginEmission(FShanmenWorldHitContext& OutContext)
@@ -50,40 +125,60 @@ bool FShanmenDetectorEmissionSession::TryBeginEmission(FShanmenWorldHitContext& 
 		return false;
 	}
 
-	AcceptedTargetIds.Reset();
+	AcceptedCandidates.Reset();
+	ActiveContext = OutContext;
 	bEmissionActive = true;
 	return true;
 }
 
 bool FShanmenDetectorEmissionSession::TryAcceptCandidate(const FShanmenHitCandidate& Candidate)
 {
-	if (!bEmissionActive
-		|| !Candidate.IsValid()
-		|| Candidate.ActivationId != Action.GetActivationId()
-		|| Candidate.SourceEntityId != Action.GetSourceEntityId()
-		|| Candidate.DetectorId != DetectorId
-		|| Candidate.DetectorKind != DetectorKind
-		|| Candidate.HitOrdinal != static_cast<int32>(NextEmissionOrdinal)
-		|| AcceptedTargetIds.Contains(Candidate.TargetEntityId))
+	if (!IsValid()
+		|| !bEmissionActive
+		|| !CandidateMatchesContext(Candidate, ActiveContext)
+		|| AcceptedCandidates.Contains(Candidate.TargetEntityId))
 	{
 		return false;
 	}
 
-	AcceptedTargetIds.Add(Candidate.TargetEntityId);
+	AcceptedCandidates.Add(Candidate.TargetEntityId, Candidate);
+	return true;
+}
+
+bool FShanmenDetectorEmissionSession::TryEndEmission(
+	FShanmenDetectorEmissionReceipt& OutReceipt)
+{
+	OutReceipt = FShanmenDetectorEmissionReceipt();
+	if (!IsValid() || !bEmissionActive)
+	{
+		return false;
+	}
+
+	OutReceipt.Context = ActiveContext;
+	AcceptedCandidates.GenerateValueArray(OutReceipt.Candidates);
+	OutReceipt.Candidates.Sort(
+		[](const FShanmenHitCandidate& Left,
+			const FShanmenHitCandidate& Right)
+		{
+			return GuidLess(Left.TargetEntityId, Right.TargetEntityId);
+		});
+	if (!OutReceipt.IsValid())
+	{
+		OutReceipt = FShanmenDetectorEmissionReceipt();
+		return false;
+	}
+
+	bEmissionActive = false;
+	ActiveContext = FShanmenWorldHitContext();
+	AcceptedCandidates.Reset();
+	++NextEmissionOrdinal;
 	return true;
 }
 
 bool FShanmenDetectorEmissionSession::TryEndEmission()
 {
-	if (!bEmissionActive)
-	{
-		return false;
-	}
-
-	bEmissionActive = false;
-	AcceptedTargetIds.Reset();
-	++NextEmissionOrdinal;
-	return true;
+	FShanmenDetectorEmissionReceipt Ignored;
+	return TryEndEmission(Ignored);
 }
 
 void FShanmenDetectorEmissionSession::Reset()
