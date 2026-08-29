@@ -116,6 +116,10 @@ public:
 
 	bool IsValid() const;
 	int32 GetPlacementCount() const { return Placements.Num(); }
+	bool IsBoundToWorld(const UWorld* World) const
+	{
+		return World && BoundWorld.Get() == World;
+	}
 	const Fdemo_mapShanmenFormationAnchorPlacementReceipt* FindReceipt(
 		const FGuid& PlacementId) const;
 	bool IsTeardownComplete() const { return bTeardownComplete; }

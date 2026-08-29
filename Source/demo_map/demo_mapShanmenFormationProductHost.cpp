@@ -43,6 +43,16 @@ namespace
 		return Result;
 	}
 
+	Fdemo_mapShanmenFormationHostCoverageResult RejectCoverage(
+		const Edemo_mapShanmenFormationHostCoverageStatus Status,
+		FString Diagnostic)
+	{
+		Fdemo_mapShanmenFormationHostCoverageResult Result;
+		Result.Status = Status;
+		Result.Diagnostic = MoveTemp(Diagnostic);
+		return Result;
+	}
+
 	bool IsConcreteActorClass(
 		const TSubclassOf<AActor> ActorClass,
 		FString& OutClassPath)
@@ -70,6 +80,22 @@ bool Fdemo_mapShanmenFormationHostResult::IsSuccess() const
 		|| Status == Edemo_mapShanmenFormationHostStatus::Cancelled
 		|| Status == Edemo_mapShanmenFormationHostStatus::Ended
 		|| Status == Edemo_mapShanmenFormationHostStatus::TeardownReplayed;
+}
+
+bool Fdemo_mapShanmenFormationHostCoverageResult::IsSuccess() const
+{
+	switch (Status)
+	{
+	case Edemo_mapShanmenFormationHostCoverageStatus::Coordinated:
+		return Area.IsSuccess() && Coordination.IsSuccess()
+			&& !TrackerReset.IsSuccess();
+	case Edemo_mapShanmenFormationHostCoverageStatus::Reset:
+	case Edemo_mapShanmenFormationHostCoverageStatus::ResetReplayed:
+		return !Area.IsSuccess() && !Coordination.IsSuccess()
+			&& TrackerReset.IsSuccess();
+	default:
+		return false;
+	}
 }
 
 bool Fdemo_mapShanmenFormationProductHost::TryStart(
@@ -429,6 +455,7 @@ Fdemo_mapShanmenFormationProductHost::TryCancelAndTeardown(
 		return Result;
 	}
 	ClearPendingPlacement();
+	CoverageTracker.Reset();
 	Result.Status = Result.World.Status
 		== Edemo_mapShanmenFormationWorldStatus::TeardownReplayed
 		? Edemo_mapShanmenFormationHostStatus::TeardownReplayed
@@ -496,6 +523,7 @@ Fdemo_mapShanmenFormationProductHost::TryEndAndTeardown(
 		Result.Diagnostic = Result.World.Diagnostic;
 		return Result;
 	}
+	CoverageTracker.Reset();
 	Result.Status = Result.World.Status
 		== Edemo_mapShanmenFormationWorldStatus::TeardownReplayed
 		? Edemo_mapShanmenFormationHostStatus::TeardownReplayed
@@ -504,9 +532,157 @@ Fdemo_mapShanmenFormationProductHost::TryEndAndTeardown(
 	return Result;
 }
 
+Fdemo_mapShanmenFormationHostCoverageResult
+Fdemo_mapShanmenFormationProductHost::TryCoordinateCoverage(
+	UWorld* World,
+	const FShanmenWorldEntityRegistry& EntityRegistry,
+	const TArray<AActor*>& SourceActors,
+	const Fdemo_mapShanmenRunCorrelation& RequestedCorrelation,
+	const Fdemo_mapShanmenFormationCoverageCommand& Command)
+{
+	if (!IsValid())
+	{
+		return RejectCoverage(
+			Edemo_mapShanmenFormationHostCoverageStatus::HostInvalid,
+			TEXT("Coverage coordination requires one valid product host."));
+	}
+	if (RequestedCorrelation != Session.GetCorrelation())
+	{
+		return RejectCoverage(
+			Edemo_mapShanmenFormationHostCoverageStatus::CorrelationMismatch,
+			TEXT("Coverage coordination rejected a stale or foreign Run correlation."));
+	}
+	if (Session.IsTerminal())
+	{
+		return RejectCoverage(
+			Edemo_mapShanmenFormationHostCoverageStatus::SessionTerminal,
+			TEXT("Terminal formation teardown owns coverage-baseline cleanup."));
+	}
+	if (Session.GetState() != Edemo_mapShanmenFormationSessionState::Active)
+	{
+		return RejectCoverage(
+			Edemo_mapShanmenFormationHostCoverageStatus::SessionNotActive,
+			TEXT("Coverage begins only after every formation anchor commits."));
+	}
+	if (bHasPendingPlacement)
+	{
+		return RejectCoverage(
+			Edemo_mapShanmenFormationHostCoverageStatus::PlacementPending,
+			TEXT("Coverage cannot sample while the final committed placement is pending."));
+	}
+	if (!WorldAdapter.IsBoundToWorld(World))
+	{
+		return RejectCoverage(
+			Edemo_mapShanmenFormationHostCoverageStatus::WorldMismatch,
+			TEXT("Coverage must sample the World bound by this host's placements."));
+	}
+
+	const TArray<Fdemo_mapShanmenFormationAnchorAudit>& Audits =
+		Session.GetAnchorAudits();
+	if (Audits.IsEmpty() || WorldAdapter.GetPlacementCount() != Audits.Num())
+	{
+		return RejectCoverage(
+			Edemo_mapShanmenFormationHostCoverageStatus::PlacementIncomplete,
+			TEXT("Every committed anchor must have one canonical placement receipt."));
+	}
+
+	TArray<Fdemo_mapShanmenFormationAnchorPlacementReceipt> Receipts;
+	Receipts.Reserve(Audits.Num());
+	for (const Fdemo_mapShanmenFormationAnchorAudit& Audit : Audits)
+	{
+		Fdemo_mapShanmenFormationAnchorPlacementIntent ExpectedIntent;
+		if (!Audit.IsValid()
+			|| !Fdemo_mapShanmenFormationWorldAdapter::BuildPlacementIntent(
+				Session, Audit.AnchorDefinitionId, ExpectedIntent))
+		{
+			return RejectCoverage(
+				Edemo_mapShanmenFormationHostCoverageStatus::PlacementIncomplete,
+				TEXT("A committed anchor could not rebuild its canonical placement identity."));
+		}
+		const Fdemo_mapShanmenFormationAnchorPlacementReceipt* Receipt =
+			WorldAdapter.FindReceipt(ExpectedIntent.PlacementId);
+		if (!Receipt || !Receipt->IsValid()
+			|| !IntentsMatch(Receipt->Intent, ExpectedIntent))
+		{
+			return RejectCoverage(
+				Edemo_mapShanmenFormationHostCoverageStatus::PlacementIncomplete,
+				TEXT("A committed anchor is missing its exact host-owned placement receipt."));
+		}
+		Receipts.Add(*Receipt);
+	}
+
+	Fdemo_mapShanmenFormationHostCoverageResult Result;
+	Result.Area = Fdemo_mapShanmenFormationAreaProvider::BuildArea(Receipts);
+	if (!Result.Area.IsSuccess()
+		|| Result.Area.Area.RunId != RequestedCorrelation.ActiveRunId
+		|| Result.Area.Area.OwnerId != RequestedCorrelation.OwnerId
+		|| Result.Area.Area.DeploymentId
+			!= Session.GetDeployment().GetDeploymentId())
+	{
+		Result.Status = Edemo_mapShanmenFormationHostCoverageStatus::AreaRejected;
+		Result.Diagnostic = Result.Area.Diagnostic.IsEmpty()
+			? TEXT("The rebuilt area does not match this host's Run and deployment scope.")
+			: Result.Area.Diagnostic;
+		return Result;
+	}
+
+	Result.Coordination =
+		Fdemo_mapShanmenFormationCoverageCoordinator::Execute(
+			World, Result.Area.Area, EntityRegistry, SourceActors,
+			Command, CoverageTracker);
+	if (!Result.Coordination.IsSuccess())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationHostCoverageStatus::CoordinatorRejected;
+		Result.Diagnostic = Result.Coordination.Diagnostic;
+		return Result;
+	}
+	Result.Status = Edemo_mapShanmenFormationHostCoverageStatus::Coordinated;
+	Result.Diagnostic =
+		TEXT("The host rebuilt its canonical area and committed one explicit coverage command.");
+	return Result;
+}
+
+Fdemo_mapShanmenFormationHostCoverageResult
+Fdemo_mapShanmenFormationProductHost::TryResetCoverage(
+	const Fdemo_mapShanmenRunCorrelation& RequestedCorrelation)
+{
+	if (!IsValid())
+	{
+		return RejectCoverage(
+			Edemo_mapShanmenFormationHostCoverageStatus::HostInvalid,
+			TEXT("Coverage reset requires one valid product host."));
+	}
+	if (RequestedCorrelation != Session.GetCorrelation())
+	{
+		return RejectCoverage(
+			Edemo_mapShanmenFormationHostCoverageStatus::CorrelationMismatch,
+			TEXT("Coverage reset rejected a stale or foreign Run correlation."));
+	}
+	if (Session.IsTerminal())
+	{
+		return RejectCoverage(
+			Edemo_mapShanmenFormationHostCoverageStatus::SessionTerminal,
+			TEXT("Terminal formation teardown already owns coverage-baseline cleanup."));
+	}
+
+	Fdemo_mapShanmenFormationHostCoverageResult Result;
+	Result.TrackerReset = CoverageTracker.Reset();
+	Result.Status = Result.TrackerReset.PreviousBaselineReceiptId.IsValid()
+		? Edemo_mapShanmenFormationHostCoverageStatus::Reset
+		: Edemo_mapShanmenFormationHostCoverageStatus::ResetReplayed;
+	Result.Diagnostic = Result.Status
+		== Edemo_mapShanmenFormationHostCoverageStatus::Reset
+		? TEXT("The host explicitly cleared its coverage baseline.")
+		: TEXT("Coverage reset replayed with no retained baseline.");
+	return Result;
+}
+
 bool Fdemo_mapShanmenFormationProductHost::IsValid() const
 {
-	if (!Session.IsValid() || !WorldAdapter.IsValid())
+	if (!Session.IsValid() || !WorldAdapter.IsValid()
+		|| !CoverageTracker.IsConsistent()
+		|| (WorldAdapter.IsTeardownComplete() && CoverageTracker.IsPrimed()))
 	{
 		return false;
 	}

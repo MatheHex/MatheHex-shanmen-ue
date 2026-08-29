@@ -16,12 +16,14 @@
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "Components/SceneComponent.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/Pawn.h"
 #include "HAL/FileManager.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/Paths.h"
+#include "ShanmenWorldEntityRegistry.h"
 #include "UObject/UObjectGlobals.h"
 
 namespace
@@ -29,9 +31,14 @@ namespace
 	const FGuid HostAttemptA(0xF8400001, 0, 0, 1);
 	const FGuid HostAttemptB(0xF8400002, 0, 0, 1);
 	const FGuid HostAttemptOther(0xF8400003, 0, 0, 1);
+	const FGuid HostAttemptC(0xF8400004, 0, 0, 1);
+	const FGuid HostAttemptD(0xF8400005, 0, 0, 1);
 	const FGuid HostSourceEntityId(0xF8400010, 0, 0, 1);
+	const FGuid HostCoverageSubjectId(0xF8400011, 0, 0, 1);
 	const FName HostAnchorA(TEXT("Formation.Anchor.ProductHost.A"));
 	const FName HostAnchorB(TEXT("Formation.Anchor.ProductHost.B"));
+	const FName HostAnchorC(TEXT("Formation.Anchor.ProductHost.C"));
+	const FName HostAnchorD(TEXT("Formation.Anchor.ProductHost.D"));
 
 	FString NewFormationHostRoot(const TCHAR* Label)
 	{
@@ -74,6 +81,41 @@ namespace
 		return Diagram;
 	}
 
+	FShanmenFormationDiagramDefinition MakeHostCoverageDiagram()
+	{
+		FShanmenFormationDiagramCapture Capture;
+		Capture.ActionDefinitionId =
+			FShanmenFormationDiagramDefinition::CanonicalActionDefinitionId();
+		Capture.DiagramDefinitionId =
+			TEXT("Formation.Diagram.ProductHost.P8.10");
+		const TArray<FName> AnchorIds = {
+			HostAnchorA, HostAnchorB, HostAnchorC, HostAnchorD
+		};
+		const TArray<FVector> Offsets = {
+			FVector(0.0, 0.0, 25.0),
+			FVector(100.0, 0.0, 25.0),
+			FVector(100.0, 100.0, 25.0),
+			FVector(0.0, 100.0, 25.0)
+		};
+		for (int32 Index = 0; Index < AnchorIds.Num(); ++Index)
+		{
+			FShanmenFormationAnchorCapture& Anchor =
+				Capture.Anchors.AddDefaulted_GetRef();
+			Anchor.Order = Index;
+			Anchor.AnchorDefinitionId = AnchorIds[Index];
+			Anchor.RelativeOffset = Offsets[Index];
+			FShanmenFormationMaterialRequirementCapture& Wood =
+				Anchor.Requirements.AddDefaulted_GetRef();
+			Wood.Order = 0;
+			Wood.MaterialDefinitionId = Fdemo_mapItemIds::SpiritWoodLevel1;
+			Wood.Quantity = 1;
+		}
+		FShanmenFormationDiagramDefinition Diagram;
+		check(FShanmenFormationDiagramDefinition::TryCapture(
+			Capture, Diagram));
+		return Diagram;
+	}
+
 	int32 CountTaggedActors(UWorld* World, const FName Tag)
 	{
 		if (!World || Tag.IsNone())
@@ -107,7 +149,10 @@ namespace
 		Fdemo_mapShanmenRunCorrelation Correlation;
 		Fdemo_mapShanmenFormationProductHost Host;
 
-		bool Start(FAutomationTestBase& Test, const TCHAR* Label)
+		bool Start(
+			FAutomationTestBase& Test,
+			const TCHAR* Label,
+			const bool bUseCoverageDiagram = false)
 		{
 			Root = NewFormationHostRoot(Label);
 			Storage = Fdemo_mapProfileStorageContext::ForRoot(Root);
@@ -220,7 +265,10 @@ namespace
 			if (!FShanmenCombatActionSnapshot::TryCapture(
 					ActionCapture, Action)
 				|| !Fdemo_mapShanmenFormationProductHost::TryStart(
-					Correlation, Action, MakeHostDiagram(),
+					Correlation, Action,
+					bUseCoverageDiagram
+						? MakeHostCoverageDiagram()
+						: MakeHostDiagram(),
 					FVector::ZeroVector, FVector::ForwardVector,
 					Host, Startup, Active, Begin))
 			{
@@ -253,6 +301,68 @@ namespace
 					.SetTransactional(false)
 					.CreateFXSystem(false));
 			return true;
+		}
+
+		AActor* SpawnCoverageSubject(const FVector& Location) const
+		{
+			if (!World)
+			{
+				return nullptr;
+			}
+			FActorSpawnParameters Parameters;
+			Parameters.ObjectFlags |= RF_Transient;
+			Parameters.SpawnCollisionHandlingOverride =
+				ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			AActor* Actor = World->SpawnActor<AActor>(
+				AActor::StaticClass(), FTransform::Identity, Parameters);
+			if (!Actor)
+			{
+				return nullptr;
+			}
+			USceneComponent* RootComponent = NewObject<USceneComponent>(
+				Actor, TEXT("P810CoverageRoot"), RF_Transient);
+			if (!RootComponent)
+			{
+				World->DestroyActor(Actor, true, true);
+				return nullptr;
+			}
+			Actor->SetRootComponent(RootComponent);
+			RootComponent->SetWorldLocation(Location);
+			return Actor->GetActorLocation().Equals(
+				Location, KINDA_SMALL_NUMBER) ? Actor : nullptr;
+		}
+
+		bool CommitAndPlaceCoverageDiagram(FAutomationTestBase& Test)
+		{
+			const TArray<FName> AnchorIds = {
+				HostAnchorA, HostAnchorB, HostAnchorC, HostAnchorD
+			};
+			const TArray<FGuid> AttemptIds = {
+				HostAttemptA, HostAttemptB, HostAttemptC, HostAttemptD
+			};
+			for (int32 Index = 0; Index < AnchorIds.Num(); ++Index)
+			{
+				Fdemo_mapShanmenFormationHostResult Commit;
+				if (!PrepareAndCommit(
+						Test, AnchorIds[Index], AttemptIds[Index], Commit))
+				{
+					return false;
+				}
+				const Fdemo_mapShanmenFormationHostResult Placement =
+					Host.TryPlaceCommittedAnchor(
+						World, ACharacter::StaticClass(), Correlation,
+						AnchorIds[Index], AttemptIds[Index]);
+				if (!Placement.IsSuccess())
+				{
+					Test.AddError(FString::Printf(
+						TEXT("P8.10 placement failed: %s"),
+						*Placement.Diagnostic));
+					return false;
+				}
+			}
+			return Host.GetSession().GetState()
+				== Edemo_mapShanmenFormationSessionState::Active
+				&& !Host.HasPendingPlacement();
 		}
 
 		bool CaptureSnapshot(FShanmenItemAuthoritySnapshot& OutSnapshot) const
@@ -606,6 +716,177 @@ bool Fdemo_mapFormationHostCancelBoundaryTest::RunTest(const FString&)
 			&& CommittedFixture.Host.GetSession().GetState()
 				== Edemo_mapShanmenFormationSessionState::Cancelled
 			&& CommittedFixture.Host.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationHostCoverageOwnershipTest,
+	"Shanmen.0_0_10.Product.FormationProductHost.CoverageOwnership",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationHostCoverageOwnershipTest::RunTest(const FString&)
+{
+	FFormationHostFixture Fixture;
+	if (!Fixture.Start(*this, TEXT("CoverageOwnership"), true)
+		|| !Fixture.CommitAndPlaceCoverageDiagram(*this))
+	{
+		return false;
+	}
+
+	FShanmenWorldEntityRegistry Registry;
+	AActor* Subject = Fixture.SpawnCoverageSubject(
+		FVector(50.0, 50.0, 900.0));
+	if (!Subject
+		|| !Registry.TryBeginRun(Fixture.Correlation.ActiveRunId)
+		|| Registry.BindObject(
+			Fixture.Correlation.ActiveRunId, Subject,
+			HostCoverageSubjectId, INDEX_NONE)
+			!= EShanmenWorldBindingResult::Bound)
+	{
+		AddError(TEXT("Could not bind the P8.10 coverage subject."));
+		return false;
+	}
+
+	const Fdemo_mapShanmenFormationHostCoverageResult Prime =
+		Fixture.Host.TryCoordinateCoverage(
+			Fixture.World, Registry, { Subject }, Fixture.Correlation,
+			Fdemo_mapShanmenFormationCoverageCommand::MakePrime());
+	Fdemo_mapShanmenFormationCoverageReceipt PrimeBaseline;
+	const bool bReadPrime =
+		Fixture.Host.TryGetCoverageBaseline(PrimeBaseline);
+	Subject->SetActorLocation(
+		FVector(150.0, 50.0, 900.0), false, nullptr,
+		ETeleportType::TeleportPhysics);
+	const Fdemo_mapShanmenFormationCoverageCommand AdvanceCommand =
+		Fdemo_mapShanmenFormationCoverageCommand::MakeAdvance(
+			PrimeBaseline.ReceiptId);
+	const Fdemo_mapShanmenFormationHostCoverageResult Advance =
+		Fixture.Host.TryCoordinateCoverage(
+			Fixture.World, Registry, { Subject }, Fixture.Correlation,
+			AdvanceCommand);
+	const Fdemo_mapShanmenFormationHostCoverageResult Replay =
+		Fixture.Host.TryCoordinateCoverage(
+			Fixture.World, Registry, { Subject }, Fixture.Correlation,
+			AdvanceCommand);
+
+	TestTrue(TEXT("Host primes only from its internally rebuilt deployment area"),
+		Prime.IsSuccess()
+			&& Prime.Status
+				== Edemo_mapShanmenFormationHostCoverageStatus::Coordinated
+			&& Prime.Area.Area.Anchors.Num() == 4
+			&& Prime.Area.Area.DeploymentId
+				== Fixture.Host.GetSession().GetDeployment().GetDeploymentId()
+			&& Prime.Coordination.TrackerResult.Status
+				== Edemo_mapShanmenFormationCoverageTrackerStatus::Primed
+			&& bReadPrime && Fixture.Host.HasCoverageBaseline());
+	TestTrue(TEXT("Owned tracker advances once and preserves transition evidence"),
+		Advance.IsSuccess()
+			&& Advance.Coordination.TrackerResult.Status
+				== Edemo_mapShanmenFormationCoverageTrackerStatus::Advanced
+			&& Advance.Coordination.TrackerResult.Transition.IsSuccess()
+			&& Advance.Coordination.TrackerResult.Transition.Receipt.LeftCount
+				== 1);
+	TestTrue(TEXT("Exact host command replays without a second baseline mutation"),
+		Replay.IsSuccess()
+			&& Replay.Coordination.TrackerResult.Status
+				== Edemo_mapShanmenFormationCoverageTrackerStatus::AdvanceReplayed
+			&& Replay.Coordination.TrackerResult.CurrentBaselineReceiptId
+				== Advance.Coordination.TrackerResult.CurrentBaselineReceiptId);
+
+	const Fdemo_mapShanmenFormationHostCoverageResult Reset =
+		Fixture.Host.TryResetCoverage(Fixture.Correlation);
+	const Fdemo_mapShanmenFormationHostCoverageResult ResetReplay =
+		Fixture.Host.TryResetCoverage(Fixture.Correlation);
+	TestTrue(TEXT("Explicit reset clears the sole baseline and replays safely"),
+		Reset.IsSuccess()
+			&& Reset.Status
+				== Edemo_mapShanmenFormationHostCoverageStatus::Reset
+			&& ResetReplay.IsSuccess()
+			&& ResetReplay.Status
+				== Edemo_mapShanmenFormationHostCoverageStatus::ResetReplayed
+			&& !Fixture.Host.HasCoverageBaseline()
+			&& Fixture.Host.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationHostCoverageLifecycleTest,
+	"Shanmen.0_0_10.Product.FormationProductHost.CoverageLifecycleFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationHostCoverageLifecycleTest::RunTest(const FString&)
+{
+	FFormationHostFixture Fixture;
+	if (!Fixture.Start(*this, TEXT("CoverageLifecycle"), true))
+	{
+		return false;
+	}
+	FShanmenWorldEntityRegistry Registry;
+	AActor* Subject = Fixture.SpawnCoverageSubject(
+		FVector(50.0, 50.0, 0.0));
+	if (!Subject
+		|| !Registry.TryBeginRun(Fixture.Correlation.ActiveRunId)
+		|| Registry.BindObject(
+			Fixture.Correlation.ActiveRunId, Subject,
+			HostCoverageSubjectId, INDEX_NONE)
+			!= EShanmenWorldBindingResult::Bound)
+	{
+		return false;
+	}
+
+	const Fdemo_mapShanmenFormationHostCoverageResult BeforeActive =
+		Fixture.Host.TryCoordinateCoverage(
+			Fixture.World, Registry, { Subject }, Fixture.Correlation,
+			Fdemo_mapShanmenFormationCoverageCommand::MakePrime());
+	if (!Fixture.CommitAndPlaceCoverageDiagram(*this))
+	{
+		return false;
+	}
+	Fdemo_mapShanmenRunCorrelation Foreign = Fixture.Correlation;
+	Foreign.OwnerId = FGuid(0xF8409999, 0, 0, 1);
+	const Fdemo_mapShanmenFormationHostCoverageResult WrongCorrelation =
+		Fixture.Host.TryCoordinateCoverage(
+			Fixture.World, Registry, { Subject }, Foreign,
+			Fdemo_mapShanmenFormationCoverageCommand::MakePrime());
+	const Fdemo_mapShanmenFormationHostCoverageResult WrongWorld =
+		Fixture.Host.TryCoordinateCoverage(
+			nullptr, Registry, { Subject }, Fixture.Correlation,
+			Fdemo_mapShanmenFormationCoverageCommand::MakePrime());
+	const Fdemo_mapShanmenFormationHostCoverageResult Prime =
+		Fixture.Host.TryCoordinateCoverage(
+			Fixture.World, Registry, { Subject }, Fixture.Correlation,
+			Fdemo_mapShanmenFormationCoverageCommand::MakePrime());
+
+	TestTrue(TEXT("Coverage is fenced by active deployment and exact host scope"),
+		BeforeActive.Status
+			== Edemo_mapShanmenFormationHostCoverageStatus::SessionNotActive
+			&& WrongCorrelation.Status
+				== Edemo_mapShanmenFormationHostCoverageStatus::CorrelationMismatch
+			&& WrongWorld.Status
+				== Edemo_mapShanmenFormationHostCoverageStatus::WorldMismatch
+			&& Prime.IsSuccess() && Fixture.Host.HasCoverageBaseline());
+
+	const Fdemo_mapShanmenFormationHostResult Ended =
+		Fixture.Host.TryEndAndTeardown(
+			Fixture.World, Fixture.Correlation);
+	const Fdemo_mapShanmenFormationHostCoverageResult AfterTerminal =
+		Fixture.Host.TryCoordinateCoverage(
+			Fixture.World, Registry, { Subject }, Fixture.Correlation,
+			Fdemo_mapShanmenFormationCoverageCommand::MakePrime());
+	const Fdemo_mapShanmenFormationHostCoverageResult TerminalReset =
+		Fixture.Host.TryResetCoverage(Fixture.Correlation);
+	const Fdemo_mapShanmenFormationHostResult EndReplay =
+		Fixture.Host.TryEndAndTeardown(
+			Fixture.World, Fixture.Correlation);
+	TestTrue(TEXT("Successful terminal teardown atomically clears coverage authority"),
+		Ended.IsSuccess() && !Fixture.Host.HasCoverageBaseline()
+			&& AfterTerminal.Status
+				== Edemo_mapShanmenFormationHostCoverageStatus::SessionTerminal
+			&& TerminalReset.Status
+				== Edemo_mapShanmenFormationHostCoverageStatus::SessionTerminal
+			&& EndReplay.Status
+				== Edemo_mapShanmenFormationHostStatus::TeardownReplayed
+			&& Fixture.Host.IsValid());
 	return true;
 }
 
