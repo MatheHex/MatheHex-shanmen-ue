@@ -68,6 +68,19 @@
       ]
     },
     {
+      "name": "FormationProductHost",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenFormationProductHost(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Product.FormationProductHost",
+        "Shanmen.0_0_10.Product.FormationWorldDelivery",
+        "Shanmen.0_0_10.Product.FormationSession",
+        "Shanmen.0_0_10.Product.FormationMaterialAdapter",
+        "Shanmen.0_0_10.Items",
+        "Shanmen.0_0_10.WorldGameplay",
+        "Shanmen.0_0_10.CombatRuntime.FormationDeployment"
+      ]
+    },
+    {
       "name": "WorldGameplay",
       "pathRegex": "^Source/ShanmenWorldGameplay/",
       "requiredGroups": [
