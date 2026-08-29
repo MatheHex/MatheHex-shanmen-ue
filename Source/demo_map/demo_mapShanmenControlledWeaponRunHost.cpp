@@ -167,6 +167,42 @@ IsFinalized() const
 	return true;
 }
 
+bool Fdemo_mapShanmenControlledWeaponThreatSampleBatchEntry::
+IsSuccessful() const
+{
+	return ItemInstanceId.IsValid()
+		&& Finalization.IsFinalized()
+		&& Finalization.GetItemInstanceId() == ItemInstanceId;
+}
+
+bool Fdemo_mapShanmenControlledWeaponThreatSampleBatch::
+IsFullyFinalized() const
+{
+	if (!RunId.IsValid()
+		|| AttemptedCount <= 0
+		|| FinalizedCount != AttemptedCount
+		|| Entries.Num() != AttemptedCount)
+	{
+		return false;
+	}
+
+	FGuid PreviousItemInstanceId;
+	for (const Fdemo_mapShanmenControlledWeaponThreatSampleBatchEntry& Entry :
+		Entries)
+	{
+		if (!Entry.IsSuccessful()
+			|| Entry.Finalization.GetPresence().GetPolicy().GetEmission()
+				.GetContext().GetAction().GetRunId() != RunId
+			|| (PreviousItemInstanceId.IsValid()
+				&& !GuidLess(PreviousItemInstanceId, Entry.ItemInstanceId)))
+		{
+			return false;
+		}
+		PreviousItemInstanceId = Entry.ItemInstanceId;
+	}
+	return true;
+}
+
 Fdemo_mapShanmenControlledWeaponHostAttachResult
 Fdemo_mapShanmenControlledWeaponRunHost::TryAttach(
 	const Fdemo_mapShanmenControlledWeaponPrepareResult& Prepared,
@@ -684,6 +720,77 @@ bool Fdemo_mapShanmenControlledWeaponRunHost::TrySampleOrbitThreat(
 
 	*this = MoveTemp(Candidate);
 	OutResult = MoveTemp(Result);
+	return true;
+}
+
+bool Fdemo_mapShanmenControlledWeaponRunHost::
+TrySampleOrbitThreatsInOrder(
+	const Fdemo_mapCombatRunCoordinator& Coordinator,
+	const TArray<Fdemo_mapShanmenControlledWeaponThreatSampleRequest>& Requests,
+	Fdemo_mapShanmenControlledWeaponThreatSampleBatch& OutBatch)
+{
+	OutBatch = Fdemo_mapShanmenControlledWeaponThreatSampleBatch();
+	if (!IsValid()
+		|| !CoordinatorMatches(Coordinator)
+		|| Requests.IsEmpty())
+	{
+		return false;
+	}
+
+	TArray<Fdemo_mapShanmenControlledWeaponThreatSampleRequest>
+		OrderedRequests = Requests;
+	OrderedRequests.Sort([](
+		const Fdemo_mapShanmenControlledWeaponThreatSampleRequest& Left,
+		const Fdemo_mapShanmenControlledWeaponThreatSampleRequest& Right)
+	{
+		return GuidLess(Left.ItemInstanceId, Right.ItemInstanceId);
+	});
+	for (int32 Index = 0; Index < OrderedRequests.Num(); ++Index)
+	{
+		const Fdemo_mapShanmenControlledWeaponThreatSampleRequest& Request =
+			OrderedRequests[Index];
+		if (!Request.IsValid()
+			|| !Controllers.Contains(Request.ItemInstanceId)
+			|| (Index > 0
+				&& OrderedRequests[Index - 1].ItemInstanceId
+					== Request.ItemInstanceId))
+		{
+			return false;
+		}
+	}
+
+	Fdemo_mapShanmenControlledWeaponRunHost Candidate = *this;
+	Fdemo_mapShanmenControlledWeaponThreatSampleBatch Batch;
+	Batch.RunId = RunId;
+	Batch.AttemptedCount = OrderedRequests.Num();
+	Batch.Entries.Reserve(OrderedRequests.Num());
+	for (const Fdemo_mapShanmenControlledWeaponThreatSampleRequest& Request :
+		OrderedRequests)
+	{
+		Fdemo_mapShanmenControlledWeaponThreatFinalizationResult Finalization;
+		if (!Candidate.TrySampleOrbitThreat(
+				Request.ItemInstanceId,
+				Coordinator,
+				Request.Contacts,
+				Finalization))
+		{
+			return false;
+		}
+
+		Fdemo_mapShanmenControlledWeaponThreatSampleBatchEntry& Entry =
+			Batch.Entries.AddDefaulted_GetRef();
+		Entry.ItemInstanceId = Request.ItemInstanceId;
+		Entry.Finalization = MoveTemp(Finalization);
+		++Batch.FinalizedCount;
+	}
+
+	if (!Batch.IsFullyFinalized() || !Candidate.IsValid())
+	{
+		return false;
+	}
+
+	*this = MoveTemp(Candidate);
+	OutBatch = MoveTemp(Batch);
 	return true;
 }
 

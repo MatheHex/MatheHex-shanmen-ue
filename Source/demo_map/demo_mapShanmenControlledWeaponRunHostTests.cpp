@@ -1019,6 +1019,173 @@ bool Fdemo_mapControlledWeaponRunHostAtomicThreatSampleTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapControlledWeaponRunHostAtomicThreatSampleBatchTest,
+	"Shanmen.0_0_10.Product.ControlledWeaponRunHost.AtomicThreatSampleBatch",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapControlledWeaponRunHostAtomicThreatSampleBatchTest::RunTest(
+	const FString&)
+{
+	FControlledWeaponHostFixture Fixture;
+	Fdemo_mapShanmenControlledWeaponRunHost Host;
+	if (!Fixture.bReady || !Fixture.GetEnemyRoot()
+		|| !AttachHostWeapon(
+			Fixture, Host, HostHighItemId, 2, 1).IsAttached()
+		|| !AttachHostWeapon(
+			Fixture, Host, HostLowItemId, 1, 0).IsAttached())
+	{
+		AddError(TEXT("Could not prepare P6.21 atomic batch fixture."));
+		return false;
+	}
+
+	FShanmenTargetVitalitySnapshot Before;
+	check(Fixture.Enemy->TryCaptureCombatVitalitySnapshot(Before));
+	const TArray<Fdemo_mapShanmenControlledWeaponOrbitThreatContact>
+		OneContact = { MakeHostThreatContact(Fixture) };
+	const TArray<Fdemo_mapShanmenControlledWeaponOrbitThreatContact>
+		DuplicateContacts = {
+			MakeHostThreatContact(Fixture),
+			MakeHostThreatContact(Fixture)
+		};
+
+	Fdemo_mapShanmenControlledWeaponThreatSampleRequest LowRequest;
+	LowRequest.ItemInstanceId = HostLowItemId;
+	LowRequest.Contacts = OneContact;
+	Fdemo_mapShanmenControlledWeaponThreatSampleRequest HighRequest;
+	HighRequest.ItemInstanceId = HostHighItemId;
+	HighRequest.Contacts = OneContact;
+	Fdemo_mapShanmenControlledWeaponThreatSampleBatch First;
+	TestTrue(TEXT("Reverse caller order commits in stable exact-item order"),
+		Host.TrySampleOrbitThreatsInOrder(
+			Fixture.Coordinator,
+			{ HighRequest, LowRequest },
+			First)
+		&& First.IsFullyFinalized()
+		&& First.RunId == HostRunId
+		&& First.AttemptedCount == 2
+		&& First.FinalizedCount == 2
+		&& First.Entries.Num() == 2
+		&& First.Entries[0].ItemInstanceId == HostLowItemId
+		&& First.Entries[1].ItemInstanceId == HostHighItemId
+		&& First.Entries[0].Finalization.GetPresence().GetPolicy()
+			.GetEmission().GetContext().GetHitOrdinal() == 0
+		&& First.Entries[1].Finalization.GetPresence().GetPolicy()
+			.GetEmission().GetContext().GetHitOrdinal() == 0
+		&& First.Entries[0].Finalization.GetConsumption().GetReceipts().Num()
+			== 1
+		&& First.Entries[1].Finalization.GetConsumption().GetReceipts().Num()
+			== 1
+		&& First.Entries[0].Finalization.GetConsumption().GetReceipts()[0]
+			.GetAuthorityRevision() == 1
+		&& First.Entries[1].Finalization.GetConsumption().GetReceipts()[0]
+			.GetAuthorityRevision() == 2
+		&& Host.NumConsumedThreatPresenceIntents() == 2
+		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
+			== 2
+		&& Host.GetThreatPresenceAuthority().GetAuthorityRevision() == 2);
+	Fdemo_mapShanmenControlledWeaponThreatSampleBatch Reordered = First;
+	Reordered.Entries.Swap(0, 1);
+	TestFalse(TEXT("Batch receipt rejects non-canonical item ordering"),
+		Reordered.IsFullyFinalized());
+	Fdemo_mapShanmenControlledWeaponThreatSampleBatch WrongRun = First;
+	WrongRun.RunId = HostThirdItemId;
+	TestFalse(TEXT("Batch receipt rejects a mismatched Run identity"),
+		WrongRun.IsFullyFinalized());
+
+	Fdemo_mapShanmenControlledWeaponThreatSampleRequest LowEmpty = LowRequest;
+	LowEmpty.Contacts.Reset();
+	Fdemo_mapShanmenControlledWeaponThreatSampleRequest HighRejected =
+		HighRequest;
+	HighRejected.Contacts = DuplicateContacts;
+	Fdemo_mapShanmenControlledWeaponThreatSampleBatch Rejected;
+	TestFalse(TEXT("A later rejected item discards the whole Host candidate"),
+		Host.TrySampleOrbitThreatsInOrder(
+			Fixture.Coordinator,
+			{ HighRejected, LowEmpty },
+			Rejected));
+	TestTrue(TEXT("Rejected batch spends no item ordinal or authority revision"),
+		!Rejected.IsFullyFinalized()
+		&& !Rejected.RunId.IsValid()
+		&& Rejected.AttemptedCount == 0
+		&& Rejected.FinalizedCount == 0
+		&& Rejected.Entries.IsEmpty()
+		&& Host.GetThreatPresenceAuthority().GetLatestSampleOrdinal(
+			HostLowItemId) == 0
+		&& Host.GetThreatPresenceAuthority().GetLatestSampleOrdinal(
+			HostHighItemId) == 0
+		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
+			== 2
+		&& Host.GetThreatPresenceAuthority().GetAuthorityRevision() == 2
+		&& Host.NumConsumedThreatPresenceIntents() == 2);
+
+	Fdemo_mapShanmenControlledWeaponThreatSampleRequest HighEmpty =
+		HighRequest;
+	HighEmpty.Contacts.Reset();
+	Fdemo_mapShanmenControlledWeaponThreatSampleBatch Retry;
+	TestTrue(TEXT("Retry reuses both rolled-back ordinals as ordered no-ops"),
+		Host.TrySampleOrbitThreatsInOrder(
+			Fixture.Coordinator,
+			{ HighEmpty, LowEmpty },
+			Retry)
+		&& Retry.IsFullyFinalized()
+		&& Retry.Entries[0].ItemInstanceId == HostLowItemId
+		&& Retry.Entries[1].ItemInstanceId == HostHighItemId
+		&& Retry.Entries[0].Finalization.GetPresence().GetPolicy()
+			.GetEmission().GetContext().GetHitOrdinal() == 1
+		&& Retry.Entries[1].Finalization.GetPresence().GetPolicy()
+			.GetEmission().GetContext().GetHitOrdinal() == 1
+		&& Retry.Entries[0].Finalization.GetConsumption().GetStatus()
+			== EShanmenControlledWeaponThreatPresenceConsumeStatus::NoOp
+		&& Retry.Entries[1].Finalization.GetConsumption().GetStatus()
+			== EShanmenControlledWeaponThreatPresenceConsumeStatus::NoOp
+		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
+			== 4
+		&& Host.GetThreatPresenceAuthority().GetAuthorityRevision() == 2
+		&& Host.NumConsumedThreatPresenceIntents() == 2);
+
+	Fdemo_mapShanmenControlledWeaponThreatSampleRequest UnknownRequest;
+	UnknownRequest.ItemInstanceId = HostThirdItemId;
+	TestFalse(TEXT("Duplicate exact-item requests fail before any sample"),
+		Host.TrySampleOrbitThreatsInOrder(
+			Fixture.Coordinator,
+			{ LowEmpty, LowEmpty },
+			Rejected));
+	TestFalse(TEXT("Unknown exact items fail batch preflight"),
+		Host.TrySampleOrbitThreatsInOrder(
+			Fixture.Coordinator,
+			{ UnknownRequest },
+			Rejected));
+	TestFalse(TEXT("An empty caller subset is not a sample batch"),
+		Host.TrySampleOrbitThreatsInOrder(
+			Fixture.Coordinator,
+			{},
+			Rejected));
+	TestTrue(TEXT("All preflight failures leave the committed batch untouched"),
+		!Rejected.IsFullyFinalized()
+		&& Host.GetThreatPresenceAuthority().GetLatestSampleOrdinal(
+			HostLowItemId) == 1
+		&& Host.GetThreatPresenceAuthority().GetLatestSampleOrdinal(
+			HostHighItemId) == 1
+		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
+			== 4
+		&& Host.GetThreatPresenceAuthority().GetAuthorityRevision() == 2
+		&& Host.FindController(HostLowItemId)
+		&& !Host.FindController(HostLowItemId)->HasActiveContactWindow()
+		&& Host.FindController(HostHighItemId)
+		&& !Host.FindController(HostHighItemId)->HasActiveContactWindow());
+
+	FShanmenTargetVitalitySnapshot After;
+	check(Fixture.Enemy->TryCaptureCombatVitalitySnapshot(After));
+	TestTrue(TEXT("Atomic batch sampling remains presence-only and zero-impact"),
+		FMath::IsNearlyEqual(Before.CurrentVitality, After.CurrentVitality)
+		&& Host.FindController(HostLowItemId)->GetSession().GetExecution()
+			.NumAcceptedImpacts() == 0
+		&& Host.FindController(HostHighItemId)->GetSession().GetExecution()
+			.NumAcceptedImpacts() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	Fdemo_mapControlledWeaponRunHostThreatWatermarkTest,
 	"Shanmen.0_0_10.Product.ControlledWeaponRunHost.PerItemThreatSampleWatermarks",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

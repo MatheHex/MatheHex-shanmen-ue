@@ -135,6 +135,15 @@ struct Fdemo_mapShanmenControlledWeaponOrbitThreatContact
 	FVector ContactNormal = FVector::ZeroVector;
 };
 
+/** Caller-owned contacts for one exact item in a multi-item sample batch. */
+struct Fdemo_mapShanmenControlledWeaponThreatSampleRequest
+{
+	FGuid ItemInstanceId;
+	TArray<Fdemo_mapShanmenControlledWeaponOrbitThreatContact> Contacts;
+
+	bool IsValid() const { return ItemInstanceId.IsValid(); }
+};
+
 /**
  * Complete audit for one caller-owned, already-ended Orbit threat sample.
  * No field implies a time cadence or applies a gameplay effect.
@@ -166,6 +175,29 @@ private:
 	Fdemo_mapShanmenControlledWeaponThreatEvidenceCaptureResult Evidence;
 	FShanmenControlledWeaponThreatPresenceReceipt Presence;
 	FShanmenControlledWeaponThreatPresenceConsumeResult Consumption;
+};
+
+/** One stable-order item receipt from an atomic multi-item threat sample. */
+struct Fdemo_mapShanmenControlledWeaponThreatSampleBatchEntry
+{
+	FGuid ItemInstanceId;
+	Fdemo_mapShanmenControlledWeaponThreatFinalizationResult Finalization;
+
+	bool IsSuccessful() const;
+};
+
+/**
+ * Whole-host receipt for an explicit caller-supplied subset of exact items.
+ * Entries are strictly ordered by item GUID and commit all-or-nothing.
+ */
+struct Fdemo_mapShanmenControlledWeaponThreatSampleBatch
+{
+	FGuid RunId;
+	int32 AttemptedCount = 0;
+	int32 FinalizedCount = 0;
+	TArray<Fdemo_mapShanmenControlledWeaponThreatSampleBatchEntry> Entries;
+
+	bool IsFullyFinalized() const;
 };
 
 /** One item-scoped terminal receipt from an atomic host-wide interrupt. */
@@ -280,6 +312,15 @@ public:
 		const TArray<Fdemo_mapShanmenControlledWeaponOrbitThreatContact>&
 			Contacts,
 		Fdemo_mapShanmenControlledWeaponThreatFinalizationResult& OutResult);
+	/**
+	 * Samples an explicit item subset in stable GUID order on one Host candidate.
+	 * Any failed item discards every ordinal, checkpoint, and authority mutation.
+	 */
+	bool TrySampleOrbitThreatsInOrder(
+		const Fdemo_mapCombatRunCoordinator& Coordinator,
+		const TArray<Fdemo_mapShanmenControlledWeaponThreatSampleRequest>&
+			Requests,
+		Fdemo_mapShanmenControlledWeaponThreatSampleBatch& OutBatch);
 	/**
 	 * Atomically closes evidence, policy, presence, and consumption for one
 	 * explicit completed sample. The caller remains the sole cadence owner.
