@@ -19,6 +19,8 @@ enum class EShanmenControlledWeaponThreatPresenceConsumeError : uint8
 	AuthorityNotReady,
 	RunMismatch,
 	SourceMismatch,
+	SampleExpired,
+	SampleConflict,
 	IntentConflict,
 	PartialReplayConflict,
 	RevisionExhausted
@@ -111,16 +113,48 @@ public:
 	const FGuid& GetRunId() const { return RunId; }
 	const FGuid& GetSourceEntityId() const { return SourceEntityId; }
 	int64 GetAuthorityRevision() const { return AuthorityRevision; }
-	int32 NumConsumedIntents() const { return ProcessedIntents.Num(); }
+	int64 GetSampleCheckpointRevision() const
+	{
+		return SampleCheckpointRevision;
+	}
+	int32 NumTrackedSamples() const { return LatestSamples.Num(); }
+	int32 NumRetainedIntents() const { return ProcessedIntents.Num(); }
+	/** Lifetime accepted-intent count; retained replay receipts are bounded. */
+	int64 NumConsumedIntents() const
+	{
+		return AuthorityRevision >= 0 ? AuthorityRevision : 0;
+	}
+	int32 GetLatestSampleOrdinal(const FGuid& SourceItemInstanceId) const;
 	bool Contains(const FGuid& IntentId) const;
 
 private:
+	struct FSampleCheckpoint
+	{
+		FGuid SampleId;
+		FGuid ActivationId;
+		FName DetectorId = NAME_None;
+		EShanmenHitDetectorKind DetectorKind =
+			EShanmenHitDetectorKind::Shape;
+		int32 HitOrdinal = INDEX_NONE;
+		TArray<FGuid> IntentIds;
+	};
+
+	static bool TryBuildSampleCheckpoint(
+		const FShanmenControlledWeaponThreatPresenceReceipt& Presence,
+		FSampleCheckpoint& OutCheckpoint);
+	bool IsCheckpointValid(
+		const FGuid& SourceItemInstanceId,
+		const FSampleCheckpoint& Checkpoint) const;
+	void PruneCheckpointIntents(
+		const FGuid& SourceItemInstanceId);
 	FShanmenControlledWeaponThreatPresenceConsumeResult Reject(
 		EShanmenControlledWeaponThreatPresenceConsumeError Error) const;
 
 	FGuid RunId;
 	FGuid SourceEntityId;
 	int64 AuthorityRevision = INDEX_NONE;
+	int64 SampleCheckpointRevision = INDEX_NONE;
 	TMap<FGuid, FShanmenControlledWeaponThreatPresenceConsumeReceipt>
 		ProcessedIntents;
+	TMap<FGuid, FSampleCheckpoint> LatestSamples;
 };

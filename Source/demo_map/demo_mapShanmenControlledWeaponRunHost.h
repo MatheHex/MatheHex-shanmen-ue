@@ -270,7 +270,7 @@ public:
 		const FShanmenDetectorEmissionReceipt& Emission,
 		const TArray<AActor*>& TargetActors,
 		Fdemo_mapShanmenControlledWeaponThreatFinalizationResult& OutResult);
-	int32 NumConsumedThreatPresenceIntents() const
+	int64 NumConsumedThreatPresenceIntents() const
 	{
 		return ThreatPresenceAuthority.NumConsumedIntents();
 	}

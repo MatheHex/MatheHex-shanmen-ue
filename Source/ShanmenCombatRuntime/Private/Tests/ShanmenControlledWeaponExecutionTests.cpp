@@ -690,6 +690,18 @@ bool FShanmenControlledWeaponThreatPresenceAuthorityTest::RunTest(
 			ActionRuntime,
 			Execution,
 			{ ControlledTargetB, ControlledTargetA });
+	FShanmenActionOrchestrator ConflictActionRuntime;
+	FShanmenControlledWeaponExecution ConflictExecution;
+	FShanmenActionTransitionReceipt ConflictPhaseReceipt;
+	StartActiveControlledWeapon(
+		ConflictActionRuntime,
+		ConflictExecution,
+		ConflictPhaseReceipt);
+	const FShanmenControlledWeaponThreatPresenceReceipt ConflictPresence =
+		BuildLivingThreatPresence(
+			ConflictActionRuntime,
+			ConflictExecution,
+			{ ControlledTargetA });
 	FShanmenControlledWeaponThreatPresenceAuthority Authority;
 	TestTrue(TEXT("Run-scoped presence authority captures exact ownership"),
 		FShanmenControlledWeaponThreatPresenceAuthority::TryCreate(
@@ -698,7 +710,10 @@ bool FShanmenControlledWeaponThreatPresenceAuthorityTest::RunTest(
 			Authority)
 		&& Authority.IsValid()
 		&& Authority.GetAuthorityRevision() == 0
-		&& Authority.NumConsumedIntents() == 0);
+		&& Authority.GetSampleCheckpointRevision() == 0
+		&& Authority.NumConsumedIntents() == 0
+		&& Authority.NumTrackedSamples() == 0
+		&& Authority.GetLatestSampleOrdinal(ControlledItemId) == INDEX_NONE);
 
 	const FShanmenControlledWeaponThreatPresenceConsumeResult First =
 		Authority.Consume(FirstPresence);
@@ -716,7 +731,13 @@ bool FShanmenControlledWeaponThreatPresenceAuthorityTest::RunTest(
 		&& First.GetReceipts()[1].GetIntent().GetCandidate().TargetEntityId
 			== ControlledTargetB
 		&& Authority.GetAuthorityRevision() == 2
+		&& Authority.GetSampleCheckpointRevision() == 1
 		&& Authority.NumConsumedIntents() == 2
+		&& Authority.NumRetainedIntents() == 2
+		&& Authority.NumTrackedSamples() == 1
+		&& Authority.GetLatestSampleOrdinal(ControlledItemId)
+			== FirstPresence.GetPolicy().GetEmission().GetContext()
+				.GetHitOrdinal()
 		&& Authority.Contains(
 			First.GetReceipts()[0].GetIntent().GetIntentId()));
 
@@ -733,7 +754,18 @@ bool FShanmenControlledWeaponThreatPresenceAuthorityTest::RunTest(
 			== First.GetReceipts()[0].GetAuthorityRevision()
 		&& Replay.GetReceipts()[1].GetAuthorityRevision()
 			== First.GetReceipts()[1].GetAuthorityRevision()
-		&& Authority.NumConsumedIntents() == 2);
+		&& Authority.NumConsumedIntents() == 2
+		&& Authority.GetSampleCheckpointRevision() == 1);
+	const FShanmenControlledWeaponThreatPresenceConsumeResult Conflict =
+		Authority.Consume(ConflictPresence);
+	TestTrue(TEXT("Same-ordinal payload mismatch fails closed"),
+		Conflict.IsValid()
+		&& !Conflict.IsSuccess()
+		&& Conflict.GetError()
+			== EShanmenControlledWeaponThreatPresenceConsumeError::SampleConflict
+		&& Authority.GetAuthorityRevision() == 2
+		&& Authority.GetSampleCheckpointRevision() == 1
+		&& Authority.NumRetainedIntents() == 2);
 
 	const FShanmenControlledWeaponThreatPresenceReceipt LaterPresence =
 		BuildLivingThreatPresence(
@@ -748,7 +780,33 @@ bool FShanmenControlledWeaponThreatPresenceAuthorityTest::RunTest(
 		&& Later.GetAuthorityRevisionAfter() == 3
 		&& Later.GetReceipts().Num() == 1
 		&& Later.GetReceipts()[0].GetAuthorityRevision() == 3
-		&& Authority.NumConsumedIntents() == 3);
+		&& Authority.GetAuthorityRevision() == 3
+		&& Authority.GetSampleCheckpointRevision() == 2
+		&& Authority.NumConsumedIntents() == 3
+		&& Authority.NumRetainedIntents() == 1
+		&& Authority.NumTrackedSamples() == 1
+		&& Authority.GetLatestSampleOrdinal(ControlledItemId)
+			== LaterPresence.GetPolicy().GetEmission().GetContext()
+				.GetHitOrdinal()
+		&& !Authority.Contains(
+			First.GetReceipts()[0].GetIntent().GetIntentId())
+		&& !Authority.Contains(
+			First.GetReceipts()[1].GetIntent().GetIntentId())
+		&& Authority.Contains(
+			Later.GetReceipts()[0].GetIntent().GetIntentId()));
+
+	const FShanmenControlledWeaponThreatPresenceConsumeResult ExpiredFirst =
+		Authority.Consume(FirstPresence);
+	TestTrue(TEXT("A superseded sample is rejected without resurrecting audit"),
+		ExpiredFirst.IsValid()
+		&& !ExpiredFirst.IsSuccess()
+		&& ExpiredFirst.GetError()
+			== EShanmenControlledWeaponThreatPresenceConsumeError::SampleExpired
+		&& Authority.GetAuthorityRevision() == 3
+		&& Authority.GetSampleCheckpointRevision() == 2
+		&& Authority.NumRetainedIntents() == 1
+		&& Authority.Contains(
+			Later.GetReceipts()[0].GetIntent().GetIntentId()));
 
 	const FShanmenControlledWeaponThreatPresenceReceipt EmptyPresence =
 		BuildLivingThreatPresence(ActionRuntime, Execution, {});
@@ -761,7 +819,36 @@ bool FShanmenControlledWeaponThreatPresenceAuthorityTest::RunTest(
 		&& Empty.GetAuthorityRevisionBefore() == 3
 		&& Empty.GetAuthorityRevisionAfter() == 3
 		&& Empty.GetReceipts().IsEmpty()
-		&& Authority.NumConsumedIntents() == 3);
+		&& Authority.GetAuthorityRevision() == 3
+		&& Authority.GetSampleCheckpointRevision() == 3
+		&& Authority.NumConsumedIntents() == 3
+		&& Authority.NumRetainedIntents() == 0
+		&& Authority.NumTrackedSamples() == 1
+		&& Authority.GetLatestSampleOrdinal(ControlledItemId)
+			== EmptyPresence.GetPolicy().GetEmission().GetContext()
+				.GetHitOrdinal()
+		&& !Authority.Contains(
+			Later.GetReceipts()[0].GetIntent().GetIntentId()));
+	const FShanmenControlledWeaponThreatPresenceConsumeResult EmptyReplay =
+		Authority.Consume(EmptyPresence);
+	TestTrue(TEXT("The latest empty sample replays without authority mutation"),
+		EmptyReplay.IsSuccess()
+		&& EmptyReplay.GetStatus()
+			== EShanmenControlledWeaponThreatPresenceConsumeStatus::NoOp
+		&& EmptyReplay.GetAuthorityRevisionBefore() == 3
+		&& EmptyReplay.GetAuthorityRevisionAfter() == 3
+		&& Authority.NumTrackedSamples() == 1
+		&& Authority.GetSampleCheckpointRevision() == 3);
+	const FShanmenControlledWeaponThreatPresenceConsumeResult ExpiredLater =
+		Authority.Consume(LaterPresence);
+	TestTrue(TEXT("An empty watermark also expires its prior non-empty sample"),
+		ExpiredLater.IsValid()
+		&& !ExpiredLater.IsSuccess()
+		&& ExpiredLater.GetError()
+			== EShanmenControlledWeaponThreatPresenceConsumeError::SampleExpired
+		&& Authority.GetAuthorityRevision() == 3
+		&& Authority.GetSampleCheckpointRevision() == 3
+		&& Authority.NumRetainedIntents() == 0);
 
 	FShanmenControlledWeaponThreatPresenceAuthority ForeignRun;
 	check(FShanmenControlledWeaponThreatPresenceAuthority::TryCreate(

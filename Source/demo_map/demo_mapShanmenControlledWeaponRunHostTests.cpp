@@ -727,6 +727,8 @@ bool Fdemo_mapControlledWeaponRunHostOrbitThreatTest::RunTest(
 			.GetCandidate().TargetEntityId
 			== Projected.Candidate.TargetEntityId
 		&& Host.NumConsumedThreatPresenceIntents() == 1
+		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
+			== 1
 		&& Host.GetThreatPresenceAuthority().GetAuthorityRevision() == 1);
 	Fdemo_mapShanmenControlledWeaponThreatFinalizationResult ReplayFinalized;
 	TestTrue(TEXT("Atomic threat finalization is exact-replay idempotent"),
@@ -744,6 +746,8 @@ bool Fdemo_mapControlledWeaponRunHostOrbitThreatTest::RunTest(
 			== FirstFinalized.GetConsumption().GetReceipts()[0]
 				.GetAuthorityRevision()
 		&& Host.NumConsumedThreatPresenceIntents() == 1
+		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
+			== 1
 		&& Host.GetThreatPresenceAuthority().GetAuthorityRevision() == 1);
 	Fdemo_mapShanmenControlledWeaponThreatFinalizationResult RejectedFinalized;
 	TestFalse(TEXT("Unknown item cannot finalize another item's threat sample"),
@@ -763,6 +767,8 @@ bool Fdemo_mapControlledWeaponRunHostOrbitThreatTest::RunTest(
 	TestTrue(TEXT("Rejected finalization preserves the authority ledger"),
 		!RejectedFinalized.IsFinalized()
 		&& Host.NumConsumedThreatPresenceIntents() == 1
+		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
+			== 1
 		&& Host.GetThreatPresenceAuthority().GetAuthorityRevision() == 1);
 
 	FShanmenWorldHitContext EmptyThreatContext;
@@ -784,6 +790,26 @@ bool Fdemo_mapControlledWeaponRunHostOrbitThreatTest::RunTest(
 		&& EmptyFinalized.GetConsumption().GetStatus()
 			== EShanmenControlledWeaponThreatPresenceConsumeStatus::NoOp
 		&& Host.NumConsumedThreatPresenceIntents() == 1
+		&& Host.GetThreatPresenceAuthority().NumTrackedSamples() == 1
+		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
+			== 2
+		&& Host.GetThreatPresenceAuthority().GetLatestSampleOrdinal(
+			HostLowItemId) == EmptyThreatContext.GetHitOrdinal()
+		&& Host.GetThreatPresenceAuthority().GetAuthorityRevision() == 1);
+	Fdemo_mapShanmenControlledWeaponThreatFinalizationResult ExpiredFinalized;
+	TestFalse(TEXT("A newer empty sample expires an older completed sample"),
+		Host.TryFinalizeOrbitThreatSample(
+			HostLowItemId,
+			Fixture.Coordinator,
+			ThreatReceipt,
+			{ Fixture.Enemy },
+			ExpiredFinalized));
+	TestTrue(TEXT("Expired finalization cannot resurrect retained intents"),
+		!ExpiredFinalized.IsFinalized()
+		&& Host.NumConsumedThreatPresenceIntents() == 1
+		&& Host.GetThreatPresenceAuthority().NumTrackedSamples() == 1
+		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
+			== 2
 		&& Host.GetThreatPresenceAuthority().GetAuthorityRevision() == 1);
 	FShanmenTargetVitalitySnapshot AfterConsume;
 	check(Fixture.Enemy->TryCaptureCombatVitalitySnapshot(AfterConsume));
@@ -809,9 +835,143 @@ bool Fdemo_mapControlledWeaponRunHostOrbitThreatTest::RunTest(
 		Host.TryRecallAndComplete(
 			HostLowItemId, 1, Recall, Recovery, Completed)
 		&& Host.NumConsumedThreatPresenceIntents() == 1
+		&& Host.GetThreatPresenceAuthority().NumTrackedSamples() == 1
+		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
+			== 2
 		&& Host.TryRemoveTerminal(HostLowItemId)
 		&& Host.IsEmpty()
+		&& Host.NumConsumedThreatPresenceIntents() == 0
+		&& Host.GetThreatPresenceAuthority().NumTrackedSamples() == 0
+		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
+			== INDEX_NONE);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapControlledWeaponRunHostThreatWatermarkTest,
+	"Shanmen.0_0_10.Product.ControlledWeaponRunHost.PerItemThreatSampleWatermarks",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapControlledWeaponRunHostThreatWatermarkTest::RunTest(
+	const FString&)
+{
+	FControlledWeaponHostFixture Fixture;
+	Fdemo_mapShanmenControlledWeaponRunHost Host;
+	if (!Fixture.bReady
+		|| !AttachHostWeapon(
+			Fixture, Host, HostLowItemId, 1, 0).IsAttached()
+		|| !AttachHostWeapon(
+			Fixture, Host, HostHighItemId, 2, 1).IsAttached())
+	{
+		AddError(TEXT("Could not prepare P6.17 watermark fixture."));
+		return false;
+	}
+
+	FShanmenWorldHitContext LowFirstContext;
+	FShanmenDetectorEmissionReceipt LowFirstEmission;
+	Fdemo_mapShanmenControlledWeaponThreatFinalizationResult LowFirst;
+	TestTrue(TEXT("First low-item sample establishes one empty watermark"),
+		Host.TryBeginOrbitThreatWindow(HostLowItemId, LowFirstContext)
+		&& Host.TryEndOrbitThreatWindow(
+			HostLowItemId, LowFirstEmission)
+		&& Host.TryFinalizeOrbitThreatSample(
+			HostLowItemId,
+			Fixture.Coordinator,
+			LowFirstEmission,
+			{},
+			LowFirst)
+		&& LowFirst.IsFinalized()
+		&& Host.GetThreatPresenceAuthority().NumTrackedSamples() == 1
+		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
+			== 1
+		&& Host.GetThreatPresenceAuthority().GetLatestSampleOrdinal(
+			HostLowItemId) == LowFirstContext.GetHitOrdinal());
+
+	FShanmenWorldHitContext HighFirstContext;
+	FShanmenDetectorEmissionReceipt HighFirstEmission;
+	Fdemo_mapShanmenControlledWeaponThreatFinalizationResult HighFirst;
+	TestTrue(TEXT("A second item owns an independent sample watermark"),
+		Host.TryBeginOrbitThreatWindow(HostHighItemId, HighFirstContext)
+		&& Host.TryEndOrbitThreatWindow(
+			HostHighItemId, HighFirstEmission)
+		&& Host.TryFinalizeOrbitThreatSample(
+			HostHighItemId,
+			Fixture.Coordinator,
+			HighFirstEmission,
+			{},
+			HighFirst)
+		&& HighFirst.IsFinalized()
+		&& Host.GetThreatPresenceAuthority().NumTrackedSamples() == 2
+		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
+			== 2
+		&& Host.GetThreatPresenceAuthority().GetLatestSampleOrdinal(
+			HostLowItemId) == LowFirstContext.GetHitOrdinal()
+		&& Host.GetThreatPresenceAuthority().GetLatestSampleOrdinal(
+			HostHighItemId) == HighFirstContext.GetHitOrdinal());
+
+	FShanmenWorldHitContext LowLaterContext;
+	FShanmenDetectorEmissionReceipt LowLaterEmission;
+	Fdemo_mapShanmenControlledWeaponThreatFinalizationResult LowLater;
+	TestTrue(TEXT("Only the low-item watermark advances on its next sample"),
+		Host.TryBeginOrbitThreatWindow(HostLowItemId, LowLaterContext)
+		&& Host.TryEndOrbitThreatWindow(
+			HostLowItemId, LowLaterEmission)
+		&& Host.TryFinalizeOrbitThreatSample(
+			HostLowItemId,
+			Fixture.Coordinator,
+			LowLaterEmission,
+			{},
+			LowLater)
+		&& LowLater.IsFinalized()
+		&& LowLaterContext.GetHitOrdinal()
+			== LowFirstContext.GetHitOrdinal() + 1
+		&& Host.GetThreatPresenceAuthority().NumTrackedSamples() == 2
+		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
+			== 3
+		&& Host.GetThreatPresenceAuthority().GetLatestSampleOrdinal(
+			HostLowItemId) == LowLaterContext.GetHitOrdinal()
+		&& Host.GetThreatPresenceAuthority().GetLatestSampleOrdinal(
+			HostHighItemId) == HighFirstContext.GetHitOrdinal());
+
+	Fdemo_mapShanmenControlledWeaponThreatFinalizationResult Replay;
+	TestTrue(TEXT("The other item's exact latest sample remains replayable"),
+		Host.TryFinalizeOrbitThreatSample(
+			HostHighItemId,
+			Fixture.Coordinator,
+			HighFirstEmission,
+			{},
+			Replay)
+		&& Replay.IsFinalized()
+		&& Host.GetThreatPresenceAuthority().NumTrackedSamples() == 2
+		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
+			== 3);
+	TestFalse(TEXT("The superseded low-item sample cannot replay"),
+		Host.TryFinalizeOrbitThreatSample(
+			HostLowItemId,
+			Fixture.Coordinator,
+			LowFirstEmission,
+			{},
+			Replay));
+	TestTrue(TEXT("Rejected stale replay preserves both item watermarks"),
+		!Replay.IsFinalized()
+		&& Host.GetThreatPresenceAuthority().NumTrackedSamples() == 2
+		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
+			== 3
 		&& Host.NumConsumedThreatPresenceIntents() == 0);
+
+	TArray<Fdemo_mapShanmenControlledWeaponHostInterruptReceipt> Interrupted;
+	TestTrue(TEXT("Run teardown clears every per-item watermark"),
+		Host.TryInterruptAll(Interrupted)
+		&& Interrupted.Num() == 2
+		&& Host.TryRemoveTerminal(HostLowItemId)
+		&& Host.GetThreatPresenceAuthority().NumTrackedSamples() == 2
+		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
+			== 3
+		&& Host.TryRemoveTerminal(HostHighItemId)
+		&& Host.IsEmpty()
+		&& Host.GetThreatPresenceAuthority().NumTrackedSamples() == 0
+		&& Host.GetThreatPresenceAuthority().GetSampleCheckpointRevision()
+			== INDEX_NONE);
 	return true;
 }
 

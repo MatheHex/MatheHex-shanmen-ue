@@ -1,7 +1,36 @@
 #include "ShanmenControlledWeaponThreatPresenceAuthority.h"
 
+#include "ShanmenDeterministicId.h"
+
 namespace
 {
+	FString GuidDigits(const FGuid& Value)
+	{
+		return Value.ToString(EGuidFormats::Digits);
+	}
+
+	FGuid MakeSampleId(
+		const FGuid& RunId,
+		const FGuid& ActivationId,
+		const FGuid& SourceEntityId,
+		const FGuid& SourceItemInstanceId,
+		FName DetectorId,
+		EShanmenHitDetectorKind DetectorKind,
+		int32 HitOrdinal)
+	{
+		return FShanmenDeterministicId::FromCanonicalParts(
+			TEXT("Shanmen.ControlledWeapon.ThreatSample.r1"),
+			{
+				GuidDigits(RunId),
+				GuidDigits(ActivationId),
+				GuidDigits(SourceEntityId),
+				GuidDigits(SourceItemInstanceId),
+				DetectorId.ToString(),
+				FString::FromInt(static_cast<int32>(DetectorKind)),
+				FString::FromInt(HitOrdinal)
+			});
+	}
+
 	bool CandidatesMatch(
 		const FShanmenHitCandidate& Left,
 		const FShanmenHitCandidate& Right)
@@ -135,6 +164,7 @@ bool FShanmenControlledWeaponThreatPresenceAuthority::TryCreate(
 	OutAuthority.RunId = InRunId;
 	OutAuthority.SourceEntityId = InSourceEntityId;
 	OutAuthority.AuthorityRevision = 0;
+	OutAuthority.SampleCheckpointRevision = 0;
 	return OutAuthority.IsValid();
 }
 
@@ -143,12 +173,31 @@ bool FShanmenControlledWeaponThreatPresenceAuthority::IsValid() const
 	if (!RunId.IsValid()
 		|| !SourceEntityId.IsValid()
 		|| AuthorityRevision < 0
-		|| AuthorityRevision != ProcessedIntents.Num())
+		|| SampleCheckpointRevision < 0
+		|| SampleCheckpointRevision < LatestSamples.Num()
+		|| AuthorityRevision < ProcessedIntents.Num())
 	{
 		return false;
 	}
 
 	TSet<int64> Revisions;
+	TSet<FGuid> ReferencedIntentIds;
+	for (const TPair<FGuid, FSampleCheckpoint>& Pair : LatestSamples)
+	{
+		if (!IsCheckpointValid(Pair.Key, Pair.Value))
+		{
+			return false;
+		}
+		for (const FGuid& IntentId : Pair.Value.IntentIds)
+		{
+			if (ReferencedIntentIds.Contains(IntentId))
+			{
+				return false;
+			}
+			ReferencedIntentIds.Add(IntentId);
+		}
+	}
+
 	for (const TPair<FGuid,
 		FShanmenControlledWeaponThreatPresenceConsumeReceipt>& Pair :
 		ProcessedIntents)
@@ -167,7 +216,8 @@ bool FShanmenControlledWeaponThreatPresenceAuthority::IsValid() const
 		}
 		Revisions.Add(Receipt.GetAuthorityRevision());
 	}
-	return Revisions.Num() == ProcessedIntents.Num();
+	return Revisions.Num() == ProcessedIntents.Num()
+		&& ReferencedIntentIds.Num() == ProcessedIntents.Num();
 }
 
 FShanmenControlledWeaponThreatPresenceConsumeResult
@@ -198,6 +248,39 @@ FShanmenControlledWeaponThreatPresenceAuthority::Consume(
 			EShanmenControlledWeaponThreatPresenceConsumeError::SourceMismatch);
 	}
 
+	FSampleCheckpoint IncomingCheckpoint;
+	if (!TryBuildSampleCheckpoint(Presence, IncomingCheckpoint))
+	{
+		return Reject(
+			EShanmenControlledWeaponThreatPresenceConsumeError::ReceiptInvalid);
+	}
+	const FGuid& SourceItemInstanceId =
+		Action.GetSourceItemInstanceId();
+	const FSampleCheckpoint* LatestCheckpoint =
+		LatestSamples.Find(SourceItemInstanceId);
+	bool bExactLatestSample = false;
+	if (LatestCheckpoint)
+	{
+		if (IncomingCheckpoint.HitOrdinal < LatestCheckpoint->HitOrdinal)
+		{
+			return Reject(
+				EShanmenControlledWeaponThreatPresenceConsumeError::
+				SampleExpired);
+		}
+		if (IncomingCheckpoint.HitOrdinal == LatestCheckpoint->HitOrdinal)
+		{
+			if (IncomingCheckpoint.SampleId != LatestCheckpoint->SampleId
+				|| IncomingCheckpoint.IntentIds
+					!= LatestCheckpoint->IntentIds)
+			{
+				return Reject(
+					EShanmenControlledWeaponThreatPresenceConsumeError::
+					SampleConflict);
+			}
+			bExactLatestSample = true;
+		}
+	}
+
 	FShanmenControlledWeaponThreatPresenceConsumeResult Result;
 	Result.RunId = RunId;
 	Result.AuthorityRevisionBefore = AuthorityRevision;
@@ -206,10 +289,34 @@ FShanmenControlledWeaponThreatPresenceAuthority::Consume(
 	{
 		Result.Status =
 			EShanmenControlledWeaponThreatPresenceConsumeStatus::NoOp;
-		return Result.IsValid()
-			? Result
-			: Reject(
+		if (!Result.IsValid())
+		{
+			return Reject(
 				EShanmenControlledWeaponThreatPresenceConsumeError::IntentConflict);
+		}
+		if (bExactLatestSample)
+		{
+			return Result;
+		}
+		if (SampleCheckpointRevision == MAX_int64)
+		{
+			return Reject(
+				EShanmenControlledWeaponThreatPresenceConsumeError::
+				RevisionExhausted);
+		}
+
+		FShanmenControlledWeaponThreatPresenceAuthority Candidate = *this;
+		Candidate.PruneCheckpointIntents(SourceItemInstanceId);
+		++Candidate.SampleCheckpointRevision;
+		Candidate.LatestSamples.Add(
+			SourceItemInstanceId, MoveTemp(IncomingCheckpoint));
+		if (!Candidate.IsValid())
+		{
+			return Reject(
+				EShanmenControlledWeaponThreatPresenceConsumeError::SampleConflict);
+		}
+		*this = MoveTemp(Candidate);
+		return Result;
 	}
 
 	int32 ExistingCount = 0;
@@ -242,6 +349,11 @@ FShanmenControlledWeaponThreatPresenceAuthority::Consume(
 	}
 	if (ExistingCount == Presence.GetIntents().Num())
 	{
+		if (!bExactLatestSample)
+		{
+			return Reject(
+				EShanmenControlledWeaponThreatPresenceConsumeError::SampleConflict);
+		}
 		Result.Status =
 			EShanmenControlledWeaponThreatPresenceConsumeStatus::AlreadyConsumed;
 		return Result.IsValid()
@@ -256,8 +368,15 @@ FShanmenControlledWeaponThreatPresenceAuthority::Consume(
 		return Reject(
 			EShanmenControlledWeaponThreatPresenceConsumeError::RevisionExhausted);
 	}
+	if (SampleCheckpointRevision == MAX_int64)
+	{
+		return Reject(
+			EShanmenControlledWeaponThreatPresenceConsumeError::RevisionExhausted);
+	}
 
 	FShanmenControlledWeaponThreatPresenceAuthority Candidate = *this;
+	Candidate.PruneCheckpointIntents(SourceItemInstanceId);
+	++Candidate.SampleCheckpointRevision;
 	Result.Receipts.Reset(Presence.GetIntents().Num());
 	for (const FShanmenControlledWeaponThreatPresenceIntent& Intent :
 		Presence.GetIntents())
@@ -274,6 +393,8 @@ FShanmenControlledWeaponThreatPresenceAuthority::Consume(
 		Candidate.ProcessedIntents.Add(Intent.GetIntentId(), Receipt);
 		Result.Receipts.Add(MoveTemp(Receipt));
 	}
+	Candidate.LatestSamples.Add(
+		SourceItemInstanceId, MoveTemp(IncomingCheckpoint));
 	Result.Status =
 		EShanmenControlledWeaponThreatPresenceConsumeStatus::Consumed;
 	Result.AuthorityRevisionAfter = Candidate.AuthorityRevision;
@@ -287,6 +408,118 @@ FShanmenControlledWeaponThreatPresenceAuthority::Consume(
 	return Result;
 }
 
+bool FShanmenControlledWeaponThreatPresenceAuthority::
+TryBuildSampleCheckpoint(
+	const FShanmenControlledWeaponThreatPresenceReceipt& Presence,
+	FSampleCheckpoint& OutCheckpoint)
+{
+	OutCheckpoint = FSampleCheckpoint();
+	if (!Presence.IsValid())
+	{
+		return false;
+	}
+
+	const FShanmenWorldHitContext& Context =
+		Presence.GetPolicy().GetEmission().GetContext();
+	const FShanmenCombatActionSnapshot& Action = Context.GetAction();
+	OutCheckpoint.ActivationId = Action.GetActivationId();
+	OutCheckpoint.DetectorId = Context.GetDetectorId();
+	OutCheckpoint.DetectorKind = Context.GetDetectorKind();
+	OutCheckpoint.HitOrdinal = Context.GetHitOrdinal();
+	OutCheckpoint.SampleId = MakeSampleId(
+		Action.GetRunId(),
+		OutCheckpoint.ActivationId,
+		Action.GetSourceEntityId(),
+		Action.GetSourceItemInstanceId(),
+		OutCheckpoint.DetectorId,
+		OutCheckpoint.DetectorKind,
+		OutCheckpoint.HitOrdinal);
+
+	TSet<FGuid> IntentIds;
+	OutCheckpoint.IntentIds.Reserve(Presence.GetIntents().Num());
+	for (const FShanmenControlledWeaponThreatPresenceIntent& Intent :
+		Presence.GetIntents())
+	{
+		if (!Intent.IsValid()
+			|| Intent.GetSourceItemInstanceId()
+				!= Action.GetSourceItemInstanceId()
+			|| IntentIds.Contains(Intent.GetIntentId()))
+		{
+			OutCheckpoint = FSampleCheckpoint();
+			return false;
+		}
+		IntentIds.Add(Intent.GetIntentId());
+		OutCheckpoint.IntentIds.Add(Intent.GetIntentId());
+	}
+	return OutCheckpoint.SampleId.IsValid()
+		&& OutCheckpoint.ActivationId.IsValid()
+		&& !OutCheckpoint.DetectorId.IsNone()
+		&& OutCheckpoint.HitOrdinal >= 0;
+}
+
+bool FShanmenControlledWeaponThreatPresenceAuthority::IsCheckpointValid(
+	const FGuid& SourceItemInstanceId,
+	const FSampleCheckpoint& Checkpoint) const
+{
+	if (!SourceItemInstanceId.IsValid()
+		|| !Checkpoint.SampleId.IsValid()
+		|| !Checkpoint.ActivationId.IsValid()
+		|| Checkpoint.DetectorId.IsNone()
+		|| Checkpoint.HitOrdinal < 0
+		|| Checkpoint.SampleId != MakeSampleId(
+			RunId,
+			Checkpoint.ActivationId,
+			SourceEntityId,
+			SourceItemInstanceId,
+			Checkpoint.DetectorId,
+			Checkpoint.DetectorKind,
+			Checkpoint.HitOrdinal))
+	{
+		return false;
+	}
+
+	TSet<FGuid> IntentIds;
+	for (const FGuid& IntentId : Checkpoint.IntentIds)
+	{
+		const FShanmenControlledWeaponThreatPresenceConsumeReceipt* Receipt =
+			ProcessedIntents.Find(IntentId);
+		if (!IntentId.IsValid()
+			|| IntentIds.Contains(IntentId)
+			|| !Receipt
+			|| Receipt->GetIntent().GetSourceItemInstanceId()
+				!= SourceItemInstanceId
+			|| Receipt->GetIntent().GetCandidate().ActivationId
+				!= Checkpoint.ActivationId
+			|| Receipt->GetIntent().GetCandidate().DetectorId
+				!= Checkpoint.DetectorId
+			|| Receipt->GetIntent().GetCandidate().DetectorKind
+				!= Checkpoint.DetectorKind
+			|| Receipt->GetIntent().GetCandidate().HitOrdinal
+				!= Checkpoint.HitOrdinal)
+		{
+			return false;
+		}
+		IntentIds.Add(IntentId);
+	}
+	return true;
+}
+
+void FShanmenControlledWeaponThreatPresenceAuthority::
+PruneCheckpointIntents(const FGuid& SourceItemInstanceId)
+{
+	const FSampleCheckpoint* Checkpoint =
+		LatestSamples.Find(SourceItemInstanceId);
+	if (!Checkpoint)
+	{
+		return;
+	}
+	for (const FGuid& IntentId : Checkpoint->IntentIds)
+	{
+		ProcessedIntents.Remove(IntentId);
+	}
+	LatestSamples.Remove(SourceItemInstanceId);
+}
+
 void FShanmenControlledWeaponThreatPresenceAuthority::Reset()
 {
 	*this = FShanmenControlledWeaponThreatPresenceAuthority();
@@ -296,6 +529,16 @@ bool FShanmenControlledWeaponThreatPresenceAuthority::Contains(
 	const FGuid& IntentId) const
 {
 	return IntentId.IsValid() && ProcessedIntents.Contains(IntentId);
+}
+
+int32 FShanmenControlledWeaponThreatPresenceAuthority::
+GetLatestSampleOrdinal(const FGuid& SourceItemInstanceId) const
+{
+	const FSampleCheckpoint* Checkpoint =
+		SourceItemInstanceId.IsValid()
+			? LatestSamples.Find(SourceItemInstanceId)
+			: nullptr;
+	return Checkpoint ? Checkpoint->HitOrdinal : INDEX_NONE;
 }
 
 FShanmenControlledWeaponThreatPresenceConsumeResult
