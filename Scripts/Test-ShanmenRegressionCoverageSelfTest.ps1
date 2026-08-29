@@ -163,6 +163,12 @@ try
             'Source/demo_map/demo_mapShanmenThrownWeaponProjectile.cpp') `
         -Logs @($Full)
 
+    Invoke-ExpectedPass `
+        -Name 'thrown weapon Run host maps to every owned authority seam' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenThrownWeaponRunHost.cpp') `
+        -Logs @($Full)
+
     Invoke-ExpectedFail `
         -Name 'missing mapped group fails closed' `
         -Paths @('Source/demo_map/demo_mapSkillComponent.cpp') `

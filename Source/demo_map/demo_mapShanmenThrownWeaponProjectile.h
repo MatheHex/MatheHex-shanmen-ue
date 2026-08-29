@@ -31,6 +31,11 @@ DECLARE_MULTICAST_DELEGATE_TwoParams(
 	Ademo_mapShanmenThrownWeaponProjectile&,
 	const FHitResult&);
 
+/** Native lifecycle seam used instead of a gameplay timer in the Actor. */
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	Fdemo_mapShanmenThrownWeaponRangeExpired,
+	Ademo_mapShanmenThrownWeaponProjectile&);
+
 /**
  * Minimal physical carrier for the P7 straight thrown-item contract.
  *
@@ -76,6 +81,13 @@ public:
 		return Movement;
 	}
 	Fdemo_mapShanmenThrownWeaponContact& OnContact() { return ContactEvent; }
+	Fdemo_mapShanmenThrownWeaponRangeExpired& OnRangeExpired()
+	{
+		return RangeExpiredEvent;
+	}
+
+protected:
+	virtual void LifeSpanExpired() override;
 
 private:
 	friend struct Fdemo_mapShanmenThrownWeaponWorldAdapter;
@@ -104,6 +116,7 @@ private:
 	FShanmenThrownWeaponLaunchReceipt LaunchReceipt;
 	FShanmenWorldHitContext HitContext;
 	Fdemo_mapShanmenThrownWeaponContact ContactEvent;
+	Fdemo_mapShanmenThrownWeaponRangeExpired RangeExpiredEvent;
 	Edemo_mapShanmenThrownWeaponProjectileState State =
 		Edemo_mapShanmenThrownWeaponProjectileState::Empty;
 };

@@ -1,12 +1,14 @@
 #if WITH_DEV_AUTOMATION_TESTS && !UE_BUILD_SHIPPING
 
 #include "demo_mapShanmenThrownWeaponWorldAdapter.h"
+#include "demo_mapShanmenThrownWeaponRunHost.h"
 
 #include "Components/BoxComponent.h"
 #include "Components/SphereComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
 #include "Engine/HitResult.h"
+#include "Engine/World.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "Misc/AutomationTest.h"
@@ -108,6 +110,50 @@ namespace
 				? Cast<UPrimitiveComponent>(Enemy->GetRootComponent())
 				: nullptr;
 		}
+	};
+
+	struct FThrownSpawnWorldFixture
+	{
+		UWorld* World = nullptr;
+		APawn* Source = nullptr;
+
+		FThrownSpawnWorldFixture()
+		{
+			if (!GEngine)
+			{
+				return;
+			}
+			World = NewObject<UWorld>(
+				GetTransientPackage(), NAME_None, RF_Transient);
+			World->WorldType = EWorldType::GamePreview;
+			FWorldContext& Context =
+				GEngine->CreateNewWorldContext(EWorldType::GamePreview);
+			Context.SetCurrentWorld(World);
+			World->InitializeNewWorld(
+				UWorld::InitializationValues()
+					.InitializeScenes(false)
+					.AllowAudioPlayback(false)
+					.RequiresHitProxies(false)
+					.CreatePhysicsScene(false)
+					.CreateNavigation(false)
+					.CreateAISystem(false)
+					.ShouldSimulatePhysics(false)
+					.EnableTraceCollision(false)
+					.SetTransactional(false)
+					.CreateFXSystem(false));
+			Source = World->SpawnActor<APawn>();
+		}
+
+		~FThrownSpawnWorldFixture()
+		{
+			if (World)
+			{
+				World->DestroyWorld(false);
+				GEngine->DestroyWorldContext(World);
+			}
+		}
+
+		bool IsValid() const { return World && Source; }
 	};
 
 	FShanmenContentStamp MakeContent()
@@ -338,6 +384,55 @@ namespace
 				OutExecution,
 				*OutProjectile);
 	}
+
+	bool StartHostedFlight(
+		FThrownWorldFixture& Fixture,
+		Fdemo_mapShanmenThrownWeaponRunHost& OutHost,
+		Ademo_mapShanmenThrownWeaponProjectile*& OutProjectile)
+	{
+		FShanmenActionOrchestrator Runtime;
+		FShanmenThrownWeaponExecution Execution;
+		FShanmenCombatActionSnapshot Action;
+		StartAction(Fixture.Coordinator, Runtime, Execution, Action);
+		OutProjectile = NewObject<Ademo_mapShanmenThrownWeaponProjectile>(
+			GetTransientPackage());
+		if (!OutProjectile)
+		{
+			return false;
+		}
+		const Fdemo_mapShanmenThrownWeaponLaunchResult Staged =
+			Fdemo_mapShanmenThrownWeaponWorldAdapter::StagePreparedLaunch(
+				MakeCorrelation(),
+				MakePrepared(Action),
+				Runtime,
+				Execution,
+				*OutProjectile,
+				Fixture.Pawn,
+				FVector(10.0, 20.0, 30.0),
+				FVector::ForwardVector);
+		if (!Staged.IsStaged())
+		{
+			return false;
+		}
+		const Fdemo_mapShanmenThrownWeaponItemResult Committed =
+			MakeCommitted(Staged.Plan);
+		return Fdemo_mapShanmenThrownWeaponWorldAdapter::
+				PublishCommittedLaunch(
+					Runtime,
+					Staged.Plan,
+					Committed,
+					Execution,
+					*OutProjectile)
+			&& OutHost.TryAdoptPublishedFlight(
+				Runtime,
+				Execution,
+				Committed,
+				*OutProjectile,
+				Fixture.Coordinator,
+				Fixture.Pawn,
+				1200.0f,
+				false);
+	}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -564,6 +659,205 @@ bool Fdemo_mapThrownWeaponWorldMissTest::RunTest(const FString&)
 			&& Execution.NumAcceptedImpacts() == 0
 			&& Projectile->GetProjectileState()
 				== Edemo_mapShanmenThrownWeaponProjectileState::Spent);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponRunHostSpawnGateTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponRunHost.SpawnGate",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponRunHostSpawnGateTest::RunTest(const FString&)
+{
+	AActor* Source = NewObject<AActor>(GetTransientPackage());
+	const Fdemo_mapShanmenThrownWeaponSpawnResult NoWorld =
+		Fdemo_mapShanmenThrownWeaponRunHost::SpawnStagedCarrier(
+			nullptr,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			Source,
+			FVector::ZeroVector);
+	TestTrue(TEXT("A missing World cannot create a physical carrier"),
+		NoWorld.Error
+			== Edemo_mapShanmenThrownWeaponSpawnError::WorldUnavailable
+			&& !NoWorld.IsSpawned());
+	FThrownSpawnWorldFixture SpawnFixture;
+	if (!SpawnFixture.IsValid())
+	{
+		AddError(TEXT("Could not build the P7.3 spawn World fixture."));
+		return false;
+	}
+	const Fdemo_mapShanmenThrownWeaponSpawnResult Spawned =
+		Fdemo_mapShanmenThrownWeaponRunHost::SpawnStagedCarrier(
+			SpawnFixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			SpawnFixture.Source,
+			FVector(25.0, 40.0, 60.0));
+	TestTrue(TEXT("The production spawner creates exactly one inert carrier"),
+		Spawned.IsSpawned()
+			&& Spawned.Projectile->GetOwner() == SpawnFixture.Source
+			&& Spawned.Projectile->GetActorLocation().Equals(
+				FVector(25.0, 40.0, 60.0)));
+
+	FThrownWorldFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponRunHost Host;
+	Ademo_mapShanmenThrownWeaponProjectile* Projectile = nullptr;
+	if (!Fixture.bReady
+		|| !StartHostedFlight(Fixture, Host, Projectile))
+	{
+		AddError(TEXT("Could not build the P7.3 host fixture."));
+		return false;
+	}
+	TestTrue(TEXT("Recovery adoption owns one exact active flight"),
+		Host.IsValid()
+			&& Host.IsInFlight()
+			&& Host.GetProjectile() == Projectile
+			&& Host.GetActionRuntime().CanEmitCandidates()
+			&& FMath::IsNearlyEqual(Host.GetMaximumDistance(), 1200.0f));
+	TestFalse(TEXT("An active host cannot be reset without a terminal"),
+		Host.Reset());
+	TestTrue(TEXT("Explicit interruption spends flight and action once"),
+		Host.TryInterrupt()
+			&& Host.IsValid()
+			&& Host.IsTerminal()
+			&& Host.GetExecution().GetState()
+				== EShanmenThrownWeaponState::Spent
+			&& Host.GetActionRuntime().GetTerminalReason()
+				== EShanmenActionTerminalReason::Interrupted
+			&& Host.GetTerminalReceipt().Kind
+				== Edemo_mapShanmenThrownWeaponTerminalKind::Interrupted);
+	TestTrue(TEXT("A terminal host can release its transient binding"),
+		Host.Reset()
+			&& Host.GetState()
+				== Edemo_mapShanmenThrownWeaponHostState::Empty
+			&& !Host.IsValid());
+
+	Ademo_mapShanmenThrownWeaponProjectile* AbandonedProjectile = nullptr;
+	{
+		Fdemo_mapShanmenThrownWeaponRunHost ScopedHost;
+		if (!StartHostedFlight(
+			Fixture, ScopedHost, AbandonedProjectile))
+		{
+			return false;
+		}
+	}
+	TestTrue(TEXT("Destroying an active host fails closed on the GameThread"),
+		AbandonedProjectile
+			&& AbandonedProjectile->GetProjectileState()
+				== Edemo_mapShanmenThrownWeaponProjectileState::Spent);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponRunHostContactTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponRunHost.ContactLifecycle",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponRunHostContactTest::RunTest(const FString&)
+{
+	FThrownWorldFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponRunHost Host;
+	Ademo_mapShanmenThrownWeaponProjectile* Projectile = nullptr;
+	if (!Fixture.bReady
+		|| !Fixture.GetEnemyRoot()
+		|| !StartHostedFlight(Fixture, Host, Projectile))
+	{
+		return false;
+	}
+	Idemo_mapCombatVitalityHost* VitalityHost =
+		Cast<Idemo_mapCombatVitalityHost>(Fixture.Enemy);
+	FShanmenTargetVitalitySnapshot Before;
+	if (!VitalityHost
+		|| !VitalityHost->TryCaptureCombatVitalitySnapshot(Before))
+	{
+		return false;
+	}
+
+	Projectile->OnContact().Broadcast(*Projectile, MakeEnemyHit(Fixture));
+	FShanmenTargetVitalitySnapshot After;
+	VitalityHost->TryCaptureCombatVitalitySnapshot(After);
+	TestTrue(TEXT("The native contact delegate reaches canonical vitality"),
+		Host.IsValid()
+			&& Host.IsTerminal()
+			&& Host.GetTerminalReceipt().Kind
+				== Edemo_mapShanmenThrownWeaponTerminalKind::Impact
+			&& Host.GetTerminalReceipt().Delivery.IsDelivered()
+			&& FMath::IsNearlyEqual(
+				Before.CurrentVitality - After.CurrentVitality,
+				0.7f,
+				KINDA_SMALL_NUMBER));
+	TestTrue(TEXT("Impact completes execution, action, and Actor together"),
+		Host.GetExecution().GetState()
+				== EShanmenThrownWeaponState::Spent
+			&& Host.GetActionRuntime().GetTerminalReason()
+				== EShanmenActionTerminalReason::Completed
+			&& Projectile->GetProjectileState()
+				== Edemo_mapShanmenThrownWeaponProjectileState::Spent);
+
+	Projectile->OnContact().Broadcast(*Projectile, MakeEnemyHit(Fixture));
+	FShanmenTargetVitalitySnapshot AfterReplay;
+	VitalityHost->TryCaptureCombatVitalitySnapshot(AfterReplay);
+	TestTrue(TEXT("Terminal publication removes the contact delegate"),
+		AfterReplay.AuthorityRevision == After.AuthorityRevision
+			&& FMath::IsNearlyEqual(
+				AfterReplay.CurrentVitality, After.CurrentVitality));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponRunHostMissTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponRunHost.MissAndRangeExpiry",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponRunHostMissTest::RunTest(const FString&)
+{
+	FThrownWorldFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponRunHost ContactHost;
+	Ademo_mapShanmenThrownWeaponProjectile* ContactProjectile = nullptr;
+	if (!Fixture.bReady
+		|| !StartHostedFlight(Fixture, ContactHost, ContactProjectile))
+	{
+		return false;
+	}
+	AActor* Unregistered = NewObject<AActor>(GetTransientPackage());
+	UBoxComponent* Root = NewObject<UBoxComponent>(
+		Unregistered, TEXT("P73UnregisteredRoot"));
+	Unregistered->SetRootComponent(Root);
+	FHitResult Blocking(
+		Unregistered,
+		Root,
+		FVector(500.0, 0.0, 30.0),
+		FVector::BackwardVector);
+	Blocking.ImpactPoint = FVector(500.0, 0.0, 30.0);
+	Blocking.ImpactNormal = FVector::BackwardVector;
+	ContactProjectile->OnContact().Broadcast(*ContactProjectile, Blocking);
+	TestTrue(TEXT("An unresolved blocking contact is one no-impact terminal"),
+		ContactHost.IsValid()
+			&& ContactHost.IsTerminal()
+			&& ContactHost.GetTerminalReceipt().Kind
+				== Edemo_mapShanmenThrownWeaponTerminalKind::BlockingMiss
+			&& ContactHost.GetTerminalReceipt().Delivery.Error
+				== Edemo_mapShanmenThrownWeaponWorldDeliveryError::
+					ContactNotResolved
+			&& ContactHost.GetExecution().NumAcceptedImpacts() == 0
+			&& ContactHost.GetActionRuntime().GetTerminalReason()
+				== EShanmenActionTerminalReason::Completed);
+
+	Fdemo_mapShanmenThrownWeaponRunHost RangeHost;
+	Ademo_mapShanmenThrownWeaponProjectile* RangeProjectile = nullptr;
+	if (!StartHostedFlight(Fixture, RangeHost, RangeProjectile))
+	{
+		return false;
+	}
+	TestTrue(TEXT("Range expiry uses the same explicit miss terminal"),
+		RangeHost.TryExpireRange()
+			&& RangeHost.IsValid()
+			&& RangeHost.GetTerminalReceipt().Kind
+				== Edemo_mapShanmenThrownWeaponTerminalKind::RangeExpired
+			&& RangeHost.GetExecution().NumAcceptedImpacts() == 0
+			&& RangeProjectile->GetProjectileState()
+				== Edemo_mapShanmenThrownWeaponProjectileState::Spent);
+	TestFalse(TEXT("A terminal range callback cannot run twice"),
+		RangeHost.TryExpireRange());
 	return true;
 }
 

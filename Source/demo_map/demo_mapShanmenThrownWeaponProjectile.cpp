@@ -192,6 +192,18 @@ bool Ademo_mapShanmenThrownWeaponProjectile::MarkSpent()
 	return true;
 }
 
+void Ademo_mapShanmenThrownWeaponProjectile::LifeSpanExpired()
+{
+	if (State == Edemo_mapShanmenThrownWeaponProjectileState::InFlight)
+	{
+		RangeExpiredEvent.Broadcast(*this);
+	}
+	if (!IsActorBeingDestroyed())
+	{
+		Super::LifeSpanExpired();
+	}
+}
+
 void Ademo_mapShanmenThrownWeaponProjectile::HandleHit(
 	UPrimitiveComponent*,
 	AActor* OtherActor,
