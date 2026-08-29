@@ -108,6 +108,9 @@ try
     $FormationAdapter = New-AutomationLogFixture `
         -Name 'formation-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.FormationMaterialAdapter'
+    $FormationSession = New-AutomationLogFixture `
+        -Name 'formation-session.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationSession'
     $Legacy = New-AutomationLogFixture `
         -Name 'legacy.log' `
         -Group 'demo_map'
@@ -143,6 +146,12 @@ try
         -Name 'formation material adapter is covered by broad full evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationMaterialAdapter.cpp') `
+        -Logs @($Full)
+
+    Invoke-ExpectedPass `
+        -Name 'formation product session is covered by broad full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationProductSession.cpp') `
         -Logs @($Full)
 
     Invoke-ExpectedPass `
@@ -275,6 +284,13 @@ try
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
+        -Name 'formation session child evidence cannot replace owned authority contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationProductSession.cpp') `
+        -Logs @($FormationSession) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
         -Name 'run host cannot use coordinator-only evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenControlledWeaponRunHost.cpp') `
@@ -344,7 +360,7 @@ try
         -Logs @($Full) `
         -ExpectedText 'missing required groups'
 
-    Write-Output 'SELF_TEST: PASS 35/35'
+    Write-Output 'SELF_TEST: PASS 37/37'
 }
 finally
 {
