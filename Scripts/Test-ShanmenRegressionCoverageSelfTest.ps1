@@ -120,6 +120,9 @@ try
     $FormationArea = New-AutomationLogFixture `
         -Name 'formation-area.log' `
         -Group 'Shanmen.0_0_10.Product.FormationAreaProvider'
+    $FormationWorldCoverage = New-AutomationLogFixture `
+        -Name 'formation-world-coverage.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationWorldCoverage'
     $Legacy = New-AutomationLogFixture `
         -Name 'legacy.log' `
         -Group 'demo_map'
@@ -179,6 +182,12 @@ try
         -Name 'formation area provider is covered by broad full evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationAreaProvider.cpp') `
+        -Logs @($Full)
+
+    Invoke-ExpectedPass `
+        -Name 'formation World coverage is covered by broad full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationWorldCoverageSampler.cpp') `
         -Logs @($Full)
 
     Invoke-ExpectedPass `
@@ -339,6 +348,13 @@ try
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
+        -Name 'formation World coverage child evidence cannot replace area and placement contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationWorldCoverageSampler.cpp') `
+        -Logs @($FormationWorldCoverage) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
         -Name 'run host cannot use coordinator-only evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenControlledWeaponRunHost.cpp') `
@@ -408,7 +424,7 @@ try
         -Logs @($Full) `
         -ExpectedText 'missing required groups'
 
-    Write-Output 'SELF_TEST: PASS 43/43'
+    Write-Output 'SELF_TEST: PASS 45/45'
 }
 finally
 {

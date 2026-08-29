@@ -93,6 +93,18 @@
       ]
     },
     {
+      "name": "FormationWorldCoverage",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenFormationWorldCoverageSampler(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Product.FormationWorldCoverage",
+        "Shanmen.0_0_10.Product.FormationAreaProvider",
+        "Shanmen.0_0_10.Product.FormationProductHost",
+        "Shanmen.0_0_10.Product.FormationWorldDelivery",
+        "Shanmen.0_0_10.WorldGameplay",
+        "Shanmen.0_0_10.CombatRuntime.FormationDeployment"
+      ]
+    },
+    {
       "name": "WorldGameplay",
       "pathRegex": "^Source/ShanmenWorldGameplay/",
       "requiredGroups": [
