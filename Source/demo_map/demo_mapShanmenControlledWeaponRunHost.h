@@ -63,6 +63,32 @@ struct Fdemo_mapShanmenControlledWeaponHostMovementBatch
 	bool IsFullyAdvanced() const;
 };
 
+/** One deterministic entry from a best-effort multi-weapon orbit step. */
+struct Fdemo_mapShanmenControlledWeaponHostOrbitEntry
+{
+	FGuid ItemInstanceId;
+	bool bAdvanced = false;
+	Fdemo_mapShanmenControlledWeaponOrbitMovementReceipt Movement;
+
+	bool IsSuccessful() const
+	{
+		return ItemInstanceId.IsValid()
+			&& bAdvanced
+			&& Movement.IsValid()
+			&& Movement.SourceItemInstanceId == ItemInstanceId;
+	}
+};
+
+/** Ordered receipt for one explicit sample of every Orbiting exact item. */
+struct Fdemo_mapShanmenControlledWeaponHostOrbitBatch
+{
+	int32 AttemptedCount = 0;
+	int32 AdvancedCount = 0;
+	TArray<Fdemo_mapShanmenControlledWeaponHostOrbitEntry> Entries;
+
+	bool IsFullyAdvanced() const;
+};
+
 /** One item-scoped terminal receipt from an atomic host-wide interrupt. */
 struct Fdemo_mapShanmenControlledWeaponHostInterruptReceipt
 {
@@ -119,6 +145,11 @@ public:
 		int64 ExpectedSequence,
 		const FVector& DesiredDirection,
 		FShanmenControlledWeaponCommandReceipt& OutReceipt);
+
+	/** Preflights every Orbiting item, then places each in stable item order. */
+	bool TryAdvanceOrbitingInOrder(
+		float DeltaSeconds,
+		Fdemo_mapShanmenControlledWeaponHostOrbitBatch& OutBatch);
 
 	/** Preflights every directed sword, then advances each in stable item order. */
 	bool TryAdvanceDirectedInOrder(

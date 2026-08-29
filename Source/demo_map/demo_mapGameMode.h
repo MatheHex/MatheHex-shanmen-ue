@@ -121,6 +121,10 @@ public:
 	Fdemo_mapShanmenControlledWeaponRunCommandResult
 	RouteControlledWeaponIntent(
 		const Fdemo_mapShanmenControlledWeaponRunCommandIntent& Intent);
+	/** Advances only the active Run's explicit, non-damaging Orbit poses. */
+	bool AdvanceControlledWeaponOrbit(
+		float DeltaSeconds,
+		Fdemo_mapShanmenControlledWeaponHostOrbitBatch& OutBatch);
 	const Fdemo_mapShanmenControlledWeaponRunHost&
 	GetControlledWeaponRunHost() const
 	{

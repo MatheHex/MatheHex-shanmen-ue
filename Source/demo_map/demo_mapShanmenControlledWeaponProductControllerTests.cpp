@@ -195,6 +195,12 @@ namespace
 	{
 		Fdemo_mapShanmenControlledWeaponMotionCapture Motion;
 		Motion.DirectedSpeed = 400.0f;
+		Motion.OrbitCenterOffset = FVector(0.0, 0.0, 50.0);
+		Motion.OrbitPlaneNormal = FVector::UpVector;
+		Motion.OrbitReferenceAxis = FVector::ForwardVector;
+		Motion.OrbitRadius = 100.0f;
+		Motion.OrbitAngularSpeedRadiansPerSecond = UE_PI * 0.5f;
+		Motion.InitialOrbitPhaseRadians = 0.0f;
 		Motion.MaximumStepSeconds = 0.5f;
 		return Motion;
 	}
@@ -310,6 +316,81 @@ bool Fdemo_mapControlledWeaponProductBindingMotionTest::RunTest(
 		&& Movement.Direction.Equals(FVector::RightVector)
 		&& Movement.RequestedEndLocation.Equals(
 			RedirectStart + FVector(0.0, 40.0, 0.0)));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapControlledWeaponProductOrbitMotionTest,
+	"Shanmen.0_0_10.Product.ControlledWeaponController.OrbitMotion",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapControlledWeaponProductOrbitMotionTest::RunTest(
+	const FString&)
+{
+	FControlledWeaponProductFixture Fixture;
+	if (!Fixture.bReady)
+	{
+		AddError(TEXT("Could not prepare P6.8 orbit fixture."));
+		return false;
+	}
+	Fixture.Pawn->SetActorLocation(FVector(100.0, 200.0, 10.0));
+
+	Fdemo_mapShanmenControlledWeaponProductController Controller;
+	if (!StartProduct(Fixture, Controller).IsStarted())
+	{
+		AddError(TEXT("Could not start P6.8 orbit controller."));
+		return false;
+	}
+
+	Fdemo_mapShanmenControlledWeaponOrbitMovementReceipt Orbit;
+	const FVector FirstCenter(100.0, 200.0, 60.0);
+	const FVector FirstExpected = FirstCenter + FVector(
+		100.0 / FMath::Sqrt(2.0),
+		100.0 / FMath::Sqrt(2.0),
+		0.0);
+	TestTrue(TEXT("Orbiting item consumes its frozen half-second pose sample"),
+		Controller.TryAdvanceOrbiting(0.5f, Orbit)
+		&& Orbit.IsValid()
+		&& Orbit.SourceItemInstanceId == ProductItemId
+		&& Orbit.Center.Equals(FirstCenter)
+		&& FMath::IsNearlyEqual(
+			Orbit.StartPhaseRadians, 0.0f)
+		&& FMath::IsNearlyEqual(
+			Orbit.EndPhaseRadians, UE_PI * 0.25f)
+		&& Orbit.RequestedEndLocation.Equals(
+			FirstExpected, 0.001f)
+		&& Fixture.Weapon->GetActorLocation().Equals(
+			FirstExpected, 0.001f));
+
+	const FVector BeforeRejected = Fixture.Weapon->GetActorLocation();
+	const float PhaseBeforeRejected =
+		Controller.GetCurrentOrbitPhaseRadians();
+	TestFalse(TEXT("Oversized orbit sample fails before placement or phase"),
+		Controller.TryAdvanceOrbiting(0.75f, Orbit));
+	TestTrue(TEXT("Rejected orbit sample preserves transform and phase"),
+		Fixture.Weapon->GetActorLocation().Equals(BeforeRejected)
+		&& FMath::IsNearlyEqual(
+			Controller.GetCurrentOrbitPhaseRadians(),
+			PhaseBeforeRejected));
+
+	Fixture.Pawn->SetActorLocation(FVector(110.0, 230.0, 20.0));
+	const FVector SecondExpected(110.0, 330.0, 70.0);
+	TestTrue(TEXT("Orbit center follows the current source Actor location"),
+		Controller.TryAdvanceOrbiting(0.5f, Orbit)
+		&& FMath::IsNearlyEqual(
+			Orbit.EndPhaseRadians, UE_PI * 0.5f)
+		&& Orbit.RequestedEndLocation.Equals(
+			SecondExpected, 0.001f));
+
+	FShanmenControlledWeaponCommandReceipt Launch;
+	TestTrue(TEXT("Launch leaves Orbiting through the canonical command"),
+		Controller.TryLaunch(0, FVector::ForwardVector, Launch)
+		&& Controller.IsDirected());
+	const FVector LaunchedLocation = Fixture.Weapon->GetActorLocation();
+	TestFalse(TEXT("Directed item cannot consume an orbit pose"),
+		Controller.TryAdvanceOrbiting(0.1f, Orbit));
+	TestTrue(TEXT("Rejected post-launch orbit leaves Actor unchanged"),
+		Fixture.Weapon->GetActorLocation().Equals(LaunchedLocation));
 	return true;
 }
 
@@ -443,6 +524,25 @@ bool Fdemo_mapControlledWeaponProductAtomicFenceTest::RunTest(
 	TestTrue(TEXT("Source Actor cannot masquerade as the physical weapon"),
 		SameActor.Error
 			== Edemo_mapShanmenControlledWeaponProductStartError::ActorBindingInvalid
+		&& !Rejected.IsValid());
+
+	Fdemo_mapShanmenControlledWeaponMotionCapture InvalidOrbit =
+		MakeProductMotion();
+	InvalidOrbit.OrbitReferenceAxis = FVector::UpVector;
+	const Fdemo_mapShanmenControlledWeaponProductStartResult BadOrbit =
+		Fdemo_mapShanmenControlledWeaponProductController::TryStart(
+			MakeProductPrepared(
+				Fixture.Coordinator,
+				Fixture.Coordinator.GetPlayerEntityId()),
+			Fixture.Coordinator,
+			Fixture.Pawn,
+			Fixture.Weapon,
+			Fixture.WeaponRoot,
+			InvalidOrbit,
+			Rejected);
+	TestTrue(TEXT("Orbit plane and reference axis must be orthogonal"),
+		BadOrbit.Error
+			== Edemo_mapShanmenControlledWeaponProductStartError::MotionInvalid
 		&& !Rejected.IsValid());
 
 	Fdemo_mapShanmenControlledWeaponProductController Controller;

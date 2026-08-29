@@ -7,9 +7,46 @@
 
 namespace
 {
+	constexpr float OrbitTwoPi = 2.0f * UE_PI;
+
 	bool IsFiniteVector(const FVector& Value)
 	{
-		return !Value.ContainsNaN();
+		return FMath::IsFinite(Value.X)
+			&& FMath::IsFinite(Value.Y)
+			&& FMath::IsFinite(Value.Z);
+	}
+
+	float WrapOrbitPhase(float PhaseRadians)
+	{
+		float Wrapped = FMath::Fmod(PhaseRadians, OrbitTwoPi);
+		if (Wrapped < 0.0f)
+		{
+			Wrapped += OrbitTwoPi;
+		}
+		return FMath::IsNearlyEqual(Wrapped, OrbitTwoPi)
+			? 0.0f
+			: Wrapped;
+	}
+
+	bool IsCanonicalOrbitPhase(float PhaseRadians)
+	{
+		return FMath::IsFinite(PhaseRadians)
+			&& PhaseRadians >= 0.0f
+			&& PhaseRadians < OrbitTwoPi;
+	}
+
+	FVector MakeOrbitLocation(
+		const FVector& Center,
+		const FVector& ReferenceAxis,
+		const FVector& PlaneNormal,
+		float Radius,
+		float PhaseRadians)
+	{
+		const FVector Tangent =
+			FVector::CrossProduct(PlaneNormal, ReferenceAxis);
+		return Center + Radius * (
+			ReferenceAxis * FMath::Cos(PhaseRadians)
+			+ Tangent * FMath::Sin(PhaseRadians));
 	}
 }
 
@@ -17,6 +54,20 @@ bool Fdemo_mapShanmenControlledWeaponMotionCapture::IsValid() const
 {
 	return FMath::IsFinite(DirectedSpeed)
 		&& DirectedSpeed > 0.0f
+		&& IsFiniteVector(OrbitCenterOffset)
+		&& IsFiniteVector(OrbitPlaneNormal)
+		&& OrbitPlaneNormal.IsNormalized()
+		&& IsFiniteVector(OrbitReferenceAxis)
+		&& OrbitReferenceAxis.IsNormalized()
+		&& FMath::IsNearlyZero(FVector::DotProduct(
+			OrbitPlaneNormal, OrbitReferenceAxis))
+		&& FVector::CrossProduct(
+			OrbitPlaneNormal, OrbitReferenceAxis).IsNormalized()
+		&& FMath::IsFinite(OrbitRadius)
+		&& OrbitRadius > 0.0f
+		&& FMath::IsFinite(OrbitAngularSpeedRadiansPerSecond)
+		&& !FMath::IsNearlyZero(OrbitAngularSpeedRadiansPerSecond)
+		&& FMath::IsFinite(InitialOrbitPhaseRadians)
 		&& FMath::IsFinite(MaximumStepSeconds)
 		&& MaximumStepSeconds > 0.0f;
 }
@@ -34,6 +85,52 @@ bool Fdemo_mapShanmenControlledWeaponMovementReceipt::IsValid() const
 		&& FMath::IsFinite(DeltaSeconds)
 		&& DeltaSeconds > 0.0f
 		&& (bMoved || bBlockingHit);
+}
+
+bool Fdemo_mapShanmenControlledWeaponOrbitMovementReceipt::IsValid() const
+{
+	if (!ActivationId.IsValid()
+		|| !SourceItemInstanceId.IsValid()
+		|| !IsFiniteVector(Center)
+		|| !IsFiniteVector(PlaneNormal)
+		|| !PlaneNormal.IsNormalized()
+		|| !IsFiniteVector(ReferenceAxis)
+		|| !ReferenceAxis.IsNormalized()
+		|| !FMath::IsNearlyZero(FVector::DotProduct(
+			PlaneNormal, ReferenceAxis))
+		|| !FMath::IsFinite(Radius)
+		|| Radius <= 0.0f
+		|| !FMath::IsFinite(AngularSpeedRadiansPerSecond)
+		|| FMath::IsNearlyZero(AngularSpeedRadiansPerSecond)
+		|| !IsCanonicalOrbitPhase(StartPhaseRadians)
+		|| !IsCanonicalOrbitPhase(EndPhaseRadians)
+		|| !IsFiniteVector(StartLocation)
+		|| !IsFiniteVector(RequestedEndLocation)
+		|| !IsFiniteVector(ActualEndLocation)
+		|| !FMath::IsFinite(DeltaSeconds)
+		|| DeltaSeconds <= 0.0f
+		|| !bPlaced)
+	{
+		return false;
+	}
+
+	const float ExpectedEndPhase = WrapOrbitPhase(
+		StartPhaseRadians
+			+ AngularSpeedRadiansPerSecond * DeltaSeconds);
+	const FVector ExpectedEndLocation = MakeOrbitLocation(
+		Center,
+		ReferenceAxis,
+		PlaneNormal,
+		Radius,
+		ExpectedEndPhase);
+	return FMath::IsNearlyEqual(
+			EndPhaseRadians, ExpectedEndPhase, KINDA_SMALL_NUMBER)
+		&& RequestedEndLocation.Equals(
+			ExpectedEndLocation, KINDA_SMALL_NUMBER)
+		&& ActualEndLocation.Equals(
+			RequestedEndLocation, KINDA_SMALL_NUMBER)
+		&& bMoved == !ActualEndLocation.Equals(
+			StartLocation, KINDA_SMALL_NUMBER);
 }
 
 Fdemo_mapShanmenControlledWeaponProductStartResult
@@ -104,6 +201,10 @@ Fdemo_mapShanmenControlledWeaponProductController::TryStart(
 	Candidate.WeaponActor = RequestedWeaponActor;
 	Candidate.WeaponCollisionRoot = RequestedWeaponCollisionRoot;
 	Candidate.Motion = RequestedMotion;
+	Candidate.Motion.InitialOrbitPhaseRadians =
+		WrapOrbitPhase(RequestedMotion.InitialOrbitPhaseRadians);
+	Candidate.CurrentOrbitPhaseRadians =
+		Candidate.Motion.InitialOrbitPhaseRadians;
 	if (!Fdemo_mapShanmenControlledWeaponSession::TryStart(
 			Prepared,
 			Candidate.Session,
@@ -137,6 +238,8 @@ bool Fdemo_mapShanmenControlledWeaponProductController::IsValid() const
 		|| BoundCollisionRoot->GetOwner() != BoundWeaponActor
 		|| BoundWeaponActor->GetRootComponent() != BoundCollisionRoot
 		|| !Motion.IsValid()
+		|| !IsCanonicalOrbitPhase(Motion.InitialOrbitPhaseRadians)
+		|| !IsCanonicalOrbitPhase(CurrentOrbitPhaseRadians)
 		|| !Session.IsValid()
 		|| Session.GetActionRuntime().GetAction().GetRunId() != RunId
 		|| Session.GetActionRuntime().GetAction().GetSourceEntityId()
@@ -153,6 +256,13 @@ bool Fdemo_mapShanmenControlledWeaponProductController::IsValid() const
 bool Fdemo_mapShanmenControlledWeaponProductController::IsActive() const
 {
 	return IsValid() && Session.IsActive();
+}
+
+bool Fdemo_mapShanmenControlledWeaponProductController::IsOrbiting() const
+{
+	return IsActive()
+		&& Session.GetExecution().GetState()
+			== EShanmenControlledWeaponState::Orbiting;
 }
 
 bool Fdemo_mapShanmenControlledWeaponProductController::IsDirected() const
@@ -217,6 +327,84 @@ bool Fdemo_mapShanmenControlledWeaponProductController::TryRedirect(
 		OutReceipt = FShanmenControlledWeaponCommandReceipt();
 		return false;
 	}
+	*this = MoveTemp(Candidate);
+	return true;
+}
+
+bool Fdemo_mapShanmenControlledWeaponProductController::TryAdvanceOrbiting(
+	float DeltaSeconds,
+	Fdemo_mapShanmenControlledWeaponOrbitMovementReceipt& OutReceipt)
+{
+	OutReceipt =
+		Fdemo_mapShanmenControlledWeaponOrbitMovementReceipt();
+	if (!IsOrbiting()
+		|| !FMath::IsFinite(DeltaSeconds)
+		|| DeltaSeconds <= 0.0f
+		|| DeltaSeconds > Motion.MaximumStepSeconds)
+	{
+		return false;
+	}
+
+	AActor* BoundSourceActor = SourceActor.Get();
+	AActor* BoundWeaponActor = WeaponActor.Get();
+	const FVector Center =
+		BoundSourceActor->GetActorLocation() + Motion.OrbitCenterOffset;
+	const FVector StartLocation = BoundWeaponActor->GetActorLocation();
+	const float EndPhase = WrapOrbitPhase(
+		CurrentOrbitPhaseRadians
+			+ Motion.OrbitAngularSpeedRadiansPerSecond * DeltaSeconds);
+	const FVector RequestedEndLocation = MakeOrbitLocation(
+		Center,
+		Motion.OrbitReferenceAxis,
+		Motion.OrbitPlaneNormal,
+		Motion.OrbitRadius,
+		EndPhase);
+	if (!IsFiniteVector(Center)
+		|| !IsFiniteVector(StartLocation)
+		|| !IsFiniteVector(RequestedEndLocation))
+	{
+		return false;
+	}
+	Fdemo_mapShanmenControlledWeaponProductController Candidate = *this;
+	Candidate.CurrentOrbitPhaseRadians = EndPhase;
+	if (!Candidate.IsValid())
+	{
+		return false;
+	}
+
+	const bool bPlaced = BoundWeaponActor->SetActorLocation(
+		RequestedEndLocation,
+		false,
+		nullptr,
+		ETeleportType::TeleportPhysics);
+	const FVector ActualEndLocation =
+		BoundWeaponActor->GetActorLocation();
+	OutReceipt.ActivationId =
+		Session.GetActionRuntime().GetAction().GetActivationId();
+	OutReceipt.SourceItemInstanceId =
+		Session.GetEvidence().ItemInstanceId;
+	OutReceipt.Center = Center;
+	OutReceipt.PlaneNormal = Motion.OrbitPlaneNormal;
+	OutReceipt.ReferenceAxis = Motion.OrbitReferenceAxis;
+	OutReceipt.Radius = Motion.OrbitRadius;
+	OutReceipt.AngularSpeedRadiansPerSecond =
+		Motion.OrbitAngularSpeedRadiansPerSecond;
+	OutReceipt.StartPhaseRadians = CurrentOrbitPhaseRadians;
+	OutReceipt.EndPhaseRadians = EndPhase;
+	OutReceipt.StartLocation = StartLocation;
+	OutReceipt.RequestedEndLocation = RequestedEndLocation;
+	OutReceipt.ActualEndLocation = ActualEndLocation;
+	OutReceipt.DeltaSeconds = DeltaSeconds;
+	OutReceipt.bPlaced = bPlaced;
+	OutReceipt.bMoved = !ActualEndLocation.Equals(
+		StartLocation, KINDA_SMALL_NUMBER);
+	if (!OutReceipt.IsValid())
+	{
+		OutReceipt =
+			Fdemo_mapShanmenControlledWeaponOrbitMovementReceipt();
+		return false;
+	}
+
 	*this = MoveTemp(Candidate);
 	return true;
 }

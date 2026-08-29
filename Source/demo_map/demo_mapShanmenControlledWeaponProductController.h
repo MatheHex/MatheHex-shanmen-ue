@@ -12,6 +12,12 @@ struct FOverlapResult;
 struct Fdemo_mapShanmenControlledWeaponMotionCapture
 {
 	float DirectedSpeed = 0.0f;
+	FVector OrbitCenterOffset = FVector::ZeroVector;
+	FVector OrbitPlaneNormal = FVector::ZeroVector;
+	FVector OrbitReferenceAxis = FVector::ZeroVector;
+	float OrbitRadius = 0.0f;
+	float OrbitAngularSpeedRadiansPerSecond = 0.0f;
+	float InitialOrbitPhaseRadians = 0.0f;
 	float MaximumStepSeconds = 0.0f;
 
 	bool IsValid() const;
@@ -30,6 +36,28 @@ struct Fdemo_mapShanmenControlledWeaponMovementReceipt
 	float DeltaSeconds = 0.0f;
 	bool bMoved = false;
 	bool bBlockingHit = false;
+
+	bool IsValid() const;
+};
+
+/** Auditable, non-swept preparation-pose sample while the item is Orbiting. */
+struct Fdemo_mapShanmenControlledWeaponOrbitMovementReceipt
+{
+	FGuid ActivationId;
+	FGuid SourceItemInstanceId;
+	FVector Center = FVector::ZeroVector;
+	FVector PlaneNormal = FVector::ZeroVector;
+	FVector ReferenceAxis = FVector::ZeroVector;
+	float Radius = 0.0f;
+	float AngularSpeedRadiansPerSecond = 0.0f;
+	float StartPhaseRadians = 0.0f;
+	float EndPhaseRadians = 0.0f;
+	FVector StartLocation = FVector::ZeroVector;
+	FVector RequestedEndLocation = FVector::ZeroVector;
+	FVector ActualEndLocation = FVector::ZeroVector;
+	float DeltaSeconds = 0.0f;
+	bool bPlaced = false;
+	bool bMoved = false;
 
 	bool IsValid() const;
 };
@@ -87,6 +115,7 @@ public:
 
 	bool IsValid() const;
 	bool IsActive() const;
+	bool IsOrbiting() const;
 	bool IsDirected() const;
 	bool HasActiveContactWindow() const;
 
@@ -98,6 +127,14 @@ public:
 		int64 ExpectedSequence,
 		const FVector& DesiredDirection,
 		FShanmenControlledWeaponCommandReceipt& OutReceipt);
+
+	/**
+	 * Advances the explicit world-space orbit without sweep or hit emission.
+	 * Near-threat, defense, and collision semantics remain separate contracts.
+	 */
+	bool TryAdvanceOrbiting(
+		float DeltaSeconds,
+		Fdemo_mapShanmenControlledWeaponOrbitMovementReceipt& OutReceipt);
 
 	/** Moves the physical Actor with sweep enabled; contact delivery is explicit. */
 	bool TryAdvanceDirected(
@@ -138,6 +175,10 @@ public:
 	{
 		return WeaponCollisionRoot.Get();
 	}
+	float GetCurrentOrbitPhaseRadians() const
+	{
+		return CurrentOrbitPhaseRadians;
+	}
 
 private:
 	bool CoordinatorMatches(
@@ -150,6 +191,7 @@ private:
 	TWeakObjectPtr<AActor> WeaponActor;
 	TWeakObjectPtr<UPrimitiveComponent> WeaponCollisionRoot;
 	Fdemo_mapShanmenControlledWeaponMotionCapture Motion;
+	float CurrentOrbitPhaseRadians = 0.0f;
 	Fdemo_mapShanmenControlledWeaponSession Session;
 	FShanmenWorldHitContext ActiveContactContext;
 };

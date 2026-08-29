@@ -153,6 +153,12 @@ namespace
 	{
 		Fdemo_mapShanmenControlledWeaponMotionCapture Motion;
 		Motion.DirectedSpeed = 400.0f;
+		Motion.OrbitCenterOffset = FVector(0.0, 0.0, 50.0);
+		Motion.OrbitPlaneNormal = FVector::UpVector;
+		Motion.OrbitReferenceAxis = FVector::ForwardVector;
+		Motion.OrbitRadius = 100.0f;
+		Motion.OrbitAngularSpeedRadiansPerSecond = UE_PI * 0.5f;
+		Motion.InitialOrbitPhaseRadians = 0.0f;
 		Motion.MaximumStepSeconds = 0.5f;
 		return Motion;
 	}

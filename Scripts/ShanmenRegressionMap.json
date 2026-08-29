@@ -182,6 +182,9 @@
         "Shanmen.0_0_10.Product.ControlledWeaponSession",
         "Shanmen.0_0_10.Product.ControlledWeaponAdapter",
         "Shanmen.0_0_10.Product.CombatRunCoordinator",
+        "Shanmen.0_0_10.Product.ControlledWeaponRunHost",
+        "Shanmen.0_0_10.Product.ControlledWeaponRunLifecycle",
+        "Shanmen.0_0_10.Product.ControlledWeaponRunCommandRouter",
         "Shanmen.0_0_10.Items",
         "Shanmen.0_0_10.WorldGameplay",
         "Shanmen.0_0_10.CombatRuntime"
@@ -197,6 +200,8 @@
         "Shanmen.0_0_10.Product.ControlledWeaponSession",
         "Shanmen.0_0_10.Product.ControlledWeaponAdapter",
         "Shanmen.0_0_10.Product.CombatRunCoordinator",
+        "Shanmen.0_0_10.Product.ControlledWeaponRunLifecycle",
+        "Shanmen.0_0_10.Product.ControlledWeaponRunCommandRouter",
         "Shanmen.0_0_10.Items",
         "Shanmen.0_0_10.WorldGameplay",
         "Shanmen.0_0_10.CombatRuntime"

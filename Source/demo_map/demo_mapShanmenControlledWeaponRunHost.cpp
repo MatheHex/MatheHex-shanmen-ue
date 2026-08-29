@@ -33,6 +33,25 @@ IsFullyAdvanced() const
 	return true;
 }
 
+bool Fdemo_mapShanmenControlledWeaponHostOrbitBatch::IsFullyAdvanced() const
+{
+	if (AttemptedCount <= 0
+		|| AdvancedCount != AttemptedCount
+		|| Entries.Num() != AttemptedCount)
+	{
+		return false;
+	}
+	for (const Fdemo_mapShanmenControlledWeaponHostOrbitEntry& Entry :
+		Entries)
+	{
+		if (!Entry.IsSuccessful())
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
 Fdemo_mapShanmenControlledWeaponHostAttachResult
 Fdemo_mapShanmenControlledWeaponRunHost::TryAttach(
 	const Fdemo_mapShanmenControlledWeaponPrepareResult& Prepared,
@@ -232,6 +251,56 @@ bool Fdemo_mapShanmenControlledWeaponRunHost::TryRedirect(
 	return Controller
 		&& Controller->TryRedirect(
 			ExpectedSequence, DesiredDirection, OutReceipt);
+}
+
+bool Fdemo_mapShanmenControlledWeaponRunHost::TryAdvanceOrbitingInOrder(
+	float DeltaSeconds,
+	Fdemo_mapShanmenControlledWeaponHostOrbitBatch& OutBatch)
+{
+	OutBatch = Fdemo_mapShanmenControlledWeaponHostOrbitBatch();
+	if (!IsValid()
+		|| !FMath::IsFinite(DeltaSeconds)
+		|| DeltaSeconds <= 0.0f)
+	{
+		return false;
+	}
+
+	const TArray<FGuid> OrderedActive =
+		GetOrderedActiveItemInstanceIds();
+	TArray<FGuid> OrderedOrbiting;
+	for (const FGuid& ItemInstanceId : OrderedActive)
+	{
+		const Fdemo_mapShanmenControlledWeaponProductController* Controller =
+			Controllers.Find(ItemInstanceId);
+		if (Controller && Controller->IsOrbiting())
+		{
+			if (DeltaSeconds > Controller->GetMotion().MaximumStepSeconds)
+			{
+				return false;
+			}
+			OrderedOrbiting.Add(ItemInstanceId);
+		}
+	}
+	if (OrderedOrbiting.IsEmpty())
+	{
+		return false;
+	}
+
+	OutBatch.AttemptedCount = OrderedOrbiting.Num();
+	OutBatch.Entries.Reserve(OrderedOrbiting.Num());
+	for (const FGuid& ItemInstanceId : OrderedOrbiting)
+	{
+		Fdemo_mapShanmenControlledWeaponHostOrbitEntry Entry;
+		Entry.ItemInstanceId = ItemInstanceId;
+		Fdemo_mapShanmenControlledWeaponProductController* Controller =
+			Controllers.Find(ItemInstanceId);
+		Entry.bAdvanced = Controller
+			&& Controller->TryAdvanceOrbiting(
+				DeltaSeconds, Entry.Movement);
+		OutBatch.AdvancedCount += Entry.bAdvanced ? 1 : 0;
+		OutBatch.Entries.Add(MoveTemp(Entry));
+	}
+	return OutBatch.IsFullyAdvanced();
 }
 
 bool Fdemo_mapShanmenControlledWeaponRunHost::TryAdvanceDirectedInOrder(

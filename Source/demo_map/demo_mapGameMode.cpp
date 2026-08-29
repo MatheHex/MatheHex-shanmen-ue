@@ -483,6 +483,14 @@ Ademo_mapGameMode::RouteControlledWeaponIntent(
 		Intent);
 }
 
+bool Ademo_mapGameMode::AdvanceControlledWeaponOrbit(
+	float DeltaSeconds,
+	Fdemo_mapShanmenControlledWeaponHostOrbitBatch& OutBatch)
+{
+	return ControlledWeaponRunHost.TryAdvanceOrbitingInOrder(
+		DeltaSeconds, OutBatch);
+}
+
 bool Ademo_mapGameMode::ShouldUseM01EnemyAttackProductPath() const
 {
 	// M01 owns this routing decision even while the Run is still preparing:

@@ -207,10 +207,17 @@ namespace
 		return Prepared;
 	}
 
-	Fdemo_mapShanmenControlledWeaponMotionCapture MakeHostMotion()
+	Fdemo_mapShanmenControlledWeaponMotionCapture MakeHostMotion(
+		float InitialOrbitPhaseRadians = 0.0f)
 	{
 		Fdemo_mapShanmenControlledWeaponMotionCapture Motion;
 		Motion.DirectedSpeed = 400.0f;
+		Motion.OrbitCenterOffset = FVector(0.0, 0.0, 50.0);
+		Motion.OrbitPlaneNormal = FVector::UpVector;
+		Motion.OrbitReferenceAxis = FVector::ForwardVector;
+		Motion.OrbitRadius = 100.0f;
+		Motion.OrbitAngularSpeedRadiansPerSecond = UE_PI * 0.5f;
+		Motion.InitialOrbitPhaseRadians = InitialOrbitPhaseRadians;
 		Motion.MaximumStepSeconds = 0.5f;
 		return Motion;
 	}
@@ -220,7 +227,8 @@ namespace
 		Fdemo_mapShanmenControlledWeaponRunHost& Host,
 		const FGuid& ItemInstanceId,
 		int64 ActivationSequence,
-		int32 WeaponIndex)
+		int32 WeaponIndex,
+		float InitialOrbitPhaseRadians = 0.0f)
 	{
 		return Host.TryAttach(
 			MakeHostPrepared(
@@ -231,7 +239,7 @@ namespace
 			Fixture.Pawn,
 			Fixture.Weapons[WeaponIndex],
 			Fixture.WeaponRoots[WeaponIndex],
-			MakeHostMotion());
+			MakeHostMotion(InitialOrbitPhaseRadians));
 	}
 
 	FHitResult MakeHostSweepHit(
@@ -317,6 +325,92 @@ bool Fdemo_mapControlledWeaponRunHostStableOrderTest::RunTest(
 		Fixture.Weapons[0]->GetActorLocation().Equals(LowBeforeRejected)
 		&& Fixture.Weapons[1]->GetActorLocation().Equals(
 			HighBeforeRejected));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapControlledWeaponRunHostOrbitOrderTest,
+	"Shanmen.0_0_10.Product.ControlledWeaponRunHost.OrbitOrderAndPreflight",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapControlledWeaponRunHostOrbitOrderTest::RunTest(
+	const FString&)
+{
+	FControlledWeaponHostFixture Fixture;
+	Fdemo_mapShanmenControlledWeaponRunHost Host;
+	if (!Fixture.bReady)
+	{
+		AddError(TEXT("Could not prepare P6.8 host orbit fixture."));
+		return false;
+	}
+	Fixture.Pawn->SetActorLocation(FVector(50.0, 60.0, 10.0));
+	if (!AttachHostWeapon(
+			Fixture,
+			Host,
+			HostHighItemId,
+			2,
+			1,
+			UE_PI).IsAttached()
+		|| !AttachHostWeapon(
+			Fixture,
+			Host,
+			HostLowItemId,
+			1,
+			0,
+			0.0f).IsAttached())
+	{
+		AddError(TEXT("Could not attach P6.8 host orbit items."));
+		return false;
+	}
+
+	Fdemo_mapShanmenControlledWeaponHostOrbitBatch Orbit;
+	TestTrue(TEXT("Host advances reverse-attached orbit items in stable order"),
+		Host.TryAdvanceOrbitingInOrder(0.5f, Orbit)
+		&& Orbit.IsFullyAdvanced()
+		&& Orbit.Entries.Num() == 2
+		&& Orbit.Entries[0].ItemInstanceId == HostLowItemId
+		&& Orbit.Entries[1].ItemInstanceId == HostHighItemId
+		&& FMath::IsNearlyEqual(
+			Orbit.Entries[0].Movement.EndPhaseRadians,
+			UE_PI * 0.25f)
+		&& FMath::IsNearlyEqual(
+			Orbit.Entries[1].Movement.EndPhaseRadians,
+			UE_PI * 1.25f));
+
+	const FVector LowBeforeRejected =
+		Fixture.Weapons[0]->GetActorLocation();
+	const FVector HighBeforeRejected =
+		Fixture.Weapons[1]->GetActorLocation();
+	const float LowPhaseBeforeRejected =
+		Host.FindController(HostLowItemId)
+			->GetCurrentOrbitPhaseRadians();
+	const float HighPhaseBeforeRejected =
+		Host.FindController(HostHighItemId)
+			->GetCurrentOrbitPhaseRadians();
+	TestFalse(TEXT("Any oversized orbit sample fails host preflight"),
+		Host.TryAdvanceOrbitingInOrder(0.75f, Orbit));
+	TestTrue(TEXT("Rejected orbit batch changes no transform or phase"),
+		Fixture.Weapons[0]->GetActorLocation().Equals(LowBeforeRejected)
+		&& Fixture.Weapons[1]->GetActorLocation().Equals(
+			HighBeforeRejected)
+		&& FMath::IsNearlyEqual(
+			Host.FindController(HostLowItemId)
+				->GetCurrentOrbitPhaseRadians(),
+			LowPhaseBeforeRejected)
+		&& FMath::IsNearlyEqual(
+			Host.FindController(HostHighItemId)
+				->GetCurrentOrbitPhaseRadians(),
+			HighPhaseBeforeRejected));
+
+	FShanmenControlledWeaponCommandReceipt Launch;
+	TestTrue(TEXT("One exact item can leave Orbiting independently"),
+		Host.TryLaunch(
+			HostLowItemId, 0, FVector::ForwardVector, Launch));
+	TestTrue(TEXT("Later orbit batch advances only the remaining item"),
+		Host.TryAdvanceOrbitingInOrder(0.1f, Orbit)
+		&& Orbit.IsFullyAdvanced()
+		&& Orbit.AttemptedCount == 1
+		&& Orbit.Entries[0].ItemInstanceId == HostHighItemId);
 	return true;
 }
 
