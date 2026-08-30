@@ -9,6 +9,7 @@
 class AActor;
 class APawn;
 class UPrimitiveComponent;
+class UObject;
 class Udemo_mapPlayerHealthComponent;
 struct Fdemo_mapM01EnemyDefinition;
 struct FShanmenControlledWeaponImpactReceipt;
@@ -348,6 +349,43 @@ struct Fdemo_mapBasicSwordProductExecutionResult
 	}
 };
 
+enum class Edemo_mapCombatRunEntityAliasStatus : uint8
+{
+	Bound,
+	AlreadyBound,
+	CoordinatorNotReady,
+	RegisteredObjectUnavailable,
+	AliasObjectUnavailable,
+	BodyIndexInvalid,
+	RegisteredObjectNotFound,
+	AliasConflict,
+	RegistryRejected,
+	StateInvalid
+};
+
+/** Pointer-free receipt for one explicit alias derived from a registered object. */
+struct Fdemo_mapCombatRunEntityAliasResult
+{
+	Edemo_mapCombatRunEntityAliasStatus Status =
+		Edemo_mapCombatRunEntityAliasStatus::CoordinatorNotReady;
+	FString Diagnostic;
+	FGuid RunId;
+	FGuid EntityId;
+	uint32 RegisteredObjectUniqueId = 0;
+	uint32 AliasObjectUniqueId = 0;
+	int32 RegisteredBodyIndex = INDEX_NONE;
+	int32 AliasBodyIndex = INDEX_NONE;
+	EShanmenWorldBindingResult BindingResult =
+		EShanmenWorldBindingResult::Invalid;
+	int32 BindingCountBefore = 0;
+	int32 BindingCountAfter = 0;
+	bool bRegisteredObjectResolved = false;
+	bool bAliasVerified = false;
+	bool bRegistryUpdated = false;
+
+	bool IsSuccess() const;
+};
+
 /**
  * Shared product bridge for one authority Run.
  *
@@ -380,6 +418,16 @@ public:
 	bool IsActive() const { return EntityRegistry.GetRunId().IsValid(); }
 	const FGuid& GetRunId() const { return EntityRegistry.GetRunId(); }
 	const FGuid& GetPlayerEntityId() const { return PlayerEntityId; }
+	/**
+	 * Binds one caller-owned UObject as an alias of an already registered
+	 * object. EntityId is resolved internally and can never be injected by the
+	 * caller. The operation is copy-on-success and stores no object pointer.
+	 */
+	Fdemo_mapCombatRunEntityAliasResult TryBindEntityAlias(
+		const UObject* RegisteredObject,
+		int32 RegisteredBodyIndex,
+		const UObject* AliasObject,
+		int32 AliasBodyIndex = INDEX_NONE);
 	int32 NumRegisteredM01Enemies() const { return M01EnemyBindings.Num(); }
 	int32 NumVitalityBoundM01Enemies() const;
 	const FShanmenWorldEntityRegistry& GetEntityRegistry() const

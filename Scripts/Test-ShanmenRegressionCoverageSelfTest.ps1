@@ -513,10 +513,24 @@ try
             'Source/demo_map/demo_mapWorldInteractionTests.cpp') `
         -Logs @($Full, $Legacy)
 
+    Invoke-ExpectedPass `
+        -Name 'combat Run coordinator alias seam is covered by broad full and attribute evidence' `
+        -Paths @('Source/demo_map/demo_mapCombatRunCoordinator.cpp') `
+        -Logs @($Full, $Attributes)
+
     Invoke-ExpectedFail `
         -Name 'missing mapped group fails closed' `
         -Paths @('Source/demo_map/demo_mapSkillComponent.cpp') `
         -Logs @($Full) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'combat Run coordinator focus cannot replace registry formation and broad contracts' `
+        -Paths @('Source/demo_map/demo_mapCombatRunCoordinator.cpp') `
+        -Logs @(
+            $Coordinator,
+            $FormationInfluenceConsumerWorldResolution,
+            $Attributes) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

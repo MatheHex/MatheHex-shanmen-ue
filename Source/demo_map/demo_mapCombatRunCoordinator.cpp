@@ -420,6 +420,31 @@ namespace
 	}
 }
 
+bool Fdemo_mapCombatRunEntityAliasResult::IsSuccess() const
+{
+	if (!RunId.IsValid() || !EntityId.IsValid()
+		|| RegisteredObjectUniqueId == 0 || AliasObjectUniqueId == 0
+		|| RegisteredBodyIndex < INDEX_NONE || AliasBodyIndex < INDEX_NONE
+		|| !bRegisteredObjectResolved || !bAliasVerified
+		|| BindingCountBefore < 0 || BindingCountAfter < BindingCountBefore
+		|| BindingCountAfter > BindingCountBefore + 1)
+	{
+		return false;
+	}
+	switch (Status)
+	{
+	case Edemo_mapCombatRunEntityAliasStatus::Bound:
+		return BindingResult == EShanmenWorldBindingResult::Bound
+			&& bRegistryUpdated;
+	case Edemo_mapCombatRunEntityAliasStatus::AlreadyBound:
+		return BindingResult == EShanmenWorldBindingResult::AlreadyBound
+			&& !bRegistryUpdated
+			&& BindingCountAfter == BindingCountBefore;
+	default:
+		return false;
+	}
+}
+
 bool Fdemo_mapM01EnemyAttackImpactReceipt::IsValid() const
 {
 	FM01EnemyAttackSpec Spec;
@@ -818,6 +843,123 @@ bool Fdemo_mapCombatRunCoordinator::TryRegisterM01Enemy(
 		*EntityId.ToString(EGuidFormats::DigitsWithHyphens),
 		1);
 	return true;
+}
+
+Fdemo_mapCombatRunEntityAliasResult
+Fdemo_mapCombatRunCoordinator::TryBindEntityAlias(
+	const UObject* RegisteredObject,
+	const int32 RegisteredBodyIndex,
+	const UObject* AliasObject,
+	const int32 AliasBodyIndex)
+{
+	Fdemo_mapCombatRunEntityAliasResult Result;
+	Result.RunId = GetRunId();
+	Result.RegisteredBodyIndex = RegisteredBodyIndex;
+	Result.AliasBodyIndex = AliasBodyIndex;
+	Result.BindingCountBefore = EntityRegistry.NumObjectBindings();
+	Result.BindingCountAfter = Result.BindingCountBefore;
+	const auto Reject = [&Result](
+		const Edemo_mapCombatRunEntityAliasStatus Status,
+		const TCHAR* Diagnostic)
+	{
+		Result.Status = Status;
+		Result.Diagnostic = Diagnostic;
+		return Result;
+	};
+
+	if (!IsReady())
+	{
+		return Reject(
+			Edemo_mapCombatRunEntityAliasStatus::CoordinatorNotReady,
+			TEXT("Entity alias binding requires one ready combat Run coordinator."));
+	}
+	if (!::IsValid(RegisteredObject))
+	{
+		return Reject(
+			Edemo_mapCombatRunEntityAliasStatus::RegisteredObjectUnavailable,
+			TEXT("Entity alias binding requires one live registered object."));
+	}
+	if (!::IsValid(AliasObject))
+	{
+		return Reject(
+			Edemo_mapCombatRunEntityAliasStatus::AliasObjectUnavailable,
+			TEXT("Entity alias binding requires one live caller-owned alias object."));
+	}
+	if (RegisteredBodyIndex < INDEX_NONE || AliasBodyIndex < INDEX_NONE)
+	{
+		return Reject(
+			Edemo_mapCombatRunEntityAliasStatus::BodyIndexInvalid,
+			TEXT("Entity alias binding received an invalid body index."));
+	}
+
+	Result.RegisteredObjectUniqueId = RegisteredObject->GetUniqueID();
+	Result.AliasObjectUniqueId = AliasObject->GetUniqueID();
+	if (!EntityRegistry.TryResolveObject(
+			Result.RunId,
+			RegisteredObject,
+			RegisteredBodyIndex,
+			Result.EntityId))
+	{
+		return Reject(
+			Edemo_mapCombatRunEntityAliasStatus::RegisteredObjectNotFound,
+			TEXT("Source object is not registered for the requested Run and body."));
+	}
+	Result.bRegisteredObjectResolved = true;
+
+	FShanmenWorldEntityRegistry PreparedRegistry = EntityRegistry;
+	Result.BindingResult = PreparedRegistry.BindObject(
+		Result.RunId,
+		AliasObject,
+		Result.EntityId,
+		AliasBodyIndex);
+	if (Result.BindingResult == EShanmenWorldBindingResult::Conflict)
+	{
+		return Reject(
+			Edemo_mapCombatRunEntityAliasStatus::AliasConflict,
+			TEXT("Alias object is already owned by a different combat entity."));
+	}
+	if (Result.BindingResult != EShanmenWorldBindingResult::Bound
+		&& Result.BindingResult != EShanmenWorldBindingResult::AlreadyBound)
+	{
+		return Reject(
+			Edemo_mapCombatRunEntityAliasStatus::RegistryRejected,
+			TEXT("World Entity Registry rejected the explicit alias binding."));
+	}
+
+	FGuid VerifiedEntityId;
+	if (!PreparedRegistry.TryResolveObject(
+			Result.RunId,
+			AliasObject,
+			AliasBodyIndex,
+			VerifiedEntityId)
+		|| VerifiedEntityId != Result.EntityId)
+	{
+		return Reject(
+			Edemo_mapCombatRunEntityAliasStatus::StateInvalid,
+			TEXT("Prepared entity alias did not resolve to the source identity."));
+	}
+	Result.bAliasVerified = true;
+	Result.bRegistryUpdated =
+		Result.BindingResult == EShanmenWorldBindingResult::Bound;
+	Result.BindingCountAfter = PreparedRegistry.NumObjectBindings();
+	Result.Status = Result.bRegistryUpdated
+		? Edemo_mapCombatRunEntityAliasStatus::Bound
+		: Edemo_mapCombatRunEntityAliasStatus::AlreadyBound;
+	Result.Diagnostic = Result.bRegistryUpdated
+		? TEXT("Bound one explicit object alias to the registered combat entity.")
+		: TEXT("Exact object alias was already bound to the combat entity.");
+	if (!Result.IsSuccess())
+	{
+		Result.bRegistryUpdated = false;
+		return Reject(
+			Edemo_mapCombatRunEntityAliasStatus::StateInvalid,
+			TEXT("Entity alias binding produced inconsistent receipt evidence."));
+	}
+	if (Result.bRegistryUpdated)
+	{
+		EntityRegistry = MoveTemp(PreparedRegistry);
+	}
+	return Result;
 }
 
 bool Fdemo_mapCombatRunCoordinator::TryEndRun(

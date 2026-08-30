@@ -723,7 +723,11 @@
       "name": "CombatRunCoordinator",
       "pathRegex": "^Source/demo_map/demo_mapCombatRunCoordinator(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [
-        "Shanmen.0_0_10.Product.CombatRunCoordinator"
+        "Shanmen.0_0_10.Product.CombatRunCoordinator",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerWorldResolution",
+        "Shanmen.0_0_10.WorldGameplay",
+        "demo_map.V3.Attributes",
+        "Shanmen.0_0_10"
       ]
     },
     {

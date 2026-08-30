@@ -24,6 +24,7 @@
 #include "demo_mapM01EnemyTypes.h"
 #include "demo_mapPlayerHealthComponent.h"
 #include "demo_mapRangedEnemyCharacter.h"
+#include "demo_mapShanmenFormationInfluenceConsumerWorldResolution.h"
 
 #include <limits>
 
@@ -553,6 +554,139 @@ bool FShanmenCombatRunCoordinatorLifecycleTest::RunTest(const FString&)
 			&& ExpectedSecondId != ExpectedFirstId
 			&& Fixture.Coordinator.GetPlayerEntityId() == ExpectedSecondId
 			&& Fixture.Health->GetCombatEntityId() == ExpectedSecondId);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenCombatRunCoordinatorEntityAliasBindingTest,
+	"Shanmen.0_0_10.Product.CombatRunCoordinator.EntityAliasBinding",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenCombatRunCoordinatorEntityAliasBindingTest::RunTest(
+	const FString&)
+{
+	FCombatRunCoordinatorFixture Fixture;
+	FM01MeleeEnemyFixture EnemyFixture;
+	Fdemo_mapCombatRunCoordinator InactiveCoordinator;
+	Udemo_mapAttributeComponent* Attributes =
+		NewObject<Udemo_mapAttributeComponent>();
+	Udemo_mapAttributeComponent* BodyAttributes =
+		NewObject<Udemo_mapAttributeComponent>();
+	Udemo_mapAttributeComponent* UnboundAttributes =
+		NewObject<Udemo_mapAttributeComponent>();
+	TestTrue(TEXT("Entity alias fixtures initialize"),
+		Fixture.bReady && EnemyFixture.bReady && Attributes
+			&& BodyAttributes && UnboundAttributes);
+	if (!Fixture.bReady || !EnemyFixture.bReady || !Attributes
+		|| !BodyAttributes || !UnboundAttributes)
+	{
+		return false;
+	}
+
+	const auto NotReady = InactiveCoordinator.TryBindEntityAlias(
+		Fixture.Pawn, INDEX_NONE, Attributes);
+	const auto MissingSource = Fixture.Coordinator.TryBindEntityAlias(
+		nullptr, INDEX_NONE, Attributes);
+	const auto MissingAlias = Fixture.Coordinator.TryBindEntityAlias(
+		Fixture.Pawn, INDEX_NONE, nullptr);
+	const auto InvalidBody = Fixture.Coordinator.TryBindEntityAlias(
+		Fixture.Pawn, INDEX_NONE - 1, Attributes);
+	const auto SourceNotFound = Fixture.Coordinator.TryBindEntityAlias(
+		UnboundAttributes, INDEX_NONE, Attributes);
+	TestTrue(TEXT("Invalid alias requests fail before registry mutation"),
+		NotReady.Status
+			== Edemo_mapCombatRunEntityAliasStatus::CoordinatorNotReady
+			&& MissingSource.Status
+				== Edemo_mapCombatRunEntityAliasStatus::
+					RegisteredObjectUnavailable
+			&& MissingAlias.Status
+				== Edemo_mapCombatRunEntityAliasStatus::AliasObjectUnavailable
+			&& InvalidBody.Status
+				== Edemo_mapCombatRunEntityAliasStatus::BodyIndexInvalid
+			&& SourceNotFound.Status
+				== Edemo_mapCombatRunEntityAliasStatus::
+					RegisteredObjectNotFound
+			&& Fixture.Coordinator.GetEntityRegistry().NumObjectBindings() == 3);
+
+	const auto Bound = Fixture.Coordinator.TryBindEntityAlias(
+		Fixture.Pawn, INDEX_NONE, Attributes);
+	const auto Replay = Fixture.Coordinator.TryBindEntityAlias(
+		Fixture.Pawn, INDEX_NONE, Attributes);
+	const auto ExactBody = Fixture.Coordinator.TryBindEntityAlias(
+		Fixture.Pawn, INDEX_NONE, BodyAttributes, 7);
+	const auto ExactBodyReplay = Fixture.Coordinator.TryBindEntityAlias(
+		Fixture.Pawn, INDEX_NONE, BodyAttributes, 7);
+	const auto WorldResolution =
+		Fdemo_mapShanmenFormationInfluenceConsumerWorldResolver::Resolve(
+			Fixture.Coordinator.GetEntityRegistry(),
+			CoordinatorRunA,
+			Attributes);
+	const auto WrongBodyResolution =
+		Fdemo_mapShanmenFormationInfluenceConsumerWorldResolver::Resolve(
+			Fixture.Coordinator.GetEntityRegistry(),
+			CoordinatorRunA,
+			BodyAttributes,
+			8);
+	const auto ExactBodyResolution =
+		Fdemo_mapShanmenFormationInfluenceConsumerWorldResolver::Resolve(
+			Fixture.Coordinator.GetEntityRegistry(),
+			CoordinatorRunA,
+			BodyAttributes,
+			7);
+
+	TestTrue(TEXT("Registered source derives one pointer-free alias receipt"),
+		Bound.IsSuccess()
+			&& Bound.Status == Edemo_mapCombatRunEntityAliasStatus::Bound
+			&& Bound.EntityId == Fixture.Coordinator.GetPlayerEntityId()
+			&& Bound.RegisteredObjectUniqueId == Fixture.Pawn->GetUniqueID()
+			&& Bound.AliasObjectUniqueId == Attributes->GetUniqueID()
+			&& Bound.BindingCountAfter == Bound.BindingCountBefore + 1);
+	TestTrue(TEXT("Exact alias replay is read-only"),
+		Replay.IsSuccess()
+			&& Replay.Status
+				== Edemo_mapCombatRunEntityAliasStatus::AlreadyBound
+			&& !Replay.bRegistryUpdated
+			&& Replay.BindingCountAfter == Replay.BindingCountBefore);
+	TestTrue(TEXT("Exact body alias preserves body-specific lookup"),
+		ExactBody.IsSuccess() && ExactBody.AliasBodyIndex == 7
+			&& ExactBodyReplay.IsSuccess()
+			&& ExactBodyReplay.Status
+				== Edemo_mapCombatRunEntityAliasStatus::AlreadyBound
+			&& WrongBodyResolution.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerWorldResolutionStatus::
+					EntityNotFound
+			&& ExactBodyResolution.IsSuccess());
+	TestTrue(TEXT("Combat Run alias feeds formation consumer resolution"),
+		WorldResolution.IsSuccess()
+			&& WorldResolution.ResolvedEntityId
+				== Fixture.Coordinator.GetPlayerEntityId()
+			&& WorldResolution.Resolution.AttributeComponentUniqueId
+				== Attributes->GetUniqueID());
+
+	TestTrue(TEXT("M01 fixture enters the same Run registry"),
+		Fixture.Coordinator.TryRegisterM01Enemy(
+			EnemyFixture.Enemy, Fixture.Diagnostic));
+	const int32 CountBeforeConflict =
+		Fixture.Coordinator.GetEntityRegistry().NumObjectBindings();
+	const auto Conflict = Fixture.Coordinator.TryBindEntityAlias(
+		Fixture.Pawn, INDEX_NONE, EnemyFixture.Enemy);
+	TestTrue(TEXT("Existing foreign entity alias fails without mutation"),
+		Conflict.Status == Edemo_mapCombatRunEntityAliasStatus::AliasConflict
+			&& Conflict.bRegisteredObjectResolved
+			&& !Conflict.bAliasVerified
+			&& !Conflict.bRegistryUpdated
+			&& Fixture.Coordinator.GetEntityRegistry().NumObjectBindings()
+				== CountBeforeConflict);
+
+	TestTrue(TEXT("Run end clears derived aliases with the registry"),
+		Fixture.Coordinator.TryEndRun(CoordinatorRunA, Fixture.Diagnostic));
+	FGuid ResolvedAfterEnd;
+	TestFalse(TEXT("Ended Run cannot resolve the attribute alias"),
+		Fixture.Coordinator.GetEntityRegistry().TryResolveObject(
+			CoordinatorRunA,
+			Attributes,
+			INDEX_NONE,
+			ResolvedAfterEnd));
 	return true;
 }
 
