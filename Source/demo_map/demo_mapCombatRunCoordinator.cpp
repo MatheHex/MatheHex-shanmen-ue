@@ -23,6 +23,7 @@
 #include "demo_mapShanmenDefenseResourceAdapter.h"
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
 #include "demo_mapShanmenRunLifecycleAdapter.h"
+#include "demo_mapShanmenSpiritEvasionProductAuthority.h"
 
 namespace
 {
@@ -1034,6 +1035,7 @@ bool Fdemo_mapCombatRunCoordinator::TryEndRun(
 	NextPlayerSelfSectorActivationSequence = 1;
 	NextPlayerStraightProjectileActivationSequence = 1;
 	NextPlayerThrownWeaponActivationSequence = 1;
+	NextPlayerSpiritEvasionActivationSequence = 1;
 	OutDiagnostic = TEXT("Combat Run identities released.");
 	return true;
 }
@@ -1065,6 +1067,7 @@ void Fdemo_mapCombatRunCoordinator::Reset()
 	NextPlayerSelfSectorActivationSequence = 1;
 	NextPlayerStraightProjectileActivationSequence = 1;
 	NextPlayerThrownWeaponActivationSequence = 1;
+	NextPlayerSpiritEvasionActivationSequence = 1;
 }
 
 bool Fdemo_mapCombatRunCoordinator::IsReady() const
@@ -2582,6 +2585,68 @@ bool Fdemo_mapCombatRunCoordinator::TryReservePlayerThrownWeaponAction(
 	}
 	++NextPlayerThrownWeaponActivationSequence;
 	OutDiagnostic = TEXT("Thrown-weapon action identity reserved by the Run.");
+	return true;
+}
+
+bool Fdemo_mapCombatRunCoordinator::TryReservePlayerSpiritEvasionAction(
+	const Fdemo_mapShanmenSpiritEvasionProductConfig& Config,
+	Fdemo_mapPlayerSpiritEvasionActionReservation& OutReservation,
+	FString& OutDiagnostic)
+{
+	OutReservation = Fdemo_mapPlayerSpiritEvasionActionReservation();
+	OutDiagnostic.Reset();
+	if (!IsReady())
+	{
+		OutDiagnostic =
+			TEXT("Spirit Evasion identity requires one ready combat Run.");
+		return false;
+	}
+	if (!Config.IsValid())
+	{
+		OutDiagnostic =
+			TEXT("Spirit Evasion identity requires the canonical product config.");
+		return false;
+	}
+	if (NextPlayerSpiritEvasionActivationSequence == 0
+		|| NextPlayerSpiritEvasionActivationSequence == MAX_uint64)
+	{
+		OutDiagnostic =
+			TEXT("Spirit Evasion activation sequence is exhausted.");
+		return false;
+	}
+
+	FShanmenCombatActionCapture Capture;
+	Capture.RunId = GetRunId();
+	Capture.OwnerId = PlayerEntityId;
+	Capture.SourceEntityId = PlayerEntityId;
+	Capture.ActionDefinitionId =
+		FShanmenSpiritEvasionDefinition::CanonicalActionDefinitionId();
+	Capture.Content = Config.GetContent();
+	Capture.SourceTags.AddTag(FShanmenCombatNativeTags::SourcePlayer());
+	Capture.ActivationId = FShanmenCombatIdFactory::MakeActivationId(
+		Capture.RunId,
+		Capture.SourceEntityId,
+		Capture.ActionDefinitionId,
+		NextPlayerSpiritEvasionActivationSequence);
+
+	Fdemo_mapPlayerSpiritEvasionActionReservation Candidate;
+	Candidate.ActivationSequence =
+		NextPlayerSpiritEvasionActivationSequence;
+	Candidate.ConfigId = Config.GetConfigId();
+	if (!FShanmenCombatActionSnapshot::TryCapture(
+			Capture,
+			Candidate.Action)
+		|| !Candidate.IsValid())
+	{
+		OutDiagnostic =
+			TEXT("Spirit Evasion deterministic action identity failed closed.");
+		return false;
+	}
+
+	OutReservation = Candidate;
+	++NextPlayerSpiritEvasionActivationSequence;
+	OutDiagnostic =
+		TEXT("Spirit Evasion action identity reserved by the combat Run.");
 	return true;
 }
 

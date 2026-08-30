@@ -8,6 +8,8 @@
 
 class AActor;
 class APawn;
+class Fdemo_mapPlayerSpiritEvasionActionReservation;
+class Fdemo_mapShanmenSpiritEvasionProductConfig;
 class UPrimitiveComponent;
 class UObject;
 class Udemo_mapPlayerHealthComponent;
@@ -556,6 +558,15 @@ public:
 		const FGuid& SourceItemInstanceId,
 		Fdemo_mapPlayerThrownWeaponActionReservation& OutReservation,
 		FString& OutDiagnostic);
+	/**
+	 * Reserves one canonical Spirit Evasion identity from this Run's own
+	 * monotonic sequence. Product content is supplied only by the immutable
+	 * P10.8 config authority; direction and component state remain external.
+	 */
+	bool TryReservePlayerSpiritEvasionAction(
+		const Fdemo_mapShanmenSpiritEvasionProductConfig& Config,
+		Fdemo_mapPlayerSpiritEvasionActionReservation& OutReservation,
+		FString& OutDiagnostic);
 	/** Resolves one already-authorized hostile projectile contact. */
 	Fdemo_mapPlayerProjectileImpactResult
 	ExecutePlayerStraightProjectileImpact(
@@ -580,6 +591,10 @@ public:
 	uint64 GetNextPlayerThrownWeaponActivationSequence() const
 	{
 		return NextPlayerThrownWeaponActivationSequence;
+	}
+	uint64 GetNextPlayerSpiritEvasionActivationSequence() const
+	{
+		return NextPlayerSpiritEvasionActivationSequence;
 	}
 
 private:
@@ -620,4 +635,5 @@ private:
 	uint64 NextPlayerSelfSectorActivationSequence = 1;
 	uint64 NextPlayerStraightProjectileActivationSequence = 1;
 	uint64 NextPlayerThrownWeaponActivationSequence = 1;
+	uint64 NextPlayerSpiritEvasionActivationSequence = 1;
 };
