@@ -117,6 +117,9 @@ try
     $ActionLifecycle = New-AutomationLogFixture `
         -Name 'action-lifecycle.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.ActionLifecycle'
+    $SpiritShieldAction = New-AutomationLogFixture `
+        -Name 'spirit-shield-action.log' `
+        -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShieldAction'
     $SpiritShieldRuntime = New-AutomationLogFixture `
         -Name 'spirit-shield-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShield'
@@ -304,6 +307,21 @@ try
             'Source/ShanmenCombatRuntime/Private/ShanmenActionResourceAuthority.cpp',
             'Source/ShanmenCombatRuntime/Private/Tests/ShanmenActionResourceAuthorityTests.cpp') `
         -Logs @($ActionResource, $ActionLifecycle, $CombatRuntime)
+
+    Invoke-ExpectedPass `
+        -Name 'spirit shield action coordinator requires every composed authority contract' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Public/ShanmenSpiritShieldActionCoordinator.h',
+            'Source/ShanmenCombatRuntime/Private/ShanmenSpiritShieldActionCoordinator.cpp',
+            'Source/ShanmenCombatRuntime/Private/Tests/ShanmenSpiritShieldActionCoordinatorTests.cpp') `
+        -Logs @(
+            $SpiritShieldAction,
+            $ActionResource,
+            $ActionLifecycle,
+            $SpiritShieldRuntime,
+            $SpiritShieldCapacity,
+            $SpiritShieldDeadline,
+            $CombatRuntime)
 
     Invoke-ExpectedPass `
         -Name 'formation material adapter is covered by broad full evidence' `
@@ -657,6 +675,13 @@ try
         -Paths @(
             'Source/ShanmenCombatRuntime/Private/ShanmenActionResourceAuthority.cpp') `
         -Logs @($ActionResource) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'shield action focus cannot replace every composed authority contract' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Private/ShanmenSpiritShieldActionCoordinator.cpp') `
+        -Logs @($SpiritShieldAction, $ActionResource) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

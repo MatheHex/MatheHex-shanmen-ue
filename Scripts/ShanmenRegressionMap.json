@@ -74,6 +74,18 @@
       ]
     },
     {
+      "name": "SpiritShieldActionCoordinator",
+      "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenSpiritShieldActionCoordinator\\.h|Private/(?:ShanmenSpiritShieldActionCoordinator\\.cpp|Tests/ShanmenSpiritShieldActionCoordinatorTests\\.cpp))$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.CombatRuntime.SpiritShieldAction",
+        "Shanmen.0_0_10.CombatRuntime.ActionResource",
+        "Shanmen.0_0_10.CombatRuntime.ActionLifecycle",
+        "Shanmen.0_0_10.CombatRuntime.SpiritShield",
+        "Shanmen.0_0_10.CombatRuntime.SpiritShieldCapacity",
+        "Shanmen.0_0_10.CombatRuntime.SpiritShieldDeadline"
+      ]
+    },
+    {
       "name": "FormationDeploymentCore",
       "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenFormationDeployment\\.h|Private/(?:ShanmenFormationDeployment\\.cpp|Tests/ShanmenFormationDeploymentTests\\.cpp))$",
       "requiredGroups": [
