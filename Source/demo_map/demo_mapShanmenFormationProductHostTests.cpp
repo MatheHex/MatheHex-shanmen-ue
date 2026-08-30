@@ -4,6 +4,7 @@
 #include "demo_mapShanmenFormationInfluenceExecutorAdapter.h"
 #include "demo_mapShanmenFormationInfluenceLeaseExecutor.h"
 #include "demo_mapShanmenFormationInfluenceProductRuntime.h"
+#include "demo_mapShanmenFormationInfluenceExecutionRouter.h"
 
 #include "ShanmenCombatResolver.h"
 #include "demo_map0909BSectWarehouseService.h"
@@ -498,6 +499,27 @@ namespace
 		Command.AttemptId = FGuid(0xF8510000 + Ordinal, 0, 0, 1);
 		check(Command.IsValid());
 		return Command;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceExecutionRequest
+	MakeHostExecutionRequest(
+		const FGuid& ExpectedIntentId,
+		const int32 Ordinal)
+	{
+		Fdemo_mapShanmenFormationInfluenceExecutionRequest Request;
+		Request.RequestId = FGuid(0xF8710000 + Ordinal, 0, 0, 1);
+		Request.ExpectedIntentId = ExpectedIntentId;
+		check(Request.IsValid());
+		return Request;
+	}
+
+	bool HostExecutionCommandsMatch(
+		const Fdemo_mapShanmenFormationInfluenceExecutionCommand& Left,
+		const Fdemo_mapShanmenFormationInfluenceExecutionCommand& Right)
+	{
+		return Left.IsValid() && Right.IsValid()
+			&& Left.IntentId == Right.IntentId
+			&& Left.AttemptId == Right.AttemptId;
 	}
 
 	class FScriptedHostInfluenceExecutor final
@@ -2109,6 +2131,310 @@ bool Fdemo_mapFormationInfluenceProductRuntimeTerminalTest::RunTest(
 			&& Runtime.GetExecutorAttemptCount() == 2
 			&& Runtime.IsBound() && Runtime.IsValid()
 			&& Fixture.Host.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceExecutionRouterRouteTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceExecutionRouter.RouteExecuteReplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceExecutionRouterRouteTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("ExecutionRouterRoute"),
+			2, Prime, Subjects))
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceExecutionRouter Router;
+	Fdemo_mapShanmenFormationInfluenceProductRuntime Runtime;
+	const auto FirstRequest = MakeHostExecutionRequest(
+		Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 1);
+	const auto FirstRoute = Router.TryRoute(
+		Fixture.Host, Fixture.Correlation, FirstRequest);
+	const auto FirstRouteReplay = Router.TryRoute(
+		Fixture.Host, Fixture.Correlation, FirstRequest);
+	Fdemo_mapShanmenFormationInfluenceExecutionCommand StoredFirst;
+	const bool bReadFirst = Router.TryGetCommand(
+		FirstRequest.RequestId, StoredFirst);
+	const auto FirstExecution = Runtime.TryExecuteOne(
+		Fixture.Host, Fixture.Correlation, FirstRoute.Command);
+	const auto FirstExecutionReplay = Runtime.TryExecuteOne(
+		Fixture.Host, Fixture.Correlation, FirstRouteReplay.Command);
+
+	const auto SecondRequest = MakeHostExecutionRequest(
+		Prime.ReconciliationPlan.Batch.Intents[1].IntentId, 2);
+	const auto SecondRoute = Router.TryRoute(
+		Fixture.Host, Fixture.Correlation, SecondRequest);
+	const auto SecondExecution = Runtime.TryExecuteOne(
+		Fixture.Host, Fixture.Correlation, SecondRoute.Command);
+
+	TestTrue(TEXT("Router emits and replays one stable command per request"),
+		FirstRoute.Status
+			== Edemo_mapShanmenFormationInfluenceRouteStatus::Routed
+			&& FirstRouteReplay.Status
+				== Edemo_mapShanmenFormationInfluenceRouteStatus::
+					RequestReplayed
+			&& FirstRoute.IsSuccess() && FirstRouteReplay.IsSuccess()
+			&& bReadFirst
+			&& HostExecutionCommandsMatch(
+				FirstRoute.Command, FirstRouteReplay.Command)
+			&& HostExecutionCommandsMatch(FirstRoute.Command, StoredFirst));
+	TestTrue(TEXT("Two routed commands execute once each in canonical order"),
+		FirstExecution.IsSuccess() && FirstExecution.bExecutorInvoked
+			&& FirstExecutionReplay.IsSuccess()
+			&& !FirstExecutionReplay.bExecutorInvoked
+			&& SecondRoute.IsSuccess() && SecondExecution.IsSuccess()
+			&& SecondExecution.bExecutorInvoked
+			&& FirstRoute.Command.AttemptId
+				!= SecondRoute.Command.AttemptId
+			&& Router.GetRecordCount() == 2 && Router.IsValid()
+			&& Runtime.GetExecutorAttemptCount() == 2
+			&& Runtime.GetActiveLeaseCount() == 2
+			&& Fixture.Host.GetPendingInfluenceIntentCount() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceExecutionRouterFenceTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceExecutionRouter.RequestConflictAndOrderFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceExecutionRouterFenceTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("ExecutionRouterFence"),
+			2, Prime, Subjects))
+	{
+		return false;
+	}
+
+	const FGuid FirstIntent =
+		Prime.ReconciliationPlan.Batch.Intents[0].IntentId;
+	const FGuid SecondIntent =
+		Prime.ReconciliationPlan.Batch.Intents[1].IntentId;
+	Fdemo_mapShanmenFormationInfluenceExecutionRouter Router;
+	const auto OutOfOrder = Router.TryRoute(
+		Fixture.Host, Fixture.Correlation,
+		MakeHostExecutionRequest(SecondIntent, 10));
+	const bool bUnboundAfterOutOfOrder =
+		!Router.IsBound() && Router.GetRecordCount() == 0;
+	const auto FirstRequest = MakeHostExecutionRequest(FirstIntent, 11);
+	const auto FirstRoute = Router.TryRoute(
+		Fixture.Host, Fixture.Correlation, FirstRequest);
+	auto ConflictingRequest = FirstRequest;
+	ConflictingRequest.ExpectedIntentId = SecondIntent;
+	const auto Conflict = Router.TryRoute(
+		Fixture.Host, Fixture.Correlation, ConflictingRequest);
+	const auto SecondRequest = MakeHostExecutionRequest(SecondIntent, 12);
+	const auto EarlySecond = Router.TryRoute(
+		Fixture.Host, Fixture.Correlation, SecondRequest);
+
+	Fdemo_mapShanmenFormationInfluenceProductRuntime Runtime;
+	const auto FirstExecution = Runtime.TryExecuteOne(
+		Fixture.Host, Fixture.Correlation, FirstRoute.Command);
+	const auto SecondRoute = Router.TryRoute(
+		Fixture.Host, Fixture.Correlation, SecondRequest);
+	const auto SecondExecution = Runtime.TryExecuteOne(
+		Fixture.Host, Fixture.Correlation, SecondRoute.Command);
+
+	TestTrue(TEXT("Rejected order does not bind an empty Router"),
+		OutOfOrder.Status
+			== Edemo_mapShanmenFormationInfluenceRouteStatus::IntentOutOfOrder
+			&& !OutOfOrder.IsSuccess() && bUnboundAfterOutOfOrder
+			&& FirstRoute.IsSuccess() && Router.IsBound());
+	TestTrue(TEXT("Request reuse and premature next intent fail closed"),
+		Conflict.Status
+			== Edemo_mapShanmenFormationInfluenceRouteStatus::RequestConflict
+			&& EarlySecond.Status
+				== Edemo_mapShanmenFormationInfluenceRouteStatus::
+					IntentOutOfOrder
+			&& !Conflict.IsSuccess() && !EarlySecond.IsSuccess());
+	TestTrue(TEXT("Advancing Host evidence admits the next unique request"),
+		FirstExecution.IsSuccess() && SecondRoute.IsSuccess()
+			&& SecondExecution.IsSuccess()
+			&& Router.GetRecordCount() == 2 && Router.IsValid()
+			&& Runtime.GetActiveLeaseCount() == 2
+			&& Fixture.Host.GetPendingInfluenceIntentCount() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceExecutionRouterRecoveryTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceExecutionRouter.BindingAndHistoricalRecovery",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceExecutionRouterRecoveryTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture FirstFixture;
+	FFormationHostFixture OtherFixture;
+	FShanmenWorldEntityRegistry FirstRegistry;
+	FShanmenWorldEntityRegistry OtherRegistry;
+	Fdemo_mapShanmenFormationHostInfluenceResult FirstPrime;
+	Fdemo_mapShanmenFormationHostInfluenceResult OtherPrime;
+	TArray<AActor*> FirstSubjects;
+	TArray<AActor*> OtherSubjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, FirstFixture, FirstRegistry,
+			TEXT("ExecutionRouterRecoveryA"), 1,
+			FirstPrime, FirstSubjects)
+		|| !PrimeHostExecutorInfluence(
+			*this, OtherFixture, OtherRegistry,
+			TEXT("ExecutionRouterRecoveryB"), 1,
+			OtherPrime, OtherSubjects))
+	{
+		return false;
+	}
+
+	const auto Request = MakeHostExecutionRequest(
+		FirstPrime.ReconciliationPlan.Batch.Intents[0].IntentId, 20);
+	Fdemo_mapShanmenFormationInfluenceExecutionRouter Router;
+	Fdemo_mapShanmenFormationInfluenceProductRuntime Runtime;
+	const auto InitialRoute = Router.TryRoute(
+		FirstFixture.Host, FirstFixture.Correlation, Request);
+	const auto InitialExecution = Runtime.TryExecuteOne(
+		FirstFixture.Host, FirstFixture.Correlation, InitialRoute.Command);
+
+	Fdemo_mapShanmenFormationInfluenceExecutionRouter RecoveredRouter;
+	const auto Recovered = RecoveredRouter.TryRoute(
+		FirstFixture.Host, FirstFixture.Correlation, Request);
+	const auto HostReplay = Runtime.TryExecuteOne(
+		FirstFixture.Host, FirstFixture.Correlation, Recovered.Command);
+	const auto ForeignRequest = MakeHostExecutionRequest(
+		OtherPrime.ReconciliationPlan.Batch.Intents[0].IntentId, 21);
+	const auto Foreign = Router.TryRoute(
+		OtherFixture.Host, OtherFixture.Correlation, ForeignRequest);
+
+	TestTrue(TEXT("Fresh Router reconstructs an issued command from Host evidence"),
+		InitialRoute.IsSuccess() && InitialExecution.IsSuccess()
+			&& Recovered.Status
+				== Edemo_mapShanmenFormationInfluenceRouteStatus::
+					HostEvidenceRecovered
+			&& Recovered.IsSuccess()
+			&& HostExecutionCommandsMatch(
+				InitialRoute.Command, Recovered.Command)
+			&& HostReplay.IsSuccess() && !HostReplay.bExecutorInvoked
+			&& RecoveredRouter.IsBound()
+			&& RecoveredRouter.GetRecordCount() == 1);
+	TestTrue(TEXT("A bound Router cannot cross into another Host ledger"),
+		Foreign.Status
+			== Edemo_mapShanmenFormationInfluenceRouteStatus::BindingConflict
+			&& !Foreign.IsSuccess()
+			&& OtherFixture.Host.GetPendingInfluenceIntentCount() == 1
+			&& Router.GetRecordCount() == 1
+			&& Runtime.GetExecutorAttemptCount() == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceExecutionRouterRetryTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceExecutionRouter.RetryAndTerminalDrain",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceExecutionRouterRetryTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("ExecutionRouterRetry"),
+			1, Prime, Subjects))
+	{
+		return false;
+	}
+
+	const FGuid ApplyIntent =
+		Prime.ReconciliationPlan.Batch.Intents[0].IntentId;
+	Fdemo_mapShanmenFormationInfluenceExecutionRouter Router;
+	const auto RetryRequest = MakeHostExecutionRequest(ApplyIntent, 30);
+	const auto RetryRoute = Router.TryRoute(
+		Fixture.Host, Fixture.Correlation, RetryRequest);
+	Fdemo_mapShanmenFormationInfluenceAttemptCommand RetryCommand;
+	RetryCommand.IntentId = RetryRoute.Command.IntentId;
+	RetryCommand.AttemptId = RetryRoute.Command.AttemptId;
+	RetryCommand.ExecutorReceiptId = FGuid(0xF8720001, 0, 0, 1);
+	RetryCommand.Outcome =
+		Edemo_mapShanmenFormationInfluenceAttemptOutcome::RetryableFailure;
+	const auto RetryRecorded = Fixture.Host.TryAcknowledgeInfluence(
+		Fixture.Correlation, RetryCommand);
+	const auto RetryRouteReplay = Router.TryRoute(
+		Fixture.Host, Fixture.Correlation, RetryRequest);
+
+	const auto RecoveryRequest = MakeHostExecutionRequest(ApplyIntent, 31);
+	const auto RecoveryRoute = Router.TryRoute(
+		Fixture.Host, Fixture.Correlation, RecoveryRequest);
+	Fdemo_mapShanmenFormationInfluenceProductRuntime Runtime;
+	const auto RecoveryExecution = Runtime.TryExecuteOne(
+		Fixture.Host, Fixture.Correlation, RecoveryRoute.Command);
+	const auto Terminal = Fixture.Host.TryPrepareTerminalInfluence(
+		Fixture.Correlation);
+	Fdemo_mapShanmenFormationInfluenceIntent RemoveIntent;
+	if (!RetryRoute.IsSuccess() || !RetryRecorded.IsSuccess()
+		|| !RecoveryExecution.IsSuccess() || !Terminal.IsSuccess()
+		|| !Fixture.Host.TryPeekNextInfluenceIntent(RemoveIntent))
+	{
+		return false;
+	}
+	const auto RemoveRequest = MakeHostExecutionRequest(
+		RemoveIntent.IntentId, 32);
+	const auto RemoveRoute = Router.TryRoute(
+		Fixture.Host, Fixture.Correlation, RemoveRequest);
+	const auto RemoveExecution = Runtime.TryExecuteOne(
+		Fixture.Host, Fixture.Correlation, RemoveRoute.Command);
+	const auto Seal = Fixture.Host.TrySealInfluence(Fixture.Correlation);
+	const auto End = Fixture.Host.TryEndAndTeardown(
+		Fixture.World, Fixture.Correlation);
+	const auto RemoveRouteReplay = Router.TryRoute(
+		Fixture.Host, Fixture.Correlation, RemoveRequest);
+	Fdemo_mapShanmenFormationInfluenceExecutionRouter SealedRouter;
+	const auto SealedRecovery = SealedRouter.TryRoute(
+		Fixture.Host, Fixture.Correlation, RemoveRequest);
+	const auto SealedExecutionReplay = Runtime.TryExecuteOne(
+		Fixture.Host, Fixture.Correlation, SealedRecovery.Command);
+
+	TestTrue(TEXT("Retry keeps the intent pending and exact request replay is stable"),
+		RetryRouteReplay.Status
+			== Edemo_mapShanmenFormationInfluenceRouteStatus::RequestReplayed
+			&& RetryRouteReplay.IsSuccess()
+			&& HostExecutionCommandsMatch(
+				RetryRoute.Command, RetryRouteReplay.Command)
+			&& RecoveryRoute.IsSuccess()
+			&& RetryRoute.Command.AttemptId
+				!= RecoveryRoute.Command.AttemptId);
+	TestTrue(TEXT("New request recovers retry and terminal Remove drains cleanly"),
+		RecoveryExecution.IsSuccess() && RemoveRoute.IsSuccess()
+			&& RemoveExecution.IsSuccess() && Seal.IsSuccess()
+			&& End.Status == Edemo_mapShanmenFormationHostStatus::Ended
+			&& RemoveRouteReplay.Status
+				== Edemo_mapShanmenFormationInfluenceRouteStatus::
+					RequestReplayed
+			&& SealedRecovery.Status
+				== Edemo_mapShanmenFormationInfluenceRouteStatus::
+					HostEvidenceRecovered
+			&& SealedExecutionReplay.IsSuccess()
+			&& !SealedExecutionReplay.bExecutorInvoked
+			&& Router.GetRecordCount() == 3 && Router.IsValid()
+			&& SealedRouter.GetRecordCount() == 1
+			&& SealedRouter.IsValid()
+			&& Runtime.GetExecutorAttemptCount() == 2
+			&& Runtime.GetCompletedIntentCount() == 2
+			&& Runtime.GetActiveLeaseCount() == 0
+			&& Fixture.Host.GetInfluenceLedger().IsSealed());
 	return true;
 }
 
