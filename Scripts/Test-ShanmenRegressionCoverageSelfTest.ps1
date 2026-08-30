@@ -114,6 +114,9 @@ try
     $SpiritShieldRuntime = New-AutomationLogFixture `
         -Name 'spirit-shield-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShield'
+    $SpiritShieldCapacity = New-AutomationLogFixture `
+        -Name 'spirit-shield-capacity.log' `
+        -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShieldCapacity'
     $FormationAdapter = New-AutomationLogFixture `
         -Name 'formation-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.FormationMaterialAdapter'
@@ -260,6 +263,18 @@ try
             'Source/ShanmenCombatRuntime/Private/ShanmenSpiritShield.cpp',
             'Source/ShanmenCombatRuntime/Private/Tests/ShanmenSpiritShieldTests.cpp') `
         -Logs @($SpiritShieldRuntime, $CombatRuntime, $CombatCore)
+
+    Invoke-ExpectedPass `
+        -Name 'spirit shield capacity authority requires capacity lifecycle and CombatCore evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Public/ShanmenSpiritShieldCapacityAuthority.h',
+            'Source/ShanmenCombatRuntime/Private/ShanmenSpiritShieldCapacityAuthority.cpp',
+            'Source/ShanmenCombatRuntime/Private/Tests/ShanmenSpiritShieldCapacityAuthorityTests.cpp') `
+        -Logs @(
+            $SpiritShieldCapacity,
+            $SpiritShieldRuntime,
+            $CombatRuntime,
+            $CombatCore)
 
     Invoke-ExpectedPass `
         -Name 'formation material adapter is covered by broad full evidence' `
@@ -592,6 +607,13 @@ try
         -Paths @(
             'Source/ShanmenCombatRuntime/Private/ShanmenSpiritShield.cpp') `
         -Logs @($SpiritShieldRuntime, $CombatRuntime) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'capacity focus cannot replace shield lifecycle and CombatCore evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Private/ShanmenSpiritShieldCapacityAuthority.cpp') `
+        -Logs @($SpiritShieldCapacity, $CombatRuntime) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

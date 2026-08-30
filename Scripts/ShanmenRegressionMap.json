@@ -48,6 +48,15 @@
       ]
     },
     {
+      "name": "SpiritShieldCapacityAuthority",
+      "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenSpiritShieldCapacityAuthority\\.h|Private/(?:ShanmenSpiritShieldCapacityAuthority\\.cpp|Tests/ShanmenSpiritShieldCapacityAuthorityTests\\.cpp))$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.CombatRuntime.SpiritShieldCapacity",
+        "Shanmen.0_0_10.CombatRuntime.SpiritShield",
+        "Shanmen.0_0_10.CombatCore"
+      ]
+    },
+    {
       "name": "FormationDeploymentCore",
       "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenFormationDeployment\\.h|Private/(?:ShanmenFormationDeployment\\.cpp|Tests/ShanmenFormationDeploymentTests\\.cpp))$",
       "requiredGroups": [
