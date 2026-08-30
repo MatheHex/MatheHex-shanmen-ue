@@ -17,7 +17,7 @@
 #include "demo_mapShanmenThrownWeaponInputAdapter.h"
 #include "demo_mapShanmenThrownWeaponProductLifecycle.h"
 #include "demo_mapShanmenRunCorrelation.h"
-#include "demo_mapShanmenSpiritEvasionCommandRouter.h"
+#include "demo_mapShanmenSpiritEvasionProductRoute.h"
 #include "demo_mapGameMode.generated.h"
 
 class APlayerController;
@@ -170,9 +170,9 @@ public:
 	{
 		return ThrownWeaponProductLifecycle;
 	}
-	/** Routes one externally frozen, device-independent Spirit Evasion command. */
-	Fdemo_mapShanmenSpiritEvasionCommandResult RouteSpiritEvasionCommand(
-		const Fdemo_mapShanmenSpiritEvasionCommand& Command);
+	/** Sole product start entry from a device-independent direction intent. */
+	Fdemo_mapShanmenSpiritEvasionProductRouteResult
+	RouteSpiritEvasionStartIntent(const FVector& CandidateDirection);
 	/** M01 enemy attacks never fall through to legacy damage when this is true. */
 	bool ShouldUseM01EnemyAttackProductPath() const;
 	Fdemo_mapM01EnemyAttackExecutionResult

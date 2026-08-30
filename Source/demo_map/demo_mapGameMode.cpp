@@ -495,18 +495,20 @@ Ademo_mapGameMode::RouteControlledWeaponThreatSampleIntent(
 		Intent);
 }
 
-Fdemo_mapShanmenSpiritEvasionCommandResult
-Ademo_mapGameMode::RouteSpiritEvasionCommand(
-	const Fdemo_mapShanmenSpiritEvasionCommand& Command)
+Fdemo_mapShanmenSpiritEvasionProductRouteResult
+Ademo_mapGameMode::RouteSpiritEvasionStartIntent(
+	const FVector& CandidateDirection)
 {
 	ACharacter* PlayerCharacter = Cast<ACharacter>(GetDemoPawn());
 	Udemo_mapShanmenSpiritEvasionComponent* Component =
-		EnsurePlayerSpiritEvasion(PlayerCharacter);
-	return Fdemo_mapShanmenSpiritEvasionCommandRouter::TryRoute(
+		PlayerCharacter
+			? EnsurePlayerSpiritEvasion(PlayerCharacter)
+			: nullptr;
+	return Fdemo_mapShanmenSpiritEvasionProductRoute::TryRoute(
 		Component,
 		CombatRunCoordinator,
 		PlayerCharacter,
-		Command);
+		CandidateDirection);
 }
 
 bool Ademo_mapGameMode::AdvanceControlledWeaponOrbit(

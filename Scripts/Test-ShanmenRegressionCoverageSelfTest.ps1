@@ -155,6 +155,9 @@ try
     $SpiritEvasionProductAuthority = New-AutomationLogFixture `
         -Name 'spirit-evasion-product-authority.log' `
         -Group 'Shanmen.0_0_10.Product.SpiritEvasionProductAuthority'
+    $SpiritEvasionProductRoute = New-AutomationLogFixture `
+        -Name 'spirit-evasion-product-route.log' `
+        -Group 'Shanmen.0_0_10.Product.SpiritEvasionProductRoute'
     $WorldGameplay = New-AutomationLogFixture `
         -Name 'world-gameplay.log' `
         -Group 'Shanmen.0_0_10.WorldGameplay'
@@ -525,6 +528,32 @@ try
             'Source/demo_map/demo_mapShanmenSpiritEvasionProductAuthorityTests.cpp') `
         -Logs @(
             $Full,
+            $SpiritEvasionProductAuthority,
+            $SpiritEvasionCommandRouter,
+            $SpiritEvasionComponent,
+            $SpiritEvasionProductHost,
+            $SpiritEvasionActionCoordinator,
+            $SpiritEvasionMotionRuntime,
+            $SpiritEvasionMovementProduct,
+            $SpiritEvasionMovement,
+            $SpiritEvasion,
+            $ActionLifecycle,
+            $Coordinator,
+            $FormationInfluenceConsumerWorldResolution,
+            $WorldGameplay,
+            $Attributes,
+            $Enemy,
+            $Ranged)
+
+    Invoke-ExpectedPass `
+        -Name 'spirit evasion product route maps intent reservation dispatch and complete chain' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSpiritEvasionProductRoute.h',
+            'Source/demo_map/demo_mapShanmenSpiritEvasionProductRoute.cpp',
+            'Source/demo_map/demo_mapShanmenSpiritEvasionProductRouteTests.cpp') `
+        -Logs @(
+            $Full,
+            $SpiritEvasionProductRoute,
             $SpiritEvasionProductAuthority,
             $SpiritEvasionCommandRouter,
             $SpiritEvasionComponent,
@@ -981,6 +1010,18 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenSpiritEvasionProductAuthority.cpp') `
         -Logs @(
+            $SpiritEvasionProductAuthority,
+            $SpiritEvasionCommandRouter,
+            $Coordinator,
+            $Attributes) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'spirit evasion product route focus cannot replace authority host and legacy evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSpiritEvasionProductRoute.cpp') `
+        -Logs @(
+            $SpiritEvasionProductRoute,
             $SpiritEvasionProductAuthority,
             $SpiritEvasionCommandRouter,
             $Coordinator,
