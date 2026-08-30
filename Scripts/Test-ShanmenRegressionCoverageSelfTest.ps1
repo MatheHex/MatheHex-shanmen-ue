@@ -146,6 +146,9 @@ try
     $SpiritEvasion = New-AutomationLogFixture `
         -Name 'spirit-evasion.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritEvasion'
+    $WeaponGuard = New-AutomationLogFixture `
+        -Name 'weapon-guard.log' `
+        -Group 'Shanmen.0_0_10.CombatRuntime.WeaponGuard'
     $SpiritEvasionMovement = New-AutomationLogFixture `
         -Name 'spirit-evasion-movement.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritEvasionMovement'
@@ -419,6 +422,18 @@ try
             'Source/ShanmenCombatRuntime/Private/Tests/ShanmenSpiritEvasionTests.cpp') `
         -Logs @(
             $SpiritEvasion,
+            $ActionLifecycle,
+            $CombatRuntime,
+            $CombatCore)
+
+    Invoke-ExpectedPass `
+        -Name 'weapon guard requires action lifecycle and resolver evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Public/ShanmenWeaponGuard.h',
+            'Source/ShanmenCombatRuntime/Private/ShanmenWeaponGuard.cpp',
+            'Source/ShanmenCombatRuntime/Private/Tests/ShanmenWeaponGuardTests.cpp') `
+        -Logs @(
+            $WeaponGuard,
             $ActionLifecycle,
             $CombatRuntime,
             $CombatCore)
@@ -1015,6 +1030,13 @@ try
         -Paths @(
             'Source/ShanmenCombatRuntime/Private/ShanmenSpiritEvasion.cpp') `
         -Logs @($SpiritEvasion, $ActionLifecycle) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'weapon guard focus cannot replace lifecycle and resolver evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Private/ShanmenWeaponGuard.cpp') `
+        -Logs @($WeaponGuard, $ActionLifecycle) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
