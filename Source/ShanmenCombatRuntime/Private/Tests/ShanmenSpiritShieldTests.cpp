@@ -294,12 +294,17 @@ bool FShanmenSpiritShieldExplicitDeactivationTest::RunTest(const FString&)
 	TestFalse(TEXT("Foreign shield identity cannot end this shield"),
 		ShieldRuntime.TryDeactivate(
 			FGuid(1, 2, 3, 4),
-			EShanmenSpiritShieldDeactivationReason::DurationElapsed,
+			EShanmenSpiritShieldDeactivationReason::Explicit,
 			Deactivation));
-	TestTrue(TEXT("External duration owner explicitly ends the shield"),
+	TestFalse(TEXT("Duration reason requires the bound deadline gate"),
 		ShieldRuntime.TryDeactivate(
 			Activation.GetShieldInstanceId(),
 			EShanmenSpiritShieldDeactivationReason::DurationElapsed,
+			Deactivation));
+	TestTrue(TEXT("External owner explicitly ends the shield"),
+		ShieldRuntime.TryDeactivate(
+			Activation.GetShieldInstanceId(),
+			EShanmenSpiritShieldDeactivationReason::Explicit,
 			Deactivation)
 			&& Deactivation.IsValid()
 			&& ShieldRuntime.GetState()
@@ -308,13 +313,13 @@ bool FShanmenSpiritShieldExplicitDeactivationTest::RunTest(const FString&)
 	TestTrue(TEXT("Exact deactivation replay returns the same proof"),
 		ShieldRuntime.TryDeactivate(
 			Activation.GetShieldInstanceId(),
-			EShanmenSpiritShieldDeactivationReason::DurationElapsed,
+			EShanmenSpiritShieldDeactivationReason::Explicit,
 			Deactivation)
 			&& Deactivation.GetReceiptId() == DeactivationId);
 	TestFalse(TEXT("Replay cannot rewrite the terminal reason"),
 		ShieldRuntime.TryDeactivate(
 			Activation.GetShieldInstanceId(),
-			EShanmenSpiritShieldDeactivationReason::Explicit,
+			EShanmenSpiritShieldDeactivationReason::Interrupted,
 			Deactivation));
 	TestFalse(TEXT("Ended shield cannot project a later defense layer"),
 		ShieldRuntime.TryProjectDefenseLayer(8, 10.0f, Projection));

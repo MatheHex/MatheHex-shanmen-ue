@@ -57,6 +57,15 @@
       ]
     },
     {
+      "name": "SpiritShieldDeadlineGate",
+      "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenSpiritShieldDeadlineGate\\.h|Private/(?:ShanmenSpiritShieldDeadlineGate\\.cpp|Tests/ShanmenSpiritShieldDeadlineGateTests\\.cpp))$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.CombatRuntime.SpiritShieldDeadline",
+        "Shanmen.0_0_10.CombatRuntime.SpiritShieldCapacity",
+        "Shanmen.0_0_10.CombatRuntime.SpiritShield"
+      ]
+    },
+    {
       "name": "FormationDeploymentCore",
       "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenFormationDeployment\\.h|Private/(?:ShanmenFormationDeployment\\.cpp|Tests/ShanmenFormationDeploymentTests\\.cpp))$",
       "requiredGroups": [

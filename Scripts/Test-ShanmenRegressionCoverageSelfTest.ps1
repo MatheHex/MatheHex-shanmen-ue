@@ -117,6 +117,9 @@ try
     $SpiritShieldCapacity = New-AutomationLogFixture `
         -Name 'spirit-shield-capacity.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShieldCapacity'
+    $SpiritShieldDeadline = New-AutomationLogFixture `
+        -Name 'spirit-shield-deadline.log' `
+        -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShieldDeadline'
     $FormationAdapter = New-AutomationLogFixture `
         -Name 'formation-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.FormationMaterialAdapter'
@@ -275,6 +278,18 @@ try
             $SpiritShieldRuntime,
             $CombatRuntime,
             $CombatCore)
+
+    Invoke-ExpectedPass `
+        -Name 'spirit shield deadline gate requires deadline lifecycle and capacity composition evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Public/ShanmenSpiritShieldDeadlineGate.h',
+            'Source/ShanmenCombatRuntime/Private/ShanmenSpiritShieldDeadlineGate.cpp',
+            'Source/ShanmenCombatRuntime/Private/Tests/ShanmenSpiritShieldDeadlineGateTests.cpp') `
+        -Logs @(
+            $SpiritShieldDeadline,
+            $SpiritShieldCapacity,
+            $SpiritShieldRuntime,
+            $CombatRuntime)
 
     Invoke-ExpectedPass `
         -Name 'formation material adapter is covered by broad full evidence' `
@@ -614,6 +629,13 @@ try
         -Paths @(
             'Source/ShanmenCombatRuntime/Private/ShanmenSpiritShieldCapacityAuthority.cpp') `
         -Logs @($SpiritShieldCapacity, $CombatRuntime) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'deadline focus cannot replace shield lifecycle and capacity composition evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Private/ShanmenSpiritShieldDeadlineGate.cpp') `
+        -Logs @($SpiritShieldDeadline) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

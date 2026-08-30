@@ -6,6 +6,8 @@
 
 #include "ShanmenSpiritShield.generated.h"
 
+class FShanmenSpiritShieldDeadlineGate;
+
 /** Explicit lifetime for one short-lived spirit shield. */
 UENUM(BlueprintType)
 enum class EShanmenSpiritShieldState : uint8
@@ -236,6 +238,15 @@ public:
 	void Reset();
 
 private:
+	friend class FShanmenSpiritShieldDeadlineGate;
+
+	bool TryDeactivateForDeadline(
+		const FGuid& ExpectedShieldInstanceId,
+		FShanmenSpiritShieldDeactivationReceipt& OutReceipt);
+	bool TryDeactivateInternal(
+		const FGuid& ExpectedShieldInstanceId,
+		EShanmenSpiritShieldDeactivationReason Reason,
+		FShanmenSpiritShieldDeactivationReceipt& OutReceipt);
 	bool MatchesActionRuntime(const FShanmenActionOrchestrator& ActionRuntime) const;
 
 	FShanmenCombatActionSnapshot Action;

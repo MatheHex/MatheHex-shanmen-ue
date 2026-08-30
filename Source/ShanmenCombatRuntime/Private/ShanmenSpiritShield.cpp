@@ -472,6 +472,30 @@ bool FShanmenSpiritShieldRuntime::TryDeactivate(
 	EShanmenSpiritShieldDeactivationReason Reason,
 	FShanmenSpiritShieldDeactivationReceipt& OutReceipt)
 {
+	if (Reason == EShanmenSpiritShieldDeactivationReason::DurationElapsed)
+	{
+		OutReceipt = FShanmenSpiritShieldDeactivationReceipt();
+		return false;
+	}
+	return TryDeactivateInternal(
+		ExpectedShieldInstanceId, Reason, OutReceipt);
+}
+
+bool FShanmenSpiritShieldRuntime::TryDeactivateForDeadline(
+	const FGuid& ExpectedShieldInstanceId,
+	FShanmenSpiritShieldDeactivationReceipt& OutReceipt)
+{
+	return TryDeactivateInternal(
+		ExpectedShieldInstanceId,
+		EShanmenSpiritShieldDeactivationReason::DurationElapsed,
+		OutReceipt);
+}
+
+bool FShanmenSpiritShieldRuntime::TryDeactivateInternal(
+	const FGuid& ExpectedShieldInstanceId,
+	EShanmenSpiritShieldDeactivationReason Reason,
+	FShanmenSpiritShieldDeactivationReceipt& OutReceipt)
+{
 	OutReceipt = FShanmenSpiritShieldDeactivationReceipt();
 	if (!IsValid()
 		|| !ExpectedShieldInstanceId.IsValid()
