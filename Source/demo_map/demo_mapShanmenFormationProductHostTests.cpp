@@ -4025,15 +4025,82 @@ RunTest(const FString&)
 
 	Udemo_mapAttributeComponent* Attributes =
 		NewObject<Udemo_mapAttributeComponent>();
-	const auto ForeignActivation = ForeignCommandHost.TryActivateConsumer(
-		Fixture.Host, ConsumerCommands.SubjectEntityId,
-		Attributes, ConsumerCommands.Apply);
-	const auto Activated = CommandHost.TryActivateConsumer(
-		Fixture.Host, ConsumerCommands.SubjectEntityId,
-		Attributes, ConsumerCommands.Apply);
+	Udemo_mapAttributeComponent* ForeignAttributes =
+		NewObject<Udemo_mapAttributeComponent>();
+	Fdemo_mapShanmenFormationInfluenceConsumerSubjectResolution
+		SubjectResolution;
+	Fdemo_mapShanmenFormationInfluenceConsumerSubjectResolution
+		ForeignSubjectResolution;
+	const FGuid ForeignSubjectEntityId(0xF8400F36, 0, 0, 1);
+	if (!Fdemo_mapShanmenFormationInfluenceConsumerSubjectResolution::
+		TryCreate(
+			ConsumerCommands.SubjectEntityId,
+			Attributes,
+			SubjectResolution)
+		|| !Fdemo_mapShanmenFormationInfluenceConsumerSubjectResolution::
+		TryCreate(
+			ForeignSubjectEntityId,
+			Attributes,
+			ForeignSubjectResolution))
+	{
+		return false;
+	}
+	const auto ForeignActivation =
+		ForeignCommandHost.TryActivateConsumerDelivery(
+			Fixture.Host,
+			ConsumerCommands.Delivery.Delivery,
+			SubjectResolution,
+			Attributes);
+	const auto InvalidResolution = CommandHost.TryActivateConsumerDelivery(
+		Fixture.Host,
+		ConsumerCommands.Delivery.Delivery,
+		Fdemo_mapShanmenFormationInfluenceConsumerSubjectResolution(),
+		Attributes);
+	const auto SubjectMismatch = CommandHost.TryActivateConsumerDelivery(
+		Fixture.Host,
+		ConsumerCommands.Delivery.Delivery,
+		ForeignSubjectResolution,
+		Attributes);
+	const auto ComponentUnavailable =
+		CommandHost.TryActivateConsumerDelivery(
+			Fixture.Host,
+			ConsumerCommands.Delivery.Delivery,
+			SubjectResolution,
+			nullptr);
+	const auto ComponentMismatch = CommandHost.TryActivateConsumerDelivery(
+		Fixture.Host,
+		ConsumerCommands.Delivery.Delivery,
+		SubjectResolution,
+		ForeignAttributes);
+	const auto InvalidDelivery = CommandHost.TryActivateConsumerDelivery(
+		Fixture.Host,
+		Fdemo_mapShanmenFormationInfluenceConsumerCommandDelivery(),
+		SubjectResolution,
+		Attributes);
+	const int32 RejectedBindingCount =
+		CommandHost.GetConsumerRuntime().GetBindingCount();
+	const int32 RejectedApplicationCount =
+		CommandHost.GetConsumerRuntime().GetActiveApplicationCount();
+	const auto Activated = CommandHost.TryActivateConsumerDelivery(
+		Fixture.Host,
+		ConsumerCommands.Delivery.Delivery,
+		SubjectResolution,
+		Attributes);
+	const auto ActivationReplay = CommandHost.TryActivateConsumerDelivery(
+		Fixture.Host,
+		ConsumerCommands.Delivery.Delivery,
+		SubjectResolution,
+		Attributes);
 	const auto Terminal = CommandHost.TrySubmit(
 		nullptr, Fixture.Host,
 		MakeLifecycleTerminalCommand(Fixture.Correlation, 281));
+	auto ReceiptMismatchedDelivery = ConsumerCommands.Delivery.Delivery;
+	ReceiptMismatchedDelivery.LifecycleCommandId = Terminal.CommandId;
+	const auto ReceiptMismatch = CommandHost.TryActivateConsumerDelivery(
+		Fixture.Host,
+		ReceiptMismatchedDelivery,
+		SubjectResolution,
+		Attributes);
 	const auto NonApplyDelivery = CommandHost.TryPrepareConsumerCommands(
 		Terminal.CommandId, ConsumerCommands.Delivery.Delivery.Definition);
 	Fdemo_mapShanmenFormationInfluenceIntent RemoveIntent;
@@ -4056,17 +4123,57 @@ RunTest(const FString&)
 
 	TestTrue(TEXT("A parallel caller cannot consume another Host's lease"),
 		ForeignActivation.Status
-			== Edemo_mapShanmenFormationInfluenceConsumerProductRuntimeStatus::
-				LeaseAuthorityUnavailable
-			&& !ForeignActivation.bLeaseAuthorityChecked
+			== Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+				SourceReceiptNotFound
+			&& !ForeignActivation.bSourceReceiptChecked
 			&& ForeignCommandHost.GetConsumerRuntime().IsDrained());
+	TestTrue(TEXT("Subject resolution failures are explicit and side-effect free"),
+		InvalidResolution.Status
+			== Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+				SubjectResolutionInvalid
+			&& InvalidResolution.bSourceReceiptChecked
+			&& InvalidResolution.bSubjectResolutionChecked
+			&& SubjectMismatch.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+					SubjectMismatch
+			&& ComponentUnavailable.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+					AttributeComponentUnavailable
+			&& ComponentMismatch.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+					AttributeComponentMismatch
+			&& InvalidDelivery.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+					DeliveryInvalid
+			&& RejectedBindingCount == 0
+			&& RejectedApplicationCount == 0);
+	TestTrue(TEXT("Delivery application binds exact durable source evidence"),
+		ReceiptMismatch.Status
+			== Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+				SourceReceiptRejected
+			&& ReceiptMismatch.bSourceReceiptChecked
+			&& ReceiptMismatch.SourceReceipt.Command.GetCommandId()
+				== Terminal.CommandId);
 	TestTrue(TEXT("Native consumer is active under exact lease authority"),
-		Activated.IsSuccess() && Activated.bLeaseAuthorityChecked
-			&& Activated.AuthoritativeLease.IsValid()
-			&& Activated.AuthoritativeLease.LeaseId
+		Activated.IsSuccess() && Activated.bSourceReceiptChecked
+			&& Activated.bSubjectResolutionChecked
+			&& Activated.SubjectResolution.ResolutionId
+				== SubjectResolution.ResolutionId
+			&& Activated.SubjectResolution.AttributeComponentUniqueId
+				== Attributes->GetUniqueID()
+			&& Activated.Runtime.bLeaseAuthorityChecked
+			&& Activated.Runtime.AuthoritativeLease.IsValid()
+			&& Activated.Runtime.AuthoritativeLease.LeaseId
 				== ConsumerCommands.Apply.GetProjection().GetLease().LeaseId
+			&& ActivationReplay.IsSuccess()
+			&& ActivationReplay.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+					ActivationReplayed
+			&& ActivationReplay.SubjectResolution.ResolutionId
+				== SubjectResolution.ResolutionId
 			&& Attributes
 			&& Attributes->GetActiveModifierCount() == 1
+			&& CommandHost.GetConsumerRuntime().GetBindingCount() == 1
 			&& CommandHost.GetConsumerRuntime().
 				GetActiveApplicationCount() == 1);
 	TestTrue(TEXT("Non-step lifecycle receipts cannot produce consumers"),
@@ -4089,14 +4196,15 @@ RunTest(const FString&)
 			&& !bBlockedRemoveStored
 			&& Fixture.Host.TryPeekNextInfluenceIntent(RemoveIntent));
 
-	const auto Deactivated = CommandHost.TryDeactivateConsumer(
-		Fixture.Host, ConsumerCommands.Remove);
+	const auto Deactivated = CommandHost.TryDeactivateConsumerDelivery(
+		Fixture.Host, ConsumerCommands.Delivery.Delivery);
 	const auto Remove = CommandHost.TrySubmit(
 		nullptr, Fixture.Host, RemoveCommand);
 	const auto ExpiredDelivery = CommandHost.TryPrepareConsumerCommands(
 		Apply.CommandId, ConsumerCommands.Delivery.Delivery.Definition);
-	const auto DeactivationReplay = CommandHost.TryDeactivateConsumer(
-		Fixture.Host, ConsumerCommands.Remove);
+	const auto DeactivationReplay =
+		CommandHost.TryDeactivateConsumerDelivery(
+			Fixture.Host, ConsumerCommands.Delivery.Delivery);
 	const auto EndCommand =
 		MakeLifecycleEndCommand(Fixture.Correlation, 283);
 	const auto BlockedEnd = CommandHost.TrySubmit(
@@ -4106,14 +4214,16 @@ RunTest(const FString&)
 		EndCommand.GetCommandId(), Receipt);
 
 	TestTrue(TEXT("Consumer deactivation precedes authoritative Remove"),
-		Deactivated.IsSuccess() && Deactivated.bLeaseAuthorityChecked
-			&& Deactivated.AuthoritativeLease.IsValid()
+		Deactivated.IsSuccess() && Deactivated.bSourceReceiptChecked
+			&& !Deactivated.bSubjectResolutionChecked
+			&& Deactivated.Runtime.bLeaseAuthorityChecked
+			&& Deactivated.Runtime.AuthoritativeLease.IsValid()
 			&& Remove.IsSuccess()
 			&& DeactivationReplay.IsSuccess()
 			&& DeactivationReplay.Status
-				== Edemo_mapShanmenFormationInfluenceConsumerProductRuntimeStatus::
+				== Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
 					DeactivationReplayed
-			&& DeactivationReplay.bLeaseAuthorityChecked
+			&& DeactivationReplay.Runtime.bLeaseAuthorityChecked
 			&& Attributes->GetActiveModifierCount() == 0
 			&& CommandHost.GetConsumerRuntime().IsDrained());
 	TestTrue(TEXT("Removed authoritative lease cannot mint new deliveries"),

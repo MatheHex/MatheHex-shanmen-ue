@@ -1,5 +1,8 @@
 #include "demo_mapShanmenFormationInfluenceLifecycleCommandHost.h"
 
+#include "ShanmenDeterministicId.h"
+#include "demo_mapAttributeComponent.h"
+
 namespace
 {
 	bool LeaseSnapshotsMatch(
@@ -12,6 +15,96 @@ namespace
 			&& Left.Key.Matches(Right.Key)
 			&& Left.EvaluationReceipt.Matches(Right.EvaluationReceipt);
 	}
+
+	FGuid MakeSubjectResolutionId(
+		const FGuid& SubjectEntityId,
+		const uint32 AttributeComponentUniqueId)
+	{
+		if (!SubjectEntityId.IsValid() || AttributeComponentUniqueId == 0)
+		{
+			return FGuid();
+		}
+		return FShanmenDeterministicId::FromCanonicalParts(
+			TEXT("Shanmen.Formation.ConsumerSubjectResolution.r1"),
+			{
+				SubjectEntityId.ToString(EGuidFormats::Digits),
+				LexToString(AttributeComponentUniqueId)
+			});
+	}
+
+	bool DeliveryMatchesSourceReceipt(
+		const Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord&
+			SourceReceipt,
+		const Fdemo_mapShanmenFormationInfluenceConsumerCommandDelivery&
+			Delivery)
+	{
+		if (!SourceReceipt.IsValid() || !SourceReceipt.Result.IsSuccess()
+			|| SourceReceipt.Command.GetKind()
+				!= Edemo_mapShanmenFormationInfluenceLifecycleCommandKind::
+					ExecuteStep
+			|| !Delivery.IsValid()
+			|| SourceReceipt.Command.GetCommandId()
+				!= Delivery.LifecycleCommandId)
+		{
+			return false;
+		}
+		const auto& Lifecycle = SourceReceipt.Result.Lifecycle;
+		const auto& Execution = Lifecycle.Step.Execution;
+		const auto& Intent = Execution.Invocation.Intent;
+		return Lifecycle.Status
+				== Edemo_mapShanmenFormationInfluenceLifecycleStatus::StepAccepted
+			&& Lifecycle.Step.IsSuccess() && Execution.IsSuccess()
+			&& Execution.Invocation.IsValid()
+			&& Intent.Operation
+				== Edemo_mapShanmenFormationInfluenceOperation::Apply
+			&& SourceReceipt.Command.GetStepRequest().ExpectedIntentId
+				== Intent.IntentId
+			&& Delivery.AuthoritativeLease.ApplyIntentId == Intent.IntentId
+			&& Delivery.SubjectEntityId == Intent.SubjectEntityId;
+	}
+}
+
+bool Fdemo_mapShanmenFormationInfluenceConsumerSubjectResolution::TryCreate(
+	const FGuid& SubjectEntityId,
+	const Udemo_mapAttributeComponent* AttributeComponent,
+	Fdemo_mapShanmenFormationInfluenceConsumerSubjectResolution& OutResolution)
+{
+	OutResolution =
+		Fdemo_mapShanmenFormationInfluenceConsumerSubjectResolution();
+	if (!SubjectEntityId.IsValid() || !::IsValid(AttributeComponent))
+	{
+		return false;
+	}
+	Fdemo_mapShanmenFormationInfluenceConsumerSubjectResolution Candidate;
+	Candidate.SubjectEntityId = SubjectEntityId;
+	Candidate.AttributeComponentUniqueId = AttributeComponent->GetUniqueID();
+	Candidate.ResolutionId = MakeSubjectResolutionId(
+		Candidate.SubjectEntityId, Candidate.AttributeComponentUniqueId);
+	if (!Candidate.IsValid()
+		|| !Candidate.Matches(SubjectEntityId, AttributeComponent))
+	{
+		return false;
+	}
+	OutResolution = Candidate;
+	return true;
+}
+
+bool Fdemo_mapShanmenFormationInfluenceConsumerSubjectResolution::IsValid()
+	const
+{
+	return ResolutionId.IsValid() && SubjectEntityId.IsValid()
+		&& AttributeComponentUniqueId != 0
+		&& ResolutionId == MakeSubjectResolutionId(
+			SubjectEntityId, AttributeComponentUniqueId);
+}
+
+bool Fdemo_mapShanmenFormationInfluenceConsumerSubjectResolution::Matches(
+	const FGuid& ExpectedSubjectEntityId,
+	const Udemo_mapAttributeComponent* AttributeComponent) const
+{
+	return IsValid() && ::IsValid(AttributeComponent)
+		&& SubjectEntityId == ExpectedSubjectEntityId
+		&& AttributeComponentUniqueId == AttributeComponent->GetUniqueID();
 }
 
 bool Fdemo_mapShanmenFormationInfluenceConsumerCommandDelivery::IsValid()
@@ -34,6 +127,20 @@ bool Fdemo_mapShanmenFormationInfluenceConsumerCommandDelivery::IsValid()
 		&& Apply.GetCommandId() != Remove.GetCommandId();
 }
 
+bool Fdemo_mapShanmenFormationInfluenceConsumerCommandDelivery::Matches(
+	const Fdemo_mapShanmenFormationInfluenceConsumerCommandDelivery& Other)
+	const
+{
+	return IsValid() && Other.IsValid()
+		&& LifecycleCommandId == Other.LifecycleCommandId
+		&& SubjectEntityId == Other.SubjectEntityId
+		&& LeaseSnapshotsMatch(
+			AuthoritativeLease, Other.AuthoritativeLease)
+		&& Definition.Matches(Other.Definition)
+		&& Projection.Matches(Other.Projection)
+		&& Apply.Matches(Other.Apply) && Remove.Matches(Other.Remove);
+}
+
 bool Fdemo_mapShanmenFormationInfluenceConsumerCommandDeliveryResult::
 IsSuccess() const
 {
@@ -49,19 +156,51 @@ IsSuccess() const
 	{
 		return false;
 	}
-	const auto& Lifecycle = SourceReceipt.Result.Lifecycle;
-	const auto& Execution = Lifecycle.Step.Execution;
-	const auto& Intent = Execution.Invocation.Intent;
-	return Lifecycle.Status
-			== Edemo_mapShanmenFormationInfluenceLifecycleStatus::StepAccepted
-		&& Lifecycle.Step.IsSuccess() && Execution.IsSuccess()
-		&& Execution.Invocation.IsValid()
-		&& Intent.Operation
-			== Edemo_mapShanmenFormationInfluenceOperation::Apply
-		&& SourceReceipt.Command.GetStepRequest().ExpectedIntentId
-			== Intent.IntentId
-		&& Delivery.AuthoritativeLease.ApplyIntentId == Intent.IntentId
-		&& Delivery.SubjectEntityId == Intent.SubjectEntityId;
+	return DeliveryMatchesSourceReceipt(SourceReceipt, Delivery);
+}
+
+bool Fdemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationResult::
+IsSuccess() const
+{
+	if (!bSourceReceiptChecked
+		|| !DeliveryMatchesSourceReceipt(SourceReceipt, Delivery)
+		|| !Runtime.IsSuccess() || !Runtime.bLeaseAuthorityChecked
+		|| !LeaseSnapshotsMatch(
+			Runtime.AuthoritativeLease, Delivery.AuthoritativeLease))
+	{
+		return false;
+	}
+	switch (Status)
+	{
+	case Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+		Activated:
+		return bSubjectResolutionChecked && SubjectResolution.IsValid()
+			&& SubjectResolution.SubjectEntityId == Delivery.SubjectEntityId
+			&& Runtime.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerProductRuntimeStatus::
+					Activated;
+	case Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+		ActivationReplayed:
+		return bSubjectResolutionChecked && SubjectResolution.IsValid()
+			&& SubjectResolution.SubjectEntityId == Delivery.SubjectEntityId
+			&& Runtime.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerProductRuntimeStatus::
+					ActivationReplayed;
+	case Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+		Deactivated:
+		return !bSubjectResolutionChecked && !SubjectResolution.IsValid()
+			&& Runtime.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerProductRuntimeStatus::
+					Deactivated;
+	case Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+		DeactivationReplayed:
+		return !bSubjectResolutionChecked && !SubjectResolution.IsValid()
+			&& Runtime.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerProductRuntimeStatus::
+					DeactivationReplayed;
+	default:
+		return false;
+	}
 }
 
 bool Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost::TryOpen(
@@ -483,6 +622,197 @@ TryPrepareConsumerCommands(
 		return Reject(
 			Edemo_mapShanmenFormationInfluenceConsumerDeliveryStatus::StateInvalid,
 			TEXT("Prepared consumer command delivery violated invariants."));
+	}
+	return Result;
+}
+
+Fdemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationResult
+Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost::
+TryActivateConsumerDelivery(
+	const Fdemo_mapShanmenFormationProductHost& ProductHost,
+	const Fdemo_mapShanmenFormationInfluenceConsumerCommandDelivery& Delivery,
+	const Fdemo_mapShanmenFormationInfluenceConsumerSubjectResolution&
+		SubjectResolution,
+	Udemo_mapAttributeComponent* AttributeComponent)
+{
+	Fdemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationResult Result;
+	Result.Delivery = Delivery;
+	Result.SubjectResolution = SubjectResolution;
+	const auto Reject = [&Result](
+		const Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus
+			Status,
+		const TCHAR* Diagnostic)
+	{
+		Result.Status = Status;
+		Result.Diagnostic = Diagnostic;
+		return Result;
+	};
+
+	if (!IsValid())
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+				HostInvalid,
+			TEXT("Consumer delivery activation requires one valid lifecycle CommandHost."));
+	}
+	if (!Delivery.IsValid())
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+				DeliveryInvalid,
+			TEXT("Consumer delivery activation requires one valid delivery."));
+	}
+	if (!Router.TryGetRecord(
+			Delivery.LifecycleCommandId, Result.SourceReceipt))
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+				SourceReceiptNotFound,
+			TEXT("Consumer delivery does not belong to this lifecycle CommandHost."));
+	}
+	Result.bSourceReceiptChecked = true;
+	if (!DeliveryMatchesSourceReceipt(Result.SourceReceipt, Delivery))
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+				SourceReceiptRejected,
+			TEXT("Consumer delivery does not match its durable lifecycle receipt."));
+	}
+
+	Result.bSubjectResolutionChecked = true;
+	if (!SubjectResolution.IsValid())
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+				SubjectResolutionInvalid,
+			TEXT("Consumer activation requires pointer-free subject resolution evidence."));
+	}
+	if (SubjectResolution.SubjectEntityId != Delivery.SubjectEntityId)
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+				SubjectMismatch,
+			TEXT("Resolved subject does not match the prepared delivery."));
+	}
+	if (!::IsValid(AttributeComponent))
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+				AttributeComponentUnavailable,
+			TEXT("Resolved subject requires one live caller-owned AttributeComponent."));
+	}
+	if (!SubjectResolution.Matches(
+			Delivery.SubjectEntityId, AttributeComponent))
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+				AttributeComponentMismatch,
+			TEXT("Caller component does not match subject resolution evidence."));
+	}
+
+	Result.Runtime = TryActivateConsumer(
+		ProductHost, SubjectResolution.SubjectEntityId,
+		AttributeComponent, Delivery.Apply);
+	if (!Result.Runtime.IsSuccess())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+				RuntimeRejected;
+		Result.Diagnostic = Result.Runtime.Diagnostic;
+		return Result;
+	}
+	Result.Status = Result.Runtime.Status
+		== Edemo_mapShanmenFormationInfluenceConsumerProductRuntimeStatus::
+			Activated
+		? Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+			Activated
+		: Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+			ActivationReplayed;
+	Result.Diagnostic =
+		TEXT("Applied one prepared consumer delivery to the resolved subject.");
+	if (!Result.IsSuccess())
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+				StateInvalid,
+			TEXT("Consumer delivery activation violated application invariants."));
+	}
+	return Result;
+}
+
+Fdemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationResult
+Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost::
+TryDeactivateConsumerDelivery(
+	const Fdemo_mapShanmenFormationProductHost& ProductHost,
+	const Fdemo_mapShanmenFormationInfluenceConsumerCommandDelivery& Delivery)
+{
+	Fdemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationResult Result;
+	Result.Delivery = Delivery;
+	const auto Reject = [&Result](
+		const Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus
+			Status,
+		const TCHAR* Diagnostic)
+	{
+		Result.Status = Status;
+		Result.Diagnostic = Diagnostic;
+		return Result;
+	};
+
+	if (!IsValid())
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+				HostInvalid,
+			TEXT("Consumer delivery deactivation requires one valid lifecycle CommandHost."));
+	}
+	if (!Delivery.IsValid())
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+				DeliveryInvalid,
+			TEXT("Consumer delivery deactivation requires one valid delivery."));
+	}
+	if (!Router.TryGetRecord(
+			Delivery.LifecycleCommandId, Result.SourceReceipt))
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+				SourceReceiptNotFound,
+			TEXT("Consumer delivery does not belong to this lifecycle CommandHost."));
+	}
+	Result.bSourceReceiptChecked = true;
+	if (!DeliveryMatchesSourceReceipt(Result.SourceReceipt, Delivery))
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+				SourceReceiptRejected,
+			TEXT("Consumer delivery does not match its durable lifecycle receipt."));
+	}
+
+	Result.Runtime = TryDeactivateConsumer(ProductHost, Delivery.Remove);
+	if (!Result.Runtime.IsSuccess())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+				RuntimeRejected;
+		Result.Diagnostic = Result.Runtime.Diagnostic;
+		return Result;
+	}
+	Result.Status = Result.Runtime.Status
+		== Edemo_mapShanmenFormationInfluenceConsumerProductRuntimeStatus::
+			Deactivated
+		? Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+			Deactivated
+		: Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+			DeactivationReplayed;
+	Result.Diagnostic =
+		TEXT("Removed one prepared consumer delivery from its explicit binding.");
+	if (!Result.IsSuccess())
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+				StateInvalid,
+			TEXT("Consumer delivery deactivation violated application invariants."));
 	}
 	return Result;
 }

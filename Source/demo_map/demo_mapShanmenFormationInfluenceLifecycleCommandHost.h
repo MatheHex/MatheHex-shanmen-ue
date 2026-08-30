@@ -6,6 +6,31 @@
 
 class UWorld;
 
+/**
+ * Pointer-free evidence that a caller resolved one subject to one concrete
+ * AttributeComponent for an explicit consumer activation.
+ *
+ * The component pointer remains a transient call argument. This value stores
+ * only its process-local UObject unique id and never owns or discovers it.
+ */
+struct Fdemo_mapShanmenFormationInfluenceConsumerSubjectResolution
+{
+	FGuid ResolutionId;
+	FGuid SubjectEntityId;
+	uint32 AttributeComponentUniqueId = 0;
+
+	static bool TryCreate(
+		const FGuid& SubjectEntityId,
+		const Udemo_mapAttributeComponent* AttributeComponent,
+		Fdemo_mapShanmenFormationInfluenceConsumerSubjectResolution&
+			OutResolution);
+
+	bool IsValid() const;
+	bool Matches(
+		const FGuid& ExpectedSubjectEntityId,
+		const Udemo_mapAttributeComponent* AttributeComponent) const;
+};
+
 enum class Edemo_mapShanmenFormationInfluenceConsumerDeliveryStatus : uint8
 {
 	Prepared,
@@ -38,6 +63,9 @@ struct Fdemo_mapShanmenFormationInfluenceConsumerCommandDelivery
 	Fdemo_mapShanmenFormationInfluenceConsumerCommand Remove;
 
 	bool IsValid() const;
+	bool Matches(
+		const Fdemo_mapShanmenFormationInfluenceConsumerCommandDelivery& Other)
+		const;
 };
 
 /** Source receipt, projection evidence, and one immutable command delivery. */
@@ -50,6 +78,47 @@ struct Fdemo_mapShanmenFormationInfluenceConsumerCommandDeliveryResult
 	Fdemo_mapShanmenFormationInfluenceConsumerProjectionResult
 		ProjectionAttempt;
 	Fdemo_mapShanmenFormationInfluenceConsumerCommandDelivery Delivery;
+
+	bool IsSuccess() const;
+};
+
+enum class Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus
+	: uint8
+{
+	Activated,
+	ActivationReplayed,
+	Deactivated,
+	DeactivationReplayed,
+	HostInvalid,
+	DeliveryInvalid,
+	SourceReceiptNotFound,
+	SourceReceiptRejected,
+	SubjectResolutionInvalid,
+	SubjectMismatch,
+	AttributeComponentUnavailable,
+	AttributeComponentMismatch,
+	RuntimeRejected,
+	StateInvalid
+};
+
+/**
+ * One explicit application of a P8.35 delivery at the existing product
+ * composition root. Source receipt, pointer-free subject resolution, and the
+ * nested native runtime receipt remain visible for audit and replay.
+ */
+struct Fdemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationResult
+{
+	Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus Status =
+		Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+			HostInvalid;
+	FString Diagnostic;
+	bool bSourceReceiptChecked = false;
+	bool bSubjectResolutionChecked = false;
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord SourceReceipt;
+	Fdemo_mapShanmenFormationInfluenceConsumerCommandDelivery Delivery;
+	Fdemo_mapShanmenFormationInfluenceConsumerSubjectResolution
+		SubjectResolution;
+	Fdemo_mapShanmenFormationInfluenceConsumerProductRuntimeResult Runtime;
 
 	bool IsSuccess() const;
 };
@@ -93,6 +162,19 @@ public:
 		const FGuid& AppliedLifecycleCommandId,
 		const Fdemo_mapShanmenFormationInfluenceConsumerDefinition& Definition)
 		const;
+	Fdemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationResult
+	TryActivateConsumerDelivery(
+		const Fdemo_mapShanmenFormationProductHost& ProductHost,
+		const Fdemo_mapShanmenFormationInfluenceConsumerCommandDelivery&
+			Delivery,
+		const Fdemo_mapShanmenFormationInfluenceConsumerSubjectResolution&
+			SubjectResolution,
+		Udemo_mapAttributeComponent* AttributeComponent);
+	Fdemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationResult
+	TryDeactivateConsumerDelivery(
+		const Fdemo_mapShanmenFormationProductHost& ProductHost,
+		const Fdemo_mapShanmenFormationInfluenceConsumerCommandDelivery&
+			Delivery);
 
 	bool TryGetReceipt(
 		const FGuid& CommandId,
