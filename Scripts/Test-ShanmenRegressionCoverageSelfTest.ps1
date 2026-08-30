@@ -150,6 +150,9 @@ try
     $FormationInfluenceConsumerProjection = New-AutomationLogFixture `
         -Name 'formation-influence-consumer-projection.log' `
         -Group 'Shanmen.0_0_10.Product.FormationInfluenceConsumerProjection'
+    $FormationInfluenceConsumerRegistry = New-AutomationLogFixture `
+        -Name 'formation-influence-consumer-registry.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationInfluenceConsumerRegistry'
     $CombatCore = New-AutomationLogFixture `
         -Name 'combat-core.log' `
         -Group 'Shanmen.0_0_10.CombatCore'
@@ -316,6 +319,12 @@ try
         -Name 'formation influence consumer projection maps lease evidence to legacy attributes' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerProjection.cpp') `
+        -Logs @($Full, $Attributes)
+
+    Invoke-ExpectedPass `
+        -Name 'formation influence consumer registry is covered by broad full and attribute evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerRegistry.cpp') `
         -Logs @($Full, $Attributes)
 
     Invoke-ExpectedPass `
@@ -565,6 +574,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerProjection.cpp') `
         -Logs @($FormationInfluenceConsumerProjection) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'consumer registry child evidence cannot replace projection evaluator attribute and tag contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerRegistry.cpp') `
+        -Logs @($FormationInfluenceConsumerRegistry) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

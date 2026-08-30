@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS && !UE_BUILD_SHIPPING
 
 #include "demo_mapShanmenFormationInfluenceConsumerProjection.h"
+#include "demo_mapShanmenFormationInfluenceConsumerRegistry.h"
 
 #include "Misc/AutomationTest.h"
 #include "ShanmenCombatTags.h"
@@ -172,6 +173,42 @@ namespace
 				ConsumerContent(ContentVariant), Definition));
 		return Definition;
 	}
+
+	Fdemo_mapShanmenFormationInfluenceConsumerProjection MakeProjection(
+		const int32 SubjectOrdinal,
+		const int32 MagnitudeUnits = 100,
+		const int64 UnitsPerPoint = 100)
+	{
+		const auto Result =
+			Fdemo_mapShanmenFormationInfluenceConsumerProjector::ProjectActiveLease(
+				MakeActiveLease(
+					SubjectOrdinal,
+					FShanmenCombatNativeTags::InfluenceOffensePower(),
+					{ MagnitudeUnits }),
+				MakeDefinition(UnitsPerPoint));
+		check(Result.HasProjection());
+		return Result.Projection;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceConsumerCommand MakeConsumerCommand(
+		const Fdemo_mapShanmenFormationInfluenceConsumerProjection& Projection,
+		const Edemo_mapShanmenFormationInfluenceConsumerCommandOperation
+			Operation)
+	{
+		Fdemo_mapShanmenFormationInfluenceConsumerCommand Command;
+		check(Fdemo_mapShanmenFormationInfluenceConsumerProjector::
+			TryBuildCommand(Projection, Operation, Command));
+		return Command;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceConsumerApplicationRegistry
+	MakeConsumerRegistry(const int32 ContentVariant = 1)
+	{
+		Fdemo_mapShanmenFormationInfluenceConsumerApplicationRegistry Registry;
+		check(Fdemo_mapShanmenFormationInfluenceConsumerApplicationRegistry::
+			TryCreate(ConsumerRunId, ConsumerContent(ContentVariant), Registry));
+		return Registry;
+	}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -331,6 +368,209 @@ bool Fdemo_mapFormationInfluenceConsumerZeroAndIdentityTest::RunTest(
 				!= OtherSubject.Projection.GetHandle()
 			&& First.Projection.GetHandle()
 				!= OtherScale.Projection.GetHandle());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceConsumerRegistryReplayTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceConsumerRegistry.ApplyRemoveReplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceConsumerRegistryReplayTest::RunTest(
+	const FString&)
+{
+	const auto Projection = MakeProjection(20, 250);
+	const auto Apply = MakeConsumerCommand(
+		Projection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Apply);
+	const auto Remove = MakeConsumerCommand(
+		Projection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Remove);
+	auto Registry = MakeConsumerRegistry();
+	const auto Applied = Registry.Execute(Apply);
+	const auto ApplyReplay = Registry.Execute(Apply);
+	Fdemo_mapShanmenFormationInfluenceConsumerApplicationSnapshot Active;
+	const bool bReadActive = Registry.TryGetActiveApplication(
+		Projection.GetHandle(), Active);
+	const auto Removed = Registry.Execute(Remove);
+	const auto RemoveReplay = Registry.Execute(Remove);
+
+	TestTrue(TEXT("Apply replay returns one receipt without duplicate state"),
+		Applied.IsSuccess() && ApplyReplay.IsSuccess()
+			&& !Applied.bCommandReplayed && ApplyReplay.bCommandReplayed
+			&& Applied.Receipt.Matches(ApplyReplay.Receipt)
+			&& bReadActive && Active.IsValid()
+			&& Active.GetHandle() == Projection.GetHandle());
+	TestTrue(TEXT("Remove and replay drain exactly the same application"),
+		Removed.IsSuccess() && RemoveReplay.IsSuccess()
+			&& !Removed.bCommandReplayed && RemoveReplay.bCommandReplayed
+			&& Removed.Receipt.Matches(RemoveReplay.Receipt)
+			&& Applied.Receipt.GetApplicationId()
+				== Removed.Receipt.GetApplicationId()
+			&& Registry.GetCompletedCommandCount() == 2
+			&& Registry.GetActiveApplicationCount() == 0
+			&& Registry.IsDrained() && Registry.IsConsistent());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceConsumerRegistryCollisionTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceConsumerRegistry.SlotCollisionRetry",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceConsumerRegistryCollisionTest::RunTest(
+	const FString&)
+{
+	const auto FirstProjection = MakeProjection(21, 100, 100);
+	const auto SecondProjection = MakeProjection(21, 100, 1000);
+	const auto ApplyFirst = MakeConsumerCommand(
+		FirstProjection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Apply);
+	const auto RemoveFirst = MakeConsumerCommand(
+		FirstProjection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Remove);
+	const auto ApplySecond = MakeConsumerCommand(
+		SecondProjection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Apply);
+	const auto RemoveSecond = MakeConsumerCommand(
+		SecondProjection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Remove);
+	auto Registry = MakeConsumerRegistry();
+	const auto First = Registry.Execute(ApplyFirst);
+	const auto Collision = Registry.Execute(ApplySecond);
+	const auto StaleRemove = Registry.Execute(RemoveSecond);
+	const int32 RecordsAfterTransientFailures =
+		Registry.GetCompletedCommandCount();
+	const auto FirstRemoved = Registry.Execute(RemoveFirst);
+	const auto Retried = Registry.Execute(ApplySecond);
+	Fdemo_mapShanmenFormationInfluenceConsumerApplicationSnapshot Active;
+	const bool bReadSecond = Registry.TryGetActiveApplicationForSlot(
+		SecondProjection.GetLease().LeaseId,
+		SecondProjection.GetDefinition().GetTargetAttributeId(), Active);
+	const auto SecondRemoved = Registry.Execute(RemoveSecond);
+
+	TestTrue(TEXT("Different handle cannot occupy one live lease/attribute slot"),
+		First.IsSuccess() && !Collision.IsSuccess()
+			&& Collision.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerApplicationStatus::
+					SlotOccupied
+			&& !StaleRemove.IsSuccess()
+			&& StaleRemove.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerApplicationStatus::
+					StaleHandle
+			&& RecordsAfterTransientFailures == 1);
+	TestTrue(TEXT("Transient collision remains retryable after exact removal"),
+		FirstRemoved.IsSuccess() && Retried.IsSuccess() && bReadSecond
+			&& Active.GetHandle() == SecondProjection.GetHandle()
+			&& SecondRemoved.IsSuccess() && Registry.IsDrained()
+			&& Registry.GetCompletedCommandCount() == 4);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceConsumerRegistryStaleRemoveTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceConsumerRegistry.StaleRemoveAfterReapply",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceConsumerRegistryStaleRemoveTest::RunTest(
+	const FString&)
+{
+	const auto FirstProjection = MakeProjection(22, 100, 100);
+	const auto SecondProjection = MakeProjection(22, 100, 1000);
+	const auto ApplyFirst = MakeConsumerCommand(
+		FirstProjection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Apply);
+	const auto RemoveFirst = MakeConsumerCommand(
+		FirstProjection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Remove);
+	const auto ApplySecond = MakeConsumerCommand(
+		SecondProjection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Apply);
+	const auto RemoveSecond = MakeConsumerCommand(
+		SecondProjection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Remove);
+	auto Registry = MakeConsumerRegistry();
+	const auto First = Registry.Execute(ApplyFirst);
+	const auto FirstRemoved = Registry.Execute(RemoveFirst);
+	const auto Second = Registry.Execute(ApplySecond);
+	const auto StaleRemove = Registry.Execute(RemoveFirst);
+	Fdemo_mapShanmenFormationInfluenceConsumerApplicationSnapshot Active;
+	const bool bSecondSurvives = Registry.TryGetActiveApplication(
+		SecondProjection.GetHandle(), Active);
+	const auto SecondRemoved = Registry.Execute(RemoveSecond);
+
+	TestTrue(TEXT("Completed old Remove replays without touching a newer handle"),
+		First.IsSuccess() && FirstRemoved.IsSuccess() && Second.IsSuccess()
+			&& StaleRemove.IsSuccess() && StaleRemove.bCommandReplayed
+			&& StaleRemove.Receipt.Matches(FirstRemoved.Receipt)
+			&& bSecondSurvives
+			&& Active.GetHandle() == SecondProjection.GetHandle());
+	TestTrue(TEXT("New handle retains its own removable lifecycle"),
+		SecondRemoved.IsSuccess() && Registry.IsDrained()
+			&& Registry.GetCompletedCommandCount() == 4
+			&& Registry.IsConsistent());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceConsumerRegistryScopeTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceConsumerRegistry.ScopeMissingAndDrain",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceConsumerRegistryScopeTest::RunTest(
+	const FString&)
+{
+	const auto FirstProjection = MakeProjection(23, -75);
+	const auto SecondProjection = MakeProjection(24, 125);
+	const auto ApplyFirst = MakeConsumerCommand(
+		FirstProjection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Apply);
+	const auto RemoveFirst = MakeConsumerCommand(
+		FirstProjection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Remove);
+	const auto ApplySecond = MakeConsumerCommand(
+		SecondProjection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Apply);
+	const auto RemoveSecond = MakeConsumerCommand(
+		SecondProjection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Remove);
+	auto WrongScope = MakeConsumerRegistry(2);
+	const auto ScopeRejected = WrongScope.Execute(ApplyFirst);
+	auto Registry = MakeConsumerRegistry();
+	const auto Missing = Registry.Execute(RemoveFirst);
+	const auto First = Registry.Execute(ApplyFirst);
+	const auto FirstRemoved = Registry.Execute(RemoveFirst);
+	const auto Second = Registry.Execute(ApplySecond);
+	Fdemo_mapShanmenFormationInfluenceConsumerApplicationResult StoredSecond;
+	const bool bReadStored = Registry.TryGetCompletedResult(
+		ApplySecond.GetCommandId(), StoredSecond);
+	const bool bBlockedBeforeDrain = !Registry.IsDrained();
+	const auto SecondRemoved = Registry.Execute(RemoveSecond);
+	const auto Invalid = Registry.Execute(
+		Fdemo_mapShanmenFormationInfluenceConsumerCommand());
+
+	TestTrue(TEXT("Scope and missing application failures leave no history"),
+		!ScopeRejected.IsSuccess()
+			&& ScopeRejected.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerApplicationStatus::
+					ScopeMismatch
+			&& WrongScope.GetCompletedCommandCount() == 0
+			&& !Missing.IsSuccess()
+			&& Missing.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerApplicationStatus::
+					ApplicationMissing);
+	TestTrue(TEXT("Retry after missing succeeds and drain gates teardown"),
+		First.IsSuccess() && FirstRemoved.IsSuccess() && Second.IsSuccess()
+			&& bReadStored && StoredSecond.IsSuccess()
+			&& !StoredSecond.bCommandReplayed && bBlockedBeforeDrain
+			&& SecondRemoved.IsSuccess() && Registry.IsDrained()
+			&& Registry.GetCompletedCommandCount() == 4);
+	TestTrue(TEXT("Invalid command is rejected without corrupting drained state"),
+		!Invalid.IsSuccess()
+			&& Invalid.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerApplicationStatus::
+					CommandInvalid
+			&& Registry.IsConsistent() && Registry.IsDrained());
 	return true;
 }
 
