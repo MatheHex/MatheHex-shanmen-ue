@@ -14,6 +14,56 @@ namespace
 	}
 }
 
+bool Fdemo_mapShanmenFormationInfluenceConsumerCommandDelivery::IsValid()
+	const
+{
+	return LifecycleCommandId.IsValid() && SubjectEntityId.IsValid()
+		&& AuthoritativeLease.IsValid() && Definition.IsValid()
+		&& Projection.IsValid() && Apply.IsValid() && Remove.IsValid()
+		&& SubjectEntityId == AuthoritativeLease.Key.SubjectEntityId
+		&& LeaseSnapshotsMatch(
+			AuthoritativeLease, Projection.GetLease())
+		&& Definition.Matches(Projection.GetDefinition())
+		&& Apply.GetOperation()
+			== Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Apply
+		&& Remove.GetOperation()
+			== Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Remove
+		&& Apply.GetProjection().Matches(Projection)
+		&& Remove.GetProjection().Matches(Projection)
+		&& Apply.GetHandle() == Remove.GetHandle()
+		&& Apply.GetCommandId() != Remove.GetCommandId();
+}
+
+bool Fdemo_mapShanmenFormationInfluenceConsumerCommandDeliveryResult::
+IsSuccess() const
+{
+	if (Status
+			!= Edemo_mapShanmenFormationInfluenceConsumerDeliveryStatus::Prepared
+		|| !SourceReceipt.IsValid() || !SourceReceipt.Result.IsSuccess()
+		|| SourceReceipt.Command.GetKind()
+			!= Edemo_mapShanmenFormationInfluenceLifecycleCommandKind::ExecuteStep
+		|| !ProjectionAttempt.HasProjection() || !Delivery.IsValid()
+		|| SourceReceipt.Command.GetCommandId()
+			!= Delivery.LifecycleCommandId
+		|| !ProjectionAttempt.Projection.Matches(Delivery.Projection))
+	{
+		return false;
+	}
+	const auto& Lifecycle = SourceReceipt.Result.Lifecycle;
+	const auto& Execution = Lifecycle.Step.Execution;
+	const auto& Intent = Execution.Invocation.Intent;
+	return Lifecycle.Status
+			== Edemo_mapShanmenFormationInfluenceLifecycleStatus::StepAccepted
+		&& Lifecycle.Step.IsSuccess() && Execution.IsSuccess()
+		&& Execution.Invocation.IsValid()
+		&& Intent.Operation
+			== Edemo_mapShanmenFormationInfluenceOperation::Apply
+		&& SourceReceipt.Command.GetStepRequest().ExpectedIntentId
+			== Intent.IntentId
+		&& Delivery.AuthoritativeLease.ApplyIntentId == Intent.IntentId
+		&& Delivery.SubjectEntityId == Intent.SubjectEntityId;
+}
+
 bool Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost::TryOpen(
 	const Fdemo_mapShanmenFormationProductHost& ProductHost,
 	Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost& OutHost)
@@ -276,6 +326,164 @@ TryDeactivateConsumer(
 	auto Result = ConsumerRuntime.TryDeactivate(ProductHost, RemoveCommand);
 	Result.bLeaseAuthorityChecked = true;
 	Result.AuthoritativeLease = AuthoritativeLease;
+	return Result;
+}
+
+Fdemo_mapShanmenFormationInfluenceConsumerCommandDeliveryResult
+Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost::
+TryPrepareConsumerCommands(
+	const FGuid& AppliedLifecycleCommandId,
+	const Fdemo_mapShanmenFormationInfluenceConsumerDefinition& Definition)
+	const
+{
+	Fdemo_mapShanmenFormationInfluenceConsumerCommandDeliveryResult Result;
+	const auto Reject = [&Result](
+		const Edemo_mapShanmenFormationInfluenceConsumerDeliveryStatus Status,
+		const TCHAR* Diagnostic)
+	{
+		Result.Status = Status;
+		Result.Diagnostic = Diagnostic;
+		return Result;
+	};
+
+	if (!IsValid())
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryStatus::HostInvalid,
+			TEXT("Consumer command delivery requires one valid lifecycle CommandHost."));
+	}
+	if (!AppliedLifecycleCommandId.IsValid())
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryStatus::
+				LifecycleCommandIdInvalid,
+			TEXT("Consumer command delivery requires one valid lifecycle CommandId."));
+	}
+	if (!Definition.IsValid())
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryStatus::
+				DefinitionInvalid,
+			TEXT("Consumer command delivery requires one valid authored definition."));
+	}
+	if (!Router.TryGetRecord(
+			AppliedLifecycleCommandId, Result.SourceReceipt))
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryStatus::
+				LifecycleReceiptNotFound,
+			TEXT("Consumer command delivery requires this Host's durable lifecycle receipt."));
+	}
+	if (!Result.SourceReceipt.IsValid()
+		|| !Result.SourceReceipt.Result.IsSuccess())
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryStatus::
+				LifecycleReceiptRejected,
+			TEXT("Consumer command delivery requires one successful lifecycle receipt."));
+	}
+	if (Result.SourceReceipt.Command.GetKind()
+		!= Edemo_mapShanmenFormationInfluenceLifecycleCommandKind::ExecuteStep)
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryStatus::
+				LifecycleOperationMismatch,
+			TEXT("Consumer command delivery requires one successful Apply step receipt."));
+	}
+
+	const auto& Lifecycle = Result.SourceReceipt.Result.Lifecycle;
+	const auto& Execution = Lifecycle.Step.Execution;
+	if (Lifecycle.Status
+			!= Edemo_mapShanmenFormationInfluenceLifecycleStatus::StepAccepted
+		|| !Lifecycle.Step.IsSuccess() || !Execution.IsSuccess()
+		|| !Execution.Invocation.IsValid())
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryStatus::
+				LifecycleReceiptRejected,
+			TEXT("Lifecycle receipt does not contain one accepted execution step."));
+	}
+
+	const auto& ApplyIntent = Execution.Invocation.Intent;
+	if (ApplyIntent.Operation
+		!= Edemo_mapShanmenFormationInfluenceOperation::Apply)
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryStatus::
+				LifecycleOperationMismatch,
+			TEXT("Consumer command delivery cannot be derived from a Remove intent."));
+	}
+	Fdemo_mapShanmenFormationInfluenceLeaseKey Key;
+	if (Result.SourceReceipt.Command.GetStepRequest().ExpectedIntentId
+			!= ApplyIntent.IntentId
+		|| !Fdemo_mapShanmenFormationInfluenceLeaseKey::TryFromIntent(
+			ApplyIntent, Key))
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryStatus::StateInvalid,
+			TEXT("Apply receipt and frozen lifecycle command identities disagree."));
+	}
+
+	Fdemo_mapShanmenFormationInfluenceLeaseSnapshot AuthoritativeLease;
+	const auto& Executor = Router.GetCoordinator().GetExecutionService().
+		GetRuntime().GetExecutor();
+	if (!Executor.TryGetActiveLease(Key, AuthoritativeLease))
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryStatus::
+				LeaseNotActive,
+			TEXT("The Apply receipt no longer owns one active authoritative lease."));
+	}
+	if (!AuthoritativeLease.IsValid()
+		|| AuthoritativeLease.ApplyIntentId != ApplyIntent.IntentId
+		|| !AuthoritativeLease.Key.Matches(Key))
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryStatus::StateInvalid,
+			TEXT("Active authoritative lease does not match its Apply receipt."));
+	}
+
+	Result.ProjectionAttempt =
+		Fdemo_mapShanmenFormationInfluenceConsumerProjector::ProjectActiveLease(
+			AuthoritativeLease, Definition);
+	if (!Result.ProjectionAttempt.HasProjection())
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryStatus::
+				ProjectionRejected,
+			TEXT("Active lease could not produce one native consumer projection."));
+	}
+
+	Result.Delivery.LifecycleCommandId = AppliedLifecycleCommandId;
+	Result.Delivery.SubjectEntityId = ApplyIntent.SubjectEntityId;
+	Result.Delivery.AuthoritativeLease = AuthoritativeLease;
+	Result.Delivery.Definition = Definition;
+	Result.Delivery.Projection = Result.ProjectionAttempt.Projection;
+	if (!Fdemo_mapShanmenFormationInfluenceConsumerProjector::TryBuildCommand(
+			Result.Delivery.Projection,
+			Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Apply,
+			Result.Delivery.Apply)
+		|| !Fdemo_mapShanmenFormationInfluenceConsumerProjector::TryBuildCommand(
+			Result.Delivery.Projection,
+			Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Remove,
+			Result.Delivery.Remove))
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryStatus::
+				CommandBuildRejected,
+			TEXT("Consumer projection failed to build reversible commands."));
+	}
+
+	Result.Status =
+		Edemo_mapShanmenFormationInfluenceConsumerDeliveryStatus::Prepared;
+	Result.Diagnostic =
+		TEXT("Prepared one immutable consumer command delivery from the active lease.");
+	if (!Result.IsSuccess())
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceConsumerDeliveryStatus::StateInvalid,
+			TEXT("Prepared consumer command delivery violated invariants."));
+	}
 	return Result;
 }
 

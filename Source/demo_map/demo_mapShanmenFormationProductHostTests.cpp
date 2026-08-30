@@ -646,26 +646,18 @@ namespace
 		FGuid SubjectEntityId;
 		Fdemo_mapShanmenFormationInfluenceConsumerCommand Apply;
 		Fdemo_mapShanmenFormationInfluenceConsumerCommand Remove;
+		Fdemo_mapShanmenFormationInfluenceConsumerCommandDeliveryResult
+			Delivery;
 	};
 
 	bool BuildHostConsumerCommands(
 		const Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost&
 			CommandHost,
+		const FGuid& AppliedLifecycleCommandId,
 		const Fdemo_mapShanmenFormationInfluenceIntent& ApplyIntent,
 		FHostConsumerCommands& OutCommands)
 	{
 		OutCommands = FHostConsumerCommands();
-		Fdemo_mapShanmenFormationInfluenceLeaseKey Key;
-		Fdemo_mapShanmenFormationInfluenceLeaseSnapshot Lease;
-		if (!Fdemo_mapShanmenFormationInfluenceLeaseKey::TryFromIntent(
-				ApplyIntent, Key)
-			|| !CommandHost.GetRouter().GetCoordinator().
-				GetExecutionService().GetRuntime().GetExecutor().
-				TryGetActiveLease(Key, Lease))
-		{
-			return false;
-		}
-
 		Fdemo_mapShanmenFormationInfluenceConsumerDefinition Definition;
 		if (!Fdemo_mapShanmenFormationInfluenceConsumerDefinition::
 			TryCreateOffensePowerAdditive(
@@ -674,26 +666,17 @@ namespace
 		{
 			return false;
 		}
-		const auto Projected =
-			Fdemo_mapShanmenFormationInfluenceConsumerProjector::
-				ProjectActiveLease(Lease, Definition);
-		if (!Projected.HasProjection())
+		OutCommands.Delivery = CommandHost.TryPrepareConsumerCommands(
+			AppliedLifecycleCommandId, Definition);
+		if (!OutCommands.Delivery.IsSuccess())
 		{
 			return false;
 		}
-		OutCommands.SubjectEntityId = ApplyIntent.SubjectEntityId;
-		return Fdemo_mapShanmenFormationInfluenceConsumerProjector::
-				TryBuildCommand(
-					Projected.Projection,
-					Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::
-						Apply,
-					OutCommands.Apply)
-			&& Fdemo_mapShanmenFormationInfluenceConsumerProjector::
-				TryBuildCommand(
-					Projected.Projection,
-					Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::
-						Remove,
-					OutCommands.Remove);
+		OutCommands.SubjectEntityId =
+			OutCommands.Delivery.Delivery.SubjectEntityId;
+		OutCommands.Apply = OutCommands.Delivery.Delivery.Apply;
+		OutCommands.Remove = OutCommands.Delivery.Delivery.Remove;
+		return OutCommands.SubjectEntityId == ApplyIntent.SubjectEntityId;
 	}
 
 	bool HostExecutionCommandsMatch(
@@ -3977,10 +3960,68 @@ RunTest(const FString&)
 	FHostConsumerCommands ConsumerCommands;
 	if (!Apply.IsSuccess()
 		|| !BuildHostConsumerCommands(
-			CommandHost, ApplyIntent, ConsumerCommands))
+			CommandHost, Apply.CommandId, ApplyIntent, ConsumerCommands))
 	{
 		return false;
 	}
+	const auto DeliveryReplay = CommandHost.TryPrepareConsumerCommands(
+		Apply.CommandId, ConsumerCommands.Delivery.Delivery.Definition);
+	const auto InvalidDeliveryId = CommandHost.TryPrepareConsumerCommands(
+		FGuid(), ConsumerCommands.Delivery.Delivery.Definition);
+	const auto MissingDelivery = CommandHost.TryPrepareConsumerCommands(
+		FGuid(0xF8400F35, 0, 0, 1),
+		ConsumerCommands.Delivery.Delivery.Definition);
+	Fdemo_mapShanmenFormationInfluenceConsumerDefinition ForeignDefinition;
+	FShanmenContentStamp ForeignContent = ApplyIntent.Content;
+	ForeignContent.Digest += TEXT("-foreign");
+	if (!Fdemo_mapShanmenFormationInfluenceConsumerDefinition::
+		TryCreateOffensePowerAdditive(
+			TEXT("Formation.Consumer.ProductLifecycle.Foreign"),
+			100, 40, ForeignContent, ForeignDefinition))
+	{
+		return false;
+	}
+	const auto ProjectionRejected = CommandHost.TryPrepareConsumerCommands(
+		Apply.CommandId, ForeignDefinition);
+
+	TestTrue(TEXT("Lifecycle receipt prepares one immutable consumer delivery"),
+		ConsumerCommands.Delivery.IsSuccess()
+			&& ConsumerCommands.Delivery.SourceReceipt.Command.GetCommandId()
+				== Apply.CommandId
+			&& ConsumerCommands.Delivery.Delivery.LifecycleCommandId
+				== Apply.CommandId
+			&& ConsumerCommands.Delivery.Delivery.SubjectEntityId
+				== ApplyIntent.SubjectEntityId
+			&& ConsumerCommands.Delivery.Delivery.AuthoritativeLease.LeaseId
+				== ConsumerCommands.Apply.GetProjection().GetLease().LeaseId
+			&& ConsumerCommands.Delivery.Delivery.Apply.Matches(
+				ConsumerCommands.Apply)
+			&& ConsumerCommands.Delivery.Delivery.Remove.Matches(
+				ConsumerCommands.Remove));
+	TestTrue(TEXT("Repeated delivery is read-only and byte-stable by identity"),
+		DeliveryReplay.IsSuccess()
+			&& DeliveryReplay.Delivery.Apply.Matches(ConsumerCommands.Apply)
+			&& DeliveryReplay.Delivery.Remove.Matches(ConsumerCommands.Remove)
+			&& CommandHost.GetReceiptCount() == 1
+			&& CommandHost.GetConsumerRuntime().GetBindingCount() == 0
+			&& CommandHost.GetConsumerRuntime().
+				GetActiveApplicationCount() == 0
+			&& CommandHost.GetConsumerRuntime().
+				GetCompletedTransactionCount() == 0);
+	TestTrue(TEXT("Delivery rejects invalid or foreign source evidence"),
+		InvalidDeliveryId.Status
+			== Edemo_mapShanmenFormationInfluenceConsumerDeliveryStatus::
+				LifecycleCommandIdInvalid
+			&& MissingDelivery.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerDeliveryStatus::
+					LifecycleReceiptNotFound
+			&& ProjectionRejected.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerDeliveryStatus::
+					ProjectionRejected
+			&& ProjectionRejected.ProjectionAttempt.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerProjectionStatus::
+					ContentMismatch
+			&& CommandHost.GetReceiptCount() == 1);
 
 	Udemo_mapAttributeComponent* Attributes =
 		NewObject<Udemo_mapAttributeComponent>();
@@ -3993,6 +4034,8 @@ RunTest(const FString&)
 	const auto Terminal = CommandHost.TrySubmit(
 		nullptr, Fixture.Host,
 		MakeLifecycleTerminalCommand(Fixture.Correlation, 281));
+	const auto NonApplyDelivery = CommandHost.TryPrepareConsumerCommands(
+		Terminal.CommandId, ConsumerCommands.Delivery.Delivery.Definition);
 	Fdemo_mapShanmenFormationInfluenceIntent RemoveIntent;
 	if (!Activated.IsSuccess()
 		|| !Terminal.IsSuccess()
@@ -4026,6 +4069,10 @@ RunTest(const FString&)
 			&& Attributes->GetActiveModifierCount() == 1
 			&& CommandHost.GetConsumerRuntime().
 				GetActiveApplicationCount() == 1);
+	TestTrue(TEXT("Non-step lifecycle receipts cannot produce consumers"),
+		NonApplyDelivery.Status
+			== Edemo_mapShanmenFormationInfluenceConsumerDeliveryStatus::
+				LifecycleOperationMismatch);
 	TestTrue(TEXT("Authoritative Remove waits for explicit native deactivation"),
 		BlockedRemove.Status
 			== Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::
@@ -4046,6 +4093,8 @@ RunTest(const FString&)
 		Fixture.Host, ConsumerCommands.Remove);
 	const auto Remove = CommandHost.TrySubmit(
 		nullptr, Fixture.Host, RemoveCommand);
+	const auto ExpiredDelivery = CommandHost.TryPrepareConsumerCommands(
+		Apply.CommandId, ConsumerCommands.Delivery.Delivery.Definition);
 	const auto DeactivationReplay = CommandHost.TryDeactivateConsumer(
 		Fixture.Host, ConsumerCommands.Remove);
 	const auto EndCommand =
@@ -4067,6 +4116,10 @@ RunTest(const FString&)
 			&& DeactivationReplay.bLeaseAuthorityChecked
 			&& Attributes->GetActiveModifierCount() == 0
 			&& CommandHost.GetConsumerRuntime().IsDrained());
+	TestTrue(TEXT("Removed authoritative lease cannot mint new deliveries"),
+		ExpiredDelivery.Status
+			== Edemo_mapShanmenFormationInfluenceConsumerDeliveryStatus::
+				LeaseNotActive);
 	TestTrue(TEXT("Drained consumer permits seal and exposes World failure"),
 		BlockedEnd.Status
 			== Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::

@@ -6,6 +6,54 @@
 
 class UWorld;
 
+enum class Edemo_mapShanmenFormationInfluenceConsumerDeliveryStatus : uint8
+{
+	Prepared,
+	HostInvalid,
+	LifecycleCommandIdInvalid,
+	LifecycleReceiptNotFound,
+	LifecycleReceiptRejected,
+	LifecycleOperationMismatch,
+	DefinitionInvalid,
+	LeaseNotActive,
+	ProjectionRejected,
+	CommandBuildRejected,
+	StateInvalid
+};
+
+/**
+ * Frozen caller payload derived from one successful Apply lifecycle receipt.
+ *
+ * The delivery is read-only evidence. It does not bind a component or mutate
+ * either the authoritative lease executor or the native consumer registry.
+ */
+struct Fdemo_mapShanmenFormationInfluenceConsumerCommandDelivery
+{
+	FGuid LifecycleCommandId;
+	FGuid SubjectEntityId;
+	Fdemo_mapShanmenFormationInfluenceLeaseSnapshot AuthoritativeLease;
+	Fdemo_mapShanmenFormationInfluenceConsumerDefinition Definition;
+	Fdemo_mapShanmenFormationInfluenceConsumerProjection Projection;
+	Fdemo_mapShanmenFormationInfluenceConsumerCommand Apply;
+	Fdemo_mapShanmenFormationInfluenceConsumerCommand Remove;
+
+	bool IsValid() const;
+};
+
+/** Source receipt, projection evidence, and one immutable command delivery. */
+struct Fdemo_mapShanmenFormationInfluenceConsumerCommandDeliveryResult
+{
+	Edemo_mapShanmenFormationInfluenceConsumerDeliveryStatus Status =
+		Edemo_mapShanmenFormationInfluenceConsumerDeliveryStatus::HostInvalid;
+	FString Diagnostic;
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord SourceReceipt;
+	Fdemo_mapShanmenFormationInfluenceConsumerProjectionResult
+		ProjectionAttempt;
+	Fdemo_mapShanmenFormationInfluenceConsumerCommandDelivery Delivery;
+
+	bool IsSuccess() const;
+};
+
 /**
  * Caller-facing owner of one lifecycle Router, one consumer runtime, and their
  * durable lifecycle receipts.
@@ -40,6 +88,11 @@ public:
 	TryDeactivateConsumer(
 		const Fdemo_mapShanmenFormationProductHost& ProductHost,
 		const Fdemo_mapShanmenFormationInfluenceConsumerCommand& RemoveCommand);
+	Fdemo_mapShanmenFormationInfluenceConsumerCommandDeliveryResult
+	TryPrepareConsumerCommands(
+		const FGuid& AppliedLifecycleCommandId,
+		const Fdemo_mapShanmenFormationInfluenceConsumerDefinition& Definition)
+		const;
 
 	bool TryGetReceipt(
 		const FGuid& CommandId,
