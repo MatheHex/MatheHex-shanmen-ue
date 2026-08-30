@@ -4314,7 +4314,7 @@ RunTest(const FString&)
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	Fdemo_mapFormationInfluenceConsumerRunCompositionTest,
-	"Shanmen.0_0_10.Product.FormationInfluenceConsumerRunComposition.ExplicitActivation",
+	"Shanmen.0_0_10.Product.FormationInfluenceConsumerRunComposition.ExplicitLifecycle",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool Fdemo_mapFormationInfluenceConsumerRunCompositionTest::RunTest(
@@ -4359,7 +4359,7 @@ bool Fdemo_mapFormationInfluenceConsumerRunCompositionTest::RunTest(
 			CombatDiagnostic))
 	{
 		AddError(FString::Printf(
-			TEXT("P8.39 CombatRun setup failed: %s"),
+			TEXT("P8.40 CombatRun setup failed: %s"),
 			*CombatDiagnostic));
 		return false;
 	}
@@ -4536,15 +4536,71 @@ bool Fdemo_mapFormationInfluenceConsumerRunCompositionTest::RunTest(
 			&& Attributes->GetActiveModifierCount() == 1
 			&& CommandHost.GetConsumerRuntime().GetBindingCount() == 1);
 
-	const auto Deactivated = CommandHost.TryDeactivateConsumerDelivery(
-		Fixture.Host,
-		ConsumerCommands.Delivery.Delivery);
+	auto InvalidActivation = Activated;
+	InvalidActivation.RunId.Invalidate();
+	const auto InvalidDeactivation =
+		Fdemo_mapShanmenFormationInfluenceConsumerRunComposition::TryDeactivate(
+			Fixture.Host,
+			CommandHost,
+			InvalidActivation);
+	const auto ForeignDeactivation =
+		Fdemo_mapShanmenFormationInfluenceConsumerRunComposition::TryDeactivate(
+			Fixture.Host,
+			ForeignCommandHost,
+			Activated);
+	TestTrue(TEXT("Deactivation rejects invalid evidence and a foreign Host"),
+		InvalidDeactivation.Status
+			== Edemo_mapShanmenFormationInfluenceConsumerRunDeactivationStatus::
+				ActivationEvidenceRejected
+			&& InvalidDeactivation.bActivationEvidenceChecked
+			&& !InvalidDeactivation.bDeliveryAttempted
+			&& ForeignDeactivation.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerRunDeactivationStatus::
+					DeliveryApplicationRejected
+			&& ForeignDeactivation.Application.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+					SourceReceiptNotFound
+			&& Attributes->GetActiveModifierCount() == 1
+			&& CommandHost.GetConsumerRuntime().
+				GetActiveApplicationCount() == 1
+			&& ForeignCommandHost.GetConsumerRuntime().IsDrained());
+
+	const auto Deactivated =
+		Fdemo_mapShanmenFormationInfluenceConsumerRunComposition::TryDeactivate(
+			Fixture.Host,
+			CommandHost,
+			Activated);
+	const int32 CompletedBeforeDeactivationReplay =
+		CommandHost.GetConsumerRuntime().GetCompletedTransactionCount();
+	const auto DeactivationReplay =
+		Fdemo_mapShanmenFormationInfluenceConsumerRunComposition::TryDeactivate(
+			Fixture.Host,
+			CommandHost,
+			Activated);
 	const FGuid RunId = CombatRun.GetRunId();
-	TestTrue(TEXT("Explicit teardown drains native state before Run end"),
+	TestTrue(TEXT("Activation receipt removes its exact delivery before Run end"),
 		Deactivated.IsSuccess()
+			&& Deactivated.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerRunDeactivationStatus::
+					Deactivated
+			&& Deactivated.RunId == Activated.RunId
+			&& Deactivated.Activation.Application.Delivery.Matches(
+				Deactivated.Application.Delivery)
 			&& Attributes->GetActiveModifierCount() == 0
-			&& CommandHost.GetConsumerRuntime().IsDrained()
-			&& CombatRun.TryEndRun(RunId, CombatDiagnostic)
+			&& CommandHost.GetConsumerRuntime().IsDrained());
+	TestTrue(TEXT("Exact deactivation replay performs no duplicate mutation"),
+		DeactivationReplay.IsSuccess()
+			&& DeactivationReplay.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerRunDeactivationStatus::
+					DeactivationReplayed
+			&& !DeactivationReplay.Application.Runtime.bRuntimeStateChanged
+			&& CommandHost.GetConsumerRuntime().
+				GetCompletedTransactionCount()
+				== CompletedBeforeDeactivationReplay
+			&& Attributes->GetActiveModifierCount() == 0
+			&& CommandHost.GetConsumerRuntime().IsDrained());
+	TestTrue(TEXT("Combat Run ends only after consumer teardown"),
+		CombatRun.TryEndRun(RunId, CombatDiagnostic)
 			&& CombatRun.GetEntityRegistry().NumObjectBindings() == 0);
 	return true;
 }

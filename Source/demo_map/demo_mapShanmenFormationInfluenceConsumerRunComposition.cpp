@@ -44,6 +44,39 @@ bool Fdemo_mapShanmenFormationInfluenceConsumerRunCompositionResult::
 	}
 }
 
+bool Fdemo_mapShanmenFormationInfluenceConsumerRunDeactivationResult::
+	IsSuccess() const
+{
+	if (!RunId.IsValid()
+		|| !bActivationEvidenceChecked
+		|| !bDeliveryAttempted
+		|| !Activation.IsSuccess()
+		|| Activation.RunId != RunId
+		|| !Application.IsSuccess()
+		|| !Activation.Application.Delivery.Matches(Application.Delivery)
+		|| Activation.Application.Runtime.RuntimeId
+			!= Application.Runtime.RuntimeId)
+	{
+		return false;
+	}
+
+	switch (Status)
+	{
+	case Edemo_mapShanmenFormationInfluenceConsumerRunDeactivationStatus::
+		Deactivated:
+		return Application.Status
+			== Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+				Deactivated;
+	case Edemo_mapShanmenFormationInfluenceConsumerRunDeactivationStatus::
+		DeactivationReplayed:
+		return Application.Status
+			== Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+				DeactivationReplayed;
+	default:
+		return false;
+	}
+}
+
 Fdemo_mapShanmenFormationInfluenceConsumerRunCompositionResult
 Fdemo_mapShanmenFormationInfluenceConsumerRunComposition::TryActivate(
 	Fdemo_mapCombatRunCoordinator& CombatRun,
@@ -152,6 +185,80 @@ Fdemo_mapShanmenFormationInfluenceConsumerRunComposition::TryActivate(
 				StateInvalid;
 		Result.Diagnostic =
 			TEXT("Consumer Run composition produced inconsistent nested evidence.");
+	}
+	return Result;
+}
+
+Fdemo_mapShanmenFormationInfluenceConsumerRunDeactivationResult
+Fdemo_mapShanmenFormationInfluenceConsumerRunComposition::TryDeactivate(
+	const Fdemo_mapShanmenFormationProductHost& ProductHost,
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost& LifecycleHost,
+	const Fdemo_mapShanmenFormationInfluenceConsumerRunCompositionResult&
+		ActivationEvidence)
+{
+	Fdemo_mapShanmenFormationInfluenceConsumerRunDeactivationResult Result;
+	Result.RunId = ActivationEvidence.RunId;
+	Result.Activation = ActivationEvidence;
+	Result.bActivationEvidenceChecked = true;
+	if (!ActivationEvidence.IsSuccess())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationInfluenceConsumerRunDeactivationStatus::
+				ActivationEvidenceRejected;
+		Result.Diagnostic =
+			TEXT("Consumer deactivation requires one successful Run activation receipt.");
+		return Result;
+	}
+
+	Result.Application = LifecycleHost.TryDeactivateConsumerDelivery(
+		ProductHost,
+		ActivationEvidence.Application.Delivery);
+	Result.bDeliveryAttempted = true;
+	if (!Result.Application.IsSuccess())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationInfluenceConsumerRunDeactivationStatus::
+				DeliveryApplicationRejected;
+		Result.Diagnostic = Result.Application.Diagnostic.IsEmpty()
+			? TEXT("Lifecycle Host rejected exact consumer delivery removal.")
+			: Result.Application.Diagnostic;
+		return Result;
+	}
+
+	switch (Result.Application.Status)
+	{
+	case Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+		Deactivated:
+		Result.Status =
+			Edemo_mapShanmenFormationInfluenceConsumerRunDeactivationStatus::
+				Deactivated;
+		break;
+	case Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+		DeactivationReplayed:
+		Result.Status =
+			Edemo_mapShanmenFormationInfluenceConsumerRunDeactivationStatus::
+				DeactivationReplayed;
+		break;
+	default:
+		Result.Status =
+			Edemo_mapShanmenFormationInfluenceConsumerRunDeactivationStatus::
+				StateInvalid;
+		Result.Diagnostic =
+			TEXT("Consumer deactivation returned an unexpected success status.");
+		return Result;
+	}
+	Result.Diagnostic = Result.Status
+		== Edemo_mapShanmenFormationInfluenceConsumerRunDeactivationStatus::
+			Deactivated
+		? TEXT("Removed the exact delivery proven by the Run activation receipt.")
+		: TEXT("Exact Run delivery removal replayed without duplicate mutation.");
+	if (!Result.IsSuccess())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationInfluenceConsumerRunDeactivationStatus::
+				StateInvalid;
+		Result.Diagnostic =
+			TEXT("Consumer Run deactivation produced inconsistent nested evidence.");
 	}
 	return Result;
 }
