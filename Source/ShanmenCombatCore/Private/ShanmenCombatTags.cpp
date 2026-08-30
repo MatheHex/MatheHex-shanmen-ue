@@ -11,6 +11,12 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Shanmen_Damage_Mental, "Shanmen.Damage.Mental"
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Shanmen_Source_Player, "Shanmen.Source.Player");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Shanmen_Target_Living, "Shanmen.Target.Living");
 
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Shanmen_Influence, "Shanmen.Influence");
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Shanmen_Influence_Offense, "Shanmen.Influence.Offense");
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Shanmen_Influence_Offense_Power, "Shanmen.Influence.Offense.Power");
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Shanmen_Influence_Defense, "Shanmen.Influence.Defense");
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Shanmen_Influence_Defense_Guard, "Shanmen.Influence.Defense.Guard");
+
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Shanmen_Defense_Evade, "Shanmen.Defense.Evade");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Shanmen_Defense_PerfectGuard, "Shanmen.Defense.PerfectGuard");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Shanmen_Defense_Guard, "Shanmen.Defense.Guard");
@@ -26,6 +32,12 @@ FGameplayTag FShanmenCombatNativeTags::DamageMental() { return TAG_Shanmen_Damag
 
 FGameplayTag FShanmenCombatNativeTags::SourcePlayer() { return TAG_Shanmen_Source_Player; }
 FGameplayTag FShanmenCombatNativeTags::TargetLiving() { return TAG_Shanmen_Target_Living; }
+
+FGameplayTag FShanmenCombatNativeTags::Influence() { return TAG_Shanmen_Influence; }
+FGameplayTag FShanmenCombatNativeTags::InfluenceOffense() { return TAG_Shanmen_Influence_Offense; }
+FGameplayTag FShanmenCombatNativeTags::InfluenceOffensePower() { return TAG_Shanmen_Influence_Offense_Power; }
+FGameplayTag FShanmenCombatNativeTags::InfluenceDefense() { return TAG_Shanmen_Influence_Defense; }
+FGameplayTag FShanmenCombatNativeTags::InfluenceDefenseGuard() { return TAG_Shanmen_Influence_Defense_Guard; }
 
 FGameplayTag FShanmenCombatNativeTags::DefenseEvade() { return TAG_Shanmen_Defense_Evade; }
 FGameplayTag FShanmenCombatNativeTags::DefensePerfectGuard() { return TAG_Shanmen_Defense_PerfectGuard; }

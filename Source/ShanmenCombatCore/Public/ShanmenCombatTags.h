@@ -15,6 +15,12 @@ struct SHANMENCOMBATCORE_API FShanmenCombatNativeTags
 	static FGameplayTag SourcePlayer();
 	static FGameplayTag TargetLiving();
 
+	static FGameplayTag Influence();
+	static FGameplayTag InfluenceOffense();
+	static FGameplayTag InfluenceOffensePower();
+	static FGameplayTag InfluenceDefense();
+	static FGameplayTag InfluenceDefenseGuard();
+
 	static FGameplayTag DefenseEvade();
 	static FGameplayTag DefensePerfectGuard();
 	static FGameplayTag DefenseGuard();

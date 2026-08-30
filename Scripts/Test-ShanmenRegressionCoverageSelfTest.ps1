@@ -141,6 +141,12 @@ try
     $FormationInfluenceIntents = New-AutomationLogFixture `
         -Name 'formation-influence-intents.log' `
         -Group 'Shanmen.0_0_10.Product.FormationInfluenceIntents'
+    $FormationInfluenceModifierEvaluator = New-AutomationLogFixture `
+        -Name 'formation-influence-modifier-evaluator.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationInfluenceModifierEvaluator'
+    $CombatCore = New-AutomationLogFixture `
+        -Name 'combat-core.log' `
+        -Group 'Shanmen.0_0_10.CombatCore'
     $FormationInfluenceReconciliation = New-AutomationLogFixture `
         -Name 'formation-influence-reconciliation.log' `
         -Group 'Shanmen.0_0_10.Product.FormationInfluenceReconciliation'
@@ -260,6 +266,17 @@ try
         -Name 'formation influence intents are covered by broad full evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceIntentPlanner.cpp') `
+        -Logs @($Full)
+
+    Invoke-ExpectedPass `
+        -Name 'formation influence modifier evaluator is covered by broad full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceModifierEvaluator.cpp') `
+        -Logs @($Full)
+
+    Invoke-ExpectedPass `
+        -Name 'combat tags include modifier consumer coverage under broad evidence' `
+        -Paths @('Source/ShanmenCombatCore/Private/ShanmenCombatTags.cpp') `
         -Logs @($Full)
 
     Invoke-ExpectedPass `
@@ -512,6 +529,19 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceIntentPlanner.cpp') `
         -Logs @($FormationInfluenceIntents) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'modifier evaluator child evidence cannot replace policy and tag contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceModifierEvaluator.cpp') `
+        -Logs @($FormationInfluenceModifierEvaluator) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'combat core evidence alone cannot cover tag consumers' `
+        -Paths @('Source/ShanmenCombatCore/Public/ShanmenCombatTags.h') `
+        -Logs @($CombatCore) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
