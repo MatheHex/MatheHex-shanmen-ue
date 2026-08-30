@@ -165,6 +165,9 @@ try
     $FormationInfluenceLifecycleCoordinator = New-AutomationLogFixture `
         -Name 'formation-influence-lifecycle-coordinator.log' `
         -Group 'Shanmen.0_0_10.Product.FormationInfluenceLifecycleCoordinator'
+    $FormationInfluenceLifecycleCommandRouter = New-AutomationLogFixture `
+        -Name 'formation-influence-lifecycle-command-router.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandRouter'
     $Legacy = New-AutomationLogFixture `
         -Name 'legacy.log' `
         -Group 'demo_map'
@@ -302,6 +305,12 @@ try
         -Name 'formation influence lifecycle coordinator is covered by broad full evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceLifecycleCoordinator.cpp') `
+        -Logs @($Full)
+
+    Invoke-ExpectedPass `
+        -Name 'formation influence lifecycle command router is covered by broad full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceLifecycleCommandRouter.cpp') `
         -Logs @($Full)
 
     Invoke-ExpectedPass `
@@ -550,6 +559,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceLifecycleCoordinator.cpp') `
         -Logs @($FormationInfluenceLifecycleCoordinator) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'formation lifecycle command router child evidence cannot replace coordinator Host and teardown contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceLifecycleCommandRouter.cpp') `
+        -Logs @($FormationInfluenceLifecycleCommandRouter) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

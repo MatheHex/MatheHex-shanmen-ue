@@ -7,6 +7,7 @@
 #include "demo_mapShanmenFormationInfluenceExecutionRouter.h"
 #include "demo_mapShanmenFormationInfluenceExecutionService.h"
 #include "demo_mapShanmenFormationInfluenceLifecycleCoordinator.h"
+#include "demo_mapShanmenFormationInfluenceLifecycleCommandRouter.h"
 
 #include "ShanmenCombatResolver.h"
 #include "demo_map0909BSectWarehouseService.h"
@@ -513,6 +514,54 @@ namespace
 		Request.ExpectedIntentId = ExpectedIntentId;
 		check(Request.IsValid());
 		return Request;
+	}
+
+	FGuid MakeLifecycleCommandId(const int32 Ordinal)
+	{
+		return FGuid(0xF8720000 + Ordinal, 0, 0, 1);
+	}
+
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommand
+	MakeLifecycleStepCommand(
+		const Fdemo_mapShanmenRunCorrelation& Correlation,
+		const Fdemo_mapShanmenFormationInfluenceExecutionRequest& Request)
+	{
+		Fdemo_mapShanmenFormationInfluenceLifecycleCommand Command;
+		check(Fdemo_mapShanmenFormationInfluenceLifecycleCommand::
+			TryCaptureStep(
+				Request.RequestId,
+				Correlation,
+				Request,
+				Command));
+		return Command;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommand
+	MakeLifecycleTerminalCommand(
+		const Fdemo_mapShanmenRunCorrelation& Correlation,
+		const int32 CommandOrdinal)
+	{
+		Fdemo_mapShanmenFormationInfluenceLifecycleCommand Command;
+		check(Fdemo_mapShanmenFormationInfluenceLifecycleCommand::
+			TryCapturePrepareTerminal(
+				MakeLifecycleCommandId(CommandOrdinal),
+				Correlation,
+				Command));
+		return Command;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommand
+	MakeLifecycleEndCommand(
+		const Fdemo_mapShanmenRunCorrelation& Correlation,
+		const int32 CommandOrdinal)
+	{
+		Fdemo_mapShanmenFormationInfluenceLifecycleCommand Command;
+		check(Fdemo_mapShanmenFormationInfluenceLifecycleCommand::
+			TryCaptureSealAndEnd(
+				MakeLifecycleCommandId(CommandOrdinal),
+				Correlation,
+				Command));
+		return Command;
 	}
 
 	bool HostExecutionCommandsMatch(
@@ -3092,6 +3141,353 @@ bool Fdemo_mapFormationInfluenceLifecycleCoordinatorRecoveryTest::RunTest(
 			&& !RemoveReplay.Step.Execution.bExecutorInvoked
 			&& Coordinator.GetExecutorAttemptCount() == 2
 			&& Coordinator.GetActiveLeaseCount() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceLifecycleCommandRouterExplicitTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandRouter.TypedLifecycle",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceLifecycleCommandRouterExplicitTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("LifecycleCommandTyped"),
+			2, Prime, Subjects))
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandRouter Router;
+	const auto FirstApplyCommand = MakeLifecycleStepCommand(
+		Fixture.Correlation,
+		MakeHostExecutionRequest(
+			Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 200));
+	const auto SecondApplyCommand = MakeLifecycleStepCommand(
+		Fixture.Correlation,
+		MakeHostExecutionRequest(
+			Prime.ReconciliationPlan.Batch.Intents[1].IntentId, 201));
+	const auto FirstApply = Router.TryRoute(
+		nullptr, Fixture.Host, FirstApplyCommand);
+	const auto SecondApply = Router.TryRoute(
+		nullptr, Fixture.Host, SecondApplyCommand);
+	const auto Terminal = Router.TryRoute(
+		nullptr, Fixture.Host,
+		MakeLifecycleTerminalCommand(Fixture.Correlation, 202));
+
+	Fdemo_mapShanmenFormationInfluenceIntent FirstRemoveIntent;
+	if (!FirstApply.IsSuccess() || !SecondApply.IsSuccess()
+		|| !Terminal.IsSuccess()
+		|| !Fixture.Host.TryPeekNextInfluenceIntent(FirstRemoveIntent))
+	{
+		return false;
+	}
+	const auto FirstRemove = Router.TryRoute(
+		nullptr, Fixture.Host,
+		MakeLifecycleStepCommand(
+			Fixture.Correlation,
+			MakeHostExecutionRequest(FirstRemoveIntent.IntentId, 202)));
+	Fdemo_mapShanmenFormationInfluenceIntent SecondRemoveIntent;
+	if (!FirstRemove.IsSuccess()
+		|| !Fixture.Host.TryPeekNextInfluenceIntent(SecondRemoveIntent))
+	{
+		return false;
+	}
+	const auto SecondRemove = Router.TryRoute(
+		nullptr, Fixture.Host,
+		MakeLifecycleStepCommand(
+			Fixture.Correlation,
+			MakeHostExecutionRequest(SecondRemoveIntent.IntentId, 203)));
+	const auto Completed = Router.TryRoute(
+		Fixture.World, Fixture.Host,
+		MakeLifecycleEndCommand(Fixture.Correlation, 205));
+
+	TestTrue(TEXT("Typed commands preserve one-operation routing"),
+		FirstApply.IsSuccess() && SecondApply.IsSuccess()
+			&& Terminal.IsSuccess() && FirstRemove.IsSuccess()
+			&& SecondRemove.IsSuccess() && Completed.IsSuccess()
+			&& Router.GetRecordCount() == 6);
+	TestTrue(TEXT("Typed lifecycle reaches the same explicit terminal state"),
+		Router.IsValid() && Router.IsBound()
+			&& Router.GetCoordinator().GetRouteRecordCount() == 4
+			&& Router.GetCoordinator().GetExecutorAttemptCount() == 4
+			&& Router.GetCoordinator().GetCompletedIntentCount() == 4
+			&& Router.GetCoordinator().GetActiveLeaseCount() == 0
+			&& Fixture.Host.GetPendingInfluenceIntentCount() == 0
+			&& Fixture.Host.GetInfluenceLedger().IsSealed());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceLifecycleCommandRouterIdentityTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandRouter.IdentityConflictAndReplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceLifecycleCommandRouterIdentityTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture Fixture;
+	FFormationHostFixture OtherFixture;
+	FShanmenWorldEntityRegistry Registry;
+	FShanmenWorldEntityRegistry OtherRegistry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	Fdemo_mapShanmenFormationHostInfluenceResult OtherPrime;
+	TArray<AActor*> Subjects;
+	TArray<AActor*> OtherSubjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("LifecycleCommandIdentity"),
+			1, Prime, Subjects)
+		|| !PrimeHostExecutorInfluence(
+			*this, OtherFixture, OtherRegistry,
+			TEXT("LifecycleCommandIdentityOther"),
+			1, OtherPrime, OtherSubjects))
+	{
+		return false;
+	}
+
+	const FGuid IntentId =
+		Prime.ReconciliationPlan.Batch.Intents[0].IntentId;
+	const auto Request = MakeHostExecutionRequest(IntentId, 210);
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommand AliasedStep;
+	const bool bAliasedStepCaptured =
+		Fdemo_mapShanmenFormationInfluenceLifecycleCommand::TryCaptureStep(
+			MakeLifecycleCommandId(299),
+			Fixture.Correlation,
+			Request,
+			AliasedStep);
+	const auto Command = MakeLifecycleStepCommand(
+		Fixture.Correlation, Request);
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandRouter Router;
+	const auto Applied = Router.TryRoute(nullptr, Fixture.Host, Command);
+	const int32 AttemptsAfterApply =
+		Router.GetCoordinator().GetExecutorAttemptCount();
+	const auto Replayed = Router.TryRoute(nullptr, Fixture.Host, Command);
+	const auto ForeignReplay = Router.TryRoute(
+		nullptr, OtherFixture.Host, Command);
+
+	auto ConflictingRequest = Request;
+	ConflictingRequest.ExpectedIntentId = FGuid(0xF8730001, 0, 0, 1);
+	check(ConflictingRequest.IsValid());
+	const auto PayloadConflict = Router.TryRoute(
+		nullptr, Fixture.Host,
+		MakeLifecycleStepCommand(Fixture.Correlation, ConflictingRequest));
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommand
+		ConflictingKindCommand;
+	check(Fdemo_mapShanmenFormationInfluenceLifecycleCommand::
+		TryCapturePrepareTerminal(
+			Request.RequestId,
+			Fixture.Correlation,
+			ConflictingKindCommand));
+	const auto KindConflict = Router.TryRoute(
+		nullptr, Fixture.Host, ConflictingKindCommand);
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommand InvalidCommand;
+	const auto Invalid = Router.TryRoute(
+		nullptr, Fixture.Host, InvalidCommand);
+
+	TestTrue(TEXT("Exact command replay never re-enters the Coordinator"),
+		Applied.IsSuccess() && Replayed.IsSuccess()
+			&& Replayed.IsReplay()
+			&& !Replayed.bRouterStateCommitted
+			&& Router.GetCoordinator().GetExecutorAttemptCount()
+				== AttemptsAfterApply
+			&& Router.GetRecordCount() == 1);
+	TestTrue(TEXT("Exact replay still requires the bound Host"),
+		ForeignReplay.Status
+			== Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::
+				LifecycleRejected
+			&& ForeignReplay.Lifecycle.Status
+				== Edemo_mapShanmenFormationInfluenceLifecycleStatus::
+					CorrelationMismatch
+			&& !ForeignReplay.IsReplay()
+			&& !ForeignReplay.bRouterStateCommitted);
+	TestTrue(TEXT("CommandId freezes kind and nested request payload"),
+		PayloadConflict.Status
+			== Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::
+				CommandIdConflict
+			&& KindConflict.Status
+				== Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::
+					CommandIdConflict
+			&& !PayloadConflict.bRouterStateCommitted
+			&& !KindConflict.bRouterStateCommitted);
+	TestTrue(TEXT("Invalid command fails before Router mutation"),
+		!bAliasedStepCaptured && !AliasedStep.IsValid()
+			&& Invalid.Status
+			== Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::
+				CommandInvalid
+			&& Router.GetRecordCount() == 1 && Router.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceLifecycleCommandRouterProgressTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandRouter.NoImplicitProgress",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceLifecycleCommandRouterProgressTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("LifecycleCommandProgress"),
+			1, Prime, Subjects))
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandRouter Router;
+	const auto TerminalCommand =
+		MakeLifecycleTerminalCommand(Fixture.Correlation, 220);
+	const auto Terminal = Router.TryRoute(
+		nullptr, Fixture.Host, TerminalCommand);
+	if (!Terminal.IsSuccess())
+	{
+		return false;
+	}
+	const auto TerminalAlias = Router.TryRoute(
+		nullptr, Fixture.Host,
+		MakeLifecycleTerminalCommand(Fixture.Correlation, 224));
+	const int32 PendingAfterTerminal =
+		Fixture.Host.GetPendingInfluenceIntentCount();
+	const auto EndCommand =
+		MakeLifecycleEndCommand(Fixture.Correlation, 221);
+	const auto EarlyEnd = Router.TryRoute(
+		Fixture.World, Fixture.Host, EndCommand);
+	const FGuid RemoveIntentId = Terminal.Lifecycle.TerminalPreparation.
+		ReconciliationPlan.Batch.Intents[0].IntentId;
+	const auto RemoveCommand = MakeLifecycleStepCommand(
+		Fixture.Correlation,
+		MakeHostExecutionRequest(RemoveIntentId, 220));
+	const auto EarlyRemove = Router.TryRoute(
+		nullptr, Fixture.Host, RemoveCommand);
+
+	const auto Apply = Router.TryRoute(
+		nullptr, Fixture.Host,
+		MakeLifecycleStepCommand(
+			Fixture.Correlation,
+			MakeHostExecutionRequest(
+				Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 221)));
+	const auto Remove = Router.TryRoute(
+		nullptr, Fixture.Host, RemoveCommand);
+	const auto Completed = Router.TryRoute(
+		Fixture.World, Fixture.Host, EndCommand);
+
+	TestTrue(TEXT("Terminal command publishes but never drains"),
+		PendingAfterTerminal == 2
+			&& TerminalAlias.Status
+				== Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::
+					OperationIdentityConflict
+			&& EarlyEnd.Status
+				== Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::
+					LifecycleRejected
+			&& EarlyEnd.Lifecycle.Status
+				== Edemo_mapShanmenFormationInfluenceLifecycleStatus::
+					SealRejected
+			&& !EarlyEnd.bRouterStateCommitted
+			&& Router.GetCoordinator().GetExecutorAttemptCount() == 2);
+	TestTrue(TEXT("Out-of-order Remove is not recorded or advanced"),
+		EarlyRemove.Status
+			== Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::
+				LifecycleRejected
+			&& EarlyRemove.Lifecycle.Step.Route.Status
+				== Edemo_mapShanmenFormationInfluenceRouteStatus::
+					IntentOutOfOrder
+			&& !EarlyRemove.bRouterStateCommitted);
+	TestTrue(TEXT("Caller may resubmit unchanged precondition-rejected commands"),
+		Apply.IsSuccess() && Remove.IsSuccess() && Completed.IsSuccess()
+			&& Router.GetRecordCount() == 4
+			&& Fixture.Host.GetPendingInfluenceIntentCount() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceLifecycleCommandRouterRecoveryTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandRouter.ForwardCompletionRecovery",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceLifecycleCommandRouterRecoveryTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("LifecycleCommandRecovery"),
+			1, Prime, Subjects))
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandRouter Router;
+	const auto Apply = Router.TryRoute(
+		nullptr, Fixture.Host,
+		MakeLifecycleStepCommand(
+			Fixture.Correlation,
+			MakeHostExecutionRequest(
+				Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 230)));
+	const auto Terminal = Router.TryRoute(
+		nullptr, Fixture.Host,
+		MakeLifecycleTerminalCommand(Fixture.Correlation, 231));
+	Fdemo_mapShanmenFormationInfluenceIntent RemoveIntent;
+	if (!Apply.IsSuccess() || !Terminal.IsSuccess()
+		|| !Fixture.Host.TryPeekNextInfluenceIntent(RemoveIntent))
+	{
+		return false;
+	}
+	const auto Remove = Router.TryRoute(
+		nullptr, Fixture.Host,
+		MakeLifecycleStepCommand(
+			Fixture.Correlation,
+			MakeHostExecutionRequest(RemoveIntent.IntentId, 231)));
+	const auto EndCommand =
+		MakeLifecycleEndCommand(Fixture.Correlation, 233);
+	const auto FailedEnd = Router.TryRoute(
+		nullptr, Fixture.Host, EndCommand);
+	const int32 RecordsAfterFailure = Router.GetRecordCount();
+	const auto EndAlias = Router.TryRoute(
+		Fixture.World, Fixture.Host,
+		MakeLifecycleEndCommand(Fixture.Correlation, 234));
+	const auto Recovered = Router.TryRoute(
+		Fixture.World, Fixture.Host, EndCommand);
+	const auto Replayed = Router.TryRoute(
+		Fixture.World, Fixture.Host, EndCommand);
+	const auto Conflict = Router.TryRoute(
+		nullptr, Fixture.Host,
+		MakeLifecycleTerminalCommand(Fixture.Correlation, 233));
+
+	TestTrue(TEXT("Forward-mutating end rejection locks command identity"),
+		Remove.IsSuccess()
+			&& FailedEnd.Status
+				== Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::
+					LifecycleRejected
+			&& FailedEnd.Lifecycle.Status
+				== Edemo_mapShanmenFormationInfluenceLifecycleStatus::EndRejected
+			&& FailedEnd.bRouterStateCommitted
+			&& RecordsAfterFailure == 4
+			&& EndAlias.Status
+				== Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::
+					OperationIdentityConflict
+			&& Router.IsValid());
+	TestTrue(TEXT("Exact command explicitly recovers World teardown once"),
+		Recovered.IsSuccess() && Recovered.bRecoveryAttempted
+			&& Recovered.bRouterStateCommitted
+			&& Replayed.IsSuccess() && Replayed.IsReplay()
+			&& !Replayed.bRecoveryAttempted
+			&& Router.GetRecordCount() == 4
+			&& Fixture.Host.GetInfluenceLedger().IsSealed());
+	TestTrue(TEXT("Recovered CommandId remains payload-frozen"),
+		Conflict.Status
+			== Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::
+				CommandIdConflict
+			&& !Conflict.bRouterStateCommitted);
 	return true;
 }
 
