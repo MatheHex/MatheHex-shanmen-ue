@@ -214,6 +214,18 @@
       ]
     },
     {
+      "name": "FormationInfluenceConsumerProjection",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenFormationInfluenceConsumerProjection(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerProjection",
+        "Shanmen.0_0_10.Product.FormationInfluenceEvaluationBinding",
+        "Shanmen.0_0_10.Product.FormationInfluenceModifierEvaluator",
+        "Shanmen.0_0_10.Product.FormationInfluenceLeaseExecutor",
+        "demo_map.V3.Attributes",
+        "Shanmen.0_0_10.CombatCore"
+      ]
+    },
+    {
       "name": "FormationInfluenceReconciliation",
       "pathRegex": "^Source/demo_map/demo_mapShanmenFormationInfluenceReconciliationPlanner(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [

@@ -147,9 +147,15 @@ try
     $FormationInfluenceEvaluationBinding = New-AutomationLogFixture `
         -Name 'formation-influence-evaluation-binding.log' `
         -Group 'Shanmen.0_0_10.Product.FormationInfluenceEvaluationBinding'
+    $FormationInfluenceConsumerProjection = New-AutomationLogFixture `
+        -Name 'formation-influence-consumer-projection.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationInfluenceConsumerProjection'
     $CombatCore = New-AutomationLogFixture `
         -Name 'combat-core.log' `
         -Group 'Shanmen.0_0_10.CombatCore'
+    $Attributes = New-AutomationLogFixture `
+        -Name 'attributes.log' `
+        -Group 'demo_map.V3.Attributes'
     $FormationInfluenceReconciliation = New-AutomationLogFixture `
         -Name 'formation-influence-reconciliation.log' `
         -Group 'Shanmen.0_0_10.Product.FormationInfluenceReconciliation'
@@ -305,6 +311,12 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceLeaseExecutor.cpp') `
         -Logs @($Full)
+
+    Invoke-ExpectedPass `
+        -Name 'formation influence consumer projection maps lease evidence to legacy attributes' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerProjection.cpp') `
+        -Logs @($Full, $Attributes)
 
     Invoke-ExpectedPass `
         -Name 'formation influence product runtime is covered by broad full evidence' `
@@ -546,6 +558,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceEvaluationBinding.cpp') `
         -Logs @($FormationInfluenceEvaluationBinding) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'consumer projection child evidence cannot replace lease evaluator attribute and tag contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerProjection.cpp') `
+        -Logs @($FormationInfluenceConsumerProjection) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
