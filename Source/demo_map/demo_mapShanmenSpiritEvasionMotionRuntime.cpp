@@ -150,6 +150,39 @@ namespace
 				bBlocked ? TEXT("blocked") : TEXT("committed")
 			});
 	}
+
+	FGuid MakeTerminationReceiptId(
+		const FGuid& SessionId,
+		const FGuid& PendingCommandId,
+		Edemo_mapShanmenSpiritEvasionMotionTerminationReason Reason,
+		int32 AcceptedSegmentCount,
+		float ResolvedDistance,
+		double LastElapsedSeconds)
+	{
+		if (!SessionId.IsValid()
+			|| Reason
+				== Edemo_mapShanmenSpiritEvasionMotionTerminationReason::None
+			|| AcceptedSegmentCount < 0
+			|| !FMath::IsFinite(ResolvedDistance)
+			|| ResolvedDistance < 0.0f
+			|| !FMath::IsFinite(LastElapsedSeconds)
+			|| LastElapsedSeconds < 0.0)
+		{
+			return FGuid();
+		}
+		return FShanmenDeterministicId::FromCanonicalParts(
+			TEXT("demo_map.Spell.SpiritEvasion.MotionTermination.r1"),
+			{
+				GuidDigits(SessionId),
+				PendingCommandId.IsValid()
+					? GuidDigits(PendingCommandId)
+					: TEXT("none"),
+				FString::FromInt(static_cast<uint8>(Reason)),
+				FString::FromInt(AcceptedSegmentCount),
+				FloatBits(ResolvedDistance),
+				DoubleBits(LastElapsedSeconds)
+			});
+	}
 }
 
 bool Fdemo_mapShanmenSpiritEvasionTrajectorySnapshot::TryCapture(
@@ -274,6 +307,26 @@ bool Fdemo_mapShanmenSpiritEvasionSegmentReceipt::IsValid() const
 		&& ReceiptId == MakeReceiptId(Command, ResolvedDistance, bBlocked);
 }
 
+bool Fdemo_mapShanmenSpiritEvasionMotionTerminationReceipt::IsValid() const
+{
+	return ReceiptId.IsValid()
+		&& SessionId.IsValid()
+		&& Reason
+			!= Edemo_mapShanmenSpiritEvasionMotionTerminationReason::None
+		&& AcceptedSegmentCount >= 0
+		&& FMath::IsFinite(ResolvedDistance)
+		&& ResolvedDistance >= 0.0f
+		&& FMath::IsFinite(LastElapsedSeconds)
+		&& LastElapsedSeconds >= 0.0
+		&& ReceiptId == MakeTerminationReceiptId(
+			SessionId,
+			PendingCommandId,
+			Reason,
+			AcceptedSegmentCount,
+			ResolvedDistance,
+			LastElapsedSeconds);
+}
+
 bool Fdemo_mapShanmenSpiritEvasionMotionSession::TryStart(
 	const Fdemo_mapShanmenSpiritEvasionMotionPlan& MotionPlan,
 	const Fdemo_mapShanmenSpiritEvasionMovementPreflightResult& Preflight,
@@ -326,6 +379,27 @@ bool Fdemo_mapShanmenSpiritEvasionMotionSession::IsValid() const
 			|| PendingCommand.GetSegmentOrdinal()
 				!= AcceptedSegmentCount + 1
 			|| PendingCommand.GetSegmentCount() != SegmentCount))
+	{
+		return false;
+	}
+	if (State == Edemo_mapShanmenSpiritEvasionMotionState::Terminated)
+	{
+		return !PendingCommand.IsValid()
+			&& TerminationReason
+				!= Edemo_mapShanmenSpiritEvasionMotionTerminationReason::None
+			&& TerminationReceipt.IsValid()
+			&& TerminationReceipt.GetSessionId() == SessionId
+			&& TerminationReceipt.GetReason() == TerminationReason
+			&& TerminationReceipt.GetAcceptedSegmentCount()
+				== AcceptedSegmentCount
+			&& TerminationReceipt.GetResolvedDistance()
+				== ResolvedDistance
+			&& TerminationReceipt.GetLastElapsedSeconds()
+				== LastElapsedSeconds;
+	}
+	if (TerminationReason
+			!= Edemo_mapShanmenSpiritEvasionMotionTerminationReason::None
+		|| TerminationReceipt.IsValid())
 	{
 		return false;
 	}
@@ -435,6 +509,53 @@ bool Fdemo_mapShanmenSpiritEvasionMotionSession::TryAcceptReceipt(
 		return false;
 	}
 	*this = MoveTemp(Candidate);
+	return true;
+}
+
+bool Fdemo_mapShanmenSpiritEvasionMotionSession::TryTerminate(
+	Edemo_mapShanmenSpiritEvasionMotionTerminationReason Reason,
+	Fdemo_mapShanmenSpiritEvasionMotionTerminationReceipt& OutReceipt)
+{
+	OutReceipt = Fdemo_mapShanmenSpiritEvasionMotionTerminationReceipt();
+	if (!IsValid()
+		|| State != Edemo_mapShanmenSpiritEvasionMotionState::Active
+		|| Reason
+			== Edemo_mapShanmenSpiritEvasionMotionTerminationReason::None)
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenSpiritEvasionMotionSession Candidate = *this;
+	Candidate.TerminationReceipt.SessionId = Candidate.SessionId;
+	Candidate.TerminationReceipt.PendingCommandId =
+		Candidate.PendingCommand.IsValid()
+			? Candidate.PendingCommand.GetCommandId()
+			: FGuid();
+	Candidate.TerminationReceipt.Reason = Reason;
+	Candidate.TerminationReceipt.AcceptedSegmentCount =
+		Candidate.AcceptedSegmentCount;
+	Candidate.TerminationReceipt.ResolvedDistance =
+		Candidate.ResolvedDistance;
+	Candidate.TerminationReceipt.LastElapsedSeconds =
+		Candidate.LastElapsedSeconds;
+	Candidate.TerminationReceipt.ReceiptId = MakeTerminationReceiptId(
+		Candidate.TerminationReceipt.SessionId,
+		Candidate.TerminationReceipt.PendingCommandId,
+		Candidate.TerminationReceipt.Reason,
+		Candidate.TerminationReceipt.AcceptedSegmentCount,
+		Candidate.TerminationReceipt.ResolvedDistance,
+		Candidate.TerminationReceipt.LastElapsedSeconds);
+	Candidate.PendingCommand =
+		Fdemo_mapShanmenSpiritEvasionSegmentCommand();
+	Candidate.TerminationReason = Reason;
+	Candidate.State = Edemo_mapShanmenSpiritEvasionMotionState::Terminated;
+	if (!Candidate.IsValid())
+	{
+		return false;
+	}
+
+	*this = MoveTemp(Candidate);
+	OutReceipt = TerminationReceipt;
 	return true;
 }
 

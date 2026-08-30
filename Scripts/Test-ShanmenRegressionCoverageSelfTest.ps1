@@ -135,6 +135,9 @@ try
     $SpiritEvasionMotionRuntime = New-AutomationLogFixture `
         -Name 'spirit-evasion-motion-runtime.log' `
         -Group 'Shanmen.0_0_10.Product.SpiritEvasionMotionRuntime'
+    $SpiritEvasionActionCoordinator = New-AutomationLogFixture `
+        -Name 'spirit-evasion-action-coordinator.log' `
+        -Group 'Shanmen.0_0_10.Product.SpiritEvasionActionCoordinator'
     $SpiritShieldRuntime = New-AutomationLogFixture `
         -Name 'spirit-shield-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShield'
@@ -406,6 +409,23 @@ try
             $SpiritEvasionMotionRuntime,
             $SpiritEvasionMovementProduct,
             $SpiritEvasionMovement,
+            $Enemy,
+            $Ranged)
+
+    Invoke-ExpectedPass `
+        -Name 'spirit evasion action coordinator maps every owned lifecycle seam' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSpiritEvasionActionCoordinator.h',
+            'Source/demo_map/demo_mapShanmenSpiritEvasionActionCoordinator.cpp',
+            'Source/demo_map/demo_mapShanmenSpiritEvasionActionCoordinatorTests.cpp') `
+        -Logs @(
+            $Full,
+            $SpiritEvasionActionCoordinator,
+            $SpiritEvasionMotionRuntime,
+            $SpiritEvasionMovementProduct,
+            $SpiritEvasionMovement,
+            $SpiritEvasion,
+            $ActionLifecycle,
             $Enemy,
             $Ranged)
 
@@ -803,6 +823,17 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenSpiritEvasionMotionRuntime.cpp') `
         -Logs @(
+            $SpiritEvasionMotionRuntime,
+            $SpiritEvasionMovementProduct,
+            $SpiritEvasionMovement) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'spirit evasion coordinator focus cannot replace lifecycle and legacy evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSpiritEvasionActionCoordinator.cpp') `
+        -Logs @(
+            $SpiritEvasionActionCoordinator,
             $SpiritEvasionMotionRuntime,
             $SpiritEvasionMovementProduct,
             $SpiritEvasionMovement) `

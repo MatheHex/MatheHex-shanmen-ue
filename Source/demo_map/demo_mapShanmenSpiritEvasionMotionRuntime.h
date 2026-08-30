@@ -121,7 +121,48 @@ enum class Edemo_mapShanmenSpiritEvasionMotionState : uint8
 	Invalid,
 	Active,
 	Completed,
-	Blocked
+	Blocked,
+	Terminated
+};
+
+/** Explicit non-collision reason for abandoning an otherwise active motion. */
+enum class Edemo_mapShanmenSpiritEvasionMotionTerminationReason : uint8
+{
+	None,
+	ExplicitCancel,
+	ActionEnded,
+	ActionInterrupted,
+	OwnerEnded,
+	ExecutionUnavailable
+};
+
+/** Replay-stable proof that one active session stopped without another move. */
+class Fdemo_mapShanmenSpiritEvasionMotionTerminationReceipt
+{
+public:
+	bool IsValid() const;
+	const FGuid& GetReceiptId() const { return ReceiptId; }
+	const FGuid& GetSessionId() const { return SessionId; }
+	const FGuid& GetPendingCommandId() const { return PendingCommandId; }
+	Edemo_mapShanmenSpiritEvasionMotionTerminationReason GetReason() const
+	{
+		return Reason;
+	}
+	int32 GetAcceptedSegmentCount() const { return AcceptedSegmentCount; }
+	float GetResolvedDistance() const { return ResolvedDistance; }
+	double GetLastElapsedSeconds() const { return LastElapsedSeconds; }
+
+private:
+	friend class Fdemo_mapShanmenSpiritEvasionMotionSession;
+
+	FGuid ReceiptId;
+	FGuid SessionId;
+	FGuid PendingCommandId;
+	Edemo_mapShanmenSpiritEvasionMotionTerminationReason Reason =
+		Edemo_mapShanmenSpiritEvasionMotionTerminationReason::None;
+	int32 AcceptedSegmentCount = 0;
+	float ResolvedDistance = 0.0f;
+	double LastElapsedSeconds = 0.0;
 };
 
 /**
@@ -144,6 +185,9 @@ public:
 		Fdemo_mapShanmenSpiritEvasionSegmentCommand& OutCommand);
 	bool TryAcceptReceipt(
 		const Fdemo_mapShanmenSpiritEvasionSegmentReceipt& Receipt);
+	bool TryTerminate(
+		Edemo_mapShanmenSpiritEvasionMotionTerminationReason Reason,
+		Fdemo_mapShanmenSpiritEvasionMotionTerminationReceipt& OutReceipt);
 
 	const FGuid& GetSessionId() const { return SessionId; }
 	const Fdemo_mapShanmenSpiritEvasionMotionPlan& GetMotionPlan() const
@@ -160,6 +204,16 @@ public:
 	{
 		return PendingCommand;
 	}
+	Edemo_mapShanmenSpiritEvasionMotionTerminationReason
+	GetTerminationReason() const
+	{
+		return TerminationReason;
+	}
+	const Fdemo_mapShanmenSpiritEvasionMotionTerminationReceipt&
+	GetTerminationReceipt() const
+	{
+		return TerminationReceipt;
+	}
 
 private:
 	FGuid SessionId;
@@ -171,6 +225,10 @@ private:
 	int32 AcceptedSegmentCount = 0;
 	double LastElapsedSeconds = 0.0;
 	Fdemo_mapShanmenSpiritEvasionSegmentCommand PendingCommand;
+	Edemo_mapShanmenSpiritEvasionMotionTerminationReason TerminationReason =
+		Edemo_mapShanmenSpiritEvasionMotionTerminationReason::None;
+	Fdemo_mapShanmenSpiritEvasionMotionTerminationReceipt
+		TerminationReceipt;
 };
 
 enum class Edemo_mapShanmenSpiritEvasionSegmentExecutionStatus : uint8

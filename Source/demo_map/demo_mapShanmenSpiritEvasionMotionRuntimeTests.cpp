@@ -366,6 +366,67 @@ bool Fdemo_mapShanmenSpiritEvasionMotionBlockedTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapShanmenSpiritEvasionMotionTerminationReceiptTest,
+	"Shanmen.0_0_10.Product.SpiritEvasionMotionRuntime.TerminationReceipt",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapShanmenSpiritEvasionMotionTerminationReceiptTest::RunTest(
+	const FString&)
+{
+	const Fdemo_mapShanmenSpiritEvasionMotionPlan Plan = MakeMotionPlan();
+	Fdemo_mapShanmenSpiritEvasionMotionSession Session = MakeMotionSession(Plan);
+	Fdemo_mapShanmenSpiritEvasionSegmentCommand Command;
+	check(Session.TryIssueNextCommand(ScheduledTime(Plan, 1), Command));
+	Fdemo_mapShanmenSpiritEvasionMotionTerminationReceipt Termination;
+	TestTrue(TEXT("Explicit termination closes and audits the pending command"),
+		Session.TryTerminate(
+			Edemo_mapShanmenSpiritEvasionMotionTerminationReason::
+			ExplicitCancel,
+			Termination)
+			&& Session.IsValid()
+			&& Session.GetState()
+				== Edemo_mapShanmenSpiritEvasionMotionState::Terminated
+			&& Session.GetTerminationReason()
+				== Edemo_mapShanmenSpiritEvasionMotionTerminationReason::
+				ExplicitCancel
+			&& !Session.HasPendingCommand()
+			&& Termination.IsValid()
+			&& Termination.GetSessionId() == Session.GetSessionId()
+			&& Termination.GetPendingCommandId() == Command.GetCommandId()
+			&& Termination.GetAcceptedSegmentCount() == 0
+			&& Termination.GetResolvedDistance() == 0.0f
+			&& Termination.GetLastElapsedSeconds() == ScheduledTime(Plan, 1));
+	Fdemo_mapShanmenSpiritEvasionMotionTerminationReceipt Duplicate;
+	TestFalse(TEXT("Terminal session cannot emit a second closure"),
+		Session.TryTerminate(
+			Edemo_mapShanmenSpiritEvasionMotionTerminationReason::ActionEnded,
+			Duplicate));
+	TestFalse(TEXT("Terminal session cannot accept its abandoned command"),
+		Session.TryAcceptReceipt(MakeSegmentReceipt(
+			Command, Command.GetRequestedDistance(), false)));
+	Fdemo_mapShanmenSpiritEvasionSegmentCommand Extra;
+	TestFalse(TEXT("Terminal session cannot issue another segment"),
+		Session.TryIssueNextCommand(ScheduledTime(Plan, 4), Extra));
+
+	Fdemo_mapShanmenSpiritEvasionMotionSession Replay = MakeMotionSession(Plan);
+	Fdemo_mapShanmenSpiritEvasionSegmentCommand ReplayCommand;
+	check(Replay.TryIssueNextCommand(ScheduledTime(Plan, 1), ReplayCommand));
+	Fdemo_mapShanmenSpiritEvasionMotionTerminationReceipt ReplayTermination;
+	check(Replay.TryTerminate(
+		Edemo_mapShanmenSpiritEvasionMotionTerminationReason::ExplicitCancel,
+		ReplayTermination));
+	TestEqual(TEXT("Equivalent closure reproduces termination identity"),
+		ReplayTermination.GetReceiptId(), Termination.GetReceiptId());
+
+	Fdemo_mapShanmenSpiritEvasionMotionSession Fresh = MakeMotionSession(Plan);
+	TestFalse(TEXT("None is not a terminal reason"),
+		Fresh.TryTerminate(
+			Edemo_mapShanmenSpiritEvasionMotionTerminationReason::None,
+			Duplicate));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	Fdemo_mapShanmenSpiritEvasionSegmentExecutionBoundaryTest,
 	"Shanmen.0_0_10.Product.SpiritEvasionMotionRuntime.ExecutionBoundary",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
