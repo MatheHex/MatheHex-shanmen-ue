@@ -129,6 +129,9 @@ try
     $SpiritEvasionMovement = New-AutomationLogFixture `
         -Name 'spirit-evasion-movement.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritEvasionMovement'
+    $SpiritEvasionMovementProduct = New-AutomationLogFixture `
+        -Name 'spirit-evasion-movement-product.log' `
+        -Group 'Shanmen.0_0_10.Product.SpiritEvasionMovementAdapter'
     $SpiritShieldRuntime = New-AutomationLogFixture `
         -Name 'spirit-shield-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShield'
@@ -372,6 +375,22 @@ try
             $SpiritEvasion,
             $ActionLifecycle,
             $CombatRuntime)
+
+    Invoke-ExpectedPass `
+        -Name 'spirit evasion product displacement maps adapter and legacy callers' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSpiritEvasionMovementAdapter.h',
+            'Source/demo_map/demo_mapShanmenSpiritEvasionMovementAdapter.cpp',
+            'Source/demo_map/demo_mapShanmenSpiritEvasionMovementAdapterTests.cpp',
+            'Source/demo_map/demo_mapCombatDisplacement.h',
+            'Source/demo_map/demo_mapCombatDisplacement.cpp',
+            'Source/demo_map/demo_mapEnemySkillRuntimeComponent.cpp') `
+        -Logs @(
+            $Full,
+            $SpiritEvasionMovementProduct,
+            $SpiritEvasionMovement,
+            $Enemy,
+            $Ranged)
 
     Invoke-ExpectedPass `
         -Name 'formation material adapter is covered by broad full evidence' `
@@ -753,6 +772,13 @@ try
         -Paths @(
             'Source/ShanmenCombatRuntime/Private/ShanmenSpiritEvasionMovement.cpp') `
         -Logs @($SpiritEvasionMovement, $ActionLifecycle) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'spirit evasion product focus cannot replace legacy displacement evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSpiritEvasionMovementAdapter.cpp') `
+        -Logs @($SpiritEvasionMovementProduct, $SpiritEvasionMovement) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

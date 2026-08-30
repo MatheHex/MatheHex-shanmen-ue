@@ -21,11 +21,16 @@ public:
 		const FVector& Primary,
 		const FVector& Fallback,
 		FVector& OutDirection);
-	static float ClampPreflightDistance(float RequestedDistance, float HitDistance, bool bBlockingHit);
+	static float ClampPreflightDistance(
+		float RequestedDistance,
+		float HitDistance,
+		bool bBlockingHit,
+		float WorldStaticClearance);
 	static Fdemo_mapCombatDisplacementResult PreflightWorldStatic(
 		const ACharacter* Character,
 		const FVector& PlanarDirection,
-		float RequestedDistance);
+		float RequestedDistance,
+		float WorldStaticClearance);
 	static Fdemo_mapCombatDisplacementResult MoveCharacterSwept(
 		ACharacter* Character,
 		const FVector& PlanarDirection,

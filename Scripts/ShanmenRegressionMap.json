@@ -118,6 +118,28 @@
       ]
     },
     {
+      "name": "CombatDisplacement",
+      "pathRegex": "^Source/demo_map/demo_mapCombatDisplacement\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.SpiritEvasionMovementAdapter",
+        "Shanmen.0_0_10.CombatRuntime.SpiritEvasionMovement",
+        "demo_map.EnemySkillFramework",
+        "demo_map.V2RangedCompatibility"
+      ]
+    },
+    {
+      "name": "SpiritEvasionMovementProductAdapter",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenSpiritEvasionMovementAdapter(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.SpiritEvasionMovementAdapter",
+        "Shanmen.0_0_10.CombatRuntime.SpiritEvasionMovement",
+        "demo_map.EnemySkillFramework",
+        "demo_map.V2RangedCompatibility"
+      ]
+    },
+    {
       "name": "FormationDeploymentCore",
       "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenFormationDeployment\\.h|Private/(?:ShanmenFormationDeployment\\.cpp|Tests/ShanmenFormationDeploymentTests\\.cpp))$",
       "requiredGroups": [
@@ -870,7 +892,7 @@
     },
     {
       "name": "SkillAndEnemyCombat",
-      "pathRegex": "^Source/demo_map/demo_map(?:SkillComponent|SkillProjectile|EnemySkillFramework|EnemyCharacter|HeavyEnemyCharacter|RangedEnemyCharacter|M01BossCharacter).*\\.(?:h|cpp)$",
+      "pathRegex": "^Source/demo_map/demo_map(?:SkillComponent|SkillProjectile|EnemySkillFramework|EnemySkillRuntimeComponent|EnemyCharacter|HeavyEnemyCharacter|RangedEnemyCharacter|M01BossCharacter).*\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10",
         "demo_map.EnemySkillFramework",

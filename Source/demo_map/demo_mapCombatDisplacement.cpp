@@ -1,5 +1,4 @@
 #include "demo_mapCombatDisplacement.h"
-#include "demo_mapEnemySkillTypes.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -25,15 +24,23 @@ bool Fdemo_mapCombatDisplacement::ResolvePlanarDirectionWithFallback(
 float Fdemo_mapCombatDisplacement::ClampPreflightDistance(
 	float RequestedDistance,
 	float HitDistance,
-	bool bBlockingHit)
+	bool bBlockingHit,
+	float WorldStaticClearance)
 {
+	if (!FMath::IsFinite(RequestedDistance)
+		|| !FMath::IsFinite(HitDistance)
+		|| !FMath::IsFinite(WorldStaticClearance)
+		|| WorldStaticClearance < 0.0f)
+	{
+		return 0.0f;
+	}
 	const float Requested = FMath::Max(0.0f, RequestedDistance);
 	if (!bBlockingHit)
 	{
 		return Requested;
 	}
 	return FMath::Clamp(
-		HitDistance - Fdemo_mapEnemySkillPrototypeConfig::Get().WorldStaticSkin,
+		HitDistance - WorldStaticClearance,
 		0.0f,
 		Requested);
 }
@@ -42,9 +49,16 @@ Fdemo_mapCombatDisplacementResult
 Fdemo_mapCombatDisplacement::PreflightWorldStatic(
 	const ACharacter* Character,
 	const FVector& PlanarDirection,
-	float RequestedDistance)
+	float RequestedDistance,
+	float WorldStaticClearance)
 {
 	Fdemo_mapCombatDisplacementResult Result;
+	if (!FMath::IsFinite(RequestedDistance)
+		|| !FMath::IsFinite(WorldStaticClearance)
+		|| WorldStaticClearance < 0.0f)
+	{
+		return Result;
+	}
 	Result.RequestedDistance = FMath::Max(0.0f, RequestedDistance);
 	if (!Character || !Character->GetWorld() || Result.RequestedDistance <= 0.0f)
 	{
@@ -64,7 +78,8 @@ Fdemo_mapCombatDisplacement::PreflightWorldStatic(
 	const FVector End = Start + Direction * Result.RequestedDistance;
 	FCollisionObjectQueryParams Objects;
 	Objects.AddObjectTypesToQuery(ECC_WorldStatic);
-	FCollisionQueryParams Params(SCENE_QUERY_STAT(P6SkillPreflight), false, Character);
+	FCollisionQueryParams Params(
+		SCENE_QUERY_STAT(CombatDisplacementPreflight), false, Character);
 	Params.AddIgnoredActor(Character);
 	Result.bBlocked = Character->GetWorld()->SweepSingleByObjectType(
 		Result.BlockingHit,
@@ -82,7 +97,8 @@ Fdemo_mapCombatDisplacement::PreflightWorldStatic(
 	Result.ResolvedDistance = ClampPreflightDistance(
 		Result.RequestedDistance,
 		HitDistance,
-		Result.bBlocked);
+		Result.bBlocked,
+		WorldStaticClearance);
 	return Result;
 }
 

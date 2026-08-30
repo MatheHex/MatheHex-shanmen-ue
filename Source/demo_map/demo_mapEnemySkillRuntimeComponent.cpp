@@ -62,7 +62,8 @@ Udemo_mapEnemySkillRuntimeComponent::TryActivate(
 		Fdemo_mapCombatDisplacement::PreflightWorldStatic(
 			Character,
 			Direction,
-			Intent.Definition.DisplacementDistance);
+			Intent.Definition.DisplacementDistance,
+			Fdemo_mapEnemySkillPrototypeConfig::Get().WorldStaticSkin);
 	Result.ResolvedPreflightDistance = Preflight.ResolvedDistance;
 	if (Preflight.ResolvedDistance
 		+ KINDA_SMALL_NUMBER
@@ -118,7 +119,8 @@ void Udemo_mapEnemySkillRuntimeComponent::EnterDisplacement()
 		Fdemo_mapCombatDisplacement::PreflightWorldStatic(
 			Cast<ACharacter>(GetOwner()),
 			LockedDirection,
-			Definition.DisplacementDistance);
+			Definition.DisplacementDistance,
+			Fdemo_mapEnemySkillPrototypeConfig::Get().WorldStaticSkin);
 	ResolvedPreflightDistance = Preflight.ResolvedDistance;
 	if (ResolvedPreflightDistance + KINDA_SMALL_NUMBER
 		< Definition.MinimumResolvedDistance)
@@ -308,4 +310,3 @@ void Udemo_mapEnemySkillRuntimeComponent::EndPlay(
 	OnDisplacementSegment.Clear();
 	Super::EndPlay(EndPlayReason);
 }
-

@@ -147,7 +147,8 @@ namespace
 				&& Fdemo_mapCombatDisplacement::ClampPreflightDistance(
 					Ranged.DisplacementDistance,
 					0.0f,
-					false) >= Ranged.MinimumResolvedDistance);
+					false,
+					Config.WorldStaticSkin) >= Ranged.MinimumResolvedDistance);
 		case 11:
 		{
 			FVector Direction;
@@ -169,7 +170,8 @@ namespace
 				Fdemo_mapCombatDisplacement::ClampPreflightDistance(
 					Ranged.DisplacementDistance,
 					Ranged.MinimumResolvedDistance,
-					true) < Ranged.MinimumResolvedDistance);
+					true,
+					Config.WorldStaticSkin) < Ranged.MinimumResolvedDistance);
 		case 13:
 			return Test.TestTrue(
 				TEXT("Ranged request distance and duration are frozen"),
@@ -185,7 +187,8 @@ namespace
 					Ranged.DisplacementDistance,
 					Ranged.MinimumResolvedDistance
 						+ Config.WorldStaticSkin,
-					true) == Ranged.MinimumResolvedDistance);
+					true,
+					Config.WorldStaticSkin) == Ranged.MinimumResolvedDistance);
 		case 15:
 			return Test.TestFalse(
 				TEXT("Ranged body has no contact damage"),
@@ -281,7 +284,8 @@ namespace
 				Fdemo_mapCombatDisplacement::ClampPreflightDistance(
 					Melee.DisplacementDistance,
 					Melee.MinimumResolvedDistance,
-					true) < Melee.MinimumResolvedDistance);
+					true,
+					Config.WorldStaticSkin) < Melee.MinimumResolvedDistance);
 		case 27:
 			return Test.TestTrue(
 				TEXT("Melee windup and end-lock contract"),
@@ -303,14 +307,16 @@ namespace
 				Fdemo_mapCombatDisplacement::ClampPreflightDistance(
 					Melee.DisplacementDistance,
 					Melee.DisplacementDistance,
-					false) == Melee.DisplacementDistance);
+					false,
+					Config.WorldStaticSkin) == Melee.DisplacementDistance);
 		case 30:
 			return Test.TestEqual(
 				TEXT("WorldStatic at origin blocks before hit"),
 				Fdemo_mapCombatDisplacement::ClampPreflightDistance(
 					Melee.DisplacementDistance,
 					0.0f,
-					true),
+					true,
+					Config.WorldStaticSkin),
 				0.0f);
 		case 31:
 			return Test.TestTrue(
@@ -406,7 +412,8 @@ namespace
 					ClampPreflightDistance(
 						Config.KnockbackDistance,
 						Config.KnockbackDistance,
-						false) == Config.KnockbackDistance);
+						false,
+						Config.WorldStaticSkin) == Config.KnockbackDistance);
 		}
 		case 40:
 		{

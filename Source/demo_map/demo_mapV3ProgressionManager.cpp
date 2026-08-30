@@ -10814,7 +10814,8 @@ void Ademo_mapV3ProgressionManager::RunEnemySkillFrameworkAutomation()
 				Fdemo_mapCombatDisplacement::PreflightWorldStatic(
 					SkillActor,
 					SkillDirection,
-					Definition.DisplacementDistance);
+					Definition.DisplacementDistance,
+					Fdemo_mapEnemySkillPrototypeConfig::Get().WorldStaticSkin);
 			if (Preflight.ResolvedDistance + KINDA_SMALL_NUMBER
 				>= Definition.MinimumResolvedDistance)
 			{
@@ -11175,7 +11176,8 @@ void Ademo_mapV3ProgressionManager::RunEnemyRouteLootAutomation()
 				Fdemo_mapCombatDisplacement::PreflightWorldStatic(
 					EnhancedMelee,
 					-Axis,
-					Definition.DisplacementDistance);
+					Definition.DisplacementDistance,
+					Fdemo_mapEnemySkillPrototypeConfig::Get().WorldStaticSkin);
 			if (Preflight.ResolvedDistance + KINDA_SMALL_NUMBER
 				>= Definition.MinimumResolvedDistance)
 			{
@@ -11235,7 +11237,8 @@ void Ademo_mapV3ProgressionManager::RunEnemyRouteLootAutomation()
 					Fdemo_mapCombatDisplacement::PreflightWorldStatic(
 						EnhancedRanged,
 						Axis,
-						Definition.DisplacementDistance);
+						Definition.DisplacementDistance,
+						Fdemo_mapEnemySkillPrototypeConfig::Get().WorldStaticSkin);
 				if (Preflight.ResolvedDistance + KINDA_SMALL_NUMBER
 					>= Definition.MinimumResolvedDistance)
 				{
