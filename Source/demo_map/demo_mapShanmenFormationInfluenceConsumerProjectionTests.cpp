@@ -4,6 +4,7 @@
 #include "demo_mapShanmenFormationInfluenceConsumerRegistry.h"
 #include "demo_mapShanmenFormationInfluenceConsumerAttributeAdapter.h"
 #include "demo_mapShanmenFormationInfluenceConsumerApplicationCoordinator.h"
+#include "demo_mapShanmenFormationInfluenceConsumerCommandHost.h"
 
 #include "Misc/AutomationTest.h"
 #include "ShanmenCombatTags.h"
@@ -226,6 +227,15 @@ namespace
 				Projection.GetLease().Key.SubjectEntityId,
 				AttributeComponent, Coordinator));
 		return Coordinator;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceConsumerCommandHost MakeConsumerHost(
+		const int32 ContentVariant = 1)
+	{
+		Fdemo_mapShanmenFormationInfluenceConsumerCommandHost Host;
+		check(Fdemo_mapShanmenFormationInfluenceConsumerCommandHost::TryOpen(
+			ConsumerRunId, ConsumerContent(ContentVariant), Host));
+		return Host;
 	}
 }
 
@@ -1075,6 +1085,288 @@ bool Fdemo_mapFormationInfluenceConsumerCoordinatorBindingTest::RunTest(
 			&& Removed.IsSuccess() && Coordinator.IsDrained()
 			&& Attributes->GetActiveModifierCount() == 0
 			&& OtherAttributes->GetActiveModifierCount() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceConsumerCommandHostMultiSubjectTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceConsumerCommandHost.MultiSubjectRoutingAndDrain",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceConsumerCommandHostMultiSubjectTest::RunTest(
+	const FString&)
+{
+	const auto FirstProjection = MakeProjection(50, 250);
+	const auto SecondProjection = MakeProjection(51, 150);
+	const auto FirstApply = MakeConsumerCommand(
+		FirstProjection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Apply);
+	const auto FirstRemove = MakeConsumerCommand(
+		FirstProjection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Remove);
+	const auto SecondApply = MakeConsumerCommand(
+		SecondProjection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Apply);
+	const auto SecondRemove = MakeConsumerCommand(
+		SecondProjection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Remove);
+	Udemo_mapAttributeComponent* FirstAttributes =
+		NewObject<Udemo_mapAttributeComponent>();
+	Udemo_mapAttributeComponent* SecondAttributes =
+		NewObject<Udemo_mapAttributeComponent>();
+	auto Host = MakeConsumerHost();
+	const auto FirstBinding = Host.TryBindSubject(
+		FirstProjection.GetLease().Key.SubjectEntityId, FirstAttributes);
+	const auto SecondBinding = Host.TryBindSubject(
+		SecondProjection.GetLease().Key.SubjectEntityId, SecondAttributes);
+	const auto BindingReplay = Host.TryBindSubject(
+		FirstProjection.GetLease().Key.SubjectEntityId, FirstAttributes);
+	const auto FirstApplied = Host.TryRoute(FirstApply);
+	const auto SecondApplied = Host.TryRoute(SecondApply);
+	float FirstPower = 0.0f;
+	float SecondPower = 0.0f;
+	const bool bReadFirst = FirstAttributes->GetFinalValue(
+		Fdemo_mapAttributeIds::AttackPower, FirstPower);
+	const bool bReadSecond = SecondAttributes->GetFinalValue(
+		Fdemo_mapAttributeIds::AttackPower, SecondPower);
+	const auto FirstRemoved = Host.TryRoute(FirstRemove);
+	const auto SecondRemoved = Host.TryRoute(SecondRemove);
+
+	TestTrue(TEXT("Host freezes two independent subject/component bindings"),
+		FirstBinding.IsSuccess() && FirstBinding.bHostStateCommitted
+			&& SecondBinding.IsSuccess() && SecondBinding.bHostStateCommitted
+			&& BindingReplay.IsSuccess()
+			&& BindingReplay.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerBindingStatus::
+					BindingReplayed
+			&& !BindingReplay.bHostStateCommitted
+			&& BindingReplay.Receipt.Matches(FirstBinding.Receipt)
+			&& !FirstBinding.Receipt.Matches(SecondBinding.Receipt)
+			&& Host.GetBindingCount() == 2);
+	TestTrue(TEXT("Each routed Apply mutates only its bound native authority"),
+		FirstApplied.IsSuccess() && SecondApplied.IsSuccess()
+			&& FirstApplied.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerRouteStatus::Routed
+			&& SecondApplied.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerRouteStatus::Routed
+			&& bReadFirst && FMath::IsNearlyEqual(FirstPower, 3.5f)
+			&& bReadSecond && FMath::IsNearlyEqual(SecondPower, 2.5f));
+	TestTrue(TEXT("Exact Removes drain every coordinator without deleting binding history"),
+		FirstRemoved.IsSuccess() && SecondRemoved.IsSuccess()
+			&& Host.IsConsistent() && Host.IsDrained()
+			&& Host.GetBindingCount() == 2
+			&& Host.GetActiveApplicationCount() == 0
+			&& Host.GetCompletedTransactionCount() == 4
+			&& FirstAttributes->GetActiveModifierCount() == 0
+			&& SecondAttributes->GetActiveModifierCount() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceConsumerCommandHostBindingFenceTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceConsumerCommandHost.BindingAndScopeFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceConsumerCommandHostBindingFenceTest::RunTest(
+	const FString&)
+{
+	const auto BoundProjection = MakeProjection(60, 100);
+	const auto ForeignSubjectProjection = MakeProjection(61, 100);
+	const auto UnboundProjection = MakeProjection(62, 100);
+	Udemo_mapAttributeComponent* BoundAttributes =
+		NewObject<Udemo_mapAttributeComponent>();
+	Udemo_mapAttributeComponent* OtherAttributes =
+		NewObject<Udemo_mapAttributeComponent>();
+	auto Host = MakeConsumerHost();
+	const auto Bound = Host.TryBindSubject(
+		BoundProjection.GetLease().Key.SubjectEntityId, BoundAttributes);
+	const auto SubjectConflict = Host.TryBindSubject(
+		BoundProjection.GetLease().Key.SubjectEntityId, OtherAttributes);
+	const auto ComponentConflict = Host.TryBindSubject(
+		ForeignSubjectProjection.GetLease().Key.SubjectEntityId,
+		BoundAttributes);
+	const auto InvalidSubject = Host.TryBindSubject(FGuid(), OtherAttributes);
+	const auto MissingComponent = Host.TryBindSubject(
+		ForeignSubjectProjection.GetLease().Key.SubjectEntityId, nullptr);
+	const auto Unbound = Host.TryRoute(MakeConsumerCommand(
+		UnboundProjection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Apply));
+	const auto InvalidCommand = Host.TryRoute(
+		Fdemo_mapShanmenFormationInfluenceConsumerCommand());
+
+	auto ForeignContentHost = MakeConsumerHost(2);
+	const auto ForeignContentBound = ForeignContentHost.TryBindSubject(
+		BoundProjection.GetLease().Key.SubjectEntityId, OtherAttributes);
+	const auto ScopeMismatch = ForeignContentHost.TryRoute(MakeConsumerCommand(
+		BoundProjection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Apply));
+
+	TestTrue(TEXT("Subject and component identities are each one-to-one"),
+		Bound.IsSuccess() && !SubjectConflict.IsSuccess()
+			&& SubjectConflict.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerBindingStatus::
+					SubjectBindingConflict
+			&& !ComponentConflict.IsSuccess()
+			&& ComponentConflict.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerBindingStatus::
+					ComponentBindingConflict
+			&& Host.GetBindingCount() == 1);
+	TestTrue(TEXT("Malformed binding and routing inputs fail without Host mutation"),
+		!InvalidSubject.IsSuccess()
+			&& InvalidSubject.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerBindingStatus::
+					SubjectInvalid
+			&& !MissingComponent.IsSuccess()
+			&& MissingComponent.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerBindingStatus::
+					ComponentUnavailable
+			&& !Unbound.IsSuccess()
+			&& Unbound.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerRouteStatus::
+					SubjectUnbound
+			&& !InvalidCommand.IsSuccess()
+			&& InvalidCommand.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerRouteStatus::
+					CommandInvalid
+			&& Host.GetCompletedTransactionCount() == 0);
+	TestTrue(TEXT("Run/content scope is checked before coordinator dispatch"),
+		ForeignContentBound.IsSuccess() && !ScopeMismatch.IsSuccess()
+			&& ScopeMismatch.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerRouteStatus::
+					ScopeMismatch
+			&& ForeignContentHost.GetCompletedTransactionCount() == 0
+			&& OtherAttributes->GetActiveModifierCount() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceConsumerCommandHostRetryReplayTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceConsumerCommandHost.RetryAndHistoricalReplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceConsumerCommandHostRetryReplayTest::RunTest(
+	const FString&)
+{
+	const auto Projection = MakeProjection(70, 200);
+	const auto Apply = MakeConsumerCommand(
+		Projection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Apply);
+	const auto Remove = MakeConsumerCommand(
+		Projection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Remove);
+	Fdemo_mapModifierSpec Expected;
+	check(Fdemo_mapShanmenFormationInfluenceConsumerAttributeAdapter::
+		TryBuildModifierSpec(Projection, Expected));
+	auto Foreign = Expected;
+	Foreign.Value += 1.0f;
+	Udemo_mapAttributeComponent* Attributes =
+		NewObject<Udemo_mapAttributeComponent>();
+	auto Host = MakeConsumerHost();
+	check(Host.TryBindSubject(
+		Projection.GetLease().Key.SubjectEntityId, Attributes).IsSuccess());
+	check(Attributes->EnsureModifierApplied(Foreign, Projection.GetHandle())
+		== Edemo_mapExactModifierMutationStatus::Applied);
+	const auto Rejected = Host.TryRoute(Apply);
+	const bool bRejectedWithoutCommit =
+		Host.GetActiveApplicationCount() == 0
+		&& Host.GetCompletedTransactionCount() == 0;
+	check(Attributes->RemoveModifier(Projection.GetHandle()));
+	check(Attributes->EnsureModifierApplied(Expected, Projection.GetHandle())
+		== Edemo_mapExactModifierMutationStatus::Applied);
+	const auto Retried = Host.TryRoute(Apply);
+	const auto Removed = Host.TryRoute(Remove);
+	const auto HistoricalApply = Host.TryRoute(Apply);
+
+	TestTrue(TEXT("Native conflict remains visible and retryable through Host routing"),
+		!Rejected.IsSuccess()
+			&& Rejected.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerRouteStatus::
+					TransactionRejected
+			&& Rejected.Binding.IsValid()
+			&& Rejected.Transaction.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerTransactionStatus::
+					NativeRejected
+			&& Rejected.Transaction.Native.NativeStatus
+				== Edemo_mapExactModifierMutationStatus::HandleConflict
+			&& bRejectedWithoutCommit && Retried.IsSuccess()
+			&& Retried.Transaction.Native.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerAttributeStatus::
+					ApplyReplayed);
+	TestTrue(TEXT("Historical Apply replay returns evidence without resurrecting state"),
+		Removed.IsSuccess() && HistoricalApply.IsSuccess()
+			&& HistoricalApply.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerRouteStatus::
+					TransactionReplayed
+			&& HistoricalApply.Transaction.bTransactionReplayed
+			&& !HistoricalApply.bHostStateChanged
+			&& HistoricalApply.Transaction.Receipt.Matches(
+				Retried.Transaction.Receipt)
+			&& Host.GetCompletedTransactionCount() == 2
+			&& Host.GetActiveApplicationCount() == 0
+			&& Attributes->GetActiveModifierCount() == 0
+			&& Host.IsDrained());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceConsumerCommandHostLifecycleFenceTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceConsumerCommandHost.AppendOnlyLifecycleFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceConsumerCommandHostLifecycleFenceTest::RunTest(
+	const FString&)
+{
+	const auto Projection = MakeProjection(80, 100);
+	const auto SubjectEntityId =
+		Projection.GetLease().Key.SubjectEntityId;
+	const auto Apply = MakeConsumerCommand(
+		Projection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Apply);
+	const auto Remove = MakeConsumerCommand(
+		Projection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Remove);
+	Udemo_mapAttributeComponent* OriginalAttributes =
+		NewObject<Udemo_mapAttributeComponent>();
+	Udemo_mapAttributeComponent* ReplacementAttributes =
+		NewObject<Udemo_mapAttributeComponent>();
+	auto Host = MakeConsumerHost();
+	const bool bInitiallyDrained = Host.IsDrained();
+	const auto Bound = Host.TryBindSubject(
+		SubjectEntityId, OriginalAttributes);
+	const auto Applied = Host.TryRoute(Apply);
+	const auto LiveReplacementRejected = Host.TryBindSubject(
+		SubjectEntityId, ReplacementAttributes);
+	const auto Removed = Host.TryRoute(Remove);
+	const auto DrainedReplacementRejected = Host.TryBindSubject(
+		SubjectEntityId, ReplacementAttributes);
+	const auto OriginalReplay = Host.TryBindSubject(
+		SubjectEntityId, OriginalAttributes);
+	Fdemo_mapShanmenFormationInfluenceConsumerBindingReceipt Stored;
+	const bool bReadStored = Host.TryGetBindingReceipt(
+		SubjectEntityId, Stored);
+
+	TestTrue(TEXT("One active application blocks whole-Host teardown"),
+		bInitiallyDrained && Bound.IsSuccess() && Applied.IsSuccess()
+			&& !LiveReplacementRejected.IsSuccess()
+			&& LiveReplacementRejected.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerBindingStatus::
+					SubjectBindingConflict);
+	TestTrue(TEXT("Drained binding remains append-only and exact replayable"),
+		Removed.IsSuccess() && Host.IsDrained()
+			&& !DrainedReplacementRejected.IsSuccess()
+			&& DrainedReplacementRejected.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerBindingStatus::
+					SubjectBindingConflict
+			&& OriginalReplay.IsSuccess()
+			&& OriginalReplay.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerBindingStatus::
+					BindingReplayed
+			&& bReadStored && Stored.Matches(Bound.Receipt)
+			&& OriginalReplay.Receipt.Matches(Stored)
+			&& Host.HasBinding(SubjectEntityId)
+			&& Host.HasLiveBinding(SubjectEntityId)
+			&& Host.GetBindingCount() == 1
+			&& Host.GetCompletedTransactionCount() == 2);
 	return true;
 }
 

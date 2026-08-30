@@ -159,6 +159,9 @@ try
     $FormationInfluenceConsumerApplicationCoordinator = New-AutomationLogFixture `
         -Name 'formation-influence-consumer-application-coordinator.log' `
         -Group 'Shanmen.0_0_10.Product.FormationInfluenceConsumerApplicationCoordinator'
+    $FormationInfluenceConsumerCommandHost = New-AutomationLogFixture `
+        -Name 'formation-influence-consumer-command-host.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationInfluenceConsumerCommandHost'
     $CombatCore = New-AutomationLogFixture `
         -Name 'combat-core.log' `
         -Group 'Shanmen.0_0_10.CombatCore'
@@ -349,6 +352,12 @@ try
         -Name 'formation influence consumer application coordinator is covered by broad full and attribute evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerApplicationCoordinator.cpp') `
+        -Logs @($Full, $Attributes)
+
+    Invoke-ExpectedPass `
+        -Name 'formation influence consumer command host is covered by broad full and attribute evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerCommandHost.cpp') `
         -Logs @($Full, $Attributes)
 
     Invoke-ExpectedPass `
@@ -624,6 +633,17 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerApplicationCoordinator.cpp') `
         -Logs @(
+            $FormationInfluenceConsumerApplicationCoordinator,
+            $FormationInfluenceConsumerAttributeAdapter,
+            $Attributes) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'consumer command host focused evidence cannot replace registry projection and broad contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerCommandHost.cpp') `
+        -Logs @(
+            $FormationInfluenceConsumerCommandHost,
             $FormationInfluenceConsumerApplicationCoordinator,
             $FormationInfluenceConsumerAttributeAdapter,
             $Attributes) `
