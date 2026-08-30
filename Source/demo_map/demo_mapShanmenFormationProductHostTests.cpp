@@ -6,6 +6,7 @@
 #include "demo_mapShanmenFormationInfluenceProductRuntime.h"
 #include "demo_mapShanmenFormationInfluenceExecutionRouter.h"
 #include "demo_mapShanmenFormationInfluenceExecutionService.h"
+#include "demo_mapShanmenFormationInfluenceLifecycleCommandHost.h"
 #include "demo_mapShanmenFormationInfluenceLifecycleCoordinator.h"
 #include "demo_mapShanmenFormationInfluenceLifecycleCommandRouter.h"
 
@@ -3488,6 +3489,310 @@ bool Fdemo_mapFormationInfluenceLifecycleCommandRouterRecoveryTest::RunTest(
 			== Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::
 				CommandIdConflict
 			&& !Conflict.bRouterStateCommitted);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceLifecycleCommandHostSubmissionTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandHost.SubmissionAndReceiptQuery",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceLifecycleCommandHostSubmissionTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("LifecycleCommandHostSubmission"),
+			1, Prime, Subjects))
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost CommandHost;
+	if (!Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost::TryOpen(
+			Fixture.Host, CommandHost))
+	{
+		return false;
+	}
+	const auto Command = MakeLifecycleStepCommand(
+		Fixture.Correlation,
+		MakeHostExecutionRequest(
+			Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 240));
+	const auto First = CommandHost.TrySubmit(
+		nullptr, Fixture.Host, Command);
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord Receipt;
+	const bool bFound = CommandHost.TryGetReceipt(
+		Command.GetCommandId(), Receipt);
+	const auto Replay = CommandHost.TrySubmit(
+		nullptr, Fixture.Host, Command);
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord ReceiptAfterReplay;
+	const bool bFoundAfterReplay = CommandHost.TryGetReceipt(
+		Command.GetCommandId(), ReceiptAfterReplay);
+
+	TestTrue(TEXT("CommandHost freezes ProductHost identity without pointer ownership"),
+		CommandHost.IsValid()
+			&& CommandHost.GetCorrelation() == Fixture.Correlation
+			&& CommandHost.GetLedgerId()
+				== Fixture.Host.GetInfluenceLedger().GetLedgerId());
+	TestTrue(TEXT("Accepted command exposes one frozen durable receipt"),
+		First.IsSuccess() && bFound && Receipt.IsValid()
+			&& Receipt.Command.Matches(Command)
+			&& Receipt.Result.IsSuccess()
+			&& !Receipt.Result.IsReplay()
+			&& Receipt.Result.bRouterStateCommitted
+			&& CommandHost.GetReceiptCount() == 1);
+	TestTrue(TEXT("Exact submit replay does not rewrite the queried receipt"),
+		Replay.IsSuccess() && Replay.IsReplay()
+			&& bFoundAfterReplay && ReceiptAfterReplay.IsValid()
+			&& ReceiptAfterReplay.Command.Matches(Receipt.Command)
+			&& !ReceiptAfterReplay.Result.IsReplay()
+			&& ReceiptAfterReplay.Result.bRouterStateCommitted
+			&& CommandHost.GetReceiptCount() == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceLifecycleCommandHostBindingTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandHost.BindingAndForeignHostFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceLifecycleCommandHostBindingTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture Fixture;
+	FFormationHostFixture OtherFixture;
+	FShanmenWorldEntityRegistry Registry;
+	FShanmenWorldEntityRegistry OtherRegistry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	Fdemo_mapShanmenFormationHostInfluenceResult OtherPrime;
+	TArray<AActor*> Subjects;
+	TArray<AActor*> OtherSubjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("LifecycleCommandHostBinding"),
+			1, Prime, Subjects)
+		|| !PrimeHostExecutorInfluence(
+			*this, OtherFixture, OtherRegistry,
+			TEXT("LifecycleCommandHostBindingOther"),
+			1, OtherPrime, OtherSubjects))
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost InvalidOpen;
+	Fdemo_mapShanmenFormationProductHost EmptyProductHost;
+	const bool bOpenedInvalid =
+		Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost::TryOpen(
+			EmptyProductHost, InvalidOpen);
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost CommandHost;
+	check(Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost::TryOpen(
+		Fixture.Host, CommandHost));
+	const auto Command = MakeLifecycleStepCommand(
+		Fixture.Correlation,
+		MakeHostExecutionRequest(
+			Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 250));
+	const auto ForeignBeforeBinding = CommandHost.TrySubmit(
+		nullptr, OtherFixture.Host, Command);
+	const int32 ReceiptCountAfterForeign = CommandHost.GetReceiptCount();
+	const bool bRouterBoundAfterForeign = CommandHost.GetRouter().IsBound();
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommand InvalidCommand;
+	const auto Invalid = CommandHost.TrySubmit(
+		nullptr, Fixture.Host, InvalidCommand);
+	const auto Applied = CommandHost.TrySubmit(
+		nullptr, Fixture.Host, Command);
+	const auto ForeignReplay = CommandHost.TrySubmit(
+		nullptr, OtherFixture.Host, Command);
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord Receipt;
+
+	TestTrue(TEXT("Invalid ProductHost cannot open a command session"),
+		!bOpenedInvalid && !InvalidOpen.IsValid());
+	TestTrue(TEXT("Foreign ProductHost fails before Router binding or mutation"),
+		ForeignBeforeBinding.Status
+			== Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::
+				LifecycleRejected
+			&& ForeignBeforeBinding.Lifecycle.Status
+				== Edemo_mapShanmenFormationInfluenceLifecycleStatus::
+					CorrelationMismatch
+			&& ReceiptCountAfterForeign == 0
+			&& !bRouterBoundAfterForeign);
+	TestTrue(TEXT("Invalid command preserves Router command semantics"),
+		Invalid.Status
+			== Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::
+				CommandInvalid
+			&& !Invalid.bRouterStateCommitted);
+	TestTrue(TEXT("Only the frozen ProductHost can submit or replay"),
+		Applied.IsSuccess()
+			&& ForeignReplay.Status
+				== Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::
+					LifecycleRejected
+			&& ForeignReplay.Lifecycle.Status
+				== Edemo_mapShanmenFormationInfluenceLifecycleStatus::
+					CorrelationMismatch
+			&& !ForeignReplay.IsReplay()
+			&& CommandHost.TryGetReceipt(Command.GetCommandId(), Receipt)
+			&& Receipt.Result.IsSuccess());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceLifecycleCommandHostVisibilityTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandHost.RejectionVisibility",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceLifecycleCommandHostVisibilityTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("LifecycleCommandHostVisibility"),
+			1, Prime, Subjects))
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost CommandHost;
+	check(Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost::TryOpen(
+		Fixture.Host, CommandHost));
+	const auto TerminalCommand =
+		MakeLifecycleTerminalCommand(Fixture.Correlation, 260);
+	const auto Terminal = CommandHost.TrySubmit(
+		nullptr, Fixture.Host, TerminalCommand);
+	if (!Terminal.IsSuccess())
+	{
+		return false;
+	}
+	const auto EndCommand =
+		MakeLifecycleEndCommand(Fixture.Correlation, 261);
+	const auto EarlyEnd = CommandHost.TrySubmit(
+		Fixture.World, Fixture.Host, EndCommand);
+	const FGuid RemoveIntentId = Terminal.Lifecycle.TerminalPreparation.
+		ReconciliationPlan.Batch.Intents[0].IntentId;
+	const auto RemoveCommand = MakeLifecycleStepCommand(
+		Fixture.Correlation,
+		MakeHostExecutionRequest(RemoveIntentId, 260));
+	const auto EarlyRemove = CommandHost.TrySubmit(
+		nullptr, Fixture.Host, RemoveCommand);
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord RejectedReceipt;
+	const bool bEarlyEndQueryable = CommandHost.TryGetReceipt(
+		EndCommand.GetCommandId(), RejectedReceipt);
+	const bool bEarlyRemoveQueryable = CommandHost.TryGetReceipt(
+		RemoveCommand.GetCommandId(), RejectedReceipt);
+
+	const auto ApplyCommand = MakeLifecycleStepCommand(
+		Fixture.Correlation,
+		MakeHostExecutionRequest(
+			Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 261));
+	const auto Apply = CommandHost.TrySubmit(
+		nullptr, Fixture.Host, ApplyCommand);
+	const auto Remove = CommandHost.TrySubmit(
+		nullptr, Fixture.Host, RemoveCommand);
+	const auto Ended = CommandHost.TrySubmit(
+		Fixture.World, Fixture.Host, EndCommand);
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord EndReceipt;
+
+	TestTrue(TEXT("Ordinary precondition rejection is not a durable receipt"),
+		EarlyEnd.Status
+			== Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::
+				LifecycleRejected
+			&& EarlyRemove.Status
+				== Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::
+					LifecycleRejected
+			&& !bEarlyEndQueryable && !bEarlyRemoveQueryable);
+	TestTrue(TEXT("The same caller commands become queryable after order repair"),
+		Apply.IsSuccess() && Remove.IsSuccess() && Ended.IsSuccess()
+			&& CommandHost.TryGetReceipt(
+				EndCommand.GetCommandId(), EndReceipt)
+			&& EndReceipt.Result.IsSuccess()
+			&& CommandHost.GetReceiptCount() == 4);
+	TestTrue(TEXT("Unknown identity clears and rejects receipt output"),
+		!CommandHost.TryGetReceipt(FGuid(0xF8740001, 0, 0, 1),
+			RejectedReceipt)
+			&& !RejectedReceipt.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceLifecycleCommandHostRecoveryTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandHost.ForwardReceiptUpdate",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceLifecycleCommandHostRecoveryTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("LifecycleCommandHostRecovery"),
+			1, Prime, Subjects))
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost CommandHost;
+	check(Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost::TryOpen(
+		Fixture.Host, CommandHost));
+	const auto Apply = CommandHost.TrySubmit(
+		nullptr, Fixture.Host,
+		MakeLifecycleStepCommand(
+			Fixture.Correlation,
+			MakeHostExecutionRequest(
+				Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 270)));
+	const auto Terminal = CommandHost.TrySubmit(
+		nullptr, Fixture.Host,
+		MakeLifecycleTerminalCommand(Fixture.Correlation, 271));
+	Fdemo_mapShanmenFormationInfluenceIntent RemoveIntent;
+	if (!Apply.IsSuccess() || !Terminal.IsSuccess()
+		|| !Fixture.Host.TryPeekNextInfluenceIntent(RemoveIntent))
+	{
+		return false;
+	}
+	const auto Remove = CommandHost.TrySubmit(
+		nullptr, Fixture.Host,
+		MakeLifecycleStepCommand(
+			Fixture.Correlation,
+			MakeHostExecutionRequest(RemoveIntent.IntentId, 271)));
+	const auto EndCommand =
+		MakeLifecycleEndCommand(Fixture.Correlation, 272);
+	const auto Failed = CommandHost.TrySubmit(
+		nullptr, Fixture.Host, EndCommand);
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord FailedReceipt;
+	const bool bFoundFailed = CommandHost.TryGetReceipt(
+		EndCommand.GetCommandId(), FailedReceipt);
+	const auto Recovered = CommandHost.TrySubmit(
+		Fixture.World, Fixture.Host, EndCommand);
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord RecoveredReceipt;
+	const bool bFoundRecovered = CommandHost.TryGetReceipt(
+		EndCommand.GetCommandId(), RecoveredReceipt);
+	const auto Replay = CommandHost.TrySubmit(
+		Fixture.World, Fixture.Host, EndCommand);
+
+	TestTrue(TEXT("Forward World failure is immediately queryable"),
+		Remove.IsSuccess() && Failed.Status
+			== Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::
+				LifecycleRejected
+			&& Failed.Lifecycle.Status
+				== Edemo_mapShanmenFormationInfluenceLifecycleStatus::EndRejected
+			&& bFoundFailed && FailedReceipt.IsValid()
+			&& FailedReceipt.Result.Lifecycle.Status
+				== Edemo_mapShanmenFormationInfluenceLifecycleStatus::EndRejected);
+	TestTrue(TEXT("Exact recovery updates the same durable receipt in place"),
+		Recovered.IsSuccess() && Recovered.bRecoveryAttempted
+			&& bFoundRecovered && RecoveredReceipt.IsValid()
+			&& RecoveredReceipt.Result.IsSuccess()
+			&& !RecoveredReceipt.Result.bRecoveryAttempted
+			&& RecoveredReceipt.Command.Matches(EndCommand)
+			&& CommandHost.GetReceiptCount() == 4);
+	TestTrue(TEXT("Completed receipt replay remains read-only"),
+		Replay.IsSuccess() && Replay.IsReplay()
+			&& CommandHost.GetReceiptCount() == 4
+			&& CommandHost.IsValid());
 	return true;
 }
 

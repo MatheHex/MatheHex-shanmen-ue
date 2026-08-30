@@ -164,6 +164,14 @@ IsDurableRecord() const
 			== Edemo_mapShanmenFormationInfluenceLifecycleStatus::EndRejected;
 }
 
+bool Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord::IsValid() const
+{
+	return Command.IsValid()
+		&& Result.IsDurableRecord()
+		&& Result.CommandId == Command.GetCommandId()
+		&& Result.Kind == Command.GetKind();
+}
+
 Fdemo_mapShanmenFormationInfluenceLifecycleResult
 Fdemo_mapShanmenFormationInfluenceLifecycleCommandRouter::Execute(
 	Fdemo_mapShanmenFormationInfluenceLifecycleCoordinator& TargetCoordinator,
@@ -269,7 +277,8 @@ Fdemo_mapShanmenFormationInfluenceLifecycleCommandRouter::TryRoute(
 
 	for (int32 Index = 0; Index < Records.Num(); ++Index)
 	{
-		const FRecord& Existing = Records[Index];
+		const Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord&
+			Existing = Records[Index];
 		if (Existing.Command.GetCommandId() != Command.GetCommandId())
 		{
 			continue;
@@ -302,7 +311,8 @@ Fdemo_mapShanmenFormationInfluenceLifecycleCommandRouter::TryRoute(
 	if (Command.GetKind()
 		!= Edemo_mapShanmenFormationInfluenceLifecycleCommandKind::ExecuteStep)
 	{
-		for (const FRecord& Existing : Records)
+		for (const Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord&
+			Existing : Records)
 		{
 			if (Existing.Command.GetKind() == Command.GetKind())
 			{
@@ -329,7 +339,7 @@ Fdemo_mapShanmenFormationInfluenceLifecycleCommandRouter::TryRoute(
 	}
 
 	Result.bRouterStateCommitted = true;
-	FRecord Record;
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord Record;
 	Record.Command = Command;
 	Record.Result = Result;
 	Candidate.Records.Add(MoveTemp(Record));
@@ -412,12 +422,10 @@ bool Fdemo_mapShanmenFormationInfluenceLifecycleCommandRouter::IsValid() const
 	}
 
 	TSet<FGuid> CommandIds;
-	for (const FRecord& Record : Records)
+	for (const Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord&
+		Record : Records)
 	{
-		if (!Record.Command.IsValid()
-			|| !Record.Result.IsDurableRecord()
-			|| Record.Result.CommandId != Record.Command.GetCommandId()
-			|| Record.Result.Kind != Record.Command.GetKind()
+		if (!Record.IsValid()
 			|| Record.Command.GetCorrelation()
 				!= Coordinator.GetBoundCorrelation()
 			|| CommandIds.Contains(Record.Command.GetCommandId()))
@@ -427,4 +435,25 @@ bool Fdemo_mapShanmenFormationInfluenceLifecycleCommandRouter::IsValid() const
 		CommandIds.Add(Record.Command.GetCommandId());
 	}
 	return true;
+}
+
+bool Fdemo_mapShanmenFormationInfluenceLifecycleCommandRouter::TryGetRecord(
+	const FGuid& CommandId,
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord& OutRecord) const
+{
+	OutRecord = Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord();
+	if (!CommandId.IsValid() || !IsValid())
+	{
+		return false;
+	}
+	for (const Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord&
+		Record : Records)
+	{
+		if (Record.Command.GetCommandId() == CommandId)
+		{
+			OutRecord = Record;
+			return OutRecord.IsValid();
+		}
+	}
+	return false;
 }

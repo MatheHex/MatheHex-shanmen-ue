@@ -93,6 +93,15 @@ struct Fdemo_mapShanmenFormationInfluenceLifecycleCommandResult
 	bool IsReplay() const { return bReplay; }
 };
 
+/** Frozen command plus the Router's current durable lifecycle receipt. */
+struct Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord
+{
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommand Command;
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandResult Result;
+
+	bool IsValid() const;
+};
+
 /**
  * Typed, caller-driven command boundary around the P8.20 Coordinator.
  *
@@ -115,6 +124,10 @@ public:
 	bool IsEmpty() const { return Records.IsEmpty(); }
 	bool IsBound() const { return Coordinator.IsBound(); }
 	int32 GetRecordCount() const { return Records.Num(); }
+	bool TryGetRecord(
+		const FGuid& CommandId,
+		Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord&
+			OutRecord) const;
 	const Fdemo_mapShanmenFormationInfluenceLifecycleCoordinator&
 	GetCoordinator() const
 	{
@@ -122,12 +135,6 @@ public:
 	}
 
 private:
-	struct FRecord
-	{
-		Fdemo_mapShanmenFormationInfluenceLifecycleCommand Command;
-		Fdemo_mapShanmenFormationInfluenceLifecycleCommandResult Result;
-	};
-
 	static Fdemo_mapShanmenFormationInfluenceLifecycleResult Execute(
 		Fdemo_mapShanmenFormationInfluenceLifecycleCoordinator& Coordinator,
 		UWorld* World,
@@ -140,5 +147,5 @@ private:
 		int32 RecordIndex);
 
 	Fdemo_mapShanmenFormationInfluenceLifecycleCoordinator Coordinator;
-	TArray<FRecord> Records;
+	TArray<Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord> Records;
 };
