@@ -801,6 +801,24 @@ void Ademo_mapPlayerController::FireStraightProjectile()
 	}
 }
 
+Fdemo_mapShanmenSpiritEvasionInputResult
+Ademo_mapPlayerController::RouteSpiritEvasionStartInput()
+{
+	Ademo_mapGameMode* Mode = GetWorld()
+		? Cast<Ademo_mapGameMode>(GetWorld()->GetAuthGameMode())
+		: nullptr;
+	return Fdemo_mapShanmenSpiritEvasionInputAdapter::RouteStartInput(
+		IsGameplayInputAllowed(),
+		Mode != nullptr,
+		[this]() { return GetLastValidAimDirection(); },
+		[Mode](const FVector& Direction)
+		{
+			return Mode
+				? Mode->RouteSpiritEvasionStartIntent(Direction)
+				: Fdemo_mapShanmenSpiritEvasionProductRouteResult();
+		});
+}
+
 int32 Ademo_mapPlayerController::ResolveHotbarSlotForKey(
 	const FKey& Key)
 {

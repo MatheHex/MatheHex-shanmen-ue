@@ -267,6 +267,31 @@
       ]
     },
     {
+      "name": "SpiritEvasionInputAdapter",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenSpiritEvasionInputAdapter(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.SpiritEvasionInputAdapter",
+        "Shanmen.0_0_10.Product.SpiritEvasionProductRoute",
+        "Shanmen.0_0_10.Product.SpiritEvasionProductAuthority",
+        "Shanmen.0_0_10.Product.SpiritEvasionCommandRouter",
+        "Shanmen.0_0_10.Product.SpiritEvasionComponent",
+        "Shanmen.0_0_10.Product.SpiritEvasionProductHost",
+        "Shanmen.0_0_10.Product.SpiritEvasionActionCoordinator",
+        "Shanmen.0_0_10.Product.SpiritEvasionMotionRuntime",
+        "Shanmen.0_0_10.Product.SpiritEvasionMovementAdapter",
+        "Shanmen.0_0_10.CombatRuntime.SpiritEvasionMovement",
+        "Shanmen.0_0_10.CombatRuntime.SpiritEvasion",
+        "Shanmen.0_0_10.CombatRuntime.ActionLifecycle",
+        "Shanmen.0_0_10.Product.CombatRunCoordinator",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerWorldResolution",
+        "Shanmen.0_0_10.WorldGameplay",
+        "demo_map.V3.Attributes",
+        "demo_map.EnemySkillFramework",
+        "demo_map.V2RangedCompatibility"
+      ]
+    },
+    {
       "name": "FormationDeploymentCore",
       "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenFormationDeployment\\.h|Private/(?:ShanmenFormationDeployment\\.cpp|Tests/ShanmenFormationDeploymentTests\\.cpp))$",
       "requiredGroups": [
@@ -1014,6 +1039,7 @@
       "pathRegex": "^Source/demo_map/demo_mapPlayerController\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.SpiritEvasionInputAdapter",
         "Shanmen.0_0_10.Product.ThrownWeaponInputAdapter",
         "demo_map.V2RangedCompatibility"
       ]

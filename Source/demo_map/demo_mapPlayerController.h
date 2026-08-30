@@ -4,6 +4,7 @@
 #include "GameFramework/PlayerController.h"
 #include "demo_mapCombatTypes.h"
 #include "demo_mapInputBindingSettings.h"
+#include "demo_mapShanmenSpiritEvasionInputAdapter.h"
 #include "demo_mapPlayerController.generated.h"
 
 class Udemo_mapSkillComponent;
@@ -87,6 +88,8 @@ public:
 	Fdemo_mapInputBindingResult ApplyInputBindingOverrideWithSwap(FName ActionId, const FKey& Key);
 	Fdemo_mapInputBindingResult RestoreDefaultInputBindings();
 	void RebuildProductInputBindings();
+	/** Adapts one future dedicated input without owning its physical key. */
+	Fdemo_mapShanmenSpiritEvasionInputResult RouteSpiritEvasionStartInput();
 	bool IsGameplayInputAllowed() const;
 	Udemo_mapSkillComponent* GetSkillComponent() const;
 	FVector GetLastValidAimDirection() const { return bHasValidAimDirection ? LastValidAimDirection : FVector::ZeroVector; }

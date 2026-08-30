@@ -158,6 +158,9 @@ try
     $SpiritEvasionProductRoute = New-AutomationLogFixture `
         -Name 'spirit-evasion-product-route.log' `
         -Group 'Shanmen.0_0_10.Product.SpiritEvasionProductRoute'
+    $SpiritEvasionInputAdapter = New-AutomationLogFixture `
+        -Name 'spirit-evasion-input-adapter.log' `
+        -Group 'Shanmen.0_0_10.Product.SpiritEvasionInputAdapter'
     $WorldGameplay = New-AutomationLogFixture `
         -Name 'world-gameplay.log' `
         -Group 'Shanmen.0_0_10.WorldGameplay'
@@ -553,6 +556,33 @@ try
             'Source/demo_map/demo_mapShanmenSpiritEvasionProductRouteTests.cpp') `
         -Logs @(
             $Full,
+            $SpiritEvasionProductRoute,
+            $SpiritEvasionProductAuthority,
+            $SpiritEvasionCommandRouter,
+            $SpiritEvasionComponent,
+            $SpiritEvasionProductHost,
+            $SpiritEvasionActionCoordinator,
+            $SpiritEvasionMotionRuntime,
+            $SpiritEvasionMovementProduct,
+            $SpiritEvasionMovement,
+            $SpiritEvasion,
+            $ActionLifecycle,
+            $Coordinator,
+            $FormationInfluenceConsumerWorldResolution,
+            $WorldGameplay,
+            $Attributes,
+            $Enemy,
+            $Ranged)
+
+    Invoke-ExpectedPass `
+        -Name 'spirit evasion input adapter maps gameplay gate through the complete product route' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSpiritEvasionInputAdapter.h',
+            'Source/demo_map/demo_mapShanmenSpiritEvasionInputAdapter.cpp',
+            'Source/demo_map/demo_mapShanmenSpiritEvasionInputAdapterTests.cpp') `
+        -Logs @(
+            $Full,
+            $SpiritEvasionInputAdapter,
             $SpiritEvasionProductRoute,
             $SpiritEvasionProductAuthority,
             $SpiritEvasionCommandRouter,
@@ -1024,6 +1054,18 @@ try
             $SpiritEvasionProductRoute,
             $SpiritEvasionProductAuthority,
             $SpiritEvasionCommandRouter,
+            $Coordinator,
+            $Attributes) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'spirit evasion input focus cannot replace product route and legacy evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSpiritEvasionInputAdapter.cpp') `
+        -Logs @(
+            $SpiritEvasionInputAdapter,
+            $SpiritEvasionProductRoute,
+            $SpiritEvasionProductAuthority,
             $Coordinator,
             $Attributes) `
         -ExpectedText 'missing required groups'
