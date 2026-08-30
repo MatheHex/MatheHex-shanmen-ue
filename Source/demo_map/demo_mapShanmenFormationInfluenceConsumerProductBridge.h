@@ -42,6 +42,7 @@ enum class Edemo_mapShanmenFormationInfluenceConsumerProductRouteStatus
 	ProductHostInvalid,
 	ProductIdentityMismatch,
 	ProductTerminal,
+	CommandProductIdentityMismatch,
 	RouteRejected,
 	StateInvalid
 };
@@ -88,6 +89,8 @@ public:
 	bool IsValid() const;
 	bool MatchesProductHost(
 		const Fdemo_mapShanmenFormationProductHost& ProductHost) const;
+	bool MatchesCommandProductIdentity(
+		const Fdemo_mapShanmenFormationInfluenceConsumerCommand& Command) const;
 	bool IsDrained() const { return IsValid() && CommandHost.IsDrained(); }
 	int32 GetBindingCount() const
 	{

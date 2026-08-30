@@ -262,6 +262,15 @@ Fdemo_mapShanmenFormationInfluenceConsumerProductBridge::TryRoute(
 	default:
 		break;
 	}
+	if (Command.IsValid() && !MatchesCommandProductIdentity(Command))
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationInfluenceConsumerProductRouteStatus::
+				CommandProductIdentityMismatch;
+		Result.Diagnostic =
+			TEXT("Consumer routing rejected a command from a foreign product identity.");
+		return Result;
+	}
 
 	Result.Route = CommandHost.TryRoute(Command);
 	Result.Diagnostic = Result.Route.Diagnostic;
@@ -317,4 +326,20 @@ MatchesProductHost(
 		&& Action.GetSourceEntityId() == ActionSourceEntityId
 		&& Session.GetDeployment().GetDeploymentId() == DeploymentId
 		&& SameContent(Action.GetContent(), Content);
+}
+
+bool Fdemo_mapShanmenFormationInfluenceConsumerProductBridge::
+MatchesCommandProductIdentity(
+	const Fdemo_mapShanmenFormationInfluenceConsumerCommand& Command) const
+{
+	if (!IsValid() || !Command.IsValid())
+	{
+		return false;
+	}
+	const auto& LeaseKey = Command.GetProjection().GetLease().Key;
+	return LeaseKey.RunId == Correlation.ActiveRunId
+		&& LeaseKey.OwnerId == Correlation.OwnerId
+		&& LeaseKey.SourceEntityId == ActionSourceEntityId
+		&& LeaseKey.DeploymentId == DeploymentId
+		&& SameContent(LeaseKey.Content, Content);
 }

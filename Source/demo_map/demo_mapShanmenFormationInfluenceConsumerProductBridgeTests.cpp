@@ -28,19 +28,24 @@ namespace
 		Fdemo_mapShanmenRunCorrelation Correlation;
 		Fdemo_mapShanmenFormationProductHost Host;
 
-		bool Start(const int32 Variant)
+		bool Start(
+			const int32 IdentityVariant,
+			const int32 DiagramVariant = INDEX_NONE)
 		{
-			Correlation.CorrelationId = TestGuid(Variant, 1);
-			Correlation.OwnerId = TestGuid(Variant, 2);
-			Correlation.ScopeId = TestGuid(Variant, 3);
-			Correlation.ActiveRunId = TestGuid(Variant, 4);
-			Correlation.PreparedRequestId = TestGuid(Variant, 5);
-			Correlation.PreparedReceiptId = TestGuid(Variant, 6);
-			Correlation.LifecycleRequestId = TestGuid(Variant, 7);
-			Correlation.LifecycleReceiptId = TestGuid(Variant, 8);
+			const int32 EffectiveDiagramVariant = DiagramVariant == INDEX_NONE
+				? IdentityVariant
+				: DiagramVariant;
+			Correlation.CorrelationId = TestGuid(IdentityVariant, 1);
+			Correlation.OwnerId = TestGuid(IdentityVariant, 2);
+			Correlation.ScopeId = TestGuid(IdentityVariant, 3);
+			Correlation.ActiveRunId = TestGuid(IdentityVariant, 4);
+			Correlation.PreparedRequestId = TestGuid(IdentityVariant, 5);
+			Correlation.PreparedReceiptId = TestGuid(IdentityVariant, 6);
+			Correlation.LifecycleRequestId = TestGuid(IdentityVariant, 7);
+			Correlation.LifecycleReceiptId = TestGuid(IdentityVariant, 8);
 			Correlation.PreparedAuthorityRevision = 1;
 			Correlation.LifecycleAuthorityRevision = 2;
-			const FGuid PreparedItem = TestGuid(Variant, 9);
+			const FGuid PreparedItem = TestGuid(IdentityVariant, 9);
 			Correlation.OrderedPreparedItemInstanceIds.Add(PreparedItem);
 			Correlation.OrderedRunInventoryItemInstanceIds.Add(PreparedItem);
 			Correlation.HotbarItemInstanceIds.Init(
@@ -52,13 +57,14 @@ namespace
 			}
 
 			FShanmenContentStamp Content;
-			Content.Version = TEXT("0.0.10.P8.30");
+			Content.Version = TEXT("0.0.10.P8.31");
 			Content.Digest = FString::Printf(
-				TEXT("formation-consumer-product-bridge-r%d"), Variant);
+				TEXT("formation-consumer-product-bridge-r%d"),
+				IdentityVariant);
 			FShanmenCombatActionCapture ActionCapture;
 			ActionCapture.RunId = Correlation.ActiveRunId;
 			ActionCapture.OwnerId = Correlation.OwnerId;
-			ActionCapture.SourceEntityId = TestGuid(Variant, 10);
+			ActionCapture.SourceEntityId = TestGuid(IdentityVariant, 10);
 			ActionCapture.ActionDefinitionId =
 				FShanmenFormationDiagramDefinition::
 					CanonicalActionDefinitionId();
@@ -66,7 +72,7 @@ namespace
 			ActionCapture.ActivationId =
 				FShanmenCombatIdFactory::MakeActivationId(
 					ActionCapture.RunId, ActionCapture.SourceEntityId,
-					ActionCapture.ActionDefinitionId, Variant);
+					ActionCapture.ActionDefinitionId, IdentityVariant);
 			FShanmenCombatActionSnapshot Action;
 			if (!FShanmenCombatActionSnapshot::TryCapture(
 				ActionCapture, Action))
@@ -78,11 +84,13 @@ namespace
 			DiagramCapture.ActionDefinitionId =
 				ActionCapture.ActionDefinitionId;
 			DiagramCapture.DiagramDefinitionId = FName(*FString::Printf(
-				TEXT("Formation.Diagram.ConsumerProductBridge.%d"), Variant));
+				TEXT("Formation.Diagram.ConsumerProductBridge.%d"),
+				EffectiveDiagramVariant));
 			auto& Anchor = DiagramCapture.Anchors.AddDefaulted_GetRef();
 			Anchor.Order = 0;
 			Anchor.AnchorDefinitionId = FName(*FString::Printf(
-				TEXT("Formation.Anchor.ConsumerProductBridge.%d"), Variant));
+				TEXT("Formation.Anchor.ConsumerProductBridge.%d"),
+				EffectiveDiagramVariant));
 			Anchor.RelativeOffset = FVector(100.0, 0.0, 0.0);
 			auto& Requirement = Anchor.Requirements.AddDefaulted_GetRef();
 			Requirement.Order = 0;
@@ -324,6 +332,7 @@ bool Fdemo_mapFormationInfluenceConsumerProductBridgeRouteTest::RunTest(
 	TestTrue(TEXT("Open freezes one deterministic product identity"),
 		bInvalidOpen && !Empty.IsValid() && Bridge.IsValid()
 			&& Bridge.MatchesProductHost(Fixture.Host)
+			&& Bridge.MatchesCommandProductIdentity(Commands.Apply)
 			&& Bridge.GetBridgeId() == ReplayBridge.GetBridgeId()
 			&& Bridge.GetCorrelation() == Fixture.Correlation
 			&& Bridge.GetActionActivationId()
@@ -525,7 +534,7 @@ bool Fdemo_mapFormationInfluenceConsumerProductBridgeRouteFenceTest::RunTest(
 	const auto HistoricalApply = Bridge.TryRoute(
 		Fixture.Host, Commands.Apply);
 
-	TestTrue(TEXT("Nested command, binding, and scope failures stay visible"),
+	TestTrue(TEXT("Nested command and binding failures stay visible"),
 		!Unbound.IsSuccess() && Unbound.Status
 				== Edemo_mapShanmenFormationInfluenceConsumerProductRouteStatus::
 					RouteRejected
@@ -537,9 +546,9 @@ bool Fdemo_mapFormationInfluenceConsumerProductBridgeRouteFenceTest::RunTest(
 				== Edemo_mapShanmenFormationInfluenceConsumerRouteStatus::
 					CommandInvalid
 			&& !WrongScope.IsSuccess()
-			&& WrongScope.Route.Status
-				== Edemo_mapShanmenFormationInfluenceConsumerRouteStatus::
-					ScopeMismatch
+			&& WrongScope.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerProductRouteStatus::
+					CommandProductIdentityMismatch
 			&& Bridge.GetCompletedTransactionCount() == 2);
 	TestTrue(TEXT("Historical Apply cannot resurrect after exact Remove"),
 		Applied.IsSuccess() && Removed.IsSuccess()
@@ -549,6 +558,89 @@ bool Fdemo_mapFormationInfluenceConsumerProductBridgeRouteFenceTest::RunTest(
 					TransactionReplayed
 			&& HistoricalApply.Route.Transaction.bTransactionReplayed
 			&& !HistoricalApply.bBridgeStateChanged
+			&& Bridge.IsDrained()
+			&& Bridge.GetCompletedTransactionCount() == 2
+			&& Attributes->GetActiveModifierCount() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceConsumerProductBridgeCommandIdentityTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceConsumerProductBridge.CommandProductIdentityFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceConsumerProductBridgeCommandIdentityTest::
+RunTest(const FString&)
+{
+	FProductBridgeFixture Fixture;
+	FProductBridgeFixture SameScopeForeignDeployment;
+	FProductBridgeFixture ForeignFixture;
+	FProductConsumerCommands Commands;
+	FProductConsumerCommands SameScopeForeignCommands;
+	FProductConsumerCommands ForeignCommands;
+	if (!Fixture.Start(8) || !SameScopeForeignDeployment.Start(8, 88)
+		|| !ForeignFixture.Start(9)
+		|| !BuildProductConsumerCommands(Fixture, 8, Commands)
+		|| !BuildProductConsumerCommands(
+			SameScopeForeignDeployment, 9, SameScopeForeignCommands)
+		|| !BuildProductConsumerCommands(
+			ForeignFixture, 10, ForeignCommands))
+	{
+		return false;
+	}
+	Fdemo_mapShanmenFormationInfluenceConsumerProductBridge Bridge;
+	check(Fdemo_mapShanmenFormationInfluenceConsumerProductBridge::TryOpen(
+		Fixture.Host, Bridge));
+	Udemo_mapAttributeComponent* Attributes =
+		NewObject<Udemo_mapAttributeComponent>();
+	Udemo_mapAttributeComponent* ForeignDeploymentAttributes =
+		NewObject<Udemo_mapAttributeComponent>();
+	check(Bridge.TryBindSubject(
+		Fixture.Host, Commands.SubjectEntityId, Attributes).IsSuccess());
+	check(Bridge.TryBindSubject(
+		Fixture.Host, SameScopeForeignCommands.SubjectEntityId,
+		ForeignDeploymentAttributes).IsSuccess());
+
+	const auto SameScopeForeignRoute = Bridge.TryRoute(
+		Fixture.Host, SameScopeForeignCommands.Apply);
+	const bool bSameScopeForeignWasNonMutating =
+		Bridge.GetCompletedTransactionCount() == 0
+		&& ForeignDeploymentAttributes->GetActiveModifierCount() == 0;
+	const auto ForeignRoute = Bridge.TryRoute(
+		Fixture.Host, ForeignCommands.Apply);
+	const bool bForeignWasNonMutating =
+		Bridge.GetCompletedTransactionCount() == 0
+		&& Attributes->GetActiveModifierCount() == 0
+		&& ForeignDeploymentAttributes->GetActiveModifierCount() == 0;
+	const auto Applied = Bridge.TryRoute(Fixture.Host, Commands.Apply);
+	const auto Removed = Bridge.TryRoute(Fixture.Host, Commands.Remove);
+
+	TestTrue(TEXT("Same run and content cannot cross deployment identity"),
+		Fixture.Correlation == SameScopeForeignDeployment.Correlation
+			&& Fixture.GetAction().GetActivationId()
+				== SameScopeForeignDeployment.GetAction().GetActivationId()
+			&& Fixture.GetAction().GetSourceEntityId()
+				== SameScopeForeignDeployment.GetAction().GetSourceEntityId()
+			&& Fixture.Host.GetSession().GetDeployment().GetDeploymentId()
+				!= SameScopeForeignDeployment.Host.GetSession()
+					.GetDeployment().GetDeploymentId()
+			&& !Bridge.MatchesCommandProductIdentity(
+				SameScopeForeignCommands.Apply)
+			&& !SameScopeForeignRoute.IsSuccess()
+			&& SameScopeForeignRoute.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerProductRouteStatus::
+					CommandProductIdentityMismatch
+			&& bSameScopeForeignWasNonMutating);
+	TestTrue(TEXT("Foreign run, owner, source, and content fail at bridge"),
+		!Bridge.MatchesCommandProductIdentity(ForeignCommands.Apply)
+			&& !ForeignRoute.IsSuccess()
+			&& ForeignRoute.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerProductRouteStatus::
+					CommandProductIdentityMismatch
+			&& bForeignWasNonMutating);
+	TestTrue(TEXT("Exact product commands remain routable and reversible"),
+		Bridge.MatchesCommandProductIdentity(Commands.Apply)
+			&& Applied.IsSuccess() && Removed.IsSuccess()
 			&& Bridge.IsDrained()
 			&& Bridge.GetCompletedTransactionCount() == 2
 			&& Attributes->GetActiveModifierCount() == 0);
