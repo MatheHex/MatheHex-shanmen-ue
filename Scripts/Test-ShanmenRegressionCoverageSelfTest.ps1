@@ -132,6 +132,9 @@ try
     $SpiritEvasionMovementProduct = New-AutomationLogFixture `
         -Name 'spirit-evasion-movement-product.log' `
         -Group 'Shanmen.0_0_10.Product.SpiritEvasionMovementAdapter'
+    $SpiritEvasionMotionRuntime = New-AutomationLogFixture `
+        -Name 'spirit-evasion-motion-runtime.log' `
+        -Group 'Shanmen.0_0_10.Product.SpiritEvasionMotionRuntime'
     $SpiritShieldRuntime = New-AutomationLogFixture `
         -Name 'spirit-shield-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShield'
@@ -387,6 +390,20 @@ try
             'Source/demo_map/demo_mapEnemySkillRuntimeComponent.cpp') `
         -Logs @(
             $Full,
+            $SpiritEvasionMovementProduct,
+            $SpiritEvasionMovement,
+            $Enemy,
+            $Ranged)
+
+    Invoke-ExpectedPass `
+        -Name 'spirit evasion motion runtime maps plan scheduler and swept authority' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSpiritEvasionMotionRuntime.h',
+            'Source/demo_map/demo_mapShanmenSpiritEvasionMotionRuntime.cpp',
+            'Source/demo_map/demo_mapShanmenSpiritEvasionMotionRuntimeTests.cpp') `
+        -Logs @(
+            $Full,
+            $SpiritEvasionMotionRuntime,
             $SpiritEvasionMovementProduct,
             $SpiritEvasionMovement,
             $Enemy,
@@ -779,6 +796,16 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenSpiritEvasionMovementAdapter.cpp') `
         -Logs @($SpiritEvasionMovementProduct, $SpiritEvasionMovement) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'spirit evasion motion focus cannot replace adapter and legacy evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSpiritEvasionMotionRuntime.cpp') `
+        -Logs @(
+            $SpiritEvasionMotionRuntime,
+            $SpiritEvasionMovementProduct,
+            $SpiritEvasionMovement) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
