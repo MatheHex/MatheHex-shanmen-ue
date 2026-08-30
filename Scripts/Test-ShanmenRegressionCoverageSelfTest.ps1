@@ -153,6 +153,9 @@ try
     $FormationInfluenceConsumerWorldResolution = New-AutomationLogFixture `
         -Name 'formation-influence-consumer-world-resolution.log' `
         -Group 'Shanmen.0_0_10.Product.FormationInfluenceConsumerWorldResolution'
+    $FormationInfluenceConsumerRunComposition = New-AutomationLogFixture `
+        -Name 'formation-influence-consumer-run-composition.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationInfluenceConsumerRunComposition'
     $FormationInfluenceConsumerRegistry = New-AutomationLogFixture `
         -Name 'formation-influence-consumer-registry.log' `
         -Group 'Shanmen.0_0_10.Product.FormationInfluenceConsumerRegistry'
@@ -349,6 +352,12 @@ try
         -Name 'formation consumer World resolution is covered by broad full and attribute evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerWorldResolution.cpp') `
+        -Logs @($Full, $Attributes)
+
+    Invoke-ExpectedPass `
+        -Name 'formation consumer Run composition is covered by broad full and attribute evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerRunComposition.cpp') `
         -Logs @($Full, $Attributes)
 
     Invoke-ExpectedPass `
@@ -660,6 +669,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerWorldResolution.cpp') `
         -Logs @($FormationInfluenceConsumerWorldResolution) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'consumer Run composition focus cannot replace Run Host World and attribute contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerRunComposition.cpp') `
+        -Logs @($FormationInfluenceConsumerRunComposition) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

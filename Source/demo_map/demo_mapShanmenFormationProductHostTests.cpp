@@ -8,6 +8,7 @@
 #include "demo_mapShanmenFormationInfluenceExecutionService.h"
 #include "demo_mapShanmenFormationInfluenceLifecycleCommandHost.h"
 #include "demo_mapShanmenFormationInfluenceConsumerWorldResolution.h"
+#include "demo_mapShanmenFormationInfluenceConsumerRunComposition.h"
 #include "demo_mapShanmenFormationInfluenceLifecycleCoordinator.h"
 #include "demo_mapShanmenFormationInfluenceLifecycleCommandRouter.h"
 #include "demo_mapShanmenFormationInfluenceConsumerProjection.h"
@@ -19,6 +20,7 @@
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapProfileRepository.h"
 #include "demo_mapProfileSessionSubsystem.h"
+#include "demo_mapPlayerHealthComponent.h"
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
 #include "demo_mapShanmenItemCutover.h"
 #include "demo_mapShanmenPreparationAdapter.h"
@@ -28,6 +30,7 @@
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "Components/BoxComponent.h"
 #include "Components/SceneComponent.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/Character.h"
@@ -4306,6 +4309,243 @@ RunTest(const FString&)
 			&& !Replay.bRecoveryAttempted
 			&& CommandHost.GetReceiptCount() == 4
 			&& CommandHost.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceConsumerRunCompositionTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceConsumerRunComposition.ExplicitActivation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceConsumerRunCompositionTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture Fixture;
+	if (!Fixture.Start(*this, TEXT("ConsumerRunComposition"), true)
+		|| !Fixture.CommitAndPlaceCoverageDiagram(*this))
+	{
+		return false;
+	}
+
+	FActorSpawnParameters Parameters;
+	Parameters.ObjectFlags |= RF_Transient;
+	Parameters.SpawnCollisionHandlingOverride =
+		ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	APawn* Player = Fixture.World->SpawnActor<APawn>(
+		APawn::StaticClass(), FTransform::Identity, Parameters);
+	UBoxComponent* PlayerRoot = Player
+		? NewObject<UBoxComponent>(
+			Player, TEXT("P839PlayerRoot"), RF_Transient)
+		: nullptr;
+	Udemo_mapPlayerHealthComponent* PlayerHealth = Player
+		? NewObject<Udemo_mapPlayerHealthComponent>(
+			Player, TEXT("P839PlayerHealth"), RF_Transient)
+		: nullptr;
+	if (!Player || !PlayerRoot || !PlayerHealth)
+	{
+		return false;
+	}
+	Player->SetRootComponent(PlayerRoot);
+	Player->AddInstanceComponent(PlayerRoot);
+	Player->AddInstanceComponent(PlayerHealth);
+	PlayerRoot->SetWorldLocation(FVector(25.0, 25.0, 900.0));
+
+	Fdemo_mapCombatRunCoordinator CombatRun;
+	FString CombatDiagnostic;
+	if (!CombatRun.TryBeginRun(
+			Fixture.Correlation.ActiveRunId,
+			Player,
+			PlayerHealth,
+			CombatDiagnostic))
+	{
+		AddError(FString::Printf(
+			TEXT("P8.39 CombatRun setup failed: %s"),
+			*CombatDiagnostic));
+		return false;
+	}
+
+	TArray<AActor*> Subjects{Player};
+	const auto Prime = Fixture.Host.TryCoordinateInfluence(
+		Fixture.World,
+		CombatRun.GetEntityRegistry(),
+		Subjects,
+		Fixture.Correlation,
+		Fdemo_mapShanmenFormationCoverageCommand::MakePrime(),
+		MakeHostInfluencePolicy(Fixture.Host));
+	if (!Prime.IsSuccess()
+		|| Prime.ReconciliationPlan.Batch.Intents.Num() != 1
+		|| Prime.ReconciliationPlan.Batch.Intents[0].SubjectEntityId
+			!= CombatRun.GetPlayerEntityId())
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost CommandHost;
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost ForeignCommandHost;
+	if (!Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost::TryOpen(
+			Fixture.Host, CommandHost)
+		|| !Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost::TryOpen(
+			Fixture.Host, ForeignCommandHost))
+	{
+		return false;
+	}
+	const auto& ApplyIntent = Prime.ReconciliationPlan.Batch.Intents[0];
+	const auto Apply = CommandHost.TrySubmit(
+		nullptr,
+		Fixture.Host,
+		MakeLifecycleStepCommand(
+			Fixture.Correlation,
+			MakeHostExecutionRequest(ApplyIntent, 390)));
+	FHostConsumerCommands ConsumerCommands;
+	if (!Apply.IsSuccess()
+		|| !BuildHostConsumerCommands(
+			CommandHost,
+			Apply.CommandId,
+			ApplyIntent,
+			ConsumerCommands))
+	{
+		return false;
+	}
+
+	Udemo_mapAttributeComponent* Attributes =
+		NewObject<Udemo_mapAttributeComponent>(
+			Player, TEXT("P839Attributes"), RF_Transient);
+	Udemo_mapAttributeComponent* ForeignAttributes =
+		NewObject<Udemo_mapAttributeComponent>(
+			Player, TEXT("P839ForeignAttributes"), RF_Transient);
+	USceneComponent* UnregisteredSubject =
+		NewObject<USceneComponent>(GetTransientPackage());
+	if (!Attributes || !ForeignAttributes || !UnregisteredSubject)
+	{
+		return false;
+	}
+	Player->AddInstanceComponent(Attributes);
+	Player->AddInstanceComponent(ForeignAttributes);
+
+	Fdemo_mapCombatRunCoordinator InactiveCombatRun;
+	const auto Inactive =
+		Fdemo_mapShanmenFormationInfluenceConsumerRunComposition::TryActivate(
+			InactiveCombatRun,
+			Player,
+			Fixture.Host,
+			CommandHost,
+			ConsumerCommands.Delivery.Delivery,
+			Attributes);
+	const int32 BindingCountBeforeRejections =
+		CombatRun.GetEntityRegistry().NumObjectBindings();
+	const auto MissingSource =
+		Fdemo_mapShanmenFormationInfluenceConsumerRunComposition::TryActivate(
+			CombatRun,
+			UnregisteredSubject,
+			Fixture.Host,
+			CommandHost,
+			ConsumerCommands.Delivery.Delivery,
+			Attributes);
+	TestTrue(TEXT("Composition rejects invalid alias sources before delivery"),
+		Inactive.Status
+			== Edemo_mapShanmenFormationInfluenceConsumerRunCompositionStatus::
+				AliasRejected
+			&& Inactive.Alias.Status
+				== Edemo_mapCombatRunEntityAliasStatus::CoordinatorNotReady
+			&& !Inactive.bWorldResolutionChecked
+			&& !Inactive.bDeliveryAttempted
+			&& MissingSource.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerRunCompositionStatus::
+					AliasRejected
+			&& MissingSource.Alias.Status
+				== Edemo_mapCombatRunEntityAliasStatus::
+					RegisteredObjectNotFound
+			&& CombatRun.GetEntityRegistry().NumObjectBindings()
+				== BindingCountBeforeRejections
+			&& CommandHost.GetConsumerRuntime().IsDrained());
+
+	const auto ForeignHostRejected =
+		Fdemo_mapShanmenFormationInfluenceConsumerRunComposition::TryActivate(
+			CombatRun,
+			Player,
+			Fixture.Host,
+			ForeignCommandHost,
+			ConsumerCommands.Delivery.Delivery,
+			ForeignAttributes);
+	FGuid PersistedForeignAlias;
+	const bool bForeignAliasPersisted =
+		CombatRun.GetEntityRegistry().TryResolveObject(
+			CombatRun.GetRunId(),
+			ForeignAttributes,
+			INDEX_NONE,
+			PersistedForeignAlias);
+	TestTrue(TEXT("Valid identity alias survives a downstream Host rejection"),
+		ForeignHostRejected.Status
+			== Edemo_mapShanmenFormationInfluenceConsumerRunCompositionStatus::
+				DeliveryApplicationRejected
+			&& ForeignHostRejected.Alias.IsSuccess()
+			&& ForeignHostRejected.WorldResolution.IsSuccess()
+			&& ForeignHostRejected.bDeliveryAttempted
+			&& ForeignHostRejected.Application.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationStatus::
+					SourceReceiptNotFound
+			&& bForeignAliasPersisted
+			&& PersistedForeignAlias == CombatRun.GetPlayerEntityId()
+			&& ForeignCommandHost.GetConsumerRuntime().IsDrained()
+			&& ForeignAttributes->GetActiveModifierCount() == 0);
+
+	const auto Activated =
+		Fdemo_mapShanmenFormationInfluenceConsumerRunComposition::TryActivate(
+			CombatRun,
+			Player,
+			Fixture.Host,
+			CommandHost,
+			ConsumerCommands.Delivery.Delivery,
+			Attributes);
+	const int32 BindingCountBeforeReplay =
+		CombatRun.GetEntityRegistry().NumObjectBindings();
+	const auto Replay =
+		Fdemo_mapShanmenFormationInfluenceConsumerRunComposition::TryActivate(
+			CombatRun,
+			Player,
+			Fixture.Host,
+			CommandHost,
+			ConsumerCommands.Delivery.Delivery,
+			Attributes);
+	TestTrue(TEXT("Composition closes the alias-resolution-delivery chain"),
+		Activated.IsSuccess()
+			&& Activated.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerRunCompositionStatus::
+					Activated
+			&& Activated.Alias.EntityId
+				== ConsumerCommands.SubjectEntityId
+			&& Activated.WorldResolution.ResolvedEntityId
+				== ConsumerCommands.SubjectEntityId
+			&& Activated.Application.SubjectResolution.ResolutionId
+				== Activated.WorldResolution.Resolution.ResolutionId
+			&& Attributes->GetActiveModifierCount() == 1
+			&& CommandHost.GetConsumerRuntime().GetBindingCount() == 1
+			&& CommandHost.GetConsumerRuntime().
+				GetActiveApplicationCount() == 1);
+	TestTrue(TEXT("Exact composition replay performs no duplicate mutation"),
+		Replay.IsSuccess()
+			&& Replay.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerRunCompositionStatus::
+					ActivationReplayed
+			&& Replay.Alias.Status
+				== Edemo_mapCombatRunEntityAliasStatus::AlreadyBound
+			&& Replay.WorldResolution.Resolution.ResolutionId
+				== Activated.WorldResolution.Resolution.ResolutionId
+			&& CombatRun.GetEntityRegistry().NumObjectBindings()
+				== BindingCountBeforeReplay
+			&& Attributes->GetActiveModifierCount() == 1
+			&& CommandHost.GetConsumerRuntime().GetBindingCount() == 1);
+
+	const auto Deactivated = CommandHost.TryDeactivateConsumerDelivery(
+		Fixture.Host,
+		ConsumerCommands.Delivery.Delivery);
+	const FGuid RunId = CombatRun.GetRunId();
+	TestTrue(TEXT("Explicit teardown drains native state before Run end"),
+		Deactivated.IsSuccess()
+			&& Attributes->GetActiveModifierCount() == 0
+			&& CommandHost.GetConsumerRuntime().IsDrained()
+			&& CombatRun.TryEndRun(RunId, CombatDiagnostic)
+			&& CombatRun.GetEntityRegistry().NumObjectBindings() == 0);
 	return true;
 }
 
