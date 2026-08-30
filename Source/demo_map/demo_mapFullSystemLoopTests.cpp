@@ -591,7 +591,8 @@ namespace
 		}
 		case 41:
 			return Check(Test, Fdemo_mapInputActionRegistry::ValidateExactDefaults()
-				&& Fdemo_mapInputActionRegistry::GetExactDefaultActions().Num() == 21
+				&& Fdemo_mapInputActionRegistry::GetExactDefaultActions().Num() == 22
+				&& Fdemo_mapInputActionRegistry::Find(Fdemo_mapInputActionIds::SpiritEvasion)->DefaultKey == EKeys::SpaceBar
 				&& Fdemo_mapInputActionRegistry::Find(Fdemo_mapInputActionIds::Interact)->DefaultKey == EKeys::G,
 				TEXT("Input registry exact defaults failed."));
 		case 42:
@@ -649,7 +650,7 @@ namespace
 			Settings.ApplyOverride(Fdemo_mapInputActionIds::Interact, EKeys::H);
 			const auto Restored = Settings.RestoreDefaults();
 			return Check(Test, Restored.IsSuccess() && Settings.GetKey(Fdemo_mapInputActionIds::Interact) == EKeys::G
-				&& Settings.GetBindings().Num() == 21, TEXT("Restore defaults was not exact."));
+				&& Settings.GetBindings().Num() == 22, TEXT("Restore defaults was not exact."));
 		}
 		case 48:
 		{

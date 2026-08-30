@@ -101,6 +101,21 @@ try
     $Ranged = New-AutomationLogFixture `
         -Name 'ranged.log' `
         -Group 'demo_map.V2RangedCompatibility'
+    $FullSystemRegistry = New-AutomationLogFixture `
+        -Name 'full-system-registry.log' `
+        -Group 'demo_map.FullSystemLoop.41'
+    $FullSystemRestore = New-AutomationLogFixture `
+        -Name 'full-system-restore.log' `
+        -Group 'demo_map.FullSystemLoop.47'
+    $P7Integration = New-AutomationLogFixture `
+        -Name 'p7-integration.log' `
+        -Group 'demo_map.P7Integration'
+    $P5RuntimeInterface = New-AutomationLogFixture `
+        -Name 'p5-runtime-interface.log' `
+        -Group 'demo_map.P5RuntimeInterface.06'
+    $InputRestore = New-AutomationLogFixture `
+        -Name 'input-restore.log' `
+        -Group 'demo_map.InputRestore.32'
     $Coordinator = New-AutomationLogFixture `
         -Name 'coordinator.log' `
         -Group 'Shanmen.0_0_10.Product.CombatRunCoordinator'
@@ -161,6 +176,9 @@ try
     $SpiritEvasionInputAdapter = New-AutomationLogFixture `
         -Name 'spirit-evasion-input-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.SpiritEvasionInputAdapter'
+    $SpiritEvasionPhysicalInput = New-AutomationLogFixture `
+        -Name 'spirit-evasion-physical-input.log' `
+        -Group 'Shanmen.0_0_10.Product.SpiritEvasionPhysicalInput'
     $WorldGameplay = New-AutomationLogFixture `
         -Name 'world-gameplay.log' `
         -Group 'Shanmen.0_0_10.WorldGameplay'
@@ -599,6 +617,29 @@ try
             $WorldGameplay,
             $Attributes,
             $Enemy,
+            $Ranged)
+
+    Invoke-ExpectedPass `
+        -Name 'unified input changes require physical route and every touched legacy input contract' `
+        -Paths @(
+            'Source/demo_map/demo_mapInputActionRegistry.h',
+            'Source/demo_map/demo_mapInputActionRegistry.cpp',
+            'Source/demo_map/demo_mapInputBindingSettings.h',
+            'Source/demo_map/demo_mapInputBindingSettings.cpp',
+            'Source/demo_map/demo_mapShanmenSpiritEvasionPhysicalInputTests.cpp',
+            'Source/demo_map/demo_mapFullSystemLoopTests.cpp',
+            'Source/demo_map/demo_mapP7IntegrationTests.cpp',
+            'Source/demo_map/demo_mapRuntimeInterfaceSliceTests.cpp',
+            'Source/demo_map/demo_mapInputRestoreTests.cpp') `
+        -Logs @(
+            $Full,
+            $SpiritEvasionPhysicalInput,
+            $SpiritEvasionInputAdapter,
+            $FullSystemRegistry,
+            $FullSystemRestore,
+            $P7Integration,
+            $P5RuntimeInterface,
+            $InputRestore,
             $Ranged)
 
     Invoke-ExpectedPass `
@@ -1068,6 +1109,18 @@ try
             $SpiritEvasionProductAuthority,
             $Coordinator,
             $Attributes) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'physical input focus cannot replace registry migration and legacy input suites' `
+        -Paths @(
+            'Source/demo_map/demo_mapInputActionRegistry.cpp',
+            'Source/demo_map/demo_mapShanmenSpiritEvasionPhysicalInputTests.cpp') `
+        -Logs @(
+            $Full,
+            $SpiritEvasionPhysicalInput,
+            $SpiritEvasionInputAdapter,
+            $Ranged) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

@@ -163,6 +163,8 @@ void Ademo_mapPlayerController::SetupInputComponent()
 void Ademo_mapPlayerController::BindProductInputActions()
 {
 	if (!InputComponent) return;
+	ProductInputBindingComponent = InputComponent;
+	ProductInputBindingStartIndex = InputComponent->KeyBindings.Num();
 	const Fdemo_mapInputBindingSettings& Settings = Fdemo_mapInputBindingSettings::Get();
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::MoveForward), IE_Pressed, this, &Ademo_mapPlayerController::StartMoveForward);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::MoveForward), IE_Released, this, &Ademo_mapPlayerController::StopMoveForward);
@@ -177,6 +179,7 @@ void Ademo_mapPlayerController::BindProductInputActions()
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::SkillGroundCircle), IE_Pressed, this, &Ademo_mapPlayerController::ToggleGroundCircle);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::SkillSelfSector), IE_Pressed, this, &Ademo_mapPlayerController::CastSelfSector);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::SkillStraightProjectile), IE_Pressed, this, &Ademo_mapPlayerController::FireStraightProjectile);
+	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::SpiritEvasion), IE_Pressed, this, &Ademo_mapPlayerController::StartSpiritEvasion);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::Interact), IE_Pressed, this, &Ademo_mapPlayerController::BeginInteractV3);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::Interact), IE_Released, this, &Ademo_mapPlayerController::EndInteractV3);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::Hotbar1), IE_Pressed, this, &Ademo_mapPlayerController::UseHotbarSlot1);
@@ -194,11 +197,61 @@ void Ademo_mapPlayerController::BindProductInputActions()
 	// item surface from the top: search first, then the runtime inventory.
 	// Backspace keeps its broader legacy "Back" role.
 	InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &Ademo_mapPlayerController::HandleSearchEscapeAction);
+	ProductInputBindingCount =
+		InputComponent->KeyBindings.Num() - ProductInputBindingStartIndex;
+}
+
+bool Ademo_mapPlayerController::RemoveProductInputActions()
+{
+	UInputComponent* BoundComponent = ProductInputBindingComponent.Get();
+	if (!BoundComponent || ProductInputBindingCount == 0)
+	{
+		ProductInputBindingComponent.Reset();
+		ProductInputBindingStartIndex = INDEX_NONE;
+		ProductInputBindingCount = 0;
+		return true;
+	}
+	if (ProductInputBindingStartIndex < 0
+		|| ProductInputBindingStartIndex + ProductInputBindingCount
+			> BoundComponent->KeyBindings.Num())
+	{
+		UE_LOG(
+			Logdemo_map,
+			Error,
+			TEXT("Input remap rejected: owned BindKey range is no longer valid."));
+		return false;
+	}
+	for (int32 Index = ProductInputBindingStartIndex;
+		Index < ProductInputBindingStartIndex + ProductInputBindingCount;
+		++Index)
+	{
+		if (!BoundComponent->KeyBindings[Index].KeyDelegate.IsBoundToObject(this))
+		{
+			UE_LOG(
+				Logdemo_map,
+				Error,
+				TEXT("Input remap rejected: owned BindKey range changed ownership."));
+			return false;
+		}
+	}
+	// UE 5.8 ClearBindingsForObject only invalidates its cached action map;
+	// it does not remove raw BindKey entries. This controller records and
+	// verifies the exact contiguous range it owns so a live remap cannot leave
+	// the old physical key active or remove unrelated component bindings.
+	BoundComponent->KeyBindings.RemoveAt(
+		ProductInputBindingStartIndex,
+		ProductInputBindingCount,
+		EAllowShrinking::No);
+	ProductInputBindingComponent.Reset();
+	ProductInputBindingStartIndex = INDEX_NONE;
+	ProductInputBindingCount = 0;
+	return true;
 }
 
 void Ademo_mapPlayerController::RebuildProductInputBindings()
 {
 	if (!InputComponent) return;
+	if (!RemoveProductInputActions()) return;
 	InputComponent->ClearBindingsForObject(this);
 	BindProductInputActions();
 	if (PlayerInput) PlayerInput->FlushPressedKeys();
@@ -799,6 +852,18 @@ void Ademo_mapPlayerController::FireStraightProjectile()
 		Skills->CancelGroundCircleTargeting();
 		Skills->TryFireStraightProjectile(GetLastValidAimDirection());
 	}
+}
+
+void Ademo_mapPlayerController::StartSpiritEvasion()
+{
+	const Fdemo_mapShanmenSpiritEvasionInputResult Result =
+		RouteSpiritEvasionStartInput();
+#if !UE_BUILD_SHIPPING
+	++SpiritEvasionInputInvocationCount;
+	LastSpiritEvasionInputResult = Result;
+#else
+	(void)Result;
+#endif
 }
 
 Fdemo_mapShanmenSpiritEvasionInputResult

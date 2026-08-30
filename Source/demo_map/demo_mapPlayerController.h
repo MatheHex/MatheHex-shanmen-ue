@@ -54,6 +54,9 @@ protected:
 	FVector LastValidAimDirection = FVector::ForwardVector;
 	TWeakObjectPtr<UCharacterMovementComponent> OrderedCharacterMovement;
 	TWeakObjectPtr<ACharacter> InputConsumptionObservedCharacter;
+	TWeakObjectPtr<UInputComponent> ProductInputBindingComponent;
+	int32 ProductInputBindingStartIndex = INDEX_NONE;
+	int32 ProductInputBindingCount = 0;
 	uint64 LastMovementApplicationFrame = MAX_uint64;
 #if !UE_BUILD_SHIPPING
 	bool bRecordedMovementAppliedForCurrentPress = false;
@@ -125,6 +128,15 @@ public:
 	bool DispatchAutomationKey(const FKey& Key);
 	bool DispatchAutomationKeyPressed(const FKey& Key);
 	bool DispatchAutomationKeyReleased(const FKey& Key);
+	uint64 GetSpiritEvasionInputInvocationCountForAutomation() const
+	{
+		return SpiritEvasionInputInvocationCount;
+	}
+	const Fdemo_mapShanmenSpiritEvasionInputResult&
+	GetLastSpiritEvasionInputResultForAutomation() const
+	{
+		return LastSpiritEvasionInputResult;
+	}
 	int32 GetLastHotbarSlotForwardedForAutomation() const { return LastHotbarSlotForwardedForAutomation; }
 	void SetAutomationAimDirection(const FVector& Direction) { LastValidAimDirection = FVector(Direction.X, Direction.Y, 0.0f).GetSafeNormal(); bHasValidAimDirection = !LastValidAimDirection.IsNearlyZero(); }
 	bool IsOwnedInputIgnoreAppliedForAutomation() const { return bOwnedInputIgnoreApplied; }
@@ -199,6 +211,7 @@ protected:
 	void CancelGroundCircle();
 	void CastSelfSector();
 	void FireStraightProjectile();
+	void StartSpiritEvasion();
 	void UseHotbarSlot(int32 SlotNumber);
 	void UseHotbarSlot1();
 	void UseHotbarSlot2();
@@ -215,11 +228,15 @@ protected:
 	void HandleBackAction();
 	void HandleSearchEscapeAction();
 	void BindProductInputActions();
+	bool RemoveProductInputActions();
 
 #if !UE_BUILD_SHIPPING
 	void RecordInputRestoreTraceEvent(
 		Edemo_mapInputRestoreTraceEvent Event) const;
 	int32 LastHotbarSlotForwardedForAutomation = INDEX_NONE;
+	uint64 SpiritEvasionInputInvocationCount = 0;
+	Fdemo_mapShanmenSpiritEvasionInputResult
+		LastSpiritEvasionInputResult;
 #endif
 };
 

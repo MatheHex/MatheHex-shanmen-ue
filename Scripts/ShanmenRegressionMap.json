@@ -292,6 +292,21 @@
       ]
     },
     {
+      "name": "UnifiedInputRegistryAndBindings",
+      "pathRegex": "^Source/demo_map/(?:demo_mapInputActionRegistry|demo_mapInputBindingSettings|demo_mapShanmenSpiritEvasionPhysicalInputTests|demo_mapFullSystemLoopTests|demo_mapP7IntegrationTests|demo_mapRuntimeInterfaceSliceTests|demo_mapInputRestoreTests)\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.SpiritEvasionPhysicalInput",
+        "Shanmen.0_0_10.Product.SpiritEvasionInputAdapter",
+        "demo_map.FullSystemLoop.41",
+        "demo_map.FullSystemLoop.47",
+        "demo_map.P7Integration",
+        "demo_map.P5RuntimeInterface.06",
+        "demo_map.InputRestore.32",
+        "demo_map.V2RangedCompatibility"
+      ]
+    },
+    {
       "name": "FormationDeploymentCore",
       "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenFormationDeployment\\.h|Private/(?:ShanmenFormationDeployment\\.cpp|Tests/ShanmenFormationDeploymentTests\\.cpp))$",
       "requiredGroups": [
@@ -1039,6 +1054,7 @@
       "pathRegex": "^Source/demo_map/demo_mapPlayerController\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.SpiritEvasionPhysicalInput",
         "Shanmen.0_0_10.Product.SpiritEvasionInputAdapter",
         "Shanmen.0_0_10.Product.ThrownWeaponInputAdapter",
         "demo_map.V2RangedCompatibility"

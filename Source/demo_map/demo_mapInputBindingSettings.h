@@ -61,7 +61,9 @@ private:
 		const FKey& Key);
 	bool Serialize(const TMap<FName, FKey>& Candidate, FString& OutText) const;
 	bool Deserialize(const FString& Text, TMap<FName, FKey>& OutCandidate, FString& OutDiagnostic) const;
-	static void MergeMissingDefaults(TMap<FName, FKey>& Candidate);
+	static bool MergeMissingDefaults(
+		TMap<FName, FKey>& Candidate,
+		FString& OutDiagnostic);
 
 	TMap<FName, FKey> Bindings;
 	bool bLoaded = false;

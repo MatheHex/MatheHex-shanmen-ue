@@ -80,7 +80,7 @@ bool Fdemo_mapInputBindingSettings::ValidateBindings(const TMap<FName, FKey>& Ca
 
 bool Fdemo_mapInputBindingSettings::Serialize(const TMap<FName, FKey>& Candidate, FString& OutText) const
 {
-	OutText = TEXT("[ShanmenInputBindings]\nVersion=2\n");
+	OutText = TEXT("[ShanmenInputBindings]\nVersion=3\n");
 	for (const Fdemo_mapInputActionDefinition& Action : Fdemo_mapInputActionRegistry::GetExactDefaultActions())
 	{
 		const FKey* Key = Candidate.Find(Action.ActionId);
@@ -113,23 +113,52 @@ bool Fdemo_mapInputBindingSettings::Deserialize(
 		}
 		OutCandidate.Add(FName(*Left), FKey(FName(*Right)));
 	}
-	MergeMissingDefaults(OutCandidate);
+	if (!MergeMissingDefaults(OutCandidate, OutDiagnostic))
+	{
+		return false;
+	}
 	return ValidateBindings(OutCandidate, OutDiagnostic);
 }
 
-void Fdemo_mapInputBindingSettings::MergeMissingDefaults(
-	TMap<FName, FKey>& Candidate)
+bool Fdemo_mapInputBindingSettings::MergeMissingDefaults(
+	TMap<FName, FKey>& Candidate,
+	FString& OutDiagnostic)
 {
-	// Forward-compatible migration: every registry addition receives its current
-	// default while preserving all valid user overrides from older files.
-	for (const Fdemo_mapInputActionDefinition& Action :
-		Fdemo_mapInputActionRegistry::GetExactDefaultActions())
+	const TArray<Fdemo_mapInputActionDefinition>& Actions =
+		Fdemo_mapInputActionRegistry::GetExactDefaultActions();
+	// Forward-compatible migration preserves every existing user override. A
+	// newly introduced default may already be occupied by an older override, so
+	// use the first still-free registry default instead of rejecting the whole
+	// otherwise-valid file or silently moving the user's existing action.
+	for (const Fdemo_mapInputActionDefinition& Action : Actions)
 	{
-		if (!Candidate.Contains(Action.ActionId))
+		if (Candidate.Contains(Action.ActionId))
 		{
-			Candidate.Add(Action.ActionId, Action.DefaultKey);
+			continue;
 		}
+		FKey MigratedKey = Action.DefaultKey;
+		if (Candidate.FindKey(MigratedKey))
+		{
+			MigratedKey = FKey();
+			for (const Fdemo_mapInputActionDefinition& Fallback : Actions)
+			{
+				if (!Candidate.FindKey(Fallback.DefaultKey))
+				{
+					MigratedKey = Fallback.DefaultKey;
+					break;
+				}
+			}
+		}
+		if (!MigratedKey.IsValid())
+		{
+			OutDiagnostic = FString::Printf(
+				TEXT("No conflict-free registry key remains for missing action %s."),
+				*Action.ActionId.ToString());
+			return false;
+		}
+		Candidate.Add(Action.ActionId, MigratedKey);
 	}
+	return true;
 }
 
 Fdemo_mapInputBindingResult Fdemo_mapInputBindingSettings::Load()

@@ -8,6 +8,7 @@ const FName Fdemo_mapInputActionIds::PrimaryAttack(TEXT("PrimaryAttack"));
 const FName Fdemo_mapInputActionIds::SkillGroundCircle(TEXT("SkillGroundCircle"));
 const FName Fdemo_mapInputActionIds::SkillSelfSector(TEXT("SkillSelfSector"));
 const FName Fdemo_mapInputActionIds::SkillStraightProjectile(TEXT("SkillStraightProjectile"));
+const FName Fdemo_mapInputActionIds::SpiritEvasion(TEXT("SpiritEvasion"));
 const FName Fdemo_mapInputActionIds::Interact(TEXT("Interact"));
 const FName Fdemo_mapInputActionIds::ResetRun(TEXT("ResetRun"));
 const FName Fdemo_mapInputActionIds::Inventory(TEXT("Inventory"));
@@ -33,6 +34,7 @@ const TArray<Fdemo_mapInputActionDefinition>& Fdemo_mapInputActionRegistry::GetE
 		{ Fdemo_mapInputActionIds::SkillGroundCircle, EKeys::Q, false, TEXT("范围技能"), TEXT("战斗") },
 		{ Fdemo_mapInputActionIds::SkillSelfSector, EKeys::E, false, TEXT("扇形技能"), TEXT("战斗") },
 		{ Fdemo_mapInputActionIds::SkillStraightProjectile, EKeys::F, false, TEXT("直线技能"), TEXT("战斗") },
+		{ Fdemo_mapInputActionIds::SpiritEvasion, EKeys::SpaceBar, false, TEXT("灵息闪避"), TEXT("战斗") },
 		{ Fdemo_mapInputActionIds::Interact, EKeys::G, true, TEXT("交互 / 开始搜索"), TEXT("页面与交互") },
 		{ Fdemo_mapInputActionIds::ResetRun, EKeys::R, false, TEXT("重置本局"), TEXT("页面与交互") },
 		{ Fdemo_mapInputActionIds::Inventory, EKeys::Tab, false, TEXT("人物物品页"), TEXT("页面与交互") },
@@ -80,9 +82,9 @@ FString Fdemo_mapInputActionRegistry::DisplayLabel(FName ActionId)
 bool Fdemo_mapInputActionRegistry::ValidateExactDefaults(FString* OutError)
 {
 	const TArray<Fdemo_mapInputActionDefinition>& Actions = GetExactDefaultActions();
-	if (Actions.Num() != 21)
+	if (Actions.Num() != 22)
 	{
-		if (OutError) *OutError = TEXT("Input registry must contain exactly 21 actions.");
+		if (OutError) *OutError = TEXT("Input registry must contain exactly 22 actions.");
 		return false;
 	}
 	TSet<FName> Ids;
