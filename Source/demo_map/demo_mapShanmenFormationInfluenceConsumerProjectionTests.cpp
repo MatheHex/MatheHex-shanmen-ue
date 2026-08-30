@@ -3,6 +3,7 @@
 #include "demo_mapShanmenFormationInfluenceConsumerProjection.h"
 #include "demo_mapShanmenFormationInfluenceConsumerRegistry.h"
 #include "demo_mapShanmenFormationInfluenceConsumerAttributeAdapter.h"
+#include "demo_mapShanmenFormationInfluenceConsumerApplicationCoordinator.h"
 
 #include "Misc/AutomationTest.h"
 #include "ShanmenCombatTags.h"
@@ -210,6 +211,21 @@ namespace
 		check(Fdemo_mapShanmenFormationInfluenceConsumerApplicationRegistry::
 			TryCreate(ConsumerRunId, ConsumerContent(ContentVariant), Registry));
 		return Registry;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceConsumerApplicationCoordinator
+	MakeConsumerCoordinator(
+		const Fdemo_mapShanmenFormationInfluenceConsumerProjection& Projection,
+		Udemo_mapAttributeComponent* AttributeComponent)
+	{
+		Fdemo_mapShanmenFormationInfluenceConsumerApplicationCoordinator
+			Coordinator;
+		check(Fdemo_mapShanmenFormationInfluenceConsumerApplicationCoordinator::
+			TryCreate(
+				ConsumerRunId, ConsumerContent(),
+				Projection.GetLease().Key.SubjectEntityId,
+				AttributeComponent, Coordinator));
+		return Coordinator;
 	}
 }
 
@@ -816,6 +832,249 @@ bool Fdemo_mapFormationInfluenceConsumerAttributeEvidenceFenceTest::RunTest(
 				== Edemo_mapShanmenFormationInfluenceConsumerAttributeStatus::
 					ApplicationRejected
 			&& Attributes->GetActiveModifierCount() == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceConsumerCoordinatorAtomicLifecycleTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceConsumerApplicationCoordinator.AtomicApplyRemove",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceConsumerCoordinatorAtomicLifecycleTest::RunTest(
+	const FString&)
+{
+	const auto Projection = MakeProjection(40, 250);
+	const auto Apply = MakeConsumerCommand(
+		Projection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Apply);
+	const auto Remove = MakeConsumerCommand(
+		Projection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Remove);
+	Udemo_mapAttributeComponent* Attributes =
+		NewObject<Udemo_mapAttributeComponent>();
+	auto Coordinator = MakeConsumerCoordinator(Projection, Attributes);
+	const auto Applied = Coordinator.Execute(Apply);
+	float AppliedPower = 0.0f;
+	const bool bReadApplied = Attributes->GetFinalValue(
+		Fdemo_mapAttributeIds::AttackPower, AppliedPower);
+	const bool bApplyCommitted =
+		Coordinator.GetCompletedTransactionCount() == 1
+		&& Coordinator.GetActiveApplicationCount() == 1
+		&& Attributes->GetActiveModifierCount() == 1
+		&& !Coordinator.IsDrained();
+	const auto Removed = Coordinator.Execute(Remove);
+	float RemovedPower = 0.0f;
+	const bool bReadRemoved = Attributes->GetFinalValue(
+		Fdemo_mapAttributeIds::AttackPower, RemovedPower);
+
+	TestTrue(TEXT("Apply commits registry and native authority as one transaction"),
+		Applied.IsSuccess()
+			&& Applied.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerTransactionStatus::
+					Applied
+			&& Applied.bCoordinatorStateCommitted
+			&& Applied.Receipt.IsValid()
+			&& Applied.Receipt.GetSubjectEntityId()
+				== Projection.GetLease().Key.SubjectEntityId
+			&& bReadApplied && FMath::IsNearlyEqual(AppliedPower, 3.5f)
+			&& bApplyCommitted);
+	TestTrue(TEXT("Remove drains registry only after native authority acknowledges"),
+		Removed.IsSuccess()
+			&& Removed.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerTransactionStatus::
+					Removed
+			&& Coordinator.GetCompletedTransactionCount() == 2
+			&& Coordinator.GetActiveApplicationCount() == 0
+			&& Attributes->GetActiveModifierCount() == 0
+			&& bReadRemoved && FMath::IsNearlyEqual(RemovedPower, 1.0f)
+			&& Coordinator.IsConsistent() && Coordinator.IsDrained());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceConsumerCoordinatorAtomicRetryTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceConsumerApplicationCoordinator.NativeFailureRetry",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceConsumerCoordinatorAtomicRetryTest::RunTest(
+	const FString&)
+{
+	const auto Projection = MakeProjection(41, 200);
+	const auto Apply = MakeConsumerCommand(
+		Projection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Apply);
+	const auto Remove = MakeConsumerCommand(
+		Projection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Remove);
+	Fdemo_mapModifierSpec Expected;
+	check(Fdemo_mapShanmenFormationInfluenceConsumerAttributeAdapter::
+		TryBuildModifierSpec(Projection, Expected));
+	auto Foreign = Expected;
+	Foreign.Value += 1.0f;
+	Udemo_mapAttributeComponent* Attributes =
+		NewObject<Udemo_mapAttributeComponent>();
+	auto Coordinator = MakeConsumerCoordinator(Projection, Attributes);
+	check(Attributes->EnsureModifierApplied(Foreign, Projection.GetHandle())
+		== Edemo_mapExactModifierMutationStatus::Applied);
+	const auto ApplyRejected = Coordinator.Execute(Apply);
+	const bool bApplyRollback =
+		Coordinator.GetActiveApplicationCount() == 0
+		&& Coordinator.GetCompletedTransactionCount() == 0
+		&& Attributes->GetActiveModifierCount() == 1;
+	check(Attributes->RemoveModifier(Projection.GetHandle()));
+	check(Attributes->EnsureModifierApplied(Expected, Projection.GetHandle())
+		== Edemo_mapExactModifierMutationStatus::Applied);
+	const auto ApplyRetried = Coordinator.Execute(Apply);
+
+	check(Attributes->EnsureModifierRemoved(Expected, Projection.GetHandle())
+		== Edemo_mapExactModifierMutationStatus::Removed);
+	check(Attributes->EnsureModifierApplied(Foreign, Projection.GetHandle())
+		== Edemo_mapExactModifierMutationStatus::Applied);
+	const auto RemoveRejected = Coordinator.Execute(Remove);
+	const bool bRemoveRollback =
+		Coordinator.GetActiveApplicationCount() == 1
+		&& Coordinator.GetCompletedTransactionCount() == 1
+		&& Attributes->GetActiveModifierCount() == 1;
+	check(Attributes->RemoveModifier(Projection.GetHandle()));
+	const auto RemoveRetried = Coordinator.Execute(Remove);
+
+	TestTrue(TEXT("Rejected native Apply discards candidate registry and remains retryable"),
+		!ApplyRejected.IsSuccess()
+			&& ApplyRejected.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerTransactionStatus::
+					NativeRejected
+			&& ApplyRejected.Native.NativeStatus
+				== Edemo_mapExactModifierMutationStatus::HandleConflict
+			&& !ApplyRejected.bCoordinatorStateCommitted && bApplyRollback
+			&& ApplyRetried.IsSuccess()
+			&& ApplyRetried.Native.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerAttributeStatus::
+					ApplyReplayed
+			&& !ApplyRetried.Native.bComponentMutated);
+	TestTrue(TEXT("Rejected native Remove preserves active registry then retries from truth"),
+		!RemoveRejected.IsSuccess()
+			&& RemoveRejected.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerTransactionStatus::
+					NativeRejected
+			&& RemoveRejected.Native.NativeStatus
+				== Edemo_mapExactModifierMutationStatus::HandleConflict
+			&& bRemoveRollback && RemoveRetried.IsSuccess()
+			&& RemoveRetried.Native.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerAttributeStatus::
+					RemoveReplayed
+			&& Coordinator.IsDrained()
+			&& Coordinator.GetCompletedTransactionCount() == 2
+			&& Attributes->GetActiveModifierCount() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceConsumerCoordinatorHistoricalReplayTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceConsumerApplicationCoordinator.HistoricalReplayFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceConsumerCoordinatorHistoricalReplayTest::RunTest(
+	const FString&)
+{
+	const auto Projection = MakeProjection(42, 150);
+	const auto Apply = MakeConsumerCommand(
+		Projection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Apply);
+	const auto Remove = MakeConsumerCommand(
+		Projection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Remove);
+	Udemo_mapAttributeComponent* Attributes =
+		NewObject<Udemo_mapAttributeComponent>();
+	auto Coordinator = MakeConsumerCoordinator(Projection, Attributes);
+	const auto Applied = Coordinator.Execute(Apply);
+	const auto Removed = Coordinator.Execute(Remove);
+	const auto ApplyReplay = Coordinator.Execute(Apply);
+	const auto RemoveReplay = Coordinator.Execute(Remove);
+
+	TestTrue(TEXT("Historical Apply replay cannot resurrect a later removed modifier"),
+		Applied.IsSuccess() && Removed.IsSuccess() && ApplyReplay.IsSuccess()
+			&& ApplyReplay.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerTransactionStatus::
+					TransactionReplayed
+			&& ApplyReplay.bTransactionReplayed
+			&& !ApplyReplay.bCoordinatorStateCommitted
+			&& ApplyReplay.Receipt.Matches(Applied.Receipt)
+			&& Attributes->GetActiveModifierCount() == 0
+			&& Coordinator.GetActiveApplicationCount() == 0);
+	TestTrue(TEXT("Completed Remove replay is immutable and does not add history"),
+		RemoveReplay.IsSuccess() && RemoveReplay.bTransactionReplayed
+			&& RemoveReplay.Receipt.Matches(Removed.Receipt)
+			&& Coordinator.GetCompletedTransactionCount() == 2
+			&& Coordinator.IsDrained());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceConsumerCoordinatorBindingTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceConsumerApplicationCoordinator.BindingAndEvidenceFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceConsumerCoordinatorBindingTest::RunTest(
+	const FString&)
+{
+	const auto Projection = MakeProjection(43, 100);
+	const auto ForeignProjection = MakeProjection(44, 100);
+	const auto Apply = MakeConsumerCommand(
+		Projection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Apply);
+	const auto Remove = MakeConsumerCommand(
+		Projection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Remove);
+	const auto ForeignApply = MakeConsumerCommand(
+		ForeignProjection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Apply);
+	Udemo_mapAttributeComponent* Attributes =
+		NewObject<Udemo_mapAttributeComponent>();
+	Udemo_mapAttributeComponent* OtherAttributes =
+		NewObject<Udemo_mapAttributeComponent>();
+	Fdemo_mapShanmenFormationInfluenceConsumerApplicationCoordinator Invalid;
+	const bool bNullRejected =
+		!Fdemo_mapShanmenFormationInfluenceConsumerApplicationCoordinator::
+			TryCreate(
+				ConsumerRunId, ConsumerContent(),
+				Projection.GetLease().Key.SubjectEntityId, nullptr, Invalid);
+	auto Coordinator = MakeConsumerCoordinator(Projection, Attributes);
+	const auto WrongTarget = Coordinator.Execute(ForeignApply);
+	const auto InvalidCommand = Coordinator.Execute(
+		Fdemo_mapShanmenFormationInfluenceConsumerCommand());
+	const auto Applied = Coordinator.Execute(Apply);
+	Fdemo_mapShanmenFormationInfluenceConsumerTransactionResult Stored;
+	const bool bReadStored = Coordinator.TryGetCompletedResult(
+		Apply.GetCommandId(), Stored);
+	Fdemo_mapShanmenFormationInfluenceConsumerTransactionResult Missing;
+	const bool bMissingRejected = !Coordinator.TryGetCompletedResult(
+		FGuid(0xF8C09999, 0, 0, 1), Missing);
+	const auto Removed = Coordinator.Execute(Remove);
+
+	TestTrue(TEXT("Coordinator freezes exact subject and component binding"),
+		bNullRejected && Coordinator.MatchesBinding(
+			Projection.GetLease().Key.SubjectEntityId, Attributes)
+			&& !Coordinator.MatchesBinding(
+				Projection.GetLease().Key.SubjectEntityId, OtherAttributes)
+			&& !Coordinator.MatchesBinding(
+				ForeignProjection.GetLease().Key.SubjectEntityId, Attributes)
+			&& Coordinator.HasLiveAttributeComponent());
+	TestTrue(TEXT("Wrong target and malformed commands leave both authorities untouched"),
+		!WrongTarget.IsSuccess()
+			&& WrongTarget.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerTransactionStatus::
+					TargetMismatch
+			&& !InvalidCommand.IsSuccess()
+			&& InvalidCommand.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerTransactionStatus::
+					CommandInvalid);
+	TestTrue(TEXT("Completed evidence is queryable and teardown requires exact Remove"),
+		Applied.IsSuccess() && bReadStored && Stored.IsSuccess()
+			&& Stored.Receipt.Matches(Applied.Receipt)
+			&& bMissingRejected && !Missing.Receipt.IsValid()
+			&& Removed.IsSuccess() && Coordinator.IsDrained()
+			&& Attributes->GetActiveModifierCount() == 0
+			&& OtherAttributes->GetActiveModifierCount() == 0);
 	return true;
 }
 

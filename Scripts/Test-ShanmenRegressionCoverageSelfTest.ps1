@@ -156,6 +156,9 @@ try
     $FormationInfluenceConsumerAttributeAdapter = New-AutomationLogFixture `
         -Name 'formation-influence-consumer-attribute-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.FormationInfluenceConsumerAttributeAdapter'
+    $FormationInfluenceConsumerApplicationCoordinator = New-AutomationLogFixture `
+        -Name 'formation-influence-consumer-application-coordinator.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationInfluenceConsumerApplicationCoordinator'
     $CombatCore = New-AutomationLogFixture `
         -Name 'combat-core.log' `
         -Group 'Shanmen.0_0_10.CombatCore'
@@ -340,6 +343,12 @@ try
         -Name 'formation influence consumer attribute adapter is covered by broad full and attribute evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerAttributeAdapter.cpp') `
+        -Logs @($Full, $Attributes)
+
+    Invoke-ExpectedPass `
+        -Name 'formation influence consumer application coordinator is covered by broad full and attribute evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerApplicationCoordinator.cpp') `
         -Logs @($Full, $Attributes)
 
     Invoke-ExpectedPass `
@@ -608,6 +617,16 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerAttributeAdapter.cpp') `
         -Logs @($FormationInfluenceConsumerAttributeAdapter, $Attributes) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'consumer application coordinator child evidence cannot replace registry adapter and broad contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerApplicationCoordinator.cpp') `
+        -Logs @(
+            $FormationInfluenceConsumerApplicationCoordinator,
+            $FormationInfluenceConsumerAttributeAdapter,
+            $Attributes) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

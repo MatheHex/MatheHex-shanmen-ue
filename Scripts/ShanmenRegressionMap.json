@@ -220,6 +220,7 @@
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerProjection",
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerRegistry",
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerAttributeAdapter",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerApplicationCoordinator",
         "Shanmen.0_0_10.Product.FormationInfluenceEvaluationBinding",
         "Shanmen.0_0_10.Product.FormationInfluenceModifierEvaluator",
         "Shanmen.0_0_10.Product.FormationInfluenceLeaseExecutor",
@@ -245,6 +246,20 @@
       "pathRegex": "^Source/demo_map/demo_mapShanmenFormationInfluenceConsumerAttributeAdapter(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerAttributeAdapter",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerApplicationCoordinator",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerRegistry",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerProjection",
+        "Shanmen.0_0_10.CombatCore",
+        "demo_map.V3.Attributes",
+        "Shanmen.0_0_10"
+      ]
+    },
+    {
+      "name": "FormationInfluenceConsumerApplicationCoordinator",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenFormationInfluenceConsumerApplicationCoordinator(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerApplicationCoordinator",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerAttributeAdapter",
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerRegistry",
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerProjection",
         "Shanmen.0_0_10.CombatCore",
@@ -260,6 +275,7 @@
         "demo_map.V3.Items",
         "demo_map.ItemUseAndArmor",
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerAttributeAdapter",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerApplicationCoordinator",
         "Shanmen.0_0_10"
       ]
     },
