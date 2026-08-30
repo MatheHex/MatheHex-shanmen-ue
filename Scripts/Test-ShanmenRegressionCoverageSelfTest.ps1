@@ -153,12 +153,21 @@ try
     $FormationInfluenceConsumerRegistry = New-AutomationLogFixture `
         -Name 'formation-influence-consumer-registry.log' `
         -Group 'Shanmen.0_0_10.Product.FormationInfluenceConsumerRegistry'
+    $FormationInfluenceConsumerAttributeAdapter = New-AutomationLogFixture `
+        -Name 'formation-influence-consumer-attribute-adapter.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationInfluenceConsumerAttributeAdapter'
     $CombatCore = New-AutomationLogFixture `
         -Name 'combat-core.log' `
         -Group 'Shanmen.0_0_10.CombatCore'
     $Attributes = New-AutomationLogFixture `
         -Name 'attributes.log' `
         -Group 'demo_map.V3.Attributes'
+    $V3Items = New-AutomationLogFixture `
+        -Name 'v3-items.log' `
+        -Group 'demo_map.V3.Items'
+    $ItemUseAndArmor = New-AutomationLogFixture `
+        -Name 'item-use-and-armor.log' `
+        -Group 'demo_map.ItemUseAndArmor'
     $FormationInfluenceReconciliation = New-AutomationLogFixture `
         -Name 'formation-influence-reconciliation.log' `
         -Group 'Shanmen.0_0_10.Product.FormationInfluenceReconciliation'
@@ -326,6 +335,17 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerRegistry.cpp') `
         -Logs @($Full, $Attributes)
+
+    Invoke-ExpectedPass `
+        -Name 'formation influence consumer attribute adapter is covered by broad full and attribute evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerAttributeAdapter.cpp') `
+        -Logs @($Full, $Attributes)
+
+    Invoke-ExpectedPass `
+        -Name 'exact attribute mutation seam requires broad product and focused attribute evidence' `
+        -Paths @('Source/demo_map/demo_mapAttributeComponent.cpp') `
+        -Logs @($Full, $Attributes, $V3Items, $ItemUseAndArmor)
 
     Invoke-ExpectedPass `
         -Name 'formation influence product runtime is covered by broad full evidence' `
@@ -581,6 +601,19 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerRegistry.cpp') `
         -Logs @($FormationInfluenceConsumerRegistry) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'consumer attribute adapter child evidence cannot replace registry attribute and broad product contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerAttributeAdapter.cpp') `
+        -Logs @($FormationInfluenceConsumerAttributeAdapter, $Attributes) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'focused attributes alone cannot cover exact-handle product consumers' `
+        -Paths @('Source/demo_map/demo_mapAttributeComponent.cpp') `
+        -Logs @($Attributes) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

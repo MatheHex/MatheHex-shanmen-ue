@@ -2,10 +2,12 @@
 
 #include "demo_mapShanmenFormationInfluenceConsumerProjection.h"
 #include "demo_mapShanmenFormationInfluenceConsumerRegistry.h"
+#include "demo_mapShanmenFormationInfluenceConsumerAttributeAdapter.h"
 
 #include "Misc/AutomationTest.h"
 #include "ShanmenCombatTags.h"
 #include "ShanmenDeterministicId.h"
+#include "demo_mapAttributeComponent.h"
 #include "demo_mapAttributeDefinitions.h"
 
 namespace
@@ -571,6 +573,249 @@ bool Fdemo_mapFormationInfluenceConsumerRegistryScopeTest::RunTest(
 				== Edemo_mapShanmenFormationInfluenceConsumerApplicationStatus::
 					CommandInvalid
 			&& Registry.IsConsistent() && Registry.IsDrained());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceConsumerAttributeApplyReplayTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceConsumerAttributeAdapter.ApplyReplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceConsumerAttributeApplyReplayTest::RunTest(
+	const FString&)
+{
+	const auto Projection = MakeProjection(30, 250);
+	const auto Apply = MakeConsumerCommand(
+		Projection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Apply);
+	auto Registry = MakeConsumerRegistry();
+	const auto Accepted = Registry.Execute(Apply);
+	Udemo_mapAttributeComponent* Attributes =
+		NewObject<Udemo_mapAttributeComponent>();
+	const auto First =
+		Fdemo_mapShanmenFormationInfluenceConsumerAttributeAdapter::Synchronize(
+			Attributes, Accepted);
+	const auto RegistryReplay = Registry.Execute(Apply);
+	const auto NativeReplay =
+		Fdemo_mapShanmenFormationInfluenceConsumerAttributeAdapter::Synchronize(
+			Attributes, RegistryReplay);
+	float AttackPower = 0.0f;
+	const bool bReadPower = Attributes->GetFinalValue(
+		Fdemo_mapAttributeIds::AttackPower, AttackPower);
+
+	TestTrue(TEXT("Accepted Apply reaches the exact native modifier once"),
+		Accepted.IsSuccess() && First.IsSuccess()
+			&& First.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerAttributeStatus::
+					Applied
+			&& First.bComponentMutated
+			&& First.Acknowledgement.GetModifierSpec().Value == 2.5f
+			&& First.Acknowledgement.GetApplicationReceipt().GetCommand().
+				GetHandle() == Projection.GetHandle()
+			&& Attributes->GetActiveModifierCount() == 1
+			&& Attributes->GetModifierCountBySource(Projection.GetSourceId()) == 1
+			&& bReadPower && FMath::IsNearlyEqual(AttackPower, 3.5f));
+	TestTrue(TEXT("Registry/native replay preserves one stable acknowledgement"),
+		RegistryReplay.IsSuccess() && RegistryReplay.bCommandReplayed
+			&& NativeReplay.IsSuccess()
+			&& NativeReplay.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerAttributeStatus::
+					ApplyReplayed
+			&& !NativeReplay.bComponentMutated
+			&& First.Acknowledgement.Matches(NativeReplay.Acknowledgement)
+			&& Attributes->GetActiveModifierCount() == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceConsumerAttributeRemoveReplayTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceConsumerAttributeAdapter.RemoveReplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceConsumerAttributeRemoveReplayTest::RunTest(
+	const FString&)
+{
+	const auto Projection = MakeProjection(31, 125);
+	const auto Apply = MakeConsumerCommand(
+		Projection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Apply);
+	const auto Remove = MakeConsumerCommand(
+		Projection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Remove);
+	auto Registry = MakeConsumerRegistry();
+	Udemo_mapAttributeComponent* Attributes =
+		NewObject<Udemo_mapAttributeComponent>();
+	const auto NativeApply =
+		Fdemo_mapShanmenFormationInfluenceConsumerAttributeAdapter::Synchronize(
+			Attributes, Registry.Execute(Apply));
+	const auto Removed = Registry.Execute(Remove);
+	const auto NativeRemove =
+		Fdemo_mapShanmenFormationInfluenceConsumerAttributeAdapter::Synchronize(
+			Attributes, Removed);
+	const auto RegistryReplay = Registry.Execute(Remove);
+	const auto NativeReplay =
+		Fdemo_mapShanmenFormationInfluenceConsumerAttributeAdapter::Synchronize(
+			Attributes, RegistryReplay);
+	float AttackPower = 0.0f;
+	const bool bReadPower = Attributes->GetFinalValue(
+		Fdemo_mapAttributeIds::AttackPower, AttackPower);
+
+	TestTrue(TEXT("Exact Remove restores authoritative baseline once"),
+		NativeApply.IsSuccess() && Removed.IsSuccess()
+			&& NativeRemove.IsSuccess()
+			&& NativeRemove.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerAttributeStatus::
+					Removed
+			&& NativeRemove.bComponentMutated
+			&& Attributes->GetActiveModifierCount() == 0
+			&& bReadPower && FMath::IsNearlyEqual(AttackPower, 1.0f));
+	TestTrue(TEXT("Lost Remove acknowledgement replays as desired-state no-op"),
+		RegistryReplay.IsSuccess() && RegistryReplay.bCommandReplayed
+			&& NativeReplay.IsSuccess()
+			&& NativeReplay.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerAttributeStatus::
+					RemoveReplayed
+			&& !NativeReplay.bComponentMutated
+			&& NativeRemove.Acknowledgement.Matches(
+				NativeReplay.Acknowledgement));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceConsumerAttributeCompensationTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceConsumerAttributeAdapter.CompensationAndConflict",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceConsumerAttributeCompensationTest::RunTest(
+	const FString&)
+{
+	const auto Projection = MakeProjection(32, 100);
+	const auto Apply = MakeConsumerCommand(
+		Projection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Apply);
+	const auto Remove = MakeConsumerCommand(
+		Projection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Remove);
+	auto Registry = MakeConsumerRegistry();
+	const auto AcceptedApply = Registry.Execute(Apply);
+	const auto AcceptedRemove = Registry.Execute(Remove);
+	Udemo_mapAttributeComponent* EmptyAttributes =
+		NewObject<Udemo_mapAttributeComponent>();
+	const auto Compensated =
+		Fdemo_mapShanmenFormationInfluenceConsumerAttributeAdapter::Synchronize(
+			EmptyAttributes, AcceptedRemove);
+
+	TestTrue(TEXT("Remove converges safely when accepted Apply never reached native state"),
+		AcceptedApply.IsSuccess() && AcceptedRemove.IsSuccess()
+			&& Compensated.IsSuccess()
+			&& Compensated.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerAttributeStatus::
+					RemoveReplayed
+			&& EmptyAttributes->GetActiveModifierCount() == 0);
+
+	const auto ConflictProjection = MakeProjection(33, 200);
+	const auto ConflictApply = MakeConsumerCommand(
+		ConflictProjection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Apply);
+	auto ConflictRegistry = MakeConsumerRegistry();
+	const auto ConflictAccepted = ConflictRegistry.Execute(ConflictApply);
+	Fdemo_mapModifierSpec WrongSpec;
+	check(Fdemo_mapShanmenFormationInfluenceConsumerAttributeAdapter::
+		TryBuildModifierSpec(ConflictProjection, WrongSpec));
+	WrongSpec.Value += 1.0f;
+	Udemo_mapAttributeComponent* ConflictedAttributes =
+		NewObject<Udemo_mapAttributeComponent>();
+	const auto Seeded = ConflictedAttributes->EnsureModifierApplied(
+		WrongSpec, ConflictProjection.GetHandle());
+	const auto Rejected =
+		Fdemo_mapShanmenFormationInfluenceConsumerAttributeAdapter::Synchronize(
+			ConflictedAttributes, ConflictAccepted);
+	const auto ConflictRemove = MakeConsumerCommand(
+		ConflictProjection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Remove);
+	const auto RemoveRejected =
+		Fdemo_mapShanmenFormationInfluenceConsumerAttributeAdapter::Synchronize(
+			ConflictedAttributes,
+			ConflictRegistry.Execute(ConflictRemove));
+
+	TestTrue(TEXT("Same exact handle with different native spec fails closed"),
+		Seeded == Edemo_mapExactModifierMutationStatus::Applied
+			&& !Rejected.IsSuccess()
+			&& Rejected.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerAttributeStatus::
+					NativeMutationRejected
+			&& Rejected.NativeStatus
+				== Edemo_mapExactModifierMutationStatus::HandleConflict
+			&& !Rejected.Acknowledgement.IsValid()
+			&& !RemoveRejected.IsSuccess()
+			&& RemoveRejected.NativeStatus
+				== Edemo_mapExactModifierMutationStatus::HandleConflict
+			&& ConflictedAttributes->GetActiveModifierCount() == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceConsumerAttributeEvidenceFenceTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceConsumerAttributeAdapter.SignedConversionAndEvidenceFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceConsumerAttributeEvidenceFenceTest::RunTest(
+	const FString&)
+{
+	const auto Projection = MakeProjection(34, -75, 100);
+	const auto Apply = MakeConsumerCommand(
+		Projection,
+		Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::Apply);
+	auto Registry = MakeConsumerRegistry();
+	const auto Accepted = Registry.Execute(Apply);
+	Fdemo_mapModifierSpec Spec;
+	const bool bConverted =
+		Fdemo_mapShanmenFormationInfluenceConsumerAttributeAdapter::
+			TryBuildModifierSpec(Projection, Spec);
+	Udemo_mapAttributeComponent* Attributes =
+		NewObject<Udemo_mapAttributeComponent>();
+	const auto Synchronized =
+		Fdemo_mapShanmenFormationInfluenceConsumerAttributeAdapter::Synchronize(
+			Attributes, Accepted);
+	float AttackPower = 0.0f;
+	const bool bReadPower = Attributes->GetFinalValue(
+		Fdemo_mapAttributeIds::AttackPower, AttackPower);
+
+	TestTrue(TEXT("Signed rational crosses the single float boundary exactly once"),
+		bConverted && Spec.SourceId == Projection.GetSourceId()
+			&& Spec.AttributeId == Fdemo_mapAttributeIds::AttackPower
+			&& Spec.Operation == Edemo_mapModifierOperation::Add
+			&& Spec.Value == -0.75f && Spec.Priority == 25
+			&& Synchronized.IsSuccess() && bReadPower
+			&& FMath::IsNearlyEqual(AttackPower, 0.25f));
+
+	auto Tampered = Accepted;
+	Tampered.Status =
+		Edemo_mapShanmenFormationInfluenceConsumerApplicationStatus::Removed;
+	const auto Mismatch =
+		Fdemo_mapShanmenFormationInfluenceConsumerAttributeAdapter::Synchronize(
+			Attributes, Tampered);
+	const auto MissingComponent =
+		Fdemo_mapShanmenFormationInfluenceConsumerAttributeAdapter::Synchronize(
+			nullptr, Accepted);
+	const auto RejectedApplication =
+		Fdemo_mapShanmenFormationInfluenceConsumerAttributeAdapter::Synchronize(
+			Attributes,
+			Fdemo_mapShanmenFormationInfluenceConsumerApplicationResult());
+	TestTrue(TEXT("Status tamper null component and rejected registry evidence fail closed"),
+		!Mismatch.IsSuccess()
+			&& Mismatch.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerAttributeStatus::
+					EvidenceMismatch
+			&& !MissingComponent.IsSuccess()
+			&& MissingComponent.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerAttributeStatus::
+					ComponentUnavailable
+			&& !RejectedApplication.IsSuccess()
+			&& RejectedApplication.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerAttributeStatus::
+					ApplicationRejected
+			&& Attributes->GetActiveModifierCount() == 1);
 	return true;
 }
 

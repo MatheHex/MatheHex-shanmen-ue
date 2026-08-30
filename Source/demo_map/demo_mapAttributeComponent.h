@@ -23,6 +23,12 @@ public:
 	bool SetBaseValue(FName AttributeId, float NewValue);
 	bool AddModifier(const Fdemo_mapModifierSpec& Spec, Fdemo_mapModifierHandle& OutHandle);
 	bool RemoveModifier(Fdemo_mapModifierHandle Handle);
+	Edemo_mapExactModifierMutationStatus EnsureModifierApplied(
+		const Fdemo_mapModifierSpec& Spec,
+		Fdemo_mapModifierHandle Handle);
+	Edemo_mapExactModifierMutationStatus EnsureModifierRemoved(
+		const Fdemo_mapModifierSpec& Spec,
+		Fdemo_mapModifierHandle Handle);
 	int32 RemoveModifiersBySource(FName SourceId);
 	const Fdemo_mapAttributeSnapshot& GetFinalSnapshot() const { return FinalSnapshot; }
 	int32 GetActiveModifierCount() const { return ActiveModifiers.Num(); }
@@ -33,6 +39,7 @@ public:
 
 private:
 	void InitializeDefinitions();
+	bool IsModifierSpecValid(const Fdemo_mapModifierSpec& Spec) const;
 	void Recalculate();
 	float ApplyModifiers(FName AttributeId, float StartingValue) const;
 	void ApplyMoveSpeed(float NewMoveSpeed) const;

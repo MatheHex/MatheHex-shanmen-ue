@@ -54,6 +54,26 @@ struct Fdemo_mapModifierSpec
 	Edemo_mapModifierOperation Operation = Edemo_mapModifierOperation::Add;
 	float Value = 0.0f;
 	int32 Priority = 0;
+
+	bool Matches(const Fdemo_mapModifierSpec& Other) const
+	{
+		return SourceId == Other.SourceId
+			&& AttributeId == Other.AttributeId
+			&& Operation == Other.Operation && Value == Other.Value
+			&& Priority == Other.Priority;
+	}
+};
+
+/** Result of converging one caller-owned handle to its desired native state. */
+enum class Edemo_mapExactModifierMutationStatus : uint8
+{
+	Applied,
+	ApplyReplayed,
+	Removed,
+	RemoveReplayed,
+	InvalidHandle,
+	InvalidSpec,
+	HandleConflict
 };
 
 USTRUCT()

@@ -66,33 +66,109 @@ bool Udemo_mapAttributeComponent::SetBaseValue(FName AttributeId, float NewValue
 bool Udemo_mapAttributeComponent::AddModifier(const Fdemo_mapModifierSpec& Spec, Fdemo_mapModifierHandle& OutHandle)
 {
 	OutHandle.Reset();
-	if (!IsAttributeRegistered(Spec.AttributeId) || Spec.SourceId.IsNone() || !FMath::IsFinite(Spec.Value)
-		|| (Spec.Operation == Edemo_mapModifierOperation::Multiply && Spec.Value < 0.0f))
+	if (!IsModifierSpecValid(Spec))
 	{
 		return false;
 	}
 
-	Fdemo_mapActiveModifier Active;
+	Fdemo_mapModifierHandle Handle;
 	do
 	{
-		Active.Handle.Value = FGuid::NewGuid();
+		Handle.Value = FGuid::NewGuid();
 	}
-	while (ActiveModifiers.ContainsByPredicate([&Active](const Fdemo_mapActiveModifier& Existing) { return Existing.Handle == Active.Handle; }));
-	Active.Spec = Spec;
-	Active.InsertionOrder = NextInsertionOrder++;
-	OutHandle = Active.Handle;
-	ActiveModifiers.Add(MoveTemp(Active));
-	Recalculate();
+	while (ActiveModifiers.ContainsByPredicate(
+		[Handle](const Fdemo_mapActiveModifier& Existing)
+		{
+			return Existing.Handle == Handle;
+		}));
+	if (EnsureModifierApplied(Spec, Handle)
+		!= Edemo_mapExactModifierMutationStatus::Applied)
+	{
+		return false;
+	}
+	OutHandle = Handle;
 	return true;
 }
 
 bool Udemo_mapAttributeComponent::RemoveModifier(Fdemo_mapModifierHandle Handle)
 {
-	const int32 Index = ActiveModifiers.IndexOfByPredicate([Handle](const Fdemo_mapActiveModifier& Active) { return Active.Handle == Handle; });
-	if (Index == INDEX_NONE) return false;
+	const int32 Index = ActiveModifiers.IndexOfByPredicate(
+		[Handle](const Fdemo_mapActiveModifier& Active)
+		{
+			return Active.Handle == Handle;
+		});
+	if (Index == INDEX_NONE)
+	{
+		return false;
+	}
 	ActiveModifiers.RemoveAt(Index);
 	Recalculate();
 	return true;
+}
+
+Edemo_mapExactModifierMutationStatus
+Udemo_mapAttributeComponent::EnsureModifierApplied(
+	const Fdemo_mapModifierSpec& Spec,
+	const Fdemo_mapModifierHandle Handle)
+{
+	if (!Handle.IsValid())
+	{
+		return Edemo_mapExactModifierMutationStatus::InvalidHandle;
+	}
+	if (!IsModifierSpecValid(Spec))
+	{
+		return Edemo_mapExactModifierMutationStatus::InvalidSpec;
+	}
+	if (const Fdemo_mapActiveModifier* Existing =
+		ActiveModifiers.FindByPredicate(
+			[Handle](const Fdemo_mapActiveModifier& Active)
+			{
+				return Active.Handle == Handle;
+			}))
+	{
+		return Existing->Spec.Matches(Spec)
+			? Edemo_mapExactModifierMutationStatus::ApplyReplayed
+			: Edemo_mapExactModifierMutationStatus::HandleConflict;
+	}
+
+	Fdemo_mapActiveModifier Active;
+	Active.Handle = Handle;
+	Active.Spec = Spec;
+	Active.InsertionOrder = NextInsertionOrder++;
+	ActiveModifiers.Add(MoveTemp(Active));
+	Recalculate();
+	return Edemo_mapExactModifierMutationStatus::Applied;
+}
+
+Edemo_mapExactModifierMutationStatus
+Udemo_mapAttributeComponent::EnsureModifierRemoved(
+	const Fdemo_mapModifierSpec& Spec,
+	const Fdemo_mapModifierHandle Handle)
+{
+	if (!Handle.IsValid())
+	{
+		return Edemo_mapExactModifierMutationStatus::InvalidHandle;
+	}
+	if (!IsModifierSpecValid(Spec))
+	{
+		return Edemo_mapExactModifierMutationStatus::InvalidSpec;
+	}
+	const int32 Index = ActiveModifiers.IndexOfByPredicate(
+		[Handle](const Fdemo_mapActiveModifier& Active)
+		{
+			return Active.Handle == Handle;
+		});
+	if (Index == INDEX_NONE)
+	{
+		return Edemo_mapExactModifierMutationStatus::RemoveReplayed;
+	}
+	if (!ActiveModifiers[Index].Spec.Matches(Spec))
+	{
+		return Edemo_mapExactModifierMutationStatus::HandleConflict;
+	}
+	ActiveModifiers.RemoveAt(Index);
+	Recalculate();
+	return Edemo_mapExactModifierMutationStatus::Removed;
 }
 
 int32 Udemo_mapAttributeComponent::RemoveModifiersBySource(FName SourceId)
@@ -115,6 +191,18 @@ void Udemo_mapAttributeComponent::ForceRecalculate()
 {
 	InitializeDefinitions();
 	Recalculate();
+}
+
+bool Udemo_mapAttributeComponent::IsModifierSpecValid(
+	const Fdemo_mapModifierSpec& Spec) const
+{
+	const bool bKnownOperation =
+		Spec.Operation == Edemo_mapModifierOperation::Add
+		|| Spec.Operation == Edemo_mapModifierOperation::Multiply;
+	return IsAttributeRegistered(Spec.AttributeId) && !Spec.SourceId.IsNone()
+		&& bKnownOperation && FMath::IsFinite(Spec.Value)
+		&& (Spec.Operation != Edemo_mapModifierOperation::Multiply
+			|| Spec.Value >= 0.0f);
 }
 
 float Udemo_mapAttributeComponent::ApplyModifiers(FName AttributeId, float StartingValue) const

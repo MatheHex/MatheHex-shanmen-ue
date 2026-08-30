@@ -145,4 +145,59 @@ bool Fdemo_mapAttributeDerivedTest::RunTest(const FString&)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapAttributeExactHandleConvergenceTest,
+	"demo_map.V3.Attributes.ExactHandleConvergence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapAttributeExactHandleConvergenceTest::RunTest(const FString&)
+{
+	Udemo_mapAttributeComponent* Attributes =
+		NewObject<Udemo_mapAttributeComponent>();
+	Fdemo_mapModifierHandle Handle;
+	Handle.Value = FGuid(0xA7700001, 0, 0, 1);
+	const auto Spec = Modifier(
+		TEXT("Exact.Handle"), Fdemo_mapAttributeIds::AttackPower,
+		Edemo_mapModifierOperation::Add, 2.5f, 25);
+	const auto Applied = Attributes->EnsureModifierApplied(Spec, Handle);
+	const auto ApplyReplay = Attributes->EnsureModifierApplied(Spec, Handle);
+	const auto Conflict = Attributes->EnsureModifierApplied(
+		Modifier(
+			TEXT("Exact.Handle"), Fdemo_mapAttributeIds::AttackPower,
+			Edemo_mapModifierOperation::Add, 3.5f, 25),
+		Handle);
+
+	TestTrue(TEXT("Exact handle applies once and replays without duplication"),
+		Applied == Edemo_mapExactModifierMutationStatus::Applied
+			&& ApplyReplay
+				== Edemo_mapExactModifierMutationStatus::ApplyReplayed
+			&& Attributes->GetActiveModifierCount() == 1
+			&& FMath::IsNearlyEqual(
+				FinalValue(Attributes, Fdemo_mapAttributeIds::AttackPower),
+				3.5f));
+	TestTrue(TEXT("Same handle with different spec fails closed"),
+		Conflict == Edemo_mapExactModifierMutationStatus::HandleConflict
+			&& Attributes->GetActiveModifierCount() == 1);
+
+	const auto Removed = Attributes->EnsureModifierRemoved(Spec, Handle);
+	const auto RemoveReplay = Attributes->EnsureModifierRemoved(Spec, Handle);
+	TestTrue(TEXT("Exact removal converges and missing replay is a no-op"),
+		Removed == Edemo_mapExactModifierMutationStatus::Removed
+			&& RemoveReplay
+				== Edemo_mapExactModifierMutationStatus::RemoveReplayed
+			&& Attributes->GetActiveModifierCount() == 0
+			&& FMath::IsNearlyEqual(
+				FinalValue(Attributes, Fdemo_mapAttributeIds::AttackPower),
+				1.0f));
+	TestTrue(TEXT("Invalid exact inputs do not mutate state"),
+		Attributes->EnsureModifierApplied(
+			Spec, Fdemo_mapModifierHandle())
+			== Edemo_mapExactModifierMutationStatus::InvalidHandle
+			&& Attributes->EnsureModifierRemoved(
+				Spec, Fdemo_mapModifierHandle())
+				== Edemo_mapExactModifierMutationStatus::InvalidHandle
+			&& Attributes->GetActiveModifierCount() == 0);
+	return true;
+}
+
 #endif
