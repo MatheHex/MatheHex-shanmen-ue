@@ -16,6 +16,7 @@ function New-AutomationLogFixture {
         [Parameter(Mandatory)][string]$Name,
         [Parameter(Mandatory)][string]$Group,
         [ValidateSet('Success', 'Fail')][string]$Result = 'Success',
+        [switch]$UseUE58Completion,
         [switch]$OmitQueueEmpty
     )
 
@@ -23,7 +24,11 @@ function New-AutomationLogFixture {
     $Lines = [System.Collections.Generic.List[string]]::new()
     $Lines.Add("[2026.08.28-00.00.00:000][  0]Cmd: Automation RunTests $Group")
     $Lines.Add("[2026.08.28-00.00.00:001][  1]LogAutomationController: Display: Test Completed. Result={$Result} Name={Fixture} Path={$Group.Fixture}")
-    if (-not $OmitQueueEmpty)
+    if ($UseUE58Completion)
+    {
+        $Lines.Add('[2026.08.28-00.00.00:002][  2]LogAutomationCommandLine: Display: **** TEST COMPLETE. EXIT CODE: 0 ****')
+    }
+    elseif (-not $OmitQueueEmpty)
     {
         $Lines.Add('[2026.08.28-00.00.00:002][  2]LogAutomationCommandLine: Display: ...Automation Test Queue Empty 1 tests performed.')
     }
@@ -144,6 +149,12 @@ try
     $SpiritEvasionComponent = New-AutomationLogFixture `
         -Name 'spirit-evasion-component.log' `
         -Group 'Shanmen.0_0_10.Product.SpiritEvasionComponent'
+    $SpiritEvasionCommandRouter = New-AutomationLogFixture `
+        -Name 'spirit-evasion-command-router.log' `
+        -Group 'Shanmen.0_0_10.Product.SpiritEvasionCommandRouter'
+    $WorldGameplay = New-AutomationLogFixture `
+        -Name 'world-gameplay.log' `
+        -Group 'Shanmen.0_0_10.WorldGameplay'
     $SpiritShieldRuntime = New-AutomationLogFixture `
         -Name 'spirit-shield-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShield'
@@ -272,6 +283,10 @@ try
         -Name 'no-queue.log' `
         -Group 'demo_map.V2RangedCompatibility' `
         -OmitQueueEmpty
+    $UE58Complete = New-AutomationLogFixture `
+        -Name 'ue58-complete.log' `
+        -Group 'Shanmen.0_0_10' `
+        -UseUE58Completion
 
     Invoke-ExpectedPass `
         -Name 'overlapping rules union and broad suite coverage' `
@@ -285,6 +300,11 @@ try
         -Paths @(
             'Docs/Report/example.md',
             'Scripts/example.ps1')
+
+    Invoke-ExpectedPass `
+        -Name 'UE 5.8 native TEST COMPLETE marker is healthy evidence' `
+        -Paths @('Docs/Process/P_PHASE_BASELINE.md') `
+        -Logs @($UE58Complete)
 
     Invoke-ExpectedPass `
         -Name 'formation deployment core is covered by broad full evidence' `
@@ -469,6 +489,28 @@ try
             $SpiritEvasionMovement,
             $SpiritEvasion,
             $ActionLifecycle,
+            $Enemy,
+            $Ranged)
+
+    Invoke-ExpectedPass `
+        -Name 'spirit evasion command route maps install run and complete host chain' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSpiritEvasionCommandRouter.h',
+            'Source/demo_map/demo_mapShanmenSpiritEvasionCommandRouter.cpp',
+            'Source/demo_map/demo_mapShanmenSpiritEvasionCommandRouterTests.cpp') `
+        -Logs @(
+            $Full,
+            $SpiritEvasionCommandRouter,
+            $SpiritEvasionComponent,
+            $SpiritEvasionProductHost,
+            $SpiritEvasionActionCoordinator,
+            $SpiritEvasionMotionRuntime,
+            $SpiritEvasionMovementProduct,
+            $SpiritEvasionMovement,
+            $SpiritEvasion,
+            $ActionLifecycle,
+            $Coordinator,
+            $WorldGameplay,
             $Enemy,
             $Ranged)
 
@@ -777,7 +819,7 @@ try
         -Name 'queue completion is required' `
         -Paths @('Source/demo_map/demo_mapSkillProjectile.cpp') `
         -Logs @($Full, $Enemy, $NoQueue) `
-        -ExpectedText 'queue-empty marker missing'
+        -ExpectedText 'terminal completion marker missing'
 
     Invoke-ExpectedFail `
         -Name 'unknown production path is unmapped' `

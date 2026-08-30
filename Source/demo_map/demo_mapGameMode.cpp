@@ -495,6 +495,20 @@ Ademo_mapGameMode::RouteControlledWeaponThreatSampleIntent(
 		Intent);
 }
 
+Fdemo_mapShanmenSpiritEvasionCommandResult
+Ademo_mapGameMode::RouteSpiritEvasionCommand(
+	const Fdemo_mapShanmenSpiritEvasionCommand& Command)
+{
+	ACharacter* PlayerCharacter = Cast<ACharacter>(GetDemoPawn());
+	Udemo_mapShanmenSpiritEvasionComponent* Component =
+		EnsurePlayerSpiritEvasion(PlayerCharacter);
+	return Fdemo_mapShanmenSpiritEvasionCommandRouter::TryRoute(
+		Component,
+		CombatRunCoordinator,
+		PlayerCharacter,
+		Command);
+}
+
 bool Ademo_mapGameMode::AdvanceControlledWeaponOrbit(
 	float DeltaSeconds,
 	Fdemo_mapShanmenControlledWeaponHostOrbitBatch& OutBatch)
@@ -978,6 +992,8 @@ void Ademo_mapGameMode::InitializeRuntimeMission()
 		PlayerFaction->RegisterComponent();
 	}
 	Udemo_mapSkillComponent* Skills = EnsurePlayerSkills(PlayerPawn);
+	Udemo_mapShanmenSpiritEvasionComponent* SpiritEvasion =
+		EnsurePlayerSpiritEvasion(PlayerPawn);
 	Udemo_mapItemSubsystem* Items = GetGameInstance() ? GetGameInstance()->GetSubsystem<Udemo_mapItemSubsystem>() : nullptr;
 	const bool bItemsReady = Items != nullptr && Items->BindPlayerPawn(PlayerPawn);
 	PlayerItemSubsystem = Items;
@@ -995,7 +1011,13 @@ void Ademo_mapGameMode::InitializeRuntimeMission()
 			&& Enemy.IsValid()
 			&& FriendlyUnit.IsValid()
 			&& (!UsesPersistedEncounterMarkers() || (RangedEnemy.IsValid() && HeavyEnemy.IsValid())));
-	if (!bMissionProjectionReady || PlayerAttributes == nullptr || PlayerHealth == nullptr || PlayerFaction == nullptr || Skills == nullptr || !bItemsReady)
+	if (!bMissionProjectionReady
+		|| PlayerAttributes == nullptr
+		|| PlayerHealth == nullptr
+		|| PlayerFaction == nullptr
+		|| Skills == nullptr
+		|| SpiritEvasion == nullptr
+		|| !bItemsReady)
 	{
 		const FString Failure = FString::Printf(TEXT("T7: mission initialization failed. Targets=%d Exit=%d Enemy=%d Health=%d"), SpawnedTargets.Num(), ExitZone.IsValid() ? 1 : 0, Enemy.IsValid() ? 1 : 0, PlayerHealth != nullptr ? 1 : 0);
 		if (bT4AutomationRequested || bT5AutomationRequested || bT7AutomationRequested || bV2AAutomationRequested || bV2BAutomationRequested || bV2BVisibleAcceptanceRequested || bV2CAutomationRequested || bV2CVisibleAcceptanceRequested || bV2DAutomationRequested || bV2DVisibleAcceptanceRequested || bV2EAutomationRequested || bV2EVisibleAcceptanceRequested || bV2FinalAutomationRequested || bV2FinalVisibleAcceptanceRequested || bV3AttributesGameplayAutomationRequested || bV3ItemCoreGameplayAutomationRequested || bV3WorldInteractionAutomationRequested || bV3InventoryUIAutomationRequested || bV3WorldUIVisibleAcceptanceRequested || bM01ExtractionVisibleSmokeRequested || bM01EnemyVisibleSmokeRequested)
@@ -1020,10 +1042,18 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 	FString& OutDiagnostic)
 {
 	OutDiagnostic.Reset();
+	Udemo_mapShanmenSpiritEvasionComponent* SpiritEvasion =
+		PlayerPawn
+		? PlayerPawn->FindComponentByClass<
+			Udemo_mapShanmenSpiritEvasionComponent>()
+		: nullptr;
 	if (!ControlledWeaponRunHost.IsEmpty()
 		|| !ControlledWeaponRunCommandRouter.IsEmpty()
 		|| !ControlledWeaponThreatSampleRouter.IsEmpty()
-		|| !ThrownWeaponProductLifecycle.IsEmpty())
+		|| !ThrownWeaponProductLifecycle.IsEmpty()
+		|| (SpiritEvasion
+			&& SpiritEvasion->HasHost()
+			&& !SpiritEvasion->IsTerminal()))
 	{
 		OutDiagnostic =
 			TEXT("Player combat Run binding rejected stale product-lifecycle state.");
@@ -1119,6 +1149,10 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 	const TCHAR* Context)
 {
 	const TCHAR* SafeContext = Context ? Context : TEXT("Unknown");
+	if (!ReleasePlayerSpiritEvasion(SafeContext))
+	{
+		return false;
+	}
 	const int32 ThrownSelectionCount =
 		ThrownWeaponProductLifecycle.NumCapturedSelections();
 	FString ThrownDiagnostic;
@@ -1187,6 +1221,59 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 	ControlledWeaponRunHost.Reset();
 	CombatRunCoordinator.Reset();
 	return false;
+}
+
+bool Ademo_mapGameMode::ReleasePlayerSpiritEvasion(const TCHAR* Context)
+{
+	APawn* PlayerPawn = GetDemoPawn();
+	if (!PlayerPawn)
+	{
+		return true;
+	}
+	TArray<Udemo_mapShanmenSpiritEvasionComponent*> Components;
+	PlayerPawn->GetComponents<Udemo_mapShanmenSpiritEvasionComponent>(
+		Components);
+	if (Components.Num() > 1)
+	{
+		UE_LOG(
+			Logdemo_map,
+			Error,
+			TEXT("0_0_10_SPIRIT_EVASION Event=RunReleaseRejected Context=%s Components=%d"),
+			Context ? Context : TEXT("Unknown"),
+			Components.Num());
+		return false;
+	}
+	if (Components.IsEmpty()
+		|| !Components[0]->HasHost()
+		|| Components[0]->IsTerminal())
+	{
+		return true;
+	}
+
+	const Fdemo_mapShanmenSpiritEvasionCommandResult Interrupted =
+		Fdemo_mapShanmenSpiritEvasionCommandRouter::TryRoute(
+			Components[0],
+			CombatRunCoordinator,
+			Cast<ACharacter>(PlayerPawn),
+			Fdemo_mapShanmenSpiritEvasionCommand::MakeInterrupt());
+	if (!Interrupted.IsAccepted())
+	{
+		UE_LOG(
+			Logdemo_map,
+			Error,
+			TEXT("0_0_10_SPIRIT_EVASION Event=RunReleaseRejected Context=%s Status=%d Diagnostic=%s"),
+			Context ? Context : TEXT("Unknown"),
+			static_cast<int32>(Interrupted.Status),
+			*Interrupted.Diagnostic);
+		return false;
+	}
+	UE_LOG(
+		Logdemo_map,
+		Log,
+		TEXT("0_0_10_SPIRIT_EVASION Event=RunReleased Context=%s HostId=%s"),
+		Context ? Context : TEXT("Unknown"),
+		*Interrupted.Step.HostId.ToString(EGuidFormats::DigitsWithHyphens));
+	return true;
 }
 
 bool Ademo_mapGameMode::ActivateV3MissionContentForRun()
@@ -2429,6 +2516,25 @@ Udemo_mapSkillComponent* Ademo_mapGameMode::EnsurePlayerSkills(APawn* PlayerPawn
 	if (Skills != nullptr && !Skills->IsRegistered()) Skills->RegisterComponent();
 	PlayerSkillComponent = Skills;
 	return Skills;
+}
+
+Udemo_mapShanmenSpiritEvasionComponent*
+Ademo_mapGameMode::EnsurePlayerSpiritEvasion(APawn* PlayerPawn)
+{
+	const Fdemo_mapShanmenSpiritEvasionInstallationResult Installation =
+		Fdemo_mapShanmenSpiritEvasionCommandRouter::EnsureInstalled(
+			Cast<ACharacter>(PlayerPawn));
+	if (!Installation.IsSuccess())
+	{
+		UE_LOG(
+			Logdemo_map,
+			Error,
+			TEXT("0.0.10 P10.7: Spirit Evasion installation rejected; status=%d existing=%d."),
+			static_cast<int32>(Installation.Status),
+			Installation.ExistingComponentCount);
+		return nullptr;
+	}
+	return Installation.Component;
 }
 
 Udemo_mapAttributeComponent* Ademo_mapGameMode::EnsurePlayerAttributes(APawn* PlayerPawn)

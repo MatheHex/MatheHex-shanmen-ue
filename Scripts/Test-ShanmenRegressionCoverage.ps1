@@ -72,9 +72,12 @@ function Read-AutomationEvidence {
     $FailCount = ([regex]::Matches(
             $Text,
             'Test Completed\. Result=\{Fail\}')).Count
+    # UE 5.8 command-line automation emits TEST COMPLETE instead of the
+    # historical queue-empty sentence. Both are native terminal-success
+    # markers; test and process failures are still checked independently.
     $QueueEmptyCount = ([regex]::Matches(
             $Text,
-            'Automation Test Queue Empty\s+\d+\s+tests performed')).Count
+            'Automation Test Queue Empty\s+\d+\s+tests performed|\*{4}\s+TEST COMPLETE\. EXIT CODE:\s*0\s+\*{4}')).Count
     $FatalCount = ([regex]::Matches(
             $Text,
             'Fatal error|Unhandled Exception|Ensure condition failed')).Count
@@ -98,7 +101,7 @@ function Read-AutomationEvidence {
     }
     if ($QueueEmptyCount -lt 1)
     {
-        $Problems.Add('queue-empty marker missing')
+        $Problems.Add('terminal completion marker missing')
     }
     if ($FatalCount -ne 0)
     {

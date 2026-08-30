@@ -17,6 +17,7 @@
 #include "demo_mapShanmenThrownWeaponInputAdapter.h"
 #include "demo_mapShanmenThrownWeaponProductLifecycle.h"
 #include "demo_mapShanmenRunCorrelation.h"
+#include "demo_mapShanmenSpiritEvasionCommandRouter.h"
 #include "demo_mapGameMode.generated.h"
 
 class APlayerController;
@@ -169,6 +170,9 @@ public:
 	{
 		return ThrownWeaponProductLifecycle;
 	}
+	/** Routes one externally frozen, device-independent Spirit Evasion command. */
+	Fdemo_mapShanmenSpiritEvasionCommandResult RouteSpiritEvasionCommand(
+		const Fdemo_mapShanmenSpiritEvasionCommand& Command);
 	/** M01 enemy attacks never fall through to legacy damage when this is true. */
 	bool ShouldUseM01EnemyAttackProductPath() const;
 	Fdemo_mapM01EnemyAttackExecutionResult
@@ -250,12 +254,15 @@ private:
 	bool InitializeV3Progression(APawn* PlayerPawn, Udemo_mapItemSubsystem* Items);
 	bool TryActivateCombatRun(APawn* PlayerPawn, FString& OutDiagnostic);
 	bool ReleaseCombatProductRun(const TCHAR* Context);
+	bool ReleasePlayerSpiritEvasion(const TCHAR* Context);
 	void PrepareV2CNavigation();
 	void SpawnExit(APawn* PlayerPawn, const FVector& Forward);
 	void SpawnEnemy(APawn* PlayerPawn, const FVector& Forward, const FVector& Right);
 	void SpawnFriendly(APawn* PlayerPawn, const FVector& Forward, const FVector& Right);
 	Udemo_mapPlayerHealthComponent* EnsurePlayerHealth(APawn* PlayerPawn) const;
 	Udemo_mapSkillComponent* EnsurePlayerSkills(APawn* PlayerPawn);
+	Udemo_mapShanmenSpiritEvasionComponent* EnsurePlayerSpiritEvasion(
+		APawn* PlayerPawn);
 	Udemo_mapAttributeComponent* EnsurePlayerAttributes(APawn* PlayerPawn);
 	void StartRequestedAutomation();
 	void BeginReset(const FString& StatusText, const TCHAR* LogMarker);
