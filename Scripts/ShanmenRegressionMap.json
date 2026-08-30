@@ -246,6 +246,18 @@
       ]
     },
     {
+      "name": "FormationInfluenceConsumerWorldResolution",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenFormationInfluenceConsumerWorldResolution(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerWorldResolution",
+        "Shanmen.0_0_10.Product.FormationProductHost",
+        "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandHost",
+        "Shanmen.0_0_10.WorldGameplay",
+        "demo_map.V3.Attributes",
+        "Shanmen.0_0_10"
+      ]
+    },
+    {
       "name": "FormationInfluenceConsumerRegistry",
       "pathRegex": "^Source/demo_map/demo_mapShanmenFormationInfluenceConsumerRegistry(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [

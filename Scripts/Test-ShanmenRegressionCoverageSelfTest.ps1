@@ -150,6 +150,9 @@ try
     $FormationInfluenceConsumerProjection = New-AutomationLogFixture `
         -Name 'formation-influence-consumer-projection.log' `
         -Group 'Shanmen.0_0_10.Product.FormationInfluenceConsumerProjection'
+    $FormationInfluenceConsumerWorldResolution = New-AutomationLogFixture `
+        -Name 'formation-influence-consumer-world-resolution.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationInfluenceConsumerWorldResolution'
     $FormationInfluenceConsumerRegistry = New-AutomationLogFixture `
         -Name 'formation-influence-consumer-registry.log' `
         -Group 'Shanmen.0_0_10.Product.FormationInfluenceConsumerRegistry'
@@ -340,6 +343,12 @@ try
         -Name 'formation influence consumer projection maps lease evidence to legacy attributes' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerProjection.cpp') `
+        -Logs @($Full, $Attributes)
+
+    Invoke-ExpectedPass `
+        -Name 'formation consumer World resolution is covered by broad full and attribute evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerWorldResolution.cpp') `
         -Logs @($Full, $Attributes)
 
     Invoke-ExpectedPass `
@@ -630,6 +639,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerProjection.cpp') `
         -Logs @($FormationInfluenceConsumerProjection) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'consumer World resolution child evidence cannot replace registry Host and attribute contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerWorldResolution.cpp') `
+        -Logs @($FormationInfluenceConsumerWorldResolution) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

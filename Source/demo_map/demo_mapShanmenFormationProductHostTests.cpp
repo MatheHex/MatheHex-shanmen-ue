@@ -7,6 +7,7 @@
 #include "demo_mapShanmenFormationInfluenceExecutionRouter.h"
 #include "demo_mapShanmenFormationInfluenceExecutionService.h"
 #include "demo_mapShanmenFormationInfluenceLifecycleCommandHost.h"
+#include "demo_mapShanmenFormationInfluenceConsumerWorldResolution.h"
 #include "demo_mapShanmenFormationInfluenceLifecycleCoordinator.h"
 #include "demo_mapShanmenFormationInfluenceLifecycleCommandRouter.h"
 #include "demo_mapShanmenFormationInfluenceConsumerProjection.h"
@@ -4027,24 +4028,34 @@ RunTest(const FString&)
 		NewObject<Udemo_mapAttributeComponent>();
 	Udemo_mapAttributeComponent* ForeignAttributes =
 		NewObject<Udemo_mapAttributeComponent>();
-	Fdemo_mapShanmenFormationInfluenceConsumerSubjectResolution
-		SubjectResolution;
-	Fdemo_mapShanmenFormationInfluenceConsumerSubjectResolution
-		ForeignSubjectResolution;
 	const FGuid ForeignSubjectEntityId(0xF8400F36, 0, 0, 1);
-	if (!Fdemo_mapShanmenFormationInfluenceConsumerSubjectResolution::
-		TryCreate(
-			ConsumerCommands.SubjectEntityId,
+	if (Registry.BindObject(
+			Fixture.Correlation.ActiveRunId,
 			Attributes,
-			SubjectResolution)
-		|| !Fdemo_mapShanmenFormationInfluenceConsumerSubjectResolution::
-		TryCreate(
-			ForeignSubjectEntityId,
-			Attributes,
-			ForeignSubjectResolution))
+			ConsumerCommands.SubjectEntityId)
+			!= EShanmenWorldBindingResult::Bound
+		|| Registry.BindObject(
+			Fixture.Correlation.ActiveRunId,
+			ForeignAttributes,
+			ForeignSubjectEntityId)
+			!= EShanmenWorldBindingResult::Bound)
 	{
 		return false;
 	}
+	const auto SubjectWorldResolution =
+		Fdemo_mapShanmenFormationInfluenceConsumerWorldResolver::Resolve(
+			Registry, Fixture.Correlation.ActiveRunId, Attributes);
+	const auto ForeignSubjectWorldResolution =
+		Fdemo_mapShanmenFormationInfluenceConsumerWorldResolver::Resolve(
+			Registry, Fixture.Correlation.ActiveRunId, ForeignAttributes);
+	if (!SubjectWorldResolution.IsSuccess()
+		|| !ForeignSubjectWorldResolution.IsSuccess())
+	{
+		return false;
+	}
+	const auto& SubjectResolution = SubjectWorldResolution.Resolution;
+	const auto& ForeignSubjectResolution =
+		ForeignSubjectWorldResolution.Resolution;
 	const auto ForeignActivation =
 		ForeignCommandHost.TryActivateConsumerDelivery(
 			Fixture.Host,
@@ -4060,7 +4071,7 @@ RunTest(const FString&)
 		Fixture.Host,
 		ConsumerCommands.Delivery.Delivery,
 		ForeignSubjectResolution,
-		Attributes);
+		ForeignAttributes);
 	const auto ComponentUnavailable =
 		CommandHost.TryActivateConsumerDelivery(
 			Fixture.Host,
@@ -4155,7 +4166,10 @@ RunTest(const FString&)
 			&& ReceiptMismatch.SourceReceipt.Command.GetCommandId()
 				== Terminal.CommandId);
 	TestTrue(TEXT("Native consumer is active under exact lease authority"),
-		Activated.IsSuccess() && Activated.bSourceReceiptChecked
+		SubjectWorldResolution.bRegistryChecked
+			&& SubjectWorldResolution.ResolvedEntityId
+				== ConsumerCommands.SubjectEntityId
+			&& Activated.IsSuccess() && Activated.bSourceReceiptChecked
 			&& Activated.bSubjectResolutionChecked
 			&& Activated.SubjectResolution.ResolutionId
 				== SubjectResolution.ResolutionId
