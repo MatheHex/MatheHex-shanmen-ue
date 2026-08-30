@@ -5,6 +5,7 @@
 #include "demo_mapShanmenFormationInfluenceLeaseExecutor.h"
 #include "demo_mapShanmenFormationInfluenceProductRuntime.h"
 #include "demo_mapShanmenFormationInfluenceExecutionRouter.h"
+#include "demo_mapShanmenFormationInfluenceExecutionService.h"
 
 #include "ShanmenCombatResolver.h"
 #include "demo_map0909BSectWarehouseService.h"
@@ -2435,6 +2436,322 @@ bool Fdemo_mapFormationInfluenceExecutionRouterRetryTest::RunTest(
 			&& Runtime.GetCompletedIntentCount() == 2
 			&& Runtime.GetActiveLeaseCount() == 0
 			&& Fixture.Host.GetInfluenceLedger().IsSealed());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceExecutionServiceSingleStepTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceExecutionService.SingleStepAndReplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceExecutionServiceSingleStepTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("ExecutionServiceSingleStep"),
+			2, Prime, Subjects))
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceExecutionService Service;
+	const auto FirstRequest = MakeHostExecutionRequest(
+		Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 60);
+	const auto First = Service.TryExecuteOne(
+		Fixture.Host, Fixture.Correlation, FirstRequest);
+	const auto Replay = Service.TryExecuteOne(
+		Fixture.Host, Fixture.Correlation, FirstRequest);
+	const auto SecondRequest = MakeHostExecutionRequest(
+		Prime.ReconciliationPlan.Batch.Intents[1].IntentId, 61);
+	const auto Second = Service.TryExecuteOne(
+		Fixture.Host, Fixture.Correlation, SecondRequest);
+
+	TestTrue(TEXT("Service routes and executes one canonical intent per call"),
+		First.IsSuccess() && First.Execution.bExecutorInvoked
+			&& First.Route.Status
+				== Edemo_mapShanmenFormationInfluenceRouteStatus::Routed
+			&& Second.IsSuccess() && Second.Execution.bExecutorInvoked
+			&& Service.IsBound() && Service.IsValid());
+	TestTrue(TEXT("Exact request replay preserves both authority receipts"),
+		Replay.IsSuccess() && !Replay.Execution.bExecutorInvoked
+			&& Replay.Route.Status
+				== Edemo_mapShanmenFormationInfluenceRouteStatus::
+					RequestReplayed
+			&& Replay.Execution.Status
+				== Edemo_mapShanmenFormationInfluenceExecutionStatus::
+					AttemptReplayed
+			&& HostExecutionCommandsMatch(
+				First.Route.Command, Replay.Route.Command));
+	TestTrue(TEXT("Replay does not duplicate route or executor state"),
+		Service.GetRouteRecordCount() == 2
+			&& Service.GetExecutorAttemptCount() == 2
+			&& Service.GetActiveLeaseCount() == 2
+			&& Fixture.Host.GetPendingInfluenceIntentCount() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceExecutionServiceFenceTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceExecutionService.RouteAndBindingFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceExecutionServiceFenceTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture FirstFixture;
+	FFormationHostFixture OtherFixture;
+	FShanmenWorldEntityRegistry FirstRegistry;
+	FShanmenWorldEntityRegistry OtherRegistry;
+	Fdemo_mapShanmenFormationHostInfluenceResult FirstPrime;
+	Fdemo_mapShanmenFormationHostInfluenceResult OtherPrime;
+	TArray<AActor*> FirstSubjects;
+	TArray<AActor*> OtherSubjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, FirstFixture, FirstRegistry,
+			TEXT("ExecutionServiceFenceA"), 2,
+			FirstPrime, FirstSubjects)
+		|| !PrimeHostExecutorInfluence(
+			*this, OtherFixture, OtherRegistry,
+			TEXT("ExecutionServiceFenceB"), 1,
+			OtherPrime, OtherSubjects))
+	{
+		return false;
+	}
+
+	const FGuid FirstIntent =
+		FirstPrime.ReconciliationPlan.Batch.Intents[0].IntentId;
+	const FGuid SecondIntent =
+		FirstPrime.ReconciliationPlan.Batch.Intents[1].IntentId;
+	Fdemo_mapShanmenFormationInfluenceExecutionService Service;
+	const auto OutOfOrder = Service.TryExecuteOne(
+		FirstFixture.Host, FirstFixture.Correlation,
+		MakeHostExecutionRequest(SecondIntent, 70));
+	const bool bUnboundAfterOrderFence =
+		!Service.IsBound() && Service.GetRouteRecordCount() == 0;
+
+	const auto FirstRequest = MakeHostExecutionRequest(FirstIntent, 71);
+	const auto First = Service.TryExecuteOne(
+		FirstFixture.Host, FirstFixture.Correlation, FirstRequest);
+	auto ConflictRequest = FirstRequest;
+	ConflictRequest.ExpectedIntentId = SecondIntent;
+	const auto Conflict = Service.TryExecuteOne(
+		FirstFixture.Host, FirstFixture.Correlation, ConflictRequest);
+	const auto Foreign = Service.TryExecuteOne(
+		OtherFixture.Host, OtherFixture.Correlation,
+		MakeHostExecutionRequest(
+			OtherPrime.ReconciliationPlan.Batch.Intents[0].IntentId, 72));
+	const auto Second = Service.TryExecuteOne(
+		FirstFixture.Host, FirstFixture.Correlation,
+		MakeHostExecutionRequest(SecondIntent, 73));
+
+	TestTrue(TEXT("Route rejection leaves an empty Service unbound"),
+		OutOfOrder.Status
+			== Edemo_mapShanmenFormationInfluenceServiceStatus::RouteRejected
+			&& OutOfOrder.Route.Status
+				== Edemo_mapShanmenFormationInfluenceRouteStatus::
+					IntentOutOfOrder
+			&& !OutOfOrder.bServiceStateCommitted
+			&& bUnboundAfterOrderFence);
+	TestTrue(TEXT("Request conflict and foreign Host fail before execution"),
+		First.IsSuccess()
+			&& Conflict.Status
+				== Edemo_mapShanmenFormationInfluenceServiceStatus::
+					RouteRejected
+			&& Conflict.Route.Status
+				== Edemo_mapShanmenFormationInfluenceRouteStatus::
+					RequestConflict
+			&& Foreign.Route.Status
+				== Edemo_mapShanmenFormationInfluenceRouteStatus::
+					BindingConflict
+			&& !Conflict.bServiceStateCommitted
+			&& !Foreign.bServiceStateCommitted
+			&& OtherFixture.Host.GetPendingInfluenceIntentCount() == 1);
+	TestTrue(TEXT("Canonical continuation preserves one shared binding"),
+		Second.IsSuccess() && Service.IsBound() && Service.IsValid()
+			&& Service.GetRouteRecordCount() == 2
+			&& Service.GetExecutorAttemptCount() == 2
+			&& Service.GetActiveLeaseCount() == 2
+			&& FirstFixture.Host.GetPendingInfluenceIntentCount() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceExecutionServiceRecoveryTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceExecutionService.LateAttachmentAndRetryRecovery",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceExecutionServiceRecoveryTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture SuccessFixture;
+	FShanmenWorldEntityRegistry SuccessRegistry;
+	Fdemo_mapShanmenFormationHostInfluenceResult SuccessPrime;
+	TArray<AActor*> SuccessSubjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, SuccessFixture, SuccessRegistry,
+			TEXT("ExecutionServiceLateAttach"), 1,
+			SuccessPrime, SuccessSubjects))
+	{
+		return false;
+	}
+	const auto SuccessRequest = MakeHostExecutionRequest(
+		SuccessPrime.ReconciliationPlan.Batch.Intents[0].IntentId, 80);
+	Fdemo_mapShanmenFormationInfluenceExecutionRouter SuccessRouter;
+	Fdemo_mapShanmenFormationInfluenceProductRuntime SuccessRuntime;
+	const auto SuccessRoute = SuccessRouter.TryRoute(
+		SuccessFixture.Host, SuccessFixture.Correlation, SuccessRequest);
+	const auto SuccessExecution = SuccessRuntime.TryExecuteOne(
+		SuccessFixture.Host, SuccessFixture.Correlation,
+		SuccessRoute.Command);
+	Fdemo_mapShanmenFormationInfluenceExecutionService LateService;
+	const auto LateAttach = LateService.TryExecuteOne(
+		SuccessFixture.Host, SuccessFixture.Correlation, SuccessRequest);
+
+	TestTrue(TEXT("Fresh Service cannot attach after successful Host history"),
+		SuccessExecution.IsSuccess()
+			&& LateAttach.Route.Status
+				== Edemo_mapShanmenFormationInfluenceRouteStatus::
+					HostEvidenceRecovered
+			&& LateAttach.Status
+				== Edemo_mapShanmenFormationInfluenceServiceStatus::
+					ExecutionRejected
+			&& LateAttach.Execution.Status
+				== Edemo_mapShanmenFormationInfluenceExecutionStatus::StateInvalid
+			&& !LateAttach.bServiceStateCommitted
+			&& !LateService.IsBound() && LateService.IsValid()
+			&& LateService.GetRouteRecordCount() == 0
+			&& LateService.GetExecutorAttemptCount() == 0);
+
+	FFormationHostFixture RetryFixture;
+	FShanmenWorldEntityRegistry RetryRegistry;
+	Fdemo_mapShanmenFormationHostInfluenceResult RetryPrime;
+	TArray<AActor*> RetrySubjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, RetryFixture, RetryRegistry,
+			TEXT("ExecutionServiceRetryAttach"), 1,
+			RetryPrime, RetrySubjects))
+	{
+		return false;
+	}
+	const FGuid RetryIntent =
+		RetryPrime.ReconciliationPlan.Batch.Intents[0].IntentId;
+	const auto RetryRequest = MakeHostExecutionRequest(RetryIntent, 81);
+	Fdemo_mapShanmenFormationInfluenceExecutionRouter RetryRouter;
+	const auto RetryRoute = RetryRouter.TryRoute(
+		RetryFixture.Host, RetryFixture.Correlation, RetryRequest);
+	Fdemo_mapShanmenFormationInfluenceAttemptCommand RetryCommand;
+	RetryCommand.IntentId = RetryRoute.Command.IntentId;
+	RetryCommand.AttemptId = RetryRoute.Command.AttemptId;
+	RetryCommand.ExecutorReceiptId = FGuid(0xF8810001, 0, 0, 1);
+	RetryCommand.Outcome =
+		Edemo_mapShanmenFormationInfluenceAttemptOutcome::RetryableFailure;
+	const auto RetryRecorded = RetryFixture.Host.TryAcknowledgeInfluence(
+		RetryFixture.Correlation, RetryCommand);
+
+	Fdemo_mapShanmenFormationInfluenceExecutionService RetryService;
+	const auto RetryReplay = RetryService.TryExecuteOne(
+		RetryFixture.Host, RetryFixture.Correlation, RetryRequest);
+	const auto RetryRecovered = RetryService.TryExecuteOne(
+		RetryFixture.Host, RetryFixture.Correlation,
+		MakeHostExecutionRequest(RetryIntent, 82));
+
+	TestTrue(TEXT("Retry-only Host history safely reconstructs Service state"),
+		RetryRecorded.IsSuccess() && RetryReplay.IsSuccess()
+			&& RetryReplay.Route.Status
+				== Edemo_mapShanmenFormationInfluenceRouteStatus::
+					HostEvidenceRecovered
+			&& RetryReplay.Execution.Status
+				== Edemo_mapShanmenFormationInfluenceExecutionStatus::
+					AttemptReplayed
+			&& !RetryReplay.Execution.bExecutorInvoked
+			&& RetryService.IsBound() && RetryService.IsValid());
+	TestTrue(TEXT("A new request recovers retry without duplicate execution"),
+		RetryRecovered.IsSuccess()
+			&& RetryRecovered.Execution.bExecutorInvoked
+			&& RetryService.GetRouteRecordCount() == 2
+			&& RetryService.GetExecutorAttemptCount() == 1
+			&& RetryService.GetActiveLeaseCount() == 1
+			&& RetryFixture.Host.GetPendingInfluenceIntentCount() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceExecutionServiceTerminalTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceExecutionService.TerminalDrainAndSealedReplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceExecutionServiceTerminalTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("ExecutionServiceTerminal"),
+			1, Prime, Subjects))
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceExecutionService Service;
+	const auto ApplyRequest = MakeHostExecutionRequest(
+		Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 90);
+	const auto Apply = Service.TryExecuteOne(
+		Fixture.Host, Fixture.Correlation, ApplyRequest);
+	const auto Terminal = Fixture.Host.TryPrepareTerminalInfluence(
+		Fixture.Correlation);
+	Fdemo_mapShanmenFormationInfluenceIntent RemoveIntent;
+	if (!Apply.IsSuccess() || !Terminal.IsSuccess()
+		|| !Fixture.Host.TryPeekNextInfluenceIntent(RemoveIntent))
+	{
+		return false;
+	}
+	const auto RemoveRequest = MakeHostExecutionRequest(
+		RemoveIntent.IntentId, 91);
+	const auto Remove = Service.TryExecuteOne(
+		Fixture.Host, Fixture.Correlation, RemoveRequest);
+	const auto Seal = Fixture.Host.TrySealInfluence(Fixture.Correlation);
+	const auto End = Fixture.Host.TryEndAndTeardown(
+		Fixture.World, Fixture.Correlation);
+	const auto RemoveReplay = Service.TryExecuteOne(
+		Fixture.Host, Fixture.Correlation, RemoveRequest);
+	Fdemo_mapShanmenFormationInfluenceExecutionService SealedService;
+	const auto SealedAttach = SealedService.TryExecuteOne(
+		Fixture.Host, Fixture.Correlation, RemoveRequest);
+
+	TestTrue(TEXT("Service drains Apply and Remove before Host seal"),
+		Remove.IsSuccess() && Seal.IsSuccess()
+			&& End.Status == Edemo_mapShanmenFormationHostStatus::Ended
+			&& Service.GetRouteRecordCount() == 2
+			&& Service.GetExecutorAttemptCount() == 2
+			&& Service.GetCompletedIntentCount() == 2
+			&& Service.GetActiveLeaseCount() == 0
+			&& Fixture.Host.GetInfluenceLedger().IsSealed());
+	TestTrue(TEXT("Bound Service replays a sealed command without execution"),
+		RemoveReplay.IsSuccess()
+			&& RemoveReplay.Route.Status
+				== Edemo_mapShanmenFormationInfluenceRouteStatus::
+					RequestReplayed
+			&& RemoveReplay.Execution.Status
+				== Edemo_mapShanmenFormationInfluenceExecutionStatus::
+					AttemptReplayed
+			&& !RemoveReplay.Execution.bExecutorInvoked
+			&& Service.GetExecutorAttemptCount() == 2
+			&& Service.IsValid());
+	TestTrue(TEXT("Fresh Service cannot adopt sealed success history"),
+		SealedAttach.Route.Status
+			== Edemo_mapShanmenFormationInfluenceRouteStatus::
+				HostEvidenceRecovered
+			&& SealedAttach.Status
+				== Edemo_mapShanmenFormationInfluenceServiceStatus::
+					ExecutionRejected
+			&& !SealedAttach.bServiceStateCommitted
+			&& !SealedService.IsBound() && SealedService.IsValid());
 	return true;
 }
 

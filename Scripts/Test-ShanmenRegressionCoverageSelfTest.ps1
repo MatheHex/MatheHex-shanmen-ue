@@ -159,6 +159,9 @@ try
     $FormationInfluenceExecutionRouter = New-AutomationLogFixture `
         -Name 'formation-influence-execution-router.log' `
         -Group 'Shanmen.0_0_10.Product.FormationInfluenceExecutionRouter'
+    $FormationInfluenceExecutionService = New-AutomationLogFixture `
+        -Name 'formation-influence-execution-service.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationInfluenceExecutionService'
     $Legacy = New-AutomationLogFixture `
         -Name 'legacy.log' `
         -Group 'demo_map'
@@ -284,6 +287,12 @@ try
         -Name 'formation influence execution router is covered by broad full evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceExecutionRouter.cpp') `
+        -Logs @($Full)
+
+    Invoke-ExpectedPass `
+        -Name 'formation influence execution service is covered by broad full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceExecutionService.cpp') `
         -Logs @($Full)
 
     Invoke-ExpectedPass `
@@ -518,6 +527,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceExecutionRouter.cpp') `
         -Logs @($FormationInfluenceExecutionRouter) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'formation execution service child evidence cannot replace router runtime and Host contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceExecutionService.cpp') `
+        -Logs @($FormationInfluenceExecutionService) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
