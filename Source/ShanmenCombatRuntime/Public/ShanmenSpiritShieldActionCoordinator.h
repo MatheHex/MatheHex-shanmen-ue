@@ -12,7 +12,9 @@ enum class EShanmenSpiritShieldActionState : uint8
 	Uninitialized,
 	Reserved,
 	Activated,
-	Aborted
+	Completed,
+	Aborted,
+	Interrupted
 };
 
 UENUM(BlueprintType)
@@ -22,8 +24,11 @@ enum class EShanmenSpiritShieldActionStatus : uint8
 	Begun,
 	AlreadyBegun,
 	Activated,
+	Completed,
+	Interrupted,
 	Aborted,
 	AlreadyFinalized,
+	AlreadyClosed,
 	Rejected
 };
 
@@ -38,7 +43,10 @@ enum class EShanmenSpiritShieldActionError : uint8
 	ActionTransitionRejected,
 	ResourceFinalizationRejected,
 	ShieldActivationRejected,
+	ShieldDeactivationRejected,
+	ActionClosureRejected,
 	FinalizationConflict,
+	ClosureConflict,
 	StateDesynchronized
 };
 
@@ -48,6 +56,14 @@ enum class EShanmenSpiritShieldActionOutcome : uint8
 	None,
 	Active,
 	Cancelled,
+	Interrupted
+};
+
+UENUM(BlueprintType)
+enum class EShanmenSpiritShieldActionClosureOutcome : uint8
+{
+	None,
+	Completed,
 	Interrupted
 };
 
@@ -147,6 +163,59 @@ private:
 		EShanmenSpiritShieldActionOutcome::None;
 };
 
+/** Immutable proof that an activated shield and its action closed together. */
+USTRUCT(BlueprintType)
+struct SHANMENCOMBATRUNTIME_API FShanmenSpiritShieldActionClosureReceipt
+{
+	GENERATED_BODY()
+
+public:
+	bool IsValid() const;
+	const FGuid& GetReceiptId() const { return ReceiptId; }
+	const FShanmenSpiritShieldActionTerminalReceipt& GetActivationTerminal() const
+	{
+		return ActivationTerminal;
+	}
+	const FShanmenSpiritShieldDeactivationReceipt& GetDeactivation() const
+	{
+		return Deactivation;
+	}
+	const FShanmenActionTransitionReceipt& GetExitActiveTransition() const
+	{
+		return ExitActiveTransition;
+	}
+	const FShanmenActionTransitionReceipt& GetCompletionTransition() const
+	{
+		return CompletionTransition;
+	}
+	EShanmenSpiritShieldActionClosureOutcome GetOutcome() const
+	{
+		return Outcome;
+	}
+
+private:
+	friend class FShanmenSpiritShieldActionCoordinator;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Shanmen|Combat|SpiritShield", meta = (AllowPrivateAccess = "true"))
+	FGuid ReceiptId;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Shanmen|Combat|SpiritShield", meta = (AllowPrivateAccess = "true"))
+	FShanmenSpiritShieldActionTerminalReceipt ActivationTerminal;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Shanmen|Combat|SpiritShield", meta = (AllowPrivateAccess = "true"))
+	FShanmenSpiritShieldDeactivationReceipt Deactivation;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Shanmen|Combat|SpiritShield", meta = (AllowPrivateAccess = "true"))
+	FShanmenActionTransitionReceipt ExitActiveTransition;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Shanmen|Combat|SpiritShield", meta = (AllowPrivateAccess = "true"))
+	FShanmenActionTransitionReceipt CompletionTransition;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Shanmen|Combat|SpiritShield", meta = (AllowPrivateAccess = "true"))
+	EShanmenSpiritShieldActionClosureOutcome Outcome =
+		EShanmenSpiritShieldActionClosureOutcome::None;
+};
+
 /** Structured operation result; rejected operations carry no proof. */
 USTRUCT(BlueprintType)
 struct SHANMENCOMBATRUNTIME_API FShanmenSpiritShieldActionResult
@@ -170,6 +239,9 @@ struct SHANMENCOMBATRUNTIME_API FShanmenSpiritShieldActionResult
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Shanmen|Combat|SpiritShield")
 	FShanmenSpiritShieldActionTerminalReceipt Terminal;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Shanmen|Combat|SpiritShield")
+	FShanmenSpiritShieldActionClosureReceipt Closure;
 
 	bool IsValid() const;
 	bool IsSuccess() const;
@@ -199,6 +271,12 @@ public:
 	FShanmenSpiritShieldActionResult Abort(
 		EShanmenActionTerminalReason Reason,
 		FShanmenActionResourceAuthority& ResourceAuthority);
+	/**
+	 * Atomically closes an activated shield and its action. DurationElapsed is
+	 * accepted only after the deadline gate has already deactivated the shield.
+	 */
+	FShanmenSpiritShieldActionResult Close(
+		EShanmenSpiritShieldDeactivationReason Reason);
 	void Reset();
 
 	EShanmenSpiritShieldActionState GetState() const { return State; }
@@ -209,6 +287,10 @@ public:
 	const FShanmenSpiritShieldActionTerminalReceipt& GetTerminalReceipt() const
 	{
 		return TerminalReceipt;
+	}
+	const FShanmenSpiritShieldActionClosureReceipt& GetClosureReceipt() const
+	{
+		return ClosureReceipt;
 	}
 	const FShanmenActionOrchestrator& GetActionRuntime() const
 	{
@@ -236,6 +318,7 @@ private:
 	FShanmenSpiritShieldRuntime ShieldRuntime;
 	FShanmenSpiritShieldActionStartupReceipt StartupReceipt;
 	FShanmenSpiritShieldActionTerminalReceipt TerminalReceipt;
+	FShanmenSpiritShieldActionClosureReceipt ClosureReceipt;
 	EShanmenSpiritShieldActionState State =
 		EShanmenSpiritShieldActionState::Uninitialized;
 	bool bInitialized = false;

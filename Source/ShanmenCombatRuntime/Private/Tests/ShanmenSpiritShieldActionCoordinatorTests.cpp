@@ -24,7 +24,7 @@ namespace
 	FShanmenCombatActionSnapshot MakeAction(
 		uint64 ActivationSequence = 940,
 		const FGuid& SourceEntityId = CompositionSourceId,
-		const FString& Digest = TEXT("TEST-DIGEST-P9.4"))
+		const FString& Digest = TEXT("TEST-DIGEST-P9.5"))
 	{
 		FShanmenCombatActionCapture Capture;
 		Capture.RunId = CompositionRunId;
@@ -32,7 +32,7 @@ namespace
 		Capture.SourceEntityId = SourceEntityId;
 		Capture.ActionDefinitionId =
 			FShanmenSpiritShieldDefinition::CanonicalActionDefinitionId();
-		Capture.Content.Version = TEXT("0.0.10.P9.4");
+		Capture.Content.Version = TEXT("0.0.10.P9.5");
 		Capture.Content.Digest = Digest;
 		Capture.SourceTags.AddTag(
 			FShanmenCombatNativeTags::SourcePlayer());
@@ -47,7 +47,7 @@ namespace
 	}
 
 	FShanmenSpiritShieldDefinition MakeDefinition(
-		FName RuleId = TEXT("Defense.Spell.SpiritShield.P9_4"),
+		FName RuleId = TEXT("Defense.Spell.SpiritShield.P9_5"),
 		float Capacity = 40.0f)
 	{
 		FShanmenSpiritShieldDefinitionCapture Capture;
@@ -69,7 +69,7 @@ namespace
 
 	FShanmenActionResourceCost MakeCost(
 		float Amount = 20.0f,
-		FName RuleId = TEXT("Cost.Spell.SpiritShield.P9_4"),
+		FName RuleId = TEXT("Cost.Spell.SpiritShield.P9_5"),
 		FGameplayTag Channel =
 			FShanmenCombatRuntimeNativeTags::ResourceSpiritEnergy())
 	{
@@ -194,6 +194,86 @@ bool FShanmenSpiritShieldActionCommitTest::RunTest(const FString&)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenSpiritShieldActionExplicitClosureTest,
+	"Shanmen.0_0_10.CombatRuntime.SpiritShieldAction.ExplicitClosureReplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenSpiritShieldActionExplicitClosureTest::RunTest(const FString&)
+{
+	FShanmenActionResourceAuthority Authority = MakeAuthority();
+	FShanmenSpiritShieldActionCoordinator Coordinator;
+	check(BeginDefault(Authority, Coordinator).IsSuccess());
+	const FShanmenSpiritShieldActionResult Activated =
+		Coordinator.Commit(Authority);
+	check(Activated.IsSuccess());
+
+	const FShanmenSpiritShieldActionResult Completed = Coordinator.Close(
+		EShanmenSpiritShieldDeactivationReason::Explicit);
+	TestTrue(TEXT("Explicit close deactivates and completes atomically"),
+		Completed.IsSuccess()
+			&& Completed.Status
+				== EShanmenSpiritShieldActionStatus::Completed
+			&& Completed.Closure.IsValid()
+			&& Completed.Closure.GetOutcome()
+				== EShanmenSpiritShieldActionClosureOutcome::Completed
+			&& Completed.Closure.GetDeactivation().GetReason()
+				== EShanmenSpiritShieldDeactivationReason::Explicit
+			&& Coordinator.IsValid()
+			&& Coordinator.GetState()
+				== EShanmenSpiritShieldActionState::Completed
+			&& Coordinator.GetShieldRuntime().GetState()
+				== EShanmenSpiritShieldState::Deactivated
+			&& Coordinator.GetActionRuntime().GetPhase()
+				== EShanmenCombatActionPhase::Idle
+			&& Coordinator.GetActionRuntime().GetTerminalReason()
+				== EShanmenActionTerminalReason::Completed
+			&& FMath::IsNearlyEqual(Authority.GetCurrentAmount(), 80.0f)
+			&& Authority.GetAuthorityRevision() == 2);
+
+	const FGuid ClosureReceiptId = Completed.Closure.GetReceiptId();
+	const FShanmenSpiritShieldActionResult Replay = Coordinator.Close(
+		EShanmenSpiritShieldDeactivationReason::Explicit);
+	const FShanmenSpiritShieldActionResult CommitReplay =
+		Coordinator.Commit(Authority);
+	TestTrue(TEXT("Closed action replays both closure and original commit"),
+		Replay.IsSuccess()
+			&& Replay.Status
+				== EShanmenSpiritShieldActionStatus::AlreadyClosed
+			&& Replay.Closure.GetReceiptId() == ClosureReceiptId
+			&& CommitReplay.IsSuccess()
+			&& CommitReplay.Status
+				== EShanmenSpiritShieldActionStatus::AlreadyFinalized
+			&& CommitReplay.Terminal.GetReceiptId()
+				== Activated.Terminal.GetReceiptId()
+			&& Authority.GetAuthorityRevision() == 2);
+
+	const FShanmenSpiritShieldActionResult Conflict = Coordinator.Close(
+		EShanmenSpiritShieldDeactivationReason::OwnerEnded);
+	TestTrue(TEXT("Closed history cannot be rewritten with another reason"),
+		Conflict.IsValid() && !Conflict.IsSuccess()
+			&& Conflict.Error
+				== EShanmenSpiritShieldActionError::ClosureConflict
+			&& Coordinator.GetClosureReceipt().GetReceiptId()
+				== ClosureReceiptId);
+
+	Coordinator.Reset();
+	const FShanmenCombatActionSnapshot RearmedAction = MakeAction(
+		944, CompositionSourceId, TEXT("TEST-DIGEST-P9.5-REARM"));
+	const FShanmenSpiritShieldActionResult Rearmed = BeginDefault(
+		Authority, Coordinator, RearmedAction);
+	TestTrue(TEXT("Explicit reset permits a new action after closure"),
+		Rearmed.IsSuccess()
+			&& Rearmed.Status == EShanmenSpiritShieldActionStatus::Begun
+			&& Coordinator.IsValid()
+			&& Coordinator.GetState()
+				== EShanmenSpiritShieldActionState::Reserved
+			&& FMath::IsNearlyEqual(Authority.GetCurrentAmount(), 80.0f)
+			&& FMath::IsNearlyEqual(Authority.GetReservedAmount(), 20.0f)
+			&& Authority.GetAuthorityRevision() == 3);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FShanmenSpiritShieldActionAbortTest,
 	"Shanmen.0_0_10.CombatRuntime.SpiritShieldAction.PreCommitAbortRelease",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -224,7 +304,7 @@ bool FShanmenSpiritShieldActionAbortTest::RunTest(const FString&)
 			&& CancelAuthority.GetAuthorityRevision() == 2);
 
 	const FShanmenCombatActionSnapshot InterruptedAction = MakeAction(
-		941, CompositionSourceId, TEXT("TEST-DIGEST-P9.4-INTERRUPT"));
+		941, CompositionSourceId, TEXT("TEST-DIGEST-P9.5-INTERRUPT"));
 	FShanmenActionResourceAuthority InterruptAuthority = MakeAuthority();
 	FShanmenSpiritShieldActionCoordinator InterruptCoordinator;
 	check(BeginDefault(
@@ -242,6 +322,70 @@ bool FShanmenSpiritShieldActionAbortTest::RunTest(const FString&)
 				InterruptAuthority.GetCurrentAmount(), 100.0f)
 			&& FMath::IsNearlyZero(
 				InterruptAuthority.GetReservedAmount()));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenSpiritShieldActionPostCommitInterruptTest,
+	"Shanmen.0_0_10.CombatRuntime.SpiritShieldAction.PostCommitInterrupt",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenSpiritShieldActionPostCommitInterruptTest::RunTest(
+	const FString&)
+{
+	FShanmenActionResourceAuthority Authority = MakeAuthority();
+	FShanmenSpiritShieldActionCoordinator Coordinator;
+	check(BeginDefault(Authority, Coordinator).IsSuccess());
+	check(Coordinator.Commit(Authority).IsSuccess());
+	const FShanmenSpiritShieldActionResult Interrupted = Coordinator.Close(
+		EShanmenSpiritShieldDeactivationReason::Interrupted);
+	TestTrue(TEXT("Post-commit interruption closes both authorities"),
+		Interrupted.IsSuccess()
+			&& Interrupted.Status
+				== EShanmenSpiritShieldActionStatus::Interrupted
+			&& Interrupted.Closure.GetOutcome()
+				== EShanmenSpiritShieldActionClosureOutcome::Interrupted
+			&& Interrupted.Closure.GetDeactivation().GetReason()
+				== EShanmenSpiritShieldDeactivationReason::Interrupted
+			&& !Interrupted.Closure.GetCompletionTransition().IsValid()
+			&& Coordinator.IsValid()
+			&& Coordinator.GetState()
+				== EShanmenSpiritShieldActionState::Interrupted
+			&& Coordinator.GetActionRuntime().GetPhase()
+				== EShanmenCombatActionPhase::Interrupted
+			&& Coordinator.GetActionRuntime().GetTerminalReason()
+				== EShanmenActionTerminalReason::Interrupted
+			&& Coordinator.GetShieldRuntime().GetState()
+				== EShanmenSpiritShieldState::Deactivated
+			&& FMath::IsNearlyEqual(Authority.GetCurrentAmount(), 80.0f)
+			&& Authority.GetAuthorityRevision() == 2);
+
+	const FGuid ClosureReceiptId = Interrupted.Closure.GetReceiptId();
+	const FShanmenSpiritShieldActionResult Replay = Coordinator.Close(
+		EShanmenSpiritShieldDeactivationReason::Interrupted);
+	TestTrue(TEXT("Post-commit interruption replay is idempotent"),
+		Replay.IsSuccess()
+			&& Replay.Status
+				== EShanmenSpiritShieldActionStatus::AlreadyClosed
+			&& Replay.Closure.GetReceiptId() == ClosureReceiptId);
+
+	const FShanmenCombatActionSnapshot OwnerEndedAction = MakeAction(
+		942, CompositionSourceId, TEXT("TEST-DIGEST-P9.5-OWNER-ENDED"));
+	FShanmenActionResourceAuthority OwnerAuthority = MakeAuthority();
+	FShanmenSpiritShieldActionCoordinator OwnerCoordinator;
+	check(BeginDefault(
+		OwnerAuthority, OwnerCoordinator, OwnerEndedAction).IsSuccess());
+	check(OwnerCoordinator.Commit(OwnerAuthority).IsSuccess());
+	const FShanmenSpiritShieldActionResult OwnerEnded = OwnerCoordinator.Close(
+		EShanmenSpiritShieldDeactivationReason::OwnerEnded);
+	TestTrue(TEXT("Owner end is an explicit post-commit interruption"),
+		OwnerEnded.IsSuccess()
+			&& OwnerEnded.Status
+				== EShanmenSpiritShieldActionStatus::Interrupted
+			&& OwnerEnded.Closure.GetDeactivation().GetReason()
+				== EShanmenSpiritShieldDeactivationReason::OwnerEnded
+			&& OwnerCoordinator.GetActionRuntime().GetTerminalReason()
+				== EShanmenActionTerminalReason::Interrupted);
 	return true;
 }
 
@@ -322,7 +466,7 @@ bool FShanmenSpiritShieldActionFailClosedTest::RunTest(const FString&)
 	const auto Foreign = BeginDefault(
 		Authority,
 		ForeignCoordinator,
-		MakeAction(942, ForeignSourceId, TEXT("TEST-DIGEST-P9.4-FOREIGN")));
+		MakeAction(943, ForeignSourceId, TEXT("TEST-DIGEST-P9.5-FOREIGN")));
 	TestTrue(TEXT("Foreign resource owner fails before action state escapes"),
 		Foreign.IsValid() && !Foreign.IsSuccess()
 			&& Foreign.ResourceError
@@ -364,6 +508,52 @@ bool FShanmenSpiritShieldActionFailClosedTest::RunTest(const FString&)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenSpiritShieldActionExternalDeactivationTest,
+	"Shanmen.0_0_10.CombatRuntime.SpiritShieldAction.ExternalDeactivationConflict",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenSpiritShieldActionExternalDeactivationTest::RunTest(
+	const FString&)
+{
+	FShanmenActionResourceAuthority Authority = MakeAuthority();
+	FShanmenSpiritShieldActionCoordinator Coordinator;
+	check(BeginDefault(Authority, Coordinator).IsSuccess());
+	const FShanmenSpiritShieldActionResult Activated =
+		Coordinator.Commit(Authority);
+	check(Activated.IsSuccess());
+	FShanmenSpiritShieldDeactivationReceipt Deactivation;
+	check(Coordinator.GetShieldRuntime().TryDeactivate(
+		Activated.Terminal.GetShieldActivation().GetShieldInstanceId(),
+		EShanmenSpiritShieldDeactivationReason::Explicit,
+		Deactivation));
+
+	const FShanmenSpiritShieldActionResult Conflict = Coordinator.Close(
+		EShanmenSpiritShieldDeactivationReason::OwnerEnded);
+	TestTrue(TEXT("Mismatched external deactivation cannot close the action"),
+		Conflict.IsValid() && !Conflict.IsSuccess()
+			&& Conflict.Error
+				== EShanmenSpiritShieldActionError::ClosureConflict
+			&& Coordinator.IsValid()
+			&& Coordinator.GetState()
+				== EShanmenSpiritShieldActionState::Activated
+			&& Coordinator.GetActionRuntime().GetPhase()
+				== EShanmenCombatActionPhase::Active
+			&& Coordinator.GetShieldRuntime().GetDeactivationReceipt()
+				.GetReceiptId() == Deactivation.GetReceiptId());
+
+	const FShanmenSpiritShieldActionResult Completed = Coordinator.Close(
+		EShanmenSpiritShieldDeactivationReason::Explicit);
+	TestTrue(TEXT("Matching external deactivation proof closes atomically"),
+		Completed.IsSuccess()
+			&& Completed.Status
+				== EShanmenSpiritShieldActionStatus::Completed
+			&& Completed.Closure.GetDeactivation().GetReceiptId()
+				== Deactivation.GetReceiptId()
+			&& Coordinator.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FShanmenSpiritShieldActionCapacityDeadlineTest,
 	"Shanmen.0_0_10.CombatRuntime.SpiritShieldAction.CapacityDeadlineComposition",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -376,6 +566,17 @@ bool FShanmenSpiritShieldActionCapacityDeadlineTest::RunTest(const FString&)
 	const FShanmenSpiritShieldActionResult Activated =
 		Coordinator.Commit(ResourceAuthority);
 	check(Activated.IsSuccess());
+	const FShanmenSpiritShieldActionResult EarlyClose = Coordinator.Close(
+		EShanmenSpiritShieldDeactivationReason::DurationElapsed);
+	TestTrue(TEXT("Duration close cannot bypass the external deadline gate"),
+		EarlyClose.IsValid() && !EarlyClose.IsSuccess()
+			&& EarlyClose.Error
+				== EShanmenSpiritShieldActionError::ShieldDeactivationRejected
+			&& Coordinator.IsValid()
+			&& Coordinator.GetState()
+				== EShanmenSpiritShieldActionState::Activated
+			&& Coordinator.GetShieldRuntime().GetState()
+				== EShanmenSpiritShieldState::Active);
 
 	FShanmenSpiritShieldCapacityAuthority CapacityAuthority;
 	check(FShanmenSpiritShieldCapacityAuthority::TryCreate(
@@ -402,12 +603,22 @@ bool FShanmenSpiritShieldActionCapacityDeadlineTest::RunTest(const FString&)
 		CompositionTimelineId, 120, Due));
 	const FShanmenSpiritShieldDeadlineResult Elapsed =
 		Gate.TryElapse(Coordinator.GetShieldRuntime(), Due);
-	TestTrue(TEXT("The existing deadline gate may end the activated shield"),
+	check(Elapsed.IsSuccess());
+	const FShanmenSpiritShieldActionResult Completed = Coordinator.Close(
+		EShanmenSpiritShieldDeactivationReason::DurationElapsed);
+	TestTrue(TEXT("Deadline proof closes the activated shield action"),
 		Elapsed.IsSuccess()
 			&& Elapsed.Receipt.IsValid()
+			&& Completed.IsSuccess()
+			&& Completed.Status
+				== EShanmenSpiritShieldActionStatus::Completed
+			&& Completed.Closure.GetDeactivation().GetReceiptId()
+				== Elapsed.Receipt.GetDeactivation().GetReceiptId()
 			&& Coordinator.GetShieldRuntime().GetState()
 				== EShanmenSpiritShieldState::Deactivated
 			&& Coordinator.IsValid()
+			&& Coordinator.GetState()
+				== EShanmenSpiritShieldActionState::Completed
 			&& FMath::IsNearlyEqual(
 				ResourceAuthority.GetCurrentAmount(), 80.0f));
 	return true;
@@ -434,8 +645,13 @@ bool FShanmenSpiritShieldActionDeterminismTest::RunTest(const FString&)
 	check(FirstBegin.IsSuccess() && ReplayBegin.IsSuccess());
 	const auto FirstCommit = FirstCoordinator.Commit(FirstAuthority);
 	const auto ReplayCommit = ReplayCoordinator.Commit(ReplayAuthority);
+	check(FirstCommit.IsSuccess() && ReplayCommit.IsSuccess());
+	const auto FirstClosure = FirstCoordinator.Close(
+		EShanmenSpiritShieldDeactivationReason::Explicit);
+	const auto ReplayClosure = ReplayCoordinator.Close(
+		EShanmenSpiritShieldDeactivationReason::Explicit);
 	TestTrue(TEXT("Equivalent frozen composition reproduces all identities"),
-		FirstCommit.IsSuccess() && ReplayCommit.IsSuccess()
+		FirstClosure.IsSuccess() && ReplayClosure.IsSuccess()
 			&& FirstBegin.Startup.GetSessionId()
 				== ReplayBegin.Startup.GetSessionId()
 			&& FirstBegin.Startup.GetReceiptId()
@@ -446,6 +662,14 @@ bool FShanmenSpiritShieldActionDeterminismTest::RunTest(const FString&)
 				== ReplayCommit.Terminal.GetShieldActivation().GetReceiptId()
 			&& FirstCommit.Terminal.GetReceiptId()
 				== ReplayCommit.Terminal.GetReceiptId()
+			&& FirstClosure.Closure.GetDeactivation().GetReceiptId()
+				== ReplayClosure.Closure.GetDeactivation().GetReceiptId()
+			&& FirstClosure.Closure.GetExitActiveTransition().GetSequence()
+				== ReplayClosure.Closure.GetExitActiveTransition().GetSequence()
+			&& FirstClosure.Closure.GetCompletionTransition().GetSequence()
+				== ReplayClosure.Closure.GetCompletionTransition().GetSequence()
+			&& FirstClosure.Closure.GetReceiptId()
+				== ReplayClosure.Closure.GetReceiptId()
 			&& FMath::IsNearlyEqual(
 				FirstAuthority.GetCurrentAmount(),
 				ReplayAuthority.GetCurrentAmount()));

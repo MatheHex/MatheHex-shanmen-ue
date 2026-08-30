@@ -231,6 +231,54 @@ namespace
 			});
 	}
 
+	EShanmenSpiritShieldActionClosureOutcome ClassifyClosureOutcome(
+		EShanmenSpiritShieldDeactivationReason Reason)
+	{
+		if (Reason == EShanmenSpiritShieldDeactivationReason::Explicit
+			|| Reason
+				== EShanmenSpiritShieldDeactivationReason::DurationElapsed)
+		{
+			return EShanmenSpiritShieldActionClosureOutcome::Completed;
+		}
+		if (Reason == EShanmenSpiritShieldDeactivationReason::Interrupted
+			|| Reason
+				== EShanmenSpiritShieldDeactivationReason::OwnerEnded)
+		{
+			return EShanmenSpiritShieldActionClosureOutcome::Interrupted;
+		}
+		return EShanmenSpiritShieldActionClosureOutcome::None;
+	}
+
+	FGuid MakeClosureReceiptId(
+		const FShanmenSpiritShieldActionTerminalReceipt& ActivationTerminal,
+		const FShanmenSpiritShieldDeactivationReceipt& Deactivation,
+		const FShanmenActionTransitionReceipt& ExitActiveTransition,
+		const FShanmenActionTransitionReceipt& CompletionTransition,
+		EShanmenSpiritShieldActionClosureOutcome Outcome)
+	{
+		if (!ActivationTerminal.IsValid() || !Deactivation.IsValid()
+			|| !ExitActiveTransition.IsValid()
+			|| Outcome
+				== EShanmenSpiritShieldActionClosureOutcome::None)
+		{
+			return FGuid();
+		}
+		return FShanmenDeterministicId::FromCanonicalParts(
+			TEXT("Shanmen.Spell.SpiritShield.Action.ClosureReceipt.r1"),
+			{
+				GuidDigits(ActivationTerminal.GetReceiptId()),
+				GuidDigits(Deactivation.GetReceiptId()),
+				GuidDigits(ExitActiveTransition.GetActivationId()),
+				FString::Printf(
+					TEXT("%lld"), ExitActiveTransition.GetSequence()),
+				CompletionTransition.IsValid()
+					? FString::Printf(
+						TEXT("%lld"), CompletionTransition.GetSequence())
+					: TEXT("None"),
+				FString::FromInt(static_cast<int32>(Outcome))
+			});
+	}
+
 	bool IsAbortOutcome(EShanmenSpiritShieldActionOutcome Outcome)
 	{
 		return Outcome == EShanmenSpiritShieldActionOutcome::Cancelled
@@ -298,6 +346,85 @@ bool FShanmenSpiritShieldActionTerminalReceipt::IsValid() const
 			Startup, ResourceFinalization, ShieldActivation, Outcome);
 }
 
+bool FShanmenSpiritShieldActionClosureReceipt::IsValid() const
+{
+	if (!ReceiptId.IsValid() || !ActivationTerminal.IsValid()
+		|| ActivationTerminal.GetOutcome()
+			!= EShanmenSpiritShieldActionOutcome::Active
+		|| !Deactivation.IsValid() || !ExitActiveTransition.IsValid()
+		|| Outcome == EShanmenSpiritShieldActionClosureOutcome::None
+		|| Outcome != ClassifyClosureOutcome(Deactivation.GetReason()))
+	{
+		return false;
+	}
+
+	const FShanmenSpiritShieldActivationReceipt& Activation =
+		ActivationTerminal.GetShieldActivation();
+	const FShanmenActionTransitionReceipt& CommitTransition =
+		ActivationTerminal.GetActionTransition();
+	if (!Activation.IsValid()
+		|| Deactivation.GetActivation().GetReceiptId()
+			!= Activation.GetReceiptId()
+		|| ExitActiveTransition.GetActivationId()
+			!= Activation.GetAction().GetActivationId()
+		|| ExitActiveTransition.GetSequence()
+			!= CommitTransition.GetSequence() + 1
+		|| ExitActiveTransition.GetFromPhase()
+			!= EShanmenCombatActionPhase::Active
+		|| ExitActiveTransition.CrossedCommitPointNow()
+		|| !ExitActiveTransition.HasReachedCommitPoint())
+	{
+		return false;
+	}
+
+	if (Outcome == EShanmenSpiritShieldActionClosureOutcome::Completed)
+	{
+		if (ExitActiveTransition.GetToPhase()
+				!= EShanmenCombatActionPhase::Recovery
+			|| ExitActiveTransition.GetTerminalReason()
+				!= EShanmenActionTerminalReason::None
+			|| !CompletionTransition.IsValid()
+			|| CompletionTransition.GetActivationId()
+				!= ExitActiveTransition.GetActivationId()
+			|| CompletionTransition.GetSequence()
+				!= ExitActiveTransition.GetSequence() + 1
+			|| CompletionTransition.GetFromPhase()
+				!= EShanmenCombatActionPhase::Recovery
+			|| CompletionTransition.GetToPhase()
+				!= EShanmenCombatActionPhase::Idle
+			|| CompletionTransition.GetTerminalReason()
+				!= EShanmenActionTerminalReason::Completed
+			|| CompletionTransition.CrossedCommitPointNow()
+			|| !CompletionTransition.HasReachedCommitPoint())
+		{
+			return false;
+		}
+	}
+	else if (Outcome
+		== EShanmenSpiritShieldActionClosureOutcome::Interrupted)
+	{
+		if (ExitActiveTransition.GetToPhase()
+				!= EShanmenCombatActionPhase::Interrupted
+			|| ExitActiveTransition.GetTerminalReason()
+				!= EShanmenActionTerminalReason::Interrupted
+			|| CompletionTransition.IsValid())
+		{
+			return false;
+		}
+	}
+	else
+	{
+		return false;
+	}
+
+	return ReceiptId == MakeClosureReceiptId(
+		ActivationTerminal,
+		Deactivation,
+		ExitActiveTransition,
+		CompletionTransition,
+		Outcome);
+}
+
 bool FShanmenSpiritShieldActionResult::IsValid() const
 {
 	switch (Status)
@@ -307,28 +434,55 @@ bool FShanmenSpiritShieldActionResult::IsValid() const
 		return Error == EShanmenSpiritShieldActionError::None
 			&& ResourceError
 				== EShanmenActionResourceTransactionError::None
-			&& Startup.IsValid() && !Terminal.IsValid();
+			&& Startup.IsValid() && !Terminal.IsValid()
+			&& !Closure.IsValid();
 	case EShanmenSpiritShieldActionStatus::Activated:
 		return Error == EShanmenSpiritShieldActionError::None
 			&& ResourceError
 				== EShanmenActionResourceTransactionError::None
 			&& !Startup.IsValid() && Terminal.IsValid()
+			&& !Closure.IsValid()
 			&& Terminal.GetOutcome()
 				== EShanmenSpiritShieldActionOutcome::Active;
+	case EShanmenSpiritShieldActionStatus::Completed:
+		return Error == EShanmenSpiritShieldActionError::None
+			&& ResourceError
+				== EShanmenActionResourceTransactionError::None
+			&& !Startup.IsValid() && !Terminal.IsValid()
+			&& Closure.IsValid()
+			&& Closure.GetOutcome()
+				== EShanmenSpiritShieldActionClosureOutcome::Completed;
+	case EShanmenSpiritShieldActionStatus::Interrupted:
+		return Error == EShanmenSpiritShieldActionError::None
+			&& ResourceError
+				== EShanmenActionResourceTransactionError::None
+			&& !Startup.IsValid() && !Terminal.IsValid()
+			&& Closure.IsValid()
+			&& Closure.GetOutcome()
+				== EShanmenSpiritShieldActionClosureOutcome::Interrupted;
 	case EShanmenSpiritShieldActionStatus::Aborted:
 		return Error == EShanmenSpiritShieldActionError::None
 			&& ResourceError
 				== EShanmenActionResourceTransactionError::None
 			&& !Startup.IsValid() && Terminal.IsValid()
+			&& !Closure.IsValid()
 			&& IsAbortOutcome(Terminal.GetOutcome());
 	case EShanmenSpiritShieldActionStatus::AlreadyFinalized:
 		return Error == EShanmenSpiritShieldActionError::None
 			&& ResourceError
 				== EShanmenActionResourceTransactionError::None
-			&& !Startup.IsValid() && Terminal.IsValid();
+			&& !Startup.IsValid() && Terminal.IsValid()
+			&& !Closure.IsValid();
+	case EShanmenSpiritShieldActionStatus::AlreadyClosed:
+		return Error == EShanmenSpiritShieldActionError::None
+			&& ResourceError
+				== EShanmenActionResourceTransactionError::None
+			&& !Startup.IsValid() && !Terminal.IsValid()
+			&& Closure.IsValid();
 	case EShanmenSpiritShieldActionStatus::Rejected:
 		return Error != EShanmenSpiritShieldActionError::None
-			&& !Startup.IsValid() && !Terminal.IsValid();
+			&& !Startup.IsValid() && !Terminal.IsValid()
+			&& !Closure.IsValid();
 	default:
 		return false;
 	}
@@ -509,7 +663,7 @@ bool FShanmenSpiritShieldActionCoordinator::IsValid() const
 
 	if (State == EShanmenSpiritShieldActionState::Reserved)
 	{
-		return !TerminalReceipt.IsValid()
+		return !TerminalReceipt.IsValid() && !ClosureReceipt.IsValid()
 			&& ActionRuntime.GetPhase()
 				== EShanmenCombatActionPhase::Startup
 			&& !ActionRuntime.IsTerminal()
@@ -528,7 +682,8 @@ bool FShanmenSpiritShieldActionCoordinator::IsValid() const
 	{
 		const FShanmenSpiritShieldActivationReceipt& Activation =
 			TerminalReceipt.GetShieldActivation();
-		return TerminalReceipt.GetOutcome()
+		return !ClosureReceipt.IsValid()
+			&& TerminalReceipt.GetOutcome()
 				== EShanmenSpiritShieldActionOutcome::Active
 			&& ActionRuntime.GetPhase()
 				== EShanmenCombatActionPhase::Active
@@ -549,12 +704,46 @@ bool FShanmenSpiritShieldActionCoordinator::IsValid() const
 			: Outcome == EShanmenSpiritShieldActionOutcome::Interrupted
 				? EShanmenActionTerminalReason::Interrupted
 				: EShanmenActionTerminalReason::None;
-		return ExpectedReason != EShanmenActionTerminalReason::None
+		return !ClosureReceipt.IsValid()
+			&& ExpectedReason != EShanmenActionTerminalReason::None
 			&& ActionRuntime.IsTerminal()
 			&& ActionRuntime.GetTerminalReason() == ExpectedReason
 			&& !ActionRuntime.HasReachedCommitPoint()
 			&& ShieldRuntime.GetState()
 				== EShanmenSpiritShieldState::Prepared;
+	}
+	if (State == EShanmenSpiritShieldActionState::Completed
+		|| State == EShanmenSpiritShieldActionState::Interrupted)
+	{
+		if (TerminalReceipt.GetOutcome()
+				!= EShanmenSpiritShieldActionOutcome::Active
+			|| !ClosureReceipt.IsValid()
+			|| ClosureReceipt.GetActivationTerminal().GetReceiptId()
+				!= TerminalReceipt.GetReceiptId()
+			|| ShieldRuntime.GetState()
+				!= EShanmenSpiritShieldState::Deactivated
+			|| ShieldRuntime.GetDeactivationReceipt().GetReceiptId()
+				!= ClosureReceipt.GetDeactivation().GetReceiptId()
+			|| !ActionRuntime.IsTerminal()
+			|| !ActionRuntime.HasReachedCommitPoint())
+		{
+			return false;
+		}
+		if (State == EShanmenSpiritShieldActionState::Completed)
+		{
+			return ClosureReceipt.GetOutcome()
+					== EShanmenSpiritShieldActionClosureOutcome::Completed
+				&& ActionRuntime.GetPhase()
+					== EShanmenCombatActionPhase::Idle
+				&& ActionRuntime.GetTerminalReason()
+					== EShanmenActionTerminalReason::Completed;
+		}
+		return ClosureReceipt.GetOutcome()
+				== EShanmenSpiritShieldActionClosureOutcome::Interrupted
+			&& ActionRuntime.GetPhase()
+				== EShanmenCombatActionPhase::Interrupted
+			&& ActionRuntime.GetTerminalReason()
+				== EShanmenActionTerminalReason::Interrupted;
 	}
 	return false;
 }
@@ -568,7 +757,9 @@ FShanmenSpiritShieldActionCoordinator::Commit(
 		return Reject(
 			EShanmenSpiritShieldActionError::CoordinatorNotReady);
 	}
-	if (State == EShanmenSpiritShieldActionState::Activated)
+	if (State == EShanmenSpiritShieldActionState::Activated
+		|| State == EShanmenSpiritShieldActionState::Completed
+		|| State == EShanmenSpiritShieldActionState::Interrupted)
 	{
 		return ReplayTerminal(
 			EShanmenSpiritShieldActionOutcome::Active,
@@ -734,6 +925,132 @@ FShanmenSpiritShieldActionCoordinator::Abort(
 	FShanmenSpiritShieldActionResult Result;
 	Result.Status = EShanmenSpiritShieldActionStatus::Aborted;
 	Result.Terminal = TerminalReceipt;
+	return Result;
+}
+
+FShanmenSpiritShieldActionResult
+FShanmenSpiritShieldActionCoordinator::Close(
+	EShanmenSpiritShieldDeactivationReason Reason)
+{
+	const EShanmenSpiritShieldActionClosureOutcome ExpectedOutcome =
+		ClassifyClosureOutcome(Reason);
+	if (ExpectedOutcome
+		== EShanmenSpiritShieldActionClosureOutcome::None)
+	{
+		return Reject(EShanmenSpiritShieldActionError::InvalidInput);
+	}
+	if (!IsValid())
+	{
+		return Reject(
+			EShanmenSpiritShieldActionError::CoordinatorNotReady);
+	}
+	if (State == EShanmenSpiritShieldActionState::Completed
+		|| State == EShanmenSpiritShieldActionState::Interrupted)
+	{
+		if (!ClosureReceipt.IsValid()
+			|| ClosureReceipt.GetOutcome() != ExpectedOutcome
+			|| ClosureReceipt.GetDeactivation().GetReason() != Reason)
+		{
+			return Reject(
+				EShanmenSpiritShieldActionError::ClosureConflict);
+		}
+		FShanmenSpiritShieldActionResult Result;
+		Result.Status = EShanmenSpiritShieldActionStatus::AlreadyClosed;
+		Result.Closure = ClosureReceipt;
+		return Result;
+	}
+	if (State != EShanmenSpiritShieldActionState::Activated)
+	{
+		return Reject(
+			EShanmenSpiritShieldActionError::ClosureConflict);
+	}
+
+	FShanmenSpiritShieldActionCoordinator Candidate = *this;
+	const FShanmenSpiritShieldActivationReceipt& Activation =
+		Candidate.TerminalReceipt.GetShieldActivation();
+	FShanmenSpiritShieldDeactivationReceipt Deactivation;
+	if (Candidate.ShieldRuntime.GetState()
+		== EShanmenSpiritShieldState::Active)
+	{
+		if (Reason
+			== EShanmenSpiritShieldDeactivationReason::DurationElapsed
+			|| !Candidate.ShieldRuntime.TryDeactivate(
+				Activation.GetShieldInstanceId(), Reason, Deactivation))
+		{
+			return Reject(
+				EShanmenSpiritShieldActionError::ShieldDeactivationRejected);
+		}
+	}
+	else if (Candidate.ShieldRuntime.GetState()
+		== EShanmenSpiritShieldState::Deactivated)
+	{
+		Deactivation = Candidate.ShieldRuntime.GetDeactivationReceipt();
+		if (!Deactivation.IsValid()
+			|| Deactivation.GetReason() != Reason)
+		{
+			return Reject(
+				EShanmenSpiritShieldActionError::ClosureConflict);
+		}
+	}
+	else
+	{
+		return Reject(
+			EShanmenSpiritShieldActionError::ShieldDeactivationRejected);
+	}
+
+	FShanmenActionTransitionReceipt ExitActiveTransition;
+	FShanmenActionTransitionReceipt CompletionTransition;
+	if (ExpectedOutcome
+		== EShanmenSpiritShieldActionClosureOutcome::Completed)
+	{
+		if (!Candidate.ActionRuntime.TryAdvance(
+				EShanmenCombatActionPhase::Active,
+				ExitActiveTransition)
+			|| !Candidate.ActionRuntime.TryAdvance(
+				EShanmenCombatActionPhase::Recovery,
+				CompletionTransition))
+		{
+			return Reject(
+				EShanmenSpiritShieldActionError::ActionClosureRejected);
+		}
+	}
+	else if (!Candidate.ActionRuntime.TryInterrupt(
+		EShanmenCombatActionPhase::Active,
+		ExitActiveTransition))
+	{
+		return Reject(
+			EShanmenSpiritShieldActionError::ActionClosureRejected);
+	}
+
+	Candidate.ClosureReceipt.ActivationTerminal =
+		Candidate.TerminalReceipt;
+	Candidate.ClosureReceipt.Deactivation = Deactivation;
+	Candidate.ClosureReceipt.ExitActiveTransition = ExitActiveTransition;
+	Candidate.ClosureReceipt.CompletionTransition = CompletionTransition;
+	Candidate.ClosureReceipt.Outcome = ExpectedOutcome;
+	Candidate.ClosureReceipt.ReceiptId = MakeClosureReceiptId(
+		Candidate.ClosureReceipt.ActivationTerminal,
+		Candidate.ClosureReceipt.Deactivation,
+		Candidate.ClosureReceipt.ExitActiveTransition,
+		Candidate.ClosureReceipt.CompletionTransition,
+		Candidate.ClosureReceipt.Outcome);
+	Candidate.State = ExpectedOutcome
+		== EShanmenSpiritShieldActionClosureOutcome::Completed
+		? EShanmenSpiritShieldActionState::Completed
+		: EShanmenSpiritShieldActionState::Interrupted;
+	if (!Candidate.IsValid())
+	{
+		return Reject(
+			EShanmenSpiritShieldActionError::StateDesynchronized);
+	}
+
+	*this = MoveTemp(Candidate);
+	FShanmenSpiritShieldActionResult Result;
+	Result.Status = ExpectedOutcome
+		== EShanmenSpiritShieldActionClosureOutcome::Completed
+		? EShanmenSpiritShieldActionStatus::Completed
+		: EShanmenSpiritShieldActionStatus::Interrupted;
+	Result.Closure = ClosureReceipt;
 	return Result;
 }
 
