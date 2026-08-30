@@ -50,7 +50,9 @@ struct Fdemo_mapShanmenFormationInfluenceConsumerProductRuntimeResult
  * before the append-only binding is created. Deactivation routes one explicit
  * Remove. Teardown readiness is an explicit drained check; this runtime never
  * discovers components, synthesizes commands, auto-removes, retries, schedules,
- * persists, or owns ProductHost/World/Actor state.
+ * persists, or owns ProductHost/World/Actor state. The readiness check accepts
+ * the same terminal ProductHost solely for exact forward World-teardown
+ * recovery; activation and deactivation continue to reject terminal products.
  */
 class Fdemo_mapShanmenFormationInfluenceConsumerProductRuntime
 {

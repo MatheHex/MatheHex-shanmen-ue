@@ -9,9 +9,11 @@
 #include "demo_mapShanmenFormationInfluenceLifecycleCommandHost.h"
 #include "demo_mapShanmenFormationInfluenceLifecycleCoordinator.h"
 #include "demo_mapShanmenFormationInfluenceLifecycleCommandRouter.h"
+#include "demo_mapShanmenFormationInfluenceConsumerProjection.h"
 
 #include "ShanmenCombatResolver.h"
 #include "ShanmenCombatTags.h"
+#include "demo_mapAttributeComponent.h"
 #include "demo_map0909BSectWarehouseService.h"
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapProfileRepository.h"
@@ -637,6 +639,61 @@ namespace
 				Correlation,
 				Command));
 		return Command;
+	}
+
+	struct FHostConsumerCommands
+	{
+		FGuid SubjectEntityId;
+		Fdemo_mapShanmenFormationInfluenceConsumerCommand Apply;
+		Fdemo_mapShanmenFormationInfluenceConsumerCommand Remove;
+	};
+
+	bool BuildHostConsumerCommands(
+		const Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost&
+			CommandHost,
+		const Fdemo_mapShanmenFormationInfluenceIntent& ApplyIntent,
+		FHostConsumerCommands& OutCommands)
+	{
+		OutCommands = FHostConsumerCommands();
+		Fdemo_mapShanmenFormationInfluenceLeaseKey Key;
+		Fdemo_mapShanmenFormationInfluenceLeaseSnapshot Lease;
+		if (!Fdemo_mapShanmenFormationInfluenceLeaseKey::TryFromIntent(
+				ApplyIntent, Key)
+			|| !CommandHost.GetRouter().GetCoordinator().
+				GetExecutionService().GetRuntime().GetExecutor().
+				TryGetActiveLease(Key, Lease))
+		{
+			return false;
+		}
+
+		Fdemo_mapShanmenFormationInfluenceConsumerDefinition Definition;
+		if (!Fdemo_mapShanmenFormationInfluenceConsumerDefinition::
+			TryCreateOffensePowerAdditive(
+				TEXT("Formation.Consumer.ProductLifecycle.OffensePower"),
+				100, 40, ApplyIntent.Content, Definition))
+		{
+			return false;
+		}
+		const auto Projected =
+			Fdemo_mapShanmenFormationInfluenceConsumerProjector::
+				ProjectActiveLease(Lease, Definition);
+		if (!Projected.HasProjection())
+		{
+			return false;
+		}
+		OutCommands.SubjectEntityId = ApplyIntent.SubjectEntityId;
+		return Fdemo_mapShanmenFormationInfluenceConsumerProjector::
+				TryBuildCommand(
+					Projected.Projection,
+					Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::
+						Apply,
+					OutCommands.Apply)
+			&& Fdemo_mapShanmenFormationInfluenceConsumerProjector::
+				TryBuildCommand(
+					Projected.Projection,
+					Edemo_mapShanmenFormationInfluenceConsumerCommandOperation::
+						Remove,
+					OutCommands.Remove);
 	}
 
 	bool HostExecutionCommandsMatch(
@@ -3496,6 +3553,12 @@ bool Fdemo_mapFormationInfluenceLifecycleCommandRouterRecoveryTest::RunTest(
 	}
 
 	Fdemo_mapShanmenFormationInfluenceLifecycleCommandRouter Router;
+	Fdemo_mapShanmenFormationInfluenceConsumerProductRuntime ConsumerRuntime;
+	if (!Fdemo_mapShanmenFormationInfluenceConsumerProductRuntime::TryOpen(
+			Fixture.Host, ConsumerRuntime))
+	{
+		return false;
+	}
 	const auto Apply = Router.TryRoute(
 		nullptr, Fixture.Host,
 		MakeLifecycleStepCommand(
@@ -3518,16 +3581,18 @@ bool Fdemo_mapFormationInfluenceLifecycleCommandRouterRecoveryTest::RunTest(
 			MakeHostExecutionRequest(RemoveIntent, 231)));
 	const auto EndCommand =
 		MakeLifecycleEndCommand(Fixture.Correlation, 233);
-	const auto FailedEnd = Router.TryRoute(
-		nullptr, Fixture.Host, EndCommand);
+	const auto FailedEnd = Router.TryRouteWithConsumers(
+		nullptr, Fixture.Host, ConsumerRuntime, EndCommand);
 	const int32 RecordsAfterFailure = Router.GetRecordCount();
-	const auto EndAlias = Router.TryRoute(
-		Fixture.World, Fixture.Host,
+	const auto EndAlias = Router.TryRouteWithConsumers(
+		Fixture.World, Fixture.Host, ConsumerRuntime,
 		MakeLifecycleEndCommand(Fixture.Correlation, 234));
-	const auto Recovered = Router.TryRoute(
+	const auto UnguardedRecovery = Router.TryRoute(
 		Fixture.World, Fixture.Host, EndCommand);
-	const auto Replayed = Router.TryRoute(
-		Fixture.World, Fixture.Host, EndCommand);
+	const auto Recovered = Router.TryRouteWithConsumers(
+		Fixture.World, Fixture.Host, ConsumerRuntime, EndCommand);
+	const auto Replayed = Router.TryRouteWithConsumers(
+		Fixture.World, Fixture.Host, ConsumerRuntime, EndCommand);
 	const auto Conflict = Router.TryRoute(
 		nullptr, Fixture.Host,
 		MakeLifecycleTerminalCommand(Fixture.Correlation, 233));
@@ -3545,8 +3610,19 @@ bool Fdemo_mapFormationInfluenceLifecycleCommandRouterRecoveryTest::RunTest(
 				== Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::
 					OperationIdentityConflict
 			&& Router.IsValid());
+	TestTrue(TEXT("Consumer-guarded recovery cannot drop its runtime boundary"),
+		UnguardedRecovery.Status
+			== Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::
+				LifecycleRejected
+			&& UnguardedRecovery.Lifecycle.Status
+				== Edemo_mapShanmenFormationInfluenceLifecycleStatus::
+					ConsumerTeardownRequired
+			&& !UnguardedRecovery.bRouterStateCommitted
+			&& Router.GetRecordCount() == RecordsAfterFailure);
 	TestTrue(TEXT("Exact command explicitly recovers World teardown once"),
 		Recovered.IsSuccess() && Recovered.bRecoveryAttempted
+			&& Recovered.Lifecycle.bConsumerTeardownChecked
+			&& Recovered.Lifecycle.ConsumerTeardown.IsSuccess()
 			&& Recovered.bRouterStateCommitted
 			&& Replayed.IsSuccess() && Replayed.IsReplay()
 			&& !Replayed.bRecoveryAttempted
@@ -3859,6 +3935,150 @@ bool Fdemo_mapFormationInfluenceLifecycleCommandHostRecoveryTest::RunTest(
 			&& CommandHost.GetReceiptCount() == 4);
 	TestTrue(TEXT("Completed receipt replay remains read-only"),
 		Replay.IsSuccess() && Replay.IsReplay()
+			&& CommandHost.GetReceiptCount() == 4
+			&& CommandHost.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceLifecycleCommandHostConsumerFenceTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandHost.ConsumerTeardownFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceLifecycleCommandHostConsumerFenceTest::
+RunTest(const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry,
+			TEXT("LifecycleCommandHostConsumerFence"), 1, Prime, Subjects))
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost CommandHost;
+	if (!Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost::TryOpen(
+			Fixture.Host, CommandHost))
+	{
+		return false;
+	}
+	const auto& ApplyIntent = Prime.ReconciliationPlan.Batch.Intents[0];
+	const auto Apply = CommandHost.TrySubmit(
+		nullptr, Fixture.Host,
+		MakeLifecycleStepCommand(
+			Fixture.Correlation,
+			MakeHostExecutionRequest(ApplyIntent, 280)));
+	FHostConsumerCommands ConsumerCommands;
+	if (!Apply.IsSuccess()
+		|| !BuildHostConsumerCommands(
+			CommandHost, ApplyIntent, ConsumerCommands))
+	{
+		return false;
+	}
+
+	Udemo_mapAttributeComponent* Attributes =
+		NewObject<Udemo_mapAttributeComponent>();
+	const auto Activated = CommandHost.TryActivateConsumer(
+		Fixture.Host, ConsumerCommands.SubjectEntityId,
+		Attributes, ConsumerCommands.Apply);
+	const auto Terminal = CommandHost.TrySubmit(
+		nullptr, Fixture.Host,
+		MakeLifecycleTerminalCommand(Fixture.Correlation, 281));
+	Fdemo_mapShanmenFormationInfluenceIntent RemoveIntent;
+	if (!Activated.IsSuccess()
+		|| !Terminal.IsSuccess()
+		|| !Fixture.Host.TryPeekNextInfluenceIntent(RemoveIntent))
+	{
+		return false;
+	}
+	const auto Remove = CommandHost.TrySubmit(
+		nullptr, Fixture.Host,
+		MakeLifecycleStepCommand(
+			Fixture.Correlation,
+			MakeHostExecutionRequest(RemoveIntent, 282)));
+	const auto EndCommand =
+		MakeLifecycleEndCommand(Fixture.Correlation, 283);
+	const auto BlockedEnd = CommandHost.TrySubmit(
+		Fixture.World, Fixture.Host, EndCommand);
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord Receipt;
+	const bool bBlockedEndStored = CommandHost.TryGetReceipt(
+		EndCommand.GetCommandId(), Receipt);
+
+	TestTrue(TEXT("Native consumer is active before terminal fencing"),
+		Remove.IsSuccess() && Attributes
+			&& Attributes->GetActiveModifierCount() == 1
+			&& CommandHost.GetConsumerRuntime().
+				GetActiveApplicationCount() == 1);
+	TestTrue(TEXT("Active consumer fails closed before seal or product end"),
+		BlockedEnd.Status
+			== Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::
+				LifecycleRejected
+			&& BlockedEnd.Lifecycle.Status
+				== Edemo_mapShanmenFormationInfluenceLifecycleStatus::
+					ConsumerTeardownRequired
+			&& BlockedEnd.Lifecycle.bConsumerTeardownChecked
+			&& BlockedEnd.Lifecycle.ConsumerTeardown.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerProductRuntimeStatus::
+					ActiveApplicationsRemain
+			&& !BlockedEnd.Lifecycle.bCoordinatorStateCommitted
+			&& !BlockedEnd.bRouterStateCommitted
+			&& !bBlockedEndStored
+			&& CommandHost.GetReceiptCount() == 3
+			&& !Fixture.Host.GetInfluenceLedger().IsSealed()
+			&& !Fixture.Host.GetSession().IsTerminal());
+
+	const auto Deactivated = CommandHost.TryDeactivateConsumer(
+		Fixture.Host, ConsumerCommands.Remove);
+	const auto FailedWorldEnd = CommandHost.TrySubmit(
+		nullptr, Fixture.Host, EndCommand);
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord FailedReceipt;
+	const bool bFailedWorldEndStored = CommandHost.TryGetReceipt(
+		EndCommand.GetCommandId(), FailedReceipt);
+
+	TestTrue(TEXT("Explicit Remove drains the owned consumer runtime"),
+		Deactivated.IsSuccess()
+			&& Attributes->GetActiveModifierCount() == 0
+			&& CommandHost.GetConsumerRuntime().IsDrained());
+	TestTrue(TEXT("Drained evidence is durable across forward World failure"),
+		FailedWorldEnd.Status
+			== Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::
+				LifecycleRejected
+			&& FailedWorldEnd.Lifecycle.Status
+				== Edemo_mapShanmenFormationInfluenceLifecycleStatus::EndRejected
+			&& FailedWorldEnd.Lifecycle.bConsumerTeardownChecked
+			&& FailedWorldEnd.Lifecycle.ConsumerTeardown.IsSuccess()
+			&& FailedWorldEnd.Lifecycle.bCoordinatorStateCommitted
+			&& FailedWorldEnd.bRouterStateCommitted
+			&& bFailedWorldEndStored && FailedReceipt.IsValid()
+			&& FailedReceipt.Result.Lifecycle.bConsumerTeardownChecked
+			&& Fixture.Host.GetInfluenceLedger().IsSealed()
+			&& Fixture.Host.GetSession().IsTerminal()
+			&& CommandHost.GetReceiptCount() == 4);
+
+	const auto Recovered = CommandHost.TrySubmit(
+		Fixture.World, Fixture.Host, EndCommand);
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord RecoveredReceipt;
+	const bool bRecoveredStored = CommandHost.TryGetReceipt(
+		EndCommand.GetCommandId(), RecoveredReceipt);
+	const auto Replay = CommandHost.TrySubmit(
+		Fixture.World, Fixture.Host, EndCommand);
+
+	TestTrue(TEXT("Terminal ProductHost can replay the exact drained check"),
+		Recovered.IsSuccess() && Recovered.bRecoveryAttempted
+			&& Recovered.Lifecycle.bConsumerTeardownChecked
+			&& Recovered.Lifecycle.ConsumerTeardown.IsSuccess()
+			&& bRecoveredStored && RecoveredReceipt.IsValid()
+			&& RecoveredReceipt.Result.IsSuccess()
+			&& RecoveredReceipt.Result.Lifecycle.bConsumerTeardownChecked
+			&& RecoveredReceipt.Result.Lifecycle.ConsumerTeardown.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerProductRuntimeStatus::
+					TeardownReady);
+	TestTrue(TEXT("Completed guarded end is an immutable read-only replay"),
+		Replay.IsSuccess() && Replay.IsReplay()
+			&& !Replay.bRecoveryAttempted
 			&& CommandHost.GetReceiptCount() == 4
 			&& CommandHost.IsValid());
 	return true;

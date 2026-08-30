@@ -286,11 +286,30 @@ Fdemo_mapShanmenFormationInfluenceConsumerProductRuntime::
 CheckTeardownReady(
 	const Fdemo_mapShanmenFormationProductHost& ProductHost) const
 {
-	auto Result = CheckProductHost(ProductHost);
-	if (Result.Status
-		!= Edemo_mapShanmenFormationInfluenceConsumerProductRuntimeStatus::
-			TeardownReady)
+	Fdemo_mapShanmenFormationInfluenceConsumerProductRuntimeResult Result;
+	Result.RuntimeId = RuntimeId;
+	if (!IsValid())
 	{
+		Result.Status =
+			Edemo_mapShanmenFormationInfluenceConsumerProductRuntimeStatus::
+				RuntimeInvalid;
+		Result.Diagnostic = TEXT("Consumer product runtime is not open or valid.");
+		return Result;
+	}
+	if (!ProductHost.IsValid())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationInfluenceConsumerProductRuntimeStatus::
+				ProductHostInvalid;
+		Result.Diagnostic = TEXT("Consumer runtime requires one valid ProductHost.");
+		return Result;
+	}
+	if (!MatchesProductHost(ProductHost))
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationInfluenceConsumerProductRuntimeStatus::
+				ProductIdentityMismatch;
+		Result.Diagnostic = TEXT("Consumer runtime rejected a foreign product identity.");
 		return Result;
 	}
 	if (!Bridge.IsDrained())
@@ -302,6 +321,9 @@ CheckTeardownReady(
 			TEXT("Consumer applications must be removed before product teardown.");
 		return Result;
 	}
+	Result.Status =
+		Edemo_mapShanmenFormationInfluenceConsumerProductRuntimeStatus::
+			TeardownReady;
 	return Result;
 }
 

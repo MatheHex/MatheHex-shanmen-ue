@@ -94,6 +94,11 @@
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandHost",
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandRouter",
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCoordinator",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerCommandHost",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerApplicationCoordinator",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerAttributeAdapter",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerRegistry",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerProjection",
         "Shanmen.0_0_10.Product.FormationInfluenceHost",
         "Shanmen.0_0_10.Product.FormationInfluenceExecutionService",
         "Shanmen.0_0_10.Product.FormationInfluenceExecutionRouter",
@@ -113,7 +118,10 @@
         "Shanmen.0_0_10.Product.FormationMaterialAdapter",
         "Shanmen.0_0_10.Items",
         "Shanmen.0_0_10.WorldGameplay",
-        "Shanmen.0_0_10.CombatRuntime.FormationDeployment"
+        "Shanmen.0_0_10.CombatRuntime.FormationDeployment",
+        "Shanmen.0_0_10.CombatCore",
+        "demo_map.V3.Attributes",
+        "Shanmen.0_0_10"
       ]
     },
     {
@@ -334,6 +342,9 @@
       "requiredGroups": [
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerProductRuntime",
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerProductBridge",
+        "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandHost",
+        "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandRouter",
+        "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCoordinator",
         "Shanmen.0_0_10.Product.FormationProductHost",
         "Shanmen.0_0_10.Product.FormationSession",
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerCommandHost",
@@ -566,6 +577,14 @@
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCoordinator",
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandHost",
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandRouter",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerProductRuntime",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerProductBridge",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerCommandHost",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerApplicationCoordinator",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerAttributeAdapter",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerRegistry",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerProjection",
+        "Shanmen.0_0_10.Product.FormationInfluenceEvaluationBinding",
         "Shanmen.0_0_10.Product.FormationInfluenceExecutionService",
         "Shanmen.0_0_10.Product.FormationInfluenceExecutionRouter",
         "Shanmen.0_0_10.Product.FormationInfluenceProductRuntime",
@@ -586,7 +605,10 @@
         "Shanmen.0_0_10.Product.FormationMaterialAdapter",
         "Shanmen.0_0_10.Items",
         "Shanmen.0_0_10.WorldGameplay",
-        "Shanmen.0_0_10.CombatRuntime.FormationDeployment"
+        "Shanmen.0_0_10.CombatRuntime.FormationDeployment",
+        "Shanmen.0_0_10.CombatCore",
+        "demo_map.V3.Attributes",
+        "Shanmen.0_0_10"
       ]
     },
     {
@@ -597,6 +619,13 @@
         "Shanmen.0_0_10.Product.FormationInfluenceEvaluationBinding",
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandHost",
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCoordinator",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerProductRuntime",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerProductBridge",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerCommandHost",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerApplicationCoordinator",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerAttributeAdapter",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerRegistry",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerProjection",
         "Shanmen.0_0_10.Product.FormationInfluenceExecutionService",
         "Shanmen.0_0_10.Product.FormationInfluenceExecutionRouter",
         "Shanmen.0_0_10.Product.FormationInfluenceProductRuntime",
@@ -617,7 +646,10 @@
         "Shanmen.0_0_10.Product.FormationMaterialAdapter",
         "Shanmen.0_0_10.Items",
         "Shanmen.0_0_10.WorldGameplay",
-        "Shanmen.0_0_10.CombatRuntime.FormationDeployment"
+        "Shanmen.0_0_10.CombatRuntime.FormationDeployment",
+        "Shanmen.0_0_10.CombatCore",
+        "demo_map.V3.Attributes",
+        "Shanmen.0_0_10"
       ]
     },
     {
@@ -627,6 +659,14 @@
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandHost",
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandRouter",
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCoordinator",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerProductRuntime",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerProductBridge",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerCommandHost",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerApplicationCoordinator",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerAttributeAdapter",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerRegistry",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerProjection",
+        "Shanmen.0_0_10.Product.FormationInfluenceEvaluationBinding",
         "Shanmen.0_0_10.Product.FormationInfluenceExecutionService",
         "Shanmen.0_0_10.Product.FormationInfluenceExecutionRouter",
         "Shanmen.0_0_10.Product.FormationInfluenceProductRuntime",
@@ -647,7 +687,10 @@
         "Shanmen.0_0_10.Product.FormationMaterialAdapter",
         "Shanmen.0_0_10.Items",
         "Shanmen.0_0_10.WorldGameplay",
-        "Shanmen.0_0_10.CombatRuntime.FormationDeployment"
+        "Shanmen.0_0_10.CombatRuntime.FormationDeployment",
+        "Shanmen.0_0_10.CombatCore",
+        "demo_map.V3.Attributes",
+        "Shanmen.0_0_10"
       ]
     },
     {

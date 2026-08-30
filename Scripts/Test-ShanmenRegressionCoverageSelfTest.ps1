@@ -260,10 +260,10 @@ try
         -Logs @($Full)
 
     Invoke-ExpectedPass `
-        -Name 'formation product host is covered by broad full evidence' `
+        -Name 'formation product host is covered by broad full and attribute evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationProductHost.cpp') `
-        -Logs @($Full)
+        -Logs @($Full, $Attributes)
 
     Invoke-ExpectedPass `
         -Name 'formation area provider is covered by broad full evidence' `
@@ -402,22 +402,22 @@ try
         -Logs @($Full)
 
     Invoke-ExpectedPass `
-        -Name 'formation influence lifecycle coordinator is covered by broad full evidence' `
+        -Name 'formation influence lifecycle coordinator is covered by broad full and attribute evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceLifecycleCoordinator.cpp') `
-        -Logs @($Full)
+        -Logs @($Full, $Attributes)
 
     Invoke-ExpectedPass `
-        -Name 'formation influence lifecycle command router is covered by broad full evidence' `
+        -Name 'formation influence lifecycle command router is covered by broad full and attribute evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceLifecycleCommandRouter.cpp') `
-        -Logs @($Full)
+        -Logs @($Full, $Attributes)
 
     Invoke-ExpectedPass `
-        -Name 'formation influence lifecycle command host is covered by broad full evidence' `
+        -Name 'formation influence lifecycle command host is covered by broad full and attribute evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceLifecycleCommandHost.cpp') `
-        -Logs @($Full)
+        -Logs @($Full, $Attributes)
 
     Invoke-ExpectedPass `
         -Name 'player health maps to focused vitality plus full regression' `

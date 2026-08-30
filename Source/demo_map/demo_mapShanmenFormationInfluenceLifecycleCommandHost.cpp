@@ -12,9 +12,17 @@ bool Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost::TryOpen(
 	{
 		return false;
 	}
-	OutHost.Correlation = ProductHost.GetSession().GetCorrelation();
-	OutHost.LedgerId = ProductHost.GetInfluenceLedger().GetLedgerId();
-	return OutHost.IsValid();
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost Candidate;
+	Candidate.Correlation = ProductHost.GetSession().GetCorrelation();
+	Candidate.LedgerId = ProductHost.GetInfluenceLedger().GetLedgerId();
+	if (!Fdemo_mapShanmenFormationInfluenceConsumerProductRuntime::TryOpen(
+			ProductHost, Candidate.ConsumerRuntime)
+		|| !Candidate.IsValid())
+	{
+		return false;
+	}
+	OutHost = MoveTemp(Candidate);
+	return true;
 }
 
 Fdemo_mapShanmenFormationInfluenceLifecycleCommandResult
@@ -75,7 +83,43 @@ Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost::TrySubmit(
 			TEXT("Influence lifecycle submission rejected foreign ledger identity."));
 	}
 
-	return Router.TryRoute(World, ProductHost, Command);
+	return Router.TryRouteWithConsumers(
+		World, ProductHost, ConsumerRuntime, Command);
+}
+
+Fdemo_mapShanmenFormationInfluenceConsumerProductRuntimeResult
+Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost::
+TryActivateConsumer(
+	const Fdemo_mapShanmenFormationProductHost& ProductHost,
+	const FGuid& SubjectEntityId,
+	Udemo_mapAttributeComponent* AttributeComponent,
+	const Fdemo_mapShanmenFormationInfluenceConsumerCommand& ApplyCommand)
+{
+	if (!IsValid())
+	{
+		Fdemo_mapShanmenFormationInfluenceConsumerProductRuntimeResult Result;
+		Result.Diagnostic =
+			TEXT("Influence lifecycle CommandHost is not open or is invalid.");
+		return Result;
+	}
+	return ConsumerRuntime.TryActivate(
+		ProductHost, SubjectEntityId, AttributeComponent, ApplyCommand);
+}
+
+Fdemo_mapShanmenFormationInfluenceConsumerProductRuntimeResult
+Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost::
+TryDeactivateConsumer(
+	const Fdemo_mapShanmenFormationProductHost& ProductHost,
+	const Fdemo_mapShanmenFormationInfluenceConsumerCommand& RemoveCommand)
+{
+	if (!IsValid())
+	{
+		Fdemo_mapShanmenFormationInfluenceConsumerProductRuntimeResult Result;
+		Result.Diagnostic =
+			TEXT("Influence lifecycle CommandHost is not open or is invalid.");
+		return Result;
+	}
+	return ConsumerRuntime.TryDeactivate(ProductHost, RemoveCommand);
 }
 
 bool Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost::TryGetReceipt(
@@ -88,7 +132,11 @@ bool Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost::TryGetReceipt(
 
 bool Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost::IsValid() const
 {
-	if (!Correlation.IsValid() || !LedgerId.IsValid() || !Router.IsValid())
+	if (!Correlation.IsValid()
+		|| !LedgerId.IsValid()
+		|| !ConsumerRuntime.IsValid()
+		|| ConsumerRuntime.GetBridge().GetCorrelation() != Correlation
+		|| !Router.IsValid())
 	{
 		return false;
 	}

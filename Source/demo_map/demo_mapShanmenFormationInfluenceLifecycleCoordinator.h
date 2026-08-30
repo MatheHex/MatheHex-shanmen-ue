@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "demo_mapShanmenFormationInfluenceConsumerProductRuntime.h"
 #include "demo_mapShanmenFormationInfluenceExecutionService.h"
 
 class UWorld;
@@ -18,6 +19,7 @@ enum class Edemo_mapShanmenFormationInfluenceLifecycleStatus : uint8
 	LedgerUnavailable,
 	BindingConflict,
 	TerminalRejected,
+	ConsumerTeardownRequired,
 	SealRejected,
 	EndRejected,
 	StateInvalid
@@ -30,8 +32,11 @@ struct Fdemo_mapShanmenFormationInfluenceLifecycleResult
 		Edemo_mapShanmenFormationInfluenceLifecycleStatus::StateInvalid;
 	FString Diagnostic;
 	bool bCoordinatorStateCommitted = false;
+	bool bConsumerTeardownChecked = false;
 	Fdemo_mapShanmenFormationInfluenceServiceResult Step;
 	Fdemo_mapShanmenFormationHostInfluenceResult TerminalPreparation;
+	Fdemo_mapShanmenFormationInfluenceConsumerProductRuntimeResult
+		ConsumerTeardown;
 	Fdemo_mapShanmenFormationHostInfluenceResult Seal;
 	Fdemo_mapShanmenFormationHostResult End;
 
@@ -43,9 +48,11 @@ struct Fdemo_mapShanmenFormationInfluenceLifecycleResult
  *
  * The Coordinator freezes one Run/Ledger binding and exposes only three
  * explicit operations: execute one caller request, prepare terminal intents,
- * and seal plus end after the caller drains every intent. It never discovers
- * requests, loops, retries, schedules, owns ProductHost, or touches World
- * objects beyond forwarding the caller-owned pointer to Host teardown.
+ * and seal plus end after the caller drains every intent. The guarded terminal
+ * overload also requires one exact consumer runtime to prove native
+ * applications are drained before seal. It never discovers requests, loops,
+ * retries, schedules, owns ProductHost, or touches World objects beyond
+ * forwarding the caller-owned pointer to Host teardown.
  */
 class Fdemo_mapShanmenFormationInfluenceLifecycleCoordinator
 {
@@ -61,6 +68,13 @@ public:
 		UWorld* World,
 		Fdemo_mapShanmenFormationProductHost& Host,
 		const Fdemo_mapShanmenRunCorrelation& RequestedCorrelation);
+	Fdemo_mapShanmenFormationInfluenceLifecycleResult
+	TrySealAndEndWithConsumers(
+		UWorld* World,
+		Fdemo_mapShanmenFormationProductHost& Host,
+		const Fdemo_mapShanmenRunCorrelation& RequestedCorrelation,
+		const Fdemo_mapShanmenFormationInfluenceConsumerProductRuntime&
+			ConsumerRuntime);
 
 	bool IsValid() const;
 	bool IsBound() const { return BoundLedgerId.IsValid(); }
@@ -99,6 +113,12 @@ private:
 	bool BindTo(
 		const Fdemo_mapShanmenFormationProductHost& Host,
 		const Fdemo_mapShanmenRunCorrelation& RequestedCorrelation);
+	Fdemo_mapShanmenFormationInfluenceLifecycleResult TrySealAndEndInternal(
+		UWorld* World,
+		Fdemo_mapShanmenFormationProductHost& Host,
+		const Fdemo_mapShanmenRunCorrelation& RequestedCorrelation,
+		const Fdemo_mapShanmenFormationInfluenceConsumerProductRuntime*
+			ConsumerRuntime);
 
 	Fdemo_mapShanmenRunCorrelation BoundCorrelation;
 	FGuid BoundLedgerId;

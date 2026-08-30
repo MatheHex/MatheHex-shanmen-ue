@@ -1,17 +1,20 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "demo_mapShanmenFormationInfluenceConsumerProductRuntime.h"
 #include "demo_mapShanmenFormationInfluenceLifecycleCommandRouter.h"
 
 class UWorld;
 
 /**
- * Caller-facing owner of one lifecycle Router binding and its durable receipts.
+ * Caller-facing owner of one lifecycle Router, one consumer runtime, and their
+ * durable lifecycle receipts.
  *
- * Opening freezes only ProductHost identity values. The actual ProductHost and
- * World remain caller-owned and must be supplied for every explicit command.
- * This Host never discovers work, drains queues, retries, schedules, persists,
- * or owns engine-object pointers.
+ * Opening freezes ProductHost identity values and the consumer bridge value
+ * state. The actual ProductHost, World, and attribute components remain
+ * caller-owned and must be supplied for every explicit operation. This Host
+ * never discovers work, drains queues, retries, schedules, persists, or owns
+ * engine-object pointers.
  */
 class Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost
 {
@@ -24,6 +27,16 @@ public:
 		UWorld* World,
 		Fdemo_mapShanmenFormationProductHost& ProductHost,
 		const Fdemo_mapShanmenFormationInfluenceLifecycleCommand& Command);
+	Fdemo_mapShanmenFormationInfluenceConsumerProductRuntimeResult
+	TryActivateConsumer(
+		const Fdemo_mapShanmenFormationProductHost& ProductHost,
+		const FGuid& SubjectEntityId,
+		Udemo_mapAttributeComponent* AttributeComponent,
+		const Fdemo_mapShanmenFormationInfluenceConsumerCommand& ApplyCommand);
+	Fdemo_mapShanmenFormationInfluenceConsumerProductRuntimeResult
+	TryDeactivateConsumer(
+		const Fdemo_mapShanmenFormationProductHost& ProductHost,
+		const Fdemo_mapShanmenFormationInfluenceConsumerCommand& RemoveCommand);
 
 	bool TryGetReceipt(
 		const FGuid& CommandId,
@@ -37,6 +50,11 @@ public:
 		return Correlation;
 	}
 	const FGuid& GetLedgerId() const { return LedgerId; }
+	const Fdemo_mapShanmenFormationInfluenceConsumerProductRuntime&
+	GetConsumerRuntime() const
+	{
+		return ConsumerRuntime;
+	}
 	const Fdemo_mapShanmenFormationInfluenceLifecycleCommandRouter&
 	GetRouter() const
 	{
@@ -51,5 +69,6 @@ private:
 
 	Fdemo_mapShanmenRunCorrelation Correlation;
 	FGuid LedgerId;
+	Fdemo_mapShanmenFormationInfluenceConsumerProductRuntime ConsumerRuntime;
 	Fdemo_mapShanmenFormationInfluenceLifecycleCommandRouter Router;
 };

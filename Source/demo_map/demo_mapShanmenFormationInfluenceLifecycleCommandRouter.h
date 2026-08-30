@@ -109,8 +109,9 @@ struct Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord
  * results lock CommandId payload identity. Exact success replay returns stored
  * receipts without re-entry. Only an exact SealAndEnd whose prior result was
  * EndRejected may explicitly re-enter for forward World-teardown recovery.
- * The Router never discovers requests, loops, retries in the background, owns
- * Host/World, or interprets input devices.
+ * Consumer-guarded recovery cannot drop the runtime boundary recorded by the
+ * first attempt. The Router never discovers requests, loops, retries in the
+ * background, owns Host/World, or interprets input devices.
  */
 class Fdemo_mapShanmenFormationInfluenceLifecycleCommandRouter
 {
@@ -118,6 +119,13 @@ public:
 	Fdemo_mapShanmenFormationInfluenceLifecycleCommandResult TryRoute(
 		UWorld* World,
 		Fdemo_mapShanmenFormationProductHost& Host,
+		const Fdemo_mapShanmenFormationInfluenceLifecycleCommand& Command);
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandResult
+	TryRouteWithConsumers(
+		UWorld* World,
+		Fdemo_mapShanmenFormationProductHost& Host,
+		const Fdemo_mapShanmenFormationInfluenceConsumerProductRuntime&
+			ConsumerRuntime,
 		const Fdemo_mapShanmenFormationInfluenceLifecycleCommand& Command);
 
 	bool IsValid() const;
@@ -139,10 +147,20 @@ private:
 		Fdemo_mapShanmenFormationInfluenceLifecycleCoordinator& Coordinator,
 		UWorld* World,
 		Fdemo_mapShanmenFormationProductHost& Host,
+		const Fdemo_mapShanmenFormationInfluenceConsumerProductRuntime*
+			ConsumerRuntime,
+		const Fdemo_mapShanmenFormationInfluenceLifecycleCommand& Command);
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandResult TryRouteInternal(
+		UWorld* World,
+		Fdemo_mapShanmenFormationProductHost& Host,
+		const Fdemo_mapShanmenFormationInfluenceConsumerProductRuntime*
+			ConsumerRuntime,
 		const Fdemo_mapShanmenFormationInfluenceLifecycleCommand& Command);
 	Fdemo_mapShanmenFormationInfluenceLifecycleCommandResult TryRecoverEnd(
 		UWorld* World,
 		Fdemo_mapShanmenFormationProductHost& Host,
+		const Fdemo_mapShanmenFormationInfluenceConsumerProductRuntime*
+			ConsumerRuntime,
 		const Fdemo_mapShanmenFormationInfluenceLifecycleCommand& Command,
 		int32 RecordIndex);
 

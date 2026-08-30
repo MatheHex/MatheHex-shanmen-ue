@@ -16,7 +16,8 @@ bool Fdemo_mapShanmenFormationInfluenceLifecycleResult::IsSuccess() const
 	case Edemo_mapShanmenFormationInfluenceLifecycleStatus::Completed:
 	case Edemo_mapShanmenFormationInfluenceLifecycleStatus::
 		CompletionReplayed:
-		return Seal.IsSuccess() && End.IsSuccess();
+		return (!bConsumerTeardownChecked || ConsumerTeardown.IsSuccess())
+			&& Seal.IsSuccess() && End.IsSuccess();
 	default:
 		return false;
 	}
@@ -189,10 +190,49 @@ Fdemo_mapShanmenFormationInfluenceLifecycleCoordinator::TrySealAndEnd(
 	Fdemo_mapShanmenFormationProductHost& Host,
 	const Fdemo_mapShanmenRunCorrelation& RequestedCorrelation)
 {
+	return TrySealAndEndInternal(
+		World, Host, RequestedCorrelation, nullptr);
+}
+
+Fdemo_mapShanmenFormationInfluenceLifecycleResult
+Fdemo_mapShanmenFormationInfluenceLifecycleCoordinator::
+TrySealAndEndWithConsumers(
+	UWorld* World,
+	Fdemo_mapShanmenFormationProductHost& Host,
+	const Fdemo_mapShanmenRunCorrelation& RequestedCorrelation,
+	const Fdemo_mapShanmenFormationInfluenceConsumerProductRuntime&
+		ConsumerRuntime)
+{
+	return TrySealAndEndInternal(
+		World, Host, RequestedCorrelation, &ConsumerRuntime);
+}
+
+Fdemo_mapShanmenFormationInfluenceLifecycleResult
+Fdemo_mapShanmenFormationInfluenceLifecycleCoordinator::
+TrySealAndEndInternal(
+	UWorld* World,
+	Fdemo_mapShanmenFormationProductHost& Host,
+	const Fdemo_mapShanmenRunCorrelation& RequestedCorrelation,
+	const Fdemo_mapShanmenFormationInfluenceConsumerProductRuntime*
+		ConsumerRuntime)
+{
 	Fdemo_mapShanmenFormationInfluenceLifecycleResult Result;
 	if (!ValidateHost(Host, RequestedCorrelation, Result))
 	{
 		return Result;
+	}
+	if (ConsumerRuntime)
+	{
+		Result.bConsumerTeardownChecked = true;
+		Result.ConsumerTeardown =
+			ConsumerRuntime->CheckTeardownReady(Host);
+		if (!Result.ConsumerTeardown.IsSuccess())
+		{
+			Result.Status = Edemo_mapShanmenFormationInfluenceLifecycleStatus::
+				ConsumerTeardownRequired;
+			Result.Diagnostic = Result.ConsumerTeardown.Diagnostic;
+			return Result;
+		}
 	}
 
 	Result.Seal = Host.TrySealInfluence(RequestedCorrelation);

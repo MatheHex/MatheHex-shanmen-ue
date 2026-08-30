@@ -179,6 +179,8 @@ Fdemo_mapShanmenFormationInfluenceLifecycleCommandRouter::Execute(
 	Fdemo_mapShanmenFormationInfluenceLifecycleCoordinator& TargetCoordinator,
 	UWorld* World,
 	Fdemo_mapShanmenFormationProductHost& Host,
+	const Fdemo_mapShanmenFormationInfluenceConsumerProductRuntime*
+		ConsumerRuntime,
 	const Fdemo_mapShanmenFormationInfluenceLifecycleCommand& Command)
 {
 	switch (Command.GetKind())
@@ -191,8 +193,11 @@ Fdemo_mapShanmenFormationInfluenceLifecycleCommandRouter::Execute(
 		return TargetCoordinator.TryPrepareTerminal(
 			Host, Command.GetCorrelation());
 	case Edemo_mapShanmenFormationInfluenceLifecycleCommandKind::SealAndEnd:
-		return TargetCoordinator.TrySealAndEnd(
-			World, Host, Command.GetCorrelation());
+		return ConsumerRuntime
+			? TargetCoordinator.TrySealAndEndWithConsumers(
+				World, Host, Command.GetCorrelation(), *ConsumerRuntime)
+			: TargetCoordinator.TrySealAndEnd(
+				World, Host, Command.GetCorrelation());
 	default:
 		return Fdemo_mapShanmenFormationInfluenceLifecycleResult();
 	}
@@ -202,6 +207,29 @@ Fdemo_mapShanmenFormationInfluenceLifecycleCommandResult
 Fdemo_mapShanmenFormationInfluenceLifecycleCommandRouter::TryRoute(
 	UWorld* World,
 	Fdemo_mapShanmenFormationProductHost& Host,
+	const Fdemo_mapShanmenFormationInfluenceLifecycleCommand& Command)
+{
+	return TryRouteInternal(World, Host, nullptr, Command);
+}
+
+Fdemo_mapShanmenFormationInfluenceLifecycleCommandResult
+Fdemo_mapShanmenFormationInfluenceLifecycleCommandRouter::
+TryRouteWithConsumers(
+	UWorld* World,
+	Fdemo_mapShanmenFormationProductHost& Host,
+	const Fdemo_mapShanmenFormationInfluenceConsumerProductRuntime&
+		ConsumerRuntime,
+	const Fdemo_mapShanmenFormationInfluenceLifecycleCommand& Command)
+{
+	return TryRouteInternal(World, Host, &ConsumerRuntime, Command);
+}
+
+Fdemo_mapShanmenFormationInfluenceLifecycleCommandResult
+Fdemo_mapShanmenFormationInfluenceLifecycleCommandRouter::TryRouteInternal(
+	UWorld* World,
+	Fdemo_mapShanmenFormationProductHost& Host,
+	const Fdemo_mapShanmenFormationInfluenceConsumerProductRuntime*
+		ConsumerRuntime,
 	const Fdemo_mapShanmenFormationInfluenceLifecycleCommand& Command)
 {
 	Fdemo_mapShanmenFormationInfluenceLifecycleCommandResult Result;
@@ -300,7 +328,8 @@ Fdemo_mapShanmenFormationInfluenceLifecycleCommandRouter::TryRoute(
 			&& Existing.Result.Lifecycle.Status
 				== Edemo_mapShanmenFormationInfluenceLifecycleStatus::EndRejected)
 		{
-			return TryRecoverEnd(World, Host, Command, Index);
+			return TryRecoverEnd(
+				World, Host, ConsumerRuntime, Command, Index);
 		}
 		Result = Existing.Result;
 		Result.bReplay = true;
@@ -329,7 +358,8 @@ Fdemo_mapShanmenFormationInfluenceLifecycleCommandRouter::TryRoute(
 	}
 
 	Fdemo_mapShanmenFormationInfluenceLifecycleCommandRouter Candidate = *this;
-	Result.Lifecycle = Execute(Candidate.Coordinator, World, Host, Command);
+	Result.Lifecycle = Execute(
+		Candidate.Coordinator, World, Host, ConsumerRuntime, Command);
 	Result.Status = Result.Lifecycle.IsSuccess()
 		? Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::Applied
 		: Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::
@@ -362,6 +392,8 @@ Fdemo_mapShanmenFormationInfluenceLifecycleCommandResult
 Fdemo_mapShanmenFormationInfluenceLifecycleCommandRouter::TryRecoverEnd(
 	UWorld* World,
 	Fdemo_mapShanmenFormationProductHost& Host,
+	const Fdemo_mapShanmenFormationInfluenceConsumerProductRuntime*
+		ConsumerRuntime,
 	const Fdemo_mapShanmenFormationInfluenceLifecycleCommand& Command,
 	int32 RecordIndex)
 {
@@ -377,9 +409,24 @@ Fdemo_mapShanmenFormationInfluenceLifecycleCommandRouter::TryRecoverEnd(
 			TEXT("Influence lifecycle recovery record index is invalid.");
 		return Result;
 	}
+	if (Records[RecordIndex].Result.Lifecycle.bConsumerTeardownChecked
+		&& !ConsumerRuntime)
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::
+				LifecycleRejected;
+		Result.Lifecycle.Status =
+			Edemo_mapShanmenFormationInfluenceLifecycleStatus::
+				ConsumerTeardownRequired;
+		Result.Diagnostic =
+			TEXT("Consumer-guarded end recovery requires the same runtime boundary.");
+		Result.Lifecycle.Diagnostic = Result.Diagnostic;
+		return Result;
+	}
 
 	Fdemo_mapShanmenFormationInfluenceLifecycleCommandRouter Candidate = *this;
-	Result.Lifecycle = Execute(Candidate.Coordinator, World, Host, Command);
+	Result.Lifecycle = Execute(
+		Candidate.Coordinator, World, Host, ConsumerRuntime, Command);
 	Result.Status = Result.Lifecycle.IsSuccess()
 		? Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::Applied
 		: Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::
