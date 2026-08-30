@@ -123,6 +123,9 @@ try
     $SpiritShieldSession = New-AutomationLogFixture `
         -Name 'spirit-shield-session.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShieldSession'
+    $SpiritEvasion = New-AutomationLogFixture `
+        -Name 'spirit-evasion.log' `
+        -Group 'Shanmen.0_0_10.CombatRuntime.SpiritEvasion'
     $SpiritShieldRuntime = New-AutomationLogFixture `
         -Name 'spirit-shield-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShield'
@@ -340,6 +343,18 @@ try
             $SpiritShieldRuntime,
             $SpiritShieldCapacity,
             $SpiritShieldDeadline,
+            $CombatRuntime,
+            $CombatCore)
+
+    Invoke-ExpectedPass `
+        -Name 'spirit evasion requires action lifecycle and resolver evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Public/ShanmenSpiritEvasion.h',
+            'Source/ShanmenCombatRuntime/Private/ShanmenSpiritEvasion.cpp',
+            'Source/ShanmenCombatRuntime/Private/Tests/ShanmenSpiritEvasionTests.cpp') `
+        -Logs @(
+            $SpiritEvasion,
+            $ActionLifecycle,
             $CombatRuntime,
             $CombatCore)
 
@@ -709,6 +724,13 @@ try
         -Paths @(
             'Source/ShanmenCombatRuntime/Private/ShanmenSpiritShieldSession.cpp') `
         -Logs @($SpiritShieldSession, $SpiritShieldAction) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'spirit evasion focus cannot replace lifecycle and resolver evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Private/ShanmenSpiritEvasion.cpp') `
+        -Logs @($SpiritEvasion, $ActionLifecycle) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
