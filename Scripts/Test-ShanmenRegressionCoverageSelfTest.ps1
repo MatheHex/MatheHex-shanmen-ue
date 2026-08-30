@@ -138,6 +138,9 @@ try
     $SpiritEvasionActionCoordinator = New-AutomationLogFixture `
         -Name 'spirit-evasion-action-coordinator.log' `
         -Group 'Shanmen.0_0_10.Product.SpiritEvasionActionCoordinator'
+    $SpiritEvasionProductHost = New-AutomationLogFixture `
+        -Name 'spirit-evasion-product-host.log' `
+        -Group 'Shanmen.0_0_10.Product.SpiritEvasionProductHost'
     $SpiritShieldRuntime = New-AutomationLogFixture `
         -Name 'spirit-shield-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShield'
@@ -420,6 +423,24 @@ try
             'Source/demo_map/demo_mapShanmenSpiritEvasionActionCoordinatorTests.cpp') `
         -Logs @(
             $Full,
+            $SpiritEvasionActionCoordinator,
+            $SpiritEvasionMotionRuntime,
+            $SpiritEvasionMovementProduct,
+            $SpiritEvasionMovement,
+            $SpiritEvasion,
+            $ActionLifecycle,
+            $Enemy,
+            $Ranged)
+
+    Invoke-ExpectedPass `
+        -Name 'spirit evasion product host maps its complete owned chain' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSpiritEvasionProductHost.h',
+            'Source/demo_map/demo_mapShanmenSpiritEvasionProductHost.cpp',
+            'Source/demo_map/demo_mapShanmenSpiritEvasionProductHostTests.cpp') `
+        -Logs @(
+            $Full,
+            $SpiritEvasionProductHost,
             $SpiritEvasionActionCoordinator,
             $SpiritEvasionMotionRuntime,
             $SpiritEvasionMovementProduct,
@@ -833,6 +854,18 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenSpiritEvasionActionCoordinator.cpp') `
         -Logs @(
+            $SpiritEvasionActionCoordinator,
+            $SpiritEvasionMotionRuntime,
+            $SpiritEvasionMovementProduct,
+            $SpiritEvasionMovement) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'spirit evasion product host focus cannot replace its composed chain' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSpiritEvasionProductHost.cpp') `
+        -Logs @(
+            $SpiritEvasionProductHost,
             $SpiritEvasionActionCoordinator,
             $SpiritEvasionMotionRuntime,
             $SpiritEvasionMovementProduct,
