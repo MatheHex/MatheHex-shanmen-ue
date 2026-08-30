@@ -162,6 +162,8 @@ public:
 		FShanmenSpiritEvasionWindowReceipt& OutReceipt);
 
 	bool IsValid() const;
+	bool IsActiveFor(
+		const FShanmenActionOrchestrator& ActionRuntime) const;
 	bool TryProjectDefenseLayer(
 		const FShanmenActionOrchestrator& ActionRuntime,
 		FShanmenSpiritEvasionProjectionReceipt& OutReceipt) const;

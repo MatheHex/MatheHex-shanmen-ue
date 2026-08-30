@@ -109,6 +109,15 @@
       ]
     },
     {
+      "name": "SpiritEvasionMovement",
+      "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenSpiritEvasionMovement\\.h|Private/(?:ShanmenSpiritEvasionMovement\\.cpp|Tests/ShanmenSpiritEvasionMovementTests\\.cpp))$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.CombatRuntime.SpiritEvasionMovement",
+        "Shanmen.0_0_10.CombatRuntime.SpiritEvasion",
+        "Shanmen.0_0_10.CombatRuntime.ActionLifecycle"
+      ]
+    },
+    {
       "name": "FormationDeploymentCore",
       "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenFormationDeployment\\.h|Private/(?:ShanmenFormationDeployment\\.cpp|Tests/ShanmenFormationDeploymentTests\\.cpp))$",
       "requiredGroups": [

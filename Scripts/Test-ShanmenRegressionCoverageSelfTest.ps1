@@ -126,6 +126,9 @@ try
     $SpiritEvasion = New-AutomationLogFixture `
         -Name 'spirit-evasion.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritEvasion'
+    $SpiritEvasionMovement = New-AutomationLogFixture `
+        -Name 'spirit-evasion-movement.log' `
+        -Group 'Shanmen.0_0_10.CombatRuntime.SpiritEvasionMovement'
     $SpiritShieldRuntime = New-AutomationLogFixture `
         -Name 'spirit-shield-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShield'
@@ -357,6 +360,18 @@ try
             $ActionLifecycle,
             $CombatRuntime,
             $CombatCore)
+
+    Invoke-ExpectedPass `
+        -Name 'spirit evasion movement requires window and lifecycle evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Public/ShanmenSpiritEvasionMovement.h',
+            'Source/ShanmenCombatRuntime/Private/ShanmenSpiritEvasionMovement.cpp',
+            'Source/ShanmenCombatRuntime/Private/Tests/ShanmenSpiritEvasionMovementTests.cpp') `
+        -Logs @(
+            $SpiritEvasionMovement,
+            $SpiritEvasion,
+            $ActionLifecycle,
+            $CombatRuntime)
 
     Invoke-ExpectedPass `
         -Name 'formation material adapter is covered by broad full evidence' `
@@ -731,6 +746,13 @@ try
         -Paths @(
             'Source/ShanmenCombatRuntime/Private/ShanmenSpiritEvasion.cpp') `
         -Logs @($SpiritEvasion, $ActionLifecycle) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'spirit evasion movement focus cannot replace its window contract' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Private/ShanmenSpiritEvasionMovement.cpp') `
+        -Logs @($SpiritEvasionMovement, $ActionLifecycle) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

@@ -308,16 +308,22 @@ bool FShanmenSpiritEvasionWindow::IsValid() const
 	return bOpen && OpenReceipt.IsValid();
 }
 
+bool FShanmenSpiritEvasionWindow::IsActiveFor(
+	const FShanmenActionOrchestrator& ActionRuntime) const
+{
+	return IsValid()
+		&& IsCurrentActiveRuntime(
+			ActionRuntime,
+			OpenReceipt.GetAction(),
+			OpenReceipt.GetCommitTransition());
+}
+
 bool FShanmenSpiritEvasionWindow::TryProjectDefenseLayer(
 	const FShanmenActionOrchestrator& ActionRuntime,
 	FShanmenSpiritEvasionProjectionReceipt& OutReceipt) const
 {
 	OutReceipt = FShanmenSpiritEvasionProjectionReceipt();
-	if (!IsValid()
-		|| !IsCurrentActiveRuntime(
-			ActionRuntime,
-			OpenReceipt.GetAction(),
-			OpenReceipt.GetCommitTransition()))
+	if (!IsActiveFor(ActionRuntime))
 	{
 		return false;
 	}
