@@ -120,6 +120,9 @@ try
     $SpiritShieldAction = New-AutomationLogFixture `
         -Name 'spirit-shield-action.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShieldAction'
+    $SpiritShieldSession = New-AutomationLogFixture `
+        -Name 'spirit-shield-session.log' `
+        -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShieldSession'
     $SpiritShieldRuntime = New-AutomationLogFixture `
         -Name 'spirit-shield-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShield'
@@ -322,6 +325,23 @@ try
             $SpiritShieldCapacity,
             $SpiritShieldDeadline,
             $CombatRuntime)
+
+    Invoke-ExpectedPass `
+        -Name 'spirit shield session requires every owned authority contract' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Public/ShanmenSpiritShieldSession.h',
+            'Source/ShanmenCombatRuntime/Private/ShanmenSpiritShieldSession.cpp',
+            'Source/ShanmenCombatRuntime/Private/Tests/ShanmenSpiritShieldSessionTests.cpp') `
+        -Logs @(
+            $SpiritShieldSession,
+            $SpiritShieldAction,
+            $ActionResource,
+            $ActionLifecycle,
+            $SpiritShieldRuntime,
+            $SpiritShieldCapacity,
+            $SpiritShieldDeadline,
+            $CombatRuntime,
+            $CombatCore)
 
     Invoke-ExpectedPass `
         -Name 'formation material adapter is covered by broad full evidence' `
@@ -682,6 +702,13 @@ try
         -Paths @(
             'Source/ShanmenCombatRuntime/Private/ShanmenSpiritShieldActionCoordinator.cpp') `
         -Logs @($SpiritShieldAction, $ActionResource) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'shield session focus cannot replace its owned authority contracts' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Private/ShanmenSpiritShieldSession.cpp') `
+        -Logs @($SpiritShieldSession, $SpiritShieldAction) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
