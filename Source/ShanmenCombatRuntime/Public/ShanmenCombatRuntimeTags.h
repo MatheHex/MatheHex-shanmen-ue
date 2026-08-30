@@ -8,4 +8,6 @@ struct SHANMENCOMBATRUNTIME_API FShanmenCombatRuntimeNativeTags
 {
 	static FGameplayTag AbilityCombatAction();
 	static FGameplayTag AbilityCombatActionSwordBasic01();
+	static FGameplayTag Resource();
+	static FGameplayTag ResourceSpiritEnergy();
 };

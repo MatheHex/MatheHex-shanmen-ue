@@ -111,6 +111,12 @@ try
     $CombatRuntime = New-AutomationLogFixture `
         -Name 'combat-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime'
+    $ActionResource = New-AutomationLogFixture `
+        -Name 'action-resource.log' `
+        -Group 'Shanmen.0_0_10.CombatRuntime.ActionResource'
+    $ActionLifecycle = New-AutomationLogFixture `
+        -Name 'action-lifecycle.log' `
+        -Group 'Shanmen.0_0_10.CombatRuntime.ActionLifecycle'
     $SpiritShieldRuntime = New-AutomationLogFixture `
         -Name 'spirit-shield-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShield'
@@ -290,6 +296,14 @@ try
             $SpiritShieldCapacity,
             $SpiritShieldRuntime,
             $CombatRuntime)
+
+    Invoke-ExpectedPass `
+        -Name 'action resource authority requires transaction lifecycle and action transition evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Public/ShanmenActionResourceAuthority.h',
+            'Source/ShanmenCombatRuntime/Private/ShanmenActionResourceAuthority.cpp',
+            'Source/ShanmenCombatRuntime/Private/Tests/ShanmenActionResourceAuthorityTests.cpp') `
+        -Logs @($ActionResource, $ActionLifecycle, $CombatRuntime)
 
     Invoke-ExpectedPass `
         -Name 'formation material adapter is covered by broad full evidence' `
@@ -636,6 +650,13 @@ try
         -Paths @(
             'Source/ShanmenCombatRuntime/Private/ShanmenSpiritShieldDeadlineGate.cpp') `
         -Logs @($SpiritShieldDeadline) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'action resource focus cannot replace action lifecycle and broad runtime evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Private/ShanmenActionResourceAuthority.cpp') `
+        -Logs @($ActionResource) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

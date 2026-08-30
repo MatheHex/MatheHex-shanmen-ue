@@ -66,6 +66,14 @@
       ]
     },
     {
+      "name": "ActionResourceAuthority",
+      "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenActionResourceAuthority\\.h|Private/(?:ShanmenActionResourceAuthority\\.cpp|Tests/ShanmenActionResourceAuthorityTests\\.cpp))$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.CombatRuntime.ActionResource",
+        "Shanmen.0_0_10.CombatRuntime.ActionLifecycle"
+      ]
+    },
+    {
       "name": "FormationDeploymentCore",
       "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenFormationDeployment\\.h|Private/(?:ShanmenFormationDeployment\\.cpp|Tests/ShanmenFormationDeploymentTests\\.cpp))$",
       "requiredGroups": [
