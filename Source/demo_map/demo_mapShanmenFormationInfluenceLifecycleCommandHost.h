@@ -11,10 +11,13 @@ class UWorld;
  * durable lifecycle receipts.
  *
  * Opening freezes ProductHost identity values and the consumer bridge value
- * state. The actual ProductHost, World, and attribute components remain
- * caller-owned and must be supplied for every explicit operation. This Host
- * never discovers work, drains queues, retries, schedules, persists, or owns
- * engine-object pointers.
+ * state. New consumer Apply/Remove commands must match this Host's active
+ * authoritative lease: native Apply follows lease Apply, and native Remove
+ * precedes lease Remove. Exact completed consumer commands remain read-only
+ * replays after lease removal. The actual ProductHost, World, and attribute
+ * components remain caller-owned and must be supplied for every explicit
+ * operation. This Host never discovers work, drains queues, retries,
+ * schedules, persists, or owns engine-object pointers.
  */
 class Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost
 {
@@ -66,6 +69,15 @@ private:
 		const Fdemo_mapShanmenFormationInfluenceLifecycleCommand& Command,
 		Edemo_mapShanmenFormationInfluenceLifecycleStatus LifecycleStatus,
 		const TCHAR* Diagnostic) const;
+	Fdemo_mapShanmenFormationInfluenceConsumerProductRuntimeResult
+	RejectConsumer(
+		Edemo_mapShanmenFormationInfluenceConsumerProductRuntimeStatus Status,
+		const TCHAR* Diagnostic) const;
+	bool TryGetAuthoritativeActiveLease(
+		const Fdemo_mapShanmenFormationInfluenceConsumerCommand& Command,
+		Fdemo_mapShanmenFormationInfluenceLeaseSnapshot& OutLease) const;
+	bool IsCompletedConsumerCommand(
+		const Fdemo_mapShanmenFormationInfluenceConsumerCommand& Command) const;
 
 	Fdemo_mapShanmenRunCorrelation Correlation;
 	FGuid LedgerId;

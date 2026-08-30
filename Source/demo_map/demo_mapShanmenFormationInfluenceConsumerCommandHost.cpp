@@ -334,6 +334,30 @@ TryGetBindingReceipt(
 	return true;
 }
 
+bool Fdemo_mapShanmenFormationInfluenceConsumerCommandHost::
+TryGetCompletedTransaction(
+	const Fdemo_mapShanmenFormationInfluenceConsumerCommand& Command,
+	Fdemo_mapShanmenFormationInfluenceConsumerTransactionResult& OutResult)
+	const
+{
+	OutResult = Fdemo_mapShanmenFormationInfluenceConsumerTransactionResult();
+	if (!IsConsistent() || !Command.IsValid())
+	{
+		return false;
+	}
+	const FBindingRecord* Binding = FindBinding(
+		Command.GetProjection().GetLease().Key.SubjectEntityId);
+	if (!Binding
+		|| !Binding->Coordinator.TryGetCompletedResult(
+			Command.GetCommandId(), OutResult))
+	{
+		return false;
+	}
+	return OutResult.IsSuccess()
+		&& !OutResult.bTransactionReplayed
+		&& OutResult.Receipt.GetRegistryReceipt().MatchesCommand(Command);
+}
+
 bool Fdemo_mapShanmenFormationInfluenceConsumerCommandHost::HasBinding(
 	const FGuid& SubjectEntityId) const
 {
@@ -409,6 +433,27 @@ GetActiveApplicationCount() const
 	for (const FBindingRecord& Binding : Bindings)
 	{
 		Count += Binding.Coordinator.GetActiveApplicationCount();
+	}
+	return Count;
+}
+
+int32 Fdemo_mapShanmenFormationInfluenceConsumerCommandHost::
+GetActiveApplicationCountForLease(const FGuid& LeaseId) const
+{
+	if (!IsConsistent() || !LeaseId.IsValid())
+	{
+		return INDEX_NONE;
+	}
+	int32 Count = 0;
+	for (const FBindingRecord& Binding : Bindings)
+	{
+		const int32 BindingCount = Binding.Coordinator.GetRegistry().
+			GetActiveApplicationCountForLease(LeaseId);
+		if (BindingCount == INDEX_NONE)
+		{
+			return INDEX_NONE;
+		}
+		Count += BindingCount;
 	}
 	return Count;
 }

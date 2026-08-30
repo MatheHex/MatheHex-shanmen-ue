@@ -108,6 +108,10 @@ public:
 		const FGuid& SubjectEntityId,
 		Fdemo_mapShanmenFormationInfluenceConsumerBindingReceipt& OutReceipt)
 		const;
+	bool TryGetCompletedTransaction(
+		const Fdemo_mapShanmenFormationInfluenceConsumerCommand& Command,
+		Fdemo_mapShanmenFormationInfluenceConsumerTransactionResult& OutResult)
+		const;
 	bool HasBinding(const FGuid& SubjectEntityId) const;
 	bool HasLiveBinding(const FGuid& SubjectEntityId) const;
 	bool IsValid() const { return IsConsistent(); }
@@ -115,6 +119,7 @@ public:
 	bool IsDrained() const;
 	int32 GetBindingCount() const { return Bindings.Num(); }
 	int32 GetActiveApplicationCount() const;
+	int32 GetActiveApplicationCountForLease(const FGuid& LeaseId) const;
 	int32 GetCompletedTransactionCount() const;
 	const FGuid& GetHostId() const { return HostId; }
 	const FGuid& GetRunId() const { return RunId; }

@@ -21,6 +21,9 @@ enum class Edemo_mapShanmenFormationInfluenceConsumerProductRuntimeStatus
 	CommandOperationMismatch,
 	CommandSubjectMismatch,
 	CommandProductIdentityMismatch,
+	LeaseAuthorityUnavailable,
+	LeaseNotActive,
+	LeaseIdentityMismatch,
 	BindingRejected,
 	RouteRejected,
 	ActiveApplicationsRemain,
@@ -36,6 +39,9 @@ struct Fdemo_mapShanmenFormationInfluenceConsumerProductRuntimeResult
 	FString Diagnostic;
 	FGuid RuntimeId;
 	bool bRuntimeStateChanged = false;
+	/** Set after this lifecycle Host proves active authority or exact completed history. */
+	bool bLeaseAuthorityChecked = false;
+	Fdemo_mapShanmenFormationInfluenceLeaseSnapshot AuthoritativeLease;
 	Fdemo_mapShanmenFormationInfluenceConsumerProductBindingResult Binding;
 	Fdemo_mapShanmenFormationInfluenceConsumerProductRouteResult Route;
 

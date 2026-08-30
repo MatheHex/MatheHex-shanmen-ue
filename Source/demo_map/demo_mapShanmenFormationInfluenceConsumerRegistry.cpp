@@ -556,6 +556,23 @@ TryGetActiveApplication(
 	return true;
 }
 
+int32 Fdemo_mapShanmenFormationInfluenceConsumerApplicationRegistry::
+GetActiveApplicationCountForLease(const FGuid& LeaseId) const
+{
+	if (!IsConsistent() || !LeaseId.IsValid())
+	{
+		return INDEX_NONE;
+	}
+	int32 Count = 0;
+	for (const auto& Application : ActiveApplications)
+	{
+		Count += Application.GetProjection().GetLease().LeaseId == LeaseId
+			? 1
+			: 0;
+	}
+	return Count;
+}
+
 bool Fdemo_mapShanmenFormationInfluenceConsumerApplicationRegistry::
 TryGetActiveApplicationForSlot(
 	const FGuid& LeaseId,

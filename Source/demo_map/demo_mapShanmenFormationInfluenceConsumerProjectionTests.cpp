@@ -1129,6 +1129,12 @@ bool Fdemo_mapFormationInfluenceConsumerCommandHostMultiSubjectTest::RunTest(
 		Fdemo_mapAttributeIds::AttackPower, FirstPower);
 	const bool bReadSecond = SecondAttributes->GetFinalValue(
 		Fdemo_mapAttributeIds::AttackPower, SecondPower);
+	const int32 FirstLeaseActiveCount =
+		Host.GetActiveApplicationCountForLease(
+			FirstProjection.GetLease().LeaseId);
+	const int32 SecondLeaseActiveCount =
+		Host.GetActiveApplicationCountForLease(
+			SecondProjection.GetLease().LeaseId);
 	const auto FirstRemoved = Host.TryRoute(FirstRemove);
 	const auto SecondRemoved = Host.TryRoute(SecondRemove);
 
@@ -1148,14 +1154,21 @@ bool Fdemo_mapFormationInfluenceConsumerCommandHostMultiSubjectTest::RunTest(
 			&& FirstApplied.Status
 				== Edemo_mapShanmenFormationInfluenceConsumerRouteStatus::Routed
 			&& SecondApplied.Status
-				== Edemo_mapShanmenFormationInfluenceConsumerRouteStatus::Routed
+			== Edemo_mapShanmenFormationInfluenceConsumerRouteStatus::Routed
 			&& bReadFirst && FMath::IsNearlyEqual(FirstPower, 3.5f)
-			&& bReadSecond && FMath::IsNearlyEqual(SecondPower, 2.5f));
+			&& bReadSecond && FMath::IsNearlyEqual(SecondPower, 2.5f)
+			&& FirstLeaseActiveCount == 1
+			&& SecondLeaseActiveCount == 1);
 	TestTrue(TEXT("Exact Removes drain every coordinator without deleting binding history"),
 		FirstRemoved.IsSuccess() && SecondRemoved.IsSuccess()
 			&& Host.IsConsistent() && Host.IsDrained()
 			&& Host.GetBindingCount() == 2
 			&& Host.GetActiveApplicationCount() == 0
+			&& Host.GetActiveApplicationCountForLease(
+				FirstProjection.GetLease().LeaseId) == 0
+			&& Host.GetActiveApplicationCountForLease(
+				SecondProjection.GetLease().LeaseId) == 0
+			&& Host.GetActiveApplicationCountForLease(FGuid()) == INDEX_NONE
 			&& Host.GetCompletedTransactionCount() == 4
 			&& FirstAttributes->GetActiveModifierCount() == 0
 			&& SecondAttributes->GetActiveModifierCount() == 0);
@@ -1276,6 +1289,12 @@ bool Fdemo_mapFormationInfluenceConsumerCommandHostRetryReplayTest::RunTest(
 	const auto Retried = Host.TryRoute(Apply);
 	const auto Removed = Host.TryRoute(Remove);
 	const auto HistoricalApply = Host.TryRoute(Apply);
+	Fdemo_mapShanmenFormationInfluenceConsumerTransactionResult StoredApply;
+	Fdemo_mapShanmenFormationInfluenceConsumerTransactionResult StoredRemove;
+	const bool bReadStoredApply = Host.TryGetCompletedTransaction(
+		Apply, StoredApply);
+	const bool bReadStoredRemove = Host.TryGetCompletedTransaction(
+		Remove, StoredRemove);
 
 	TestTrue(TEXT("Native conflict remains visible and retryable through Host routing"),
 		!Rejected.IsSuccess()
@@ -1301,6 +1320,9 @@ bool Fdemo_mapFormationInfluenceConsumerCommandHostRetryReplayTest::RunTest(
 			&& !HistoricalApply.bHostStateChanged
 			&& HistoricalApply.Transaction.Receipt.Matches(
 				Retried.Transaction.Receipt)
+			&& bReadStoredApply && bReadStoredRemove
+			&& StoredApply.Receipt.Matches(Retried.Transaction.Receipt)
+			&& StoredRemove.Receipt.Matches(Removed.Transaction.Receipt)
 			&& Host.GetCompletedTransactionCount() == 2
 			&& Host.GetActiveApplicationCount() == 0
 			&& Attributes->GetActiveModifierCount() == 0

@@ -19,6 +19,7 @@ enum class Edemo_mapShanmenFormationInfluenceLifecycleStatus : uint8
 	LedgerUnavailable,
 	BindingConflict,
 	TerminalRejected,
+	ConsumerDeactivateRequired,
 	ConsumerTeardownRequired,
 	SealRejected,
 	EndRejected,
@@ -32,6 +33,9 @@ struct Fdemo_mapShanmenFormationInfluenceLifecycleResult
 		Edemo_mapShanmenFormationInfluenceLifecycleStatus::StateInvalid;
 	FString Diagnostic;
 	bool bCoordinatorStateCommitted = false;
+	bool bConsumerLeaseOrderChecked = false;
+	FGuid ConsumerLeaseId;
+	int32 ActiveConsumerApplicationCount = INDEX_NONE;
 	bool bConsumerTeardownChecked = false;
 	Fdemo_mapShanmenFormationInfluenceServiceResult Step;
 	Fdemo_mapShanmenFormationHostInfluenceResult TerminalPreparation;

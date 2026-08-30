@@ -3960,8 +3960,11 @@ RunTest(const FString&)
 	}
 
 	Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost CommandHost;
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost ForeignCommandHost;
 	if (!Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost::TryOpen(
-			Fixture.Host, CommandHost))
+			Fixture.Host, CommandHost)
+		|| !Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost::TryOpen(
+			Fixture.Host, ForeignCommandHost))
 	{
 		return false;
 	}
@@ -3981,6 +3984,9 @@ RunTest(const FString&)
 
 	Udemo_mapAttributeComponent* Attributes =
 		NewObject<Udemo_mapAttributeComponent>();
+	const auto ForeignActivation = ForeignCommandHost.TryActivateConsumer(
+		Fixture.Host, ConsumerCommands.SubjectEntityId,
+		Attributes, ConsumerCommands.Apply);
 	const auto Activated = CommandHost.TryActivateConsumer(
 		Fixture.Host, ConsumerCommands.SubjectEntityId,
 		Attributes, ConsumerCommands.Apply);
@@ -3994,54 +4000,96 @@ RunTest(const FString&)
 	{
 		return false;
 	}
-	const auto Remove = CommandHost.TrySubmit(
+	const auto RemoveCommand = MakeLifecycleStepCommand(
+		Fixture.Correlation,
+		MakeHostExecutionRequest(RemoveIntent, 282));
+	const auto BlockedRemove = CommandHost.TrySubmit(
 		nullptr, Fixture.Host,
-		MakeLifecycleStepCommand(
-			Fixture.Correlation,
-			MakeHostExecutionRequest(RemoveIntent, 282)));
+		RemoveCommand);
+	Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord
+		BlockedRemoveReceipt;
+	const bool bBlockedRemoveStored = CommandHost.TryGetReceipt(
+		RemoveCommand.GetCommandId(), BlockedRemoveReceipt);
+
+	TestTrue(TEXT("A parallel caller cannot consume another Host's lease"),
+		ForeignActivation.Status
+			== Edemo_mapShanmenFormationInfluenceConsumerProductRuntimeStatus::
+				LeaseAuthorityUnavailable
+			&& !ForeignActivation.bLeaseAuthorityChecked
+			&& ForeignCommandHost.GetConsumerRuntime().IsDrained());
+	TestTrue(TEXT("Native consumer is active under exact lease authority"),
+		Activated.IsSuccess() && Activated.bLeaseAuthorityChecked
+			&& Activated.AuthoritativeLease.IsValid()
+			&& Activated.AuthoritativeLease.LeaseId
+				== ConsumerCommands.Apply.GetProjection().GetLease().LeaseId
+			&& Attributes
+			&& Attributes->GetActiveModifierCount() == 1
+			&& CommandHost.GetConsumerRuntime().
+				GetActiveApplicationCount() == 1);
+	TestTrue(TEXT("Authoritative Remove waits for explicit native deactivation"),
+		BlockedRemove.Status
+			== Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::
+				LifecycleRejected
+			&& BlockedRemove.Lifecycle.Status
+				== Edemo_mapShanmenFormationInfluenceLifecycleStatus::
+					ConsumerDeactivateRequired
+			&& BlockedRemove.Lifecycle.bConsumerLeaseOrderChecked
+			&& BlockedRemove.Lifecycle.ConsumerLeaseId
+				== ConsumerCommands.Remove.GetProjection().GetLease().LeaseId
+			&& BlockedRemove.Lifecycle.ActiveConsumerApplicationCount == 1
+			&& !BlockedRemove.Lifecycle.bCoordinatorStateCommitted
+			&& !BlockedRemove.bRouterStateCommitted
+			&& !bBlockedRemoveStored
+			&& Fixture.Host.TryPeekNextInfluenceIntent(RemoveIntent));
+
+	const auto Deactivated = CommandHost.TryDeactivateConsumer(
+		Fixture.Host, ConsumerCommands.Remove);
+	const auto Remove = CommandHost.TrySubmit(
+		nullptr, Fixture.Host, RemoveCommand);
+	const auto DeactivationReplay = CommandHost.TryDeactivateConsumer(
+		Fixture.Host, ConsumerCommands.Remove);
 	const auto EndCommand =
 		MakeLifecycleEndCommand(Fixture.Correlation, 283);
 	const auto BlockedEnd = CommandHost.TrySubmit(
-		Fixture.World, Fixture.Host, EndCommand);
+		nullptr, Fixture.Host, EndCommand);
 	Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord Receipt;
 	const bool bBlockedEndStored = CommandHost.TryGetReceipt(
 		EndCommand.GetCommandId(), Receipt);
 
-	TestTrue(TEXT("Native consumer is active before terminal fencing"),
-		Remove.IsSuccess() && Attributes
-			&& Attributes->GetActiveModifierCount() == 1
-			&& CommandHost.GetConsumerRuntime().
-				GetActiveApplicationCount() == 1);
-	TestTrue(TEXT("Active consumer fails closed before seal or product end"),
+	TestTrue(TEXT("Consumer deactivation precedes authoritative Remove"),
+		Deactivated.IsSuccess() && Deactivated.bLeaseAuthorityChecked
+			&& Deactivated.AuthoritativeLease.IsValid()
+			&& Remove.IsSuccess()
+			&& DeactivationReplay.IsSuccess()
+			&& DeactivationReplay.Status
+				== Edemo_mapShanmenFormationInfluenceConsumerProductRuntimeStatus::
+					DeactivationReplayed
+			&& DeactivationReplay.bLeaseAuthorityChecked
+			&& Attributes->GetActiveModifierCount() == 0
+			&& CommandHost.GetConsumerRuntime().IsDrained());
+	TestTrue(TEXT("Drained consumer permits seal and exposes World failure"),
 		BlockedEnd.Status
 			== Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::
 				LifecycleRejected
 			&& BlockedEnd.Lifecycle.Status
 				== Edemo_mapShanmenFormationInfluenceLifecycleStatus::
-					ConsumerTeardownRequired
+					EndRejected
 			&& BlockedEnd.Lifecycle.bConsumerTeardownChecked
 			&& BlockedEnd.Lifecycle.ConsumerTeardown.Status
 				== Edemo_mapShanmenFormationInfluenceConsumerProductRuntimeStatus::
-					ActiveApplicationsRemain
-			&& !BlockedEnd.Lifecycle.bCoordinatorStateCommitted
-			&& !BlockedEnd.bRouterStateCommitted
-			&& !bBlockedEndStored
-			&& CommandHost.GetReceiptCount() == 3
-			&& !Fixture.Host.GetInfluenceLedger().IsSealed()
-			&& !Fixture.Host.GetSession().IsTerminal());
+					TeardownReady
+			&& BlockedEnd.Lifecycle.bCoordinatorStateCommitted
+			&& BlockedEnd.bRouterStateCommitted
+			&& bBlockedEndStored
+			&& CommandHost.GetReceiptCount() == 4
+			&& Fixture.Host.GetInfluenceLedger().IsSealed()
+			&& Fixture.Host.GetSession().IsTerminal());
 
-	const auto Deactivated = CommandHost.TryDeactivateConsumer(
-		Fixture.Host, ConsumerCommands.Remove);
-	const auto FailedWorldEnd = CommandHost.TrySubmit(
-		nullptr, Fixture.Host, EndCommand);
+	const auto FailedWorldEnd = BlockedEnd;
 	Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord FailedReceipt;
 	const bool bFailedWorldEndStored = CommandHost.TryGetReceipt(
 		EndCommand.GetCommandId(), FailedReceipt);
 
-	TestTrue(TEXT("Explicit Remove drains the owned consumer runtime"),
-		Deactivated.IsSuccess()
-			&& Attributes->GetActiveModifierCount() == 0
-			&& CommandHost.GetConsumerRuntime().IsDrained());
 	TestTrue(TEXT("Drained evidence is durable across forward World failure"),
 		FailedWorldEnd.Status
 			== Edemo_mapShanmenFormationInfluenceLifecycleCommandStatus::

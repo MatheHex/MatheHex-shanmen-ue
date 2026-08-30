@@ -125,6 +125,7 @@ public:
 	{
 		return ActiveApplications.Num();
 	}
+	int32 GetActiveApplicationCountForLease(const FGuid& LeaseId) const;
 	int32 GetCompletedCommandCount() const { return CompletedCommands.Num(); }
 
 	bool TryGetActiveApplication(
