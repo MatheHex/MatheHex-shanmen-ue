@@ -4314,7 +4314,7 @@ RunTest(const FString&)
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	Fdemo_mapFormationInfluenceConsumerRunCompositionTest,
-	"Shanmen.0_0_10.Product.FormationInfluenceConsumerRunComposition.ExplicitLifecycle",
+	"Shanmen.0_0_10.Product.FormationInfluenceConsumerRunComposition.CommandHostOwnedLifecycle",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool Fdemo_mapFormationInfluenceConsumerRunCompositionTest::RunTest(
@@ -4359,7 +4359,7 @@ bool Fdemo_mapFormationInfluenceConsumerRunCompositionTest::RunTest(
 			CombatDiagnostic))
 	{
 		AddError(FString::Printf(
-			TEXT("P8.40 CombatRun setup failed: %s"),
+			TEXT("P8.41 CombatRun setup failed: %s"),
 			*CombatDiagnostic));
 		return false;
 	}
@@ -4424,24 +4424,22 @@ bool Fdemo_mapFormationInfluenceConsumerRunCompositionTest::RunTest(
 
 	Fdemo_mapCombatRunCoordinator InactiveCombatRun;
 	const auto Inactive =
-		Fdemo_mapShanmenFormationInfluenceConsumerRunComposition::TryActivate(
+		CommandHost.TryActivateConsumerForRun(
 			InactiveCombatRun,
 			Player,
 			Fixture.Host,
-			CommandHost,
 			ConsumerCommands.Delivery.Delivery,
 			Attributes);
 	const int32 BindingCountBeforeRejections =
 		CombatRun.GetEntityRegistry().NumObjectBindings();
 	const auto MissingSource =
-		Fdemo_mapShanmenFormationInfluenceConsumerRunComposition::TryActivate(
+		CommandHost.TryActivateConsumerForRun(
 			CombatRun,
 			UnregisteredSubject,
 			Fixture.Host,
-			CommandHost,
 			ConsumerCommands.Delivery.Delivery,
 			Attributes);
-	TestTrue(TEXT("Composition rejects invalid alias sources before delivery"),
+	TestTrue(TEXT("CommandHost owner rejects invalid alias sources before delivery"),
 		Inactive.Status
 			== Edemo_mapShanmenFormationInfluenceConsumerRunCompositionStatus::
 				AliasRejected
@@ -4460,11 +4458,10 @@ bool Fdemo_mapFormationInfluenceConsumerRunCompositionTest::RunTest(
 			&& CommandHost.GetConsumerRuntime().IsDrained());
 
 	const auto ForeignHostRejected =
-		Fdemo_mapShanmenFormationInfluenceConsumerRunComposition::TryActivate(
+		ForeignCommandHost.TryActivateConsumerForRun(
 			CombatRun,
 			Player,
 			Fixture.Host,
-			ForeignCommandHost,
 			ConsumerCommands.Delivery.Delivery,
 			ForeignAttributes);
 	FGuid PersistedForeignAlias;
@@ -4490,24 +4487,22 @@ bool Fdemo_mapFormationInfluenceConsumerRunCompositionTest::RunTest(
 			&& ForeignAttributes->GetActiveModifierCount() == 0);
 
 	const auto Activated =
-		Fdemo_mapShanmenFormationInfluenceConsumerRunComposition::TryActivate(
+		CommandHost.TryActivateConsumerForRun(
 			CombatRun,
 			Player,
 			Fixture.Host,
-			CommandHost,
 			ConsumerCommands.Delivery.Delivery,
 			Attributes);
 	const int32 BindingCountBeforeReplay =
 		CombatRun.GetEntityRegistry().NumObjectBindings();
 	const auto Replay =
-		Fdemo_mapShanmenFormationInfluenceConsumerRunComposition::TryActivate(
+		CommandHost.TryActivateConsumerForRun(
 			CombatRun,
 			Player,
 			Fixture.Host,
-			CommandHost,
 			ConsumerCommands.Delivery.Delivery,
 			Attributes);
-	TestTrue(TEXT("Composition closes the alias-resolution-delivery chain"),
+	TestTrue(TEXT("CommandHost owner closes the alias-resolution-delivery chain"),
 		Activated.IsSuccess()
 			&& Activated.Status
 				== Edemo_mapShanmenFormationInfluenceConsumerRunCompositionStatus::
@@ -4539,14 +4534,12 @@ bool Fdemo_mapFormationInfluenceConsumerRunCompositionTest::RunTest(
 	auto InvalidActivation = Activated;
 	InvalidActivation.RunId.Invalidate();
 	const auto InvalidDeactivation =
-		Fdemo_mapShanmenFormationInfluenceConsumerRunComposition::TryDeactivate(
+		CommandHost.TryDeactivateConsumerForRun(
 			Fixture.Host,
-			CommandHost,
 			InvalidActivation);
 	const auto ForeignDeactivation =
-		Fdemo_mapShanmenFormationInfluenceConsumerRunComposition::TryDeactivate(
+		ForeignCommandHost.TryDeactivateConsumerForRun(
 			Fixture.Host,
-			ForeignCommandHost,
 			Activated);
 	TestTrue(TEXT("Deactivation rejects invalid evidence and a foreign Host"),
 		InvalidDeactivation.Status
@@ -4566,16 +4559,14 @@ bool Fdemo_mapFormationInfluenceConsumerRunCompositionTest::RunTest(
 			&& ForeignCommandHost.GetConsumerRuntime().IsDrained());
 
 	const auto Deactivated =
-		Fdemo_mapShanmenFormationInfluenceConsumerRunComposition::TryDeactivate(
+		CommandHost.TryDeactivateConsumerForRun(
 			Fixture.Host,
-			CommandHost,
 			Activated);
 	const int32 CompletedBeforeDeactivationReplay =
 		CommandHost.GetConsumerRuntime().GetCompletedTransactionCount();
 	const auto DeactivationReplay =
-		Fdemo_mapShanmenFormationInfluenceConsumerRunComposition::TryDeactivate(
+		CommandHost.TryDeactivateConsumerForRun(
 			Fixture.Host,
-			CommandHost,
 			Activated);
 	const FGuid RunId = CombatRun.GetRunId();
 	TestTrue(TEXT("Activation receipt removes its exact delivery before Run end"),

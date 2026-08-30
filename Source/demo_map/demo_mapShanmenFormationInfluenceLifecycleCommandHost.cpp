@@ -2,6 +2,7 @@
 
 #include "ShanmenDeterministicId.h"
 #include "demo_mapAttributeComponent.h"
+#include "demo_mapShanmenFormationInfluenceConsumerRunComposition.h"
 
 namespace
 {
@@ -344,6 +345,39 @@ Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost::TrySubmit(
 
 	return Router.TryRouteWithConsumers(
 		World, ProductHost, ConsumerRuntime, Command);
+}
+
+Fdemo_mapShanmenFormationInfluenceConsumerRunCompositionResult
+Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost::
+TryActivateConsumerForRun(
+	Fdemo_mapCombatRunCoordinator& CombatRun,
+	const UObject* RegisteredSubjectObject,
+	const Fdemo_mapShanmenFormationProductHost& ProductHost,
+	const Fdemo_mapShanmenFormationInfluenceConsumerCommandDelivery& Delivery,
+	Udemo_mapAttributeComponent* AttributeComponent,
+	const int32 RegisteredBodyIndex,
+	const int32 AttributeBodyIndex)
+{
+	return Fdemo_mapShanmenFormationInfluenceConsumerRunComposition::TryActivate(
+		CombatRun,
+		RegisteredSubjectObject,
+		ProductHost,
+		*this,
+		Delivery,
+		AttributeComponent,
+		RegisteredBodyIndex,
+		AttributeBodyIndex);
+}
+
+Fdemo_mapShanmenFormationInfluenceConsumerRunDeactivationResult
+Fdemo_mapShanmenFormationInfluenceLifecycleCommandHost::
+TryDeactivateConsumerForRun(
+	const Fdemo_mapShanmenFormationProductHost& ProductHost,
+	const Fdemo_mapShanmenFormationInfluenceConsumerRunCompositionResult&
+		ActivationEvidence)
+{
+	return Fdemo_mapShanmenFormationInfluenceConsumerRunComposition::
+		TryDeactivate(ProductHost, *this, ActivationEvidence);
 }
 
 Fdemo_mapShanmenFormationInfluenceConsumerProductRuntimeResult

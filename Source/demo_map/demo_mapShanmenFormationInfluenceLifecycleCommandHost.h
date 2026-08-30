@@ -5,6 +5,9 @@
 #include "demo_mapShanmenFormationInfluenceLifecycleCommandRouter.h"
 
 class UWorld;
+class Fdemo_mapCombatRunCoordinator;
+struct Fdemo_mapShanmenFormationInfluenceConsumerRunCompositionResult;
+struct Fdemo_mapShanmenFormationInfluenceConsumerRunDeactivationResult;
 
 /**
  * Pointer-free evidence that a caller resolved one subject to one concrete
@@ -162,6 +165,29 @@ public:
 		const FGuid& AppliedLifecycleCommandId,
 		const Fdemo_mapShanmenFormationInfluenceConsumerDefinition& Definition)
 		const;
+	/**
+	 * Product-owner entrypoint for one explicit CombatRun consumer activation.
+	 * The complete pointer-free result is declared in the RunComposition header.
+	 */
+	Fdemo_mapShanmenFormationInfluenceConsumerRunCompositionResult
+	TryActivateConsumerForRun(
+		Fdemo_mapCombatRunCoordinator& CombatRun,
+		const UObject* RegisteredSubjectObject,
+		const Fdemo_mapShanmenFormationProductHost& ProductHost,
+		const Fdemo_mapShanmenFormationInfluenceConsumerCommandDelivery&
+			Delivery,
+		Udemo_mapAttributeComponent* AttributeComponent,
+		int32 RegisteredBodyIndex = INDEX_NONE,
+		int32 AttributeBodyIndex = INDEX_NONE);
+	/**
+	 * Product-owner entrypoint for exact removal proven by activation evidence.
+	 * No World or registry lookup is required during forward teardown recovery.
+	 */
+	Fdemo_mapShanmenFormationInfluenceConsumerRunDeactivationResult
+	TryDeactivateConsumerForRun(
+		const Fdemo_mapShanmenFormationProductHost& ProductHost,
+		const Fdemo_mapShanmenFormationInfluenceConsumerRunCompositionResult&
+			ActivationEvidence);
 	Fdemo_mapShanmenFormationInfluenceConsumerDeliveryApplicationResult
 	TryActivateConsumerDelivery(
 		const Fdemo_mapShanmenFormationProductHost& ProductHost,
