@@ -60,6 +60,7 @@
       "pathRegex": "^Source/demo_map/demo_mapShanmenFormationProductSession(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10.Product.FormationSession",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerProductBridge",
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandHost",
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandRouter",
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCoordinator",
@@ -86,6 +87,7 @@
       "pathRegex": "^Source/demo_map/demo_mapShanmenFormationProductHost(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10.Product.FormationProductHost",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerProductBridge",
         "Shanmen.0_0_10.Product.FormationInfluenceEvaluationBinding",
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandHost",
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandRouter",
@@ -222,6 +224,7 @@
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerAttributeAdapter",
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerApplicationCoordinator",
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerCommandHost",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerProductBridge",
         "Shanmen.0_0_10.Product.FormationInfluenceEvaluationBinding",
         "Shanmen.0_0_10.Product.FormationInfluenceModifierEvaluator",
         "Shanmen.0_0_10.Product.FormationInfluenceLeaseExecutor",
@@ -249,6 +252,7 @@
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerAttributeAdapter",
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerApplicationCoordinator",
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerCommandHost",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerProductBridge",
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerRegistry",
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerProjection",
         "Shanmen.0_0_10.CombatCore",
@@ -262,6 +266,7 @@
       "requiredGroups": [
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerApplicationCoordinator",
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerCommandHost",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerProductBridge",
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerAttributeAdapter",
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerRegistry",
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerProjection",
@@ -274,6 +279,27 @@
       "name": "FormationInfluenceConsumerCommandHost",
       "pathRegex": "^Source/demo_map/demo_mapShanmenFormationInfluenceConsumerCommandHost(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerCommandHost",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerProductBridge",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerApplicationCoordinator",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerAttributeAdapter",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerRegistry",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerProjection",
+        "Shanmen.0_0_10.Product.FormationInfluenceEvaluationBinding",
+        "Shanmen.0_0_10.Product.FormationInfluenceModifierEvaluator",
+        "Shanmen.0_0_10.Product.FormationInfluenceLeaseExecutor",
+        "Shanmen.0_0_10.CombatCore",
+        "demo_map.V3.Attributes",
+        "Shanmen.0_0_10"
+      ]
+    },
+    {
+      "name": "FormationInfluenceConsumerProductBridge",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenFormationInfluenceConsumerProductBridge(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerProductBridge",
+        "Shanmen.0_0_10.Product.FormationProductHost",
+        "Shanmen.0_0_10.Product.FormationSession",
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerCommandHost",
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerApplicationCoordinator",
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerAttributeAdapter",
@@ -297,6 +323,7 @@
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerAttributeAdapter",
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerApplicationCoordinator",
         "Shanmen.0_0_10.Product.FormationInfluenceConsumerCommandHost",
+        "Shanmen.0_0_10.Product.FormationInfluenceConsumerProductBridge",
         "Shanmen.0_0_10"
       ]
     },
