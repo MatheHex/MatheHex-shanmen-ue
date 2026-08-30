@@ -144,6 +144,9 @@ try
     $FormationInfluenceModifierEvaluator = New-AutomationLogFixture `
         -Name 'formation-influence-modifier-evaluator.log' `
         -Group 'Shanmen.0_0_10.Product.FormationInfluenceModifierEvaluator'
+    $FormationInfluenceEvaluationBinding = New-AutomationLogFixture `
+        -Name 'formation-influence-evaluation-binding.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationInfluenceEvaluationBinding'
     $CombatCore = New-AutomationLogFixture `
         -Name 'combat-core.log' `
         -Group 'Shanmen.0_0_10.CombatCore'
@@ -536,6 +539,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceModifierEvaluator.cpp') `
         -Logs @($FormationInfluenceModifierEvaluator) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'evaluation binding child evidence cannot replace evaluator and execution contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceEvaluationBinding.cpp') `
+        -Logs @($FormationInfluenceEvaluationBinding) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

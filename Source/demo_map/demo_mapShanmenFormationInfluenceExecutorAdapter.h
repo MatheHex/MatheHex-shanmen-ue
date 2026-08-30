@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "demo_mapShanmenFormationInfluenceEvaluationBinding.h"
 #include "demo_mapShanmenFormationProductHost.h"
 
 /** Caller-owned identity for exactly one canonical execution attempt. */
@@ -8,6 +9,7 @@ struct Fdemo_mapShanmenFormationInfluenceExecutionCommand
 {
 	FGuid IntentId;
 	FGuid AttemptId;
+	Fdemo_mapShanmenFormationInfluenceEvaluationBinding Evaluation;
 
 	bool IsValid() const;
 };
@@ -18,6 +20,7 @@ struct Fdemo_mapShanmenFormationInfluenceExecutorInvocation
 	FGuid LedgerId;
 	Fdemo_mapShanmenFormationInfluenceIntent Intent;
 	FGuid AttemptId;
+	Fdemo_mapShanmenFormationInfluenceEvaluationBinding Evaluation;
 
 	bool IsValid() const;
 };
@@ -26,7 +29,8 @@ struct Fdemo_mapShanmenFormationInfluenceExecutorInvocation
  * Opaque executor evidence sealed back to the invocation.
  *
  * The adapter does not interpret magnitude, duration, stacking, handles, or
- * product objects. ExecutorReceiptId remains owned by the injected executor.
+ * product objects. The invocation carries already-evaluated evidence while
+ * ExecutorReceiptId remains owned by the injected executor.
  */
 struct Fdemo_mapShanmenFormationInfluenceExecutorReceipt
 {

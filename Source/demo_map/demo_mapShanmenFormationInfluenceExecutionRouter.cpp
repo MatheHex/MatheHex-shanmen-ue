@@ -5,7 +5,7 @@
 namespace
 {
 	const FName AttemptNamespace(
-		TEXT("Shanmen.Formation.InfluenceExecutionAttempt.r1"));
+		TEXT("Shanmen.Formation.InfluenceExecutionAttempt.r2"));
 
 	FGuid MakeAttemptId(
 		const FGuid& LedgerId,
@@ -20,7 +20,11 @@ namespace
 			{
 				LedgerId.ToString(EGuidFormats::Digits),
 				Request.RequestId.ToString(EGuidFormats::Digits),
-				Request.ExpectedIntentId.ToString(EGuidFormats::Digits)
+				Request.ExpectedIntentId.ToString(EGuidFormats::Digits),
+				Request.Evaluation.HasReceipt()
+					? Request.Evaluation.GetReceiptId().ToString(
+						EGuidFormats::Digits)
+					: TEXT("RemoveUsesActiveLeaseReceipt")
 			});
 	}
 
@@ -38,7 +42,8 @@ namespace
 
 bool Fdemo_mapShanmenFormationInfluenceExecutionRequest::IsValid() const
 {
-	return RequestId.IsValid() && ExpectedIntentId.IsValid();
+	return RequestId.IsValid() && ExpectedIntentId.IsValid()
+		&& Evaluation.IsStructurallyValid();
 }
 
 bool Fdemo_mapShanmenFormationInfluenceExecutionRequest::Matches(
@@ -46,7 +51,8 @@ bool Fdemo_mapShanmenFormationInfluenceExecutionRequest::Matches(
 {
 	return IsValid() && Other.IsValid()
 		&& RequestId == Other.RequestId
-		&& ExpectedIntentId == Other.ExpectedIntentId;
+		&& ExpectedIntentId == Other.ExpectedIntentId
+		&& Evaluation.Matches(Other.Evaluation);
 }
 
 bool Fdemo_mapShanmenFormationInfluenceRouteResult::IsSuccess() const
@@ -135,9 +141,55 @@ Fdemo_mapShanmenFormationInfluenceExecutionRouter::TryRoute(
 		return Result;
 	}
 
+	const FGuid CandidateAttemptId = MakeAttemptId(LedgerId, Request);
+	if (!CandidateAttemptId.IsValid())
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceRouteStatus::StateInvalid,
+			TEXT("Influence execution request could not derive an attempt identity."));
+	}
+	Edemo_mapShanmenFormationInfluenceRouteStatus AcceptedStatus =
+		Edemo_mapShanmenFormationInfluenceRouteStatus::Routed;
+	Fdemo_mapShanmenFormationInfluenceIntent RoutedIntent;
+	Fdemo_mapShanmenFormationInfluenceAttemptReceipt ExistingAttempt;
+	if (Ledger.TryGetAttemptReceipt(
+		Request.ExpectedIntentId, CandidateAttemptId, ExistingAttempt))
+	{
+		if (!Ledger.TryGetIntent(Request.ExpectedIntentId, RoutedIntent))
+		{
+			return Reject(
+				Edemo_mapShanmenFormationInfluenceRouteStatus::StateInvalid,
+				TEXT("Historical influence attempt lost its Host-owned intent."));
+		}
+		AcceptedStatus = Edemo_mapShanmenFormationInfluenceRouteStatus::
+			HostEvidenceRecovered;
+	}
+	else
+	{
+		if (!Host.TryPeekNextInfluenceIntent(RoutedIntent))
+		{
+			return Reject(
+				Edemo_mapShanmenFormationInfluenceRouteStatus::IntentUnavailable,
+				TEXT("Host ledger has no matching pending or historical attempt."));
+		}
+		if (RoutedIntent.IntentId != Request.ExpectedIntentId)
+		{
+			return Reject(
+				Edemo_mapShanmenFormationInfluenceRouteStatus::IntentOutOfOrder,
+				TEXT("Only the canonical first pending influence intent may route."));
+		}
+	}
+	if (!Request.Evaluation.MatchesIntent(RoutedIntent))
+	{
+		return Reject(
+			Edemo_mapShanmenFormationInfluenceRouteStatus::EvaluationMismatch,
+			TEXT("Influence execution evaluation did not match the Host-owned intent."));
+	}
+
 	Fdemo_mapShanmenFormationInfluenceExecutionCommand Command;
 	Command.IntentId = Request.ExpectedIntentId;
-	Command.AttemptId = MakeAttemptId(LedgerId, Request);
+	Command.AttemptId = CandidateAttemptId;
+	Command.Evaluation = Request.Evaluation;
 	if (!Command.IsValid())
 	{
 		return Reject(
@@ -151,32 +203,6 @@ Fdemo_mapShanmenFormationInfluenceExecutionRouter::TryRoute(
 			return Reject(
 				Edemo_mapShanmenFormationInfluenceRouteStatus::AttemptCollision,
 				TEXT("Deterministic influence attempt identity collided with another request."));
-		}
-	}
-
-	Edemo_mapShanmenFormationInfluenceRouteStatus AcceptedStatus =
-		Edemo_mapShanmenFormationInfluenceRouteStatus::Routed;
-	Fdemo_mapShanmenFormationInfluenceAttemptReceipt ExistingAttempt;
-	if (Ledger.TryGetAttemptReceipt(
-		Request.ExpectedIntentId, Command.AttemptId, ExistingAttempt))
-	{
-		AcceptedStatus = Edemo_mapShanmenFormationInfluenceRouteStatus::
-			HostEvidenceRecovered;
-	}
-	else
-	{
-		Fdemo_mapShanmenFormationInfluenceIntent Pending;
-		if (!Host.TryPeekNextInfluenceIntent(Pending))
-		{
-			return Reject(
-				Edemo_mapShanmenFormationInfluenceRouteStatus::IntentUnavailable,
-				TEXT("Host ledger has no matching pending or historical attempt."));
-		}
-		if (Pending.IntentId != Request.ExpectedIntentId)
-		{
-			return Reject(
-				Edemo_mapShanmenFormationInfluenceRouteStatus::IntentOutOfOrder,
-				TEXT("Only the canonical first pending influence intent may route."));
 		}
 	}
 
@@ -228,6 +254,8 @@ bool Fdemo_mapShanmenFormationInfluenceExecutionRouter::IsValid() const
 		if (!Record.Request.IsValid()
 			|| !Record.Command.IsValid()
 			|| Record.Command.IntentId != Record.Request.ExpectedIntentId
+			|| !Record.Command.Evaluation.Matches(
+				Record.Request.Evaluation)
 			|| Record.Command.AttemptId
 				!= MakeAttemptId(BoundLedgerId, Record.Request)
 			|| RequestIds.Contains(Record.Request.RequestId)

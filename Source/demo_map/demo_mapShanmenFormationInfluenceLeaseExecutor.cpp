@@ -25,22 +25,51 @@ namespace
 				== Edemo_mapShanmenFormationInfluenceOperation::Remove;
 	}
 
-	FGuid MakeLeaseId(
+	bool ReceiptMatchesKey(
+		const Fdemo_mapShanmenFormationInfluenceEvaluationReceipt& Receipt,
 		const Fdemo_mapShanmenFormationInfluenceLeaseKey& Key)
 	{
-		if (!Key.IsValid())
+		if (!Receipt.IsValid() || Receipt.Decisions.IsEmpty() || !Key.IsValid()
+			|| Receipt.Context.RunId != Key.RunId
+			|| Receipt.Context.SubjectEntityId != Key.SubjectEntityId
+			|| !SameContent(Receipt.Context.Content, Key.Content))
+		{
+			return false;
+		}
+		for (const auto& Decision : Receipt.Decisions)
+		{
+			const auto& Specification = Decision.Specification;
+			if (!Specification.IsValid()
+				|| Specification.GetPolicyDefinitionId()
+					!= Key.PolicyDefinitionId
+				|| Specification.GetInfluenceDefinitionId()
+					!= Key.InfluenceDefinitionId
+				|| !SameContent(Specification.GetContent(), Key.Content))
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
+	FGuid MakeLeaseId(
+		const Fdemo_mapShanmenFormationInfluenceLeaseKey& Key,
+		const Fdemo_mapShanmenFormationInfluenceEvaluationReceipt& Receipt)
+	{
+		if (!ReceiptMatchesKey(Receipt, Key))
 		{
 			return FGuid();
 		}
 		return FShanmenDeterministicId::FromCanonicalParts(
-			TEXT("Shanmen.Formation.InfluenceLease.r1"),
+			TEXT("Shanmen.Formation.InfluenceLease.r2"),
 			{
 				GuidDigits(Key.RunId), GuidDigits(Key.OwnerId),
 				GuidDigits(Key.SourceEntityId), GuidDigits(Key.DeploymentId),
 				GuidDigits(Key.AreaId), GuidDigits(Key.SubjectEntityId),
 				Key.PolicyDefinitionId.ToString(),
 				Key.InfluenceDefinitionId.ToString(),
-				Key.Content.Version.ToString(), Key.Content.Digest
+				Key.Content.Version.ToString(), Key.Content.Digest,
+				GuidDigits(Receipt.ReceiptId)
 			});
 	}
 
@@ -51,23 +80,29 @@ namespace
 		return Left.IsValid() && Right.IsValid()
 			&& Left.LedgerId == Right.LedgerId
 			&& Left.Intent.IntentId == Right.Intent.IntentId
-			&& Left.AttemptId == Right.AttemptId;
+			&& Left.AttemptId == Right.AttemptId
+			&& Left.Evaluation.Matches(Right.Evaluation);
 	}
 
 	FGuid MakeExecutorReceiptId(
 		const Fdemo_mapShanmenFormationInfluenceExecutorInvocation& Invocation,
-		const Fdemo_mapShanmenFormationInfluenceLeaseKey& Key)
+		const Fdemo_mapShanmenFormationInfluenceLeaseKey& Key,
+		const Fdemo_mapShanmenFormationInfluenceEvaluationReceipt&
+			EvaluationReceipt)
 	{
-		if (!Invocation.IsValid() || !Key.IsValid())
+		if (!Invocation.IsValid()
+			|| !ReceiptMatchesKey(EvaluationReceipt, Key))
 		{
 			return FGuid();
 		}
 		return FShanmenDeterministicId::FromCanonicalParts(
-			TEXT("Shanmen.Formation.InfluenceLeaseExecutorReceipt.r1"),
+			TEXT("Shanmen.Formation.InfluenceLeaseExecutorReceipt.r2"),
 			{
 				GuidDigits(Invocation.LedgerId),
 				GuidDigits(Invocation.Intent.IntentId),
-				GuidDigits(Invocation.AttemptId), GuidDigits(MakeLeaseId(Key)),
+				GuidDigits(Invocation.AttemptId),
+				GuidDigits(MakeLeaseId(Key, EvaluationReceipt)),
+				GuidDigits(EvaluationReceipt.ReceiptId),
 				FString::FromInt(static_cast<int32>(
 					Invocation.Intent.Operation))
 			});
@@ -76,6 +111,8 @@ namespace
 	Fdemo_mapShanmenFormationInfluenceExecutorResult Completed(
 		const Fdemo_mapShanmenFormationInfluenceExecutorInvocation& Invocation,
 		const Fdemo_mapShanmenFormationInfluenceLeaseKey& Key,
+		const Fdemo_mapShanmenFormationInfluenceEvaluationReceipt&
+			EvaluationReceipt,
 		const TCHAR* Diagnostic)
 	{
 		Fdemo_mapShanmenFormationInfluenceExecutorResult Result;
@@ -86,7 +123,7 @@ namespace
 		Result.Receipt.IntentId = Invocation.Intent.IntentId;
 		Result.Receipt.AttemptId = Invocation.AttemptId;
 		Result.Receipt.ExecutorReceiptId =
-			MakeExecutorReceiptId(Invocation, Key);
+			MakeExecutorReceiptId(Invocation, Key, EvaluationReceipt);
 		Result.Receipt.Outcome =
 			Edemo_mapShanmenFormationInfluenceAttemptOutcome::Succeeded;
 		return Result;
@@ -147,7 +184,8 @@ bool Fdemo_mapShanmenFormationInfluenceLeaseKey::Matches(
 bool Fdemo_mapShanmenFormationInfluenceLeaseSnapshot::IsValid() const
 {
 	return Key.IsValid() && ApplyIntentId.IsValid()
-		&& LeaseId == MakeLeaseId(Key);
+		&& ReceiptMatchesKey(EvaluationReceipt, Key)
+		&& LeaseId == MakeLeaseId(Key, EvaluationReceipt);
 }
 
 Fdemo_mapShanmenFormationInfluenceLeaseSnapshot*
@@ -209,7 +247,9 @@ bool Fdemo_mapShanmenFormationInfluenceLeaseExecutor::IsConsistent() const
 		if (!Completion
 			|| Completion->Intent.Operation
 				!= Edemo_mapShanmenFormationInfluenceOperation::Apply
-			|| !Completion->Key.Matches(Lease.Key))
+			|| !Completion->Key.Matches(Lease.Key)
+			|| !Completion->EvaluationReceipt.Matches(
+				Lease.EvaluationReceipt))
 		{
 			return false;
 		}
@@ -225,6 +265,8 @@ bool Fdemo_mapShanmenFormationInfluenceLeaseExecutor::IsConsistent() const
 			|| !Fdemo_mapShanmenFormationInfluenceLeaseKey::TryFromIntent(
 				Completion.Intent, ExpectedKey)
 			|| !ExpectedKey.Matches(Completion.Key)
+			|| !ReceiptMatchesKey(
+				Completion.EvaluationReceipt, Completion.Key)
 			|| CompletedIntentIds.Contains(Completion.Intent.IntentId))
 		{
 			return false;
@@ -232,10 +274,21 @@ bool Fdemo_mapShanmenFormationInfluenceLeaseExecutor::IsConsistent() const
 		bool bHasSuccessfulAttempt = false;
 		for (const auto& Attempt : Attempts)
 		{
-			bHasSuccessfulAttempt |=
-				Attempt.Invocation.Intent.IntentId
-					== Completion.Intent.IntentId
-				&& Attempt.Result.IsSuccess();
+			if (Attempt.Invocation.Intent.IntentId
+					!= Completion.Intent.IntentId
+				|| !Attempt.Result.IsSuccess())
+			{
+				continue;
+			}
+			if (Completion.Intent.Operation
+					== Edemo_mapShanmenFormationInfluenceOperation::Apply
+				&& (!Attempt.Invocation.Evaluation.HasReceipt()
+					|| !Attempt.Invocation.Evaluation.GetReceipt().Matches(
+						Completion.EvaluationReceipt)))
+			{
+				return false;
+			}
+			bHasSuccessfulAttempt = true;
 		}
 		if (!bHasSuccessfulAttempt)
 		{
@@ -320,12 +373,17 @@ Fdemo_mapShanmenFormationInfluenceLeaseExecutor::Execute(
 			FindCompletedIntent(Invocation.Intent.IntentId))
 	{
 		if (!Existing->Key.Matches(Key)
-			|| Existing->Intent.Operation != Invocation.Intent.Operation)
+			|| Existing->Intent.Operation != Invocation.Intent.Operation
+			|| (Invocation.Intent.Operation
+					== Edemo_mapShanmenFormationInfluenceOperation::Apply
+				&& (!Invocation.Evaluation.HasReceipt()
+					|| !Invocation.Evaluation.GetReceipt().Matches(
+						Existing->EvaluationReceipt))))
 		{
 			return Rejected(TEXT("Completed intent identity conflicts with lease evidence."));
 		}
 		return Finish(Completed(
-			Invocation, Key,
+			Invocation, Key, Existing->EvaluationReceipt,
 			TEXT("The completed intent recovered without repeating its lease mutation.")));
 	}
 
@@ -338,18 +396,23 @@ Fdemo_mapShanmenFormationInfluenceLeaseExecutor::Execute(
 				TEXT("A different Apply intent already owns the active lease.")));
 		}
 		{
+			const auto& EvaluationReceipt =
+				Invocation.Evaluation.GetReceipt();
 			Fdemo_mapShanmenFormationInfluenceLeaseSnapshot& Lease =
 				ActiveLeases.AddDefaulted_GetRef();
-			Lease.LeaseId = MakeLeaseId(Key);
+			Lease.LeaseId = MakeLeaseId(Key, EvaluationReceipt);
 			Lease.Key = Key;
 			Lease.ApplyIntentId = Invocation.Intent.IntentId;
+			Lease.EvaluationReceipt = EvaluationReceipt;
 			FCompletedIntentRecord& Completion =
 				CompletedIntents.AddDefaulted_GetRef();
 			Completion.Intent = Invocation.Intent;
 			Completion.Key = Key;
+			Completion.EvaluationReceipt = EvaluationReceipt;
 		}
 		return Finish(Completed(
-			Invocation, Key, TEXT("Influence lease became active.")));
+			Invocation, Key, Invocation.Evaluation.GetReceipt(),
+			TEXT("Influence lease became active with frozen evaluation evidence.")));
 	case Edemo_mapShanmenFormationInfluenceOperation::Remove:
 		{
 			Fdemo_mapShanmenFormationInfluenceLeaseSnapshot* Lease =
@@ -368,14 +431,17 @@ Fdemo_mapShanmenFormationInfluenceLeaseExecutor::Execute(
 			{
 				return Rejected(TEXT("Active lease lookup became inconsistent."));
 			}
+			const auto FrozenEvaluationReceipt = Lease->EvaluationReceipt;
 			ActiveLeases.RemoveAt(LeaseIndex);
 			FCompletedIntentRecord& Completion =
 				CompletedIntents.AddDefaulted_GetRef();
 			Completion.Intent = Invocation.Intent;
 			Completion.Key = Key;
+			Completion.EvaluationReceipt = FrozenEvaluationReceipt;
+			return Finish(Completed(
+				Invocation, Key, FrozenEvaluationReceipt,
+				TEXT("Influence lease was removed using its frozen evaluation evidence.")));
 		}
-		return Finish(Completed(
-			Invocation, Key, TEXT("Influence lease was removed.")));
 	default:
 		return Rejected(TEXT("Unknown influence lease operation."));
 	}
@@ -415,4 +481,23 @@ bool Fdemo_mapShanmenFormationInfluenceLeaseExecutor::TryGetAttemptResult(
 	}
 	OutResult = Record->Result;
 	return true;
+}
+
+bool Fdemo_mapShanmenFormationInfluenceLeaseExecutor::
+TryGetCompletedEvaluationReceipt(
+	const FGuid& IntentId,
+	Fdemo_mapShanmenFormationInfluenceEvaluationReceipt& OutReceipt) const
+{
+	OutReceipt = Fdemo_mapShanmenFormationInfluenceEvaluationReceipt();
+	if (!IsConsistent() || !IntentId.IsValid())
+	{
+		return false;
+	}
+	const FCompletedIntentRecord* Record = FindCompletedIntent(IntentId);
+	if (!Record)
+	{
+		return false;
+	}
+	OutReceipt = Record->EvaluationReceipt;
+	return OutReceipt.IsValid();
 }

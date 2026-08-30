@@ -8,6 +8,7 @@ struct Fdemo_mapShanmenFormationInfluenceExecutionRequest
 {
 	FGuid RequestId;
 	FGuid ExpectedIntentId;
+	Fdemo_mapShanmenFormationInfluenceEvaluationBinding Evaluation;
 
 	bool IsValid() const;
 	bool Matches(
@@ -27,6 +28,7 @@ enum class Edemo_mapShanmenFormationInfluenceRouteStatus : uint8
 	BindingConflict,
 	IntentUnavailable,
 	IntentOutOfOrder,
+	EvaluationMismatch,
 	RequestConflict,
 	AttemptCollision,
 	StateInvalid

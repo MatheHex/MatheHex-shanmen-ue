@@ -30,6 +30,7 @@ struct Fdemo_mapShanmenFormationInfluenceLeaseSnapshot
 	FGuid LeaseId;
 	Fdemo_mapShanmenFormationInfluenceLeaseKey Key;
 	FGuid ApplyIntentId;
+	Fdemo_mapShanmenFormationInfluenceEvaluationReceipt EvaluationReceipt;
 
 	bool IsValid() const;
 };
@@ -60,12 +61,16 @@ public:
 	bool TryGetAttemptResult(
 		const FGuid& AttemptId,
 		Fdemo_mapShanmenFormationInfluenceExecutorResult& OutResult) const;
+	bool TryGetCompletedEvaluationReceipt(
+		const FGuid& IntentId,
+		Fdemo_mapShanmenFormationInfluenceEvaluationReceipt& OutReceipt) const;
 
 private:
 	struct FCompletedIntentRecord
 	{
 		Fdemo_mapShanmenFormationInfluenceIntent Intent;
 		Fdemo_mapShanmenFormationInfluenceLeaseKey Key;
+		Fdemo_mapShanmenFormationInfluenceEvaluationReceipt EvaluationReceipt;
 	};
 
 	struct FAttemptRecord

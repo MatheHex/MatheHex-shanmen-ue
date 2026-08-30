@@ -47,12 +47,14 @@ namespace
 
 bool Fdemo_mapShanmenFormationInfluenceExecutionCommand::IsValid() const
 {
-	return IntentId.IsValid() && AttemptId.IsValid();
+	return IntentId.IsValid() && AttemptId.IsValid()
+		&& Evaluation.IsStructurallyValid();
 }
 
 bool Fdemo_mapShanmenFormationInfluenceExecutorInvocation::IsValid() const
 {
-	return LedgerId.IsValid() && Intent.IsValid() && AttemptId.IsValid();
+	return LedgerId.IsValid() && Intent.IsValid() && AttemptId.IsValid()
+		&& Evaluation.MatchesIntent(Intent);
 }
 
 bool Fdemo_mapShanmenFormationInfluenceExecutorReceipt::IsValid() const
@@ -160,6 +162,13 @@ Fdemo_mapShanmenFormationInfluenceExecutorAdapter::TryExecute(
 		Result.Invocation.LedgerId = Ledger.GetLedgerId();
 		Result.Invocation.Intent = MoveTemp(ExistingIntent);
 		Result.Invocation.AttemptId = Command.AttemptId;
+		Result.Invocation.Evaluation = Command.Evaluation;
+		if (!Result.Invocation.IsValid())
+		{
+			return Reject(
+				Edemo_mapShanmenFormationInfluenceExecutionStatus::CommandInvalid,
+				TEXT("Influence replay command evaluation did not match its Host intent."));
+		}
 		Result.Executor.Status =
 			Edemo_mapShanmenFormationInfluenceExecutorStatus::Completed;
 		Result.Executor.Diagnostic =
@@ -199,6 +208,7 @@ Fdemo_mapShanmenFormationInfluenceExecutorAdapter::TryExecute(
 	Result.Invocation.LedgerId = Ledger.GetLedgerId();
 	Result.Invocation.Intent = Pending;
 	Result.Invocation.AttemptId = Command.AttemptId;
+	Result.Invocation.Evaluation = Command.Evaluation;
 	if (!Result.Invocation.IsValid())
 	{
 		Result.Status =

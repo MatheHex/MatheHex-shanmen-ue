@@ -86,6 +86,7 @@
       "pathRegex": "^Source/demo_map/demo_mapShanmenFormationProductHost(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10.Product.FormationProductHost",
+        "Shanmen.0_0_10.Product.FormationInfluenceEvaluationBinding",
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandHost",
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandRouter",
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCoordinator",
@@ -202,6 +203,17 @@
       ]
     },
     {
+      "name": "FormationInfluenceEvaluationBinding",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenFormationInfluenceEvaluationBinding(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Product.FormationInfluenceEvaluationBinding",
+        "Shanmen.0_0_10.Product.FormationInfluenceModifierEvaluator",
+        "Shanmen.0_0_10.Product.FormationInfluenceExecutionRouter",
+        "Shanmen.0_0_10.Product.FormationInfluenceLeaseExecutor",
+        "Shanmen.0_0_10.Product.FormationInfluenceExecutor"
+      ]
+    },
+    {
       "name": "FormationInfluenceReconciliation",
       "pathRegex": "^Source/demo_map/demo_mapShanmenFormationInfluenceReconciliationPlanner(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [
@@ -248,6 +260,7 @@
       "pathRegex": "^Source/demo_map/demo_mapShanmenFormationInfluenceExecutorAdapter(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10.Product.FormationInfluenceExecutor",
+        "Shanmen.0_0_10.Product.FormationInfluenceEvaluationBinding",
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandHost",
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandRouter",
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCoordinator",
@@ -278,6 +291,7 @@
       "pathRegex": "^Source/demo_map/demo_mapShanmenFormationInfluenceLeaseExecutor(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10.Product.FormationInfluenceLeaseExecutor",
+        "Shanmen.0_0_10.Product.FormationInfluenceEvaluationBinding",
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandHost",
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandRouter",
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCoordinator",
@@ -338,6 +352,7 @@
       "pathRegex": "^Source/demo_map/demo_mapShanmenFormationInfluenceExecutionRouter(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10.Product.FormationInfluenceExecutionRouter",
+        "Shanmen.0_0_10.Product.FormationInfluenceEvaluationBinding",
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandHost",
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandRouter",
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCoordinator",
@@ -428,6 +443,7 @@
       "pathRegex": "^Source/demo_map/demo_mapShanmenFormationInfluenceLifecycleCommandRouter(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandRouter",
+        "Shanmen.0_0_10.Product.FormationInfluenceEvaluationBinding",
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCommandHost",
         "Shanmen.0_0_10.Product.FormationInfluenceLifecycleCoordinator",
         "Shanmen.0_0_10.Product.FormationInfluenceExecutionService",

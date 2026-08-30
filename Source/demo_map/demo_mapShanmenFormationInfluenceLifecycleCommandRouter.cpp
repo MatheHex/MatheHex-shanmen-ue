@@ -20,7 +20,9 @@ namespace
 		const Fdemo_mapShanmenFormationInfluenceExecutionRequest& Request)
 	{
 		return !Request.RequestId.IsValid()
-			&& !Request.ExpectedIntentId.IsValid();
+			&& !Request.ExpectedIntentId.IsValid()
+			&& !Request.Evaluation.HasReceipt()
+			&& Request.Evaluation.IsStructurallyValid();
 	}
 }
 

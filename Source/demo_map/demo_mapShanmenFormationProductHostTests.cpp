@@ -11,6 +11,7 @@
 #include "demo_mapShanmenFormationInfluenceLifecycleCommandRouter.h"
 
 #include "ShanmenCombatResolver.h"
+#include "ShanmenCombatTags.h"
 #include "demo_map0909BSectWarehouseService.h"
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapProfileRepository.h"
@@ -493,6 +494,66 @@ namespace
 		return true;
 	}
 
+	Fdemo_mapShanmenFormationInfluenceEvaluationReceipt
+	MakeHostEvaluationReceipt(
+		const Fdemo_mapShanmenFormationInfluenceIntent& Intent,
+		const int32 MagnitudeUnits = 100)
+	{
+		check(Intent.IsValid());
+		Fdemo_mapShanmenFormationInfluencePolicy Policy;
+		Policy.PolicyDefinitionId = Intent.PolicyDefinitionId;
+		Policy.InfluenceDefinitionId = Intent.InfluenceDefinitionId;
+		Policy.Content = Intent.Content;
+		Fdemo_mapShanmenFormationInfluenceModifierSpecification Specification;
+		check(Fdemo_mapShanmenFormationInfluenceModifierSpecification::TryCreate(
+			Policy,
+			TEXT("Formation.Modifier.Test.ExecutionBinding"),
+			FShanmenCombatNativeTags::InfluenceOffensePower(),
+			FGameplayTagContainer(), FGameplayTagContainer(), MagnitudeUnits,
+			TEXT("Formation.Stack.Test.ExecutionBinding"),
+			Edemo_mapShanmenFormationInfluenceStackPolicy::Additive,
+			0, Specification));
+		Fdemo_mapShanmenFormationInfluenceEvaluationContext Context;
+		Context.RunId = Intent.RunId;
+		Context.SubjectEntityId = Intent.SubjectEntityId;
+		Context.Channel = FShanmenCombatNativeTags::InfluenceOffensePower();
+		Context.Content = Intent.Content;
+		const auto Evaluated =
+			Fdemo_mapShanmenFormationInfluenceModifierEvaluator::Evaluate(
+				Context, { Specification });
+		check(Evaluated.IsSuccess());
+		return Evaluated.Receipt;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceEvaluationBinding
+	MakeHostEvaluationBinding(
+		const Fdemo_mapShanmenFormationInfluenceIntent& Intent)
+	{
+		if (Intent.Operation
+			== Edemo_mapShanmenFormationInfluenceOperation::Remove)
+		{
+			return Fdemo_mapShanmenFormationInfluenceEvaluationBinding::
+				MakeRemove();
+		}
+		Fdemo_mapShanmenFormationInfluenceEvaluationBinding Binding;
+		check(Fdemo_mapShanmenFormationInfluenceEvaluationBinding::
+			TryCaptureApply(MakeHostEvaluationReceipt(Intent), Binding));
+		return Binding;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceExecutionCommand
+	MakeHostExecutionCommand(
+		const Fdemo_mapShanmenFormationInfluenceIntent& Intent,
+		const int32 Ordinal)
+	{
+		Fdemo_mapShanmenFormationInfluenceExecutionCommand Command;
+		Command.IntentId = Intent.IntentId;
+		Command.AttemptId = FGuid(0xF8510000 + Ordinal, 0, 0, 1);
+		Command.Evaluation = MakeHostEvaluationBinding(Intent);
+		check(Command.IsValid());
+		return Command;
+	}
+
 	Fdemo_mapShanmenFormationInfluenceExecutionCommand
 	MakeHostExecutionCommand(
 		const FGuid& IntentId,
@@ -503,6 +564,19 @@ namespace
 		Command.AttemptId = FGuid(0xF8510000 + Ordinal, 0, 0, 1);
 		check(Command.IsValid());
 		return Command;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceExecutionRequest
+	MakeHostExecutionRequest(
+		const Fdemo_mapShanmenFormationInfluenceIntent& Intent,
+		const int32 Ordinal)
+	{
+		Fdemo_mapShanmenFormationInfluenceExecutionRequest Request;
+		Request.RequestId = FGuid(0xF8710000 + Ordinal, 0, 0, 1);
+		Request.ExpectedIntentId = Intent.IntentId;
+		Request.Evaluation = MakeHostEvaluationBinding(Intent);
+		check(Request.IsValid());
+		return Request;
 	}
 
 	Fdemo_mapShanmenFormationInfluenceExecutionRequest
@@ -571,7 +645,8 @@ namespace
 	{
 		return Left.IsValid() && Right.IsValid()
 			&& Left.IntentId == Right.IntentId
-			&& Left.AttemptId == Right.AttemptId;
+			&& Left.AttemptId == Right.AttemptId
+			&& Left.Evaluation.Matches(Right.Evaluation);
 	}
 
 	class FScriptedHostInfluenceExecutor final
@@ -668,6 +743,7 @@ namespace
 		Invocation.LedgerId = Host.GetInfluenceLedger().GetLedgerId();
 		Invocation.Intent = Intent;
 		Invocation.AttemptId = FGuid(0xF8610000 + Ordinal, 0, 0, 1);
+		Invocation.Evaluation = MakeHostEvaluationBinding(Intent);
 		check(Invocation.IsValid());
 		return Invocation;
 	}
@@ -1519,7 +1595,7 @@ bool Fdemo_mapFormationInfluenceExecutorSuccessReplayTest::RunTest(
 		return false;
 	}
 	const auto Command = MakeHostExecutionCommand(
-		Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 1);
+		Prime.ReconciliationPlan.Batch.Intents[0], 1);
 	FScriptedHostInfluenceExecutor Executor;
 	const auto First =
 		Fdemo_mapShanmenFormationInfluenceExecutorAdapter::TryExecute(
@@ -1570,10 +1646,9 @@ bool Fdemo_mapFormationInfluenceExecutorRetryTest::RunTest(const FString&)
 	{
 		return false;
 	}
-	const FGuid IntentId =
-		Prime.ReconciliationPlan.Batch.Intents[0].IntentId;
-	const auto RetryCommand = MakeHostExecutionCommand(IntentId, 10);
-	const auto SuccessCommand = MakeHostExecutionCommand(IntentId, 11);
+	const auto& Intent = Prime.ReconciliationPlan.Batch.Intents[0];
+	const auto RetryCommand = MakeHostExecutionCommand(Intent, 10);
+	const auto SuccessCommand = MakeHostExecutionCommand(Intent, 11);
 	FScriptedHostInfluenceExecutor Executor;
 	Executor.Outcomes = {
 		Edemo_mapShanmenFormationInfluenceAttemptOutcome::RetryableFailure,
@@ -1625,10 +1700,8 @@ bool Fdemo_mapFormationInfluenceExecutorFenceTest::RunTest(const FString&)
 	{
 		return false;
 	}
-	const FGuid FirstIntent =
-		Prime.ReconciliationPlan.Batch.Intents[0].IntentId;
-	const FGuid SecondIntent =
-		Prime.ReconciliationPlan.Batch.Intents[1].IntentId;
+	const auto& FirstIntent = Prime.ReconciliationPlan.Batch.Intents[0];
+	const auto& SecondIntent = Prime.ReconciliationPlan.Batch.Intents[1];
 	FScriptedHostInfluenceExecutor Executor;
 	const auto OutOfOrder =
 		Fdemo_mapShanmenFormationInfluenceExecutorAdapter::TryExecute(
@@ -1694,7 +1767,7 @@ bool Fdemo_mapFormationInfluenceExecutorTerminalTest::RunTest(const FString&)
 	}
 	FScriptedHostInfluenceExecutor Executor;
 	const auto ApplyCommand = MakeHostExecutionCommand(
-		Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 30);
+		Prime.ReconciliationPlan.Batch.Intents[0], 30);
 	const auto Apply =
 		Fdemo_mapShanmenFormationInfluenceExecutorAdapter::TryExecute(
 			Fixture.Host, Fixture.Correlation, ApplyCommand, Executor);
@@ -1707,7 +1780,7 @@ bool Fdemo_mapFormationInfluenceExecutorTerminalTest::RunTest(const FString&)
 		return false;
 	}
 	const auto RemoveCommand =
-		MakeHostExecutionCommand(RemoveIntent.IntentId, 31);
+		MakeHostExecutionCommand(RemoveIntent, 31);
 	const auto Remove =
 		Fdemo_mapShanmenFormationInfluenceExecutorAdapter::TryExecute(
 			Fixture.Host, Fixture.Correlation, RemoveCommand, Executor);
@@ -1752,7 +1825,7 @@ bool Fdemo_mapFormationInfluenceLeaseIntegrationTest::RunTest(const FString&)
 	}
 	Fdemo_mapShanmenFormationInfluenceLeaseExecutor Executor;
 	const auto ApplyCommand = MakeHostExecutionCommand(
-		Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 100);
+		Prime.ReconciliationPlan.Batch.Intents[0], 100);
 	const auto Apply =
 		Fdemo_mapShanmenFormationInfluenceExecutorAdapter::TryExecute(
 			Fixture.Host, Fixture.Correlation, ApplyCommand, Executor);
@@ -1767,7 +1840,7 @@ bool Fdemo_mapFormationInfluenceLeaseIntegrationTest::RunTest(const FString&)
 	const auto Remove =
 		Fdemo_mapShanmenFormationInfluenceExecutorAdapter::TryExecute(
 			Fixture.Host, Fixture.Correlation,
-			MakeHostExecutionCommand(RemoveIntent.IntentId, 101), Executor);
+			MakeHostExecutionCommand(RemoveIntent, 101), Executor);
 	const auto Seal = Fixture.Host.TrySealInfluence(Fixture.Correlation);
 	const auto End = Fixture.Host.TryEndAndTeardown(
 		Fixture.World, Fixture.Correlation);
@@ -1811,7 +1884,7 @@ bool Fdemo_mapFormationInfluenceLeaseLostAckTest::RunTest(const FString&)
 	const bool bReadStoredFirst = Executor.TryGetAttemptResult(
 		FirstInvocation.AttemptId, StoredFirst);
 	const auto RecoveryCommand = MakeHostExecutionCommand(
-		ApplyIntent.IntentId, 111);
+		ApplyIntent, 111);
 	const auto Recovered =
 		Fdemo_mapShanmenFormationInfluenceExecutorAdapter::TryExecute(
 			Fixture.Host, Fixture.Correlation, RecoveryCommand, Executor);
@@ -1960,20 +2033,20 @@ bool Fdemo_mapFormationInfluenceProductRuntimeSingleStepTest::RunTest(
 	}
 	Fdemo_mapShanmenFormationInfluenceProductRuntime Runtime;
 	const auto OutOfOrderCommand = MakeHostExecutionCommand(
-		Prime.ReconciliationPlan.Batch.Intents[1].IntentId, 200);
+		Prime.ReconciliationPlan.Batch.Intents[1], 200);
 	const auto OutOfOrder = Runtime.TryExecuteOne(
 		Fixture.Host, Fixture.Correlation, OutOfOrderCommand);
 	const bool bUnboundAfterOutOfOrder = !Runtime.IsBound()
 		&& Runtime.GetExecutorAttemptCount() == 0
 		&& Fixture.Host.GetPendingInfluenceIntentCount() == 2;
 	const auto FirstCommand = MakeHostExecutionCommand(
-		Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 201);
+		Prime.ReconciliationPlan.Batch.Intents[0], 201);
 	const auto First = Runtime.TryExecuteOne(
 		Fixture.Host, Fixture.Correlation, FirstCommand);
 	const auto Replay = Runtime.TryExecuteOne(
 		Fixture.Host, Fixture.Correlation, FirstCommand);
 	const auto SecondCommand = MakeHostExecutionCommand(
-		Prime.ReconciliationPlan.Batch.Intents[1].IntentId, 202);
+		Prime.ReconciliationPlan.Batch.Intents[1], 202);
 	const auto Second = Runtime.TryExecuteOne(
 		Fixture.Host, Fixture.Correlation, SecondCommand);
 
@@ -2024,11 +2097,11 @@ bool Fdemo_mapFormationInfluenceProductRuntimeBindingFenceTest::RunTest(
 	}
 	Fdemo_mapShanmenFormationInfluenceProductRuntime Runtime;
 	const auto FirstCommand = MakeHostExecutionCommand(
-		FirstPrime.ReconciliationPlan.Batch.Intents[0].IntentId, 210);
+		FirstPrime.ReconciliationPlan.Batch.Intents[0], 210);
 	const auto First = Runtime.TryExecuteOne(
 		FirstFixture.Host, FirstFixture.Correlation, FirstCommand);
 	const auto OtherCommand = MakeHostExecutionCommand(
-		OtherPrime.ReconciliationPlan.Batch.Intents[0].IntentId, 211);
+		OtherPrime.ReconciliationPlan.Batch.Intents[0], 211);
 	const auto ForeignHost = Runtime.TryExecuteOne(
 		OtherFixture.Host, OtherFixture.Correlation, OtherCommand);
 	const auto StaleCorrelation = Runtime.TryExecuteOne(
@@ -2079,6 +2152,7 @@ bool Fdemo_mapFormationInfluenceProductRuntimeLateAttachTest::RunTest(
 	Fdemo_mapShanmenFormationInfluenceExecutionCommand ReplayCommand;
 	ReplayCommand.IntentId = Intent.IntentId;
 	ReplayCommand.AttemptId = Manual.AttemptId;
+	ReplayCommand.Evaluation = MakeHostEvaluationBinding(Intent);
 	Fdemo_mapShanmenFormationInfluenceProductRuntime Runtime;
 	const auto LateAttach = Runtime.TryExecuteOne(
 		Fixture.Host, Fixture.Correlation, ReplayCommand);
@@ -2114,12 +2188,13 @@ bool Fdemo_mapFormationInfluenceProductRuntimeLateAttachTest::RunTest(
 	Fdemo_mapShanmenFormationInfluenceExecutionCommand RetryReplayCommand;
 	RetryReplayCommand.IntentId = RetryIntent.IntentId;
 	RetryReplayCommand.AttemptId = ManualRetry.AttemptId;
+	RetryReplayCommand.Evaluation = MakeHostEvaluationBinding(RetryIntent);
 	Fdemo_mapShanmenFormationInfluenceProductRuntime RetryRuntime;
 	const auto RetryReplay = RetryRuntime.TryExecuteOne(
 		RetryFixture.Host, RetryFixture.Correlation, RetryReplayCommand);
 	const auto RetryRecovered = RetryRuntime.TryExecuteOne(
 		RetryFixture.Host, RetryFixture.Correlation,
-		MakeHostExecutionCommand(RetryIntent.IntentId, 222));
+		MakeHostExecutionCommand(RetryIntent, 222));
 	TestTrue(TEXT("Retry-only Host history can bind before semantic mutation"),
 		RetryRecorded.IsSuccess() && RetryReplay.IsSuccess()
 			&& !RetryReplay.bExecutorInvoked && RetryRecovered.IsSuccess()
@@ -2151,7 +2226,7 @@ bool Fdemo_mapFormationInfluenceProductRuntimeTerminalTest::RunTest(
 	}
 	Fdemo_mapShanmenFormationInfluenceProductRuntime Runtime;
 	const auto ApplyCommand = MakeHostExecutionCommand(
-		Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 230);
+		Prime.ReconciliationPlan.Batch.Intents[0], 230);
 	const auto Apply = Runtime.TryExecuteOne(
 		Fixture.Host, Fixture.Correlation, ApplyCommand);
 	const auto Terminal = Fixture.Host.TryPrepareTerminalInfluence(
@@ -2163,7 +2238,7 @@ bool Fdemo_mapFormationInfluenceProductRuntimeTerminalTest::RunTest(
 		return false;
 	}
 	const auto RemoveCommand = MakeHostExecutionCommand(
-		RemoveIntent.IntentId, 231);
+		RemoveIntent, 231);
 	const auto Remove = Runtime.TryExecuteOne(
 		Fixture.Host, Fixture.Correlation, RemoveCommand);
 	const auto Seal = Fixture.Host.TrySealInfluence(Fixture.Correlation);
@@ -2208,7 +2283,7 @@ bool Fdemo_mapFormationInfluenceExecutionRouterRouteTest::RunTest(
 	Fdemo_mapShanmenFormationInfluenceExecutionRouter Router;
 	Fdemo_mapShanmenFormationInfluenceProductRuntime Runtime;
 	const auto FirstRequest = MakeHostExecutionRequest(
-		Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 1);
+		Prime.ReconciliationPlan.Batch.Intents[0], 1);
 	const auto FirstRoute = Router.TryRoute(
 		Fixture.Host, Fixture.Correlation, FirstRequest);
 	const auto FirstRouteReplay = Router.TryRoute(
@@ -2222,7 +2297,7 @@ bool Fdemo_mapFormationInfluenceExecutionRouterRouteTest::RunTest(
 		Fixture.Host, Fixture.Correlation, FirstRouteReplay.Command);
 
 	const auto SecondRequest = MakeHostExecutionRequest(
-		Prime.ReconciliationPlan.Batch.Intents[1].IntentId, 2);
+		Prime.ReconciliationPlan.Batch.Intents[1], 2);
 	const auto SecondRoute = Router.TryRoute(
 		Fixture.Host, Fixture.Correlation, SecondRequest);
 	const auto SecondExecution = Runtime.TryExecuteOne(
@@ -2273,10 +2348,8 @@ bool Fdemo_mapFormationInfluenceExecutionRouterFenceTest::RunTest(
 		return false;
 	}
 
-	const FGuid FirstIntent =
-		Prime.ReconciliationPlan.Batch.Intents[0].IntentId;
-	const FGuid SecondIntent =
-		Prime.ReconciliationPlan.Batch.Intents[1].IntentId;
+	const auto& FirstIntent = Prime.ReconciliationPlan.Batch.Intents[0];
+	const auto& SecondIntent = Prime.ReconciliationPlan.Batch.Intents[1];
 	Fdemo_mapShanmenFormationInfluenceExecutionRouter Router;
 	const auto OutOfOrder = Router.TryRoute(
 		Fixture.Host, Fixture.Correlation,
@@ -2287,7 +2360,7 @@ bool Fdemo_mapFormationInfluenceExecutionRouterFenceTest::RunTest(
 	const auto FirstRoute = Router.TryRoute(
 		Fixture.Host, Fixture.Correlation, FirstRequest);
 	auto ConflictingRequest = FirstRequest;
-	ConflictingRequest.ExpectedIntentId = SecondIntent;
+	ConflictingRequest.ExpectedIntentId = SecondIntent.IntentId;
 	const auto Conflict = Router.TryRoute(
 		Fixture.Host, Fixture.Correlation, ConflictingRequest);
 	const auto SecondRequest = MakeHostExecutionRequest(SecondIntent, 12);
@@ -2352,7 +2425,7 @@ bool Fdemo_mapFormationInfluenceExecutionRouterRecoveryTest::RunTest(
 	}
 
 	const auto Request = MakeHostExecutionRequest(
-		FirstPrime.ReconciliationPlan.Batch.Intents[0].IntentId, 20);
+		FirstPrime.ReconciliationPlan.Batch.Intents[0], 20);
 	Fdemo_mapShanmenFormationInfluenceExecutionRouter Router;
 	Fdemo_mapShanmenFormationInfluenceProductRuntime Runtime;
 	const auto InitialRoute = Router.TryRoute(
@@ -2366,7 +2439,7 @@ bool Fdemo_mapFormationInfluenceExecutionRouterRecoveryTest::RunTest(
 	const auto HostReplay = Runtime.TryExecuteOne(
 		FirstFixture.Host, FirstFixture.Correlation, Recovered.Command);
 	const auto ForeignRequest = MakeHostExecutionRequest(
-		OtherPrime.ReconciliationPlan.Batch.Intents[0].IntentId, 21);
+		OtherPrime.ReconciliationPlan.Batch.Intents[0], 21);
 	const auto Foreign = Router.TryRoute(
 		OtherFixture.Host, OtherFixture.Correlation, ForeignRequest);
 
@@ -2410,8 +2483,7 @@ bool Fdemo_mapFormationInfluenceExecutionRouterRetryTest::RunTest(
 		return false;
 	}
 
-	const FGuid ApplyIntent =
-		Prime.ReconciliationPlan.Batch.Intents[0].IntentId;
+	const auto& ApplyIntent = Prime.ReconciliationPlan.Batch.Intents[0];
 	Fdemo_mapShanmenFormationInfluenceExecutionRouter Router;
 	const auto RetryRequest = MakeHostExecutionRequest(ApplyIntent, 30);
 	const auto RetryRoute = Router.TryRoute(
@@ -2443,7 +2515,7 @@ bool Fdemo_mapFormationInfluenceExecutionRouterRetryTest::RunTest(
 		return false;
 	}
 	const auto RemoveRequest = MakeHostExecutionRequest(
-		RemoveIntent.IntentId, 32);
+		RemoveIntent, 32);
 	const auto RemoveRoute = Router.TryRoute(
 		Fixture.Host, Fixture.Correlation, RemoveRequest);
 	const auto RemoveExecution = Runtime.TryExecuteOne(
@@ -2511,13 +2583,13 @@ bool Fdemo_mapFormationInfluenceExecutionServiceSingleStepTest::RunTest(
 
 	Fdemo_mapShanmenFormationInfluenceExecutionService Service;
 	const auto FirstRequest = MakeHostExecutionRequest(
-		Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 60);
+		Prime.ReconciliationPlan.Batch.Intents[0], 60);
 	const auto First = Service.TryExecuteOne(
 		Fixture.Host, Fixture.Correlation, FirstRequest);
 	const auto Replay = Service.TryExecuteOne(
 		Fixture.Host, Fixture.Correlation, FirstRequest);
 	const auto SecondRequest = MakeHostExecutionRequest(
-		Prime.ReconciliationPlan.Batch.Intents[1].IntentId, 61);
+		Prime.ReconciliationPlan.Batch.Intents[1], 61);
 	const auto Second = Service.TryExecuteOne(
 		Fixture.Host, Fixture.Correlation, SecondRequest);
 
@@ -2573,10 +2645,8 @@ bool Fdemo_mapFormationInfluenceExecutionServiceFenceTest::RunTest(
 		return false;
 	}
 
-	const FGuid FirstIntent =
-		FirstPrime.ReconciliationPlan.Batch.Intents[0].IntentId;
-	const FGuid SecondIntent =
-		FirstPrime.ReconciliationPlan.Batch.Intents[1].IntentId;
+	const auto& FirstIntent = FirstPrime.ReconciliationPlan.Batch.Intents[0];
+	const auto& SecondIntent = FirstPrime.ReconciliationPlan.Batch.Intents[1];
 	Fdemo_mapShanmenFormationInfluenceExecutionService Service;
 	const auto OutOfOrder = Service.TryExecuteOne(
 		FirstFixture.Host, FirstFixture.Correlation,
@@ -2588,13 +2658,13 @@ bool Fdemo_mapFormationInfluenceExecutionServiceFenceTest::RunTest(
 	const auto First = Service.TryExecuteOne(
 		FirstFixture.Host, FirstFixture.Correlation, FirstRequest);
 	auto ConflictRequest = FirstRequest;
-	ConflictRequest.ExpectedIntentId = SecondIntent;
+	ConflictRequest.ExpectedIntentId = SecondIntent.IntentId;
 	const auto Conflict = Service.TryExecuteOne(
 		FirstFixture.Host, FirstFixture.Correlation, ConflictRequest);
 	const auto Foreign = Service.TryExecuteOne(
 		OtherFixture.Host, OtherFixture.Correlation,
 		MakeHostExecutionRequest(
-			OtherPrime.ReconciliationPlan.Batch.Intents[0].IntentId, 72));
+			OtherPrime.ReconciliationPlan.Batch.Intents[0], 72));
 	const auto Second = Service.TryExecuteOne(
 		FirstFixture.Host, FirstFixture.Correlation,
 		MakeHostExecutionRequest(SecondIntent, 73));
@@ -2650,7 +2720,7 @@ bool Fdemo_mapFormationInfluenceExecutionServiceRecoveryTest::RunTest(
 		return false;
 	}
 	const auto SuccessRequest = MakeHostExecutionRequest(
-		SuccessPrime.ReconciliationPlan.Batch.Intents[0].IntentId, 80);
+		SuccessPrime.ReconciliationPlan.Batch.Intents[0], 80);
 	Fdemo_mapShanmenFormationInfluenceExecutionRouter SuccessRouter;
 	Fdemo_mapShanmenFormationInfluenceProductRuntime SuccessRuntime;
 	const auto SuccessRoute = SuccessRouter.TryRoute(
@@ -2688,8 +2758,7 @@ bool Fdemo_mapFormationInfluenceExecutionServiceRecoveryTest::RunTest(
 	{
 		return false;
 	}
-	const FGuid RetryIntent =
-		RetryPrime.ReconciliationPlan.Batch.Intents[0].IntentId;
+	const auto& RetryIntent = RetryPrime.ReconciliationPlan.Batch.Intents[0];
 	const auto RetryRequest = MakeHostExecutionRequest(RetryIntent, 81);
 	Fdemo_mapShanmenFormationInfluenceExecutionRouter RetryRouter;
 	const auto RetryRoute = RetryRouter.TryRoute(
@@ -2751,7 +2820,7 @@ bool Fdemo_mapFormationInfluenceExecutionServiceTerminalTest::RunTest(
 
 	Fdemo_mapShanmenFormationInfluenceExecutionService Service;
 	const auto ApplyRequest = MakeHostExecutionRequest(
-		Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 90);
+		Prime.ReconciliationPlan.Batch.Intents[0], 90);
 	const auto Apply = Service.TryExecuteOne(
 		Fixture.Host, Fixture.Correlation, ApplyRequest);
 	const auto Terminal = Fixture.Host.TryPrepareTerminalInfluence(
@@ -2763,7 +2832,7 @@ bool Fdemo_mapFormationInfluenceExecutionServiceTerminalTest::RunTest(
 		return false;
 	}
 	const auto RemoveRequest = MakeHostExecutionRequest(
-		RemoveIntent.IntentId, 91);
+		RemoveIntent, 91);
 	const auto Remove = Service.TryExecuteOne(
 		Fixture.Host, Fixture.Correlation, RemoveRequest);
 	const auto Seal = Fixture.Host.TrySealInfluence(Fixture.Correlation);
@@ -2829,11 +2898,11 @@ bool Fdemo_mapFormationInfluenceLifecycleCoordinatorExplicitTest::RunTest(
 	const auto FirstApply = Coordinator.TryExecuteStep(
 		Fixture.Host, Fixture.Correlation,
 		MakeHostExecutionRequest(
-			Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 100));
+			Prime.ReconciliationPlan.Batch.Intents[0], 100));
 	const auto SecondApply = Coordinator.TryExecuteStep(
 		Fixture.Host, Fixture.Correlation,
 		MakeHostExecutionRequest(
-			Prime.ReconciliationPlan.Batch.Intents[1].IntentId, 101));
+			Prime.ReconciliationPlan.Batch.Intents[1], 101));
 	const auto Terminal = Coordinator.TryPrepareTerminal(
 		Fixture.Host, Fixture.Correlation);
 	Fdemo_mapShanmenFormationInfluenceIntent FirstRemoveIntent;
@@ -2845,7 +2914,7 @@ bool Fdemo_mapFormationInfluenceLifecycleCoordinatorExplicitTest::RunTest(
 	}
 	const auto FirstRemove = Coordinator.TryExecuteStep(
 		Fixture.Host, Fixture.Correlation,
-		MakeHostExecutionRequest(FirstRemoveIntent.IntentId, 102));
+		MakeHostExecutionRequest(FirstRemoveIntent, 102));
 	Fdemo_mapShanmenFormationInfluenceIntent SecondRemoveIntent;
 	if (!FirstRemove.IsSuccess()
 		|| !Fixture.Host.TryPeekNextInfluenceIntent(SecondRemoveIntent))
@@ -2854,7 +2923,7 @@ bool Fdemo_mapFormationInfluenceLifecycleCoordinatorExplicitTest::RunTest(
 	}
 	const auto SecondRemove = Coordinator.TryExecuteStep(
 		Fixture.Host, Fixture.Correlation,
-		MakeHostExecutionRequest(SecondRemoveIntent.IntentId, 103));
+		MakeHostExecutionRequest(SecondRemoveIntent, 103));
 	const auto Completed = Coordinator.TrySealAndEnd(
 		Fixture.World, Fixture.Host, Fixture.Correlation);
 
@@ -2927,13 +2996,13 @@ bool Fdemo_mapFormationInfluenceLifecycleCoordinatorDrainFenceTest::RunTest(
 	const auto FirstApply = Coordinator.TryExecuteStep(
 		Fixture.Host, Fixture.Correlation,
 		MakeHostExecutionRequest(
-			Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 111));
+			Prime.ReconciliationPlan.Batch.Intents[0], 111));
 	const int32 PendingAfterOneStep =
 		Fixture.Host.GetPendingInfluenceIntentCount();
 	const auto SecondApply = Coordinator.TryExecuteStep(
 		Fixture.Host, Fixture.Correlation,
 		MakeHostExecutionRequest(
-			Prime.ReconciliationPlan.Batch.Intents[1].IntentId, 112));
+			Prime.ReconciliationPlan.Batch.Intents[1], 112));
 	const auto FirstRemove = Coordinator.TryExecuteStep(
 		Fixture.Host, Fixture.Correlation,
 		MakeHostExecutionRequest(FirstRemoveIntent, 113));
@@ -3005,12 +3074,12 @@ bool Fdemo_mapFormationInfluenceLifecycleCoordinatorBindingTest::RunTest(
 	const auto Stale = Coordinator.TryExecuteStep(
 		FirstFixture.Host, OtherFixture.Correlation,
 		MakeHostExecutionRequest(
-			FirstPrime.ReconciliationPlan.Batch.Intents[0].IntentId, 120));
+			FirstPrime.ReconciliationPlan.Batch.Intents[0], 120));
 
 	const auto FirstApply = Coordinator.TryExecuteStep(
 		FirstFixture.Host, FirstFixture.Correlation,
 		MakeHostExecutionRequest(
-			FirstPrime.ReconciliationPlan.Batch.Intents[0].IntentId, 121));
+			FirstPrime.ReconciliationPlan.Batch.Intents[0], 121));
 	Fdemo_mapShanmenFormationInfluenceIntent FirstRemoveIntent;
 	if (!FirstApply.IsSuccess()
 		|| !FirstFixture.Host.TryPeekNextInfluenceIntent(FirstRemoveIntent))
@@ -3019,12 +3088,12 @@ bool Fdemo_mapFormationInfluenceLifecycleCoordinatorBindingTest::RunTest(
 	}
 	const auto FirstRemove = Coordinator.TryExecuteStep(
 		FirstFixture.Host, FirstFixture.Correlation,
-		MakeHostExecutionRequest(FirstRemoveIntent.IntentId, 122));
+		MakeHostExecutionRequest(FirstRemoveIntent, 122));
 	const auto FirstCompleted = Coordinator.TrySealAndEnd(
 		FirstFixture.World, FirstFixture.Host, FirstFixture.Correlation);
 
 	const auto OtherRequest = MakeHostExecutionRequest(
-		OtherPrime.ReconciliationPlan.Batch.Intents[0].IntentId, 123);
+		OtherPrime.ReconciliationPlan.Batch.Intents[0], 123);
 	Fdemo_mapShanmenFormationInfluenceExecutionService ExternalService;
 	const auto ExternalSuccess = ExternalService.TryExecuteOne(
 		OtherFixture.Host, OtherFixture.Correlation, OtherRequest);
@@ -3083,7 +3152,7 @@ bool Fdemo_mapFormationInfluenceLifecycleCoordinatorRecoveryTest::RunTest(
 
 	Fdemo_mapShanmenFormationInfluenceLifecycleCoordinator Coordinator;
 	const auto ApplyRequest = MakeHostExecutionRequest(
-		Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 130);
+		Prime.ReconciliationPlan.Batch.Intents[0], 130);
 	const auto Apply = Coordinator.TryExecuteStep(
 		Fixture.Host, Fixture.Correlation, ApplyRequest);
 	const auto Terminal = Coordinator.TryPrepareTerminal(
@@ -3095,7 +3164,7 @@ bool Fdemo_mapFormationInfluenceLifecycleCoordinatorRecoveryTest::RunTest(
 		return false;
 	}
 	const auto RemoveRequest = MakeHostExecutionRequest(
-		RemoveIntent.IntentId, 131);
+		RemoveIntent, 131);
 	const auto Remove = Coordinator.TryExecuteStep(
 		Fixture.Host, Fixture.Correlation, RemoveRequest);
 	const auto FailedEnd = Coordinator.TrySealAndEnd(
@@ -3168,11 +3237,11 @@ bool Fdemo_mapFormationInfluenceLifecycleCommandRouterExplicitTest::RunTest(
 	const auto FirstApplyCommand = MakeLifecycleStepCommand(
 		Fixture.Correlation,
 		MakeHostExecutionRequest(
-			Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 200));
+			Prime.ReconciliationPlan.Batch.Intents[0], 200));
 	const auto SecondApplyCommand = MakeLifecycleStepCommand(
 		Fixture.Correlation,
 		MakeHostExecutionRequest(
-			Prime.ReconciliationPlan.Batch.Intents[1].IntentId, 201));
+			Prime.ReconciliationPlan.Batch.Intents[1], 201));
 	const auto FirstApply = Router.TryRoute(
 		nullptr, Fixture.Host, FirstApplyCommand);
 	const auto SecondApply = Router.TryRoute(
@@ -3192,7 +3261,7 @@ bool Fdemo_mapFormationInfluenceLifecycleCommandRouterExplicitTest::RunTest(
 		nullptr, Fixture.Host,
 		MakeLifecycleStepCommand(
 			Fixture.Correlation,
-			MakeHostExecutionRequest(FirstRemoveIntent.IntentId, 202)));
+			MakeHostExecutionRequest(FirstRemoveIntent, 202)));
 	Fdemo_mapShanmenFormationInfluenceIntent SecondRemoveIntent;
 	if (!FirstRemove.IsSuccess()
 		|| !Fixture.Host.TryPeekNextInfluenceIntent(SecondRemoveIntent))
@@ -3203,7 +3272,7 @@ bool Fdemo_mapFormationInfluenceLifecycleCommandRouterExplicitTest::RunTest(
 		nullptr, Fixture.Host,
 		MakeLifecycleStepCommand(
 			Fixture.Correlation,
-			MakeHostExecutionRequest(SecondRemoveIntent.IntentId, 203)));
+			MakeHostExecutionRequest(SecondRemoveIntent, 203)));
 	const auto Completed = Router.TryRoute(
 		Fixture.World, Fixture.Host,
 		MakeLifecycleEndCommand(Fixture.Correlation, 205));
@@ -3251,9 +3320,8 @@ bool Fdemo_mapFormationInfluenceLifecycleCommandRouterIdentityTest::RunTest(
 		return false;
 	}
 
-	const FGuid IntentId =
-		Prime.ReconciliationPlan.Batch.Intents[0].IntentId;
-	const auto Request = MakeHostExecutionRequest(IntentId, 210);
+	const auto& Intent = Prime.ReconciliationPlan.Batch.Intents[0];
+	const auto Request = MakeHostExecutionRequest(Intent, 210);
 	Fdemo_mapShanmenFormationInfluenceLifecycleCommand AliasedStep;
 	const bool bAliasedStepCaptured =
 		Fdemo_mapShanmenFormationInfluenceLifecycleCommand::TryCaptureStep(
@@ -3361,11 +3429,11 @@ bool Fdemo_mapFormationInfluenceLifecycleCommandRouterProgressTest::RunTest(
 		MakeLifecycleEndCommand(Fixture.Correlation, 221);
 	const auto EarlyEnd = Router.TryRoute(
 		Fixture.World, Fixture.Host, EndCommand);
-	const FGuid RemoveIntentId = Terminal.Lifecycle.TerminalPreparation.
-		ReconciliationPlan.Batch.Intents[0].IntentId;
+	const auto& RemoveIntent = Terminal.Lifecycle.TerminalPreparation.
+		ReconciliationPlan.Batch.Intents[0];
 	const auto RemoveCommand = MakeLifecycleStepCommand(
 		Fixture.Correlation,
-		MakeHostExecutionRequest(RemoveIntentId, 220));
+		MakeHostExecutionRequest(RemoveIntent, 220));
 	const auto EarlyRemove = Router.TryRoute(
 		nullptr, Fixture.Host, RemoveCommand);
 
@@ -3374,7 +3442,7 @@ bool Fdemo_mapFormationInfluenceLifecycleCommandRouterProgressTest::RunTest(
 		MakeLifecycleStepCommand(
 			Fixture.Correlation,
 			MakeHostExecutionRequest(
-				Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 221)));
+				Prime.ReconciliationPlan.Batch.Intents[0], 221)));
 	const auto Remove = Router.TryRoute(
 		nullptr, Fixture.Host, RemoveCommand);
 	const auto Completed = Router.TryRoute(
@@ -3433,7 +3501,7 @@ bool Fdemo_mapFormationInfluenceLifecycleCommandRouterRecoveryTest::RunTest(
 		MakeLifecycleStepCommand(
 			Fixture.Correlation,
 			MakeHostExecutionRequest(
-				Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 230)));
+				Prime.ReconciliationPlan.Batch.Intents[0], 230)));
 	const auto Terminal = Router.TryRoute(
 		nullptr, Fixture.Host,
 		MakeLifecycleTerminalCommand(Fixture.Correlation, 231));
@@ -3447,7 +3515,7 @@ bool Fdemo_mapFormationInfluenceLifecycleCommandRouterRecoveryTest::RunTest(
 		nullptr, Fixture.Host,
 		MakeLifecycleStepCommand(
 			Fixture.Correlation,
-			MakeHostExecutionRequest(RemoveIntent.IntentId, 231)));
+			MakeHostExecutionRequest(RemoveIntent, 231)));
 	const auto EndCommand =
 		MakeLifecycleEndCommand(Fixture.Correlation, 233);
 	const auto FailedEnd = Router.TryRoute(
@@ -3520,7 +3588,7 @@ bool Fdemo_mapFormationInfluenceLifecycleCommandHostSubmissionTest::RunTest(
 	const auto Command = MakeLifecycleStepCommand(
 		Fixture.Correlation,
 		MakeHostExecutionRequest(
-			Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 240));
+			Prime.ReconciliationPlan.Batch.Intents[0], 240));
 	const auto First = CommandHost.TrySubmit(
 		nullptr, Fixture.Host, Command);
 	Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord Receipt;
@@ -3592,7 +3660,7 @@ bool Fdemo_mapFormationInfluenceLifecycleCommandHostBindingTest::RunTest(
 	const auto Command = MakeLifecycleStepCommand(
 		Fixture.Correlation,
 		MakeHostExecutionRequest(
-			Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 250));
+			Prime.ReconciliationPlan.Batch.Intents[0], 250));
 	const auto ForeignBeforeBinding = CommandHost.TrySubmit(
 		nullptr, OtherFixture.Host, Command);
 	const int32 ReceiptCountAfterForeign = CommandHost.GetReceiptCount();
@@ -3670,11 +3738,11 @@ bool Fdemo_mapFormationInfluenceLifecycleCommandHostVisibilityTest::RunTest(
 		MakeLifecycleEndCommand(Fixture.Correlation, 261);
 	const auto EarlyEnd = CommandHost.TrySubmit(
 		Fixture.World, Fixture.Host, EndCommand);
-	const FGuid RemoveIntentId = Terminal.Lifecycle.TerminalPreparation.
-		ReconciliationPlan.Batch.Intents[0].IntentId;
+	const auto& RemoveIntent = Terminal.Lifecycle.TerminalPreparation.
+		ReconciliationPlan.Batch.Intents[0];
 	const auto RemoveCommand = MakeLifecycleStepCommand(
 		Fixture.Correlation,
-		MakeHostExecutionRequest(RemoveIntentId, 260));
+		MakeHostExecutionRequest(RemoveIntent, 260));
 	const auto EarlyRemove = CommandHost.TrySubmit(
 		nullptr, Fixture.Host, RemoveCommand);
 	Fdemo_mapShanmenFormationInfluenceLifecycleCommandRecord RejectedReceipt;
@@ -3686,7 +3754,7 @@ bool Fdemo_mapFormationInfluenceLifecycleCommandHostVisibilityTest::RunTest(
 	const auto ApplyCommand = MakeLifecycleStepCommand(
 		Fixture.Correlation,
 		MakeHostExecutionRequest(
-			Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 261));
+			Prime.ReconciliationPlan.Batch.Intents[0], 261));
 	const auto Apply = CommandHost.TrySubmit(
 		nullptr, Fixture.Host, ApplyCommand);
 	const auto Remove = CommandHost.TrySubmit(
@@ -3743,7 +3811,7 @@ bool Fdemo_mapFormationInfluenceLifecycleCommandHostRecoveryTest::RunTest(
 		MakeLifecycleStepCommand(
 			Fixture.Correlation,
 			MakeHostExecutionRequest(
-				Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 270)));
+				Prime.ReconciliationPlan.Batch.Intents[0], 270)));
 	const auto Terminal = CommandHost.TrySubmit(
 		nullptr, Fixture.Host,
 		MakeLifecycleTerminalCommand(Fixture.Correlation, 271));
@@ -3757,7 +3825,7 @@ bool Fdemo_mapFormationInfluenceLifecycleCommandHostRecoveryTest::RunTest(
 		nullptr, Fixture.Host,
 		MakeLifecycleStepCommand(
 			Fixture.Correlation,
-			MakeHostExecutionRequest(RemoveIntent.IntentId, 271)));
+			MakeHostExecutionRequest(RemoveIntent, 271)));
 	const auto EndCommand =
 		MakeLifecycleEndCommand(Fixture.Correlation, 272);
 	const auto Failed = CommandHost.TrySubmit(
@@ -3793,6 +3861,203 @@ bool Fdemo_mapFormationInfluenceLifecycleCommandHostRecoveryTest::RunTest(
 		Replay.IsSuccess() && Replay.IsReplay()
 			&& CommandHost.GetReceiptCount() == 4
 			&& CommandHost.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceEvaluationBindingLeaseTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceEvaluationBinding.ApplyRemoveFreeze",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceEvaluationBindingLeaseTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("EvaluationBindingLease"),
+			1, Prime, Subjects))
+	{
+		return false;
+	}
+
+	const auto& Scope = Prime.ReconciliationPlan.Batch.Current.GetValue();
+	const auto& ApplyIntent = Prime.ReconciliationPlan.Batch.Intents[0];
+	const auto ApplyInvocation = MakeLeaseInvocation(
+		Fixture.Host, ApplyIntent, 300);
+	const auto FrozenReceipt = ApplyInvocation.Evaluation.GetReceipt();
+	Fdemo_mapShanmenFormationInfluenceLeaseExecutor Executor;
+	const auto Applied = Executor.Execute(ApplyInvocation);
+	Fdemo_mapShanmenFormationInfluenceLeaseKey Key;
+	Fdemo_mapShanmenFormationInfluenceLeaseSnapshot Active;
+	const bool bReadActive =
+		Fdemo_mapShanmenFormationInfluenceLeaseKey::TryFromIntent(
+			ApplyIntent, Key)
+		&& Executor.TryGetActiveLease(Key, Active);
+
+	const auto RemoveIntent = MakeLeaseIntent(
+		Scope, ApplyIntent.SourceEntityId, ApplyIntent.SubjectEntityId,
+		Edemo_mapShanmenFormationInfluenceOperation::Remove, 300);
+	const auto RemoveInvocation = MakeLeaseInvocation(
+		Fixture.Host, RemoveIntent, 301);
+	const auto Removed = Executor.Execute(RemoveInvocation);
+	Fdemo_mapShanmenFormationInfluenceEvaluationReceipt ApplyHistory;
+	Fdemo_mapShanmenFormationInfluenceEvaluationReceipt RemoveHistory;
+	const bool bReadApplyHistory =
+		Executor.TryGetCompletedEvaluationReceipt(
+			ApplyIntent.IntentId, ApplyHistory);
+	const bool bReadRemoveHistory =
+		Executor.TryGetCompletedEvaluationReceipt(
+			RemoveIntent.IntentId, RemoveHistory);
+
+	TestTrue(TEXT("Apply freezes the exact evaluated receipt in its lease"),
+		Applied.IsSuccess() && bReadActive && Active.IsValid()
+			&& ApplyInvocation.Evaluation.HasReceipt()
+			&& Active.EvaluationReceipt.Matches(FrozenReceipt)
+			&& Active.LeaseId.IsValid());
+	TestTrue(TEXT("Remove carries no resampled receipt and consumes the lease"),
+		Removed.IsSuccess() && !RemoveInvocation.Evaluation.HasReceipt()
+			&& Executor.GetActiveLeaseCount() == 0
+			&& Applied.Receipt.ExecutorReceiptId
+				!= Removed.Receipt.ExecutorReceiptId);
+	TestTrue(TEXT("Both completion records retain the original Apply evidence"),
+		bReadApplyHistory && bReadRemoveHistory
+			&& ApplyHistory.Matches(FrozenReceipt)
+			&& RemoveHistory.Matches(FrozenReceipt)
+			&& Executor.GetCompletedIntentCount() == 2
+			&& Executor.GetAttemptCount() == 2
+			&& Executor.IsConsistent());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceEvaluationBindingRouterTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceEvaluationBinding.RequestIdentityFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceEvaluationBindingRouterTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("EvaluationBindingRouter"),
+			2, Prime, Subjects))
+	{
+		return false;
+	}
+	const auto& FirstIntent = Prime.ReconciliationPlan.Batch.Intents[0];
+	const auto& SecondIntent = Prime.ReconciliationPlan.Batch.Intents[1];
+	Fdemo_mapShanmenFormationInfluenceExecutionRouter Router;
+
+	const auto MissingReceipt = Router.TryRoute(
+		Fixture.Host, Fixture.Correlation,
+		MakeHostExecutionRequest(FirstIntent.IntentId, 310));
+	auto WrongSubjectRequest = MakeHostExecutionRequest(FirstIntent, 311);
+	WrongSubjectRequest.Evaluation = MakeHostEvaluationBinding(SecondIntent);
+	const auto WrongSubject = Router.TryRoute(
+		Fixture.Host, Fixture.Correlation, WrongSubjectRequest);
+	const bool bUnboundAfterRejected =
+		!Router.IsBound() && Router.GetRecordCount() == 0;
+	const auto Request = MakeHostExecutionRequest(FirstIntent, 312);
+	const auto Routed = Router.TryRoute(
+		Fixture.Host, Fixture.Correlation, Request);
+	auto ReceiptConflict = Request;
+	Fdemo_mapShanmenFormationInfluenceEvaluationBinding OtherBinding;
+	check(Fdemo_mapShanmenFormationInfluenceEvaluationBinding::
+		TryCaptureApply(
+			MakeHostEvaluationReceipt(FirstIntent, 250), OtherBinding));
+	ReceiptConflict.Evaluation = OtherBinding;
+	const auto Conflict = Router.TryRoute(
+		Fixture.Host, Fixture.Correlation, ReceiptConflict);
+
+	TestTrue(TEXT("Apply cannot route without intent-matched evaluation"),
+		MissingReceipt.Status
+				== Edemo_mapShanmenFormationInfluenceRouteStatus::
+					EvaluationMismatch
+			&& WrongSubject.Status
+				== Edemo_mapShanmenFormationInfluenceRouteStatus::
+					EvaluationMismatch
+			&& bUnboundAfterRejected);
+	TestTrue(TEXT("One valid request freezes receipt identity into its command"),
+		Routed.IsSuccess() && Routed.Command.IsValid()
+			&& Routed.Command.Evaluation.Matches(Request.Evaluation)
+			&& Routed.Command.Evaluation.GetReceiptId()
+				== Request.Evaluation.GetReceiptId());
+	TestTrue(TEXT("RequestId reuse with another valid receipt is rejected"),
+		Conflict.Status
+				== Edemo_mapShanmenFormationInfluenceRouteStatus::RequestConflict
+			&& !Conflict.IsSuccess()
+			&& !ReceiptConflict.Evaluation.Matches(Request.Evaluation)
+			&& Router.GetRecordCount() == 1 && Router.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceEvaluationBindingTamperTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceEvaluationBinding.TamperAndOperationFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceEvaluationBindingTamperTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("EvaluationBindingTamper"),
+			2, Prime, Subjects))
+	{
+		return false;
+	}
+	const auto& Scope = Prime.ReconciliationPlan.Batch.Current.GetValue();
+	const auto& ApplyIntent = Prime.ReconciliationPlan.Batch.Intents[0];
+	const auto& OtherIntent = Prime.ReconciliationPlan.Batch.Intents[1];
+	const auto RemoveIntent = MakeLeaseIntent(
+		Scope, ApplyIntent.SourceEntityId, ApplyIntent.SubjectEntityId,
+		Edemo_mapShanmenFormationInfluenceOperation::Remove, 320);
+	const auto Receipt = MakeHostEvaluationReceipt(ApplyIntent);
+	const auto ApplyBinding = MakeHostEvaluationBinding(ApplyIntent);
+	const auto RemoveBinding =
+		Fdemo_mapShanmenFormationInfluenceEvaluationBinding::MakeRemove();
+
+	auto TamperedReceipt = Receipt;
+	++TamperedReceipt.FinalMagnitudeUnits;
+	Fdemo_mapShanmenFormationInfluenceEvaluationBinding FailedOutput =
+		ApplyBinding;
+	const bool bCapturedTamper =
+		Fdemo_mapShanmenFormationInfluenceEvaluationBinding::TryCaptureApply(
+			TamperedReceipt, FailedOutput);
+	Fdemo_mapShanmenFormationInfluenceEvaluationContext EmptyContext =
+		Receipt.Context;
+	const auto EmptyEvaluation =
+		Fdemo_mapShanmenFormationInfluenceModifierEvaluator::Evaluate(
+			EmptyContext, {});
+	const bool bCapturedEmpty =
+		Fdemo_mapShanmenFormationInfluenceEvaluationBinding::TryCaptureApply(
+			EmptyEvaluation.Receipt, FailedOutput);
+
+	TestTrue(TEXT("Operation shape enforces Apply receipt and empty Remove"),
+		ApplyBinding.MatchesIntent(ApplyIntent)
+			&& !ApplyBinding.MatchesIntent(RemoveIntent)
+			&& RemoveBinding.MatchesIntent(RemoveIntent)
+			&& !RemoveBinding.MatchesIntent(ApplyIntent));
+	TestTrue(TEXT("Receipt identity cannot cross subject or policy intent"),
+		Fdemo_mapShanmenFormationInfluenceEvaluationBinding::
+			ReceiptMatchesInfluenceIdentity(Receipt, ApplyIntent)
+			&& !Fdemo_mapShanmenFormationInfluenceEvaluationBinding::
+				ReceiptMatchesInfluenceIdentity(Receipt, OtherIntent));
+	TestTrue(TEXT("Tampered and empty receipts fail closed and clear output"),
+		!bCapturedTamper && !bCapturedEmpty
+			&& FailedOutput.IsStructurallyValid()
+			&& !FailedOutput.HasReceipt()
+			&& EmptyEvaluation.IsSuccess()
+			&& EmptyEvaluation.Receipt.Decisions.IsEmpty());
 	return true;
 }
 
