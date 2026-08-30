@@ -40,6 +40,14 @@
       ]
     },
     {
+      "name": "SpiritShieldRuntime",
+      "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenSpiritShield\\.h|Private/(?:ShanmenSpiritShield\\.cpp|Tests/ShanmenSpiritShieldTests\\.cpp))$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.CombatRuntime.SpiritShield",
+        "Shanmen.0_0_10.CombatCore"
+      ]
+    },
+    {
       "name": "FormationDeploymentCore",
       "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenFormationDeployment\\.h|Private/(?:ShanmenFormationDeployment\\.cpp|Tests/ShanmenFormationDeploymentTests\\.cpp))$",
       "requiredGroups": [

@@ -108,6 +108,12 @@ try
     $ThrownRuntime = New-AutomationLogFixture `
         -Name 'thrown-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.ThrownWeapon'
+    $CombatRuntime = New-AutomationLogFixture `
+        -Name 'combat-runtime.log' `
+        -Group 'Shanmen.0_0_10.CombatRuntime'
+    $SpiritShieldRuntime = New-AutomationLogFixture `
+        -Name 'spirit-shield-runtime.log' `
+        -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShield'
     $FormationAdapter = New-AutomationLogFixture `
         -Name 'formation-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.FormationMaterialAdapter'
@@ -246,6 +252,14 @@ try
         -Paths @(
             'Source/ShanmenCombatRuntime/Private/ShanmenFormationDeployment.cpp') `
         -Logs @($Full)
+
+    Invoke-ExpectedPass `
+        -Name 'spirit shield runtime requires focused lifecycle and CombatCore evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Public/ShanmenSpiritShield.h',
+            'Source/ShanmenCombatRuntime/Private/ShanmenSpiritShield.cpp',
+            'Source/ShanmenCombatRuntime/Private/Tests/ShanmenSpiritShieldTests.cpp') `
+        -Logs @($SpiritShieldRuntime, $CombatRuntime, $CombatCore)
 
     Invoke-ExpectedPass `
         -Name 'formation material adapter is covered by broad full evidence' `
@@ -571,6 +585,13 @@ try
         -Paths @(
             'Source/ShanmenCombatRuntime/Private/ShanmenFormationDeployment.cpp') `
         -Logs @($ThrownRuntime) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'spirit shield focus cannot replace CombatCore resolver evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Private/ShanmenSpiritShield.cpp') `
+        -Logs @($SpiritShieldRuntime, $CombatRuntime) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
