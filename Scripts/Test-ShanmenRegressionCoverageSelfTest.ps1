@@ -165,6 +165,9 @@ try
     $FormationInfluenceConsumerProductBridge = New-AutomationLogFixture `
         -Name 'formation-influence-consumer-product-bridge.log' `
         -Group 'Shanmen.0_0_10.Product.FormationInfluenceConsumerProductBridge'
+    $FormationInfluenceConsumerProductRuntime = New-AutomationLogFixture `
+        -Name 'formation-influence-consumer-product-runtime.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationInfluenceConsumerProductRuntime'
     $CombatCore = New-AutomationLogFixture `
         -Name 'combat-core.log' `
         -Group 'Shanmen.0_0_10.CombatCore'
@@ -367,6 +370,12 @@ try
         -Name 'formation influence consumer product bridge is covered by broad full and attribute evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerProductBridge.cpp') `
+        -Logs @($Full, $Attributes)
+
+    Invoke-ExpectedPass `
+        -Name 'formation influence consumer product runtime is covered by broad full and attribute evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerProductRuntime.cpp') `
         -Logs @($Full, $Attributes)
 
     Invoke-ExpectedPass `
@@ -666,6 +675,17 @@ try
             $FormationInfluenceConsumerProductBridge,
             $FormationHost,
             $FormationInfluenceConsumerCommandHost,
+            $Attributes) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'consumer product runtime focused evidence cannot replace ProductHost bridge command chain and broad contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceConsumerProductRuntime.cpp') `
+        -Logs @(
+            $FormationInfluenceConsumerProductRuntime,
+            $FormationInfluenceConsumerProductBridge,
+            $FormationHost,
             $Attributes) `
         -ExpectedText 'missing required groups'
 
