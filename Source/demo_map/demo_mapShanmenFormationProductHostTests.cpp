@@ -6,6 +6,7 @@
 #include "demo_mapShanmenFormationInfluenceProductRuntime.h"
 #include "demo_mapShanmenFormationInfluenceExecutionRouter.h"
 #include "demo_mapShanmenFormationInfluenceExecutionService.h"
+#include "demo_mapShanmenFormationInfluenceLifecycleCoordinator.h"
 
 #include "ShanmenCombatResolver.h"
 #include "demo_map0909BSectWarehouseService.h"
@@ -2752,6 +2753,345 @@ bool Fdemo_mapFormationInfluenceExecutionServiceTerminalTest::RunTest(
 					ExecutionRejected
 			&& !SealedAttach.bServiceStateCommitted
 			&& !SealedService.IsBound() && SealedService.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceLifecycleCoordinatorExplicitTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceLifecycleCoordinator.ExplicitLifecycle",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceLifecycleCoordinatorExplicitTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("LifecycleCoordinatorExplicit"),
+			2, Prime, Subjects))
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceLifecycleCoordinator Coordinator;
+	const auto FirstApply = Coordinator.TryExecuteStep(
+		Fixture.Host, Fixture.Correlation,
+		MakeHostExecutionRequest(
+			Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 100));
+	const auto SecondApply = Coordinator.TryExecuteStep(
+		Fixture.Host, Fixture.Correlation,
+		MakeHostExecutionRequest(
+			Prime.ReconciliationPlan.Batch.Intents[1].IntentId, 101));
+	const auto Terminal = Coordinator.TryPrepareTerminal(
+		Fixture.Host, Fixture.Correlation);
+	Fdemo_mapShanmenFormationInfluenceIntent FirstRemoveIntent;
+	if (!FirstApply.IsSuccess() || !SecondApply.IsSuccess()
+		|| !Terminal.IsSuccess()
+		|| !Fixture.Host.TryPeekNextInfluenceIntent(FirstRemoveIntent))
+	{
+		return false;
+	}
+	const auto FirstRemove = Coordinator.TryExecuteStep(
+		Fixture.Host, Fixture.Correlation,
+		MakeHostExecutionRequest(FirstRemoveIntent.IntentId, 102));
+	Fdemo_mapShanmenFormationInfluenceIntent SecondRemoveIntent;
+	if (!FirstRemove.IsSuccess()
+		|| !Fixture.Host.TryPeekNextInfluenceIntent(SecondRemoveIntent))
+	{
+		return false;
+	}
+	const auto SecondRemove = Coordinator.TryExecuteStep(
+		Fixture.Host, Fixture.Correlation,
+		MakeHostExecutionRequest(SecondRemoveIntent.IntentId, 103));
+	const auto Completed = Coordinator.TrySealAndEnd(
+		Fixture.World, Fixture.Host, Fixture.Correlation);
+
+	TestTrue(TEXT("Caller advances exactly one Apply or Remove per step"),
+		FirstApply.Status
+			== Edemo_mapShanmenFormationInfluenceLifecycleStatus::StepAccepted
+			&& SecondApply.IsSuccess() && FirstRemove.IsSuccess()
+			&& SecondRemove.IsSuccess()
+			&& Terminal.Status
+				== Edemo_mapShanmenFormationInfluenceLifecycleStatus::
+					TerminalPrepared
+			&& Terminal.TerminalPreparation.ReconciliationPlan.Batch.RemoveCount
+				== 2);
+	TestTrue(TEXT("Explicit drain permits one seal and terminal teardown"),
+		Completed.Status
+			== Edemo_mapShanmenFormationInfluenceLifecycleStatus::Completed
+			&& Completed.IsSuccess()
+			&& Coordinator.GetRouteRecordCount() == 4
+			&& Coordinator.GetExecutorAttemptCount() == 4
+			&& Coordinator.GetCompletedIntentCount() == 4
+			&& Coordinator.GetActiveLeaseCount() == 0
+			&& Fixture.Host.GetPendingInfluenceIntentCount() == 0
+			&& Fixture.Host.GetInfluenceLedger().IsSealed()
+			&& Coordinator.IsBound() && Coordinator.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceLifecycleCoordinatorDrainFenceTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceLifecycleCoordinator.NoImplicitDrainAndOrderFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceLifecycleCoordinatorDrainFenceTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("LifecycleCoordinatorDrainFence"),
+			2, Prime, Subjects))
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceLifecycleCoordinator Coordinator;
+	const auto Terminal = Coordinator.TryPrepareTerminal(
+		Fixture.Host, Fixture.Correlation);
+	if (!Terminal.IsSuccess()
+		|| Terminal.TerminalPreparation.ReconciliationPlan.Batch.Intents.Num()
+			!= 2)
+	{
+		return false;
+	}
+	const int32 PendingAfterPrepare =
+		Fixture.Host.GetPendingInfluenceIntentCount();
+	const auto EarlyCompletion = Coordinator.TrySealAndEnd(
+		Fixture.World, Fixture.Host, Fixture.Correlation);
+	const bool bStayedActiveAfterEarlyCompletion =
+		Fixture.Host.GetSession().GetState()
+			== Edemo_mapShanmenFormationSessionState::Active;
+	const FGuid FirstRemoveIntent =
+		Terminal.TerminalPreparation.ReconciliationPlan.Batch.Intents[0].IntentId;
+	const FGuid SecondRemoveIntent =
+		Terminal.TerminalPreparation.ReconciliationPlan.Batch.Intents[1].IntentId;
+	const auto EarlyRemove = Coordinator.TryExecuteStep(
+		Fixture.Host, Fixture.Correlation,
+		MakeHostExecutionRequest(FirstRemoveIntent, 110));
+	const auto FirstApply = Coordinator.TryExecuteStep(
+		Fixture.Host, Fixture.Correlation,
+		MakeHostExecutionRequest(
+			Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 111));
+	const int32 PendingAfterOneStep =
+		Fixture.Host.GetPendingInfluenceIntentCount();
+	const auto SecondApply = Coordinator.TryExecuteStep(
+		Fixture.Host, Fixture.Correlation,
+		MakeHostExecutionRequest(
+			Prime.ReconciliationPlan.Batch.Intents[1].IntentId, 112));
+	const auto FirstRemove = Coordinator.TryExecuteStep(
+		Fixture.Host, Fixture.Correlation,
+		MakeHostExecutionRequest(FirstRemoveIntent, 113));
+	const auto SecondRemove = Coordinator.TryExecuteStep(
+		Fixture.Host, Fixture.Correlation,
+		MakeHostExecutionRequest(SecondRemoveIntent, 114));
+	const auto Completed = Coordinator.TrySealAndEnd(
+		Fixture.World, Fixture.Host, Fixture.Correlation);
+
+	TestTrue(TEXT("Terminal preparation publishes but never drains intents"),
+		PendingAfterPrepare == 4
+			&& EarlyCompletion.Status
+				== Edemo_mapShanmenFormationInfluenceLifecycleStatus::
+					SealRejected
+			&& !EarlyCompletion.bCoordinatorStateCommitted
+			&& bStayedActiveAfterEarlyCompletion);
+	TestTrue(TEXT("Out-of-order Remove never skips pending Apply"),
+		EarlyRemove.Status
+			== Edemo_mapShanmenFormationInfluenceLifecycleStatus::StepRejected
+			&& EarlyRemove.Step.Route.Status
+				== Edemo_mapShanmenFormationInfluenceRouteStatus::
+					IntentOutOfOrder
+			&& !EarlyRemove.bCoordinatorStateCommitted
+			&& FirstApply.IsSuccess() && PendingAfterOneStep == 3);
+	TestTrue(TEXT("Four explicit steps are required before completion"),
+		SecondApply.IsSuccess() && FirstRemove.IsSuccess()
+			&& SecondRemove.IsSuccess() && Completed.IsSuccess()
+			&& Coordinator.GetExecutorAttemptCount() == 4
+			&& Coordinator.GetRouteRecordCount() == 4
+			&& Fixture.Host.GetPendingInfluenceIntentCount() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceLifecycleCoordinatorBindingTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceLifecycleCoordinator.BindingAndLateAttachmentFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceLifecycleCoordinatorBindingTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture FirstFixture;
+	FFormationHostFixture OtherFixture;
+	FShanmenWorldEntityRegistry FirstRegistry;
+	FShanmenWorldEntityRegistry OtherRegistry;
+	Fdemo_mapShanmenFormationHostInfluenceResult FirstPrime;
+	Fdemo_mapShanmenFormationHostInfluenceResult OtherPrime;
+	TArray<AActor*> FirstSubjects;
+	TArray<AActor*> OtherSubjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, FirstFixture, FirstRegistry,
+			TEXT("LifecycleCoordinatorBindingA"), 1,
+			FirstPrime, FirstSubjects)
+		|| !PrimeHostExecutorInfluence(
+			*this, OtherFixture, OtherRegistry,
+			TEXT("LifecycleCoordinatorBindingB"), 1,
+			OtherPrime, OtherSubjects))
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceLifecycleCoordinator Coordinator;
+	const auto Prepared = Coordinator.TryPrepareTerminal(
+		FirstFixture.Host, FirstFixture.Correlation);
+	const auto PreparedReplay = Coordinator.TryPrepareTerminal(
+		FirstFixture.Host, FirstFixture.Correlation);
+	const auto Foreign = Coordinator.TryPrepareTerminal(
+		OtherFixture.Host, OtherFixture.Correlation);
+	const auto Stale = Coordinator.TryExecuteStep(
+		FirstFixture.Host, OtherFixture.Correlation,
+		MakeHostExecutionRequest(
+			FirstPrime.ReconciliationPlan.Batch.Intents[0].IntentId, 120));
+
+	const auto FirstApply = Coordinator.TryExecuteStep(
+		FirstFixture.Host, FirstFixture.Correlation,
+		MakeHostExecutionRequest(
+			FirstPrime.ReconciliationPlan.Batch.Intents[0].IntentId, 121));
+	Fdemo_mapShanmenFormationInfluenceIntent FirstRemoveIntent;
+	if (!FirstApply.IsSuccess()
+		|| !FirstFixture.Host.TryPeekNextInfluenceIntent(FirstRemoveIntent))
+	{
+		return false;
+	}
+	const auto FirstRemove = Coordinator.TryExecuteStep(
+		FirstFixture.Host, FirstFixture.Correlation,
+		MakeHostExecutionRequest(FirstRemoveIntent.IntentId, 122));
+	const auto FirstCompleted = Coordinator.TrySealAndEnd(
+		FirstFixture.World, FirstFixture.Host, FirstFixture.Correlation);
+
+	const auto OtherRequest = MakeHostExecutionRequest(
+		OtherPrime.ReconciliationPlan.Batch.Intents[0].IntentId, 123);
+	Fdemo_mapShanmenFormationInfluenceExecutionService ExternalService;
+	const auto ExternalSuccess = ExternalService.TryExecuteOne(
+		OtherFixture.Host, OtherFixture.Correlation, OtherRequest);
+	Fdemo_mapShanmenFormationInfluenceLifecycleCoordinator LateCoordinator;
+	const auto LateAttach = LateCoordinator.TryExecuteStep(
+		OtherFixture.Host, OtherFixture.Correlation, OtherRequest);
+
+	TestTrue(TEXT("First lifecycle operation freezes one Host binding"),
+		Prepared.IsSuccess()
+			&& PreparedReplay.Status
+				== Edemo_mapShanmenFormationInfluenceLifecycleStatus::
+					TerminalReplayed
+			&& Foreign.Status
+				== Edemo_mapShanmenFormationInfluenceLifecycleStatus::
+					BindingConflict
+			&& Stale.Status
+				== Edemo_mapShanmenFormationInfluenceLifecycleStatus::
+					CorrelationMismatch
+			&& !OtherFixture.Host.IsInfluenceTerminalPrepared());
+	TestTrue(TEXT("Bound lifecycle completes without crossing Host authority"),
+		FirstRemove.IsSuccess() && FirstCompleted.IsSuccess()
+			&& Coordinator.GetBoundLedgerId()
+				== FirstFixture.Host.GetInfluenceLedger().GetLedgerId()
+			&& Coordinator.IsValid());
+	TestTrue(TEXT("Fresh Coordinator preserves the Service late-attach fence"),
+		ExternalSuccess.IsSuccess()
+			&& LateAttach.Status
+				== Edemo_mapShanmenFormationInfluenceLifecycleStatus::
+					StepRejected
+			&& LateAttach.Step.Status
+				== Edemo_mapShanmenFormationInfluenceServiceStatus::
+					ExecutionRejected
+			&& !LateAttach.bCoordinatorStateCommitted
+			&& !LateCoordinator.IsBound() && LateCoordinator.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInfluenceLifecycleCoordinatorRecoveryTest,
+	"Shanmen.0_0_10.Product.FormationInfluenceLifecycleCoordinator.ForwardOnlyCompletionRecovery",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInfluenceLifecycleCoordinatorRecoveryTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture Fixture;
+	FShanmenWorldEntityRegistry Registry;
+	Fdemo_mapShanmenFormationHostInfluenceResult Prime;
+	TArray<AActor*> Subjects;
+	if (!PrimeHostExecutorInfluence(
+			*this, Fixture, Registry, TEXT("LifecycleCoordinatorRecovery"),
+			1, Prime, Subjects))
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenFormationInfluenceLifecycleCoordinator Coordinator;
+	const auto ApplyRequest = MakeHostExecutionRequest(
+		Prime.ReconciliationPlan.Batch.Intents[0].IntentId, 130);
+	const auto Apply = Coordinator.TryExecuteStep(
+		Fixture.Host, Fixture.Correlation, ApplyRequest);
+	const auto Terminal = Coordinator.TryPrepareTerminal(
+		Fixture.Host, Fixture.Correlation);
+	Fdemo_mapShanmenFormationInfluenceIntent RemoveIntent;
+	if (!Apply.IsSuccess() || !Terminal.IsSuccess()
+		|| !Fixture.Host.TryPeekNextInfluenceIntent(RemoveIntent))
+	{
+		return false;
+	}
+	const auto RemoveRequest = MakeHostExecutionRequest(
+		RemoveIntent.IntentId, 131);
+	const auto Remove = Coordinator.TryExecuteStep(
+		Fixture.Host, Fixture.Correlation, RemoveRequest);
+	const auto FailedEnd = Coordinator.TrySealAndEnd(
+		nullptr, Fixture.Host, Fixture.Correlation);
+	const bool bForwardStateRetained =
+		Fixture.Host.GetInfluenceLedger().IsSealed()
+		&& Fixture.Host.GetSession().GetState()
+			== Edemo_mapShanmenFormationSessionState::Ended
+		&& Coordinator.IsBound() && Coordinator.IsValid();
+	const auto Recovered = Coordinator.TrySealAndEnd(
+		Fixture.World, Fixture.Host, Fixture.Correlation);
+	const auto Replayed = Coordinator.TrySealAndEnd(
+		Fixture.World, Fixture.Host, Fixture.Correlation);
+	const auto RemoveReplay = Coordinator.TryExecuteStep(
+		Fixture.Host, Fixture.Correlation, RemoveRequest);
+
+	TestTrue(TEXT("Successful seal is retained when World teardown fails"),
+		Remove.IsSuccess()
+			&& FailedEnd.Status
+				== Edemo_mapShanmenFormationInfluenceLifecycleStatus::EndRejected
+			&& FailedEnd.Seal.Status
+				== Edemo_mapShanmenFormationHostInfluenceStatus::Sealed
+			&& FailedEnd.End.Status
+				== Edemo_mapShanmenFormationHostStatus::
+					TerminalRecoveryRequired
+			&& FailedEnd.bCoordinatorStateCommitted
+			&& bForwardStateRetained);
+	TestTrue(TEXT("Exact retry completes and then replays terminal teardown"),
+		Recovered.Status
+			== Edemo_mapShanmenFormationInfluenceLifecycleStatus::Completed
+			&& Recovered.IsSuccess()
+			&& Replayed.Status
+				== Edemo_mapShanmenFormationInfluenceLifecycleStatus::
+					CompletionReplayed
+			&& Replayed.IsSuccess());
+	TestTrue(TEXT("Bound semantic state remains replayable after completion"),
+		RemoveReplay.IsSuccess()
+			&& RemoveReplay.Step.Route.Status
+				== Edemo_mapShanmenFormationInfluenceRouteStatus::
+					RequestReplayed
+			&& RemoveReplay.Step.Execution.Status
+				== Edemo_mapShanmenFormationInfluenceExecutionStatus::
+					AttemptReplayed
+			&& !RemoveReplay.Step.Execution.bExecutorInvoked
+			&& Coordinator.GetExecutorAttemptCount() == 2
+			&& Coordinator.GetActiveLeaseCount() == 0);
 	return true;
 }
 

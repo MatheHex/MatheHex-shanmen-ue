@@ -162,6 +162,9 @@ try
     $FormationInfluenceExecutionService = New-AutomationLogFixture `
         -Name 'formation-influence-execution-service.log' `
         -Group 'Shanmen.0_0_10.Product.FormationInfluenceExecutionService'
+    $FormationInfluenceLifecycleCoordinator = New-AutomationLogFixture `
+        -Name 'formation-influence-lifecycle-coordinator.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationInfluenceLifecycleCoordinator'
     $Legacy = New-AutomationLogFixture `
         -Name 'legacy.log' `
         -Group 'demo_map'
@@ -293,6 +296,12 @@ try
         -Name 'formation influence execution service is covered by broad full evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceExecutionService.cpp') `
+        -Logs @($Full)
+
+    Invoke-ExpectedPass `
+        -Name 'formation influence lifecycle coordinator is covered by broad full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceLifecycleCoordinator.cpp') `
         -Logs @($Full)
 
     Invoke-ExpectedPass `
@@ -534,6 +543,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationInfluenceExecutionService.cpp') `
         -Logs @($FormationInfluenceExecutionService) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'formation lifecycle coordinator child evidence cannot replace service Host and teardown contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInfluenceLifecycleCoordinator.cpp') `
+        -Logs @($FormationInfluenceLifecycleCoordinator) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
