@@ -141,6 +141,9 @@ try
     $SpiritEvasionProductHost = New-AutomationLogFixture `
         -Name 'spirit-evasion-product-host.log' `
         -Group 'Shanmen.0_0_10.Product.SpiritEvasionProductHost'
+    $SpiritEvasionComponent = New-AutomationLogFixture `
+        -Name 'spirit-evasion-component.log' `
+        -Group 'Shanmen.0_0_10.Product.SpiritEvasionComponent'
     $SpiritShieldRuntime = New-AutomationLogFixture `
         -Name 'spirit-shield-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShield'
@@ -440,6 +443,25 @@ try
             'Source/demo_map/demo_mapShanmenSpiritEvasionProductHostTests.cpp') `
         -Logs @(
             $Full,
+            $SpiritEvasionProductHost,
+            $SpiritEvasionActionCoordinator,
+            $SpiritEvasionMotionRuntime,
+            $SpiritEvasionMovementProduct,
+            $SpiritEvasionMovement,
+            $SpiritEvasion,
+            $ActionLifecycle,
+            $Enemy,
+            $Ranged)
+
+    Invoke-ExpectedPass `
+        -Name 'spirit evasion component maps its host and complete owned chain' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSpiritEvasionComponent.h',
+            'Source/demo_map/demo_mapShanmenSpiritEvasionComponent.cpp',
+            'Source/demo_map/demo_mapShanmenSpiritEvasionComponentTests.cpp') `
+        -Logs @(
+            $Full,
+            $SpiritEvasionComponent,
             $SpiritEvasionProductHost,
             $SpiritEvasionActionCoordinator,
             $SpiritEvasionMotionRuntime,
@@ -870,6 +892,18 @@ try
             $SpiritEvasionMotionRuntime,
             $SpiritEvasionMovementProduct,
             $SpiritEvasionMovement) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'spirit evasion component focus cannot replace host and chain evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSpiritEvasionComponent.cpp') `
+        -Logs @(
+            $SpiritEvasionComponent,
+            $SpiritEvasionProductHost,
+            $SpiritEvasionActionCoordinator,
+            $SpiritEvasionMotionRuntime,
+            $SpiritEvasionMovementProduct) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
