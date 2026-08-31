@@ -101,12 +101,14 @@ bool Fdemo_mapSwordRhythmPresentationProjectionTest::RunTest(
 			Session.GetConfig(),
 			PresentationRunA,
 			Receipt,
+			Session.GetLastEvaluationReceipt(),
 			1);
 	const auto Reprojection =
 		Fdemo_mapShanmenSwordRhythmPresentationProjector::Project(
 			Session.GetConfig(),
 			PresentationRunA,
 			Receipt,
+			Session.GetLastEvaluationReceipt(),
 			1);
 	TestTrue(TEXT("same receipt and revision derive one presentation identity"),
 		Projection.IsProjected()
@@ -117,8 +119,15 @@ bool Fdemo_mapSwordRhythmPresentationProjectionTest::RunTest(
 		Projection.State.GetRunId() == PresentationRunA
 			&& Projection.State.GetConfigId()
 				== Session.GetConfig().GetConfigId()
-			&& Projection.State.GetContentVersion() == TEXT("0.0.10.P12.2")
+			&& Projection.State.GetContentVersion()
+				== Fdemo_mapShanmenSwordRhythmProductConfig::
+					CanonicalContentVersion()
 			&& Projection.State.GetReceiptId() == Receipt.GetReceiptId()
+			&& Projection.State.GetEvaluationReceiptId()
+				== Session.GetLastEvaluationReceipt().GetReceiptId()
+			&& Projection.State.GetEvaluationPolicyId()
+				== Session.GetConfig().GetEvaluationPolicy().GetPolicyId()
+			&& Projection.State.NumEffectDefinitions() == 0
 			&& Projection.State.GetActivationId() == First.ActivationId
 			&& Projection.State.GetTimelineId() == Sample.GetTimelineId()
 			&& Projection.State.GetLinkOpenOffsetTicks() == 8
@@ -137,30 +146,42 @@ bool Fdemo_mapSwordRhythmPresentationProjectionTest::RunTest(
 			Fdemo_mapShanmenSwordRhythmProductConfig(),
 			PresentationRunA,
 			Receipt,
+			Session.GetLastEvaluationReceipt(),
 			1);
 	const auto BadRun =
 		Fdemo_mapShanmenSwordRhythmPresentationProjector::Project(
 			Session.GetConfig(),
 			FGuid(),
 			Receipt,
+			Session.GetLastEvaluationReceipt(),
 			1);
 	const auto BadReceipt =
 		Fdemo_mapShanmenSwordRhythmPresentationProjector::Project(
 			Session.GetConfig(),
 			PresentationRunA,
 			FShanmenSwordRhythmReceipt(),
+			Session.GetLastEvaluationReceipt(),
+			1);
+	const auto BadEvaluationReceipt =
+		Fdemo_mapShanmenSwordRhythmPresentationProjector::Project(
+			Session.GetConfig(),
+			PresentationRunA,
+			Receipt,
+			FShanmenSwordRhythmEvaluationReceipt(),
 			1);
 	const auto BadRevision =
 		Fdemo_mapShanmenSwordRhythmPresentationProjector::Project(
 			Session.GetConfig(),
 			PresentationRunA,
 			Receipt,
+			Session.GetLastEvaluationReceipt(),
 			0);
 	const auto ForeignRun =
 		Fdemo_mapShanmenSwordRhythmPresentationProjector::Project(
 			Session.GetConfig(),
 			PresentationRunB,
 			Receipt,
+			Session.GetLastEvaluationReceipt(),
 			1);
 	TestTrue(TEXT("malformed and cross-Run projections fail with typed status"),
 		!BadConfig.IsProjected()
@@ -175,6 +196,10 @@ bool Fdemo_mapSwordRhythmPresentationProjectionTest::RunTest(
 			&& BadReceipt.Status
 				== Edemo_mapShanmenSwordRhythmPresentationProjectionStatus::
 					ReceiptInvalid
+			&& !BadEvaluationReceipt.IsProjected()
+			&& BadEvaluationReceipt.Status
+				== Edemo_mapShanmenSwordRhythmPresentationProjectionStatus::
+					EvaluationReceiptInvalid
 			&& !BadRevision.IsProjected()
 			&& BadRevision.Status
 				== Edemo_mapShanmenSwordRhythmPresentationProjectionStatus::
@@ -214,6 +239,8 @@ bool Fdemo_mapSwordRhythmPresentationLifecycleTest::RunTest(
 			FirstSample,
 			FirstReceipt,
 			Fixture.Diagnostic)
+			&& Session.GetLastEvaluationReceipt().IsValid()
+			&& Session.GetLastEvaluationReceipt().NumEffects() == 0
 			&& Session.GetPresentationState().IsValid());
 	const Fdemo_mapShanmenSwordRhythmPresentationState FirstState =
 		Session.GetPresentationState();
@@ -264,6 +291,11 @@ bool Fdemo_mapSwordRhythmPresentationLifecycleTest::RunTest(
 		SecondState.IsValid()
 			&& !SecondState.Matches(FirstState)
 			&& SecondState.GetReceiptId() == SecondReceipt.GetReceiptId()
+			&& SecondState.GetEvaluationReceiptId()
+				== Session.GetLastEvaluationReceipt().GetReceiptId()
+			&& SecondState.GetEvaluationPolicyId()
+				== Session.GetConfig().GetEvaluationPolicy().GetPolicyId()
+			&& SecondState.NumEffectDefinitions() == 0
 			&& SecondState.GetPreviousInputTick() == 0
 			&& SecondState.GetCurrentInputTick() == 8
 			&& SecondState.GetObservationRevision() == 2
@@ -286,6 +318,7 @@ bool Fdemo_mapSwordRhythmPresentationLifecycleTest::RunTest(
 	TestTrue(TEXT("Run teardown removes presentation state with authority"),
 		Session.TryEnd(PresentationRunA, Fixture.Diagnostic)
 			&& Session.IsEmpty()
+			&& !Session.GetLastEvaluationReceipt().IsValid()
 			&& !Session.GetPresentationState().IsValid());
 	return true;
 }

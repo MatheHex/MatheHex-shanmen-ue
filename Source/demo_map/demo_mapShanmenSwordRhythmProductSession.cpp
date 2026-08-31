@@ -3,19 +3,89 @@
 #include "ShanmenBasicSwordExecution.h"
 #include "ShanmenDeterministicId.h"
 
+namespace
+{
+	FString GuidDigits(const FGuid& Value)
+	{
+		return Value.ToString(EGuidFormats::Digits);
+	}
+
+	bool TryCreateCanonicalEvaluationPolicy(
+		const FShanmenContentStamp& Content,
+		FShanmenSwordRhythmEvaluationPolicy& OutPolicy)
+	{
+		FShanmenSwordRhythmEvaluationPolicyCapture Capture;
+		Capture.PolicyDefinitionId =
+			Fdemo_mapShanmenSwordRhythmProductConfig::
+				CanonicalEvaluationPolicyDefinitionId();
+		Capture.Content = Content;
+
+		FShanmenSwordRhythmEffectSpecificationCapture PreciseLink;
+		PreciseLink.ContributionKind =
+			EShanmenSwordRhythmContributionKind::PreciseSwordLink;
+		PreciseLink.EffectDefinitionId =
+			Fdemo_mapShanmenSwordRhythmProductConfig::
+				CanonicalPreciseLinkEffectDefinitionId();
+		FShanmenSwordRhythmEffectSpecificationCapture PerfectGuard;
+		PerfectGuard.ContributionKind =
+			EShanmenSwordRhythmContributionKind::PerfectWeaponGuard;
+		PerfectGuard.EffectDefinitionId =
+			Fdemo_mapShanmenSwordRhythmProductConfig::
+				CanonicalPerfectGuardEffectDefinitionId();
+		FShanmenSwordRhythmEffectSpecificationCapture SpiritEvasion;
+		SpiritEvasion.ContributionKind =
+			EShanmenSwordRhythmContributionKind::SpiritEvasion;
+		SpiritEvasion.EffectDefinitionId =
+			Fdemo_mapShanmenSwordRhythmProductConfig::
+				CanonicalSpiritEvasionEffectDefinitionId();
+		Capture.Specifications = {
+			PreciseLink,
+			PerfectGuard,
+			SpiritEvasion
+		};
+		return FShanmenSwordRhythmEvaluationPolicy::TryCapture(
+			Capture,
+			OutPolicy);
+	}
+}
+
 FName Fdemo_mapShanmenSwordRhythmProductConfig::CanonicalContentVersion()
 {
-	return TEXT("0.0.10.P12.2");
+	return TEXT("0.0.10.P12.10");
 }
 
 FString Fdemo_mapShanmenSwordRhythmProductConfig::CanonicalContentDigest()
 {
-	return TEXT("Shanmen.SwordRhythm.ProductConfig.r1");
+	return TEXT("Shanmen.SwordRhythm.ProductConfig.r2.SymbolicEffects");
 }
 
 FName Fdemo_mapShanmenSwordRhythmProductConfig::CanonicalRuleId()
 {
 	return TEXT("Combat.Style.Sword.Taiji01.BasicLinkWindow.r1");
+}
+
+FName Fdemo_mapShanmenSwordRhythmProductConfig::
+	CanonicalEvaluationPolicyDefinitionId()
+{
+	return TEXT("Combat.Style.Sword.Taiji01.SymbolicEffects.r1");
+}
+
+FName Fdemo_mapShanmenSwordRhythmProductConfig::
+	CanonicalPreciseLinkEffectDefinitionId()
+{
+	return TEXT("Combat.Style.Sword.Taiji01.Effect.PreciseFlow");
+}
+
+FName Fdemo_mapShanmenSwordRhythmProductConfig::
+	CanonicalPerfectGuardEffectDefinitionId()
+{
+	return TEXT("Combat.Style.Sword.Taiji01.Effect.BorrowedForce");
+}
+
+FName Fdemo_mapShanmenSwordRhythmProductConfig::
+	CanonicalSpiritEvasionEffectDefinitionId()
+{
+	return TEXT("Combat.Style.Sword.Taiji01.Effect.RedirectedMomentum");
 }
 
 int64 Fdemo_mapShanmenSwordRhythmProductConfig::
@@ -39,8 +109,16 @@ int64 Fdemo_mapShanmenSwordRhythmProductConfig::
 
 FGuid Fdemo_mapShanmenSwordRhythmProductConfig::CanonicalConfigId()
 {
+	FShanmenContentStamp Content;
+	Content.Version = CanonicalContentVersion();
+	Content.Digest = CanonicalContentDigest();
+	FShanmenSwordRhythmEvaluationPolicy EvaluationPolicy;
+	if (!TryCreateCanonicalEvaluationPolicy(Content, EvaluationPolicy))
+	{
+		return FGuid();
+	}
 	return FShanmenDeterministicId::FromCanonicalParts(
-		TEXT("demo_map.Combat.SwordRhythm.ProductConfig.r1"),
+		TEXT("demo_map.Combat.SwordRhythm.ProductConfig.r2"),
 		{
 			CanonicalContentVersion().ToString(),
 			CanonicalContentDigest(),
@@ -57,7 +135,8 @@ FGuid Fdemo_mapShanmenSwordRhythmProductConfig::CanonicalConfigId()
 				static_cast<long long>(CanonicalLinkCloseOffsetTicks())),
 			FString::Printf(
 				TEXT("%lld"),
-				static_cast<long long>(CanonicalTimelineTicksPerSecond()))
+				static_cast<long long>(CanonicalTimelineTicksPerSecond())),
+			GuidDigits(EvaluationPolicy.GetPolicyId())
 		});
 }
 
@@ -83,6 +162,12 @@ bool Fdemo_mapShanmenSwordRhythmProductConfig::TryCreateCanonical(
 	{
 		return false;
 	}
+	if (!TryCreateCanonicalEvaluationPolicy(
+			Candidate.Content,
+			Candidate.EvaluationPolicy))
+	{
+		return false;
+	}
 
 	Candidate.TimelineTicksPerSecond =
 		CanonicalTimelineTicksPerSecond();
@@ -97,6 +182,11 @@ bool Fdemo_mapShanmenSwordRhythmProductConfig::TryCreateCanonical(
 
 bool Fdemo_mapShanmenSwordRhythmProductConfig::IsValid() const
 {
+	FShanmenSwordRhythmEvaluationPolicy ExpectedPolicy;
+	if (!TryCreateCanonicalEvaluationPolicy(Content, ExpectedPolicy))
+	{
+		return false;
+	}
 	return ConfigId.IsValid()
 		&& ConfigId == CanonicalConfigId()
 		&& Content.IsValid()
@@ -112,6 +202,8 @@ bool Fdemo_mapShanmenSwordRhythmProductConfig::IsValid() const
 			== CanonicalLinkOpenOffsetTicks()
 		&& Definition.GetLinkCloseOffsetTicks()
 			== CanonicalLinkCloseOffsetTicks()
+		&& EvaluationPolicy.IsValid()
+		&& EvaluationPolicy.GetPolicyId() == ExpectedPolicy.GetPolicyId()
 		&& TimelineTicksPerSecond == CanonicalTimelineTicksPerSecond();
 }
 
@@ -218,10 +310,32 @@ bool Fdemo_mapShanmenSwordRhythmProductSession::
 		FShanmenSwordRhythmEvaluationInput& OutEvaluationInput,
 		FString& OutDiagnostic)
 {
+	FShanmenSwordRhythmEvaluationReceipt IgnoredEvaluationReceipt;
+	return TryObserveExecutedBasicSword(
+		ProductResult,
+		TimelineSample,
+		OutReceipt,
+		OutBindingReceipt,
+		OutEvaluationInput,
+		IgnoredEvaluationReceipt,
+		OutDiagnostic);
+}
+
+bool Fdemo_mapShanmenSwordRhythmProductSession::
+	TryObserveExecutedBasicSword(
+		const Fdemo_mapBasicSwordProductExecutionResult& ProductResult,
+		const Fdemo_mapShanmenCombatRunTimelineSample& TimelineSample,
+		FShanmenSwordRhythmReceipt& OutReceipt,
+		FShanmenSwordRhythmContributionBindingReceipt& OutBindingReceipt,
+		FShanmenSwordRhythmEvaluationInput& OutEvaluationInput,
+		FShanmenSwordRhythmEvaluationReceipt& OutEvaluationReceipt,
+		FString& OutDiagnostic)
+{
 	OutReceipt = FShanmenSwordRhythmReceipt();
 	OutBindingReceipt =
 		FShanmenSwordRhythmContributionBindingReceipt();
 	OutEvaluationInput = FShanmenSwordRhythmEvaluationInput();
+	OutEvaluationReceipt = FShanmenSwordRhythmEvaluationReceipt();
 	OutDiagnostic.Reset();
 	if (!IsValid() || IsEmpty())
 	{
@@ -287,11 +401,25 @@ bool Fdemo_mapShanmenSwordRhythmProductSession::
 			TEXT("Sword-rhythm product Session could not freeze the evaluator handoff input.");
 		return false;
 	}
+	const FShanmenSwordRhythmEvaluationResult Evaluation =
+		FShanmenSwordRhythmEvaluator::Evaluate(
+			CandidateEvaluationInput,
+			Config.GetEvaluationPolicy());
+	if (!Evaluation.IsSuccess())
+	{
+		OutDiagnostic = FString::Printf(
+			TEXT("Canonical sword-rhythm evaluation failed closed: %s"),
+			*Evaluation.GetDiagnostic());
+		return false;
+	}
+	const FShanmenSwordRhythmEvaluationReceipt CandidateEvaluationReceipt =
+		Evaluation.GetReceipt();
 	const auto Projection =
 		Fdemo_mapShanmenSwordRhythmPresentationProjector::Project(
 			Config,
 			Host.GetRunId(),
 			CandidateReceipt,
+			CandidateEvaluationReceipt,
 			CandidateHost.GetChain().NumRecordedObservations());
 	if (!Projection.IsProjected())
 	{
@@ -303,6 +431,7 @@ bool Fdemo_mapShanmenSwordRhythmProductSession::
 	Candidate.Host = CandidateHost;
 	Candidate.LastReceipt = CandidateReceipt;
 	Candidate.LastEvaluationInput = CandidateEvaluationInput;
+	Candidate.LastEvaluationReceipt = CandidateEvaluationReceipt;
 	Candidate.PresentationState = Projection.State;
 	Candidate.ContributionBindings = CandidateBindings;
 	if (!Candidate.IsValid())
@@ -316,8 +445,9 @@ bool Fdemo_mapShanmenSwordRhythmProductSession::
 	OutReceipt = CandidateReceipt;
 	OutBindingReceipt = CandidateBindingReceipt;
 	OutEvaluationInput = CandidateEvaluationInput;
+	OutEvaluationReceipt = CandidateEvaluationReceipt;
 	OutDiagnostic =
-		TEXT("Completed BasicSword action was accepted by the canonical sword-rhythm Session and contribution ledger.");
+		TEXT("Completed BasicSword action was atomically accepted, evaluated and projected by the canonical sword-rhythm Session.");
 	return true;
 }
 
@@ -523,6 +653,7 @@ bool Fdemo_mapShanmenSwordRhythmProductSession::IsValid() const
 		return !Config.IsValid()
 			&& !LastReceipt.IsValid()
 			&& !LastEvaluationInput.IsValid()
+			&& !LastEvaluationReceipt.IsValid()
 			&& !PresentationState.IsValid()
 			&& !ContributionBindings.IsValid();
 	}
@@ -561,12 +692,32 @@ bool Fdemo_mapShanmenSwordRhythmProductSession::IsValid() const
 	{
 		return !LastReceipt.IsValid()
 			&& !LastEvaluationInput.IsValid()
+			&& !LastEvaluationReceipt.IsValid()
 			&& !PresentationState.IsValid();
+	}
+	TArray<FName> ExpectedEffectDefinitionIds;
+	if (LastEvaluationReceipt.IsValid())
+	{
+		ExpectedEffectDefinitionIds.Reserve(
+			LastEvaluationReceipt.NumEffects());
+		for (const FShanmenSwordRhythmEvaluatedEffect& Effect
+			: LastEvaluationReceipt.GetEffects())
+		{
+			ExpectedEffectDefinitionIds.Add(
+				Effect.GetSpecification().GetEffectDefinitionId());
+		}
 	}
 	return LastReceipt.IsValid()
 		&& LastEvaluationInput.IsValid()
+		&& LastEvaluationReceipt.IsValid()
 		&& LastEvaluationInput.GetRhythmReceipt().GetReceiptId()
 			== LastReceipt.GetReceiptId()
+		&& LastEvaluationReceipt.GetInput().GetInputId()
+			== LastEvaluationInput.GetInputId()
+		&& LastEvaluationReceipt.GetInput().GetRhythmReceipt().GetReceiptId()
+			== LastReceipt.GetReceiptId()
+		&& LastEvaluationReceipt.GetPolicy().GetPolicyId()
+			== Config.GetEvaluationPolicy().GetPolicyId()
 		&& PresentationState.IsValid()
 		&& LastReceipt.GetDefinition().GetDefinitionId()
 			== Config.GetDefinition().GetDefinitionId()
@@ -577,6 +728,12 @@ bool Fdemo_mapShanmenSwordRhythmProductSession::IsValid() const
 		&& PresentationState.GetRunId() == Host.GetRunId()
 		&& PresentationState.GetConfigId() == Config.GetConfigId()
 		&& PresentationState.GetReceiptId() == LastReceipt.GetReceiptId()
+		&& PresentationState.GetEvaluationReceiptId()
+			== LastEvaluationReceipt.GetReceiptId()
+		&& PresentationState.GetEvaluationPolicyId()
+			== Config.GetEvaluationPolicy().GetPolicyId()
+		&& PresentationState.GetEffectDefinitionIds()
+			== ExpectedEffectDefinitionIds
 		&& PresentationState.GetObservationRevision() == ObservationCount
 		&& PresentationState.GetResultingChainCount()
 			== LastReceipt.GetResultingChainCount();

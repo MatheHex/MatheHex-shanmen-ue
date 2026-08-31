@@ -18,6 +18,10 @@ public:
 	static FName CanonicalContentVersion();
 	static FString CanonicalContentDigest();
 	static FName CanonicalRuleId();
+	static FName CanonicalEvaluationPolicyDefinitionId();
+	static FName CanonicalPreciseLinkEffectDefinitionId();
+	static FName CanonicalPerfectGuardEffectDefinitionId();
+	static FName CanonicalSpiritEvasionEffectDefinitionId();
 	static int64 CanonicalLinkOpenOffsetTicks();
 	static int64 CanonicalLinkCloseOffsetTicks();
 	static int64 CanonicalTimelineTicksPerSecond();
@@ -32,6 +36,10 @@ public:
 	{
 		return Definition;
 	}
+	const FShanmenSwordRhythmEvaluationPolicy& GetEvaluationPolicy() const
+	{
+		return EvaluationPolicy;
+	}
 	int64 GetTimelineTicksPerSecond() const
 	{
 		return TimelineTicksPerSecond;
@@ -41,6 +49,7 @@ private:
 	FGuid ConfigId;
 	FShanmenContentStamp Content;
 	FShanmenSwordRhythmDefinition Definition;
+	FShanmenSwordRhythmEvaluationPolicy EvaluationPolicy;
 	int64 TimelineTicksPerSecond = 0;
 };
 
@@ -85,6 +94,18 @@ public:
 		FShanmenSwordRhythmContributionBindingReceipt& OutBindingReceipt,
 		FShanmenSwordRhythmEvaluationInput& OutEvaluationInput,
 		FString& OutDiagnostic);
+	/**
+	 * Complete atomic product route. The evaluation receipt is derived from
+	 * the same input and canonical policy committed by this Session.
+	 */
+	bool TryObserveExecutedBasicSword(
+		const Fdemo_mapBasicSwordProductExecutionResult& ProductResult,
+		const Fdemo_mapShanmenCombatRunTimelineSample& TimelineSample,
+		FShanmenSwordRhythmReceipt& OutReceipt,
+		FShanmenSwordRhythmContributionBindingReceipt& OutBindingReceipt,
+		FShanmenSwordRhythmEvaluationInput& OutEvaluationInput,
+		FShanmenSwordRhythmEvaluationReceipt& OutEvaluationReceipt,
+		FString& OutDiagnostic);
 	bool TryRecordPerfectWeaponGuardContribution(
 		const FShanmenWeaponGuardTimingProjectionReceipt& Receipt,
 		FShanmenSwordRhythmContribution& OutContribution,
@@ -115,6 +136,11 @@ public:
 	const FShanmenSwordRhythmEvaluationInput& GetLastEvaluationInput() const
 	{
 		return LastEvaluationInput;
+	}
+	const FShanmenSwordRhythmEvaluationReceipt&
+	GetLastEvaluationReceipt() const
+	{
+		return LastEvaluationReceipt;
 	}
 	const Fdemo_mapShanmenSwordRhythmPresentationState&
 	GetPresentationState() const
@@ -147,6 +173,7 @@ private:
 	Fdemo_mapShanmenSwordRhythmProductHost Host;
 	FShanmenSwordRhythmReceipt LastReceipt;
 	FShanmenSwordRhythmEvaluationInput LastEvaluationInput;
+	FShanmenSwordRhythmEvaluationReceipt LastEvaluationReceipt;
 	Fdemo_mapShanmenSwordRhythmPresentationState PresentationState;
 	FShanmenSwordRhythmContributionBindingLedger ContributionBindings;
 };

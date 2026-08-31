@@ -203,6 +203,9 @@ try
     $SwordRhythmProductSession = New-AutomationLogFixture `
         -Name 'sword-rhythm-product-session.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmProductSession'
+    $SwordRhythmEvaluationRoute = New-AutomationLogFixture `
+        -Name 'sword-rhythm-evaluation-route.log' `
+        -Group 'Shanmen.0_0_10.Product.SwordRhythmEvaluationRoute'
     $SwordRhythmPresentation = New-AutomationLogFixture `
         -Name 'sword-rhythm-presentation.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmPresentation'
@@ -772,7 +775,7 @@ try
             $ActionLifecycle)
 
     Invoke-ExpectedPass `
-        -Name 'sword rhythm product Session requires source binding Host timeline and runtime evidence' `
+        -Name 'sword rhythm product Session requires evaluator presentation source Host timeline and runtime evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenSwordRhythmProductSession.h',
             'Source/demo_map/demo_mapShanmenSwordRhythmProductSession.cpp',
@@ -780,10 +783,13 @@ try
         -Logs @(
             $Full,
             $SwordRhythmProductSession,
+            $SwordRhythmEvaluationRoute,
             $SwordRhythmPresentation,
+            $SwordRhythmPresentationEvent,
             $SwordRhythmProductHost,
             $CombatRunFixedTimeline,
             $Coordinator,
+            $SwordRhythmEvaluation,
             $SwordRhythmContributionBinding,
             $SwordRhythmContribution,
             $SwordRhythm,
@@ -793,7 +799,7 @@ try
             $ActionLifecycle)
 
     Invoke-ExpectedPass `
-        -Name 'sword rhythm presentation requires immutable Session receipt and runtime evidence' `
+        -Name 'sword rhythm presentation requires immutable evaluation Session and runtime evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenSwordRhythmPresentation.h',
             'Source/demo_map/demo_mapShanmenSwordRhythmPresentation.cpp',
@@ -801,10 +807,13 @@ try
         -Logs @(
             $Full,
             $SwordRhythmPresentation,
+            $SwordRhythmPresentationEvent,
             $SwordRhythmProductSession,
+            $SwordRhythmEvaluationRoute,
             $SwordRhythmProductHost,
             $CombatRunFixedTimeline,
             $Coordinator,
+            $SwordRhythmEvaluation,
             $SwordRhythm,
             $BasicSword,
             $ActionLifecycle)
@@ -820,9 +829,11 @@ try
             $SwordRhythmPresentationEvent,
             $SwordRhythmPresentation,
             $SwordRhythmProductSession,
+            $SwordRhythmEvaluationRoute,
             $SwordRhythmProductHost,
             $CombatRunFixedTimeline,
             $Coordinator,
+            $SwordRhythmEvaluation,
             $SwordRhythm,
             $BasicSword,
             $ActionLifecycle)
@@ -1626,24 +1637,42 @@ try
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
-        -Name 'sword rhythm product Session focus cannot replace Host and runtime evidence' `
+        -Name 'sword rhythm product evaluation focus cannot replace source Host and runtime evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenSwordRhythmProductSession.cpp') `
-        -Logs @($SwordRhythmProductSession, $SwordRhythmProductHost) `
+        -Logs @(
+            $SwordRhythmProductSession,
+            $SwordRhythmEvaluationRoute,
+            $SwordRhythmPresentation,
+            $SwordRhythmPresentationEvent,
+            $SwordRhythmProductHost,
+            $SwordRhythmEvaluation) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
-        -Name 'sword rhythm presentation focus cannot replace Session and runtime evidence' `
+        -Name 'sword rhythm presentation evaluation focus cannot replace Host and runtime evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenSwordRhythmPresentation.cpp') `
-        -Logs @($SwordRhythmPresentation, $SwordRhythmProductSession) `
+        -Logs @(
+            $SwordRhythmPresentation,
+            $SwordRhythmPresentationEvent,
+            $SwordRhythmProductSession,
+            $SwordRhythmEvaluationRoute,
+            $SwordRhythmProductHost,
+            $SwordRhythmEvaluation) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
         -Name 'sword rhythm presentation event focus cannot replace read model and runtime evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenSwordRhythmPresentationEvent.cpp') `
-        -Logs @($SwordRhythmPresentationEvent, $SwordRhythmPresentation) `
+        -Logs @(
+            $SwordRhythmPresentationEvent,
+            $SwordRhythmPresentation,
+            $SwordRhythmProductSession,
+            $SwordRhythmEvaluationRoute,
+            $SwordRhythmProductHost,
+            $SwordRhythmEvaluation) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

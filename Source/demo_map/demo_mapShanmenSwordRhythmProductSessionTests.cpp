@@ -200,6 +200,24 @@ namespace
 		check(Window.TryProjectDefenseLayer(Runtime, Projection));
 		return Projection;
 	}
+
+	bool HasEvaluationEffect(
+		const FShanmenSwordRhythmEvaluationReceipt& Receipt,
+		const EShanmenSwordRhythmContributionKind Kind,
+		const FName EffectDefinitionId)
+	{
+		for (const FShanmenSwordRhythmEvaluatedEffect& Effect
+			: Receipt.GetEffects())
+		{
+			if (Effect.GetContribution().GetKind() == Kind
+				&& Effect.GetSpecification().GetEffectDefinitionId()
+					== EffectDefinitionId)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -222,15 +240,40 @@ bool Fdemo_mapSwordRhythmCanonicalProductConfigTest::RunTest(
 		First.GetConfigId()
 			== Fdemo_mapShanmenSwordRhythmProductConfig::CanonicalConfigId()
 			&& Second.GetConfigId() == First.GetConfigId());
-	TestTrue(TEXT("initial timing content is explicit at 30 Hz"),
-		First.GetContent().Version == TEXT("0.0.10.P12.2")
+	TestTrue(TEXT("timing and symbolic policy content are explicit at 30 Hz"),
+		First.GetContent().Version == TEXT("0.0.10.P12.10")
 			&& First.GetContent().Digest
-				== TEXT("Shanmen.SwordRhythm.ProductConfig.r1")
+				== TEXT("Shanmen.SwordRhythm.ProductConfig.r2.SymbolicEffects")
 			&& First.GetTimelineTicksPerSecond() == 30
 			&& First.GetDefinition().GetLinkOpenOffsetTicks() == 8
 			&& First.GetDefinition().GetLinkCloseOffsetTicks() == 13
 			&& First.GetDefinition().GetRuleId()
 				== TEXT("Combat.Style.Sword.Taiji01.BasicLinkWindow.r1"));
+	FShanmenSwordRhythmEffectSpecification PreciseLink;
+	FShanmenSwordRhythmEffectSpecification PerfectGuard;
+	FShanmenSwordRhythmEffectSpecification SpiritEvasion;
+	TestTrue(TEXT("canonical config owns one complete symbolic evaluation policy"),
+		First.GetEvaluationPolicy().IsValid()
+			&& Second.GetEvaluationPolicy().GetPolicyId()
+				== First.GetEvaluationPolicy().GetPolicyId()
+			&& First.GetEvaluationPolicy().TryFindSpecification(
+				EShanmenSwordRhythmContributionKind::PreciseSwordLink,
+				PreciseLink)
+			&& PreciseLink.GetEffectDefinitionId()
+				== Fdemo_mapShanmenSwordRhythmProductConfig::
+					CanonicalPreciseLinkEffectDefinitionId()
+			&& First.GetEvaluationPolicy().TryFindSpecification(
+				EShanmenSwordRhythmContributionKind::PerfectWeaponGuard,
+				PerfectGuard)
+			&& PerfectGuard.GetEffectDefinitionId()
+				== Fdemo_mapShanmenSwordRhythmProductConfig::
+					CanonicalPerfectGuardEffectDefinitionId()
+			&& First.GetEvaluationPolicy().TryFindSpecification(
+				EShanmenSwordRhythmContributionKind::SpiritEvasion,
+				SpiritEvasion)
+			&& SpiritEvasion.GetEffectDefinitionId()
+				== Fdemo_mapShanmenSwordRhythmProductConfig::
+					CanonicalSpiritEvasionEffectDefinitionId());
 
 	Fdemo_mapShanmenSwordRhythmProductSession Session;
 	FString Diagnostic;
@@ -249,13 +292,14 @@ bool Fdemo_mapSwordRhythmCanonicalProductConfigTest::RunTest(
 		Session.TryEnd(SwordRhythmSessionRunA, Diagnostic)
 			&& Session.IsEmpty()
 			&& Session.NumRecordedObservations() == 0
-			&& !Session.GetLastReceipt().IsValid());
+			&& !Session.GetLastReceipt().IsValid()
+			&& !Session.GetLastEvaluationReceipt().IsValid());
 	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	Fdemo_mapSwordRhythmProductSessionRealBasicSwordTest,
-	"Shanmen.0_0_10.Product.SwordRhythmProductSession.RealBasicSwordLifecycle",
+	"Shanmen.0_0_10.Product.SwordRhythmEvaluationRoute.RealBasicSwordLifecycle",
 	SwordRhythmSessionFlags)
 
 bool Fdemo_mapSwordRhythmProductSessionRealBasicSwordTest::RunTest(
@@ -363,6 +407,7 @@ bool Fdemo_mapSwordRhythmProductSessionRealBasicSwordTest::RunTest(
 	Fixture.Timeline.TryCapture(Sample);
 	FShanmenSwordRhythmContributionBindingReceipt FirstBinding;
 	FShanmenSwordRhythmEvaluationInput FirstEvaluation;
+	FShanmenSwordRhythmEvaluationReceipt FirstEvaluationReceipt;
 	TestTrue(TEXT("first completed legal miss starts the product rhythm"),
 		First.IsExecuted()
 			&& !First.AppliedDamage()
@@ -372,18 +417,40 @@ bool Fdemo_mapSwordRhythmProductSessionRealBasicSwordTest::RunTest(
 				Receipt,
 				FirstBinding,
 				FirstEvaluation,
+				FirstEvaluationReceipt,
 				Fixture.Diagnostic)
 			&& Receipt.GetBand() == EShanmenSwordRhythmBand::Started
 			&& Receipt.GetResultingChainCount() == 1);
 	TestTrue(TEXT("first sword atomically binds both earlier defensive facts"),
 		FirstBinding.IsValid()
 			&& FirstEvaluation.IsValid()
+			&& FirstEvaluationReceipt.IsValid()
 			&& FirstEvaluation.HasContributionBinding()
 			&& FirstEvaluation.NumContributions() == 2
 			&& FirstEvaluation.GetContributionBinding().GetReceiptId()
 				== FirstBinding.GetReceiptId()
 			&& Session.GetLastEvaluationInput().GetInputId()
 				== FirstEvaluation.GetInputId()
+			&& FirstEvaluationReceipt.GetInput().GetInputId()
+				== FirstEvaluation.GetInputId()
+			&& FirstEvaluationReceipt.GetPolicy().GetPolicyId()
+				== Session.GetConfig().GetEvaluationPolicy().GetPolicyId()
+			&& FirstEvaluationReceipt.NumEffects() == 2
+			&& HasEvaluationEffect(
+				FirstEvaluationReceipt,
+				EShanmenSwordRhythmContributionKind::PerfectWeaponGuard,
+				Fdemo_mapShanmenSwordRhythmProductConfig::
+					CanonicalPerfectGuardEffectDefinitionId())
+			&& HasEvaluationEffect(
+				FirstEvaluationReceipt,
+				EShanmenSwordRhythmContributionKind::SpiritEvasion,
+				Fdemo_mapShanmenSwordRhythmProductConfig::
+					CanonicalSpiritEvasionEffectDefinitionId())
+			&& Session.GetLastEvaluationReceipt().GetReceiptId()
+				== FirstEvaluationReceipt.GetReceiptId()
+			&& Session.GetPresentationState().GetEvaluationReceiptId()
+				== FirstEvaluationReceipt.GetReceiptId()
+			&& Session.GetPresentationState().NumEffectDefinitions() == 2
 			&& FirstBinding.NumContributions() == 2
 			&& FirstBinding.GetTargetObservation().GetAction()
 				.GetActivationId() == First.ActivationId
@@ -417,6 +484,7 @@ bool Fdemo_mapSwordRhythmProductSessionRealBasicSwordTest::RunTest(
 	FShanmenSwordRhythmReceipt SecondReceipt;
 	FShanmenSwordRhythmContributionBindingReceipt SecondBinding;
 	FShanmenSwordRhythmEvaluationInput SecondEvaluation;
+	FShanmenSwordRhythmEvaluationReceipt SecondEvaluationReceipt;
 	TestTrue(TEXT("second completed action links at the content boundary"),
 		Second.IsExecuted()
 			&& Second.ActivationId != First.ActivationId
@@ -426,6 +494,7 @@ bool Fdemo_mapSwordRhythmProductSessionRealBasicSwordTest::RunTest(
 				SecondReceipt,
 				SecondBinding,
 				SecondEvaluation,
+				SecondEvaluationReceipt,
 				Fixture.Diagnostic)
 			&& SecondReceipt.GetBand()
 				== EShanmenSwordRhythmBand::PreciseLinked
@@ -435,10 +504,17 @@ bool Fdemo_mapSwordRhythmProductSessionRealBasicSwordTest::RunTest(
 		Session.GetLastReceipt().GetReceiptId()
 			== SecondReceipt.GetReceiptId()
 			&& SecondEvaluation.IsValid()
+			&& SecondEvaluationReceipt.IsValid()
 			&& !SecondEvaluation.HasContributionBinding()
 			&& SecondEvaluation.NumContributions() == 0
+			&& SecondEvaluationReceipt.NumEffects() == 0
+			&& SecondEvaluationReceipt.GetInput().GetInputId()
+				== SecondEvaluation.GetInputId()
 			&& Session.GetLastEvaluationInput().GetInputId()
 				== SecondEvaluation.GetInputId()
+			&& Session.GetLastEvaluationReceipt().GetReceiptId()
+				== SecondEvaluationReceipt.GetReceiptId()
+			&& Session.GetPresentationState().NumEffectDefinitions() == 0
 			&& Session.NumRecordedObservations() == 2
 			&& !SecondBinding.IsValid()
 			&& Session.GetContributionBindingLedger().NumPending() == 1);
@@ -446,6 +522,7 @@ bool Fdemo_mapSwordRhythmProductSessionRealBasicSwordTest::RunTest(
 	FShanmenSwordRhythmReceipt ReplayReceipt;
 	FShanmenSwordRhythmContributionBindingReceipt ReplayBinding;
 	FShanmenSwordRhythmEvaluationInput ReplayEvaluation;
+	FShanmenSwordRhythmEvaluationReceipt ReplayEvaluationReceipt;
 	TestTrue(TEXT("exact replay remains idempotent through the Session"),
 		Session.TryObserveExecutedBasicSword(
 			Second,
@@ -453,12 +530,15 @@ bool Fdemo_mapSwordRhythmProductSessionRealBasicSwordTest::RunTest(
 			ReplayReceipt,
 			ReplayBinding,
 			ReplayEvaluation,
+			ReplayEvaluationReceipt,
 			Fixture.Diagnostic)
 			&& ReplayReceipt.GetReceiptId()
 				== SecondReceipt.GetReceiptId()
 			&& !ReplayBinding.IsValid()
 			&& ReplayEvaluation.GetInputId()
 				== SecondEvaluation.GetInputId()
+			&& ReplayEvaluationReceipt.GetReceiptId()
+				== SecondEvaluationReceipt.GetReceiptId()
 			&& Session.NumRecordedObservations() == 2
 			&& Session.GetContributionBindingLedger().NumPending() == 1);
 	FShanmenSwordRhythmEvaluationInput MismatchedEvaluation;
@@ -478,6 +558,7 @@ bool Fdemo_mapSwordRhythmProductSessionRealBasicSwordTest::RunTest(
 	FShanmenSwordRhythmReceipt ThirdReceipt;
 	FShanmenSwordRhythmContributionBindingReceipt ThirdBinding;
 	FShanmenSwordRhythmEvaluationInput ThirdEvaluation;
+	FShanmenSwordRhythmEvaluationReceipt ThirdEvaluationReceipt;
 	TestTrue(TEXT("the later sword consumes the precise-link evidence, never its source action"),
 		Third.IsExecuted()
 			&& Session.TryObserveExecutedBasicSword(
@@ -486,10 +567,18 @@ bool Fdemo_mapSwordRhythmProductSessionRealBasicSwordTest::RunTest(
 				ThirdReceipt,
 				ThirdBinding,
 				ThirdEvaluation,
+				ThirdEvaluationReceipt,
 				Fixture.Diagnostic)
 			&& ThirdBinding.IsValid()
 			&& ThirdEvaluation.IsValid()
+			&& ThirdEvaluationReceipt.IsValid()
 			&& ThirdEvaluation.NumContributions() == 1
+			&& ThirdEvaluationReceipt.NumEffects() == 1
+			&& HasEvaluationEffect(
+				ThirdEvaluationReceipt,
+				EShanmenSwordRhythmContributionKind::PreciseSwordLink,
+				Fdemo_mapShanmenSwordRhythmProductConfig::
+					CanonicalPreciseLinkEffectDefinitionId())
 			&& ThirdEvaluation.GetContributionBinding().GetReceiptId()
 				== ThirdBinding.GetReceiptId()
 			&& ThirdBinding.NumContributions() == 1
@@ -505,6 +594,7 @@ bool Fdemo_mapSwordRhythmProductSessionRealBasicSwordTest::RunTest(
 	FShanmenSwordRhythmReceipt ThirdReplayReceipt;
 	FShanmenSwordRhythmContributionBindingReceipt ThirdReplayBinding;
 	FShanmenSwordRhythmEvaluationInput ThirdReplayEvaluation;
+	FShanmenSwordRhythmEvaluationReceipt ThirdReplayEvaluationReceipt;
 	TestTrue(TEXT("bound target replay returns the same immutable binding receipt"),
 		Session.TryObserveExecutedBasicSword(
 			Third,
@@ -512,6 +602,7 @@ bool Fdemo_mapSwordRhythmProductSessionRealBasicSwordTest::RunTest(
 			ThirdReplayReceipt,
 			ThirdReplayBinding,
 			ThirdReplayEvaluation,
+			ThirdReplayEvaluationReceipt,
 			Fixture.Diagnostic)
 			&& ThirdReplayReceipt.GetReceiptId()
 				== ThirdReceipt.GetReceiptId()
@@ -519,12 +610,16 @@ bool Fdemo_mapSwordRhythmProductSessionRealBasicSwordTest::RunTest(
 				== ThirdBinding.GetReceiptId()
 			&& ThirdReplayEvaluation.GetInputId()
 				== ThirdEvaluation.GetInputId()
+			&& ThirdReplayEvaluationReceipt.GetReceiptId()
+				== ThirdEvaluationReceipt.GetReceiptId()
 			&& Session.GetContributionBindingLedger()
 				.NumBoundContributions() == 3);
 	TestTrue(TEXT("Run teardown clears the complete product Session"),
 		Session.TryEnd(SwordRhythmSessionRunA, Fixture.Diagnostic)
 			&& Session.IsEmpty()
 			&& !Session.GetLastEvaluationInput().IsValid()
+			&& !Session.GetLastEvaluationReceipt().IsValid()
+			&& !Session.GetPresentationState().IsValid()
 			&& !Session.GetContributionBindingLedger().IsValid());
 	return true;
 }

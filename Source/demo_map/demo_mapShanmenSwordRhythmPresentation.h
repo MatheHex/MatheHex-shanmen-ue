@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "ShanmenSwordRhythm.h"
+#include "ShanmenSwordRhythmEvaluation.h"
 
 #include "demo_mapShanmenSwordRhythmPresentation.generated.h"
 
@@ -32,6 +32,22 @@ public:
 	FName GetContentVersion() const { return ContentVersion; }
 	const FString& GetContentDigest() const { return ContentDigest; }
 	const FGuid& GetReceiptId() const { return ReceiptId; }
+	const FGuid& GetEvaluationReceiptId() const
+	{
+		return EvaluationReceiptId;
+	}
+	const FGuid& GetEvaluationPolicyId() const
+	{
+		return EvaluationPolicyId;
+	}
+	const TArray<FName>& GetEffectDefinitionIds() const
+	{
+		return EffectDefinitionIds;
+	}
+	int32 NumEffectDefinitions() const
+	{
+		return EffectDefinitionIds.Num();
+	}
 	const FGuid& GetActivationId() const { return ActivationId; }
 	const FGuid& GetTimelineId() const { return TimelineId; }
 	FName GetStyleDefinitionId() const { return StyleDefinitionId; }
@@ -66,6 +82,15 @@ private:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Shanmen|Combat|SwordRhythm|Presentation", meta = (AllowPrivateAccess = "true"))
 	FGuid ReceiptId;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Shanmen|Combat|SwordRhythm|Presentation", meta = (AllowPrivateAccess = "true"))
+	FGuid EvaluationReceiptId;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Shanmen|Combat|SwordRhythm|Presentation", meta = (AllowPrivateAccess = "true"))
+	FGuid EvaluationPolicyId;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Shanmen|Combat|SwordRhythm|Presentation", meta = (AllowPrivateAccess = "true"))
+	TArray<FName> EffectDefinitionIds;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Shanmen|Combat|SwordRhythm|Presentation", meta = (AllowPrivateAccess = "true"))
 	FGuid ActivationId;
@@ -113,6 +138,7 @@ enum class Edemo_mapShanmenSwordRhythmPresentationProjectionStatus : uint8
 	ConfigInvalid,
 	RunInvalid,
 	ReceiptInvalid,
+	EvaluationReceiptInvalid,
 	RevisionInvalid,
 	IdentityMismatch,
 	ProjectionRejected
@@ -141,5 +167,6 @@ public:
 		const Fdemo_mapShanmenSwordRhythmProductConfig& Config,
 		const FGuid& RunId,
 		const FShanmenSwordRhythmReceipt& Receipt,
+		const FShanmenSwordRhythmEvaluationReceipt& EvaluationReceipt,
 		int32 ObservationRevision);
 };

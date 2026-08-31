@@ -27,6 +27,8 @@ namespace
 			|| State.GetContentVersion().IsNone()
 			|| State.GetContentDigest().IsEmpty()
 			|| !State.GetReceiptId().IsValid()
+			|| !State.GetEvaluationReceiptId().IsValid()
+			|| !State.GetEvaluationPolicyId().IsValid()
 			|| !State.GetActivationId().IsValid()
 			|| !State.GetTimelineId().IsValid()
 			|| State.GetStyleDefinitionId().IsNone()
@@ -35,28 +37,43 @@ namespace
 		{
 			return FGuid();
 		}
-		return FShanmenDeterministicId::FromCanonicalParts(
-			TEXT("demo_map.Combat.SwordRhythm.PresentationState.r1"),
+		TArray<FString> Parts = {
+			GuidDigits(State.GetRunId()),
+			GuidDigits(State.GetConfigId()),
+			State.GetContentVersion().ToString(),
+			State.GetContentDigest(),
+			GuidDigits(State.GetReceiptId()),
+			GuidDigits(State.GetEvaluationReceiptId()),
+			GuidDigits(State.GetEvaluationPolicyId()),
+			FString::FromInt(State.NumEffectDefinitions())
+		};
+		for (const FName EffectDefinitionId
+			: State.GetEffectDefinitionIds())
+		{
+			if (EffectDefinitionId.IsNone())
 			{
-				GuidDigits(State.GetRunId()),
-				GuidDigits(State.GetConfigId()),
-				State.GetContentVersion().ToString(),
-				State.GetContentDigest(),
-				GuidDigits(State.GetReceiptId()),
-				GuidDigits(State.GetActivationId()),
-				GuidDigits(State.GetTimelineId()),
-				State.GetStyleDefinitionId().ToString(),
-				State.GetRuleId().ToString(),
-				LexToString(State.GetLinkOpenOffsetTicks()),
-				LexToString(State.GetLinkCloseOffsetTicks()),
-				LexToString(State.GetTimelineTicksPerSecond()),
-				LexToString(State.GetPreviousInputTick()),
-				LexToString(State.GetCurrentInputTick()),
-				FString::FromInt(State.GetObservationRevision()),
-				FString::FromInt(State.GetPreviousChainCount()),
-				FString::FromInt(State.GetResultingChainCount()),
-				FString::FromInt(static_cast<int32>(State.GetBand()))
-			});
+				return FGuid();
+			}
+			Parts.Add(EffectDefinitionId.ToString());
+		}
+		Parts.Append({
+			GuidDigits(State.GetActivationId()),
+			GuidDigits(State.GetTimelineId()),
+			State.GetStyleDefinitionId().ToString(),
+			State.GetRuleId().ToString(),
+			LexToString(State.GetLinkOpenOffsetTicks()),
+			LexToString(State.GetLinkCloseOffsetTicks()),
+			LexToString(State.GetTimelineTicksPerSecond()),
+			LexToString(State.GetPreviousInputTick()),
+			LexToString(State.GetCurrentInputTick()),
+			FString::FromInt(State.GetObservationRevision()),
+			FString::FromInt(State.GetPreviousChainCount()),
+			FString::FromInt(State.GetResultingChainCount()),
+			FString::FromInt(static_cast<int32>(State.GetBand()))
+		});
+		return FShanmenDeterministicId::FromCanonicalParts(
+			TEXT("demo_map.Combat.SwordRhythm.PresentationState.r2"),
+			Parts);
 	}
 
 	Fdemo_mapShanmenSwordRhythmPresentationProjectionResult Reject(
@@ -78,6 +95,8 @@ bool Fdemo_mapShanmenSwordRhythmPresentationState::IsValid() const
 		|| ContentVersion.IsNone()
 		|| ContentDigest.IsEmpty()
 		|| !ReceiptId.IsValid()
+		|| !EvaluationReceiptId.IsValid()
+		|| !EvaluationPolicyId.IsValid()
 		|| !ActivationId.IsValid()
 		|| !TimelineId.IsValid()
 		|| StyleDefinitionId.IsNone()
@@ -153,6 +172,7 @@ Fdemo_mapShanmenSwordRhythmPresentationProjector::Project(
 	const Fdemo_mapShanmenSwordRhythmProductConfig& Config,
 	const FGuid& RunId,
 	const FShanmenSwordRhythmReceipt& Receipt,
+	const FShanmenSwordRhythmEvaluationReceipt& EvaluationReceipt,
 	const int32 ObservationRevision)
 {
 	if (!Config.IsValid())
@@ -173,6 +193,13 @@ Fdemo_mapShanmenSwordRhythmPresentationProjector::Project(
 			Edemo_mapShanmenSwordRhythmPresentationProjectionStatus::ReceiptInvalid,
 			TEXT("Sword-rhythm presentation requires one valid immutable receipt."));
 	}
+	if (!EvaluationReceipt.IsValid())
+	{
+		return Reject(
+			Edemo_mapShanmenSwordRhythmPresentationProjectionStatus::
+				EvaluationReceiptInvalid,
+			TEXT("Sword-rhythm presentation requires one valid evaluation receipt."));
+	}
 	if (ObservationRevision <= 0)
 	{
 		return Reject(
@@ -186,7 +213,11 @@ Fdemo_mapShanmenSwordRhythmPresentationProjector::Project(
 			!= Config.GetDefinition().GetDefinitionId()
 		|| Current.GetAction().GetRunId() != RunId
 		|| Current.GetTimelineId()
-			!= Fdemo_mapShanmenCombatRunFixedTimeline::MakeTimelineId(RunId))
+			!= Fdemo_mapShanmenCombatRunFixedTimeline::MakeTimelineId(RunId)
+		|| EvaluationReceipt.GetPolicy().GetPolicyId()
+			!= Config.GetEvaluationPolicy().GetPolicyId()
+		|| EvaluationReceipt.GetInput().GetRhythmReceipt().GetReceiptId()
+			!= Receipt.GetReceiptId())
 	{
 		return Reject(
 			Edemo_mapShanmenSwordRhythmPresentationProjectionStatus::IdentityMismatch,
@@ -199,6 +230,16 @@ Fdemo_mapShanmenSwordRhythmPresentationProjector::Project(
 	Candidate.ContentVersion = Config.GetContent().Version;
 	Candidate.ContentDigest = Config.GetContent().Digest;
 	Candidate.ReceiptId = Receipt.GetReceiptId();
+	Candidate.EvaluationReceiptId = EvaluationReceipt.GetReceiptId();
+	Candidate.EvaluationPolicyId =
+		EvaluationReceipt.GetPolicy().GetPolicyId();
+	Candidate.EffectDefinitionIds.Reserve(EvaluationReceipt.NumEffects());
+	for (const FShanmenSwordRhythmEvaluatedEffect& Effect
+		: EvaluationReceipt.GetEffects())
+	{
+		Candidate.EffectDefinitionIds.Add(
+			Effect.GetSpecification().GetEffectDefinitionId());
+	}
 	Candidate.ActivationId = Current.GetAction().GetActivationId();
 	Candidate.TimelineId = Current.GetTimelineId();
 	Candidate.StyleDefinitionId =
