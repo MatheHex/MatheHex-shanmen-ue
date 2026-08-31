@@ -170,6 +170,9 @@ try
     $WeaponGuardItemAdapter = New-AutomationLogFixture `
         -Name 'weapon-guard-item-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.WeaponGuardItemAdapter'
+    $WeaponGuardProductRoute = New-AutomationLogFixture `
+        -Name 'weapon-guard-product-route.log' `
+        -Group 'Shanmen.0_0_10.Product.WeaponGuardProductRoute'
     $SpiritEvasionMovement = New-AutomationLogFixture `
         -Name 'spirit-evasion-movement.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritEvasionMovement'
@@ -569,6 +572,21 @@ try
             $Full,
             $WeaponGuardItemAdapter,
             $WeaponGuardProductAuthority,
+            $Legacy)
+
+    Invoke-ExpectedPass `
+        -Name 'weapon guard product route requires item authorization product host and Run evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenWeaponGuardProductRoute.h',
+            'Source/demo_map/demo_mapShanmenWeaponGuardProductRoute.cpp',
+            'Source/demo_map/demo_mapShanmenWeaponGuardProductRouteTests.cpp') `
+        -Logs @(
+            $Full,
+            $WeaponGuardProductRoute,
+            $WeaponGuardItemAdapter,
+            $WeaponGuardProductAuthority,
+            $WeaponGuardProductHost,
+            $Coordinator,
             $Legacy)
 
     Invoke-ExpectedPass `
@@ -1251,6 +1269,18 @@ try
         -Logs @(
             $WeaponGuardItemAdapter,
             $WeaponGuardProductAuthority,
+            $ItemUseAndArmor) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'weapon guard product route focus cannot replace host and legacy evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenWeaponGuardProductRoute.cpp') `
+        -Logs @(
+            $WeaponGuardProductRoute,
+            $WeaponGuardItemAdapter,
+            $WeaponGuardProductAuthority,
+            $Coordinator,
             $ItemUseAndArmor) `
         -ExpectedText 'missing required groups'
 
