@@ -40,6 +40,15 @@
       ]
     },
     {
+      "name": "SwordRhythm",
+      "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenSwordRhythm\\.h|Private/(?:ShanmenSwordRhythm\\.cpp|Tests/ShanmenSwordRhythmTests\\.cpp))$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.CombatRuntime.SwordRhythm",
+        "Shanmen.0_0_10.CombatRuntime.BasicSword",
+        "Shanmen.0_0_10.CombatRuntime.ActionLifecycle"
+      ]
+    },
+    {
       "name": "SpiritShieldRuntime",
       "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenSpiritShield\\.h|Private/(?:ShanmenSpiritShield\\.cpp|Tests/ShanmenSpiritShieldTests\\.cpp))$",
       "requiredGroups": [

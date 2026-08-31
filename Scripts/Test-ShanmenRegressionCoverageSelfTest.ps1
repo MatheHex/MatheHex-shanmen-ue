@@ -134,6 +134,12 @@ try
     $CombatRuntime = New-AutomationLogFixture `
         -Name 'combat-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime'
+    $SwordRhythm = New-AutomationLogFixture `
+        -Name 'sword-rhythm.log' `
+        -Group 'Shanmen.0_0_10.CombatRuntime.SwordRhythm'
+    $BasicSword = New-AutomationLogFixture `
+        -Name 'basic-sword.log' `
+        -Group 'Shanmen.0_0_10.CombatRuntime.BasicSword'
     $ActionResource = New-AutomationLogFixture `
         -Name 'action-resource.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.ActionResource'
@@ -391,6 +397,14 @@ try
         -Paths @(
             'Source/ShanmenCombatRuntime/Private/ShanmenFormationDeployment.cpp') `
         -Logs @($Full)
+
+    Invoke-ExpectedPass `
+        -Name 'sword rhythm requires rhythm BasicSword lifecycle and broad runtime evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Public/ShanmenSwordRhythm.h',
+            'Source/ShanmenCombatRuntime/Private/ShanmenSwordRhythm.cpp',
+            'Source/ShanmenCombatRuntime/Private/Tests/ShanmenSwordRhythmTests.cpp') `
+        -Logs @($SwordRhythm, $BasicSword, $ActionLifecycle, $CombatRuntime)
 
     Invoke-ExpectedPass `
         -Name 'spirit shield runtime requires focused lifecycle and CombatCore evidence' `
@@ -1234,6 +1248,13 @@ try
         -Paths @(
             'Source/ShanmenCombatRuntime/Private/ShanmenFormationDeployment.cpp') `
         -Logs @($ThrownRuntime) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'sword rhythm focus cannot replace BasicSword lifecycle and broad runtime evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Private/ShanmenSwordRhythm.cpp') `
+        -Logs @($SwordRhythm) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
