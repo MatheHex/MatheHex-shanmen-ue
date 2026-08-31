@@ -49,6 +49,17 @@
       ]
     },
     {
+      "name": "SwordRhythmContribution",
+      "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenSwordRhythmContribution\\.h|Private/(?:ShanmenSwordRhythmContribution\\.cpp|Tests/ShanmenSwordRhythmContributionTests\\.cpp))$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.CombatRuntime.SwordRhythmContribution",
+        "Shanmen.0_0_10.CombatRuntime.SwordRhythm",
+        "Shanmen.0_0_10.CombatRuntime.WeaponPerfectGuard",
+        "Shanmen.0_0_10.CombatRuntime.SpiritEvasion",
+        "Shanmen.0_0_10.CombatRuntime.ActionLifecycle"
+      ]
+    },
+    {
       "name": "SpiritShieldRuntime",
       "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenSpiritShield\\.h|Private/(?:ShanmenSpiritShield\\.cpp|Tests/ShanmenSpiritShieldTests\\.cpp))$",
       "requiredGroups": [
