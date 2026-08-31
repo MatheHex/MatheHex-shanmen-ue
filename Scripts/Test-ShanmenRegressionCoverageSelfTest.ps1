@@ -161,6 +161,9 @@ try
     $WeaponGuardDefenseCoordinator = New-AutomationLogFixture `
         -Name 'weapon-guard-defense-coordinator.log' `
         -Group 'Shanmen.0_0_10.Product.WeaponGuardDefenseCoordinator'
+    $WeaponGuardProductHost = New-AutomationLogFixture `
+        -Name 'weapon-guard-product-host.log' `
+        -Group 'Shanmen.0_0_10.Product.WeaponGuardProductHost'
     $SpiritEvasionMovement = New-AutomationLogFixture `
         -Name 'spirit-evasion-movement.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritEvasionMovement'
@@ -501,6 +504,24 @@ try
             'Source/demo_map/demo_mapShanmenWeaponGuardDefenseCoordinatorTests.cpp') `
         -Logs @(
             $Full,
+            $WeaponGuardDefenseCoordinator,
+            $WeaponGuardWorldAdapter,
+            $WeaponGuardArc,
+            $WeaponPerfectGuard,
+            $WeaponGuard,
+            $ActionLifecycle,
+            $CombatCore,
+            $WorldGameplay)
+
+    Invoke-ExpectedPass `
+        -Name 'weapon guard product host requires lifecycle composition world arc timing and resolver evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenWeaponGuardProductHost.h',
+            'Source/demo_map/demo_mapShanmenWeaponGuardProductHost.cpp',
+            'Source/demo_map/demo_mapShanmenWeaponGuardProductHostTests.cpp') `
+        -Logs @(
+            $Full,
+            $WeaponGuardProductHost,
             $WeaponGuardDefenseCoordinator,
             $WeaponGuardWorldAdapter,
             $WeaponGuardArc,
@@ -1147,6 +1168,21 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenWeaponGuardDefenseCoordinator.cpp') `
         -Logs @(
+            $WeaponGuardDefenseCoordinator,
+            $WeaponGuardWorldAdapter,
+            $WeaponGuardArc,
+            $WeaponPerfectGuard,
+            $WeaponGuard,
+            $ActionLifecycle,
+            $CombatCore) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'weapon guard product host focus cannot replace full and World identity evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenWeaponGuardProductHost.cpp') `
+        -Logs @(
+            $WeaponGuardProductHost,
             $WeaponGuardDefenseCoordinator,
             $WeaponGuardWorldAdapter,
             $WeaponGuardArc,
