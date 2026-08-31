@@ -18,6 +18,13 @@ namespace
 		}
 	}
 
+	bool IsPersistentOccupant(Edemo_mapShanmenPlayerActionKind Action)
+	{
+		return Action == Edemo_mapShanmenPlayerActionKind::ThrownWeapon
+			|| Action == Edemo_mapShanmenPlayerActionKind::SpiritEvasion
+			|| Action == Edemo_mapShanmenPlayerActionKind::WeaponGuard;
+	}
+
 	Fdemo_mapShanmenPlayerActionArbitrationReceipt RejectWithoutIdentity(
 		Edemo_mapShanmenPlayerActionArbitrationError Error,
 		Edemo_mapShanmenPlayerActionKind RequestedAction,
@@ -46,41 +53,152 @@ namespace
 	}
 }
 
+bool Fdemo_mapShanmenPlayerActionClaim::TryCreate(
+	const Edemo_mapShanmenPlayerActionKind OwningAction,
+	const FGuid& OwnerId,
+	const Edemo_mapShanmenPlayerActionClaimPreemption Preemption,
+	Fdemo_mapShanmenPlayerActionClaim& OutClaim)
+{
+	Fdemo_mapShanmenPlayerActionClaim Candidate;
+	Candidate.OwningAction = OwningAction;
+	Candidate.OwnerId = OwnerId;
+	Candidate.Preemption = Preemption;
+	if (!Candidate.IsValid())
+	{
+		return false;
+	}
+	OutClaim = Candidate;
+	return true;
+}
+
+bool Fdemo_mapShanmenPlayerActionClaim::IsValid() const
+{
+	if (!IsPersistentOccupant(OwningAction) || !OwnerId.IsValid())
+	{
+		return false;
+	}
+	if (OwningAction == Edemo_mapShanmenPlayerActionKind::WeaponGuard)
+	{
+		return Preemption
+			== Edemo_mapShanmenPlayerActionClaimPreemption::ExactOwner;
+	}
+	return Preemption == Edemo_mapShanmenPlayerActionClaimPreemption::None;
+}
+
+bool Fdemo_mapShanmenPlayerActionClaim::RequiresExactOwnerPreemption() const
+{
+	return IsValid()
+		&& Preemption
+			== Edemo_mapShanmenPlayerActionClaimPreemption::ExactOwner;
+}
+
+bool Fdemo_mapShanmenPlayerActionOccupancySnapshot::TryRegisterClaim(
+	const Edemo_mapShanmenPlayerActionKind OwningAction,
+	const FGuid& OwnerId,
+	const Edemo_mapShanmenPlayerActionClaimPreemption Preemption)
+{
+	Fdemo_mapShanmenPlayerActionClaim Claim;
+	if (!bProjectionValid
+		|| !Fdemo_mapShanmenPlayerActionClaim::TryCreate(
+			OwningAction,
+			OwnerId,
+			Preemption,
+			Claim))
+	{
+		bProjectionValid = false;
+		return false;
+	}
+	for (const Fdemo_mapShanmenPlayerActionClaim& Existing : Claims)
+	{
+		if (Existing.OwningAction == OwningAction)
+		{
+			bProjectionValid = false;
+			return false;
+		}
+	}
+	Claims.Add(Claim);
+	return true;
+}
+
+void Fdemo_mapShanmenPlayerActionOccupancySnapshot::Invalidate()
+{
+	bProjectionValid = false;
+}
+
 bool Fdemo_mapShanmenPlayerActionOccupancySnapshot::IsValid() const
 {
-	return bWeaponGuardActive == WeaponGuardHostId.IsValid();
+	if (!bProjectionValid)
+	{
+		return false;
+	}
+	for (int32 Index = 0; Index < Claims.Num(); ++Index)
+	{
+		if (!Claims[Index].IsValid())
+		{
+			return false;
+		}
+		for (int32 OtherIndex = Index + 1;
+			OtherIndex < Claims.Num();
+			++OtherIndex)
+		{
+			if (Claims[Index].OwningAction == Claims[OtherIndex].OwningAction)
+			{
+				return false;
+			}
+		}
+	}
+	return true;
 }
 
 int32 Fdemo_mapShanmenPlayerActionOccupancySnapshot::
 	NumOccupiedProducts() const
 {
-	return (bWeaponGuardActive ? 1 : 0)
-		+ (bThrownWeaponInFlight ? 1 : 0)
-		+ (bSpiritEvasionBusy ? 1 : 0);
+	return Claims.Num();
+}
+
+const Fdemo_mapShanmenPlayerActionClaim*
+Fdemo_mapShanmenPlayerActionOccupancySnapshot::GetSoleClaim() const
+{
+	return IsValid() && Claims.Num() == 1 ? &Claims[0] : nullptr;
 }
 
 bool Fdemo_mapShanmenPlayerActionArbitrationReceipt::IsValid() const
 {
 	const bool bHasIdentity = HasCommandIdentity(*this);
+	const bool bHasOccupant = IsPersistentOccupant(OccupyingAction)
+		&& OccupyingOwnerId.IsValid();
+	const bool bHasNoOccupant = OccupyingAction
+			== Edemo_mapShanmenPlayerActionKind::None
+		&& !OccupyingOwnerId.IsValid();
 	if (Status == Edemo_mapShanmenPlayerActionArbitrationStatus::Rejected)
 	{
 		if (Error == Edemo_mapShanmenPlayerActionArbitrationError::None
-			|| WeaponGuardHostId.IsValid())
+			|| (!bHasOccupant && !bHasNoOccupant))
 		{
 			return false;
 		}
-		const bool bPolicyRejection = Error
-			== Edemo_mapShanmenPlayerActionArbitrationError::
-				MultipleActiveProducts
-			|| Error == Edemo_mapShanmenPlayerActionArbitrationError::
-				ConflictingProductActive;
-		return bPolicyRejection
-			? IsValidAction(RequestedAction) && bHasIdentity
-			: !bHasIdentity
+		if (Error == Edemo_mapShanmenPlayerActionArbitrationError::
+			MultipleActiveProducts)
+		{
+			return IsValidAction(RequestedAction)
+				&& bHasIdentity
+				&& bHasNoOccupant;
+		}
+		if (Error == Edemo_mapShanmenPlayerActionArbitrationError::
+			ConflictingProductActive)
+		{
+			return IsValidAction(RequestedAction)
+				&& bHasIdentity
+				&& bHasOccupant
+				&& OccupyingAction
+					!= Edemo_mapShanmenPlayerActionKind::WeaponGuard;
+		}
+		return !bHasIdentity
 				&& CommandSequence == 0
 				&& !RunId.IsValid()
 				&& !PlayerEntityId.IsValid()
-				&& !CommandId.IsValid();
+				&& !CommandId.IsValid()
+				&& bHasNoOccupant;
 	}
 	if (Error != Edemo_mapShanmenPlayerActionArbitrationError::None
 		|| !IsValidAction(RequestedAction)
@@ -91,14 +209,24 @@ bool Fdemo_mapShanmenPlayerActionArbitrationReceipt::IsValid() const
 	if (Status
 		== Edemo_mapShanmenPlayerActionArbitrationStatus::Granted)
 	{
-		return !WeaponGuardHostId.IsValid();
+		return bHasNoOccupant;
 	}
-	return (Status
+	if (OccupyingAction != Edemo_mapShanmenPlayerActionKind::WeaponGuard
+		|| !OccupyingOwnerId.IsValid())
+	{
+		return false;
+	}
+	if (Status
+		== Edemo_mapShanmenPlayerActionArbitrationStatus::AlreadyActive)
+	{
+		return RequestedAction
+			== Edemo_mapShanmenPlayerActionKind::WeaponGuard;
+	}
+	return Status
 			== Edemo_mapShanmenPlayerActionArbitrationStatus::
 				WeaponGuardPreemptionRequired
-			|| Status
-				== Edemo_mapShanmenPlayerActionArbitrationStatus::AlreadyActive)
-		&& WeaponGuardHostId.IsValid();
+		&& RequestedAction
+			!= Edemo_mapShanmenPlayerActionKind::WeaponGuard;
 }
 
 bool Fdemo_mapShanmenPlayerActionArbitrationReceipt::IsAuthorized() const
@@ -112,7 +240,9 @@ bool Fdemo_mapShanmenPlayerActionArbitrationReceipt::
 {
 	return IsAuthorized()
 		&& Status == Edemo_mapShanmenPlayerActionArbitrationStatus::
-			WeaponGuardPreemptionRequired;
+			WeaponGuardPreemptionRequired
+		&& OccupyingAction == Edemo_mapShanmenPlayerActionKind::WeaponGuard
+		&& OccupyingOwnerId.IsValid();
 }
 
 Fdemo_mapShanmenPlayerActionGateResult
@@ -157,7 +287,7 @@ Fdemo_mapShanmenPlayerActionGateResult::FromGuardPreemption(
 	Result.RetiredWeaponGuardHostId = RetiredHostId;
 	if (Receipt.IsValid()
 		&& Receipt.RequiresWeaponGuardPreemption()
-		&& RetiredHostId == Receipt.WeaponGuardHostId)
+		&& RetiredHostId == Receipt.OccupyingOwnerId)
 	{
 		Result.Status =
 			Edemo_mapShanmenPlayerActionGateStatus::WeaponGuardPreempted;
@@ -206,7 +336,7 @@ bool Fdemo_mapShanmenPlayerActionGateResult::IsValid() const
 		return Error == Edemo_mapShanmenPlayerActionGateError::None
 			&& Arbitration.RequiresWeaponGuardPreemption()
 			&& RetiredWeaponGuardHostId.IsValid()
-			&& RetiredWeaponGuardHostId == Arbitration.WeaponGuardHostId;
+			&& RetiredWeaponGuardHostId == Arbitration.OccupyingOwnerId;
 	case Edemo_mapShanmenPlayerActionGateStatus::Rejected:
 		return Error != Edemo_mapShanmenPlayerActionGateError::None
 			&& !RetiredWeaponGuardHostId.IsValid();
@@ -288,33 +418,54 @@ Fdemo_mapShanmenPlayerActionArbitrationPolicy::Evaluate(
 			TEXT("Multiple product Hosts already occupy the player action lane.");
 		return Result;
 	}
-	if (Occupancy.bThrownWeaponInFlight || Occupancy.bSpiritEvasionBusy)
+
+	const Fdemo_mapShanmenPlayerActionClaim* Claim =
+		Occupancy.GetSoleClaim();
+	if (Claim != nullptr)
 	{
-		Result.Error = Edemo_mapShanmenPlayerActionArbitrationError::
-			ConflictingProductActive;
-		Result.Diagnostic = Occupancy.bThrownWeaponInFlight
-			? TEXT("An in-flight thrown weapon owns the player action lane.")
-			: TEXT("A nonterminal Spirit Evasion owns the player action lane.");
-		return Result;
-	}
-	if (Occupancy.bWeaponGuardActive)
-	{
-		Result.WeaponGuardHostId = Occupancy.WeaponGuardHostId;
-		if (RequestedAction == Edemo_mapShanmenPlayerActionKind::WeaponGuard)
+		Result.OccupyingAction = Claim->OwningAction;
+		Result.OccupyingOwnerId = Claim->OwnerId;
+		if (Claim->OwningAction
+			== Edemo_mapShanmenPlayerActionKind::WeaponGuard)
 		{
-			Result.Status =
-				Edemo_mapShanmenPlayerActionArbitrationStatus::AlreadyActive;
-			Result.Error = Edemo_mapShanmenPlayerActionArbitrationError::None;
-			Result.Diagnostic =
-				TEXT("The exact weapon-guard Host already owns the action lane.");
+			if (!Claim->RequiresExactOwnerPreemption())
+			{
+				return RejectWithoutIdentity(
+					Edemo_mapShanmenPlayerActionArbitrationError::
+						InvalidOccupancySnapshot,
+					RequestedAction,
+					TEXT("Weapon-guard claim omitted exact-owner preemption policy."));
+			}
+			if (RequestedAction
+				== Edemo_mapShanmenPlayerActionKind::WeaponGuard)
+			{
+				Result.Status =
+					Edemo_mapShanmenPlayerActionArbitrationStatus::
+						AlreadyActive;
+				Result.Error =
+					Edemo_mapShanmenPlayerActionArbitrationError::None;
+				Result.Diagnostic =
+					TEXT("The exact weapon-guard Host already owns the action lane.");
+			}
+			else
+			{
+				Result.Status =
+					Edemo_mapShanmenPlayerActionArbitrationStatus::
+						WeaponGuardPreemptionRequired;
+				Result.Error =
+					Edemo_mapShanmenPlayerActionArbitrationError::None;
+				Result.Diagnostic =
+					TEXT("The requested action must retire the exact weapon-guard Host first.");
+			}
 		}
 		else
 		{
-			Result.Status = Edemo_mapShanmenPlayerActionArbitrationStatus::
-				WeaponGuardPreemptionRequired;
-			Result.Error = Edemo_mapShanmenPlayerActionArbitrationError::None;
-			Result.Diagnostic =
-				TEXT("The requested action must retire the exact weapon-guard Host first.");
+			Result.Error = Edemo_mapShanmenPlayerActionArbitrationError::
+				ConflictingProductActive;
+			Result.Diagnostic = Claim->OwningAction
+					== Edemo_mapShanmenPlayerActionKind::ThrownWeapon
+				? TEXT("An in-flight thrown weapon owns the player action lane.")
+				: TEXT("A nonterminal Spirit Evasion owns the player action lane.");
 		}
 		return Result;
 	}

@@ -67,6 +67,10 @@ public:
 	{
 		return Session.GetHostState();
 	}
+	const FGuid& GetOccupancyOwnerId() const
+	{
+		return Session.GetOccupancyOwnerId();
+	}
 
 private:
 	Fdemo_mapShanmenThrownWeaponSessionResult RejectUnavailable(

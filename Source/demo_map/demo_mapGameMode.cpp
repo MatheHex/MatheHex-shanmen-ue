@@ -310,28 +310,41 @@ Ademo_mapGameMode::CapturePlayerActionOccupancy() const
 	Fdemo_mapShanmenPlayerActionOccupancySnapshot Snapshot;
 	if (!WeaponGuardProductSession.IsValid())
 	{
-		// The impossible active-without-identity shape forces arbitration to
-		// fail closed instead of hiding a corrupt product owner.
-		Snapshot.bWeaponGuardActive = true;
+		Snapshot.Invalidate();
 		return Snapshot;
 	}
 	if (WeaponGuardProductSession.HasActive())
 	{
 		const Fdemo_mapShanmenWeaponGuardProductHost* Host =
 			WeaponGuardProductSession.GetActiveHost();
-		Snapshot.bWeaponGuardActive = Host != nullptr;
-		Snapshot.WeaponGuardHostId = Host ? Host->GetHostId() : FGuid();
+		if (Host == nullptr
+			|| !Snapshot.TryRegisterClaim(
+				Edemo_mapShanmenPlayerActionKind::WeaponGuard,
+				Host->GetHostId(),
+				Edemo_mapShanmenPlayerActionClaimPreemption::ExactOwner))
+		{
+			Snapshot.Invalidate();
+			return Snapshot;
+		}
 	}
 	if (!ThrownWeaponProductLifecycle.IsValid())
 	{
-		Snapshot.bWeaponGuardActive = true;
-		Snapshot.WeaponGuardHostId.Invalidate();
+		Snapshot.Invalidate();
 		return Snapshot;
 	}
-	Snapshot.bThrownWeaponInFlight =
+	const bool bThrownWeaponInFlight =
 		ThrownWeaponProductLifecycle.IsActive()
 		&& ThrownWeaponProductLifecycle.GetHostState()
 			== Edemo_mapShanmenThrownWeaponHostState::InFlight;
+	if (bThrownWeaponInFlight
+		&& !Snapshot.TryRegisterClaim(
+			Edemo_mapShanmenPlayerActionKind::ThrownWeapon,
+			ThrownWeaponProductLifecycle.GetOccupancyOwnerId(),
+			Edemo_mapShanmenPlayerActionClaimPreemption::None))
+	{
+		Snapshot.Invalidate();
+		return Snapshot;
+	}
 
 	const ACharacter* PlayerCharacter = Cast<ACharacter>(GetDemoPawn());
 	const Udemo_mapShanmenSpiritEvasionComponent* SpiritComponent =
@@ -339,8 +352,18 @@ Ademo_mapGameMode::CapturePlayerActionOccupancy() const
 			? PlayerCharacter->FindComponentByClass<
 				Udemo_mapShanmenSpiritEvasionComponent>()
 			: nullptr;
-	Snapshot.bSpiritEvasionBusy = SpiritComponent
-		&& !SpiritComponent->CanStart();
+	if (SpiritComponent && !SpiritComponent->CanStart())
+	{
+		if (!SpiritComponent->HasHost()
+			|| !SpiritComponent->GetHost().IsValid()
+			|| !Snapshot.TryRegisterClaim(
+				Edemo_mapShanmenPlayerActionKind::SpiritEvasion,
+				SpiritComponent->GetHost().GetHostId(),
+				Edemo_mapShanmenPlayerActionClaimPreemption::None))
+		{
+			Snapshot.Invalidate();
+		}
+	}
 	return Snapshot;
 }
 
@@ -370,7 +393,7 @@ Ademo_mapGameMode::RoutePlayerActionGate(
 		return Result;
 	}
 
-	const FGuid ExpectedHostId = Arbitration.WeaponGuardHostId;
+	const FGuid ExpectedHostId = Arbitration.OccupyingOwnerId;
 	const Fdemo_mapShanmenWeaponGuardSessionTransitionResult Transition =
 		RouteWeaponGuardTerminationIntent(
 			Edemo_mapShanmenWeaponGuardTerminationReason::

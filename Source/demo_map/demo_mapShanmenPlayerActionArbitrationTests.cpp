@@ -15,13 +15,25 @@ namespace
 	const FGuid ArbitrationRun(0xA1150001, 0, 0, 1);
 	const FGuid ArbitrationPlayer(0xA1150002, 0, 0, 1);
 	const FGuid ArbitrationGuardHost(0xA1150003, 0, 0, 1);
+	const FGuid ArbitrationThrownOwner(0xA1160001, 0, 0, 1);
+	const FGuid ArbitrationSpiritHost(0xA1160002, 0, 0, 1);
+
+	Fdemo_mapShanmenPlayerActionOccupancySnapshot OccupancyWith(
+		const Edemo_mapShanmenPlayerActionKind Action,
+		const FGuid& OwnerId,
+		const Edemo_mapShanmenPlayerActionClaimPreemption Preemption)
+	{
+		Fdemo_mapShanmenPlayerActionOccupancySnapshot Result;
+		Result.TryRegisterClaim(Action, OwnerId, Preemption);
+		return Result;
+	}
 
 	Fdemo_mapShanmenPlayerActionOccupancySnapshot GuardOccupancy()
 	{
-		Fdemo_mapShanmenPlayerActionOccupancySnapshot Result;
-		Result.bWeaponGuardActive = true;
-		Result.WeaponGuardHostId = ArbitrationGuardHost;
-		return Result;
+		return OccupancyWith(
+			Edemo_mapShanmenPlayerActionKind::WeaponGuard,
+			ArbitrationGuardHost,
+			Edemo_mapShanmenPlayerActionClaimPreemption::ExactOwner);
 	}
 
 	Fdemo_mapShanmenPlayerActionArbitrationReceipt Evaluate(
@@ -97,14 +109,22 @@ bool Fdemo_mapPlayerActionArbitrationPolicyTest::RunTest(const FString&)
 		{
 			TestTrue(TEXT("another action requires exact guard preemption"),
 				Guarded.RequiresWeaponGuardPreemption()
-					&& Guarded.WeaponGuardHostId == ArbitrationGuardHost);
+					&& Guarded.OccupyingAction
+						== Edemo_mapShanmenPlayerActionKind::WeaponGuard
+					&& Guarded.OccupyingOwnerId == ArbitrationGuardHost);
 		}
 	}
 
-	Fdemo_mapShanmenPlayerActionOccupancySnapshot Thrown;
-	Thrown.bThrownWeaponInFlight = true;
-	Fdemo_mapShanmenPlayerActionOccupancySnapshot Spirit;
-	Spirit.bSpiritEvasionBusy = true;
+	const Fdemo_mapShanmenPlayerActionOccupancySnapshot Thrown =
+		OccupancyWith(
+			Edemo_mapShanmenPlayerActionKind::ThrownWeapon,
+			ArbitrationThrownOwner,
+			Edemo_mapShanmenPlayerActionClaimPreemption::None);
+	const Fdemo_mapShanmenPlayerActionOccupancySnapshot Spirit =
+		OccupancyWith(
+			Edemo_mapShanmenPlayerActionKind::SpiritEvasion,
+			ArbitrationSpiritHost,
+			Edemo_mapShanmenPlayerActionClaimPreemption::None);
 	for (const Edemo_mapShanmenPlayerActionKind Action : Actions)
 	{
 		const Fdemo_mapShanmenPlayerActionArbitrationReceipt DuringThrow =
@@ -115,23 +135,93 @@ bool Fdemo_mapPlayerActionArbitrationPolicyTest::RunTest(const FString&)
 			DuringThrow.IsValid() && !DuringThrow.IsAuthorized()
 				&& DuringThrow.Error
 					== Edemo_mapShanmenPlayerActionArbitrationError::
-						ConflictingProductActive);
+						ConflictingProductActive
+				&& DuringThrow.OccupyingAction
+					== Edemo_mapShanmenPlayerActionKind::ThrownWeapon
+				&& DuringThrow.OccupyingOwnerId
+					== ArbitrationThrownOwner);
 		TestTrue(TEXT("nonterminal evasion rejects every new lane action"),
 			DuringSpirit.IsValid() && !DuringSpirit.IsAuthorized()
 				&& DuringSpirit.Error
 					== Edemo_mapShanmenPlayerActionArbitrationError::
-						ConflictingProductActive);
+						ConflictingProductActive
+				&& DuringSpirit.OccupyingAction
+					== Edemo_mapShanmenPlayerActionKind::SpiritEvasion
+				&& DuringSpirit.OccupyingOwnerId
+					== ArbitrationSpiritHost);
 	}
 
 	Fdemo_mapShanmenPlayerActionOccupancySnapshot Multiple = GuardOccupancy();
-	Multiple.bThrownWeaponInFlight = true;
+	TestTrue(TEXT("a distinct product claim registers into the projection"),
+		Multiple.TryRegisterClaim(
+			Edemo_mapShanmenPlayerActionKind::ThrownWeapon,
+			ArbitrationThrownOwner,
+			Edemo_mapShanmenPlayerActionClaimPreemption::None));
 	const Fdemo_mapShanmenPlayerActionArbitrationReceipt Desynchronized =
 		Evaluate(Sequence, Edemo_mapShanmenPlayerActionKind::BasicSword, Multiple);
 	TestTrue(TEXT("multiple existing owners fail closed with replayable proof"),
 		Desynchronized.IsValid() && !Desynchronized.IsAuthorized()
 			&& Desynchronized.Error
 				== Edemo_mapShanmenPlayerActionArbitrationError::
-					MultipleActiveProducts);
+					MultipleActiveProducts
+			&& Desynchronized.OccupyingAction
+				== Edemo_mapShanmenPlayerActionKind::None
+			&& !Desynchronized.OccupyingOwnerId.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapPlayerActionClaimProjectionTest,
+	"Shanmen.0_0_10.Product.PlayerActionArbitration.TypedClaimProjection",
+	ArbitrationFlags)
+
+bool Fdemo_mapPlayerActionClaimProjectionTest::RunTest(const FString&)
+{
+	Fdemo_mapShanmenPlayerActionClaim Guard;
+	TestTrue(TEXT("guard claim requires exact-owner preemption"),
+		Fdemo_mapShanmenPlayerActionClaim::TryCreate(
+			Edemo_mapShanmenPlayerActionKind::WeaponGuard,
+			ArbitrationGuardHost,
+			Edemo_mapShanmenPlayerActionClaimPreemption::ExactOwner,
+			Guard)
+			&& Guard.RequiresExactOwnerPreemption());
+	Fdemo_mapShanmenPlayerActionClaim InvalidGuard;
+	TestFalse(TEXT("guard cannot silently become non-preemptible"),
+		Fdemo_mapShanmenPlayerActionClaim::TryCreate(
+			Edemo_mapShanmenPlayerActionKind::WeaponGuard,
+			ArbitrationGuardHost,
+			Edemo_mapShanmenPlayerActionClaimPreemption::None,
+			InvalidGuard));
+	Fdemo_mapShanmenPlayerActionClaim InvalidThrown;
+	TestFalse(TEXT("thrown weapon cannot silently become preemptible"),
+		Fdemo_mapShanmenPlayerActionClaim::TryCreate(
+			Edemo_mapShanmenPlayerActionKind::ThrownWeapon,
+			ArbitrationThrownOwner,
+			Edemo_mapShanmenPlayerActionClaimPreemption::ExactOwner,
+			InvalidThrown));
+
+	Fdemo_mapShanmenPlayerActionOccupancySnapshot Duplicate;
+	TestTrue(TEXT("first typed claim registers"),
+		Duplicate.TryRegisterClaim(
+			Edemo_mapShanmenPlayerActionKind::SpiritEvasion,
+			ArbitrationSpiritHost,
+			Edemo_mapShanmenPlayerActionClaimPreemption::None));
+	TestFalse(TEXT("duplicate product claim fails registration"),
+		Duplicate.TryRegisterClaim(
+			Edemo_mapShanmenPlayerActionKind::SpiritEvasion,
+			FGuid(0xA1160003, 0, 0, 1),
+			Edemo_mapShanmenPlayerActionClaimPreemption::None));
+	TestFalse(TEXT("duplicate projection remains structurally invalid"),
+		Duplicate.IsValid());
+
+	Fdemo_mapShanmenPlayerActionOccupancySnapshot InvalidIdentity;
+	TestFalse(TEXT("claim without owner identity fails closed"),
+		InvalidIdentity.TryRegisterClaim(
+			Edemo_mapShanmenPlayerActionKind::ThrownWeapon,
+			FGuid(),
+			Edemo_mapShanmenPlayerActionClaimPreemption::None));
+	TestFalse(TEXT("failed identity poisons the complete projection"),
+		InvalidIdentity.IsValid());
 	return true;
 }
 
@@ -204,15 +294,18 @@ bool Fdemo_mapPlayerActionCoordinatorIdentityTest::RunTest(const FString&)
 			Edemo_mapShanmenPlayerActionKind::BasicSword,
 			Fdemo_mapShanmenPlayerActionOccupancySnapshot());
 	Fdemo_mapShanmenPlayerActionOccupancySnapshot Invalid;
-	Invalid.bWeaponGuardActive = true;
+	Invalid.Invalidate();
 	const Fdemo_mapShanmenPlayerActionArbitrationReceipt InvalidReceipt =
 		Coordinator.TryAuthorizePlayerAction(
 			Edemo_mapShanmenPlayerActionKind::ThrownWeapon,
 			Invalid);
 	const uint64 SequenceAfterInvalid =
 		Coordinator.GetNextPlayerActionArbitrationSequence();
-	Fdemo_mapShanmenPlayerActionOccupancySnapshot Busy;
-	Busy.bSpiritEvasionBusy = true;
+	const Fdemo_mapShanmenPlayerActionOccupancySnapshot Busy =
+		OccupancyWith(
+			Edemo_mapShanmenPlayerActionKind::SpiritEvasion,
+			ArbitrationSpiritHost,
+			Edemo_mapShanmenPlayerActionClaimPreemption::None);
 	const Fdemo_mapShanmenPlayerActionArbitrationReceipt Conflict =
 		Coordinator.TryAuthorizePlayerAction(
 			Edemo_mapShanmenPlayerActionKind::WeaponGuard,

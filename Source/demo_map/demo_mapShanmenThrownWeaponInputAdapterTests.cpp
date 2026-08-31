@@ -496,7 +496,10 @@ bool Fdemo_mapThrownWeaponInputActionConflictTest::RunTest(const FString&)
 			{
 				++AuthorizationCount;
 				Fdemo_mapShanmenPlayerActionOccupancySnapshot Occupancy;
-				Occupancy.bSpiritEvasionBusy = true;
+				Occupancy.TryRegisterClaim(
+					Edemo_mapShanmenPlayerActionKind::SpiritEvasion,
+					FGuid(0xA1161001, 0, 0, 1),
+					Edemo_mapShanmenPlayerActionClaimPreemption::None);
 				return Fdemo_mapShanmenPlayerActionGateResult::
 					FromArbitration(
 						Fixture.Coordinator.TryAuthorizePlayerAction(

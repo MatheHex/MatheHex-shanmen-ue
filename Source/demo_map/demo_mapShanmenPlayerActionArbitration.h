@@ -12,16 +12,51 @@ enum class Edemo_mapShanmenPlayerActionKind : uint8
 	WeaponGuard
 };
 
-/** Read-only projection of the existing product Hosts at one route boundary. */
+/** Whether a registered lane owner may be retired by a later action. */
+enum class Edemo_mapShanmenPlayerActionClaimPreemption : uint8
+{
+	None,
+	ExactOwner
+};
+
+/** One typed, identity-bearing claim projected from an existing product Host. */
+struct Fdemo_mapShanmenPlayerActionClaim
+{
+	Edemo_mapShanmenPlayerActionKind OwningAction =
+		Edemo_mapShanmenPlayerActionKind::None;
+	FGuid OwnerId;
+	Edemo_mapShanmenPlayerActionClaimPreemption Preemption =
+		Edemo_mapShanmenPlayerActionClaimPreemption::None;
+
+	static bool TryCreate(
+		Edemo_mapShanmenPlayerActionKind OwningAction,
+		const FGuid& OwnerId,
+		Edemo_mapShanmenPlayerActionClaimPreemption Preemption,
+		Fdemo_mapShanmenPlayerActionClaim& OutClaim);
+
+	bool IsValid() const;
+	bool RequiresExactOwnerPreemption() const;
+};
+
+/**
+ * Read-only projection assembled from existing product Hosts at one route
+ * boundary. It stores no lifecycle state and rejects duplicate product kinds.
+ */
 struct Fdemo_mapShanmenPlayerActionOccupancySnapshot
 {
-	bool bWeaponGuardActive = false;
-	FGuid WeaponGuardHostId;
-	bool bThrownWeaponInFlight = false;
-	bool bSpiritEvasionBusy = false;
+	bool TryRegisterClaim(
+		Edemo_mapShanmenPlayerActionKind OwningAction,
+		const FGuid& OwnerId,
+		Edemo_mapShanmenPlayerActionClaimPreemption Preemption);
+	void Invalidate();
 
 	bool IsValid() const;
 	int32 NumOccupiedProducts() const;
+	const Fdemo_mapShanmenPlayerActionClaim* GetSoleClaim() const;
+
+private:
+	TArray<Fdemo_mapShanmenPlayerActionClaim> Claims;
+	bool bProjectionValid = true;
 };
 
 enum class Edemo_mapShanmenPlayerActionArbitrationStatus : uint8
@@ -63,7 +98,9 @@ struct Fdemo_mapShanmenPlayerActionArbitrationReceipt
 	FGuid RunId;
 	FGuid PlayerEntityId;
 	FGuid CommandId;
-	FGuid WeaponGuardHostId;
+	Edemo_mapShanmenPlayerActionKind OccupyingAction =
+		Edemo_mapShanmenPlayerActionKind::None;
+	FGuid OccupyingOwnerId;
 	FString Diagnostic;
 
 	bool IsValid() const;

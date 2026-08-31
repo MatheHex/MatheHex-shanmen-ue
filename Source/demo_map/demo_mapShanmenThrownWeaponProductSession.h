@@ -147,6 +147,11 @@ public:
 	{
 		return Host.GetState();
 	}
+	/** Stable frozen action identity while the Run Host owns an active flight. */
+	const FGuid& GetOccupancyOwnerId() const
+	{
+		return Host.GetActionRuntime().GetAction().GetActivationId();
+	}
 	const Fdemo_mapShanmenThrownWeaponTerminalReceipt& GetTerminalReceipt() const
 	{
 		return Host.GetTerminalReceipt();

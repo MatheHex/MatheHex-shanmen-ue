@@ -451,7 +451,10 @@ bool Fdemo_mapSpiritEvasionProductRouteActionConflictTest::RunTest(
 			{
 				++AuthorizationCount;
 				Fdemo_mapShanmenPlayerActionOccupancySnapshot Occupancy;
-				Occupancy.bThrownWeaponInFlight = true;
+				Occupancy.TryRegisterClaim(
+					Edemo_mapShanmenPlayerActionKind::ThrownWeapon,
+					FGuid(0xA1162001, 0, 0, 1),
+					Edemo_mapShanmenPlayerActionClaimPreemption::None);
 				return Fdemo_mapShanmenPlayerActionGateResult::
 					FromArbitration(
 						Fixture.Coordinator.TryAuthorizePlayerAction(
