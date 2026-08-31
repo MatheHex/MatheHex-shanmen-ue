@@ -712,6 +712,29 @@ bool Fdemo_mapShanmenSwordRhythmEffectCueConsumerCoordinator::
 }
 
 bool Fdemo_mapShanmenSwordRhythmEffectCueConsumerCoordinator::
+	TryGetAttemptReceipt(
+		const Fdemo_mapShanmenSwordRhythmEffectCueConsumerRoute& Route,
+		const FGuid& AttemptId,
+		Fdemo_mapShanmenSwordRhythmEffectCueAttemptReceipt& OutReceipt) const
+{
+	OutReceipt = Fdemo_mapShanmenSwordRhythmEffectCueAttemptReceipt();
+	if (!IsValid() || !bHasRouteRecord || !Route.IsValid()
+		|| !AttemptId.IsValid() || !CurrentRoute.Route.Matches(Route))
+	{
+		return false;
+	}
+	for (const auto& Receipt : CurrentRoute.Attempts)
+	{
+		if (Receipt.GetCommand().GetAttemptId() == AttemptId)
+		{
+			OutReceipt = Receipt;
+			return true;
+		}
+	}
+	return false;
+}
+
+bool Fdemo_mapShanmenSwordRhythmEffectCueConsumerCoordinator::
 	TryGetLastAcknowledgement(
 		Fdemo_mapShanmenSwordRhythmEffectCueAcknowledgementReceipt&
 			OutAcknowledgement) const

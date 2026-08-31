@@ -257,6 +257,10 @@ public:
 		const Fdemo_mapShanmenSwordRhythmEffectCueAttemptCommand& Command);
 	bool TryGetLatestReceipt(
 		Fdemo_mapShanmenSwordRhythmEffectCueAttemptReceipt& OutReceipt) const;
+	bool TryGetAttemptReceipt(
+		const Fdemo_mapShanmenSwordRhythmEffectCueConsumerRoute& Route,
+		const FGuid& AttemptId,
+		Fdemo_mapShanmenSwordRhythmEffectCueAttemptReceipt& OutReceipt) const;
 	bool TryGetLastAcknowledgement(
 		Fdemo_mapShanmenSwordRhythmEffectCueAcknowledgementReceipt&
 			OutAcknowledgement) const;
