@@ -204,6 +204,19 @@
       ]
     },
     {
+      "name": "WeaponGuardItemAdapter",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenWeaponGuardItemAdapter(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.WeaponGuardItemAdapter",
+        "Shanmen.0_0_10.Product.WeaponGuardProductAuthority",
+        "Shanmen.0_0_10.Items",
+        "demo_map.ItemEconomySchema",
+        "demo_map.ItemUseAndArmor",
+        "demo_map.P4.Hotbar"
+      ]
+    },
+    {
       "name": "SpiritEvasionMovement",
       "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenSpiritEvasionMovement\\.h|Private/(?:ShanmenSpiritEvasionMovement\\.cpp|Tests/ShanmenSpiritEvasionMovementTests\\.cpp))$",
       "requiredGroups": [

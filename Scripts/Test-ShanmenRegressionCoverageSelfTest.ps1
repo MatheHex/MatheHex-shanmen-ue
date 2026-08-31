@@ -167,6 +167,9 @@ try
     $WeaponGuardProductAuthority = New-AutomationLogFixture `
         -Name 'weapon-guard-product-authority.log' `
         -Group 'Shanmen.0_0_10.Product.WeaponGuardProductAuthority'
+    $WeaponGuardItemAdapter = New-AutomationLogFixture `
+        -Name 'weapon-guard-item-adapter.log' `
+        -Group 'Shanmen.0_0_10.Product.WeaponGuardItemAdapter'
     $SpiritEvasionMovement = New-AutomationLogFixture `
         -Name 'spirit-evasion-movement.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritEvasionMovement'
@@ -555,6 +558,18 @@ try
             $FormationInfluenceConsumerWorldResolution,
             $WorldGameplay,
             $Attributes)
+
+    Invoke-ExpectedPass `
+        -Name 'weapon guard item adapter requires explicit item and product authority evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenWeaponGuardItemAdapter.h',
+            'Source/demo_map/demo_mapShanmenWeaponGuardItemAdapter.cpp',
+            'Source/demo_map/demo_mapShanmenWeaponGuardItemAdapterTests.cpp') `
+        -Logs @(
+            $Full,
+            $WeaponGuardItemAdapter,
+            $WeaponGuardProductAuthority,
+            $Legacy)
 
     Invoke-ExpectedPass `
         -Name 'spirit evasion movement requires window and lifecycle evidence' `
@@ -1227,6 +1242,16 @@ try
             $Coordinator,
             $WeaponGuard,
             $Attributes) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'weapon guard item adapter focus cannot replace catalog and legacy evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenWeaponGuardItemAdapter.cpp') `
+        -Logs @(
+            $WeaponGuardItemAdapter,
+            $WeaponGuardProductAuthority,
+            $ItemUseAndArmor) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

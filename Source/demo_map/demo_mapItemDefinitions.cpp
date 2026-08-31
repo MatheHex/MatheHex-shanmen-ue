@@ -357,14 +357,14 @@ bool Fdemo_mapRewardDistributionProfile::IsValid() const
 
 FName Fdemo_mapItemDefinitions::GetContentVersionId()
 {
-	return FName(TEXT("CodeB.Content.0.0.10.P7.7"));
+	return FName(TEXT("CodeB.Content.0.0.10.P11.7"));
 }
 
 const FString& Fdemo_mapItemDefinitions::GetContentDigest()
 {
 	// This is a content-contract digest, not a save migration key. Existing
 	// persisted items keep their DefinitionId and are never remapped by P73.
-	static const FString Digest(TEXT("6C30E84A05386A7986A2344DB8247961E75F0FE2179F41927A0C7DF950F45A00"));
+	static const FString Digest(TEXT("6D01652004E386DC469CB09FF0F3A77110C53841F6AF3F66F5600C3C9B9B4179"));
 	return Digest;
 }
 
@@ -381,6 +381,8 @@ bool Fdemo_mapItemDefinitions::IsKnownContentIdentity(
 	const FString& ContentDigest)
 {
 	return IsCurrentContentIdentity(ContentVersionId, ContentDigest)
+		|| (ContentVersionId == FName(TEXT("CodeB.Content.0.0.10.P7.7"))
+			&& ContentDigest == TEXT("6C30E84A05386A7986A2344DB8247961E75F0FE2179F41927A0C7DF950F45A00"))
 		|| (ContentVersionId == FName(TEXT("CodeB.Content.0.0.10.P5.4"))
 			&& ContentDigest == TEXT("32A1BA2A026369525D43CB56C21311C661E59B22BDFA2C877FE93B5C58F637F4"))
 		|| (ContentVersionId == FName(TEXT("CodeB.Content.P73.3"))
@@ -394,20 +396,20 @@ bool Fdemo_mapItemDefinitions::IsKnownContentIdentity(
 const TArray<Fdemo_mapItemDefinition>& Fdemo_mapItemDefinitions::GetAll()
 {
 	static const TArray<Fdemo_mapItemDefinition> Definitions = {
-		MakeDefinition(Fdemo_mapItemIds::TrainingBlade, TEXT("训练武器"), TEXT("TRAINING BLADE"), Fdemo_mapItemIds::WeaponCategory, 0, 1, Fdemo_mapItemIds::WeaponSlot, { Fdemo_mapItemIds::WeaponSlot }, { MakeModifier(Fdemo_mapAttributeIds::AttackPower, Edemo_mapModifierOperation::Add, 1.0f) }, {}, false, true, 0, 25, 100),
+		MakeDefinition(Fdemo_mapItemIds::TrainingBlade, TEXT("训练武器"), TEXT("TRAINING BLADE"), Fdemo_mapItemIds::WeaponCategory, 0, 1, Fdemo_mapItemIds::WeaponSlot, { Fdemo_mapItemIds::WeaponSlot }, { MakeModifier(Fdemo_mapAttributeIds::AttackPower, Edemo_mapModifierOperation::Add, 1.0f) }, {}, false, true, 0, 25, 100, 0, 0, { Edemo_mapItemGameplaySemantic::WeaponGuard }),
 		MakeDefinition(Fdemo_mapItemIds::TrainingVest, TEXT("训练防具"), TEXT("TRAINING VEST"), Fdemo_mapItemIds::ArmorCategory, 0, 1, Fdemo_mapItemIds::ArmorSlot, { Fdemo_mapItemIds::ArmorSlot }, { MakeModifier(Fdemo_mapAttributeIds::MaxHealth, Edemo_mapModifierOperation::Add, 2.0f) }, {}, false, true, 0, 25, 80),
 		MakeDefinition(Fdemo_mapItemIds::WindTalisman, TEXT("疾风纳物戒"), TEXT("WIND SPATIAL RING"), Fdemo_mapItemIds::SpatialRingCategory, 0, 1, Fdemo_mapItemIds::SpatialRingSlot, { Fdemo_mapItemIds::SpatialRingSlot }, { MakeModifier(Fdemo_mapAttributeIds::MoveSpeed, Edemo_mapModifierOperation::Multiply, 1.10f) }, { MakeEffect(Fdemo_mapItemEffectIds::RingQuickCapacity, 4.0) }, false, true, 0, 25, 60),
 		MakeDefinition(Fdemo_mapItemIds::SpiritDust, TEXT("灵尘"), TEXT("SPIRIT DUST"), Fdemo_mapItemIds::MaterialCategory, 0, 5, NAME_None, {}, {}, {}, false, true, 0, 5, 1),
-		MakeDefinition(Fdemo_mapItemIds::HeavyPracticeBlade, TEXT("重型练习刀"), TEXT("HEAVY PRACTICE BLADE"), Fdemo_mapItemIds::WeaponCategory, 0, 1, Fdemo_mapItemIds::WeaponSlot, { Fdemo_mapItemIds::WeaponSlot }, { MakeModifier(Fdemo_mapAttributeIds::AttackPower, Edemo_mapModifierOperation::Add, 2.0f) }, {}, false, false, 0, 0, 180),
+		MakeDefinition(Fdemo_mapItemIds::HeavyPracticeBlade, TEXT("重型练习刀"), TEXT("HEAVY PRACTICE BLADE"), Fdemo_mapItemIds::WeaponCategory, 0, 1, Fdemo_mapItemIds::WeaponSlot, { Fdemo_mapItemIds::WeaponSlot }, { MakeModifier(Fdemo_mapAttributeIds::AttackPower, Edemo_mapModifierOperation::Add, 2.0f) }, {}, false, false, 0, 0, 180, 0, 0, { Edemo_mapItemGameplaySemantic::WeaponGuard }),
 		MakeDefinition(Fdemo_mapItemIds::ReinforcedVest, TEXT("加固训练甲"), TEXT("REINFORCED VEST"), Fdemo_mapItemIds::ArmorCategory, 0, 1, Fdemo_mapItemIds::ArmorSlot, { Fdemo_mapItemIds::ArmorSlot }, { MakeModifier(Fdemo_mapAttributeIds::MaxHealth, Edemo_mapModifierOperation::Add, 3.0f) }, {}, false, false, 0, 0, 150),
 		MakeDefinition(Fdemo_mapItemIds::EvasionCharm, TEXT("避影符"), TEXT("EVASION CHARM"), Fdemo_mapItemIds::AccessoryCategory, 0, 1, Fdemo_mapItemIds::AccessorySlot, { Fdemo_mapItemIds::AccessorySlot }, { MakeModifier(Fdemo_mapAttributeIds::DodgeChance, Edemo_mapModifierOperation::Add, 0.10f) }, {}, false, false, 0, 0, 120),
 		MakeDefinition(Fdemo_mapItemIds::IronShard, TEXT("玄铁碎片"), TEXT("IRON SHARD"), Fdemo_mapItemIds::MaterialCategory, 0, 5, NAME_None, {}, {}, {}, false, true, 0, 10, 3),
 		MakeDefinition(Fdemo_mapItemIds::AncientToken, TEXT("古旧令牌"), TEXT("ANCIENT TOKEN"), Fdemo_mapItemIds::LootCategory, 0, 1, NAME_None, {}, {}, {}, false, true, 0, 20, 500),
 
-		MakeDefinition(Fdemo_mapItemIds::WeaponLevel1, TEXT("一阶兵器"), TEXT("TIER 1 WEAPON"), Fdemo_mapItemIds::WeaponCategory, 1, 1, Fdemo_mapItemIds::WeaponSlot, { Fdemo_mapItemIds::WeaponSlot }, {}, { MakeEffect(Fdemo_mapItemEffectIds::AttackBonus, 1.0) }, true, true, 100, 50, 50),
-		MakeDefinition(Fdemo_mapItemIds::WeaponLevel2, TEXT("二阶兵器"), TEXT("TIER 2 WEAPON"), Fdemo_mapItemIds::WeaponCategory, 2, 1, Fdemo_mapItemIds::WeaponSlot, { Fdemo_mapItemIds::WeaponSlot }, {}, { MakeEffect(Fdemo_mapItemEffectIds::AttackBonus, 2.0) }, true, true, 200, 100, 100),
-		MakeDefinition(Fdemo_mapItemIds::WeaponLevel3, TEXT("三阶兵器"), TEXT("TIER 3 WEAPON"), Fdemo_mapItemIds::WeaponCategory, 3, 1, Fdemo_mapItemIds::WeaponSlot, { Fdemo_mapItemIds::WeaponSlot }, {}, { MakeEffect(Fdemo_mapItemEffectIds::AttackBonus, 3.0) }, true, true, 400, 200, 200),
-		MakeDefinition(Fdemo_mapItemIds::WeaponLevel4, TEXT("四阶兵器"), TEXT("TIER 4 WEAPON"), Fdemo_mapItemIds::WeaponCategory, 4, 1, Fdemo_mapItemIds::WeaponSlot, { Fdemo_mapItemIds::WeaponSlot }, {}, { MakeEffect(Fdemo_mapItemEffectIds::AttackBonus, 4.0) }, true, true, 800, 400, 400),
+		MakeDefinition(Fdemo_mapItemIds::WeaponLevel1, TEXT("一阶兵器"), TEXT("TIER 1 WEAPON"), Fdemo_mapItemIds::WeaponCategory, 1, 1, Fdemo_mapItemIds::WeaponSlot, { Fdemo_mapItemIds::WeaponSlot }, {}, { MakeEffect(Fdemo_mapItemEffectIds::AttackBonus, 1.0) }, true, true, 100, 50, 50, 0, 0, { Edemo_mapItemGameplaySemantic::WeaponGuard }),
+		MakeDefinition(Fdemo_mapItemIds::WeaponLevel2, TEXT("二阶兵器"), TEXT("TIER 2 WEAPON"), Fdemo_mapItemIds::WeaponCategory, 2, 1, Fdemo_mapItemIds::WeaponSlot, { Fdemo_mapItemIds::WeaponSlot }, {}, { MakeEffect(Fdemo_mapItemEffectIds::AttackBonus, 2.0) }, true, true, 200, 100, 100, 0, 0, { Edemo_mapItemGameplaySemantic::WeaponGuard }),
+		MakeDefinition(Fdemo_mapItemIds::WeaponLevel3, TEXT("三阶兵器"), TEXT("TIER 3 WEAPON"), Fdemo_mapItemIds::WeaponCategory, 3, 1, Fdemo_mapItemIds::WeaponSlot, { Fdemo_mapItemIds::WeaponSlot }, {}, { MakeEffect(Fdemo_mapItemEffectIds::AttackBonus, 3.0) }, true, true, 400, 200, 200, 0, 0, { Edemo_mapItemGameplaySemantic::WeaponGuard }),
+		MakeDefinition(Fdemo_mapItemIds::WeaponLevel4, TEXT("四阶兵器"), TEXT("TIER 4 WEAPON"), Fdemo_mapItemIds::WeaponCategory, 4, 1, Fdemo_mapItemIds::WeaponSlot, { Fdemo_mapItemIds::WeaponSlot }, {}, { MakeEffect(Fdemo_mapItemEffectIds::AttackBonus, 4.0) }, true, true, 800, 400, 400, 0, 0, { Edemo_mapItemGameplaySemantic::WeaponGuard }),
 
 		MakeDefinition(Fdemo_mapItemIds::ArmorRobeLevel1, TEXT("一阶道袍"), TEXT("TIER 1 DAO ROBE"), Fdemo_mapItemIds::ArmorCategory, 1, 1, Fdemo_mapItemIds::ArmorSlot, { Fdemo_mapItemIds::ArmorSlot }, {}, { MakeEffect(Fdemo_mapItemEffectIds::MaxHealthBonus, 2.0), MakeEffect(Fdemo_mapItemEffectIds::FlatDamageReduction, 1.0) }, true, true, 100, 50, 50),
 		MakeDefinition(Fdemo_mapItemIds::ArmorRobeLevel2, TEXT("二阶道袍"), TEXT("TIER 2 DAO ROBE"), Fdemo_mapItemIds::ArmorCategory, 2, 1, Fdemo_mapItemIds::ArmorSlot, { Fdemo_mapItemIds::ArmorSlot }, {}, { MakeEffect(Fdemo_mapItemEffectIds::MaxHealthBonus, 4.0), MakeEffect(Fdemo_mapItemEffectIds::FlatDamageReduction, 2.0) }, true, true, 200, 100, 100),
@@ -842,6 +844,7 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 	TSet<FString> WorldLabels;
 	TSet<FName> SlotIds;
 	int32 ThrownWeaponDefinitionCount = 0;
+	int32 WeaponGuardDefinitionCount = 0;
 	for (FName SlotId : GetEquipmentSlotIds())
 	{
 		if (SlotId.IsNone() || SlotIds.Contains(SlotId))
@@ -866,9 +869,15 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 		}
 		const bool bThrownWeapon = Definition.HasGameplaySemantic(
 			Edemo_mapItemGameplaySemantic::ThrownWeapon);
+		const bool bWeaponGuard = Definition.HasGameplaySemantic(
+			Edemo_mapItemGameplaySemantic::WeaponGuard);
 		if (bThrownWeapon)
 		{
 			++ThrownWeaponDefinitionCount;
+		}
+		if (bWeaponGuard)
+		{
+			++WeaponGuardDefinitionCount;
 		}
 		if (Definition.DefinitionId.IsNone()
 			|| DefinitionIds.Contains(Definition.DefinitionId)
@@ -904,6 +913,14 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 					|| !Definition.CompatibleSlotIds.IsEmpty()
 					|| Definition.MaxDurability != 0
 					|| Definition.MaxCharges != 0))
+			|| (bWeaponGuard
+				&& (Definition.CategoryId != Fdemo_mapItemIds::WeaponCategory
+					|| Definition.MaxStackSize != 1
+					|| Definition.EquipmentSlotId
+						!= Fdemo_mapItemIds::WeaponSlot
+					|| Definition.CompatibleSlotIds
+						!= TArray<FName>({ Fdemo_mapItemIds::WeaponSlot })
+					|| bThrownWeapon))
 			|| (!Definition.EquipmentSlotId.IsNone()
 				&& (Definition.MaxStackSize != 1
 					|| Definition.CompatibleSlotIds.IsEmpty()
@@ -946,6 +963,11 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 	if (ThrownWeaponDefinitionCount != 1)
 	{
 		if (OutError) *OutError = TEXT("P7.7 requires exactly one canonical thrown-weapon product definition.");
+		return false;
+	}
+	if (WeaponGuardDefinitionCount != 6)
+	{
+		if (OutError) *OutError = TEXT("P11.7 requires exactly six explicit weapon-guard product definitions.");
 		return false;
 	}
 	TSet<FName> FixedProfileIds;

@@ -159,7 +159,8 @@ UENUM()
 enum class Edemo_mapItemGameplaySemantic : uint8
 {
 	None,
-	ThrownWeapon
+	ThrownWeapon,
+	WeaponGuard
 };
 
 USTRUCT()
