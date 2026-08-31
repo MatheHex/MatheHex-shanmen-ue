@@ -140,6 +140,9 @@ try
     $SwordRhythmContribution = New-AutomationLogFixture `
         -Name 'sword-rhythm-contribution.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SwordRhythmContribution'
+    $SwordRhythmContributionBinding = New-AutomationLogFixture `
+        -Name 'sword-rhythm-contribution-binding.log' `
+        -Group 'Shanmen.0_0_10.CombatRuntime.SwordRhythmContributionBinding'
     $BasicSword = New-AutomationLogFixture `
         -Name 'basic-sword.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.BasicSword'
@@ -432,6 +435,20 @@ try
             $SwordRhythm,
             $WeaponPerfectGuard,
             $SpiritEvasion,
+            $ActionLifecycle,
+            $CombatRuntime)
+
+    Invoke-ExpectedPass `
+        -Name 'sword rhythm contribution binding requires source rhythm action and broad runtime evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Public/ShanmenSwordRhythmContributionBinding.h',
+            'Source/ShanmenCombatRuntime/Private/ShanmenSwordRhythmContributionBinding.cpp',
+            'Source/ShanmenCombatRuntime/Private/Tests/ShanmenSwordRhythmContributionBindingTests.cpp') `
+        -Logs @(
+            $SwordRhythmContributionBinding,
+            $SwordRhythmContribution,
+            $SwordRhythm,
+            $BasicSword,
             $ActionLifecycle,
             $CombatRuntime)
 
@@ -1365,6 +1382,13 @@ try
         -Paths @(
             'Source/ShanmenCombatRuntime/Private/ShanmenSwordRhythmContribution.cpp') `
         -Logs @($SwordRhythmContribution, $SwordRhythm) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'binding focus cannot replace contribution rhythm action and broad evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Private/ShanmenSwordRhythmContributionBinding.cpp') `
+        -Logs @($SwordRhythmContributionBinding, $SwordRhythmContribution) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

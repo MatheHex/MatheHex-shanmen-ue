@@ -60,6 +60,17 @@
       ]
     },
     {
+      "name": "SwordRhythmContributionBinding",
+      "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenSwordRhythmContributionBinding\\.h|Private/(?:ShanmenSwordRhythmContributionBinding\\.cpp|Tests/ShanmenSwordRhythmContributionBindingTests\\.cpp))$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.CombatRuntime.SwordRhythmContributionBinding",
+        "Shanmen.0_0_10.CombatRuntime.SwordRhythmContribution",
+        "Shanmen.0_0_10.CombatRuntime.SwordRhythm",
+        "Shanmen.0_0_10.CombatRuntime.BasicSword",
+        "Shanmen.0_0_10.CombatRuntime.ActionLifecycle"
+      ]
+    },
+    {
       "name": "SpiritShieldRuntime",
       "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenSpiritShield\\.h|Private/(?:ShanmenSpiritShield\\.cpp|Tests/ShanmenSpiritShieldTests\\.cpp))$",
       "requiredGroups": [
