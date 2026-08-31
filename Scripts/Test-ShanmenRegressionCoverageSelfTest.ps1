@@ -209,6 +209,9 @@ try
     $SwordRhythmEffectCue = New-AutomationLogFixture `
         -Name 'sword-rhythm-effect-cue.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCue'
+    $SwordRhythmEffectCueDelivery = New-AutomationLogFixture `
+        -Name 'sword-rhythm-effect-cue-delivery.log' `
+        -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCueDelivery'
     $SwordRhythmPresentation = New-AutomationLogFixture `
         -Name 'sword-rhythm-presentation.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmPresentation'
@@ -810,6 +813,27 @@ try
             'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueTests.cpp') `
         -Logs @(
             $Full,
+            $SwordRhythmEffectCue,
+            $SwordRhythmPresentation,
+            $SwordRhythmProductSession,
+            $SwordRhythmEvaluationRoute,
+            $SwordRhythmProductHost,
+            $CombatRunFixedTimeline,
+            $Coordinator,
+            $SwordRhythmEvaluation,
+            $SwordRhythm,
+            $BasicSword,
+            $ActionLifecycle)
+
+    Invoke-ExpectedPass `
+        -Name 'sword rhythm cue delivery requires consumer cursor source product and runtime evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueDelivery.h',
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueDelivery.cpp',
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueDeliveryTests.cpp') `
+        -Logs @(
+            $Full,
+            $SwordRhythmEffectCueDelivery,
             $SwordRhythmEffectCue,
             $SwordRhythmPresentation,
             $SwordRhythmProductSession,
@@ -1679,6 +1703,20 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenSwordRhythmEffectCue.cpp') `
         -Logs @(
+            $SwordRhythmEffectCue,
+            $SwordRhythmPresentation,
+            $SwordRhythmProductSession,
+            $SwordRhythmEvaluationRoute,
+            $SwordRhythmProductHost,
+            $SwordRhythmEvaluation) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'sword rhythm cue delivery focus cannot replace source product and runtime evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueDelivery.cpp') `
+        -Logs @(
+            $SwordRhythmEffectCueDelivery,
             $SwordRhythmEffectCue,
             $SwordRhythmPresentation,
             $SwordRhythmProductSession,
