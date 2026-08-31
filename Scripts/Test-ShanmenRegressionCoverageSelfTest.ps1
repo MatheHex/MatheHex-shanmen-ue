@@ -158,6 +158,9 @@ try
     $WeaponGuardWorldAdapter = New-AutomationLogFixture `
         -Name 'weapon-guard-world-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.WeaponGuardWorldAdapter'
+    $WeaponGuardDefenseCoordinator = New-AutomationLogFixture `
+        -Name 'weapon-guard-defense-coordinator.log' `
+        -Group 'Shanmen.0_0_10.Product.WeaponGuardDefenseCoordinator'
     $SpiritEvasionMovement = New-AutomationLogFixture `
         -Name 'spirit-evasion-movement.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritEvasionMovement'
@@ -482,6 +485,23 @@ try
             'Source/demo_map/demo_mapShanmenWeaponGuardWorldAdapterTests.cpp') `
         -Logs @(
             $Full,
+            $WeaponGuardWorldAdapter,
+            $WeaponGuardArc,
+            $WeaponPerfectGuard,
+            $WeaponGuard,
+            $ActionLifecycle,
+            $CombatCore,
+            $WorldGameplay)
+
+    Invoke-ExpectedPass `
+        -Name 'weapon guard defense coordinator requires full composition world arc timing and resolver evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenWeaponGuardDefenseCoordinator.h',
+            'Source/demo_map/demo_mapShanmenWeaponGuardDefenseCoordinator.cpp',
+            'Source/demo_map/demo_mapShanmenWeaponGuardDefenseCoordinatorTests.cpp') `
+        -Logs @(
+            $Full,
+            $WeaponGuardDefenseCoordinator,
             $WeaponGuardWorldAdapter,
             $WeaponGuardArc,
             $WeaponPerfectGuard,
@@ -1114,6 +1134,20 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenWeaponGuardWorldAdapter.cpp') `
         -Logs @(
+            $WeaponGuardWorldAdapter,
+            $WeaponGuardArc,
+            $WeaponPerfectGuard,
+            $WeaponGuard,
+            $ActionLifecycle,
+            $CombatCore) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'weapon guard defense focus cannot replace full and World identity evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenWeaponGuardDefenseCoordinator.cpp') `
+        -Logs @(
+            $WeaponGuardDefenseCoordinator,
             $WeaponGuardWorldAdapter,
             $WeaponGuardArc,
             $WeaponPerfectGuard,
