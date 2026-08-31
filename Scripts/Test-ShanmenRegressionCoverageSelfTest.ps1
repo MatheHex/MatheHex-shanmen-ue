@@ -236,6 +236,9 @@ try
     $SwordRhythmEffectCueExecutionProductTransaction = New-AutomationLogFixture `
         -Name 'sword-rhythm-effect-cue-execution-product-transaction.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionProductTransaction'
+    $SwordRhythmEffectCueExecutionProductDispatch = New-AutomationLogFixture `
+        -Name 'sword-rhythm-effect-cue-execution-product-dispatch.log' `
+        -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionProductDispatch'
     $SwordRhythmEffectCueExecutionSession = New-AutomationLogFixture `
         -Name 'sword-rhythm-effect-cue-execution-session.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionSession'
@@ -1002,6 +1005,37 @@ try
             'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionSessionTests.cpp') `
         -Logs @(
             $Full,
+            $SwordRhythmEffectCueExecutionSession,
+            $SwordRhythmEffectCueExecutionHost,
+            $SwordRhythmEffectCueExecutionDriver,
+            $SwordRhythmEffectCueExecutorAdapter,
+            $SwordRhythmEffectCueConsumerAttempt,
+            $SwordRhythmEffectCueDelivery,
+            $SwordRhythmEffectCue,
+            $SwordRhythmPresentation,
+            $SwordRhythmProductSession,
+            $SwordRhythmEvaluationRoute,
+            $SwordRhythmProductHost,
+            $CombatRunFixedTimeline,
+            $Coordinator,
+            $SwordRhythmEvaluation,
+            $SwordRhythm,
+            $BasicSword,
+            $ActionLifecycle)
+
+    Invoke-ExpectedPass `
+        -Name 'sword rhythm cue product dispatch requires complete current-to-transaction evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductDispatch.h',
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductDispatch.cpp',
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductDispatchTests.cpp') `
+        -Logs @(
+            $Full,
+            $SwordRhythmEffectCueExecutionProductDispatch,
+            $SwordRhythmEffectCueExecutionProductTransaction,
+            $SwordRhythmEffectCueExecutionProductRoute,
+            $SwordRhythmEffectCueExecutionCommandHost,
+            $SwordRhythmEffectCueExecutionCommandRouter,
             $SwordRhythmEffectCueExecutionSession,
             $SwordRhythmEffectCueExecutionHost,
             $SwordRhythmEffectCueExecutionDriver,
@@ -2089,6 +2123,13 @@ try
             $SwordRhythmEvaluationRoute,
             $SwordRhythmProductHost,
             $SwordRhythmEvaluation) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'sword rhythm cue product dispatch focus cannot replace current-to-transaction evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductDispatch.cpp') `
+        -Logs @($SwordRhythmEffectCueExecutionProductDispatch) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
