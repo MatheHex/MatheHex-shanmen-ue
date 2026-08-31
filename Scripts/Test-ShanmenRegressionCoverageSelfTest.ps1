@@ -224,6 +224,9 @@ try
     $SwordRhythmEffectCueExecutionHost = New-AutomationLogFixture `
         -Name 'sword-rhythm-effect-cue-execution-host.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionHost'
+    $SwordRhythmEffectCueExecutionCommandRouter = New-AutomationLogFixture `
+        -Name 'sword-rhythm-effect-cue-execution-command-router.log' `
+        -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionCommandRouter'
     $SwordRhythmEffectCueExecutionSession = New-AutomationLogFixture `
         -Name 'sword-rhythm-effect-cue-execution-session.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionSession'
@@ -938,6 +941,33 @@ try
             'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionHostTests.cpp') `
         -Logs @(
             $Full,
+            $SwordRhythmEffectCueExecutionHost,
+            $SwordRhythmEffectCueExecutionDriver,
+            $SwordRhythmEffectCueExecutorAdapter,
+            $SwordRhythmEffectCueConsumerAttempt,
+            $SwordRhythmEffectCueDelivery,
+            $SwordRhythmEffectCue,
+            $SwordRhythmPresentation,
+            $SwordRhythmProductSession,
+            $SwordRhythmEvaluationRoute,
+            $SwordRhythmProductHost,
+            $CombatRunFixedTimeline,
+            $Coordinator,
+            $SwordRhythmEvaluation,
+            $SwordRhythm,
+            $BasicSword,
+            $ActionLifecycle)
+
+    Invoke-ExpectedPass `
+        -Name 'sword rhythm cue command Router requires Session Host driver source and runtime evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionCommandRouter.h',
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionCommandRouter.cpp',
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionCommandRouterTests.cpp') `
+        -Logs @(
+            $Full,
+            $SwordRhythmEffectCueExecutionCommandRouter,
+            $SwordRhythmEffectCueExecutionSession,
             $SwordRhythmEffectCueExecutionHost,
             $SwordRhythmEffectCueExecutionDriver,
             $SwordRhythmEffectCueExecutorAdapter,
@@ -1913,6 +1943,26 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionHost.cpp') `
         -Logs @(
+            $SwordRhythmEffectCueExecutionHost,
+            $SwordRhythmEffectCueExecutionDriver,
+            $SwordRhythmEffectCueExecutorAdapter,
+            $SwordRhythmEffectCueConsumerAttempt,
+            $SwordRhythmEffectCueDelivery,
+            $SwordRhythmEffectCue,
+            $SwordRhythmPresentation,
+            $SwordRhythmProductSession,
+            $SwordRhythmEvaluationRoute,
+            $SwordRhythmProductHost,
+            $SwordRhythmEvaluation) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'sword rhythm cue command Router focus cannot replace Session Host and runtime evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionCommandRouter.cpp') `
+        -Logs @(
+            $SwordRhythmEffectCueExecutionCommandRouter,
+            $SwordRhythmEffectCueExecutionSession,
             $SwordRhythmEffectCueExecutionHost,
             $SwordRhythmEffectCueExecutionDriver,
             $SwordRhythmEffectCueExecutorAdapter,
