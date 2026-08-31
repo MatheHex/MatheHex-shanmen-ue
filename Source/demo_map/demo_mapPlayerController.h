@@ -5,6 +5,7 @@
 #include "demo_mapCombatTypes.h"
 #include "demo_mapInputBindingSettings.h"
 #include "demo_mapShanmenSpiritEvasionInputAdapter.h"
+#include "demo_mapShanmenWeaponGuardInputAdapter.h"
 #include "demo_mapPlayerController.generated.h"
 
 class Udemo_mapSkillComponent;
@@ -93,6 +94,10 @@ public:
 	void RebuildProductInputBindings();
 	/** Adapts one future dedicated input without owning its physical key. */
 	Fdemo_mapShanmenSpiritEvasionInputResult RouteSpiritEvasionStartInput();
+	/** Routes the physical hold start through the Run-owned fixed timeline. */
+	Fdemo_mapShanmenWeaponGuardInputResult RouteWeaponGuardStartInput();
+	/** Release deliberately bypasses gameplay UI locks to prevent stuck guard. */
+	Fdemo_mapShanmenWeaponGuardReleaseInputResult RouteWeaponGuardReleaseInput();
 	bool IsGameplayInputAllowed() const;
 	Udemo_mapSkillComponent* GetSkillComponent() const;
 	FVector GetLastValidAimDirection() const { return bHasValidAimDirection ? LastValidAimDirection : FVector::ZeroVector; }
@@ -136,6 +141,24 @@ public:
 	GetLastSpiritEvasionInputResultForAutomation() const
 	{
 		return LastSpiritEvasionInputResult;
+	}
+	uint64 GetWeaponGuardPressInvocationCountForAutomation() const
+	{
+		return WeaponGuardPressInvocationCount;
+	}
+	uint64 GetWeaponGuardReleaseInvocationCountForAutomation() const
+	{
+		return WeaponGuardReleaseInvocationCount;
+	}
+	const Fdemo_mapShanmenWeaponGuardInputResult&
+	GetLastWeaponGuardInputResultForAutomation() const
+	{
+		return LastWeaponGuardInputResult;
+	}
+	const Fdemo_mapShanmenWeaponGuardReleaseInputResult&
+	GetLastWeaponGuardReleaseInputResultForAutomation() const
+	{
+		return LastWeaponGuardReleaseInputResult;
 	}
 	int32 GetLastHotbarSlotForwardedForAutomation() const { return LastHotbarSlotForwardedForAutomation; }
 	void SetAutomationAimDirection(const FVector& Direction) { LastValidAimDirection = FVector(Direction.X, Direction.Y, 0.0f).GetSafeNormal(); bHasValidAimDirection = !LastValidAimDirection.IsNearlyZero(); }
@@ -212,6 +235,8 @@ protected:
 	void CastSelfSector();
 	void FireStraightProjectile();
 	void StartSpiritEvasion();
+	void StartWeaponGuard();
+	void StopWeaponGuard();
 	void UseHotbarSlot(int32 SlotNumber);
 	void UseHotbarSlot1();
 	void UseHotbarSlot2();
@@ -237,6 +262,11 @@ protected:
 	uint64 SpiritEvasionInputInvocationCount = 0;
 	Fdemo_mapShanmenSpiritEvasionInputResult
 		LastSpiritEvasionInputResult;
+	uint64 WeaponGuardPressInvocationCount = 0;
+	uint64 WeaponGuardReleaseInvocationCount = 0;
+	Fdemo_mapShanmenWeaponGuardInputResult LastWeaponGuardInputResult;
+	Fdemo_mapShanmenWeaponGuardReleaseInputResult
+		LastWeaponGuardReleaseInputResult;
 #endif
 };
 

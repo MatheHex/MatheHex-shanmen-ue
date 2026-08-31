@@ -306,4 +306,47 @@ bool Fdemo_mapWeaponGuardInputAdapterAppliedTest::RunTest(const FString&)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapWeaponGuardInputAdapterReleaseTest,
+	"Shanmen.0_0_10.Product.WeaponGuardInputAdapter.ReleaseDelegation",
+	InputAdapterFlags)
+
+bool Fdemo_mapWeaponGuardInputAdapterReleaseTest::RunTest(const FString&)
+{
+	int32 RouteCalls = 0;
+	const auto Unavailable =
+		Fdemo_mapShanmenWeaponGuardInputAdapter::RouteReleaseInput(
+			false,
+			[&RouteCalls]()
+			{
+				++RouteCalls;
+				return Fdemo_mapShanmenWeaponGuardSessionTransitionResult();
+			});
+	const auto Accepted =
+		Fdemo_mapShanmenWeaponGuardInputAdapter::RouteReleaseInput(
+			true,
+			[&RouteCalls]()
+			{
+				++RouteCalls;
+				Fdemo_mapShanmenWeaponGuardSessionTransitionResult Result;
+				Result.Status =
+					Edemo_mapShanmenWeaponGuardSessionTransitionStatus::NoActiveHost;
+				Result.Error =
+					Edemo_mapShanmenWeaponGuardSessionTransitionError::None;
+				Result.Diagnostic =
+					TEXT("Idempotent release reached the product Session.");
+				return Result;
+			});
+	TestEqual(TEXT("missing product seam does not invoke release"),
+		RouteCalls, 1);
+	TestEqual(TEXT("missing product seam has typed status"),
+		Unavailable.Status,
+		Edemo_mapShanmenWeaponGuardReleaseInputStatus::ProductRouteUnavailable);
+	TestTrue(TEXT("available release delegates once and accepts no-op"),
+		Accepted.IsAccepted()
+			&& Accepted.bProductRouteInvoked
+			&& Accepted.Transition.IsNoOp());
+	return true;
+}
+
 #endif

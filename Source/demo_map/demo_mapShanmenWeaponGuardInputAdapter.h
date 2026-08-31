@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "demo_mapShanmenWeaponGuardProductRoute.h"
+#include "demo_mapShanmenWeaponGuardProductSession.h"
 
 /** One opaque sample from the caller-owned monotonic guard timeline. */
 class Fdemo_mapShanmenWeaponGuardInputTimelineSample
@@ -44,6 +44,25 @@ struct Fdemo_mapShanmenWeaponGuardInputResult
 	bool IsAccepted() const;
 };
 
+enum class Edemo_mapShanmenWeaponGuardReleaseInputStatus : uint8
+{
+	Applied,
+	ProductRouteUnavailable,
+	ProductRejected
+};
+
+/** Proof that a physical release delegates once and never consults UI lock. */
+struct Fdemo_mapShanmenWeaponGuardReleaseInputResult
+{
+	Edemo_mapShanmenWeaponGuardReleaseInputStatus Status =
+		Edemo_mapShanmenWeaponGuardReleaseInputStatus::ProductRouteUnavailable;
+	bool bProductRouteInvoked = false;
+	Fdemo_mapShanmenWeaponGuardSessionTransitionResult Transition;
+	FString Diagnostic;
+
+	bool IsAccepted() const;
+};
+
 /**
  * Stateless device-to-product seam for a future weapon-guard press.
  *
@@ -62,4 +81,10 @@ struct Fdemo_mapShanmenWeaponGuardInputAdapter
 		TFunctionRef<Fdemo_mapShanmenWeaponGuardProductRouteResult(
 			const FGuid& TimelineId,
 			int64 ActiveStartTick)> RouteStartIntent);
+
+	/** Release intentionally has no gameplay gate, preventing a stuck hold. */
+	static Fdemo_mapShanmenWeaponGuardReleaseInputResult RouteReleaseInput(
+		bool bProductRouteAvailable,
+		TFunctionRef<Fdemo_mapShanmenWeaponGuardSessionTransitionResult()>
+			RouteReleaseIntent);
 };

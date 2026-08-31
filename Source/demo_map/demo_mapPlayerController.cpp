@@ -180,6 +180,8 @@ void Ademo_mapPlayerController::BindProductInputActions()
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::SkillSelfSector), IE_Pressed, this, &Ademo_mapPlayerController::CastSelfSector);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::SkillStraightProjectile), IE_Pressed, this, &Ademo_mapPlayerController::FireStraightProjectile);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::SpiritEvasion), IE_Pressed, this, &Ademo_mapPlayerController::StartSpiritEvasion);
+	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::WeaponGuard), IE_Pressed, this, &Ademo_mapPlayerController::StartWeaponGuard);
+	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::WeaponGuard), IE_Released, this, &Ademo_mapPlayerController::StopWeaponGuard);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::Interact), IE_Pressed, this, &Ademo_mapPlayerController::BeginInteractV3);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::Interact), IE_Released, this, &Ademo_mapPlayerController::EndInteractV3);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::Hotbar1), IE_Pressed, this, &Ademo_mapPlayerController::UseHotbarSlot1);
@@ -881,6 +883,88 @@ Ademo_mapPlayerController::RouteSpiritEvasionStartInput()
 			return Mode
 				? Mode->RouteSpiritEvasionStartIntent(Direction)
 				: Fdemo_mapShanmenSpiritEvasionProductRouteResult();
+		});
+}
+
+void Ademo_mapPlayerController::StartWeaponGuard()
+{
+	const Fdemo_mapShanmenWeaponGuardInputResult Result =
+		RouteWeaponGuardStartInput();
+#if !UE_BUILD_SHIPPING
+	++WeaponGuardPressInvocationCount;
+	LastWeaponGuardInputResult = Result;
+#else
+	(void)Result;
+#endif
+}
+
+void Ademo_mapPlayerController::StopWeaponGuard()
+{
+	const Fdemo_mapShanmenWeaponGuardReleaseInputResult Result =
+		RouteWeaponGuardReleaseInput();
+#if !UE_BUILD_SHIPPING
+	++WeaponGuardReleaseInvocationCount;
+	LastWeaponGuardReleaseInputResult = Result;
+#else
+	(void)Result;
+#endif
+}
+
+Fdemo_mapShanmenWeaponGuardInputResult
+Ademo_mapPlayerController::RouteWeaponGuardStartInput()
+{
+	Ademo_mapGameMode* Mode = GetWorld()
+		? Cast<Ademo_mapGameMode>(GetWorld()->GetAuthGameMode())
+		: nullptr;
+	Fdemo_mapShanmenWeaponGuardSessionStartResult SessionStart;
+	Fdemo_mapShanmenWeaponGuardInputResult Result =
+		Fdemo_mapShanmenWeaponGuardInputAdapter::RouteStartInput(
+			IsGameplayInputAllowed(),
+			Mode != nullptr,
+			[Mode]()
+			{
+				return Mode
+					? Mode->CaptureWeaponGuardInputTimeline()
+					: Fdemo_mapShanmenWeaponGuardInputTimelineSample();
+			},
+			[Mode, &SessionStart](
+				const FGuid& TimelineId,
+				int64 ActiveStartTick)
+			{
+				if (!Mode)
+				{
+					return Fdemo_mapShanmenWeaponGuardProductRouteResult();
+				}
+				SessionStart = Mode->RouteWeaponGuardStartIntent(
+					TimelineId,
+					ActiveStartTick);
+				return SessionStart.IsStarted()
+					? SessionStart.Route
+					: Fdemo_mapShanmenWeaponGuardProductRouteResult();
+			});
+	if (Mode && !SessionStart.IsStarted()
+		&& !SessionStart.Diagnostic.IsEmpty())
+	{
+		Result.Status =
+			Edemo_mapShanmenWeaponGuardInputStatus::ProductRejected;
+		Result.Diagnostic = SessionStart.Diagnostic;
+	}
+	return Result;
+}
+
+Fdemo_mapShanmenWeaponGuardReleaseInputResult
+Ademo_mapPlayerController::RouteWeaponGuardReleaseInput()
+{
+	Ademo_mapGameMode* Mode = GetWorld()
+		? Cast<Ademo_mapGameMode>(GetWorld()->GetAuthGameMode())
+		: nullptr;
+	return Fdemo_mapShanmenWeaponGuardInputAdapter::RouteReleaseInput(
+		Mode != nullptr,
+		[Mode]()
+		{
+			return Mode
+				? Mode->RouteWeaponGuardReleaseIntent()
+				: Fdemo_mapShanmenWeaponGuardSessionTransitionResult();
 		});
 }
 

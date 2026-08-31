@@ -250,6 +250,18 @@
       ]
     },
     {
+      "name": "WeaponGuardFixedTimeline",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenWeaponGuardFixedTimeline(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.WeaponGuardFixedTimeline",
+        "Shanmen.0_0_10.Product.WeaponGuardInputAdapter",
+        "Shanmen.0_0_10.Product.WeaponGuardProductSession",
+        "Shanmen.0_0_10.Product.WeaponGuardProductRoute",
+        "Shanmen.0_0_10.Product.CombatRunCoordinator"
+      ]
+    },
+    {
       "name": "WeaponGuardProductSession",
       "pathRegex": "^Source/demo_map/demo_mapShanmenWeaponGuardProductSession(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [
@@ -451,11 +463,13 @@
     },
     {
       "name": "UnifiedInputRegistryAndBindings",
-      "pathRegex": "^Source/demo_map/(?:demo_mapInputActionRegistry|demo_mapInputBindingSettings|demo_mapShanmenSpiritEvasionPhysicalInputTests|demo_mapFullSystemLoopTests|demo_mapP7IntegrationTests|demo_mapRuntimeInterfaceSliceTests|demo_mapInputRestoreTests)\\.(?:h|cpp)$",
+      "pathRegex": "^Source/demo_map/(?:demo_mapInputActionRegistry|demo_mapInputBindingSettings|demo_mapShanmenSpiritEvasionPhysicalInputTests|demo_mapShanmenWeaponGuardPhysicalInputTests|demo_mapFullSystemLoopTests|demo_mapP7IntegrationTests|demo_mapRuntimeInterfaceSliceTests|demo_mapInputRestoreTests)\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10",
         "Shanmen.0_0_10.Product.SpiritEvasionPhysicalInput",
         "Shanmen.0_0_10.Product.SpiritEvasionInputAdapter",
+        "Shanmen.0_0_10.Product.WeaponGuardPhysicalInput",
+        "Shanmen.0_0_10.Product.WeaponGuardInputAdapter",
         "demo_map.FullSystemLoop.41",
         "demo_map.FullSystemLoop.47",
         "demo_map.P7Integration",
@@ -1195,6 +1209,8 @@
         "Shanmen.0_0_10.CombatRuntime.ActionLifecycle",
         "Shanmen.0_0_10.Product.CombatRunCoordinator",
         "Shanmen.0_0_10.Product.WeaponGuardProductSession",
+        "Shanmen.0_0_10.Product.WeaponGuardFixedTimeline",
+        "Shanmen.0_0_10.Product.WeaponGuardInputAdapter",
         "Shanmen.0_0_10.Product.WeaponGuardProductRoute",
         "Shanmen.0_0_10.Product.WeaponGuardItemAdapter",
         "Shanmen.0_0_10.Product.WeaponGuardProductAuthority",
@@ -1219,6 +1235,10 @@
         "Shanmen.0_0_10",
         "Shanmen.0_0_10.Product.SpiritEvasionPhysicalInput",
         "Shanmen.0_0_10.Product.SpiritEvasionInputAdapter",
+        "Shanmen.0_0_10.Product.WeaponGuardPhysicalInput",
+        "Shanmen.0_0_10.Product.WeaponGuardFixedTimeline",
+        "Shanmen.0_0_10.Product.WeaponGuardInputAdapter",
+        "Shanmen.0_0_10.Product.WeaponGuardProductSession",
         "Shanmen.0_0_10.Product.ThrownWeaponInputAdapter",
         "demo_map.V2RangedCompatibility"
       ]

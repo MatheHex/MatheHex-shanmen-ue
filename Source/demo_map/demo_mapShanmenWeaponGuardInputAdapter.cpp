@@ -51,6 +51,13 @@ bool Fdemo_mapShanmenWeaponGuardInputResult::IsAccepted() const
 			== TimelineSample.GetActiveStartTick();
 }
 
+bool Fdemo_mapShanmenWeaponGuardReleaseInputResult::IsAccepted() const
+{
+	return Status == Edemo_mapShanmenWeaponGuardReleaseInputStatus::Applied
+		&& bProductRouteInvoked
+		&& Transition.IsSuccess();
+}
+
 Fdemo_mapShanmenWeaponGuardInputResult
 Fdemo_mapShanmenWeaponGuardInputAdapter::RouteStartInput(
 	const bool bGameplayInputAllowed,
@@ -96,5 +103,28 @@ Fdemo_mapShanmenWeaponGuardInputAdapter::RouteStartInput(
 		? Edemo_mapShanmenWeaponGuardInputStatus::Applied
 		: Edemo_mapShanmenWeaponGuardInputStatus::ProductRejected;
 	Result.Diagnostic = Result.ProductRoute.Diagnostic;
+	return Result;
+}
+
+Fdemo_mapShanmenWeaponGuardReleaseInputResult
+Fdemo_mapShanmenWeaponGuardInputAdapter::RouteReleaseInput(
+	const bool bProductRouteAvailable,
+	TFunctionRef<Fdemo_mapShanmenWeaponGuardSessionTransitionResult()>
+		RouteReleaseIntent)
+{
+	Fdemo_mapShanmenWeaponGuardReleaseInputResult Result;
+	if (!bProductRouteAvailable)
+	{
+		Result.Diagnostic =
+			TEXT("Weapon guard release requires the authoritative product route.");
+		return Result;
+	}
+
+	Result.bProductRouteInvoked = true;
+	Result.Transition = RouteReleaseIntent();
+	Result.Status = Result.Transition.IsSuccess()
+		? Edemo_mapShanmenWeaponGuardReleaseInputStatus::Applied
+		: Edemo_mapShanmenWeaponGuardReleaseInputStatus::ProductRejected;
+	Result.Diagnostic = Result.Transition.Diagnostic;
 	return Result;
 }

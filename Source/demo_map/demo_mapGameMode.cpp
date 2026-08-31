@@ -527,6 +527,14 @@ Ademo_mapGameMode::RouteWeaponGuardStartIntent(
 		ActiveStartTick);
 }
 
+Fdemo_mapShanmenWeaponGuardInputTimelineSample
+Ademo_mapGameMode::CaptureWeaponGuardInputTimeline() const
+{
+	Fdemo_mapShanmenWeaponGuardInputTimelineSample Sample;
+	WeaponGuardFixedTimeline.TryCapture(Sample);
+	return Sample;
+}
+
 Fdemo_mapShanmenWeaponGuardSessionTransitionResult
 Ademo_mapGameMode::RouteWeaponGuardReleaseIntent()
 {
@@ -896,6 +904,23 @@ void Ademo_mapGameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void Ademo_mapGameMode::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	if (!WeaponGuardFixedTimeline.IsEmpty())
+	{
+		int64 AdvancedTicks = 0;
+		FString TimelineDiagnostic;
+		if (!WeaponGuardFixedTimeline.TryAdvance(
+				static_cast<double>(DeltaSeconds),
+				AdvancedTicks,
+				TimelineDiagnostic))
+		{
+			UE_LOG(Logdemo_map, Error,
+				TEXT("0_0_10_WEAPON_GUARD Event=TimelineAdvanceRejected RunId=%s Delta=%.9f Diagnostic=%s"),
+				*WeaponGuardFixedTimeline.GetRunId().ToString(
+					EGuidFormats::DigitsWithHyphens),
+				DeltaSeconds,
+				*TimelineDiagnostic);
+		}
+	}
 	if (!ControlledWeaponRunHost.IsEmpty())
 	{
 		const Fdemo_mapShanmenControlledWeaponOrbitFrameResult OrbitFrame =
@@ -1076,6 +1101,7 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 		|| !ControlledWeaponThreatSampleRouter.IsEmpty()
 		|| !ThrownWeaponProductLifecycle.IsEmpty()
 		|| !WeaponGuardProductSession.IsEmpty()
+		|| !WeaponGuardFixedTimeline.IsEmpty()
 		|| (SpiritEvasion
 			&& SpiritEvasion->HasHost()
 			&& !SpiritEvasion->IsTerminal()))
@@ -1159,14 +1185,33 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 		}
 	}
 	ThrownWeaponInputAdapter.Reset();
+	FString TimelineDiagnostic;
+	if (!WeaponGuardFixedTimeline.TryBegin(
+			ActiveRunId,
+			TimelineDiagnostic))
+	{
+		FString ThrownDiagnostic;
+		ThrownWeaponProductLifecycle.TryEnd(ThrownDiagnostic);
+		FString ReleaseDiagnostic;
+		CombatRunCoordinator.TryEndRun(
+			ActiveRunId,
+			ReleaseDiagnostic);
+		OutDiagnostic = TimelineDiagnostic;
+		return false;
+	}
 	UE_LOG(Logdemo_map, Log,
-		TEXT("0_0_10_COMBAT_RUN Event=RunBound RunId=%s PlayerEntityId=%s M01Entities=%d M01VitalityHosts=%d ThrownWeaponLifecycle=%d"),
+		TEXT("0_0_10_COMBAT_RUN Event=RunBound RunId=%s PlayerEntityId=%s M01Entities=%d M01VitalityHosts=%d ThrownWeaponLifecycle=%d GuardTimelineId=%s GuardTickRate=%lld"),
 		*ActiveRunId.ToString(EGuidFormats::DigitsWithHyphens),
 		*CombatRunCoordinator.GetPlayerEntityId().ToString(
 			EGuidFormats::DigitsWithHyphens),
 		CombatRunCoordinator.NumRegisteredM01Enemies(),
 		CombatRunCoordinator.NumVitalityBoundM01Enemies(),
-		ThrownWeaponProductLifecycle.IsActive() ? 1 : 0);
+		ThrownWeaponProductLifecycle.IsActive() ? 1 : 0,
+		*WeaponGuardFixedTimeline.GetTimelineId().ToString(
+			EGuidFormats::DigitsWithHyphens),
+		static_cast<long long>(
+			Fdemo_mapShanmenWeaponGuardFixedTimeline::
+				CanonicalTicksPerSecond()));
 	return true;
 }
 
@@ -1207,7 +1252,8 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 	{
 		if (ControlledWeaponRunHost.IsEmpty()
 			&& ControlledWeaponRunCommandRouter.IsEmpty()
-			&& ControlledWeaponThreatSampleRouter.IsEmpty())
+			&& ControlledWeaponThreatSampleRouter.IsEmpty()
+			&& WeaponGuardFixedTimeline.IsEmpty())
 		{
 			return true;
 		}
@@ -1221,6 +1267,7 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 		ControlledWeaponRunHost.Reset();
 		ControlledWeaponRunCommandRouter.Reset();
 		ControlledWeaponThreatSampleRouter.Reset();
+		WeaponGuardFixedTimeline.Reset();
 		return false;
 	}
 
@@ -1230,6 +1277,19 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 			CombatRunCoordinator);
 	if (Result.IsEnded())
 	{
+		FString TimelineDiagnostic;
+		if (!WeaponGuardFixedTimeline.TryEnd(
+				Result.RunId,
+				TimelineDiagnostic))
+		{
+			UE_LOG(Logdemo_map, Error,
+				TEXT("0_0_10_COMBAT_RUN Event=WeaponGuardTimelineReleaseRejected RunId=%s Context=%s Diagnostic=%s"),
+				*Result.RunId.ToString(EGuidFormats::DigitsWithHyphens),
+				SafeContext,
+				*TimelineDiagnostic);
+			WeaponGuardFixedTimeline.Reset();
+			return false;
+		}
 		const int32 RoutedIntentCount =
 			ControlledWeaponRunCommandRouter.NumProcessedIntents();
 		const int64 ThreatSampleCount =
@@ -1260,6 +1320,7 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 	ControlledWeaponRunCommandRouter.Reset();
 	ControlledWeaponThreatSampleRouter.Reset();
 	ControlledWeaponRunHost.Reset();
+	WeaponGuardFixedTimeline.Reset();
 	CombatRunCoordinator.Reset();
 	return false;
 }

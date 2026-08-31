@@ -18,6 +18,7 @@
 #include "demo_mapShanmenThrownWeaponProductLifecycle.h"
 #include "demo_mapShanmenRunCorrelation.h"
 #include "demo_mapShanmenSpiritEvasionProductRoute.h"
+#include "demo_mapShanmenWeaponGuardFixedTimeline.h"
 #include "demo_mapShanmenWeaponGuardProductSession.h"
 #include "demo_mapGameMode.generated.h"
 
@@ -179,6 +180,9 @@ public:
 	RouteWeaponGuardStartIntent(
 		const FGuid& TimelineId,
 		int64 ActiveStartTick);
+	/** Captures one opaque sample from the Run-bound 30 Hz guard timeline. */
+	Fdemo_mapShanmenWeaponGuardInputTimelineSample
+	CaptureWeaponGuardInputTimeline() const;
 	/** Normal guard-input release; empty state is an accepted no-op. */
 	Fdemo_mapShanmenWeaponGuardSessionTransitionResult
 	RouteWeaponGuardReleaseIntent();
@@ -186,6 +190,11 @@ public:
 	GetWeaponGuardProductSession() const
 	{
 		return WeaponGuardProductSession;
+	}
+	const Fdemo_mapShanmenWeaponGuardFixedTimeline&
+	GetWeaponGuardFixedTimeline() const
+	{
+		return WeaponGuardFixedTimeline;
 	}
 	/** M01 enemy attacks never fall through to legacy damage when this is true. */
 	bool ShouldUseM01EnemyAttackProductPath() const;
@@ -421,6 +430,7 @@ private:
 	Fdemo_mapShanmenThrownWeaponProductLifecycle
 		ThrownWeaponProductLifecycle;
 	Fdemo_mapShanmenThrownWeaponInputAdapter ThrownWeaponInputAdapter;
+	Fdemo_mapShanmenWeaponGuardFixedTimeline WeaponGuardFixedTimeline;
 	Fdemo_mapShanmenWeaponGuardProductSession WeaponGuardProductSession;
 	TArray<TWeakObjectPtr<Ademo_mapM01ExtractionZone>> M01ExtractionZones;
 	TArray<TWeakObjectPtr<AActor>> M01EnemyActors;

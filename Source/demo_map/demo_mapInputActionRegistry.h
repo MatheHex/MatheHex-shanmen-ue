@@ -23,6 +23,7 @@ struct Fdemo_mapInputActionIds
 	static const FName SkillSelfSector;
 	static const FName SkillStraightProjectile;
 	static const FName SpiritEvasion;
+	static const FName WeaponGuard;
 	static const FName Interact;
 	static const FName ResetRun;
 	static const FName Inventory;

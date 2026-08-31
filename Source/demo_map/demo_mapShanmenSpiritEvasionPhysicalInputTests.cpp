@@ -116,7 +116,8 @@ namespace
 		for (const Fdemo_mapInputActionDefinition& Action :
 			Fdemo_mapInputActionRegistry::GetExactDefaultActions())
 		{
-			if (Action.ActionId == Fdemo_mapInputActionIds::SpiritEvasion)
+			if (Action.ActionId == Fdemo_mapInputActionIds::SpiritEvasion
+				|| Action.ActionId == Fdemo_mapInputActionIds::WeaponGuard)
 			{
 				continue;
 			}
@@ -149,7 +150,7 @@ bool Fdemo_mapSpiritEvasionPhysicalRegistryTest::RunTest(
 		TEXT("registry remains exact after adding Spirit Evasion"),
 		Fdemo_mapInputActionRegistry::ValidateExactDefaults()
 			&& Fdemo_mapInputActionRegistry::
-				GetExactDefaultActions().Num() == 22);
+				GetExactDefaultActions().Num() == 23);
 	TestTrue(
 		TEXT("Spirit Evasion owns a conflict-free Press-only default"),
 		Action
@@ -179,7 +180,7 @@ bool Fdemo_mapSpiritEvasionPhysicalMigrationTest::RunTest(
 	TestTrue(
 		TEXT("missing Spirit Evasion receives its free default"),
 		Result.IsSuccess()
-			&& Fdemo_mapInputBindingSettings::Get().GetBindings().Num() == 22
+			&& Fdemo_mapInputBindingSettings::Get().GetBindings().Num() == 23
 			&& Fdemo_mapInputBindingSettings::Get().GetKey(
 				Fdemo_mapInputActionIds::SpiritEvasion) == EKeys::SpaceBar
 			&& Fdemo_mapInputBindingSettings::Get().GetKey(
@@ -206,12 +207,14 @@ bool Fdemo_mapSpiritEvasionPhysicalMigrationConflictTest::RunTest(
 		Fdemo_mapInputBindingSettings::Get().Load();
 	FString Diagnostic;
 	TestTrue(
-		TEXT("migration preserves the old override and assigns the free key"),
+		TEXT("migration preserves the old override and assigns free keys in registry order"),
 		Result.IsSuccess()
 			&& Fdemo_mapInputBindingSettings::Get().GetKey(
 				Fdemo_mapInputActionIds::Interact) == EKeys::SpaceBar
 			&& Fdemo_mapInputBindingSettings::Get().GetKey(
-				Fdemo_mapInputActionIds::SpiritEvasion) == EKeys::G
+				Fdemo_mapInputActionIds::SpiritEvasion) == EKeys::RightMouseButton
+			&& Fdemo_mapInputBindingSettings::Get().GetKey(
+				Fdemo_mapInputActionIds::WeaponGuard) == EKeys::G
 			&& Fdemo_mapInputBindingSettings::ValidateBindings(
 				Fdemo_mapInputBindingSettings::Get().GetBindings(),
 				Diagnostic));

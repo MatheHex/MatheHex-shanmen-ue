@@ -176,6 +176,9 @@ try
     $WeaponGuardInputAdapter = New-AutomationLogFixture `
         -Name 'weapon-guard-input-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.WeaponGuardInputAdapter'
+    $WeaponGuardFixedTimeline = New-AutomationLogFixture `
+        -Name 'weapon-guard-fixed-timeline.log' `
+        -Group 'Shanmen.0_0_10.Product.WeaponGuardFixedTimeline'
     $WeaponGuardProductSession = New-AutomationLogFixture `
         -Name 'weapon-guard-product-session.log' `
         -Group 'Shanmen.0_0_10.Product.WeaponGuardProductSession'
@@ -626,6 +629,20 @@ try
             $WeaponGuardProductHost,
             $Coordinator,
             $Legacy)
+
+    Invoke-ExpectedPass `
+        -Name 'weapon guard fixed timeline requires Run session and input evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenWeaponGuardFixedTimeline.h',
+            'Source/demo_map/demo_mapShanmenWeaponGuardFixedTimeline.cpp',
+            'Source/demo_map/demo_mapShanmenWeaponGuardFixedTimelineTests.cpp') `
+        -Logs @(
+            $Full,
+            $WeaponGuardFixedTimeline,
+            $WeaponGuardInputAdapter,
+            $WeaponGuardProductSession,
+            $WeaponGuardProductRoute,
+            $Coordinator)
 
     Invoke-ExpectedPass `
         -Name 'spirit evasion movement requires window and lifecycle evidence' `
@@ -1344,6 +1361,13 @@ try
             $WeaponGuardItemAdapter,
             $Coordinator,
             $ItemUseAndArmor) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'weapon guard fixed timeline focus cannot replace Run session and input evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenWeaponGuardFixedTimeline.cpp') `
+        -Logs @($WeaponGuardFixedTimeline) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
