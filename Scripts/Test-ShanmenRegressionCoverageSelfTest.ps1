@@ -212,6 +212,9 @@ try
     $SwordRhythmEffectCueDelivery = New-AutomationLogFixture `
         -Name 'sword-rhythm-effect-cue-delivery.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCueDelivery'
+    $SwordRhythmEffectCueConsumerAttempt = New-AutomationLogFixture `
+        -Name 'sword-rhythm-effect-cue-consumer-attempt.log' `
+        -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCueConsumerAttempt'
     $SwordRhythmPresentation = New-AutomationLogFixture `
         -Name 'sword-rhythm-presentation.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmPresentation'
@@ -833,6 +836,28 @@ try
             'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueDeliveryTests.cpp') `
         -Logs @(
             $Full,
+            $SwordRhythmEffectCueDelivery,
+            $SwordRhythmEffectCue,
+            $SwordRhythmPresentation,
+            $SwordRhythmProductSession,
+            $SwordRhythmEvaluationRoute,
+            $SwordRhythmProductHost,
+            $CombatRunFixedTimeline,
+            $Coordinator,
+            $SwordRhythmEvaluation,
+            $SwordRhythm,
+            $BasicSword,
+            $ActionLifecycle)
+
+    Invoke-ExpectedPass `
+        -Name 'sword rhythm cue consumer attempts require delivery source product and runtime evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueConsumerAttempt.h',
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueConsumerAttempt.cpp',
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueConsumerAttemptTests.cpp') `
+        -Logs @(
+            $Full,
+            $SwordRhythmEffectCueConsumerAttempt,
             $SwordRhythmEffectCueDelivery,
             $SwordRhythmEffectCue,
             $SwordRhythmPresentation,
@@ -1716,6 +1741,21 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueDelivery.cpp') `
         -Logs @(
+            $SwordRhythmEffectCueDelivery,
+            $SwordRhythmEffectCue,
+            $SwordRhythmPresentation,
+            $SwordRhythmProductSession,
+            $SwordRhythmEvaluationRoute,
+            $SwordRhythmProductHost,
+            $SwordRhythmEvaluation) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'sword rhythm cue consumer attempt focus cannot replace delivery source and runtime evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueConsumerAttempt.cpp') `
+        -Logs @(
+            $SwordRhythmEffectCueConsumerAttempt,
             $SwordRhythmEffectCueDelivery,
             $SwordRhythmEffectCue,
             $SwordRhythmPresentation,
