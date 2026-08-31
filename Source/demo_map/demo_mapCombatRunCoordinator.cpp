@@ -24,6 +24,7 @@
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
 #include "demo_mapShanmenRunLifecycleAdapter.h"
 #include "demo_mapShanmenSpiritEvasionProductAuthority.h"
+#include "demo_mapShanmenWeaponGuardProductAuthority.h"
 
 namespace
 {
@@ -1036,6 +1037,7 @@ bool Fdemo_mapCombatRunCoordinator::TryEndRun(
 	NextPlayerStraightProjectileActivationSequence = 1;
 	NextPlayerThrownWeaponActivationSequence = 1;
 	NextPlayerSpiritEvasionActivationSequence = 1;
+	NextPlayerWeaponGuardActivationSequence = 1;
 	OutDiagnostic = TEXT("Combat Run identities released.");
 	return true;
 }
@@ -1068,6 +1070,7 @@ void Fdemo_mapCombatRunCoordinator::Reset()
 	NextPlayerStraightProjectileActivationSequence = 1;
 	NextPlayerThrownWeaponActivationSequence = 1;
 	NextPlayerSpiritEvasionActivationSequence = 1;
+	NextPlayerWeaponGuardActivationSequence = 1;
 }
 
 bool Fdemo_mapCombatRunCoordinator::IsReady() const
@@ -2647,6 +2650,76 @@ bool Fdemo_mapCombatRunCoordinator::TryReservePlayerSpiritEvasionAction(
 	++NextPlayerSpiritEvasionActivationSequence;
 	OutDiagnostic =
 		TEXT("Spirit Evasion action identity reserved by the combat Run.");
+	return true;
+}
+
+bool Fdemo_mapCombatRunCoordinator::TryReservePlayerWeaponGuardAction(
+	const Fdemo_mapShanmenWeaponGuardProductConfig& Config,
+	const FGuid& SourceItemInstanceId,
+	Fdemo_mapPlayerWeaponGuardActionReservation& OutReservation,
+	FString& OutDiagnostic)
+{
+	OutReservation = Fdemo_mapPlayerWeaponGuardActionReservation();
+	OutDiagnostic.Reset();
+	if (!IsReady())
+	{
+		OutDiagnostic =
+			TEXT("Weapon-guard identity requires one ready combat Run.");
+		return false;
+	}
+	if (!Config.IsValid())
+	{
+		OutDiagnostic =
+			TEXT("Weapon-guard identity requires the canonical product config.");
+		return false;
+	}
+	if (!SourceItemInstanceId.IsValid())
+	{
+		OutDiagnostic =
+			TEXT("Weapon-guard identity requires one exact source item.");
+		return false;
+	}
+	if (NextPlayerWeaponGuardActivationSequence == 0
+		|| NextPlayerWeaponGuardActivationSequence == MAX_uint64)
+	{
+		OutDiagnostic =
+			TEXT("Weapon-guard activation sequence is exhausted.");
+		return false;
+	}
+
+	FShanmenCombatActionCapture Capture;
+	Capture.RunId = GetRunId();
+	Capture.OwnerId = PlayerEntityId;
+	Capture.SourceEntityId = PlayerEntityId;
+	Capture.SourceItemInstanceId = SourceItemInstanceId;
+	Capture.ActionDefinitionId =
+		FShanmenWeaponGuardDefinition::CanonicalActionDefinitionId();
+	Capture.Content = Config.GetContent();
+	Capture.SourceTags.AddTag(FShanmenCombatNativeTags::SourcePlayer());
+	Capture.ActivationId = FShanmenCombatIdFactory::MakeActivationId(
+		Capture.RunId,
+		Capture.SourceEntityId,
+		Capture.ActionDefinitionId,
+		NextPlayerWeaponGuardActivationSequence);
+
+	Fdemo_mapPlayerWeaponGuardActionReservation Candidate;
+	Candidate.ActivationSequence = NextPlayerWeaponGuardActivationSequence;
+	Candidate.ConfigId = Config.GetConfigId();
+	Candidate.SourceItemInstanceId = SourceItemInstanceId;
+	if (!FShanmenCombatActionSnapshot::TryCapture(
+			Capture,
+			Candidate.Action)
+		|| !Candidate.IsValid())
+	{
+		OutDiagnostic =
+			TEXT("Weapon-guard deterministic action identity failed closed.");
+		return false;
+	}
+
+	OutReservation = Candidate;
+	++NextPlayerWeaponGuardActivationSequence;
+	OutDiagnostic =
+		TEXT("Weapon-guard action identity reserved by the combat Run.");
 	return true;
 }
 

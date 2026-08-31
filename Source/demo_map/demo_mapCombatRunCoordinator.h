@@ -9,7 +9,9 @@
 class AActor;
 class APawn;
 class Fdemo_mapPlayerSpiritEvasionActionReservation;
+class Fdemo_mapPlayerWeaponGuardActionReservation;
 class Fdemo_mapShanmenSpiritEvasionProductConfig;
+class Fdemo_mapShanmenWeaponGuardProductConfig;
 class UPrimitiveComponent;
 class UObject;
 class Udemo_mapPlayerHealthComponent;
@@ -567,6 +569,16 @@ public:
 		const Fdemo_mapShanmenSpiritEvasionProductConfig& Config,
 		Fdemo_mapPlayerSpiritEvasionActionReservation& OutReservation,
 		FString& OutDiagnostic);
+	/**
+	 * Reserves one canonical item-backed weapon-guard identity from this Run's
+	 * monotonic sequence. Equipment authorization and timeline ownership remain
+	 * outside the Run coordinator.
+	 */
+	bool TryReservePlayerWeaponGuardAction(
+		const Fdemo_mapShanmenWeaponGuardProductConfig& Config,
+		const FGuid& SourceItemInstanceId,
+		Fdemo_mapPlayerWeaponGuardActionReservation& OutReservation,
+		FString& OutDiagnostic);
 	/** Resolves one already-authorized hostile projectile contact. */
 	Fdemo_mapPlayerProjectileImpactResult
 	ExecutePlayerStraightProjectileImpact(
@@ -595,6 +607,10 @@ public:
 	uint64 GetNextPlayerSpiritEvasionActivationSequence() const
 	{
 		return NextPlayerSpiritEvasionActivationSequence;
+	}
+	uint64 GetNextPlayerWeaponGuardActivationSequence() const
+	{
+		return NextPlayerWeaponGuardActivationSequence;
 	}
 
 private:
@@ -636,4 +652,5 @@ private:
 	uint64 NextPlayerStraightProjectileActivationSequence = 1;
 	uint64 NextPlayerThrownWeaponActivationSequence = 1;
 	uint64 NextPlayerSpiritEvasionActivationSequence = 1;
+	uint64 NextPlayerWeaponGuardActivationSequence = 1;
 };

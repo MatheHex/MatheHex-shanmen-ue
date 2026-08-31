@@ -164,6 +164,9 @@ try
     $WeaponGuardProductHost = New-AutomationLogFixture `
         -Name 'weapon-guard-product-host.log' `
         -Group 'Shanmen.0_0_10.Product.WeaponGuardProductHost'
+    $WeaponGuardProductAuthority = New-AutomationLogFixture `
+        -Name 'weapon-guard-product-authority.log' `
+        -Group 'Shanmen.0_0_10.Product.WeaponGuardProductAuthority'
     $SpiritEvasionMovement = New-AutomationLogFixture `
         -Name 'spirit-evasion-movement.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritEvasionMovement'
@@ -530,6 +533,28 @@ try
             $ActionLifecycle,
             $CombatCore,
             $WorldGameplay)
+
+    Invoke-ExpectedPass `
+        -Name 'weapon guard product authority requires config reservation host and Run evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenWeaponGuardProductAuthority.h',
+            'Source/demo_map/demo_mapShanmenWeaponGuardProductAuthority.cpp',
+            'Source/demo_map/demo_mapShanmenWeaponGuardProductAuthorityTests.cpp') `
+        -Logs @(
+            $Full,
+            $WeaponGuardProductAuthority,
+            $WeaponGuardProductHost,
+            $WeaponGuardDefenseCoordinator,
+            $WeaponGuardWorldAdapter,
+            $WeaponGuardArc,
+            $WeaponPerfectGuard,
+            $WeaponGuard,
+            $ActionLifecycle,
+            $CombatCore,
+            $Coordinator,
+            $FormationInfluenceConsumerWorldResolution,
+            $WorldGameplay,
+            $Attributes)
 
     Invoke-ExpectedPass `
         -Name 'spirit evasion movement requires window and lifecycle evidence' `
@@ -1190,6 +1215,18 @@ try
             $WeaponGuard,
             $ActionLifecycle,
             $CombatCore) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'weapon guard product authority focus cannot replace host Run and legacy evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenWeaponGuardProductAuthority.cpp') `
+        -Logs @(
+            $WeaponGuardProductAuthority,
+            $WeaponGuardProductHost,
+            $Coordinator,
+            $WeaponGuard,
+            $Attributes) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
