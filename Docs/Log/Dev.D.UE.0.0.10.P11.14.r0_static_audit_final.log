@@ -1,0 +1,31 @@
+Dev.D.UE.0.0.10.P11.14.r0 STATIC AUDIT
+
+REGRESSION_MAP_JSON: PASS Rules=102
+REGRESSION_MAPPING_SELF_TEST: PASS 164/164
+REGRESSION_COVERAGE: PASS Changed=8 Rules=5 Required=44 Logs=8
+GIT_DIFF_CHECK: PASS NativeExit=0
+
+WEAPON_GUARD_TERMINAL_WRITER:
+- Direct production call to Fdemo_mapShanmenWeaponGuardProductSession::TryTerminate: 1
+- Owner: Ademo_mapGameMode::RouteWeaponGuardTerminationIntent
+- Product callers of RouteWeaponGuardTerminationIntent: 7
+- Removed legacy Session terminal APIs TryRelease/TryInterruptAndReset: 0 remaining call sites
+
+TYPED_TERMINATION_REASONS:
+- InputReleased
+- EffectiveDamageStagger
+- WeaponAuthorizationChanged
+- PlayerDefeated
+- PawnUnpossessed
+- ControllerEndPlay
+- RunTeardown
+
+ADDED_AUTHORITY_SCAN:
+- Added Source/demo_map lines inspected: 369
+- Forbidden hits: 0
+- Patterns: ApplyDamage, TakeDamage, FMath::FRand, FGuid::NewGuid,
+  GFrameCounter, FPlatformTime::Seconds
+
+P/F_BOUNDARY:
+- No Unreal Editor UI, PIE, Standalone, product executable launch,
+  real input, screenshot, Smoke, Cook or Package.

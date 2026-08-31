@@ -538,7 +538,39 @@ Ademo_mapGameMode::CaptureWeaponGuardInputTimeline() const
 Fdemo_mapShanmenWeaponGuardSessionTransitionResult
 Ademo_mapGameMode::RouteWeaponGuardReleaseIntent()
 {
-	return WeaponGuardProductSession.TryRelease();
+	return RouteWeaponGuardTerminationIntent(
+		Edemo_mapShanmenWeaponGuardTerminationReason::InputReleased);
+}
+
+Fdemo_mapShanmenWeaponGuardSessionTransitionResult
+Ademo_mapGameMode::RouteWeaponGuardTerminationIntent(
+	Edemo_mapShanmenWeaponGuardTerminationReason Reason)
+{
+	const Fdemo_mapShanmenWeaponGuardSessionTransitionResult Result =
+		WeaponGuardProductSession.TryTerminate(Reason);
+	if (!Result.IsSuccess())
+	{
+		UE_LOG(
+			Logdemo_map,
+			Error,
+			TEXT("0_0_10_WEAPON_GUARD Event=TerminationRejected Reason=%d Status=%d Error=%d HostId=%s Diagnostic=%s"),
+			static_cast<int32>(Result.Reason),
+			static_cast<int32>(Result.Status),
+			static_cast<int32>(Result.Error),
+			*Result.HostId.ToString(EGuidFormats::DigitsWithHyphens),
+			*Result.Diagnostic);
+	}
+	else if (!Result.IsNoOp())
+	{
+		UE_LOG(
+			Logdemo_map,
+			Log,
+			TEXT("0_0_10_WEAPON_GUARD Event=Terminated Reason=%d Status=%d HostId=%s"),
+			static_cast<int32>(Result.Reason),
+			static_cast<int32>(Result.Status),
+			*Result.HostId.ToString(EGuidFormats::DigitsWithHyphens));
+	}
+	return Result;
 }
 
 bool Ademo_mapGameMode::AdvanceControlledWeaponOrbit(
@@ -616,6 +648,14 @@ Fdemo_mapM01EnemyAttackWeaponGuardContext
 Ademo_mapGameMode::CaptureM01EnemyAttackWeaponGuardContext()
 {
 	Fdemo_mapM01EnemyAttackWeaponGuardContext Context;
+	if (!ReconcileWeaponGuardAuthorization(TEXT("HostileImpactCapture")))
+	{
+		// Preserve fail-closed behavior: a rejected stale-authorization
+		// termination is carried as an enabled invalid context, so the
+		// Coordinator rejects before vitality resolution.
+		Context.Session = &WeaponGuardProductSession;
+		return Context;
+	}
 	if (WeaponGuardProductSession.IsEmpty())
 	{
 		return Context;
@@ -944,6 +984,7 @@ void Ademo_mapGameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void Ademo_mapGameMode::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	ReconcileWeaponGuardAuthorization(TEXT("GameModeTick"));
 	if (!WeaponGuardFixedTimeline.IsEmpty())
 	{
 		int64 AdvancedTicks = 0;
@@ -1259,12 +1300,14 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 	const TCHAR* Context)
 {
 	const TCHAR* SafeContext = Context ? Context : TEXT("Unknown");
-	if (!ReleasePlayerSpiritEvasion(SafeContext))
-	{
-		return false;
-	}
+	// Attempt independent active-product cleanup before evaluating either
+	// result. A SpiritEvasion teardown fault must not strand WeaponGuard, and
+	// a WeaponGuard fault must not strand SpiritEvasion.
+	const bool bSpiritEvasionReleased =
+		ReleasePlayerSpiritEvasion(SafeContext);
 	const Fdemo_mapShanmenWeaponGuardSessionTransitionResult GuardRelease =
-		WeaponGuardProductSession.TryInterruptAndReset();
+		RouteWeaponGuardTerminationIntent(
+			Edemo_mapShanmenWeaponGuardTerminationReason::RunTeardown);
 	if (!GuardRelease.IsSuccess())
 	{
 		UE_LOG(Logdemo_map, Error,
@@ -1273,6 +1316,10 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 			static_cast<int32>(GuardRelease.Status),
 			static_cast<int32>(GuardRelease.Error),
 			*GuardRelease.Diagnostic);
+		return false;
+	}
+	if (!bSpiritEvasionReleased)
+	{
 		return false;
 	}
 	const int32 ThrownSelectionCount =
@@ -1363,6 +1410,39 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 	WeaponGuardFixedTimeline.Reset();
 	CombatRunCoordinator.Reset();
 	return false;
+}
+
+bool Ademo_mapGameMode::ReconcileWeaponGuardAuthorization(
+	const TCHAR* Context)
+{
+	if (!WeaponGuardProductSession.HasActive())
+	{
+		return true;
+	}
+	if (PlayerItemSubsystem.IsValid()
+		&& WeaponGuardProductSession.IsCurrentAuthorization(
+			PlayerItemSubsystem->GetAuthority()))
+	{
+		return true;
+	}
+
+	const Fdemo_mapShanmenWeaponGuardSessionTransitionResult Result =
+		RouteWeaponGuardTerminationIntent(
+			Edemo_mapShanmenWeaponGuardTerminationReason::
+				WeaponAuthorizationChanged);
+	if (!Result.IsSuccess() || !WeaponGuardProductSession.IsEmpty())
+	{
+		UE_LOG(
+			Logdemo_map,
+			Error,
+			TEXT("0_0_10_WEAPON_GUARD Event=AuthorizationReconcileRejected Context=%s Status=%d Error=%d Active=%d"),
+			Context ? Context : TEXT("Unknown"),
+			static_cast<int32>(Result.Status),
+			static_cast<int32>(Result.Error),
+			WeaponGuardProductSession.HasActive() ? 1 : 0);
+		return false;
+	}
+	return true;
 }
 
 bool Ademo_mapGameMode::ReleasePlayerSpiritEvasion(const TCHAR* Context)
@@ -3115,6 +3195,8 @@ void Ademo_mapGameMode::HandleTrainingTargetDestroyed(AActor* DestroyedActor)
 
 void Ademo_mapGameMode::HandlePlayerDefeated()
 {
+	RouteWeaponGuardTerminationIntent(
+		Edemo_mapShanmenWeaponGuardTerminationReason::PlayerDefeated);
 	M01ExtractionAuthority.NotifyPlayerDefeated();
 	M01ExtractionAuthority.NotifyRunTerminal();
 	UE_LOG(Logdemo_map, Log, TEXT("T7R: player defeated."));
@@ -3147,7 +3229,25 @@ void Ademo_mapGameMode::HandleExtraction()
 
 void Ademo_mapGameMode::HandleM01PlayerDamaged(int32 AppliedDamage)
 {
-	if (AppliedDamage > 0 && bM01ExtractionFoundationActive)
+	if (AppliedDamage <= 0)
+	{
+		return;
+	}
+	Edemo_mapShanmenWeaponGuardTerminationReason Reason =
+		Edemo_mapShanmenWeaponGuardTerminationReason::EffectiveDamageStagger;
+	if (const APawn* PlayerPawn = GetDemoPawn())
+	{
+		if (const Udemo_mapPlayerHealthComponent* Health =
+			PlayerPawn->FindComponentByClass<
+				Udemo_mapPlayerHealthComponent>();
+			Health && Health->GetCurrentVitality() <= 0.0f)
+		{
+			Reason =
+				Edemo_mapShanmenWeaponGuardTerminationReason::PlayerDefeated;
+		}
+	}
+	RouteWeaponGuardTerminationIntent(Reason);
+	if (bM01ExtractionFoundationActive)
 	{
 		M01ExtractionAuthority.NotifyEffectiveDamage();
 	}

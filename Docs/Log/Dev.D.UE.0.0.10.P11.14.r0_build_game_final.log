@@ -1,0 +1,102 @@
+Using bundled DotNet SDK version: 10.0 win-x64
+Running UnrealBuildTool: dotnet "..\..\Engine\Binaries\DotNET\UnrealBuildTool\UnrealBuildTool.dll" demo_map Win64 Development C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\demo_map.uproject -WaitMutex -NoHotReload -MaxParallelActions=1 -NoUBA
+Log file: C:\Users\qq187\AppData\Local\UnrealBuildTool\Log.txt
+Executing up to 1 actions based on MaxProcessorCount override
+Using 'git status' to determine working set for adaptive non-unity build (C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B).
+UbaSessionServer - Disable remote execution (remote sessions will finish current processes)
+Invalidating makefile for demo_map (working set of source files changed)
+UHT compiled-in object format Default
+Building demo_map...
+===== Toolchain Information =====
+Using ISPC compiler (C:\Program Files\Epic Games\UE_5.8\Engine\Source\ThirdParty\Intel\ISPC\bin\Windows\ispc.exe)
+  Intel(r) Implicit SPMD Program Compiler (Intel(r) ISPC), 1.24.0 (build commit  @ 20250404, LLVM 18.1.2)
+Using Visual Studio 14.44.35228 toolchain (C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207) and Windows 10.0.22621.0 SDK (C:\Program Files (x86)\Windows Kits\10).
+[Adaptive Build] Excluded from demo_map unity file: demo_mapGameMode.cpp, demo_mapPlayerController.cpp, demo_mapShanmenWeaponGuardImpactRouteTests.cpp, demo_mapShanmenWeaponGuardInputAdapterTests.cpp, demo_mapShanmenWeaponGuardProductSession.cpp, demo_mapShanmenWeaponGuardProductSessionTests.cpp
+=================================
+Using Unreal Build Accelerator local executor to run 75 action(s)
+  CPU 16 physical cores, 32 logical cores
+  Memory 31.74 GB physical, 74.86 GB/89.74 GB committed
+  UBA Storage capacity 40 GB
+[1/75] Compile [x64] Module.demo_map.gen.cpp [NoUba]
+[2/75] Compile [x64] demo_map0909BCodeBItemBridge.cpp [NoUba]
+[3/75] Compile [x64] demo_map0909BEditorSupport.cpp [NoUba]
+[4/75] Compile [x64] demo_map0909BFramework.cpp [NoUba]
+[5/75] Compile [x64] demo_map0909BM01RuntimeAdapter.cpp [NoUba]
+[6/75] Compile [x64] demo_map0909BRunStartCoordinator.cpp [NoUba]
+[7/75] Compile [x64] demo_mapCombatRunCoordinator.cpp [NoUba]
+[8/75] Compile [x64] demo_mapCombatRunCoordinatorTests.cpp [NoUba]
+[9/75] Compile [x64] demo_mapEnemyCharacter.cpp [NoUba]
+[10/75] Compile [x64] demo_mapExitZone.cpp [NoUba]
+[11/75] Compile [x64] demo_mapGameMode.cpp [NoUba]
+[12/75] Compile [x64] demo_mapHUD.cpp [NoUba]
+[13/75] Compile [x64] demo_mapHeavyEnemyCharacter.cpp [NoUba]
+[14/75] Compile [x64] demo_mapInputConsumptionTrace.cpp [NoUba]
+[15/75] Compile [x64] demo_mapInputRestoreTests.cpp [NoUba]
+[16/75] Compile [x64] demo_mapItemUseAndArmorTests.cpp [NoUba]
+[17/75] Compile [x64] demo_mapM01BossCharacter.cpp [NoUba]
+[18/75] Compile [x64] demo_mapM01ExtractionZone.cpp [NoUba]
+[19/75] Compile [x64] demo_mapM01RiskZone.cpp [NoUba]
+[20/75] Compile [x64] demo_mapPlayerController.cpp [NoUba]
+[21/75] Compile [x64] demo_mapProfilePreparationWidget.cpp [NoUba]
+[22/75] Compile [x64] demo_mapRangedEnemyCharacter.cpp [NoUba]
+[23/75] Compile [x64] demo_mapShanmenControlledWeaponProductController.cpp [NoUba]
+[24/75] Compile [x64] demo_mapShanmenControlledWeaponProductControllerTests.cpp [NoUba]
+[25/75] Compile [x64] demo_mapShanmenControlledWeaponRunCommandRouter.cpp [NoUba]
+[26/75] Compile [x64] demo_mapShanmenControlledWeaponRunCommandRouterTests.cpp [NoUba]
+[27/75] Compile [x64] demo_mapShanmenControlledWeaponRunHost.cpp [NoUba]
+[28/75] Compile [x64] demo_mapShanmenControlledWeaponRunHostTests.cpp [NoUba]
+[29/75] Compile [x64] demo_mapShanmenControlledWeaponRunLifecycle.cpp [NoUba]
+[30/75] Compile [x64] demo_mapShanmenControlledWeaponRunLifecycleTests.cpp [NoUba]
+[31/75] Compile [x64] demo_mapShanmenControlledWeaponThreatSampleRouter.cpp [NoUba]
+[32/75] Compile [x64] demo_mapShanmenControlledWeaponThreatSampleRouterTests.cpp [NoUba]
+[33/75] Compile [x64] demo_mapShanmenControlledWeaponWorldAdapter.cpp [NoUba]
+[34/75] Compile [x64] demo_mapShanmenControlledWeaponWorldAdapterTests.cpp [NoUba]
+[35/75] Compile [x64] demo_mapShanmenFormationInfluenceConsumerRunComposition.cpp [NoUba]
+[36/75] Compile [x64] demo_mapShanmenFormationInfluenceLifecycleCommandHost.cpp [NoUba]
+[37/75] Compile [x64] demo_mapShanmenFormationProductHostTests.cpp [NoUba]
+[38/75] Compile [x64] demo_mapShanmenSpiritEvasionCommandRouter.cpp [NoUba]
+[39/75] Compile [x64] demo_mapShanmenSpiritEvasionCommandRouterTests.cpp [NoUba]
+[40/75] Compile [x64] demo_mapShanmenSpiritEvasionInputAdapterTests.cpp [NoUba]
+[41/75] Compile [x64] demo_mapShanmenSpiritEvasionPhysicalInputTests.cpp [NoUba]
+[42/75] Compile [x64] demo_mapShanmenSpiritEvasionProductAuthority.cpp [NoUba]
+[43/75] Compile [x64] demo_mapShanmenSpiritEvasionProductAuthorityTests.cpp [NoUba]
+[44/75] Compile [x64] demo_mapShanmenSpiritEvasionProductRoute.cpp [NoUba]
+[45/75] Compile [x64] demo_mapShanmenSpiritEvasionProductRouteTests.cpp [NoUba]
+[46/75] Compile [x64] demo_mapShanmenThrownWeaponInputAdapter.cpp [NoUba]
+[47/75] Compile [x64] demo_mapShanmenThrownWeaponInputAdapterTests.cpp [NoUba]
+[48/75] Compile [x64] demo_mapShanmenThrownWeaponProductController.cpp [NoUba]
+[49/75] Compile [x64] demo_mapShanmenThrownWeaponProductControllerTests.cpp [NoUba]
+[50/75] Compile [x64] demo_mapShanmenThrownWeaponProductLifecycle.cpp [NoUba]
+[51/75] Compile [x64] demo_mapShanmenThrownWeaponProductLifecycleTests.cpp [NoUba]
+[52/75] Compile [x64] demo_mapShanmenThrownWeaponProductSession.cpp [NoUba]
+[53/75] Compile [x64] demo_mapShanmenThrownWeaponProductSessionTests.cpp [NoUba]
+[54/75] Compile [x64] demo_mapShanmenThrownWeaponRunCommandRouter.cpp [NoUba]
+[55/75] Compile [x64] demo_mapShanmenThrownWeaponRunCommandRouterTests.cpp [NoUba]
+[56/75] Compile [x64] demo_mapShanmenThrownWeaponRunHost.cpp [NoUba]
+[57/75] Compile [x64] demo_mapShanmenThrownWeaponWorldAdapter.cpp [NoUba]
+[58/75] Compile [x64] demo_mapShanmenThrownWeaponWorldAdapterTests.cpp [NoUba]
+[59/75] Compile [x64] demo_mapShanmenWeaponGuardFixedTimeline.cpp [NoUba]
+[60/75] Compile [x64] demo_mapShanmenWeaponGuardFixedTimelineTests.cpp [NoUba]
+[61/75] Compile [x64] demo_mapShanmenWeaponGuardImpactRouteTests.cpp [NoUba]
+[62/75] Compile [x64] demo_mapShanmenWeaponGuardInputAdapter.cpp [NoUba]
+[63/75] Compile [x64] demo_mapShanmenWeaponGuardInputAdapterTests.cpp [NoUba]
+[64/75] Compile [x64] demo_mapShanmenWeaponGuardPhysicalInputTests.cpp [NoUba]
+[65/75] Compile [x64] demo_mapShanmenWeaponGuardProductAuthority.cpp [NoUba]
+[66/75] Compile [x64] demo_mapShanmenWeaponGuardProductAuthorityTests.cpp [NoUba]
+[67/75] Compile [x64] demo_mapShanmenWeaponGuardProductRoute.cpp [NoUba]
+[68/75] Compile [x64] demo_mapShanmenWeaponGuardProductRouteTests.cpp [NoUba]
+[69/75] Compile [x64] demo_mapShanmenWeaponGuardProductSession.cpp [NoUba]
+[70/75] Compile [x64] demo_mapShanmenWeaponGuardProductSessionTests.cpp [NoUba]
+[71/75] Compile [x64] demo_mapSkillComponent.cpp [NoUba]
+[72/75] Compile [x64] demo_mapSkillProjectile.cpp [NoUba]
+[73/75] Compile [x64] demo_mapV3ProgressionManager.cpp [NoUba]
+[74/75] Link [x64] demo_map.exe [NoUba]
+  ￦ﾭﾣ￥ﾜﾨ￥ﾈﾛ￥ﾻﾺ￥ﾺﾓ C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Binaries\Win64\demo_map.lib ￥ﾒﾌ￥ﾯﾹ￨ﾱﾡ C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Binaries\Win64\demo_map.exp
+[75/75] WriteMetadata demo_map.target [NoUba]
+
+Total time in Unreal Build Accelerator local executor: 199.85 seconds
+Output binary: C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\Binaries\Win64\demo_map.exe
+
+Result: Succeeded
+Total execution time: 202.02 seconds
+Trace written to file C:\Users\qq187\AppData\Local\UnrealBuildTool\Trace.uba with size 28.4kb

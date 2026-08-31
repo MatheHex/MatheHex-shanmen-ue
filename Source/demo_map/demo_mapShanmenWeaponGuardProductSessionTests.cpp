@@ -58,7 +58,8 @@ namespace
 
 		~FProductSessionFixture()
 		{
-			Session.TryInterruptAndReset();
+			Session.TryTerminate(
+				Edemo_mapShanmenWeaponGuardTerminationReason::RunTeardown);
 			Coordinator.Reset();
 		}
 
@@ -205,12 +206,16 @@ bool Fdemo_mapWeaponGuardProductSessionReleaseTest::RunTest(
 		Fixture.Coordinator,
 		ProductSessionTimeline,
 		10);
-	const auto Released = Fixture.Session.TryRelease();
-	const auto Repeated = Fixture.Session.TryRelease();
+	const auto Released = Fixture.Session.TryTerminate(
+		Edemo_mapShanmenWeaponGuardTerminationReason::InputReleased);
+	const auto Repeated = Fixture.Session.TryTerminate(
+		Edemo_mapShanmenWeaponGuardTerminationReason::InputReleased);
 	TestTrue(TEXT("fixture starts before release"),
 		Fixture.bReady && WeaponId.IsValid() && Started.IsStarted());
 	TestTrue(TEXT("release proves Recovery then Completed"),
 		Released.IsSuccess()
+			&& Released.Reason
+				== Edemo_mapShanmenWeaponGuardTerminationReason::InputReleased
 			&& Released.Status
 				== Edemo_mapShanmenWeaponGuardSessionTransitionStatus::
 					Completed
@@ -243,12 +248,18 @@ bool Fdemo_mapWeaponGuardProductSessionInterruptTest::RunTest(
 		Fixture.Coordinator,
 		ProductSessionTimeline,
 		10);
-	const auto Interrupted = Fixture.Session.TryInterruptAndReset();
-	const auto Repeated = Fixture.Session.TryInterruptAndReset();
+	const auto Interrupted = Fixture.Session.TryTerminate(
+		Edemo_mapShanmenWeaponGuardTerminationReason::
+			EffectiveDamageStagger);
+	const auto Repeated = Fixture.Session.TryTerminate(
+		Edemo_mapShanmenWeaponGuardTerminationReason::RunTeardown);
 	TestTrue(TEXT("fixture starts before Run teardown"),
 		Fixture.bReady && WeaponId.IsValid() && Started.IsStarted());
 	TestTrue(TEXT("Run teardown proves Host interruption"),
 		Interrupted.IsSuccess()
+			&& Interrupted.Reason
+				== Edemo_mapShanmenWeaponGuardTerminationReason::
+					EffectiveDamageStagger
 			&& Interrupted.Status
 				== Edemo_mapShanmenWeaponGuardSessionTransitionStatus::
 					Interrupted
@@ -258,7 +269,92 @@ bool Fdemo_mapWeaponGuardProductSessionInterruptTest::RunTest(
 	TestTrue(TEXT("interruption clears sole ownership"),
 		Fixture.Session.IsEmpty());
 	TestTrue(TEXT("repeated teardown is an accepted no-op"),
-		Repeated.IsSuccess() && Repeated.IsNoOp());
+		Repeated.IsSuccess()
+			&& Repeated.IsNoOp()
+			&& Repeated.Reason
+				== Edemo_mapShanmenWeaponGuardTerminationReason::RunTeardown);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapWeaponGuardProductSessionTerminationReasonTest,
+	"Shanmen.0_0_10.Product.WeaponGuardProductSession.TerminationReasons",
+	ProductSessionFlags)
+
+bool Fdemo_mapWeaponGuardProductSessionTerminationReasonTest::RunTest(
+	const FString&)
+{
+	{
+		FProductSessionFixture Fixture;
+		const FGuid WeaponId =
+			Fixture.Equip(Fdemo_mapItemIds::TrainingBlade);
+		const auto Started = Fixture.Session.TryStart(
+			&Fixture.Items,
+			Fixture.Coordinator,
+			ProductSessionTimeline,
+			10);
+		const auto Invalid = Fixture.Session.TryTerminate(
+			Edemo_mapShanmenWeaponGuardTerminationReason::None);
+		const auto Unknown = Fixture.Session.TryTerminate(
+			static_cast<Edemo_mapShanmenWeaponGuardTerminationReason>(255));
+		TestTrue(TEXT("untyped termination rejects without retiring Host"),
+			Fixture.bReady
+				&& WeaponId.IsValid()
+				&& Started.IsStarted()
+				&& Invalid.IsValid()
+				&& !Invalid.IsSuccess()
+				&& Invalid.Error
+					== Edemo_mapShanmenWeaponGuardSessionTransitionError::
+						InvalidTerminationReason
+				&& Unknown.IsValid()
+				&& !Unknown.IsSuccess()
+				&& Unknown.Error
+					== Edemo_mapShanmenWeaponGuardSessionTransitionError::
+						InvalidTerminationReason
+				&& Fixture.Session.HasActive()
+				&& Fixture.Session.GetActiveHost()->GetHostId()
+					== Started.HostId);
+	}
+
+	const TArray<Edemo_mapShanmenWeaponGuardTerminationReason> Reasons = {
+		Edemo_mapShanmenWeaponGuardTerminationReason::EffectiveDamageStagger,
+		Edemo_mapShanmenWeaponGuardTerminationReason::
+			WeaponAuthorizationChanged,
+		Edemo_mapShanmenWeaponGuardTerminationReason::PlayerDefeated,
+		Edemo_mapShanmenWeaponGuardTerminationReason::PawnUnpossessed,
+		Edemo_mapShanmenWeaponGuardTerminationReason::ControllerEndPlay,
+		Edemo_mapShanmenWeaponGuardTerminationReason::RunTeardown
+	};
+	for (const Edemo_mapShanmenWeaponGuardTerminationReason Reason : Reasons)
+	{
+		FProductSessionFixture Fixture;
+		const FGuid WeaponId =
+			Fixture.Equip(Fdemo_mapItemIds::TrainingBlade);
+		const auto Started = Fixture.Session.TryStart(
+			&Fixture.Items,
+			Fixture.Coordinator,
+			ProductSessionTimeline,
+			10);
+		const auto Terminated = Fixture.Session.TryTerminate(Reason);
+		const auto Repeated = Fixture.Session.TryTerminate(Reason);
+		const FString Label = FString::Printf(
+			TEXT("typed reason %d terminates exactly one active Host"),
+			static_cast<int32>(Reason));
+		TestTrue(*Label,
+			Fixture.bReady
+				&& WeaponId.IsValid()
+				&& Started.IsStarted()
+				&& Terminated.IsSuccess()
+				&& Terminated.Status
+					== Edemo_mapShanmenWeaponGuardSessionTransitionStatus::
+						Interrupted
+				&& Terminated.Reason == Reason
+				&& Terminated.HostId == Started.HostId
+				&& Fixture.Session.IsEmpty()
+				&& Repeated.IsNoOp()
+				&& Repeated.Reason == Reason
+				&& !Repeated.HostId.IsValid());
+	}
 	return true;
 }
 
@@ -291,9 +387,17 @@ bool Fdemo_mapWeaponGuardProductSessionStaleItemTest::RunTest(
 			&& Fixture.Session.GetActiveRoute()
 			&& Fixture.Session.GetActiveRoute()->ItemAuthorization
 				.Authorization.GetSourceItemInstanceId() == FirstId);
-	const auto Released = Fixture.Session.TryRelease();
-	TestTrue(TEXT("stale item identity still permits orderly cleanup"),
-		Released.IsSuccess() && Fixture.Session.IsEmpty());
+	const auto Interrupted = Fixture.Session.TryTerminate(
+		Edemo_mapShanmenWeaponGuardTerminationReason::
+			WeaponAuthorizationChanged);
+	TestTrue(TEXT("stale weapon identity retires through typed interruption"),
+		Interrupted.IsSuccess()
+			&& Interrupted.Status
+				== Edemo_mapShanmenWeaponGuardSessionTransitionStatus::Interrupted
+			&& Interrupted.Reason
+				== Edemo_mapShanmenWeaponGuardTerminationReason::
+					WeaponAuthorizationChanged
+			&& Fixture.Session.IsEmpty());
 	return true;
 }
 

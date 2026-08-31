@@ -48,9 +48,30 @@ enum class Edemo_mapShanmenWeaponGuardSessionTransitionStatus : uint8
 	Interrupted
 };
 
+/**
+ * Typed cause for retiring the sole active weapon-guard Host.
+ *
+ * Input release is the only orderly Active -> Recovery -> Completed path.
+ * Every other cause is an immediate Active -> Interrupted path. The reason is
+ * carried by the terminal receipt so lifecycle callers never have to infer it
+ * from a free-form diagnostic string.
+ */
+enum class Edemo_mapShanmenWeaponGuardTerminationReason : uint8
+{
+	None,
+	InputReleased,
+	EffectiveDamageStagger,
+	WeaponAuthorizationChanged,
+	PlayerDefeated,
+	PawnUnpossessed,
+	ControllerEndPlay,
+	RunTeardown
+};
+
 enum class Edemo_mapShanmenWeaponGuardSessionTransitionError : uint8
 {
 	None,
+	InvalidTerminationReason,
 	SessionInvalid,
 	RecoveryRejected,
 	CompletionRejected,
@@ -107,6 +128,8 @@ struct Fdemo_mapShanmenWeaponGuardSessionTransitionResult
 		Edemo_mapShanmenWeaponGuardSessionTransitionStatus::Rejected;
 	Edemo_mapShanmenWeaponGuardSessionTransitionError Error =
 		Edemo_mapShanmenWeaponGuardSessionTransitionError::SessionInvalid;
+	Edemo_mapShanmenWeaponGuardTerminationReason Reason =
+		Edemo_mapShanmenWeaponGuardTerminationReason::None;
 	FGuid HostId;
 	Fdemo_mapShanmenWeaponGuardHostTransitionResult Recovery;
 	Fdemo_mapShanmenWeaponGuardHostTransitionResult Terminal;
@@ -121,8 +144,9 @@ struct Fdemo_mapShanmenWeaponGuardSessionTransitionResult
  * Sole persistent product owner for the player's current weapon guard.
  *
  * P11.8/P11.9 remain stateless classification and composition seams. This
- * value owns their successful active Host until explicit release or Run
- * teardown. It owns no input binding, clock, Actor, inventory or Impact.
+ * value owns their successful active Host until the sole typed termination
+ * route completes or interrupts it. It owns no input binding, clock, Actor,
+ * inventory or Impact.
  */
 class Fdemo_mapShanmenWeaponGuardProductSession
 {
@@ -133,11 +157,12 @@ public:
 		const FGuid& TimelineId,
 		int64 ActiveStartTick);
 
-	/** Normal input release: Active -> Recovery -> Completed. */
-	Fdemo_mapShanmenWeaponGuardSessionTransitionResult TryRelease();
-	/** Run teardown: Active -> Interrupted. Empty state is an accepted no-op. */
+	/**
+	 * Sole terminal command route. Input release completes in order; all other
+	 * valid reasons interrupt. Empty state is an accepted idempotent no-op.
+	 */
 	Fdemo_mapShanmenWeaponGuardSessionTransitionResult
-	TryInterruptAndReset();
+	TryTerminate(Edemo_mapShanmenWeaponGuardTerminationReason Reason);
 	/**
 	 * Composes one hostile Impact's defense against the sole active Host.
 	 * The Session commits the advanced Host only after the complete receipt is

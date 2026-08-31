@@ -76,7 +76,8 @@ namespace
 
 		~FWeaponGuardImpactRouteFixture()
 		{
-			Session.TryInterruptAndReset();
+			Session.TryTerminate(
+				Edemo_mapShanmenWeaponGuardTerminationReason::RunTeardown);
 			Coordinator.Reset();
 			if (World)
 			{

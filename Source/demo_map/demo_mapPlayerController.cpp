@@ -376,6 +376,13 @@ void Ademo_mapPlayerController::OnPossess(APawn* InPawn)
 
 void Ademo_mapPlayerController::OnUnPossess()
 {
+	if (Ademo_mapGameMode* Mode = GetWorld()
+		? Cast<Ademo_mapGameMode>(GetWorld()->GetAuthGameMode())
+		: nullptr)
+	{
+		Mode->RouteWeaponGuardTerminationIntent(
+			Edemo_mapShanmenWeaponGuardTerminationReason::PawnUnpossessed);
+	}
 	RemoveInputConsumptionMovementHook();
 	RemoveMovementOrdering();
 	Super::OnUnPossess();
@@ -384,6 +391,13 @@ void Ademo_mapPlayerController::OnUnPossess()
 void Ademo_mapPlayerController::EndPlay(
 	const EEndPlayReason::Type EndPlayReason)
 {
+	if (Ademo_mapGameMode* Mode = GetWorld()
+		? Cast<Ademo_mapGameMode>(GetWorld()->GetAuthGameMode())
+		: nullptr)
+	{
+		Mode->RouteWeaponGuardTerminationIntent(
+			Edemo_mapShanmenWeaponGuardTerminationReason::ControllerEndPlay);
+	}
 	RemoveInputConsumptionMovementHook();
 	RemoveMovementOrdering();
 	bSettlementInputLockHeld = false;

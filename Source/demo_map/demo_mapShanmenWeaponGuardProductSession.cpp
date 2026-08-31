@@ -33,14 +33,36 @@ namespace
 
 	Fdemo_mapShanmenWeaponGuardSessionTransitionResult RejectTransition(
 		Edemo_mapShanmenWeaponGuardSessionTransitionError Error,
+		Edemo_mapShanmenWeaponGuardTerminationReason Reason,
 		const FGuid& HostId,
 		const TCHAR* Diagnostic)
 	{
 		Fdemo_mapShanmenWeaponGuardSessionTransitionResult Result;
 		Result.Error = Error;
+		Result.Reason = Reason;
 		Result.HostId = HostId;
 		Result.Diagnostic = Diagnostic;
 		return Result;
+	}
+
+	bool IsValidTerminationReason(
+		Edemo_mapShanmenWeaponGuardTerminationReason Reason)
+	{
+		switch (Reason)
+		{
+		case Edemo_mapShanmenWeaponGuardTerminationReason::InputReleased:
+		case Edemo_mapShanmenWeaponGuardTerminationReason::
+			EffectiveDamageStagger:
+		case Edemo_mapShanmenWeaponGuardTerminationReason::
+			WeaponAuthorizationChanged:
+		case Edemo_mapShanmenWeaponGuardTerminationReason::PlayerDefeated:
+		case Edemo_mapShanmenWeaponGuardTerminationReason::PawnUnpossessed:
+		case Edemo_mapShanmenWeaponGuardTerminationReason::ControllerEndPlay:
+		case Edemo_mapShanmenWeaponGuardTerminationReason::RunTeardown:
+			return true;
+		default:
+			return false;
+		}
 	}
 
 	Fdemo_mapShanmenWeaponGuardSessionDefenseResult RejectDefense(
@@ -114,10 +136,13 @@ bool Fdemo_mapShanmenWeaponGuardSessionTransitionResult::IsValid() const
 	case Edemo_mapShanmenWeaponGuardSessionTransitionStatus::NoActiveHost:
 		return Error
 				== Edemo_mapShanmenWeaponGuardSessionTransitionError::None
+			&& IsValidTerminationReason(Reason)
 			&& !HostId.IsValid();
 	case Edemo_mapShanmenWeaponGuardSessionTransitionStatus::Completed:
 		return Error
 				== Edemo_mapShanmenWeaponGuardSessionTransitionError::None
+			&& Reason
+				== Edemo_mapShanmenWeaponGuardTerminationReason::InputReleased
 			&& HostId.IsValid()
 			&& Recovery.IsSuccess()
 			&& Recovery.Status
@@ -131,6 +156,9 @@ bool Fdemo_mapShanmenWeaponGuardSessionTransitionResult::IsValid() const
 	case Edemo_mapShanmenWeaponGuardSessionTransitionStatus::Interrupted:
 		return Error
 				== Edemo_mapShanmenWeaponGuardSessionTransitionError::None
+			&& IsValidTerminationReason(Reason)
+			&& Reason
+				!= Edemo_mapShanmenWeaponGuardTerminationReason::InputReleased
 			&& HostId.IsValid()
 			&& Terminal.IsSuccess()
 			&& Terminal.Status
@@ -289,14 +317,25 @@ Fdemo_mapShanmenWeaponGuardProductSession::TryStart(
 }
 
 Fdemo_mapShanmenWeaponGuardSessionTransitionResult
-Fdemo_mapShanmenWeaponGuardProductSession::TryRelease()
+Fdemo_mapShanmenWeaponGuardProductSession::TryTerminate(
+	Edemo_mapShanmenWeaponGuardTerminationReason Reason)
 {
+	if (!IsValidTerminationReason(Reason))
+	{
+		return RejectTransition(
+			Edemo_mapShanmenWeaponGuardSessionTransitionError::
+				InvalidTerminationReason,
+			Reason,
+			FGuid(),
+			TEXT("Weapon-guard termination requires a typed reason."));
+	}
 	if (!IsValid())
 	{
 		return RejectTransition(
 			Edemo_mapShanmenWeaponGuardSessionTransitionError::SessionInvalid,
+			Reason,
 			FGuid(),
-			TEXT("Weapon-guard release requires a valid Session."));
+			TEXT("Weapon-guard termination requires a valid Session."));
 	}
 	if (!bHasActiveRoute)
 	{
@@ -305,97 +344,74 @@ Fdemo_mapShanmenWeaponGuardProductSession::TryRelease()
 			Edemo_mapShanmenWeaponGuardSessionTransitionStatus::NoActiveHost;
 		Result.Error =
 			Edemo_mapShanmenWeaponGuardSessionTransitionError::None;
+		Result.Reason = Reason;
 		Result.Diagnostic =
-			TEXT("Weapon-guard release found no active Host.");
+			TEXT("Weapon-guard termination found no active Host.");
 		return Result;
 	}
 
 	Fdemo_mapShanmenWeaponGuardProductRouteResult Candidate = ActiveRoute;
 	const FGuid HostId = Candidate.ProductStart.Host.GetHostId();
 	Fdemo_mapShanmenWeaponGuardSessionTransitionResult Result;
+	Result.Reason = Reason;
 	Result.HostId = HostId;
-	Result.Recovery = Candidate.ProductStart.Host.TryEnterRecovery();
-	if (!Result.Recovery.IsSuccess())
+	if (Reason
+		== Edemo_mapShanmenWeaponGuardTerminationReason::InputReleased)
 	{
-		return RejectTransition(
-			Edemo_mapShanmenWeaponGuardSessionTransitionError::
-				RecoveryRejected,
-			HostId,
-			TEXT("Weapon-guard Host rejected Active-to-Recovery release."));
-	}
-	Result.Terminal = Candidate.ProductStart.Host.TryComplete();
-	if (!Result.Terminal.IsSuccess())
-	{
-		return RejectTransition(
-			Edemo_mapShanmenWeaponGuardSessionTransitionError::
-				CompletionRejected,
-			HostId,
-			TEXT("Weapon-guard Host rejected Recovery-to-Completed release."));
-	}
-	Result.Status =
-		Edemo_mapShanmenWeaponGuardSessionTransitionStatus::Completed;
-	Result.Error = Edemo_mapShanmenWeaponGuardSessionTransitionError::None;
-	Result.Diagnostic =
-		TEXT("Weapon-guard Host completed ordered release and Session retired it.");
-	if (!Candidate.ProductStart.Host.IsTerminal() || !Result.IsValid())
-	{
-		return RejectTransition(
-			Edemo_mapShanmenWeaponGuardSessionTransitionError::
-				StateDesynchronized,
-			HostId,
-			TEXT("Weapon-guard release proof failed closed."));
-	}
-	Clear();
-	return Result;
-}
-
-Fdemo_mapShanmenWeaponGuardSessionTransitionResult
-Fdemo_mapShanmenWeaponGuardProductSession::TryInterruptAndReset()
-{
-	if (!IsValid())
-	{
-		return RejectTransition(
-			Edemo_mapShanmenWeaponGuardSessionTransitionError::SessionInvalid,
-			FGuid(),
-			TEXT("Weapon-guard teardown requires a valid Session."));
-	}
-	if (!bHasActiveRoute)
-	{
-		Fdemo_mapShanmenWeaponGuardSessionTransitionResult Result;
+		Result.Recovery = Candidate.ProductStart.Host.TryEnterRecovery();
+		if (!Result.Recovery.IsSuccess())
+		{
+			return RejectTransition(
+				Edemo_mapShanmenWeaponGuardSessionTransitionError::
+					RecoveryRejected,
+				Reason,
+				HostId,
+				TEXT("Weapon-guard Host rejected Active-to-Recovery release."));
+		}
+		Result.Terminal = Candidate.ProductStart.Host.TryComplete();
+		if (!Result.Terminal.IsSuccess())
+		{
+			return RejectTransition(
+				Edemo_mapShanmenWeaponGuardSessionTransitionError::
+					CompletionRejected,
+				Reason,
+				HostId,
+				TEXT("Weapon-guard Host rejected Recovery-to-Completed release."));
+		}
 		Result.Status =
-			Edemo_mapShanmenWeaponGuardSessionTransitionStatus::NoActiveHost;
+			Edemo_mapShanmenWeaponGuardSessionTransitionStatus::Completed;
 		Result.Error =
 			Edemo_mapShanmenWeaponGuardSessionTransitionError::None;
 		Result.Diagnostic =
-			TEXT("Weapon-guard teardown found no active Host.");
-		return Result;
+			TEXT("Weapon-guard Host completed ordered input release and Session retired it.");
 	}
-
-	Fdemo_mapShanmenWeaponGuardProductRouteResult Candidate = ActiveRoute;
-	const FGuid HostId = Candidate.ProductStart.Host.GetHostId();
-	Fdemo_mapShanmenWeaponGuardSessionTransitionResult Result;
-	Result.HostId = HostId;
-	Result.Terminal = Candidate.ProductStart.Host.TryInterrupt();
-	if (!Result.Terminal.IsSuccess())
+	else
 	{
-		return RejectTransition(
-			Edemo_mapShanmenWeaponGuardSessionTransitionError::
-				InterruptRejected,
-			HostId,
-			TEXT("Weapon-guard Host rejected Run-teardown interruption."));
+		Result.Terminal = Candidate.ProductStart.Host.TryInterrupt();
+		if (!Result.Terminal.IsSuccess())
+		{
+			return RejectTransition(
+				Edemo_mapShanmenWeaponGuardSessionTransitionError::
+					InterruptRejected,
+				Reason,
+				HostId,
+				TEXT("Weapon-guard Host rejected typed interruption."));
+		}
+		Result.Status =
+			Edemo_mapShanmenWeaponGuardSessionTransitionStatus::Interrupted;
+		Result.Error =
+			Edemo_mapShanmenWeaponGuardSessionTransitionError::None;
+		Result.Diagnostic =
+			TEXT("Weapon-guard Host accepted typed interruption and Session retired it.");
 	}
-	Result.Status =
-		Edemo_mapShanmenWeaponGuardSessionTransitionStatus::Interrupted;
-	Result.Error = Edemo_mapShanmenWeaponGuardSessionTransitionError::None;
-	Result.Diagnostic =
-		TEXT("Weapon-guard Host interrupted before Session teardown.");
 	if (!Candidate.ProductStart.Host.IsTerminal() || !Result.IsValid())
 	{
 		return RejectTransition(
 			Edemo_mapShanmenWeaponGuardSessionTransitionError::
 				StateDesynchronized,
+			Reason,
 			HostId,
-			TEXT("Weapon-guard interruption proof failed closed."));
+			TEXT("Weapon-guard typed termination proof failed closed."));
 	}
 	Clear();
 	return Result;

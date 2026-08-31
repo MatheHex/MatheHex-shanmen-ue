@@ -333,6 +333,8 @@ bool Fdemo_mapWeaponGuardInputAdapterReleaseTest::RunTest(const FString&)
 					Edemo_mapShanmenWeaponGuardSessionTransitionStatus::NoActiveHost;
 				Result.Error =
 					Edemo_mapShanmenWeaponGuardSessionTransitionError::None;
+				Result.Reason =
+					Edemo_mapShanmenWeaponGuardTerminationReason::InputReleased;
 				Result.Diagnostic =
 					TEXT("Idempotent release reached the product Session.");
 				return Result;

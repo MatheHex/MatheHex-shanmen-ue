@@ -186,6 +186,10 @@ public:
 	/** Normal guard-input release; empty state is an accepted no-op. */
 	Fdemo_mapShanmenWeaponGuardSessionTransitionResult
 	RouteWeaponGuardReleaseIntent();
+	/** Sole typed terminal route for damage, equipment and lifecycle callers. */
+	Fdemo_mapShanmenWeaponGuardSessionTransitionResult
+	RouteWeaponGuardTerminationIntent(
+		Edemo_mapShanmenWeaponGuardTerminationReason Reason);
 	const Fdemo_mapShanmenWeaponGuardProductSession&
 	GetWeaponGuardProductSession() const
 	{
@@ -277,6 +281,7 @@ private:
 	bool InitializeV3Progression(APawn* PlayerPawn, Udemo_mapItemSubsystem* Items);
 	bool TryActivateCombatRun(APawn* PlayerPawn, FString& OutDiagnostic);
 	bool ReleaseCombatProductRun(const TCHAR* Context);
+	bool ReconcileWeaponGuardAuthorization(const TCHAR* Context);
 	bool ReleasePlayerSpiritEvasion(const TCHAR* Context);
 	Fdemo_mapM01EnemyAttackWeaponGuardContext
 	CaptureM01EnemyAttackWeaponGuardContext();

@@ -1,0 +1,53 @@
+REGRESSION_COVERAGE: PASS Changed=8 Rules=5 Required=44 Logs=8
+REGRESSION_COVERAGE: Group=demo_map.EnemySkillFramework Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_enemy_skill_final.log
+REGRESSION_COVERAGE: Group=demo_map.ItemEconomySchema Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_item_schema_final.log
+REGRESSION_COVERAGE: Group=demo_map.ItemUseAndArmor Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_item_use_armor_final.log
+REGRESSION_COVERAGE: Group=demo_map.P4.Hotbar Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_p4_hotbar_final.log
+REGRESSION_COVERAGE: Group=demo_map.V2RangedCompatibility Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_v2_ranged_final.log
+REGRESSION_COVERAGE: Group=demo_map.V3.Attributes Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_v3_attributes_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10 Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.CombatCore Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.CombatRuntime Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.CombatRuntime.ActionLifecycle Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.CombatRuntime.SpiritEvasion Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.CombatRuntime.SpiritEvasionMovement Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Items Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.CombatRunCoordinator Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.SpiritEvasionActionCoordinator Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.SpiritEvasionCommandRouter Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.SpiritEvasionComponent Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.SpiritEvasionInputAdapter Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.SpiritEvasionMotionRuntime Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.SpiritEvasionMovementAdapter Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.SpiritEvasionPhysicalInput Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.SpiritEvasionProductAuthority Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.SpiritEvasionProductHost Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.SpiritEvasionProductRoute Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.ThrownWeaponInputAdapter Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.ThrownWeaponItemAdapter Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.ThrownWeaponProductController Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.ThrownWeaponProductLifecycle Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.ThrownWeaponProductSession Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.ThrownWeaponRunCommand Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.ThrownWeaponRunHost Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.ThrownWeaponWorldDelivery Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.WeaponGuardDefenseCoordinator Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.WeaponGuardFixedTimeline Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.WeaponGuardImpactRoute Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.WeaponGuardInputAdapter Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.WeaponGuardItemAdapter Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.WeaponGuardPhysicalInput Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.WeaponGuardProductAuthority Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.WeaponGuardProductHost Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.WeaponGuardProductRoute Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.WeaponGuardProductSession Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_weapon_guard_session_final.log,Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.WeaponGuardWorldAdapter Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.WorldGameplay Evidence=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Log=Dev.D.UE.0.0.10.P11.14.r0_automation_weapon_guard_session_final.log Group=Shanmen.0_0_10.Product.WeaponGuardProductSession Success=7 SHA256=7414C5D29D9DD5DB2E86D2C438419A42C121BE815C76A7C7DFE136E3C1EA3D33
+REGRESSION_COVERAGE: Log=Dev.D.UE.0.0.10.P11.14.r0_automation_shanmen_full_final.log Group=Shanmen.0_0_10 Success=535 SHA256=057DD84E02FEBBF49FD093BBA34E7AC3B3EC6FFA7CADCABE8FE214533C0A3B0A
+REGRESSION_COVERAGE: Log=Dev.D.UE.0.0.10.P11.14.r0_automation_v3_attributes_final.log Group=demo_map.V3.Attributes Success=4 SHA256=C4515C6D153CBAD0D97592356CDAB3A8A0B846A3638964A1C43C4A45D6FFC16B
+REGRESSION_COVERAGE: Log=Dev.D.UE.0.0.10.P11.14.r0_automation_enemy_skill_final.log Group=demo_map.EnemySkillFramework Success=44 SHA256=271351BD027987B2BC2ACD7F8786858F5F75F5CD969A7B21D153F00B9867958A
+REGRESSION_COVERAGE: Log=Dev.D.UE.0.0.10.P11.14.r0_automation_v2_ranged_final.log Group=demo_map.V2RangedCompatibility Success=22 SHA256=4E7B3040C65AB94D7EDE7801769EDEEC45C6E1042DDFF188144309732FFF1301
+REGRESSION_COVERAGE: Log=Dev.D.UE.0.0.10.P11.14.r0_automation_item_schema_final.log Group=demo_map.ItemEconomySchema Success=23 SHA256=49BE30CB0B38CE8301EFEBF2409EEB4AC68467D5677F2AD70DCD2992E61739A4
+REGRESSION_COVERAGE: Log=Dev.D.UE.0.0.10.P11.14.r0_automation_item_use_armor_final.log Group=demo_map.ItemUseAndArmor Success=46 SHA256=715249A702B597C2D4BD453BC70D505AF85772B5FB5D695805FA0660CBC8E3AE
+REGRESSION_COVERAGE: Log=Dev.D.UE.0.0.10.P11.14.r0_automation_p4_hotbar_final.log Group=demo_map.P4.Hotbar Success=7 SHA256=05FFB3150CEB1058F067DCCE5A3A628185F3569160D574FD9393398F2A33A18F
