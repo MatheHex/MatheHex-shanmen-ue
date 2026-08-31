@@ -230,6 +230,9 @@ try
     $SwordRhythmEffectCueExecutionCommandHost = New-AutomationLogFixture `
         -Name 'sword-rhythm-effect-cue-execution-command-host.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionCommandHost'
+    $SwordRhythmEffectCueExecutionProductRoute = New-AutomationLogFixture `
+        -Name 'sword-rhythm-effect-cue-execution-product-route.log' `
+        -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionProductRoute'
     $SwordRhythmEffectCueExecutionSession = New-AutomationLogFixture `
         -Name 'sword-rhythm-effect-cue-execution-session.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionSession'
@@ -996,6 +999,35 @@ try
             'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionSessionTests.cpp') `
         -Logs @(
             $Full,
+            $SwordRhythmEffectCueExecutionSession,
+            $SwordRhythmEffectCueExecutionHost,
+            $SwordRhythmEffectCueExecutionDriver,
+            $SwordRhythmEffectCueExecutorAdapter,
+            $SwordRhythmEffectCueConsumerAttempt,
+            $SwordRhythmEffectCueDelivery,
+            $SwordRhythmEffectCue,
+            $SwordRhythmPresentation,
+            $SwordRhythmProductSession,
+            $SwordRhythmEvaluationRoute,
+            $SwordRhythmProductHost,
+            $CombatRunFixedTimeline,
+            $Coordinator,
+            $SwordRhythmEvaluation,
+            $SwordRhythm,
+            $BasicSword,
+            $ActionLifecycle)
+
+    Invoke-ExpectedPass `
+        -Name 'sword rhythm cue product route requires complete source-to-Host evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductRoute.h',
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductRoute.cpp',
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductRouteTests.cpp') `
+        -Logs @(
+            $Full,
+            $SwordRhythmEffectCueExecutionProductRoute,
+            $SwordRhythmEffectCueExecutionCommandHost,
+            $SwordRhythmEffectCueExecutionCommandRouter,
             $SwordRhythmEffectCueExecutionSession,
             $SwordRhythmEffectCueExecutionHost,
             $SwordRhythmEffectCueExecutionDriver,
@@ -2012,6 +2044,28 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionSession.cpp') `
         -Logs @(
+            $SwordRhythmEffectCueExecutionSession,
+            $SwordRhythmEffectCueExecutionHost,
+            $SwordRhythmEffectCueExecutionDriver,
+            $SwordRhythmEffectCueExecutorAdapter,
+            $SwordRhythmEffectCueConsumerAttempt,
+            $SwordRhythmEffectCueDelivery,
+            $SwordRhythmEffectCue,
+            $SwordRhythmPresentation,
+            $SwordRhythmProductSession,
+            $SwordRhythmEvaluationRoute,
+            $SwordRhythmProductHost,
+            $SwordRhythmEvaluation) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'sword rhythm cue product route focus cannot replace source-to-Host evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductRoute.cpp') `
+        -Logs @(
+            $SwordRhythmEffectCueExecutionProductRoute,
+            $SwordRhythmEffectCueExecutionCommandHost,
+            $SwordRhythmEffectCueExecutionCommandRouter,
             $SwordRhythmEffectCueExecutionSession,
             $SwordRhythmEffectCueExecutionHost,
             $SwordRhythmEffectCueExecutionDriver,
