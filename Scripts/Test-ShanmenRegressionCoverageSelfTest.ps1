@@ -152,6 +152,9 @@ try
     $WeaponPerfectGuard = New-AutomationLogFixture `
         -Name 'weapon-perfect-guard.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.WeaponPerfectGuard'
+    $WeaponGuardArc = New-AutomationLogFixture `
+        -Name 'weapon-guard-arc.log' `
+        -Group 'Shanmen.0_0_10.CombatRuntime.WeaponGuardArc'
     $SpiritEvasionMovement = New-AutomationLogFixture `
         -Name 'spirit-evasion-movement.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritEvasionMovement'
@@ -448,6 +451,20 @@ try
             'Source/ShanmenCombatRuntime/Private/ShanmenWeaponPerfectGuard.cpp',
             'Source/ShanmenCombatRuntime/Private/Tests/ShanmenWeaponPerfectGuardTests.cpp') `
         -Logs @(
+            $WeaponPerfectGuard,
+            $WeaponGuard,
+            $ActionLifecycle,
+            $CombatRuntime,
+            $CombatCore)
+
+    Invoke-ExpectedPass `
+        -Name 'weapon guard arc requires timing ordinary lifecycle and resolver evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Public/ShanmenWeaponGuardArc.h',
+            'Source/ShanmenCombatRuntime/Private/ShanmenWeaponGuardArc.cpp',
+            'Source/ShanmenCombatRuntime/Private/Tests/ShanmenWeaponGuardArcTests.cpp') `
+        -Logs @(
+            $WeaponGuardArc,
             $WeaponPerfectGuard,
             $WeaponGuard,
             $ActionLifecycle,
@@ -1060,6 +1077,17 @@ try
         -Paths @(
             'Source/ShanmenCombatRuntime/Private/ShanmenWeaponPerfectGuard.cpp') `
         -Logs @($WeaponPerfectGuard, $WeaponGuard, $ActionLifecycle) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'weapon guard arc focus cannot replace timing ordinary lifecycle and resolver evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Private/ShanmenWeaponGuardArc.cpp') `
+        -Logs @(
+            $WeaponGuardArc,
+            $WeaponPerfectGuard,
+            $WeaponGuard,
+            $ActionLifecycle) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
