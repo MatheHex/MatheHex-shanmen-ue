@@ -15,7 +15,7 @@ enum class Edemo_mapShanmenSwordRhythmEffectCueExecutionProductDispatchStatus
 	StateInvalid
 };
 
-/** Complete evidence for one current-state ProductSession dispatch attempt. */
+/** Complete evidence for one frozen or current Product projection dispatch. */
 struct Fdemo_mapShanmenSwordRhythmEffectCueExecutionProductDispatchResult
 {
 	Edemo_mapShanmenSwordRhythmEffectCueExecutionProductDispatchStatus Status =
@@ -43,6 +43,17 @@ struct Fdemo_mapShanmenSwordRhythmEffectCueExecutionProductDispatchResult
 class Fdemo_mapShanmenSwordRhythmEffectCueExecutionProductDispatch
 {
 public:
+	/** Dispatch one already-frozen projection without reading ProductSession. */
+	static Fdemo_mapShanmenSwordRhythmEffectCueExecutionProductDispatchResult
+	TryDispatchProjection(
+		const Fdemo_mapShanmenSwordRhythmEffectCueExecutionProductProjection&
+			Projection,
+		const Fdemo_mapShanmenSwordRhythmEffectCueExecutionProductTransactionCapture&
+			Identity,
+		Fdemo_mapShanmenSwordRhythmEffectCueExecutionCommandHost& Host,
+		Idemo_mapShanmenSwordRhythmEffectCueExecutor& VisualExecutor,
+		Idemo_mapShanmenSwordRhythmEffectCueExecutor& AudioExecutor);
+
 	static Fdemo_mapShanmenSwordRhythmEffectCueExecutionProductDispatchResult
 	TryDispatchCurrent(
 		const Fdemo_mapShanmenSwordRhythmProductSession& Session,

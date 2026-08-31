@@ -239,6 +239,9 @@ try
     $SwordRhythmEffectCueExecutionProductDispatch = New-AutomationLogFixture `
         -Name 'sword-rhythm-effect-cue-execution-product-dispatch.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionProductDispatch'
+    $SwordRhythmEffectCueExecutionProductPlannedDispatch = New-AutomationLogFixture `
+        -Name 'sword-rhythm-effect-cue-execution-product-planned-dispatch.log' `
+        -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionProductPlannedDispatch'
     $SwordRhythmEffectCueExecutionProductDispatchPlan = New-AutomationLogFixture `
         -Name 'sword-rhythm-effect-cue-execution-product-dispatch-plan.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionProductDispatchPlan'
@@ -1027,6 +1030,39 @@ try
             $ActionLifecycle)
 
     Invoke-ExpectedPass `
+        -Name 'sword rhythm cue product planned dispatch requires complete plan-to-runtime evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductPlannedDispatch.h',
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductPlannedDispatch.cpp',
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductPlannedDispatchTests.cpp') `
+        -Logs @(
+            $Full,
+            $SwordRhythmEffectCueExecutionProductPlannedDispatch,
+            $SwordRhythmEffectCueExecutionProductDispatchPlan,
+            $SwordRhythmEffectCueExecutionProductDispatch,
+            $SwordRhythmEffectCueExecutionProductTransaction,
+            $SwordRhythmEffectCueExecutionProductRoute,
+            $SwordRhythmEffectCueExecutionCommandHost,
+            $SwordRhythmEffectCueExecutionCommandRouter,
+            $SwordRhythmEffectCueExecutionSession,
+            $SwordRhythmEffectCueExecutionHost,
+            $SwordRhythmEffectCueExecutionDriver,
+            $SwordRhythmEffectCueExecutorAdapter,
+            $SwordRhythmEffectCueConsumerAttempt,
+            $SwordRhythmEffectCueDelivery,
+            $SwordRhythmEffectCue,
+            $SwordRhythmPresentation,
+            $SwordRhythmProductSession,
+            $SwordRhythmEvaluationRoute,
+            $SwordRhythmProductHost,
+            $CombatRunFixedTimeline,
+            $Coordinator,
+            $SwordRhythmEvaluation,
+            $SwordRhythm,
+            $BasicSword,
+            $ActionLifecycle)
+
+    Invoke-ExpectedPass `
         -Name 'sword rhythm cue product dispatch plan requires complete deterministic-to-runtime evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductDispatchPlan.h',
@@ -1066,6 +1102,8 @@ try
             'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductDispatchTests.cpp') `
         -Logs @(
             $Full,
+            $SwordRhythmEffectCueExecutionProductPlannedDispatch,
+            $SwordRhythmEffectCueExecutionProductDispatchPlan,
             $SwordRhythmEffectCueExecutionProductDispatch,
             $SwordRhythmEffectCueExecutionProductTransaction,
             $SwordRhythmEffectCueExecutionProductRoute,
@@ -2158,6 +2196,13 @@ try
             $SwordRhythmEvaluationRoute,
             $SwordRhythmProductHost,
             $SwordRhythmEvaluation) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'sword rhythm cue product planned dispatch focus cannot replace plan-to-runtime evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductPlannedDispatch.cpp') `
+        -Logs @($SwordRhythmEffectCueExecutionProductPlannedDispatch) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
