@@ -1,0 +1,39 @@
+Using bundled DotNet SDK version: 10.0 win-x64
+Running UnrealBuildTool: dotnet "..\..\Engine\Binaries\DotNET\UnrealBuildTool\UnrealBuildTool.dll" demo_mapEditor Win64 Development C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\demo_map.uproject -WaitMutex -NoHotReload -MaxParallelActions=1 -NoUBA
+Log file: C:\Users\qq187\AppData\Local\UnrealBuildTool\Log.txt
+Executing up to 1 actions based on MaxProcessorCount override
+Using 'git status' to determine working set for adaptive non-unity build (C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B).
+UbaSessionServer - Disable remote execution (remote sessions will finish current processes)
+Invalidating makefile for demo_mapEditor (source file added)
+UHT compiled-in object format Default
+Building demo_mapEditor...
+===== Toolchain Information =====
+Using ISPC compiler (C:\Program Files\Epic Games\UE_5.8\Engine\Source\ThirdParty\Intel\ISPC\bin\Windows\ispc.exe)
+  Intel(r) Implicit SPMD Program Compiler (Intel(r) ISPC), 1.24.0 (build commit  @ 20250404, LLVM 18.1.2)
+Using Visual Studio 14.44.35228 toolchain (C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207) and Windows 10.0.22621.0 SDK (C:\Program Files (x86)\Windows Kits\10).
+[Adaptive Build] Excluded from demo_map unity file: demo_mapSkillProjectile.cpp, demo_mapSkillProjectileDamageRouteTests.cpp
+=================================
+Using Unreal Build Accelerator local executor to run 12 action(s)
+  CPU 16 physical cores, 32 logical cores
+  Memory 31.74 GB physical, 75.73 GB/89.74 GB committed
+  UBA Storage capacity 40 GB
+[1/12] Compile [x64] Module.demo_map.gen.cpp [NoUba]
+[2/12] Compile [x64] demo_mapGameMode.cpp [NoUba]
+[3/12] Compile [x64] demo_mapM01BossCharacter.cpp [NoUba]
+[4/12] Compile [x64] demo_mapRangedEnemyCharacter.cpp [NoUba]
+[5/12] Compile [x64] demo_mapSkillComponent.cpp [NoUba]
+[6/12] Compile [x64] demo_mapSkillProjectile.cpp [NoUba]
+[7/12] Compile [x64] demo_mapSkillProjectileDamageRouteTests.cpp [NoUba]
+[8/12] Compile [x64] demo_mapV2RangedCompatibilityTests.cpp [NoUba]
+[9/12] Compile [x64] demo_mapV3ProgressionManager.cpp [NoUba]
+[10/12] Link [x64] UnrealEditor-demo_map.dll [NoUba]
+[11/12] Link [x64] UnrealEditor-demo_map.lib [NoUba]
+  ￦ﾭﾣ￥ﾜﾨ￥ﾈﾛ￥ﾻﾺ￥ﾺﾓ C:/AIDev/shanmen-ue/Dev.D.UE.0.0.9B/Intermediate/Build/Win64/x64/UnrealEditor/Development/demo_map/UnrealEditor-demo_map.lib ￥ﾒﾌ￥ﾯﾹ￨ﾱﾡ C:/AIDev/shanmen-ue/Dev.D.UE.0.0.9B/Intermediate/Build/Win64/x64/UnrealEditor/Development/demo_map/UnrealEditor-demo_map.exp
+[12/12] WriteMetadata demo_mapEditor.target [NoUba]
+
+Total time in Unreal Build Accelerator local executor: 66.06 seconds
+Output binary: C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor.exe
+
+Result: Succeeded
+Total execution time: 68.69 seconds
+Trace written to file C:\Users\qq187\AppData\Local\UnrealBuildTool\Trace.uba with size 9.7kb

@@ -1,0 +1,9 @@
+REGRESSION_COVERAGE: PASS Changed=5 Rules=2 Required=4 Logs=4
+REGRESSION_COVERAGE: Group=demo_map.EnemySkillFramework Evidence=Dev.D.UE.0.0.10.P11.13.r0_automation_enemy_skill_final.log
+REGRESSION_COVERAGE: Group=demo_map.V2RangedCompatibility Evidence=Dev.D.UE.0.0.10.P11.13.r0_automation_v2_ranged_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10 Evidence=Dev.D.UE.0.0.10.P11.13.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.SkillProjectileDamageRoute Evidence=Dev.D.UE.0.0.10.P11.13.r0_automation_skill_projectile_damage_route_first.log,Dev.D.UE.0.0.10.P11.13.r0_automation_shanmen_full_final.log
+REGRESSION_COVERAGE: Log=Dev.D.UE.0.0.10.P11.13.r0_automation_skill_projectile_damage_route_first.log Group=Shanmen.0_0_10.Product.SkillProjectileDamageRoute Success=3 SHA256=53C8531802BF3A37425135B5404C6BE7B14D7479608E58E1914E631F62166E15
+REGRESSION_COVERAGE: Log=Dev.D.UE.0.0.10.P11.13.r0_automation_shanmen_full_final.log Group=Shanmen.0_0_10 Success=534 SHA256=DEBD1014AD419FB31F89D0B6CC85D05083C6F776CE4C8232F723E05E367E0F5E
+REGRESSION_COVERAGE: Log=Dev.D.UE.0.0.10.P11.13.r0_automation_enemy_skill_final.log Group=demo_map.EnemySkillFramework Success=44 SHA256=58697AC1EDFD9A8CF942040FB0A0CE4E74AAF2744E17B8E20D2A0726E870CD0F
+REGRESSION_COVERAGE: Log=Dev.D.UE.0.0.10.P11.13.r0_automation_v2_ranged_final.log Group=demo_map.V2RangedCompatibility Success=22 SHA256=36C37E7CBA89B5F59319C07188178E5154A7CC9B0C4E112AF13BD81575B14257

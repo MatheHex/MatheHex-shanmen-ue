@@ -185,6 +185,9 @@ try
     $WeaponGuardImpactRoute = New-AutomationLogFixture `
         -Name 'weapon-guard-impact-route.log' `
         -Group 'Shanmen.0_0_10.Product.WeaponGuardImpactRoute'
+    $SkillProjectileDamageRoute = New-AutomationLogFixture `
+        -Name 'skill-projectile-damage-route.log' `
+        -Group 'Shanmen.0_0_10.Product.SkillProjectileDamageRoute'
     $SpiritEvasionMovement = New-AutomationLogFixture `
         -Name 'spirit-evasion-movement.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritEvasionMovement'
@@ -359,7 +362,15 @@ try
         -Paths @(
             'Source\ShanmenCombatCore\Private\Resolver.cpp',
             'Source/demo_map/demo_mapSkillProjectile.cpp') `
-        -Logs @($Full, $Enemy, $Ranged)
+        -Logs @($Full, $SkillProjectileDamageRoute, $Enemy, $Ranged)
+
+    Invoke-ExpectedPass `
+        -Name 'skill projectile damage route requires focus full enemy and ranged evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapSkillProjectile.h',
+            'Source/demo_map/demo_mapSkillProjectile.cpp',
+            'Source/demo_map/demo_mapSkillProjectileDamageRouteTests.cpp') `
+        -Logs @($SkillProjectileDamageRoute, $Full, $Enemy, $Ranged)
 
     Invoke-ExpectedPass `
         -Name 'docs and scripts require no product log' `
@@ -1173,14 +1184,21 @@ try
     Invoke-ExpectedFail `
         -Name 'failed test evidence is rejected' `
         -Paths @('Source/demo_map/demo_mapSkillProjectile.cpp') `
-        -Logs @($Full, $Enemy, $FailedRanged) `
+        -Logs @($Full, $SkillProjectileDamageRoute, $Enemy, $FailedRanged) `
         -ExpectedText 'unhealthy evidence'
 
     Invoke-ExpectedFail `
         -Name 'queue completion is required' `
         -Paths @('Source/demo_map/demo_mapSkillProjectile.cpp') `
-        -Logs @($Full, $Enemy, $NoQueue) `
+        -Logs @($Full, $SkillProjectileDamageRoute, $Enemy, $NoQueue) `
         -ExpectedText 'terminal completion marker missing'
+
+    Invoke-ExpectedFail `
+        -Name 'skill projectile route focus cannot replace broad compatibility evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapSkillProjectileDamageRouteTests.cpp') `
+        -Logs @($SkillProjectileDamageRoute) `
+        -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
         -Name 'unknown production path is unmapped' `

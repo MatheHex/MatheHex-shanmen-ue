@@ -19,6 +19,29 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "UObject/ConstructorHelpers.h"
 
+Edemo_mapSkillProjectileDamageRoute
+Fdemo_mapSkillProjectileDamageRoutePolicy::Resolve(
+	bool bUsedCanonicalProduct,
+	bool bM01EnemyAttackProductPath,
+	bool bTargetHasPlayerVitality)
+{
+	if (bUsedCanonicalProduct)
+	{
+		return Edemo_mapSkillProjectileDamageRoute::CanonicalProduct;
+	}
+
+	// A hostile projectile that reaches player vitality in M01 must identify a
+	// canonical source family. Silently falling back here would bypass the
+	// canonical defense stack, including the active WeaponGuard session.
+	if (bM01EnemyAttackProductPath && bTargetHasPlayerVitality)
+	{
+		return Edemo_mapSkillProjectileDamageRoute::
+			RejectedUnregisteredM01HostilePlayer;
+	}
+
+	return Edemo_mapSkillProjectileDamageRoute::LegacyCompatibility;
+}
+
 Ademo_mapSkillProjectile::Ademo_mapSkillProjectile()
 {
 	PrimaryActorTick.bCanEverTick = false;
@@ -304,10 +327,12 @@ bool Ademo_mapSkillProjectile::HandleProjectileContact(AActor* OtherActor, UPrim
 	Ademo_mapGameMode* GameMode = GetWorld()
 		? GetWorld()->GetAuthGameMode<Ademo_mapGameMode>()
 		: nullptr;
+	const bool bM01EnemyAttackProductPath =
+		GameMode && GameMode->ShouldUseM01EnemyAttackProductPath();
 	if (Ademo_mapM01BossCharacter* BossSource =
 		Cast<Ademo_mapM01BossCharacter>(SourceActor))
 	{
-		if (GameMode && GameMode->ShouldUseM01EnemyAttackProductPath())
+		if (bM01EnemyAttackProductPath)
 		{
 			bUsedCanonicalProduct = true;
 			const FVector ImpactNormal = HitResult
@@ -327,7 +352,7 @@ bool Ademo_mapSkillProjectile::HandleProjectileContact(AActor* OtherActor, UPrim
 	else if (Ademo_mapRangedEnemyCharacter* RangedSource =
 		Cast<Ademo_mapRangedEnemyCharacter>(SourceActor))
 	{
-		if (GameMode && GameMode->ShouldUseM01EnemyAttackProductPath())
+		if (bM01EnemyAttackProductPath)
 		{
 			bUsedCanonicalProduct = true;
 			const FVector ImpactNormal = HitResult
@@ -373,9 +398,31 @@ bool Ademo_mapSkillProjectile::HandleProjectileContact(AActor* OtherActor, UPrim
 		}
 	}
 	MarkConsumed();
-	if (!bUsedCanonicalProduct)
+	const bool bTargetHasPlayerVitality =
+		OtherActor->FindComponentByClass<Udemo_mapPlayerHealthComponent>()
+		!= nullptr;
+	const Edemo_mapSkillProjectileDamageRoute DamageRoute =
+		Fdemo_mapSkillProjectileDamageRoutePolicy::Resolve(
+			bUsedCanonicalProduct,
+			bM01EnemyAttackProductPath,
+			bTargetHasPlayerVitality);
+	if (DamageRoute
+		== Edemo_mapSkillProjectileDamageRoute::LegacyCompatibility)
 	{
 		UGameplayStatics::ApplyDamage(OtherActor, ProjectileParams.CommonParams.Damage, SourceActor != nullptr ? SourceActor->GetInstigatorController() : nullptr, SourceActor, nullptr);
+	}
+	else if (DamageRoute
+		== Edemo_mapSkillProjectileDamageRoute::
+			RejectedUnregisteredM01HostilePlayer)
+	{
+		UE_LOG(
+			Logdemo_map,
+			Error,
+			TEXT("0_0_10_ENEMY_PROJECTILE Event=RejectedUnregisteredM01HostilePlayerSource Source=%s Target=%s Sequence=%llu Ordinal=%d"),
+			*GetNameSafe(SourceActor),
+			*GetNameSafe(OtherActor),
+			static_cast<unsigned long long>(ProjectileSequence),
+			ProjectileOrdinal);
 	}
 	if (bUsedPlayerCanonicalProduct)
 	{
@@ -394,7 +441,8 @@ bool Ademo_mapSkillProjectile::HandleProjectileContact(AActor* OtherActor, UPrim
 		UE_LOG(
 			Logdemo_map,
 			Log,
-			TEXT("0_0_10_ENEMY_PROJECTILE Event=ActorContact Canonical=%d BossVolley=%d Sequence=%llu Ordinal=%d Error=%d Applied=%.3f"),
+			TEXT("0_0_10_ENEMY_PROJECTILE Event=ActorContact Route=%d Canonical=%d BossVolley=%d Sequence=%llu Ordinal=%d Error=%d Applied=%.3f"),
+			static_cast<int32>(DamageRoute),
 			bUsedCanonicalProduct ? 1 : 0,
 			bBossVolleyProjectile ? 1 : 0,
 			static_cast<unsigned long long>(ProjectileSequence),

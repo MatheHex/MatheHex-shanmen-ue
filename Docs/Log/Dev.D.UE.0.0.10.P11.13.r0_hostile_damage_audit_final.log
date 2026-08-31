@@ -1,0 +1,14 @@
+REGRESSION_MAP_JSON: PASS Rules=102
+APPLY_DAMAGE_AUDIT: TotalOccurrences=47 ProductCompatibility=7 AutomationDrivers=40
+DIRECT_TAKE_DAMAGE_AUDIT: Occurrences=0
+SKILL_PROJECTILE_LEGACY_WRITER: Occurrences=1
+SKILL_PROJECTILE_ROUTE_FENCE: PASS CanonicalPrecedence=1 M01UnsupportedHostilePlayerReject=1 LegacyCompatibilityOnly=1
+warning: in the working copy of 'Source/demo_map/demo_mapSkillProjectile.cpp', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'Source/demo_map/demo_mapSkillProjectile.h', LF will be replaced by CRLF the next time Git touches it
+ADDED_AUTHORITY_SCAN: PASS AddedLines=72 ForbiddenHits=0
+REACHABILITY_CLASSIFICATION: AuthoredM01ProductBypass=0 LatentUnregisteredProjectileBypassClosed=1
+warning: in the working copy of 'Scripts/ShanmenRegressionMap.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'Scripts/Test-ShanmenRegressionCoverageSelfTest.ps1', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'Source/demo_map/demo_mapSkillProjectile.cpp', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'Source/demo_map/demo_mapSkillProjectile.h', LF will be replaced by CRLF the next time Git touches it
+GIT_DIFF_CHECK: PASS NativeExit=0

@@ -1302,6 +1302,16 @@
       ]
     },
     {
+      "name": "SkillProjectileDamageRoute",
+      "pathRegex": "^Source/demo_map/demo_mapSkillProjectile(?:DamageRouteTests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Product.SkillProjectileDamageRoute",
+        "Shanmen.0_0_10",
+        "demo_map.EnemySkillFramework",
+        "demo_map.V2RangedCompatibility"
+      ]
+    },
+    {
       "name": "SkillAndEnemyCombat",
       "pathRegex": "^Source/demo_map/demo_map(?:SkillComponent|SkillProjectile|EnemySkillFramework|EnemySkillRuntimeComponent|EnemyCharacter|HeavyEnemyCharacter|RangedEnemyCharacter|M01BossCharacter).*\\.(?:h|cpp)$",
       "requiredGroups": [
