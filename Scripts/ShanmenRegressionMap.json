@@ -71,9 +71,10 @@
       ]
     },
     {
-      "name": "SwordRhythmEvaluationInput",
-      "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenSwordRhythmEvaluation\\.h|Private/ShanmenSwordRhythmEvaluation\\.cpp)$",
+      "name": "SwordRhythmEvaluation",
+      "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenSwordRhythmEvaluation\\.h|Private/(?:ShanmenSwordRhythmEvaluation\\.cpp|Tests/ShanmenSwordRhythmEvaluationTests\\.cpp))$",
       "requiredGroups": [
+        "Shanmen.0_0_10.CombatRuntime.SwordRhythmEvaluation",
         "Shanmen.0_0_10.Product.SwordRhythmProductSession",
         "Shanmen.0_0_10.CombatRuntime.SwordRhythmContributionBinding",
         "Shanmen.0_0_10.CombatRuntime.SwordRhythmContribution",

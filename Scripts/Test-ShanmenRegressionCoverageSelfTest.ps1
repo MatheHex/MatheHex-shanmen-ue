@@ -143,6 +143,9 @@ try
     $SwordRhythmContributionBinding = New-AutomationLogFixture `
         -Name 'sword-rhythm-contribution-binding.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SwordRhythmContributionBinding'
+    $SwordRhythmEvaluation = New-AutomationLogFixture `
+        -Name 'sword-rhythm-evaluation.log' `
+        -Group 'Shanmen.0_0_10.CombatRuntime.SwordRhythmEvaluation'
     $BasicSword = New-AutomationLogFixture `
         -Name 'basic-sword.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.BasicSword'
@@ -453,11 +456,13 @@ try
             $CombatRuntime)
 
     Invoke-ExpectedPass `
-        -Name 'sword rhythm evaluator input requires product binding source rhythm and action evidence' `
+        -Name 'sword rhythm evaluator requires focused product binding source rhythm and action evidence' `
         -Paths @(
             'Source/ShanmenCombatRuntime/Public/ShanmenSwordRhythmEvaluation.h',
-            'Source/ShanmenCombatRuntime/Private/ShanmenSwordRhythmEvaluation.cpp') `
+            'Source/ShanmenCombatRuntime/Private/ShanmenSwordRhythmEvaluation.cpp',
+            'Source/ShanmenCombatRuntime/Private/Tests/ShanmenSwordRhythmEvaluationTests.cpp') `
         -Logs @(
+            $SwordRhythmEvaluation,
             $SwordRhythmProductSession,
             $SwordRhythmContributionBinding,
             $SwordRhythmContribution,
@@ -1410,10 +1415,13 @@ try
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
-        -Name 'evaluator input product focus cannot replace binding source and action evidence' `
+        -Name 'evaluator focus and product cannot replace binding source and action evidence' `
         -Paths @(
             'Source/ShanmenCombatRuntime/Private/ShanmenSwordRhythmEvaluation.cpp') `
-        -Logs @($SwordRhythmProductSession, $SwordRhythmContributionBinding) `
+        -Logs @(
+            $SwordRhythmEvaluation,
+            $SwordRhythmProductSession,
+            $SwordRhythmContributionBinding) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
