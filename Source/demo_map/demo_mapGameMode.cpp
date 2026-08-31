@@ -511,6 +511,28 @@ Ademo_mapGameMode::RouteSpiritEvasionStartIntent(
 		CandidateDirection);
 }
 
+Fdemo_mapShanmenWeaponGuardSessionStartResult
+Ademo_mapGameMode::RouteWeaponGuardStartIntent(
+	const FGuid& TimelineId,
+	int64 ActiveStartTick)
+{
+	const Fdemo_mapItemAuthority* ItemAuthority =
+		PlayerItemSubsystem.IsValid()
+			? &PlayerItemSubsystem->GetAuthority()
+			: nullptr;
+	return WeaponGuardProductSession.TryStart(
+		ItemAuthority,
+		CombatRunCoordinator,
+		TimelineId,
+		ActiveStartTick);
+}
+
+Fdemo_mapShanmenWeaponGuardSessionTransitionResult
+Ademo_mapGameMode::RouteWeaponGuardReleaseIntent()
+{
+	return WeaponGuardProductSession.TryRelease();
+}
+
 bool Ademo_mapGameMode::AdvanceControlledWeaponOrbit(
 	float DeltaSeconds,
 	Fdemo_mapShanmenControlledWeaponHostOrbitBatch& OutBatch)
@@ -1053,6 +1075,7 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 		|| !ControlledWeaponRunCommandRouter.IsEmpty()
 		|| !ControlledWeaponThreatSampleRouter.IsEmpty()
 		|| !ThrownWeaponProductLifecycle.IsEmpty()
+		|| !WeaponGuardProductSession.IsEmpty()
 		|| (SpiritEvasion
 			&& SpiritEvasion->HasHost()
 			&& !SpiritEvasion->IsTerminal()))
@@ -1155,6 +1178,18 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 	{
 		return false;
 	}
+	const Fdemo_mapShanmenWeaponGuardSessionTransitionResult GuardRelease =
+		WeaponGuardProductSession.TryInterruptAndReset();
+	if (!GuardRelease.IsSuccess())
+	{
+		UE_LOG(Logdemo_map, Error,
+			TEXT("0_0_10_COMBAT_RUN Event=WeaponGuardRunReleaseRejected Context=%s Status=%d Error=%d Diagnostic=%s"),
+			SafeContext,
+			static_cast<int32>(GuardRelease.Status),
+			static_cast<int32>(GuardRelease.Error),
+			*GuardRelease.Diagnostic);
+		return false;
+	}
 	const int32 ThrownSelectionCount =
 		ThrownWeaponProductLifecycle.NumCapturedSelections();
 	FString ThrownDiagnostic;
@@ -1202,14 +1237,18 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 		ControlledWeaponRunCommandRouter.Reset();
 		ControlledWeaponThreatSampleRouter.Reset();
 		UE_LOG(Logdemo_map, Log,
-			TEXT("0_0_10_COMBAT_RUN Event=RunReleased RunId=%s Context=%s ControlledBound=%d ControlledInterrupted=%d RoutedIntents=%d ThreatSamples=%lld ThrownSelections=%d"),
+			TEXT("0_0_10_COMBAT_RUN Event=RunReleased RunId=%s Context=%s ControlledBound=%d ControlledInterrupted=%d RoutedIntents=%d ThreatSamples=%lld ThrownSelections=%d WeaponGuardInterrupted=%d"),
 			*Result.RunId.ToString(EGuidFormats::DigitsWithHyphens),
 			SafeContext,
 			Result.BoundItemCount,
 			Result.InterruptedItemCount,
 			RoutedIntentCount,
 			static_cast<long long>(ThreatSampleCount),
-			ThrownSelectionCount);
+			ThrownSelectionCount,
+			GuardRelease.Status
+				== Edemo_mapShanmenWeaponGuardSessionTransitionStatus::Interrupted
+				? 1
+				: 0);
 		return true;
 	}
 

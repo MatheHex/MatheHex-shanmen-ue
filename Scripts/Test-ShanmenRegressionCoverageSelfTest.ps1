@@ -176,6 +176,9 @@ try
     $WeaponGuardInputAdapter = New-AutomationLogFixture `
         -Name 'weapon-guard-input-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.WeaponGuardInputAdapter'
+    $WeaponGuardProductSession = New-AutomationLogFixture `
+        -Name 'weapon-guard-product-session.log' `
+        -Group 'Shanmen.0_0_10.Product.WeaponGuardProductSession'
     $SpiritEvasionMovement = New-AutomationLogFixture `
         -Name 'spirit-evasion-movement.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritEvasionMovement'
@@ -601,6 +604,22 @@ try
         -Logs @(
             $Full,
             $WeaponGuardInputAdapter,
+            $WeaponGuardProductRoute,
+            $WeaponGuardItemAdapter,
+            $WeaponGuardProductAuthority,
+            $WeaponGuardProductHost,
+            $Coordinator,
+            $Legacy)
+
+    Invoke-ExpectedPass `
+        -Name 'weapon guard product session requires route item Host Run and legacy evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenWeaponGuardProductSession.h',
+            'Source/demo_map/demo_mapShanmenWeaponGuardProductSession.cpp',
+            'Source/demo_map/demo_mapShanmenWeaponGuardProductSessionTests.cpp') `
+        -Logs @(
+            $Full,
+            $WeaponGuardProductSession,
             $WeaponGuardProductRoute,
             $WeaponGuardItemAdapter,
             $WeaponGuardProductAuthority,
@@ -1309,6 +1328,18 @@ try
             'Source/demo_map/demo_mapShanmenWeaponGuardInputAdapter.cpp') `
         -Logs @(
             $WeaponGuardInputAdapter,
+            $WeaponGuardProductRoute,
+            $WeaponGuardItemAdapter,
+            $Coordinator,
+            $ItemUseAndArmor) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'weapon guard product session focus cannot replace route Host and legacy evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenWeaponGuardProductSession.cpp') `
+        -Logs @(
+            $WeaponGuardProductSession,
             $WeaponGuardProductRoute,
             $WeaponGuardItemAdapter,
             $Coordinator,

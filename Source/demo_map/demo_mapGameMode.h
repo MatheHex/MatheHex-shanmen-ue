@@ -18,6 +18,7 @@
 #include "demo_mapShanmenThrownWeaponProductLifecycle.h"
 #include "demo_mapShanmenRunCorrelation.h"
 #include "demo_mapShanmenSpiritEvasionProductRoute.h"
+#include "demo_mapShanmenWeaponGuardProductSession.h"
 #include "demo_mapGameMode.generated.h"
 
 class APlayerController;
@@ -173,6 +174,19 @@ public:
 	/** Sole product start entry from a device-independent direction intent. */
 	Fdemo_mapShanmenSpiritEvasionProductRouteResult
 	RouteSpiritEvasionStartIntent(const FVector& CandidateDirection);
+	/** Acquires the sole active weapon-guard Host from caller-owned time. */
+	Fdemo_mapShanmenWeaponGuardSessionStartResult
+	RouteWeaponGuardStartIntent(
+		const FGuid& TimelineId,
+		int64 ActiveStartTick);
+	/** Normal guard-input release; empty state is an accepted no-op. */
+	Fdemo_mapShanmenWeaponGuardSessionTransitionResult
+	RouteWeaponGuardReleaseIntent();
+	const Fdemo_mapShanmenWeaponGuardProductSession&
+	GetWeaponGuardProductSession() const
+	{
+		return WeaponGuardProductSession;
+	}
 	/** M01 enemy attacks never fall through to legacy damage when this is true. */
 	bool ShouldUseM01EnemyAttackProductPath() const;
 	Fdemo_mapM01EnemyAttackExecutionResult
@@ -407,6 +421,7 @@ private:
 	Fdemo_mapShanmenThrownWeaponProductLifecycle
 		ThrownWeaponProductLifecycle;
 	Fdemo_mapShanmenThrownWeaponInputAdapter ThrownWeaponInputAdapter;
+	Fdemo_mapShanmenWeaponGuardProductSession WeaponGuardProductSession;
 	TArray<TWeakObjectPtr<Ademo_mapM01ExtractionZone>> M01ExtractionZones;
 	TArray<TWeakObjectPtr<AActor>> M01EnemyActors;
 	TWeakObjectPtr<Ademo_mapM01BossCharacter> M01Boss;
