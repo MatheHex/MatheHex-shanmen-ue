@@ -362,6 +362,8 @@ struct Fdemo_mapBasicSwordProductExecutionResult
 {
 	Edemo_mapBasicSwordProductExecutionError Error =
 		Edemo_mapBasicSwordProductExecutionError::CoordinatorNotReady;
+	/** Exact immutable action accepted by the Run coordinator. */
+	FShanmenCombatActionSnapshot Action;
 	FGuid ActivationId;
 	int32 WorldContactCount = 0;
 	int32 ResolvedCandidateCount = 0;
@@ -373,7 +375,9 @@ struct Fdemo_mapBasicSwordProductExecutionResult
 	bool IsExecuted() const
 	{
 		return Error == Edemo_mapBasicSwordProductExecutionError::None
-			&& ActivationId.IsValid();
+			&& Action.IsValid()
+			&& ActivationId.IsValid()
+			&& ActivationId == Action.GetActivationId();
 	}
 
 	bool AppliedDamage() const

@@ -1,8 +1,53 @@
-#include "demo_mapShanmenWeaponGuardFixedTimeline.h"
+#include "demo_mapShanmenCombatRunFixedTimeline.h"
 
 #include "ShanmenDeterministicId.h"
 
-FGuid Fdemo_mapShanmenWeaponGuardFixedTimeline::MakeTimelineId(
+namespace
+{
+	FGuid MakeTimelineSampleId(const FGuid& TimelineId, const int64 Tick)
+	{
+		if (!TimelineId.IsValid() || Tick < 0)
+		{
+			return FGuid();
+		}
+		return FShanmenDeterministicId::FromCanonicalParts(
+			TEXT("demo_map.Combat.RunFixedTimeline.Sample.r1"),
+			{
+				TimelineId.ToString(EGuidFormats::Digits),
+				LexToString(Tick)
+			});
+	}
+}
+
+bool Fdemo_mapShanmenCombatRunTimelineSample::TryCapture(
+	const FGuid& RequestedTimelineId,
+	const int64 RequestedTick,
+	Fdemo_mapShanmenCombatRunTimelineSample& OutSample)
+{
+	OutSample = Fdemo_mapShanmenCombatRunTimelineSample();
+	Fdemo_mapShanmenCombatRunTimelineSample Candidate;
+	Candidate.TimelineId = RequestedTimelineId;
+	Candidate.CurrentTick = RequestedTick;
+	Candidate.SampleId = MakeTimelineSampleId(
+		Candidate.TimelineId,
+		Candidate.CurrentTick);
+	if (!Candidate.IsValid())
+	{
+		return false;
+	}
+	OutSample = Candidate;
+	return true;
+}
+
+bool Fdemo_mapShanmenCombatRunTimelineSample::IsValid() const
+{
+	return SampleId.IsValid()
+		&& TimelineId.IsValid()
+		&& CurrentTick >= 0
+		&& SampleId == MakeTimelineSampleId(TimelineId, CurrentTick);
+}
+
+FGuid Fdemo_mapShanmenCombatRunFixedTimeline::MakeTimelineId(
 	const FGuid& RequestedRunId)
 {
 	if (!RequestedRunId.IsValid())
@@ -10,14 +55,14 @@ FGuid Fdemo_mapShanmenWeaponGuardFixedTimeline::MakeTimelineId(
 		return FGuid();
 	}
 	return FShanmenDeterministicId::FromCanonicalParts(
-		TEXT("demo_map.Sword.WeaponGuard.FixedTimeline.r1"),
+		TEXT("demo_map.Combat.RunFixedTimeline.r1"),
 		{
 			RequestedRunId.ToString(EGuidFormats::Digits),
 			LexToString(CanonicalTicksPerSecond())
 		});
 }
 
-bool Fdemo_mapShanmenWeaponGuardFixedTimeline::TryBegin(
+bool Fdemo_mapShanmenCombatRunFixedTimeline::TryBegin(
 	const FGuid& RequestedRunId,
 	FString& OutDiagnostic)
 {
@@ -25,7 +70,7 @@ bool Fdemo_mapShanmenWeaponGuardFixedTimeline::TryBegin(
 	if (!IsValid() || !RequestedRunId.IsValid())
 	{
 		OutDiagnostic =
-			TEXT("Weapon-guard timeline requires valid empty state and Run identity.");
+			TEXT("Combat Run timeline requires valid empty state and Run identity.");
 		return false;
 	}
 	if (!IsEmpty())
@@ -33,11 +78,11 @@ bool Fdemo_mapShanmenWeaponGuardFixedTimeline::TryBegin(
 		if (IsActiveForRun(RequestedRunId))
 		{
 			OutDiagnostic =
-				TEXT("Weapon-guard timeline is already active for this Run.");
+				TEXT("Combat Run timeline is already active for this Run.");
 			return true;
 		}
 		OutDiagnostic =
-			TEXT("Weapon-guard timeline rejects a second active Run.");
+			TEXT("Combat Run timeline rejects a second active Run.");
 		return false;
 	}
 
@@ -45,18 +90,18 @@ bool Fdemo_mapShanmenWeaponGuardFixedTimeline::TryBegin(
 	if (!CandidateTimelineId.IsValid())
 	{
 		OutDiagnostic =
-			TEXT("Weapon-guard timeline identity derivation failed closed.");
+			TEXT("Combat Run timeline identity derivation failed closed.");
 		return false;
 	}
 	RunId = RequestedRunId;
 	TimelineId = CandidateTimelineId;
 	CurrentTick = 0;
 	SubTickSeconds = 0.0;
-	OutDiagnostic = TEXT("Weapon-guard fixed timeline began at tick zero.");
+	OutDiagnostic = TEXT("Combat Run fixed timeline began at tick zero.");
 	return IsValid();
 }
 
-bool Fdemo_mapShanmenWeaponGuardFixedTimeline::TryAdvance(
+bool Fdemo_mapShanmenCombatRunFixedTimeline::TryAdvance(
 	const double DeltaSeconds,
 	int64& OutAdvancedTicks,
 	FString& OutDiagnostic)
@@ -66,13 +111,13 @@ bool Fdemo_mapShanmenWeaponGuardFixedTimeline::TryAdvance(
 	if (!IsValid() || IsEmpty())
 	{
 		OutDiagnostic =
-			TEXT("Weapon-guard timeline advance requires one active Run.");
+			TEXT("Combat Run timeline advance requires one active Run.");
 		return false;
 	}
 	if (!FMath::IsFinite(DeltaSeconds) || DeltaSeconds < 0.0)
 	{
 		OutDiagnostic =
-			TEXT("Weapon-guard timeline rejects negative or non-finite delta.");
+			TEXT("Combat Run timeline rejects negative or non-finite delta.");
 		return false;
 	}
 
@@ -83,7 +128,7 @@ bool Fdemo_mapShanmenWeaponGuardFixedTimeline::TryAdvance(
 		|| !FMath::IsFinite(ScaledTicks)
 		|| ScaledTicks > static_cast<double>(MAX_int64 - CurrentTick))
 	{
-		OutDiagnostic = TEXT("Weapon-guard timeline advance would overflow.");
+		OutDiagnostic = TEXT("Combat Run timeline advance would overflow.");
 		return false;
 	}
 
@@ -101,30 +146,30 @@ bool Fdemo_mapShanmenWeaponGuardFixedTimeline::TryAdvance(
 		|| !FMath::IsFinite(CandidateSubTick))
 	{
 		OutDiagnostic =
-			TEXT("Weapon-guard timeline quantization failed closed.");
+			TEXT("Combat Run timeline quantization failed closed.");
 		return false;
 	}
 
 	CurrentTick += WholeTicks;
 	SubTickSeconds = CandidateSubTick;
 	OutAdvancedTicks = WholeTicks;
-	OutDiagnostic = TEXT("Weapon-guard fixed timeline advanced monotonically.");
+	OutDiagnostic = TEXT("Combat Run fixed timeline advanced monotonically.");
 	return IsValid();
 }
 
-bool Fdemo_mapShanmenWeaponGuardFixedTimeline::TryCapture(
-	Fdemo_mapShanmenWeaponGuardInputTimelineSample& OutSample) const
+bool Fdemo_mapShanmenCombatRunFixedTimeline::TryCapture(
+	Fdemo_mapShanmenCombatRunTimelineSample& OutSample) const
 {
-	OutSample = Fdemo_mapShanmenWeaponGuardInputTimelineSample();
+	OutSample = Fdemo_mapShanmenCombatRunTimelineSample();
 	return IsValid()
 		&& !IsEmpty()
-		&& Fdemo_mapShanmenWeaponGuardInputTimelineSample::TryCapture(
+		&& Fdemo_mapShanmenCombatRunTimelineSample::TryCapture(
 			TimelineId,
 			CurrentTick,
 			OutSample);
 }
 
-bool Fdemo_mapShanmenWeaponGuardFixedTimeline::TryEnd(
+bool Fdemo_mapShanmenCombatRunFixedTimeline::TryEnd(
 	const FGuid& ExpectedRunId,
 	FString& OutDiagnostic)
 {
@@ -132,26 +177,26 @@ bool Fdemo_mapShanmenWeaponGuardFixedTimeline::TryEnd(
 	if (!IsValid() || !ExpectedRunId.IsValid())
 	{
 		OutDiagnostic =
-			TEXT("Weapon-guard timeline end requires valid state and Run identity.");
+			TEXT("Combat Run timeline end requires valid state and Run identity.");
 		return false;
 	}
 	if (IsEmpty())
 	{
-		OutDiagnostic = TEXT("Weapon-guard timeline is already empty.");
+		OutDiagnostic = TEXT("Combat Run timeline is already empty.");
 		return true;
 	}
 	if (RunId != ExpectedRunId)
 	{
 		OutDiagnostic =
-			TEXT("Weapon-guard timeline rejects mismatched Run teardown.");
+			TEXT("Combat Run timeline rejects mismatched Run teardown.");
 		return false;
 	}
 	Reset();
-	OutDiagnostic = TEXT("Weapon-guard fixed timeline ended with its Run.");
+	OutDiagnostic = TEXT("Combat Run fixed timeline ended with its Run.");
 	return true;
 }
 
-void Fdemo_mapShanmenWeaponGuardFixedTimeline::Reset()
+void Fdemo_mapShanmenCombatRunFixedTimeline::Reset()
 {
 	RunId.Invalidate();
 	TimelineId.Invalidate();
@@ -159,7 +204,7 @@ void Fdemo_mapShanmenWeaponGuardFixedTimeline::Reset()
 	SubTickSeconds = 0.0;
 }
 
-bool Fdemo_mapShanmenWeaponGuardFixedTimeline::IsValid() const
+bool Fdemo_mapShanmenCombatRunFixedTimeline::IsValid() const
 {
 	if (!RunId.IsValid() && !TimelineId.IsValid())
 	{
@@ -176,12 +221,12 @@ bool Fdemo_mapShanmenWeaponGuardFixedTimeline::IsValid() const
 		&& SubTickSeconds < TickSeconds;
 }
 
-bool Fdemo_mapShanmenWeaponGuardFixedTimeline::IsEmpty() const
+bool Fdemo_mapShanmenCombatRunFixedTimeline::IsEmpty() const
 {
 	return IsValid() && !RunId.IsValid();
 }
 
-bool Fdemo_mapShanmenWeaponGuardFixedTimeline::IsActiveForRun(
+bool Fdemo_mapShanmenCombatRunFixedTimeline::IsActiveForRun(
 	const FGuid& RequestedRunId) const
 {
 	return IsValid()

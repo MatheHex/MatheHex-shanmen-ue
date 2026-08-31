@@ -2,69 +2,73 @@
 
 #include "Misc/AutomationTest.h"
 
-#include "demo_mapShanmenWeaponGuardFixedTimeline.h"
+#include "demo_mapShanmenCombatRunFixedTimeline.h"
 
 #include <limits>
 
 namespace
 {
-	constexpr EAutomationTestFlags GuardTimelineFlags =
+	constexpr EAutomationTestFlags RunTimelineFlags =
 		EAutomationTestFlags::EditorContext
 		| EAutomationTestFlags::EngineFilter;
-	const FGuid GuardTimelineRunA(
+	const FGuid RunTimelineRunA(
 		0xDFD00001, 0xDFD00002, 0xDFD00003, 0xDFD00004);
-	const FGuid GuardTimelineRunB(
+	const FGuid RunTimelineRunB(
 		0xDFD10001, 0xDFD10002, 0xDFD10003, 0xDFD10004);
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-	Fdemo_mapWeaponGuardFixedTimelineIdentityTest,
-	"Shanmen.0_0_10.Product.WeaponGuardFixedTimeline.IdentityLifecycle",
-	GuardTimelineFlags)
+	Fdemo_mapCombatRunFixedTimelineIdentityTest,
+	"Shanmen.0_0_10.Product.CombatRunFixedTimeline.IdentityLifecycle",
+	RunTimelineFlags)
 
-bool Fdemo_mapWeaponGuardFixedTimelineIdentityTest::RunTest(const FString&)
+bool Fdemo_mapCombatRunFixedTimelineIdentityTest::RunTest(const FString&)
 {
-	Fdemo_mapShanmenWeaponGuardFixedTimeline First;
-	Fdemo_mapShanmenWeaponGuardFixedTimeline Replay;
+	Fdemo_mapShanmenCombatRunFixedTimeline First;
+	Fdemo_mapShanmenCombatRunFixedTimeline Replay;
 	FString Diagnostic;
 	TestTrue(TEXT("fresh timeline is valid and empty"),
 		First.IsValid() && First.IsEmpty());
-	TestTrue(TEXT("first Run begins"), First.TryBegin(GuardTimelineRunA, Diagnostic));
+	TestTrue(TEXT("first Run begins"),
+		First.TryBegin(RunTimelineRunA, Diagnostic));
 	TestTrue(TEXT("same Run begin is idempotent"),
-		First.TryBegin(GuardTimelineRunA, Diagnostic));
+		First.TryBegin(RunTimelineRunA, Diagnostic));
 	TestFalse(TEXT("foreign concurrent Run is rejected"),
-		First.TryBegin(GuardTimelineRunB, Diagnostic));
-	TestTrue(TEXT("replay begins"), Replay.TryBegin(GuardTimelineRunA, Diagnostic));
+		First.TryBegin(RunTimelineRunB, Diagnostic));
+	TestTrue(TEXT("replay begins"),
+		Replay.TryBegin(RunTimelineRunA, Diagnostic));
 	TestTrue(TEXT("same Run derives identical timeline identity"),
 		First.GetTimelineId().IsValid()
 			&& First.GetTimelineId() == Replay.GetTimelineId());
 	TestTrue(TEXT("different Run derives different identity"),
-		Fdemo_mapShanmenWeaponGuardFixedTimeline::MakeTimelineId(
-			GuardTimelineRunA)
-			!= Fdemo_mapShanmenWeaponGuardFixedTimeline::MakeTimelineId(
-				GuardTimelineRunB));
+		Fdemo_mapShanmenCombatRunFixedTimeline::MakeTimelineId(
+			RunTimelineRunA)
+			!= Fdemo_mapShanmenCombatRunFixedTimeline::MakeTimelineId(
+				RunTimelineRunB));
 	TestFalse(TEXT("mismatched teardown is rejected atomically"),
-		First.TryEnd(GuardTimelineRunB, Diagnostic));
+		First.TryEnd(RunTimelineRunB, Diagnostic));
 	TestTrue(TEXT("timeline remains on original Run"),
-		First.IsActiveForRun(GuardTimelineRunA));
+		First.IsActiveForRun(RunTimelineRunA));
 	TestTrue(TEXT("matching teardown empties timeline"),
-		First.TryEnd(GuardTimelineRunA, Diagnostic)
+		First.TryEnd(RunTimelineRunA, Diagnostic)
 			&& First.IsEmpty());
 	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-	Fdemo_mapWeaponGuardFixedTimelineCadenceTest,
-	"Shanmen.0_0_10.Product.WeaponGuardFixedTimeline.FixedRatePartition",
-	GuardTimelineFlags)
+	Fdemo_mapCombatRunFixedTimelineCadenceTest,
+	"Shanmen.0_0_10.Product.CombatRunFixedTimeline.FixedRatePartition",
+	RunTimelineFlags)
 
-bool Fdemo_mapWeaponGuardFixedTimelineCadenceTest::RunTest(const FString&)
+bool Fdemo_mapCombatRunFixedTimelineCadenceTest::RunTest(const FString&)
 {
-	Fdemo_mapShanmenWeaponGuardFixedTimeline Fine;
-	Fdemo_mapShanmenWeaponGuardFixedTimeline Coarse;
+	Fdemo_mapShanmenCombatRunFixedTimeline Fine;
+	Fdemo_mapShanmenCombatRunFixedTimeline Coarse;
 	FString Diagnostic;
-	TestTrue(TEXT("fine timeline begins"), Fine.TryBegin(GuardTimelineRunA, Diagnostic));
-	TestTrue(TEXT("coarse timeline begins"), Coarse.TryBegin(GuardTimelineRunA, Diagnostic));
+	TestTrue(TEXT("fine timeline begins"),
+		Fine.TryBegin(RunTimelineRunA, Diagnostic));
+	TestTrue(TEXT("coarse timeline begins"),
+		Coarse.TryBegin(RunTimelineRunA, Diagnostic));
 	int64 Advanced = 0;
 	for (int32 Index = 0; Index < 10; ++Index)
 	{
@@ -79,22 +83,23 @@ bool Fdemo_mapWeaponGuardFixedTimelineCadenceTest::RunTest(const FString&)
 	TestEqual(TEXT("different frame partition reaches same fixed tick"),
 		Coarse.GetCurrentTick(), Fine.GetCurrentTick());
 	TestEqual(TEXT("canonical timeline rate is explicit"),
-		Fdemo_mapShanmenWeaponGuardFixedTimeline::CanonicalTicksPerSecond(),
+		Fdemo_mapShanmenCombatRunFixedTimeline::CanonicalTicksPerSecond(),
 		static_cast<int64>(30));
 	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-	Fdemo_mapWeaponGuardFixedTimelineCarryTest,
-	"Shanmen.0_0_10.Product.WeaponGuardFixedTimeline.SubTickCarry",
-	GuardTimelineFlags)
+	Fdemo_mapCombatRunFixedTimelineCarryTest,
+	"Shanmen.0_0_10.Product.CombatRunFixedTimeline.SubTickCarry",
+	RunTimelineFlags)
 
-bool Fdemo_mapWeaponGuardFixedTimelineCarryTest::RunTest(const FString&)
+bool Fdemo_mapCombatRunFixedTimelineCarryTest::RunTest(const FString&)
 {
-	Fdemo_mapShanmenWeaponGuardFixedTimeline Timeline;
+	Fdemo_mapShanmenCombatRunFixedTimeline Timeline;
 	FString Diagnostic;
 	int64 Advanced = INDEX_NONE;
-	TestTrue(TEXT("timeline begins"), Timeline.TryBegin(GuardTimelineRunA, Diagnostic));
+	TestTrue(TEXT("timeline begins"),
+		Timeline.TryBegin(RunTimelineRunA, Diagnostic));
 	TestTrue(TEXT("first sub-tick delta is retained"),
 		Timeline.TryAdvance(0.02, Advanced, Diagnostic));
 	TestEqual(TEXT("first sub-tick emits zero whole ticks"),
@@ -112,17 +117,18 @@ bool Fdemo_mapWeaponGuardFixedTimelineCarryTest::RunTest(const FString&)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-	Fdemo_mapWeaponGuardFixedTimelineInvalidDeltaTest,
-	"Shanmen.0_0_10.Product.WeaponGuardFixedTimeline.InvalidDeltaAtomic",
-	GuardTimelineFlags)
+	Fdemo_mapCombatRunFixedTimelineInvalidDeltaTest,
+	"Shanmen.0_0_10.Product.CombatRunFixedTimeline.InvalidDeltaAtomic",
+	RunTimelineFlags)
 
-bool Fdemo_mapWeaponGuardFixedTimelineInvalidDeltaTest::RunTest(
+bool Fdemo_mapCombatRunFixedTimelineInvalidDeltaTest::RunTest(
 	const FString&)
 {
-	Fdemo_mapShanmenWeaponGuardFixedTimeline Timeline;
+	Fdemo_mapShanmenCombatRunFixedTimeline Timeline;
 	FString Diagnostic;
 	int64 Advanced = INDEX_NONE;
-	TestTrue(TEXT("timeline begins"), Timeline.TryBegin(GuardTimelineRunA, Diagnostic));
+	TestTrue(TEXT("timeline begins"),
+		Timeline.TryBegin(RunTimelineRunA, Diagnostic));
 	TestFalse(TEXT("negative delta is rejected"),
 		Timeline.TryAdvance(-0.1, Advanced, Diagnostic));
 	TestFalse(TEXT("NaN delta is rejected"),
@@ -143,22 +149,28 @@ bool Fdemo_mapWeaponGuardFixedTimelineInvalidDeltaTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-	Fdemo_mapWeaponGuardFixedTimelineSampleTest,
-	"Shanmen.0_0_10.Product.WeaponGuardFixedTimeline.OpaqueSample",
-	GuardTimelineFlags)
+	Fdemo_mapCombatRunFixedTimelineSampleTest,
+	"Shanmen.0_0_10.Product.CombatRunFixedTimeline.ImmutableSample",
+	RunTimelineFlags)
 
-bool Fdemo_mapWeaponGuardFixedTimelineSampleTest::RunTest(const FString&)
+bool Fdemo_mapCombatRunFixedTimelineSampleTest::RunTest(const FString&)
 {
-	Fdemo_mapShanmenWeaponGuardFixedTimeline Timeline;
-	Fdemo_mapShanmenWeaponGuardInputTimelineSample Missing;
-	Fdemo_mapShanmenWeaponGuardInputTimelineSample Start;
-	Fdemo_mapShanmenWeaponGuardInputTimelineSample AdvancedSample;
+	Fdemo_mapShanmenCombatRunFixedTimeline Timeline;
+	Fdemo_mapShanmenCombatRunTimelineSample Missing;
+	Fdemo_mapShanmenCombatRunTimelineSample Start;
+	Fdemo_mapShanmenCombatRunTimelineSample StartReplay;
+	Fdemo_mapShanmenCombatRunTimelineSample AdvancedSample;
 	FString Diagnostic;
 	int64 Advanced = 0;
 	TestFalse(TEXT("empty timeline cannot produce a sample"),
 		Timeline.TryCapture(Missing));
-	TestTrue(TEXT("timeline begins"), Timeline.TryBegin(GuardTimelineRunA, Diagnostic));
-	TestTrue(TEXT("tick-zero sample is valid"), Timeline.TryCapture(Start));
+	TestTrue(TEXT("timeline begins"),
+		Timeline.TryBegin(RunTimelineRunA, Diagnostic));
+	TestTrue(TEXT("tick-zero sample is valid"),
+		Timeline.TryCapture(Start));
+	TestTrue(TEXT("same state replays the same immutable sample"),
+		Timeline.TryCapture(StartReplay)
+			&& Start.GetSampleId() == StartReplay.GetSampleId());
 	TestTrue(TEXT("five ticks advance"),
 		Timeline.TryAdvance(5.0 / 30.0, Advanced, Diagnostic)
 			&& Advanced == 5);
@@ -166,8 +178,9 @@ bool Fdemo_mapWeaponGuardFixedTimelineSampleTest::RunTest(const FString&)
 		Timeline.TryCapture(AdvancedSample));
 	TestTrue(TEXT("samples retain one deterministic timeline identity"),
 		Start.GetTimelineId() == AdvancedSample.GetTimelineId()
-			&& Start.GetActiveStartTick() == 0
-			&& AdvancedSample.GetActiveStartTick() == 5);
+			&& Start.GetCurrentTick() == 0
+			&& AdvancedSample.GetCurrentTick() == 5
+			&& Start.GetSampleId() != AdvancedSample.GetSampleId());
 	return true;
 }
 

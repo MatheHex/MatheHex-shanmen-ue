@@ -1,16 +1,35 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "demo_mapShanmenWeaponGuardInputAdapter.h"
+
+/** Immutable observation of one Run-bound fixed timeline tick. */
+struct Fdemo_mapShanmenCombatRunTimelineSample
+{
+public:
+	static bool TryCapture(
+		const FGuid& TimelineId,
+		int64 CurrentTick,
+		Fdemo_mapShanmenCombatRunTimelineSample& OutSample);
+
+	bool IsValid() const;
+	const FGuid& GetSampleId() const { return SampleId; }
+	const FGuid& GetTimelineId() const { return TimelineId; }
+	int64 GetCurrentTick() const { return CurrentTick; }
+
+private:
+	FGuid SampleId;
+	FGuid TimelineId;
+	int64 CurrentTick = INDEX_NONE;
+};
 
 /**
- * Run-bound, fixed-rate monotonic clock used only to classify weapon guard.
+ * Run-bound, fixed-rate monotonic product clock.
  *
  * It consumes the GameMode's existing DeltaSeconds stream, but exposes only
  * whole 30 Hz ticks. It owns no Actor, input, timer, frame number or wall
  * clock, and its identity is deterministically derived from the active Run.
  */
-class Fdemo_mapShanmenWeaponGuardFixedTimeline
+class Fdemo_mapShanmenCombatRunFixedTimeline
 {
 public:
 	static int64 CanonicalTicksPerSecond() { return 30; }
@@ -22,7 +41,7 @@ public:
 		int64& OutAdvancedTicks,
 		FString& OutDiagnostic);
 	bool TryCapture(
-		Fdemo_mapShanmenWeaponGuardInputTimelineSample& OutSample) const;
+		Fdemo_mapShanmenCombatRunTimelineSample& OutSample) const;
 	bool TryEnd(const FGuid& ExpectedRunId, FString& OutDiagnostic);
 	void Reset();
 

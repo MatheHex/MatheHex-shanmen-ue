@@ -259,15 +259,29 @@
       ]
     },
     {
-      "name": "WeaponGuardFixedTimeline",
-      "pathRegex": "^Source/demo_map/demo_mapShanmenWeaponGuardFixedTimeline(?:Tests)?\\.(?:h|cpp)$",
+      "name": "CombatRunFixedTimeline",
+      "pathRegex": "^Source/demo_map/demo_mapShanmen(?:CombatRunFixedTimeline|WeaponGuardFixedTimeline)(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10",
-        "Shanmen.0_0_10.Product.WeaponGuardFixedTimeline",
+        "Shanmen.0_0_10.Product.CombatRunFixedTimeline",
         "Shanmen.0_0_10.Product.WeaponGuardInputAdapter",
         "Shanmen.0_0_10.Product.WeaponGuardProductSession",
         "Shanmen.0_0_10.Product.WeaponGuardProductRoute",
-        "Shanmen.0_0_10.Product.CombatRunCoordinator"
+        "Shanmen.0_0_10.Product.CombatRunCoordinator",
+        "Shanmen.0_0_10.Product.SwordRhythmProductHost"
+      ]
+    },
+    {
+      "name": "SwordRhythmProductHost",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenSwordRhythmProductHost(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.SwordRhythmProductHost",
+        "Shanmen.0_0_10.Product.CombatRunFixedTimeline",
+        "Shanmen.0_0_10.Product.CombatRunCoordinator",
+        "Shanmen.0_0_10.CombatRuntime.SwordRhythm",
+        "Shanmen.0_0_10.CombatRuntime.BasicSword",
+        "Shanmen.0_0_10.CombatRuntime.ActionLifecycle"
       ]
     },
     {
@@ -1225,6 +1239,7 @@
       "pathRegex": "^Source/demo_map/demo_mapCombatRunCoordinator(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10.Product.CombatRunCoordinator",
+        "Shanmen.0_0_10.Product.SwordRhythmProductHost",
         "Shanmen.0_0_10.Product.WeaponGuardImpactRoute",
         "Shanmen.0_0_10.Product.WeaponGuardProductSession",
         "Shanmen.0_0_10.Product.WeaponGuardProductHost",
@@ -1268,7 +1283,7 @@
         "Shanmen.0_0_10.Product.CombatRunCoordinator",
         "Shanmen.0_0_10.Product.WeaponGuardProductSession",
         "Shanmen.0_0_10.Product.WeaponGuardImpactRoute",
-        "Shanmen.0_0_10.Product.WeaponGuardFixedTimeline",
+        "Shanmen.0_0_10.Product.CombatRunFixedTimeline",
         "Shanmen.0_0_10.Product.WeaponGuardInputAdapter",
         "Shanmen.0_0_10.Product.WeaponGuardProductRoute",
         "Shanmen.0_0_10.Product.WeaponGuardItemAdapter",
@@ -1302,7 +1317,7 @@
         "Shanmen.0_0_10.Product.SpiritEvasionPhysicalInput",
         "Shanmen.0_0_10.Product.SpiritEvasionInputAdapter",
         "Shanmen.0_0_10.Product.WeaponGuardPhysicalInput",
-        "Shanmen.0_0_10.Product.WeaponGuardFixedTimeline",
+        "Shanmen.0_0_10.Product.CombatRunFixedTimeline",
         "Shanmen.0_0_10.Product.WeaponGuardInputAdapter",
         "Shanmen.0_0_10.Product.WeaponGuardProductSession",
         "Shanmen.0_0_10.Product.ThrownWeaponInputAdapter",

@@ -2183,7 +2183,8 @@ Fdemo_mapCombatRunCoordinator::ExecutePlayerBasicSwordSweep(
 			Edemo_mapBasicSwordProductExecutionError::RuntimeStartFailed;
 		return ProductResult;
 	}
-	ProductResult.ActivationId = Action.GetActivationId();
+	ProductResult.Action = Action;
+	ProductResult.ActivationId = ProductResult.Action.GetActivationId();
 	++NextPlayerBasicSwordActivationSequence;
 
 	FShanmenWorldHitContext HitContext;

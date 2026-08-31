@@ -2566,7 +2566,16 @@ bool FShanmenCombatRunCoordinatorProductSwordSweepTest::RunTest(
 			{ Hit, Hit });
 	TestTrue(TEXT("One real trajectory action has deterministic identity"),
 		First.IsExecuted()
+			&& First.Action.IsValid()
+			&& First.Action.GetRunId() == CoordinatorRunA
+			&& First.Action.GetSourceEntityId()
+				== Fixture.Coordinator.GetPlayerEntityId()
+			&& First.Action.GetSourceItemInstanceId() == WeaponInstanceId
+			&& First.Action.GetActionDefinitionId()
+				== FShanmenBasicSwordDefinition::
+					CanonicalActionDefinitionId()
 			&& First.ActivationId == ExpectedActivation
+			&& First.ActivationId == First.Action.GetActivationId()
 			&& Fixture.Coordinator
 				.GetNextPlayerBasicSwordActivationSequence() == 2);
 	TestTrue(TEXT("Duplicate geometry contacts commit the target exactly once"),
@@ -2590,6 +2599,8 @@ bool FShanmenCombatRunCoordinatorProductSwordSweepTest::RunTest(
 			{});
 	TestTrue(TEXT("A legal miss closes normally and consumes a new activation"),
 		Miss.IsExecuted()
+			&& Miss.Action.GetRunId() == CoordinatorRunA
+			&& Miss.Action.GetSourceItemInstanceId() == WeaponInstanceId
 			&& !Miss.AppliedDamage()
 			&& Miss.ActivationId != First.ActivationId
 			&& Miss.WorldContactCount == 0
@@ -2622,6 +2633,7 @@ bool FShanmenCombatRunCoordinatorProductSwordSweepTest::RunTest(
 			{});
 	TestTrue(TEXT("Sequence one in a new Run derives a different activation"),
 		NextRun.IsExecuted()
+			&& NextRun.Action.GetRunId() == CoordinatorRunB
 			&& NextRun.ActivationId != First.ActivationId
 			&& NextRun.ActivationId
 				== FShanmenCombatIdFactory::MakeActivationId(
@@ -2648,6 +2660,7 @@ bool FShanmenCombatRunCoordinatorProductSwordFailClosedTest::RunTest(
 	TestTrue(TEXT("Inactive coordinator rejects before action creation"),
 		NotReady.Error
 			== Edemo_mapBasicSwordProductExecutionError::CoordinatorNotReady
+			&& !NotReady.Action.IsValid()
 			&& !NotReady.ActivationId.IsValid());
 
 	FCombatRunCoordinatorFixture Fixture;
@@ -2667,8 +2680,10 @@ bool FShanmenCombatRunCoordinatorProductSwordFailClosedTest::RunTest(
 	TestTrue(TEXT("Missing item and invalid offense fail without consuming sequence"),
 		MissingWeapon.Error
 				== Edemo_mapBasicSwordProductExecutionError::InvalidSourceItem
+			&& !MissingWeapon.Action.IsValid()
 			&& InvalidOffense.Error
 				== Edemo_mapBasicSwordProductExecutionError::InvalidOffense
+			&& !InvalidOffense.Action.IsValid()
 			&& Fixture.Coordinator
 				.GetNextPlayerBasicSwordActivationSequence() == 1);
 
