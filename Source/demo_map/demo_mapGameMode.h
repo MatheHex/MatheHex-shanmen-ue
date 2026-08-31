@@ -303,6 +303,8 @@ private:
 		Edemo_mapShanmenPlayerActionKind RequestedAction);
 	bool ReconcileWeaponGuardAuthorization(const TCHAR* Context);
 	bool ReleasePlayerSpiritEvasion(const TCHAR* Context);
+	void ObserveSwordRhythmWeaponGuardContribution(
+		const Fdemo_mapM01EnemyAttackExecutionResult& AttackResult);
 	Fdemo_mapM01EnemyAttackWeaponGuardContext
 	CaptureM01EnemyAttackWeaponGuardContext();
 	void PrepareV2CNavigation();

@@ -750,3 +750,13 @@ Fdemo_mapShanmenSpiritEvasionProductHost::TryFinishRecovery()
 	*this = MoveTemp(Candidate);
 	return Result;
 }
+
+bool Fdemo_mapShanmenSpiritEvasionProductHost::TryProjectDefenseLayer(
+	FShanmenSpiritEvasionProjectionReceipt& OutReceipt) const
+{
+	OutReceipt = FShanmenSpiritEvasionProjectionReceipt();
+	return IsActive()
+		&& Coordinator.GetWindow().TryProjectDefenseLayer(
+			ActionRuntime,
+			OutReceipt);
+}

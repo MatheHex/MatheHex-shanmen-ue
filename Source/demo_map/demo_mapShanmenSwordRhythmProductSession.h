@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "ShanmenSwordRhythmContributionBinding.h"
+#include "ShanmenSwordRhythmEvaluation.h"
 #include "demo_mapShanmenSwordRhythmProductHost.h"
 #include "demo_mapShanmenSwordRhythmPresentation.h"
 
@@ -73,6 +73,18 @@ public:
 		FShanmenSwordRhythmReceipt& OutReceipt,
 		FShanmenSwordRhythmContributionBindingReceipt& OutBindingReceipt,
 		FString& OutDiagnostic);
+	/**
+	 * Full product handoff for a later independent evaluator. The immutable
+	 * input is valid for every accepted BasicSword and carries the optional
+	 * binding only when earlier contribution evidence was consumed.
+	 */
+	bool TryObserveExecutedBasicSword(
+		const Fdemo_mapBasicSwordProductExecutionResult& ProductResult,
+		const Fdemo_mapShanmenCombatRunTimelineSample& TimelineSample,
+		FShanmenSwordRhythmReceipt& OutReceipt,
+		FShanmenSwordRhythmContributionBindingReceipt& OutBindingReceipt,
+		FShanmenSwordRhythmEvaluationInput& OutEvaluationInput,
+		FString& OutDiagnostic);
 	bool TryRecordPerfectWeaponGuardContribution(
 		const FShanmenWeaponGuardTimingProjectionReceipt& Receipt,
 		FShanmenSwordRhythmContribution& OutContribution,
@@ -99,6 +111,10 @@ public:
 	const FShanmenSwordRhythmReceipt& GetLastReceipt() const
 	{
 		return LastReceipt;
+	}
+	const FShanmenSwordRhythmEvaluationInput& GetLastEvaluationInput() const
+	{
+		return LastEvaluationInput;
 	}
 	const Fdemo_mapShanmenSwordRhythmPresentationState&
 	GetPresentationState() const
@@ -130,6 +146,7 @@ private:
 	Fdemo_mapShanmenSwordRhythmProductConfig Config;
 	Fdemo_mapShanmenSwordRhythmProductHost Host;
 	FShanmenSwordRhythmReceipt LastReceipt;
+	FShanmenSwordRhythmEvaluationInput LastEvaluationInput;
 	Fdemo_mapShanmenSwordRhythmPresentationState PresentationState;
 	FShanmenSwordRhythmContributionBindingLedger ContributionBindings;
 };

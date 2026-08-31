@@ -260,6 +260,16 @@ bool Fdemo_mapShanmenSpiritEvasionHostStartTest::RunTest(const FString&)
 				== First.GetCoordinator().GetMotionSession()
 					.GetMotionPlan().GetMovementPlan().GetPlanId()
 			&& FirstPreflight.EvaluationCount == 1);
+	FShanmenSpiritEvasionProjectionReceipt FirstProjection;
+	FShanmenSpiritEvasionProjectionReceipt ReplayedProjection;
+	TestTrue(TEXT("active product host exposes the exact immutable defense projection"),
+		First.TryProjectDefenseLayer(FirstProjection)
+			&& First.TryProjectDefenseLayer(ReplayedProjection)
+			&& FirstProjection.IsValid()
+			&& FirstProjection.GetProjectionId()
+				== ReplayedProjection.GetProjectionId()
+			&& FirstProjection.GetWindow().GetAction().GetActivationId()
+				== First.GetActionRuntime().GetAction().GetActivationId());
 
 	FFakePreflightPort ReplayPreflight;
 	Fdemo_mapShanmenSpiritEvasionProductHost Replay;

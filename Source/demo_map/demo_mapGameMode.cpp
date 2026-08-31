@@ -469,6 +469,8 @@ Ademo_mapGameMode::ExecuteM01PlayerBasicSwordSweep(
 	{
 		Fdemo_mapShanmenCombatRunTimelineSample TimelineSample;
 		FShanmenSwordRhythmReceipt RhythmReceipt;
+		FShanmenSwordRhythmContributionBindingReceipt BindingReceipt;
+		FShanmenSwordRhythmEvaluationInput EvaluationInput;
 		FString RhythmDiagnostic;
 		bool bRhythmObserved = false;
 		if (!CombatRunFixedTimeline.TryCapture(TimelineSample))
@@ -480,10 +482,12 @@ Ademo_mapGameMode::ExecuteM01PlayerBasicSwordSweep(
 		{
 			bRhythmObserved =
 				SwordRhythmProductSession.TryObserveExecutedBasicSword(
-				Result,
-				TimelineSample,
-				RhythmReceipt,
-				RhythmDiagnostic);
+					Result,
+					TimelineSample,
+					RhythmReceipt,
+					BindingReceipt,
+					EvaluationInput,
+					RhythmDiagnostic);
 		}
 		if (bRhythmObserved)
 		{
@@ -491,13 +495,18 @@ Ademo_mapGameMode::ExecuteM01PlayerBasicSwordSweep(
 				SwordRhythmProductSession.GetPresentationState();
 			UE_LOG(Logdemo_map,
 				Log,
-				TEXT("0_0_10_SWORD_RHYTHM Event=Observed ActivationId=%s ReceiptId=%s PresentationStateId=%s Revision=%d InputTick=%lld Band=%d PreviousCount=%d ResultingCount=%d"),
+				TEXT("0_0_10_SWORD_RHYTHM Event=Observed ActivationId=%s ReceiptId=%s PresentationStateId=%s EvaluationInputId=%s BindingReceiptId=%s Contributions=%d Revision=%d InputTick=%lld Band=%d PreviousCount=%d ResultingCount=%d"),
 				*Result.ActivationId.ToString(
 					EGuidFormats::DigitsWithHyphens),
 				*RhythmReceipt.GetReceiptId().ToString(
 					EGuidFormats::DigitsWithHyphens),
 				*PresentationState.GetPresentationStateId().ToString(
 					EGuidFormats::DigitsWithHyphens),
+				*EvaluationInput.GetInputId().ToString(
+					EGuidFormats::DigitsWithHyphens),
+				*BindingReceipt.GetReceiptId().ToString(
+					EGuidFormats::DigitsWithHyphens),
+				EvaluationInput.NumContributions(),
 				PresentationState.GetObservationRevision(),
 				static_cast<long long>(
 					RhythmReceipt.GetCurrentObservation().GetInputTick()),
@@ -723,7 +732,8 @@ Ademo_mapGameMode::RouteSpiritEvasionStartIntent(
 		PlayerCharacter
 			? EnsurePlayerSpiritEvasion(PlayerCharacter)
 			: nullptr;
-	return Fdemo_mapShanmenSpiritEvasionProductRoute::TryRoute(
+	Fdemo_mapShanmenSpiritEvasionProductRouteResult Result =
+		Fdemo_mapShanmenSpiritEvasionProductRoute::TryRoute(
 		Component,
 		CombatRunCoordinator,
 		PlayerCharacter,
@@ -733,6 +743,45 @@ Ademo_mapGameMode::RouteSpiritEvasionStartIntent(
 			return RoutePlayerActionGate(
 				Edemo_mapShanmenPlayerActionKind::SpiritEvasion);
 		});
+	if (!Result.IsAccepted())
+	{
+		return Result;
+	}
+
+	FShanmenSpiritEvasionProjectionReceipt Projection;
+	Fdemo_mapShanmenCombatRunTimelineSample TimelineSample;
+	FShanmenSwordRhythmContribution Contribution;
+	FString ContributionDiagnostic;
+	if (!Component
+		|| !Component->TryProjectDefenseLayer(Projection)
+		|| !CombatRunFixedTimeline.TryCapture(TimelineSample)
+		|| !SwordRhythmProductSession.TryRecordSpiritEvasionContribution(
+			Projection,
+			TimelineSample,
+			Contribution,
+			ContributionDiagnostic))
+	{
+		UE_LOG(Logdemo_map,
+			Error,
+			TEXT("0_0_10_SWORD_RHYTHM Event=SpiritEvasionContributionRejected ActivationId=%s Diagnostic=%s"),
+			*Result.CommandRoute.ActivationId.ToString(
+				EGuidFormats::DigitsWithHyphens),
+			ContributionDiagnostic.IsEmpty()
+				? TEXT("Active SpiritEvasion projection or Run timeline was unavailable.")
+				: *ContributionDiagnostic);
+		return Result;
+	}
+	UE_LOG(Logdemo_map,
+		Log,
+		TEXT("0_0_10_SWORD_RHYTHM Event=SpiritEvasionContributionRecorded ActivationId=%s ProjectionId=%s ContributionId=%s Tick=%lld"),
+		*Result.CommandRoute.ActivationId.ToString(
+			EGuidFormats::DigitsWithHyphens),
+		*Projection.GetProjectionId().ToString(
+			EGuidFormats::DigitsWithHyphens),
+		*Contribution.GetContributionId().ToString(
+			EGuidFormats::DigitsWithHyphens),
+		static_cast<long long>(TimelineSample.GetCurrentTick()));
+	return Result;
 }
 
 Fdemo_mapShanmenWeaponGuardSessionStartResult
@@ -964,6 +1013,53 @@ Ademo_mapGameMode::CaptureM01EnemyAttackWeaponGuardContext()
 	return Context;
 }
 
+void Ademo_mapGameMode::ObserveSwordRhythmWeaponGuardContribution(
+	const Fdemo_mapM01EnemyAttackExecutionResult& AttackResult)
+{
+	if (!AttackResult.IsExecuted()
+		|| !AttackResult.bWeaponGuardInspected
+		|| !AttackResult.WeaponGuardDefense.HasGuardLayer())
+	{
+		return;
+	}
+	const FShanmenWeaponGuardTimingProjectionReceipt& Projection =
+		AttackResult.WeaponGuardDefense.Defense.Composition.TimingProjection;
+	if (!Projection.IsValid()
+		|| Projection.GetBand()
+			!= EShanmenWeaponGuardTimingBand::Perfect)
+	{
+		return;
+	}
+
+	FShanmenSwordRhythmContribution Contribution;
+	FString Diagnostic;
+	if (!SwordRhythmProductSession.TryRecordPerfectWeaponGuardContribution(
+			Projection,
+			Contribution,
+			Diagnostic))
+	{
+		UE_LOG(Logdemo_map,
+			Error,
+			TEXT("0_0_10_SWORD_RHYTHM Event=PerfectGuardContributionRejected ImpactId=%s ProjectionId=%s Diagnostic=%s"),
+			*AttackResult.Impact.GetRequest().ImpactId.ToString(
+				EGuidFormats::DigitsWithHyphens),
+			*Projection.GetReceiptId().ToString(
+				EGuidFormats::DigitsWithHyphens),
+			*Diagnostic);
+		return;
+	}
+	UE_LOG(Logdemo_map,
+		Log,
+		TEXT("0_0_10_SWORD_RHYTHM Event=PerfectGuardContributionRecorded ImpactId=%s ProjectionId=%s ContributionId=%s Tick=%lld"),
+		*AttackResult.Impact.GetRequest().ImpactId.ToString(
+			EGuidFormats::DigitsWithHyphens),
+		*Projection.GetReceiptId().ToString(
+			EGuidFormats::DigitsWithHyphens),
+		*Contribution.GetContributionId().ToString(
+			EGuidFormats::DigitsWithHyphens),
+		static_cast<long long>(Contribution.GetObservedTick()));
+}
+
 Fdemo_mapM01EnemyAttackExecutionResult
 Ademo_mapGameMode::ExecuteM01EnemyBasicMeleeStrike(
 	AActor* SourceEnemy,
@@ -982,6 +1078,7 @@ Ademo_mapGameMode::ExecuteM01EnemyBasicMeleeStrike(
 		TargetPlayer,
 		RawDamage,
 		GuardContext.IsEnabled() ? &GuardContext : nullptr);
+	ObserveSwordRhythmWeaponGuardContribution(Result);
 	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
 	UE_LOG(
 		Logdemo_map,
@@ -1020,6 +1117,7 @@ Ademo_mapGameMode::ExecuteM01EnemyMeleeDashContact(
 		ActivationSerial,
 		RawDamage,
 		GuardContext.IsEnabled() ? &GuardContext : nullptr);
+	ObserveSwordRhythmWeaponGuardContribution(Result);
 	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
 	UE_LOG(
 		Logdemo_map,
@@ -1063,6 +1161,7 @@ Ademo_mapGameMode::ExecuteM01EnemyRangedProjectileImpact(
 		ImpactLocation,
 		ImpactNormal,
 		GuardContext.IsEnabled() ? &GuardContext : nullptr);
+	ObserveSwordRhythmWeaponGuardContribution(Result);
 	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
 	UE_LOG(
 		Logdemo_map,
@@ -1101,6 +1200,7 @@ Ademo_mapGameMode::ExecuteM01EnemyHeavySectorAttack(
 		AttackSequence,
 		RawDamage,
 		GuardContext.IsEnabled() ? &GuardContext : nullptr);
+	ObserveSwordRhythmWeaponGuardContribution(Result);
 	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
 	UE_LOG(
 		Logdemo_map,
@@ -1141,6 +1241,7 @@ Ademo_mapGameMode::ExecuteM01BossShapeAttack(
 		AttackSequence,
 		RawDamage,
 		GuardContext.IsEnabled() ? &GuardContext : nullptr);
+	ObserveSwordRhythmWeaponGuardContribution(Result);
 	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
 	UE_LOG(
 		Logdemo_map,
@@ -1186,6 +1287,7 @@ Ademo_mapGameMode::ExecuteM01BossVolleyProjectileImpact(
 		ImpactLocation,
 		ImpactNormal,
 		GuardContext.IsEnabled() ? &GuardContext : nullptr);
+	ObserveSwordRhythmWeaponGuardContribution(Result);
 	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
 	UE_LOG(
 		Logdemo_map,

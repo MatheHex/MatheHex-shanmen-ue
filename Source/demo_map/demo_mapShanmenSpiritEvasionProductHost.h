@@ -152,6 +152,9 @@ public:
 	Fdemo_mapShanmenSpiritEvasionHostStepResult TryInterrupt();
 	Fdemo_mapShanmenSpiritEvasionHostStepResult TryOwnerEnd();
 	Fdemo_mapShanmenSpiritEvasionHostStepResult TryFinishRecovery();
+	/** Projects the still-active canonical window without mutating the Host. */
+	bool TryProjectDefenseLayer(
+		FShanmenSpiritEvasionProjectionReceipt& OutReceipt) const;
 
 	bool IsValid() const;
 	bool IsActive() const;

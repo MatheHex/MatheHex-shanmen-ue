@@ -453,6 +453,20 @@ try
             $CombatRuntime)
 
     Invoke-ExpectedPass `
+        -Name 'sword rhythm evaluator input requires product binding source rhythm and action evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Public/ShanmenSwordRhythmEvaluation.h',
+            'Source/ShanmenCombatRuntime/Private/ShanmenSwordRhythmEvaluation.cpp') `
+        -Logs @(
+            $SwordRhythmProductSession,
+            $SwordRhythmContributionBinding,
+            $SwordRhythmContribution,
+            $SwordRhythm,
+            $BasicSword,
+            $ActionLifecycle,
+            $CombatRuntime)
+
+    Invoke-ExpectedPass `
         -Name 'spirit shield runtime requires focused lifecycle and CombatCore evidence' `
         -Paths @(
             'Source/ShanmenCombatRuntime/Public/ShanmenSpiritShield.h',
@@ -1393,6 +1407,13 @@ try
         -Paths @(
             'Source/ShanmenCombatRuntime/Private/ShanmenSwordRhythmContributionBinding.cpp') `
         -Logs @($SwordRhythmContributionBinding, $SwordRhythmContribution) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'evaluator input product focus cannot replace binding source and action evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Private/ShanmenSwordRhythmEvaluation.cpp') `
+        -Logs @($SwordRhythmProductSession, $SwordRhythmContributionBinding) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

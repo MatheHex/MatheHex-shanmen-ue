@@ -60,6 +60,12 @@ public:
 	Fdemo_mapShanmenSpiritEvasionHostStepResult TryInterrupt();
 	Fdemo_mapShanmenSpiritEvasionHostStepResult TryOwnerEnd();
 	Fdemo_mapShanmenSpiritEvasionHostStepResult TryFinishRecovery();
+	/** Read-only projection of the exact active Host window into CombatRuntime. */
+	bool TryProjectDefenseLayer(
+		FShanmenSpiritEvasionProjectionReceipt& OutReceipt) const
+	{
+		return Host.TryProjectDefenseLayer(OutReceipt);
+	}
 
 	bool HasHost() const { return Host.IsValid(); }
 	bool IsActive() const { return Host.IsActive(); }

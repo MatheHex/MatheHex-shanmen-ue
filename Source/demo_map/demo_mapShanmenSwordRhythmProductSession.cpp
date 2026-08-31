@@ -181,11 +181,13 @@ bool Fdemo_mapShanmenSwordRhythmProductSession::
 		FString& OutDiagnostic)
 {
 	FShanmenSwordRhythmContributionBindingReceipt IgnoredBindingReceipt;
+	FShanmenSwordRhythmEvaluationInput IgnoredEvaluationInput;
 	return TryObserveExecutedBasicSword(
 		ProductResult,
 		TimelineSample,
 		OutReceipt,
 		IgnoredBindingReceipt,
+		IgnoredEvaluationInput,
 		OutDiagnostic);
 }
 
@@ -197,9 +199,29 @@ bool Fdemo_mapShanmenSwordRhythmProductSession::
 		FShanmenSwordRhythmContributionBindingReceipt& OutBindingReceipt,
 		FString& OutDiagnostic)
 {
+	FShanmenSwordRhythmEvaluationInput IgnoredEvaluationInput;
+	return TryObserveExecutedBasicSword(
+		ProductResult,
+		TimelineSample,
+		OutReceipt,
+		OutBindingReceipt,
+		IgnoredEvaluationInput,
+		OutDiagnostic);
+}
+
+bool Fdemo_mapShanmenSwordRhythmProductSession::
+	TryObserveExecutedBasicSword(
+		const Fdemo_mapBasicSwordProductExecutionResult& ProductResult,
+		const Fdemo_mapShanmenCombatRunTimelineSample& TimelineSample,
+		FShanmenSwordRhythmReceipt& OutReceipt,
+		FShanmenSwordRhythmContributionBindingReceipt& OutBindingReceipt,
+		FShanmenSwordRhythmEvaluationInput& OutEvaluationInput,
+		FString& OutDiagnostic)
+{
 	OutReceipt = FShanmenSwordRhythmReceipt();
 	OutBindingReceipt =
 		FShanmenSwordRhythmContributionBindingReceipt();
+	OutEvaluationInput = FShanmenSwordRhythmEvaluationInput();
 	OutDiagnostic.Reset();
 	if (!IsValid() || IsEmpty())
 	{
@@ -255,6 +277,16 @@ bool Fdemo_mapShanmenSwordRhythmProductSession::
 			return false;
 		}
 	}
+	FShanmenSwordRhythmEvaluationInput CandidateEvaluationInput;
+	if (!FShanmenSwordRhythmEvaluationInput::TryCapture(
+			CandidateReceipt,
+			CandidateBindingReceipt,
+			CandidateEvaluationInput))
+	{
+		OutDiagnostic =
+			TEXT("Sword-rhythm product Session could not freeze the evaluator handoff input.");
+		return false;
+	}
 	const auto Projection =
 		Fdemo_mapShanmenSwordRhythmPresentationProjector::Project(
 			Config,
@@ -270,6 +302,7 @@ bool Fdemo_mapShanmenSwordRhythmProductSession::
 	Fdemo_mapShanmenSwordRhythmProductSession Candidate = *this;
 	Candidate.Host = CandidateHost;
 	Candidate.LastReceipt = CandidateReceipt;
+	Candidate.LastEvaluationInput = CandidateEvaluationInput;
 	Candidate.PresentationState = Projection.State;
 	Candidate.ContributionBindings = CandidateBindings;
 	if (!Candidate.IsValid())
@@ -282,6 +315,7 @@ bool Fdemo_mapShanmenSwordRhythmProductSession::
 	*this = Candidate;
 	OutReceipt = CandidateReceipt;
 	OutBindingReceipt = CandidateBindingReceipt;
+	OutEvaluationInput = CandidateEvaluationInput;
 	OutDiagnostic =
 		TEXT("Completed BasicSword action was accepted by the canonical sword-rhythm Session and contribution ledger.");
 	return true;
@@ -488,6 +522,7 @@ bool Fdemo_mapShanmenSwordRhythmProductSession::IsValid() const
 	{
 		return !Config.IsValid()
 			&& !LastReceipt.IsValid()
+			&& !LastEvaluationInput.IsValid()
 			&& !PresentationState.IsValid()
 			&& !ContributionBindings.IsValid();
 	}
@@ -524,9 +559,14 @@ bool Fdemo_mapShanmenSwordRhythmProductSession::IsValid() const
 	}
 	if (ObservationCount == 0)
 	{
-		return !LastReceipt.IsValid() && !PresentationState.IsValid();
+		return !LastReceipt.IsValid()
+			&& !LastEvaluationInput.IsValid()
+			&& !PresentationState.IsValid();
 	}
 	return LastReceipt.IsValid()
+		&& LastEvaluationInput.IsValid()
+		&& LastEvaluationInput.GetRhythmReceipt().GetReceiptId()
+			== LastReceipt.GetReceiptId()
 		&& PresentationState.IsValid()
 		&& LastReceipt.GetDefinition().GetDefinitionId()
 			== Config.GetDefinition().GetDefinitionId()

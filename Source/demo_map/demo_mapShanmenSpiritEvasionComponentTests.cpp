@@ -229,6 +229,13 @@ bool Fdemo_mapShanmenSpiritEvasionComponentStartTest::RunTest(const FString&)
 		Component->HasHost() && Component->IsActive());
 	TestTrue(TEXT("active host requires execution tick"),
 		Component->RequiresExecutionTick());
+	FShanmenSpiritEvasionProjectionReceipt Projection;
+	TestTrue(TEXT("component exposes only the owned active host projection"),
+		Component->TryProjectDefenseLayer(Projection)
+			&& Projection.IsValid()
+			&& Projection.GetWindow().GetAction().GetActivationId()
+				== Component->GetHost().GetActionRuntime().GetAction()
+					.GetActivationId());
 	const FGuid HostId = Component->GetHost().GetHostId();
 
 	FComponentPreflightPort SecondPreflight;
