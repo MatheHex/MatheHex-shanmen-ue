@@ -20,6 +20,7 @@
 #include "demo_mapShanmenSpiritEvasionProductRoute.h"
 #include "demo_mapShanmenCombatRunFixedTimeline.h"
 #include "demo_mapShanmenSwordRhythmProductSession.h"
+#include "demo_mapShanmenSwordRhythmPresentationEvent.h"
 #include "demo_mapShanmenWeaponGuardInputAdapter.h"
 #include "demo_mapShanmenWeaponGuardProductSession.h"
 #include "demo_mapGameMode.generated.h"
@@ -211,6 +212,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Shanmen|Combat|SwordRhythm")
 	bool TryGetSwordRhythmPresentationState(
 		Fdemo_mapShanmenSwordRhythmPresentationState& OutState) const;
+	/** Deterministically adapts the latest state for polling consumers. */
+	UFUNCTION(BlueprintPure, Category = "Shanmen|Combat|SwordRhythm")
+	bool TryGetSwordRhythmPresentationEvent(
+		Fdemo_mapShanmenSwordRhythmPresentationEvent& OutEvent) const;
 	/** M01 enemy attacks never fall through to legacy damage when this is true. */
 	bool ShouldUseM01EnemyAttackProductPath() const;
 	Fdemo_mapM01EnemyAttackExecutionResult

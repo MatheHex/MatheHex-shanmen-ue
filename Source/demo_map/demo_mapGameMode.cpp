@@ -542,6 +542,25 @@ bool Ademo_mapGameMode::TryGetSwordRhythmPresentationState(
 	return true;
 }
 
+bool Ademo_mapGameMode::TryGetSwordRhythmPresentationEvent(
+	Fdemo_mapShanmenSwordRhythmPresentationEvent& OutEvent) const
+{
+	OutEvent = Fdemo_mapShanmenSwordRhythmPresentationEvent();
+	Fdemo_mapShanmenSwordRhythmPresentationState State;
+	if (!TryGetSwordRhythmPresentationState(State))
+	{
+		return false;
+	}
+	const auto Adapted =
+		Fdemo_mapShanmenSwordRhythmPresentationEventAdapter::Adapt(State);
+	if (!Adapted.IsAdapted())
+	{
+		return false;
+	}
+	OutEvent = Adapted.Event;
+	return true;
+}
+
 bool Ademo_mapGameMode::ShouldUseM01PlayerShapeSkillProductPath() const
 {
 	// M01 owns the routing decision even before the coordinator is ready. A
