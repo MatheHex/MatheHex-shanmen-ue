@@ -4,6 +4,8 @@
 
 #include "Components/BoxComponent.h"
 #include "GameFramework/Pawn.h"
+#include "ShanmenCombatResolver.h"
+#include "ShanmenCombatTags.h"
 #include "demo_mapCombatRunCoordinator.h"
 #include "demo_mapPlayerHealthComponent.h"
 #include "demo_mapShanmenSwordRhythmProductSession.h"
@@ -54,6 +56,150 @@ namespace
 				&& Timeline.TryBegin(RunId, Diagnostic);
 		}
 	};
+
+	FShanmenCombatActionSnapshot MakeContributionAction(
+		const FGuid& RunId,
+		const FGuid& OwnerId,
+		FName ActionDefinitionId,
+		uint64 Sequence,
+		bool bUsesItem)
+	{
+		FShanmenCombatActionCapture Capture;
+		Capture.RunId = RunId;
+		Capture.OwnerId = OwnerId;
+		Capture.SourceEntityId = OwnerId;
+		Capture.SourceItemInstanceId = bUsesItem
+			? SwordRhythmSessionWeapon
+			: FGuid();
+		Capture.ActionDefinitionId = ActionDefinitionId;
+		Capture.Content.Version = TEXT("0.0.10.P12.7");
+		Capture.Content.Digest =
+			TEXT("TEST-SWORD-RHYTHM-PRODUCT-CONTRIBUTION-ROUTE");
+		Capture.SourceTags.AddTag(
+			FShanmenCombatNativeTags::SourcePlayer());
+		Capture.ActivationId = FShanmenCombatIdFactory::MakeActivationId(
+			Capture.RunId,
+			Capture.SourceEntityId,
+			Capture.ActionDefinitionId,
+			Sequence);
+		FShanmenCombatActionSnapshot Action;
+		check(FShanmenCombatActionSnapshot::TryCapture(Capture, Action));
+		return Action;
+	}
+
+	FShanmenWeaponGuardTimingProjectionReceipt MakeGuardProjection(
+		const FGuid& RunId,
+		const FGuid& OwnerId,
+		int64 ObservedTick)
+	{
+		const FShanmenCombatActionSnapshot Action =
+			MakeContributionAction(
+				RunId,
+				OwnerId,
+				FShanmenWeaponGuardDefinition::
+					CanonicalActionDefinitionId(),
+				1270,
+				true);
+		FShanmenWeaponGuardDefinitionCapture DefinitionCapture;
+		DefinitionCapture.ActionDefinitionId =
+			FShanmenWeaponGuardDefinition::CanonicalActionDefinitionId();
+		DefinitionCapture.RuleId =
+			TEXT("Defense.Sword.WeaponGuard.ProductRoute.r1");
+		DefinitionCapture.GuardFraction = 0.25f;
+		FShanmenWeaponGuardDefinition Definition;
+		check(FShanmenWeaponGuardDefinition::TryCapture(
+			DefinitionCapture,
+			Definition));
+
+		FShanmenActionOrchestrator Runtime;
+		FShanmenActionTransitionReceipt Transition;
+		check(FShanmenActionOrchestrator::TryStart(
+			Action,
+			Runtime,
+			Transition));
+		check(Runtime.TryAdvance(
+			EShanmenCombatActionPhase::Startup,
+			Transition));
+		FShanmenWeaponGuardWindow Window;
+		FShanmenWeaponGuardWindowReceipt OpenReceipt;
+		check(FShanmenWeaponGuardWindow::TryOpen(
+			Action,
+			Definition,
+			Transition,
+			Runtime,
+			Window,
+			OpenReceipt));
+
+		const FGuid TimelineId =
+			Fdemo_mapShanmenCombatRunFixedTimeline::MakeTimelineId(RunId);
+		FShanmenWeaponPerfectGuardPolicy Policy;
+		check(FShanmenWeaponPerfectGuardPolicy::TryCapture(
+			OpenReceipt,
+			TimelineId,
+			0,
+			2,
+			TEXT("Defense.Sword.PerfectGuard.ProductRoute.r1"),
+			Policy));
+		FShanmenWeaponGuardTimelineObservation Observation;
+		check(FShanmenWeaponGuardTimelineObservation::TryCapture(
+			TimelineId,
+			ObservedTick,
+			Observation));
+		FShanmenWeaponGuardTimingProjectionReceipt Projection;
+		check(FShanmenWeaponGuardTimingEvaluator::TryProject(
+			Window,
+			Runtime,
+			Policy,
+			Observation,
+			Projection));
+		return Projection;
+	}
+
+	FShanmenSpiritEvasionProjectionReceipt MakeEvasionProjection(
+		const FGuid& RunId,
+		const FGuid& OwnerId)
+	{
+		const FShanmenCombatActionSnapshot Action =
+			MakeContributionAction(
+				RunId,
+				OwnerId,
+				FShanmenSpiritEvasionDefinition::
+					CanonicalActionDefinitionId(),
+				1280,
+				false);
+		FShanmenSpiritEvasionDefinitionCapture DefinitionCapture;
+		DefinitionCapture.ActionDefinitionId =
+			FShanmenSpiritEvasionDefinition::
+				CanonicalActionDefinitionId();
+		DefinitionCapture.RuleId =
+			TEXT("Defense.Spell.SpiritEvasion.ProductRoute.r1");
+		FShanmenSpiritEvasionDefinition Definition;
+		check(FShanmenSpiritEvasionDefinition::TryCapture(
+			DefinitionCapture,
+			Definition));
+
+		FShanmenActionOrchestrator Runtime;
+		FShanmenActionTransitionReceipt Transition;
+		check(FShanmenActionOrchestrator::TryStart(
+			Action,
+			Runtime,
+			Transition));
+		check(Runtime.TryAdvance(
+			EShanmenCombatActionPhase::Startup,
+			Transition));
+		FShanmenSpiritEvasionWindow Window;
+		FShanmenSpiritEvasionWindowReceipt OpenReceipt;
+		check(FShanmenSpiritEvasionWindow::TryOpen(
+			Action,
+			Definition,
+			Transition,
+			Runtime,
+			Window,
+			OpenReceipt));
+		FShanmenSpiritEvasionProjectionReceipt Projection;
+		check(Window.TryProjectDefenseLayer(Runtime, Projection));
+		return Projection;
+	}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -141,12 +287,81 @@ bool Fdemo_mapSwordRhythmProductSessionRealBasicSwordTest::RunTest(
 	TestTrue(TEXT("rejection preserves the empty canonical chain"),
 		Session.IsValid() && Session.NumRecordedObservations() == 0);
 
+	const FGuid PlayerEntityId =
+		Fixture.Coordinator.GetPlayerEntityId();
+	const FShanmenWeaponGuardTimingProjectionReceipt PerfectGuard =
+		MakeGuardProjection(
+			SwordRhythmSessionRunA,
+			PlayerEntityId,
+			0);
+	const FShanmenSpiritEvasionProjectionReceipt SpiritEvasion =
+		MakeEvasionProjection(
+			SwordRhythmSessionRunA,
+			PlayerEntityId);
+	FShanmenSwordRhythmContribution GuardContribution;
+	FShanmenSwordRhythmContribution EvasionContribution;
+	TestTrue(TEXT("real perfect guard and evasion receipts enter the sole product ledger"),
+		Session.TryRecordPerfectWeaponGuardContribution(
+			PerfectGuard,
+			GuardContribution,
+			Fixture.Diagnostic)
+			&& Session.TryRecordSpiritEvasionContribution(
+				SpiritEvasion,
+				Sample,
+				EvasionContribution,
+				Fixture.Diagnostic)
+			&& GuardContribution.IsValid()
+			&& EvasionContribution.IsValid()
+			&& Session.GetContributionBindingLedger().IsValid()
+			&& Session.GetContributionBindingLedger().GetScope()
+				.GetOwnerId() == PlayerEntityId
+			&& Session.GetContributionBindingLedger().NumPending() == 2
+			&& Session.GetContributionBindingLedger()
+				.NumObservedActions() == 0);
+	FShanmenSwordRhythmContribution ReplayGuardContribution;
+	TestTrue(TEXT("exact source replay is idempotent before any sword action"),
+		Session.TryRecordPerfectWeaponGuardContribution(
+			PerfectGuard,
+			ReplayGuardContribution,
+			Fixture.Diagnostic)
+			&& ReplayGuardContribution.GetContributionId()
+				== GuardContribution.GetContributionId()
+			&& Session.GetContributionBindingLedger().NumPending() == 2);
+	const FShanmenWeaponGuardTimingProjectionReceipt OrdinaryGuard =
+		MakeGuardProjection(
+			SwordRhythmSessionRunA,
+			PlayerEntityId,
+			2);
+	FShanmenSwordRhythmContribution RejectedContribution;
+	TestFalse(TEXT("ordinary guard cannot enter the perfect-guard route"),
+		Session.TryRecordPerfectWeaponGuardContribution(
+			OrdinaryGuard,
+			RejectedContribution,
+			Fixture.Diagnostic));
+	TestTrue(TEXT("rejected source is output-clearing and atomic"),
+		!RejectedContribution.IsValid()
+			&& Session.GetContributionBindingLedger().NumPending() == 2);
+	const FShanmenSpiritEvasionProjectionReceipt ForeignEvasion =
+		MakeEvasionProjection(
+			SwordRhythmSessionRunB,
+			PlayerEntityId);
+	TestFalse(TEXT("foreign-Run evidence fails closed without changing the scope"),
+		Session.TryRecordSpiritEvasionContribution(
+			ForeignEvasion,
+			Sample,
+			RejectedContribution,
+			Fixture.Diagnostic));
+	TestTrue(TEXT("foreign rejection preserves both pending contributions"),
+		!RejectedContribution.IsValid()
+			&& Session.GetContributionBindingLedger().NumPending() == 2);
+
 	const Fdemo_mapBasicSwordProductExecutionResult First =
 		Fixture.Coordinator.ExecutePlayerBasicSwordSweep(
 			SwordRhythmSessionWeapon,
 			1.0f,
 			{});
 	Fixture.Timeline.TryCapture(Sample);
+	FShanmenSwordRhythmContributionBindingReceipt FirstBinding;
 	TestTrue(TEXT("first completed legal miss starts the product rhythm"),
 		First.IsExecuted()
 			&& !First.AppliedDamage()
@@ -154,9 +369,18 @@ bool Fdemo_mapSwordRhythmProductSessionRealBasicSwordTest::RunTest(
 				First,
 				Sample,
 				Receipt,
+				FirstBinding,
 				Fixture.Diagnostic)
 			&& Receipt.GetBand() == EShanmenSwordRhythmBand::Started
 			&& Receipt.GetResultingChainCount() == 1);
+	TestTrue(TEXT("first sword atomically binds both earlier defensive facts"),
+		FirstBinding.IsValid()
+			&& FirstBinding.NumContributions() == 2
+			&& FirstBinding.GetTargetObservation().GetAction()
+				.GetActivationId() == First.ActivationId
+			&& Session.GetContributionBindingLedger().NumPending() == 0
+			&& Session.GetContributionBindingLedger()
+				.NumBoundContributions() == 2);
 
 	int64 AdvancedTicks = 0;
 	const double OpenSeconds =
@@ -182,6 +406,7 @@ bool Fdemo_mapSwordRhythmProductSessionRealBasicSwordTest::RunTest(
 			{});
 	Fixture.Timeline.TryCapture(Sample);
 	FShanmenSwordRhythmReceipt SecondReceipt;
+	FShanmenSwordRhythmContributionBindingReceipt SecondBinding;
 	TestTrue(TEXT("second completed action links at the content boundary"),
 		Second.IsExecuted()
 			&& Second.ActivationId != First.ActivationId
@@ -189,6 +414,7 @@ bool Fdemo_mapSwordRhythmProductSessionRealBasicSwordTest::RunTest(
 				Second,
 				Sample,
 				SecondReceipt,
+				SecondBinding,
 				Fixture.Diagnostic)
 			&& SecondReceipt.GetBand()
 				== EShanmenSwordRhythmBand::PreciseLinked
@@ -197,21 +423,70 @@ bool Fdemo_mapSwordRhythmProductSessionRealBasicSwordTest::RunTest(
 	TestTrue(TEXT("Session exposes the immutable latest receipt"),
 		Session.GetLastReceipt().GetReceiptId()
 			== SecondReceipt.GetReceiptId()
-			&& Session.NumRecordedObservations() == 2);
+			&& Session.NumRecordedObservations() == 2
+			&& !SecondBinding.IsValid()
+			&& Session.GetContributionBindingLedger().NumPending() == 1);
 
 	FShanmenSwordRhythmReceipt ReplayReceipt;
+	FShanmenSwordRhythmContributionBindingReceipt ReplayBinding;
 	TestTrue(TEXT("exact replay remains idempotent through the Session"),
 		Session.TryObserveExecutedBasicSword(
 			Second,
 			Sample,
 			ReplayReceipt,
+			ReplayBinding,
 			Fixture.Diagnostic)
 			&& ReplayReceipt.GetReceiptId()
 				== SecondReceipt.GetReceiptId()
-			&& Session.NumRecordedObservations() == 2);
+			&& !ReplayBinding.IsValid()
+			&& Session.NumRecordedObservations() == 2
+			&& Session.GetContributionBindingLedger().NumPending() == 1);
+
+	const Fdemo_mapBasicSwordProductExecutionResult Third =
+		Fixture.Coordinator.ExecutePlayerBasicSwordSweep(
+			SwordRhythmSessionWeapon,
+			1.0f,
+			{});
+	FShanmenSwordRhythmReceipt ThirdReceipt;
+	FShanmenSwordRhythmContributionBindingReceipt ThirdBinding;
+	TestTrue(TEXT("the later sword consumes the precise-link evidence, never its source action"),
+		Third.IsExecuted()
+			&& Session.TryObserveExecutedBasicSword(
+				Third,
+				Sample,
+				ThirdReceipt,
+				ThirdBinding,
+				Fixture.Diagnostic)
+			&& ThirdBinding.IsValid()
+			&& ThirdBinding.NumContributions() == 1
+			&& ThirdBinding.GetContributions()[0].GetKind()
+				== EShanmenSwordRhythmContributionKind::PreciseSwordLink
+			&& ThirdBinding.GetContributions()[0].GetAction()
+				.GetActivationId() == Second.ActivationId
+			&& ThirdBinding.GetTargetObservation().GetAction()
+				.GetActivationId() == Third.ActivationId
+			&& Session.GetContributionBindingLedger().NumPending() == 0
+			&& Session.GetContributionBindingLedger()
+				.NumBoundContributions() == 3);
+	FShanmenSwordRhythmReceipt ThirdReplayReceipt;
+	FShanmenSwordRhythmContributionBindingReceipt ThirdReplayBinding;
+	TestTrue(TEXT("bound target replay returns the same immutable binding receipt"),
+		Session.TryObserveExecutedBasicSword(
+			Third,
+			Sample,
+			ThirdReplayReceipt,
+			ThirdReplayBinding,
+			Fixture.Diagnostic)
+			&& ThirdReplayReceipt.GetReceiptId()
+				== ThirdReceipt.GetReceiptId()
+			&& ThirdReplayBinding.GetReceiptId()
+				== ThirdBinding.GetReceiptId()
+			&& Session.GetContributionBindingLedger()
+				.NumBoundContributions() == 3);
 	TestTrue(TEXT("Run teardown clears the complete product Session"),
 		Session.TryEnd(SwordRhythmSessionRunA, Fixture.Diagnostic)
-			&& Session.IsEmpty());
+			&& Session.IsEmpty()
+			&& !Session.GetContributionBindingLedger().IsValid());
 	return true;
 }
 

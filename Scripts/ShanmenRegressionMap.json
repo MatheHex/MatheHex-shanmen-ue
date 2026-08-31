@@ -319,7 +319,11 @@
         "Shanmen.0_0_10.Product.SwordRhythmProductHost",
         "Shanmen.0_0_10.Product.CombatRunFixedTimeline",
         "Shanmen.0_0_10.Product.CombatRunCoordinator",
+        "Shanmen.0_0_10.CombatRuntime.SwordRhythmContributionBinding",
+        "Shanmen.0_0_10.CombatRuntime.SwordRhythmContribution",
         "Shanmen.0_0_10.CombatRuntime.SwordRhythm",
+        "Shanmen.0_0_10.CombatRuntime.WeaponPerfectGuard",
+        "Shanmen.0_0_10.CombatRuntime.SpiritEvasion",
         "Shanmen.0_0_10.CombatRuntime.BasicSword",
         "Shanmen.0_0_10.CombatRuntime.ActionLifecycle"
       ]

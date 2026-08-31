@@ -180,7 +180,26 @@ bool Fdemo_mapShanmenSwordRhythmProductSession::
 		FShanmenSwordRhythmReceipt& OutReceipt,
 		FString& OutDiagnostic)
 {
+	FShanmenSwordRhythmContributionBindingReceipt IgnoredBindingReceipt;
+	return TryObserveExecutedBasicSword(
+		ProductResult,
+		TimelineSample,
+		OutReceipt,
+		IgnoredBindingReceipt,
+		OutDiagnostic);
+}
+
+bool Fdemo_mapShanmenSwordRhythmProductSession::
+	TryObserveExecutedBasicSword(
+		const Fdemo_mapBasicSwordProductExecutionResult& ProductResult,
+		const Fdemo_mapShanmenCombatRunTimelineSample& TimelineSample,
+		FShanmenSwordRhythmReceipt& OutReceipt,
+		FShanmenSwordRhythmContributionBindingReceipt& OutBindingReceipt,
+		FString& OutDiagnostic)
+{
 	OutReceipt = FShanmenSwordRhythmReceipt();
+	OutBindingReceipt =
+		FShanmenSwordRhythmContributionBindingReceipt();
 	OutDiagnostic.Reset();
 	if (!IsValid() || IsEmpty())
 	{
@@ -199,6 +218,43 @@ bool Fdemo_mapShanmenSwordRhythmProductSession::
 	{
 		return false;
 	}
+
+	FShanmenSwordRhythmContributionBindingLedger CandidateBindings =
+		ContributionBindings;
+	const FShanmenSwordRhythmObservation& CurrentObservation =
+		CandidateReceipt.GetCurrentObservation();
+	if (!TryEnsureContributionBindingScope(
+			CurrentObservation.GetAction(),
+			CurrentObservation.GetTimelineId(),
+			CandidateBindings,
+			OutDiagnostic))
+	{
+		return false;
+	}
+	FShanmenSwordRhythmContributionBindingReceipt CandidateBindingReceipt;
+	if (!CandidateBindings.TryObserveBasicSword(
+			CurrentObservation,
+			CandidateBindingReceipt))
+	{
+		OutDiagnostic =
+			TEXT("Sword-rhythm contribution ledger rejected the accepted BasicSword observation.");
+		return false;
+	}
+	if (CandidateReceipt.GetBand()
+		== EShanmenSwordRhythmBand::PreciseLinked)
+	{
+		FShanmenSwordRhythmContribution PreciseContribution;
+		if (!FShanmenSwordRhythmContribution::TryCapturePreciseSwordLink(
+				CandidateReceipt,
+				PreciseContribution)
+			|| !CandidateBindings.TryRecordContribution(
+				PreciseContribution))
+		{
+			OutDiagnostic =
+				TEXT("Sword-rhythm product Session could not preserve precise-link contribution evidence for the next action.");
+			return false;
+		}
+	}
 	const auto Projection =
 		Fdemo_mapShanmenSwordRhythmPresentationProjector::Project(
 			Config,
@@ -215,6 +271,7 @@ bool Fdemo_mapShanmenSwordRhythmProductSession::
 	Candidate.Host = CandidateHost;
 	Candidate.LastReceipt = CandidateReceipt;
 	Candidate.PresentationState = Projection.State;
+	Candidate.ContributionBindings = CandidateBindings;
 	if (!Candidate.IsValid())
 	{
 		OutDiagnostic =
@@ -224,8 +281,162 @@ bool Fdemo_mapShanmenSwordRhythmProductSession::
 
 	*this = Candidate;
 	OutReceipt = CandidateReceipt;
+	OutBindingReceipt = CandidateBindingReceipt;
 	OutDiagnostic =
-		TEXT("Completed BasicSword action was accepted by the canonical sword-rhythm Session.");
+		TEXT("Completed BasicSword action was accepted by the canonical sword-rhythm Session and contribution ledger.");
+	return true;
+}
+
+bool Fdemo_mapShanmenSwordRhythmProductSession::
+	TryRecordPerfectWeaponGuardContribution(
+		const FShanmenWeaponGuardTimingProjectionReceipt& Receipt,
+		FShanmenSwordRhythmContribution& OutContribution,
+		FString& OutDiagnostic)
+{
+	OutContribution = FShanmenSwordRhythmContribution();
+	OutDiagnostic.Reset();
+	FShanmenSwordRhythmContribution CandidateContribution;
+	if (!FShanmenSwordRhythmContribution::
+			TryCapturePerfectWeaponGuard(
+				Receipt,
+				CandidateContribution))
+	{
+		OutDiagnostic =
+			TEXT("Only a valid perfect weapon-guard projection can contribute to sword rhythm.");
+		return false;
+	}
+	if (!TryRecordContribution(CandidateContribution, OutDiagnostic))
+	{
+		return false;
+	}
+	OutContribution = CandidateContribution;
+	OutDiagnostic =
+		TEXT("Perfect weapon-guard evidence is pending for the next BasicSword action.");
+	return true;
+}
+
+bool Fdemo_mapShanmenSwordRhythmProductSession::
+	TryRecordSpiritEvasionContribution(
+		const FShanmenSpiritEvasionProjectionReceipt& Receipt,
+		const Fdemo_mapShanmenCombatRunTimelineSample& TimelineSample,
+		FShanmenSwordRhythmContribution& OutContribution,
+		FString& OutDiagnostic)
+{
+	OutContribution = FShanmenSwordRhythmContribution();
+	OutDiagnostic.Reset();
+	if (!TimelineSample.IsValid())
+	{
+		OutDiagnostic =
+			TEXT("Spirit-evasion contribution requires one valid Run timeline sample.");
+		return false;
+	}
+	FShanmenSwordRhythmContribution CandidateContribution;
+	if (!FShanmenSwordRhythmContribution::TryCaptureSpiritEvasion(
+			Receipt,
+			TimelineSample.GetTimelineId(),
+			TimelineSample.GetCurrentTick(),
+			CandidateContribution))
+	{
+		OutDiagnostic =
+			TEXT("Only a valid spirit-evasion projection can contribute to sword rhythm.");
+		return false;
+	}
+	if (!TryRecordContribution(CandidateContribution, OutDiagnostic))
+	{
+		return false;
+	}
+	OutContribution = CandidateContribution;
+	OutDiagnostic =
+		TEXT("Spirit-evasion evidence is pending for the next BasicSword action.");
+	return true;
+}
+
+bool Fdemo_mapShanmenSwordRhythmProductSession::TryRecordContribution(
+	const FShanmenSwordRhythmContribution& Contribution,
+	FString& OutDiagnostic)
+{
+	if (!IsValid() || IsEmpty() || !Contribution.IsValid())
+	{
+		OutDiagnostic =
+			TEXT("Contribution recording requires one valid active sword-rhythm Session and immutable evidence.");
+		return false;
+	}
+
+	FShanmenSwordRhythmContributionBindingLedger CandidateBindings =
+		ContributionBindings;
+	if (!TryEnsureContributionBindingScope(
+			Contribution.GetAction(),
+			Contribution.GetTimelineId(),
+			CandidateBindings,
+			OutDiagnostic)
+		|| !CandidateBindings.TryRecordContribution(Contribution))
+	{
+		if (OutDiagnostic.IsEmpty())
+		{
+			OutDiagnostic =
+				TEXT("Contribution evidence conflicts with the active Run, owner, timeline or ledger history.");
+		}
+		return false;
+	}
+
+	Fdemo_mapShanmenSwordRhythmProductSession Candidate = *this;
+	Candidate.ContributionBindings = CandidateBindings;
+	if (!Candidate.IsValid())
+	{
+		OutDiagnostic =
+			TEXT("Sword-rhythm product Session rejected invalid contribution state.");
+		return false;
+	}
+	*this = Candidate;
+	return true;
+}
+
+bool Fdemo_mapShanmenSwordRhythmProductSession::
+	TryEnsureContributionBindingScope(
+		const FShanmenCombatActionSnapshot& Action,
+		const FGuid& TimelineId,
+		FShanmenSwordRhythmContributionBindingLedger& InOutLedger,
+		FString& OutDiagnostic) const
+{
+	if (!Action.IsValid()
+		|| Action.GetRunId() != Host.GetRunId()
+		|| !TimelineId.IsValid()
+		|| TimelineId
+			!= Fdemo_mapShanmenCombatRunFixedTimeline::MakeTimelineId(
+				Host.GetRunId()))
+	{
+		OutDiagnostic =
+			TEXT("Contribution evidence must belong to this Session's Run and canonical timeline.");
+		return false;
+	}
+	if (InOutLedger.IsValid())
+	{
+		const auto& Scope = InOutLedger.GetScope();
+		if (Scope.GetRunId() != Action.GetRunId()
+			|| Scope.GetOwnerId() != Action.GetOwnerId()
+			|| Scope.GetTimelineId() != TimelineId)
+		{
+			OutDiagnostic =
+				TEXT("Contribution evidence conflicts with the Session's frozen Run, owner or timeline scope.");
+			return false;
+		}
+		return true;
+	}
+
+	FShanmenSwordRhythmContributionBindingScope Scope;
+	if (!FShanmenSwordRhythmContributionBindingScope::TryCapture(
+			Action.GetRunId(),
+			Action.GetOwnerId(),
+			TimelineId,
+			Scope)
+		|| !FShanmenSwordRhythmContributionBindingLedger::TryCreate(
+			Scope,
+			InOutLedger))
+	{
+		OutDiagnostic =
+			TEXT("Sword-rhythm product Session could not freeze its contribution binding scope.");
+		return false;
+	}
 	return true;
 }
 
@@ -277,7 +488,8 @@ bool Fdemo_mapShanmenSwordRhythmProductSession::IsValid() const
 	{
 		return !Config.IsValid()
 			&& !LastReceipt.IsValid()
-			&& !PresentationState.IsValid();
+			&& !PresentationState.IsValid()
+			&& !ContributionBindings.IsValid();
 	}
 	if (!Config.IsValid()
 		|| Host.GetDefinition().GetDefinitionId()
@@ -288,6 +500,28 @@ bool Fdemo_mapShanmenSwordRhythmProductSession::IsValid() const
 
 	const int32 ObservationCount =
 		Host.GetChain().NumRecordedObservations();
+	if (ContributionBindings.IsValid())
+	{
+		const auto& Scope = ContributionBindings.GetScope();
+		if (Scope.GetRunId() != Host.GetRunId()
+			|| Scope.GetTimelineId()
+				!= Fdemo_mapShanmenCombatRunFixedTimeline::MakeTimelineId(
+					Host.GetRunId())
+			|| ContributionBindings.NumObservedActions()
+				!= ObservationCount
+			|| (ObservationCount > 0
+				&& ContributionBindings.GetLastObservation()
+					.GetObservationId()
+					!= Host.GetChain().GetLastObservation()
+						.GetObservationId()))
+		{
+			return false;
+		}
+	}
+	else if (ObservationCount > 0)
+	{
+		return false;
+	}
 	if (ObservationCount == 0)
 	{
 		return !LastReceipt.IsValid() && !PresentationState.IsValid();

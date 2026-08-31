@@ -753,7 +753,7 @@ try
             $ActionLifecycle)
 
     Invoke-ExpectedPass `
-        -Name 'sword rhythm product Session requires config Host timeline and runtime evidence' `
+        -Name 'sword rhythm product Session requires source binding Host timeline and runtime evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenSwordRhythmProductSession.h',
             'Source/demo_map/demo_mapShanmenSwordRhythmProductSession.cpp',
@@ -765,7 +765,11 @@ try
             $SwordRhythmProductHost,
             $CombatRunFixedTimeline,
             $Coordinator,
+            $SwordRhythmContributionBinding,
+            $SwordRhythmContribution,
             $SwordRhythm,
+            $WeaponPerfectGuard,
+            $SpiritEvasion,
             $BasicSword,
             $ActionLifecycle)
 

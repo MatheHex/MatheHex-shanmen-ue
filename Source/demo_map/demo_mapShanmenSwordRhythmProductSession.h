@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "ShanmenSwordRhythmContributionBinding.h"
 #include "demo_mapShanmenSwordRhythmProductHost.h"
 #include "demo_mapShanmenSwordRhythmPresentation.h"
 
@@ -47,8 +48,10 @@ private:
  * Sole Run-lifecycle owner for canonical sword-rhythm product state.
  *
  * It installs one versioned config into P12.1's pure Host and preserves the
- * latest immutable receipt and read-only presentation state. It owns no World,
- * input, animation, timer, damage multiplier or balance mutation.
+ * latest immutable receipt, read-only presentation state and the sole
+ * Run/Owner/timeline-scoped pending-contribution ledger. Source receipts are
+ * adapted into evidence here, but this Session owns no World, input,
+ * animation, timer, damage multiplier or balance mutation.
  */
 class Fdemo_mapShanmenSwordRhythmProductSession
 {
@@ -58,6 +61,26 @@ public:
 		const Fdemo_mapBasicSwordProductExecutionResult& ProductResult,
 		const Fdemo_mapShanmenCombatRunTimelineSample& TimelineSample,
 		FShanmenSwordRhythmReceipt& OutReceipt,
+		FString& OutDiagnostic);
+	/**
+	 * Observes one completed BasicSword and returns any evidence bound to it.
+	 * A valid rhythm receipt is always returned on success; OutBindingReceipt
+	 * remains invalid when no earlier contribution was pending.
+	 */
+	bool TryObserveExecutedBasicSword(
+		const Fdemo_mapBasicSwordProductExecutionResult& ProductResult,
+		const Fdemo_mapShanmenCombatRunTimelineSample& TimelineSample,
+		FShanmenSwordRhythmReceipt& OutReceipt,
+		FShanmenSwordRhythmContributionBindingReceipt& OutBindingReceipt,
+		FString& OutDiagnostic);
+	bool TryRecordPerfectWeaponGuardContribution(
+		const FShanmenWeaponGuardTimingProjectionReceipt& Receipt,
+		FShanmenSwordRhythmContribution& OutContribution,
+		FString& OutDiagnostic);
+	bool TryRecordSpiritEvasionContribution(
+		const FShanmenSpiritEvasionProjectionReceipt& Receipt,
+		const Fdemo_mapShanmenCombatRunTimelineSample& TimelineSample,
+		FShanmenSwordRhythmContribution& OutContribution,
 		FString& OutDiagnostic);
 	bool TryEnd(const FGuid& ExpectedRunId, FString& OutDiagnostic);
 	void Reset();
@@ -82,6 +105,11 @@ public:
 	{
 		return PresentationState;
 	}
+	const FShanmenSwordRhythmContributionBindingLedger&
+	GetContributionBindingLedger() const
+	{
+		return ContributionBindings;
+	}
 	int32 NumRecordedObservations() const
 	{
 		return Host.IsValid() && !Host.IsEmpty()
@@ -90,8 +118,18 @@ public:
 	}
 
 private:
+	bool TryRecordContribution(
+		const FShanmenSwordRhythmContribution& Contribution,
+		FString& OutDiagnostic);
+	bool TryEnsureContributionBindingScope(
+		const FShanmenCombatActionSnapshot& Action,
+		const FGuid& TimelineId,
+		FShanmenSwordRhythmContributionBindingLedger& InOutLedger,
+		FString& OutDiagnostic) const;
+
 	Fdemo_mapShanmenSwordRhythmProductConfig Config;
 	Fdemo_mapShanmenSwordRhythmProductHost Host;
 	FShanmenSwordRhythmReceipt LastReceipt;
 	Fdemo_mapShanmenSwordRhythmPresentationState PresentationState;
+	FShanmenSwordRhythmContributionBindingLedger ContributionBindings;
 };
