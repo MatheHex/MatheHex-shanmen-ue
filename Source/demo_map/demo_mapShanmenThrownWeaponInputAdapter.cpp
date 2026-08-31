@@ -69,7 +69,8 @@ Fdemo_mapShanmenThrownWeaponInputAdapter::RouteHotbarInput(
 	TSubclassOf<Ademo_mapShanmenThrownWeaponProjectile> ProjectileClass,
 	AActor* SourceActor,
 	const int32 HotbarSlotNumber,
-	TFunctionRef<FVector()> SampleAimDirection)
+	TFunctionRef<FVector()> SampleAimDirection,
+	TFunctionRef<Fdemo_mapShanmenPlayerActionGateResult()> AuthorizeAction)
 {
 	if (HotbarSlotNumber < 1
 		|| HotbarSlotNumber
@@ -256,9 +257,18 @@ Fdemo_mapShanmenThrownWeaponInputAdapter::RouteHotbarInput(
 			TEXT("Sampled thrown-weapon input could not enter the immutable intent contract.");
 		return Result;
 	}
+	Result.ActionGate = AuthorizeAction();
+	if (!Result.ActionGate.IsAuthorized())
+	{
+		Result.Status =
+			Edemo_mapShanmenThrownWeaponInputStatus::ActionConflict;
+		Result.Diagnostic = Result.ActionGate.Diagnostic;
+		return Result;
+	}
 	++NextSelectionOrdinal;
 	Result.Session = Lifecycle.TrySubmitHotbar(
 		World, ProjectileClass, Coordinator, Intent);
+	Result.Session.ActionGate = Result.ActionGate;
 	Result.Status = Result.Session.IsAccepted()
 		? Edemo_mapShanmenThrownWeaponInputStatus::Applied
 		: Edemo_mapShanmenThrownWeaponInputStatus::ProductRejected;

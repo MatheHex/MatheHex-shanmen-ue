@@ -248,6 +248,15 @@ namespace
 				{
 					++AimSampleCount;
 					return Aim;
+				},
+				[this]()
+				{
+					return Fdemo_mapShanmenPlayerActionGateResult::
+						FromArbitration(
+							Coordinator.TryAuthorizePlayerAction(
+								Edemo_mapShanmenPlayerActionKind::
+									ThrownWeapon,
+								Fdemo_mapShanmenPlayerActionOccupancySnapshot()));
 				});
 		}
 
@@ -421,6 +430,14 @@ bool Fdemo_mapThrownWeaponInputFailClosedTest::RunTest(const FString&)
 			{
 				++AimSamples;
 				return FVector::ForwardVector;
+			},
+			[&Fixture]()
+			{
+				return Fdemo_mapShanmenPlayerActionGateResult::
+					FromArbitration(
+						Fixture.Coordinator.TryAuthorizePlayerAction(
+							Edemo_mapShanmenPlayerActionKind::ThrownWeapon,
+							Fdemo_mapShanmenPlayerActionOccupancySnapshot()));
 			});
 	TestTrue(TEXT("Invalid, foreign, and unbound requests reject before aim sampling"),
 		InvalidSlot.Status
@@ -442,6 +459,65 @@ bool Fdemo_mapThrownWeaponInputFailClosedTest::RunTest(const FString&)
 		&& AimSamples == 1
 		&& Fixture.Adapter.GetNextSelectionOrdinal() == 1
 		&& After == Before);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponInputActionConflictTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponInputAdapter.ActionConflict",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponInputActionConflictTest::RunTest(const FString&)
+{
+	FThrownInputFixture Fixture;
+	if (!Fixture.Start(*this, TEXT("ActionConflict")))
+	{
+		return false;
+	}
+	FShanmenItemAuthoritySnapshot Before;
+	Fixture.Authority->TryCaptureSnapshot(Before);
+	int32 AimSamples = 0;
+	int32 AuthorizationCount = 0;
+	const Fdemo_mapShanmenThrownWeaponInputResult Rejected =
+		Fixture.Adapter.RouteHotbarInput(
+			Fixture.Authority,
+			Fixture.Lifecycle,
+			Fixture.Coordinator,
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			Fixture.Source,
+			2,
+			[&AimSamples]()
+			{
+				++AimSamples;
+				return FVector::ForwardVector;
+			},
+			[&Fixture, &AuthorizationCount]()
+			{
+				++AuthorizationCount;
+				Fdemo_mapShanmenPlayerActionOccupancySnapshot Occupancy;
+				Occupancy.bSpiritEvasionBusy = true;
+				return Fdemo_mapShanmenPlayerActionGateResult::
+					FromArbitration(
+						Fixture.Coordinator.TryAuthorizePlayerAction(
+							Edemo_mapShanmenPlayerActionKind::ThrownWeapon,
+							Occupancy));
+			});
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Authority->TryCaptureSnapshot(After);
+	TestTrue(TEXT("typed conflict is handled with deterministic gate evidence"),
+		Rejected.Status
+			== Edemo_mapShanmenThrownWeaponInputStatus::ActionConflict
+			&& Rejected.ActionGate.IsValid()
+			&& !Rejected.ActionGate.IsAuthorized()
+			&& Rejected.SelectionId.IsValid());
+	TestTrue(TEXT("classification samples and authorizes exactly once"),
+		AimSamples == 1 && AuthorizationCount == 1);
+	TestTrue(TEXT("conflict mutates neither selection nor item authority"),
+		Fixture.Adapter.GetNextSelectionOrdinal() == 1
+			&& Fixture.Lifecycle.GetHostState()
+				== Edemo_mapShanmenThrownWeaponHostState::Empty
+			&& After == Before);
 	return true;
 }
 

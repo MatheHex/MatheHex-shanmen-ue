@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "demo_mapShanmenPlayerActionArbitration.h"
 #include "demo_mapShanmenThrownWeaponProductController.h"
 
 class UWorld;
@@ -71,6 +72,7 @@ enum class Edemo_mapShanmenThrownWeaponSessionStatus : uint8
 	ProductCaptureRejected,
 	HostResetRejected,
 	SelectionNotFound,
+	ActionConflict,
 	ProductRejected
 };
 
@@ -85,6 +87,7 @@ struct Fdemo_mapShanmenThrownWeaponSessionResult
 	int32 HotbarSlotNumber = INDEX_NONE;
 	FGuid ItemInstanceId;
 	float TechniquePower = 0.0f;
+	Fdemo_mapShanmenPlayerActionGateResult ActionGate;
 	Fdemo_mapShanmenThrownWeaponProductResult Product;
 	FString Diagnostic;
 

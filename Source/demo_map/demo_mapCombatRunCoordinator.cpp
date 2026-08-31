@@ -1038,6 +1038,7 @@ bool Fdemo_mapCombatRunCoordinator::TryEndRun(
 	NextPlayerThrownWeaponActivationSequence = 1;
 	NextPlayerSpiritEvasionActivationSequence = 1;
 	NextPlayerWeaponGuardActivationSequence = 1;
+	NextPlayerActionArbitrationSequence = 1;
 	OutDiagnostic = TEXT("Combat Run identities released.");
 	return true;
 }
@@ -1071,6 +1072,7 @@ void Fdemo_mapCombatRunCoordinator::Reset()
 	NextPlayerThrownWeaponActivationSequence = 1;
 	NextPlayerSpiritEvasionActivationSequence = 1;
 	NextPlayerWeaponGuardActivationSequence = 1;
+	NextPlayerActionArbitrationSequence = 1;
 }
 
 bool Fdemo_mapCombatRunCoordinator::IsReady() const
@@ -2772,6 +2774,74 @@ bool Fdemo_mapCombatRunCoordinator::TryReservePlayerWeaponGuardAction(
 	OutDiagnostic =
 		TEXT("Weapon-guard action identity reserved by the combat Run.");
 	return true;
+}
+
+Fdemo_mapShanmenPlayerActionArbitrationReceipt
+Fdemo_mapCombatRunCoordinator::TryAuthorizePlayerAction(
+	const Edemo_mapShanmenPlayerActionKind RequestedAction,
+	const Fdemo_mapShanmenPlayerActionOccupancySnapshot& Occupancy)
+{
+	Fdemo_mapShanmenPlayerActionArbitrationReceipt Result;
+	Result.RequestedAction = RequestedAction;
+	if (!IsReady())
+	{
+		Result.Error = Edemo_mapShanmenPlayerActionArbitrationError::
+			CoordinatorNotReady;
+		Result.Diagnostic =
+			TEXT("Player-action arbitration requires one ready combat Run.");
+		return Result;
+	}
+	switch (RequestedAction)
+	{
+	case Edemo_mapShanmenPlayerActionKind::BasicSword:
+	case Edemo_mapShanmenPlayerActionKind::ThrownWeapon:
+	case Edemo_mapShanmenPlayerActionKind::SpiritEvasion:
+	case Edemo_mapShanmenPlayerActionKind::WeaponGuard:
+		break;
+	default:
+		Result.Error = Edemo_mapShanmenPlayerActionArbitrationError::
+			InvalidRequestedAction;
+		Result.Diagnostic =
+			TEXT("Player-action arbitration requires one typed action kind.");
+		return Result;
+	}
+	if (!Occupancy.IsValid())
+	{
+		Result.Error = Edemo_mapShanmenPlayerActionArbitrationError::
+			InvalidOccupancySnapshot;
+		Result.Diagnostic =
+			TEXT("Player-action arbitration rejected malformed Host occupancy.");
+		return Result;
+	}
+	if (NextPlayerActionArbitrationSequence == 0
+		|| NextPlayerActionArbitrationSequence == MAX_uint64)
+	{
+		Result.Error = Edemo_mapShanmenPlayerActionArbitrationError::
+			SequenceExhausted;
+		Result.Diagnostic =
+			TEXT("Player-action arbitration sequence is exhausted.");
+		return Result;
+	}
+
+	Result = Fdemo_mapShanmenPlayerActionArbitrationPolicy::Evaluate(
+		GetRunId(),
+		PlayerEntityId,
+		NextPlayerActionArbitrationSequence,
+		RequestedAction,
+		Occupancy);
+	if (!Result.IsValid()
+		|| Result.CommandSequence != NextPlayerActionArbitrationSequence)
+	{
+		Fdemo_mapShanmenPlayerActionArbitrationReceipt Rejected;
+		Rejected.RequestedAction = RequestedAction;
+		Rejected.Error = Edemo_mapShanmenPlayerActionArbitrationError::
+			IdentityConstructionFailed;
+		Rejected.Diagnostic =
+			TEXT("Player-action arbitration policy produced invalid evidence.");
+		return Rejected;
+	}
+	++NextPlayerActionArbitrationSequence;
+	return Result;
 }
 
 Fdemo_mapPlayerProjectileImpactResult

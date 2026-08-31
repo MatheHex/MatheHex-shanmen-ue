@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "demo_mapShanmenPlayerActionArbitration.h"
 #include "demo_mapShanmenSpiritEvasionProductAuthority.h"
 
 class ACharacter;
@@ -19,6 +20,7 @@ enum class Edemo_mapShanmenSpiritEvasionProductRouteStatus : uint8
 	CoordinatorUnavailable,
 	OwnerNotRegistered,
 	ProductRejected,
+	ActionConflict,
 	CommandRouteRejected
 };
 
@@ -31,6 +33,7 @@ struct Fdemo_mapShanmenSpiritEvasionProductRouteResult
 	Edemo_mapShanmenSpiritEvasionProductRouteStatus Status =
 		Edemo_mapShanmenSpiritEvasionProductRouteStatus::OwnerUnavailable;
 	Fdemo_mapShanmenSpiritEvasionProductStartResult ProductStart;
+	Fdemo_mapShanmenPlayerActionGateResult ActionGate;
 	Fdemo_mapShanmenSpiritEvasionCommandResult CommandRoute;
 	FString Diagnostic;
 
@@ -50,7 +53,9 @@ struct Fdemo_mapShanmenSpiritEvasionProductRoute
 		Udemo_mapShanmenSpiritEvasionComponent* Component,
 		Fdemo_mapCombatRunCoordinator& Coordinator,
 		ACharacter* Owner,
-		const FVector& CandidateDirection);
+		const FVector& CandidateDirection,
+		TFunctionRef<Fdemo_mapShanmenPlayerActionGateResult()>
+			AuthorizeAction);
 
 #if WITH_DEV_AUTOMATION_TESTS
 	static Fdemo_mapShanmenSpiritEvasionProductRouteResult
@@ -61,5 +66,15 @@ struct Fdemo_mapShanmenSpiritEvasionProductRoute
 		const FVector& CandidateDirection,
 		double StartTimeSeconds,
 		Idemo_mapShanmenSpiritEvasionPreflightPort& PreflightPort);
+	static Fdemo_mapShanmenSpiritEvasionProductRouteResult
+	TryRouteAtForAutomation(
+		Udemo_mapShanmenSpiritEvasionComponent* Component,
+		Fdemo_mapCombatRunCoordinator& Coordinator,
+		ACharacter* Owner,
+		const FVector& CandidateDirection,
+		double StartTimeSeconds,
+		Idemo_mapShanmenSpiritEvasionPreflightPort& PreflightPort,
+		TFunctionRef<Fdemo_mapShanmenPlayerActionGateResult()>
+			AuthorizeAction);
 #endif
 };

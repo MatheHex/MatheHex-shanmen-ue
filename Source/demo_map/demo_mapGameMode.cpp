@@ -34,6 +34,7 @@
 #include "demo_mapM01EnemyIdentityComponent.h"
 #include "demo_mapM01EnemyTypes.h"
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
+#include "demo_mapShanmenSpiritEvasionComponent.h"
 #include "demo_mapShanmenThrownWeaponProjectile.h"
 #include "demo_mapLootChest.h"
 #include "demo_mapCorpseContainerActor.h"
@@ -303,6 +304,93 @@ Ademo_mapGameMode::DeliverResolvedM01EnemyImpact(
 		TargetEnemy);
 }
 
+Fdemo_mapShanmenPlayerActionOccupancySnapshot
+Ademo_mapGameMode::CapturePlayerActionOccupancy() const
+{
+	Fdemo_mapShanmenPlayerActionOccupancySnapshot Snapshot;
+	if (!WeaponGuardProductSession.IsValid())
+	{
+		// The impossible active-without-identity shape forces arbitration to
+		// fail closed instead of hiding a corrupt product owner.
+		Snapshot.bWeaponGuardActive = true;
+		return Snapshot;
+	}
+	if (WeaponGuardProductSession.HasActive())
+	{
+		const Fdemo_mapShanmenWeaponGuardProductHost* Host =
+			WeaponGuardProductSession.GetActiveHost();
+		Snapshot.bWeaponGuardActive = Host != nullptr;
+		Snapshot.WeaponGuardHostId = Host ? Host->GetHostId() : FGuid();
+	}
+	if (!ThrownWeaponProductLifecycle.IsValid())
+	{
+		Snapshot.bWeaponGuardActive = true;
+		Snapshot.WeaponGuardHostId.Invalidate();
+		return Snapshot;
+	}
+	Snapshot.bThrownWeaponInFlight =
+		ThrownWeaponProductLifecycle.IsActive()
+		&& ThrownWeaponProductLifecycle.GetHostState()
+			== Edemo_mapShanmenThrownWeaponHostState::InFlight;
+
+	const ACharacter* PlayerCharacter = Cast<ACharacter>(GetDemoPawn());
+	const Udemo_mapShanmenSpiritEvasionComponent* SpiritComponent =
+		PlayerCharacter
+			? PlayerCharacter->FindComponentByClass<
+				Udemo_mapShanmenSpiritEvasionComponent>()
+			: nullptr;
+	Snapshot.bSpiritEvasionBusy = SpiritComponent
+		&& !SpiritComponent->CanStart();
+	return Snapshot;
+}
+
+Fdemo_mapShanmenPlayerActionGateResult
+Ademo_mapGameMode::RoutePlayerActionGate(
+	const Edemo_mapShanmenPlayerActionKind RequestedAction)
+{
+	const Fdemo_mapShanmenPlayerActionArbitrationReceipt Arbitration =
+		CombatRunCoordinator.TryAuthorizePlayerAction(
+			RequestedAction,
+			CapturePlayerActionOccupancy());
+	if (!Arbitration.RequiresWeaponGuardPreemption())
+	{
+		const Fdemo_mapShanmenPlayerActionGateResult Result =
+			Fdemo_mapShanmenPlayerActionGateResult::FromArbitration(
+				Arbitration);
+		UE_LOG(
+			Logdemo_map,
+			Log,
+			TEXT("0_0_10_PLAYER_ACTION Event=Arbitrated Action=%d Status=%d Error=%d Sequence=%llu CommandId=%s Diagnostic=%s"),
+			static_cast<int32>(RequestedAction),
+			static_cast<int32>(Arbitration.Status),
+			static_cast<int32>(Arbitration.Error),
+			static_cast<unsigned long long>(Arbitration.CommandSequence),
+			*Arbitration.CommandId.ToString(EGuidFormats::DigitsWithHyphens),
+			*Result.Diagnostic);
+		return Result;
+	}
+
+	const FGuid ExpectedHostId = Arbitration.WeaponGuardHostId;
+	const Fdemo_mapShanmenWeaponGuardSessionTransitionResult Transition =
+		RouteWeaponGuardTerminationIntent(
+			Edemo_mapShanmenWeaponGuardTerminationReason::
+				PlayerActionPreempted);
+	if (!Transition.IsSuccess()
+		|| Transition.Status
+			!= Edemo_mapShanmenWeaponGuardSessionTransitionStatus::Interrupted
+		|| Transition.HostId != ExpectedHostId
+		|| !WeaponGuardProductSession.IsEmpty())
+	{
+		return Fdemo_mapShanmenPlayerActionGateResult::
+			RejectGuardPreemption(
+				Arbitration,
+				TEXT("The exact weapon-guard Host rejected typed player-action preemption."));
+	}
+	return Fdemo_mapShanmenPlayerActionGateResult::FromGuardPreemption(
+		Arbitration,
+		Transition.HostId);
+}
+
 bool Ademo_mapGameMode::ShouldUseM01BasicSwordProductPath() const
 {
 	// M01 never falls back to the legacy damage writer. Before its Combat Run
@@ -325,10 +413,34 @@ Ademo_mapGameMode::ExecuteM01PlayerBasicSwordSweep(
 
 	const FGuid WeaponInstanceId = PlayerItemSubsystem->GetAuthority()
 		.GetEquippedInstance(Fdemo_mapItemIds::WeaponSlot);
+	FShanmenBasicSwordOffenseSnapshot Offense;
+	if (!WeaponInstanceId.IsValid())
+	{
+		Result.Error =
+			Edemo_mapBasicSwordProductExecutionError::InvalidSourceItem;
+		return Result;
+	}
+	if (!FShanmenBasicSwordOffenseSnapshot::TryCapture(
+			AttackPower,
+			Offense))
+	{
+		Result.Error = Edemo_mapBasicSwordProductExecutionError::InvalidOffense;
+		return Result;
+	}
+	Result.ActionGate = RoutePlayerActionGate(
+		Edemo_mapShanmenPlayerActionKind::BasicSword);
+	if (!Result.ActionGate.IsAuthorized())
+	{
+		Result.Error = Edemo_mapBasicSwordProductExecutionError::ActionConflict;
+		return Result;
+	}
+	const Fdemo_mapShanmenPlayerActionGateResult ActionGate =
+		Result.ActionGate;
 	Result = CombatRunCoordinator.ExecutePlayerBasicSwordSweep(
 		WeaponInstanceId,
 		AttackPower,
 		WorldHits);
+	Result.ActionGate = ActionGate;
 	UE_LOG(Logdemo_map,
 		Log,
 		TEXT("0_0_10_BASIC_SWORD Event=ProductSweep Error=%d ActivationId=%s Contacts=%d Candidates=%d Delivered=%d Committed=%d Replayed=%d"),
@@ -508,7 +620,12 @@ Ademo_mapGameMode::RouteSpiritEvasionStartIntent(
 		Component,
 		CombatRunCoordinator,
 		PlayerCharacter,
-		CandidateDirection);
+		CandidateDirection,
+		[this]()
+		{
+			return RoutePlayerActionGate(
+				Edemo_mapShanmenPlayerActionKind::SpiritEvasion);
+		});
 }
 
 Fdemo_mapShanmenWeaponGuardSessionStartResult
@@ -520,11 +637,34 @@ Ademo_mapGameMode::RouteWeaponGuardStartIntent(
 		PlayerItemSubsystem.IsValid()
 			? &PlayerItemSubsystem->GetAuthority()
 			: nullptr;
-	return WeaponGuardProductSession.TryStart(
+	if (!ItemAuthority)
+	{
+		return WeaponGuardProductSession.TryStart(
+			ItemAuthority,
+			CombatRunCoordinator,
+			TimelineId,
+			ActiveStartTick);
+	}
+	const Fdemo_mapShanmenPlayerActionGateResult ActionGate =
+		RoutePlayerActionGate(
+			Edemo_mapShanmenPlayerActionKind::WeaponGuard);
+	if (!ActionGate.IsAuthorized())
+	{
+		Fdemo_mapShanmenWeaponGuardSessionStartResult Result;
+		Result.Error =
+			Edemo_mapShanmenWeaponGuardSessionStartError::ActionConflict;
+		Result.ActionGate = ActionGate;
+		Result.Diagnostic = ActionGate.Diagnostic;
+		return Result;
+	}
+	Fdemo_mapShanmenWeaponGuardSessionStartResult Result =
+		WeaponGuardProductSession.TryStart(
 		ItemAuthority,
 		CombatRunCoordinator,
 		TimelineId,
 		ActiveStartTick);
+	Result.ActionGate = ActionGate;
+	return Result;
 }
 
 Fdemo_mapShanmenWeaponGuardInputTimelineSample
@@ -591,11 +731,42 @@ Fdemo_mapShanmenThrownWeaponSessionResult
 Ademo_mapGameMode::RouteThrownWeaponHotbarIntent(
 	const Fdemo_mapShanmenThrownWeaponHotbarIntent& Intent)
 {
-	return ThrownWeaponProductLifecycle.TrySubmitHotbar(
+	if (!Intent.IsValid()
+		|| !ThrownWeaponProductLifecycle.IsValid()
+		|| !ThrownWeaponProductLifecycle.IsActive()
+		|| !CombatRunCoordinator.IsReady()
+		|| ThrownWeaponProductLifecycle.GetRunId()
+			!= CombatRunCoordinator.GetRunId())
+	{
+		return ThrownWeaponProductLifecycle.TrySubmitHotbar(
+			GetWorld(),
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			CombatRunCoordinator,
+			Intent);
+	}
+	const Fdemo_mapShanmenPlayerActionGateResult ActionGate =
+		RoutePlayerActionGate(
+			Edemo_mapShanmenPlayerActionKind::ThrownWeapon);
+	if (!ActionGate.IsAuthorized())
+	{
+		Fdemo_mapShanmenThrownWeaponSessionResult Result;
+		Result.Status =
+			Edemo_mapShanmenThrownWeaponSessionStatus::ActionConflict;
+		Result.SelectionId = Intent.GetSelectionId();
+		Result.RunId = CombatRunCoordinator.GetRunId();
+		Result.HotbarSlotNumber = Intent.GetHotbarSlotNumber();
+		Result.ActionGate = ActionGate;
+		Result.Diagnostic = ActionGate.Diagnostic;
+		return Result;
+	}
+	Fdemo_mapShanmenThrownWeaponSessionResult Result =
+		ThrownWeaponProductLifecycle.TrySubmitHotbar(
 		GetWorld(),
 		Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
 		CombatRunCoordinator,
 		Intent);
+	Result.ActionGate = ActionGate;
+	return Result;
 }
 
 Fdemo_mapShanmenThrownWeaponInputResult
@@ -616,7 +787,12 @@ Ademo_mapGameMode::RouteThrownWeaponHotbarInput(
 		Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
 		SourceActor,
 		HotbarSlotNumber,
-		SampleAimDirection);
+		SampleAimDirection,
+		[this]()
+		{
+			return RoutePlayerActionGate(
+				Edemo_mapShanmenPlayerActionKind::ThrownWeapon);
+		});
 }
 
 Fdemo_mapShanmenThrownWeaponSessionResult

@@ -428,4 +428,49 @@ bool Fdemo_mapSpiritEvasionProductRouteTerminalReuseTest::RunTest(
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapSpiritEvasionProductRouteActionConflictTest,
+	"Shanmen.0_0_10.Product.SpiritEvasionProductRoute.ActionConflict",
+	ProductRouteFlags)
+
+bool Fdemo_mapSpiritEvasionProductRouteActionConflictTest::RunTest(
+	const FString& Parameters)
+{
+	FProductRouteFixture Fixture;
+	FProductRoutePreflightPort Preflight;
+	int32 AuthorizationCount = 0;
+	const Fdemo_mapShanmenSpiritEvasionProductRouteResult Rejected =
+		Fdemo_mapShanmenSpiritEvasionProductRoute::TryRouteAtForAutomation(
+			Fixture.Component,
+			Fixture.Coordinator,
+			Fixture.Character,
+			FVector::ForwardVector,
+			ProductRouteStartTime,
+			Preflight,
+			[&Fixture, &AuthorizationCount]()
+			{
+				++AuthorizationCount;
+				Fdemo_mapShanmenPlayerActionOccupancySnapshot Occupancy;
+				Occupancy.bThrownWeaponInFlight = true;
+				return Fdemo_mapShanmenPlayerActionGateResult::
+					FromArbitration(
+						Fixture.Coordinator.TryAuthorizePlayerAction(
+							Edemo_mapShanmenPlayerActionKind::SpiritEvasion,
+							Occupancy));
+			});
+	TestTrue(TEXT("fixture is ready"), Fixture.bReady);
+	TestTrue(TEXT("conflict returns typed rejected gate"),
+		Rejected.Status
+			== Edemo_mapShanmenSpiritEvasionProductRouteStatus::ActionConflict
+			&& Rejected.ActionGate.IsValid()
+			&& !Rejected.ActionGate.IsAuthorized());
+	TestTrue(TEXT("authorization runs once after product capture"),
+		AuthorizationCount == 1 && Rejected.ProductStart.IsReady());
+	TestTrue(TEXT("conflict does not dispatch movement or preflight"),
+		Preflight.EvaluationCount == 0
+			&& Fixture.Component->CanStart()
+			&& !Rejected.CommandRoute.IsAccepted());
+	return true;
+}
+
 #endif

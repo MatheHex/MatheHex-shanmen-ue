@@ -1203,6 +1203,15 @@
       ]
     },
     {
+      "name": "PlayerActionArbitration",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenPlayerActionArbitration(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Product.PlayerActionArbitration",
+        "Shanmen.0_0_10.Product.CombatRunCoordinator",
+        "Shanmen.0_0_10"
+      ]
+    },
+    {
       "name": "CombatRunCoordinator",
       "pathRegex": "^Source/demo_map/demo_mapCombatRunCoordinator(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [

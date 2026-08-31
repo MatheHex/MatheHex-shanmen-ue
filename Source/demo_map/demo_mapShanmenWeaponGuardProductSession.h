@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "demo_mapShanmenPlayerActionArbitration.h"
 #include "demo_mapShanmenWeaponGuardProductRoute.h"
 
 class Fdemo_mapCombatRunCoordinator;
@@ -17,6 +18,7 @@ enum class Edemo_mapShanmenWeaponGuardSessionStartError : uint8
 {
 	None,
 	ItemAuthorityUnavailable,
+	ActionConflict,
 	AlreadyActive,
 	RouteRejected,
 	StateDesynchronized
@@ -32,6 +34,7 @@ struct Fdemo_mapShanmenWeaponGuardSessionStartResult
 			ItemAuthorityUnavailable;
 	FGuid HostId;
 	FGuid SourceItemInstanceId;
+	Fdemo_mapShanmenPlayerActionGateResult ActionGate;
 	Fdemo_mapShanmenWeaponGuardProductRouteResult Route;
 	FString Diagnostic;
 
@@ -60,6 +63,7 @@ enum class Edemo_mapShanmenWeaponGuardTerminationReason : uint8
 {
 	None,
 	InputReleased,
+	PlayerActionPreempted,
 	EffectiveDamageStagger,
 	WeaponAuthorizationChanged,
 	PlayerDefeated,

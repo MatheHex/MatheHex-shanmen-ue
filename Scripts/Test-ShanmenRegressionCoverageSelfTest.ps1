@@ -119,6 +119,9 @@ try
     $Coordinator = New-AutomationLogFixture `
         -Name 'coordinator.log' `
         -Group 'Shanmen.0_0_10.Product.CombatRunCoordinator'
+    $PlayerActionArbitration = New-AutomationLogFixture `
+        -Name 'player-action-arbitration.log' `
+        -Group 'Shanmen.0_0_10.Product.PlayerActionArbitration'
     $PlayerVitality = New-AutomationLogFixture `
         -Name 'player-vitality.log' `
         -Group 'Shanmen.0_0_10.Product.PlayerVitality'
@@ -1166,6 +1169,13 @@ try
         -Paths @('Source/demo_map/demo_mapCombatRunCoordinator.cpp') `
         -Logs @($Full, $Attributes, $Legacy)
 
+    Invoke-ExpectedPass `
+        -Name 'player action arbitration maps deterministic policy and broad integration evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenPlayerActionArbitration.cpp',
+            'Source/demo_map/demo_mapShanmenPlayerActionArbitrationTests.cpp') `
+        -Logs @($Full, $PlayerActionArbitration, $Coordinator)
+
     Invoke-ExpectedFail `
         -Name 'missing mapped group fails closed' `
         -Paths @('Source/demo_map/demo_mapSkillComponent.cpp') `
@@ -1179,6 +1189,13 @@ try
             $Coordinator,
             $FormationInfluenceConsumerWorldResolution,
             $Attributes) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'player action arbitration focus cannot replace coordinator and broad integration evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenPlayerActionArbitration.cpp') `
+        -Logs @($PlayerActionArbitration) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

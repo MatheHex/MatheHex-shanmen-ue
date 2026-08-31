@@ -81,12 +81,13 @@ namespace
 		return true;
 	}
 
-	template <typename DispatchType>
+	template <typename AuthorizeType, typename DispatchType>
 	Fdemo_mapShanmenSpiritEvasionProductRouteResult RouteIntent(
 		Udemo_mapShanmenSpiritEvasionComponent* Component,
 		Fdemo_mapCombatRunCoordinator& Coordinator,
 		ACharacter* Owner,
 		const FVector& CandidateDirection,
+		AuthorizeType&& AuthorizeAction,
 		DispatchType&& Dispatch)
 	{
 		Fdemo_mapShanmenSpiritEvasionProductRouteResult Result;
@@ -104,6 +105,15 @@ namespace
 			Result.Status =
 				Edemo_mapShanmenSpiritEvasionProductRouteStatus::ProductRejected;
 			Result.Diagnostic = Result.ProductStart.Diagnostic;
+			return Result;
+		}
+
+		Result.ActionGate = AuthorizeAction();
+		if (!Result.ActionGate.IsAuthorized())
+		{
+			Result.Status =
+				Edemo_mapShanmenSpiritEvasionProductRouteStatus::ActionConflict;
+			Result.Diagnostic = Result.ActionGate.Diagnostic;
 			return Result;
 		}
 
@@ -129,6 +139,7 @@ bool Fdemo_mapShanmenSpiritEvasionProductRouteResult::IsAccepted() const
 {
 	return Status == Edemo_mapShanmenSpiritEvasionProductRouteStatus::Applied
 		&& ProductStart.IsReady()
+		&& ActionGate.IsAuthorized()
 		&& CommandRoute.IsAccepted()
 		&& CommandRoute.Kind
 			== Edemo_mapShanmenSpiritEvasionCommandKind::Start
@@ -143,13 +154,15 @@ Fdemo_mapShanmenSpiritEvasionProductRoute::TryRoute(
 	Udemo_mapShanmenSpiritEvasionComponent* Component,
 	Fdemo_mapCombatRunCoordinator& Coordinator,
 	ACharacter* Owner,
-	const FVector& CandidateDirection)
+	const FVector& CandidateDirection,
+	TFunctionRef<Fdemo_mapShanmenPlayerActionGateResult()> AuthorizeAction)
 {
 	return RouteIntent(
 		Component,
 		Coordinator,
 		Owner,
 		CandidateDirection,
+		AuthorizeAction,
 		[Component, &Coordinator, Owner](
 			const Fdemo_mapShanmenSpiritEvasionCommand& Command)
 		{
@@ -171,11 +184,40 @@ Fdemo_mapShanmenSpiritEvasionProductRoute::TryRouteAtForAutomation(
 	double StartTimeSeconds,
 	Idemo_mapShanmenSpiritEvasionPreflightPort& PreflightPort)
 {
+	return TryRouteAtForAutomation(
+		Component,
+		Coordinator,
+		Owner,
+		CandidateDirection,
+		StartTimeSeconds,
+		PreflightPort,
+		[&Coordinator]()
+		{
+			const Fdemo_mapShanmenPlayerActionArbitrationReceipt Receipt =
+				Coordinator.TryAuthorizePlayerAction(
+					Edemo_mapShanmenPlayerActionKind::SpiritEvasion,
+					Fdemo_mapShanmenPlayerActionOccupancySnapshot());
+			return Fdemo_mapShanmenPlayerActionGateResult::FromArbitration(
+				Receipt);
+		});
+}
+
+Fdemo_mapShanmenSpiritEvasionProductRouteResult
+Fdemo_mapShanmenSpiritEvasionProductRoute::TryRouteAtForAutomation(
+	Udemo_mapShanmenSpiritEvasionComponent* Component,
+	Fdemo_mapCombatRunCoordinator& Coordinator,
+	ACharacter* Owner,
+	const FVector& CandidateDirection,
+	double StartTimeSeconds,
+	Idemo_mapShanmenSpiritEvasionPreflightPort& PreflightPort,
+	TFunctionRef<Fdemo_mapShanmenPlayerActionGateResult()> AuthorizeAction)
+{
 	return RouteIntent(
 		Component,
 		Coordinator,
 		Owner,
 		CandidateDirection,
+		AuthorizeAction,
 		[Component, &Coordinator, Owner, StartTimeSeconds, &PreflightPort](
 			const Fdemo_mapShanmenSpiritEvasionCommand& Command)
 		{

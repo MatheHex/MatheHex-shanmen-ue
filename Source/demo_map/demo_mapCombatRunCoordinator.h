@@ -5,6 +5,7 @@
 #include "ShanmenVitalityAuthority.h"
 #include "ShanmenWorldEntityRegistry.h"
 #include "demo_mapCombatVitalityHost.h"
+#include "demo_mapShanmenPlayerActionArbitration.h"
 #include "demo_mapShanmenWeaponGuardProductSession.h"
 
 class AActor;
@@ -343,6 +344,7 @@ enum class Edemo_mapBasicSwordProductExecutionError : uint8
 {
 	None,
 	CoordinatorNotReady,
+	ActionConflict,
 	InvalidSourceItem,
 	InvalidOffense,
 	ActionConstructionFailed,
@@ -366,6 +368,7 @@ struct Fdemo_mapBasicSwordProductExecutionResult
 	int32 DeliveredImpactCount = 0;
 	int32 CommittedImpactCount = 0;
 	int32 AlreadyCommittedImpactCount = 0;
+	Fdemo_mapShanmenPlayerActionGateResult ActionGate;
 
 	bool IsExecuted() const
 	{
@@ -617,6 +620,15 @@ public:
 		const FGuid& SourceItemInstanceId,
 		Fdemo_mapPlayerWeaponGuardActionReservation& OutReservation,
 		FString& OutDiagnostic);
+	/**
+	 * Issues one deterministic, Run-scoped decision from existing Host state.
+	 * The coordinator owns only command identity; GameMode performs any typed
+	 * Guard termination and every product Host remains its own state authority.
+	 */
+	Fdemo_mapShanmenPlayerActionArbitrationReceipt
+	TryAuthorizePlayerAction(
+		Edemo_mapShanmenPlayerActionKind RequestedAction,
+		const Fdemo_mapShanmenPlayerActionOccupancySnapshot& Occupancy);
 	/** Resolves one already-authorized hostile projectile contact. */
 	Fdemo_mapPlayerProjectileImpactResult
 	ExecutePlayerStraightProjectileImpact(
@@ -649,6 +661,10 @@ public:
 	uint64 GetNextPlayerWeaponGuardActivationSequence() const
 	{
 		return NextPlayerWeaponGuardActivationSequence;
+	}
+	uint64 GetNextPlayerActionArbitrationSequence() const
+	{
+		return NextPlayerActionArbitrationSequence;
 	}
 
 private:
@@ -693,4 +709,5 @@ private:
 	uint64 NextPlayerThrownWeaponActivationSequence = 1;
 	uint64 NextPlayerSpiritEvasionActivationSequence = 1;
 	uint64 NextPlayerWeaponGuardActivationSequence = 1;
+	uint64 NextPlayerActionArbitrationSequence = 1;
 };

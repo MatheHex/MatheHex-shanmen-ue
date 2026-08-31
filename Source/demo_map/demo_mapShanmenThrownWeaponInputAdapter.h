@@ -21,6 +21,7 @@ enum class Edemo_mapShanmenThrownWeaponInputStatus : uint8
 	AimUnavailable,
 	SelectionSequenceExhausted,
 	IntentCaptureRejected,
+	ActionConflict,
 	ProductRejected
 };
 
@@ -36,6 +37,7 @@ struct Fdemo_mapShanmenThrownWeaponInputResult
 	FGuid ItemInstanceId;
 	FGuid SelectionId;
 	bool bAimSampled = false;
+	Fdemo_mapShanmenPlayerActionGateResult ActionGate;
 	Fdemo_mapShanmenThrownWeaponSessionResult Session;
 	FString Diagnostic;
 
@@ -48,6 +50,7 @@ struct Fdemo_mapShanmenThrownWeaponInputResult
 	bool IsAccepted() const
 	{
 		return Status == Edemo_mapShanmenThrownWeaponInputStatus::Applied
+			&& ActionGate.IsAuthorized()
 			&& Session.IsAccepted();
 	}
 };
@@ -81,7 +84,9 @@ public:
 		TSubclassOf<Ademo_mapShanmenThrownWeaponProjectile> ProjectileClass,
 		AActor* SourceActor,
 		int32 HotbarSlotNumber,
-		TFunctionRef<FVector()> SampleAimDirection);
+		TFunctionRef<FVector()> SampleAimDirection,
+		TFunctionRef<Fdemo_mapShanmenPlayerActionGateResult()>
+			AuthorizeAction);
 
 	void Reset() { NextSelectionOrdinal = 1; }
 	uint64 GetNextSelectionOrdinal() const { return NextSelectionOrdinal; }

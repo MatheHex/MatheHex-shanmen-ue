@@ -317,6 +317,7 @@ bool Fdemo_mapWeaponGuardProductSessionTerminationReasonTest::RunTest(
 	}
 
 	const TArray<Edemo_mapShanmenWeaponGuardTerminationReason> Reasons = {
+		Edemo_mapShanmenWeaponGuardTerminationReason::PlayerActionPreempted,
 		Edemo_mapShanmenWeaponGuardTerminationReason::EffectiveDamageStagger,
 		Edemo_mapShanmenWeaponGuardTerminationReason::
 			WeaponAuthorizationChanged,

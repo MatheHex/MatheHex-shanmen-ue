@@ -281,6 +281,10 @@ private:
 	bool InitializeV3Progression(APawn* PlayerPawn, Udemo_mapItemSubsystem* Items);
 	bool TryActivateCombatRun(APawn* PlayerPawn, FString& OutDiagnostic);
 	bool ReleaseCombatProductRun(const TCHAR* Context);
+	Fdemo_mapShanmenPlayerActionOccupancySnapshot
+	CapturePlayerActionOccupancy() const;
+	Fdemo_mapShanmenPlayerActionGateResult RoutePlayerActionGate(
+		Edemo_mapShanmenPlayerActionKind RequestedAction);
 	bool ReconcileWeaponGuardAuthorization(const TCHAR* Context);
 	bool ReleasePlayerSpiritEvasion(const TCHAR* Context);
 	Fdemo_mapM01EnemyAttackWeaponGuardContext

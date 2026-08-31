@@ -52,6 +52,8 @@ namespace
 		{
 		case Edemo_mapShanmenWeaponGuardTerminationReason::InputReleased:
 		case Edemo_mapShanmenWeaponGuardTerminationReason::
+			PlayerActionPreempted:
+		case Edemo_mapShanmenWeaponGuardTerminationReason::
 			EffectiveDamageStagger:
 		case Edemo_mapShanmenWeaponGuardTerminationReason::
 			WeaponAuthorizationChanged:
@@ -98,16 +100,26 @@ bool Fdemo_mapShanmenWeaponGuardSessionStartResult::IsValid() const
 				!= Edemo_mapShanmenWeaponGuardSessionStartError::AlreadyActive
 			&& !HostId.IsValid()
 			&& !SourceItemInstanceId.IsValid()
-			&& !Route.IsReady();
+			&& !Route.IsReady()
+			&& (Error
+					== Edemo_mapShanmenWeaponGuardSessionStartError::
+						ActionConflict
+				? ActionGate.IsValid() && !ActionGate.IsAuthorized()
+				: !ActionGate.Arbitration.IsValid()
+					|| ActionGate.IsAuthorized());
 	case Edemo_mapShanmenWeaponGuardSessionStartStatus::Started:
 		return Error == Edemo_mapShanmenWeaponGuardSessionStartError::None
 			&& MatchesRouteIdentity(
-				Route, HostId, SourceItemInstanceId);
+				Route, HostId, SourceItemInstanceId)
+			&& (!ActionGate.Arbitration.IsValid()
+				|| ActionGate.IsAuthorized());
 	case Edemo_mapShanmenWeaponGuardSessionStartStatus::AlreadyActive:
 		return Error
 				== Edemo_mapShanmenWeaponGuardSessionStartError::AlreadyActive
 			&& MatchesRouteIdentity(
-				Route, HostId, SourceItemInstanceId);
+				Route, HostId, SourceItemInstanceId)
+			&& (!ActionGate.Arbitration.IsValid()
+				|| ActionGate.IsAuthorized());
 	default:
 		return false;
 	}
