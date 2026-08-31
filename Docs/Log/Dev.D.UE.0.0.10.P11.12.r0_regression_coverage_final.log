@@ -1,0 +1,22 @@
+Dev.D.UE.0.0.10.P11.12.r0 changed-file regression coverage
+
+FIRST_INVOCATION_RESULT: FAIL
+FIRST_INVOCATION_EXIT_CODE: 1
+FIRST_INVOCATION_DIAGNOSTIC: Child pwsh -File flattened the ChangedPath array into positional arguments; no coverage judgment was produced.
+
+FINAL_INVOCATION_RESULT: PASS
+FINAL_INVOCATION_EXIT_CODE: 0
+REGRESSION_COVERAGE: PASS Changed=9 Rules=4 Required=42 Logs=7
+
+Required legacy groups and evidence:
+- demo_map.EnemySkillFramework -> Dev.D.UE.0.0.10.P11.12.r0_automation_enemy_skill_final.log (44 Success, 0 Fail, SHA256 B5793AADC8E9671FBAB2C281EE6E25D8FEF5F8AA0CE8382B03D90572F6E18580)
+- demo_map.ItemEconomySchema -> Dev.D.UE.0.0.10.P11.12.r0_automation_item_economy_schema_final.log (23 Success, 0 Fail, SHA256 0DCA820D378FDA4C558690AA54193967E1632938F535765A5EB00623B9572994)
+- demo_map.ItemUseAndArmor -> Dev.D.UE.0.0.10.P11.12.r0_automation_item_use_armor_final.log (46 Success, 0 Fail, SHA256 E4A6B3F101CF23B96EF40C7D9A43F41A1F5DE08FADD1241BDC581A990DDED920)
+- demo_map.P4.Hotbar -> Dev.D.UE.0.0.10.P11.12.r0_automation_p4_hotbar_final.log (7 Success, 0 Fail, SHA256 4841BD7F0353F98AB4AE1B789AC0EF029CDA5FF59DE84E778E759A057661114C)
+- demo_map.V2RangedCompatibility -> Dev.D.UE.0.0.10.P11.12.r0_automation_v2_ranged_final.log (22 Success, 0 Fail, SHA256 2F9367ECD02072C56C9B22689DBE67B61FF0E938BE3F2AB6A4F2BB5DB95FA28C)
+- demo_map.V3.Attributes -> Dev.D.UE.0.0.10.P11.12.r0_automation_v3_attributes_final.log (4 Success, 0 Fail, SHA256 01A2317A1ED9C1B4D57DE39A071C4DD5DE1969392F60207C9B20016480A78614)
+
+Required Shanmen groups and evidence:
+- Shanmen.0_0_10 plus every required child group -> Dev.D.UE.0.0.10.P11.12.r0_automation_shanmen_full_final.log (531 Success, 0 Fail, SHA256 53B944D918E1620FEC600874942414BF27EC93B39B019483B74F9D5B6A0BA014)
+
+All seven evidence logs contain a native automation terminal marker and no Result={Fail} entry.

@@ -1,0 +1,41 @@
+Dev.D.UE.0.0.10.P11.12.r0 native build evidence
+
+Command template:
+Build.bat <Target> Win64 Development C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\demo_map.uproject -WaitMutex -NoHotReload -MaxParallelActions=1 -NoUBA
+
+Editor Development implementation build:
+- Target: demo_mapEditor
+- Actions: 76
+- Result: Succeeded
+- Native exit code: 0
+
+Editor Development incremental build after Session rollback fence:
+- Target: demo_mapEditor
+- Actions: 4
+- Result: Succeeded
+- Native exit code: 0
+
+Editor Development final verification:
+- Target: demo_mapEditor
+- Actions: 0 (Target is up to date)
+- Result: Succeeded
+- Total execution time: 0.93 seconds
+- Native exit code: 0
+
+Game Development compile:
+- Target: demo_map
+- Actions: 75
+- Result: Succeeded
+- Total execution time: 214.77 seconds
+- Native exit code: 0
+
+Game Development final verification:
+- Target: demo_map
+- Actions: 0 (Target is up to date)
+- Result: Succeeded
+- Total execution time: 0.91 seconds
+- Native exit code: 0
+
+Final artifacts:
+- Binaries/Win64/UnrealEditor-demo_map.dll: 12,871,168 bytes; SHA256 074966B4089C15D81A6990C890912A03634FED41E232B5BF93E8DA51EE0EE272
+- Binaries/Win64/demo_map.exe: 354,382,848 bytes; SHA256 13FD2230B18488DDD0ACC62A5D1F3D87A4128F244FFC4191251788D55E30EBB9

@@ -1486,7 +1486,8 @@ Fdemo_mapM01EnemyAttackExecutionResult
 Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyBasicMeleeStrike(
 	AActor* SourceEnemy,
 	APawn* TargetPlayer,
-	float RawDamage)
+	float RawDamage,
+	const Fdemo_mapM01EnemyAttackWeaponGuardContext* WeaponGuardContext)
 {
 	return ExecuteM01EnemyAttack(
 		SourceEnemy,
@@ -1496,7 +1497,8 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyBasicMeleeStrike(
 		0,
 		0,
 		FVector::ZeroVector,
-		FVector::ZeroVector);
+		FVector::ZeroVector,
+		WeaponGuardContext);
 }
 
 Fdemo_mapM01EnemyAttackExecutionResult
@@ -1505,7 +1507,8 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyMeleeDashContact(
 	APawn* TargetPlayer,
 	FName SkillProfileId,
 	uint32 ActivationSerial,
-	float RawDamage)
+	float RawDamage,
+	const Fdemo_mapM01EnemyAttackWeaponGuardContext* WeaponGuardContext)
 {
 	Fdemo_mapM01EnemyAttackExecutionResult ProductResult;
 	Edemo_mapM01EnemyAttackFamily Family =
@@ -1530,7 +1533,8 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyMeleeDashContact(
 		static_cast<uint64>(ActivationSerial),
 		0,
 		FVector::ZeroVector,
-		FVector::ZeroVector);
+		FVector::ZeroVector,
+		WeaponGuardContext);
 }
 
 Fdemo_mapM01EnemyAttackExecutionResult
@@ -1541,7 +1545,8 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyRangedProjectileImpact(
 	uint64 ProjectileSequence,
 	float RawDamage,
 	const FVector& ImpactLocation,
-	const FVector& ImpactNormal)
+	const FVector& ImpactNormal,
+	const Fdemo_mapM01EnemyAttackWeaponGuardContext* WeaponGuardContext)
 {
 	Fdemo_mapM01EnemyAttackExecutionResult ProductResult;
 	Edemo_mapM01EnemyAttackFamily Family =
@@ -1572,7 +1577,8 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyRangedProjectileImpact(
 		ProjectileSequence,
 		0,
 		ImpactLocation,
-		ImpactNormal);
+		ImpactNormal,
+		WeaponGuardContext);
 }
 
 Fdemo_mapM01EnemyAttackExecutionResult
@@ -1580,7 +1586,8 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyHeavySectorAttack(
 	AActor* SourceEnemy,
 	APawn* TargetPlayer,
 	uint64 AttackSequence,
-	float RawDamage)
+	float RawDamage,
+	const Fdemo_mapM01EnemyAttackWeaponGuardContext* WeaponGuardContext)
 {
 	Fdemo_mapM01EnemyAttackExecutionResult ProductResult;
 	if (AttackSequence == 0)
@@ -1603,7 +1610,8 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyHeavySectorAttack(
 		AttackSequence,
 		0,
 		FVector::ZeroVector,
-		FVector::ZeroVector);
+		FVector::ZeroVector,
+		WeaponGuardContext);
 }
 
 Fdemo_mapM01EnemyAttackExecutionResult
@@ -1612,7 +1620,8 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01BossShapeAttack(
 	APawn* TargetPlayer,
 	Edemo_mapM01BossAttack Attack,
 	uint64 AttackSequence,
-	float RawDamage)
+	float RawDamage,
+	const Fdemo_mapM01EnemyAttackWeaponGuardContext* WeaponGuardContext)
 {
 	Fdemo_mapM01EnemyAttackExecutionResult ProductResult;
 	if (AttackSequence == 0)
@@ -1653,7 +1662,8 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01BossShapeAttack(
 		AttackSequence,
 		0,
 		FVector::ZeroVector,
-		FVector::ZeroVector);
+		FVector::ZeroVector,
+		WeaponGuardContext);
 }
 
 Fdemo_mapM01EnemyAttackExecutionResult
@@ -1664,7 +1674,8 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01BossVolleyProjectileImpact(
 	int32 ProjectileOrdinal,
 	float RawDamage,
 	const FVector& ImpactLocation,
-	const FVector& ImpactNormal)
+	const FVector& ImpactNormal,
+	const Fdemo_mapM01EnemyAttackWeaponGuardContext* WeaponGuardContext)
 {
 	Fdemo_mapM01EnemyAttackExecutionResult ProductResult;
 	if (AttackSequence == 0)
@@ -1700,7 +1711,8 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01BossVolleyProjectileImpact(
 		AttackSequence,
 		ProjectileOrdinal,
 		ImpactLocation,
-		ImpactNormal);
+		ImpactNormal,
+		WeaponGuardContext);
 }
 
 Fdemo_mapM01EnemyAttackExecutionResult
@@ -1712,7 +1724,8 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyAttack(
 	uint64 RequestedActivationSequence,
 	int32 RequestedHitOrdinal,
 	const FVector& RequestedHitLocation,
-	const FVector& RequestedHitNormal)
+	const FVector& RequestedHitNormal,
+	const Fdemo_mapM01EnemyAttackWeaponGuardContext* WeaponGuardContext)
 {
 	Fdemo_mapM01EnemyAttackExecutionResult ProductResult;
 	FM01EnemyAttackSpec Spec;
@@ -1720,6 +1733,14 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyAttack(
 	{
 		ProductResult.Error =
 			Edemo_mapM01EnemyAttackExecutionError::InvalidSkillProfile;
+		return ProductResult;
+	}
+	if (WeaponGuardContext && !WeaponGuardContext->IsValid())
+	{
+		ProductResult.bWeaponGuardInspected = true;
+		ProductResult.Error =
+			Edemo_mapM01EnemyAttackExecutionError::
+				WeaponGuardDefensePreparationFailed;
 		return ProductResult;
 	}
 	if (RequestedHitOrdinal < 0
@@ -1979,6 +2000,36 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyAttack(
 				CancelPreparedDefenseReservation(
 					*Authority, ResourcePreparation, Diagnostic);
 	};
+
+	if (WeaponGuardContext)
+	{
+		ProductResult.bWeaponGuardInspected = true;
+		ProductResult.WeaponGuardDefense =
+			WeaponGuardContext->Session->TryComposeImpactDefense(
+				TargetPlayer->GetWorld(),
+				EntityRegistry,
+				TargetPlayer,
+				SourceEnemy,
+				WeaponGuardContext->TimelineId,
+				WeaponGuardContext->ObservedTick,
+				Candidate,
+				Defense);
+		if (!ProductResult.WeaponGuardDefense.IsSuccess())
+		{
+			const bool bCancelled = CancelPreDeliveryResource();
+			ActionRuntime.TryInterrupt(
+				EShanmenCombatActionPhase::Active,
+				Transition);
+			ProductResult.Error = bCancelled
+				? Edemo_mapM01EnemyAttackExecutionError::
+					WeaponGuardDefensePreparationFailed
+				: Edemo_mapM01EnemyAttackExecutionError::
+					ResourceDefensePreparationFailed;
+			return ProductResult;
+		}
+		Defense = ProductResult.WeaponGuardDefense.Defense
+			.Composition.Defense;
+	}
 
 	// Resource recovery may have committed an earlier vitality intent. Sample
 	// the target only after preparation so this request cannot carry stale CAS.

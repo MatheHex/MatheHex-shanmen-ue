@@ -1,0 +1,81 @@
+SELF_TEST: PASS overlapping rules union and broad suite coverage
+SELF_TEST: PASS docs and scripts require no product log
+SELF_TEST: PASS UE 5.8 native TEST COMPLETE marker is healthy evidence
+SELF_TEST: PASS formation deployment core is covered by broad full evidence
+SELF_TEST: PASS spirit shield runtime requires focused lifecycle and CombatCore evidence
+SELF_TEST: PASS spirit shield capacity authority requires capacity lifecycle and CombatCore evidence
+SELF_TEST: PASS spirit shield deadline gate requires deadline lifecycle and capacity composition evidence
+SELF_TEST: PASS action resource authority requires transaction lifecycle and action transition evidence
+SELF_TEST: PASS spirit shield action coordinator requires every composed authority contract
+SELF_TEST: PASS spirit shield session requires every owned authority contract
+SELF_TEST: PASS spirit evasion requires action lifecycle and resolver evidence
+SELF_TEST: PASS weapon guard requires action lifecycle and resolver evidence
+SELF_TEST: PASS perfect guard timing requires ordinary window lifecycle and resolver evidence
+SELF_TEST: PASS weapon guard arc requires timing ordinary lifecycle and resolver evidence
+SELF_TEST: PASS weapon guard World adapter requires full world arc timing and resolver evidence
+SELF_TEST: PASS weapon guard defense coordinator requires full composition world arc timing and resolver evidence
+SELF_TEST: PASS weapon guard product host requires lifecycle composition world arc timing and resolver evidence
+SELF_TEST: PASS weapon guard product authority requires config reservation host and Run evidence
+SELF_TEST: PASS weapon guard item adapter requires explicit item and product authority evidence
+SELF_TEST: PASS weapon guard product route requires item authorization product host and Run evidence
+SELF_TEST: PASS weapon guard input adapter requires product route item Run and legacy evidence
+SELF_TEST: PASS weapon guard product session requires route item Host Run and legacy evidence
+SELF_TEST: PASS weapon guard Impact route requires Session World defense Run item and enemy evidence
+SELF_TEST: PASS weapon guard fixed timeline requires Run session and input evidence
+SELF_TEST: PASS spirit evasion movement requires window and lifecycle evidence
+SELF_TEST: PASS spirit evasion product displacement maps adapter and legacy callers
+SELF_TEST: PASS spirit evasion motion runtime maps plan scheduler and swept authority
+SELF_TEST: PASS spirit evasion action coordinator maps every owned lifecycle seam
+SELF_TEST: PASS spirit evasion product host maps its complete owned chain
+SELF_TEST: PASS spirit evasion component maps its host and complete owned chain
+SELF_TEST: PASS spirit evasion command route maps install run and complete host chain
+SELF_TEST: PASS spirit evasion product authority maps reservation config and complete route chain
+SELF_TEST: PASS spirit evasion product route maps intent reservation dispatch and complete chain
+SELF_TEST: PASS spirit evasion input adapter maps gameplay gate through the complete product route
+SELF_TEST: PASS unified input changes require physical route and every touched legacy input contract
+SELF_TEST: PASS formation material adapter is covered by broad full evidence
+SELF_TEST: PASS formation product session is covered by broad full evidence
+SELF_TEST: PASS formation world delivery is covered by broad full evidence
+SELF_TEST: PASS formation product host is covered by broad full and attribute evidence
+SELF_TEST: PASS formation area provider is covered by broad full evidence
+SELF_TEST: PASS formation World coverage is covered by broad full evidence
+SELF_TEST: PASS formation coverage transitions are covered by broad full evidence
+SELF_TEST: PASS formation coverage tracker is covered by broad full evidence
+SELF_TEST: PASS formation coverage coordinator is covered by broad full evidence
+SELF_TEST: PASS formation influence intents are covered by broad full evidence
+SELF_TEST: PASS formation influence modifier evaluator is covered by broad full evidence
+SELF_TEST: PASS combat tags include modifier consumer coverage under broad evidence
+SELF_TEST: PASS formation influence reconciliation is covered by broad full evidence
+SELF_TEST: PASS formation influence dispatch is covered by broad full evidence
+SELF_TEST: PASS formation influence executor is covered by broad full evidence
+SELF_TEST: PASS formation influence lease executor is covered by broad full evidence
+SELF_TEST: PASS formation influence consumer projection maps lease evidence to legacy attributes
+SELF_TEST: PASS formation consumer World resolution is covered by broad full and attribute evidence
+SELF_TEST: PASS formation consumer Run composition is covered by broad full and attribute evidence
+SELF_TEST: PASS formation influence consumer registry is covered by broad full and attribute evidence
+SELF_TEST: PASS formation influence consumer attribute adapter is covered by broad full and attribute evidence
+SELF_TEST: PASS formation influence consumer application coordinator is covered by broad full and attribute evidence
+SELF_TEST: PASS formation influence consumer command host is covered by broad full and attribute evidence
+SELF_TEST: PASS formation influence consumer product bridge is covered by broad full and attribute evidence
+SELF_TEST: PASS formation influence consumer product runtime is covered by broad full and attribute evidence
+SELF_TEST: PASS exact attribute mutation seam requires broad product and focused attribute evidence
+SELF_TEST: PASS formation influence product runtime is covered by broad full evidence
+SELF_TEST: PASS formation influence execution router is covered by broad full evidence
+SELF_TEST: PASS formation influence execution service is covered by broad full evidence
+SELF_TEST: PASS formation influence lifecycle coordinator is covered by broad full and attribute evidence
+SELF_TEST: PASS formation influence lifecycle command router is covered by broad full and attribute evidence
+SELF_TEST: PASS formation influence lifecycle command host is covered by broad full and attribute evidence
+SELF_TEST: PASS player health maps to focused vitality plus full regression
+SELF_TEST: PASS controlled weapon run host is covered by the full suite
+SELF_TEST: PASS controlled weapon Run lifecycle is covered by the full suite
+SELF_TEST: PASS controlled weapon Run command router is covered by the full suite
+SELF_TEST: PASS controlled weapon threat sample router is covered by the full suite
+SELF_TEST: PASS thrown weapon item adapter maps to product, items, and runtime
+SELF_TEST: PASS thrown weapon world delivery is covered by the full suite
+SELF_TEST: PASS thrown weapon Run host maps to every owned authority seam
+SELF_TEST: PASS thrown weapon Run command router maps to every routed authority seam
+SELF_TEST: PASS thrown weapon product controller maps selection through every authority seam
+SELF_TEST: PASS thrown weapon product session maps hotbar and combat stat seams
+SELF_TEST: PASS thrown weapon product lifecycle maps every owned authority seam
+SELF_TEST: PASS thrown weapon input adapter maps typed hotbar and fallback seams
+SELF_TEST: PASS canonical item catalog requires every direct product consumer

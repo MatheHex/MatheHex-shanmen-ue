@@ -278,6 +278,8 @@ private:
 	bool TryActivateCombatRun(APawn* PlayerPawn, FString& OutDiagnostic);
 	bool ReleaseCombatProductRun(const TCHAR* Context);
 	bool ReleasePlayerSpiritEvasion(const TCHAR* Context);
+	Fdemo_mapM01EnemyAttackWeaponGuardContext
+	CaptureM01EnemyAttackWeaponGuardContext();
 	void PrepareV2CNavigation();
 	void SpawnExit(APawn* PlayerPawn, const FVector& Forward);
 	void SpawnEnemy(APawn* PlayerPawn, const FVector& Forward, const FVector& Right);

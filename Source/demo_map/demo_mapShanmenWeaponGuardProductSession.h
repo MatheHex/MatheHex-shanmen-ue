@@ -58,6 +58,48 @@ enum class Edemo_mapShanmenWeaponGuardSessionTransitionError : uint8
 	StateDesynchronized
 };
 
+enum class Edemo_mapShanmenWeaponGuardSessionDefenseStatus : uint8
+{
+	Rejected,
+	ComposedQualified,
+	ComposedOutsideArc
+};
+
+enum class Edemo_mapShanmenWeaponGuardSessionDefenseError : uint8
+{
+	None,
+	SessionInvalid,
+	NoActiveHost,
+	InvalidTimelineSample,
+	TimelineMismatch,
+	HostRejected,
+	StateDesynchronized
+};
+
+/**
+ * Transactional proof that the Session composed one impact's defense.
+ *
+ * A successful result advances the Host's monotonic observation exactly once.
+ * A rejection leaves the Session and its active Host unchanged.
+ */
+struct Fdemo_mapShanmenWeaponGuardSessionDefenseResult
+{
+	Edemo_mapShanmenWeaponGuardSessionDefenseStatus Status =
+		Edemo_mapShanmenWeaponGuardSessionDefenseStatus::Rejected;
+	Edemo_mapShanmenWeaponGuardSessionDefenseError Error =
+		Edemo_mapShanmenWeaponGuardSessionDefenseError::SessionInvalid;
+	FGuid HostId;
+	FGuid SourceItemInstanceId;
+	FGuid TimelineId;
+	int64 ObservedTick = INDEX_NONE;
+	Fdemo_mapShanmenWeaponGuardHostDefenseResult Defense;
+	FString Diagnostic;
+
+	bool IsValid() const;
+	bool IsSuccess() const;
+	bool HasGuardLayer() const;
+};
+
 /** Ordered lifecycle proof returned before the Session forgets its Host. */
 struct Fdemo_mapShanmenWeaponGuardSessionTransitionResult
 {
@@ -96,6 +138,20 @@ public:
 	/** Run teardown: Active -> Interrupted. Empty state is an accepted no-op. */
 	Fdemo_mapShanmenWeaponGuardSessionTransitionResult
 	TryInterruptAndReset();
+	/**
+	 * Composes one hostile Impact's defense against the sole active Host.
+	 * The Session commits the advanced Host only after the complete receipt is
+	 * valid, so a rejected world/timeline/arc evaluation is state-atomic.
+	 */
+	Fdemo_mapShanmenWeaponGuardSessionDefenseResult TryComposeImpactDefense(
+		UWorld* World,
+		const FShanmenWorldEntityRegistry& EntityRegistry,
+		AActor* DefenderActor,
+		AActor* ThreatActor,
+		const FGuid& TimelineId,
+		int64 ObservedTick,
+		const FShanmenHitCandidate& Candidate,
+		const FShanmenDefenseSnapshot& BaseDefense);
 
 	bool IsValid() const;
 	bool IsEmpty() const;

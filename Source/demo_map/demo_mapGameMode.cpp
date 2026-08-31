@@ -612,6 +612,28 @@ bool Ademo_mapGameMode::ShouldUseM01EnemyAttackProductPath() const
 	return IsM01ExpeditionMap();
 }
 
+Fdemo_mapM01EnemyAttackWeaponGuardContext
+Ademo_mapGameMode::CaptureM01EnemyAttackWeaponGuardContext()
+{
+	Fdemo_mapM01EnemyAttackWeaponGuardContext Context;
+	if (WeaponGuardProductSession.IsEmpty())
+	{
+		return Context;
+	}
+
+	// A non-empty or structurally invalid Session must never silently bypass
+	// guard composition. An invalid timeline is therefore carried as an invalid
+	// enabled context and rejected by the Coordinator before damage resolution.
+	Context.Session = &WeaponGuardProductSession;
+	if (WeaponGuardFixedTimeline.IsValid()
+		&& !WeaponGuardFixedTimeline.IsEmpty())
+	{
+		Context.TimelineId = WeaponGuardFixedTimeline.GetTimelineId();
+		Context.ObservedTick = WeaponGuardFixedTimeline.GetCurrentTick();
+	}
+	return Context;
+}
+
 Fdemo_mapM01EnemyAttackExecutionResult
 Ademo_mapGameMode::ExecuteM01EnemyBasicMeleeStrike(
 	AActor* SourceEnemy,
@@ -623,10 +645,13 @@ Ademo_mapGameMode::ExecuteM01EnemyBasicMeleeStrike(
 	{
 		return Result;
 	}
+	Fdemo_mapM01EnemyAttackWeaponGuardContext GuardContext =
+		CaptureM01EnemyAttackWeaponGuardContext();
 	Result = CombatRunCoordinator.ExecuteM01EnemyBasicMeleeStrike(
 		SourceEnemy,
 		TargetPlayer,
-		RawDamage);
+		RawDamage,
+		GuardContext.IsEnabled() ? &GuardContext : nullptr);
 	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
 	UE_LOG(
 		Logdemo_map,
@@ -656,12 +681,15 @@ Ademo_mapGameMode::ExecuteM01EnemyMeleeDashContact(
 	{
 		return Result;
 	}
+	Fdemo_mapM01EnemyAttackWeaponGuardContext GuardContext =
+		CaptureM01EnemyAttackWeaponGuardContext();
 	Result = CombatRunCoordinator.ExecuteM01EnemyMeleeDashContact(
 		SourceEnemy,
 		TargetPlayer,
 		SkillProfileId,
 		ActivationSerial,
-		RawDamage);
+		RawDamage,
+		GuardContext.IsEnabled() ? &GuardContext : nullptr);
 	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
 	UE_LOG(
 		Logdemo_map,
@@ -694,6 +722,8 @@ Ademo_mapGameMode::ExecuteM01EnemyRangedProjectileImpact(
 	{
 		return Result;
 	}
+	Fdemo_mapM01EnemyAttackWeaponGuardContext GuardContext =
+		CaptureM01EnemyAttackWeaponGuardContext();
 	Result = CombatRunCoordinator.ExecuteM01EnemyRangedProjectileImpact(
 		SourceEnemy,
 		TargetPlayer,
@@ -701,7 +731,8 @@ Ademo_mapGameMode::ExecuteM01EnemyRangedProjectileImpact(
 		ProjectileSequence,
 		RawDamage,
 		ImpactLocation,
-		ImpactNormal);
+		ImpactNormal,
+		GuardContext.IsEnabled() ? &GuardContext : nullptr);
 	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
 	UE_LOG(
 		Logdemo_map,
@@ -732,11 +763,14 @@ Ademo_mapGameMode::ExecuteM01EnemyHeavySectorAttack(
 	{
 		return Result;
 	}
+	Fdemo_mapM01EnemyAttackWeaponGuardContext GuardContext =
+		CaptureM01EnemyAttackWeaponGuardContext();
 	Result = CombatRunCoordinator.ExecuteM01EnemyHeavySectorAttack(
 		SourceEnemy,
 		TargetPlayer,
 		AttackSequence,
-		RawDamage);
+		RawDamage,
+		GuardContext.IsEnabled() ? &GuardContext : nullptr);
 	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
 	UE_LOG(
 		Logdemo_map,
@@ -768,12 +802,15 @@ Ademo_mapGameMode::ExecuteM01BossShapeAttack(
 	{
 		return Result;
 	}
+	Fdemo_mapM01EnemyAttackWeaponGuardContext GuardContext =
+		CaptureM01EnemyAttackWeaponGuardContext();
 	Result = CombatRunCoordinator.ExecuteM01BossShapeAttack(
 		SourceBoss,
 		TargetPlayer,
 		Attack,
 		AttackSequence,
-		RawDamage);
+		RawDamage,
+		GuardContext.IsEnabled() ? &GuardContext : nullptr);
 	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
 	UE_LOG(
 		Logdemo_map,
@@ -808,6 +845,8 @@ Ademo_mapGameMode::ExecuteM01BossVolleyProjectileImpact(
 	{
 		return Result;
 	}
+	Fdemo_mapM01EnemyAttackWeaponGuardContext GuardContext =
+		CaptureM01EnemyAttackWeaponGuardContext();
 	Result = CombatRunCoordinator.ExecuteM01BossVolleyProjectileImpact(
 		SourceBoss,
 		TargetPlayer,
@@ -815,7 +854,8 @@ Ademo_mapGameMode::ExecuteM01BossVolleyProjectileImpact(
 		ProjectileOrdinal,
 		RawDamage,
 		ImpactLocation,
-		ImpactNormal);
+		ImpactNormal,
+		GuardContext.IsEnabled() ? &GuardContext : nullptr);
 	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
 	UE_LOG(
 		Logdemo_map,

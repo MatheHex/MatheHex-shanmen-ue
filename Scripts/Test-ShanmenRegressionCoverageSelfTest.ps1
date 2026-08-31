@@ -182,6 +182,9 @@ try
     $WeaponGuardProductSession = New-AutomationLogFixture `
         -Name 'weapon-guard-product-session.log' `
         -Group 'Shanmen.0_0_10.Product.WeaponGuardProductSession'
+    $WeaponGuardImpactRoute = New-AutomationLogFixture `
+        -Name 'weapon-guard-impact-route.log' `
+        -Group 'Shanmen.0_0_10.Product.WeaponGuardImpactRoute'
     $SpiritEvasionMovement = New-AutomationLogFixture `
         -Name 'spirit-evasion-movement.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritEvasionMovement'
@@ -628,6 +631,15 @@ try
             $WeaponGuardProductAuthority,
             $WeaponGuardProductHost,
             $Coordinator,
+            $Legacy)
+
+    Invoke-ExpectedPass `
+        -Name 'weapon guard Impact route requires Session World defense Run item and enemy evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenWeaponGuardImpactRouteTests.cpp') `
+        -Logs @(
+            $Full,
+            $WeaponGuardImpactRoute,
             $Legacy)
 
     Invoke-ExpectedPass `
@@ -1141,7 +1153,7 @@ try
     Invoke-ExpectedPass `
         -Name 'combat Run coordinator alias seam is covered by broad full and attribute evidence' `
         -Paths @('Source/demo_map/demo_mapCombatRunCoordinator.cpp') `
-        -Logs @($Full, $Attributes)
+        -Logs @($Full, $Attributes, $Legacy)
 
     Invoke-ExpectedFail `
         -Name 'missing mapped group fails closed' `
@@ -1361,6 +1373,19 @@ try
             $WeaponGuardItemAdapter,
             $Coordinator,
             $ItemUseAndArmor) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'weapon guard Impact focus cannot replace World item and enemy evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenWeaponGuardImpactRouteTests.cpp') `
+        -Logs @(
+            $WeaponGuardImpactRoute,
+            $WeaponGuardProductSession,
+            $WeaponGuardProductHost,
+            $WeaponGuardDefenseCoordinator,
+            $WeaponGuardWorldAdapter,
+            $Coordinator) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

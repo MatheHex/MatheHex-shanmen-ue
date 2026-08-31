@@ -5,6 +5,7 @@
 #include "ShanmenVitalityAuthority.h"
 #include "ShanmenWorldEntityRegistry.h"
 #include "demo_mapCombatVitalityHost.h"
+#include "demo_mapShanmenWeaponGuardProductSession.h"
 
 class AActor;
 class APawn;
@@ -66,6 +67,26 @@ enum class Edemo_mapM01EnemyAttackFamily : uint8
 	BossVolleyProjectile
 };
 
+/**
+ * Ephemeral product context captured by GameMode at hostile-contact time.
+ * The Coordinator borrows the Session only for one transactional defense
+ * composition; no clock or Session ownership is retained here.
+ */
+struct Fdemo_mapM01EnemyAttackWeaponGuardContext
+{
+	Fdemo_mapShanmenWeaponGuardProductSession* Session = nullptr;
+	FGuid TimelineId;
+	int64 ObservedTick = INDEX_NONE;
+
+	bool IsEnabled() const { return Session != nullptr; }
+	bool IsValid() const
+	{
+		return Session != nullptr
+			&& TimelineId.IsValid()
+			&& ObservedTick >= 0;
+	}
+};
+
 /** Frozen pure-kernel receipt for one authored M01 enemy attack contact. */
 struct Fdemo_mapM01EnemyAttackImpactReceipt
 {
@@ -100,6 +121,7 @@ enum class Edemo_mapM01EnemyAttackExecutionError : uint8
 	VitalitySnapshotFailed,
 	DefenseSnapshotFailed,
 	ResourceDefensePreparationFailed,
+	WeaponGuardDefensePreparationFailed,
 	ImpactResolutionFailed,
 	DeliveryRejected,
 	RuntimeCompletionFailed
@@ -113,13 +135,17 @@ struct Fdemo_mapM01EnemyAttackExecutionResult
 	FGuid ActivationId;
 	Fdemo_mapM01EnemyAttackImpactReceipt Impact;
 	Fdemo_mapCombatImpactDeliveryResult Delivery;
+	bool bWeaponGuardInspected = false;
+	Fdemo_mapShanmenWeaponGuardSessionDefenseResult WeaponGuardDefense;
 
 	bool IsExecuted() const
 	{
 		return Error == Edemo_mapM01EnemyAttackExecutionError::None
 			&& ActivationId.IsValid()
 			&& Impact.IsValid()
-			&& Delivery.IsSuccess();
+			&& Delivery.IsSuccess()
+			&& (!bWeaponGuardInspected
+				|| WeaponGuardDefense.IsSuccess());
 	}
 
 	/** Positive only for the first mutation; replay and prevention return zero. */
@@ -475,7 +501,9 @@ public:
 	ExecuteM01EnemyBasicMeleeStrike(
 		AActor* SourceEnemy,
 		APawn* TargetPlayer,
-		float RawDamage);
+		float RawDamage,
+		const Fdemo_mapM01EnemyAttackWeaponGuardContext*
+			WeaponGuardContext = nullptr);
 	/**
 	 * Resolves one legal contact from an already-running authored melee dash.
 	 * The skill runtime's Run-reset ActivationSerial is the stable action
@@ -487,7 +515,9 @@ public:
 		APawn* TargetPlayer,
 		FName SkillProfileId,
 		uint32 ActivationSerial,
-		float RawDamage);
+		float RawDamage,
+		const Fdemo_mapM01EnemyAttackWeaponGuardContext*
+			WeaponGuardContext = nullptr);
 	/**
 	 * Resolves one hostile contact from an authored M01 ranged projectile.
 	 * ProjectileSequence is reserved before flight and reset only with the Run;
@@ -501,7 +531,9 @@ public:
 		uint64 ProjectileSequence,
 		float RawDamage,
 		const FVector& ImpactLocation,
-		const FVector& ImpactNormal);
+		const FVector& ImpactNormal,
+		const Fdemo_mapM01EnemyAttackWeaponGuardContext*
+			WeaponGuardContext = nullptr);
 	/**
 	 * Resolves one authorized M01 heavy-sector contact. AttackSequence is
 	 * reserved when the windup begins and therefore survives delayed resolve
@@ -512,14 +544,18 @@ public:
 		AActor* SourceEnemy,
 		APawn* TargetPlayer,
 		uint64 AttackSequence,
-		float RawDamage);
+		float RawDamage,
+		const Fdemo_mapM01EnemyAttackWeaponGuardContext*
+			WeaponGuardContext = nullptr);
 	/** Resolves one legal sweep or charge contact from the authored M01 Boss. */
 	Fdemo_mapM01EnemyAttackExecutionResult ExecuteM01BossShapeAttack(
 		AActor* SourceBoss,
 		APawn* TargetPlayer,
 		Edemo_mapM01BossAttack Attack,
 		uint64 AttackSequence,
-		float RawDamage);
+		float RawDamage,
+		const Fdemo_mapM01EnemyAttackWeaponGuardContext*
+			WeaponGuardContext = nullptr);
 	/**
 	 * Resolves one projectile in an authored three-shot Boss volley. All three
 	 * contacts share AttackSequence and differ only by ProjectileOrdinal 0..2.
@@ -531,7 +567,9 @@ public:
 		int32 ProjectileOrdinal,
 		float RawDamage,
 		const FVector& ImpactLocation,
-		const FVector& ImpactNormal);
+		const FVector& ImpactNormal,
+		const Fdemo_mapM01EnemyAttackWeaponGuardContext*
+			WeaponGuardContext = nullptr);
 	/**
 	 * Executes one complete player BasicSword action from an already sampled UE
 	 * trajectory. Every accepted contact resolves through this Run's Registry;
@@ -630,7 +668,9 @@ private:
 		uint64 RequestedActivationSequence,
 		int32 RequestedHitOrdinal,
 		const FVector& RequestedHitLocation,
-		const FVector& RequestedHitNormal);
+		const FVector& RequestedHitNormal,
+		const Fdemo_mapM01EnemyAttackWeaponGuardContext*
+			WeaponGuardContext);
 	Fdemo_mapCombatImpactDeliveryResult
 	DeliverResolvedPlayerImpactToM01Enemy(
 		bool bImpactValid,
