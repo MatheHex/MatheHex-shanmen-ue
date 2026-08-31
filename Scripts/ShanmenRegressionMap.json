@@ -269,7 +269,8 @@
         "Shanmen.0_0_10.Product.WeaponGuardProductRoute",
         "Shanmen.0_0_10.Product.CombatRunCoordinator",
         "Shanmen.0_0_10.Product.SwordRhythmProductHost",
-        "Shanmen.0_0_10.Product.SwordRhythmProductSession"
+        "Shanmen.0_0_10.Product.SwordRhythmProductSession",
+        "Shanmen.0_0_10.Product.SwordRhythmPresentation"
       ]
     },
     {
@@ -290,6 +291,22 @@
       "pathRegex": "^Source/demo_map/demo_mapShanmenSwordRhythmProductSession(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.SwordRhythmProductSession",
+        "Shanmen.0_0_10.Product.SwordRhythmPresentation",
+        "Shanmen.0_0_10.Product.SwordRhythmProductHost",
+        "Shanmen.0_0_10.Product.CombatRunFixedTimeline",
+        "Shanmen.0_0_10.Product.CombatRunCoordinator",
+        "Shanmen.0_0_10.CombatRuntime.SwordRhythm",
+        "Shanmen.0_0_10.CombatRuntime.BasicSword",
+        "Shanmen.0_0_10.CombatRuntime.ActionLifecycle"
+      ]
+    },
+    {
+      "name": "SwordRhythmPresentation",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenSwordRhythmPresentation(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.SwordRhythmPresentation",
         "Shanmen.0_0_10.Product.SwordRhythmProductSession",
         "Shanmen.0_0_10.Product.SwordRhythmProductHost",
         "Shanmen.0_0_10.Product.CombatRunFixedTimeline",
@@ -1300,6 +1317,7 @@
         "Shanmen.0_0_10.Product.WeaponGuardImpactRoute",
         "Shanmen.0_0_10.Product.CombatRunFixedTimeline",
         "Shanmen.0_0_10.Product.SwordRhythmProductSession",
+        "Shanmen.0_0_10.Product.SwordRhythmPresentation",
         "Shanmen.0_0_10.Product.SwordRhythmProductHost",
         "Shanmen.0_0_10.Product.WeaponGuardInputAdapter",
         "Shanmen.0_0_10.Product.WeaponGuardProductRoute",

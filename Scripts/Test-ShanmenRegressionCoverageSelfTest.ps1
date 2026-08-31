@@ -194,6 +194,9 @@ try
     $SwordRhythmProductSession = New-AutomationLogFixture `
         -Name 'sword-rhythm-product-session.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmProductSession'
+    $SwordRhythmPresentation = New-AutomationLogFixture `
+        -Name 'sword-rhythm-presentation.log' `
+        -Group 'Shanmen.0_0_10.Product.SwordRhythmPresentation'
     $WeaponGuardProductSession = New-AutomationLogFixture `
         -Name 'weapon-guard-product-session.log' `
         -Group 'Shanmen.0_0_10.Product.WeaponGuardProductSession'
@@ -693,7 +696,8 @@ try
             $WeaponGuardProductRoute,
             $Coordinator,
             $SwordRhythmProductHost,
-            $SwordRhythmProductSession)
+            $SwordRhythmProductSession,
+            $SwordRhythmPresentation)
 
     Invoke-ExpectedPass `
         -Name 'sword rhythm product Host requires real action timeline and pure runtime evidence' `
@@ -718,6 +722,24 @@ try
             'Source/demo_map/demo_mapShanmenSwordRhythmProductSessionTests.cpp') `
         -Logs @(
             $Full,
+            $SwordRhythmProductSession,
+            $SwordRhythmPresentation,
+            $SwordRhythmProductHost,
+            $CombatRunFixedTimeline,
+            $Coordinator,
+            $SwordRhythm,
+            $BasicSword,
+            $ActionLifecycle)
+
+    Invoke-ExpectedPass `
+        -Name 'sword rhythm presentation requires immutable Session receipt and runtime evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordRhythmPresentation.h',
+            'Source/demo_map/demo_mapShanmenSwordRhythmPresentation.cpp',
+            'Source/demo_map/demo_mapShanmenSwordRhythmPresentationTests.cpp') `
+        -Logs @(
+            $Full,
+            $SwordRhythmPresentation,
             $SwordRhythmProductSession,
             $SwordRhythmProductHost,
             $CombatRunFixedTimeline,
@@ -1505,6 +1527,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenSwordRhythmProductSession.cpp') `
         -Logs @($SwordRhythmProductSession, $SwordRhythmProductHost) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'sword rhythm presentation focus cannot replace Session and runtime evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordRhythmPresentation.cpp') `
+        -Logs @($SwordRhythmPresentation, $SwordRhythmProductSession) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

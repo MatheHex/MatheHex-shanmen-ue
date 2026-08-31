@@ -207,6 +207,10 @@ public:
 	{
 		return SwordRhythmProductSession;
 	}
+	/** Copies the latest immutable rhythm read model; false before first action. */
+	UFUNCTION(BlueprintPure, Category = "Shanmen|Combat|SwordRhythm")
+	bool TryGetSwordRhythmPresentationState(
+		Fdemo_mapShanmenSwordRhythmPresentationState& OutState) const;
 	/** M01 enemy attacks never fall through to legacy damage when this is true. */
 	bool ShouldUseM01EnemyAttackProductPath() const;
 	Fdemo_mapM01EnemyAttackExecutionResult

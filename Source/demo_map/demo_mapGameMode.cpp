@@ -487,13 +487,18 @@ Ademo_mapGameMode::ExecuteM01PlayerBasicSwordSweep(
 		}
 		if (bRhythmObserved)
 		{
+			const auto& PresentationState =
+				SwordRhythmProductSession.GetPresentationState();
 			UE_LOG(Logdemo_map,
 				Log,
-				TEXT("0_0_10_SWORD_RHYTHM Event=Observed ActivationId=%s ReceiptId=%s InputTick=%lld Band=%d PreviousCount=%d ResultingCount=%d"),
+				TEXT("0_0_10_SWORD_RHYTHM Event=Observed ActivationId=%s ReceiptId=%s PresentationStateId=%s Revision=%d InputTick=%lld Band=%d PreviousCount=%d ResultingCount=%d"),
 				*Result.ActivationId.ToString(
 					EGuidFormats::DigitsWithHyphens),
 				*RhythmReceipt.GetReceiptId().ToString(
 					EGuidFormats::DigitsWithHyphens),
+				*PresentationState.GetPresentationStateId().ToString(
+					EGuidFormats::DigitsWithHyphens),
+				PresentationState.GetObservationRevision(),
 				static_cast<long long>(
 					RhythmReceipt.GetCurrentObservation().GetInputTick()),
 				static_cast<int32>(RhythmReceipt.GetBand()),
@@ -521,6 +526,20 @@ Ademo_mapGameMode::ExecuteM01PlayerBasicSwordSweep(
 		Result.CommittedImpactCount,
 		Result.AlreadyCommittedImpactCount);
 	return Result;
+}
+
+bool Ademo_mapGameMode::TryGetSwordRhythmPresentationState(
+	Fdemo_mapShanmenSwordRhythmPresentationState& OutState) const
+{
+	OutState = Fdemo_mapShanmenSwordRhythmPresentationState();
+	if (!SwordRhythmProductSession.IsValid()
+		|| SwordRhythmProductSession.IsEmpty()
+		|| !SwordRhythmProductSession.GetPresentationState().IsValid())
+	{
+		return false;
+	}
+	OutState = SwordRhythmProductSession.GetPresentationState();
+	return true;
 }
 
 bool Ademo_mapGameMode::ShouldUseM01PlayerShapeSkillProductPath() const

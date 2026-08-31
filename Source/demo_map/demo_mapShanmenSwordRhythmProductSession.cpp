@@ -199,10 +199,22 @@ bool Fdemo_mapShanmenSwordRhythmProductSession::
 	{
 		return false;
 	}
+	const auto Projection =
+		Fdemo_mapShanmenSwordRhythmPresentationProjector::Project(
+			Config,
+			Host.GetRunId(),
+			CandidateReceipt,
+			CandidateHost.GetChain().NumRecordedObservations());
+	if (!Projection.IsProjected())
+	{
+		OutDiagnostic = Projection.Diagnostic;
+		return false;
+	}
 
 	Fdemo_mapShanmenSwordRhythmProductSession Candidate = *this;
 	Candidate.Host = CandidateHost;
 	Candidate.LastReceipt = CandidateReceipt;
+	Candidate.PresentationState = Projection.State;
 	if (!Candidate.IsValid())
 	{
 		OutDiagnostic =
@@ -263,7 +275,9 @@ bool Fdemo_mapShanmenSwordRhythmProductSession::IsValid() const
 	}
 	if (Host.IsEmpty())
 	{
-		return !Config.IsValid() && !LastReceipt.IsValid();
+		return !Config.IsValid()
+			&& !LastReceipt.IsValid()
+			&& !PresentationState.IsValid();
 	}
 	if (!Config.IsValid()
 		|| Host.GetDefinition().GetDefinitionId()
@@ -276,15 +290,22 @@ bool Fdemo_mapShanmenSwordRhythmProductSession::IsValid() const
 		Host.GetChain().NumRecordedObservations();
 	if (ObservationCount == 0)
 	{
-		return !LastReceipt.IsValid();
+		return !LastReceipt.IsValid() && !PresentationState.IsValid();
 	}
 	return LastReceipt.IsValid()
+		&& PresentationState.IsValid()
 		&& LastReceipt.GetDefinition().GetDefinitionId()
 			== Config.GetDefinition().GetDefinitionId()
 		&& LastReceipt.GetCurrentObservation().GetObservationId()
 			== Host.GetChain().GetLastObservation().GetObservationId()
 		&& LastReceipt.GetResultingChainCount()
-			== Host.GetChain().GetCurrentChainCount();
+			== Host.GetChain().GetCurrentChainCount()
+		&& PresentationState.GetRunId() == Host.GetRunId()
+		&& PresentationState.GetConfigId() == Config.GetConfigId()
+		&& PresentationState.GetReceiptId() == LastReceipt.GetReceiptId()
+		&& PresentationState.GetObservationRevision() == ObservationCount
+		&& PresentationState.GetResultingChainCount()
+			== LastReceipt.GetResultingChainCount();
 }
 
 bool Fdemo_mapShanmenSwordRhythmProductSession::IsEmpty() const

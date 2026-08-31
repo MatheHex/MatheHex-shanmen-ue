@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "demo_mapShanmenSwordRhythmProductHost.h"
+#include "demo_mapShanmenSwordRhythmPresentation.h"
 
 /**
  * Versioned product-owned timing content for the first Tai Chi sword rhythm.
@@ -46,8 +47,8 @@ private:
  * Sole Run-lifecycle owner for canonical sword-rhythm product state.
  *
  * It installs one versioned config into P12.1's pure Host and preserves the
- * latest immutable receipt for product inspection. It owns no World, input,
- * animation, timer, damage multiplier or balance mutation.
+ * latest immutable receipt and read-only presentation state. It owns no World,
+ * input, animation, timer, damage multiplier or balance mutation.
  */
 class Fdemo_mapShanmenSwordRhythmProductSession
 {
@@ -76,6 +77,11 @@ public:
 	{
 		return LastReceipt;
 	}
+	const Fdemo_mapShanmenSwordRhythmPresentationState&
+	GetPresentationState() const
+	{
+		return PresentationState;
+	}
 	int32 NumRecordedObservations() const
 	{
 		return Host.IsValid() && !Host.IsEmpty()
@@ -87,4 +93,5 @@ private:
 	Fdemo_mapShanmenSwordRhythmProductConfig Config;
 	Fdemo_mapShanmenSwordRhythmProductHost Host;
 	FShanmenSwordRhythmReceipt LastReceipt;
+	Fdemo_mapShanmenSwordRhythmPresentationState PresentationState;
 };
