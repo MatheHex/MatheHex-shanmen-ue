@@ -173,6 +173,9 @@ try
     $WeaponGuardProductRoute = New-AutomationLogFixture `
         -Name 'weapon-guard-product-route.log' `
         -Group 'Shanmen.0_0_10.Product.WeaponGuardProductRoute'
+    $WeaponGuardInputAdapter = New-AutomationLogFixture `
+        -Name 'weapon-guard-input-adapter.log' `
+        -Group 'Shanmen.0_0_10.Product.WeaponGuardInputAdapter'
     $SpiritEvasionMovement = New-AutomationLogFixture `
         -Name 'spirit-evasion-movement.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritEvasionMovement'
@@ -582,6 +585,22 @@ try
             'Source/demo_map/demo_mapShanmenWeaponGuardProductRouteTests.cpp') `
         -Logs @(
             $Full,
+            $WeaponGuardProductRoute,
+            $WeaponGuardItemAdapter,
+            $WeaponGuardProductAuthority,
+            $WeaponGuardProductHost,
+            $Coordinator,
+            $Legacy)
+
+    Invoke-ExpectedPass `
+        -Name 'weapon guard input adapter requires product route item Run and legacy evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenWeaponGuardInputAdapter.h',
+            'Source/demo_map/demo_mapShanmenWeaponGuardInputAdapter.cpp',
+            'Source/demo_map/demo_mapShanmenWeaponGuardInputAdapterTests.cpp') `
+        -Logs @(
+            $Full,
+            $WeaponGuardInputAdapter,
             $WeaponGuardProductRoute,
             $WeaponGuardItemAdapter,
             $WeaponGuardProductAuthority,
@@ -1280,6 +1299,18 @@ try
             $WeaponGuardProductRoute,
             $WeaponGuardItemAdapter,
             $WeaponGuardProductAuthority,
+            $Coordinator,
+            $ItemUseAndArmor) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'weapon guard input adapter focus cannot replace route host and legacy evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenWeaponGuardInputAdapter.cpp') `
+        -Logs @(
+            $WeaponGuardInputAdapter,
+            $WeaponGuardProductRoute,
+            $WeaponGuardItemAdapter,
             $Coordinator,
             $ItemUseAndArmor) `
         -ExpectedText 'missing required groups'
