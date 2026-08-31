@@ -240,18 +240,37 @@ bool Fdemo_mapPlayerActionGateProofTest::RunTest(const FString&)
 	const Fdemo_mapShanmenPlayerActionGateResult Exact =
 		Fdemo_mapShanmenPlayerActionGateResult::FromGuardPreemption(
 			Arbitration,
-			ArbitrationGuardHost);
+			ArbitrationGuardHost,
+			Fdemo_mapShanmenPlayerActionOccupancySnapshot());
 	const Fdemo_mapShanmenPlayerActionGateResult Wrong =
 		Fdemo_mapShanmenPlayerActionGateResult::FromGuardPreemption(
 			Arbitration,
-			FGuid(0xA1150004, 0, 0, 1));
+			FGuid(0xA1150004, 0, 0, 1),
+			Fdemo_mapShanmenPlayerActionOccupancySnapshot());
 	const Fdemo_mapShanmenPlayerActionGateResult Rejected =
 		Fdemo_mapShanmenPlayerActionGateResult::RejectGuardPreemption(
 			Arbitration,
 			TEXT("Synthetic Host rejection."));
+	const Fdemo_mapShanmenPlayerActionGateResult OccupiedAfterRetirement =
+		Fdemo_mapShanmenPlayerActionGateResult::FromGuardPreemption(
+			Arbitration,
+			ArbitrationGuardHost,
+			OccupancyWith(
+				Edemo_mapShanmenPlayerActionKind::ThrownWeapon,
+				ArbitrationThrownOwner,
+				Edemo_mapShanmenPlayerActionClaimPreemption::None));
+	Fdemo_mapShanmenPlayerActionOccupancySnapshot InvalidAfterRetirement;
+	InvalidAfterRetirement.Invalidate();
+	const Fdemo_mapShanmenPlayerActionGateResult InvalidAfterRetirementResult =
+		Fdemo_mapShanmenPlayerActionGateResult::FromGuardPreemption(
+			Arbitration,
+			ArbitrationGuardHost,
+			InvalidAfterRetirement);
 	TestTrue(TEXT("only the exact retired guard Host authorizes the action"),
 		Exact.IsValid() && Exact.IsAuthorized()
-			&& Exact.RetiredWeaponGuardHostId == ArbitrationGuardHost);
+			&& Exact.RetiredWeaponGuardHostId == ArbitrationGuardHost
+			&& Exact.PostPreemptionObservation
+				== Edemo_mapShanmenPlayerActionPostPreemptionObservation::Empty);
 	TestTrue(TEXT("wrong retired Host remains a valid fail-closed receipt"),
 		Wrong.IsValid() && !Wrong.IsAuthorized()
 			&& !Wrong.RetiredWeaponGuardHostId.IsValid());
@@ -260,6 +279,28 @@ bool Fdemo_mapPlayerActionGateProofTest::RunTest(const FString&)
 			&& Rejected.Error
 				== Edemo_mapShanmenPlayerActionGateError::
 					WeaponGuardPreemptionRejected);
+	TestTrue(TEXT("a new owner observed after exact retirement rejects the action"),
+		OccupiedAfterRetirement.IsValid()
+			&& !OccupiedAfterRetirement.IsAuthorized()
+			&& OccupiedAfterRetirement.RetiredWeaponGuardHostId
+				== ArbitrationGuardHost
+			&& OccupiedAfterRetirement.Error
+				== Edemo_mapShanmenPlayerActionGateError::
+					PostPreemptionLaneOccupied
+			&& OccupiedAfterRetirement.PostPreemptionObservation
+				== Edemo_mapShanmenPlayerActionPostPreemptionObservation::
+					Occupied);
+	TestTrue(TEXT("an invalid post-retirement projection rejects the action"),
+		InvalidAfterRetirementResult.IsValid()
+			&& !InvalidAfterRetirementResult.IsAuthorized()
+			&& InvalidAfterRetirementResult.RetiredWeaponGuardHostId
+				== ArbitrationGuardHost
+			&& InvalidAfterRetirementResult.Error
+				== Edemo_mapShanmenPlayerActionGateError::
+					PostPreemptionProjectionInvalid
+			&& InvalidAfterRetirementResult.PostPreemptionObservation
+				== Edemo_mapShanmenPlayerActionPostPreemptionObservation::
+					Invalid);
 	return true;
 }
 

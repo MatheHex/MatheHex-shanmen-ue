@@ -411,7 +411,8 @@ Ademo_mapGameMode::RoutePlayerActionGate(
 	}
 	return Fdemo_mapShanmenPlayerActionGateResult::FromGuardPreemption(
 		Arbitration,
-		Transition.HostId);
+		Transition.HostId,
+		CapturePlayerActionOccupancy());
 }
 
 bool Ademo_mapGameMode::ShouldUseM01BasicSwordProductPath() const

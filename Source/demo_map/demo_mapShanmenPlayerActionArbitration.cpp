@@ -280,7 +280,9 @@ Fdemo_mapShanmenPlayerActionGateResult::FromArbitration(
 Fdemo_mapShanmenPlayerActionGateResult
 Fdemo_mapShanmenPlayerActionGateResult::FromGuardPreemption(
 	const Fdemo_mapShanmenPlayerActionArbitrationReceipt& Receipt,
-	const FGuid& RetiredHostId)
+	const FGuid& RetiredHostId,
+	const Fdemo_mapShanmenPlayerActionOccupancySnapshot&
+		PostPreemptionOccupancy)
 {
 	Fdemo_mapShanmenPlayerActionGateResult Result;
 	Result.Arbitration = Receipt;
@@ -289,11 +291,33 @@ Fdemo_mapShanmenPlayerActionGateResult::FromGuardPreemption(
 		&& Receipt.RequiresWeaponGuardPreemption()
 		&& RetiredHostId == Receipt.OccupyingOwnerId)
 	{
+		if (!PostPreemptionOccupancy.IsValid())
+		{
+			Result.Error = Edemo_mapShanmenPlayerActionGateError::
+				PostPreemptionProjectionInvalid;
+			Result.PostPreemptionObservation =
+				Edemo_mapShanmenPlayerActionPostPreemptionObservation::Invalid;
+			Result.Diagnostic =
+				TEXT("Player-action occupancy became structurally invalid after exact weapon-guard retirement.");
+			return Result;
+		}
+		if (PostPreemptionOccupancy.NumOccupiedProducts() != 0)
+		{
+			Result.Error = Edemo_mapShanmenPlayerActionGateError::
+				PostPreemptionLaneOccupied;
+			Result.PostPreemptionObservation =
+				Edemo_mapShanmenPlayerActionPostPreemptionObservation::Occupied;
+			Result.Diagnostic =
+				TEXT("Another product occupied the player-action lane during weapon-guard retirement.");
+			return Result;
+		}
 		Result.Status =
 			Edemo_mapShanmenPlayerActionGateStatus::WeaponGuardPreempted;
 		Result.Error = Edemo_mapShanmenPlayerActionGateError::None;
+		Result.PostPreemptionObservation =
+			Edemo_mapShanmenPlayerActionPostPreemptionObservation::Empty;
 		Result.Diagnostic =
-			TEXT("Player action retired the exact active weapon-guard Host.");
+			TEXT("Player action retired the exact active weapon-guard Host and revalidated an empty lane.");
 	}
 	else
 	{
@@ -331,15 +355,43 @@ bool Fdemo_mapShanmenPlayerActionGateResult::IsValid() const
 		return Error == Edemo_mapShanmenPlayerActionGateError::None
 			&& Arbitration.IsAuthorized()
 			&& !Arbitration.RequiresWeaponGuardPreemption()
-			&& !RetiredWeaponGuardHostId.IsValid();
+			&& !RetiredWeaponGuardHostId.IsValid()
+			&& PostPreemptionObservation
+				== Edemo_mapShanmenPlayerActionPostPreemptionObservation::
+					NotObserved;
 	case Edemo_mapShanmenPlayerActionGateStatus::WeaponGuardPreempted:
 		return Error == Edemo_mapShanmenPlayerActionGateError::None
 			&& Arbitration.RequiresWeaponGuardPreemption()
 			&& RetiredWeaponGuardHostId.IsValid()
-			&& RetiredWeaponGuardHostId == Arbitration.OccupyingOwnerId;
+			&& RetiredWeaponGuardHostId == Arbitration.OccupyingOwnerId
+			&& PostPreemptionObservation
+				== Edemo_mapShanmenPlayerActionPostPreemptionObservation::Empty;
 	case Edemo_mapShanmenPlayerActionGateStatus::Rejected:
+		if (Error == Edemo_mapShanmenPlayerActionGateError::
+				PostPreemptionProjectionInvalid)
+		{
+			return Arbitration.RequiresWeaponGuardPreemption()
+				&& RetiredWeaponGuardHostId
+					== Arbitration.OccupyingOwnerId
+				&& PostPreemptionObservation
+					== Edemo_mapShanmenPlayerActionPostPreemptionObservation::
+						Invalid;
+		}
+		if (Error == Edemo_mapShanmenPlayerActionGateError::
+				PostPreemptionLaneOccupied)
+		{
+			return Arbitration.RequiresWeaponGuardPreemption()
+				&& RetiredWeaponGuardHostId
+					== Arbitration.OccupyingOwnerId
+				&& PostPreemptionObservation
+					== Edemo_mapShanmenPlayerActionPostPreemptionObservation::
+						Occupied;
+		}
 		return Error != Edemo_mapShanmenPlayerActionGateError::None
-			&& !RetiredWeaponGuardHostId.IsValid();
+			&& !RetiredWeaponGuardHostId.IsValid()
+			&& PostPreemptionObservation
+				== Edemo_mapShanmenPlayerActionPostPreemptionObservation::
+					NotObserved;
 	default:
 		return false;
 	}

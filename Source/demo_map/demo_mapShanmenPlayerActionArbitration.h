@@ -120,7 +120,18 @@ enum class Edemo_mapShanmenPlayerActionGateError : uint8
 	None,
 	ArbitrationRejected,
 	WeaponGuardPreemptionRejected,
+	PostPreemptionProjectionInvalid,
+	PostPreemptionLaneOccupied,
 	StateDesynchronized
+};
+
+/** What the route observed after an exact Guard Host was retired. */
+enum class Edemo_mapShanmenPlayerActionPostPreemptionObservation : uint8
+{
+	NotObserved,
+	Empty,
+	Occupied,
+	Invalid
 };
 
 /** Product-route proof that any required Guard preemption really completed. */
@@ -132,13 +143,18 @@ struct Fdemo_mapShanmenPlayerActionGateResult
 		Edemo_mapShanmenPlayerActionGateError::ArbitrationRejected;
 	Fdemo_mapShanmenPlayerActionArbitrationReceipt Arbitration;
 	FGuid RetiredWeaponGuardHostId;
+	Edemo_mapShanmenPlayerActionPostPreemptionObservation
+		PostPreemptionObservation =
+			Edemo_mapShanmenPlayerActionPostPreemptionObservation::NotObserved;
 	FString Diagnostic;
 
 	static Fdemo_mapShanmenPlayerActionGateResult FromArbitration(
 		const Fdemo_mapShanmenPlayerActionArbitrationReceipt& Receipt);
 	static Fdemo_mapShanmenPlayerActionGateResult FromGuardPreemption(
 		const Fdemo_mapShanmenPlayerActionArbitrationReceipt& Receipt,
-		const FGuid& RetiredHostId);
+		const FGuid& RetiredHostId,
+		const Fdemo_mapShanmenPlayerActionOccupancySnapshot&
+			PostPreemptionOccupancy);
 	static Fdemo_mapShanmenPlayerActionGateResult RejectGuardPreemption(
 		const Fdemo_mapShanmenPlayerActionArbitrationReceipt& Receipt,
 		const TCHAR* Diagnostic);
