@@ -218,6 +218,26 @@ namespace
 		}
 		return false;
 	}
+
+	bool HasCueCommand(
+		const Fdemo_mapShanmenSwordRhythmEffectCueEvent& Event,
+		const FName EffectDefinitionId,
+		const Edemo_mapShanmenSwordRhythmEffectCueChannel Channel,
+		const FName CueDefinitionId)
+	{
+		for (const Fdemo_mapShanmenSwordRhythmEffectCueCommand& Command
+			: Event.GetCommands())
+		{
+			if (Command.GetBinding().GetEffectDefinitionId()
+					== EffectDefinitionId
+				&& Command.GetChannel() == Channel
+				&& Command.GetCueDefinitionId() == CueDefinitionId)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -240,10 +260,10 @@ bool Fdemo_mapSwordRhythmCanonicalProductConfigTest::RunTest(
 		First.GetConfigId()
 			== Fdemo_mapShanmenSwordRhythmProductConfig::CanonicalConfigId()
 			&& Second.GetConfigId() == First.GetConfigId());
-	TestTrue(TEXT("timing and symbolic policy content are explicit at 30 Hz"),
-		First.GetContent().Version == TEXT("0.0.10.P12.10")
+	TestTrue(TEXT("timing and symbolic cue content are explicit at 30 Hz"),
+		First.GetContent().Version == TEXT("0.0.10.P12.11")
 			&& First.GetContent().Digest
-				== TEXT("Shanmen.SwordRhythm.ProductConfig.r2.SymbolicEffects")
+				== TEXT("Shanmen.SwordRhythm.ProductConfig.r3.SymbolicEffectCues")
 			&& First.GetTimelineTicksPerSecond() == 30
 			&& First.GetDefinition().GetLinkOpenOffsetTicks() == 8
 			&& First.GetDefinition().GetLinkCloseOffsetTicks() == 13
@@ -274,6 +294,34 @@ bool Fdemo_mapSwordRhythmCanonicalProductConfigTest::RunTest(
 			&& SpiritEvasion.GetEffectDefinitionId()
 				== Fdemo_mapShanmenSwordRhythmProductConfig::
 					CanonicalSpiritEvasionEffectDefinitionId());
+	Fdemo_mapShanmenSwordRhythmEffectCueBinding PreciseCue;
+	Fdemo_mapShanmenSwordRhythmEffectCueBinding GuardCue;
+	Fdemo_mapShanmenSwordRhythmEffectCueBinding EvasionCue;
+	TestTrue(TEXT("canonical config owns the complete symbolic cue policy"),
+		First.GetEffectCuePolicy().IsValid()
+			&& Second.GetEffectCuePolicy().GetPolicyId()
+				== First.GetEffectCuePolicy().GetPolicyId()
+			&& First.GetEffectCuePolicy().TryFindBinding(
+				Fdemo_mapShanmenSwordRhythmProductConfig::
+					CanonicalPreciseLinkEffectDefinitionId(),
+				PreciseCue)
+			&& First.GetEffectCuePolicy().TryFindBinding(
+				Fdemo_mapShanmenSwordRhythmProductConfig::
+					CanonicalPerfectGuardEffectDefinitionId(),
+				GuardCue)
+			&& First.GetEffectCuePolicy().TryFindBinding(
+				Fdemo_mapShanmenSwordRhythmProductConfig::
+					CanonicalSpiritEvasionEffectDefinitionId(),
+				EvasionCue)
+			&& PreciseCue.GetVisualCueDefinitionId()
+				== Fdemo_mapShanmenSwordRhythmProductConfig::
+					CanonicalPreciseLinkVisualCueDefinitionId()
+			&& GuardCue.GetAudioCueDefinitionId()
+				== Fdemo_mapShanmenSwordRhythmProductConfig::
+					CanonicalPerfectGuardAudioCueDefinitionId()
+			&& EvasionCue.GetVisualCueDefinitionId()
+				== Fdemo_mapShanmenSwordRhythmProductConfig::
+					CanonicalSpiritEvasionVisualCueDefinitionId());
 
 	Fdemo_mapShanmenSwordRhythmProductSession Session;
 	FString Diagnostic;
@@ -457,6 +505,41 @@ bool Fdemo_mapSwordRhythmProductSessionRealBasicSwordTest::RunTest(
 			&& Session.GetContributionBindingLedger().NumPending() == 0
 			&& Session.GetContributionBindingLedger()
 				.NumBoundContributions() == 2);
+	const auto FirstCueEvent =
+		Fdemo_mapShanmenSwordRhythmEffectCueAdapter::Adapt(
+			Session.GetPresentationState(),
+			Session.GetConfig().GetEffectCuePolicy());
+	TestTrue(TEXT("both defensive effects adapt to four typed cue commands"),
+		FirstCueEvent.IsAdapted()
+			&& FirstCueEvent.Event.NumCommands() == 4
+			&& HasCueCommand(
+				FirstCueEvent.Event,
+				Fdemo_mapShanmenSwordRhythmProductConfig::
+					CanonicalPerfectGuardEffectDefinitionId(),
+				Edemo_mapShanmenSwordRhythmEffectCueChannel::Visual,
+				Fdemo_mapShanmenSwordRhythmProductConfig::
+					CanonicalPerfectGuardVisualCueDefinitionId())
+			&& HasCueCommand(
+				FirstCueEvent.Event,
+				Fdemo_mapShanmenSwordRhythmProductConfig::
+					CanonicalPerfectGuardEffectDefinitionId(),
+				Edemo_mapShanmenSwordRhythmEffectCueChannel::Audio,
+				Fdemo_mapShanmenSwordRhythmProductConfig::
+					CanonicalPerfectGuardAudioCueDefinitionId())
+			&& HasCueCommand(
+				FirstCueEvent.Event,
+				Fdemo_mapShanmenSwordRhythmProductConfig::
+					CanonicalSpiritEvasionEffectDefinitionId(),
+				Edemo_mapShanmenSwordRhythmEffectCueChannel::Visual,
+				Fdemo_mapShanmenSwordRhythmProductConfig::
+					CanonicalSpiritEvasionVisualCueDefinitionId())
+			&& HasCueCommand(
+				FirstCueEvent.Event,
+				Fdemo_mapShanmenSwordRhythmProductConfig::
+					CanonicalSpiritEvasionEffectDefinitionId(),
+				Edemo_mapShanmenSwordRhythmEffectCueChannel::Audio,
+				Fdemo_mapShanmenSwordRhythmProductConfig::
+					CanonicalSpiritEvasionAudioCueDefinitionId()));
 
 	int64 AdvancedTicks = 0;
 	const double OpenSeconds =
@@ -518,6 +601,13 @@ bool Fdemo_mapSwordRhythmProductSessionRealBasicSwordTest::RunTest(
 			&& Session.NumRecordedObservations() == 2
 			&& !SecondBinding.IsValid()
 			&& Session.GetContributionBindingLedger().NumPending() == 1);
+	const auto SecondCueEvent =
+		Fdemo_mapShanmenSwordRhythmEffectCueAdapter::Adapt(
+			Session.GetPresentationState(),
+			Session.GetConfig().GetEffectCuePolicy());
+	TestTrue(TEXT("empty evaluation remains one valid zero-command event"),
+		SecondCueEvent.IsAdapted()
+			&& SecondCueEvent.Event.NumCommands() == 0);
 
 	FShanmenSwordRhythmReceipt ReplayReceipt;
 	FShanmenSwordRhythmContributionBindingReceipt ReplayBinding;
@@ -541,6 +631,13 @@ bool Fdemo_mapSwordRhythmProductSessionRealBasicSwordTest::RunTest(
 				== SecondEvaluationReceipt.GetReceiptId()
 			&& Session.NumRecordedObservations() == 2
 			&& Session.GetContributionBindingLedger().NumPending() == 1);
+	const auto ReplayCueEvent =
+		Fdemo_mapShanmenSwordRhythmEffectCueAdapter::Adapt(
+			Session.GetPresentationState(),
+			Session.GetConfig().GetEffectCuePolicy());
+	TestTrue(TEXT("replay preserves the exact zero-command event identity"),
+		ReplayCueEvent.IsAdapted()
+			&& SecondCueEvent.Event.Matches(ReplayCueEvent.Event));
 	FShanmenSwordRhythmEvaluationInput MismatchedEvaluation;
 	TestFalse(TEXT("binding from another target cannot be handed to an evaluator"),
 		FShanmenSwordRhythmEvaluationInput::TryCapture(
@@ -591,6 +688,27 @@ bool Fdemo_mapSwordRhythmProductSessionRealBasicSwordTest::RunTest(
 			&& Session.GetContributionBindingLedger().NumPending() == 0
 			&& Session.GetContributionBindingLedger()
 				.NumBoundContributions() == 3);
+	const auto ThirdCueEvent =
+		Fdemo_mapShanmenSwordRhythmEffectCueAdapter::Adapt(
+			Session.GetPresentationState(),
+			Session.GetConfig().GetEffectCuePolicy());
+	TestTrue(TEXT("precise effect adapts to its authored visual and audio pair"),
+		ThirdCueEvent.IsAdapted()
+			&& ThirdCueEvent.Event.NumCommands() == 2
+			&& HasCueCommand(
+				ThirdCueEvent.Event,
+				Fdemo_mapShanmenSwordRhythmProductConfig::
+					CanonicalPreciseLinkEffectDefinitionId(),
+				Edemo_mapShanmenSwordRhythmEffectCueChannel::Visual,
+				Fdemo_mapShanmenSwordRhythmProductConfig::
+					CanonicalPreciseLinkVisualCueDefinitionId())
+			&& HasCueCommand(
+				ThirdCueEvent.Event,
+				Fdemo_mapShanmenSwordRhythmProductConfig::
+					CanonicalPreciseLinkEffectDefinitionId(),
+				Edemo_mapShanmenSwordRhythmEffectCueChannel::Audio,
+				Fdemo_mapShanmenSwordRhythmProductConfig::
+					CanonicalPreciseLinkAudioCueDefinitionId()));
 	FShanmenSwordRhythmReceipt ThirdReplayReceipt;
 	FShanmenSwordRhythmContributionBindingReceipt ThirdReplayBinding;
 	FShanmenSwordRhythmEvaluationInput ThirdReplayEvaluation;
@@ -621,6 +739,8 @@ bool Fdemo_mapSwordRhythmProductSessionRealBasicSwordTest::RunTest(
 			&& !Session.GetLastEvaluationReceipt().IsValid()
 			&& !Session.GetPresentationState().IsValid()
 			&& !Session.GetContributionBindingLedger().IsValid());
+	TestTrue(TEXT("immutable cue event copy survives Session teardown"),
+		ThirdCueEvent.Event.IsValid());
 	return true;
 }
 

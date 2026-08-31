@@ -2,8 +2,8 @@
 
 #include "CoreMinimal.h"
 #include "ShanmenSwordRhythmEvaluation.h"
+#include "demo_mapShanmenSwordRhythmEffectCue.h"
 #include "demo_mapShanmenSwordRhythmProductHost.h"
-#include "demo_mapShanmenSwordRhythmPresentation.h"
 
 /**
  * Versioned product-owned timing content for the first Tai Chi sword rhythm.
@@ -22,6 +22,13 @@ public:
 	static FName CanonicalPreciseLinkEffectDefinitionId();
 	static FName CanonicalPerfectGuardEffectDefinitionId();
 	static FName CanonicalSpiritEvasionEffectDefinitionId();
+	static FName CanonicalEffectCuePolicyDefinitionId();
+	static FName CanonicalPreciseLinkVisualCueDefinitionId();
+	static FName CanonicalPreciseLinkAudioCueDefinitionId();
+	static FName CanonicalPerfectGuardVisualCueDefinitionId();
+	static FName CanonicalPerfectGuardAudioCueDefinitionId();
+	static FName CanonicalSpiritEvasionVisualCueDefinitionId();
+	static FName CanonicalSpiritEvasionAudioCueDefinitionId();
 	static int64 CanonicalLinkOpenOffsetTicks();
 	static int64 CanonicalLinkCloseOffsetTicks();
 	static int64 CanonicalTimelineTicksPerSecond();
@@ -40,6 +47,11 @@ public:
 	{
 		return EvaluationPolicy;
 	}
+	const Fdemo_mapShanmenSwordRhythmEffectCuePolicy& GetEffectCuePolicy()
+		const
+	{
+		return EffectCuePolicy;
+	}
 	int64 GetTimelineTicksPerSecond() const
 	{
 		return TimelineTicksPerSecond;
@@ -50,6 +62,7 @@ private:
 	FShanmenContentStamp Content;
 	FShanmenSwordRhythmDefinition Definition;
 	FShanmenSwordRhythmEvaluationPolicy EvaluationPolicy;
+	Fdemo_mapShanmenSwordRhythmEffectCuePolicy EffectCuePolicy;
 	int64 TimelineTicksPerSecond = 0;
 };
 

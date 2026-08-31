@@ -206,6 +206,9 @@ try
     $SwordRhythmEvaluationRoute = New-AutomationLogFixture `
         -Name 'sword-rhythm-evaluation-route.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmEvaluationRoute'
+    $SwordRhythmEffectCue = New-AutomationLogFixture `
+        -Name 'sword-rhythm-effect-cue.log' `
+        -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCue'
     $SwordRhythmPresentation = New-AutomationLogFixture `
         -Name 'sword-rhythm-presentation.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmPresentation'
@@ -784,6 +787,7 @@ try
             $Full,
             $SwordRhythmProductSession,
             $SwordRhythmEvaluationRoute,
+            $SwordRhythmEffectCue,
             $SwordRhythmPresentation,
             $SwordRhythmPresentationEvent,
             $SwordRhythmProductHost,
@@ -795,6 +799,26 @@ try
             $SwordRhythm,
             $WeaponPerfectGuard,
             $SpiritEvasion,
+            $BasicSword,
+            $ActionLifecycle)
+
+    Invoke-ExpectedPass `
+        -Name 'sword rhythm effect cues require product policy read model and runtime evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCue.h',
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCue.cpp',
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueTests.cpp') `
+        -Logs @(
+            $Full,
+            $SwordRhythmEffectCue,
+            $SwordRhythmPresentation,
+            $SwordRhythmProductSession,
+            $SwordRhythmEvaluationRoute,
+            $SwordRhythmProductHost,
+            $CombatRunFixedTimeline,
+            $Coordinator,
+            $SwordRhythmEvaluation,
+            $SwordRhythm,
             $BasicSword,
             $ActionLifecycle)
 
@@ -1643,8 +1667,22 @@ try
         -Logs @(
             $SwordRhythmProductSession,
             $SwordRhythmEvaluationRoute,
+            $SwordRhythmEffectCue,
             $SwordRhythmPresentation,
             $SwordRhythmPresentationEvent,
+            $SwordRhythmProductHost,
+            $SwordRhythmEvaluation) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'sword rhythm effect cue focus cannot replace product and runtime evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCue.cpp') `
+        -Logs @(
+            $SwordRhythmEffectCue,
+            $SwordRhythmPresentation,
+            $SwordRhythmProductSession,
+            $SwordRhythmEvaluationRoute,
             $SwordRhythmProductHost,
             $SwordRhythmEvaluation) `
         -ExpectedText 'missing required groups'

@@ -47,16 +47,69 @@ namespace
 			Capture,
 			OutPolicy);
 	}
+
+	bool TryCreateCanonicalEffectCuePolicy(
+		const FShanmenContentStamp& Content,
+		Fdemo_mapShanmenSwordRhythmEffectCuePolicy& OutPolicy)
+	{
+		Fdemo_mapShanmenSwordRhythmEffectCuePolicyCapture Capture;
+		Capture.PolicyDefinitionId =
+			Fdemo_mapShanmenSwordRhythmProductConfig::
+				CanonicalEffectCuePolicyDefinitionId();
+		Capture.Content = Content;
+
+		Fdemo_mapShanmenSwordRhythmEffectCueBindingCapture PreciseLink;
+		PreciseLink.EffectDefinitionId =
+			Fdemo_mapShanmenSwordRhythmProductConfig::
+				CanonicalPreciseLinkEffectDefinitionId();
+		PreciseLink.VisualCueDefinitionId =
+			Fdemo_mapShanmenSwordRhythmProductConfig::
+				CanonicalPreciseLinkVisualCueDefinitionId();
+		PreciseLink.AudioCueDefinitionId =
+			Fdemo_mapShanmenSwordRhythmProductConfig::
+				CanonicalPreciseLinkAudioCueDefinitionId();
+
+		Fdemo_mapShanmenSwordRhythmEffectCueBindingCapture PerfectGuard;
+		PerfectGuard.EffectDefinitionId =
+			Fdemo_mapShanmenSwordRhythmProductConfig::
+				CanonicalPerfectGuardEffectDefinitionId();
+		PerfectGuard.VisualCueDefinitionId =
+			Fdemo_mapShanmenSwordRhythmProductConfig::
+				CanonicalPerfectGuardVisualCueDefinitionId();
+		PerfectGuard.AudioCueDefinitionId =
+			Fdemo_mapShanmenSwordRhythmProductConfig::
+				CanonicalPerfectGuardAudioCueDefinitionId();
+
+		Fdemo_mapShanmenSwordRhythmEffectCueBindingCapture SpiritEvasion;
+		SpiritEvasion.EffectDefinitionId =
+			Fdemo_mapShanmenSwordRhythmProductConfig::
+				CanonicalSpiritEvasionEffectDefinitionId();
+		SpiritEvasion.VisualCueDefinitionId =
+			Fdemo_mapShanmenSwordRhythmProductConfig::
+				CanonicalSpiritEvasionVisualCueDefinitionId();
+		SpiritEvasion.AudioCueDefinitionId =
+			Fdemo_mapShanmenSwordRhythmProductConfig::
+				CanonicalSpiritEvasionAudioCueDefinitionId();
+
+		Capture.Bindings = {
+			PreciseLink,
+			PerfectGuard,
+			SpiritEvasion
+		};
+		return Fdemo_mapShanmenSwordRhythmEffectCuePolicy::TryCapture(
+			Capture,
+			OutPolicy);
+	}
 }
 
 FName Fdemo_mapShanmenSwordRhythmProductConfig::CanonicalContentVersion()
 {
-	return TEXT("0.0.10.P12.10");
+	return TEXT("0.0.10.P12.11");
 }
 
 FString Fdemo_mapShanmenSwordRhythmProductConfig::CanonicalContentDigest()
 {
-	return TEXT("Shanmen.SwordRhythm.ProductConfig.r2.SymbolicEffects");
+	return TEXT("Shanmen.SwordRhythm.ProductConfig.r3.SymbolicEffectCues");
 }
 
 FName Fdemo_mapShanmenSwordRhythmProductConfig::CanonicalRuleId()
@@ -88,6 +141,48 @@ FName Fdemo_mapShanmenSwordRhythmProductConfig::
 	return TEXT("Combat.Style.Sword.Taiji01.Effect.RedirectedMomentum");
 }
 
+FName Fdemo_mapShanmenSwordRhythmProductConfig::
+	CanonicalEffectCuePolicyDefinitionId()
+{
+	return TEXT("Presentation.Sword.Taiji01.SymbolicEffectCues.r1");
+}
+
+FName Fdemo_mapShanmenSwordRhythmProductConfig::
+	CanonicalPreciseLinkVisualCueDefinitionId()
+{
+	return TEXT("Presentation.Sword.Taiji01.Visual.PreciseFlow.r1");
+}
+
+FName Fdemo_mapShanmenSwordRhythmProductConfig::
+	CanonicalPreciseLinkAudioCueDefinitionId()
+{
+	return TEXT("Presentation.Sword.Taiji01.Audio.PreciseFlow.r1");
+}
+
+FName Fdemo_mapShanmenSwordRhythmProductConfig::
+	CanonicalPerfectGuardVisualCueDefinitionId()
+{
+	return TEXT("Presentation.Sword.Taiji01.Visual.BorrowedForce.r1");
+}
+
+FName Fdemo_mapShanmenSwordRhythmProductConfig::
+	CanonicalPerfectGuardAudioCueDefinitionId()
+{
+	return TEXT("Presentation.Sword.Taiji01.Audio.BorrowedForce.r1");
+}
+
+FName Fdemo_mapShanmenSwordRhythmProductConfig::
+	CanonicalSpiritEvasionVisualCueDefinitionId()
+{
+	return TEXT("Presentation.Sword.Taiji01.Visual.RedirectedMomentum.r1");
+}
+
+FName Fdemo_mapShanmenSwordRhythmProductConfig::
+	CanonicalSpiritEvasionAudioCueDefinitionId()
+{
+	return TEXT("Presentation.Sword.Taiji01.Audio.RedirectedMomentum.r1");
+}
+
 int64 Fdemo_mapShanmenSwordRhythmProductConfig::
 	CanonicalLinkOpenOffsetTicks()
 {
@@ -117,8 +212,13 @@ FGuid Fdemo_mapShanmenSwordRhythmProductConfig::CanonicalConfigId()
 	{
 		return FGuid();
 	}
+	Fdemo_mapShanmenSwordRhythmEffectCuePolicy EffectCuePolicy;
+	if (!TryCreateCanonicalEffectCuePolicy(Content, EffectCuePolicy))
+	{
+		return FGuid();
+	}
 	return FShanmenDeterministicId::FromCanonicalParts(
-		TEXT("demo_map.Combat.SwordRhythm.ProductConfig.r2"),
+		TEXT("demo_map.Combat.SwordRhythm.ProductConfig.r3"),
 		{
 			CanonicalContentVersion().ToString(),
 			CanonicalContentDigest(),
@@ -136,7 +236,8 @@ FGuid Fdemo_mapShanmenSwordRhythmProductConfig::CanonicalConfigId()
 			FString::Printf(
 				TEXT("%lld"),
 				static_cast<long long>(CanonicalTimelineTicksPerSecond())),
-			GuidDigits(EvaluationPolicy.GetPolicyId())
+			GuidDigits(EvaluationPolicy.GetPolicyId()),
+			GuidDigits(EffectCuePolicy.GetPolicyId())
 		});
 }
 
@@ -168,6 +269,12 @@ bool Fdemo_mapShanmenSwordRhythmProductConfig::TryCreateCanonical(
 	{
 		return false;
 	}
+	if (!TryCreateCanonicalEffectCuePolicy(
+			Candidate.Content,
+			Candidate.EffectCuePolicy))
+	{
+		return false;
+	}
 
 	Candidate.TimelineTicksPerSecond =
 		CanonicalTimelineTicksPerSecond();
@@ -184,6 +291,11 @@ bool Fdemo_mapShanmenSwordRhythmProductConfig::IsValid() const
 {
 	FShanmenSwordRhythmEvaluationPolicy ExpectedPolicy;
 	if (!TryCreateCanonicalEvaluationPolicy(Content, ExpectedPolicy))
+	{
+		return false;
+	}
+	Fdemo_mapShanmenSwordRhythmEffectCuePolicy ExpectedCuePolicy;
+	if (!TryCreateCanonicalEffectCuePolicy(Content, ExpectedCuePolicy))
 	{
 		return false;
 	}
@@ -204,6 +316,9 @@ bool Fdemo_mapShanmenSwordRhythmProductConfig::IsValid() const
 			== CanonicalLinkCloseOffsetTicks()
 		&& EvaluationPolicy.IsValid()
 		&& EvaluationPolicy.GetPolicyId() == ExpectedPolicy.GetPolicyId()
+		&& EffectCuePolicy.IsValid()
+		&& EffectCuePolicy.GetPolicyId()
+			== ExpectedCuePolicy.GetPolicyId()
 		&& TimelineTicksPerSecond == CanonicalTimelineTicksPerSecond();
 }
 
