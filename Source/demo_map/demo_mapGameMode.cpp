@@ -465,6 +465,51 @@ Ademo_mapGameMode::ExecuteM01PlayerBasicSwordSweep(
 		AttackPower,
 		WorldHits);
 	Result.ActionGate = ActionGate;
+	if (Result.IsExecuted())
+	{
+		Fdemo_mapShanmenCombatRunTimelineSample TimelineSample;
+		FShanmenSwordRhythmReceipt RhythmReceipt;
+		FString RhythmDiagnostic;
+		bool bRhythmObserved = false;
+		if (!CombatRunFixedTimeline.TryCapture(TimelineSample))
+		{
+			RhythmDiagnostic =
+				TEXT("Canonical Run timeline could not capture the completed BasicSword action.");
+		}
+		else
+		{
+			bRhythmObserved =
+				SwordRhythmProductSession.TryObserveExecutedBasicSword(
+				Result,
+				TimelineSample,
+				RhythmReceipt,
+				RhythmDiagnostic);
+		}
+		if (bRhythmObserved)
+		{
+			UE_LOG(Logdemo_map,
+				Log,
+				TEXT("0_0_10_SWORD_RHYTHM Event=Observed ActivationId=%s ReceiptId=%s InputTick=%lld Band=%d PreviousCount=%d ResultingCount=%d"),
+				*Result.ActivationId.ToString(
+					EGuidFormats::DigitsWithHyphens),
+				*RhythmReceipt.GetReceiptId().ToString(
+					EGuidFormats::DigitsWithHyphens),
+				static_cast<long long>(
+					RhythmReceipt.GetCurrentObservation().GetInputTick()),
+				static_cast<int32>(RhythmReceipt.GetBand()),
+				RhythmReceipt.GetPreviousChainCount(),
+				RhythmReceipt.GetResultingChainCount());
+		}
+		else
+		{
+			UE_LOG(Logdemo_map,
+				Error,
+				TEXT("0_0_10_SWORD_RHYTHM Event=ObservationRejected ActivationId=%s Diagnostic=%s"),
+				*Result.ActivationId.ToString(
+					EGuidFormats::DigitsWithHyphens),
+				*RhythmDiagnostic);
+		}
+	}
 	UE_LOG(Logdemo_map,
 		Log,
 		TEXT("0_0_10_BASIC_SWORD Event=ProductSweep Error=%d ActivationId=%s Contacts=%d Candidates=%d Delivered=%d Committed=%d Replayed=%d"),
@@ -1390,6 +1435,7 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 		|| !ThrownWeaponProductLifecycle.IsEmpty()
 		|| !WeaponGuardProductSession.IsEmpty()
 		|| !CombatRunFixedTimeline.IsEmpty()
+		|| !SwordRhythmProductSession.IsEmpty()
 		|| (SpiritEvasion
 			&& SpiritEvasion->HasHost()
 			&& !SpiritEvasion->IsTerminal()))
@@ -1487,8 +1533,26 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 		OutDiagnostic = TimelineDiagnostic;
 		return false;
 	}
+	FString SwordRhythmDiagnostic;
+	if (!SwordRhythmProductSession.TryBegin(
+			ActiveRunId,
+			SwordRhythmDiagnostic))
+	{
+		FString TimelineReleaseDiagnostic;
+		CombatRunFixedTimeline.TryEnd(
+			ActiveRunId,
+			TimelineReleaseDiagnostic);
+		FString ThrownDiagnostic;
+		ThrownWeaponProductLifecycle.TryEnd(ThrownDiagnostic);
+		FString ReleaseDiagnostic;
+		CombatRunCoordinator.TryEndRun(
+			ActiveRunId,
+			ReleaseDiagnostic);
+		OutDiagnostic = SwordRhythmDiagnostic;
+		return false;
+	}
 	UE_LOG(Logdemo_map, Log,
-		TEXT("0_0_10_COMBAT_RUN Event=RunBound RunId=%s PlayerEntityId=%s M01Entities=%d M01VitalityHosts=%d ThrownWeaponLifecycle=%d RunTimelineId=%s RunTickRate=%lld"),
+		TEXT("0_0_10_COMBAT_RUN Event=RunBound RunId=%s PlayerEntityId=%s M01Entities=%d M01VitalityHosts=%d ThrownWeaponLifecycle=%d RunTimelineId=%s RunTickRate=%lld SwordRhythmConfigId=%s SwordRhythmWindow=[%lld,%lld)"),
 		*ActiveRunId.ToString(EGuidFormats::DigitsWithHyphens),
 		*CombatRunCoordinator.GetPlayerEntityId().ToString(
 			EGuidFormats::DigitsWithHyphens),
@@ -1499,7 +1563,15 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 			EGuidFormats::DigitsWithHyphens),
 		static_cast<long long>(
 			Fdemo_mapShanmenCombatRunFixedTimeline::
-				CanonicalTicksPerSecond()));
+				CanonicalTicksPerSecond()),
+		*SwordRhythmProductSession.GetConfig().GetConfigId().ToString(
+			EGuidFormats::DigitsWithHyphens),
+		static_cast<long long>(
+			SwordRhythmProductSession.GetConfig().GetDefinition()
+				.GetLinkOpenOffsetTicks()),
+		static_cast<long long>(
+			SwordRhythmProductSession.GetConfig().GetDefinition()
+				.GetLinkCloseOffsetTicks()));
 	return true;
 }
 
@@ -1529,6 +1601,42 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 	{
 		return false;
 	}
+	if (!SwordRhythmProductSession.IsValid())
+	{
+		UE_LOG(Logdemo_map, Error,
+			TEXT("0_0_10_COMBAT_RUN Event=SwordRhythmInvalidOnRelease Context=%s"),
+			SafeContext);
+		SwordRhythmProductSession.Reset();
+		return false;
+	}
+	const int32 SwordRhythmObservationCount =
+		SwordRhythmProductSession.NumRecordedObservations();
+	if (!SwordRhythmProductSession.IsEmpty())
+	{
+		if (!CombatRunCoordinator.IsActive()
+			|| SwordRhythmProductSession.GetRunId()
+				!= CombatRunCoordinator.GetRunId())
+		{
+			UE_LOG(Logdemo_map, Error,
+				TEXT("0_0_10_COMBAT_RUN Event=SwordRhythmRunMismatchOnRelease Context=%s Observations=%d"),
+				SafeContext,
+				SwordRhythmObservationCount);
+			SwordRhythmProductSession.Reset();
+			return false;
+		}
+		FString SwordRhythmDiagnostic;
+		if (!SwordRhythmProductSession.TryEnd(
+				CombatRunCoordinator.GetRunId(),
+				SwordRhythmDiagnostic))
+		{
+			UE_LOG(Logdemo_map, Error,
+				TEXT("0_0_10_COMBAT_RUN Event=SwordRhythmReleaseRejected Context=%s Observations=%d Diagnostic=%s"),
+				SafeContext,
+				SwordRhythmObservationCount,
+				*SwordRhythmDiagnostic);
+			return false;
+		}
+	}
 	const int32 ThrownSelectionCount =
 		ThrownWeaponProductLifecycle.NumCapturedSelections();
 	FString ThrownDiagnostic;
@@ -1547,7 +1655,8 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 		if (ControlledWeaponRunHost.IsEmpty()
 			&& ControlledWeaponRunCommandRouter.IsEmpty()
 			&& ControlledWeaponThreatSampleRouter.IsEmpty()
-			&& CombatRunFixedTimeline.IsEmpty())
+			&& CombatRunFixedTimeline.IsEmpty()
+			&& SwordRhythmProductSession.IsEmpty())
 		{
 			return true;
 		}
@@ -1562,6 +1671,7 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 		ControlledWeaponRunCommandRouter.Reset();
 		ControlledWeaponThreatSampleRouter.Reset();
 		CombatRunFixedTimeline.Reset();
+		SwordRhythmProductSession.Reset();
 		return false;
 	}
 
@@ -1591,7 +1701,7 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 		ControlledWeaponRunCommandRouter.Reset();
 		ControlledWeaponThreatSampleRouter.Reset();
 		UE_LOG(Logdemo_map, Log,
-			TEXT("0_0_10_COMBAT_RUN Event=RunReleased RunId=%s Context=%s ControlledBound=%d ControlledInterrupted=%d RoutedIntents=%d ThreatSamples=%lld ThrownSelections=%d WeaponGuardInterrupted=%d"),
+			TEXT("0_0_10_COMBAT_RUN Event=RunReleased RunId=%s Context=%s ControlledBound=%d ControlledInterrupted=%d RoutedIntents=%d ThreatSamples=%lld ThrownSelections=%d SwordRhythmObservations=%d WeaponGuardInterrupted=%d"),
 			*Result.RunId.ToString(EGuidFormats::DigitsWithHyphens),
 			SafeContext,
 			Result.BoundItemCount,
@@ -1599,6 +1709,7 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 			RoutedIntentCount,
 			static_cast<long long>(ThreatSampleCount),
 			ThrownSelectionCount,
+			SwordRhythmObservationCount,
 			GuardRelease.Status
 				== Edemo_mapShanmenWeaponGuardSessionTransitionStatus::Interrupted
 				? 1
@@ -1615,6 +1726,7 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 	ControlledWeaponThreatSampleRouter.Reset();
 	ControlledWeaponRunHost.Reset();
 	CombatRunFixedTimeline.Reset();
+	SwordRhythmProductSession.Reset();
 	CombatRunCoordinator.Reset();
 	return false;
 }

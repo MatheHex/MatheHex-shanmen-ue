@@ -19,6 +19,7 @@
 #include "demo_mapShanmenRunCorrelation.h"
 #include "demo_mapShanmenSpiritEvasionProductRoute.h"
 #include "demo_mapShanmenCombatRunFixedTimeline.h"
+#include "demo_mapShanmenSwordRhythmProductSession.h"
 #include "demo_mapShanmenWeaponGuardInputAdapter.h"
 #include "demo_mapShanmenWeaponGuardProductSession.h"
 #include "demo_mapGameMode.generated.h"
@@ -200,6 +201,11 @@ public:
 	GetCombatRunFixedTimeline() const
 	{
 		return CombatRunFixedTimeline;
+	}
+	const Fdemo_mapShanmenSwordRhythmProductSession&
+	GetSwordRhythmProductSession() const
+	{
+		return SwordRhythmProductSession;
 	}
 	/** M01 enemy attacks never fall through to legacy damage when this is true. */
 	bool ShouldUseM01EnemyAttackProductPath() const;
@@ -443,6 +449,7 @@ private:
 		ThrownWeaponProductLifecycle;
 	Fdemo_mapShanmenThrownWeaponInputAdapter ThrownWeaponInputAdapter;
 	Fdemo_mapShanmenCombatRunFixedTimeline CombatRunFixedTimeline;
+	Fdemo_mapShanmenSwordRhythmProductSession SwordRhythmProductSession;
 	Fdemo_mapShanmenWeaponGuardProductSession WeaponGuardProductSession;
 	TArray<TWeakObjectPtr<Ademo_mapM01ExtractionZone>> M01ExtractionZones;
 	TArray<TWeakObjectPtr<AActor>> M01EnemyActors;
