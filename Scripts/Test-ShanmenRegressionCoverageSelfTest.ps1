@@ -149,6 +149,9 @@ try
     $WeaponGuard = New-AutomationLogFixture `
         -Name 'weapon-guard.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.WeaponGuard'
+    $WeaponPerfectGuard = New-AutomationLogFixture `
+        -Name 'weapon-perfect-guard.log' `
+        -Group 'Shanmen.0_0_10.CombatRuntime.WeaponPerfectGuard'
     $SpiritEvasionMovement = New-AutomationLogFixture `
         -Name 'spirit-evasion-movement.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritEvasionMovement'
@@ -433,6 +436,19 @@ try
             'Source/ShanmenCombatRuntime/Private/ShanmenWeaponGuard.cpp',
             'Source/ShanmenCombatRuntime/Private/Tests/ShanmenWeaponGuardTests.cpp') `
         -Logs @(
+            $WeaponGuard,
+            $ActionLifecycle,
+            $CombatRuntime,
+            $CombatCore)
+
+    Invoke-ExpectedPass `
+        -Name 'perfect guard timing requires ordinary window lifecycle and resolver evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Public/ShanmenWeaponPerfectGuard.h',
+            'Source/ShanmenCombatRuntime/Private/ShanmenWeaponPerfectGuard.cpp',
+            'Source/ShanmenCombatRuntime/Private/Tests/ShanmenWeaponPerfectGuardTests.cpp') `
+        -Logs @(
+            $WeaponPerfectGuard,
             $WeaponGuard,
             $ActionLifecycle,
             $CombatRuntime,
@@ -1037,6 +1053,13 @@ try
         -Paths @(
             'Source/ShanmenCombatRuntime/Private/ShanmenWeaponGuard.cpp') `
         -Logs @($WeaponGuard, $ActionLifecycle) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'perfect guard timing focus cannot replace ordinary window lifecycle and resolver evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Private/ShanmenWeaponPerfectGuard.cpp') `
+        -Logs @($WeaponPerfectGuard, $WeaponGuard, $ActionLifecycle) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
