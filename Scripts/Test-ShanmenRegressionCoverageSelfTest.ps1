@@ -155,6 +155,9 @@ try
     $WeaponGuardArc = New-AutomationLogFixture `
         -Name 'weapon-guard-arc.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.WeaponGuardArc'
+    $WeaponGuardWorldAdapter = New-AutomationLogFixture `
+        -Name 'weapon-guard-world-adapter.log' `
+        -Group 'Shanmen.0_0_10.Product.WeaponGuardWorldAdapter'
     $SpiritEvasionMovement = New-AutomationLogFixture `
         -Name 'spirit-evasion-movement.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritEvasionMovement'
@@ -470,6 +473,22 @@ try
             $ActionLifecycle,
             $CombatRuntime,
             $CombatCore)
+
+    Invoke-ExpectedPass `
+        -Name 'weapon guard World adapter requires full world arc timing and resolver evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenWeaponGuardWorldAdapter.h',
+            'Source/demo_map/demo_mapShanmenWeaponGuardWorldAdapter.cpp',
+            'Source/demo_map/demo_mapShanmenWeaponGuardWorldAdapterTests.cpp') `
+        -Logs @(
+            $Full,
+            $WeaponGuardWorldAdapter,
+            $WeaponGuardArc,
+            $WeaponPerfectGuard,
+            $WeaponGuard,
+            $ActionLifecycle,
+            $CombatCore,
+            $WorldGameplay)
 
     Invoke-ExpectedPass `
         -Name 'spirit evasion movement requires window and lifecycle evidence' `
@@ -1088,6 +1107,19 @@ try
             $WeaponPerfectGuard,
             $WeaponGuard,
             $ActionLifecycle) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'weapon guard World focus cannot replace full and World identity evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenWeaponGuardWorldAdapter.cpp') `
+        -Logs @(
+            $WeaponGuardWorldAdapter,
+            $WeaponGuardArc,
+            $WeaponPerfectGuard,
+            $WeaponGuard,
+            $ActionLifecycle,
+            $CombatCore) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
