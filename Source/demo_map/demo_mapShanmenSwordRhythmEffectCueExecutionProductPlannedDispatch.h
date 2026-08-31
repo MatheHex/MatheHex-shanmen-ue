@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "demo_mapShanmenSwordRhythmEffectCueExecutionProductDispatchPlan.h"
+#include "demo_mapShanmenSwordRhythmEffectCueExecutionProductPreparedDispatch.h"
 
 enum class
 	Edemo_mapShanmenSwordRhythmEffectCueExecutionProductPlannedDispatchStatus
@@ -36,9 +36,9 @@ struct Fdemo_mapShanmenSwordRhythmEffectCueExecutionProductPlannedDispatchResult
 /**
  * Stateless current ProductSession -> deterministic plan -> frozen dispatch.
  *
- * One call reads the current projection once, captures one P12.23 plan, then
- * feeds that exact projection and identity to P12.22 once. Every seed, Host
- * and executor remains caller-owned; no retry or future Session state is read.
+ * Compatibility composition over P12.25 PrepareCurrent and
+ * TryDispatchPrepared. Every seed, Host and executor remains caller-owned;
+ * no retry or future Session state is read.
  */
 class Fdemo_mapShanmenSwordRhythmEffectCueExecutionProductPlannedDispatch
 {

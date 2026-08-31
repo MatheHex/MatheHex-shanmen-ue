@@ -157,6 +157,45 @@ MatchesProjection(
 }
 
 bool Fdemo_mapShanmenSwordRhythmEffectCueExecutionProductDispatchPlan::
+MatchesRequest(
+	const Fdemo_mapShanmenSwordRhythmEffectCueExecutionProductTransactionRequest&
+		Other) const
+{
+	if (!IsValid()
+		|| !Other.IsValid()
+		|| !Projection.Matches(Other.GetProjection()))
+	{
+		return false;
+	}
+
+	const auto& CreateEnvelope = Other.GetCreateRequest().GetEnvelope();
+	const auto& CreateCommand = CreateEnvelope.GetCommand();
+	const auto& ProcessEnvelope = Other.GetProcessEnvelope();
+	const auto& ProcessCommand = ProcessEnvelope.GetCommand();
+	const auto& EndEnvelope = Other.GetEndEnvelope();
+	const auto& EndCommand = EndEnvelope.GetCommand();
+	return CreateEnvelope.GetHostId() == TransactionIdentity.HostId
+		&& ProcessEnvelope.GetHostId() == TransactionIdentity.HostId
+		&& EndEnvelope.GetHostId() == TransactionIdentity.HostId
+		&& CreateEnvelope.GetSequence() == TransactionIdentity.CreateSequence
+		&& ProcessEnvelope.GetSequence() == TransactionIdentity.ProcessSequence
+		&& EndEnvelope.GetSequence() == TransactionIdentity.EndSequence
+		&& CreateCommand.GetCommandId()
+			== TransactionIdentity.CreateCommandId
+		&& ProcessCommand.GetCommandId()
+			== TransactionIdentity.ProcessCommandId
+		&& EndCommand.GetCommandId() == TransactionIdentity.EndCommandId
+		&& CreateCommand.GetVisualConsumerId()
+			== TransactionIdentity.VisualConsumerId
+		&& CreateCommand.GetAudioConsumerId()
+			== TransactionIdentity.AudioConsumerId
+		&& ProcessCommand.GetVisualAttemptId()
+			== TransactionIdentity.VisualAttemptId
+		&& ProcessCommand.GetAudioAttemptId()
+			== TransactionIdentity.AudioAttemptId;
+}
+
+bool Fdemo_mapShanmenSwordRhythmEffectCueExecutionProductDispatchPlan::
 MatchesCurrentSession(
 	const Fdemo_mapShanmenSwordRhythmProductSession& Session) const
 {

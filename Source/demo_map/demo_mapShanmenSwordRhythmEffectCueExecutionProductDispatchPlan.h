@@ -30,6 +30,9 @@ public:
 	bool MatchesProjection(
 		const Fdemo_mapShanmenSwordRhythmEffectCueExecutionProductProjection&
 			Other) const;
+	bool MatchesRequest(
+		const Fdemo_mapShanmenSwordRhythmEffectCueExecutionProductTransactionRequest&
+			Other) const;
 	bool MatchesCurrentSession(
 		const Fdemo_mapShanmenSwordRhythmProductSession& Session) const;
 

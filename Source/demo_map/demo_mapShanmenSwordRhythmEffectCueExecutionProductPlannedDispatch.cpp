@@ -4,42 +4,6 @@ namespace
 {
 	using FResult =
 		Fdemo_mapShanmenSwordRhythmEffectCueExecutionProductPlannedDispatchResult;
-	using FIdentity =
-		Fdemo_mapShanmenSwordRhythmEffectCueExecutionProductTransactionCapture;
-
-	bool RequestMatchesIdentity(
-		const Fdemo_mapShanmenSwordRhythmEffectCueExecutionProductTransactionRequest&
-			Request,
-		const FIdentity& Identity)
-	{
-		if (!Request.IsValid() || !Identity.IsValid())
-		{
-			return false;
-		}
-		const auto& CreateEnvelope = Request.GetCreateRequest().GetEnvelope();
-		const auto& CreateCommand = CreateEnvelope.GetCommand();
-		const auto& ProcessEnvelope = Request.GetProcessEnvelope();
-		const auto& ProcessCommand = ProcessEnvelope.GetCommand();
-		const auto& EndEnvelope = Request.GetEndEnvelope();
-		const auto& EndCommand = EndEnvelope.GetCommand();
-		return CreateEnvelope.GetHostId() == Identity.HostId
-			&& ProcessEnvelope.GetHostId() == Identity.HostId
-			&& EndEnvelope.GetHostId() == Identity.HostId
-			&& CreateEnvelope.GetSequence() == Identity.CreateSequence
-			&& ProcessEnvelope.GetSequence() == Identity.ProcessSequence
-			&& EndEnvelope.GetSequence() == Identity.EndSequence
-			&& CreateCommand.GetCommandId() == Identity.CreateCommandId
-			&& ProcessCommand.GetCommandId() == Identity.ProcessCommandId
-			&& EndCommand.GetCommandId() == Identity.EndCommandId
-			&& CreateCommand.GetVisualConsumerId()
-				== Identity.VisualConsumerId
-			&& CreateCommand.GetAudioConsumerId()
-				== Identity.AudioConsumerId
-			&& ProcessCommand.GetVisualAttemptId()
-				== Identity.VisualAttemptId
-			&& ProcessCommand.GetAudioAttemptId()
-				== Identity.AudioAttemptId;
-	}
 }
 
 bool Fdemo_mapShanmenSwordRhythmEffectCueExecutionProductPlannedDispatchResult::
@@ -70,9 +34,8 @@ IsSuccess() const
 		|| !Dispatch.IsSuccess()
 		|| !PlanCapture.Plan.MatchesProjection(Projection.Projection)
 		|| !Dispatch.Projection.Projection.Matches(Projection.Projection)
-		|| !RequestMatchesIdentity(
-			Dispatch.TransactionCapture.Request,
-			PlanCapture.Plan.GetTransactionIdentity()))
+		|| !PlanCapture.Plan.MatchesRequest(
+			Dispatch.TransactionCapture.Request))
 	{
 		return false;
 	}
@@ -91,53 +54,60 @@ TryDispatchCurrent(
 	Idemo_mapShanmenSwordRhythmEffectCueExecutor& AudioExecutor)
 {
 	FResult Result;
-	Result.Projection =
-		Fdemo_mapShanmenSwordRhythmEffectCueExecutionProductProjector::
-			CaptureCurrent(Session);
-	if (!Result.Projection.IsCaptured())
+	const auto Prepared =
+		Fdemo_mapShanmenSwordRhythmEffectCueExecutionProductPreparedDispatchService::
+			PrepareCurrent(Session, Seed);
+	Result.Projection = Prepared.Projection;
+	Result.PlanCapture = Prepared.PlanCapture;
+	if (!Prepared.IsPrepared())
 	{
-		Result.Status =
-			Edemo_mapShanmenSwordRhythmEffectCueExecutionProductPlannedDispatchStatus::
-				ProjectionRejected;
-		Result.Diagnostic = Result.Projection.Diagnostic;
+		switch (Prepared.Status)
+		{
+		case Edemo_mapShanmenSwordRhythmEffectCueExecutionProductPreparedDispatchPrepareStatus::
+			ProjectionRejected:
+			Result.Status =
+				Edemo_mapShanmenSwordRhythmEffectCueExecutionProductPlannedDispatchStatus::
+					ProjectionRejected;
+			break;
+		case Edemo_mapShanmenSwordRhythmEffectCueExecutionProductPreparedDispatchPrepareStatus::
+			PlanRejected:
+			Result.Status =
+				Edemo_mapShanmenSwordRhythmEffectCueExecutionProductPlannedDispatchStatus::
+					PlanRejected;
+			break;
+		default:
+			Result.Status =
+				Edemo_mapShanmenSwordRhythmEffectCueExecutionProductPlannedDispatchStatus::
+					StateInvalid;
+			break;
+		}
+		Result.Diagnostic = Prepared.Diagnostic;
 		return Result;
 	}
 
-	Result.PlanCapture =
-		Fdemo_mapShanmenSwordRhythmEffectCueExecutionProductDispatchPlanFactory::
-			Capture(Result.Projection.Projection, Seed);
-	if (!Result.PlanCapture.IsCaptured())
-	{
-		Result.Status =
-			Edemo_mapShanmenSwordRhythmEffectCueExecutionProductPlannedDispatchStatus::
-				PlanRejected;
-		Result.Diagnostic = Result.PlanCapture.Diagnostic;
-		return Result;
-	}
-
-	Result.Dispatch =
-		Fdemo_mapShanmenSwordRhythmEffectCueExecutionProductDispatch::
-			TryDispatchProjection(
-				Result.Projection.Projection,
-				Result.PlanCapture.Plan.GetTransactionIdentity(),
+	const auto Dispatched =
+		Fdemo_mapShanmenSwordRhythmEffectCueExecutionProductPreparedDispatchService::
+			TryDispatchPrepared(
+				Prepared.Prepared,
 				Host,
 				VisualExecutor,
 				AudioExecutor);
-	switch (Result.Dispatch.Status)
+	Result.Dispatch = Dispatched.Dispatch;
+	switch (Dispatched.Status)
 	{
-	case Edemo_mapShanmenSwordRhythmEffectCueExecutionProductDispatchStatus::
+	case Edemo_mapShanmenSwordRhythmEffectCueExecutionProductPreparedDispatchStatus::
 		Dispatched:
 		Result.Status =
 			Edemo_mapShanmenSwordRhythmEffectCueExecutionProductPlannedDispatchStatus::
 				Dispatched;
 		break;
-	case Edemo_mapShanmenSwordRhythmEffectCueExecutionProductDispatchStatus::
+	case Edemo_mapShanmenSwordRhythmEffectCueExecutionProductPreparedDispatchStatus::
 		Resumed:
 		Result.Status =
 			Edemo_mapShanmenSwordRhythmEffectCueExecutionProductPlannedDispatchStatus::
 				Resumed;
 		break;
-	case Edemo_mapShanmenSwordRhythmEffectCueExecutionProductDispatchStatus::
+	case Edemo_mapShanmenSwordRhythmEffectCueExecutionProductPreparedDispatchStatus::
 		Replayed:
 		Result.Status =
 			Edemo_mapShanmenSwordRhythmEffectCueExecutionProductPlannedDispatchStatus::
@@ -147,7 +117,7 @@ TryDispatchCurrent(
 		Result.Status =
 			Edemo_mapShanmenSwordRhythmEffectCueExecutionProductPlannedDispatchStatus::
 				DispatchIncomplete;
-		Result.Diagnostic = Result.Dispatch.Diagnostic;
+		Result.Diagnostic = Dispatched.Diagnostic;
 		return Result;
 	}
 

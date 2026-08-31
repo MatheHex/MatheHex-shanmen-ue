@@ -236,6 +236,8 @@ bool Fdemo_mapSwordRhythmCueProductDispatchPlanDeterminismTest::RunTest(
 			&& AllDistinct(First.Plan.GetTransactionIdentity())
 			&& FirstRequest.IsCaptured()
 			&& SecondRequest.IsCaptured()
+			&& First.Plan.MatchesRequest(FirstRequest.Request)
+			&& Second.Plan.MatchesRequest(SecondRequest.Request)
 			&& FirstRequest.Request.Matches(SecondRequest.Request));
 	return true;
 }
