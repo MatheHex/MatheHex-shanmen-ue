@@ -239,6 +239,9 @@ try
     $SwordRhythmEffectCueExecutionProductDispatch = New-AutomationLogFixture `
         -Name 'sword-rhythm-effect-cue-execution-product-dispatch.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionProductDispatch'
+    $SwordRhythmEffectCueExecutionProductPreparedRetry = New-AutomationLogFixture `
+        -Name 'sword-rhythm-effect-cue-execution-product-prepared-retry.log' `
+        -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionProductPreparedRetry'
     $SwordRhythmEffectCueExecutionProductPreparedDispatch = New-AutomationLogFixture `
         -Name 'sword-rhythm-effect-cue-execution-product-prepared-dispatch.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionProductPreparedDispatch'
@@ -1014,6 +1017,41 @@ try
             'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionSessionTests.cpp') `
         -Logs @(
             $Full,
+            $SwordRhythmEffectCueExecutionSession,
+            $SwordRhythmEffectCueExecutionHost,
+            $SwordRhythmEffectCueExecutionDriver,
+            $SwordRhythmEffectCueExecutorAdapter,
+            $SwordRhythmEffectCueConsumerAttempt,
+            $SwordRhythmEffectCueDelivery,
+            $SwordRhythmEffectCue,
+            $SwordRhythmPresentation,
+            $SwordRhythmProductSession,
+            $SwordRhythmEvaluationRoute,
+            $SwordRhythmProductHost,
+            $CombatRunFixedTimeline,
+            $Coordinator,
+            $SwordRhythmEvaluation,
+            $SwordRhythm,
+            $BasicSword,
+            $ActionLifecycle)
+
+    Invoke-ExpectedPass `
+        -Name 'sword rhythm cue product prepared retry requires complete continuation-to-runtime evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductPreparedRetry.h',
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductPreparedRetry.cpp',
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductPreparedRetryTests.cpp') `
+        -Logs @(
+            $Full,
+            $SwordRhythmEffectCueExecutionProductPreparedRetry,
+            $SwordRhythmEffectCueExecutionProductPreparedDispatch,
+            $SwordRhythmEffectCueExecutionProductPlannedDispatch,
+            $SwordRhythmEffectCueExecutionProductDispatchPlan,
+            $SwordRhythmEffectCueExecutionProductDispatch,
+            $SwordRhythmEffectCueExecutionProductTransaction,
+            $SwordRhythmEffectCueExecutionProductRoute,
+            $SwordRhythmEffectCueExecutionCommandHost,
+            $SwordRhythmEffectCueExecutionCommandRouter,
             $SwordRhythmEffectCueExecutionSession,
             $SwordRhythmEffectCueExecutionHost,
             $SwordRhythmEffectCueExecutionDriver,
@@ -2237,6 +2275,13 @@ try
             $SwordRhythmEvaluationRoute,
             $SwordRhythmProductHost,
             $SwordRhythmEvaluation) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'sword rhythm cue product prepared retry focus cannot replace continuation-to-runtime evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductPreparedRetry.cpp') `
+        -Logs @($SwordRhythmEffectCueExecutionProductPreparedRetry) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
