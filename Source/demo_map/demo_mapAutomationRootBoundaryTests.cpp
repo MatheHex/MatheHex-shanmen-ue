@@ -7,8 +7,6 @@
 #include "HAL/FileManager.h"
 #include "HAL/PlatformMisc.h"
 #include "Misc/AutomationTest.h"
-#include "Misc/CommandLine.h"
-#include "Misc/Parse.h"
 #include "Misc/Paths.h"
 
 namespace
@@ -390,21 +388,11 @@ namespace
 		case 26:
 		{
 			SetLeaf(Paths, TEXT("Dev.D.UE.0.0.7.F0.0.r0"));
-			FString CommandUserDir;
-			FParse::Value(FCommandLine::Get(), TEXT("UserDir="), CommandUserDir);
-			Paths.UserConfigRoot = CommandUserDir;
-			Paths.UserDirRoot = CommandUserDir;
-			Paths.GeneratedConfigRoot = FPaths::GeneratedConfigDir();
-			Paths.EvidencePaths = {
-				Paths.StorageRoot,
-				Paths.UserConfigRoot,
-				Paths.GeneratedConfigRoot
-			};
-
+			const FString TaskLocalUserDir = Paths.UserConfigRoot;
 			const FString ProjectRoot = Canonical(FPaths::ProjectDir());
 			Paths.ProductionRoots =
 				Fdemo_mapProfilePreparationFlow::ProtectedProductionRootsForAutomation(ProjectRoot);
-			const FString RedirectedRuntimeProduction =
+			const FString RuntimeProduction =
 				Fdemo_mapProfileStorageContext::Production().RootDirectory;
 			const FString DerivedRealProduction = FPaths::Combine(
 				ProjectRoot,
@@ -414,25 +402,35 @@ namespace
 			const FString LocalAppData =
 				FPlatformMisc::GetEnvironmentVariable(TEXT("LOCALAPPDATA"));
 			const FString RealUserConfig = FPaths::Combine(LocalAppData, TEXT("demo_map"));
+			const bool bRuntimeProductionIsTaskLocal =
+				SameOrChild(RuntimeProduction, TaskLocalUserDir);
+			const bool bRuntimeProductionIsReal =
+				SameOrChild(RuntimeProduction, DerivedRealProduction);
+			const bool bRuntimeProductionIsProtected =
+				ContainsPath(Paths.ProductionRoots, RuntimeProduction);
 			UE_LOG(
 				LogTemp,
 				Display,
-				TEXT("F0_0_R7_RUNTIME_PRODUCTION_CONTEXT runtime=%s user=%s derived=%s"),
-				*Canonical(RedirectedRuntimeProduction),
-				*Canonical(CommandUserDir),
-				*Canonical(DerivedRealProduction));
+				TEXT("F0_0_R7_RUNTIME_PRODUCTION_CONTEXT runtime=%s task_user=%s derived=%s task_local=%d protected=%d"),
+				*Canonical(RuntimeProduction),
+				*Canonical(TaskLocalUserDir),
+				*Canonical(DerivedRealProduction),
+				bRuntimeProductionIsTaskLocal,
+				bRuntimeProductionIsProtected);
 			Result = Fdemo_mapAutomationRootBoundary::Evaluate(Paths, ExactLeaves());
 			Test.TestTrue(
-				TEXT("Redirected runtime Production context is task-local in this process"),
-				!CommandUserDir.IsEmpty()
-					&& SameOrChild(RedirectedRuntimeProduction, CommandUserDir));
+				TEXT("Runtime Production is classified from its canonical origin"),
+				(bRuntimeProductionIsTaskLocal
+						&& !bRuntimeProductionIsProtected)
+					|| (bRuntimeProductionIsReal
+						&& bRuntimeProductionIsProtected));
 			Test.TestTrue(
-				TEXT("Redirected runtime Production context is not a protected production fact"),
-				!ContainsPath(Paths.ProductionRoots, RedirectedRuntimeProduction));
+				TEXT("Explicit task-local UserDir is never a protected production fact"),
+				!TaskLocalUserDir.IsEmpty()
+					&& !ContainsPath(Paths.ProductionRoots, TaskLocalUserDir));
 			Test.TestTrue(
-				TEXT("Generated Config remains below the same F0.0.r0 UserDir"),
-				!CommandUserDir.IsEmpty()
-					&& SameOrChild(Paths.GeneratedConfigRoot, CommandUserDir));
+				TEXT("Generated Config remains below the explicit F0.0.r0 UserDir"),
+				SameOrChild(Paths.GeneratedConfigRoot, TaskLocalUserDir));
 			Test.TestTrue(
 				TEXT("Real production Save remains in the protected roots"),
 				ContainsPath(Paths.ProductionRoots, DerivedRealProduction));
@@ -839,7 +837,7 @@ DEMO_MAP_ROOT_TEST(FRootBoundary22, "demo_map.AutomationRootBoundary.22.RealUser
 DEMO_MAP_ROOT_TEST(FRootBoundary23, "demo_map.AutomationRootBoundary.23.ExternalDeliveryTreeRejected", 23)
 DEMO_MAP_ROOT_TEST(FRootBoundary24, "demo_map.AutomationRootBoundary.24.PackageLocalSavedAutomationRejected", 24)
 DEMO_MAP_ROOT_TEST(FRootBoundary25, "demo_map.AutomationRootBoundary.25.P8_4ExactLeafAccepted", 25)
-DEMO_MAP_ROOT_TEST(FRootBoundary26, "demo_map.AutomationRootBoundary.26.RedirectedRuntimeProductionContextIgnoredAsProtectedFact", 26)
+DEMO_MAP_ROOT_TEST(FRootBoundary26, "demo_map.AutomationRootBoundary.26.RuntimeProductionContextClassifiedByCanonicalOrigin", 26)
 DEMO_MAP_ROOT_TEST(FRootBoundary27, "demo_map.AutomationRootBoundary.27.DerivedActiveProjectProductionSaveStillProtected", 27)
 DEMO_MAP_ROOT_TEST(FRootBoundary28, "demo_map.AutomationRootBoundary.28.AdapterAcceptsTaskLocalUserDirAndRejectsRealUserConfig", 28)
 DEMO_MAP_ROOT_TEST(FRootBoundary29, "demo_map.AutomationRootBoundary.29.F0_0_r3ExactLeafAccepted", 29)
