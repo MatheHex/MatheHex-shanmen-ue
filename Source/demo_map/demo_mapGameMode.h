@@ -38,6 +38,7 @@ class Ademo_mapFriendlyUnit;
 class Udemo_mapPlayerHealthComponent;
 class Udemo_mapSkillComponent;
 class Udemo_mapAttributeComponent;
+class Udemo_mapShanmenCombatConditionComponent;
 class Udemo_mapItemSubsystem;
 class UPrimitiveComponent;
 class Ademo_mapSkillProjectile;
@@ -350,6 +351,8 @@ private:
 	Udemo_mapShanmenSpiritEvasionComponent* EnsurePlayerSpiritEvasion(
 		APawn* PlayerPawn);
 	Udemo_mapAttributeComponent* EnsurePlayerAttributes(APawn* PlayerPawn);
+	Udemo_mapShanmenCombatConditionComponent*
+	EnsurePlayerCombatConditions(APawn* PlayerPawn);
 	void StartRequestedAutomation();
 	void BeginReset(const FString& StatusText, const TCHAR* LogMarker);
 	void ReloadDemoLevel();
@@ -480,6 +483,8 @@ private:
 	TWeakObjectPtr<Ademo_mapFriendlyUnit> FriendlyUnit;
 	TWeakObjectPtr<Udemo_mapSkillComponent> PlayerSkillComponent;
 	TWeakObjectPtr<Udemo_mapAttributeComponent> PlayerAttributeComponent;
+	TWeakObjectPtr<Udemo_mapShanmenCombatConditionComponent>
+		PlayerCombatConditionComponent;
 	TWeakObjectPtr<Udemo_mapItemSubsystem> PlayerItemSubsystem;
 	TWeakObjectPtr<Ademo_mapV3ProgressionManager> V3ProgressionManager;
 	TWeakObjectPtr<Ademo_map0909BFrameworkHost> Framework0909BHost;

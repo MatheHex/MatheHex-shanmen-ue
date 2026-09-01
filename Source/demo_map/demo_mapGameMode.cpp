@@ -34,6 +34,7 @@
 #include "demo_mapM01EnemyIdentityComponent.h"
 #include "demo_mapM01EnemyTypes.h"
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
+#include "demo_mapShanmenCombatConditionComponent.h"
 #include "demo_mapShanmenSpiritEvasionComponent.h"
 #include "demo_mapShanmenThrownWeaponProjectile.h"
 #include "demo_mapLootChest.h"
@@ -1424,6 +1425,58 @@ Ademo_mapGameMode::ExecuteM01BossShapeAttack(
 		RawDamage,
 		GuardContext.IsEnabled() ? &GuardContext : nullptr);
 	ObserveSwordRhythmWeaponGuardContribution(Result);
+	if (Result.IsExecuted()
+		&& Result.Impact.GetFamily()
+			== Edemo_mapM01EnemyAttackFamily::BossCharge
+		&& Result.Delivery.CommitResult.IsSuccess()
+		&& Result.Delivery.CommitResult.Receipt.GetAppliedDamage() > 0.0f)
+	{
+		Fdemo_mapShanmenCombatRunTimelineSample TimelineSample;
+		if (!PlayerCombatConditionComponent.IsValid()
+			|| !CombatRunFixedTimeline.TryCapture(TimelineSample))
+		{
+			UE_LOG(
+				Logdemo_map,
+				Error,
+				TEXT("0_0_10_COMBAT_CONDITION Event=BossChargeProjectionUnavailable ImpactId=%s Conditions=%d Timeline=%d"),
+				*Result.Delivery.CommitResult.Receipt.GetImpactId().ToString(
+					EGuidFormats::DigitsWithHyphens),
+				PlayerCombatConditionComponent.IsValid() ? 1 : 0,
+				TimelineSample.IsValid() ? 1 : 0);
+		}
+		else
+		{
+			const Fdemo_mapShanmenCombatConditionApplicationResult
+				ConditionResult =
+					PlayerCombatConditionComponent->TryApplyMeridianShock(
+						Result.Delivery.CommitResult.Receipt,
+						TimelineSample);
+			UE_LOG(
+				Logdemo_map,
+				Log,
+				TEXT("0_0_10_COMBAT_CONDITION Event=BossChargeMeridianShock ImpactId=%s Status=%d Error=%d Tick=%lld Expiry=%lld Revision=%lld"),
+				*Result.Delivery.CommitResult.Receipt.GetImpactId().ToString(
+					EGuidFormats::DigitsWithHyphens),
+				static_cast<int32>(ConditionResult.Status),
+				static_cast<int32>(ConditionResult.Error),
+				static_cast<long long>(TimelineSample.GetCurrentTick()),
+				static_cast<long long>(
+					PlayerCombatConditionComponent->
+						GetMeridianShockExpiryTick()),
+				static_cast<long long>(
+					PlayerCombatConditionComponent->GetConditionRevision()));
+			if (!ConditionResult.IsSuccess())
+			{
+				UE_LOG(
+					Logdemo_map,
+					Error,
+					TEXT("0_0_10_COMBAT_CONDITION Event=BossChargeMeridianShockRejected ImpactId=%s Error=%d"),
+					*Result.Delivery.CommitResult.Receipt.GetImpactId().ToString(
+						EGuidFormats::DigitsWithHyphens),
+					static_cast<int32>(ConditionResult.Error));
+			}
+		}
+	}
 	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
 	UE_LOG(
 		Logdemo_map,
@@ -1574,6 +1627,53 @@ void Ademo_mapGameMode::Tick(float DeltaSeconds)
 					EGuidFormats::DigitsWithHyphens),
 				DeltaSeconds,
 				*TimelineDiagnostic);
+		}
+		else if (PlayerCombatConditionComponent.IsValid()
+			&& !PlayerCombatConditionComponent->IsEmpty())
+		{
+			Fdemo_mapShanmenCombatRunTimelineSample TimelineSample;
+			if (!CombatRunFixedTimeline.TryCapture(TimelineSample))
+			{
+				UE_LOG(
+					Logdemo_map,
+					Error,
+					TEXT("0_0_10_COMBAT_CONDITION Event=TimelineCaptureRejected RunId=%s"),
+					*CombatRunFixedTimeline.GetRunId().ToString(
+						EGuidFormats::DigitsWithHyphens));
+			}
+			else
+			{
+				const Fdemo_mapShanmenCombatConditionAdvanceResult
+					ConditionAdvance =
+						PlayerCombatConditionComponent->TryAdvance(
+							TimelineSample);
+				if (!ConditionAdvance.IsSuccess())
+				{
+					UE_LOG(
+						Logdemo_map,
+						Error,
+						TEXT("0_0_10_COMBAT_CONDITION Event=AdvanceRejected RunId=%s Tick=%lld Error=%d"),
+						*CombatRunFixedTimeline.GetRunId().ToString(
+							EGuidFormats::DigitsWithHyphens),
+						static_cast<long long>(
+							TimelineSample.GetCurrentTick()),
+						static_cast<int32>(ConditionAdvance.Error));
+				}
+				else if (ConditionAdvance.Status
+					== Edemo_mapShanmenCombatConditionAdvanceStatus::Expired)
+				{
+					UE_LOG(
+						Logdemo_map,
+						Log,
+						TEXT("0_0_10_COMBAT_CONDITION Event=MeridianShockExpired RunId=%s Tick=%lld Revision=%lld"),
+						*CombatRunFixedTimeline.GetRunId().ToString(
+							EGuidFormats::DigitsWithHyphens),
+						static_cast<long long>(
+							ConditionAdvance.ObservedTick),
+						static_cast<long long>(
+							ConditionAdvance.ConditionRevision));
+				}
+			}
 		}
 	}
 	if (!ControlledWeaponRunHost.IsEmpty())
@@ -1751,6 +1851,11 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 		? PlayerPawn->FindComponentByClass<
 			Udemo_mapShanmenSpiritEvasionComponent>()
 		: nullptr;
+	Udemo_mapShanmenCombatConditionComponent* ExistingConditions =
+		PlayerPawn
+			? PlayerPawn->FindComponentByClass<
+				Udemo_mapShanmenCombatConditionComponent>()
+			: nullptr;
 	if (!ControlledWeaponRunHost.IsEmpty()
 		|| !ControlledWeaponRunCommandRouter.IsEmpty()
 		|| !ControlledWeaponThreatSampleRouter.IsEmpty()
@@ -1759,6 +1864,7 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 		|| !CombatRunFixedTimeline.IsEmpty()
 		|| !SwordRhythmProductSession.IsEmpty()
 		|| !SwordRhythmPresentationRunController.IsEmpty()
+		|| (ExistingConditions && !ExistingConditions->IsEmpty())
 		|| (SpiritEvasion
 			&& SpiritEvasion->HasHost()
 			&& !SpiritEvasion->IsTerminal()))
@@ -1856,11 +1962,47 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 		OutDiagnostic = TimelineDiagnostic;
 		return false;
 	}
+	Udemo_mapAttributeComponent* PlayerAttributes =
+		EnsurePlayerAttributes(PlayerPawn);
+	Udemo_mapShanmenCombatConditionComponent* CombatConditions =
+		EnsurePlayerCombatConditions(PlayerPawn);
+	FString ConditionDiagnostic;
+	if (!PlayerAttributes
+		|| !CombatConditions
+		|| !CombatConditions->TryBegin(
+			ActiveRunId,
+			CombatRunCoordinator.GetPlayerEntityId(),
+			CombatRunFixedTimeline.GetTimelineId(),
+			PlayerAttributes,
+			ConditionDiagnostic))
+	{
+		FString TimelineReleaseDiagnostic;
+		CombatRunFixedTimeline.TryEnd(
+			ActiveRunId,
+			TimelineReleaseDiagnostic);
+		FString ThrownDiagnostic;
+		ThrownWeaponProductLifecycle.TryEnd(ThrownDiagnostic);
+		FString ReleaseDiagnostic;
+		CombatRunCoordinator.TryEndRun(
+			ActiveRunId,
+			ReleaseDiagnostic);
+		OutDiagnostic = PlayerAttributes && CombatConditions
+			? ConditionDiagnostic
+			: TEXT("Combat condition binding requires player attribute and condition components.");
+		return false;
+	}
 	FString SwordRhythmDiagnostic;
 	if (!SwordRhythmProductSession.TryBegin(
 			ActiveRunId,
 			SwordRhythmDiagnostic))
 	{
+		FString ConditionReleaseDiagnostic;
+		if (!CombatConditions->TryEnd(
+				ActiveRunId,
+				ConditionReleaseDiagnostic))
+		{
+			CombatConditions->Reset();
+		}
 		FString TimelineReleaseDiagnostic;
 		CombatRunFixedTimeline.TryEnd(
 			ActiveRunId,
@@ -1886,6 +2028,13 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 		{
 			SwordRhythmProductSession.Reset();
 		}
+		FString ConditionReleaseDiagnostic;
+		if (!CombatConditions->TryEnd(
+				ActiveRunId,
+				ConditionReleaseDiagnostic))
+		{
+			CombatConditions->Reset();
+		}
 		FString TimelineReleaseDiagnostic;
 		CombatRunFixedTimeline.TryEnd(
 			ActiveRunId,
@@ -1900,7 +2049,7 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 		return false;
 	}
 	UE_LOG(Logdemo_map, Log,
-		TEXT("0_0_10_COMBAT_RUN Event=RunBound RunId=%s PlayerEntityId=%s M01Entities=%d M01VitalityHosts=%d ThrownWeaponLifecycle=%d RunTimelineId=%s RunTickRate=%lld SwordRhythmConfigId=%s SwordRhythmWindow=[%lld,%lld)"),
+		TEXT("0_0_10_COMBAT_RUN Event=RunBound RunId=%s PlayerEntityId=%s M01Entities=%d M01VitalityHosts=%d ThrownWeaponLifecycle=%d RunTimelineId=%s RunTickRate=%lld ConditionDefinition=%s ConditionDurationTicks=%lld SwordRhythmConfigId=%s SwordRhythmWindow=[%lld,%lld)"),
 		*ActiveRunId.ToString(EGuidFormats::DigitsWithHyphens),
 		*CombatRunCoordinator.GetPlayerEntityId().ToString(
 			EGuidFormats::DigitsWithHyphens),
@@ -1912,6 +2061,11 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 		static_cast<long long>(
 			Fdemo_mapShanmenCombatRunFixedTimeline::
 				CanonicalTicksPerSecond()),
+		*Udemo_mapShanmenCombatConditionComponent::
+			MeridianShockDefinitionId().ToString(),
+		static_cast<long long>(
+			Udemo_mapShanmenCombatConditionComponent::
+				MeridianShockDurationTicks()),
 		*SwordRhythmProductSession.GetConfig().GetConfigId().ToString(
 			EGuidFormats::DigitsWithHyphens),
 		static_cast<long long>(
@@ -2029,12 +2183,46 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 		return false;
 	}
 	ThrownWeaponInputAdapter.Reset();
+	const int32 ConditionApplicationCount =
+		PlayerCombatConditionComponent.IsValid()
+			? PlayerCombatConditionComponent->NumProcessedApplications()
+			: 0;
+	const int64 ConditionRevision =
+		PlayerCombatConditionComponent.IsValid()
+			? PlayerCombatConditionComponent->GetConditionRevision()
+			: 0;
+	if (PlayerCombatConditionComponent.IsValid()
+		&& !PlayerCombatConditionComponent->IsEmpty())
+	{
+		const FGuid ExpectedConditionRunId = CombatRunCoordinator.IsActive()
+			? CombatRunCoordinator.GetRunId()
+			: PlayerCombatConditionComponent->GetRunId();
+		FString ConditionDiagnostic;
+		if (!PlayerCombatConditionComponent->TryEnd(
+				ExpectedConditionRunId,
+				ConditionDiagnostic))
+		{
+			UE_LOG(
+				Logdemo_map,
+				Error,
+				TEXT("0_0_10_COMBAT_RUN Event=ConditionRunReleaseRejected Context=%s RunId=%s Applications=%d Revision=%lld Diagnostic=%s"),
+				SafeContext,
+				*ExpectedConditionRunId.ToString(
+					EGuidFormats::DigitsWithHyphens),
+				ConditionApplicationCount,
+				static_cast<long long>(ConditionRevision),
+				*ConditionDiagnostic);
+			return false;
+		}
+	}
 	if (!CombatRunCoordinator.IsActive())
 	{
 		if (ControlledWeaponRunHost.IsEmpty()
 			&& ControlledWeaponRunCommandRouter.IsEmpty()
 			&& ControlledWeaponThreatSampleRouter.IsEmpty()
 			&& CombatRunFixedTimeline.IsEmpty()
+			&& (!PlayerCombatConditionComponent.IsValid()
+				|| PlayerCombatConditionComponent->IsEmpty())
 			&& SwordRhythmProductSession.IsEmpty()
 			&& SwordRhythmPresentationRunController.IsEmpty())
 		{
@@ -2050,6 +2238,10 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 		ControlledWeaponRunHost.Reset();
 		ControlledWeaponRunCommandRouter.Reset();
 		ControlledWeaponThreatSampleRouter.Reset();
+		if (PlayerCombatConditionComponent.IsValid())
+		{
+			PlayerCombatConditionComponent->Reset();
+		}
 		CombatRunFixedTimeline.Reset();
 		SwordRhythmProductSession.Reset();
 		SwordRhythmPresentationRunController.Reset();
@@ -2082,7 +2274,7 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 		ControlledWeaponRunCommandRouter.Reset();
 		ControlledWeaponThreatSampleRouter.Reset();
 		UE_LOG(Logdemo_map, Log,
-			TEXT("0_0_10_COMBAT_RUN Event=RunReleased RunId=%s Context=%s ControlledBound=%d ControlledInterrupted=%d RoutedIntents=%d ThreatSamples=%lld ThrownSelections=%d SwordRhythmObservations=%d SwordRhythmPresentationPublished=%d SwordRhythmPresentationQueuedAtTeardown=%d WeaponGuardInterrupted=%d"),
+			TEXT("0_0_10_COMBAT_RUN Event=RunReleased RunId=%s Context=%s ControlledBound=%d ControlledInterrupted=%d RoutedIntents=%d ThreatSamples=%lld ThrownSelections=%d ConditionApplications=%d ConditionRevision=%lld SwordRhythmObservations=%d SwordRhythmPresentationPublished=%d SwordRhythmPresentationQueuedAtTeardown=%d WeaponGuardInterrupted=%d"),
 			*Result.RunId.ToString(EGuidFormats::DigitsWithHyphens),
 			SafeContext,
 			Result.BoundItemCount,
@@ -2090,6 +2282,8 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 			RoutedIntentCount,
 			static_cast<long long>(ThreatSampleCount),
 			ThrownSelectionCount,
+			ConditionApplicationCount,
+			static_cast<long long>(ConditionRevision),
 			SwordRhythmObservationCount,
 			SwordRhythmPresentationSummary.PublishedDispatchCount,
 			SwordRhythmPresentationSummary.QueuedDispatchCount,
@@ -2108,6 +2302,10 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 	ControlledWeaponRunCommandRouter.Reset();
 	ControlledWeaponThreatSampleRouter.Reset();
 	ControlledWeaponRunHost.Reset();
+	if (PlayerCombatConditionComponent.IsValid())
+	{
+		PlayerCombatConditionComponent->Reset();
+	}
 	CombatRunFixedTimeline.Reset();
 	SwordRhythmProductSession.Reset();
 	SwordRhythmPresentationRunController.Reset();
@@ -3476,6 +3674,39 @@ Udemo_mapAttributeComponent* Ademo_mapGameMode::EnsurePlayerAttributes(APawn* Pl
 	if (Attributes != nullptr && !Attributes->IsRegistered()) Attributes->RegisterComponent();
 	PlayerAttributeComponent = Attributes;
 	return Attributes;
+}
+
+Udemo_mapShanmenCombatConditionComponent*
+Ademo_mapGameMode::EnsurePlayerCombatConditions(APawn* PlayerPawn)
+{
+	if (PlayerPawn == nullptr)
+	{
+		return nullptr;
+	}
+	TArray<Udemo_mapShanmenCombatConditionComponent*> ExistingComponents;
+	PlayerPawn->GetComponents<Udemo_mapShanmenCombatConditionComponent>(
+		ExistingComponents);
+	if (ExistingComponents.Num() > 1)
+	{
+		UE_LOG(
+			Logdemo_map,
+			Error,
+			TEXT("0.0.10 P14.0: duplicate CombatConditionComponents detected: %d."),
+			ExistingComponents.Num());
+		return nullptr;
+	}
+	Udemo_mapShanmenCombatConditionComponent* Conditions =
+		ExistingComponents.Num() == 1
+			? ExistingComponents[0]
+			: NewObject<Udemo_mapShanmenCombatConditionComponent>(
+				PlayerPawn,
+				TEXT("RuntimePlayerCombatConditions"));
+	if (Conditions != nullptr && !Conditions->IsRegistered())
+	{
+		Conditions->RegisterComponent();
+	}
+	PlayerCombatConditionComponent = Conditions;
+	return Conditions;
 }
 
 Udemo_mapPlayerHealthComponent* Ademo_mapGameMode::EnsurePlayerHealth(APawn* PlayerPawn) const

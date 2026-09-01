@@ -310,6 +310,17 @@
       ]
     },
     {
+      "name": "CombatCondition",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenCombatConditionComponent(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.CombatCondition.MeridianShock",
+        "Shanmen.0_0_10.Product.PlayerVitality",
+        "Shanmen.0_0_10.Product.CombatRunFixedTimeline",
+        "demo_map.V3.Attributes"
+      ]
+    },
+    {
       "name": "SwordRhythmProductHost",
       "pathRegex": "^Source/demo_map/demo_mapShanmenSwordRhythmProductHost(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [
@@ -2128,6 +2139,7 @@
       "pathRegex": "^Source/demo_map/demo_mapGameMode\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.CombatCondition.MeridianShock",
         "Shanmen.0_0_10.Product.SpiritEvasionProductRoute",
         "Shanmen.0_0_10.Product.SpiritEvasionProductAuthority",
         "Shanmen.0_0_10.Product.SpiritEvasionCommandRouter",

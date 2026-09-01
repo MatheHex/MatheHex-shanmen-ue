@@ -197,6 +197,9 @@ try
     $CombatRunFixedTimeline = New-AutomationLogFixture `
         -Name 'combat-run-fixed-timeline.log' `
         -Group 'Shanmen.0_0_10.Product.CombatRunFixedTimeline'
+    $CombatCondition = New-AutomationLogFixture `
+        -Name 'combat-condition.log' `
+        -Group 'Shanmen.0_0_10.Product.CombatCondition.MeridianShock'
     $SwordRhythmProductHost = New-AutomationLogFixture `
         -Name 'sword-rhythm-product-host.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmProductHost'
@@ -836,6 +839,19 @@ try
             $SwordRhythmProductSession,
             $SwordRhythmPresentation,
             $SwordRhythmPresentationEvent)
+
+    Invoke-ExpectedPass `
+        -Name 'combat condition requires committed vitality timeline attribute and full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenCombatConditionComponent.h',
+            'Source/demo_map/demo_mapShanmenCombatConditionComponent.cpp',
+            'Source/demo_map/demo_mapShanmenCombatConditionComponentTests.cpp') `
+        -Logs @(
+            $Full,
+            $CombatCondition,
+            $PlayerVitality,
+            $CombatRunFixedTimeline,
+            $Attributes)
 
     Invoke-ExpectedPass `
         -Name 'sword rhythm product Host requires real action timeline and pure runtime evidence' `
@@ -2520,6 +2536,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenCombatRunFixedTimeline.cpp') `
         -Logs @($CombatRunFixedTimeline) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'combat condition focus cannot replace vitality timeline attribute and full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenCombatConditionComponent.cpp') `
+        -Logs @($CombatCondition) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
