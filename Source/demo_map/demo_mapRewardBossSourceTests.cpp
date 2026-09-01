@@ -1,4 +1,5 @@
 #include "demo_mapRewardSourceProjection.h"
+#include "demo_mapRewardProjectionTestSupport.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -105,6 +106,20 @@ namespace
 			FindBossPrototype();
 	}
 
+	const Fdemo_mapRewardSourceProjection* BoundBossProjection()
+	{
+		static const Fdemo_mapRewardSourceProjection Projection = []()
+		{
+			const Fdemo_mapRewardSourceProjection* Prototype =
+				BossProjection();
+			return Prototype
+				? demo_mapRewardProjectionTestSupport::
+					BindPrototype(*Prototype)
+				: Fdemo_mapRewardSourceProjection();
+		}();
+		return Projection.IsValid() ? &Projection : nullptr;
+	}
+
 	FGuid BossCandidateRunId(int32 Attempt)
 	{
 		return FGuid(
@@ -137,7 +152,7 @@ namespace
 		if (!bSearched)
 		{
 			bSearched = true;
-			const auto* Projection = BossProjection();
+			const auto* Projection = BoundBossProjection();
 			for (int32 Attempt = 0;
 				Projection && Attempt < 500000;
 				++Attempt)
@@ -191,10 +206,11 @@ bool Fdemo_mapRewardBossSourceTests::RunTest(
 {
 	const int32 Case = FCString::Atoi(*Parameters);
 	const auto* Boss = BossProjection();
+	const auto* BoundBoss = BoundBossProjection();
 	const FGuid RunId = BossCandidateRunId(700);
-	const auto Plan = Boss
+	const auto Plan = BoundBoss
 		? Fdemo_mapRewardSourceProjectionPlanner::Plan(
-			*Boss,
+			*BoundBoss,
 			RunId)
 		: Fdemo_mapRewardSourceProjectionResult();
 	FGuid NaturalRunId;
@@ -532,9 +548,9 @@ bool Fdemo_mapRewardBossSourceTests::RunTest(
 		break;
 	case 54:
 	{
-		const auto Replay = Boss
+		const auto Replay = BoundBoss
 			? Fdemo_mapRewardSourceProjectionPlanner::Plan(
-				*Boss,
+				*BoundBoss,
 				RunId)
 			: Fdemo_mapRewardSourceProjectionResult();
 		Check(TEXT("Deterministic plan"),
@@ -545,9 +561,9 @@ bool Fdemo_mapRewardBossSourceTests::RunTest(
 	}
 	case 55:
 	{
-		const auto Other = Boss
+		const auto Other = BoundBoss
 			? Fdemo_mapRewardSourceProjectionPlanner::Plan(
-				*Boss,
+				*BoundBoss,
 				BossCandidateRunId(701))
 			: Fdemo_mapRewardSourceProjectionResult();
 		Check(TEXT("New Run changes seed"),

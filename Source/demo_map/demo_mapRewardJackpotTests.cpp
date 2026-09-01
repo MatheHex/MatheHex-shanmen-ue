@@ -8,6 +8,7 @@
 #include "demo_mapProfileRepository.h"
 #include "demo_mapProfileTradeTransaction.h"
 #include "demo_mapRewardJackpot.h"
+#include "demo_mapRewardProjectionTestSupport.h"
 #include "demo_mapRewardSourceProjection.h"
 #include "demo_mapSearchContainerPresenter.h"
 #include "Dom/JsonObject.h"
@@ -94,14 +95,18 @@ namespace
 {
 	const Fdemo_mapRewardSourceProjection& HitProjection()
 	{
-		return *Fdemo_mapRewardSourceProjectionRegistry::Find(
-			Fdemo_mapRewardProjectionIds::ChestMainWood);
+		static const Fdemo_mapRewardSourceProjection Projection =
+			demo_mapRewardProjectionTestSupport::FindBound(
+				Fdemo_mapRewardProjectionIds::ChestMainWood);
+		return Projection;
 	}
 
 	const Fdemo_mapRewardSourceProjection& MissProjection()
 	{
-		return *Fdemo_mapRewardSourceProjectionRegistry::Find(
-			Fdemo_mapRewardProjectionIds::ChestMainOre);
+		static const Fdemo_mapRewardSourceProjection Projection =
+			demo_mapRewardProjectionTestSupport::FindBound(
+				Fdemo_mapRewardProjectionIds::ChestMainOre);
+		return Projection;
 	}
 
 	bool NaturalIds(FGuid& OutHit, FGuid& OutMiss)
@@ -507,7 +512,8 @@ bool Fdemo_mapRewardJackpotTests::RunTest(const FString& Parameters)
 		{
 			const auto Result =
 				Fdemo_mapRewardSourceProjectionPlanner::Plan(
-					Projection,
+					demo_mapRewardProjectionTestSupport::
+						BindPrototype(Projection),
 					HitRunId);
 			bAll &= Result.IsSuccess()
 				&& Result.Trace.JackpotPolicyId == Policy.PolicyId;

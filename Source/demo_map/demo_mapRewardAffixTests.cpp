@@ -5,6 +5,7 @@
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapRewardAffix.h"
 #include "demo_mapRewardEventTypes.h"
+#include "demo_mapRewardProjectionTestSupport.h"
 #include "demo_mapRewardSourceProjection.h"
 
 IMPLEMENT_COMPLEX_AUTOMATION_TEST(
@@ -381,10 +382,14 @@ bool Fdemo_mapRewardAffixTests::RunTest(const FString& Parameters)
 		const FGuid Run(
 			0x11223344, 0x55667788, 0x99AABBCC, 0xDDEEFF01);
 		const auto WoodPlan = Wood
-			? Fdemo_mapRewardSourceProjectionPlanner::Plan(*Wood, Run)
+			? Fdemo_mapRewardSourceProjectionPlanner::Plan(
+				demo_mapRewardProjectionTestSupport::BindPrototype(*Wood),
+				Run)
 			: Fdemo_mapRewardSourceProjectionResult();
 		const auto OrePlan = Ore
-			? Fdemo_mapRewardSourceProjectionPlanner::Plan(*Ore, Run)
+			? Fdemo_mapRewardSourceProjectionPlanner::Plan(
+				demo_mapRewardProjectionTestSupport::BindPrototype(*Ore),
+				Run)
 			: Fdemo_mapRewardSourceProjectionResult();
 		int32 LegacyProjectionCount = 0;
 		for (const auto& Projection :

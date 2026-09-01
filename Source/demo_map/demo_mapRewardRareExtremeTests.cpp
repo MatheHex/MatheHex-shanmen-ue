@@ -5,6 +5,7 @@
 #include "demo_mapPersistentProfileTypes.h"
 #include "demo_mapProfilePreparationPresenter.h"
 #include "demo_mapRewardJackpot.h"
+#include "demo_mapRewardProjectionTestSupport.h"
 #include "demo_mapRewardRareExtreme.h"
 #include "demo_mapRewardSourceProjection.h"
 #include "demo_mapSearchContainerPresenter.h"
@@ -104,8 +105,10 @@ namespace
 {
 	const Fdemo_mapRewardSourceProjection& StandardCorpseProjection()
 	{
-		return *Fdemo_mapRewardSourceProjectionRegistry::Find(
-			Fdemo_mapRewardProjectionIds::CorpseMainMeleeStandard);
+		static const Fdemo_mapRewardSourceProjection Projection =
+			demo_mapRewardProjectionTestSupport::FindBound(
+				Fdemo_mapRewardProjectionIds::CorpseMainMeleeStandard);
+		return Projection;
 	}
 
 	struct FRareFixture

@@ -9,6 +9,7 @@
 #include "demo_mapItemSubsystem.h"
 #include "demo_mapRewardGenerationRegistry.h"
 #include "demo_mapRewardGenerator.h"
+#include "demo_mapRewardProjectionTestSupport.h"
 #include "Engine/GameInstance.h"
 
 IMPLEMENT_COMPLEX_AUTOMATION_TEST(
@@ -54,8 +55,10 @@ namespace
 {
 	const Fdemo_mapRewardSourceProjection& StandardProjection()
 	{
-		return *Fdemo_mapRewardSourceProjectionRegistry::Find(
-			Fdemo_mapRewardProjectionIds::CorpseMainMeleeStandard);
+		static const Fdemo_mapRewardSourceProjection Projection =
+			demo_mapRewardProjectionTestSupport::FindBound(
+				Fdemo_mapRewardProjectionIds::CorpseMainMeleeStandard);
+		return Projection;
 	}
 
 	bool PoolOnlyHas(

@@ -479,6 +479,21 @@ try
     $AutomationRootBoundary = New-AutomationLogFixture `
         -Name 'automation-root-boundary.log' `
         -Group 'demo_map.AutomationRootBoundary'
+    $RewardJackpot = New-AutomationLogFixture `
+        -Name 'reward-jackpot.log' `
+        -Group 'demo_map.RewardJackpot'
+    $RewardAffix = New-AutomationLogFixture `
+        -Name 'reward-affix.log' `
+        -Group 'demo_map.RewardAffix'
+    $RewardBossSource = New-AutomationLogFixture `
+        -Name 'reward-boss-source.log' `
+        -Group 'demo_map.RewardBossSource'
+    $RareExtremeValue = New-AutomationLogFixture `
+        -Name 'rare-extreme-value.log' `
+        -Group 'demo_map.RareExtremeValue'
+    $RewardSourceProjection = New-AutomationLogFixture `
+        -Name 'reward-source-projection.log' `
+        -Group 'demo_map.RewardSourceProjection'
     $FailedRanged = New-AutomationLogFixture `
         -Name 'ranged-fail.log' `
         -Group 'demo_map.V2RangedCompatibility' `
@@ -2340,6 +2355,22 @@ try
         -Logs @($AutomationRootBoundary)
 
     Invoke-ExpectedPass `
+        -Name 'reward projection test support requires every dependent reward suite' `
+        -Paths @(
+            'Source/demo_map/demo_mapRewardProjectionTestSupport.h',
+            'Source/demo_map/demo_mapRewardJackpotTests.cpp',
+            'Source/demo_map/demo_mapRewardAffixTests.cpp',
+            'Source/demo_map/demo_mapRewardBossSourceTests.cpp',
+            'Source/demo_map/demo_mapRewardRareExtremeTests.cpp',
+            'Source/demo_map/demo_mapRewardSourceProjectionTests.cpp') `
+        -Logs @(
+            $RewardJackpot,
+            $RewardAffix,
+            $RewardBossSource,
+            $RareExtremeValue,
+            $RewardSourceProjection)
+
+    Invoke-ExpectedPass `
         -Name 'combat Run coordinator alias seam is covered by broad full and attribute evidence' `
         -Paths @('Source/demo_map/demo_mapCombatRunCoordinator.cpp') `
         -Logs @($Full, $Attributes, $Legacy)
@@ -2403,6 +2434,17 @@ try
         -Paths @(
             'Source/demo_map/demo_mapAutomationRootBoundary.cpp') `
         -Logs @($Full) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'reward projection support cannot omit one dependent reward suite' `
+        -Paths @(
+            'Source/demo_map/demo_mapRewardProjectionTestSupport.h') `
+        -Logs @(
+            $RewardJackpot,
+            $RewardAffix,
+            $RewardBossSource,
+            $RareExtremeValue) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

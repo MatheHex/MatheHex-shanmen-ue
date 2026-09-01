@@ -2280,6 +2280,52 @@
       ]
     },
     {
+      "name": "RewardProjectionPlannerTestSupport",
+      "pathRegex": "^Source/demo_map/demo_mapRewardProjectionTestSupport\\.h$",
+      "requiredGroups": [
+        "demo_map.RewardJackpot",
+        "demo_map.RewardAffix",
+        "demo_map.RewardBossSource",
+        "demo_map.RareExtremeValue",
+        "demo_map.RewardSourceProjection"
+      ]
+    },
+    {
+      "name": "LegacyRewardJackpotFixture",
+      "pathRegex": "^Source/demo_map/demo_mapRewardJackpotTests\\.cpp$",
+      "requiredGroups": [
+        "demo_map.RewardJackpot"
+      ]
+    },
+    {
+      "name": "LegacyRewardAffixFixture",
+      "pathRegex": "^Source/demo_map/demo_mapRewardAffixTests\\.cpp$",
+      "requiredGroups": [
+        "demo_map.RewardAffix"
+      ]
+    },
+    {
+      "name": "LegacyRewardBossSourceFixture",
+      "pathRegex": "^Source/demo_map/demo_mapRewardBossSourceTests\\.cpp$",
+      "requiredGroups": [
+        "demo_map.RewardBossSource"
+      ]
+    },
+    {
+      "name": "LegacyRewardRareExtremeFixture",
+      "pathRegex": "^Source/demo_map/demo_mapRewardRareExtremeTests\\.cpp$",
+      "requiredGroups": [
+        "demo_map.RareExtremeValue"
+      ]
+    },
+    {
+      "name": "LegacyRewardSourceProjectionFixture",
+      "pathRegex": "^Source/demo_map/demo_mapRewardSourceProjectionTests\\.cpp$",
+      "requiredGroups": [
+        "demo_map.RewardSourceProjection"
+      ]
+    },
+    {
       "name": "AutomationRootBoundary",
       "pathRegex": "^Source/demo_map/demo_mapAutomationRootBoundary(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [
