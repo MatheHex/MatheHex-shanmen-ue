@@ -203,6 +203,9 @@ try
     $CombatConditionStatus = New-AutomationLogFixture `
         -Name 'combat-condition-status.log' `
         -Group 'Shanmen.0_0_10.Product.CombatCondition.MeridianShock.Status'
+    $CombatConditionPresentationEvent = New-AutomationLogFixture `
+        -Name 'combat-condition-presentation-event.log' `
+        -Group 'Shanmen.0_0_10.Product.CombatCondition.MeridianShock.PresentationEvent'
     $SwordRhythmProductHost = New-AutomationLogFixture `
         -Name 'sword-rhythm-product-host.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmProductHost'
@@ -853,6 +856,7 @@ try
             $Full,
             $CombatCondition,
             $CombatConditionStatus,
+            $CombatConditionPresentationEvent,
             $PlayerVitality,
             $CombatRunFixedTimeline,
             $Attributes)
@@ -866,6 +870,20 @@ try
             $Full,
             $CombatCondition,
             $CombatConditionStatus,
+            $CombatConditionPresentationEvent,
+            $CombatRunFixedTimeline,
+            $Attributes)
+
+    Invoke-ExpectedPass `
+        -Name 'combat condition presentation event requires source status timeline attribute and full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenCombatConditionPresentationEvent.h',
+            'Source/demo_map/demo_mapShanmenCombatConditionPresentationEvent.cpp') `
+        -Logs @(
+            $Full,
+            $CombatCondition,
+            $CombatConditionStatus,
+            $CombatConditionPresentationEvent,
             $CombatRunFixedTimeline,
             $Attributes)
 
@@ -2566,6 +2584,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenCombatConditionStatus.cpp') `
         -Logs @($CombatConditionStatus) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'combat condition presentation event focus cannot replace source status timeline and attribute evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenCombatConditionPresentationEvent.cpp') `
+        -Logs @($CombatConditionPresentationEvent) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
