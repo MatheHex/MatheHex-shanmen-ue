@@ -215,6 +215,9 @@ try
     $CombatConditionPresentationEvent = New-AutomationLogFixture `
         -Name 'combat-condition-presentation-event.log' `
         -Group 'Shanmen.0_0_10.Product.CombatCondition.MeridianShock.PresentationEvent'
+    $CombatConditionPresentationViewState = New-AutomationLogFixture `
+        -Name 'combat-condition-presentation-view-state.log' `
+        -Group 'Shanmen.0_0_10.Product.CombatCondition.MeridianShock.PresentationViewState'
     $SwordRhythmProductHost = New-AutomationLogFixture `
         -Name 'sword-rhythm-product-host.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmProductHost'
@@ -866,6 +869,7 @@ try
             $CombatCondition,
             $CombatConditionStatus,
             $CombatConditionPresentationEvent,
+            $CombatConditionPresentationViewState,
             $PlayerVitality,
             $CombatRunFixedTimeline,
             $Attributes)
@@ -880,6 +884,7 @@ try
             $CombatCondition,
             $CombatConditionStatus,
             $CombatConditionPresentationEvent,
+            $CombatConditionPresentationViewState,
             $CombatRunFixedTimeline,
             $Attributes)
 
@@ -893,6 +898,21 @@ try
             $CombatCondition,
             $CombatConditionStatus,
             $CombatConditionPresentationEvent,
+            $CombatConditionPresentationViewState,
+            $CombatRunFixedTimeline,
+            $Attributes)
+
+    Invoke-ExpectedPass `
+        -Name 'combat condition presentation view requires source event status timeline attribute and full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenCombatConditionPresentationViewState.h',
+            'Source/demo_map/demo_mapShanmenCombatConditionPresentationViewState.cpp') `
+        -Logs @(
+            $Full,
+            $CombatCondition,
+            $CombatConditionStatus,
+            $CombatConditionPresentationEvent,
+            $CombatConditionPresentationViewState,
             $CombatRunFixedTimeline,
             $Attributes)
 
@@ -2625,6 +2645,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenCombatConditionPresentationEvent.cpp') `
         -Logs @($CombatConditionPresentationEvent) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'combat condition presentation view focus cannot replace source event status timeline and attribute evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenCombatConditionPresentationViewState.cpp') `
+        -Logs @($CombatConditionPresentationViewState) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

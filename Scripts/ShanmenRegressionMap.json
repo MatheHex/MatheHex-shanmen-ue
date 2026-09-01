@@ -317,6 +317,7 @@
         "Shanmen.0_0_10.Product.CombatCondition.MeridianShock",
         "Shanmen.0_0_10.Product.CombatCondition.MeridianShock.Status",
         "Shanmen.0_0_10.Product.CombatCondition.MeridianShock.PresentationEvent",
+        "Shanmen.0_0_10.Product.CombatCondition.MeridianShock.PresentationViewState",
         "Shanmen.0_0_10.Product.PlayerVitality",
         "Shanmen.0_0_10.Product.CombatRunFixedTimeline",
         "demo_map.V3.Attributes"
@@ -330,6 +331,7 @@
         "Shanmen.0_0_10.Product.CombatCondition.MeridianShock",
         "Shanmen.0_0_10.Product.CombatCondition.MeridianShock.Status",
         "Shanmen.0_0_10.Product.CombatCondition.MeridianShock.PresentationEvent",
+        "Shanmen.0_0_10.Product.CombatCondition.MeridianShock.PresentationViewState",
         "Shanmen.0_0_10.Product.CombatRunFixedTimeline",
         "demo_map.V3.Attributes"
       ]
@@ -342,6 +344,20 @@
         "Shanmen.0_0_10.Product.CombatCondition.MeridianShock",
         "Shanmen.0_0_10.Product.CombatCondition.MeridianShock.Status",
         "Shanmen.0_0_10.Product.CombatCondition.MeridianShock.PresentationEvent",
+        "Shanmen.0_0_10.Product.CombatCondition.MeridianShock.PresentationViewState",
+        "Shanmen.0_0_10.Product.CombatRunFixedTimeline",
+        "demo_map.V3.Attributes"
+      ]
+    },
+    {
+      "name": "CombatConditionPresentationViewState",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenCombatConditionPresentationViewState\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.CombatCondition.MeridianShock",
+        "Shanmen.0_0_10.Product.CombatCondition.MeridianShock.Status",
+        "Shanmen.0_0_10.Product.CombatCondition.MeridianShock.PresentationEvent",
+        "Shanmen.0_0_10.Product.CombatCondition.MeridianShock.PresentationViewState",
         "Shanmen.0_0_10.Product.CombatRunFixedTimeline",
         "demo_map.V3.Attributes"
       ]
