@@ -200,6 +200,9 @@ try
     $CombatCondition = New-AutomationLogFixture `
         -Name 'combat-condition.log' `
         -Group 'Shanmen.0_0_10.Product.CombatCondition.MeridianShock'
+    $CombatConditionStatus = New-AutomationLogFixture `
+        -Name 'combat-condition-status.log' `
+        -Group 'Shanmen.0_0_10.Product.CombatCondition.MeridianShock.Status'
     $SwordRhythmProductHost = New-AutomationLogFixture `
         -Name 'sword-rhythm-product-host.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmProductHost'
@@ -849,7 +852,20 @@ try
         -Logs @(
             $Full,
             $CombatCondition,
+            $CombatConditionStatus,
             $PlayerVitality,
+            $CombatRunFixedTimeline,
+            $Attributes)
+
+    Invoke-ExpectedPass `
+        -Name 'combat condition status requires source timeline attribute and full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenCombatConditionStatus.h',
+            'Source/demo_map/demo_mapShanmenCombatConditionStatus.cpp') `
+        -Logs @(
+            $Full,
+            $CombatCondition,
+            $CombatConditionStatus,
             $CombatRunFixedTimeline,
             $Attributes)
 
@@ -2543,6 +2559,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenCombatConditionComponent.cpp') `
         -Logs @($CombatCondition) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'combat condition status focus cannot replace source timeline and attribute evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenCombatConditionStatus.cpp') `
+        -Logs @($CombatConditionStatus) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

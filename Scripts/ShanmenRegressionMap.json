@@ -315,7 +315,19 @@
       "requiredGroups": [
         "Shanmen.0_0_10",
         "Shanmen.0_0_10.Product.CombatCondition.MeridianShock",
+        "Shanmen.0_0_10.Product.CombatCondition.MeridianShock.Status",
         "Shanmen.0_0_10.Product.PlayerVitality",
+        "Shanmen.0_0_10.Product.CombatRunFixedTimeline",
+        "demo_map.V3.Attributes"
+      ]
+    },
+    {
+      "name": "CombatConditionStatus",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenCombatConditionStatus\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.CombatCondition.MeridianShock",
+        "Shanmen.0_0_10.Product.CombatCondition.MeridianShock.Status",
         "Shanmen.0_0_10.Product.CombatRunFixedTimeline",
         "demo_map.V3.Attributes"
       ]

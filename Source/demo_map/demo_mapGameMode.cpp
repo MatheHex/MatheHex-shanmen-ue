@@ -553,6 +553,15 @@ bool Ademo_mapGameMode::TryGetSwordRhythmPresentationState(
 	return true;
 }
 
+bool Ademo_mapGameMode::TryGetMeridianShockStatus(
+	Fdemo_mapShanmenCombatConditionStatusSnapshot& OutStatus) const
+{
+	OutStatus = Fdemo_mapShanmenCombatConditionStatusSnapshot();
+	return PlayerCombatConditionComponent.IsValid()
+		&& PlayerCombatConditionComponent->TryCaptureMeridianShockStatus(
+			OutStatus);
+}
+
 bool Ademo_mapGameMode::TryGetSwordRhythmPresentationEvent(
 	Fdemo_mapShanmenSwordRhythmPresentationEvent& OutEvent) const
 {

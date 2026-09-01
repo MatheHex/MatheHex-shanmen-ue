@@ -5,6 +5,7 @@
 #include "ShanmenVitalityAuthority.h"
 #include "demo_mapAttributeTypes.h"
 #include "demo_mapShanmenCombatRunFixedTimeline.h"
+#include "demo_mapShanmenCombatConditionStatus.h"
 
 #include "demo_mapShanmenCombatConditionComponent.generated.h"
 
@@ -148,6 +149,9 @@ public:
 		const Fdemo_mapShanmenCombatRunTimelineSample& TimelineSample);
 	Fdemo_mapShanmenCombatConditionAdvanceResult TryAdvance(
 		const Fdemo_mapShanmenCombatRunTimelineSample& TimelineSample);
+	/** Copies the current immutable state for Blueprint/presentation polling. */
+	bool TryCaptureMeridianShockStatus(
+		Fdemo_mapShanmenCombatConditionStatusSnapshot& OutStatus) const;
 	bool TryEnd(const FGuid& ExpectedRunId, FString& OutDiagnostic);
 	/** Recovery-only cleanup. It best-effort removes the exact owned modifier. */
 	void Reset();

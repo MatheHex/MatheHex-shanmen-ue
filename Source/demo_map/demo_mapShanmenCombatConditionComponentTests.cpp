@@ -5,6 +5,7 @@
 #include "ShanmenVitalityAuthority.h"
 #include "demo_mapAttributeComponent.h"
 #include "demo_mapAttributeDefinitions.h"
+#include "demo_mapGameMode.h"
 #include "demo_mapShanmenCombatConditionComponent.h"
 #include "demo_mapShanmenCombatRunFixedTimeline.h"
 
@@ -400,6 +401,279 @@ bool Fdemo_mapMeridianShockRunTeardownTest::RunTest(const FString&)
 			Diagnostic)
 			&& Fixture.Conditions->GetConditionRevision() == 0
 			&& Fixture.Conditions->NumProcessedApplications() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapMeridianShockStatusInitialSnapshotTest,
+	"Shanmen.0_0_10.Product.CombatCondition.MeridianShock.Status.InitialSnapshot",
+	ConditionFlags)
+
+bool Fdemo_mapMeridianShockStatusInitialSnapshotTest::RunTest(
+	const FString&)
+{
+	FConditionFixture Fixture;
+	TestTrue(TEXT("condition fixture begins"), Fixture.bReady);
+	if (!Fixture.bReady)
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenCombatConditionStatusSnapshot First;
+	Fdemo_mapShanmenCombatConditionStatusSnapshot Repeated;
+	TestTrue(TEXT("bound empty condition captures an immutable inactive status"),
+		Fixture.Conditions->TryCaptureMeridianShockStatus(First)
+			&& Fixture.Conditions->TryCaptureMeridianShockStatus(Repeated)
+			&& First.IsValid()
+			&& First.Matches(Repeated));
+	TestTrue(TEXT("inactive status exposes canonical identity and authored prototype"),
+		!First.IsActive()
+			&& First.GetRunId() == ConditionRunId
+			&& First.GetTargetEntityId() == ConditionTargetId
+			&& First.GetTimelineId() == Fixture.Timeline.GetTimelineId()
+			&& First.GetDefinitionId()
+				== Udemo_mapShanmenCombatConditionComponent::
+					MeridianShockDefinitionId()
+			&& First.GetObservedTick() == 0
+			&& First.GetExpiryTick() == INDEX_NONE
+			&& First.GetRemainingTicks() == 0
+			&& First.GetConditionRevision() == 0
+			&& First.GetDurationTicks() == 90
+			&& First.GetTimelineTicksPerSecond() == 30
+			&& FMath::IsNearlyEqual(
+				First.GetMoveSpeedMultiplier(),
+				0.75f));
+
+	Ademo_mapGameMode* EmptyGameMode =
+		NewObject<Ademo_mapGameMode>(GetTransientPackage());
+	TestNotNull(TEXT("empty GameMode query fixture exists"), EmptyGameMode);
+	Fdemo_mapShanmenCombatConditionStatusSnapshot EmptyStatus = First;
+	const bool bAvailable = EmptyGameMode
+		? EmptyGameMode->TryGetMeridianShockStatus(EmptyStatus)
+		: false;
+	TestFalse(TEXT("GameMode query fails closed outside a bound Combat Run"),
+		bAvailable);
+	TestFalse(TEXT("failed GameMode query clears caller-owned output"),
+		EmptyStatus.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapMeridianShockStatusActiveCountdownTest,
+	"Shanmen.0_0_10.Product.CombatCondition.MeridianShock.Status.ActiveCountdown",
+	ConditionFlags)
+
+bool Fdemo_mapMeridianShockStatusActiveCountdownTest::RunTest(
+	const FString&)
+{
+	FConditionFixture Fixture;
+	TestTrue(TEXT("condition fixture begins"), Fixture.bReady);
+	if (!Fixture.bReady)
+	{
+		return false;
+	}
+	TestTrue(TEXT("committed hit applies condition"),
+		Fixture.Conditions->TryApplyMeridianShock(
+			MakeCommittedReceipt(
+				ConditionTargetId,
+				ImpactA,
+				ResolutionA),
+			Fixture.Sample).IsSuccess());
+
+	Fdemo_mapShanmenCombatConditionStatusSnapshot AtZero;
+	Fdemo_mapShanmenCombatConditionStatusSnapshot AtZeroReplay;
+	TestTrue(TEXT("active state captures deterministically at tick zero"),
+		Fixture.Conditions->TryCaptureMeridianShockStatus(AtZero)
+			&& Fixture.Conditions->TryCaptureMeridianShockStatus(AtZeroReplay)
+			&& AtZero.Matches(AtZeroReplay)
+			&& AtZero.IsActive()
+			&& AtZero.GetObservedTick() == 0
+			&& AtZero.GetExpiryTick() == 90
+			&& AtZero.GetRemainingTicks() == 90
+			&& AtZero.GetConditionRevision() == 1);
+
+	TestTrue(TEXT("canonical timeline advances to tick 30"),
+		Fixture.AdvanceTicks(30));
+	TestTrue(TEXT("condition observes the same canonical sample"),
+		Fixture.Conditions->TryAdvance(Fixture.Sample).IsSuccess());
+	Fdemo_mapShanmenCombatConditionStatusSnapshot AtThirty;
+	TestTrue(TEXT("countdown snapshot reflects timeline without condition mutation"),
+		Fixture.Conditions->TryCaptureMeridianShockStatus(AtThirty)
+			&& AtThirty.IsActive()
+			&& AtThirty.GetObservedTick() == 30
+			&& AtThirty.GetExpiryTick() == 90
+			&& AtThirty.GetRemainingTicks() == 60
+			&& AtThirty.GetConditionRevision() == 1
+			&& !AtZero.Matches(AtThirty));
+	TestTrue(TEXT("earlier copied snapshot remains immutable and self-validating"),
+		AtZero.IsValid()
+			&& AtZero.GetObservedTick() == 0
+			&& AtZero.GetRemainingTicks() == 90);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapMeridianShockStatusReplayRefreshTest,
+	"Shanmen.0_0_10.Product.CombatCondition.MeridianShock.Status.ReplayAndRefresh",
+	ConditionFlags)
+
+bool Fdemo_mapMeridianShockStatusReplayRefreshTest::RunTest(
+	const FString&)
+{
+	FConditionFixture Fixture;
+	TestTrue(TEXT("condition fixture begins"), Fixture.bReady);
+	if (!Fixture.bReady)
+	{
+		return false;
+	}
+	const FShanmenVitalityCommitReceipt FirstReceipt = MakeCommittedReceipt(
+		ConditionTargetId,
+		ImpactA,
+		ResolutionA);
+	TestTrue(TEXT("first committed hit applies"),
+		Fixture.Conditions->TryApplyMeridianShock(
+			FirstReceipt,
+			Fixture.Sample).IsSuccess());
+	Fdemo_mapShanmenCombatConditionStatusSnapshot BeforeReplay;
+	Fdemo_mapShanmenCombatConditionStatusSnapshot AfterReplay;
+	TestTrue(TEXT("first active status captures"),
+		Fixture.Conditions->TryCaptureMeridianShockStatus(BeforeReplay));
+	TestTrue(TEXT("exact impact replay is accepted"),
+		Fixture.Conditions->TryApplyMeridianShock(
+			FirstReceipt,
+			Fixture.Sample).Status
+			== Edemo_mapShanmenCombatConditionApplicationStatus::AlreadyApplied);
+	TestTrue(TEXT("exact replay preserves the same status identity"),
+		Fixture.Conditions->TryCaptureMeridianShockStatus(AfterReplay)
+			&& BeforeReplay.Matches(AfterReplay)
+			&& AfterReplay.GetConditionRevision() == 1);
+
+	TestTrue(TEXT("canonical timeline advances to tick 30"),
+		Fixture.AdvanceTicks(30));
+	TestTrue(TEXT("second committed hit refreshes through the authority"),
+		Fixture.Conditions->TryApplyMeridianShock(
+			MakeCommittedReceipt(
+				ConditionTargetId,
+				ImpactB,
+				ResolutionB),
+			Fixture.Sample).Status
+			== Edemo_mapShanmenCombatConditionApplicationStatus::Refreshed);
+	Fdemo_mapShanmenCombatConditionStatusSnapshot Refreshed;
+	TestTrue(TEXT("refreshed status exposes new revision and exact deadline"),
+		Fixture.Conditions->TryCaptureMeridianShockStatus(Refreshed)
+			&& Refreshed.IsActive()
+			&& Refreshed.GetObservedTick() == 30
+			&& Refreshed.GetExpiryTick() == 120
+			&& Refreshed.GetRemainingTicks() == 90
+			&& Refreshed.GetConditionRevision() == 2
+			&& !BeforeReplay.Matches(Refreshed)
+			&& Fixture.Attributes->GetModifierCountBySource(
+				Udemo_mapShanmenCombatConditionComponent::
+					MeridianShockModifierSourceId()) == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapMeridianShockStatusExpiryTransitionTest,
+	"Shanmen.0_0_10.Product.CombatCondition.MeridianShock.Status.ExpiryTransition",
+	ConditionFlags)
+
+bool Fdemo_mapMeridianShockStatusExpiryTransitionTest::RunTest(
+	const FString&)
+{
+	FConditionFixture Fixture;
+	TestTrue(TEXT("condition fixture begins"), Fixture.bReady);
+	if (!Fixture.bReady)
+	{
+		return false;
+	}
+	TestTrue(TEXT("committed hit applies condition"),
+		Fixture.Conditions->TryApplyMeridianShock(
+			MakeCommittedReceipt(
+				ConditionTargetId,
+				ImpactA,
+				ResolutionA),
+			Fixture.Sample).IsSuccess());
+	Fdemo_mapShanmenCombatConditionStatusSnapshot Active;
+	TestTrue(TEXT("active status captures"),
+		Fixture.Conditions->TryCaptureMeridianShockStatus(Active));
+
+	TestTrue(TEXT("canonical timeline reaches exact expiry"),
+		Fixture.AdvanceTicks(90));
+	const Fdemo_mapShanmenCombatConditionAdvanceResult Expired =
+		Fixture.Conditions->TryAdvance(Fixture.Sample);
+	Fdemo_mapShanmenCombatConditionStatusSnapshot Inactive;
+	TestTrue(TEXT("expiry transition captures as inactive revision two"),
+		Expired.Status
+				== Edemo_mapShanmenCombatConditionAdvanceStatus::Expired
+			&& Fixture.Conditions->TryCaptureMeridianShockStatus(Inactive)
+			&& !Inactive.IsActive()
+			&& Inactive.GetObservedTick() == 90
+			&& Inactive.GetExpiryTick() == INDEX_NONE
+			&& Inactive.GetRemainingTicks() == 0
+			&& Inactive.GetConditionRevision() == 2
+			&& !Active.Matches(Inactive));
+	TestTrue(TEXT("pre-expiry copy remains valid after authority transition"),
+		Active.IsValid()
+			&& Active.IsActive()
+			&& Active.GetRemainingTicks() == 90);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapMeridianShockStatusRunTeardownTest,
+	"Shanmen.0_0_10.Product.CombatCondition.MeridianShock.Status.RunTeardown",
+	ConditionFlags)
+
+bool Fdemo_mapMeridianShockStatusRunTeardownTest::RunTest(
+	const FString&)
+{
+	FConditionFixture Fixture;
+	TestTrue(TEXT("condition fixture begins"), Fixture.bReady);
+	if (!Fixture.bReady)
+	{
+		return false;
+	}
+	TestTrue(TEXT("committed hit applies condition"),
+		Fixture.Conditions->TryApplyMeridianShock(
+			MakeCommittedReceipt(
+				ConditionTargetId,
+				ImpactA,
+				ResolutionA),
+			Fixture.Sample).IsSuccess());
+	Fdemo_mapShanmenCombatConditionStatusSnapshot BeforeTeardown;
+	TestTrue(TEXT("pre-teardown status captures"),
+		Fixture.Conditions->TryCaptureMeridianShockStatus(BeforeTeardown));
+
+	FString Diagnostic;
+	TestTrue(TEXT("matching Run teardown succeeds"),
+		Fixture.Conditions->TryEnd(ConditionRunId, Diagnostic));
+	Fdemo_mapShanmenCombatConditionStatusSnapshot AfterTeardown =
+		BeforeTeardown;
+	TestFalse(TEXT("empty authority no longer exposes a status"),
+		Fixture.Conditions->TryCaptureMeridianShockStatus(AfterTeardown));
+	TestFalse(TEXT("failed capture clears caller-owned output"),
+		AfterTeardown.IsValid());
+	TestTrue(TEXT("copied pre-teardown status remains immutable evidence"),
+		BeforeTeardown.IsValid()
+			&& BeforeTeardown.GetRunId() == ConditionRunId);
+
+	TestTrue(TEXT("component binds a later clean Run"),
+		Fixture.Conditions->TryBegin(
+			ForeignRunId,
+			ConditionTargetId,
+			Fdemo_mapShanmenCombatRunFixedTimeline::MakeTimelineId(
+				ForeignRunId),
+			Fixture.Attributes,
+			Diagnostic));
+	Fdemo_mapShanmenCombatConditionStatusSnapshot NextRun;
+	TestTrue(TEXT("later Run exposes a distinct canonical inactive status"),
+		Fixture.Conditions->TryCaptureMeridianShockStatus(NextRun)
+			&& NextRun.IsValid()
+			&& !NextRun.IsActive()
+			&& NextRun.GetRunId() == ForeignRunId
+			&& NextRun.GetConditionRevision() == 0
+			&& !BeforeTeardown.Matches(NextRun));
 	return true;
 }
 

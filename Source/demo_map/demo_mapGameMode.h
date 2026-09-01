@@ -19,6 +19,7 @@
 #include "demo_mapShanmenRunCorrelation.h"
 #include "demo_mapShanmenSpiritEvasionProductRoute.h"
 #include "demo_mapShanmenCombatRunFixedTimeline.h"
+#include "demo_mapShanmenCombatConditionStatus.h"
 #include "demo_mapShanmenSwordRhythmProductSession.h"
 #include "demo_mapShanmenSwordRhythmPresentationEvent.h"
 #include "demo_mapShanmenSwordRhythmEffectCuePresentationRunController.h"
@@ -205,6 +206,10 @@ public:
 	{
 		return CombatRunFixedTimeline;
 	}
+	/** Copies the current immutable Meridian Shock state for presentation. */
+	UFUNCTION(BlueprintPure, Category = "Shanmen|Combat|Conditions")
+	bool TryGetMeridianShockStatus(
+		Fdemo_mapShanmenCombatConditionStatusSnapshot& OutStatus) const;
 	const Fdemo_mapShanmenSwordRhythmProductSession&
 	GetSwordRhythmProductSession() const
 	{

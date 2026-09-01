@@ -388,6 +388,24 @@ Udemo_mapShanmenCombatConditionComponent::TryApplyMeridianShock(
 	return Result;
 }
 
+bool Udemo_mapShanmenCombatConditionComponent::
+	TryCaptureMeridianShockStatus(
+		Fdemo_mapShanmenCombatConditionStatusSnapshot& OutStatus) const
+{
+	OutStatus = Fdemo_mapShanmenCombatConditionStatusSnapshot();
+	return IsValid()
+		&& !IsEmpty()
+		&& Fdemo_mapShanmenCombatConditionStatusSnapshot::TryCapture(
+			RunId,
+			TargetEntityId,
+			TimelineId,
+			LastObservedTick,
+			MeridianShockExpiryTick,
+			ConditionRevision,
+			bMeridianShockActive,
+			OutStatus);
+}
+
 bool Udemo_mapShanmenCombatConditionComponent::TryEnd(
 	const FGuid& ExpectedRunId,
 	FString& OutDiagnostic)
