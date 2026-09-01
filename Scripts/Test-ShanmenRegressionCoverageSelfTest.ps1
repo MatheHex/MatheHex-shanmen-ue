@@ -121,7 +121,7 @@ try
         -Group 'demo_map.P5RuntimeInterface.06'
     $InputRestore = New-AutomationLogFixture `
         -Name 'input-restore.log' `
-        -Group 'demo_map.InputRestore.32'
+        -Group 'demo_map.InputRestore'
     $Coordinator = New-AutomationLogFixture `
         -Name 'coordinator.log' `
         -Group 'Shanmen.0_0_10.Product.CombatRunCoordinator'
@@ -2379,6 +2379,11 @@ try
         -Logs @($PreparedRunRuntime)
 
     Invoke-ExpectedPass `
+        -Name 'input restore fixture requires its exact legacy suite' `
+        -Paths @('Source/demo_map/demo_mapInputRestoreTests.cpp') `
+        -Logs @($InputRestore)
+
+    Invoke-ExpectedPass `
         -Name 'combat Run coordinator alias seam is covered by broad full and attribute evidence' `
         -Paths @('Source/demo_map/demo_mapCombatRunCoordinator.cpp') `
         -Logs @($Full, $Attributes, $Legacy)
@@ -2458,6 +2463,12 @@ try
     Invoke-ExpectedFail `
         -Name 'prepared run runtime fixture cannot use unrelated full evidence' `
         -Paths @('Source/demo_map/demo_mapPreparedRunRuntimeTests.cpp') `
+        -Logs @($Full) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'input restore fixture cannot use unrelated full evidence' `
+        -Paths @('Source/demo_map/demo_mapInputRestoreTests.cpp') `
         -Logs @($Full) `
         -ExpectedText 'missing required groups'
 

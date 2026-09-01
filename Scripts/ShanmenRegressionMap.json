@@ -1428,7 +1428,7 @@
     },
     {
       "name": "UnifiedInputRegistryAndBindings",
-      "pathRegex": "^Source/demo_map/(?:demo_mapInputActionRegistry|demo_mapInputBindingSettings|demo_mapShanmenSpiritEvasionPhysicalInputTests|demo_mapShanmenWeaponGuardPhysicalInputTests|demo_mapFullSystemLoopTests|demo_mapP7IntegrationTests|demo_mapRuntimeInterfaceSliceTests|demo_mapInputRestoreTests)\\.(?:h|cpp)$",
+      "pathRegex": "^Source/demo_map/(?:demo_mapInputActionRegistry|demo_mapInputBindingSettings|demo_mapShanmenSpiritEvasionPhysicalInputTests|demo_mapShanmenWeaponGuardPhysicalInputTests|demo_mapFullSystemLoopTests|demo_mapP7IntegrationTests|demo_mapRuntimeInterfaceSliceTests)\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10",
         "Shanmen.0_0_10.Product.SpiritEvasionPhysicalInput",
@@ -2337,6 +2337,13 @@
       "pathRegex": "^Source/demo_map/demo_mapPreparedRunRuntimeTests\\.cpp$",
       "requiredGroups": [
         "demo_map.PreparedRunRuntime"
+      ]
+    },
+    {
+      "name": "InputRestoreFixture",
+      "pathRegex": "^Source/demo_map/demo_mapInputRestoreTests\\.cpp$",
+      "requiredGroups": [
+        "demo_map.InputRestore"
       ]
     },
     {

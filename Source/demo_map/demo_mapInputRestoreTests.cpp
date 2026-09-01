@@ -49,6 +49,31 @@ namespace
 		return Text;
 	}
 
+	FString ReadInputRestoreFunctionBlock(
+		const TCHAR* Name,
+		const TCHAR* StartSignature,
+		const TCHAR* EndSignature)
+	{
+		const FString Source = ReadInputRestoreSource(Name);
+		const FString StartToken(StartSignature);
+		const int32 Start = Source.Find(
+			StartToken,
+			ESearchCase::CaseSensitive);
+		if (Start == INDEX_NONE)
+		{
+			return FString();
+		}
+
+		const int32 End = Source.Find(
+			EndSignature,
+			ESearchCase::CaseSensitive,
+			ESearchDir::FromStart,
+			Start + StartToken.Len());
+		return End == INDEX_NONE
+			? FString()
+			: Source.Mid(Start, End - Start);
+	}
+
 	bool IsExactGameplay(const Fdemo_mapInputContextResolution& Value)
 	{
 		return Value.Context == Edemo_mapInputContext::Gameplay
@@ -243,7 +268,50 @@ INPUT_RESTORE_TEST(FInputRestore25, "25", "InputRemapPreserved")
 bool FInputRestore25::RunTest(const FString&) { TestTrue(TEXT("Registry MoveForward exists"), Fdemo_mapInputActionRegistry::Find(Fdemo_mapInputActionIds::MoveForward) != nullptr); return true; }
 
 INPUT_RESTORE_TEST(FInputRestore26, "26", "HotbarAndCombatGatePreserved")
-bool FInputRestore26::RunTest(const FString&) { const FString S = ReadInputRestoreSource(TEXT("demo_mapPlayerController.cpp")); TestTrue(TEXT("Existing gate retained"), S.Contains(TEXT("UseHotbarSlot(Intent, IsGameplayInputAllowed())")) && S.Contains(TEXT("TryBasicAttack"))); return true; }
+bool FInputRestore26::RunTest(const FString&)
+{
+	const FString Hotbar = ReadInputRestoreFunctionBlock(
+		TEXT("demo_mapPlayerController.cpp"),
+		TEXT("void Ademo_mapPlayerController::UseHotbarSlot(int32 SlotNumber)"),
+		TEXT("void Ademo_mapPlayerController::UseHotbarSlot1()"));
+	const int32 HotbarGate = Hotbar.Find(TEXT("!IsGameplayInputAllowed()"));
+	const int32 ThrownRoute = Hotbar.Find(TEXT("RouteThrownWeaponHotbarInput("));
+	const int32 QuickSlotRoute = Hotbar.Find(TEXT("RequestUseBoundQuickSlot("));
+	TestTrue(
+		TEXT("Hotbar gameplay gate precedes every product route"),
+		HotbarGate != INDEX_NONE
+			&& ThrownRoute > HotbarGate
+			&& QuickSlotRoute > HotbarGate);
+
+	const FString StartAttack = ReadInputRestoreFunctionBlock(
+		TEXT("demo_mapPlayerController.cpp"),
+		TEXT("void Ademo_mapPlayerController::StartBasicAttack()"),
+		TEXT("void Ademo_mapPlayerController::ToggleGroundCircle()"));
+	const int32 StartAttackGate =
+		StartAttack.Find(TEXT("!IsGameplayInputAllowed()"));
+	const int32 ConfirmGroundCircle =
+		StartAttack.Find(TEXT("Skills->ConfirmGroundCircle();"));
+	const int32 TryAttack = StartAttack.Find(TEXT("TryBasicAttack();"));
+	TestTrue(
+		TEXT("Bound combat entry gate precedes targeting and attack routes"),
+		StartAttackGate != INDEX_NONE
+			&& ConfirmGroundCircle > StartAttackGate
+			&& TryAttack > StartAttackGate);
+
+	const FString BasicAttack = ReadInputRestoreFunctionBlock(
+		TEXT("demo_mapPlayerController.cpp"),
+		TEXT("bool Ademo_mapPlayerController::TryBasicAttack()"),
+		TEXT("float Ademo_mapPlayerController::GetBasicAttackCooldownRemaining() const"));
+	const int32 BasicAttackGate =
+		BasicAttack.Find(TEXT("!IsGameplayInputAllowed()"));
+	const int32 CooldownMutation =
+		BasicAttack.Find(TEXT("BasicAttackReadyTime = CurrentTime"));
+	TestTrue(
+		TEXT("Direct combat route independently gates before state mutation"),
+		BasicAttackGate != INDEX_NONE
+			&& CooldownMutation > BasicAttackGate);
+	return true;
+}
 
 INPUT_RESTORE_TEST(FInputRestore27, "27", "CharacterMovementModePreserved")
 bool FInputRestore27::RunTest(const FString&) { const FString S = ReadInputRestoreSource(TEXT("demo_mapPlayerController.cpp")); TestTrue(TEXT("MOVE_None repaired only"), S.Contains(TEXT("Movement->MovementMode == MOVE_None")) && S.Contains(TEXT("MOVE_Walking"))); return true; }
@@ -2275,33 +2343,72 @@ bool FInputRestore99::RunTest(const FString&)
 INPUT_RESTORE_TEST(FInputRestore100, "100", "EditorAndPackagePlansUseSameInputRestoreTerminalMarker")
 bool FInputRestore100::RunTest(const FString&)
 {
-	FString Generator;
-	const FString Path = FPaths::Combine(
-		FPaths::ProjectDir(),
-		TEXT("Saved/Automation/Dev.D.UE.0.0.5.P8.18.r0/Tools/GenerateP818Plans.ps1"));
-	FFileHelper::LoadFileToString(Generator, *Path);
+	FMovementOrderingFixture Fixture;
+	if (!TestTrue(TEXT("Real Controller/Character fixture"), Fixture.IsValid()))
+	{
+		return false;
+	}
+	Fixture.Controller->RestoreGameplayControlForNewRun();
+	Fdemo_mapInputRestoreTerminalStateEmitter EditorConsumer;
+	Fdemo_mapInputRestoreTerminalStateEmitter PackageConsumer;
+	FString EditorLine;
+	FString PackageLine;
+	const bool bEditorEmitted = EditorConsumer.TryBuildLine(
+		TEXT("Reload"),
+		TEXT("RunStartPlayable"),
+		true,
+		Fixture.Controller,
+		Fixture.FirstCharacter,
+		Fixture.World,
+		12.0f,
+		0.25,
+		EditorLine);
+	const bool bPackageEmitted = PackageConsumer.TryBuildLine(
+		TEXT("Reload"),
+		TEXT("RunStartPlayable"),
+		true,
+		Fixture.Controller,
+		Fixture.FirstCharacter,
+		Fixture.World,
+		12.0f,
+		0.25,
+		PackageLine);
 	TestTrue(
-		TEXT("One shared generator defines the dedicated marker"),
-		Generator.Contains(TEXT("Marker = 'INPUT_RESTORE_TERMINAL_STATE'"))
-			&& Generator.Contains(TEXT("Dev.D.UE.0.0.5.P8.18.r0"))
-			&& Generator.Contains(TEXT("ExpectedSlotCount 17"))
-			&& Generator.Contains(TEXT("ExpectedSlotCount 38")));
+		TEXT("Independent consumers receive one canonical terminal contract"),
+		bEditorEmitted
+			&& bPackageEmitted
+			&& EditorLine == PackageLine
+			&& EditorLine.StartsWith(TEXT("INPUT_RESTORE_TERMINAL_STATE "))
+			&& EditorLine.Contains(TEXT("phase=Reload"))
+			&& EditorLine.Contains(TEXT("boundary=RunStartPlayable")));
 	return true;
 }
 
 INPUT_RESTORE_TEST(FInputRestore101, "101", "NonInputRestoreSlotsDoNotRequireGenericInputContextTransition")
 bool FInputRestore101::RunTest(const FString&)
 {
-	FString Generator;
-	const FString Path = FPaths::Combine(
-		FPaths::ProjectDir(),
-		TEXT("Saved/Automation/Dev.D.UE.0.0.5.P8.18.r0/Tools/GenerateP818Plans.ps1"));
-	FFileHelper::LoadFileToString(Generator, *Path);
+	FMovementOrderingFixture Fixture;
+	if (!TestTrue(TEXT("Real Controller/Character fixture"), Fixture.IsValid()))
+	{
+		return false;
+	}
+	Fdemo_mapInputRestoreTerminalStateEmitter Emitter;
+	FString Line;
+	const bool bEmitted = Emitter.TryBuildLine(
+		TEXT("CorpseTakeClose"),
+		TEXT("CorpseTakeCloseCommitted"),
+		true,
+		Fixture.Controller,
+		Fixture.FirstCharacter,
+		Fixture.World,
+		10.0f,
+		0.1,
+		Line);
 	TestTrue(
-		TEXT("Non-InputRestore terminal assertion is disabled and generic marker is absent"),
-		Generator.Contains(TEXT("Enabled = $false"))
-			&& Generator.Contains(TEXT("RequiredFields = [pscustomobject]@{}"))
-			&& !Generator.Contains(TEXT("INPUT_CONTEXT_TRANSITION")));
+		TEXT("Dedicated terminal record does not depend on the generic transition marker"),
+		bEmitted
+			&& Line.StartsWith(TEXT("INPUT_RESTORE_TERMINAL_STATE "))
+			&& !Line.Contains(TEXT("INPUT_CONTEXT_TRANSITION")));
 	return true;
 }
 
