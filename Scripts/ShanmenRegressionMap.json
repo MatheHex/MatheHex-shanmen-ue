@@ -494,6 +494,43 @@
       ]
     },
     {
+      "name": "SwordRhythmEffectCueExecutionProductRetryStepCommandJournal",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductRetryStepCommandJournal(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionProductRetryStepCommandJournal",
+        "Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionProductRetryStepCommand",
+        "Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionProductRetryStep",
+        "Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionProductRetryDecision",
+        "Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionProductPreparedRetry",
+        "Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionProductPreparedDispatch",
+        "Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionProductPlannedDispatch",
+        "Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionProductDispatchPlan",
+        "Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionProductDispatch",
+        "Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionProductTransaction",
+        "Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionProductRoute",
+        "Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionCommandHost",
+        "Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionCommandRouter",
+        "Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionSession",
+        "Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionHost",
+        "Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionDriver",
+        "Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutorAdapter",
+        "Shanmen.0_0_10.Product.SwordRhythmEffectCueConsumerAttempt",
+        "Shanmen.0_0_10.Product.SwordRhythmEffectCueDelivery",
+        "Shanmen.0_0_10.Product.SwordRhythmEffectCue",
+        "Shanmen.0_0_10.Product.SwordRhythmPresentation",
+        "Shanmen.0_0_10.Product.SwordRhythmProductSession",
+        "Shanmen.0_0_10.Product.SwordRhythmEvaluationRoute",
+        "Shanmen.0_0_10.Product.SwordRhythmProductHost",
+        "Shanmen.0_0_10.Product.CombatRunFixedTimeline",
+        "Shanmen.0_0_10.Product.CombatRunCoordinator",
+        "Shanmen.0_0_10.CombatRuntime.SwordRhythmEvaluation",
+        "Shanmen.0_0_10.CombatRuntime.SwordRhythm",
+        "Shanmen.0_0_10.CombatRuntime.BasicSword",
+        "Shanmen.0_0_10.CombatRuntime.ActionLifecycle"
+      ]
+    },
+    {
       "name": "SwordRhythmEffectCueExecutionProductRetryStepCommand",
       "pathRegex": "^Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductRetryStepCommand(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [
