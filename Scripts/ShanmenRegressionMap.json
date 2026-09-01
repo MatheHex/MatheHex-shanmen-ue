@@ -2347,6 +2347,13 @@
       ]
     },
     {
+      "name": "EnemyRouteLootFixture",
+      "pathRegex": "^Source/demo_map/demo_mapEnemyRouteLootTests\\.cpp$",
+      "requiredGroups": [
+        "demo_map.EnemyRouteLoot"
+      ]
+    },
+    {
       "name": "ProfileAuthority",
       "pathRegex": "^Source/demo_map/demo_mapProfile.*\\.(?:h|cpp)$",
       "requiredGroups": [

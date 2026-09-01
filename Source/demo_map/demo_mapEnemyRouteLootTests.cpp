@@ -228,7 +228,18 @@ namespace
 			Test.TestTrue(TEXT("P4 search times preserved"), Fdemo_mapSearchContainerPrototypeConfig::CorpseEquipmentSearchSeconds == 0.0f && Fdemo_mapSearchContainerPrototypeConfig::CorpseBackpackEntrySearchSeconds == 1.0f && Fdemo_mapSearchContainerPrototypeConfig::CorpseBodyEntrySearchSeconds == 1.5f);
 			break;
 		case 42:
-			Test.TestTrue(TEXT("Enhanced corpse capacities represented"), Fdemo_mapSearchContainerPrototypeConfig::GetSectionCapacity(Edemo_mapRuntimeContainerKind::Corpse, Edemo_mapRuntimeContainerSection::Equipment) == 4 && Fdemo_mapSearchContainerPrototypeConfig::GetSectionCapacity(Edemo_mapRuntimeContainerKind::Corpse, Edemo_mapRuntimeContainerSection::Body) == 2);
+			Test.TestEqual(
+				TEXT("Corpse equipment capacity follows the canonical equipment roles"),
+				Fdemo_mapSearchContainerPrototypeConfig::GetSectionCapacity(
+					Edemo_mapRuntimeContainerKind::Corpse,
+					Edemo_mapRuntimeContainerSection::Equipment),
+				Fdemo_mapItemDefinitions::GetEquipmentSlotIds().Num());
+			Test.TestEqual(
+				TEXT("Enhanced corpse body capacity represented"),
+				Fdemo_mapSearchContainerPrototypeConfig::GetSectionCapacity(
+					Edemo_mapRuntimeContainerKind::Corpse,
+					Edemo_mapRuntimeContainerSection::Body),
+				2);
 			break;
 		case 43:
 			Test.TestTrue(TEXT("All seed slots and definitions valid"), !Tables.ContainsByPredicate([](const auto& T){ return !IsUniqueSeed(T); }));

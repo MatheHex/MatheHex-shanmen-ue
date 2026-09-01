@@ -107,6 +107,9 @@ try
     $SearchContainer = New-AutomationLogFixture `
         -Name 'search-container.log' `
         -Group 'demo_map.SearchContainer'
+    $EnemyRouteLoot = New-AutomationLogFixture `
+        -Name 'enemy-route-loot.log' `
+        -Group 'demo_map.EnemyRouteLoot'
     $FullSystemRegistry = New-AutomationLogFixture `
         -Name 'full-system-registry.log' `
         -Group 'demo_map.FullSystemLoop.41'
@@ -2351,6 +2354,12 @@ try
         -Logs @($SearchContainer)
 
     Invoke-ExpectedPass `
+        -Name 'enemy route loot fixture requires its exact legacy suite' `
+        -Paths @(
+            'Source/demo_map/demo_mapEnemyRouteLootTests.cpp') `
+        -Logs @($EnemyRouteLoot)
+
+    Invoke-ExpectedPass `
         -Name 'automation root boundary changes require their exact safety suite' `
         -Paths @(
             'Source/demo_map/demo_mapAutomationRootBoundary.cpp',
@@ -3563,6 +3572,13 @@ try
         -Name 'legacy search-container fixture cannot use unrelated full evidence' `
         -Paths @(
             'Source/demo_map/demo_mapSearchContainerTests.cpp') `
+        -Logs @($Full) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'enemy route loot fixture cannot use unrelated full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapEnemyRouteLootTests.cpp') `
         -Logs @($Full) `
         -ExpectedText 'missing required groups'
 
