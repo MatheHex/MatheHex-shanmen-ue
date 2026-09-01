@@ -486,6 +486,58 @@ bool Fdemo_mapShanmenSwordRhythmEffectCuePresentationRunController::
 }
 
 bool Fdemo_mapShanmenSwordRhythmEffectCuePresentationRunController::
+	TryAcknowledgeHandoff(
+		Fdemo_mapShanmenSwordRhythmEffectCuePresentationHandoffExecutor&
+			Executor,
+		const Edemo_mapShanmenSwordRhythmEffectCueChannel ExpectedChannel,
+		const Fdemo_mapShanmenSwordRhythmEffectCuePresentationAcknowledgement&
+			Acknowledgement,
+		FString& OutDiagnostic)
+{
+	OutDiagnostic.Reset();
+	if (!Acknowledgement.IsValid())
+	{
+		OutDiagnostic = TEXT(
+			"Presentation consume requires one valid caller acknowledgement.");
+		return false;
+	}
+	if (Acknowledgement.GetChannel() != ExpectedChannel)
+	{
+		OutDiagnostic = TEXT(
+			"Presentation acknowledgement belongs to a different cue channel.");
+		return false;
+	}
+	return TryConsumeHandoff(
+		Executor, Acknowledgement.GetHandoffId(), OutDiagnostic);
+}
+
+bool Fdemo_mapShanmenSwordRhythmEffectCuePresentationRunController::
+	TryAcknowledgeVisualHandoff(
+		const Fdemo_mapShanmenSwordRhythmEffectCuePresentationAcknowledgement&
+			Acknowledgement,
+		FString& OutDiagnostic)
+{
+	return TryAcknowledgeHandoff(
+		VisualExecutor,
+		Edemo_mapShanmenSwordRhythmEffectCueChannel::Visual,
+		Acknowledgement,
+		OutDiagnostic);
+}
+
+bool Fdemo_mapShanmenSwordRhythmEffectCuePresentationRunController::
+	TryAcknowledgeAudioHandoff(
+		const Fdemo_mapShanmenSwordRhythmEffectCuePresentationAcknowledgement&
+			Acknowledgement,
+		FString& OutDiagnostic)
+{
+	return TryAcknowledgeHandoff(
+		AudioExecutor,
+		Edemo_mapShanmenSwordRhythmEffectCueChannel::Audio,
+		Acknowledgement,
+		OutDiagnostic);
+}
+
+bool Fdemo_mapShanmenSwordRhythmEffectCuePresentationRunController::
 	TryEnd(
 		const FGuid& ExpectedRunId,
 		Fdemo_mapShanmenSwordRhythmEffectCuePresentationRunEndSummary&

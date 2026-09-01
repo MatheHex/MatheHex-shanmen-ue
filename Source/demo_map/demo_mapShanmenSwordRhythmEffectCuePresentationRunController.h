@@ -1,8 +1,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "demo_mapShanmenSwordRhythmEffectCuePresentationAcknowledgement.h"
 #include "demo_mapShanmenSwordRhythmEffectCueExecutionProductPreparedDispatch.h"
-#include "demo_mapShanmenSwordRhythmEffectCuePresentationHandoffExecutor.h"
 
 enum class
 	Edemo_mapShanmenSwordRhythmEffectCuePresentationRunPublishStatus : uint8
@@ -82,6 +82,14 @@ public:
 	bool TryConsumeAudioHandoff(
 		const FGuid& HandoffId,
 		FString& OutDiagnostic);
+	bool TryAcknowledgeVisualHandoff(
+		const Fdemo_mapShanmenSwordRhythmEffectCuePresentationAcknowledgement&
+			Acknowledgement,
+		FString& OutDiagnostic);
+	bool TryAcknowledgeAudioHandoff(
+		const Fdemo_mapShanmenSwordRhythmEffectCuePresentationAcknowledgement&
+			Acknowledgement,
+		FString& OutDiagnostic);
 
 	bool TryEnd(
 		const FGuid& ExpectedRunId,
@@ -133,6 +141,13 @@ private:
 		Fdemo_mapShanmenSwordRhythmEffectCuePresentationHandoffExecutor&
 			Executor,
 		const FGuid& HandoffId,
+		FString& OutDiagnostic);
+	bool TryAcknowledgeHandoff(
+		Fdemo_mapShanmenSwordRhythmEffectCuePresentationHandoffExecutor&
+			Executor,
+		Edemo_mapShanmenSwordRhythmEffectCueChannel ExpectedChannel,
+		const Fdemo_mapShanmenSwordRhythmEffectCuePresentationAcknowledgement&
+			Acknowledgement,
 		FString& OutDiagnostic);
 
 	FGuid RunId;

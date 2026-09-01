@@ -620,6 +620,78 @@ bool Ademo_mapGameMode::TryGetSwordRhythmAudioHandoff(
 		TryGetPendingAudioHandoff(OutHandoff);
 }
 
+bool Ademo_mapGameMode::AcknowledgeSwordRhythmVisualHandoff(
+	const Fdemo_mapShanmenSwordRhythmEffectCuePresentationAcknowledgement&
+		Acknowledgement,
+	FString& OutDiagnostic)
+{
+	const bool bAcknowledged = SwordRhythmPresentationRunController.
+		TryAcknowledgeVisualHandoff(Acknowledgement, OutDiagnostic);
+	if (bAcknowledged)
+	{
+		UE_LOG(Logdemo_map,
+			Log,
+			TEXT("0_0_10_SWORD_RHYTHM Event=VisualHandoffAcknowledge AcknowledgementId=%s HandoffId=%s Accepted=1 Published=%d Queued=%d Diagnostic=%s"),
+			*Acknowledgement.GetAcknowledgementId().ToString(
+				EGuidFormats::DigitsWithHyphens),
+			*Acknowledgement.GetHandoffId().ToString(
+				EGuidFormats::DigitsWithHyphens),
+			SwordRhythmPresentationRunController.GetPublishedDispatchCount(),
+			SwordRhythmPresentationRunController.GetQueuedDispatchCount(),
+			*OutDiagnostic);
+	}
+	else
+	{
+		UE_LOG(Logdemo_map,
+			Error,
+			TEXT("0_0_10_SWORD_RHYTHM Event=VisualHandoffAcknowledge AcknowledgementId=%s HandoffId=%s Accepted=0 Published=%d Queued=%d Diagnostic=%s"),
+			*Acknowledgement.GetAcknowledgementId().ToString(
+				EGuidFormats::DigitsWithHyphens),
+			*Acknowledgement.GetHandoffId().ToString(
+				EGuidFormats::DigitsWithHyphens),
+			SwordRhythmPresentationRunController.GetPublishedDispatchCount(),
+			SwordRhythmPresentationRunController.GetQueuedDispatchCount(),
+			*OutDiagnostic);
+	}
+	return bAcknowledged;
+}
+
+bool Ademo_mapGameMode::AcknowledgeSwordRhythmAudioHandoff(
+	const Fdemo_mapShanmenSwordRhythmEffectCuePresentationAcknowledgement&
+		Acknowledgement,
+	FString& OutDiagnostic)
+{
+	const bool bAcknowledged = SwordRhythmPresentationRunController.
+		TryAcknowledgeAudioHandoff(Acknowledgement, OutDiagnostic);
+	if (bAcknowledged)
+	{
+		UE_LOG(Logdemo_map,
+			Log,
+			TEXT("0_0_10_SWORD_RHYTHM Event=AudioHandoffAcknowledge AcknowledgementId=%s HandoffId=%s Accepted=1 Published=%d Queued=%d Diagnostic=%s"),
+			*Acknowledgement.GetAcknowledgementId().ToString(
+				EGuidFormats::DigitsWithHyphens),
+			*Acknowledgement.GetHandoffId().ToString(
+				EGuidFormats::DigitsWithHyphens),
+			SwordRhythmPresentationRunController.GetPublishedDispatchCount(),
+			SwordRhythmPresentationRunController.GetQueuedDispatchCount(),
+			*OutDiagnostic);
+	}
+	else
+	{
+		UE_LOG(Logdemo_map,
+			Error,
+			TEXT("0_0_10_SWORD_RHYTHM Event=AudioHandoffAcknowledge AcknowledgementId=%s HandoffId=%s Accepted=0 Published=%d Queued=%d Diagnostic=%s"),
+			*Acknowledgement.GetAcknowledgementId().ToString(
+				EGuidFormats::DigitsWithHyphens),
+			*Acknowledgement.GetHandoffId().ToString(
+				EGuidFormats::DigitsWithHyphens),
+			SwordRhythmPresentationRunController.GetPublishedDispatchCount(),
+			SwordRhythmPresentationRunController.GetQueuedDispatchCount(),
+			*OutDiagnostic);
+	}
+	return bAcknowledged;
+}
+
 bool Ademo_mapGameMode::ConsumeSwordRhythmVisualHandoff(
 	const FGuid HandoffId,
 	FString& OutDiagnostic)

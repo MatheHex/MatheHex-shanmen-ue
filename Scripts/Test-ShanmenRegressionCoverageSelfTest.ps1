@@ -221,6 +221,9 @@ try
     $SwordRhythmEffectCuePresentationHandoffExecutor = New-AutomationLogFixture `
         -Name 'sword-rhythm-effect-cue-presentation-handoff-executor.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCuePresentationHandoffExecutor'
+    $SwordRhythmEffectCuePresentationAcknowledgement = New-AutomationLogFixture `
+        -Name 'sword-rhythm-effect-cue-presentation-acknowledgement.log' `
+        -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCuePresentationAcknowledgement'
     $SwordRhythmEffectCuePresentationRunController = New-AutomationLogFixture `
         -Name 'sword-rhythm-effect-cue-presentation-run-controller.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCuePresentationRunController'
@@ -969,6 +972,42 @@ try
         -Logs @(
             $Full,
             $SwordRhythmEffectCuePresentationHandoffExecutor,
+            $SwordRhythmEffectCueExecutorAdapter,
+            $SwordRhythmEffectCueConsumerAttempt,
+            $SwordRhythmEffectCueDelivery,
+            $SwordRhythmEffectCue,
+            $SwordRhythmPresentation,
+            $SwordRhythmProductSession,
+            $SwordRhythmEvaluationRoute,
+            $SwordRhythmProductHost,
+            $CombatRunFixedTimeline,
+            $Coordinator,
+            $SwordRhythmEvaluation,
+            $SwordRhythm,
+            $BasicSword,
+            $ActionLifecycle)
+
+    Invoke-ExpectedPass `
+        -Name 'sword rhythm cue presentation acknowledgement requires Run handoff prepared-dispatch and runtime evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCuePresentationAcknowledgement.h',
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCuePresentationAcknowledgement.cpp',
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCuePresentationAcknowledgementTests.cpp') `
+        -Logs @(
+            $Full,
+            $SwordRhythmEffectCuePresentationAcknowledgement,
+            $SwordRhythmEffectCuePresentationRunController,
+            $SwordRhythmEffectCuePresentationHandoffExecutor,
+            $SwordRhythmEffectCueExecutionProductPreparedDispatch,
+            $SwordRhythmEffectCueExecutionProductDispatchPlan,
+            $SwordRhythmEffectCueExecutionProductDispatch,
+            $SwordRhythmEffectCueExecutionProductTransaction,
+            $SwordRhythmEffectCueExecutionProductRoute,
+            $SwordRhythmEffectCueExecutionCommandHost,
+            $SwordRhythmEffectCueExecutionCommandRouter,
+            $SwordRhythmEffectCueExecutionSession,
+            $SwordRhythmEffectCueExecutionHost,
+            $SwordRhythmEffectCueExecutionDriver,
             $SwordRhythmEffectCueExecutorAdapter,
             $SwordRhythmEffectCueConsumerAttempt,
             $SwordRhythmEffectCueDelivery,
@@ -2568,6 +2607,35 @@ try
             'Source/demo_map/demo_mapShanmenSwordRhythmEffectCuePresentationHandoffExecutor.cpp') `
         -Logs @(
             $SwordRhythmEffectCuePresentationHandoffExecutor,
+            $SwordRhythmEffectCueExecutorAdapter,
+            $SwordRhythmEffectCueConsumerAttempt,
+            $SwordRhythmEffectCueDelivery,
+            $SwordRhythmEffectCue,
+            $SwordRhythmPresentation,
+            $SwordRhythmProductSession,
+            $SwordRhythmEvaluationRoute,
+            $SwordRhythmProductHost,
+            $SwordRhythmEvaluation) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'sword rhythm cue presentation acknowledgement focus cannot replace Run handoff and runtime evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCuePresentationAcknowledgement.cpp') `
+        -Logs @(
+            $SwordRhythmEffectCuePresentationAcknowledgement,
+            $SwordRhythmEffectCuePresentationRunController,
+            $SwordRhythmEffectCuePresentationHandoffExecutor,
+            $SwordRhythmEffectCueExecutionProductPreparedDispatch,
+            $SwordRhythmEffectCueExecutionProductDispatchPlan,
+            $SwordRhythmEffectCueExecutionProductDispatch,
+            $SwordRhythmEffectCueExecutionProductTransaction,
+            $SwordRhythmEffectCueExecutionProductRoute,
+            $SwordRhythmEffectCueExecutionCommandHost,
+            $SwordRhythmEffectCueExecutionCommandRouter,
+            $SwordRhythmEffectCueExecutionSession,
+            $SwordRhythmEffectCueExecutionHost,
+            $SwordRhythmEffectCueExecutionDriver,
             $SwordRhythmEffectCueExecutorAdapter,
             $SwordRhythmEffectCueConsumerAttempt,
             $SwordRhythmEffectCueDelivery,

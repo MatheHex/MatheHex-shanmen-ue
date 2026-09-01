@@ -227,6 +227,18 @@ public:
 	bool TryGetSwordRhythmAudioHandoff(
 		Fdemo_mapShanmenSwordRhythmEffectCuePresentationHandoff& OutHandoff)
 		const;
+	/** Preferred path: releases a visual batch only after exact caller acknowledgement. */
+	UFUNCTION(BlueprintCallable, Category = "Shanmen|Combat|SwordRhythm|EffectCue")
+	bool AcknowledgeSwordRhythmVisualHandoff(
+		const Fdemo_mapShanmenSwordRhythmEffectCuePresentationAcknowledgement&
+			Acknowledgement,
+		FString& OutDiagnostic);
+	/** Preferred path: releases an audio batch only after exact caller acknowledgement. */
+	UFUNCTION(BlueprintCallable, Category = "Shanmen|Combat|SwordRhythm|EffectCue")
+	bool AcknowledgeSwordRhythmAudioHandoff(
+		const Fdemo_mapShanmenSwordRhythmEffectCuePresentationAcknowledgement&
+			Acknowledgement,
+		FString& OutDiagnostic);
 	/** Explicitly releases the exact visual batch and may publish the next FIFO item. */
 	UFUNCTION(BlueprintCallable, Category = "Shanmen|Combat|SwordRhythm|EffectCue")
 	bool ConsumeSwordRhythmVisualHandoff(
