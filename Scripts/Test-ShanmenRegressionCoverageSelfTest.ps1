@@ -239,6 +239,9 @@ try
     $SwordRhythmEffectCueExecutionProductDispatch = New-AutomationLogFixture `
         -Name 'sword-rhythm-effect-cue-execution-product-dispatch.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionProductDispatch'
+    $SwordRhythmEffectCueExecutionProductRetryDecision = New-AutomationLogFixture `
+        -Name 'sword-rhythm-effect-cue-execution-product-retry-decision.log' `
+        -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionProductRetryDecision'
     $SwordRhythmEffectCueExecutionProductPreparedRetry = New-AutomationLogFixture `
         -Name 'sword-rhythm-effect-cue-execution-product-prepared-retry.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionProductPreparedRetry'
@@ -1017,6 +1020,42 @@ try
             'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionSessionTests.cpp') `
         -Logs @(
             $Full,
+            $SwordRhythmEffectCueExecutionSession,
+            $SwordRhythmEffectCueExecutionHost,
+            $SwordRhythmEffectCueExecutionDriver,
+            $SwordRhythmEffectCueExecutorAdapter,
+            $SwordRhythmEffectCueConsumerAttempt,
+            $SwordRhythmEffectCueDelivery,
+            $SwordRhythmEffectCue,
+            $SwordRhythmPresentation,
+            $SwordRhythmProductSession,
+            $SwordRhythmEvaluationRoute,
+            $SwordRhythmProductHost,
+            $CombatRunFixedTimeline,
+            $Coordinator,
+            $SwordRhythmEvaluation,
+            $SwordRhythm,
+            $BasicSword,
+            $ActionLifecycle)
+
+    Invoke-ExpectedPass `
+        -Name 'sword rhythm cue product retry decision requires complete decision-to-runtime evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductRetryDecision.h',
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductRetryDecision.cpp',
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductRetryDecisionTests.cpp') `
+        -Logs @(
+            $Full,
+            $SwordRhythmEffectCueExecutionProductRetryDecision,
+            $SwordRhythmEffectCueExecutionProductPreparedRetry,
+            $SwordRhythmEffectCueExecutionProductPreparedDispatch,
+            $SwordRhythmEffectCueExecutionProductPlannedDispatch,
+            $SwordRhythmEffectCueExecutionProductDispatchPlan,
+            $SwordRhythmEffectCueExecutionProductDispatch,
+            $SwordRhythmEffectCueExecutionProductTransaction,
+            $SwordRhythmEffectCueExecutionProductRoute,
+            $SwordRhythmEffectCueExecutionCommandHost,
+            $SwordRhythmEffectCueExecutionCommandRouter,
             $SwordRhythmEffectCueExecutionSession,
             $SwordRhythmEffectCueExecutionHost,
             $SwordRhythmEffectCueExecutionDriver,
@@ -2275,6 +2314,13 @@ try
             $SwordRhythmEvaluationRoute,
             $SwordRhythmProductHost,
             $SwordRhythmEvaluation) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'sword rhythm cue product retry decision focus cannot replace decision-to-runtime evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductRetryDecision.cpp') `
+        -Logs @($SwordRhythmEffectCueExecutionProductRetryDecision) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
