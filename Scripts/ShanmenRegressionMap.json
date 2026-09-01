@@ -424,6 +424,28 @@
       ]
     },
     {
+      "name": "SwordRhythmEffectCuePresentationHandoffExecutor",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenSwordRhythmEffectCuePresentationHandoffExecutor(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.SwordRhythmEffectCuePresentationHandoffExecutor",
+        "Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutorAdapter",
+        "Shanmen.0_0_10.Product.SwordRhythmEffectCueConsumerAttempt",
+        "Shanmen.0_0_10.Product.SwordRhythmEffectCueDelivery",
+        "Shanmen.0_0_10.Product.SwordRhythmEffectCue",
+        "Shanmen.0_0_10.Product.SwordRhythmPresentation",
+        "Shanmen.0_0_10.Product.SwordRhythmProductSession",
+        "Shanmen.0_0_10.Product.SwordRhythmEvaluationRoute",
+        "Shanmen.0_0_10.Product.SwordRhythmProductHost",
+        "Shanmen.0_0_10.Product.CombatRunFixedTimeline",
+        "Shanmen.0_0_10.Product.CombatRunCoordinator",
+        "Shanmen.0_0_10.CombatRuntime.SwordRhythmEvaluation",
+        "Shanmen.0_0_10.CombatRuntime.SwordRhythm",
+        "Shanmen.0_0_10.CombatRuntime.BasicSword",
+        "Shanmen.0_0_10.CombatRuntime.ActionLifecycle"
+      ]
+    },
+    {
       "name": "SwordRhythmEffectCueExecutionDriver",
       "pathRegex": "^Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionDriver(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [

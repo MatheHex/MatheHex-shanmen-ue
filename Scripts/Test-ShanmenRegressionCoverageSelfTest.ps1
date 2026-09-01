@@ -218,6 +218,9 @@ try
     $SwordRhythmEffectCueExecutorAdapter = New-AutomationLogFixture `
         -Name 'sword-rhythm-effect-cue-executor-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutorAdapter'
+    $SwordRhythmEffectCuePresentationHandoffExecutor = New-AutomationLogFixture `
+        -Name 'sword-rhythm-effect-cue-presentation-handoff-executor.log' `
+        -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCuePresentationHandoffExecutor'
     $SwordRhythmEffectCueExecutionDriver = New-AutomationLogFixture `
         -Name 'sword-rhythm-effect-cue-execution-driver.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionDriver'
@@ -939,6 +942,30 @@ try
             'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutorAdapterTests.cpp') `
         -Logs @(
             $Full,
+            $SwordRhythmEffectCueExecutorAdapter,
+            $SwordRhythmEffectCueConsumerAttempt,
+            $SwordRhythmEffectCueDelivery,
+            $SwordRhythmEffectCue,
+            $SwordRhythmPresentation,
+            $SwordRhythmProductSession,
+            $SwordRhythmEvaluationRoute,
+            $SwordRhythmProductHost,
+            $CombatRunFixedTimeline,
+            $Coordinator,
+            $SwordRhythmEvaluation,
+            $SwordRhythm,
+            $BasicSword,
+            $ActionLifecycle)
+
+    Invoke-ExpectedPass `
+        -Name 'sword rhythm cue presentation handoff executor requires adapter delivery source and runtime evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCuePresentationHandoffExecutor.h',
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCuePresentationHandoffExecutor.cpp',
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCuePresentationHandoffExecutorTests.cpp') `
+        -Logs @(
+            $Full,
+            $SwordRhythmEffectCuePresentationHandoffExecutor,
             $SwordRhythmEffectCueExecutorAdapter,
             $SwordRhythmEffectCueConsumerAttempt,
             $SwordRhythmEffectCueDelivery,
@@ -2486,6 +2513,23 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutorAdapter.cpp') `
         -Logs @(
+            $SwordRhythmEffectCueExecutorAdapter,
+            $SwordRhythmEffectCueConsumerAttempt,
+            $SwordRhythmEffectCueDelivery,
+            $SwordRhythmEffectCue,
+            $SwordRhythmPresentation,
+            $SwordRhythmProductSession,
+            $SwordRhythmEvaluationRoute,
+            $SwordRhythmProductHost,
+            $SwordRhythmEvaluation) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'sword rhythm cue presentation handoff focus cannot replace adapter delivery and runtime evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCuePresentationHandoffExecutor.cpp') `
+        -Logs @(
+            $SwordRhythmEffectCuePresentationHandoffExecutor,
             $SwordRhythmEffectCueExecutorAdapter,
             $SwordRhythmEffectCueConsumerAttempt,
             $SwordRhythmEffectCueDelivery,
