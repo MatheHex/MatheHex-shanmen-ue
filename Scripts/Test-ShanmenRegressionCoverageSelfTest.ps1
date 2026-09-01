@@ -128,6 +128,9 @@ try
     $ItemUse = New-AutomationLogFixture `
         -Name 'item-use.log' `
         -Group 'demo_map.ItemUseAndArmor'
+    $SpatialRingSchema = New-AutomationLogFixture `
+        -Name 'spatial-ring-schema.log' `
+        -Group 'demo_map.P1R6.SpatialRing'
     $ThrownRuntime = New-AutomationLogFixture `
         -Name 'thrown-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.ThrownWeapon'
@@ -2276,6 +2279,12 @@ try
         -Logs @($Full, $Legacy)
 
     Invoke-ExpectedPass `
+        -Name 'spatial ring schema fixture requires its exact migration group' `
+        -Paths @(
+            'Source/demo_map/demo_mapP1R6SpatialRingTests.cpp') `
+        -Logs @($SpatialRingSchema)
+
+    Invoke-ExpectedPass `
         -Name 'combat Run coordinator alias seam is covered by broad full and attribute evidence' `
         -Paths @('Source/demo_map/demo_mapCombatRunCoordinator.cpp') `
         -Logs @($Full, $Attributes, $Legacy)
@@ -3397,6 +3406,13 @@ try
         -Name 'canonical item catalog cannot use new-module evidence alone' `
         -Paths @(
             'Source/demo_map/demo_mapItemDefinitions.cpp') `
+        -Logs @($Full) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'spatial ring schema fixture cannot use unrelated full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapP1R6SpatialRingTests.cpp') `
         -Logs @($Full) `
         -ExpectedText 'missing required groups'
 

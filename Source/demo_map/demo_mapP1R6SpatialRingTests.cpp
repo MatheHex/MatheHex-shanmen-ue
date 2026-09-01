@@ -93,6 +93,7 @@ bool FP1R6SpatialRingProfileMigrationTest::RunTest(const FString&)
 	const Fdemo_mapProfileStorageContext Storage =
 		Fdemo_mapProfileStorageContext::ForRoot(NewR6ProfileRoot());
 	Fdemo_mapPersistentProfile Profile = Repository.CreateFreshProfile();
+	Profile.TownLevel = 4;
 	const FGuid LegacyRing = Profile.PermanentStash[2].ItemInstanceId;
 	FString Error;
 	TestTrue(TEXT("Save current source profile"),
@@ -102,14 +103,28 @@ bool FP1R6SpatialRingProfileMigrationTest::RunTest(const FString&)
 	TestTrue(TEXT("Read current source JSON"),
 		FFileHelper::LoadFileToString(Json, *Storage.PrimaryPath()));
 	const FString RingGuid = LegacyRing.ToString(EGuidFormats::DigitsWithHyphens);
-	Json.ReplaceInline(TEXT("\"SchemaVersion\":6"), TEXT("\"SchemaVersion\":5"));
-	Json.ReplaceInline(
-		TEXT("\"AccessoryItemInstanceId\":\"\""),
-		*FString::Printf(
-			TEXT("\"AccessoryItemInstanceId\":\"%s\""), *RingGuid));
-	Json.ReplaceInline(
-		TEXT(",\"SpatialRingItemInstanceId\":\"\""),
-		TEXT(""));
+	const FString CurrentSchemaToken = FString::Printf(
+		TEXT("\"SchemaVersion\":%d"),
+		Fdemo_mapPersistentProfile::CurrentSchemaVersion);
+	TestEqual(TEXT("Schema 5 fixture version replaced exactly once"),
+		Json.ReplaceInline(
+			*CurrentSchemaToken,
+			TEXT("\"SchemaVersion\":5"),
+			ESearchCase::CaseSensitive),
+		1);
+	TestEqual(TEXT("Legacy accessory field receives ring exactly once"),
+		Json.ReplaceInline(
+			TEXT("\"AccessoryItemInstanceId\":\"\""),
+			*FString::Printf(
+				TEXT("\"AccessoryItemInstanceId\":\"%s\""), *RingGuid),
+			ESearchCase::CaseSensitive),
+		1);
+	TestEqual(TEXT("Schema 6 spatial-ring field removed exactly once"),
+		Json.ReplaceInline(
+			TEXT(",\"SpatialRingItemInstanceId\":\"\""),
+			TEXT(""),
+			ESearchCase::CaseSensitive),
+		1);
 	TestTrue(TEXT("Write legacy schema five source"),
 		FFileHelper::SaveStringToFile(Json, *Storage.PrimaryPath()));
 
@@ -126,6 +141,7 @@ bool FP1R6SpatialRingProfileMigrationTest::RunTest(const FString&)
 		&& Loaded.Profile.PreparationLayout.SpatialRingItemInstanceId
 			== LegacyRing
 		&& !Loaded.Profile.PreparationLayout.AccessoryItemInstanceId.IsValid()
+		&& Loaded.Profile.TownLevel == Profile.TownLevel
 		&& Repository.ValidateProfile(Loaded.Profile, &Error));
 	return true;
 }

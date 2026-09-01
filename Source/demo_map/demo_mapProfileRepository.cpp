@@ -912,7 +912,10 @@ namespace
 		{
 			Promoted.ActiveRun.GeneratedRewardSources.Reset();
 		}
-		Promoted.TownLevel = 0;
+		if (Legacy.SchemaVersion <= 3)
+		{
+			Promoted.TownLevel = 0;
+		}
 		return Promoted;
 	}
 

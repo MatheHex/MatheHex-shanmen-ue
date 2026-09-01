@@ -156,9 +156,11 @@ bool FShanmenItemsSchema6MigrationTest::RunTest(const FString&)
 	const FString Root = NewMigrationRoot(TEXT("Schema6"));
 	const Fdemo_mapProfileStorageContext Storage =
 		Fdemo_mapProfileStorageContext::ForRoot(Root);
-	const Fdemo_mapProfileLoadResult Created =
-		Repository.LoadOrCreateDefaultProfile(Storage);
-	TestTrue(TEXT("Current Profile fixture committed"), Created.IsSuccess());
+	Fdemo_mapPersistentProfile Source = Repository.CreateFreshProfile();
+	Source.PersistentSpiritStones = 606;
+	Source.TownLevel = 5;
+	TestTrue(TEXT("Current nonzero Profile fixture committed"),
+		Repository.SaveProfile(Source, Storage).IsSuccess());
 
 	TArray<uint8> CurrentBytes;
 	TestTrue(TEXT("Current Profile bytes readable"),
@@ -187,13 +189,16 @@ bool FShanmenItemsSchema6MigrationTest::RunTest(const FString&)
 	TestTrue(TEXT("Schema 6 atomically migrates to current"),
 		Migrated.IsSuccess()
 		&& Migrated.Profile.SchemaVersion
-			== Fdemo_mapPersistentProfile::CurrentSchemaVersion);
+			== Fdemo_mapPersistentProfile::CurrentSchemaVersion
+		&& Migrated.Profile.TownLevel == Source.TownLevel
+		&& Migrated.Profile.PersistentSpiritStones
+			== Source.PersistentSpiritStones);
 	TestEqual(TEXT("Migration advances SaveGeneration once"),
 		Migrated.Profile.SaveGeneration,
-		Created.Profile.SaveGeneration + 1);
+		Source.SaveGeneration + 1);
 	TestEqual(TEXT("Migration preserves ordered item identities"),
 		Migrated.Profile.PermanentStash,
-		Created.Profile.PermanentStash);
+		Source.PermanentStash);
 	TArray<uint8> BackupBytes;
 	TestTrue(TEXT("Backup preserves exact Schema 6 source bytes"),
 		ReadBytes(Storage.BackupPath(), BackupBytes)

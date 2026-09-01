@@ -500,19 +500,64 @@ bool FItemEconomySchema22SchemaFourMigration::RunTest(const FString&)
 {
 	Fdemo_mapProfileRepository Repository;
 	const Fdemo_mapProfileStorageContext Storage = Fdemo_mapProfileStorageContext::ForRoot(NewItemEconomyRoot());
-	const Fdemo_mapProfileLoadResult Created = Repository.LoadOrCreateDefaultProfile(Storage);
+	Fdemo_mapPersistentProfile Created = Repository.CreateFreshProfile();
+	Created.PersistentSpiritStones = 404;
+	Created.TownLevel = 4;
+	TestTrue(TEXT("Nonzero Schema 4 source saved"),
+		Repository.SaveProfile(Created, Storage).IsSuccess());
 	TArray<uint8> Current, Legacy;
 	TestTrue(TEXT("Schema 4 fixture created"), ReadBytesP10(Storage.PrimaryPath(), Current)
 		&& DowngradeSchemaBytes(Current, 4, Legacy)
 		&& WriteBytesP10(Storage.PrimaryPath(), Legacy));
 	const Fdemo_mapProfileLoadResult Migrated = Repository.LoadExistingProfile(Storage);
-	TestTrue(TEXT("Schema 4 migration preserves current-era persistent state"),
+	TestTrue(TEXT("Schema 4 migration preserves nonzero current-era state"),
 		Migrated.IsSuccess()
 			&& Migrated.Profile.SchemaVersion == Fdemo_mapPersistentProfile::CurrentSchemaVersion
-			&& Migrated.Profile.PersistentSpiritStones == Created.Profile.PersistentSpiritStones
-			&& Migrated.Profile.TownLevel == Created.Profile.TownLevel
-			&& Migrated.Profile.PermanentStash == Created.Profile.PermanentStash
-			&& Migrated.Profile.ShopStock == Created.Profile.ShopStock);
+			&& Migrated.Profile.PersistentSpiritStones == Created.PersistentSpiritStones
+			&& Migrated.Profile.TownLevel == Created.TownLevel
+			&& Migrated.Profile.PermanentStash == Created.PermanentStash
+			&& Migrated.Profile.ShopStock == Created.ShopStock);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FItemEconomySchema23SchemaFiveAndSixTownMigration, "demo_map.ItemEconomySchema.23.SchemaFiveAndSixTownMigration", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FItemEconomySchema23SchemaFiveAndSixTownMigration::RunTest(const FString&)
+{
+	for (const int32 TargetSchema : { 5, 6 })
+	{
+		Fdemo_mapProfileRepository Repository;
+		const FString Root = NewItemEconomyRoot();
+		const Fdemo_mapProfileStorageContext Storage =
+			Fdemo_mapProfileStorageContext::ForRoot(Root);
+		Fdemo_mapPersistentProfile Source = Repository.CreateFreshProfile();
+		Source.PersistentSpiritStones = 500 + TargetSchema;
+		Source.TownLevel = TargetSchema - 1;
+		TestTrue(
+			FString::Printf(TEXT("Schema %d nonzero source saved"), TargetSchema),
+			Repository.SaveProfile(Source, Storage).IsSuccess());
+
+		TArray<uint8> Current;
+		TArray<uint8> Legacy;
+		TestTrue(
+			FString::Printf(TEXT("Schema %d fixture created"), TargetSchema),
+			ReadBytesP10(Storage.PrimaryPath(), Current)
+				&& DowngradeSchemaBytes(Current, TargetSchema, Legacy)
+				&& WriteBytesP10(Storage.PrimaryPath(), Legacy));
+		const Fdemo_mapProfileLoadResult Migrated =
+			Repository.LoadExistingProfile(Storage);
+		TestTrue(
+			FString::Printf(
+				TEXT("Schema %d preserves nonzero TownLevel and persistent state"),
+				TargetSchema),
+			Migrated.IsSuccess()
+				&& Migrated.Profile.SchemaVersion
+					== Fdemo_mapPersistentProfile::CurrentSchemaVersion
+				&& Migrated.Profile.TownLevel == Source.TownLevel
+				&& Migrated.Profile.PersistentSpiritStones
+					== Source.PersistentSpiritStones
+				&& Migrated.Profile.PermanentStash == Source.PermanentStash);
+		IFileManager::Get().DeleteDirectory(*Root, false, true);
+	}
 	return true;
 }
 
