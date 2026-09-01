@@ -21,6 +21,7 @@
 #include "demo_mapShanmenCombatRunFixedTimeline.h"
 #include "demo_mapShanmenSwordRhythmProductSession.h"
 #include "demo_mapShanmenSwordRhythmPresentationEvent.h"
+#include "demo_mapShanmenSwordRhythmEffectCuePresentationRunController.h"
 #include "demo_mapShanmenWeaponGuardInputAdapter.h"
 #include "demo_mapShanmenWeaponGuardProductSession.h"
 #include "demo_mapGameMode.generated.h"
@@ -216,6 +217,26 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Shanmen|Combat|SwordRhythm")
 	bool TryGetSwordRhythmPresentationEvent(
 		Fdemo_mapShanmenSwordRhythmPresentationEvent& OutEvent) const;
+	/** Reads the next complete visual cue batch awaiting Blueprint delivery. */
+	UFUNCTION(BlueprintPure, Category = "Shanmen|Combat|SwordRhythm|EffectCue")
+	bool TryGetSwordRhythmVisualHandoff(
+		Fdemo_mapShanmenSwordRhythmEffectCuePresentationHandoff& OutHandoff)
+		const;
+	/** Reads the next complete audio cue batch awaiting Blueprint delivery. */
+	UFUNCTION(BlueprintPure, Category = "Shanmen|Combat|SwordRhythm|EffectCue")
+	bool TryGetSwordRhythmAudioHandoff(
+		Fdemo_mapShanmenSwordRhythmEffectCuePresentationHandoff& OutHandoff)
+		const;
+	/** Explicitly releases the exact visual batch and may publish the next FIFO item. */
+	UFUNCTION(BlueprintCallable, Category = "Shanmen|Combat|SwordRhythm|EffectCue")
+	bool ConsumeSwordRhythmVisualHandoff(
+		FGuid HandoffId,
+		FString& OutDiagnostic);
+	/** Explicitly releases the exact audio batch and may publish the next FIFO item. */
+	UFUNCTION(BlueprintCallable, Category = "Shanmen|Combat|SwordRhythm|EffectCue")
+	bool ConsumeSwordRhythmAudioHandoff(
+		FGuid HandoffId,
+		FString& OutDiagnostic);
 	/** M01 enemy attacks never fall through to legacy damage when this is true. */
 	bool ShouldUseM01EnemyAttackProductPath() const;
 	Fdemo_mapM01EnemyAttackExecutionResult
@@ -305,6 +326,7 @@ private:
 	bool ReleasePlayerSpiritEvasion(const TCHAR* Context);
 	void ObserveSwordRhythmWeaponGuardContribution(
 		const Fdemo_mapM01EnemyAttackExecutionResult& AttackResult);
+	void PublishCurrentSwordRhythmPresentation(const FGuid& ActivationId);
 	Fdemo_mapM01EnemyAttackWeaponGuardContext
 	CaptureM01EnemyAttackWeaponGuardContext();
 	void PrepareV2CNavigation();
@@ -461,6 +483,8 @@ private:
 	Fdemo_mapShanmenThrownWeaponInputAdapter ThrownWeaponInputAdapter;
 	Fdemo_mapShanmenCombatRunFixedTimeline CombatRunFixedTimeline;
 	Fdemo_mapShanmenSwordRhythmProductSession SwordRhythmProductSession;
+	Fdemo_mapShanmenSwordRhythmEffectCuePresentationRunController
+		SwordRhythmPresentationRunController;
 	Fdemo_mapShanmenWeaponGuardProductSession WeaponGuardProductSession;
 	TArray<TWeakObjectPtr<Ademo_mapM01ExtractionZone>> M01ExtractionZones;
 	TArray<TWeakObjectPtr<AActor>> M01EnemyActors;
