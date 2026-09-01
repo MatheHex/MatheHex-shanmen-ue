@@ -60,7 +60,7 @@ bool FPreparedRuntime01::RunTest(const FString&)
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPreparedRuntime02, "demo_map.PreparedRunRuntime.02.ThreeEquipmentPreserveIdentity", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FPreparedRuntime02::RunTest(const FString&)
 {
-	auto Plan = NewPlan(); const auto Weapon = Item(Fdemo_mapItemIds::TrainingBlade, 1, Fdemo_mapItemIds::WeaponSlot); const auto Armor = Item(Fdemo_mapItemIds::TrainingVest, 1, Fdemo_mapItemIds::ArmorSlot); const auto Accessory = Item(Fdemo_mapItemIds::WindTalisman, 1, Fdemo_mapItemIds::AccessorySlot);
+	auto Plan = NewPlan(); const auto Weapon = Item(Fdemo_mapItemIds::TrainingBlade, 1, Fdemo_mapItemIds::WeaponSlot); const auto Armor = Item(Fdemo_mapItemIds::TrainingVest, 1, Fdemo_mapItemIds::ArmorSlot); const auto Accessory = Item(Fdemo_mapItemIds::EvasionCharm, 1, Fdemo_mapItemIds::AccessorySlot);
 	Add(Plan, Accessory); Add(Plan, Weapon); Add(Plan, Armor); auto* Items = NewPreparedItems(); TestTrue(TEXT("three equipment materialized"), Materialize(Items, Plan).IsMaterialized());
 	for (const auto& Record : Plan.OrderedItems) { const auto* Runtime = Items->GetAuthority().FindInstance(Record.ItemInstanceId); TestTrue(TEXT("exact deployed instance exists"), Runtime && Runtime->DefinitionId == Record.ItemDefinitionId && Runtime->Quantity == Record.StackCount && !Runtime->OriginRunId.IsValid()); }
 	TestEqual(TEXT("weapon exact ID"), Items->GetAuthority().GetEquippedInstance(Fdemo_mapItemIds::WeaponSlot), Weapon.ItemInstanceId); TestEqual(TEXT("armor exact ID"), Items->GetAuthority().GetEquippedInstance(Fdemo_mapItemIds::ArmorSlot), Armor.ItemInstanceId); TestEqual(TEXT("accessory exact ID"), Items->GetAuthority().GetEquippedInstance(Fdemo_mapItemIds::AccessorySlot), Accessory.ItemInstanceId); return true;
@@ -75,7 +75,7 @@ bool FPreparedRuntime03::RunTest(const FString&)
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPreparedRuntime04, "demo_map.PreparedRunRuntime.04.MaximumSixRecords", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FPreparedRuntime04::RunTest(const FString&)
 {
-	auto Plan = NewPlan(); Add(Plan, Item(Fdemo_mapItemIds::TrainingBlade, 1, Fdemo_mapItemIds::WeaponSlot)); Add(Plan, Item(Fdemo_mapItemIds::TrainingVest, 1, Fdemo_mapItemIds::ArmorSlot)); Add(Plan, Item(Fdemo_mapItemIds::WindTalisman, 1, Fdemo_mapItemIds::AccessorySlot)); Add(Plan, Item(Fdemo_mapItemIds::SpiritDust, 5)); Add(Plan, Item(Fdemo_mapItemIds::IronShard, 5)); Add(Plan, Item(Fdemo_mapItemIds::SpiritDust, 5)); auto* Items = NewPreparedItems(); TestTrue(TEXT("six records"), Materialize(Items, Plan).IsMaterialized()); TestEqual(TEXT("six exact IDs"), Items->GetDeployedItemIds().Num(), 6); return true;
+	auto Plan = NewPlan(); Add(Plan, Item(Fdemo_mapItemIds::TrainingBlade, 1, Fdemo_mapItemIds::WeaponSlot)); Add(Plan, Item(Fdemo_mapItemIds::TrainingVest, 1, Fdemo_mapItemIds::ArmorSlot)); Add(Plan, Item(Fdemo_mapItemIds::EvasionCharm, 1, Fdemo_mapItemIds::AccessorySlot)); Add(Plan, Item(Fdemo_mapItemIds::SpiritDust, 5)); Add(Plan, Item(Fdemo_mapItemIds::IronShard, 5)); Add(Plan, Item(Fdemo_mapItemIds::SpiritDust, 5)); auto* Items = NewPreparedItems(); TestTrue(TEXT("six records"), Materialize(Items, Plan).IsMaterialized()); TestEqual(TEXT("six exact IDs"), Items->GetDeployedItemIds().Num(), 6); return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPreparedRuntime05, "demo_map.PreparedRunRuntime.05.DeployedAndAcquiredRiskPredicate", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

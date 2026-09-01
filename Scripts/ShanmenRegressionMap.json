@@ -2333,6 +2333,13 @@
       ]
     },
     {
+      "name": "PreparedRunRuntimeFixture",
+      "pathRegex": "^Source/demo_map/demo_mapPreparedRunRuntimeTests\\.cpp$",
+      "requiredGroups": [
+        "demo_map.PreparedRunRuntime"
+      ]
+    },
+    {
       "name": "ProfileAuthority",
       "pathRegex": "^Source/demo_map/demo_mapProfile.*\\.(?:h|cpp)$",
       "requiredGroups": [

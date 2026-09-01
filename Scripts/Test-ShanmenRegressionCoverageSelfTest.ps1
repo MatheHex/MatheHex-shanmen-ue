@@ -494,6 +494,9 @@ try
     $RewardSourceProjection = New-AutomationLogFixture `
         -Name 'reward-source-projection.log' `
         -Group 'demo_map.RewardSourceProjection'
+    $PreparedRunRuntime = New-AutomationLogFixture `
+        -Name 'prepared-run-runtime.log' `
+        -Group 'demo_map.PreparedRunRuntime'
     $FailedRanged = New-AutomationLogFixture `
         -Name 'ranged-fail.log' `
         -Group 'demo_map.V2RangedCompatibility' `
@@ -2371,6 +2374,11 @@ try
             $RewardSourceProjection)
 
     Invoke-ExpectedPass `
+        -Name 'prepared run runtime fixture requires its exact legacy suite' `
+        -Paths @('Source/demo_map/demo_mapPreparedRunRuntimeTests.cpp') `
+        -Logs @($PreparedRunRuntime)
+
+    Invoke-ExpectedPass `
         -Name 'combat Run coordinator alias seam is covered by broad full and attribute evidence' `
         -Paths @('Source/demo_map/demo_mapCombatRunCoordinator.cpp') `
         -Logs @($Full, $Attributes, $Legacy)
@@ -2445,6 +2453,12 @@ try
             $RewardAffix,
             $RewardBossSource,
             $RareExtremeValue) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'prepared run runtime fixture cannot use unrelated full evidence' `
+        -Paths @('Source/demo_map/demo_mapPreparedRunRuntimeTests.cpp') `
+        -Logs @($Full) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
