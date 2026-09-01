@@ -34,6 +34,10 @@ public:
 
 	int32 GetSchemaVersion() const { return SchemaVersion; }
 	const FGuid& GetEnvelopeId() const { return EnvelopeId; }
+	const FGuid& GetCheckpointId() const
+	{
+		return Checkpoint.GetCheckpointId();
+	}
 	int32 GetRecordCount() const { return Checkpoint.GetRecordCount(); }
 
 private:
