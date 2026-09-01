@@ -239,6 +239,9 @@ try
     $SwordRhythmEffectCueExecutionProductDispatch = New-AutomationLogFixture `
         -Name 'sword-rhythm-effect-cue-execution-product-dispatch.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionProductDispatch'
+    $SwordRhythmEffectCueExecutionProductRetryStepCommand = New-AutomationLogFixture `
+        -Name 'sword-rhythm-effect-cue-execution-product-retry-step-command.log' `
+        -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionProductRetryStepCommand'
     $SwordRhythmEffectCueExecutionProductRetryStep = New-AutomationLogFixture `
         -Name 'sword-rhythm-effect-cue-execution-product-retry-step.log' `
         -Group 'Shanmen.0_0_10.Product.SwordRhythmEffectCueExecutionProductRetryStep'
@@ -1023,6 +1026,44 @@ try
             'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionSessionTests.cpp') `
         -Logs @(
             $Full,
+            $SwordRhythmEffectCueExecutionSession,
+            $SwordRhythmEffectCueExecutionHost,
+            $SwordRhythmEffectCueExecutionDriver,
+            $SwordRhythmEffectCueExecutorAdapter,
+            $SwordRhythmEffectCueConsumerAttempt,
+            $SwordRhythmEffectCueDelivery,
+            $SwordRhythmEffectCue,
+            $SwordRhythmPresentation,
+            $SwordRhythmProductSession,
+            $SwordRhythmEvaluationRoute,
+            $SwordRhythmProductHost,
+            $CombatRunFixedTimeline,
+            $Coordinator,
+            $SwordRhythmEvaluation,
+            $SwordRhythm,
+            $BasicSword,
+            $ActionLifecycle)
+
+    Invoke-ExpectedPass `
+        -Name 'sword rhythm cue product retry step command requires complete command-to-runtime evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductRetryStepCommand.h',
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductRetryStepCommand.cpp',
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductRetryStepCommandTests.cpp') `
+        -Logs @(
+            $Full,
+            $SwordRhythmEffectCueExecutionProductRetryStepCommand,
+            $SwordRhythmEffectCueExecutionProductRetryStep,
+            $SwordRhythmEffectCueExecutionProductRetryDecision,
+            $SwordRhythmEffectCueExecutionProductPreparedRetry,
+            $SwordRhythmEffectCueExecutionProductPreparedDispatch,
+            $SwordRhythmEffectCueExecutionProductPlannedDispatch,
+            $SwordRhythmEffectCueExecutionProductDispatchPlan,
+            $SwordRhythmEffectCueExecutionProductDispatch,
+            $SwordRhythmEffectCueExecutionProductTransaction,
+            $SwordRhythmEffectCueExecutionProductRoute,
+            $SwordRhythmEffectCueExecutionCommandHost,
+            $SwordRhythmEffectCueExecutionCommandRouter,
             $SwordRhythmEffectCueExecutionSession,
             $SwordRhythmEffectCueExecutionHost,
             $SwordRhythmEffectCueExecutionDriver,
@@ -2354,6 +2395,13 @@ try
             $SwordRhythmEvaluationRoute,
             $SwordRhythmProductHost,
             $SwordRhythmEvaluation) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'sword rhythm cue product retry step command focus cannot replace command-to-runtime evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductRetryStepCommand.cpp') `
+        -Logs @($SwordRhythmEffectCueExecutionProductRetryStepCommand) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
