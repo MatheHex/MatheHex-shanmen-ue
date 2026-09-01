@@ -3320,13 +3320,13 @@ void Ademo_mapV3ProgressionManager::RunFullSystemLoopAutomation()
 		FFileHelper::LoadFileToArray(BytesAfterInitialization, *Storage.PrimaryPath());
 		const bool bCommon =
 			FirstLoad.IsSuccess()
-			&& FirstLoad.Profile.SchemaVersion == 3
+			&& FirstLoad.Profile.SchemaVersion == Fdemo_mapPersistentProfile::CurrentSchemaVersion
 			&& Snapshot.ProfileId == ExpectedProfile
 			&& Snapshot.SessionState == Edemo_mapProfileSessionState::ReadyForPreparation
 			&& Snapshot.RiskSpiritStones == 0;
 		if (!bCommon)
 		{
-			Fail(TEXT("Schema 3, identity, ReadyForPreparation, or zero-risk reload invariant failed."));
+			Fail(TEXT("Current Schema, identity, ReadyForPreparation, or zero-risk reload invariant failed."));
 			return;
 		}
 

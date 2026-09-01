@@ -94,7 +94,13 @@ namespace
 	{
 		FString Json;
 		if (!FFileHelper::LoadFileToString(Json, *Path)) return false;
-		return Json.ReplaceInline(TEXT("\"SchemaVersion\":4"), TEXT("\"SchemaVersion\":5")) == 1
+		const FString CurrentToken = FString::Printf(
+			TEXT("\"SchemaVersion\":%d"),
+			Fdemo_mapPersistentProfile::CurrentSchemaVersion);
+		const FString FutureToken = FString::Printf(
+			TEXT("\"SchemaVersion\":%d"),
+			Fdemo_mapPersistentProfile::CurrentSchemaVersion + 1);
+		return Json.ReplaceInline(*CurrentToken, *FutureToken) == 1
 			&& FFileHelper::SaveStringToFile(Json, *Path, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
 	}
 
@@ -105,7 +111,7 @@ namespace
 		{
 			if (Item.ItemDefinitionId == Fdemo_mapItemIds::TrainingBlade) Layout.WeaponItemInstanceId = Item.ItemInstanceId;
 			if (Item.ItemDefinitionId == Fdemo_mapItemIds::TrainingVest) Layout.ArmorItemInstanceId = Item.ItemInstanceId;
-			if (Item.ItemDefinitionId == Fdemo_mapItemIds::WindTalisman) Layout.AccessoryItemInstanceId = Item.ItemInstanceId;
+			if (Item.ItemDefinitionId == Fdemo_mapItemIds::WindTalisman) Layout.SpatialRingItemInstanceId = Item.ItemInstanceId;
 		}
 		return Layout;
 	}
@@ -209,8 +215,11 @@ namespace
 		case 1:
 		{
 			const Fdemo_mapPersistentProfile Profile = Repository.CreateFreshProfile();
-			return Check(Test, Profile.SchemaVersion == 4 && Profile.PreparationLayout.IsEmpty()
-				&& Profile.PreparationLayout.HotbarItemInstanceIds.Num() == 9, TEXT("Fresh Schema 4 default is not exact."));
+			return Check(Test,
+				Profile.SchemaVersion == Fdemo_mapPersistentProfile::CurrentSchemaVersion
+				&& Profile.PreparationLayout.IsEmpty()
+				&& Profile.PreparationLayout.HotbarItemInstanceIds.Num() == 9,
+				TEXT("Fresh current-Schema default is not exact."));
 		}
 		case 2:
 		{
@@ -219,7 +228,8 @@ namespace
 			const int32 Before = Profile.SaveGeneration;
 			if (!DowngradeToSchemaTwo(Storage.PrimaryPath())) return Check(Test, false, TEXT("Schema 2 fixture failed."));
 			const Fdemo_mapProfileLoadResult Load = Repository.LoadExistingProfile(Storage);
-			return Check(Test, Load.IsSuccess() && Load.Profile.SchemaVersion == 4
+			return Check(Test, Load.IsSuccess()
+				&& Load.Profile.SchemaVersion == Fdemo_mapPersistentProfile::CurrentSchemaVersion
 				&& Load.Profile.SaveGeneration == Before + 1 && Load.Profile.PreparationLayout.IsEmpty(), TEXT("Idle Schema 2 migration failed."));
 		}
 		case 3:
@@ -251,7 +261,7 @@ namespace
 			const Fdemo_mapProfileLoadResult B = Repository.LoadExistingProfile(Storage);
 			ReadBytes(Storage.PrimaryPath(), After);
 			return Check(Test, Created.IsSuccess() && A.IsSuccess() && B.IsSuccess()
-				&& Before == After && A.Profile == B.Profile, TEXT("Schema 3 pure reload changed bytes."));
+				&& Before == After && A.Profile == B.Profile, TEXT("Current-Schema pure reload changed bytes."));
 		}
 		case 5:
 		{
@@ -288,14 +298,23 @@ namespace
 			Fdemo_mapPersistentPreparationLayout Layout = StarterLayout(Profile);
 			Layout.BackpackItemInstanceId = Backpack.ItemInstanceId;
 			Profile.PreparationLayout = Layout;
-			return Check(Test, Repository.ValidateProfile(Profile), TEXT("Four equipment compatibility rejected."));
+			return Check(Test, Repository.ValidateProfile(Profile), TEXT("Current equipment compatibility rejected."));
 		}
 		case 9:
+		{
+			const Fdemo_mapInventoryCapacityResult Base =
+				Fdemo_mapItemDefinitions::ResolveInventoryCapacity(NAME_None);
+			const Fdemo_mapInventoryCapacityResult Level1 =
+				Fdemo_mapItemDefinitions::ResolveInventoryCapacity(Fdemo_mapItemIds::BackpackLevel1);
+			const Fdemo_mapInventoryCapacityResult Level2 =
+				Fdemo_mapItemDefinitions::ResolveInventoryCapacity(Fdemo_mapItemIds::BackpackLevel2);
 			return Check(Test,
-				Fdemo_mapItemDefinitions::ResolveInventoryCapacity(NAME_None).Capacity == 6
-				&& Fdemo_mapItemDefinitions::ResolveInventoryCapacity(Fdemo_mapItemIds::BackpackLevel1).Capacity == 16
-				&& Fdemo_mapItemDefinitions::ResolveInventoryCapacity(Fdemo_mapItemIds::BackpackLevel2).Capacity == 20,
-				TEXT("Layered carried capacities are not 6/16/20."));
+				Base.bSuccess && Level1.bSuccess && Level2.bSuccess
+				&& Base.Capacity == 6
+				&& Level1.Capacity == 42
+				&& Level2.Capacity == 42,
+				TEXT("Current carried capacities are not base 6 and backpack 42/42."));
+		}
 		case 10:
 		{
 			Fdemo_mapPersistentProfile Profile = Repository.CreateFreshProfile();
@@ -421,7 +440,10 @@ namespace
 			RuntimeRequest.CommittedPlan.OrderedItems = Profile.ActiveRun.ActiveRunItems;
 			RuntimeRequest.CommittedPlan.DeployedItemIds = Profile.ActiveRun.DeployedItemIds;
 			RuntimeRequest.CommittedPlan.HotbarItemInstanceIds = Profile.PreparationLayout.HotbarItemInstanceIds;
-			RuntimeRequest.CommittedPlan.RunInventoryCapacity = 20;
+			const Fdemo_mapInventoryCapacityResult Capacity =
+				Fdemo_mapItemDefinitions::ResolveInventoryCapacity(Fdemo_mapItemIds::BackpackLevel2);
+			if (!Check(Test, Capacity.bSuccess, TEXT("Runtime capacity fixture failed to resolve."))) return false;
+			RuntimeRequest.CommittedPlan.RunInventoryCapacity = Capacity.Capacity;
 			const auto Runtime = Items->MaterializePreparedRun(RuntimeRequest);
 			if (Index == 23)
 				return Check(Test, !Runtime.IsMaterialized() && Items->GetRunState() == Edemo_mapRunState::Inactive
@@ -678,9 +700,19 @@ namespace
 				Snapshot.OrderedPermanentStashRows.Add(Row);
 			}
 			const auto View = Fdemo_mapProfilePreparationPresenter::BuildViewState(Snapshot);
-			return Check(Test, View.PersistentSpiritStones == 20 && View.RunInventoryCapacity == 20
+			const Fdemo_mapInventoryCapacityResult ExpectedCapacity =
+				Fdemo_mapItemDefinitions::ResolveInventoryCapacity(Fdemo_mapItemIds::BackpackLevel2);
+			const TArray<FName>& ExpectedSlotIds = Fdemo_mapItemDefinitions::GetEquipmentSlotIds();
+			bool bEquipmentSlotsMatch = View.OrderedEquipmentSlots.Num() == ExpectedSlotIds.Num();
+			for (int32 SlotIndex = 0; bEquipmentSlotsMatch && SlotIndex < ExpectedSlotIds.Num(); ++SlotIndex)
+			{
+				bEquipmentSlotsMatch = View.OrderedEquipmentSlots[SlotIndex].SlotId == ExpectedSlotIds[SlotIndex];
+			}
+			return Check(Test, ExpectedCapacity.bSuccess
+				&& View.PersistentSpiritStones == 20
+				&& View.RunInventoryCapacity == ExpectedCapacity.Capacity
 				&& View.HotbarBindings.SlotBindings[0] == Pill.ItemInstanceId
-				&& View.OrderedEquipmentSlots.Num() == 4, TEXT("Preparation integrated view refresh failed."));
+				&& bEquipmentSlotsMatch, TEXT("Preparation integrated view refresh failed."));
 		}
 		case 49:
 		{
@@ -730,11 +762,14 @@ namespace
 				TEXT("End-to-end trade balance or identity failed."));
 		}
 		case 50:
+		{
+			const Fdemo_mapPersistentProfile Profile;
 			return Check(Test,
 				FPaths::FileExists(FPaths::Combine(FPaths::ProjectDir(), TEXT("demo_map.uproject")))
 				&& !FPaths::DirectoryExists(FPaths::Combine(FPaths::ProjectDir(), TEXT("Plugins")))
-				&& Fdemo_mapPersistentProfile::CurrentSchemaVersion == 4,
+				&& Profile.SchemaVersion == Fdemo_mapPersistentProfile::CurrentSchemaVersion,
 				TEXT("Protected scope or cleanup invariant failed."));
+		}
 		default:
 			return Check(Test, false, TEXT("Unknown P8 test case."));
 		}
@@ -745,15 +780,15 @@ namespace
 	IMPLEMENT_SIMPLE_AUTOMATION_TEST(ClassName, "demo_map.FullSystemLoop." #Number "." Suffix, EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter) \
 	bool ClassName::RunTest(const FString&) { return RunCase(Number, *this); }
 
-DEMO_MAP_P8_TEST(FP8FullSystemLoop01, 1, "FreshSchemaThree")
-DEMO_MAP_P8_TEST(FP8FullSystemLoop02, 2, "SchemaTwoIdleMigration")
+DEMO_MAP_P8_TEST(FP8FullSystemLoop01, 1, "FreshCurrentSchema")
+DEMO_MAP_P8_TEST(FP8FullSystemLoop02, 2, "SchemaTwoIdleMigrationToCurrent")
 DEMO_MAP_P8_TEST(FP8FullSystemLoop03, 3, "SchemaTwoActiveRunMigration")
-DEMO_MAP_P8_TEST(FP8FullSystemLoop04, 4, "SchemaThreeReloadIdempotent")
+DEMO_MAP_P8_TEST(FP8FullSystemLoop04, 4, "CurrentSchemaReloadIdempotent")
 DEMO_MAP_P8_TEST(FP8FullSystemLoop05, 5, "FutureSchemaReadOnlyReject")
-DEMO_MAP_P8_TEST(FP8FullSystemLoop06, 6, "InvalidSchemaThreeLayoutReject")
+DEMO_MAP_P8_TEST(FP8FullSystemLoop06, 6, "RetiredPreparationMetadataIgnored")
 DEMO_MAP_P8_TEST(FP8FullSystemLoop07, 7, "PersistentLayoutStableOrder")
-DEMO_MAP_P8_TEST(FP8FullSystemLoop08, 8, "FourEquipmentCompatibility")
-DEMO_MAP_P8_TEST(FP8FullSystemLoop09, 9, "BackpackCapacitySixTenFourteen")
+DEMO_MAP_P8_TEST(FP8FullSystemLoop08, 8, "CurrentEquipmentCompatibility")
+DEMO_MAP_P8_TEST(FP8FullSystemLoop09, 9, "CurrentInventoryCapacityContract")
 DEMO_MAP_P8_TEST(FP8FullSystemLoop10, 10, "RunInventoryMaterialConsumableOnly")
 DEMO_MAP_P8_TEST(FP8FullSystemLoop11, 11, "RunInventoryWholeStackIdentity")
 DEMO_MAP_P8_TEST(FP8FullSystemLoop12, 12, "HotbarExactlyNinePersistedSlots")
@@ -794,7 +829,7 @@ DEMO_MAP_P8_TEST(FP8FullSystemLoop46, 46, "InputSettingsReloadPersistence")
 DEMO_MAP_P8_TEST(FP8FullSystemLoop47, 47, "RestoreDefaultsExact")
 DEMO_MAP_P8_TEST(FP8FullSystemLoop48, 48, "PreparationViewIntegratedRefresh")
 DEMO_MAP_P8_TEST(FP8FullSystemLoop49, 49, "EndToEndTradeBalanceAndIdentity")
-DEMO_MAP_P8_TEST(FP8FullSystemLoop50, 50, "ProtectedScopesAndCleanup")
+DEMO_MAP_P8_TEST(FP8FullSystemLoop50, 50, "ProtectedScopesAndCurrentSchema")
 
 #undef DEMO_MAP_P8_TEST
 

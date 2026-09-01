@@ -101,6 +101,12 @@ try
     $Ranged = New-AutomationLogFixture `
         -Name 'ranged.log' `
         -Group 'demo_map.V2RangedCompatibility'
+    $FullSystemLoop = New-AutomationLogFixture `
+        -Name 'full-system-loop.log' `
+        -Group 'demo_map.FullSystemLoop'
+    $SearchContainer = New-AutomationLogFixture `
+        -Name 'search-container.log' `
+        -Group 'demo_map.SearchContainer'
     $FullSystemRegistry = New-AutomationLogFixture `
         -Name 'full-system-registry.log' `
         -Group 'demo_map.FullSystemLoop.41'
@@ -1996,6 +2002,7 @@ try
             $Full,
             $SpiritEvasionPhysicalInput,
             $SpiritEvasionInputAdapter,
+            $FullSystemLoop,
             $FullSystemRegistry,
             $FullSystemRestore,
             $P7Integration,
@@ -2283,6 +2290,24 @@ try
         -Paths @(
             'Source/demo_map/demo_mapP1R6SpatialRingTests.cpp') `
         -Logs @($SpatialRingSchema)
+
+    Invoke-ExpectedPass `
+        -Name 'legacy full-system fixture requires its own complete suite' `
+        -Paths @(
+            'Source/demo_map/demo_mapFullSystemLoopTests.cpp') `
+        -Logs @(
+            $Full,
+            $FullSystemLoop,
+            $P7Integration,
+            $P5RuntimeInterface,
+            $InputRestore,
+            $Ranged)
+
+    Invoke-ExpectedPass `
+        -Name 'legacy search-container fixture requires its exact suite' `
+        -Paths @(
+            'Source/demo_map/demo_mapSearchContainerTests.cpp') `
+        -Logs @($SearchContainer)
 
     Invoke-ExpectedPass `
         -Name 'combat Run coordinator alias seam is covered by broad full and attribute evidence' `
@@ -3413,6 +3438,20 @@ try
         -Name 'spatial ring schema fixture cannot use unrelated full evidence' `
         -Paths @(
             'Source/demo_map/demo_mapP1R6SpatialRingTests.cpp') `
+        -Logs @($Full) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'legacy full-system fixture cannot use only new-module evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapFullSystemLoopTests.cpp') `
+        -Logs @($Full) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'legacy search-container fixture cannot use unrelated full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapSearchContainerTests.cpp') `
         -Logs @($Full) `
         -ExpectedText 'missing required groups'
 

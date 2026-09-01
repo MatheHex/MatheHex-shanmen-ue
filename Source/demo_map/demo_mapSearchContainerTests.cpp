@@ -247,12 +247,14 @@ bool FSearchContainer09::RunTest(const FString&)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSearchContainer10, "demo_map.SearchContainer.10.EquipmentFourSlotsImmediateIdentified", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSearchContainer10, "demo_map.SearchContainer.10.EquipmentCurrentSlotsImmediateIdentified", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FSearchContainer10::RunTest(const FString&)
 {
 	FSearchContainerFixture F; F.Initialize(Edemo_mapRuntimeContainerKind::Corpse, Fdemo_mapSearchContainerPrototypeConfig::BuildPrototypeCorpseSeed()); F.Open();
 	const auto S = F.Snapshot(); const auto* E = F.Entry(Edemo_mapRuntimeContainerSection::Equipment, 0);
-	TestTrue(TEXT("Equipment four slots and identified"), S.Sections[0].Capacity == 4 && E && E->State == Edemo_mapRuntimeContainerEntryState::Identified);
+	TestTrue(TEXT("Equipment current slots and identified"),
+		S.Sections[0].Capacity == Fdemo_mapSearchContainerPrototypeConfig::CorpseEquipmentCapacity
+		&& E && E->State == Edemo_mapRuntimeContainerEntryState::Identified);
 	return true;
 }
 
@@ -459,7 +461,11 @@ bool FSearchContainer28::RunTest(const FString&)
 	TArray<FFileEvidence> Before; for (const FString& Path : Paths) Before.Add(ReadEvidence(Path));
 	FSearchContainerFixture F; F.Initialize(Edemo_mapRuntimeContainerKind::Chest, Fdemo_mapSearchContainerPrototypeConfig::BuildChestSeed(0)); F.Open();
 	Fdemo_mapPersistentProfile Profile;
-	TestTrue(TEXT("Schema and default Profile economy remain unchanged"), Profile.SchemaVersion == 4 && Profile.SaveGeneration == 0 && Profile.PersistentSpiritStones == 0 && Profile.TownLevel == 0);
+	TestTrue(TEXT("Schema and default Profile economy remain unchanged"),
+		Profile.SchemaVersion == Fdemo_mapPersistentProfile::CurrentSchemaVersion
+		&& Profile.SaveGeneration == 0
+		&& Profile.PersistentSpiritStones == 0
+		&& Profile.TownLevel == 0);
 	for (int32 Index = 0; Index < Paths.Num(); ++Index)
 	{
 		const FFileEvidence After = ReadEvidence(Paths[Index]);

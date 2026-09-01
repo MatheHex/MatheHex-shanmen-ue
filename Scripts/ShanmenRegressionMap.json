@@ -2279,6 +2279,20 @@
       ]
     },
     {
+      "name": "LegacyFullSystemLoopContracts",
+      "pathRegex": "^Source/demo_map/demo_mapFullSystemLoopTests\\.cpp$",
+      "requiredGroups": [
+        "demo_map.FullSystemLoop"
+      ]
+    },
+    {
+      "name": "LegacySearchContainerContracts",
+      "pathRegex": "^Source/demo_map/demo_mapSearchContainerTests\\.cpp$",
+      "requiredGroups": [
+        "demo_map.SearchContainer"
+      ]
+    },
+    {
       "name": "PreparationProjectionConsumers",
       "pathRegex": "^Source/demo_map/demo_mapProfilePreparation(?:Types|Presenter|Widget).*\\.(?:h|cpp)$",
       "requiredGroups": [
