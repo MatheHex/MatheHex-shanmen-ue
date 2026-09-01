@@ -476,6 +476,9 @@ try
     $Legacy = New-AutomationLogFixture `
         -Name 'legacy.log' `
         -Group 'demo_map'
+    $AutomationRootBoundary = New-AutomationLogFixture `
+        -Name 'automation-root-boundary.log' `
+        -Group 'demo_map.AutomationRootBoundary'
     $FailedRanged = New-AutomationLogFixture `
         -Name 'ranged-fail.log' `
         -Group 'demo_map.V2RangedCompatibility' `
@@ -2330,6 +2333,13 @@ try
         -Logs @($SearchContainer)
 
     Invoke-ExpectedPass `
+        -Name 'automation root boundary changes require their exact safety suite' `
+        -Paths @(
+            'Source/demo_map/demo_mapAutomationRootBoundary.cpp',
+            'Source/demo_map/demo_mapAutomationRootBoundaryTests.cpp') `
+        -Logs @($AutomationRootBoundary)
+
+    Invoke-ExpectedPass `
         -Name 'combat Run coordinator alias seam is covered by broad full and attribute evidence' `
         -Paths @('Source/demo_map/demo_mapCombatRunCoordinator.cpp') `
         -Logs @($Full, $Attributes, $Legacy)
@@ -2387,6 +2397,13 @@ try
         -Paths @('Source/demo_map/demo_mapUnknownAuthority.cpp') `
         -Logs @($Full) `
         -ExpectedText 'unmapped changed paths'
+
+    Invoke-ExpectedFail `
+        -Name 'unrelated evidence cannot cover automation root boundary changes' `
+        -Paths @(
+            'Source/demo_map/demo_mapAutomationRootBoundary.cpp') `
+        -Logs @($Full) `
+        -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
         -Name 'narrow child suite does not satisfy required parent suite' `

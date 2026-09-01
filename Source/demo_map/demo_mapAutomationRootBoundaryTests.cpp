@@ -776,6 +776,32 @@ namespace
 				!Result.bAccepted && Result.bProductionOverlap);
 			break;
 		}
+		case 47:
+		{
+			Result = Fdemo_mapAutomationRootBoundary::Evaluate(Paths, ExactLeaves());
+			Test.TestTrue(
+				TEXT("Dev.D.UE.0.0.9B is an explicitly accepted project-root leaf"),
+				Result.bAccepted && Result.bProjectRootLeafMatch);
+
+			const FString WorkspaceRoot = FPaths::GetPath(Canonical(FPaths::ProjectDir()));
+			const FString NearMatchProjectRoot = FPaths::Combine(
+				WorkspaceRoot,
+				TEXT("Dev.D.UE.0.0.9B.suffix"));
+			Paths.AutomationRoot = FPaths::Combine(
+				NearMatchProjectRoot,
+				TEXT("Saved"),
+				TEXT("Automation"),
+				TEXT("Dev.D.UE.0.0.5.P8.3.r0"));
+			SetLeaf(Paths, TEXT("Dev.D.UE.0.0.5.P8.3.r0"));
+			Paths.ExistingOrdinaryFiles = {
+				FPaths::Combine(NearMatchProjectRoot, TEXT("demo_map.uproject"))
+			};
+			Result = Fdemo_mapAutomationRootBoundary::Evaluate(Paths, ExactLeaves());
+			Test.TestTrue(
+				TEXT("A near-match 0.0.9B project-root leaf remains rejected"),
+				!Result.bAccepted && !Result.bProjectRootLeafMatch);
+			break;
+		}
 		default:
 			Test.AddError(TEXT("Unknown AutomationRootBoundary test case."));
 			break;
@@ -834,6 +860,7 @@ DEMO_MAP_ROOT_TEST(FRootBoundary43, "demo_map.AutomationRootBoundary.43.F0_0_r6E
 DEMO_MAP_ROOT_TEST(FRootBoundary44, "demo_map.AutomationRootBoundary.44.P8_20ExactLeafAccepted", 44)
 DEMO_MAP_ROOT_TEST(FRootBoundary45, "demo_map.AutomationRootBoundary.45.AcceptedLeavesAndNegativeSentinelsAreDisjoint", 45)
 DEMO_MAP_ROOT_TEST(FRootBoundary46, "demo_map.AutomationRootBoundary.46.F0_0_r7ExactLeafAccepted", 46)
+DEMO_MAP_ROOT_TEST(FRootBoundary47, "demo_map.AutomationRootBoundary.47.CurrentProjectRootExactMatchOnly", 47)
 
 #undef DEMO_MAP_ROOT_TEST
 

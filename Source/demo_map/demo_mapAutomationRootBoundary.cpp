@@ -182,7 +182,8 @@ Fdemo_mapAutomationRootBoundaryResult Fdemo_mapAutomationRootBoundary::Evaluate(
 		ProjectRootLeaf.Equals(TEXT("Dev.D.UE.0.0.5"), ESearchCase::IgnoreCase)
 		|| ProjectRootLeaf.Equals(TEXT("Dev.D.UE.0.0.6"), ESearchCase::IgnoreCase)
 		|| ProjectRootLeaf.Equals(TEXT("Dev.D.UE.0.0.7"), ESearchCase::IgnoreCase)
-		|| ProjectRootLeaf.Equals(TEXT("Dev.D.UE.0.0.9-XFix1"), ESearchCase::IgnoreCase);
+		|| ProjectRootLeaf.Equals(TEXT("Dev.D.UE.0.0.9-XFix1"), ESearchCase::IgnoreCase)
+		|| ProjectRootLeaf.Equals(TEXT("Dev.D.UE.0.0.9B"), ESearchCase::IgnoreCase);
 
 	FString ExpectedUproject;
 	CanonicalizeAbsolutePath(

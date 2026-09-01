@@ -2280,6 +2280,13 @@
       ]
     },
     {
+      "name": "AutomationRootBoundary",
+      "pathRegex": "^Source/demo_map/demo_mapAutomationRootBoundary(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "demo_map.AutomationRootBoundary"
+      ]
+    },
+    {
       "name": "ProfileAuthority",
       "pathRegex": "^Source/demo_map/demo_mapProfile.*\\.(?:h|cpp)$",
       "requiredGroups": [
