@@ -94,6 +94,9 @@ public:
 			OutRecord) const;
 
 private:
+	friend class
+		Fdemo_mapShanmenSwordRhythmEffectCueExecutionProductRetryStepCommandJournalCheckpointService;
+
 	TArray<
 		Fdemo_mapShanmenSwordRhythmEffectCueExecutionProductRetryStepCommandJournalRecord>
 		Records;
