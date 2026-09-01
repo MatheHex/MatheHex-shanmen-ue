@@ -1428,7 +1428,7 @@
     },
     {
       "name": "UnifiedInputRegistryAndBindings",
-      "pathRegex": "^Source/demo_map/(?:demo_mapInputActionRegistry|demo_mapInputBindingSettings|demo_mapShanmenSpiritEvasionPhysicalInputTests|demo_mapShanmenWeaponGuardPhysicalInputTests|demo_mapFullSystemLoopTests|demo_mapP7IntegrationTests|demo_mapRuntimeInterfaceSliceTests)\\.(?:h|cpp)$",
+      "pathRegex": "^Source/demo_map/(?:demo_mapInputActionRegistry|demo_mapInputBindingSettings|demo_mapShanmenSpiritEvasionPhysicalInputTests|demo_mapShanmenWeaponGuardPhysicalInputTests|demo_mapFullSystemLoopTests|demo_mapP7IntegrationTests)\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10",
         "Shanmen.0_0_10.Product.SpiritEvasionPhysicalInput",
@@ -2354,6 +2354,20 @@
       ]
     },
     {
+      "name": "P5RuntimeInterfaceFixture",
+      "pathRegex": "^Source/demo_map/demo_mapRuntimeInterfaceSliceTests\\.cpp$",
+      "requiredGroups": [
+        "demo_map.P5RuntimeInterface"
+      ]
+    },
+    {
+      "name": "P6DualLootFixture",
+      "pathRegex": "^Source/demo_map/demo_mapDualLootSliceTests\\.cpp$",
+      "requiredGroups": [
+        "demo_map.P6.DualLoot"
+      ]
+    },
+    {
       "name": "ProfileAuthority",
       "pathRegex": "^Source/demo_map/demo_mapProfile.*\\.(?:h|cpp)$",
       "requiredGroups": [
@@ -2400,7 +2414,7 @@
     },
     {
       "name": "ItemProductAdapters",
-      "pathRegex": "^Source/demo_map/demo_map(?:ShanmenItem|ShanmenPreparation|Item|GridInventory|DualLoot|EntityLoadout|0909BCodeBItemBridge|0909BM01RuntimeAdapter|PreparationAdapter).*\\.(?:h|cpp)$",
+      "pathRegex": "^Source/demo_map/demo_map(?:ShanmenItem|ShanmenPreparation|Item|GridInventory|EntityLoadout|0909BCodeBItemBridge|0909BM01RuntimeAdapter|PreparationAdapter).*\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10.Items",
         "demo_map.ItemUseAndArmor",

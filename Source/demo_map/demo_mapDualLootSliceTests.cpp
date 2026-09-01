@@ -226,10 +226,16 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FP6DualLoot03CorpseSpatialItemCapacity::RunTest(const FString&)
 {
 	FP6DualLootFixture Fixture;
+	const int32 SpatialItemSlotIndex =
+		Fdemo_mapItemDefinitions::GetEquipmentSlotIds().IndexOfByKey(
+			Fdemo_mapItemIds::BackpackSlot);
+	TestTrue(
+		TEXT("Backpack has a canonical corpse equipment slot"),
+		SpatialItemSlotIndex != INDEX_NONE);
 	const TArray<Fdemo_mapRuntimeContainerSeedEntry> Seed = {
 		{
 			Edemo_mapRuntimeContainerSection::Equipment,
-			3,
+			SpatialItemSlotIndex,
 			Fdemo_mapItemIds::BackpackLevel1,
 			1
 		},
@@ -251,14 +257,21 @@ bool FP6DualLoot03CorpseSpatialItemCapacity::RunTest(const FString&)
 		FindRegion(View, Edemo_mapDualLootTargetRegion::SpatialItem);
 	const Fdemo_mapDualLootTargetRegionView* SpatialStorage =
 		FindRegion(View, Edemo_mapDualLootTargetRegion::SpatialStorage);
+	const Fdemo_mapSpatialStorageCapacityResult ExpectedStorage =
+		Fdemo_mapItemDefinitions::ResolveSpatialStorageCapacity(
+			Fdemo_mapItemIds::BackpackLevel1);
 	TestTrue(
 		TEXT("Identified spatial item exposes Definition-backed dynamic storage"),
-		SpatialItem
+		ExpectedStorage.bSuccess
+			&& SpatialItem
+			&& SpatialItem->Cells.Num() == 1
 			&& SpatialItem->Cells[0].State
 				== Edemo_mapRuntimeContainerEntryState::Identified
 			&& SpatialStorage
-			&& SpatialStorage->Capacity == 36
-			&& SpatialStorage->FirstSourceSlotIndex == 6);
+			&& SpatialStorage->Capacity == ExpectedStorage.Capacity
+			&& SpatialStorage->FirstSourceSlotIndex
+				== Fdemo_mapSearchContainerPrototypeConfig::
+					CorpseBaseQuickItemCapacity);
 	return true;
 }
 
@@ -286,13 +299,17 @@ bool FP6DualLoot04EquipmentSlotCanonicalization::RunTest(const FString&)
 			Edemo_mapRuntimeContainerSection::Equipment,
 			2),
 		Planned(
-			Fdemo_mapItemIds::AccessoryLevel1,
+			Fdemo_mapItemIds::EvasionCharm,
 			Edemo_mapRuntimeContainerSection::Equipment,
 			3),
 		Planned(
+			Fdemo_mapItemIds::AccessoryLevel1,
+			Edemo_mapRuntimeContainerSection::Equipment,
+			4),
+		Planned(
 			Fdemo_mapItemIds::BackpackLevel1,
 			Edemo_mapRuntimeContainerSection::Equipment,
-			4)
+			5)
 	};
 	const TArray<Fdemo_mapRuntimeContainerSeedEntry> Seed =
 		Fdemo_mapRewardSourceProjectionPlanner::BuildContainerSeed(Result);
@@ -311,14 +328,22 @@ bool FP6DualLoot04EquipmentSlotCanonicalization::RunTest(const FString&)
 			++BackpackCount;
 		}
 	}
+	const int32 CanonicalEquipmentRoleCount =
+		Fdemo_mapItemDefinitions::GetEquipmentSlotIds().Num();
+	bool bEveryCanonicalEquipmentSlotPresent =
+		EquipmentSlots.Num() == CanonicalEquipmentRoleCount;
+	for (int32 SlotIndex = 0;
+		bEveryCanonicalEquipmentSlotPresent
+			&& SlotIndex < CanonicalEquipmentRoleCount;
+		++SlotIndex)
+	{
+		bEveryCanonicalEquipmentSlotPresent =
+			EquipmentSlots.Contains(SlotIndex);
+	}
 	TestTrue(
 		TEXT("Each equipment role is 0-1 and duplicate weapon becomes ordinary carried loot"),
 		Seed.Num() == Result.PlannedStacks.Num()
-			&& EquipmentSlots.Num() == 4
-			&& EquipmentSlots.Contains(0)
-			&& EquipmentSlots.Contains(1)
-			&& EquipmentSlots.Contains(2)
-			&& EquipmentSlots.Contains(3)
+			&& bEveryCanonicalEquipmentSlotPresent
 			&& BackpackCount == 1);
 	return true;
 }

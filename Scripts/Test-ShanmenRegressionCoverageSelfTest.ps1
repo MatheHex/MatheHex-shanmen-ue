@@ -121,7 +121,10 @@ try
         -Group 'demo_map.P7Integration'
     $P5RuntimeInterface = New-AutomationLogFixture `
         -Name 'p5-runtime-interface.log' `
-        -Group 'demo_map.P5RuntimeInterface.06'
+        -Group 'demo_map.P5RuntimeInterface'
+    $P6DualLoot = New-AutomationLogFixture `
+        -Name 'p6-dual-loot.log' `
+        -Group 'demo_map.P6.DualLoot'
     $InputRestore = New-AutomationLogFixture `
         -Name 'input-restore.log' `
         -Group 'demo_map.InputRestore'
@@ -2360,6 +2363,18 @@ try
         -Logs @($EnemyRouteLoot)
 
     Invoke-ExpectedPass `
+        -Name 'P5 runtime interface fixture requires its complete exact suite' `
+        -Paths @(
+            'Source/demo_map/demo_mapRuntimeInterfaceSliceTests.cpp') `
+        -Logs @($P5RuntimeInterface)
+
+    Invoke-ExpectedPass `
+        -Name 'P6 dual loot fixture requires its complete exact suite' `
+        -Paths @(
+            'Source/demo_map/demo_mapDualLootSliceTests.cpp') `
+        -Logs @($P6DualLoot)
+
+    Invoke-ExpectedPass `
         -Name 'automation root boundary changes require their exact safety suite' `
         -Paths @(
             'Source/demo_map/demo_mapAutomationRootBoundary.cpp',
@@ -3579,6 +3594,20 @@ try
         -Name 'enemy route loot fixture cannot use unrelated full evidence' `
         -Paths @(
             'Source/demo_map/demo_mapEnemyRouteLootTests.cpp') `
+        -Logs @($Full) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'P5 runtime interface fixture cannot use unrelated full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapRuntimeInterfaceSliceTests.cpp') `
+        -Logs @($Full) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'P6 dual loot fixture cannot use unrelated item evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapDualLootSliceTests.cpp') `
         -Logs @($Full) `
         -ExpectedText 'missing required groups'
 

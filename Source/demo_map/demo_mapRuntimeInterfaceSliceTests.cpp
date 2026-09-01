@@ -70,9 +70,9 @@ bool FP5Runtime01::RunTest(const FString&)
 		TEXT("Runtime view valid"),
 		View.bValid);
 	TestEqual(
-		TEXT("Weapon armor accessory spatial equipment cells"),
+		TEXT("Runtime equipment cells follow the canonical equipment roles"),
 		View.EquipmentSlots.Num(),
-		4);
+		Fdemo_mapItemDefinitions::GetEquipmentSlotIds().Num());
 	TestEqual(
 		TEXT("Fixed six base quick cells"),
 		View.BaseQuickItemSlots.Num(),
