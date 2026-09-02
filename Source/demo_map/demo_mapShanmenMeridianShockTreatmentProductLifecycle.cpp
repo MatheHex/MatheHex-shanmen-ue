@@ -123,7 +123,7 @@ bool Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle::TryEnd(
 		OutDiagnostic = TEXT("Treatment lifecycle failed empty-state validation after end.");
 		return false;
 	}
-	OutDiagnostic = TEXT("Treatment lifecycle ended after commit-only recovery completed.");
+	OutDiagnostic = TEXT("Treatment lifecycle ended after deterministic recovery completed.");
 	return true;
 }
 

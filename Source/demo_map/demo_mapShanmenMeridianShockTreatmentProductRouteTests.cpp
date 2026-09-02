@@ -785,12 +785,12 @@ bool Fdemo_mapMeridianShockTreatmentLedgerActiveRecoveryTest::RunTest(
 		Fixture.CountTreatmentFinalizations(true),
 		Fixture.CountTreatmentFinalizations(false),
 		*Diagnostic));
-	TestTrue(TEXT("active condition reconstructs treat then commit from durable ledger"),
+	TestTrue(TEXT("legacy prepare at an unchanged active revision cancels without replaying treatment"),
 		bRecovered
-			&& !Fixture.Conditions->IsMeridianShockActive()
-			&& Fixture.Conditions->NumProcessedTreatments() == 1
-			&& Fixture.CountTreatmentFinalizations(true) == 1
-			&& Fixture.CountTreatmentFinalizations(false) == 0
+			&& Fixture.Conditions->IsMeridianShockActive()
+			&& Fixture.Conditions->NumProcessedTreatments() == 0
+			&& Fixture.CountTreatmentFinalizations(true) == 0
+			&& Fixture.CountTreatmentFinalizations(false) == 1
 			&& Reconstructed.NumCapturedRequests() == 0
 			&& !Reconstructed.HasUnresolvedRecovery());
 	TestTrue(TEXT("reconstructed lifecycle ends after ledger resolution"),
@@ -1150,7 +1150,7 @@ bool Fdemo_mapMeridianShockTreatmentRecoveryProofConflictTest::RunTest(
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	Fdemo_mapMeridianShockTreatmentProofPersistenceFenceTest,
-	"Shanmen.0_0_10.Product.MeridianShockTreatment.Lifecycle.ProofPersistenceBeforeItemCommit",
+	"Shanmen.0_0_10.Product.MeridianShockTreatment.Lifecycle.IntentPersistenceBeforeConditionMutation",
 	RouteFlags)
 
 bool Fdemo_mapMeridianShockTreatmentProofPersistenceFenceTest::RunTest(
@@ -1177,12 +1177,13 @@ bool Fdemo_mapMeridianShockTreatmentProofPersistenceFenceTest::RunTest(
 			FGuid(0xC1660001, 0, 0, 1),
 			Fixture.TreatmentItemId,
 			Fixture.TimelineSample);
-	TestTrue(TEXT("proof persistence failure stops before item commit"),
+	TestTrue(TEXT("intent persistence failure stops before condition mutation and item commit"),
 		Failed.RequiresRecovery()
 			&& Failed.Error
 				== Edemo_mapShanmenMeridianShockTreatmentRouteError::
-					ProofPersistenceRejected
-			&& !Fixture.Conditions->IsMeridianShockActive()
+					IntentPersistenceRejected
+			&& Fixture.Conditions->IsMeridianShockActive()
+			&& Fixture.Conditions->NumProcessedTreatments() == 0
 			&& Fixture.CountTreatmentFinalizations(true) == 0
 			&& Fixture.CountTreatmentFinalizations(false) == 0
 			&& Lifecycle.HasUnresolvedRecovery());
@@ -1194,21 +1195,363 @@ bool Fdemo_mapMeridianShockTreatmentProofPersistenceFenceTest::RunTest(
 		Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore().LoadExisting(
 			Fixture.TreatmentProofStorage());
 	AddInfo(FString::Printf(
-		TEXT("P16.6 proof-write-fence failed=%d/%d recovered=%d commit=%d proofsAfter=%d diagnostic=%s"),
+		TEXT("P16.9 intent-write-fence failed=%d/%d recovered=%d commit=%d intentsAfter=%d proofsAfter=%d diagnostic=%s"),
 		static_cast<int32>(Failed.Status),
 		static_cast<int32>(Failed.Error),
 		bRecovered ? 1 : 0,
 		Fixture.CountTreatmentFinalizations(true),
+		StoreAfter.IsSuccess() ? StoreAfter.Document.Intents.Num() : INDEX_NONE,
 		StoreAfter.IsSuccess() ? StoreAfter.Document.Proofs.Num() : INDEX_NONE,
 		*Diagnostic));
-	TestTrue(TEXT("retry persists proof, commits once and removes proof"),
+	TestTrue(TEXT("retry records intent, treats, promotes proof, commits once and cleans evidence"),
 		bRecovered
 			&& Fixture.CountTreatmentFinalizations(true) == 1
 			&& Fixture.CountTreatmentFinalizations(false) == 0
 			&& StoreAfter.IsSuccess()
+			&& StoreAfter.Document.Intents.IsEmpty()
 			&& StoreAfter.Document.Proofs.IsEmpty()
 			&& !Lifecycle.HasUnresolvedRecovery()
 			&& Lifecycle.TryEnd(Diagnostic));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapMeridianShockTreatmentIntentJournalRetryTest,
+	"Shanmen.0_0_10.Product.MeridianShockTreatment.Lifecycle.IntentJournalRetry",
+	RouteFlags)
+
+bool Fdemo_mapMeridianShockTreatmentIntentJournalRetryTest::RunTest(
+	const FString&)
+{
+	FTreatmentRouteFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("IntentJournalRetry"), false))
+	{
+		AddError(TEXT("Could not build the P16.9 intent retry fixture."));
+		return false;
+	}
+	Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle Lifecycle;
+	FString Diagnostic;
+	if (!Lifecycle.TryBegin(
+			*Fixture.Authority, Fixture.Conditions, Diagnostic))
+	{
+		AddError(Diagnostic);
+		return false;
+	}
+	Lifecycle.SetInterruptAfterIntentPersistenceForAutomation(true);
+	const Fdemo_mapShanmenMeridianShockTreatmentRouteResult Interrupted =
+		Lifecycle.TrySubmitHotbar(
+			FGuid(0xC1690001, 0, 0, 1),
+			Fixture.TreatmentItemId,
+			Fixture.TimelineSample);
+	const Fdemo_mapShanmenTreatmentRecoveryLoadResult Stored =
+		Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore().LoadExisting(
+			Fixture.TreatmentProofStorage());
+	TestTrue(TEXT("live journal interruption retains exactly one pre-mutation intent"),
+		Interrupted.RequiresRecovery()
+			&& Interrupted.Error
+				== Edemo_mapShanmenMeridianShockTreatmentRouteError::
+					InterruptedAfterIntentPersistence
+			&& Fixture.Conditions->IsMeridianShockActive()
+			&& Fixture.Conditions->NumProcessedTreatments() == 0
+			&& Stored.IsSuccess()
+			&& Stored.Document.Intents.Num() == 1
+			&& Stored.Document.Proofs.IsEmpty());
+
+	Lifecycle.SetInterruptAfterIntentPersistenceForAutomation(false);
+	const bool bRecovered = Lifecycle.TryRecoverPending(Diagnostic);
+	const Fdemo_mapShanmenTreatmentRecoveryLoadResult Cleaned =
+		Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore().LoadExisting(
+			Fixture.TreatmentProofStorage());
+	AddInfo(FString::Printf(
+		TEXT("P16.9 live-intent-retry recovered=%d processed=%d commit=%d cancel=%d intents=%d proofs=%d diagnostic=%s"),
+		bRecovered ? 1 : 0,
+		Fixture.Conditions->NumProcessedTreatments(),
+		Fixture.CountTreatmentFinalizations(true),
+		Fixture.CountTreatmentFinalizations(false),
+		Cleaned.IsSuccess() ? Cleaned.Document.Intents.Num() : INDEX_NONE,
+		Cleaned.IsSuccess() ? Cleaned.Document.Proofs.Num() : INDEX_NONE,
+		*Diagnostic));
+	TestTrue(TEXT("live journal resumes its exact command without durable recovery cancellation"),
+		bRecovered
+			&& !Fixture.Conditions->IsMeridianShockActive()
+			&& Fixture.Conditions->NumProcessedTreatments() == 1
+			&& Fixture.CountTreatmentFinalizations(true) == 1
+			&& Fixture.CountTreatmentFinalizations(false) == 0
+			&& Cleaned.IsSuccess()
+			&& Cleaned.Document.Intents.IsEmpty()
+			&& Cleaned.Document.Proofs.IsEmpty()
+			&& Lifecycle.TryEnd(Diagnostic));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapMeridianShockTreatmentIntentPreMutationRecoveryTest,
+	"Shanmen.0_0_10.Product.MeridianShockTreatment.Recovery.IntentBeforeMutationCancel",
+	RouteFlags)
+
+bool Fdemo_mapMeridianShockTreatmentIntentPreMutationRecoveryTest::RunTest(
+	const FString&)
+{
+	FTreatmentRouteFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("IntentBeforeMutationCancel"), false))
+	{
+		AddError(TEXT("Could not build the P16.9 pre-mutation recovery fixture."));
+		return false;
+	}
+	FString Diagnostic;
+	{
+		Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle LostLifecycle;
+		if (!LostLifecycle.TryBegin(
+				*Fixture.Authority, Fixture.Conditions, Diagnostic))
+		{
+			AddError(Diagnostic);
+			return false;
+		}
+		LostLifecycle.SetInterruptAfterIntentPersistenceForAutomation(true);
+		const Fdemo_mapShanmenMeridianShockTreatmentRouteResult Interrupted =
+			LostLifecycle.TrySubmitHotbar(
+				FGuid(0xC1690002, 0, 0, 1),
+				Fixture.TreatmentItemId,
+				Fixture.TimelineSample);
+		TestTrue(TEXT("process loss is injected after intent and before treatment"),
+			Interrupted.RequiresRecovery()
+				&& Interrupted.Error
+					== Edemo_mapShanmenMeridianShockTreatmentRouteError::
+						InterruptedAfterIntentPersistence
+				&& Fixture.Conditions->IsMeridianShockActive()
+				&& Fixture.CountTreatmentFinalizations(true) == 0
+				&& Fixture.CountTreatmentFinalizations(false) == 0);
+	}
+	if (!Fixture.RestartAuthority(*this))
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle Reconstructed;
+	if (!Reconstructed.TryBegin(
+			*Fixture.Authority, Fixture.Conditions, Diagnostic))
+	{
+		AddError(Diagnostic);
+		return false;
+	}
+	Reconstructed.SetRecoveryStoreFailureForAutomation(
+		Edemo_mapShanmenTreatmentRecoveryStoreFailureStage::AtomicReplace);
+	const bool bCleanupBlocked = !Reconstructed.TryRecoverPending(Diagnostic);
+	const Fdemo_mapShanmenTreatmentRecoveryLoadResult Retained =
+		Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore().LoadExisting(
+			Fixture.TreatmentProofStorage());
+	TestTrue(TEXT("durable cancel survives an interrupted intent cleanup"),
+		bCleanupBlocked
+			&& Fixture.Conditions->IsMeridianShockActive()
+			&& Fixture.Conditions->NumProcessedTreatments() == 0
+			&& Fixture.CountTreatmentFinalizations(true) == 0
+			&& Fixture.CountTreatmentFinalizations(false) == 1
+			&& Retained.IsSuccess()
+			&& Retained.Document.Intents.Num() == 1
+			&& Retained.Document.Proofs.IsEmpty());
+
+	Reconstructed.SetRecoveryStoreFailureForAutomation(
+		Edemo_mapShanmenTreatmentRecoveryStoreFailureStage::None);
+	Diagnostic.Reset();
+	const bool bRecovered = Reconstructed.TryRecoverPending(Diagnostic);
+	const Fdemo_mapShanmenTreatmentRecoveryLoadResult Cleaned =
+		Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore().LoadExisting(
+			Fixture.TreatmentProofStorage());
+	AddInfo(FString::Printf(
+		TEXT("P16.9 pre-mutation cleanupBlocked=%d recovered=%d active=%d processed=%d commit=%d cancel=%d intents=%d proofs=%d diagnostic=%s"),
+		bCleanupBlocked ? 1 : 0,
+		bRecovered ? 1 : 0,
+		Fixture.Conditions->IsMeridianShockActive() ? 1 : 0,
+		Fixture.Conditions->NumProcessedTreatments(),
+		Fixture.CountTreatmentFinalizations(true),
+		Fixture.CountTreatmentFinalizations(false),
+		Cleaned.IsSuccess() ? Cleaned.Document.Intents.Num() : INDEX_NONE,
+		Cleaned.IsSuccess() ? Cleaned.Document.Proofs.Num() : INDEX_NONE,
+		*Diagnostic));
+	TestTrue(TEXT("reopen cancels only the exact unchanged pre-mutation revision"),
+		bRecovered
+			&& Fixture.Conditions->IsMeridianShockActive()
+			&& Fixture.Conditions->NumProcessedTreatments() == 0
+			&& Fixture.CountTreatmentFinalizations(true) == 0
+			&& Fixture.CountTreatmentFinalizations(false) == 1
+			&& Cleaned.IsSuccess()
+			&& Cleaned.Document.Intents.IsEmpty()
+			&& Cleaned.Document.Proofs.IsEmpty()
+			&& Reconstructed.TryEnd(Diagnostic));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapMeridianShockTreatmentIntentPostMutationRecoveryTest,
+	"Shanmen.0_0_10.Product.MeridianShockTreatment.Recovery.IntentAfterMutationPromote",
+	RouteFlags)
+
+bool Fdemo_mapMeridianShockTreatmentIntentPostMutationRecoveryTest::RunTest(
+	const FString&)
+{
+	FTreatmentRouteFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("IntentAfterMutationPromote"), false))
+	{
+		AddError(TEXT("Could not build the P16.9 post-mutation recovery fixture."));
+		return false;
+	}
+	FString Diagnostic;
+	{
+		Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle LostLifecycle;
+		if (!LostLifecycle.TryBegin(
+				*Fixture.Authority, Fixture.Conditions, Diagnostic))
+		{
+			AddError(Diagnostic);
+			return false;
+		}
+		LostLifecycle.SetInterruptAfterConditionMutationForAutomation(true);
+		const Fdemo_mapShanmenMeridianShockTreatmentRouteResult Interrupted =
+			LostLifecycle.TrySubmitHotbar(
+				FGuid(0xC1690003, 0, 0, 1),
+				Fixture.TreatmentItemId,
+				Fixture.TimelineSample);
+		const Fdemo_mapShanmenTreatmentRecoveryLoadResult Stored =
+			Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore().LoadExisting(
+				Fixture.TreatmentProofStorage());
+		TestTrue(TEXT("process loss is injected after treatment and before promotion"),
+			Interrupted.RequiresRecovery()
+				&& Interrupted.Error
+					== Edemo_mapShanmenMeridianShockTreatmentRouteError::
+						InterruptedAfterConditionMutation
+				&& !Fixture.Conditions->IsMeridianShockActive()
+				&& Fixture.Conditions->NumProcessedTreatments() == 1
+				&& Stored.IsSuccess()
+				&& Stored.Document.Intents.Num() == 1
+				&& Stored.Document.Proofs.IsEmpty()
+				&& Fixture.CountTreatmentFinalizations(true) == 0);
+	}
+	if (!Fixture.RestartAuthority(*this))
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle Reconstructed;
+	if (!Reconstructed.TryBegin(
+			*Fixture.Authority, Fixture.Conditions, Diagnostic))
+	{
+		AddError(Diagnostic);
+		return false;
+	}
+	const bool bRecovered = Reconstructed.TryRecoverPending(Diagnostic);
+	const Fdemo_mapShanmenTreatmentRecoveryLoadResult Cleaned =
+		Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore().LoadExisting(
+			Fixture.TreatmentProofStorage());
+	AddInfo(FString::Printf(
+		TEXT("P16.9 post-mutation recovered=%d processed=%d commit=%d cancel=%d intents=%d proofs=%d diagnostic=%s"),
+		bRecovered ? 1 : 0,
+		Fixture.Conditions->NumProcessedTreatments(),
+		Fixture.CountTreatmentFinalizations(true),
+		Fixture.CountTreatmentFinalizations(false),
+		Cleaned.IsSuccess() ? Cleaned.Document.Intents.Num() : INDEX_NONE,
+		Cleaned.IsSuccess() ? Cleaned.Document.Proofs.Num() : INDEX_NONE,
+		*Diagnostic));
+	TestTrue(TEXT("reopen proves mutation, promotes intent and commits item exactly once"),
+		bRecovered
+			&& !Fixture.Conditions->IsMeridianShockActive()
+			&& Fixture.Conditions->NumProcessedTreatments() == 1
+			&& Fixture.CountTreatmentFinalizations(true) == 1
+			&& Fixture.CountTreatmentFinalizations(false) == 0
+			&& Cleaned.IsSuccess()
+			&& Cleaned.Document.Intents.IsEmpty()
+			&& Cleaned.Document.Proofs.IsEmpty()
+			&& Reconstructed.TryEnd(Diagnostic));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapMeridianShockTreatmentIntentAmbiguityFenceTest,
+	"Shanmen.0_0_10.Product.MeridianShockTreatment.Recovery.IntentAmbiguityFence",
+	RouteFlags)
+
+bool Fdemo_mapMeridianShockTreatmentIntentAmbiguityFenceTest::RunTest(
+	const FString&)
+{
+	FTreatmentRouteFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("IntentAmbiguityFence"), false))
+	{
+		AddError(TEXT("Could not build the P16.9 ambiguity fixture."));
+		return false;
+	}
+	FString Diagnostic;
+	{
+		Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle LostLifecycle;
+		if (!LostLifecycle.TryBegin(
+				*Fixture.Authority, Fixture.Conditions, Diagnostic))
+		{
+			AddError(Diagnostic);
+			return false;
+		}
+		LostLifecycle.SetInterruptAfterConditionMutationForAutomation(true);
+		const Fdemo_mapShanmenMeridianShockTreatmentRouteResult Interrupted =
+			LostLifecycle.TrySubmitHotbar(
+				FGuid(0xC1690004, 0, 0, 1),
+				Fixture.TreatmentItemId,
+				Fixture.TimelineSample);
+		if (!Interrupted.RequiresRecovery())
+		{
+			AddError(TEXT("Could not arrange the P16.9 ambiguous intent window."));
+			return false;
+		}
+	}
+	if (!Fixture.Conditions->TryEnd(
+			Fixture.Correlation.ActiveRunId, Diagnostic)
+		|| !Fixture.Conditions->TryBegin(
+			Fixture.Correlation.ActiveRunId,
+			TargetEntityId,
+			Fixture.Timeline.GetTimelineId(),
+			Fixture.Attributes,
+			Diagnostic)
+		|| !Fixture.RestartAuthority(*this))
+	{
+		AddError(FString::Printf(
+			TEXT("Could not reconstruct the P16.9 process-loss boundary: %s"),
+			*Diagnostic));
+		return false;
+	}
+
+	Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle Reconstructed;
+	if (!Reconstructed.TryBegin(
+			*Fixture.Authority, Fixture.Conditions, Diagnostic))
+	{
+		AddError(Diagnostic);
+		return false;
+	}
+	FShanmenItemAuthoritySnapshot Before;
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Authority->TryCaptureSnapshot(Before);
+	const bool bRecovered = Reconstructed.TryRecoverPending(Diagnostic);
+	Fixture.Authority->TryCaptureSnapshot(After);
+	const Fdemo_mapShanmenTreatmentRecoveryLoadResult Retained =
+		Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore().LoadExisting(
+			Fixture.TreatmentProofStorage());
+	AddInfo(FString::Printf(
+		TEXT("P16.9 ambiguous-intent recovered=%d unchanged=%d revision=%lld processed=%d commit=%d cancel=%d intents=%d proofs=%d diagnostic=%s"),
+		bRecovered ? 1 : 0,
+		Before == After ? 1 : 0,
+		static_cast<long long>(Fixture.Conditions->GetConditionRevision()),
+		Fixture.Conditions->NumProcessedTreatments(),
+		Fixture.CountTreatmentFinalizations(true),
+		Fixture.CountTreatmentFinalizations(false),
+		Retained.IsSuccess() ? Retained.Document.Intents.Num() : INDEX_NONE,
+		Retained.IsSuccess() ? Retained.Document.Proofs.Num() : INDEX_NONE,
+		*Diagnostic));
+	TestTrue(TEXT("fresh condition authority cannot guess whether a durable intent mutated"),
+		!bRecovered
+			&& Before == After
+			&& !Fixture.Conditions->IsMeridianShockActive()
+			&& Fixture.Conditions->GetConditionRevision() == 0
+			&& Fixture.Conditions->NumProcessedTreatments() == 0
+			&& Fixture.CountTreatmentFinalizations(true) == 0
+			&& Fixture.CountTreatmentFinalizations(false) == 0
+			&& Retained.IsSuccess()
+			&& Retained.Document.Intents.Num() == 1
+			&& Retained.Document.Proofs.IsEmpty()
+			&& !Reconstructed.TryEnd(Diagnostic));
 	return true;
 }
 

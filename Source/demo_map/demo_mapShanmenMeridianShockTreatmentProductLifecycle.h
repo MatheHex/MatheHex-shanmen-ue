@@ -8,8 +8,8 @@ class Udemo_mapShanmenItemAuthoritySubsystem;
 
 /**
  * Product-lifetime binding between the active durable Run and its treatment
- * session and derives the condition proof partition from the bound item owner,
- * storage root and active Run. It owns no UI, key binding, timer, Tick,
+ * session. It derives the condition recovery partition from the bound item
+ * owner, storage root and active Run. It owns no UI, key binding, timer, Tick,
  * inventory or condition truth, and refuses teardown while recovery remains.
  */
 class Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle
@@ -58,6 +58,14 @@ public:
 	}
 
 #if WITH_DEV_AUTOMATION_TESTS
+	void SetInterruptAfterIntentPersistenceForAutomation(bool bEnabled)
+	{
+		Session.SetInterruptAfterIntentPersistenceForAutomation(bEnabled);
+	}
+	void SetInterruptAfterConditionMutationForAutomation(bool bEnabled)
+	{
+		Session.SetInterruptAfterConditionMutationForAutomation(bEnabled);
+	}
 	void SetInterruptAfterProofPersistenceForAutomation(bool bEnabled)
 	{
 		Session.SetInterruptAfterProofPersistenceForAutomation(bEnabled);

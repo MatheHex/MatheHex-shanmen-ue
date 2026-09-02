@@ -10,10 +10,10 @@ class Udemo_mapShanmenItemAuthoritySubsystem;
  * Active-Run session for physical Meridian Shock treatment requests.
  *
  * It keeps only immutable commands needed for exact replay and asks the route
- * to reconcile the condition proof store with ShanmenItems' durable ledger
- * before new work or Run teardown. The route remains the sole prepare -> treat
- * -> proof publish -> item commit -> proof cleanup owner; ShanmenItems and the
- * condition component remain the two authorities.
+ * to reconcile condition intent/proof state with ShanmenItems' durable ledger
+ * before new work or Run teardown. The route remains the sole prepare -> intent
+ * publish -> treat -> proof promotion -> item commit -> proof cleanup owner;
+ * ShanmenItems and the condition component remain the two authorities.
  */
 class Fdemo_mapShanmenMeridianShockTreatmentProductSession
 {
@@ -67,6 +67,14 @@ public:
 	int32 NumPendingRecovery() const;
 
 #if WITH_DEV_AUTOMATION_TESTS
+	void SetInterruptAfterIntentPersistenceForAutomation(bool bEnabled)
+	{
+		Route.SetInterruptAfterIntentPersistenceForAutomation(bEnabled);
+	}
+	void SetInterruptAfterConditionMutationForAutomation(bool bEnabled)
+	{
+		Route.SetInterruptAfterConditionMutationForAutomation(bEnabled);
+	}
 	void SetInterruptAfterProofPersistenceForAutomation(bool bEnabled)
 	{
 		Route.SetInterruptAfterProofPersistenceForAutomation(bEnabled);

@@ -74,12 +74,17 @@ enum class Edemo_mapShanmenMeridianShockTreatmentRouteError : uint8
 	RunMismatch,
 	ConditionUnavailable,
 	PrepareRejected,
+	IntentCaptureRejected,
+	IntentPersistenceRejected,
 	TreatmentRejected,
 	CancellationRejected,
+	IntentCleanupRejected,
 	ProofCaptureRejected,
 	ProofPersistenceRejected,
 	ProofCleanupRejected,
 	CommitRejected,
+	InterruptedAfterIntentPersistence,
+	InterruptedAfterConditionMutation,
 	InterruptedAfterProofPersistence
 };
 
@@ -131,13 +136,14 @@ struct Fdemo_mapShanmenMeridianShockTreatmentRouteResult
  * Sole Game-Thread owner of prepare -> treat -> commit for Meridian Shock.
  *
  * The route journals immutable commands for active-runtime conflict handling.
- * After condition mutation, the route persists one proof in the condition
- * domain before committing ShanmenItems, then forgets it only after the exact
- * item commit is durable. If the transient journal is lost, the route loads
- * that sole proof store and reconciles it against ShanmenItems' ledger.
- * ShanmenItems remains inventory truth and the condition component remains
- * condition truth. Once treatment succeeds, every retry is commit-only:
- * cancellation can never be selected afterward.
+ * After item prepare, the route persists one write-ahead condition intent
+ * before mutation. A successful mutation atomically promotes that intent to a
+ * proof before ShanmenItems commit; the proof is forgotten only after the exact
+ * item commit is durable. If the transient journal is lost, the route
+ * reconciles intent/proof state against both authorities without replaying an
+ * ambiguous mutation. ShanmenItems remains inventory truth and the condition
+ * component remains condition truth. Once treatment succeeds, every retry is
+ * commit-only: cancellation can never be selected afterward.
  */
 class Fdemo_mapShanmenMeridianShockTreatmentProductRoute
 {
@@ -164,10 +170,10 @@ public:
 		const Fdemo_mapShanmenMeridianShockTreatmentCommand& Command);
 
 	/**
-	 * Reconciles the sole condition proof store with ShanmenItems, then recovers
-	 * one durable treatment prepare whose transient command journal was lost.
-	 * Recovery is commit-only once condition proof exists and never uses a
-	 * missing proof as permission to cancel inventory.
+	 * Reconciles condition intents/proofs with ShanmenItems, then recovers one
+	 * durable treatment prepare whose transient command journal was lost. An
+	 * exact active pre-mutation revision is cancelled safely; an exact processed
+	 * treatment is promoted and committed; ambiguous state fails closed.
 	 */
 	bool TryRecoverDurablePreparation(
 		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
@@ -184,6 +190,16 @@ public:
 	int32 NumJournaledCommands() const { return Journal.Num(); }
 
 #if WITH_DEV_AUTOMATION_TESTS
+	/** Simulates process loss after intent publish, before condition mutation. */
+	void SetInterruptAfterIntentPersistenceForAutomation(bool bEnabled)
+	{
+		bInterruptAfterIntentPersistenceForAutomation = bEnabled;
+	}
+	/** Simulates process loss after condition mutation, before intent promotion. */
+	void SetInterruptAfterConditionMutationForAutomation(bool bEnabled)
+	{
+		bInterruptAfterConditionMutationForAutomation = bEnabled;
+	}
 	/** Simulates transient route/session loss after proof publish, before commit. */
 	void SetInterruptAfterProofPersistenceForAutomation(bool bEnabled)
 	{
@@ -201,20 +217,24 @@ private:
 	{
 		Fdemo_mapShanmenMeridianShockTreatmentCommand Command;
 		Fdemo_mapShanmenMeridianShockTreatmentItemResult Preparation;
+		Fdemo_mapShanmenMeridianShockTreatmentRecoveryIntent RecoveryIntent;
 		Fdemo_mapShanmenCombatConditionTreatmentResult Treatment;
 		Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof RecoveryProof;
 		Fdemo_mapShanmenMeridianShockTreatmentItemResult Finalization;
 		bool bPrepared = false;
+		bool bIntentRecorded = false;
 		bool bTreated = false;
 		bool bProofRecorded = false;
 		bool bCommitted = false;
+		bool bIntentCleanupPending = false;
 		bool bProofCleanupPending = false;
 		bool bCancelled = false;
 
 		bool IsValid() const;
 		bool IsResolved() const
 		{
-			return (bCommitted && !bProofCleanupPending) || bCancelled;
+			return (bCommitted && !bProofCleanupPending)
+				|| (bCancelled && !bIntentCleanupPending);
 		}
 	};
 
@@ -237,6 +257,8 @@ private:
 	TMap<FGuid, FJournalEntry> Journal;
 	bool bActive = false;
 #if WITH_DEV_AUTOMATION_TESTS
+	bool bInterruptAfterIntentPersistenceForAutomation = false;
+	bool bInterruptAfterConditionMutationForAutomation = false;
 	bool bInterruptAfterProofPersistenceForAutomation = false;
 #endif
 };
