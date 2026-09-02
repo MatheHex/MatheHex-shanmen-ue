@@ -8,10 +8,17 @@
 #include "Components/BoxComponent.h"
 #include "Components/PrimitiveComponent.h"
 #include "Engine/DamageEvents.h"
+#include "Engine/Engine.h"
+#include "Engine/GameInstance.h"
 #include "Engine/HitResult.h"
 #include "Engine/OverlapResult.h"
+#include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/Pawn.h"
+#include "HAL/FileManager.h"
+#include "Misc/Paths.h"
+#include "UObject/UObjectGlobals.h"
+#include "demo_map0909BSectWarehouseService.h"
 #include "demo_mapCombatRunCoordinator.h"
 #include "demo_mapCombatVitalityHost.h"
 #include "demo_mapAttributeComponent.h"
@@ -19,12 +26,19 @@
 #include "demo_mapEnemyCharacter.h"
 #include "demo_mapEnemySkillTypes.h"
 #include "demo_mapHeavyEnemyCharacter.h"
+#include "demo_mapItemDefinitions.h"
+#include "demo_mapItemSubsystem.h"
 #include "demo_mapM01BossCharacter.h"
 #include "demo_mapM01EnemyIdentityComponent.h"
 #include "demo_mapM01EnemyTypes.h"
 #include "demo_mapPlayerHealthComponent.h"
+#include "demo_mapProfileRepository.h"
+#include "demo_mapProfileSessionSubsystem.h"
 #include "demo_mapRangedEnemyCharacter.h"
+#include "demo_mapShanmenItemAuthoritySubsystem.h"
+#include "demo_mapShanmenItemCutover.h"
 #include "demo_mapShanmenFormationInfluenceConsumerWorldResolution.h"
+#include "demo_mapShanmenRunLifecycleAdapter.h"
 
 #include <limits>
 
@@ -223,6 +237,341 @@ namespace
 					LegacyIdentity,
 					Definition->Tuning,
 					Definition->IsElite());
+		}
+	};
+
+	FString NewP171CombatRunRoot(const TCHAR* Label)
+	{
+		return FPaths::Combine(
+			FPaths::ProjectSavedDir(), TEXT("Automation"),
+			TEXT("Dev.D.UE.0.0.10.P17.1.r0"), Label,
+			FGuid::NewGuid().ToString(EGuidFormats::Digits));
+	}
+
+	const FShanmenItemInstance* FindP171AuthorityItem(
+		const FShanmenItemAuthoritySnapshot& Snapshot,
+		const FGuid& ItemInstanceId)
+	{
+		return Snapshot.Items.FindByPredicate(
+			[&ItemInstanceId](const FShanmenItemInstance& Item)
+			{
+				return Item.ItemInstanceId == ItemInstanceId;
+			});
+	}
+
+	/**
+	 * Full Profile -> cutover -> prepared Run -> GameInstance/World ->
+	 * Coordinator fixture for the Heart-Protecting Mirror product path.
+	 */
+	struct FHeartMirrorCombatRunFixture
+	{
+		FString Root;
+		Fdemo_mapProfileStorageContext Storage;
+		Fdemo_mapPersistentProfile SeedProfile;
+		FGuid HeartMirrorId;
+		UGameInstance* GameInstance = nullptr;
+		Udemo_mapShanmenItemAuthoritySubsystem* Authority = nullptr;
+		Udemo_mapProfileSessionSubsystem* ProfileSession = nullptr;
+		Udemo_mapItemSubsystem* Runtime = nullptr;
+		Fdemo_map0909BSectWarehouseService Warehouse;
+		Fdemo_mapShanmenRunStartResult Started;
+		UWorld* World = nullptr;
+		APawn* Player = nullptr;
+		UBoxComponent* PlayerRoot = nullptr;
+		Udemo_mapPlayerHealthComponent* PlayerHealth = nullptr;
+		Ademo_mapEnemyCharacter* Enemy = nullptr;
+		Udemo_mapM01EnemyIdentityComponent* EnemyIdentity = nullptr;
+		Fdemo_mapCombatRunCoordinator Coordinator;
+		FString Diagnostic;
+
+		bool StartGameInstance(FAutomationTestBase& Test)
+		{
+			if (!GEngine)
+			{
+				Test.AddError(TEXT("GEngine is unavailable for the P17.1 fixture."));
+				return false;
+			}
+			GameInstance = NewObject<UGameInstance>(
+				GEngine, NAME_None, RF_Transient);
+			if (!GameInstance)
+			{
+				Test.AddError(TEXT("Could not allocate the P17.1 GameInstance."));
+				return false;
+			}
+			GameInstance->AddToRoot();
+			GameInstance->Init();
+			Authority = GameInstance->GetSubsystem<
+				Udemo_mapShanmenItemAuthoritySubsystem>();
+			ProfileSession = GameInstance->GetSubsystem<
+				Udemo_mapProfileSessionSubsystem>();
+			Runtime = GameInstance->GetSubsystem<Udemo_mapItemSubsystem>();
+			if (!Authority || !ProfileSession || !Runtime)
+			{
+				Test.AddError(TEXT("P17.1 required GameInstance subsystems are unavailable."));
+				return false;
+			}
+			return true;
+		}
+
+		bool SeedAndStartAuthority(FAutomationTestBase& Test)
+		{
+			Root = NewP171CombatRunRoot(TEXT("HeartMirrorProductLifecycle"));
+			Storage = Fdemo_mapProfileStorageContext::ForRoot(Root);
+			Fdemo_mapProfileRepository Repository;
+			SeedProfile = Repository.CreateFreshProfile();
+			Fdemo_mapPersistentItemRecord HeartMirror;
+			HeartMirrorId = HeartMirror.ItemInstanceId = FGuid::NewGuid();
+			HeartMirror.ItemDefinitionId =
+				Fdemo_mapItemIds::HeartProtectingMirror;
+			HeartMirror.StackCount = 1;
+			HeartMirror.PersistentDomain =
+				Edemo_mapPersistentDomain::PermanentStash;
+			SeedProfile.PermanentStash.Add(HeartMirror);
+			SeedProfile.PreparationLayout.AccessoryItemInstanceId = HeartMirrorId;
+
+			const Fdemo_mapProfileSaveResult Saved =
+				Repository.SaveProfile(SeedProfile, Storage);
+			if (!Saved.IsSuccess() || !StartGameInstance(Test))
+			{
+				Test.AddError(FString::Printf(
+					TEXT("P17.1 isolated seed failed: %s"),
+					*Saved.Diagnostic));
+				return false;
+			}
+
+			const Fdemo_mapProfileSessionInitializeResult Initialized =
+				ProfileSession->InitializeSession(Storage);
+			Fdemo_map0909BWarehousePresentation Presentation;
+			if (!Initialized.IsReady()
+				|| !Warehouse.OpenForSect(
+					Root,
+					Initialized.Snapshot,
+					Edemo_map0909BTopState::AtSect,
+					Presentation,
+					Diagnostic))
+			{
+				Test.AddError(FString::Printf(
+					TEXT("P17.1 stable source open failed: %s"),
+					*Diagnostic));
+				return false;
+			}
+			const Fdemo_mapShanmenItemCutoverResult Cutover =
+				Fdemo_mapShanmenItemCutoverCoordinator::Execute(
+					Storage,
+					SeedProfile.ProfileId,
+					*Authority,
+					*ProfileSession,
+					Warehouse);
+			if (!Cutover.IsReady())
+			{
+				Test.AddError(FString::Printf(
+					TEXT("P17.1 item cutover failed: %s"),
+					*Cutover.Diagnostic));
+				return false;
+			}
+			Runtime->ResetForAutomation();
+			Started = Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
+				*Authority,
+				*Runtime);
+			if (!Started.IsStarted()
+				|| Started.RunCorrelation.AccessoryItemInstanceId != HeartMirrorId)
+			{
+				Test.AddError(FString::Printf(
+					TEXT("P17.1 prepared Run failed: %s"),
+					*Started.Diagnostic));
+				return false;
+			}
+			return true;
+		}
+
+		bool StartWorldAndCombat(FAutomationTestBase& Test)
+		{
+			const Fdemo_mapM01EnemyDefinition* Definition =
+				FindM01MeleeDefinition(false);
+			if (!Definition)
+			{
+				Test.AddError(TEXT("P17.1 could not locate the canonical M01 melee definition."));
+				return false;
+			}
+			World = NewObject<UWorld>(
+				GetTransientPackage(), NAME_None, RF_Transient);
+			if (!World)
+			{
+				return false;
+			}
+			World->WorldType = EWorldType::GamePreview;
+			FWorldContext& Context =
+				GEngine->CreateNewWorldContext(EWorldType::GamePreview);
+			Context.OwningGameInstance = GameInstance;
+			Context.SetCurrentWorld(World);
+			World->SetGameInstance(GameInstance);
+			World->InitializeNewWorld(
+				UWorld::InitializationValues()
+					.InitializeScenes(false)
+					.AllowAudioPlayback(false)
+					.RequiresHitProxies(false)
+					.CreatePhysicsScene(false)
+					.CreateNavigation(false)
+					.CreateAISystem(false)
+					.ShouldSimulatePhysics(false)
+					.EnableTraceCollision(false)
+					.SetTransactional(false)
+					.CreateFXSystem(false));
+
+			FActorSpawnParameters Parameters;
+			Parameters.ObjectFlags |= RF_Transient;
+			Parameters.SpawnCollisionHandlingOverride =
+				ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			Player = World->SpawnActor<APawn>(
+				APawn::StaticClass(), FTransform::Identity, Parameters);
+			PlayerRoot = Player
+				? NewObject<UBoxComponent>(
+					Player, TEXT("P171PlayerRoot"), RF_Transient)
+				: nullptr;
+			PlayerHealth = Player
+				? NewObject<Udemo_mapPlayerHealthComponent>(
+					Player, TEXT("P171PlayerHealth"), RF_Transient)
+				: nullptr;
+			if (!Player || !PlayerRoot || !PlayerHealth)
+			{
+				Test.AddError(TEXT("P17.1 world player could not be constructed."));
+				return false;
+			}
+			Player->SetRootComponent(PlayerRoot);
+			Player->AddInstanceComponent(PlayerRoot);
+			Player->AddInstanceComponent(PlayerHealth);
+			PlayerHealth->SetCurrentHealthForAutomation(3);
+
+			Enemy = World->SpawnActor<Ademo_mapEnemyCharacter>(
+				Ademo_mapEnemyCharacter::StaticClass(),
+				FTransform(FVector(100.0, 0.0, 0.0)),
+				Parameters);
+			EnemyIdentity = Enemy
+				? NewObject<Udemo_mapM01EnemyIdentityComponent>(
+					Enemy, TEXT("P171M01AuthoredIdentity"), RF_Transient)
+				: nullptr;
+			if (!Enemy || !EnemyIdentity)
+			{
+				Test.AddError(TEXT("P17.1 world M01 enemy could not be constructed."));
+				return false;
+			}
+			Enemy->AddInstanceComponent(EnemyIdentity);
+			const Fdemo_mapEnemyEncounterIdentity LegacyIdentity =
+				MakeLegacyEncounterIdentity(*Definition);
+			if (!EnemyIdentity->Configure(*Definition)
+				|| !Enemy->ConfigureEncounter(
+					LegacyIdentity,
+					Definition->Tuning,
+					Definition->IsElite()))
+			{
+				Test.AddError(TEXT("P17.1 canonical M01 enemy configuration failed."));
+				return false;
+			}
+
+			if (!Coordinator.TryBeginRun(
+					Started.RunCorrelation.ActiveRunId,
+					Player,
+					PlayerHealth,
+					Diagnostic)
+				|| !Coordinator.TryRegisterM01Enemy(Enemy, Diagnostic))
+			{
+				Test.AddError(FString::Printf(
+					TEXT("P17.1 CombatRun binding failed: %s"),
+					*Diagnostic));
+				return false;
+			}
+			return true;
+		}
+
+		bool Start(FAutomationTestBase& Test)
+		{
+			return SeedAndStartAuthority(Test) && StartWorldAndCombat(Test);
+		}
+
+		bool RestartAuthority(FAutomationTestBase& Test)
+		{
+			StopCombatWorld();
+			StopGameInstance();
+			if (!StartGameInstance(Test))
+			{
+				return false;
+			}
+			const Fdemo_mapProfileSessionInitializeResult Initialized =
+				ProfileSession->InitializeSession(Storage);
+			const Fdemo_mapShanmenItemAuthorityBindResult Bound =
+				Initialized.IsReady()
+					? Authority->BindExisting(Storage, SeedProfile.ProfileId)
+					: Fdemo_mapShanmenItemAuthorityBindResult();
+			if (!Initialized.IsReady() || !Bound.IsReady())
+			{
+				Test.AddError(FString::Printf(
+					TEXT("P17.1 restart bind failed: %s"),
+					*Bound.Diagnostic));
+				return false;
+			}
+			Fdemo_mapShanmenRunCorrelation Correlation;
+			if (!Fdemo_mapShanmenRunLifecycleAdapter::TryGetActiveRunCorrelation(
+					*Authority, Correlation, &Diagnostic)
+				|| Correlation.ActiveRunId
+					!= Started.RunCorrelation.ActiveRunId
+				|| Correlation.AccessoryItemInstanceId != HeartMirrorId)
+			{
+				Test.AddError(FString::Printf(
+					TEXT("P17.1 restart lost active Run correlation: %s"),
+					*Diagnostic));
+				return false;
+			}
+			return true;
+		}
+
+		void StopCombatWorld()
+		{
+			if (Coordinator.IsActive())
+			{
+				const FGuid ActiveRunId = Coordinator.GetRunId();
+				Coordinator.TryEndRun(ActiveRunId, Diagnostic);
+			}
+			Coordinator.Reset();
+			if (World)
+			{
+				World->DestroyWorld(false);
+				if (GEngine)
+				{
+					GEngine->DestroyWorldContext(World);
+				}
+				World = nullptr;
+			}
+			Player = nullptr;
+			PlayerRoot = nullptr;
+			PlayerHealth = nullptr;
+			Enemy = nullptr;
+			EnemyIdentity = nullptr;
+		}
+
+		void StopGameInstance()
+		{
+			if (!GameInstance)
+			{
+				return;
+			}
+			GameInstance->Shutdown();
+			Authority = nullptr;
+			ProfileSession = nullptr;
+			Runtime = nullptr;
+			GameInstance->RemoveFromRoot();
+			GameInstance->MarkAsGarbage();
+			GameInstance = nullptr;
+			CollectGarbage(RF_NoFlags);
+		}
+
+		~FHeartMirrorCombatRunFixture()
+		{
+			StopCombatWorld();
+			StopGameInstance();
+			if (!Root.IsEmpty())
+			{
+				IFileManager::Get().DeleteDirectory(*Root, false, true);
+			}
 		}
 	};
 
@@ -1238,6 +1587,170 @@ bool FShanmenCombatRunCoordinatorM01EnemyBasicMeleeProductTest::RunTest(
 			&& Fixture.Health->NumCommittedCombatImpacts() == 1
 			&& Fixture.Health
 				->GetPositiveDamageBroadcastCountForAutomation() == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenCombatRunCoordinatorHeartMirrorProductLifecycleTest,
+	"Shanmen.0_0_10.Product.CombatRunCoordinator.HeartMirrorProductLifecycle",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenCombatRunCoordinatorHeartMirrorProductLifecycleTest::RunTest(
+	const FString&)
+{
+	FHeartMirrorCombatRunFixture Fixture;
+	if (!Fixture.Start(*this))
+	{
+		return false;
+	}
+
+	FShanmenItemAuthoritySnapshot Before;
+	const FShanmenItemInstance* PreparedMirror =
+		Fixture.Authority->TryCaptureSnapshot(Before)
+			? FindP171AuthorityItem(Before, Fixture.HeartMirrorId)
+			: nullptr;
+	TestTrue(TEXT("Profile cutover deploys one charged mirror into the real Run"),
+		PreparedMirror
+			&& PreparedMirror->DefinitionId
+				== Fdemo_mapItemIds::HeartProtectingMirror
+			&& PreparedMirror->State == EShanmenItemInstanceState::Deployed
+			&& PreparedMirror->Charges == 1
+			&& Fixture.Player->GetGameInstance() == Fixture.GameInstance
+			&& Fixture.Coordinator.GetRunId()
+				== Fixture.Started.RunCorrelation.ActiveRunId);
+
+	const Fdemo_mapM01EnemyAttackExecutionResult First =
+		Fixture.Coordinator.ExecuteM01EnemyBasicMeleeStrike(
+			Fixture.Enemy,
+			Fixture.Player,
+			5.0f);
+	const FShanmenImpactRequest& FirstRequest = First.Impact.GetRequest();
+	const FShanmenImpactResult& FirstResolution = First.Impact.GetResult();
+	const FShanmenDefenseLayer* FirstMirrorLayer =
+		FirstRequest.Defense.Layers.FindByPredicate(
+			[&Fixture](const FShanmenDefenseLayer& Layer)
+			{
+				return Layer.SourceInstanceId == Fixture.HeartMirrorId;
+			});
+	FShanmenItemAuthoritySnapshot AfterFirst;
+	const FShanmenItemInstance* SpentMirror =
+		Fixture.Authority->TryCaptureSnapshot(AfterFirst)
+			? FindP171AuthorityItem(AfterFirst, Fixture.HeartMirrorId)
+			: nullptr;
+	const FShanmenItemReservationSnapshot* FirstReservation =
+		FirstMirrorLayer
+			? AfterFirst.Reservations.FindByPredicate(
+				[FirstMirrorLayer](
+					const FShanmenItemReservationSnapshot& Reservation)
+				{
+					return Reservation.ReservationId == FirstMirrorLayer->LayerId;
+				})
+			: nullptr;
+	TestTrue(TEXT("First lethal M01 strike atomically spends the mirror and leaves one vitality"),
+		First.IsExecuted()
+			&& First.Delivery.CommitResult.Status
+				== EShanmenVitalityCommitStatus::Committed
+			&& FirstResolution.Outcome == EShanmenDefenseOutcome::Mitigated
+			&& FMath::IsNearlyEqual(FirstResolution.RawDamage, 5.0f)
+			&& FMath::IsNearlyEqual(FirstResolution.PreventedDamage, 3.0f)
+			&& FMath::IsNearlyEqual(FirstResolution.FinalDamage, 2.0f)
+			&& FirstMirrorLayer
+			&& FirstRequest.Defense.Layers.Num() == 1
+			&& FirstMirrorLayer->Operation
+				== EShanmenDefenseOperation::PreventLethal
+			&& FirstMirrorLayer->Order
+				== FShanmenDefenseOrder::LethalInterception
+			&& FirstMirrorLayer->bRequiresCommitOnTrigger
+			&& FirstResolution.TriggeredLayers.Num() == 1
+			&& FirstResolution.TriggeredLayers[0].LayerId
+				== FirstMirrorLayer->LayerId
+			&& FMath::IsNearlyEqual(
+				Fixture.PlayerHealth->GetCurrentVitality(), 1.0f)
+			&& Fixture.PlayerHealth->GetCombatAuthorityRevision() == 1
+			&& Fixture.PlayerHealth->NumCommittedCombatImpacts() == 1
+			&& Fixture.PlayerHealth
+				->GetPositiveDamageBroadcastCountForAutomation() == 1
+			&& SpentMirror && SpentMirror->Charges == 0
+			&& FirstReservation
+			&& FirstReservation->State
+				== EShanmenItemReservationState::Committed);
+
+	const Fdemo_mapCombatImpactDeliveryResult Replay =
+		Fixture.Coordinator.DeliverM01EnemyAttackImpactToPlayer(
+			First.Impact,
+			Fixture.Enemy);
+	FShanmenItemAuthoritySnapshot AfterReplay;
+	const FShanmenItemInstance* ReplayMirror =
+		Fixture.Authority->TryCaptureSnapshot(AfterReplay)
+			? FindP171AuthorityItem(AfterReplay, Fixture.HeartMirrorId)
+			: nullptr;
+	TestTrue(TEXT("Exact Coordinator delivery replay cannot spend or damage twice"),
+		Replay.IsSuccess()
+			&& Replay.CommitResult.Status
+				== EShanmenVitalityCommitStatus::AlreadyCommitted
+			&& FMath::IsNearlyEqual(
+				Fixture.PlayerHealth->GetCurrentVitality(), 1.0f)
+			&& Fixture.PlayerHealth->GetCombatAuthorityRevision() == 1
+			&& Fixture.PlayerHealth->NumCommittedCombatImpacts() == 1
+			&& Fixture.PlayerHealth
+				->GetPositiveDamageBroadcastCountForAutomation() == 1
+			&& ReplayMirror && ReplayMirror->Charges == 0);
+
+	const Fdemo_mapM01EnemyAttackExecutionResult Second =
+		Fixture.Coordinator.ExecuteM01EnemyBasicMeleeStrike(
+			Fixture.Enemy,
+			Fixture.Player,
+			5.0f);
+	const FShanmenImpactRequest& SecondRequest = Second.Impact.GetRequest();
+	const FShanmenImpactResult& SecondResolution = Second.Impact.GetResult();
+	const bool bSecondContainsMirror =
+		SecondRequest.Defense.Layers.ContainsByPredicate(
+			[&Fixture](const FShanmenDefenseLayer& Layer)
+			{
+				return Layer.SourceInstanceId == Fixture.HeartMirrorId;
+			});
+	FShanmenItemAuthoritySnapshot AfterSecond;
+	const FShanmenItemInstance* DepletedMirror =
+		Fixture.Authority->TryCaptureSnapshot(AfterSecond)
+			? FindP171AuthorityItem(AfterSecond, Fixture.HeartMirrorId)
+			: nullptr;
+	TestTrue(TEXT("Next distinct strike sees charge depletion and defeats the player normally"),
+		Second.IsExecuted()
+			&& Second.ActivationId != First.ActivationId
+			&& SecondRequest.ImpactId != FirstRequest.ImpactId
+			&& !bSecondContainsMirror
+			&& SecondResolution.Outcome == EShanmenDefenseOutcome::Applied
+			&& SecondResolution.TriggeredLayers.IsEmpty()
+			&& FMath::IsNearlyEqual(SecondResolution.RawDamage, 5.0f)
+			&& FMath::IsNearlyZero(SecondResolution.PreventedDamage)
+			&& FMath::IsNearlyEqual(SecondResolution.FinalDamage, 5.0f)
+			&& Second.Delivery.CommitResult.Status
+				== EShanmenVitalityCommitStatus::Committed
+			&& FMath::IsNearlyEqual(
+				Second.Delivery.CommitResult.Receipt.GetAppliedDamage(), 1.0f)
+			&& Second.DidNewCommitDefeatTarget()
+			&& FMath::IsNearlyZero(
+				Fixture.PlayerHealth->GetCurrentVitality())
+			&& Fixture.PlayerHealth->GetCombatAuthorityRevision() == 2
+			&& Fixture.PlayerHealth->NumCommittedCombatImpacts() == 2
+			&& Fixture.PlayerHealth
+				->GetPositiveDamageBroadcastCountForAutomation() == 2
+			&& DepletedMirror && DepletedMirror->Charges == 0);
+
+	if (!Fixture.RestartAuthority(*this))
+	{
+		return false;
+	}
+	FShanmenItemAuthoritySnapshot Restarted;
+	const FShanmenItemInstance* DurableMirror =
+		Fixture.Authority->TryCaptureSnapshot(Restarted)
+			? FindP171AuthorityItem(Restarted, Fixture.HeartMirrorId)
+			: nullptr;
+	TestTrue(TEXT("Restart preserves the spent charge and active Run identity"),
+		DurableMirror
+			&& DurableMirror->State == EShanmenItemInstanceState::Deployed
+			&& DurableMirror->Charges == 0
+			&& Restarted == AfterSecond);
 	return true;
 }
 
