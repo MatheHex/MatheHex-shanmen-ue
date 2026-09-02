@@ -160,6 +160,9 @@ try
     $CombatRuntime = New-AutomationLogFixture `
         -Name 'combat-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime'
+    $SwordQiWorldDelivery = New-AutomationLogFixture `
+        -Name 'sword-qi-world-delivery.log' `
+        -Group 'Shanmen.0_0_10.Product.SwordQiWorldDelivery'
     $SwordRhythm = New-AutomationLogFixture `
         -Name 'sword-rhythm.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SwordRhythm'
@@ -2339,6 +2342,13 @@ try
         -Logs @($Full)
 
     Invoke-ExpectedPass `
+        -Name 'sword qi world delivery maps contact through every authority seam' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordQiWorldAdapter.cpp',
+            'Source/demo_map/demo_mapShanmenSwordQiProjectile.cpp') `
+        -Logs @($Full)
+
+    Invoke-ExpectedPass `
         -Name 'thrown weapon Run host maps to every owned authority seam' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenThrownWeaponRunHost.cpp') `
@@ -2499,6 +2509,13 @@ try
             $Coordinator,
             $FormationInfluenceConsumerWorldResolution,
             $Attributes) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'sword qi world focus cannot replace coordinator world runtime and core evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordQiWorldAdapter.cpp') `
+        -Logs @($SwordQiWorldDelivery) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

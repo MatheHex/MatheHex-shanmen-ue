@@ -19,6 +19,7 @@ class UObject;
 class Udemo_mapPlayerHealthComponent;
 struct Fdemo_mapM01EnemyDefinition;
 struct FShanmenControlledWeaponImpactReceipt;
+struct FShanmenSwordQiImpactReceipt;
 struct FShanmenThrownWeaponImpactReceipt;
 struct FHitResult;
 enum class Edemo_mapM01BossAttack : uint8;
@@ -493,6 +494,11 @@ public:
 	Fdemo_mapCombatImpactDeliveryResult
 	DeliverThrownWeaponImpactToM01Enemy(
 		const FShanmenThrownWeaponImpactReceipt& Impact,
+		AActor* TargetEnemy);
+	/** Delivers an already-resolved sword-qi receipt through canonical vitality. */
+	Fdemo_mapCombatImpactDeliveryResult
+	DeliverSwordQiImpactToM01Enemy(
+		const FShanmenSwordQiImpactReceipt& Impact,
 		AActor* TargetEnemy);
 	Fdemo_mapCombatImpactDeliveryResult
 	DeliverM01EnemyAttackImpactToPlayer(

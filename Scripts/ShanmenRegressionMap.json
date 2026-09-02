@@ -2637,6 +2637,17 @@
       ]
     },
     {
+      "name": "SwordQiWorldDelivery",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenSwordQi(?:Projectile|WorldAdapter(?:Tests)?)\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Product.SwordQiWorldDelivery",
+        "Shanmen.0_0_10.Product.CombatRunCoordinator",
+        "Shanmen.0_0_10.WorldGameplay",
+        "Shanmen.0_0_10.CombatRuntime",
+        "Shanmen.0_0_10.CombatCore"
+      ]
+    },
+    {
       "name": "ThrownWeaponRunHost",
       "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponRunHost(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [
