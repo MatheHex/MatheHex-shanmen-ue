@@ -4,7 +4,7 @@
 
 #include "demo_mapShanmenCombatRunFixedTimeline.h"
 #include "demo_mapShanmenMeridianShockTreatmentAdapter.h"
-#include "demo_mapShanmenMeridianShockTreatmentRecoveryProof.h"
+#include "demo_mapShanmenMeridianShockTreatmentRecoveryStore.h"
 #include "demo_mapShanmenRunCorrelation.h"
 
 class Udemo_mapShanmenCombatConditionComponent;
@@ -76,8 +76,11 @@ enum class Edemo_mapShanmenMeridianShockTreatmentRouteError : uint8
 	PrepareRejected,
 	TreatmentRejected,
 	CancellationRejected,
+	ProofCaptureRejected,
+	ProofPersistenceRejected,
+	ProofCleanupRejected,
 	CommitRejected,
-	InterruptedAfterTreatment
+	InterruptedAfterProofPersistence
 };
 
 /** Complete ordered proof returned by the sole treatment product route. */
@@ -128,11 +131,13 @@ struct Fdemo_mapShanmenMeridianShockTreatmentRouteResult
  * Sole Game-Thread owner of prepare -> treat -> commit for Meridian Shock.
  *
  * The route journals immutable commands for active-runtime conflict handling.
- * If that transient journal is lost, it can reconstruct one pending prepare
- * from ShanmenItems only when the condition authority independently proves the
- * same TreatmentId. ShanmenItems remains inventory truth and the condition
- * component remains condition truth. Once treatment succeeds, every retry is
- * commit-only: cancellation can never be selected afterward.
+ * After condition mutation, the route persists one proof in the condition
+ * domain before committing ShanmenItems, then forgets it only after the exact
+ * item commit is durable. If the transient journal is lost, the route loads
+ * that sole proof store and reconciles it against ShanmenItems' ledger.
+ * ShanmenItems remains inventory truth and the condition component remains
+ * condition truth. Once treatment succeeds, every retry is commit-only:
+ * cancellation can never be selected afterward.
  */
 class Fdemo_mapShanmenMeridianShockTreatmentProductRoute
 {
@@ -140,6 +145,8 @@ public:
 	bool TryBegin(
 		const Fdemo_mapShanmenRunCorrelation& Correlation,
 		Udemo_mapShanmenCombatConditionComponent* ConditionComponent,
+		const Fdemo_mapShanmenTreatmentRecoveryStorageContext&
+			RecoveryStorage,
 		FString& OutDiagnostic);
 
 	/** Captures the exact live condition revision before any item mutation. */
@@ -157,23 +164,13 @@ public:
 		const Fdemo_mapShanmenMeridianShockTreatmentCommand& Command);
 
 	/**
-	 * Recovers one durable treatment prepare whose transient command journal was
-	 * lost. Recovery is commit-only once condition proof exists and never uses a
+	 * Reconciles the sole condition proof store with ShanmenItems, then recovers
+	 * one durable treatment prepare whose transient command journal was lost.
+	 * Recovery is commit-only once condition proof exists and never uses a
 	 * missing proof as permission to cancel inventory.
 	 */
 	bool TryRecoverDurablePreparation(
 		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
-		int32& OutRecoveredCount,
-		FString& OutDiagnostic);
-	/**
-	 * Recovery overload for proofs decoded from the condition domain's trusted
-	 * persistence source. Foreign proofs are ignored; corrupt or conflicting
-	 * proof sets fail closed before either authority mutates.
-	 */
-	bool TryRecoverDurablePreparation(
-		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
-		TConstArrayView<
-			Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof> Proofs,
 		int32& OutRecoveredCount,
 		FString& OutDiagnostic);
 
@@ -187,10 +184,15 @@ public:
 	int32 NumJournaledCommands() const { return Journal.Num(); }
 
 #if WITH_DEV_AUTOMATION_TESTS
-	/** Simulates transient route/session loss at the unsafe handoff boundary. */
-	void SetInterruptAfterTreatmentForAutomation(bool bEnabled)
+	/** Simulates transient route/session loss after proof publish, before commit. */
+	void SetInterruptAfterProofPersistenceForAutomation(bool bEnabled)
 	{
-		bInterruptAfterTreatmentForAutomation = bEnabled;
+		bInterruptAfterProofPersistenceForAutomation = bEnabled;
+	}
+	void SetRecoveryStoreFailureForAutomation(
+		Edemo_mapShanmenTreatmentRecoveryStoreFailureStage Stage)
+	{
+		RecoveryStorage.InjectedFailure = Stage;
 	}
 #endif
 
@@ -200,14 +202,20 @@ private:
 		Fdemo_mapShanmenMeridianShockTreatmentCommand Command;
 		Fdemo_mapShanmenMeridianShockTreatmentItemResult Preparation;
 		Fdemo_mapShanmenCombatConditionTreatmentResult Treatment;
+		Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof RecoveryProof;
 		Fdemo_mapShanmenMeridianShockTreatmentItemResult Finalization;
 		bool bPrepared = false;
 		bool bTreated = false;
+		bool bProofRecorded = false;
 		bool bCommitted = false;
+		bool bProofCleanupPending = false;
 		bool bCancelled = false;
 
 		bool IsValid() const;
-		bool IsResolved() const { return bCommitted || bCancelled; }
+		bool IsResolved() const
+		{
+			return (bCommitted && !bProofCleanupPending) || bCancelled;
+		}
 	};
 
 	Fdemo_mapShanmenMeridianShockTreatmentRouteResult Reject(
@@ -222,11 +230,13 @@ private:
 	void Clear();
 
 	Fdemo_mapShanmenRunCorrelation Correlation;
+	Fdemo_mapShanmenTreatmentRecoveryStorageContext RecoveryStorage;
+	Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore RecoveryStore;
 	TWeakObjectPtr<Udemo_mapShanmenCombatConditionComponent>
 		ConditionComponent;
 	TMap<FGuid, FJournalEntry> Journal;
 	bool bActive = false;
 #if WITH_DEV_AUTOMATION_TESTS
-	bool bInterruptAfterTreatmentForAutomation = false;
+	bool bInterruptAfterProofPersistenceForAutomation = false;
 #endif
 };

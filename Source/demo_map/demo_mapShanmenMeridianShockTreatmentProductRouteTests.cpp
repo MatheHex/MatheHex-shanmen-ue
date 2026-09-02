@@ -87,6 +87,15 @@ namespace
 		Fdemo_mapShanmenCombatRunTimelineSample TimelineSample;
 		Fdemo_mapShanmenMeridianShockTreatmentProductRoute Route;
 
+		Fdemo_mapShanmenTreatmentRecoveryStorageContext
+		TreatmentProofStorage() const
+		{
+			return Fdemo_mapShanmenTreatmentRecoveryStorageContext::ForRoot(
+				Root,
+				Correlation.OwnerId,
+				Correlation.ActiveRunId);
+		}
+
 		bool StartGameInstance(FAutomationTestBase& Test)
 		{
 			if (!GEngine)
@@ -230,7 +239,10 @@ namespace
 			return bConditionReady
 				&& (!bBindRoute
 					|| Route.TryBegin(
-						Correlation, Conditions, Diagnostic));
+						Correlation,
+						Conditions,
+						TreatmentProofStorage(),
+						Diagnostic));
 		}
 
 		bool RestartAuthority(FAutomationTestBase& Test)
@@ -447,7 +459,7 @@ bool Fdemo_mapMeridianShockTreatmentRouteRecoveryTest::RunTest(const FString&)
 		AddError(Diagnostic);
 		return false;
 	}
-	Fixture.Route.SetInterruptAfterTreatmentForAutomation(true);
+	Fixture.Route.SetInterruptAfterProofPersistenceForAutomation(true);
 	const Fdemo_mapShanmenMeridianShockTreatmentRouteResult Interrupted =
 		Fixture.Route.TryExecute(*Fixture.Authority, Command);
 	AddInfo(FString::Printf(
@@ -462,14 +474,14 @@ bool Fdemo_mapMeridianShockTreatmentRouteRecoveryTest::RunTest(const FString&)
 		Interrupted.RequiresRecovery()
 			&& Interrupted.Error
 				== Edemo_mapShanmenMeridianShockTreatmentRouteError::
-					InterruptedAfterTreatment
+					InterruptedAfterProofPersistence
 			&& Interrupted.Treatment.IsSuccess()
 			&& !Fixture.Conditions->IsMeridianShockActive()
 			&& Fixture.Route.HasUnresolvedRecovery()
 			&& !Fixture.Route.TryEnd(
 				Fixture.Correlation.ActiveRunId, Diagnostic));
 
-	Fixture.Route.SetInterruptAfterTreatmentForAutomation(false);
+	Fixture.Route.SetInterruptAfterProofPersistenceForAutomation(false);
 	Fixture.Authority->SetInjectedFailureForAutomation(
 		EShanmenItemStoreFailureStage::WriteTemp);
 	const Fdemo_mapShanmenMeridianShockTreatmentRouteResult FailedCommit =
@@ -696,7 +708,7 @@ bool Fdemo_mapMeridianShockTreatmentLifecycleRecoveryTest::RunTest(
 		AddError(Diagnostic);
 		return false;
 	}
-	Lifecycle.SetInterruptAfterTreatmentForAutomation(true);
+	Lifecycle.SetInterruptAfterProofPersistenceForAutomation(true);
 	const Fdemo_mapShanmenMeridianShockTreatmentInputResult Interrupted =
 		Input.RouteHotbarInput(
 			Fixture.Authority, Lifecycle, Fixture.Timeline, 1);
@@ -709,7 +721,7 @@ bool Fdemo_mapMeridianShockTreatmentLifecycleRecoveryTest::RunTest(
 			&& Lifecycle.HasUnresolvedRecovery()
 			&& Lifecycle.NumPendingRecovery() == 1);
 
-	Lifecycle.SetInterruptAfterTreatmentForAutomation(false);
+	Lifecycle.SetInterruptAfterProofPersistenceForAutomation(false);
 	const bool bEnded = Lifecycle.TryEnd(Diagnostic);
 	AddInfo(FString::Printf(
 		TEXT("P16.2 teardown interrupted=%d/%d ended=%d pending=%d diagnostic=%s"),
@@ -810,7 +822,7 @@ bool Fdemo_mapMeridianShockTreatmentLedgerCommitOnlyRecoveryTest::RunTest(
 			AddError(Diagnostic);
 			return false;
 		}
-		LostSession.SetInterruptAfterTreatmentForAutomation(true);
+		LostSession.SetInterruptAfterProofPersistenceForAutomation(true);
 		const Fdemo_mapShanmenMeridianShockTreatmentInputResult Interrupted =
 			Input.RouteHotbarInput(
 				Fixture.Authority, LostSession, Fixture.Timeline, 1);
@@ -1014,6 +1026,9 @@ bool Fdemo_mapMeridianShockTreatmentProcessRecoveryTest::RunTest(
 	if (!Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof::TryDecode(
 			Encoded,
 			RestoredProof)
+		|| !Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore().RecordProof(
+			RestoredProof,
+			Fixture.TreatmentProofStorage()).IsSuccess()
 		|| !Fixture.Conditions->TryEnd(
 			Fixture.Correlation.ActiveRunId,
 			Diagnostic)
@@ -1038,10 +1053,7 @@ bool Fdemo_mapMeridianShockTreatmentProcessRecoveryTest::RunTest(
 		AddError(Diagnostic);
 		return false;
 	}
-	const TArray<Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof> Proofs =
-		{ RestoredProof };
-	const bool bRecovered =
-		Reconstructed.TryRecoverPending(Proofs, Diagnostic);
+	const bool bRecovered = Reconstructed.TryRecoverPending(Diagnostic);
 	AddInfo(FString::Printf(
 		TEXT("P16.4 process-proof recovered=%d conditionRevision=%lld processed=%d commit=%d cancel=%d diagnostic=%s"),
 		bRecovered ? 1 : 0,
@@ -1085,6 +1097,9 @@ bool Fdemo_mapMeridianShockTreatmentRecoveryProofConflictTest::RunTest(
 	FString Encoded;
 	FString Diagnostic;
 	if (!Fixture.CreateRecoveryProof(*this, Proof, Encoded)
+		|| !Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore().RecordProof(
+			Proof,
+			Fixture.TreatmentProofStorage()).IsSuccess()
 		|| !Fixture.Conditions->TryEnd(
 			Fixture.Correlation.ActiveRunId,
 			Diagnostic)
@@ -1113,10 +1128,7 @@ bool Fdemo_mapMeridianShockTreatmentRecoveryProofConflictTest::RunTest(
 	FShanmenItemAuthoritySnapshot Before;
 	FShanmenItemAuthoritySnapshot After;
 	Fixture.Authority->TryCaptureSnapshot(Before);
-	const TArray<Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof> Proofs =
-		{ Proof };
-	const bool bRecovered =
-		Reconstructed.TryRecoverPending(Proofs, Diagnostic);
+	const bool bRecovered = Reconstructed.TryRecoverPending(Diagnostic);
 	Fixture.Authority->TryCaptureSnapshot(After);
 	AddInfo(FString::Printf(
 		TEXT("P16.4 active-conflict recovered=%d active=%d unchanged=%d commit=%d cancel=%d diagnostic=%s"),
@@ -1133,6 +1145,159 @@ bool Fdemo_mapMeridianShockTreatmentRecoveryProofConflictTest::RunTest(
 			&& Before == After
 			&& Fixture.CountTreatmentFinalizations(true) == 0
 			&& Fixture.CountTreatmentFinalizations(false) == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapMeridianShockTreatmentProofPersistenceFenceTest,
+	"Shanmen.0_0_10.Product.MeridianShockTreatment.Lifecycle.ProofPersistenceBeforeItemCommit",
+	RouteFlags)
+
+bool Fdemo_mapMeridianShockTreatmentProofPersistenceFenceTest::RunTest(
+	const FString&)
+{
+	FTreatmentRouteFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("ProofPersistenceFence"), false))
+	{
+		AddError(TEXT("Could not build the P16.6 persistence-fence fixture."));
+		return false;
+	}
+	Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle Lifecycle;
+	FString Diagnostic;
+	if (!Lifecycle.TryBegin(
+			*Fixture.Authority, Fixture.Conditions, Diagnostic))
+	{
+		AddError(Diagnostic);
+		return false;
+	}
+	Lifecycle.SetRecoveryStoreFailureForAutomation(
+		Edemo_mapShanmenTreatmentRecoveryStoreFailureStage::AtomicReplace);
+	const Fdemo_mapShanmenMeridianShockTreatmentRouteResult Failed =
+		Lifecycle.TrySubmitHotbar(
+			FGuid(0xC1660001, 0, 0, 1),
+			Fixture.TreatmentItemId,
+			Fixture.TimelineSample);
+	TestTrue(TEXT("proof persistence failure stops before item commit"),
+		Failed.RequiresRecovery()
+			&& Failed.Error
+				== Edemo_mapShanmenMeridianShockTreatmentRouteError::
+					ProofPersistenceRejected
+			&& !Fixture.Conditions->IsMeridianShockActive()
+			&& Fixture.CountTreatmentFinalizations(true) == 0
+			&& Fixture.CountTreatmentFinalizations(false) == 0
+			&& Lifecycle.HasUnresolvedRecovery());
+
+	Lifecycle.SetRecoveryStoreFailureForAutomation(
+		Edemo_mapShanmenTreatmentRecoveryStoreFailureStage::None);
+	const bool bRecovered = Lifecycle.TryRecoverPending(Diagnostic);
+	const Fdemo_mapShanmenTreatmentRecoveryLoadResult StoreAfter =
+		Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore().LoadExisting(
+			Fixture.TreatmentProofStorage());
+	AddInfo(FString::Printf(
+		TEXT("P16.6 proof-write-fence failed=%d/%d recovered=%d commit=%d proofsAfter=%d diagnostic=%s"),
+		static_cast<int32>(Failed.Status),
+		static_cast<int32>(Failed.Error),
+		bRecovered ? 1 : 0,
+		Fixture.CountTreatmentFinalizations(true),
+		StoreAfter.IsSuccess() ? StoreAfter.Document.Proofs.Num() : INDEX_NONE,
+		*Diagnostic));
+	TestTrue(TEXT("retry persists proof, commits once and removes proof"),
+		bRecovered
+			&& Fixture.CountTreatmentFinalizations(true) == 1
+			&& Fixture.CountTreatmentFinalizations(false) == 0
+			&& StoreAfter.IsSuccess()
+			&& StoreAfter.Document.Proofs.IsEmpty()
+			&& !Lifecycle.HasUnresolvedRecovery()
+			&& Lifecycle.TryEnd(Diagnostic));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapMeridianShockTreatmentProofCleanupRestartTest,
+	"Shanmen.0_0_10.Product.MeridianShockTreatment.Lifecycle.CommittedProofCleanupRestart",
+	RouteFlags)
+
+bool Fdemo_mapMeridianShockTreatmentProofCleanupRestartTest::RunTest(
+	const FString&)
+{
+	FTreatmentRouteFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("ProofCleanupRestart"), false))
+	{
+		AddError(TEXT("Could not build the P16.6 cleanup-restart fixture."));
+		return false;
+	}
+	FString Diagnostic;
+	const FGuid RequestId(0xC1660002, 0, 0, 1);
+	{
+		Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle LostLifecycle;
+		if (!LostLifecycle.TryBegin(
+				*Fixture.Authority, Fixture.Conditions, Diagnostic))
+		{
+			AddError(Diagnostic);
+			return false;
+		}
+		LostLifecycle.SetInterruptAfterProofPersistenceForAutomation(true);
+		const Fdemo_mapShanmenMeridianShockTreatmentRouteResult Interrupted =
+			LostLifecycle.TrySubmitHotbar(
+				RequestId,
+				Fixture.TreatmentItemId,
+				Fixture.TimelineSample);
+		const Fdemo_mapShanmenTreatmentRecoveryLoadResult Stored =
+			Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore().LoadExisting(
+				Fixture.TreatmentProofStorage());
+		TestTrue(TEXT("interruption occurs only after one durable proof exists"),
+			Interrupted.RequiresRecovery()
+				&& Interrupted.Error
+					== Edemo_mapShanmenMeridianShockTreatmentRouteError::
+						InterruptedAfterProofPersistence
+				&& Stored.IsSuccess()
+				&& Stored.Document.Proofs.Num() == 1
+				&& Fixture.CountTreatmentFinalizations(true) == 0);
+
+		LostLifecycle.SetInterruptAfterProofPersistenceForAutomation(false);
+		LostLifecycle.SetRecoveryStoreFailureForAutomation(
+			Edemo_mapShanmenTreatmentRecoveryStoreFailureStage::AtomicReplace);
+		const Fdemo_mapShanmenMeridianShockTreatmentRouteResult CleanupFailed =
+			LostLifecycle.TrySubmitHotbar(
+				RequestId,
+				Fixture.TreatmentItemId,
+				Fixture.TimelineSample);
+		const Fdemo_mapShanmenTreatmentRecoveryLoadResult Retained =
+			Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore().LoadExisting(
+				Fixture.TreatmentProofStorage());
+		TestTrue(TEXT("cleanup failure retains proof after exactly one item commit"),
+			CleanupFailed.RequiresRecovery()
+				&& Fixture.CountTreatmentFinalizations(true) == 1
+				&& Fixture.CountTreatmentFinalizations(false) == 0
+				&& Retained.IsSuccess()
+				&& Retained.Document.Proofs.Num() == 1);
+	}
+
+	Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle Reconstructed;
+	if (!Reconstructed.TryBegin(
+			*Fixture.Authority, Fixture.Conditions, Diagnostic))
+	{
+		AddError(Diagnostic);
+		return false;
+	}
+	const bool bRecovered = Reconstructed.TryRecoverPending(Diagnostic);
+	const Fdemo_mapShanmenTreatmentRecoveryLoadResult Cleaned =
+		Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore().LoadExisting(
+			Fixture.TreatmentProofStorage());
+	AddInfo(FString::Printf(
+		TEXT("P16.6 proof-cleanup-restart recovered=%d commit=%d cancel=%d proofsAfter=%d diagnostic=%s"),
+		bRecovered ? 1 : 0,
+		Fixture.CountTreatmentFinalizations(true),
+		Fixture.CountTreatmentFinalizations(false),
+		Cleaned.IsSuccess() ? Cleaned.Document.Proofs.Num() : INDEX_NONE,
+		*Diagnostic));
+	TestTrue(TEXT("restart verifies committed item receipt and prunes proof only"),
+		bRecovered
+			&& Fixture.CountTreatmentFinalizations(true) == 1
+			&& Fixture.CountTreatmentFinalizations(false) == 0
+			&& Cleaned.IsSuccess()
+			&& Cleaned.Document.Proofs.IsEmpty()
+			&& Reconstructed.TryEnd(Diagnostic));
 	return true;
 }
 
@@ -1181,19 +1346,51 @@ bool Fdemo_mapMeridianShockTreatmentSessionBindingFenceTest::RunTest(
 	}
 	Fdemo_mapShanmenMeridianShockTreatmentProductSession Session;
 	FString Diagnostic;
+	const Fdemo_mapShanmenTreatmentRecoveryStorageContext WrongOwnerStorage =
+		Fdemo_mapShanmenTreatmentRecoveryStorageContext::ForRoot(
+			Fixture.Root,
+			FGuid(0xC1620041, 0, 0, 1),
+			Fixture.Correlation.ActiveRunId);
+	TestFalse(TEXT("session rejects proof storage for another owner"),
+		Session.TryBegin(
+			Fixture.Correlation,
+			Fixture.Conditions,
+			WrongOwnerStorage,
+			Diagnostic));
 	if (!Session.TryBegin(
-			Fixture.Correlation, Fixture.Conditions, Diagnostic))
+			Fixture.Correlation,
+			Fixture.Conditions,
+			Fixture.TreatmentProofStorage(),
+			Diagnostic))
 	{
 		AddError(Diagnostic);
 		return false;
 	}
 	TestTrue(TEXT("exact active binding is idempotent"),
 		Session.TryBegin(
-			Fixture.Correlation, Fixture.Conditions, Diagnostic));
+			Fixture.Correlation,
+			Fixture.Conditions,
+			Fixture.TreatmentProofStorage(),
+			Diagnostic));
+	const Fdemo_mapShanmenTreatmentRecoveryStorageContext ForeignRootStorage =
+		Fdemo_mapShanmenTreatmentRecoveryStorageContext::ForRoot(
+			FPaths::Combine(Fixture.Root, TEXT("ForeignProofRoot")),
+			Fixture.Correlation.OwnerId,
+			Fixture.Correlation.ActiveRunId);
+	TestFalse(TEXT("active session cannot switch condition proof store"),
+		Session.TryBegin(
+			Fixture.Correlation,
+			Fixture.Conditions,
+			ForeignRootStorage,
+			Diagnostic));
 	Fdemo_mapShanmenRunCorrelation Foreign = Fixture.Correlation;
 	Foreign.CorrelationId = FGuid(0xC1620040, 0, 0, 1);
 	TestFalse(TEXT("same RunId cannot hide a foreign full correlation"),
-		Session.TryBegin(Foreign, Fixture.Conditions, Diagnostic));
+		Session.TryBegin(
+			Foreign,
+			Fixture.Conditions,
+			Fixture.TreatmentProofStorage(),
+			Diagnostic));
 	TestTrue(TEXT("binding fence preserves the original valid session"),
 		Session.IsValid()
 			&& Session.GetRunId() == Fixture.Correlation.ActiveRunId

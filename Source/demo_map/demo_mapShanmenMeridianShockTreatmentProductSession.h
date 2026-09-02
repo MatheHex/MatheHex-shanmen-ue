@@ -10,9 +10,10 @@ class Udemo_mapShanmenItemAuthoritySubsystem;
  * Active-Run session for physical Meridian Shock treatment requests.
  *
  * It keeps only immutable commands needed for exact replay and asks the route
- * to reconcile ShanmenItems' durable prepare ledger before new work or Run
- * teardown. The route remains the sole prepare -> treat -> commit owner;
- * ShanmenItems and the condition component remain the two authorities.
+ * to reconcile the condition proof store with ShanmenItems' durable ledger
+ * before new work or Run teardown. The route remains the sole prepare -> treat
+ * -> proof publish -> item commit -> proof cleanup owner; ShanmenItems and the
+ * condition component remain the two authorities.
  */
 class Fdemo_mapShanmenMeridianShockTreatmentProductSession
 {
@@ -32,6 +33,8 @@ public:
 	bool TryBegin(
 		const Fdemo_mapShanmenRunCorrelation& Correlation,
 		Udemo_mapShanmenCombatConditionComponent* ConditionComponent,
+		const Fdemo_mapShanmenTreatmentRecoveryStorageContext&
+			RecoveryStorage,
 		FString& OutDiagnostic);
 
 	/** Captures and executes one exact hotbar request, or replays its command. */
@@ -44,11 +47,6 @@ public:
 	/** Reconciles the durable item ledger, then retries runtime commands. */
 	bool TryRecoverPending(
 		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
-		FString& OutDiagnostic);
-	bool TryRecoverPending(
-		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
-		TConstArrayView<
-			Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof> Proofs,
 		FString& OutDiagnostic);
 
 	/** Recovers pending commits before allowing the active Run to be forgotten. */
@@ -69,9 +67,14 @@ public:
 	int32 NumPendingRecovery() const;
 
 #if WITH_DEV_AUTOMATION_TESTS
-	void SetInterruptAfterTreatmentForAutomation(bool bEnabled)
+	void SetInterruptAfterProofPersistenceForAutomation(bool bEnabled)
 	{
-		Route.SetInterruptAfterTreatmentForAutomation(bEnabled);
+		Route.SetInterruptAfterProofPersistenceForAutomation(bEnabled);
+	}
+	void SetRecoveryStoreFailureForAutomation(
+		Edemo_mapShanmenTreatmentRecoveryStoreFailureStage Stage)
+	{
+		Route.SetRecoveryStoreFailureForAutomation(Stage);
 	}
 #endif
 

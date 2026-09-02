@@ -8,8 +8,9 @@ class Udemo_mapShanmenItemAuthoritySubsystem;
 
 /**
  * Product-lifetime binding between the active durable Run and its treatment
- * session. It owns no UI, key binding, timer, Tick, inventory or condition
- * truth, and it refuses teardown while commit-only recovery remains.
+ * session and derives the condition proof partition from the bound item owner,
+ * storage root and active Run. It owns no UI, key binding, timer, Tick,
+ * inventory or condition truth, and refuses teardown while recovery remains.
  */
 class Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle
 {
@@ -37,10 +38,6 @@ public:
 		const Fdemo_mapShanmenCombatRunTimelineSample& TimelineSample);
 
 	bool TryRecoverPending(FString& OutDiagnostic);
-	bool TryRecoverPending(
-		TConstArrayView<
-			Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof> Proofs,
-		FString& OutDiagnostic);
 	bool TryEnd(FString& OutDiagnostic);
 
 	bool IsActive() const { return Session.IsActive(); }
@@ -61,9 +58,14 @@ public:
 	}
 
 #if WITH_DEV_AUTOMATION_TESTS
-	void SetInterruptAfterTreatmentForAutomation(bool bEnabled)
+	void SetInterruptAfterProofPersistenceForAutomation(bool bEnabled)
 	{
-		Session.SetInterruptAfterTreatmentForAutomation(bEnabled);
+		Session.SetInterruptAfterProofPersistenceForAutomation(bEnabled);
+	}
+	void SetRecoveryStoreFailureForAutomation(
+		Edemo_mapShanmenTreatmentRecoveryStoreFailureStage Stage)
+	{
+		Session.SetRecoveryStoreFailureForAutomation(Stage);
 	}
 #endif
 

@@ -34,12 +34,23 @@ bool Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle::TryBegin(
 	if (!::IsValid(ConditionComponent)
 		|| !ConditionComponent->IsValid()
 		|| ConditionComponent->IsEmpty()
-		|| ConditionComponent->GetRunId() != Correlation.ActiveRunId)
+		|| ConditionComponent->GetRunId() != Correlation.ActiveRunId
+		|| Authority.GetBoundOwnerId() != Correlation.OwnerId)
 	{
-		OutDiagnostic = TEXT("Treatment lifecycle requires the matching active-Run condition authority.");
+		OutDiagnostic = TEXT("Treatment lifecycle requires matching item owner, active Run and condition authority.");
 		return false;
 	}
-	if (!Session.TryBegin(Correlation, ConditionComponent, OutDiagnostic))
+	const Fdemo_mapShanmenTreatmentRecoveryStorageContext RecoveryStorage =
+		Fdemo_mapShanmenTreatmentRecoveryStorageContext::ForRoot(
+			Authority.GetBoundStorageRoot(),
+			Correlation.OwnerId,
+			Correlation.ActiveRunId);
+	if (!RecoveryStorage.IsValid()
+		|| !Session.TryBegin(
+			Correlation,
+			ConditionComponent,
+			RecoveryStorage,
+			OutDiagnostic))
 	{
 		return false;
 	}
@@ -72,26 +83,13 @@ Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle::TrySubmitHotbar(
 bool Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle::
 	TryRecoverPending(FString& OutDiagnostic)
 {
-	return TryRecoverPending(
-		TConstArrayView<
-			Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof>(),
-		OutDiagnostic);
-}
-
-bool Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle::
-	TryRecoverPending(
-		const TConstArrayView<
-			Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof> Proofs,
-		FString& OutDiagnostic)
-{
 	OutDiagnostic.Reset();
 	if (!IsValid() || !Session.IsActive() || !BoundAuthority.IsValid())
 	{
 		OutDiagnostic = TEXT("Treatment recovery requires one valid product lifecycle.");
 		return false;
 	}
-	return Session.TryRecoverPending(
-		*BoundAuthority.Get(), Proofs, OutDiagnostic);
+	return Session.TryRecoverPending(*BoundAuthority.Get(), OutDiagnostic);
 }
 
 bool Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle::TryEnd(

@@ -13,6 +13,17 @@ namespace
 			&& Correlation.IsValid()
 			&& Command.GetCorrelation() == Correlation;
 	}
+
+	bool RecoveryStorageMatches(
+		const Fdemo_mapShanmenTreatmentRecoveryStorageContext& Left,
+		const Fdemo_mapShanmenTreatmentRecoveryStorageContext& Right)
+	{
+		return Left.OwnerId == Right.OwnerId
+			&& Left.RunId == Right.RunId
+			&& Left.RootDirectory.Equals(
+				Right.RootDirectory,
+				ESearchCase::IgnoreCase);
+	}
 }
 
 bool Fdemo_mapShanmenMeridianShockTreatmentCommand::TryCapture(
@@ -80,8 +91,11 @@ bool Fdemo_mapShanmenMeridianShockTreatmentProductRoute::
 	if (!Command.IsValid()
 		|| (bCommitted && bCancelled)
 		|| bTreated && !bPrepared
-		|| (bCommitted || bCancelled) && !bPrepared
-		|| bCancelled && bTreated)
+		|| bProofRecorded && !bTreated
+		|| bCommitted && (!bPrepared || !bTreated || !bProofRecorded)
+		|| bProofCleanupPending && !bCommitted
+		|| bCancelled
+			&& (bTreated || bProofRecorded || bProofCleanupPending))
 	{
 		return false;
 	}
@@ -103,6 +117,21 @@ bool Fdemo_mapShanmenMeridianShockTreatmentProductRoute::
 	{
 		return false;
 	}
+	if (RecoveryProof.IsValid())
+	{
+		Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof RuntimeProof;
+		if (!bTreated
+			|| !Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof::
+				TryCapture(Treatment.Receipt, RuntimeProof)
+			|| !RuntimeProof.Matches(RecoveryProof))
+		{
+			return false;
+		}
+	}
+	else if (bProofRecorded || bCommitted || bProofCleanupPending)
+	{
+		return false;
+	}
 	if ((bCommitted || bCancelled)
 		&& (!Finalization.IsFinalized()
 			|| Finalization.FinalizeRequest.bCommit != bCommitted))
@@ -115,6 +144,8 @@ bool Fdemo_mapShanmenMeridianShockTreatmentProductRoute::
 bool Fdemo_mapShanmenMeridianShockTreatmentProductRoute::TryBegin(
 	const Fdemo_mapShanmenRunCorrelation& RequestedCorrelation,
 	Udemo_mapShanmenCombatConditionComponent* RequestedConditionComponent,
+	const Fdemo_mapShanmenTreatmentRecoveryStorageContext&
+		RequestedRecoveryStorage,
 	FString& OutDiagnostic)
 {
 	OutDiagnostic.Reset();
@@ -127,7 +158,10 @@ bool Fdemo_mapShanmenMeridianShockTreatmentProductRoute::TryBegin(
 	{
 		if (IsValid()
 			&& Correlation == RequestedCorrelation
-			&& ConditionComponent.Get() == RequestedConditionComponent)
+			&& ConditionComponent.Get() == RequestedConditionComponent
+			&& RecoveryStorageMatches(
+				RecoveryStorage,
+				RequestedRecoveryStorage))
 		{
 			OutDiagnostic = TEXT("Meridian Shock treatment route is already bound to this Run.");
 			return true;
@@ -141,12 +175,17 @@ bool Fdemo_mapShanmenMeridianShockTreatmentProductRoute::TryBegin(
 		|| !RequestedConditionComponent->IsValid()
 		|| RequestedConditionComponent->IsEmpty()
 		|| RequestedConditionComponent->GetRunId()
+			!= RequestedCorrelation.ActiveRunId
+		|| !RequestedRecoveryStorage.IsValid()
+		|| RequestedRecoveryStorage.OwnerId != RequestedCorrelation.OwnerId
+		|| RequestedRecoveryStorage.RunId
 			!= RequestedCorrelation.ActiveRunId)
 	{
 		OutDiagnostic = TEXT("Treatment route begin requires empty state and matching active-Run authorities.");
 		return false;
 	}
 	Correlation = RequestedCorrelation;
+	RecoveryStorage = RequestedRecoveryStorage;
 	ConditionComponent = RequestedConditionComponent;
 	bActive = true;
 	if (!IsValid())
@@ -298,6 +337,32 @@ Fdemo_mapShanmenMeridianShockTreatmentProductRoute::Resume(
 		Entry.Command;
 	if (Entry.bCommitted)
 	{
+		if (Entry.bProofCleanupPending)
+		{
+			const Fdemo_mapShanmenTreatmentRecoveryMutationResult Cleanup =
+				RecoveryStore.ForgetProof(
+					Entry.RecoveryProof.GetTreatmentId(),
+					RecoveryStorage);
+			if (!Cleanup.IsSuccess())
+			{
+				Fdemo_mapShanmenMeridianShockTreatmentRouteResult Result =
+					Reject(
+						Edemo_mapShanmenMeridianShockTreatmentRouteError::
+							ProofCleanupRejected,
+						&Command,
+						TEXT("Committed item consumption retained a durable condition proof that still requires cleanup."),
+						true);
+				Result.Status =
+					Edemo_mapShanmenMeridianShockTreatmentRouteStatus::
+						RecoveryRequired;
+				Result.TreatmentId = Entry.RecoveryProof.GetTreatmentId();
+				Result.Item = Entry.Finalization;
+				Result.Treatment = Entry.Treatment;
+				Result.Diagnostic = Cleanup.Diagnostic;
+				return Result;
+			}
+			Entry.bProofCleanupPending = false;
+		}
 		Fdemo_mapShanmenMeridianShockTreatmentRouteResult Result;
 		Result.Status =
 			Edemo_mapShanmenMeridianShockTreatmentRouteStatus::Replayed;
@@ -434,14 +499,60 @@ Fdemo_mapShanmenMeridianShockTreatmentProductRoute::Resume(
 		Entry.bTreated = true;
 	}
 
-#if WITH_DEV_AUTOMATION_TESTS
-	if (bInterruptAfterTreatmentForAutomation)
+	if (!Entry.RecoveryProof.IsValid()
+		&& !Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof::TryCapture(
+			Entry.Treatment.Receipt,
+			Entry.RecoveryProof))
 	{
 		Fdemo_mapShanmenMeridianShockTreatmentRouteResult Result = Reject(
 			Edemo_mapShanmenMeridianShockTreatmentRouteError::
-				InterruptedAfterTreatment,
+				ProofCaptureRejected,
 			&Command,
-			TEXT("Injected interruption retained treatment proof for commit-only recovery."),
+			TEXT("Condition treatment committed in memory, but its canonical recovery proof could not be captured."),
+			bReusedRequest);
+		Result.Status =
+			Edemo_mapShanmenMeridianShockTreatmentRouteStatus::
+				RecoveryRequired;
+		Result.TreatmentId =
+			Entry.Preparation.TreatmentIntent.GetTreatmentId();
+		Result.Item = Entry.Preparation;
+		Result.Treatment = Entry.Treatment;
+		return Result;
+	}
+	if (!Entry.bProofRecorded)
+	{
+		const Fdemo_mapShanmenTreatmentRecoveryMutationResult Persistence =
+			RecoveryStore.RecordProof(
+				Entry.RecoveryProof,
+				RecoveryStorage);
+		if (!Persistence.IsSuccess())
+		{
+			Fdemo_mapShanmenMeridianShockTreatmentRouteResult Result = Reject(
+				Edemo_mapShanmenMeridianShockTreatmentRouteError::
+					ProofPersistenceRejected,
+				&Command,
+				TEXT("Condition treatment committed in memory, but durable proof persistence failed before item commit."),
+				bReusedRequest);
+			Result.Status =
+				Edemo_mapShanmenMeridianShockTreatmentRouteStatus::
+					RecoveryRequired;
+			Result.TreatmentId = Entry.RecoveryProof.GetTreatmentId();
+			Result.Item = Entry.Preparation;
+			Result.Treatment = Entry.Treatment;
+			Result.Diagnostic = Persistence.Diagnostic;
+			return Result;
+		}
+		Entry.bProofRecorded = true;
+	}
+
+#if WITH_DEV_AUTOMATION_TESTS
+	if (bInterruptAfterProofPersistenceForAutomation)
+	{
+		Fdemo_mapShanmenMeridianShockTreatmentRouteResult Result = Reject(
+			Edemo_mapShanmenMeridianShockTreatmentRouteError::
+				InterruptedAfterProofPersistence,
+			&Command,
+			TEXT("Injected interruption retained a durable treatment proof for commit-only recovery."),
 			bReusedRequest);
 		Result.Status =
 			Edemo_mapShanmenMeridianShockTreatmentRouteStatus::
@@ -480,6 +591,29 @@ Fdemo_mapShanmenMeridianShockTreatmentProductRoute::Resume(
 		return Result;
 	}
 	Entry.bCommitted = true;
+	Entry.bProofCleanupPending = true;
+	const Fdemo_mapShanmenTreatmentRecoveryMutationResult Cleanup =
+		RecoveryStore.ForgetProof(
+			Entry.RecoveryProof.GetTreatmentId(),
+			RecoveryStorage);
+	if (!Cleanup.IsSuccess())
+	{
+		Fdemo_mapShanmenMeridianShockTreatmentRouteResult Result = Reject(
+			Edemo_mapShanmenMeridianShockTreatmentRouteError::
+				ProofCleanupRejected,
+			&Command,
+			TEXT("Item consumption committed, but durable treatment proof cleanup requires recovery."),
+			bReusedRequest);
+		Result.Status =
+			Edemo_mapShanmenMeridianShockTreatmentRouteStatus::
+				RecoveryRequired;
+		Result.TreatmentId = Entry.RecoveryProof.GetTreatmentId();
+		Result.Item = Entry.Finalization;
+		Result.Treatment = Entry.Treatment;
+		Result.Diagnostic = Cleanup.Diagnostic;
+		return Result;
+	}
+	Entry.bProofCleanupPending = false;
 
 	Fdemo_mapShanmenMeridianShockTreatmentRouteResult Result;
 	Result.Status =
@@ -491,29 +625,13 @@ Fdemo_mapShanmenMeridianShockTreatmentProductRoute::Resume(
 		Entry.Preparation.TreatmentIntent.GetTreatmentId();
 	Result.Item = Entry.Finalization;
 	Result.Treatment = Entry.Treatment;
-	Result.Diagnostic = TEXT("Meridian Shock treatment and exact item consumption committed in order.");
+	Result.Diagnostic = TEXT("Meridian Shock treatment, durable proof, exact item consumption and proof cleanup committed in order.");
 	return Result;
 }
 
 bool Fdemo_mapShanmenMeridianShockTreatmentProductRoute::
 	TryRecoverDurablePreparation(
 		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
-		int32& OutRecoveredCount,
-		FString& OutDiagnostic)
-{
-	return TryRecoverDurablePreparation(
-		Authority,
-		TConstArrayView<
-			Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof>(),
-		OutRecoveredCount,
-		OutDiagnostic);
-}
-
-bool Fdemo_mapShanmenMeridianShockTreatmentProductRoute::
-	TryRecoverDurablePreparation(
-		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
-		const TConstArrayView<
-			Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof> Proofs,
 		int32& OutRecoveredCount,
 		FString& OutDiagnostic)
 {
@@ -528,6 +646,15 @@ bool Fdemo_mapShanmenMeridianShockTreatmentProductRoute::
 			TEXT("Durable treatment recovery requires matching ready product authorities on the Game Thread.");
 		return false;
 	}
+	const Fdemo_mapShanmenTreatmentRecoveryLoadResult ProofLoad =
+		RecoveryStore.LoadExisting(RecoveryStorage);
+	const bool bProofStoreMissing = ProofLoad.Status
+		== Edemo_mapShanmenTreatmentRecoveryLoadStatus::Missing;
+	if (!ProofLoad.IsSuccess() && !bProofStoreMissing)
+	{
+		OutDiagnostic = ProofLoad.Diagnostic;
+		return false;
+	}
 
 	FShanmenItemAuthoritySnapshot Snapshot;
 	if (!Authority.TryCaptureSnapshot(Snapshot))
@@ -536,12 +663,33 @@ bool Fdemo_mapShanmenMeridianShockTreatmentProductRoute::
 			TEXT("Durable treatment recovery could not capture the item authority ledger.");
 		return false;
 	}
+	TMap<FGuid, const FShanmenItemTransactionReceipt*> PreparesByTreatmentId;
 	TSet<FGuid> FinalizedPrepareRequestIds;
 	for (const FShanmenItemProcessedRequestSnapshot& Processed :
 		Snapshot.ProcessedRequests)
 	{
 		const FShanmenItemTransactionReceipt& Receipt = Processed.Receipt;
+		if (Receipt.IsSuccess() && Receipt.IsValid()
+			&& Receipt.Operation
+				== EShanmenItemTransactionOperation::
+					PreparePreparedRunQuantityIntent
+			&& Receipt.Phase == EShanmenItemTransactionPhase::Reserved
+			&& Receipt.PurposeId
+				== Fdemo_mapShanmenMeridianShockTreatmentAdapter::
+					TreatmentPurposeId()
+			&& Receipt.ReservationIds
+				== TArray<FGuid>({ Correlation.ActiveRunId }))
+		{
+			if (PreparesByTreatmentId.Contains(Receipt.ReservationId))
+			{
+				OutDiagnostic =
+					TEXT("The durable item ledger contains duplicate treatment prepares for one TreatmentId.");
+				return false;
+			}
+			PreparesByTreatmentId.Add(Receipt.ReservationId, &Receipt);
+		}
 		if (Receipt.IsSuccess()
+			&& Receipt.IsValid()
 			&& Receipt.Operation
 				== EShanmenItemTransactionOperation::
 					FinalizePreparedRunQuantityIntent
@@ -550,6 +698,113 @@ bool Fdemo_mapShanmenMeridianShockTreatmentProductRoute::
 			FinalizedPrepareRequestIds.Add(Receipt.ReservationIds[1]);
 		}
 	}
+
+	TArray<FGuid> CommittedProofsToForget;
+	if (!bProofStoreMissing)
+	{
+		for (const Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof& Proof :
+			ProofLoad.Document.Proofs)
+		{
+			if (!Proof.IsValid()
+				|| Proof.GetRunId() != Correlation.ActiveRunId
+				|| Proof.GetTargetEntityId()
+					!= ConditionComponent->GetTargetEntityId()
+				|| Proof.GetTimelineId() != ConditionComponent->GetTimelineId()
+				|| Proof.GetConditionDefinitionId()
+					!= Udemo_mapShanmenCombatConditionComponent::
+						MeridianShockDefinitionId())
+			{
+				OutDiagnostic =
+					TEXT("The condition proof store contains proof outside the bound Run, target or timeline.");
+				return false;
+			}
+			const FShanmenItemTransactionReceipt* const* PreparePointer =
+				PreparesByTreatmentId.Find(Proof.GetTreatmentId());
+			if (!PreparePointer || !*PreparePointer)
+			{
+				OutDiagnostic =
+					TEXT("The condition proof store contains an orphan TreatmentId with no exact item prepare.");
+				return false;
+			}
+			const FShanmenItemTransactionReceipt& Prepare = **PreparePointer;
+			if (Prepare.ItemInstanceId != Proof.GetItemInstanceId())
+			{
+				OutDiagnostic =
+					TEXT("The condition proof store conflicts with its item prepare identity.");
+				return false;
+			}
+
+			const FShanmenItemTransactionReceipt* Finalization = nullptr;
+			for (const FShanmenItemProcessedRequestSnapshot& Processed :
+				Snapshot.ProcessedRequests)
+			{
+				const FShanmenItemTransactionReceipt& Candidate =
+					Processed.Receipt;
+				if (!Candidate.IsSuccess() || !Candidate.IsValid()
+					|| Candidate.Operation
+						!= EShanmenItemTransactionOperation::
+							FinalizePreparedRunQuantityIntent
+					|| Candidate.ReservationIds.Num() != 2
+					|| Candidate.ReservationIds[1] != Prepare.RequestId)
+				{
+					continue;
+				}
+				if (Finalization)
+				{
+					OutDiagnostic =
+						TEXT("The durable item ledger contains multiple terminal receipts for one treatment prepare.");
+					return false;
+				}
+				Finalization = &Candidate;
+			}
+			if (Finalization)
+			{
+				if (Finalization->Phase
+						!= EShanmenItemTransactionPhase::Committed
+					|| Finalization->ReservationId
+						!= Proof.GetTreatmentId()
+					|| Finalization->ItemInstanceId
+						!= Proof.GetItemInstanceId()
+					|| Finalization->Amount != Prepare.Amount
+					|| Finalization->PurposeId != Prepare.PurposeId
+					|| Finalization->ReservationIds[0]
+						!= Correlation.ActiveRunId)
+				{
+					OutDiagnostic =
+						TEXT("A stored condition proof conflicts with the terminal item receipt.");
+					return false;
+				}
+				CommittedProofsToForget.Add(Proof.GetTreatmentId());
+				continue;
+			}
+			const FShanmenItemInstance* PreparedItem =
+				Snapshot.Items.FindByPredicate(
+					[&Proof](const FShanmenItemInstance& Value)
+					{
+						return Value.ItemInstanceId
+							== Proof.GetItemInstanceId();
+					});
+			if (!PreparedItem
+				|| PreparedItem->DefinitionId
+					!= Proof.GetItemDefinitionId())
+			{
+				OutDiagnostic =
+					TEXT("A pending condition proof conflicts with the current item definition.");
+				return false;
+			}
+		}
+	}
+	for (const FGuid& TreatmentId : CommittedProofsToForget)
+	{
+		const Fdemo_mapShanmenTreatmentRecoveryMutationResult Cleanup =
+			RecoveryStore.ForgetProof(TreatmentId, RecoveryStorage);
+		if (!Cleanup.IsSuccess())
+		{
+			OutDiagnostic = Cleanup.Diagnostic;
+			return false;
+		}
+	}
+
 	TArray<FShanmenItemTransactionReceipt> Pending;
 	for (const FShanmenItemProcessedRequestSnapshot& Processed :
 		Snapshot.ProcessedRequests)
@@ -579,8 +834,9 @@ bool Fdemo_mapShanmenMeridianShockTreatmentProductRoute::
 	});
 	if (Pending.IsEmpty())
 	{
-		OutDiagnostic =
-			TEXT("The durable item ledger contains no pending Meridian Shock treatment.");
+		OutDiagnostic = CommittedProofsToForget.IsEmpty()
+			? TEXT("The durable item ledger contains no pending Meridian Shock treatment.")
+			: TEXT("Committed item receipts were verified and their stale condition proofs were removed.");
 		return true;
 	}
 	if (Pending.Num() != 1)
@@ -607,27 +863,17 @@ bool Fdemo_mapShanmenMeridianShockTreatmentProductRoute::
 
 	const Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof*
 		DurableTreatmentProof = nullptr;
-	for (const Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof& Proof :
-		Proofs)
+	if (!bProofStoreMissing)
 	{
-		if (!Proof.IsValid())
+		for (const Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof& Proof :
+			ProofLoad.Document.Proofs)
 		{
-			OutDiagnostic =
-				TEXT("Condition recovery source contains an invalid treatment proof.");
-			return false;
+			if (Proof.GetTreatmentId() == PrepareReceipt.ReservationId)
+			{
+				DurableTreatmentProof = &Proof;
+				break;
+			}
 		}
-		if (Proof.GetTreatmentId() != PrepareReceipt.ReservationId)
-		{
-			continue;
-		}
-		if (DurableTreatmentProof
-			&& !DurableTreatmentProof->Matches(Proof))
-		{
-			OutDiagnostic =
-				TEXT("Condition recovery source contains conflicting proofs for one TreatmentId.");
-			return false;
-		}
-		DurableTreatmentProof = &Proof;
 	}
 	if (DurableTreatmentProof
 		&& (DurableTreatmentProof->GetRunId()
@@ -759,6 +1005,24 @@ bool Fdemo_mapShanmenMeridianShockTreatmentProductRoute::
 			TEXT("Durable prepare was restored, but exact condition treatment proof could not be established.");
 		return false;
 	}
+	Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof RuntimeProof;
+	if (!Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof::TryCapture(
+			Treatment.Receipt,
+			RuntimeProof)
+		|| DurableTreatmentProof
+			&& !RuntimeProof.Matches(*DurableTreatmentProof))
+	{
+		OutDiagnostic =
+			TEXT("Recovered treatment did not yield the exact canonical condition proof.");
+		return false;
+	}
+	const Fdemo_mapShanmenTreatmentRecoveryMutationResult Persistence =
+		RecoveryStore.RecordProof(RuntimeProof, RecoveryStorage);
+	if (!Persistence.IsSuccess())
+	{
+		OutDiagnostic = Persistence.Diagnostic;
+		return false;
+	}
 
 	const Fdemo_mapShanmenMeridianShockTreatmentItemResult Finalization =
 		Fdemo_mapShanmenMeridianShockTreatmentAdapter::CommitTreated(
@@ -771,6 +1035,15 @@ bool Fdemo_mapShanmenMeridianShockTreatmentProductRoute::
 			!= Edemo_mapShanmenMeridianShockTreatmentStatus::Committed)
 	{
 		OutDiagnostic = Finalization.Diagnostic;
+		return false;
+	}
+	const Fdemo_mapShanmenTreatmentRecoveryMutationResult Cleanup =
+		RecoveryStore.ForgetProof(
+			RuntimeProof.GetTreatmentId(),
+			RecoveryStorage);
+	if (!Cleanup.IsSuccess())
+	{
+		OutDiagnostic = Cleanup.Diagnostic;
 		return false;
 	}
 	OutRecoveredCount = 1;
@@ -811,6 +1084,9 @@ bool Fdemo_mapShanmenMeridianShockTreatmentProductRoute::IsValid() const
 		return IsEmpty();
 	}
 	if (!Correlation.IsValid()
+		|| !RecoveryStorage.IsValid()
+		|| RecoveryStorage.OwnerId != Correlation.OwnerId
+		|| RecoveryStorage.RunId != Correlation.ActiveRunId
 		|| !ConditionComponent.IsValid()
 		|| !ConditionComponent->IsValid()
 		|| ConditionComponent->IsEmpty()
@@ -834,6 +1110,9 @@ bool Fdemo_mapShanmenMeridianShockTreatmentProductRoute::IsEmpty() const
 {
 	return !bActive
 		&& !Correlation.IsValid()
+		&& RecoveryStorage.RootDirectory.IsEmpty()
+		&& !RecoveryStorage.OwnerId.IsValid()
+		&& !RecoveryStorage.RunId.IsValid()
 		&& !ConditionComponent.IsValid()
 		&& Journal.IsEmpty();
 }
@@ -860,9 +1139,10 @@ void Fdemo_mapShanmenMeridianShockTreatmentProductRoute::Clear()
 {
 	bActive = false;
 	Correlation = Fdemo_mapShanmenRunCorrelation();
+	RecoveryStorage = Fdemo_mapShanmenTreatmentRecoveryStorageContext();
 	ConditionComponent.Reset();
 	Journal.Reset();
 #if WITH_DEV_AUTOMATION_TESTS
-	bInterruptAfterTreatmentForAutomation = false;
+	bInterruptAfterProofPersistenceForAutomation = false;
 #endif
 }
