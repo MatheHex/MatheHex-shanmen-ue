@@ -274,6 +274,10 @@ public:
 	Fdemo_mapShanmenCombatConditionTreatmentResult TryTreatMeridianShock(
 		const Fdemo_mapShanmenCombatConditionTreatmentIntent& Intent,
 		const Fdemo_mapShanmenCombatRunTimelineSample& TimelineSample);
+	/** Returns exact runtime proof for commit-only transaction recovery. */
+	bool TryGetProcessedMeridianShockTreatment(
+		const FGuid& TreatmentId,
+		Fdemo_mapShanmenCombatConditionTreatmentReceipt& OutReceipt) const;
 	/** Copies the current immutable state for Blueprint/presentation polling. */
 	bool TryCaptureMeridianShockStatus(
 		Fdemo_mapShanmenCombatConditionStatusSnapshot& OutStatus) const;

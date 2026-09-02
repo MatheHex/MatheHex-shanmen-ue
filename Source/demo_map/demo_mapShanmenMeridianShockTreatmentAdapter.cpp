@@ -6,11 +6,6 @@
 
 namespace
 {
-	FName TreatmentPurpose()
-	{
-		return TEXT("Shanmen.Condition.MeridianShock.Treatment.r1");
-	}
-
 	FString GuidDigits(const FGuid& Value)
 	{
 		return Value.ToString(EGuidFormats::Digits);
@@ -170,6 +165,13 @@ namespace
 	}
 }
 
+FName Fdemo_mapShanmenMeridianShockTreatmentAdapter::TreatmentPurposeId()
+{
+	static const FName Value(
+		TEXT("Shanmen.Condition.MeridianShock.Treatment.r1"));
+	return Value;
+}
+
 bool Fdemo_mapShanmenMeridianShockTreatmentItemResult::
 	HasPrepareRequest() const
 {
@@ -178,7 +180,9 @@ bool Fdemo_mapShanmenMeridianShockTreatmentItemResult::
 		&& PrepareRequest.IntentId == TreatmentIntent.GetTreatmentId()
 		&& PrepareRequest.ItemInstanceId
 			== TreatmentIntent.GetItemInstanceId()
-		&& PrepareRequest.PurposeId == TreatmentPurpose();
+		&& PrepareRequest.PurposeId
+			== Fdemo_mapShanmenMeridianShockTreatmentAdapter::
+				TreatmentPurposeId();
 }
 
 bool Fdemo_mapShanmenMeridianShockTreatmentItemResult::IsPrepared() const
@@ -453,7 +457,7 @@ Fdemo_mapShanmenMeridianShockTreatmentAdapter::BuildPrepareRequest(
 			|| ExistingPrepare->ReservationIds
 				!= TArray<FGuid>({ Correlation.ActiveRunId })
 			|| ExistingPrepare->Amount != Quantity
-			|| ExistingPrepare->PurposeId != TreatmentPurpose())
+			|| ExistingPrepare->PurposeId != TreatmentPurposeId())
 		{
 			return Reject(
 				Edemo_mapShanmenMeridianShockTreatmentStatus::
@@ -512,7 +516,7 @@ Fdemo_mapShanmenMeridianShockTreatmentAdapter::BuildPrepareRequest(
 	Result.PrepareRequest.ItemInstanceId = ItemInstanceId;
 	Result.PrepareRequest.Amount = Quantity;
 	Result.PrepareRequest.ExpectedQuantityBefore = ExpectedQuantityBefore;
-	Result.PrepareRequest.PurposeId = TreatmentPurpose();
+	Result.PrepareRequest.PurposeId = TreatmentPurposeId();
 	if (!Result.HasPrepareRequest())
 	{
 		return Reject(
@@ -575,6 +579,158 @@ Fdemo_mapShanmenMeridianShockTreatmentAdapter::PrepareActiveRun(
 		== Edemo_mapShanmenMeridianShockTreatmentStatus::Replayed
 		? TEXT("The exact treatment Quantity intent was durably replayed.")
 		: TEXT("The exact treatment Quantity intent was durably prepared.");
+	return Result;
+}
+
+Fdemo_mapShanmenMeridianShockTreatmentItemResult
+Fdemo_mapShanmenMeridianShockTreatmentAdapter::RestorePreparedFromLedger(
+	Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+	const Fdemo_mapShanmenRunCorrelation& Correlation,
+	const FShanmenItemTransactionReceipt& PrepareReceipt,
+	const Fdemo_mapShanmenCombatConditionTreatmentIntent& TreatmentIntent)
+{
+	if (!IsInGameThread()
+		|| Authority.GetLifecycleState()
+			!= Edemo_mapShanmenItemAuthorityLifecycleState::Ready)
+	{
+		return Reject(
+			Edemo_mapShanmenMeridianShockTreatmentStatus::AuthorityNotReady,
+			TEXT("Treatment ledger restore requires the ready item authority on the Game Thread."));
+	}
+	if (!Correlation.IsValid() || !TreatmentIntent.IsValid()
+		|| TreatmentIntent.GetRunId() != Correlation.ActiveRunId
+		|| !Correlation.OrderedRunInventoryItemInstanceIds.Contains(
+			TreatmentIntent.GetItemInstanceId()))
+	{
+		return Reject(
+			Edemo_mapShanmenMeridianShockTreatmentStatus::
+				RunCorrelationInvalid,
+			TEXT("Treatment ledger restore requires one matching active-Run correlation and intent."));
+	}
+	if (!PrepareReceipt.IsValid() || !PrepareReceipt.IsSuccess()
+		|| PrepareReceipt.Operation
+			!= EShanmenItemTransactionOperation::
+				PreparePreparedRunQuantityIntent
+		|| PrepareReceipt.Phase != EShanmenItemTransactionPhase::Reserved
+		|| PrepareReceipt.ReservationId
+			!= TreatmentIntent.GetTreatmentId()
+		|| PrepareReceipt.ItemInstanceId
+			!= TreatmentIntent.GetItemInstanceId()
+		|| PrepareReceipt.ResourceKind
+			!= EShanmenItemResourceKind::Quantity
+		|| PrepareReceipt.Amount <= 0
+		|| PrepareReceipt.ResourceBefore < PrepareReceipt.Amount
+		|| PrepareReceipt.ResourceAfter != PrepareReceipt.ResourceBefore
+		|| PrepareReceipt.AvailableAfter
+			!= PrepareReceipt.ResourceBefore - PrepareReceipt.Amount
+		|| PrepareReceipt.PurposeId != TreatmentPurposeId()
+		|| PrepareReceipt.ReservationIds
+			!= TArray<FGuid>({ Correlation.ActiveRunId }))
+	{
+		return Reject(
+			Edemo_mapShanmenMeridianShockTreatmentStatus::
+				PreparationInvalid,
+			TEXT("Durable prepare receipt does not match the canonical treatment transaction."));
+	}
+
+	FShanmenItemAuthoritySnapshot Snapshot;
+	if (!Authority.TryCaptureSnapshot(Snapshot))
+	{
+		return Reject(
+			Edemo_mapShanmenMeridianShockTreatmentStatus::SnapshotUnavailable,
+			TEXT("Treatment ledger restore could not capture item authority state."));
+	}
+	const FShanmenContentStamp ProductContent =
+		Udemo_mapShanmenItemAuthoritySubsystem::ProductContentStamp();
+	if (!Snapshot.Content.IsValid()
+		|| Snapshot.Content.Version != ProductContent.Version
+		|| Snapshot.Content.Digest != ProductContent.Digest
+		|| PrepareReceipt.AuthorityRevision > Snapshot.AuthorityRevision)
+	{
+		return Reject(
+			Edemo_mapShanmenMeridianShockTreatmentStatus::SnapshotStale,
+			TEXT("Durable prepare receipt is newer than or foreign to this product authority."));
+	}
+	const FShanmenItemProcessedRequestSnapshot* ProcessedPrepare = FindBy(
+		Snapshot.ProcessedRequests,
+		[&PrepareReceipt](const FShanmenItemProcessedRequestSnapshot& Value)
+		{
+			return Value.RequestId == PrepareReceipt.RequestId;
+		});
+	const FShanmenItemInstance* Item = FindBy(
+		Snapshot.Items,
+		[&TreatmentIntent](const FShanmenItemInstance& Value)
+		{
+			return Value.ItemInstanceId
+				== TreatmentIntent.GetItemInstanceId();
+		});
+	const bool bAlreadyFinalized =
+		Snapshot.ProcessedRequests.ContainsByPredicate(
+			[&PrepareReceipt](
+				const FShanmenItemProcessedRequestSnapshot& Value)
+			{
+				return Value.Receipt.IsSuccess()
+					&& Value.Receipt.Operation
+						== EShanmenItemTransactionOperation::
+							FinalizePreparedRunQuantityIntent
+					&& Value.Receipt.ReservationIds.Num() == 2
+					&& Value.Receipt.ReservationIds[1]
+						== PrepareReceipt.RequestId;
+			});
+	if (!ProcessedPrepare || !(ProcessedPrepare->Receipt == PrepareReceipt)
+		|| !Item
+		|| Item->OwnerId != Correlation.OwnerId
+		|| Item->RunId != Correlation.ScopeId
+		|| Item->DefinitionId != TreatmentIntent.GetItemDefinitionId()
+		|| bAlreadyFinalized)
+	{
+		return Reject(
+			Edemo_mapShanmenMeridianShockTreatmentStatus::
+				QuantityReservationInvalid,
+			TEXT("Treatment prepare is missing, finalized, or outside the bound active Run."));
+	}
+
+	Fdemo_mapShanmenMeridianShockTreatmentItemResult Result;
+	Result.Status =
+		Edemo_mapShanmenMeridianShockTreatmentStatus::RequestReady;
+	Result.Diagnostic =
+		TEXT("Durable treatment prepare reconstructed from its authority receipt.");
+	Result.TreatmentIntent = TreatmentIntent;
+	Result.PrepareRequest.Context.RunId = Correlation.ScopeId;
+	Result.PrepareRequest.Context.OwnerId = Correlation.OwnerId;
+	Result.PrepareRequest.Context.RequestId = PrepareReceipt.RequestId;
+	Result.PrepareRequest.Context.Content = Snapshot.Content;
+	Result.PrepareRequest.ActiveRunId = Correlation.ActiveRunId;
+	Result.PrepareRequest.IntentId = PrepareReceipt.ReservationId;
+	Result.PrepareRequest.ItemInstanceId = PrepareReceipt.ItemInstanceId;
+	Result.PrepareRequest.Amount = PrepareReceipt.Amount;
+	Result.PrepareRequest.ExpectedQuantityBefore =
+		PrepareReceipt.ResourceBefore;
+	Result.PrepareRequest.PurposeId = PrepareReceipt.PurposeId;
+	if (!Result.HasPrepareRequest())
+	{
+		return Reject(
+			Edemo_mapShanmenMeridianShockTreatmentStatus::RequestInvalid,
+			TEXT("Durable receipt reconstruction produced an invalid prepare request."));
+	}
+	Result.PrepareCommand =
+		Authority.PreparePreparedRunQuantityIntentDurable(
+			Result.PrepareRequest);
+	if (!Result.PrepareCommand.IsCommandSuccess()
+		|| Result.PrepareCommand.Status
+			!= EShanmenItemDurableCommandStatus::Replayed
+		|| !(Result.PrepareCommand.Receipt == PrepareReceipt))
+	{
+		Result.Status =
+			Edemo_mapShanmenMeridianShockTreatmentStatus::PrepareRejected;
+		Result.Diagnostic = Result.PrepareCommand.Diagnostic.IsEmpty()
+			? TEXT("Reconstructed treatment prepare did not replay its exact durable receipt.")
+			: Result.PrepareCommand.Diagnostic;
+		return Result;
+	}
+	Result.Status = Edemo_mapShanmenMeridianShockTreatmentStatus::Replayed;
+	Result.Diagnostic =
+		TEXT("Exact durable treatment prepare restored without a second reservation.");
 	return Result;
 }
 

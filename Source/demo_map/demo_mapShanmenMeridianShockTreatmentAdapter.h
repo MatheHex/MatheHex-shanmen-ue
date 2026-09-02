@@ -62,6 +62,9 @@ struct Fdemo_mapShanmenMeridianShockTreatmentItemResult
  */
 struct Fdemo_mapShanmenMeridianShockTreatmentAdapter
 {
+	/** Stable ledger discriminator for this one product transaction. */
+	static FName TreatmentPurposeId();
+
 	/** Pure authority gate and deterministic prepare request builder. */
 	static Fdemo_mapShanmenMeridianShockTreatmentItemResult BuildPrepareRequest(
 		const FShanmenItemAuthoritySnapshot& Snapshot,
@@ -77,6 +80,19 @@ struct Fdemo_mapShanmenMeridianShockTreatmentAdapter
 		const Fdemo_mapShanmenCombatConditionStatusSnapshot& ConditionStatus,
 		const FGuid& ItemInstanceId,
 		int32 Quantity = 1);
+
+	/**
+	 * Reconstructs and exactly replays a durable prepare after transient route
+	 * state was lost. The supplied condition intent must independently prove the
+	 * same opaque TreatmentId; this method never invents or cancels one.
+	 */
+	static Fdemo_mapShanmenMeridianShockTreatmentItemResult
+		RestorePreparedFromLedger(
+			Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+			const Fdemo_mapShanmenRunCorrelation& Correlation,
+			const FShanmenItemTransactionReceipt& PrepareReceipt,
+			const Fdemo_mapShanmenCombatConditionTreatmentIntent&
+				TreatmentIntent);
 
 	/** Accepts only the receipt produced by the exact prepared treatment intent. */
 	static Fdemo_mapShanmenMeridianShockTreatmentItemResult BuildCommitRequest(

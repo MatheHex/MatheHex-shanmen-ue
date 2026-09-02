@@ -655,6 +655,31 @@ Udemo_mapShanmenCombatConditionComponent::TryTreatMeridianShock(
 }
 
 bool Udemo_mapShanmenCombatConditionComponent::
+	TryGetProcessedMeridianShockTreatment(
+		const FGuid& TreatmentId,
+		Fdemo_mapShanmenCombatConditionTreatmentReceipt& OutReceipt) const
+{
+	OutReceipt = Fdemo_mapShanmenCombatConditionTreatmentReceipt();
+	if (!IsValid() || IsEmpty() || !TreatmentId.IsValid())
+	{
+		return false;
+	}
+	const FProcessedTreatment* Processed =
+		ProcessedTreatments.Find(TreatmentId);
+	if (!Processed
+		|| !Processed->Intent.IsValid()
+		|| !Processed->Receipt.IsValid()
+		|| Processed->Intent.GetTreatmentId() != TreatmentId
+		|| Processed->Receipt.GetTreatmentId() != TreatmentId
+		|| !Processed->Receipt.Matches(Processed->Intent))
+	{
+		return false;
+	}
+	OutReceipt = Processed->Receipt;
+	return true;
+}
+
+bool Udemo_mapShanmenCombatConditionComponent::
 	TryCaptureMeridianShockStatus(
 		Fdemo_mapShanmenCombatConditionStatusSnapshot& OutStatus) const
 {

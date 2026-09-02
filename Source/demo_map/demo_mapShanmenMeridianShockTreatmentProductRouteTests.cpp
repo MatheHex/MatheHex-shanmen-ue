@@ -681,6 +681,194 @@ bool Fdemo_mapMeridianShockTreatmentLifecycleRecoveryTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapMeridianShockTreatmentLedgerActiveRecoveryTest,
+	"Shanmen.0_0_10.Product.MeridianShockTreatment.Recovery.ActiveCondition",
+	RouteFlags)
+
+bool Fdemo_mapMeridianShockTreatmentLedgerActiveRecoveryTest::RunTest(
+	const FString&)
+{
+	FTreatmentRouteFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("LedgerActiveRecovery"), false))
+	{
+		AddError(TEXT("Could not build the P16.3 active recovery fixture."));
+		return false;
+	}
+	Fdemo_mapShanmenCombatConditionStatusSnapshot Status;
+	FString Diagnostic;
+	if (!Fixture.Conditions->TryCaptureMeridianShockStatus(Status))
+	{
+		AddError(TEXT("Could not capture active condition before durable prepare."));
+		return false;
+	}
+	const Fdemo_mapShanmenMeridianShockTreatmentItemResult Prepared =
+		Fdemo_mapShanmenMeridianShockTreatmentAdapter::PrepareActiveRun(
+			*Fixture.Authority,
+			Fixture.Correlation,
+			Status,
+			Fixture.TreatmentItemId);
+	TestTrue(TEXT("durable prepare exists without a transient product session"),
+		Prepared.IsPrepared()
+			&& Fixture.CountTreatmentFinalizations(true) == 0
+			&& Fixture.Conditions->IsMeridianShockActive());
+
+	Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle Reconstructed;
+	if (!Reconstructed.TryBegin(
+			*Fixture.Authority, Fixture.Conditions, Diagnostic))
+	{
+		AddError(Diagnostic);
+		return false;
+	}
+	const bool bRecovered = Reconstructed.TryRecoverPending(Diagnostic);
+	AddInfo(FString::Printf(
+		TEXT("P16.3 active-ledger recovered=%d captured=%d commit=%d cancel=%d diagnostic=%s"),
+		bRecovered ? 1 : 0,
+		Reconstructed.NumCapturedRequests(),
+		Fixture.CountTreatmentFinalizations(true),
+		Fixture.CountTreatmentFinalizations(false),
+		*Diagnostic));
+	TestTrue(TEXT("active condition reconstructs treat then commit from durable ledger"),
+		bRecovered
+			&& !Fixture.Conditions->IsMeridianShockActive()
+			&& Fixture.Conditions->NumProcessedTreatments() == 1
+			&& Fixture.CountTreatmentFinalizations(true) == 1
+			&& Fixture.CountTreatmentFinalizations(false) == 0
+			&& Reconstructed.NumCapturedRequests() == 0
+			&& !Reconstructed.HasUnresolvedRecovery());
+	TestTrue(TEXT("reconstructed lifecycle ends after ledger resolution"),
+		Reconstructed.TryEnd(Diagnostic) && Reconstructed.IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapMeridianShockTreatmentLedgerCommitOnlyRecoveryTest,
+	"Shanmen.0_0_10.Product.MeridianShockTreatment.Recovery.CommitOnlyProof",
+	RouteFlags)
+
+bool Fdemo_mapMeridianShockTreatmentLedgerCommitOnlyRecoveryTest::RunTest(
+	const FString&)
+{
+	FTreatmentRouteFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("LedgerCommitOnlyRecovery"), false))
+	{
+		AddError(TEXT("Could not build the P16.3 commit-only recovery fixture."));
+		return false;
+	}
+	{
+		Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle LostSession;
+		Fdemo_mapShanmenMeridianShockTreatmentInputAdapter Input;
+		FString Diagnostic;
+		if (!LostSession.TryBegin(
+				*Fixture.Authority, Fixture.Conditions, Diagnostic))
+		{
+			AddError(Diagnostic);
+			return false;
+		}
+		LostSession.SetInterruptAfterTreatmentForAutomation(true);
+		const Fdemo_mapShanmenMeridianShockTreatmentInputResult Interrupted =
+			Input.RouteHotbarInput(
+				Fixture.Authority, LostSession, Fixture.Timeline, 1);
+		TestTrue(TEXT("transient session is lost after condition commit"),
+			Interrupted.Route.RequiresRecovery()
+				&& !Fixture.Conditions->IsMeridianShockActive()
+				&& Fixture.Conditions->NumProcessedTreatments() == 1
+				&& Fixture.CountTreatmentFinalizations(true) == 0);
+	}
+
+	Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle Reconstructed;
+	FString Diagnostic;
+	if (!Reconstructed.TryBegin(
+			*Fixture.Authority, Fixture.Conditions, Diagnostic))
+	{
+		AddError(Diagnostic);
+		return false;
+	}
+	const bool bRecovered = Reconstructed.TryRecoverPending(Diagnostic);
+	AddInfo(FString::Printf(
+		TEXT("P16.3 proof-ledger recovered=%d captured=%d commit=%d cancel=%d diagnostic=%s"),
+		bRecovered ? 1 : 0,
+		Reconstructed.NumCapturedRequests(),
+		Fixture.CountTreatmentFinalizations(true),
+		Fixture.CountTreatmentFinalizations(false),
+		*Diagnostic));
+	TestTrue(TEXT("runtime treatment proof selects commit-only ledger recovery"),
+		bRecovered
+			&& Fixture.Conditions->NumProcessedTreatments() == 1
+			&& Fixture.CountTreatmentFinalizations(true) == 1
+			&& Fixture.CountTreatmentFinalizations(false) == 0
+			&& Reconstructed.NumCapturedRequests() == 0
+			&& !Reconstructed.HasUnresolvedRecovery());
+	TestTrue(TEXT("commit-only reconstructed lifecycle ends cleanly"),
+		Reconstructed.TryEnd(Diagnostic) && Reconstructed.IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapMeridianShockTreatmentLedgerProofFenceTest,
+	"Shanmen.0_0_10.Product.MeridianShockTreatment.Recovery.MissingProofFence",
+	RouteFlags)
+
+bool Fdemo_mapMeridianShockTreatmentLedgerProofFenceTest::RunTest(
+	const FString&)
+{
+	FTreatmentRouteFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("LedgerProofFence"), false))
+	{
+		AddError(TEXT("Could not build the P16.3 proof fence fixture."));
+		return false;
+	}
+	Fdemo_mapShanmenCombatConditionStatusSnapshot Status;
+	FString Diagnostic;
+	if (!Fixture.Conditions->TryCaptureMeridianShockStatus(Status)
+		|| !Fdemo_mapShanmenMeridianShockTreatmentAdapter::PrepareActiveRun(
+			*Fixture.Authority,
+			Fixture.Correlation,
+			Status,
+			Fixture.TreatmentItemId).IsPrepared()
+		|| !Fixture.Conditions->TryEnd(
+			Fixture.Correlation.ActiveRunId, Diagnostic)
+		|| !Fixture.Conditions->TryBegin(
+			Fixture.Correlation.ActiveRunId,
+			TargetEntityId,
+			Fixture.Timeline.GetTimelineId(),
+			Fixture.Attributes,
+			Diagnostic))
+	{
+		AddError(FString::Printf(
+			TEXT("Could not arrange proof-loss recovery state: %s"),
+			*Diagnostic));
+		return false;
+	}
+	Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle Reconstructed;
+	if (!Reconstructed.TryBegin(
+			*Fixture.Authority, Fixture.Conditions, Diagnostic))
+	{
+		AddError(Diagnostic);
+		return false;
+	}
+	FShanmenItemAuthoritySnapshot Before;
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Authority->TryCaptureSnapshot(Before);
+	const bool bRecovered = Reconstructed.TryRecoverPending(Diagnostic);
+	Fixture.Authority->TryCaptureSnapshot(After);
+	AddInfo(FString::Printf(
+		TEXT("P16.3 missing-proof recovered=%d commit=%d cancel=%d unchanged=%d diagnostic=%s"),
+		bRecovered ? 1 : 0,
+		Fixture.CountTreatmentFinalizations(true),
+		Fixture.CountTreatmentFinalizations(false),
+		Before == After ? 1 : 0,
+		*Diagnostic));
+	TestTrue(TEXT("missing condition proof fails closed without item mutation"),
+		!bRecovered
+			&& !Fixture.Conditions->IsMeridianShockActive()
+			&& Fixture.Conditions->NumProcessedTreatments() == 0
+			&& Before == After
+			&& Fixture.CountTreatmentFinalizations(true) == 0
+			&& Fixture.CountTreatmentFinalizations(false) == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	Fdemo_mapMeridianShockTreatmentInputIdentityTest,
 	"Shanmen.0_0_10.Product.MeridianShockTreatment.Input.DeterministicIdentity",
 	RouteFlags)

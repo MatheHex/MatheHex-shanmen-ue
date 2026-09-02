@@ -9,9 +9,10 @@ class Udemo_mapShanmenItemAuthoritySubsystem;
 /**
  * Active-Run session for physical Meridian Shock treatment requests.
  *
- * It keeps only immutable commands needed for exact replay and in-process
- * commit-only recovery. The route remains the sole prepare -> treat -> commit
- * owner; ShanmenItems and the condition component remain the two authorities.
+ * It keeps only immutable commands needed for exact replay and asks the route
+ * to reconcile ShanmenItems' durable prepare ledger before new work or Run
+ * teardown. The route remains the sole prepare -> treat -> commit owner;
+ * ShanmenItems and the condition component remain the two authorities.
  */
 class Fdemo_mapShanmenMeridianShockTreatmentProductSession
 {
@@ -40,7 +41,7 @@ public:
 		const FGuid& ItemInstanceId,
 		const Fdemo_mapShanmenCombatRunTimelineSample& TimelineSample);
 
-	/** Retries only commands whose previous result required recovery. */
+	/** Reconciles the durable item ledger, then retries runtime commands. */
 	bool TryRecoverPending(
 		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
 		FString& OutDiagnostic);

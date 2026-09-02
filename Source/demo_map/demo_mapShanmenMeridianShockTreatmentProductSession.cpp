@@ -56,6 +56,17 @@ Fdemo_mapShanmenMeridianShockTreatmentProductSession::TrySubmitHotbar(
 			RequestId,
 			TEXT("Treatment hotbar request identity, item or timeline is invalid."));
 	}
+	FString RecoveryDiagnostic;
+	if (!TryRecoverPending(Authority, RecoveryDiagnostic))
+	{
+		Fdemo_mapShanmenMeridianShockTreatmentRouteResult Result = Reject(
+			Edemo_mapShanmenMeridianShockTreatmentRouteError::CommitRejected,
+			RequestId,
+			*RecoveryDiagnostic);
+		Result.Status =
+			Edemo_mapShanmenMeridianShockTreatmentRouteStatus::RecoveryRequired;
+		return Result;
+	}
 
 	if (FCapturedRequest* Existing = Requests.Find(RequestId))
 	{
@@ -106,6 +117,14 @@ bool Fdemo_mapShanmenMeridianShockTreatmentProductSession::TryRecoverPending(
 		OutDiagnostic = TEXT("Treatment recovery requires one valid active session.");
 		return false;
 	}
+	int32 DurableRecoveredCount = 0;
+	if (!Route.TryRecoverDurablePreparation(
+			Authority,
+			DurableRecoveredCount,
+			OutDiagnostic))
+	{
+		return false;
+	}
 
 	TArray<FGuid> PendingIds;
 	for (const TPair<FGuid, FCapturedRequest>& Pair : Requests)
@@ -142,9 +161,18 @@ bool Fdemo_mapShanmenMeridianShockTreatmentProductSession::TryRecoverPending(
 		OutDiagnostic = TEXT("Treatment route still owns unresolved commit work.");
 		return false;
 	}
-	OutDiagnostic = PendingIds.IsEmpty()
-		? TEXT("Treatment session has no pending recovery.")
-		: TEXT("Treatment session recovered all pending commits in stable order.");
+	if (DurableRecoveredCount > 0)
+	{
+		OutDiagnostic = PendingIds.IsEmpty()
+			? TEXT("Treatment session reconstructed and resolved one durable ledger transaction.")
+			: TEXT("Treatment session resolved durable and runtime recovery in stable order.");
+	}
+	else
+	{
+		OutDiagnostic = PendingIds.IsEmpty()
+			? TEXT("Treatment session has no pending recovery.")
+			: TEXT("Treatment session recovered all pending commits in stable order.");
+	}
 	return true;
 }
 

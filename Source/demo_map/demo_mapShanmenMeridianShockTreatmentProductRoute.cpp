@@ -495,6 +495,201 @@ Fdemo_mapShanmenMeridianShockTreatmentProductRoute::Resume(
 	return Result;
 }
 
+bool Fdemo_mapShanmenMeridianShockTreatmentProductRoute::
+	TryRecoverDurablePreparation(
+		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+		int32& OutRecoveredCount,
+		FString& OutDiagnostic)
+{
+	OutRecoveredCount = 0;
+	OutDiagnostic.Reset();
+	if (!IsInGameThread() || !bActive || !IsValid()
+		|| !ConditionComponent.IsValid()
+		|| Authority.GetLifecycleState()
+			!= Edemo_mapShanmenItemAuthorityLifecycleState::Ready)
+	{
+		OutDiagnostic =
+			TEXT("Durable treatment recovery requires matching ready product authorities on the Game Thread.");
+		return false;
+	}
+
+	FShanmenItemAuthoritySnapshot Snapshot;
+	if (!Authority.TryCaptureSnapshot(Snapshot))
+	{
+		OutDiagnostic =
+			TEXT("Durable treatment recovery could not capture the item authority ledger.");
+		return false;
+	}
+	TSet<FGuid> FinalizedPrepareRequestIds;
+	for (const FShanmenItemProcessedRequestSnapshot& Processed :
+		Snapshot.ProcessedRequests)
+	{
+		const FShanmenItemTransactionReceipt& Receipt = Processed.Receipt;
+		if (Receipt.IsSuccess()
+			&& Receipt.Operation
+				== EShanmenItemTransactionOperation::
+					FinalizePreparedRunQuantityIntent
+			&& Receipt.ReservationIds.Num() == 2)
+		{
+			FinalizedPrepareRequestIds.Add(Receipt.ReservationIds[1]);
+		}
+	}
+	TArray<FShanmenItemTransactionReceipt> Pending;
+	for (const FShanmenItemProcessedRequestSnapshot& Processed :
+		Snapshot.ProcessedRequests)
+	{
+		const FShanmenItemTransactionReceipt& Receipt = Processed.Receipt;
+		if (Receipt.IsSuccess() && Receipt.IsValid()
+			&& Receipt.Operation
+				== EShanmenItemTransactionOperation::
+					PreparePreparedRunQuantityIntent
+			&& Receipt.Phase == EShanmenItemTransactionPhase::Reserved
+			&& Receipt.PurposeId
+				== Fdemo_mapShanmenMeridianShockTreatmentAdapter::
+					TreatmentPurposeId()
+			&& Receipt.ReservationIds
+				== TArray<FGuid>({ Correlation.ActiveRunId })
+			&& !FinalizedPrepareRequestIds.Contains(Receipt.RequestId))
+		{
+			Pending.Add(Receipt);
+		}
+	}
+	Pending.Sort([](
+		const FShanmenItemTransactionReceipt& Left,
+		const FShanmenItemTransactionReceipt& Right)
+	{
+		return Left.RequestId.ToString(EGuidFormats::Digits)
+			< Right.RequestId.ToString(EGuidFormats::Digits);
+	});
+	if (Pending.IsEmpty())
+	{
+		OutDiagnostic =
+			TEXT("The durable item ledger contains no pending Meridian Shock treatment.");
+		return true;
+	}
+	if (Pending.Num() != 1)
+	{
+		OutDiagnostic =
+			TEXT("Multiple pending Meridian Shock prepares are ambiguous for one condition authority.");
+		return false;
+	}
+
+	const FShanmenItemTransactionReceipt& PrepareReceipt = Pending[0];
+	Fdemo_mapShanmenCombatConditionTreatmentReceipt TreatmentReceipt;
+	const bool bTreatmentAlreadyProcessed =
+		ConditionComponent->TryGetProcessedMeridianShockTreatment(
+			PrepareReceipt.ReservationId,
+			TreatmentReceipt);
+	Fdemo_mapShanmenCombatConditionTreatmentIntent TreatmentIntent;
+	Fdemo_mapShanmenCombatConditionStatusSnapshot LiveStatus;
+	Fdemo_mapShanmenCombatRunTimelineSample TimelineSample;
+	if (bTreatmentAlreadyProcessed)
+	{
+		if (!Fdemo_mapShanmenCombatConditionTreatmentIntent::TryCapture(
+				TreatmentReceipt.GetRunId(),
+				TreatmentReceipt.GetTargetEntityId(),
+				TreatmentReceipt.GetTimelineId(),
+				TreatmentReceipt.GetItemInstanceId(),
+				TreatmentReceipt.GetItemDefinitionId(),
+				TreatmentReceipt.GetConditionRevisionBefore(),
+				TreatmentIntent)
+			|| !TreatmentReceipt.Matches(TreatmentIntent)
+			|| TreatmentReceipt.GetTreatmentId()
+				!= PrepareReceipt.ReservationId)
+		{
+			OutDiagnostic =
+				TEXT("Runtime treatment proof cannot reconstruct the durable prepare identity.");
+			return false;
+		}
+	}
+	else
+	{
+		const FShanmenItemInstance* Item =
+			Snapshot.Items.FindByPredicate(
+				[&PrepareReceipt](const FShanmenItemInstance& Value)
+				{
+					return Value.ItemInstanceId
+						== PrepareReceipt.ItemInstanceId;
+				});
+		if (!Item
+			|| !ConditionComponent->TryCaptureMeridianShockStatus(
+				LiveStatus)
+			|| !LiveStatus.IsActive()
+			|| !Fdemo_mapShanmenCombatConditionTreatmentIntent::TryCapture(
+				LiveStatus.GetRunId(),
+				LiveStatus.GetTargetEntityId(),
+				LiveStatus.GetTimelineId(),
+				PrepareReceipt.ItemInstanceId,
+				Item->DefinitionId,
+				LiveStatus.GetConditionRevision(),
+				TreatmentIntent)
+			|| TreatmentIntent.GetTreatmentId()
+				!= PrepareReceipt.ReservationId
+			|| !Fdemo_mapShanmenCombatRunTimelineSample::TryCapture(
+				LiveStatus.GetTimelineId(),
+				LiveStatus.GetObservedTick(),
+				TimelineSample))
+		{
+			OutDiagnostic =
+				TEXT("Pending item prepare has neither exact treatment proof nor its still-active condition revision.");
+			return false;
+		}
+	}
+
+	const Fdemo_mapShanmenMeridianShockTreatmentItemResult Preparation =
+		Fdemo_mapShanmenMeridianShockTreatmentAdapter::
+			RestorePreparedFromLedger(
+				Authority,
+				Correlation,
+				PrepareReceipt,
+				TreatmentIntent);
+	if (!Preparation.IsPrepared())
+	{
+		OutDiagnostic = Preparation.Diagnostic;
+		return false;
+	}
+
+	Fdemo_mapShanmenCombatConditionTreatmentResult Treatment;
+	if (bTreatmentAlreadyProcessed)
+	{
+		Treatment.Status =
+			Edemo_mapShanmenCombatConditionTreatmentStatus::AlreadyTreated;
+		Treatment.Error = Edemo_mapShanmenCombatConditionTreatmentError::None;
+		Treatment.Receipt = TreatmentReceipt;
+	}
+	else
+	{
+		Treatment = ConditionComponent->TryTreatMeridianShock(
+			TreatmentIntent,
+			TimelineSample);
+	}
+	if (!Treatment.IsSuccess())
+	{
+		OutDiagnostic =
+			TEXT("Durable prepare was restored, but exact condition treatment proof could not be established.");
+		return false;
+	}
+
+	const Fdemo_mapShanmenMeridianShockTreatmentItemResult Finalization =
+		Fdemo_mapShanmenMeridianShockTreatmentAdapter::CommitTreated(
+			Authority,
+			Correlation,
+			Preparation,
+			Treatment.Receipt);
+	if (!Finalization.IsFinalized()
+		|| Finalization.Status
+			!= Edemo_mapShanmenMeridianShockTreatmentStatus::Committed)
+	{
+		OutDiagnostic = Finalization.Diagnostic;
+		return false;
+	}
+	OutRecoveredCount = 1;
+	OutDiagnostic = bTreatmentAlreadyProcessed
+		? TEXT("Recovered one durable prepare from runtime treatment proof and committed only its item Quantity.")
+		: TEXT("Recovered one durable prepare from the still-active condition, then treated and committed in order.");
+	return true;
+}
+
 bool Fdemo_mapShanmenMeridianShockTreatmentProductRoute::TryEnd(
 	const FGuid& ExpectedRunId,
 	FString& OutDiagnostic)

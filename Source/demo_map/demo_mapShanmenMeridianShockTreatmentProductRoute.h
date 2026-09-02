@@ -126,10 +126,12 @@ struct Fdemo_mapShanmenMeridianShockTreatmentRouteResult
 /**
  * Sole Game-Thread owner of prepare -> treat -> commit for Meridian Shock.
  *
- * The route journals immutable commands only for active-runtime conflict and
- * interruption recovery. ShanmenItems receipts remain inventory truth and the
- * condition component remains condition truth. Once treatment succeeds, every
- * retry is commit-only: cancellation can never be selected afterward.
+ * The route journals immutable commands for active-runtime conflict handling.
+ * If that transient journal is lost, it can reconstruct one pending prepare
+ * from ShanmenItems only when the condition authority independently proves the
+ * same TreatmentId. ShanmenItems remains inventory truth and the condition
+ * component remains condition truth. Once treatment succeeds, every retry is
+ * commit-only: cancellation can never be selected afterward.
  */
 class Fdemo_mapShanmenMeridianShockTreatmentProductRoute
 {
@@ -153,6 +155,16 @@ public:
 		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
 		const Fdemo_mapShanmenMeridianShockTreatmentCommand& Command);
 
+	/**
+	 * Recovers one durable treatment prepare whose transient command journal was
+	 * lost. Recovery is commit-only once condition proof exists and never uses a
+	 * missing proof as permission to cancel inventory.
+	 */
+	bool TryRecoverDurablePreparation(
+		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+		int32& OutRecoveredCount,
+		FString& OutDiagnostic);
+
 	/** Refuses to forget a prepared or treated command that still needs work. */
 	bool TryEnd(const FGuid& ExpectedRunId, FString& OutDiagnostic);
 
@@ -163,7 +175,7 @@ public:
 	int32 NumJournaledCommands() const { return Journal.Num(); }
 
 #if WITH_DEV_AUTOMATION_TESTS
-	/** Simulates process interruption at the only unsafe handoff boundary. */
+	/** Simulates transient route/session loss at the unsafe handoff boundary. */
 	void SetInterruptAfterTreatmentForAutomation(bool bEnabled)
 	{
 		bInterruptAfterTreatmentForAutomation = bEnabled;
