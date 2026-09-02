@@ -14,6 +14,8 @@
 #include "demo_mapShanmenControlledWeaponRunCommandRouter.h"
 #include "demo_mapShanmenControlledWeaponRunLifecycle.h"
 #include "demo_mapShanmenControlledWeaponThreatSampleRouter.h"
+#include "demo_mapShanmenMeridianShockTreatmentInputAdapter.h"
+#include "demo_mapShanmenMeridianShockTreatmentProductLifecycle.h"
 #include "demo_mapShanmenThrownWeaponInputAdapter.h"
 #include "demo_mapShanmenThrownWeaponProductLifecycle.h"
 #include "demo_mapShanmenRunCorrelation.h"
@@ -167,6 +169,9 @@ public:
 		int32 HotbarSlotNumber,
 		AActor* SourceActor,
 		TFunctionRef<FVector()> SampleAimDirection);
+	/** Claims only the canonical treatment item before generic item use. */
+	Fdemo_mapShanmenMeridianShockTreatmentInputResult
+	RouteMeridianShockTreatmentHotbarInput(int32 HotbarSlotNumber);
 	/** Retries only the durable cancellation associated with this exact intent. */
 	Fdemo_mapShanmenThrownWeaponSessionResult
 	RecoverThrownWeaponCancellation(
@@ -177,6 +182,11 @@ public:
 	GetThrownWeaponProductLifecycle() const
 	{
 		return ThrownWeaponProductLifecycle;
+	}
+	const Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle&
+	GetMeridianShockTreatmentProductLifecycle() const
+	{
+		return MeridianShockTreatmentProductLifecycle;
 	}
 	/** Sole product start entry from a device-independent direction intent. */
 	Fdemo_mapShanmenSpiritEvasionProductRouteResult
@@ -503,6 +513,10 @@ private:
 	Fdemo_mapShanmenThrownWeaponProductLifecycle
 		ThrownWeaponProductLifecycle;
 	Fdemo_mapShanmenThrownWeaponInputAdapter ThrownWeaponInputAdapter;
+	Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle
+		MeridianShockTreatmentProductLifecycle;
+	Fdemo_mapShanmenMeridianShockTreatmentInputAdapter
+		MeridianShockTreatmentInputAdapter;
 	Fdemo_mapShanmenCombatRunFixedTimeline CombatRunFixedTimeline;
 	Fdemo_mapShanmenSwordRhythmProductSession SwordRhythmProductSession;
 	Fdemo_mapShanmenSwordRhythmEffectCuePresentationRunController

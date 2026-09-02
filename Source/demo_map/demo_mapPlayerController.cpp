@@ -1015,6 +1015,13 @@ void Ademo_mapPlayerController::UseHotbarSlot(int32 SlotNumber)
 		{
 			return;
 		}
+		const Fdemo_mapShanmenMeridianShockTreatmentInputResult
+			TreatmentRoute =
+				Mode->RouteMeridianShockTreatmentHotbarInput(SlotNumber);
+		if (!TreatmentRoute.ShouldPassThrough())
+		{
+			return;
+		}
 	}
 	if (Ademo_mapV3ProgressionManager* Manager = Mode ? Mode->GetV3ProgressionManager() : nullptr)
 	{

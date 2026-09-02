@@ -1150,6 +1150,21 @@ Ademo_mapGameMode::RouteThrownWeaponHotbarInput(
 		});
 }
 
+Fdemo_mapShanmenMeridianShockTreatmentInputResult
+Ademo_mapGameMode::RouteMeridianShockTreatmentHotbarInput(
+	const int32 HotbarSlotNumber)
+{
+	Udemo_mapShanmenItemAuthoritySubsystem* Authority = GetGameInstance()
+		? GetGameInstance()->GetSubsystem<
+			Udemo_mapShanmenItemAuthoritySubsystem>()
+		: nullptr;
+	return MeridianShockTreatmentInputAdapter.RouteHotbarInput(
+		Authority,
+		MeridianShockTreatmentProductLifecycle,
+		CombatRunFixedTimeline,
+		HotbarSlotNumber);
+}
+
 Fdemo_mapShanmenThrownWeaponSessionResult
 Ademo_mapGameMode::RecoverThrownWeaponCancellation(
 	const Fdemo_mapShanmenThrownWeaponHotbarIntent& Intent)
@@ -1869,6 +1884,7 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 		|| !ControlledWeaponRunCommandRouter.IsEmpty()
 		|| !ControlledWeaponThreatSampleRouter.IsEmpty()
 		|| !ThrownWeaponProductLifecycle.IsEmpty()
+		|| !MeridianShockTreatmentProductLifecycle.IsEmpty()
 		|| !WeaponGuardProductSession.IsEmpty()
 		|| !CombatRunFixedTimeline.IsEmpty()
 		|| !SwordRhythmProductSession.IsEmpty()
@@ -2000,14 +2016,49 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 			: TEXT("Combat condition binding requires player attribute and condition components.");
 		return false;
 	}
+	if (UGameInstance* GameInstance = PlayerPawn->GetGameInstance())
+	{
+		if (Udemo_mapShanmenItemAuthoritySubsystem* Authority =
+			GameInstance->GetSubsystem<
+				Udemo_mapShanmenItemAuthoritySubsystem>();
+			Authority
+			&& Authority->GetLifecycleState()
+				== Edemo_mapShanmenItemAuthorityLifecycleState::Ready
+			&& !MeridianShockTreatmentProductLifecycle.TryBegin(
+				*Authority,
+				CombatConditions,
+				OutDiagnostic))
+		{
+			FString ConditionReleaseDiagnostic;
+			if (!CombatConditions->TryEnd(
+				ActiveRunId, ConditionReleaseDiagnostic))
+			{
+				CombatConditions->Reset();
+			}
+			FString TimelineReleaseDiagnostic;
+			CombatRunFixedTimeline.TryEnd(
+				ActiveRunId, TimelineReleaseDiagnostic);
+			FString ThrownDiagnostic;
+			ThrownWeaponProductLifecycle.TryEnd(ThrownDiagnostic);
+			FString ReleaseDiagnostic;
+			CombatRunCoordinator.TryEndRun(
+				ActiveRunId, ReleaseDiagnostic);
+			return false;
+		}
+	}
+	MeridianShockTreatmentInputAdapter.Reset();
 	FString SwordRhythmDiagnostic;
 	if (!SwordRhythmProductSession.TryBegin(
 			ActiveRunId,
 			SwordRhythmDiagnostic))
 	{
+		FString TreatmentDiagnostic;
+		MeridianShockTreatmentProductLifecycle.TryEnd(
+			TreatmentDiagnostic);
+		MeridianShockTreatmentInputAdapter.Reset();
 		FString ConditionReleaseDiagnostic;
 		if (!CombatConditions->TryEnd(
-				ActiveRunId,
+			ActiveRunId,
 				ConditionReleaseDiagnostic))
 		{
 			CombatConditions->Reset();
@@ -2037,6 +2088,10 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 		{
 			SwordRhythmProductSession.Reset();
 		}
+		FString TreatmentDiagnostic;
+		MeridianShockTreatmentProductLifecycle.TryEnd(
+			TreatmentDiagnostic);
+		MeridianShockTreatmentInputAdapter.Reset();
 		FString ConditionReleaseDiagnostic;
 		if (!CombatConditions->TryEnd(
 				ActiveRunId,
@@ -2058,13 +2113,14 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 		return false;
 	}
 	UE_LOG(Logdemo_map, Log,
-		TEXT("0_0_10_COMBAT_RUN Event=RunBound RunId=%s PlayerEntityId=%s M01Entities=%d M01VitalityHosts=%d ThrownWeaponLifecycle=%d RunTimelineId=%s RunTickRate=%lld ConditionDefinition=%s ConditionDurationTicks=%lld SwordRhythmConfigId=%s SwordRhythmWindow=[%lld,%lld)"),
+		TEXT("0_0_10_COMBAT_RUN Event=RunBound RunId=%s PlayerEntityId=%s M01Entities=%d M01VitalityHosts=%d ThrownWeaponLifecycle=%d TreatmentLifecycle=%d RunTimelineId=%s RunTickRate=%lld ConditionDefinition=%s ConditionDurationTicks=%lld SwordRhythmConfigId=%s SwordRhythmWindow=[%lld,%lld)"),
 		*ActiveRunId.ToString(EGuidFormats::DigitsWithHyphens),
 		*CombatRunCoordinator.GetPlayerEntityId().ToString(
 			EGuidFormats::DigitsWithHyphens),
 		CombatRunCoordinator.NumRegisteredM01Enemies(),
 		CombatRunCoordinator.NumVitalityBoundM01Enemies(),
 		ThrownWeaponProductLifecycle.IsActive() ? 1 : 0,
+		MeridianShockTreatmentProductLifecycle.IsActive() ? 1 : 0,
 		*CombatRunFixedTimeline.GetTimelineId().ToString(
 			EGuidFormats::DigitsWithHyphens),
 		static_cast<long long>(
@@ -2090,6 +2146,25 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 	const TCHAR* Context)
 {
 	const TCHAR* SafeContext = Context ? Context : TEXT("Unknown");
+	// Treatment is the only product path that may own an incomplete durable
+	// commit. Recover it before dismantling any other Run authority.
+	const int32 TreatmentRequestCount =
+		MeridianShockTreatmentProductLifecycle.NumCapturedRequests();
+	const int32 TreatmentPendingCount =
+		MeridianShockTreatmentProductLifecycle.NumPendingRecovery();
+	FString TreatmentDiagnostic;
+	if (!MeridianShockTreatmentProductLifecycle.TryEnd(
+			TreatmentDiagnostic))
+	{
+		UE_LOG(Logdemo_map, Error,
+			TEXT("0_0_10_COMBAT_RUN Event=TreatmentRunReleaseRejected Context=%s CapturedRequests=%d PendingRecovery=%d Diagnostic=%s"),
+			SafeContext,
+			TreatmentRequestCount,
+			TreatmentPendingCount,
+			*TreatmentDiagnostic);
+		return false;
+	}
+	MeridianShockTreatmentInputAdapter.Reset();
 	// Attempt independent active-product cleanup before evaluating either
 	// result. A SpiritEvasion teardown fault must not strand WeaponGuard, and
 	// a WeaponGuard fault must not strand SpiritEvasion.
@@ -2229,6 +2304,7 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 		if (ControlledWeaponRunHost.IsEmpty()
 			&& ControlledWeaponRunCommandRouter.IsEmpty()
 			&& ControlledWeaponThreatSampleRouter.IsEmpty()
+			&& MeridianShockTreatmentProductLifecycle.IsEmpty()
 			&& CombatRunFixedTimeline.IsEmpty()
 			&& (!PlayerCombatConditionComponent.IsValid()
 				|| PlayerCombatConditionComponent->IsEmpty())
@@ -2283,7 +2359,7 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 		ControlledWeaponRunCommandRouter.Reset();
 		ControlledWeaponThreatSampleRouter.Reset();
 		UE_LOG(Logdemo_map, Log,
-			TEXT("0_0_10_COMBAT_RUN Event=RunReleased RunId=%s Context=%s ControlledBound=%d ControlledInterrupted=%d RoutedIntents=%d ThreatSamples=%lld ThrownSelections=%d ConditionApplications=%d ConditionRevision=%lld SwordRhythmObservations=%d SwordRhythmPresentationPublished=%d SwordRhythmPresentationQueuedAtTeardown=%d WeaponGuardInterrupted=%d"),
+			TEXT("0_0_10_COMBAT_RUN Event=RunReleased RunId=%s Context=%s ControlledBound=%d ControlledInterrupted=%d RoutedIntents=%d ThreatSamples=%lld ThrownSelections=%d TreatmentRequests=%d TreatmentPendingAtTeardown=%d ConditionApplications=%d ConditionRevision=%lld SwordRhythmObservations=%d SwordRhythmPresentationPublished=%d SwordRhythmPresentationQueuedAtTeardown=%d WeaponGuardInterrupted=%d"),
 			*Result.RunId.ToString(EGuidFormats::DigitsWithHyphens),
 			SafeContext,
 			Result.BoundItemCount,
@@ -2291,6 +2367,8 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 			RoutedIntentCount,
 			static_cast<long long>(ThreatSampleCount),
 			ThrownSelectionCount,
+			TreatmentRequestCount,
+			TreatmentPendingCount,
 			ConditionApplicationCount,
 			static_cast<long long>(ConditionRevision),
 			SwordRhythmObservationCount,

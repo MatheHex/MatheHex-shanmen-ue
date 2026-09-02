@@ -11,6 +11,8 @@
 #include "demo_mapShanmenCombatConditionComponent.h"
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
 #include "demo_mapShanmenItemCutover.h"
+#include "demo_mapShanmenMeridianShockTreatmentInputAdapter.h"
+#include "demo_mapShanmenMeridianShockTreatmentProductLifecycle.h"
 #include "demo_mapShanmenRunLifecycleAdapter.h"
 
 #include "Engine/Engine.h"
@@ -73,6 +75,7 @@ namespace
 		Fdemo_mapProfileStorageContext Storage;
 		Fdemo_mapPersistentProfile SeedProfile;
 		FGuid TreatmentItemId;
+		FGuid GenericPillId;
 		UGameInstance* GameInstance = nullptr;
 		Udemo_mapShanmenItemAuthoritySubsystem* Authority = nullptr;
 		Udemo_mapProfileSessionSubsystem* Session = nullptr;
@@ -107,7 +110,10 @@ namespace
 			return Authority && Session;
 		}
 
-		bool Build(FAutomationTestBase& Test, const TCHAR* Label)
+		bool Build(
+			FAutomationTestBase& Test,
+			const TCHAR* Label,
+			const bool bBindRoute = true)
 		{
 			Root = NewRouteRoot(Label);
 			Storage = Fdemo_mapProfileStorageContext::ForRoot(Root);
@@ -132,6 +138,14 @@ namespace
 			TreatmentItem.PersistentDomain =
 				Edemo_mapPersistentDomain::PermanentStash;
 			SeedProfile.PermanentStash.Add(TreatmentItem);
+			Fdemo_mapPersistentItemRecord GenericPill;
+			GenericPillId = GenericPill.ItemInstanceId = FGuid::NewGuid();
+			GenericPill.ItemDefinitionId =
+				Fdemo_mapItemIds::HealingPillLevel1;
+			GenericPill.StackCount = 3;
+			GenericPill.PersistentDomain =
+				Edemo_mapPersistentDomain::PermanentStash;
+			SeedProfile.PermanentStash.Add(GenericPill);
 			SeedProfile.PreparationLayout.WeaponItemInstanceId =
 				TrainingBladeId;
 			const Fdemo_mapProfileSaveResult Saved =
@@ -162,7 +176,13 @@ namespace
 					*Session,
 					Warehouse).IsReady()
 				|| !Session->SetPreparationMaterial(
-					TreatmentItemId, true).IsAccepted())
+					TreatmentItemId, true).IsAccepted()
+				|| !Session->SetPreparationMaterial(
+					GenericPillId, true).IsAccepted()
+				|| !Session->SetPreparationHotbarSlot(
+					1, TreatmentItemId).IsAccepted()
+				|| !Session->SetPreparationHotbarSlot(
+					2, GenericPillId).IsAccepted())
 			{
 				Test.AddError(FString::Printf(
 					TEXT("P16.1 cutover or preparation failed: %s"),
@@ -195,7 +215,8 @@ namespace
 			}
 			Attributes->AddToRoot();
 			Conditions->AddToRoot();
-			return Timeline.TryBegin(Correlation.ActiveRunId, Diagnostic)
+			const bool bConditionReady =
+				Timeline.TryBegin(Correlation.ActiveRunId, Diagnostic)
 				&& Conditions->TryBegin(
 					Correlation.ActiveRunId,
 					TargetEntityId,
@@ -205,8 +226,11 @@ namespace
 				&& Timeline.TryCapture(TimelineSample)
 				&& Conditions->TryApplyMeridianShock(
 					MakeCommittedReceipt(),
-					TimelineSample).IsSuccess()
-				&& Route.TryBegin(Correlation, Conditions, Diagnostic);
+					TimelineSample).IsSuccess();
+			return bConditionReady
+				&& (!bBindRoute
+					|| Route.TryBegin(
+						Correlation, Conditions, Diagnostic));
 		}
 
 		bool RestartAuthority(FAutomationTestBase& Test)
@@ -526,6 +550,201 @@ bool Fdemo_mapMeridianShockTreatmentRouteCancelConflictTest::RunTest(
 			&& CancelReplay.IsCancelled()
 			&& CancelReplay.bReusedRequest
 			&& Fixture.CountTreatmentFinalizations(false) == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapMeridianShockTreatmentHotbarOwnershipTest,
+	"Shanmen.0_0_10.Product.MeridianShockTreatment.Session.HotbarOwnership",
+	RouteFlags)
+
+bool Fdemo_mapMeridianShockTreatmentHotbarOwnershipTest::RunTest(
+	const FString&)
+{
+	FTreatmentRouteFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("HotbarOwnership"), false))
+	{
+		AddError(TEXT("Could not build the P16.2 hotbar fixture."));
+		return false;
+	}
+	Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle Lifecycle;
+	Fdemo_mapShanmenMeridianShockTreatmentInputAdapter Input;
+	FString Diagnostic;
+	if (!Lifecycle.TryBegin(
+			*Fixture.Authority, Fixture.Conditions, Diagnostic))
+	{
+		AddError(Diagnostic);
+		return false;
+	}
+
+	const Fdemo_mapShanmenMeridianShockTreatmentInputResult Generic =
+		Input.RouteHotbarInput(
+			Fixture.Authority, Lifecycle, Fixture.Timeline, 2);
+	TestTrue(TEXT("ordinary consumable passes through without timeline capture"),
+		Generic.ShouldPassThrough()
+			&& !Generic.bTimelineSampled
+			&& Input.GetNextRequestOrdinal() == 1
+			&& Lifecycle.NumCapturedRequests() == 0);
+
+	const Fdemo_mapShanmenMeridianShockTreatmentInputResult Applied =
+		Input.RouteHotbarInput(
+			Fixture.Authority, Lifecycle, Fixture.Timeline, 1);
+	FShanmenItemAuthoritySnapshot BeforeRejectedReplay;
+	Fixture.Authority->TryCaptureSnapshot(BeforeRejectedReplay);
+	const Fdemo_mapShanmenMeridianShockTreatmentInputResult Inactive =
+		Input.RouteHotbarInput(
+			Fixture.Authority, Lifecycle, Fixture.Timeline, 1);
+	FShanmenItemAuthoritySnapshot AfterRejectedReplay;
+	Fixture.Authority->TryCaptureSnapshot(AfterRejectedReplay);
+	AddInfo(FString::Printf(
+		TEXT("P16.2 hotbar generic=%d applied=%d/%d inactive=%d/%d ordinal=%llu diagnostic=%s"),
+		static_cast<int32>(Generic.Status),
+		static_cast<int32>(Applied.Status),
+		static_cast<int32>(Applied.Route.Status),
+		static_cast<int32>(Inactive.Status),
+		static_cast<int32>(Inactive.Route.Error),
+		Input.GetNextRequestOrdinal(),
+		*Inactive.Diagnostic));
+	TestTrue(TEXT("canonical treatment is consumed exactly once through the sole route"),
+		Applied.IsAccepted()
+			&& Applied.bTimelineSampled
+			&& Applied.RequestOrdinal == 1
+			&& Applied.Route.Item.FinalizeCommand.Receipt.ResourceBefore == 3
+			&& Applied.Route.Item.FinalizeCommand.Receipt.ResourceAfter == 2
+			&& !Fixture.Conditions->IsMeridianShockActive()
+			&& Lifecycle.NumCapturedRequests() == 1);
+	TestTrue(TEXT("inactive treatment remains handled and cannot fall through to healing"),
+		Inactive.IsHandled()
+			&& !Inactive.IsAccepted()
+			&& Inactive.Status
+				== Edemo_mapShanmenMeridianShockTreatmentInputStatus::
+					ProductRejected
+			&& BeforeRejectedReplay == AfterRejectedReplay
+			&& Input.GetNextRequestOrdinal() == 3
+			&& Lifecycle.NumCapturedRequests() == 1);
+	TestTrue(TEXT("resolved treatment lifecycle ends cleanly"),
+		Lifecycle.TryEnd(Diagnostic) && Lifecycle.IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapMeridianShockTreatmentLifecycleRecoveryTest,
+	"Shanmen.0_0_10.Product.MeridianShockTreatment.Lifecycle.TeardownRecovery",
+	RouteFlags)
+
+bool Fdemo_mapMeridianShockTreatmentLifecycleRecoveryTest::RunTest(
+	const FString&)
+{
+	FTreatmentRouteFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("TeardownRecovery"), false))
+	{
+		AddError(TEXT("Could not build the P16.2 recovery fixture."));
+		return false;
+	}
+	Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle Lifecycle;
+	Fdemo_mapShanmenMeridianShockTreatmentInputAdapter Input;
+	FString Diagnostic;
+	if (!Lifecycle.TryBegin(
+			*Fixture.Authority, Fixture.Conditions, Diagnostic))
+	{
+		AddError(Diagnostic);
+		return false;
+	}
+	Lifecycle.SetInterruptAfterTreatmentForAutomation(true);
+	const Fdemo_mapShanmenMeridianShockTreatmentInputResult Interrupted =
+		Input.RouteHotbarInput(
+			Fixture.Authority, Lifecycle, Fixture.Timeline, 1);
+	TestTrue(TEXT("post-treatment interruption remains owned by the active lifecycle"),
+		Interrupted.Status
+			== Edemo_mapShanmenMeridianShockTreatmentInputStatus::
+				RecoveryRequired
+			&& Interrupted.Route.RequiresRecovery()
+			&& !Fixture.Conditions->IsMeridianShockActive()
+			&& Lifecycle.HasUnresolvedRecovery()
+			&& Lifecycle.NumPendingRecovery() == 1);
+
+	Lifecycle.SetInterruptAfterTreatmentForAutomation(false);
+	const bool bEnded = Lifecycle.TryEnd(Diagnostic);
+	AddInfo(FString::Printf(
+		TEXT("P16.2 teardown interrupted=%d/%d ended=%d pending=%d diagnostic=%s"),
+		static_cast<int32>(Interrupted.Status),
+		static_cast<int32>(Interrupted.Route.Error),
+		bEnded ? 1 : 0,
+		Lifecycle.NumPendingRecovery(),
+		*Diagnostic));
+	TestTrue(TEXT("Run teardown performs exact commit-only recovery before forgetting state"),
+		bEnded
+			&& Lifecycle.IsEmpty()
+			&& Fixture.CountTreatmentFinalizations(true) == 1
+			&& Fixture.CountTreatmentFinalizations(false) == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapMeridianShockTreatmentInputIdentityTest,
+	"Shanmen.0_0_10.Product.MeridianShockTreatment.Input.DeterministicIdentity",
+	RouteFlags)
+
+bool Fdemo_mapMeridianShockTreatmentInputIdentityTest::RunTest(
+	const FString&)
+{
+	const FGuid CorrelationId(0xC1620030, 0, 0, 1);
+	const FGuid RunId(0xC1620030, 0, 0, 2);
+	const FGuid ItemId(0xC1620030, 0, 0, 3);
+	const FGuid SampleId(0xC1620030, 0, 0, 4);
+	const FGuid First =
+		Fdemo_mapShanmenMeridianShockTreatmentInputAdapter::MakeRequestId(
+			CorrelationId, RunId, ItemId, 1, 17, SampleId, 9);
+	const FGuid Replay =
+		Fdemo_mapShanmenMeridianShockTreatmentInputAdapter::MakeRequestId(
+			CorrelationId, RunId, ItemId, 1, 17, SampleId, 9);
+	const FGuid Next =
+		Fdemo_mapShanmenMeridianShockTreatmentInputAdapter::MakeRequestId(
+			CorrelationId, RunId, ItemId, 1, 17, SampleId, 10);
+	TestTrue(TEXT("equal canonical input identity replays exactly"),
+		First.IsValid() && First == Replay && First != Next);
+	TestFalse(TEXT("invalid hotbar identity fails closed"),
+		Fdemo_mapShanmenMeridianShockTreatmentInputAdapter::MakeRequestId(
+			CorrelationId, RunId, ItemId, 0, 17, SampleId, 9).IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapMeridianShockTreatmentSessionBindingFenceTest,
+	"Shanmen.0_0_10.Product.MeridianShockTreatment.Session.BindingFence",
+	RouteFlags)
+
+bool Fdemo_mapMeridianShockTreatmentSessionBindingFenceTest::RunTest(
+	const FString&)
+{
+	FTreatmentRouteFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("SessionBindingFence"), false))
+	{
+		AddError(TEXT("Could not build the P16.2 binding fixture."));
+		return false;
+	}
+	Fdemo_mapShanmenMeridianShockTreatmentProductSession Session;
+	FString Diagnostic;
+	if (!Session.TryBegin(
+			Fixture.Correlation, Fixture.Conditions, Diagnostic))
+	{
+		AddError(Diagnostic);
+		return false;
+	}
+	TestTrue(TEXT("exact active binding is idempotent"),
+		Session.TryBegin(
+			Fixture.Correlation, Fixture.Conditions, Diagnostic));
+	Fdemo_mapShanmenRunCorrelation Foreign = Fixture.Correlation;
+	Foreign.CorrelationId = FGuid(0xC1620040, 0, 0, 1);
+	TestFalse(TEXT("same RunId cannot hide a foreign full correlation"),
+		Session.TryBegin(Foreign, Fixture.Conditions, Diagnostic));
+	TestTrue(TEXT("binding fence preserves the original valid session"),
+		Session.IsValid()
+			&& Session.GetRunId() == Fixture.Correlation.ActiveRunId
+			&& Session.TryEnd(
+				*Fixture.Authority,
+				Fixture.Correlation.ActiveRunId,
+				Diagnostic));
 	return true;
 }
 

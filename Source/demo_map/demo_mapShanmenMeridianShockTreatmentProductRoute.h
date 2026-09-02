@@ -159,6 +159,7 @@ public:
 	bool IsValid() const;
 	bool IsEmpty() const;
 	bool HasUnresolvedRecovery() const;
+	const FGuid& GetRunId() const { return Correlation.ActiveRunId; }
 	int32 NumJournaledCommands() const { return Journal.Num(); }
 
 #if WITH_DEV_AUTOMATION_TESTS

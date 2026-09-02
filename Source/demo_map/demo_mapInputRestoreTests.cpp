@@ -276,12 +276,15 @@ bool FInputRestore26::RunTest(const FString&)
 		TEXT("void Ademo_mapPlayerController::UseHotbarSlot1()"));
 	const int32 HotbarGate = Hotbar.Find(TEXT("!IsGameplayInputAllowed()"));
 	const int32 ThrownRoute = Hotbar.Find(TEXT("RouteThrownWeaponHotbarInput("));
+	const int32 TreatmentRoute =
+		Hotbar.Find(TEXT("RouteMeridianShockTreatmentHotbarInput("));
 	const int32 QuickSlotRoute = Hotbar.Find(TEXT("RequestUseBoundQuickSlot("));
 	TestTrue(
-		TEXT("Hotbar gameplay gate precedes every product route"),
+		TEXT("Hotbar gate and typed routes precede generic item use"),
 		HotbarGate != INDEX_NONE
 			&& ThrownRoute > HotbarGate
-			&& QuickSlotRoute > HotbarGate);
+			&& TreatmentRoute > ThrownRoute
+			&& QuickSlotRoute > TreatmentRoute);
 
 	const FString StartAttack = ReadInputRestoreFunctionBlock(
 		TEXT("demo_mapPlayerController.cpp"),

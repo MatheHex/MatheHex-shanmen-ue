@@ -339,8 +339,8 @@
       ]
     },
     {
-      "name": "MeridianShockTreatmentProductRoute",
-      "pathRegex": "^Source/demo_map/demo_mapShanmenMeridianShockTreatmentProductRoute(?:Tests)?\\.(?:h|cpp)$",
+      "name": "MeridianShockTreatmentProductFlow",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenMeridianShockTreatment(?:Product(?:Route|Session|Lifecycle)|InputAdapter)(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10",
         "Shanmen.0_0_10.Product.MeridianShockTreatment.Route",
@@ -1462,6 +1462,7 @@
       "pathRegex": "^Source/demo_map/(?:demo_mapInputActionRegistry|demo_mapInputBindingSettings|demo_mapShanmenSpiritEvasionPhysicalInputTests|demo_mapShanmenWeaponGuardPhysicalInputTests|demo_mapFullSystemLoopTests|demo_mapP7IntegrationTests)\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.MeridianShockTreatment",
         "Shanmen.0_0_10.Product.SpiritEvasionPhysicalInput",
         "Shanmen.0_0_10.Product.SpiritEvasionInputAdapter",
         "Shanmen.0_0_10.Product.WeaponGuardPhysicalInput",
@@ -2212,6 +2213,7 @@
       "pathRegex": "^Source/demo_map/demo_mapGameMode\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.MeridianShockTreatment",
         "Shanmen.0_0_10.Product.CombatCondition.MeridianShock",
         "Shanmen.0_0_10.Product.SpiritEvasionProductRoute",
         "Shanmen.0_0_10.Product.SpiritEvasionProductAuthority",
@@ -2262,6 +2264,7 @@
       "pathRegex": "^Source/demo_map/demo_mapPlayerController\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.MeridianShockTreatment",
         "Shanmen.0_0_10.Product.SpiritEvasionPhysicalInput",
         "Shanmen.0_0_10.Product.SpiritEvasionInputAdapter",
         "Shanmen.0_0_10.Product.WeaponGuardPhysicalInput",
@@ -2269,6 +2272,7 @@
         "Shanmen.0_0_10.Product.WeaponGuardInputAdapter",
         "Shanmen.0_0_10.Product.WeaponGuardProductSession",
         "Shanmen.0_0_10.Product.ThrownWeaponInputAdapter",
+        "demo_map.InputRestore",
         "demo_map.V2RangedCompatibility"
       ]
     },
