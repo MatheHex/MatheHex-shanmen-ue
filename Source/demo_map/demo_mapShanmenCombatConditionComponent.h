@@ -105,6 +105,121 @@ struct Fdemo_mapShanmenCombatConditionAdvanceResult
 	}
 };
 
+/** Immutable item-authored request to clear one exact active condition revision. */
+struct Fdemo_mapShanmenCombatConditionTreatmentIntent
+{
+public:
+	static bool TryCapture(
+		const FGuid& RunId,
+		const FGuid& TargetEntityId,
+		const FGuid& TimelineId,
+		const FGuid& ItemInstanceId,
+		FName ItemDefinitionId,
+		int64 ExpectedConditionRevision,
+		Fdemo_mapShanmenCombatConditionTreatmentIntent& OutIntent);
+
+	bool IsValid() const;
+	const FGuid& GetTreatmentId() const { return TreatmentId; }
+	const FGuid& GetRunId() const { return RunId; }
+	const FGuid& GetTargetEntityId() const { return TargetEntityId; }
+	const FGuid& GetTimelineId() const { return TimelineId; }
+	const FGuid& GetItemInstanceId() const { return ItemInstanceId; }
+	FName GetItemDefinitionId() const { return ItemDefinitionId; }
+	FName GetConditionDefinitionId() const { return ConditionDefinitionId; }
+	int64 GetExpectedConditionRevision() const
+	{
+		return ExpectedConditionRevision;
+	}
+
+private:
+	FGuid TreatmentId;
+	FGuid RunId;
+	FGuid TargetEntityId;
+	FGuid TimelineId;
+	FGuid ItemInstanceId;
+	FName ItemDefinitionId = NAME_None;
+	FName ConditionDefinitionId = NAME_None;
+	int64 ExpectedConditionRevision = INDEX_NONE;
+};
+
+enum class Edemo_mapShanmenCombatConditionTreatmentStatus : uint8
+{
+	Treated,
+	AlreadyTreated,
+	Rejected
+};
+
+enum class Edemo_mapShanmenCombatConditionTreatmentError : uint8
+{
+	None,
+	ComponentNotReady,
+	InvalidIntent,
+	RunMismatch,
+	TargetMismatch,
+	TimelineMismatch,
+	StaleTimeline,
+	ConditionInactive,
+	ConditionRevisionMismatch,
+	TreatmentConflict,
+	RevisionExhausted,
+	ModifierRejected
+};
+
+/** Immutable proof that one exact item intent cleared Meridian Shock. */
+struct Fdemo_mapShanmenCombatConditionTreatmentReceipt
+{
+public:
+	bool IsValid() const;
+	const FGuid& GetTreatmentId() const { return TreatmentId; }
+	const FGuid& GetRunId() const { return RunId; }
+	const FGuid& GetTargetEntityId() const { return TargetEntityId; }
+	const FGuid& GetTimelineId() const { return TimelineId; }
+	const FGuid& GetItemInstanceId() const { return ItemInstanceId; }
+	FName GetItemDefinitionId() const { return ItemDefinitionId; }
+	FName GetConditionDefinitionId() const { return ConditionDefinitionId; }
+	int64 GetTreatedAtTick() const { return TreatedAtTick; }
+	int64 GetConditionRevisionBefore() const
+	{
+		return ConditionRevisionBefore;
+	}
+	int64 GetConditionRevisionAfter() const
+	{
+		return ConditionRevisionAfter;
+	}
+	bool Matches(
+		const Fdemo_mapShanmenCombatConditionTreatmentIntent& Intent) const;
+
+private:
+	friend class Udemo_mapShanmenCombatConditionComponent;
+	FGuid TreatmentId;
+	FGuid RunId;
+	FGuid TargetEntityId;
+	FGuid TimelineId;
+	FGuid ItemInstanceId;
+	FName ItemDefinitionId = NAME_None;
+	FName ConditionDefinitionId = NAME_None;
+	int64 TreatedAtTick = INDEX_NONE;
+	int64 ConditionRevisionBefore = INDEX_NONE;
+	int64 ConditionRevisionAfter = INDEX_NONE;
+};
+
+struct Fdemo_mapShanmenCombatConditionTreatmentResult
+{
+	Edemo_mapShanmenCombatConditionTreatmentStatus Status =
+		Edemo_mapShanmenCombatConditionTreatmentStatus::Rejected;
+	Edemo_mapShanmenCombatConditionTreatmentError Error =
+		Edemo_mapShanmenCombatConditionTreatmentError::ComponentNotReady;
+	Fdemo_mapShanmenCombatConditionTreatmentReceipt Receipt;
+
+	bool IsSuccess() const
+	{
+		return Error == Edemo_mapShanmenCombatConditionTreatmentError::None
+			&& Status
+				!= Edemo_mapShanmenCombatConditionTreatmentStatus::Rejected
+			&& Receipt.IsValid();
+	}
+};
+
 /**
  * Run-scoped product condition authority for the first concrete 0.0.10 injury.
  *
@@ -134,6 +249,13 @@ public:
 		const FGuid& TimelineId,
 		const FGuid& ImpactId,
 		const FGuid& ResolutionId);
+	static FGuid MakeTreatmentId(
+		const FGuid& RunId,
+		const FGuid& TargetEntityId,
+		const FGuid& TimelineId,
+		const FGuid& ItemInstanceId,
+		FName ItemDefinitionId,
+		int64 ExpectedConditionRevision);
 	static Fdemo_mapModifierHandle MakeMeridianShockModifierHandle(
 		const FGuid& RunId,
 		const FGuid& TargetEntityId);
@@ -148,6 +270,9 @@ public:
 		const FShanmenVitalityCommitReceipt& VitalityReceipt,
 		const Fdemo_mapShanmenCombatRunTimelineSample& TimelineSample);
 	Fdemo_mapShanmenCombatConditionAdvanceResult TryAdvance(
+		const Fdemo_mapShanmenCombatRunTimelineSample& TimelineSample);
+	Fdemo_mapShanmenCombatConditionTreatmentResult TryTreatMeridianShock(
+		const Fdemo_mapShanmenCombatConditionTreatmentIntent& Intent,
 		const Fdemo_mapShanmenCombatRunTimelineSample& TimelineSample);
 	/** Copies the current immutable state for Blueprint/presentation polling. */
 	bool TryCaptureMeridianShockStatus(
@@ -169,12 +294,21 @@ public:
 	{
 		return ProcessedApplications.Num();
 	}
+	int32 NumProcessedTreatments() const
+	{
+		return ProcessedTreatments.Num();
+	}
 
 private:
 	struct FProcessedApplication
 	{
 		FGuid ResolutionId;
 		Fdemo_mapShanmenCombatConditionApplicationReceipt Receipt;
+	};
+	struct FProcessedTreatment
+	{
+		Fdemo_mapShanmenCombatConditionTreatmentIntent Intent;
+		Fdemo_mapShanmenCombatConditionTreatmentReceipt Receipt;
 	};
 
 	static Fdemo_mapModifierSpec MakeMeridianShockModifierSpec();
@@ -190,4 +324,5 @@ private:
 	int64 ConditionRevision = 0;
 	bool bMeridianShockActive = false;
 	TMap<FGuid, FProcessedApplication> ProcessedApplications;
+	TMap<FGuid, FProcessedTreatment> ProcessedTreatments;
 };

@@ -324,6 +324,21 @@
       ]
     },
     {
+      "name": "MeridianShockTreatmentAdapter",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenMeridianShockTreatmentAdapter(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.MeridianShockTreatment",
+        "Shanmen.0_0_10.Product.CombatCondition.MeridianShock",
+        "Shanmen.0_0_10.Items",
+        "demo_map.ItemEconomySchema",
+        "demo_map.Profile",
+        "demo_map.CodeB",
+        "demo_map.ItemUseAndArmor",
+        "demo_map.P4.Hotbar"
+      ]
+    },
+    {
       "name": "CombatConditionStatus",
       "pathRegex": "^Source/demo_map/demo_mapShanmenCombatConditionStatus\\.(?:h|cpp)$",
       "requiredGroups": [

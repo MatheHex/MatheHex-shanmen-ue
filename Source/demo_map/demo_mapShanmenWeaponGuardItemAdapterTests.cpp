@@ -82,8 +82,12 @@ bool Fdemo_mapWeaponGuardItemCatalogTest::RunTest(const FString&)
 				Edemo_mapItemGameplaySemantic::WeaponGuard)
 			&& !Thrown->HasGameplaySemantic(
 				Edemo_mapItemGameplaySemantic::WeaponGuard));
-	TestTrue(TEXT("P11.7 content identity is current"),
+	TestTrue(TEXT("P16.0 content identity is current"),
 		Fdemo_mapItemDefinitions::IsCurrentContentIdentity(
+			TEXT("CodeB.Content.0.0.10.P16.0"),
+			TEXT("9B789DB381BB934F772326A5217094F19C654D5AF51D5623EDB0A108DBA4CC7B")));
+	TestTrue(TEXT("P11.7 content identity remains historical"),
+		Fdemo_mapItemDefinitions::IsKnownContentIdentity(
 			TEXT("CodeB.Content.0.0.10.P11.7"),
 			TEXT("6D01652004E386DC469CB09FF0F3A77110C53841F6AF3F66F5600C3C9B9B4179")));
 	TestTrue(TEXT("P7.7 content identity remains historical"),

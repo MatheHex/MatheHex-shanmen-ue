@@ -3,6 +3,7 @@
 #include "ShanmenDeterministicId.h"
 #include "demo_mapAttributeComponent.h"
 #include "demo_mapAttributeDefinitions.h"
+#include "demo_mapItemDefinitions.h"
 
 namespace
 {
@@ -48,6 +49,105 @@ bool Fdemo_mapShanmenCombatConditionApplicationReceipt::IsValid() const
 				TimelineId,
 				ImpactId,
 				ResolutionId);
+}
+
+bool Fdemo_mapShanmenCombatConditionTreatmentIntent::TryCapture(
+	const FGuid& RequestedRunId,
+	const FGuid& RequestedTargetEntityId,
+	const FGuid& RequestedTimelineId,
+	const FGuid& RequestedItemInstanceId,
+	const FName RequestedItemDefinitionId,
+	const int64 RequestedConditionRevision,
+	Fdemo_mapShanmenCombatConditionTreatmentIntent& OutIntent)
+{
+	OutIntent = Fdemo_mapShanmenCombatConditionTreatmentIntent();
+	Fdemo_mapShanmenCombatConditionTreatmentIntent Candidate;
+	Candidate.RunId = RequestedRunId;
+	Candidate.TargetEntityId = RequestedTargetEntityId;
+	Candidate.TimelineId = RequestedTimelineId;
+	Candidate.ItemInstanceId = RequestedItemInstanceId;
+	Candidate.ItemDefinitionId = RequestedItemDefinitionId;
+	Candidate.ConditionDefinitionId =
+		Udemo_mapShanmenCombatConditionComponent::MeridianShockDefinitionId();
+	Candidate.ExpectedConditionRevision = RequestedConditionRevision;
+	Candidate.TreatmentId =
+		Udemo_mapShanmenCombatConditionComponent::MakeTreatmentId(
+			Candidate.RunId,
+			Candidate.TargetEntityId,
+			Candidate.TimelineId,
+			Candidate.ItemInstanceId,
+			Candidate.ItemDefinitionId,
+			Candidate.ExpectedConditionRevision);
+	if (!Candidate.IsValid())
+	{
+		return false;
+	}
+	OutIntent = Candidate;
+	return true;
+}
+
+bool Fdemo_mapShanmenCombatConditionTreatmentIntent::IsValid() const
+{
+	return TreatmentId.IsValid()
+		&& RunId.IsValid()
+		&& TargetEntityId.IsValid()
+		&& TimelineId.IsValid()
+		&& ItemInstanceId.IsValid()
+		&& ItemDefinitionId
+			== Fdemo_mapItemIds::MeridianStabilizingPillLevel1
+		&& ConditionDefinitionId
+			== Udemo_mapShanmenCombatConditionComponent::
+				MeridianShockDefinitionId()
+		&& ExpectedConditionRevision > 0
+		&& TreatmentId
+			== Udemo_mapShanmenCombatConditionComponent::MakeTreatmentId(
+				RunId,
+				TargetEntityId,
+				TimelineId,
+				ItemInstanceId,
+				ItemDefinitionId,
+				ExpectedConditionRevision);
+}
+
+bool Fdemo_mapShanmenCombatConditionTreatmentReceipt::Matches(
+	const Fdemo_mapShanmenCombatConditionTreatmentIntent& Intent) const
+{
+	return Intent.IsValid()
+		&& TreatmentId == Intent.GetTreatmentId()
+		&& RunId == Intent.GetRunId()
+		&& TargetEntityId == Intent.GetTargetEntityId()
+		&& TimelineId == Intent.GetTimelineId()
+		&& ItemInstanceId == Intent.GetItemInstanceId()
+		&& ItemDefinitionId == Intent.GetItemDefinitionId()
+		&& ConditionDefinitionId == Intent.GetConditionDefinitionId()
+		&& ConditionRevisionBefore
+			== Intent.GetExpectedConditionRevision();
+}
+
+bool Fdemo_mapShanmenCombatConditionTreatmentReceipt::IsValid() const
+{
+	return TreatmentId.IsValid()
+		&& RunId.IsValid()
+		&& TargetEntityId.IsValid()
+		&& TimelineId.IsValid()
+		&& ItemInstanceId.IsValid()
+		&& ItemDefinitionId
+			== Fdemo_mapItemIds::MeridianStabilizingPillLevel1
+		&& ConditionDefinitionId
+			== Udemo_mapShanmenCombatConditionComponent::
+				MeridianShockDefinitionId()
+		&& TreatedAtTick >= 0
+		&& ConditionRevisionBefore > 0
+		&& ConditionRevisionBefore < MAX_int64
+		&& ConditionRevisionAfter == ConditionRevisionBefore + 1
+		&& TreatmentId
+			== Udemo_mapShanmenCombatConditionComponent::MakeTreatmentId(
+				RunId,
+				TargetEntityId,
+				TimelineId,
+				ItemInstanceId,
+				ItemDefinitionId,
+				ConditionRevisionBefore);
 }
 
 Udemo_mapShanmenCombatConditionComponent::
@@ -100,6 +200,38 @@ FGuid Udemo_mapShanmenCombatConditionComponent::MakeApplicationId(
 			GuidDigits(RequestedTimelineId),
 			GuidDigits(ImpactId),
 			GuidDigits(ResolutionId),
+			MeridianShockDefinitionId().ToString()
+		});
+}
+
+FGuid Udemo_mapShanmenCombatConditionComponent::MakeTreatmentId(
+	const FGuid& RequestedRunId,
+	const FGuid& RequestedTargetEntityId,
+	const FGuid& RequestedTimelineId,
+	const FGuid& RequestedItemInstanceId,
+	const FName RequestedItemDefinitionId,
+	const int64 ExpectedConditionRevision)
+{
+	if (!RequestedRunId.IsValid()
+		|| !RequestedTargetEntityId.IsValid()
+		|| !RequestedTimelineId.IsValid()
+		|| !RequestedItemInstanceId.IsValid()
+		|| RequestedItemDefinitionId.IsNone()
+		|| ExpectedConditionRevision <= 0)
+	{
+		return FGuid();
+	}
+	return FShanmenDeterministicId::FromCanonicalParts(
+		TEXT("demo_map.Combat.Condition.MeridianShock.Treatment.r1"),
+		{
+			GuidDigits(RequestedRunId),
+			GuidDigits(RequestedTargetEntityId),
+			GuidDigits(RequestedTimelineId),
+			GuidDigits(RequestedItemInstanceId),
+			RequestedItemDefinitionId.ToString(),
+			FString::Printf(
+				TEXT("%lld"),
+				static_cast<long long>(ExpectedConditionRevision)),
 			MeridianShockDefinitionId().ToString()
 		});
 }
@@ -200,6 +332,7 @@ bool Udemo_mapShanmenCombatConditionComponent::TryBegin(
 	ConditionRevision = 0;
 	bMeridianShockActive = false;
 	ProcessedApplications.Reset();
+	ProcessedTreatments.Reset();
 	OutDiagnostic =
 		TEXT("Combat condition authority began empty at canonical tick zero.");
 	return IsValid();
@@ -388,6 +521,139 @@ Udemo_mapShanmenCombatConditionComponent::TryApplyMeridianShock(
 	return Result;
 }
 
+Fdemo_mapShanmenCombatConditionTreatmentResult
+Udemo_mapShanmenCombatConditionComponent::TryTreatMeridianShock(
+	const Fdemo_mapShanmenCombatConditionTreatmentIntent& Intent,
+	const Fdemo_mapShanmenCombatRunTimelineSample& TimelineSample)
+{
+	Fdemo_mapShanmenCombatConditionTreatmentResult Result;
+	if (!IsValid() || IsEmpty() || !AttributeComponent.IsValid())
+	{
+		return Result;
+	}
+	if (!Intent.IsValid())
+	{
+		Result.Error =
+			Edemo_mapShanmenCombatConditionTreatmentError::InvalidIntent;
+		return Result;
+	}
+	if (Intent.GetRunId() != RunId)
+	{
+		Result.Error =
+			Edemo_mapShanmenCombatConditionTreatmentError::RunMismatch;
+		return Result;
+	}
+	if (Intent.GetTargetEntityId() != TargetEntityId)
+	{
+		Result.Error =
+			Edemo_mapShanmenCombatConditionTreatmentError::TargetMismatch;
+		return Result;
+	}
+	if (Intent.GetTimelineId() != TimelineId
+		|| !TimelineSample.IsValid()
+		|| TimelineSample.GetTimelineId() != TimelineId)
+	{
+		Result.Error =
+			Edemo_mapShanmenCombatConditionTreatmentError::TimelineMismatch;
+		return Result;
+	}
+	if (TimelineSample.GetCurrentTick() < LastObservedTick)
+	{
+		Result.Error =
+			Edemo_mapShanmenCombatConditionTreatmentError::StaleTimeline;
+		return Result;
+	}
+
+	if (const FProcessedTreatment* Existing =
+		ProcessedTreatments.Find(Intent.GetTreatmentId()))
+	{
+		if (!Existing->Intent.IsValid()
+			|| !Existing->Receipt.IsValid()
+			|| !Existing->Receipt.Matches(Intent))
+		{
+			Result.Error =
+				Edemo_mapShanmenCombatConditionTreatmentError::
+					TreatmentConflict;
+			return Result;
+		}
+		Result.Status =
+			Edemo_mapShanmenCombatConditionTreatmentStatus::AlreadyTreated;
+		Result.Error = Edemo_mapShanmenCombatConditionTreatmentError::None;
+		Result.Receipt = Existing->Receipt;
+		return Result;
+	}
+
+	const Fdemo_mapShanmenCombatConditionAdvanceResult Advance =
+		TryAdvance(TimelineSample);
+	if (!Advance.IsSuccess())
+	{
+		Result.Error = Advance.Error
+			== Edemo_mapShanmenCombatConditionError::StaleTimeline
+			? Edemo_mapShanmenCombatConditionTreatmentError::StaleTimeline
+			: Edemo_mapShanmenCombatConditionTreatmentError::
+				ComponentNotReady;
+		return Result;
+	}
+	if (!bMeridianShockActive)
+	{
+		Result.Error =
+			Edemo_mapShanmenCombatConditionTreatmentError::ConditionInactive;
+		return Result;
+	}
+	if (Intent.GetExpectedConditionRevision() != ConditionRevision)
+	{
+		Result.Error = Edemo_mapShanmenCombatConditionTreatmentError::
+			ConditionRevisionMismatch;
+		return Result;
+	}
+	if (ConditionRevision == MAX_int64)
+	{
+		Result.Error =
+			Edemo_mapShanmenCombatConditionTreatmentError::RevisionExhausted;
+		return Result;
+	}
+	Fdemo_mapShanmenCombatConditionTreatmentReceipt Receipt;
+	Receipt.TreatmentId = Intent.GetTreatmentId();
+	Receipt.RunId = Intent.GetRunId();
+	Receipt.TargetEntityId = Intent.GetTargetEntityId();
+	Receipt.TimelineId = Intent.GetTimelineId();
+	Receipt.ItemInstanceId = Intent.GetItemInstanceId();
+	Receipt.ItemDefinitionId = Intent.GetItemDefinitionId();
+	Receipt.ConditionDefinitionId = Intent.GetConditionDefinitionId();
+	Receipt.TreatedAtTick = TimelineSample.GetCurrentTick();
+	Receipt.ConditionRevisionBefore = ConditionRevision;
+	Receipt.ConditionRevisionAfter = ConditionRevision + 1;
+	if (!Receipt.IsValid() || !Receipt.Matches(Intent))
+	{
+		Result.Error =
+			Edemo_mapShanmenCombatConditionTreatmentError::InvalidIntent;
+		return Result;
+	}
+	if (!IsAcceptedRemoveMutation(
+		AttributeComponent->EnsureModifierRemoved(
+			MakeMeridianShockModifierSpec(),
+			MeridianShockModifierHandle)))
+	{
+		Result.Error =
+			Edemo_mapShanmenCombatConditionTreatmentError::ModifierRejected;
+		return Result;
+	}
+
+	bMeridianShockActive = false;
+	MeridianShockExpiryTick = INDEX_NONE;
+	LastObservedTick = TimelineSample.GetCurrentTick();
+	ConditionRevision = Receipt.GetConditionRevisionAfter();
+	FProcessedTreatment& Processed =
+		ProcessedTreatments.Add(Receipt.GetTreatmentId());
+	Processed.Intent = Intent;
+	Processed.Receipt = Receipt;
+	Result.Status =
+		Edemo_mapShanmenCombatConditionTreatmentStatus::Treated;
+	Result.Error = Edemo_mapShanmenCombatConditionTreatmentError::None;
+	Result.Receipt = Receipt;
+	return Result;
+}
+
 bool Udemo_mapShanmenCombatConditionComponent::
 	TryCaptureMeridianShockStatus(
 		Fdemo_mapShanmenCombatConditionStatusSnapshot& OutStatus) const
@@ -468,6 +734,7 @@ void Udemo_mapShanmenCombatConditionComponent::ClearState()
 	ConditionRevision = 0;
 	bMeridianShockActive = false;
 	ProcessedApplications.Reset();
+	ProcessedTreatments.Reset();
 }
 
 bool Udemo_mapShanmenCombatConditionComponent::IsValid() const
@@ -482,7 +749,8 @@ bool Udemo_mapShanmenCombatConditionComponent::IsValid() const
 			&& MeridianShockExpiryTick == INDEX_NONE
 			&& ConditionRevision == 0
 			&& !bMeridianShockActive
-			&& ProcessedApplications.IsEmpty();
+			&& ProcessedApplications.IsEmpty()
+			&& ProcessedTreatments.IsEmpty();
 	}
 
 	if (!RunId.IsValid()
@@ -515,6 +783,23 @@ bool Udemo_mapShanmenCombatConditionComponent::IsValid() const
 			|| Receipt.GetTargetEntityId() != TargetEntityId
 			|| Receipt.GetTimelineId() != TimelineId
 			|| Receipt.GetConditionRevision() > ConditionRevision)
+		{
+			return false;
+		}
+	}
+	for (const TPair<FGuid, FProcessedTreatment>& Pair :
+		ProcessedTreatments)
+	{
+		if (!Pair.Value.Intent.IsValid()
+			|| !Pair.Value.Receipt.IsValid()
+			|| Pair.Key != Pair.Value.Intent.GetTreatmentId()
+			|| Pair.Key != Pair.Value.Receipt.GetTreatmentId()
+			|| !Pair.Value.Receipt.Matches(Pair.Value.Intent)
+			|| Pair.Value.Intent.GetRunId() != RunId
+			|| Pair.Value.Intent.GetTargetEntityId() != TargetEntityId
+			|| Pair.Value.Intent.GetTimelineId() != TimelineId
+			|| Pair.Value.Receipt.GetConditionRevisionAfter()
+				> ConditionRevision)
 		{
 			return false;
 		}

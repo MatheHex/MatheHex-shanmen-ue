@@ -160,7 +160,9 @@ enum class Edemo_mapItemGameplaySemantic : uint8
 {
 	None,
 	ThrownWeapon,
-	WeaponGuard
+	WeaponGuard,
+	/** Treats only the canonical minor Meridian Shock condition. */
+	MeridianShockTreatment
 };
 
 USTRUCT()

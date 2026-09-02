@@ -224,6 +224,9 @@ try
     $CombatCondition = New-AutomationLogFixture `
         -Name 'combat-condition.log' `
         -Group 'Shanmen.0_0_10.Product.CombatCondition.MeridianShock'
+    $MeridianShockTreatment = New-AutomationLogFixture `
+        -Name 'meridian-shock-treatment.log' `
+        -Group 'Shanmen.0_0_10.Product.MeridianShockTreatment'
     $CombatConditionStatus = New-AutomationLogFixture `
         -Name 'combat-condition-status.log' `
         -Group 'Shanmen.0_0_10.Product.CombatCondition.MeridianShock.Status'
@@ -909,6 +912,18 @@ try
             $PlayerVitality,
             $CombatRunFixedTimeline,
             $Attributes)
+
+    Invoke-ExpectedPass `
+        -Name 'meridian shock treatment requires condition item legacy and full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenMeridianShockTreatmentAdapter.h',
+            'Source/demo_map/demo_mapShanmenMeridianShockTreatmentAdapter.cpp',
+            'Source/demo_map/demo_mapShanmenMeridianShockTreatmentAdapterTests.cpp') `
+        -Logs @(
+            $Full,
+            $MeridianShockTreatment,
+            $CombatCondition,
+            $Legacy)
 
     Invoke-ExpectedPass `
         -Name 'combat condition status requires source timeline attribute and full evidence' `
@@ -2766,6 +2781,15 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenCombatConditionComponent.cpp') `
         -Logs @($CombatCondition) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'meridian shock treatment focus cannot replace condition inventory legacy and full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenMeridianShockTreatmentAdapter.cpp') `
+        -Logs @(
+            $MeridianShockTreatment,
+            $CombatCondition) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

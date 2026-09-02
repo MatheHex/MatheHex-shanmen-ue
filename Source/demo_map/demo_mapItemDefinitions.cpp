@@ -66,6 +66,7 @@ const FName Fdemo_mapItemIds::SpiritOreLevel3(TEXT("Prototype.Item.Material.Spir
 const FName Fdemo_mapItemIds::HealingPillLevel1(TEXT("Prototype.Item.Consumable.HealingPill.Level1"));
 const FName Fdemo_mapItemIds::HealingPillLevel2(TEXT("Prototype.Item.Consumable.HealingPill.Level2"));
 const FName Fdemo_mapItemIds::HealingPillLevel3(TEXT("Prototype.Item.Consumable.HealingPill.Level3"));
+const FName Fdemo_mapItemIds::MeridianStabilizingPillLevel1(TEXT("Prototype.Item.Consumable.MeridianStabilizingPill.Level1"));
 const FName Fdemo_mapItemIds::TrainingThrowingKnife(TEXT("Prototype.Item.Consumable.TrainingThrowingKnife"));
 const FName Fdemo_mapItemIds::SoulBone(TEXT("Prototype.Item.Material.SoulBone"));
 const FName Fdemo_mapItemIds::SpiritBone(TEXT("Prototype.Item.Material.SpiritBone"));
@@ -357,14 +358,14 @@ bool Fdemo_mapRewardDistributionProfile::IsValid() const
 
 FName Fdemo_mapItemDefinitions::GetContentVersionId()
 {
-	return FName(TEXT("CodeB.Content.0.0.10.P11.7"));
+	return FName(TEXT("CodeB.Content.0.0.10.P16.0"));
 }
 
 const FString& Fdemo_mapItemDefinitions::GetContentDigest()
 {
 	// This is a content-contract digest, not a save migration key. Existing
 	// persisted items keep their DefinitionId and are never remapped by P73.
-	static const FString Digest(TEXT("6D01652004E386DC469CB09FF0F3A77110C53841F6AF3F66F5600C3C9B9B4179"));
+	static const FString Digest(TEXT("9B789DB381BB934F772326A5217094F19C654D5AF51D5623EDB0A108DBA4CC7B"));
 	return Digest;
 }
 
@@ -381,6 +382,8 @@ bool Fdemo_mapItemDefinitions::IsKnownContentIdentity(
 	const FString& ContentDigest)
 {
 	return IsCurrentContentIdentity(ContentVersionId, ContentDigest)
+		|| (ContentVersionId == FName(TEXT("CodeB.Content.0.0.10.P11.7"))
+			&& ContentDigest == TEXT("6D01652004E386DC469CB09FF0F3A77110C53841F6AF3F66F5600C3C9B9B4179"))
 		|| (ContentVersionId == FName(TEXT("CodeB.Content.0.0.10.P7.7"))
 			&& ContentDigest == TEXT("6C30E84A05386A7986A2344DB8247961E75F0FE2179F41927A0C7DF950F45A00"))
 		|| (ContentVersionId == FName(TEXT("CodeB.Content.0.0.10.P5.4"))
@@ -435,6 +438,7 @@ const TArray<Fdemo_mapItemDefinition>& Fdemo_mapItemDefinitions::GetAll()
 		MakeDefinition(Fdemo_mapItemIds::HealingPillLevel1, TEXT("一阶丹药"), TEXT("TIER 1 HEALING PILL"), Fdemo_mapItemIds::ConsumableCategory, 1, 20, NAME_None, {}, {}, { MakeEffect(Fdemo_mapItemEffectIds::HealAmount, 1.0) }, true, true, 30, 15, 15),
 		MakeDefinition(Fdemo_mapItemIds::HealingPillLevel2, TEXT("二阶丹药"), TEXT("TIER 2 HEALING PILL"), Fdemo_mapItemIds::ConsumableCategory, 2, 20, NAME_None, {}, {}, { MakeEffect(Fdemo_mapItemEffectIds::HealAmount, 2.0) }, true, true, 60, 30, 30),
 		MakeDefinition(Fdemo_mapItemIds::HealingPillLevel3, TEXT("三阶丹药"), TEXT("TIER 3 HEALING PILL"), Fdemo_mapItemIds::ConsumableCategory, 3, 20, NAME_None, {}, {}, { MakeEffect(Fdemo_mapItemEffectIds::HealAmount, 3.0) }, true, true, 120, 60, 60),
+		MakeDefinition(Fdemo_mapItemIds::MeridianStabilizingPillLevel1, TEXT("一阶定脉丹"), TEXT("TIER 1 MERIDIAN STABILIZING PILL"), Fdemo_mapItemIds::ConsumableCategory, 1, 20, NAME_None, {}, {}, {}, true, true, 45, 22, 22, 0, 0, { Edemo_mapItemGameplaySemantic::MeridianShockTreatment }),
 		MakeDefinition(Fdemo_mapItemIds::TrainingThrowingKnife, TEXT("练习飞刀"), TEXT("TRAINING THROWING KNIFE"), Fdemo_mapItemIds::ConsumableCategory, 1, 20, NAME_None, {}, {}, {}, true, true, 30, 15, 15, 0, 0, { Edemo_mapItemGameplaySemantic::ThrownWeapon }),
 
 		MakeDefinition(Fdemo_mapItemIds::SoulBone, TEXT("魂骨"), TEXT("SOUL BONE"), Fdemo_mapItemIds::MaterialCategory, 1, 99, NAME_None, {}, {}, {}, false, true, 0, 100, 100),
@@ -835,9 +839,9 @@ Fdemo_mapItemDefinitions::ResolveSpatialRingCapacity(
 
 bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 {
-	if (GetAll().Num() != 40 || GetEquipmentSlotIds().Num() != 5)
+	if (GetAll().Num() != 41 || GetEquipmentSlotIds().Num() != 5)
 	{
-		if (OutError) *OutError = TEXT("The current registry must contain 40 definitions and expose five active runtime slots.");
+		if (OutError) *OutError = TEXT("The current registry must contain 41 definitions and expose five active runtime slots.");
 		return false;
 	}
 	TSet<FName> DefinitionIds;
@@ -845,6 +849,7 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 	TSet<FName> SlotIds;
 	int32 ThrownWeaponDefinitionCount = 0;
 	int32 WeaponGuardDefinitionCount = 0;
+	int32 MeridianShockTreatmentDefinitionCount = 0;
 	for (FName SlotId : GetEquipmentSlotIds())
 	{
 		if (SlotId.IsNone() || SlotIds.Contains(SlotId))
@@ -871,6 +876,8 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 			Edemo_mapItemGameplaySemantic::ThrownWeapon);
 		const bool bWeaponGuard = Definition.HasGameplaySemantic(
 			Edemo_mapItemGameplaySemantic::WeaponGuard);
+		const bool bMeridianShockTreatment = Definition.HasGameplaySemantic(
+			Edemo_mapItemGameplaySemantic::MeridianShockTreatment);
 		if (bThrownWeapon)
 		{
 			++ThrownWeaponDefinitionCount;
@@ -878,6 +885,10 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 		if (bWeaponGuard)
 		{
 			++WeaponGuardDefinitionCount;
+		}
+		if (bMeridianShockTreatment)
+		{
+			++MeridianShockTreatmentDefinitionCount;
 		}
 		if (Definition.DefinitionId.IsNone()
 			|| DefinitionIds.Contains(Definition.DefinitionId)
@@ -921,6 +932,19 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 					|| Definition.CompatibleSlotIds
 						!= TArray<FName>({ Fdemo_mapItemIds::WeaponSlot })
 					|| bThrownWeapon))
+			|| (bMeridianShockTreatment
+				&& (Definition.DefinitionId
+						!= Fdemo_mapItemIds::MeridianStabilizingPillLevel1
+					|| Definition.CategoryId
+						!= Fdemo_mapItemIds::ConsumableCategory
+					|| Definition.MaxStackSize <= 1
+					|| !Definition.bHotbarEligible
+					|| !Definition.EquipmentSlotId.IsNone()
+					|| !Definition.CompatibleSlotIds.IsEmpty()
+					|| Definition.MaxDurability != 0
+					|| Definition.MaxCharges != 0
+					|| bThrownWeapon
+					|| bWeaponGuard))
 			|| (!Definition.EquipmentSlotId.IsNone()
 				&& (Definition.MaxStackSize != 1
 					|| Definition.CompatibleSlotIds.IsEmpty()
@@ -970,6 +994,11 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 		if (OutError) *OutError = TEXT("P11.7 requires exactly six explicit weapon-guard product definitions.");
 		return false;
 	}
+	if (MeridianShockTreatmentDefinitionCount != 1)
+	{
+		if (OutError) *OutError = TEXT("P16.0 requires exactly one canonical Meridian Shock treatment definition.");
+		return false;
+	}
 	TSet<FName> FixedProfileIds;
 	int32 CorpseProfileCount = 0;
 	int32 ChestProfileCount = 0;
@@ -1008,6 +1037,7 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 		Fdemo_mapItemIds::HealingPillLevel1,
 		Fdemo_mapItemIds::HealingPillLevel2,
 		Fdemo_mapItemIds::HealingPillLevel3,
+		Fdemo_mapItemIds::MeridianStabilizingPillLevel1,
 		Fdemo_mapItemIds::TrainingThrowingKnife }))
 	{
 		if (OutError) *OutError = TEXT("Purchasable definition ordering drifted from the current content catalog.");

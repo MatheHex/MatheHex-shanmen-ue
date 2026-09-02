@@ -66,6 +66,8 @@ struct Fdemo_mapItemIds
 	static const FName HealingPillLevel1;
 	static const FName HealingPillLevel2;
 	static const FName HealingPillLevel3;
+	/** First condition-specific treatment consumable in the 0.0.10 product loop. */
+	static const FName MeridianStabilizingPillLevel1;
 	/** First real product item accepted by the 0.0.10 thrown-weapon pipeline. */
 	static const FName TrainingThrowingKnife;
 	static const FName SoulBone;
