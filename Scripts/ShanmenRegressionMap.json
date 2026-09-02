@@ -2354,6 +2354,20 @@
       ]
     },
     {
+      "name": "P1SectNavigationFixture",
+      "pathRegex": "^Source/demo_map/demo_mapSectNavigationTests\\.cpp$",
+      "requiredGroups": [
+        "demo_map.P1.SectNavigation"
+      ]
+    },
+    {
+      "name": "P6IntegrationClosureFixture",
+      "pathRegex": "^Source/demo_map/demo_mapP6IntegrationClosureTests\\.cpp$",
+      "requiredGroups": [
+        "demo_map.P6.Integration"
+      ]
+    },
+    {
       "name": "P5RuntimeInterfaceFixture",
       "pathRegex": "^Source/demo_map/demo_mapRuntimeInterfaceSliceTests\\.cpp$",
       "requiredGroups": [

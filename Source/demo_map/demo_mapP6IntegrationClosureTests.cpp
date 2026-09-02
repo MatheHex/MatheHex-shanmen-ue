@@ -109,7 +109,7 @@ namespace
 			}
 			else if (Item.ItemDefinitionId == Fdemo_mapItemIds::WindTalisman)
 			{
-				Layout.AccessoryItemInstanceId = Item.ItemInstanceId;
+				Layout.SpatialRingItemInstanceId = Item.ItemInstanceId;
 			}
 		}
 		return Layout;
@@ -389,14 +389,17 @@ bool Fdemo_mapP6SectRouteClosureTest::RunTest(const FString&)
 
 	Widget->AutomationOpenWarehouseFromTeleport();
 	TestEqual(
-		TEXT("P6 teleport-to-warehouse route keeps the teleport return context"),
-		static_cast<uint8>(Widget->GetCurrentPage()),
-		static_cast<uint8>(Edemo_mapSectPage::Warehouse));
-	Widget->AutomationReturnFromCurrentPage();
-	TestEqual(
-		TEXT("P6 warehouse back action returns to the selected M01 teleport route"),
+		TEXT("P6 external warehouse entry keeps the selected teleport page"),
 		static_cast<uint8>(Widget->GetCurrentPage()),
 		static_cast<uint8>(Edemo_mapSectPage::TeleportArray));
+	TestFalse(
+		TEXT("P6 unavailable external warehouse entry reports a visible diagnostic"),
+		Widget->GetTeleportFeedbackForAutomation().IsEmpty());
+	Widget->AutomationReturnFromCurrentPage();
+	TestEqual(
+		TEXT("P6 failed external warehouse entry returns through ordinary sect navigation"),
+		static_cast<uint8>(Widget->GetCurrentPage()),
+		static_cast<uint8>(Edemo_mapSectPage::Home));
 
 	Widget->AutomationOpenWarehouseFromHome();
 	Widget->AutomationReturnFromCurrentPage();

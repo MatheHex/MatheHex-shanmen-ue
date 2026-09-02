@@ -115,14 +115,17 @@ bool FP1SectNavigationWidgetSmokeTest::RunTest(const FString& Parameters)
 	}
 	Widget->AutomationOpenWarehouseFromTeleport();
 	TestEqual(
-		TEXT("M01 teleport routes into warehouse preparation"),
-		Widget->GetCurrentPage(),
-		Edemo_mapSectPage::Warehouse);
-	Widget->AutomationReturnFromCurrentPage();
-	TestEqual(
-		TEXT("Warehouse return preserves the selected M01 teleport page"),
+		TEXT("External warehouse entry keeps the selected M01 teleport page"),
 		Widget->GetCurrentPage(),
 		Edemo_mapSectPage::TeleportArray);
+	TestFalse(
+		TEXT("Unavailable external warehouse entry reports a visible diagnostic"),
+		Widget->GetTeleportFeedbackForAutomation().IsEmpty());
+	Widget->AutomationReturnFromCurrentPage();
+	TestEqual(
+		TEXT("Failed external warehouse entry returns through ordinary sect navigation"),
+		Widget->GetCurrentPage(),
+		Edemo_mapSectPage::Home);
 	Widget->AutomationOpenWarehouseFromHome();
 	Widget->AutomationReturnFromCurrentPage();
 	TestEqual(

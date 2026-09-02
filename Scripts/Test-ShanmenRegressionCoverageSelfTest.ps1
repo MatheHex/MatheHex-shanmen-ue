@@ -125,6 +125,12 @@ try
     $P6DualLoot = New-AutomationLogFixture `
         -Name 'p6-dual-loot.log' `
         -Group 'demo_map.P6.DualLoot'
+    $P1SectNavigation = New-AutomationLogFixture `
+        -Name 'p1-sect-navigation.log' `
+        -Group 'demo_map.P1.SectNavigation'
+    $P6Integration = New-AutomationLogFixture `
+        -Name 'p6-integration.log' `
+        -Group 'demo_map.P6.Integration'
     $InputRestore = New-AutomationLogFixture `
         -Name 'input-restore.log' `
         -Group 'demo_map.InputRestore'
@@ -2375,6 +2381,18 @@ try
         -Logs @($P6DualLoot)
 
     Invoke-ExpectedPass `
+        -Name 'P1 sect navigation fixture requires its complete exact suite' `
+        -Paths @(
+            'Source/demo_map/demo_mapSectNavigationTests.cpp') `
+        -Logs @($P1SectNavigation)
+
+    Invoke-ExpectedPass `
+        -Name 'P6 integration closure fixture requires its complete exact suite' `
+        -Paths @(
+            'Source/demo_map/demo_mapP6IntegrationClosureTests.cpp') `
+        -Logs @($P6Integration)
+
+    Invoke-ExpectedPass `
         -Name 'automation root boundary changes require their exact safety suite' `
         -Paths @(
             'Source/demo_map/demo_mapAutomationRootBoundary.cpp',
@@ -3608,6 +3626,20 @@ try
         -Name 'P6 dual loot fixture cannot use unrelated item evidence' `
         -Paths @(
             'Source/demo_map/demo_mapDualLootSliceTests.cpp') `
+        -Logs @($Full) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'P1 sect navigation fixture cannot use unrelated full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapSectNavigationTests.cpp') `
+        -Logs @($Full) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'P6 integration closure fixture cannot use unrelated full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapP6IntegrationClosureTests.cpp') `
         -Logs @($Full) `
         -ExpectedText 'missing required groups'
 
