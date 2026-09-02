@@ -24,15 +24,15 @@ enum class Edemo_mapShanmenDefenseResourcePreparationStatus : uint8
 	ReservationInvalid
 };
 
-/** Durable reservation and rewritten defense snapshot for one incoming impact. */
+/** Durable reservations and rewritten defense snapshot for one incoming impact. */
 struct Fdemo_mapShanmenDefenseResourcePreparationResult
 {
 	Edemo_mapShanmenDefenseResourcePreparationStatus Status =
 		Edemo_mapShanmenDefenseResourcePreparationStatus::SnapshotInvalid;
 	FString Diagnostic;
-	FShanmenItemReserveRequest ReserveRequest;
-	FShanmenItemDurableCommandResult ReserveCommand;
-	FGuid ReservationId;
+	TArray<FShanmenItemReserveRequest> ReserveRequests;
+	TArray<FShanmenItemDurableCommandResult> ReserveCommands;
+	TArray<FGuid> ReservationIds;
 
 	bool IsSuccess() const
 	{
@@ -52,7 +52,14 @@ struct Fdemo_mapShanmenDefenseResourcePreparationResult
 				== Edemo_mapShanmenDefenseResourcePreparationStatus::Prepared
 			|| Status
 				== Edemo_mapShanmenDefenseResourcePreparationStatus::Replayed)
-			&& ReservationId.IsValid();
+			&& !ReservationIds.IsEmpty()
+			&& ReservationIds.Num() == ReserveRequests.Num()
+			&& ReservationIds.Num() == ReserveCommands.Num()
+			&& !ReservationIds.ContainsByPredicate(
+				[](const FGuid& ReservationId)
+				{
+					return !ReservationId.IsValid();
+				});
 	}
 };
 
@@ -114,8 +121,8 @@ struct Fdemo_mapShanmenDefenseResourceAdapter
 		Udemo_mapShanmenItemAuthoritySubsystem& Authority);
 
 	/**
-	 * Splits the equipped Spirit Guard Robe out of legacy aggregate armor,
-	 * reserves one Durability, and appends the resource-backed canonical layer.
+	 * Splits recognized equipment out of any legacy aggregate, reserves each
+	 * exact item resource, and appends canonical resource-backed layers.
 	 */
 	static Fdemo_mapShanmenDefenseResourcePreparationResult
 	PrepareImpactDefense(

@@ -162,7 +162,9 @@ enum class Edemo_mapItemGameplaySemantic : uint8
 	ThrownWeapon,
 	WeaponGuard,
 	/** Treats only the canonical minor Meridian Shock condition. */
-	MeridianShockTreatment
+	MeridianShockTreatment,
+	/** Passively intercepts one otherwise-lethal impact while charges remain. */
+	LethalInterception
 };
 
 USTRUCT()

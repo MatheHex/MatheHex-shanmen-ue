@@ -715,6 +715,26 @@ bool Fdemo_mapCombatRunCoordinator::TryBeginRun(
 				bPreparedPlayerRequiresResourceDefenseAuthority =
 					Armor->DefinitionId == Fdemo_mapItemIds::SpiritGuardRobe;
 			}
+			if (Correlation.AccessoryItemInstanceId.IsValid())
+			{
+				const FShanmenItemInstance* Accessory =
+					Snapshot.Items.FindByPredicate(
+						[&Correlation](const FShanmenItemInstance& Item)
+						{
+							return Item.ItemInstanceId
+								== Correlation.AccessoryItemInstanceId;
+						});
+				if (!Accessory)
+				{
+					PlayerHealth->TryEndCombatEntityBinding(ExpectedEntityId);
+					OutDiagnostic =
+						TEXT("Combat Run prepared accessory identity is absent from item authority.");
+					return false;
+				}
+				bPreparedPlayerRequiresResourceDefenseAuthority |=
+					Accessory->DefinitionId
+						== Fdemo_mapItemIds::HeartProtectingMirror;
+			}
 		}
 	}
 

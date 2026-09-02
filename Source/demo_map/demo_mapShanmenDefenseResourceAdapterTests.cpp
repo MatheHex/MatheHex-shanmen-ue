@@ -162,6 +162,7 @@ namespace
 		Fdemo_mapProfileStorageContext Storage;
 		Fdemo_mapPersistentProfile SeedProfile;
 		FGuid SpiritGuardId;
+		FGuid HeartMirrorId;
 		UGameInstance* GameInstance = nullptr;
 		Udemo_mapShanmenItemAuthoritySubsystem* Authority = nullptr;
 		Udemo_mapProfileSessionSubsystem* Session = nullptr;
@@ -193,20 +194,39 @@ namespace
 			return Authority && Session && Runtime;
 		}
 
-		bool SeedAndStart(FAutomationTestBase& Test, const TCHAR* Label)
+		bool SeedAndStart(
+			FAutomationTestBase& Test,
+			const TCHAR* Label,
+			bool bIncludeSpiritGuard = true,
+			bool bIncludeHeartMirror = false)
 		{
 			Root = NewP54Root(Label);
 			Storage = Fdemo_mapProfileStorageContext::ForRoot(Root);
 			Fdemo_mapProfileRepository Repository;
 			SeedProfile = Repository.CreateFreshProfile();
-			Fdemo_mapPersistentItemRecord SpiritGuard;
-			SpiritGuardId = SpiritGuard.ItemInstanceId = FGuid::NewGuid();
-			SpiritGuard.ItemDefinitionId = Fdemo_mapItemIds::SpiritGuardRobe;
-			SpiritGuard.StackCount = 1;
-			SpiritGuard.PersistentDomain =
-				Edemo_mapPersistentDomain::PermanentStash;
-			SeedProfile.PermanentStash.Add(SpiritGuard);
-			SeedProfile.PreparationLayout.ArmorItemInstanceId = SpiritGuardId;
+			if (bIncludeSpiritGuard)
+			{
+				Fdemo_mapPersistentItemRecord SpiritGuard;
+				SpiritGuardId = SpiritGuard.ItemInstanceId = FGuid::NewGuid();
+				SpiritGuard.ItemDefinitionId = Fdemo_mapItemIds::SpiritGuardRobe;
+				SpiritGuard.StackCount = 1;
+				SpiritGuard.PersistentDomain =
+					Edemo_mapPersistentDomain::PermanentStash;
+				SeedProfile.PermanentStash.Add(SpiritGuard);
+				SeedProfile.PreparationLayout.ArmorItemInstanceId = SpiritGuardId;
+			}
+			if (bIncludeHeartMirror)
+			{
+				Fdemo_mapPersistentItemRecord HeartMirror;
+				HeartMirrorId = HeartMirror.ItemInstanceId = FGuid::NewGuid();
+				HeartMirror.ItemDefinitionId =
+					Fdemo_mapItemIds::HeartProtectingMirror;
+				HeartMirror.StackCount = 1;
+				HeartMirror.PersistentDomain =
+					Edemo_mapPersistentDomain::PermanentStash;
+				SeedProfile.PermanentStash.Add(HeartMirror);
+				SeedProfile.PreparationLayout.AccessoryItemInstanceId = HeartMirrorId;
+			}
 			const Fdemo_mapProfileSaveResult Saved =
 				Repository.SaveProfile(SeedProfile, Storage);
 			if (!Saved.IsSuccess() || !StartGameInstance(Test))
@@ -246,7 +266,16 @@ namespace
 			Started = Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
 				*Authority, *Runtime);
 			if (!Started.IsStarted()
-				|| Started.RunCorrelation.ArmorItemInstanceId != SpiritGuardId)
+				|| (bIncludeSpiritGuard
+					&& Started.RunCorrelation.ArmorItemInstanceId
+						!= SpiritGuardId)
+				|| (!bIncludeSpiritGuard
+					&& Started.RunCorrelation.ArmorItemInstanceId.IsValid())
+				|| (bIncludeHeartMirror
+					&& Started.RunCorrelation.AccessoryItemInstanceId
+						!= HeartMirrorId)
+				|| (!bIncludeHeartMirror
+					&& Started.RunCorrelation.AccessoryItemInstanceId.IsValid()))
 			{
 				Test.AddError(FString::Printf(
 					TEXT("P5.4 active Run failed: %s"),
@@ -335,6 +364,14 @@ namespace
 		return Defense;
 	}
 
+	FShanmenDefenseSnapshot MakeHeartMirrorBaseDefense()
+	{
+		FShanmenDefenseSnapshot Defense;
+		Defense.TargetTags.AddTag(FShanmenCombatNativeTags::TargetLiving());
+		check(Defense.IsValid());
+		return Defense;
+	}
+
 	bool BuildP54Impact(
 		const FP54DefenseFixture& Fixture,
 		Udemo_mapPlayerHealthComponent& Health,
@@ -342,7 +379,8 @@ namespace
 		FShanmenDefenseSnapshot Defense,
 		FShanmenImpactRequest& OutRequest,
 		FShanmenImpactResult& OutResult,
-		FString& OutDiagnostic)
+		FString& OutDiagnostic,
+		float RawDamage = 4.0f)
 	{
 		OutRequest = FShanmenImpactRequest();
 		OutResult = FShanmenImpactResult();
@@ -391,8 +429,8 @@ namespace
 		}
 		OutRequest.Candidate.HitLocation = FVector::ZeroVector;
 		OutRequest.Candidate.HitNormal = FVector::UpVector;
-		OutRequest.Damage.FormulaId = TEXT("Formula.Test.P5.4.FixedFour");
-		OutRequest.Damage.RawDamage = 4.0f;
+		OutRequest.Damage.FormulaId = TEXT("Formula.Test.P17.FixedDamage");
+		OutRequest.Damage.RawDamage = RawDamage;
 		OutRequest.Damage.DamageTags.AddTag(
 			FShanmenCombatNativeTags::DamagePhysical());
 		OutRequest.Defense = MoveTemp(Defense);
@@ -943,6 +981,284 @@ bool Fdemo_mapSpiritGuardPreIntentRestartRecoveryTest::RunTest(
 		&& Armor && Armor->Durability == 20
 		&& Cancelled
 		&& Cancelled->State == EShanmenItemReservationState::Cancelled);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapHeartMirrorTriggeredChargeTest,
+	"Shanmen.0_0_10.Items.DefenseResourceAdapter.HeartMirrorTriggeredCommit",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapHeartMirrorTriggeredChargeTest::RunTest(const FString&)
+{
+	FP54DefenseFixture Fixture;
+	if (!Fixture.SeedAndStart(
+			*this, TEXT("HeartMirrorTriggered"), false, true))
+	{
+		return false;
+	}
+	Udemo_mapPlayerHealthComponent* Health =
+		NewObject<Udemo_mapPlayerHealthComponent>(GetTransientPackage());
+	if (!Health
+		|| !Health->TryBindCombatEntity(FGuid(0xD3570100, 0, 0, 1)))
+	{
+		AddError(TEXT("P17.0 mirror fixture could not bind vitality."));
+		return false;
+	}
+	Health->SetCurrentHealthForAutomation(3);
+	FShanmenImpactRequest Request;
+	FShanmenImpactResult Impact;
+	FString Diagnostic;
+	if (!BuildP54Impact(
+			Fixture, *Health, 10, MakeHeartMirrorBaseDefense(),
+			Request, Impact, Diagnostic, 5.0f))
+	{
+		AddError(Diagnostic);
+		return false;
+	}
+	const FShanmenDefenseLayer* MirrorLayer =
+		Request.Defense.Layers.FindByPredicate(
+			[&Fixture](const FShanmenDefenseLayer& Layer)
+			{
+				return Layer.SourceInstanceId == Fixture.HeartMirrorId;
+			});
+	TestTrue(TEXT("Lethal impact resolves through one exact mirror layer"),
+		MirrorLayer
+		&& Request.Defense.Layers.Num() == 1
+		&& MirrorLayer->Operation
+			== EShanmenDefenseOperation::PreventLethal
+		&& MirrorLayer->Order == FShanmenDefenseOrder::LethalInterception
+		&& FMath::IsNearlyEqual(MirrorLayer->Magnitude, 1.0f)
+		&& MirrorLayer->LayerTags.HasTagExact(
+			FShanmenCombatNativeTags::DefenseLethalIntercept())
+		&& Impact.TriggeredLayers.Num() == 1
+		&& Impact.TriggeredLayers[0].LayerId == MirrorLayer->LayerId
+		&& FMath::IsNearlyEqual(Impact.PreventedDamage, 3.0f)
+		&& FMath::IsNearlyEqual(Impact.FinalDamage, 2.0f));
+
+	const Fdemo_mapShanmenDefenseResourceCoordinationResult Coordinated =
+		Fdemo_mapShanmenDefenseResourceAdapter::CoordinateImpact(
+			*Fixture.Authority, *Health, Request, Impact);
+	FShanmenItemAuthoritySnapshot After;
+	const FShanmenItemInstance* Mirror =
+		Fixture.Authority->TryCaptureSnapshot(After)
+		? FindAuthorityItem(After, Fixture.HeartMirrorId)
+		: nullptr;
+	TestTrue(TEXT("Triggered mirror atomically leaves one vitality and spends one charge"),
+		Coordinated.IsSuccess()
+		&& Coordinated.PrepareRequest.OrderedLines.Num() == 1
+		&& Coordinated.PrepareRequest.TriggeredLineCount == 1
+		&& FMath::IsNearlyEqual(Health->GetCurrentVitality(), 1.0f)
+		&& Mirror && Mirror->Charges == 0);
+
+	const Fdemo_mapShanmenDefenseResourceCoordinationResult Replayed =
+		Fdemo_mapShanmenDefenseResourceAdapter::CoordinateImpact(
+			*Fixture.Authority, *Health, Request, Impact);
+	FShanmenItemAuthoritySnapshot ReplaySnapshot;
+	Fixture.Authority->TryCaptureSnapshot(ReplaySnapshot);
+	const FShanmenItemInstance* ReplayedMirror =
+		FindAuthorityItem(ReplaySnapshot, Fixture.HeartMirrorId);
+	TestTrue(TEXT("Exact replay cannot spend a second mirror charge"),
+		Replayed.IsSuccess()
+		&& Replayed.PrepareCommand.Status
+			== EShanmenItemDurableCommandStatus::Replayed
+		&& Replayed.FinalizeCommand.Status
+			== EShanmenItemDurableCommandStatus::Replayed
+		&& FMath::IsNearlyEqual(Health->GetCurrentVitality(), 1.0f)
+		&& ReplayedMirror && ReplayedMirror->Charges == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapHeartMirrorUntriggeredCancellationTest,
+	"Shanmen.0_0_10.Items.DefenseResourceAdapter.HeartMirrorUntriggeredCancel",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapHeartMirrorUntriggeredCancellationTest::RunTest(
+	const FString&)
+{
+	FP54DefenseFixture Fixture;
+	if (!Fixture.SeedAndStart(
+			*this, TEXT("HeartMirrorUntriggered"), false, true))
+	{
+		return false;
+	}
+	Udemo_mapPlayerHealthComponent* Health =
+		NewObject<Udemo_mapPlayerHealthComponent>(GetTransientPackage());
+	if (!Health
+		|| !Health->TryBindCombatEntity(FGuid(0xD3570200, 0, 0, 1)))
+	{
+		AddError(TEXT("P17.0 nonlethal fixture could not bind vitality."));
+		return false;
+	}
+	FShanmenImpactRequest Request;
+	FShanmenImpactResult Impact;
+	FString Diagnostic;
+	if (!BuildP54Impact(
+			Fixture, *Health, 11, MakeHeartMirrorBaseDefense(),
+			Request, Impact, Diagnostic, 3.0f))
+	{
+		AddError(Diagnostic);
+		return false;
+	}
+	const FShanmenDefenseLayer* MirrorLayer =
+		Request.Defense.Layers.FindByPredicate(
+			[&Fixture](const FShanmenDefenseLayer& Layer)
+			{
+				return Layer.SourceInstanceId == Fixture.HeartMirrorId;
+			});
+	TestTrue(TEXT("Nonlethal impact does not trigger the mirror"),
+		MirrorLayer && Impact.TriggeredLayers.IsEmpty()
+		&& FMath::IsNearlyZero(Impact.PreventedDamage)
+		&& FMath::IsNearlyEqual(Impact.FinalDamage, 3.0f));
+	const Fdemo_mapShanmenDefenseResourceCoordinationResult Coordinated =
+		Fdemo_mapShanmenDefenseResourceAdapter::CoordinateImpact(
+			*Fixture.Authority, *Health, Request, Impact);
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Authority->TryCaptureSnapshot(After);
+	const FShanmenItemInstance* Mirror =
+		FindAuthorityItem(After, Fixture.HeartMirrorId);
+	const FShanmenItemReservationSnapshot* Reservation = MirrorLayer
+		? After.Reservations.FindByPredicate(
+			[MirrorLayer](const FShanmenItemReservationSnapshot& Candidate)
+			{
+				return Candidate.ReservationId == MirrorLayer->LayerId;
+			})
+		: nullptr;
+	TestTrue(TEXT("Untriggered mirror reservation cancels without charge loss"),
+		Coordinated.IsSuccess()
+		&& Coordinated.PrepareRequest.TriggeredLineCount == 0
+		&& FMath::IsNearlyEqual(Health->GetCurrentVitality(), 2.0f)
+		&& Mirror && Mirror->Charges == 1
+		&& Reservation
+		&& Reservation->State == EShanmenItemReservationState::Cancelled);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapHeartMirrorSpiritGuardCoexistenceTest,
+	"Shanmen.0_0_10.Items.DefenseResourceAdapter.HeartMirrorSpiritGuardCoexistence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapHeartMirrorSpiritGuardCoexistenceTest::RunTest(
+	const FString&)
+{
+	FP54DefenseFixture Fixture;
+	if (!Fixture.SeedAndStart(
+			*this, TEXT("HeartMirrorCoexistence"), true, true))
+	{
+		return false;
+	}
+	Udemo_mapPlayerHealthComponent* Health =
+		NewObject<Udemo_mapPlayerHealthComponent>(GetTransientPackage());
+	if (!Health
+		|| !Health->TryBindCombatEntity(FGuid(0xD3570300, 0, 0, 1)))
+	{
+		AddError(TEXT("P17.0 coexistence fixture could not bind vitality."));
+		return false;
+	}
+	FShanmenImpactRequest Request;
+	FShanmenImpactResult Impact;
+	FString Diagnostic;
+	if (!BuildP54Impact(
+			Fixture, *Health, 12, MakeP54BaseDefense(false),
+			Request, Impact, Diagnostic, 10.0f))
+	{
+		AddError(Diagnostic);
+		return false;
+	}
+	TestTrue(TEXT("Robe then mirror resolve in canonical order"),
+		Request.Defense.Layers.Num() == 2
+		&& Impact.TriggeredLayers.Num() == 2
+		&& Impact.TriggeredLayers[0].SourceInstanceId
+			== Fixture.SpiritGuardId
+		&& Impact.TriggeredLayers[1].SourceInstanceId
+			== Fixture.HeartMirrorId
+		&& FMath::IsNearlyEqual(
+			Impact.TriggeredLayers[0].PreventedDamage, 2.0f)
+		&& FMath::IsNearlyEqual(
+			Impact.TriggeredLayers[1].PreventedDamage, 4.0f)
+		&& FMath::IsNearlyEqual(Impact.FinalDamage, 4.0f));
+	const Fdemo_mapShanmenDefenseResourceCoordinationResult Coordinated =
+		Fdemo_mapShanmenDefenseResourceAdapter::CoordinateImpact(
+			*Fixture.Authority, *Health, Request, Impact);
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Authority->TryCaptureSnapshot(After);
+	const FShanmenItemInstance* Armor =
+		FindAuthorityItem(After, Fixture.SpiritGuardId);
+	const FShanmenItemInstance* Mirror =
+		FindAuthorityItem(After, Fixture.HeartMirrorId);
+	TestTrue(TEXT("One intent commits both resource sources with vitality"),
+		Coordinated.IsSuccess()
+		&& Coordinated.PrepareRequest.OrderedLines.Num() == 2
+		&& Coordinated.PrepareRequest.TriggeredLineCount == 2
+		&& FMath::IsNearlyEqual(Health->GetCurrentVitality(), 1.0f)
+		&& Armor && Armor->Durability == 19
+		&& Mirror && Mirror->Charges == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapHeartMirrorPreIntentRestartRecoveryTest,
+	"Shanmen.0_0_10.Items.DefenseResourceAdapter.HeartMirrorPreIntentRestart",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapHeartMirrorPreIntentRestartRecoveryTest::RunTest(
+	const FString&)
+{
+	FP54DefenseFixture Fixture;
+	if (!Fixture.SeedAndStart(
+			*this, TEXT("HeartMirrorRestart"), false, true))
+	{
+		return false;
+	}
+	Udemo_mapPlayerHealthComponent* Health =
+		NewObject<Udemo_mapPlayerHealthComponent>(GetTransientPackage());
+	if (!Health
+		|| !Health->TryBindCombatEntity(FGuid(0xD3570400, 0, 0, 1)))
+	{
+		AddError(TEXT("P17.0 restart fixture could not bind vitality."));
+		return false;
+	}
+	FShanmenImpactRequest Request;
+	FShanmenImpactResult Impact;
+	FString Diagnostic;
+	if (!BuildP54Impact(
+			Fixture, *Health, 13, MakeHeartMirrorBaseDefense(),
+			Request, Impact, Diagnostic, 5.0f))
+	{
+		AddError(Diagnostic);
+		return false;
+	}
+	const FGuid ReservationId = Request.Defense.Layers.Num() == 1
+		? Request.Defense.Layers[0].LayerId : FGuid();
+	if (!Fixture.RestartAndBind(*this))
+	{
+		return false;
+	}
+	const Fdemo_mapShanmenDefenseOrphanRecoveryResult Recovered =
+		Fdemo_mapShanmenDefenseResourceAdapter::
+			RecoverOrphanedDefenseReservations(*Fixture.Authority);
+	const Fdemo_mapShanmenDefenseOrphanRecoveryResult Replayed =
+		Fdemo_mapShanmenDefenseResourceAdapter::
+			RecoverOrphanedDefenseReservations(*Fixture.Authority);
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Authority->TryCaptureSnapshot(After);
+	const FShanmenItemInstance* Mirror =
+		FindAuthorityItem(After, Fixture.HeartMirrorId);
+	const FShanmenItemReservationSnapshot* Reservation =
+		After.Reservations.FindByPredicate(
+			[ReservationId](const FShanmenItemReservationSnapshot& Candidate)
+			{
+				return Candidate.ReservationId == ReservationId;
+			});
+	TestTrue(TEXT("Restart recovers one orphan mirror reservation exactly once"),
+		ReservationId.IsValid()
+		&& Recovered.bSuccess && Recovered.CancelledReservationCount == 1
+		&& Replayed.bSuccess && Replayed.CancelledReservationCount == 0
+		&& Mirror && Mirror->Charges == 1
+		&& Reservation
+		&& Reservation->State == EShanmenItemReservationState::Cancelled);
 	return true;
 }
 

@@ -38,6 +38,8 @@ struct Fdemo_mapItemIds
 	static const FName HeavyPracticeBlade;
 	static const FName ReinforcedVest;
 	static const FName EvasionCharm;
+	/** First charge-backed passive lifesaving artifact in the 0.0.10 loop. */
+	static const FName HeartProtectingMirror;
 	static const FName IronShard;
 	static const FName AncientToken;
 
@@ -87,6 +89,8 @@ struct Fdemo_mapItemEffectIds
 	static const FName TotalCapacity;
 	static const FName RingQuickCapacity;
 	static const FName HealAmount;
+	/** Minimum vitality retained by a canonical lethal-interception layer. */
+	static const FName LethalVitalityFloor;
 };
 
 /** P1.0 only defines these integer contracts; no source, sink, or transfer is activated. */

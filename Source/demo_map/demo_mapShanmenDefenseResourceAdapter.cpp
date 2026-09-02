@@ -114,6 +114,11 @@ namespace
 		return TEXT("Combat.Defense.Player.SpiritGuardRobe.Durability.r1");
 	}
 
+	FName HeartProtectingMirrorRuleId()
+	{
+		return TEXT("Combat.Defense.Player.HeartProtectingMirror.Charge.r1");
+	}
+
 	FName LegacyFlatReductionRuleId()
 	{
 		return TEXT("Combat.Defense.Player.FlatDamageReduction.r1");
@@ -193,6 +198,35 @@ namespace
 			&& OutReduction > 0.0f;
 	}
 
+	bool TryGetHeartMirrorVitalityFloor(float& OutVitalityFloor)
+	{
+		OutVitalityFloor = 0.0f;
+		const Fdemo_mapItemDefinition* Definition =
+			Fdemo_mapItemDefinitions::Find(
+				Fdemo_mapItemIds::HeartProtectingMirror);
+		if (!Definition
+			|| !Definition->HasGameplaySemantic(
+				Edemo_mapItemGameplaySemantic::LethalInterception)
+			|| Definition->MaxCharges != 1)
+		{
+			return false;
+		}
+		int32 MatchCount = 0;
+		for (const Fdemo_mapItemEffectParameter& Parameter :
+			Definition->EffectParameters)
+		{
+			if (Parameter.ParameterId
+				!= Fdemo_mapItemEffectIds::LethalVitalityFloor)
+			{
+				continue;
+			}
+			++MatchCount;
+			OutVitalityFloor = static_cast<float>(Parameter.Value);
+		}
+		return MatchCount == 1 && FMath::IsFinite(OutVitalityFloor)
+			&& OutVitalityFloor > 0.0f;
+	}
+
 	bool RemoveSpiritGuardFromAggregate(
 		FShanmenDefenseSnapshot& InOutDefense,
 		float SpiritGuardReduction,
@@ -261,12 +295,13 @@ namespace
 	}
 
 	FGuid MakeDefenseReserveRequestId(
+		FName Namespace,
 		const Fdemo_mapShanmenRunCorrelation& Correlation,
 		const FGuid& ImpactId,
 		const FGuid& ItemInstanceId)
 	{
 		return FShanmenDeterministicId::FromCanonicalParts(
-			TEXT("Shanmen.Product.SpiritGuardRobe.DurabilityReserve.r1"),
+			Namespace,
 			{
 				GuidDigits(Correlation.OwnerId),
 				GuidDigits(Correlation.ScopeId),
@@ -299,6 +334,27 @@ namespace
 		Layer.Magnitude = Reduction;
 		Layer.bRequiresCommitOnTrigger = true;
 		Layer.LayerTags.AddTag(FShanmenCombatNativeTags::DefenseArmor());
+		Layer.RequiredTargetTags.AddTag(
+			FShanmenCombatNativeTags::TargetLiving());
+	}
+
+	void AppendHeartMirrorLayer(
+		FShanmenDefenseSnapshot& InOutDefense,
+		const FGuid& ReservationId,
+		const FGuid& ItemInstanceId,
+		float VitalityFloor)
+	{
+		FShanmenDefenseLayer& Layer =
+			InOutDefense.Layers.AddDefaulted_GetRef();
+		Layer.LayerId = ReservationId;
+		Layer.RuleId = HeartProtectingMirrorRuleId();
+		Layer.SourceInstanceId = ItemInstanceId;
+		Layer.Operation = EShanmenDefenseOperation::PreventLethal;
+		Layer.Order = FShanmenDefenseOrder::LethalInterception;
+		Layer.Magnitude = VitalityFloor;
+		Layer.bRequiresCommitOnTrigger = true;
+		Layer.LayerTags.AddTag(
+			FShanmenCombatNativeTags::DefenseLethalIntercept());
 		Layer.RequiredTargetTags.AddTag(
 			FShanmenCombatNativeTags::TargetLiving());
 	}
@@ -338,8 +394,10 @@ Fdemo_mapShanmenDefenseResourceAdapter::RecoverOrphanedDefenseReservations(
 	{
 		FGuid PurposeImpactId;
 		if (Reservation.State == EShanmenItemReservationState::Reserved
-			&& Reservation.ResourceKind
-				== EShanmenItemResourceKind::Durability
+			&& (Reservation.ResourceKind
+					== EShanmenItemResourceKind::Durability
+				|| Reservation.ResourceKind
+					== EShanmenItemResourceKind::Charges)
 			&& Reservation.RunId == Correlation.ScopeId
 			&& Reservation.OwnerId == Correlation.OwnerId
 			&& IsPreparedEquipment(Correlation, Reservation.ItemInstanceId)
@@ -406,10 +464,12 @@ Fdemo_mapShanmenDefenseResourceAdapter::PrepareImpactDefense(
 	FShanmenDefenseSnapshot& InOutDefense)
 {
 	Fdemo_mapShanmenDefenseResourcePreparationResult Result;
-	auto Reject = [&Result](
+	const FShanmenDefenseSnapshot OriginalDefense = InOutDefense;
+	auto Reject = [&Result, &InOutDefense, &OriginalDefense](
 		Edemo_mapShanmenDefenseResourcePreparationStatus Status,
 		const FString& Diagnostic)
 	{
+		InOutDefense = OriginalDefense;
 		Result.Status = Status;
 		Result.Diagnostic = Diagnostic;
 		return Result;
@@ -457,170 +517,287 @@ Fdemo_mapShanmenDefenseResourceAdapter::PrepareImpactDefense(
 			Edemo_mapShanmenDefenseResourcePreparationStatus::RunCorrelationInvalid;
 		return Result;
 	}
-	if (!Correlation.ArmorItemInstanceId.IsValid())
-	{
-		return Reject(
-			Edemo_mapShanmenDefenseResourcePreparationStatus::NotApplicable,
-			TEXT("The active Run has no prepared armor item."));
-	}
-	const FShanmenItemInstance* Armor =
-		FindItem(Snapshot, Correlation.ArmorItemInstanceId);
-	if (!Armor)
-	{
-		return Reject(
-			Edemo_mapShanmenDefenseResourcePreparationStatus::SnapshotInvalid,
-			TEXT("Prepared armor identity is absent from item authority."));
-	}
-	if (Armor->DefinitionId != Fdemo_mapItemIds::SpiritGuardRobe)
-	{
-		return Reject(
-			Edemo_mapShanmenDefenseResourcePreparationStatus::NotApplicable,
-			TEXT("Prepared armor has no resource-backed defense contract."));
-	}
-	const FShanmenItemDefinition* AuthorityDefinition =
-		FindDefinition(Snapshot, Armor->DefinitionId);
-	float Reduction = 0.0f;
-	if (!AuthorityDefinition
-		|| !AuthorityDefinition->Supports(EShanmenItemResourceKind::Durability)
-		|| Armor->State != EShanmenItemInstanceState::Deployed
-		|| Armor->RunId != Correlation.ScopeId
-		|| Armor->OwnerId != Correlation.OwnerId
-		|| !Armor->DeploymentReservationId.IsValid()
-		|| !TryGetSpiritGuardReduction(Reduction))
-	{
-		return Reject(
-			Edemo_mapShanmenDefenseResourcePreparationStatus::SnapshotInvalid,
-			TEXT("Spirit Guard Robe is not one exact deployed durability-capable authority item."));
-	}
-	if (!RemoveSpiritGuardFromAggregate(
-			InOutDefense, Reduction, Result.Diagnostic))
-	{
-		Result.Status =
-			Edemo_mapShanmenDefenseResourcePreparationStatus::DefenseMismatch;
-		return Result;
-	}
 
-	Result.ReserveRequest.Context.RunId = Correlation.ScopeId;
-	Result.ReserveRequest.Context.OwnerId = Correlation.OwnerId;
-	Result.ReserveRequest.Context.RequestId =
-		MakeDefenseReserveRequestId(
-			Correlation, ImpactId, Armor->ItemInstanceId);
-	Result.ReserveRequest.Context.Content = Snapshot.Content;
-	Result.ReserveRequest.ItemInstanceId = Armor->ItemInstanceId;
-	Result.ReserveRequest.ResourceKind = EShanmenItemResourceKind::Durability;
-	Result.ReserveRequest.Amount = 1;
-	Result.ReserveRequest.ExpectedItemRevision = Armor->Revision;
-	Result.ReserveRequest.PurposeId = MakeTemporaryDefensePurpose(ImpactId);
+	bool bRecognizedContract = false;
+	bool bUnavailableContract = false;
+	bool bAnyPersisted = false;
+	bool bAnyReplayed = false;
+	auto CancelPartial = [&Authority, &Result]()
+	{
+		if (Result.ReservationIds.IsEmpty())
+		{
+			return true;
+		}
+		Result.Status = Edemo_mapShanmenDefenseResourcePreparationStatus::Prepared;
+		FString Diagnostic;
+		return Fdemo_mapShanmenDefenseResourceAdapter::
+			CancelPreparedDefenseReservation(Authority, Result, Diagnostic);
+	};
 
-	const FShanmenItemProcessedRequestSnapshot* PreviousReserve =
-		Snapshot.ProcessedRequests.FindByPredicate(
-			[&Result](const FShanmenItemProcessedRequestSnapshot& Processed)
-			{
-				return Processed.RequestId
-						== Result.ReserveRequest.Context.RequestId
-					&& Processed.Receipt.IsSuccess()
-					&& Processed.Receipt.Operation
-						== EShanmenItemTransactionOperation::Reserve;
-			});
-	if (PreviousReserve)
+	auto ReserveLayer = [
+		&Authority,
+		&Correlation,
+		&ImpactId,
+		&Snapshot,
+		&Result,
+		&bUnavailableContract,
+		&bAnyPersisted,
+		&bAnyReplayed](
+			const FShanmenItemInstance& Item,
+			EShanmenItemResourceKind ResourceKind,
+			FName RequestNamespace,
+			FString& OutDiagnostic) -> bool
 	{
-		Result.ReserveRequest.ExpectedItemRevision =
-			PreviousReserve->Receipt.ItemRevision;
-		Result.ReservationId = PreviousReserve->Receipt.ReservationId;
-		const FShanmenItemReservationSnapshot* PreviousReservation =
-			FindReservation(Snapshot, Result.ReservationId);
-		if (!PreviousReservation
-			|| PreviousReservation->ItemInstanceId != Armor->ItemInstanceId
-			|| PreviousReservation->ResourceKind
-				!= EShanmenItemResourceKind::Durability)
+		FShanmenItemReserveRequest Request;
+		Request.Context.RunId = Correlation.ScopeId;
+		Request.Context.OwnerId = Correlation.OwnerId;
+		Request.Context.RequestId = MakeDefenseReserveRequestId(
+			RequestNamespace, Correlation, ImpactId, Item.ItemInstanceId);
+		Request.Context.Content = Snapshot.Content;
+		Request.ItemInstanceId = Item.ItemInstanceId;
+		Request.ResourceKind = ResourceKind;
+		Request.Amount = 1;
+		Request.ExpectedItemRevision = Item.Revision;
+		Request.PurposeId = MakeTemporaryDefensePurpose(ImpactId);
+
+		const FShanmenItemProcessedRequestSnapshot* PreviousReserve =
+			Snapshot.ProcessedRequests.FindByPredicate(
+				[&Request](
+					const FShanmenItemProcessedRequestSnapshot& Processed)
+				{
+					return Processed.RequestId
+							== Request.Context.RequestId
+						&& Processed.Receipt.IsSuccess()
+						&& Processed.Receipt.Operation
+							== EShanmenItemTransactionOperation::Reserve;
+				});
+		FGuid PreviousReservationId;
+		if (PreviousReserve)
 		{
-			return Reject(
-				Edemo_mapShanmenDefenseResourcePreparationStatus::ReservationInvalid,
-				TEXT("Replayed Spirit Guard reservation identity is absent or mismatched."));
-		}
-		if (PreviousReservation->State
-			!= EShanmenItemReservationState::Reserved
-			&& !HasPreparedIntentForReservation(
-				Snapshot, ImpactId, Result.ReservationId))
-		{
-			Result.Status =
-				Edemo_mapShanmenDefenseResourcePreparationStatus::ResourceUnavailable;
-			Result.Diagnostic =
-				TEXT("The exact impact's pre-intent reservation was already cancelled; its armor contribution remains disabled.");
-			return Result;
-		}
-	}
-	else
-	{
-		int32 ReservedDurability = 0;
-		for (const FShanmenItemReservationSnapshot& Reservation :
-			Snapshot.Reservations)
-		{
-			if (Reservation.ItemInstanceId == Armor->ItemInstanceId
-				&& Reservation.ResourceKind
-					== EShanmenItemResourceKind::Durability
-				&& Reservation.State
-					== EShanmenItemReservationState::Reserved)
+			Request.ExpectedItemRevision =
+				PreviousReserve->Receipt.ItemRevision;
+			PreviousReservationId = PreviousReserve->Receipt.ReservationId;
+			const FShanmenItemReservationSnapshot* PreviousReservation =
+				FindReservation(Snapshot, PreviousReservationId);
+			if (!PreviousReservation
+				|| PreviousReservation->ItemInstanceId != Item.ItemInstanceId
+				|| PreviousReservation->ResourceKind != ResourceKind)
 			{
-				ReservedDurability += Reservation.Amount;
+				OutDiagnostic =
+					TEXT("A replayed defense reservation is absent or mismatched.");
+				return false;
+			}
+			if (PreviousReservation->State
+					!= EShanmenItemReservationState::Reserved
+				&& !HasPreparedIntentForReservation(
+					Snapshot, ImpactId, PreviousReservationId))
+			{
+				bUnavailableContract = true;
+				return true;
 			}
 		}
-		if (Armor->Durability - ReservedDurability <= 0)
+		else
 		{
-			Result.Status =
-				Edemo_mapShanmenDefenseResourcePreparationStatus::ResourceUnavailable;
-			Result.Diagnostic =
-				TEXT("Spirit Guard Robe has no available durability for this impact.");
-			return Result;
+			int32 ReservedAmount = 0;
+			for (const FShanmenItemReservationSnapshot& Reservation :
+				Snapshot.Reservations)
+			{
+				if (Reservation.ItemInstanceId == Item.ItemInstanceId
+					&& Reservation.ResourceKind == ResourceKind
+					&& Reservation.State
+						== EShanmenItemReservationState::Reserved)
+				{
+					ReservedAmount += Reservation.Amount;
+				}
+			}
+			const int32 Available = ResourceKind
+				== EShanmenItemResourceKind::Durability
+				? Item.Durability
+				: Item.Charges;
+			if (Available - ReservedAmount <= 0)
+			{
+				bUnavailableContract = true;
+				return true;
+			}
+		}
+
+		FShanmenItemDurableCommandResult Command =
+			Authority.ReserveDurable(Request);
+		if (!Command.IsCommandSuccess())
+		{
+			if (Command.Receipt.Error
+				== EShanmenItemTransactionError::InsufficientResource)
+			{
+				bUnavailableContract = true;
+				return true;
+			}
+			OutDiagnostic = Command.Diagnostic.IsEmpty()
+				? TEXT("A defense resource reservation was rejected.")
+				: Command.Diagnostic;
+			return false;
+		}
+		const FGuid ReservationId = Command.Receipt.ReservationId;
+		if (!ReservationId.IsValid()
+			|| Command.Receipt.ItemInstanceId != Item.ItemInstanceId)
+		{
+			OutDiagnostic =
+				TEXT("A defense reserve returned no exact reservation identity.");
+			return false;
+		}
+		Result.ReserveRequests.Add(MoveTemp(Request));
+		Result.ReserveCommands.Add(Command);
+		Result.ReservationIds.Add(ReservationId);
+		bAnyReplayed |= Command.Status
+			== EShanmenItemDurableCommandStatus::Replayed;
+		bAnyPersisted |= Command.Status
+			== EShanmenItemDurableCommandStatus::Persisted;
+		return true;
+	};
+
+	if (Correlation.ArmorItemInstanceId.IsValid())
+	{
+		const FShanmenItemInstance* Armor =
+			FindItem(Snapshot, Correlation.ArmorItemInstanceId);
+		if (!Armor)
+		{
+			return Reject(
+				Edemo_mapShanmenDefenseResourcePreparationStatus::SnapshotInvalid,
+				TEXT("Prepared armor identity is absent from item authority."));
+		}
+		if (Armor->DefinitionId == Fdemo_mapItemIds::SpiritGuardRobe)
+		{
+			bRecognizedContract = true;
+			const FShanmenItemDefinition* AuthorityDefinition =
+				FindDefinition(Snapshot, Armor->DefinitionId);
+			float Reduction = 0.0f;
+			if (!AuthorityDefinition
+				|| !AuthorityDefinition->Supports(
+					EShanmenItemResourceKind::Durability)
+				|| Armor->State != EShanmenItemInstanceState::Deployed
+				|| Armor->RunId != Correlation.ScopeId
+				|| Armor->OwnerId != Correlation.OwnerId
+				|| !Armor->DeploymentReservationId.IsValid()
+				|| !TryGetSpiritGuardReduction(Reduction))
+			{
+				return Reject(
+					Edemo_mapShanmenDefenseResourcePreparationStatus::SnapshotInvalid,
+					TEXT("Spirit Guard Robe is not one exact deployed durability-capable authority item."));
+			}
+			if (!RemoveSpiritGuardFromAggregate(
+					InOutDefense, Reduction, Result.Diagnostic))
+			{
+				return Reject(
+					Edemo_mapShanmenDefenseResourcePreparationStatus::DefenseMismatch,
+					Result.Diagnostic);
+			}
+			const int32 BeforeCount = Result.ReservationIds.Num();
+			if (!ReserveLayer(
+					*Armor,
+					EShanmenItemResourceKind::Durability,
+					TEXT("Shanmen.Product.SpiritGuardRobe.DurabilityReserve.r1"),
+					Result.Diagnostic))
+			{
+				CancelPartial();
+				return Reject(
+					Edemo_mapShanmenDefenseResourcePreparationStatus::ReservationRejected,
+					Result.Diagnostic);
+			}
+			if (Result.ReservationIds.Num() > BeforeCount)
+			{
+				AppendSpiritGuardLayer(
+					InOutDefense,
+					Result.ReservationIds.Last(),
+					Armor->ItemInstanceId,
+					Reduction);
+			}
 		}
 	}
 
-	Result.ReserveCommand = Authority.ReserveDurable(Result.ReserveRequest);
-	if (!Result.ReserveCommand.IsCommandSuccess())
+	if (Correlation.AccessoryItemInstanceId.IsValid())
 	{
-		if (Result.ReserveCommand.Receipt.Error
-			== EShanmenItemTransactionError::InsufficientResource)
+		const FShanmenItemInstance* Accessory =
+			FindItem(Snapshot, Correlation.AccessoryItemInstanceId);
+		if (!Accessory)
 		{
-			Result.Status =
-				Edemo_mapShanmenDefenseResourcePreparationStatus::ResourceUnavailable;
-			Result.Diagnostic =
-				TEXT("Spirit Guard durability became unavailable before the durable reserve.");
-			return Result;
+			CancelPartial();
+			return Reject(
+				Edemo_mapShanmenDefenseResourcePreparationStatus::SnapshotInvalid,
+				TEXT("Prepared accessory identity is absent from item authority."));
 		}
-		return Reject(
-			Edemo_mapShanmenDefenseResourcePreparationStatus::ReservationRejected,
-			Result.ReserveCommand.Diagnostic.IsEmpty()
-				? TEXT("Spirit Guard durability reservation was rejected.")
-				: Result.ReserveCommand.Diagnostic);
+		if (Accessory->DefinitionId
+			== Fdemo_mapItemIds::HeartProtectingMirror)
+		{
+			bRecognizedContract = true;
+			const FShanmenItemDefinition* AuthorityDefinition =
+				FindDefinition(Snapshot, Accessory->DefinitionId);
+			float VitalityFloor = 0.0f;
+			if (!AuthorityDefinition
+				|| !AuthorityDefinition->Supports(
+					EShanmenItemResourceKind::Charges)
+				|| Accessory->State != EShanmenItemInstanceState::Deployed
+				|| Accessory->RunId != Correlation.ScopeId
+				|| Accessory->OwnerId != Correlation.OwnerId
+				|| !Accessory->DeploymentReservationId.IsValid()
+				|| !TryGetHeartMirrorVitalityFloor(VitalityFloor))
+			{
+				CancelPartial();
+				return Reject(
+					Edemo_mapShanmenDefenseResourcePreparationStatus::SnapshotInvalid,
+					TEXT("Heart-Protecting Mirror is not one exact deployed charge-capable authority item."));
+			}
+			const int32 BeforeCount = Result.ReservationIds.Num();
+			if (!ReserveLayer(
+					*Accessory,
+					EShanmenItemResourceKind::Charges,
+					TEXT("Shanmen.Product.HeartProtectingMirror.ChargeReserve.r1"),
+					Result.Diagnostic))
+			{
+				CancelPartial();
+				return Reject(
+					Edemo_mapShanmenDefenseResourcePreparationStatus::ReservationRejected,
+					Result.Diagnostic);
+			}
+			if (Result.ReservationIds.Num() > BeforeCount)
+			{
+				AppendHeartMirrorLayer(
+					InOutDefense,
+					Result.ReservationIds.Last(),
+					Accessory->ItemInstanceId,
+					VitalityFloor);
+			}
+		}
 	}
-	Result.ReservationId = Result.ReserveCommand.Receipt.ReservationId;
-	if (!Result.ReservationId.IsValid()
-		|| Result.ReserveCommand.Receipt.ItemInstanceId
-			!= Armor->ItemInstanceId)
-	{
-		return Reject(
-			Edemo_mapShanmenDefenseResourcePreparationStatus::ReservationInvalid,
-			TEXT("Durable reserve returned no exact Spirit Guard reservation identity."));
-	}
-	Result.Status = Result.ReserveCommand.Status
-		== EShanmenItemDurableCommandStatus::Replayed
-		? Edemo_mapShanmenDefenseResourcePreparationStatus::Replayed
-		: Edemo_mapShanmenDefenseResourcePreparationStatus::Prepared;
 
-	AppendSpiritGuardLayer(
-		InOutDefense, Result.ReservationId, Armor->ItemInstanceId, Reduction);
+	if (!bRecognizedContract)
+	{
+		Result.Status =
+			Edemo_mapShanmenDefenseResourcePreparationStatus::NotApplicable;
+		Result.Diagnostic =
+			TEXT("Prepared equipment has no resource-backed defense contract.");
+		return Result;
+	}
+	if (Result.ReservationIds.IsEmpty())
+	{
+		Result.Status =
+			Edemo_mapShanmenDefenseResourcePreparationStatus::ResourceUnavailable;
+		Result.Diagnostic = bUnavailableContract
+			? TEXT("Every recognized equipment defense resource is unavailable for this impact.")
+			: TEXT("No equipment defense resource layer was prepared.");
+		return Result;
+	}
 	if (!InOutDefense.IsValid())
 	{
-		FString Ignored;
-		CancelPreparedDefenseReservation(Authority, Result, Ignored);
+		CancelPartial();
 		return Reject(
 			Edemo_mapShanmenDefenseResourcePreparationStatus::ReservationInvalid,
-			TEXT("Resource-backed Spirit Guard layer failed canonical validation."));
+			TEXT("Resource-backed equipment layers failed canonical validation."));
 	}
-	Result.Diagnostic = Result.Status
-		== Edemo_mapShanmenDefenseResourcePreparationStatus::Prepared
-		? TEXT("Spirit Guard durability was reserved and captured as one resource-backed armor layer.")
-		: TEXT("The exact prior Spirit Guard reservation and defense layer were replayed.");
+	Result.Status = bAnyReplayed && !bAnyPersisted
+		? Edemo_mapShanmenDefenseResourcePreparationStatus::Replayed
+		: Edemo_mapShanmenDefenseResourcePreparationStatus::Prepared;
+	Result.Diagnostic = FString::Printf(
+		TEXT("Prepared %d resource-backed equipment defense layer(s); unavailable contracts=%d."),
+		Result.ReservationIds.Num(), bUnavailableContract ? 1 : 0);
 	return Result;
 }
 
@@ -641,44 +818,54 @@ bool Fdemo_mapShanmenDefenseResourceAdapter::CancelPreparedDefenseReservation(
 			TEXT("Authority snapshot is unavailable for pre-delivery defense cancellation.");
 		return false;
 	}
-	const FShanmenItemReservationSnapshot* Reservation =
-		FindReservation(Snapshot, Preparation.ReservationId);
-	if (!Reservation)
+	for (const FGuid& ReservationId : Preparation.ReservationIds)
 	{
-		OutDiagnostic =
-			TEXT("Prepared defense reservation disappeared before cancellation.");
-		return false;
+		const FShanmenItemReservationSnapshot* Reservation =
+			FindReservation(Snapshot, ReservationId);
+		if (!Reservation)
+		{
+			OutDiagnostic =
+				TEXT("A prepared defense reservation disappeared before cancellation.");
+			return false;
+		}
+		if (Reservation->State != EShanmenItemReservationState::Reserved)
+		{
+			continue;
+		}
+		FGuid PurposeImpactId;
+		if (!TryParseTemporaryDefensePurpose(
+				Reservation->PurposeId, PurposeImpactId))
+		{
+			OutDiagnostic =
+				TEXT("A prepared defense reservation already belongs to the coordination saga.");
+			return false;
+		}
+		FShanmenItemReservationActionRequest Request;
+		Request.Context.RunId = Reservation->RunId;
+		Request.Context.OwnerId = Reservation->OwnerId;
+		Request.Context.RequestId =
+			MakeDefenseCancelRequestId(Reservation->ReservationId);
+		Request.Context.Content = Snapshot.Content;
+		Request.ReservationId = Reservation->ReservationId;
+		const FShanmenItemDurableCommandResult Command =
+			Authority.CancelDurable(Request);
+		if (!Command.IsCommandSuccess())
+		{
+			OutDiagnostic = Command.Diagnostic.IsEmpty()
+				? TEXT("A prepared defense reservation could not be cancelled durably.")
+				: Command.Diagnostic;
+			return false;
+		}
+		if (!Authority.TryCaptureSnapshot(Snapshot))
+		{
+			OutDiagnostic =
+				TEXT("Authority snapshot disappeared during bounded defense cancellation.");
+			return false;
+		}
 	}
-	if (Reservation->State != EShanmenItemReservationState::Reserved)
-	{
-		return true;
-	}
-	FGuid PurposeImpactId;
-	if (!TryParseTemporaryDefensePurpose(
-			Reservation->PurposeId, PurposeImpactId))
-	{
-		OutDiagnostic =
-			TEXT("Prepared defense reservation already belongs to the coordination saga.");
-		return false;
-	}
-	FShanmenItemReservationActionRequest Request;
-	Request.Context.RunId = Reservation->RunId;
-	Request.Context.OwnerId = Reservation->OwnerId;
-	Request.Context.RequestId =
-		MakeDefenseCancelRequestId(Reservation->ReservationId);
-	Request.Context.Content = Snapshot.Content;
-	Request.ReservationId = Reservation->ReservationId;
-	const FShanmenItemDurableCommandResult Command =
-		Authority.CancelDurable(Request);
-	if (!Command.IsCommandSuccess())
-	{
-		OutDiagnostic = Command.Diagnostic.IsEmpty()
-			? TEXT("Prepared defense reservation could not be cancelled durably.")
-			: Command.Diagnostic;
-		return false;
-	}
-	OutDiagnostic =
-		TEXT("Prepared defense reservation was cancelled before impact delivery.");
+	OutDiagnostic = FString::Printf(
+		TEXT("Cancelled %d prepared defense reservation(s) before impact delivery."),
+		Preparation.ReservationIds.Num());
 	return true;
 }
 

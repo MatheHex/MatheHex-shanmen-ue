@@ -39,6 +39,7 @@ const FName Fdemo_mapItemIds::SpiritDust(TEXT("Prototype.Item.Material.SpiritDus
 const FName Fdemo_mapItemIds::HeavyPracticeBlade(TEXT("Prototype.Item.Weapon.HeavyPracticeBlade"));
 const FName Fdemo_mapItemIds::ReinforcedVest(TEXT("Prototype.Item.Armor.ReinforcedVest"));
 const FName Fdemo_mapItemIds::EvasionCharm(TEXT("Prototype.Item.Accessory.EvasionCharm"));
+const FName Fdemo_mapItemIds::HeartProtectingMirror(TEXT("Prototype.Item.Accessory.HeartProtectingMirror"));
 const FName Fdemo_mapItemIds::IronShard(TEXT("Prototype.Item.Material.IronShard"));
 const FName Fdemo_mapItemIds::AncientToken(TEXT("Prototype.Item.Loot.AncientToken"));
 
@@ -82,6 +83,7 @@ const FName Fdemo_mapItemEffectIds::CooldownMultiplier(TEXT("Effect.CooldownMult
 const FName Fdemo_mapItemEffectIds::TotalCapacity(TEXT("Effect.TotalCapacity"));
 const FName Fdemo_mapItemEffectIds::RingQuickCapacity(TEXT("Effect.RingQuickCapacity"));
 const FName Fdemo_mapItemEffectIds::HealAmount(TEXT("Effect.HealAmount"));
+const FName Fdemo_mapItemEffectIds::LethalVitalityFloor(TEXT("Effect.LethalVitalityFloor"));
 
 const FName Fdemo_mapLootTableIds::EnemyMelee(TEXT("Prototype.LootTable.Enemy.Melee"));
 const FName Fdemo_mapLootTableIds::EnemyRanged(TEXT("Prototype.LootTable.Enemy.Ranged"));
@@ -358,14 +360,14 @@ bool Fdemo_mapRewardDistributionProfile::IsValid() const
 
 FName Fdemo_mapItemDefinitions::GetContentVersionId()
 {
-	return FName(TEXT("CodeB.Content.0.0.10.P16.0"));
+	return FName(TEXT("CodeB.Content.0.0.10.P17.0"));
 }
 
 const FString& Fdemo_mapItemDefinitions::GetContentDigest()
 {
 	// This is a content-contract digest, not a save migration key. Existing
 	// persisted items keep their DefinitionId and are never remapped by P73.
-	static const FString Digest(TEXT("9B789DB381BB934F772326A5217094F19C654D5AF51D5623EDB0A108DBA4CC7B"));
+	static const FString Digest(TEXT("5C09D58AA2EB206FA39F2BE896F7B071149CE8FE3D4E75780CFE213432638399"));
 	return Digest;
 }
 
@@ -382,6 +384,8 @@ bool Fdemo_mapItemDefinitions::IsKnownContentIdentity(
 	const FString& ContentDigest)
 {
 	return IsCurrentContentIdentity(ContentVersionId, ContentDigest)
+		|| (ContentVersionId == FName(TEXT("CodeB.Content.0.0.10.P16.0"))
+			&& ContentDigest == TEXT("9B789DB381BB934F772326A5217094F19C654D5AF51D5623EDB0A108DBA4CC7B"))
 		|| (ContentVersionId == FName(TEXT("CodeB.Content.0.0.10.P11.7"))
 			&& ContentDigest == TEXT("6D01652004E386DC469CB09FF0F3A77110C53841F6AF3F66F5600C3C9B9B4179"))
 		|| (ContentVersionId == FName(TEXT("CodeB.Content.0.0.10.P7.7"))
@@ -406,6 +410,7 @@ const TArray<Fdemo_mapItemDefinition>& Fdemo_mapItemDefinitions::GetAll()
 		MakeDefinition(Fdemo_mapItemIds::HeavyPracticeBlade, TEXT("重型练习刀"), TEXT("HEAVY PRACTICE BLADE"), Fdemo_mapItemIds::WeaponCategory, 0, 1, Fdemo_mapItemIds::WeaponSlot, { Fdemo_mapItemIds::WeaponSlot }, { MakeModifier(Fdemo_mapAttributeIds::AttackPower, Edemo_mapModifierOperation::Add, 2.0f) }, {}, false, false, 0, 0, 180, 0, 0, { Edemo_mapItemGameplaySemantic::WeaponGuard }),
 		MakeDefinition(Fdemo_mapItemIds::ReinforcedVest, TEXT("加固训练甲"), TEXT("REINFORCED VEST"), Fdemo_mapItemIds::ArmorCategory, 0, 1, Fdemo_mapItemIds::ArmorSlot, { Fdemo_mapItemIds::ArmorSlot }, { MakeModifier(Fdemo_mapAttributeIds::MaxHealth, Edemo_mapModifierOperation::Add, 3.0f) }, {}, false, false, 0, 0, 150),
 		MakeDefinition(Fdemo_mapItemIds::EvasionCharm, TEXT("避影符"), TEXT("EVASION CHARM"), Fdemo_mapItemIds::AccessoryCategory, 0, 1, Fdemo_mapItemIds::AccessorySlot, { Fdemo_mapItemIds::AccessorySlot }, { MakeModifier(Fdemo_mapAttributeIds::DodgeChance, Edemo_mapModifierOperation::Add, 0.10f) }, {}, false, false, 0, 0, 120),
+		MakeDefinition(Fdemo_mapItemIds::HeartProtectingMirror, TEXT("护心镜"), TEXT("HEART-PROTECTING MIRROR"), Fdemo_mapItemIds::AccessoryCategory, 1, 1, Fdemo_mapItemIds::AccessorySlot, { Fdemo_mapItemIds::AccessorySlot }, {}, { MakeEffect(Fdemo_mapItemEffectIds::LethalVitalityFloor, 1.0) }, false, true, 0, 100, 240, 0, 1, { Edemo_mapItemGameplaySemantic::LethalInterception }),
 		MakeDefinition(Fdemo_mapItemIds::IronShard, TEXT("玄铁碎片"), TEXT("IRON SHARD"), Fdemo_mapItemIds::MaterialCategory, 0, 5, NAME_None, {}, {}, {}, false, true, 0, 10, 3),
 		MakeDefinition(Fdemo_mapItemIds::AncientToken, TEXT("古旧令牌"), TEXT("ANCIENT TOKEN"), Fdemo_mapItemIds::LootCategory, 0, 1, NAME_None, {}, {}, {}, false, true, 0, 20, 500),
 
@@ -571,6 +576,7 @@ Fdemo_mapItemDefinitions::GetGeneratedRewardPool()
 		GeneratedPool(TEXT("P1.Pool.Robe.L1"), Fdemo_mapItemIds::ArmorRobeLevel1, Fdemo_mapRewardTagIds::ItemEquipmentRobe, 36, 1), GeneratedPool(TEXT("P1.Pool.Robe.L2"), Fdemo_mapItemIds::ArmorRobeLevel2, Fdemo_mapRewardTagIds::ItemEquipmentRobe, 24, 1), GeneratedPool(TEXT("P1.Pool.Robe.L3"), Fdemo_mapItemIds::ArmorRobeLevel3, Fdemo_mapRewardTagIds::ItemEquipmentRobe, 12, 1), GeneratedPool(TEXT("P1.Pool.Robe.L4"), Fdemo_mapItemIds::ArmorRobeLevel4, Fdemo_mapRewardTagIds::ItemEquipmentRobe, 5, 1),
 		GeneratedPool(TEXT("P5.4.Pool.Robe.SpiritGuard"), Fdemo_mapItemIds::SpiritGuardRobe, Fdemo_mapRewardTagIds::ItemEquipmentRobe, 8, 1),
 		GeneratedPool(TEXT("P1.Pool.Accessory.L1"), Fdemo_mapItemIds::AccessoryLevel1, Fdemo_mapRewardTagIds::ItemEquipmentAccessory, 34, 1), GeneratedPool(TEXT("P1.Pool.Accessory.L2"), Fdemo_mapItemIds::AccessoryLevel2, Fdemo_mapRewardTagIds::ItemEquipmentAccessory, 22, 1), GeneratedPool(TEXT("P1.Pool.Accessory.L3"), Fdemo_mapItemIds::AccessoryLevel3, Fdemo_mapRewardTagIds::ItemEquipmentAccessory, 11, 1), GeneratedPool(TEXT("P1.Pool.Accessory.L4"), Fdemo_mapItemIds::AccessoryLevel4, Fdemo_mapRewardTagIds::ItemEquipmentAccessory, 4, 1),
+		GeneratedPool(TEXT("P17.0.Pool.Accessory.HeartMirror"), Fdemo_mapItemIds::HeartProtectingMirror, Fdemo_mapRewardTagIds::ItemEquipmentAccessory, 6, 1),
 		GeneratedPool(TEXT("P1.Pool.Backpack.L1"), Fdemo_mapItemIds::BackpackLevel1, Fdemo_mapRewardTagIds::ItemEquipmentBackpack, 24, 1), GeneratedPool(TEXT("P1.Pool.Backpack.L2"), Fdemo_mapItemIds::BackpackLevel2, Fdemo_mapRewardTagIds::ItemEquipmentBackpack, 14, 1),
 		GeneratedPool(TEXT("P1.Pool.Pill.L1"), Fdemo_mapItemIds::HealingPillLevel1, Fdemo_mapRewardTagIds::ItemConsumablePill, 48, 8), GeneratedPool(TEXT("P1.Pool.Pill.L2"), Fdemo_mapItemIds::HealingPillLevel2, Fdemo_mapRewardTagIds::ItemConsumablePill, 32, 6), GeneratedPool(TEXT("P1.Pool.Pill.L3"), Fdemo_mapItemIds::HealingPillLevel3, Fdemo_mapRewardTagIds::ItemConsumablePill, 18, 4),
 		GeneratedPool(TEXT("P1.Pool.Wood.L1"), Fdemo_mapItemIds::SpiritWoodLevel1, Fdemo_mapRewardTagIds::ItemMaterialWood, 52, 12), GeneratedPool(TEXT("P1.Pool.Wood.L2"), Fdemo_mapItemIds::SpiritWoodLevel2, Fdemo_mapRewardTagIds::ItemMaterialWood, 34, 10), GeneratedPool(TEXT("P1.Pool.Wood.L3"), Fdemo_mapItemIds::SpiritWoodLevel3, Fdemo_mapRewardTagIds::ItemMaterialWood, 18, 8),
@@ -839,9 +845,9 @@ Fdemo_mapItemDefinitions::ResolveSpatialRingCapacity(
 
 bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 {
-	if (GetAll().Num() != 41 || GetEquipmentSlotIds().Num() != 5)
+	if (GetAll().Num() != 42 || GetEquipmentSlotIds().Num() != 5)
 	{
-		if (OutError) *OutError = TEXT("The current registry must contain 41 definitions and expose five active runtime slots.");
+		if (OutError) *OutError = TEXT("The current registry must contain 42 definitions and expose five active runtime slots.");
 		return false;
 	}
 	TSet<FName> DefinitionIds;
@@ -850,6 +856,7 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 	int32 ThrownWeaponDefinitionCount = 0;
 	int32 WeaponGuardDefinitionCount = 0;
 	int32 MeridianShockTreatmentDefinitionCount = 0;
+	int32 LethalInterceptionDefinitionCount = 0;
 	for (FName SlotId : GetEquipmentSlotIds())
 	{
 		if (SlotId.IsNone() || SlotIds.Contains(SlotId))
@@ -878,6 +885,8 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 			Edemo_mapItemGameplaySemantic::WeaponGuard);
 		const bool bMeridianShockTreatment = Definition.HasGameplaySemantic(
 			Edemo_mapItemGameplaySemantic::MeridianShockTreatment);
+		const bool bLethalInterception = Definition.HasGameplaySemantic(
+			Edemo_mapItemGameplaySemantic::LethalInterception);
 		if (bThrownWeapon)
 		{
 			++ThrownWeaponDefinitionCount;
@@ -889,6 +898,10 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 		if (bMeridianShockTreatment)
 		{
 			++MeridianShockTreatmentDefinitionCount;
+		}
+		if (bLethalInterception)
+		{
+			++LethalInterceptionDefinitionCount;
 		}
 		if (Definition.DefinitionId.IsNone()
 			|| DefinitionIds.Contains(Definition.DefinitionId)
@@ -945,6 +958,27 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 					|| Definition.MaxCharges != 0
 					|| bThrownWeapon
 					|| bWeaponGuard))
+			|| (bLethalInterception
+				&& (Definition.DefinitionId
+						!= Fdemo_mapItemIds::HeartProtectingMirror
+					|| Definition.CategoryId
+						!= Fdemo_mapItemIds::AccessoryCategory
+					|| Definition.MaxStackSize != 1
+					|| Definition.MaxDurability != 0
+					|| Definition.MaxCharges != 1
+					|| Definition.EquipmentSlotId
+						!= Fdemo_mapItemIds::AccessorySlot
+					|| Definition.CompatibleSlotIds
+						!= TArray<FName>({ Fdemo_mapItemIds::AccessorySlot })
+					|| Definition.bHotbarEligible
+					|| Definition.EffectParameters.Num() != 1
+					|| Definition.EffectParameters[0].ParameterId
+						!= Fdemo_mapItemEffectIds::LethalVitalityFloor
+					|| !FMath::IsNearlyEqual(
+						Definition.EffectParameters[0].Value, 1.0)
+					|| bThrownWeapon
+					|| bWeaponGuard
+					|| bMeridianShockTreatment))
 			|| (!Definition.EquipmentSlotId.IsNone()
 				&& (Definition.MaxStackSize != 1
 					|| Definition.CompatibleSlotIds.IsEmpty()
@@ -997,6 +1031,11 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 	if (MeridianShockTreatmentDefinitionCount != 1)
 	{
 		if (OutError) *OutError = TEXT("P16.0 requires exactly one canonical Meridian Shock treatment definition.");
+		return false;
+	}
+	if (LethalInterceptionDefinitionCount != 1)
+	{
+		if (OutError) *OutError = TEXT("P17.0 requires exactly one canonical lethal-interception artifact definition.");
 		return false;
 	}
 	TSet<FName> FixedProfileIds;
