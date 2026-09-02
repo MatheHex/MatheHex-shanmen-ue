@@ -111,6 +111,19 @@ bool Fdemo_mapShanmenMeridianShockTreatmentProductSession::TryRecoverPending(
 	Udemo_mapShanmenItemAuthoritySubsystem& Authority,
 	FString& OutDiagnostic)
 {
+	return TryRecoverPending(
+		Authority,
+		TConstArrayView<
+			Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof>(),
+		OutDiagnostic);
+}
+
+bool Fdemo_mapShanmenMeridianShockTreatmentProductSession::TryRecoverPending(
+	Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+	const TConstArrayView<
+		Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof> Proofs,
+	FString& OutDiagnostic)
+{
 	OutDiagnostic.Reset();
 	if (!IsInGameThread() || !IsValid() || IsEmpty())
 	{
@@ -120,6 +133,7 @@ bool Fdemo_mapShanmenMeridianShockTreatmentProductSession::TryRecoverPending(
 	int32 DurableRecoveredCount = 0;
 	if (!Route.TryRecoverDurablePreparation(
 			Authority,
+			Proofs,
 			DurableRecoveredCount,
 			OutDiagnostic))
 	{

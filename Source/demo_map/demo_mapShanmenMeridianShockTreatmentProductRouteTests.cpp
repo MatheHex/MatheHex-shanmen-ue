@@ -292,6 +292,52 @@ namespace
 			return Count;
 		}
 
+		bool CreateRecoveryProof(
+			FAutomationTestBase& Test,
+			Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof& OutProof,
+			FString& OutEncoded)
+		{
+			OutProof =
+				Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof();
+			OutEncoded.Reset();
+			Fdemo_mapShanmenCombatConditionStatusSnapshot Status;
+			if (!Conditions
+				|| !Authority
+				|| !Conditions->TryCaptureMeridianShockStatus(Status))
+			{
+				Test.AddError(
+					TEXT("Could not capture active condition for P16.4 proof."));
+				return false;
+			}
+			const Fdemo_mapShanmenMeridianShockTreatmentItemResult Prepared =
+				Fdemo_mapShanmenMeridianShockTreatmentAdapter::PrepareActiveRun(
+					*Authority,
+					Correlation,
+					Status,
+					TreatmentItemId);
+			if (!Prepared.IsPrepared())
+			{
+				Test.AddError(FString::Printf(
+					TEXT("P16.4 durable prepare failed: %s"),
+					*Prepared.Diagnostic));
+				return false;
+			}
+			const Fdemo_mapShanmenCombatConditionTreatmentResult Treatment =
+				Conditions->TryTreatMeridianShock(
+					Prepared.TreatmentIntent,
+					TimelineSample);
+			if (!Treatment.IsSuccess()
+				|| !Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof::
+					TryCapture(Treatment.Receipt, OutProof)
+				|| !OutProof.TryEncode(OutEncoded))
+			{
+				Test.AddError(
+					TEXT("Could not capture canonical P16.4 treatment proof."));
+				return false;
+			}
+			return true;
+		}
+
 		~FTreatmentRouteFixture()
 		{
 			StopGameInstance();
@@ -861,6 +907,228 @@ bool Fdemo_mapMeridianShockTreatmentLedgerProofFenceTest::RunTest(
 	TestTrue(TEXT("missing condition proof fails closed without item mutation"),
 		!bRecovered
 			&& !Fixture.Conditions->IsMeridianShockActive()
+			&& Fixture.Conditions->NumProcessedTreatments() == 0
+			&& Before == After
+			&& Fixture.CountTreatmentFinalizations(true) == 0
+			&& Fixture.CountTreatmentFinalizations(false) == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapMeridianShockTreatmentRecoveryProofCodecTest,
+	"Shanmen.0_0_10.Product.MeridianShockTreatment.Recovery.ProofCodec",
+	RouteFlags)
+
+bool Fdemo_mapMeridianShockTreatmentRecoveryProofCodecTest::RunTest(
+	const FString&)
+{
+	FTreatmentRouteFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("RecoveryProofCodec"), false))
+	{
+		AddError(TEXT("Could not build the P16.4 proof codec fixture."));
+		return false;
+	}
+	Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof Captured;
+	FString Encoded;
+	if (!Fixture.CreateRecoveryProof(*this, Captured, Encoded))
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof Decoded;
+	Fdemo_mapShanmenCombatConditionTreatmentIntent RestoredIntent;
+	Fdemo_mapShanmenCombatConditionTreatmentReceipt RestoredReceipt;
+	const bool bRoundTrip =
+		Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof::TryDecode(
+			Encoded,
+			Decoded)
+		&& Decoded.Matches(Captured)
+		&& Decoded.TryRestore(RestoredIntent, RestoredReceipt)
+		&& RestoredReceipt.Matches(RestoredIntent)
+		&& RestoredReceipt.GetTreatmentId() == Captured.GetTreatmentId();
+	TestTrue(TEXT("canonical proof round-trips into the exact treatment receipt"),
+		bRoundTrip);
+
+	TArray<FString> Parts;
+	Encoded.ParseIntoArray(Parts, TEXT("|"), false);
+	Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof Rejected;
+	bool bRejectsTampering = Parts.Num() == 13;
+	if (bRejectsTampering)
+	{
+		TArray<FString> UnknownSchema = Parts;
+		UnknownSchema[1] = TEXT("2");
+		bRejectsTampering =
+			!Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof::TryDecode(
+				FString::Join(UnknownSchema, TEXT("|")),
+				Rejected);
+		TArray<FString> NonCanonicalTick = Parts;
+		NonCanonicalTick[10] = TEXT("00");
+		bRejectsTampering = bRejectsTampering
+			&& !Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof::
+				TryDecode(
+					FString::Join(NonCanonicalTick, TEXT("|")),
+					Rejected);
+		TArray<FString> WrongIntegrityId = Parts;
+		WrongIntegrityId[2] =
+			FGuid(0xC16400FF, 0, 0, 1).ToString(EGuidFormats::Digits);
+		bRejectsTampering = bRejectsTampering
+			&& !Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof::
+				TryDecode(
+					FString::Join(WrongIntegrityId, TEXT("|")),
+					Rejected);
+	}
+	AddInfo(FString::Printf(
+		TEXT("P16.4 proof codec schema=%d bytes=%d proof=%s roundtrip=%d tamperFence=%d"),
+		Captured.GetSchemaVersion(),
+		Encoded.Len(),
+		*Captured.GetProofId().ToString(EGuidFormats::Digits),
+		bRoundTrip ? 1 : 0,
+		bRejectsTampering ? 1 : 0));
+	TestTrue(TEXT("codec rejects unknown schema, non-canonical tick and bad integrity id"),
+		bRejectsTampering);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapMeridianShockTreatmentProcessRecoveryTest,
+	"Shanmen.0_0_10.Product.MeridianShockTreatment.Recovery.ProcessProof",
+	RouteFlags)
+
+bool Fdemo_mapMeridianShockTreatmentProcessRecoveryTest::RunTest(
+	const FString&)
+{
+	FTreatmentRouteFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("ProcessProofRecovery"), false))
+	{
+		AddError(TEXT("Could not build the P16.4 process recovery fixture."));
+		return false;
+	}
+	Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof Captured;
+	FString Encoded;
+	if (!Fixture.CreateRecoveryProof(*this, Captured, Encoded))
+	{
+		return false;
+	}
+	Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof RestoredProof;
+	FString Diagnostic;
+	if (!Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof::TryDecode(
+			Encoded,
+			RestoredProof)
+		|| !Fixture.Conditions->TryEnd(
+			Fixture.Correlation.ActiveRunId,
+			Diagnostic)
+		|| !Fixture.Conditions->TryBegin(
+			Fixture.Correlation.ActiveRunId,
+			TargetEntityId,
+			Fixture.Timeline.GetTimelineId(),
+			Fixture.Attributes,
+			Diagnostic)
+		|| !Fixture.RestartAuthority(*this))
+	{
+		AddError(FString::Printf(
+			TEXT("Could not reconstruct P16.4 process boundary: %s"),
+			*Diagnostic));
+		return false;
+	}
+
+	Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle Reconstructed;
+	if (!Reconstructed.TryBegin(
+			*Fixture.Authority, Fixture.Conditions, Diagnostic))
+	{
+		AddError(Diagnostic);
+		return false;
+	}
+	const TArray<Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof> Proofs =
+		{ RestoredProof };
+	const bool bRecovered =
+		Reconstructed.TryRecoverPending(Proofs, Diagnostic);
+	AddInfo(FString::Printf(
+		TEXT("P16.4 process-proof recovered=%d conditionRevision=%lld processed=%d commit=%d cancel=%d diagnostic=%s"),
+		bRecovered ? 1 : 0,
+		static_cast<long long>(Fixture.Conditions->GetConditionRevision()),
+		Fixture.Conditions->NumProcessedTreatments(),
+		Fixture.CountTreatmentFinalizations(true),
+		Fixture.CountTreatmentFinalizations(false),
+		*Diagnostic));
+	TestTrue(TEXT("decoded proof restores fresh condition history and commits only item Quantity"),
+		bRecovered
+			&& !Fixture.Conditions->IsMeridianShockActive()
+			&& Fixture.Conditions->GetLastObservedTick()
+				== RestoredProof.GetTreatedAtTick()
+			&& Fixture.Conditions->GetConditionRevision()
+				== RestoredProof.GetConditionRevisionAfter()
+			&& Fixture.Conditions->NumProcessedTreatments() == 1
+			&& Fixture.CountTreatmentFinalizations(true) == 1
+			&& Fixture.CountTreatmentFinalizations(false) == 0
+			&& Reconstructed.NumCapturedRequests() == 0
+			&& !Reconstructed.HasUnresolvedRecovery());
+	TestTrue(TEXT("reconstructed lifecycle ends after portable-proof recovery"),
+		Reconstructed.TryEnd(Diagnostic) && Reconstructed.IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapMeridianShockTreatmentRecoveryProofConflictTest,
+	"Shanmen.0_0_10.Product.MeridianShockTreatment.Recovery.ProofConflictFence",
+	RouteFlags)
+
+bool Fdemo_mapMeridianShockTreatmentRecoveryProofConflictTest::RunTest(
+	const FString&)
+{
+	FTreatmentRouteFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("RecoveryProofConflict"), false))
+	{
+		AddError(TEXT("Could not build the P16.4 conflict fixture."));
+		return false;
+	}
+	Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof Proof;
+	FString Encoded;
+	FString Diagnostic;
+	if (!Fixture.CreateRecoveryProof(*this, Proof, Encoded)
+		|| !Fixture.Conditions->TryEnd(
+			Fixture.Correlation.ActiveRunId,
+			Diagnostic)
+		|| !Fixture.Conditions->TryBegin(
+			Fixture.Correlation.ActiveRunId,
+			TargetEntityId,
+			Fixture.Timeline.GetTimelineId(),
+			Fixture.Attributes,
+			Diagnostic)
+		|| !Fixture.Conditions->TryApplyMeridianShock(
+			MakeCommittedReceipt(),
+			Fixture.TimelineSample).IsSuccess())
+	{
+		AddError(FString::Printf(
+			TEXT("Could not arrange P16.4 active-condition conflict: %s"),
+			*Diagnostic));
+		return false;
+	}
+	Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle Reconstructed;
+	if (!Reconstructed.TryBegin(
+			*Fixture.Authority, Fixture.Conditions, Diagnostic))
+	{
+		AddError(Diagnostic);
+		return false;
+	}
+	FShanmenItemAuthoritySnapshot Before;
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Authority->TryCaptureSnapshot(Before);
+	const TArray<Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof> Proofs =
+		{ Proof };
+	const bool bRecovered =
+		Reconstructed.TryRecoverPending(Proofs, Diagnostic);
+	Fixture.Authority->TryCaptureSnapshot(After);
+	AddInfo(FString::Printf(
+		TEXT("P16.4 active-conflict recovered=%d active=%d unchanged=%d commit=%d cancel=%d diagnostic=%s"),
+		bRecovered ? 1 : 0,
+		Fixture.Conditions->IsMeridianShockActive() ? 1 : 0,
+		Before == After ? 1 : 0,
+		Fixture.CountTreatmentFinalizations(true),
+		Fixture.CountTreatmentFinalizations(false),
+		*Diagnostic));
+	TestTrue(TEXT("durable treated proof cannot overwrite an active condition"),
+		!bRecovered
+			&& Fixture.Conditions->IsMeridianShockActive()
 			&& Fixture.Conditions->NumProcessedTreatments() == 0
 			&& Before == After
 			&& Fixture.CountTreatmentFinalizations(true) == 0

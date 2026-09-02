@@ -10,6 +10,7 @@
 #include "demo_mapShanmenCombatConditionComponent.generated.h"
 
 class Udemo_mapAttributeComponent;
+struct Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof;
 
 /** Outcome of projecting one committed vitality receipt into a Run condition. */
 enum class Edemo_mapShanmenCombatConditionApplicationStatus : uint8
@@ -191,6 +192,7 @@ public:
 
 private:
 	friend class Udemo_mapShanmenCombatConditionComponent;
+	friend struct Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof;
 	FGuid TreatmentId;
 	FGuid RunId;
 	FGuid TargetEntityId;
@@ -278,6 +280,14 @@ public:
 	bool TryGetProcessedMeridianShockTreatment(
 		const FGuid& TreatmentId,
 		Fdemo_mapShanmenCombatConditionTreatmentReceipt& OutReceipt) const;
+	/**
+	 * Restores one exact treated receipt into a freshly begun condition authority.
+	 * The caller must supply a proof decoded from the condition domain's trusted
+	 * persistence source; active or non-fresh condition state fails closed.
+	 */
+	bool TryRestoreProcessedMeridianShockTreatment(
+		const Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof& Proof,
+		FString& OutDiagnostic);
 	/** Copies the current immutable state for Blueprint/presentation polling. */
 	bool TryCaptureMeridianShockStatus(
 		Fdemo_mapShanmenCombatConditionStatusSnapshot& OutStatus) const;

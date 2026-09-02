@@ -37,6 +37,10 @@ public:
 		const Fdemo_mapShanmenCombatRunTimelineSample& TimelineSample);
 
 	bool TryRecoverPending(FString& OutDiagnostic);
+	bool TryRecoverPending(
+		TConstArrayView<
+			Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof> Proofs,
+		FString& OutDiagnostic);
 	bool TryEnd(FString& OutDiagnostic);
 
 	bool IsActive() const { return Session.IsActive(); }

@@ -501,6 +501,22 @@ bool Fdemo_mapShanmenMeridianShockTreatmentProductRoute::
 		int32& OutRecoveredCount,
 		FString& OutDiagnostic)
 {
+	return TryRecoverDurablePreparation(
+		Authority,
+		TConstArrayView<
+			Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof>(),
+		OutRecoveredCount,
+		OutDiagnostic);
+}
+
+bool Fdemo_mapShanmenMeridianShockTreatmentProductRoute::
+	TryRecoverDurablePreparation(
+		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+		const TConstArrayView<
+			Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof> Proofs,
+		int32& OutRecoveredCount,
+		FString& OutDiagnostic)
+{
 	OutRecoveredCount = 0;
 	OutDiagnostic.Reset();
 	if (!IsInGameThread() || !bActive || !IsValid()
@@ -575,11 +591,81 @@ bool Fdemo_mapShanmenMeridianShockTreatmentProductRoute::
 	}
 
 	const FShanmenItemTransactionReceipt& PrepareReceipt = Pending[0];
+	const FShanmenItemInstance* PreparedItem =
+		Snapshot.Items.FindByPredicate(
+			[&PrepareReceipt](const FShanmenItemInstance& Value)
+			{
+				return Value.ItemInstanceId
+					== PrepareReceipt.ItemInstanceId;
+			});
+	if (!PreparedItem)
+	{
+		OutDiagnostic =
+			TEXT("Pending treatment prepare no longer identifies one item authority instance.");
+		return false;
+	}
+
+	const Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof*
+		DurableTreatmentProof = nullptr;
+	for (const Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof& Proof :
+		Proofs)
+	{
+		if (!Proof.IsValid())
+		{
+			OutDiagnostic =
+				TEXT("Condition recovery source contains an invalid treatment proof.");
+			return false;
+		}
+		if (Proof.GetTreatmentId() != PrepareReceipt.ReservationId)
+		{
+			continue;
+		}
+		if (DurableTreatmentProof
+			&& !DurableTreatmentProof->Matches(Proof))
+		{
+			OutDiagnostic =
+				TEXT("Condition recovery source contains conflicting proofs for one TreatmentId.");
+			return false;
+		}
+		DurableTreatmentProof = &Proof;
+	}
+	if (DurableTreatmentProof
+		&& (DurableTreatmentProof->GetRunId()
+				!= Correlation.ActiveRunId
+			|| DurableTreatmentProof->GetItemInstanceId()
+				!= PrepareReceipt.ItemInstanceId
+			|| DurableTreatmentProof->GetItemDefinitionId()
+				!= PreparedItem->DefinitionId))
+	{
+		OutDiagnostic =
+			TEXT("Durable treatment proof does not match the pending item prepare.");
+		return false;
+	}
+
 	Fdemo_mapShanmenCombatConditionTreatmentReceipt TreatmentReceipt;
-	const bool bTreatmentAlreadyProcessed =
+	bool bTreatmentAlreadyProcessed =
 		ConditionComponent->TryGetProcessedMeridianShockTreatment(
 			PrepareReceipt.ReservationId,
 			TreatmentReceipt);
+	bool bRestoredDurableTreatmentProof = false;
+	if (!bTreatmentAlreadyProcessed && DurableTreatmentProof)
+	{
+		FString RestoreDiagnostic;
+		if (!ConditionComponent->TryRestoreProcessedMeridianShockTreatment(
+				*DurableTreatmentProof,
+				RestoreDiagnostic)
+			|| !ConditionComponent->TryGetProcessedMeridianShockTreatment(
+				PrepareReceipt.ReservationId,
+				TreatmentReceipt))
+		{
+			OutDiagnostic = RestoreDiagnostic.IsEmpty()
+				? TEXT("Condition authority rejected the durable treatment proof.")
+				: RestoreDiagnostic;
+			return false;
+		}
+		bTreatmentAlreadyProcessed = true;
+		bRestoredDurableTreatmentProof = true;
+	}
 	Fdemo_mapShanmenCombatConditionTreatmentIntent TreatmentIntent;
 	Fdemo_mapShanmenCombatConditionStatusSnapshot LiveStatus;
 	Fdemo_mapShanmenCombatRunTimelineSample TimelineSample;
@@ -601,18 +687,22 @@ bool Fdemo_mapShanmenMeridianShockTreatmentProductRoute::
 				TEXT("Runtime treatment proof cannot reconstruct the durable prepare identity.");
 			return false;
 		}
+		if (DurableTreatmentProof)
+		{
+			Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof RuntimeProof;
+			if (!Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof::
+				TryCapture(TreatmentReceipt, RuntimeProof)
+				|| !RuntimeProof.Matches(*DurableTreatmentProof))
+			{
+				OutDiagnostic =
+					TEXT("Runtime and durable condition treatment proofs conflict.");
+				return false;
+			}
+		}
 	}
 	else
 	{
-		const FShanmenItemInstance* Item =
-			Snapshot.Items.FindByPredicate(
-				[&PrepareReceipt](const FShanmenItemInstance& Value)
-				{
-					return Value.ItemInstanceId
-						== PrepareReceipt.ItemInstanceId;
-				});
-		if (!Item
-			|| !ConditionComponent->TryCaptureMeridianShockStatus(
+		if (!ConditionComponent->TryCaptureMeridianShockStatus(
 				LiveStatus)
 			|| !LiveStatus.IsActive()
 			|| !Fdemo_mapShanmenCombatConditionTreatmentIntent::TryCapture(
@@ -620,7 +710,7 @@ bool Fdemo_mapShanmenMeridianShockTreatmentProductRoute::
 				LiveStatus.GetTargetEntityId(),
 				LiveStatus.GetTimelineId(),
 				PrepareReceipt.ItemInstanceId,
-				Item->DefinitionId,
+				PreparedItem->DefinitionId,
 				LiveStatus.GetConditionRevision(),
 				TreatmentIntent)
 			|| TreatmentIntent.GetTreatmentId()
@@ -684,9 +774,11 @@ bool Fdemo_mapShanmenMeridianShockTreatmentProductRoute::
 		return false;
 	}
 	OutRecoveredCount = 1;
-	OutDiagnostic = bTreatmentAlreadyProcessed
-		? TEXT("Recovered one durable prepare from runtime treatment proof and committed only its item Quantity.")
-		: TEXT("Recovered one durable prepare from the still-active condition, then treated and committed in order.");
+	OutDiagnostic = bRestoredDurableTreatmentProof
+		? TEXT("Recovered one durable prepare from a versioned condition proof and committed only its item Quantity.")
+		: bTreatmentAlreadyProcessed
+			? TEXT("Recovered one durable prepare from runtime treatment proof and committed only its item Quantity.")
+			: TEXT("Recovered one durable prepare from the still-active condition, then treated and committed in order.");
 	return true;
 }
 

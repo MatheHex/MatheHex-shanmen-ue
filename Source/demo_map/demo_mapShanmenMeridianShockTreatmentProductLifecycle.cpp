@@ -72,13 +72,26 @@ Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle::TrySubmitHotbar(
 bool Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle::
 	TryRecoverPending(FString& OutDiagnostic)
 {
+	return TryRecoverPending(
+		TConstArrayView<
+			Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof>(),
+		OutDiagnostic);
+}
+
+bool Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle::
+	TryRecoverPending(
+		const TConstArrayView<
+			Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof> Proofs,
+		FString& OutDiagnostic)
+{
 	OutDiagnostic.Reset();
 	if (!IsValid() || !Session.IsActive() || !BoundAuthority.IsValid())
 	{
 		OutDiagnostic = TEXT("Treatment recovery requires one valid product lifecycle.");
 		return false;
 	}
-	return Session.TryRecoverPending(*BoundAuthority.Get(), OutDiagnostic);
+	return Session.TryRecoverPending(
+		*BoundAuthority.Get(), Proofs, OutDiagnostic);
 }
 
 bool Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle::TryEnd(

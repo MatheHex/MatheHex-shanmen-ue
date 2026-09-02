@@ -45,6 +45,11 @@ public:
 	bool TryRecoverPending(
 		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
 		FString& OutDiagnostic);
+	bool TryRecoverPending(
+		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+		TConstArrayView<
+			Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof> Proofs,
+		FString& OutDiagnostic);
 
 	/** Recovers pending commits before allowing the active Run to be forgotten. */
 	bool TryEnd(

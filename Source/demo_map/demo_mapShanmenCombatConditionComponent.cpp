@@ -4,6 +4,7 @@
 #include "demo_mapAttributeComponent.h"
 #include "demo_mapAttributeDefinitions.h"
 #include "demo_mapItemDefinitions.h"
+#include "demo_mapShanmenMeridianShockTreatmentRecoveryProof.h"
 
 namespace
 {
@@ -676,6 +677,83 @@ bool Udemo_mapShanmenCombatConditionComponent::
 		return false;
 	}
 	OutReceipt = Processed->Receipt;
+	return true;
+}
+
+bool Udemo_mapShanmenCombatConditionComponent::
+	TryRestoreProcessedMeridianShockTreatment(
+		const Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof& Proof,
+		FString& OutDiagnostic)
+{
+	OutDiagnostic.Reset();
+	if (!IsValid() || IsEmpty() || !AttributeComponent.IsValid())
+	{
+		OutDiagnostic =
+			TEXT("Treatment proof restore requires one valid active condition authority.");
+		return false;
+	}
+
+	Fdemo_mapShanmenCombatConditionTreatmentIntent Intent;
+	Fdemo_mapShanmenCombatConditionTreatmentReceipt Receipt;
+	if (!Proof.TryRestore(Intent, Receipt)
+		|| Receipt.GetRunId() != RunId
+		|| Receipt.GetTargetEntityId() != TargetEntityId
+		|| Receipt.GetTimelineId() != TimelineId)
+	{
+		OutDiagnostic =
+			TEXT("Treatment proof does not belong to this Run condition authority.");
+		return false;
+	}
+
+	if (const FProcessedTreatment* Existing =
+		ProcessedTreatments.Find(Receipt.GetTreatmentId()))
+	{
+		Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof ExistingProof;
+		if (!Existing->Intent.IsValid()
+			|| !Existing->Receipt.IsValid()
+			|| !Existing->Receipt.Matches(Intent)
+			|| !Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof::TryCapture(
+				Existing->Receipt,
+				ExistingProof)
+			|| !ExistingProof.Matches(Proof))
+		{
+			OutDiagnostic =
+				TEXT("Treatment proof conflicts with existing condition history.");
+			return false;
+		}
+		OutDiagnostic =
+			TEXT("Exact processed treatment proof was already restored.");
+		return true;
+	}
+
+	if (bMeridianShockActive
+		|| LastObservedTick != 0
+		|| ConditionRevision != 0
+		|| !ProcessedApplications.IsEmpty()
+		|| !ProcessedTreatments.IsEmpty())
+	{
+		OutDiagnostic =
+			TEXT("Treatment proof restore refuses non-fresh or active condition state.");
+		return false;
+	}
+
+	FProcessedTreatment& Processed =
+		ProcessedTreatments.Add(Receipt.GetTreatmentId());
+	Processed.Intent = Intent;
+	Processed.Receipt = Receipt;
+	LastObservedTick = Receipt.GetTreatedAtTick();
+	ConditionRevision = Receipt.GetConditionRevisionAfter();
+	if (!IsValid())
+	{
+		ProcessedTreatments.Reset();
+		LastObservedTick = 0;
+		ConditionRevision = 0;
+		OutDiagnostic =
+			TEXT("Treatment proof restore failed condition invariant validation.");
+		return false;
+	}
+	OutDiagnostic =
+		TEXT("Exact processed treatment proof restored into fresh condition history.");
 	return true;
 }
 

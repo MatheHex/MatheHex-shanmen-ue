@@ -340,7 +340,7 @@
     },
     {
       "name": "MeridianShockTreatmentProductFlow",
-      "pathRegex": "^Source/demo_map/demo_mapShanmenMeridianShockTreatment(?:Product(?:Route|Session|Lifecycle)|InputAdapter)(?:Tests)?\\.(?:h|cpp)$",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenMeridianShockTreatment(?:Product(?:Route|Session|Lifecycle)|InputAdapter|RecoveryProof)(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10",
         "Shanmen.0_0_10.Product.MeridianShockTreatment.Route",

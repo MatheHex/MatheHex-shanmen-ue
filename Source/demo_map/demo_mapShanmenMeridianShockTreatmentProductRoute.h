@@ -4,6 +4,7 @@
 
 #include "demo_mapShanmenCombatRunFixedTimeline.h"
 #include "demo_mapShanmenMeridianShockTreatmentAdapter.h"
+#include "demo_mapShanmenMeridianShockTreatmentRecoveryProof.h"
 #include "demo_mapShanmenRunCorrelation.h"
 
 class Udemo_mapShanmenCombatConditionComponent;
@@ -162,6 +163,17 @@ public:
 	 */
 	bool TryRecoverDurablePreparation(
 		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+		int32& OutRecoveredCount,
+		FString& OutDiagnostic);
+	/**
+	 * Recovery overload for proofs decoded from the condition domain's trusted
+	 * persistence source. Foreign proofs are ignored; corrupt or conflicting
+	 * proof sets fail closed before either authority mutates.
+	 */
+	bool TryRecoverDurablePreparation(
+		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+		TConstArrayView<
+			Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof> Proofs,
 		int32& OutRecoveredCount,
 		FString& OutDiagnostic);
 
