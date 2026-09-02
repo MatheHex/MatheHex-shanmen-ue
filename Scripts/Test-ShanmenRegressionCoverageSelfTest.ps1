@@ -939,6 +939,18 @@ try
             $Legacy)
 
     Invoke-ExpectedPass `
+        -Name 'meridian shock recovery intent requires product condition item legacy and full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenMeridianShockTreatmentRecoveryIntent.h',
+            'Source/demo_map/demo_mapShanmenMeridianShockTreatmentRecoveryIntent.cpp',
+            'Source/demo_map/demo_mapShanmenMeridianShockTreatmentRecoveryIntentTests.cpp') `
+        -Logs @(
+            $Full,
+            $MeridianShockTreatment,
+            $CombatCondition,
+            $Legacy)
+
+    Invoke-ExpectedPass `
         -Name 'combat condition status requires source timeline attribute and full evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenCombatConditionStatus.h',
@@ -2800,6 +2812,15 @@ try
         -Name 'meridian shock treatment focus cannot replace condition inventory legacy and full evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenMeridianShockTreatmentAdapter.cpp') `
+        -Logs @(
+            $MeridianShockTreatment,
+            $CombatCondition) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'recovery intent focus cannot replace product inventory legacy and full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenMeridianShockTreatmentRecoveryIntent.cpp') `
         -Logs @(
             $MeridianShockTreatment,
             $CombatCondition) `
