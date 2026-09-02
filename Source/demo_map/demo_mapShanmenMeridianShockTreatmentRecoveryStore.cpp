@@ -27,6 +27,7 @@ namespace
 	struct Fdemo_mapRecoveryReadResult
 	{
 		Edemo_mapRecoveryReadKind Kind = Edemo_mapRecoveryReadKind::Invalid;
+		int32 SourceSchemaVersion = INDEX_NONE;
 		FString Diagnostic;
 		TArray<uint8> Bytes;
 		Fdemo_mapShanmenTreatmentRecoveryDocument Document;
@@ -103,12 +104,13 @@ namespace
 			{ GuidDigits(Document.OwnerId), GuidDigits(Document.RunId) });
 	}
 
-	FGuid ExpectedProofSetId(
-		const Fdemo_mapShanmenTreatmentRecoveryDocument& Document)
+	FGuid ExpectedProofSetIdForSchema(
+		const Fdemo_mapShanmenTreatmentRecoveryDocument& Document,
+		const int32 SchemaVersion)
 	{
 		TArray<FString> Parts;
 		Parts.Reserve(3 + Document.Proofs.Num());
-		Parts.Add(FString::FromInt(Document.SchemaVersion));
+		Parts.Add(FString::FromInt(SchemaVersion));
 		Parts.Add(GuidDigits(Document.OwnerId));
 		Parts.Add(GuidDigits(Document.RunId));
 		for (const Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof& Proof :
@@ -126,6 +128,47 @@ namespace
 			Parts);
 	}
 
+	FGuid ExpectedProofSetId(
+		const Fdemo_mapShanmenTreatmentRecoveryDocument& Document)
+	{
+		return ExpectedProofSetIdForSchema(Document, Document.SchemaVersion);
+	}
+
+	FGuid ExpectedIntentSetId(
+		const Fdemo_mapShanmenTreatmentRecoveryDocument& Document)
+	{
+		TArray<FString> Parts;
+		Parts.Reserve(3 + Document.Intents.Num());
+		Parts.Add(FString::FromInt(Document.SchemaVersion));
+		Parts.Add(GuidDigits(Document.OwnerId));
+		Parts.Add(GuidDigits(Document.RunId));
+		for (const Fdemo_mapShanmenMeridianShockTreatmentRecoveryIntent& Intent :
+			Document.Intents)
+		{
+			FString Encoded;
+			if (!Intent.TryEncode(Encoded))
+			{
+				return FGuid();
+			}
+			Parts.Add(MoveTemp(Encoded));
+		}
+		return FShanmenDeterministicId::FromCanonicalParts(
+			TEXT("demo_map.Combat.Condition.MeridianShock.IntentSet.r1"),
+			Parts);
+	}
+
+	void CanonicalizeIntents(
+		TArray<Fdemo_mapShanmenMeridianShockTreatmentRecoveryIntent>& Intents)
+	{
+		Intents.Sort([](
+			const Fdemo_mapShanmenMeridianShockTreatmentRecoveryIntent& Left,
+			const Fdemo_mapShanmenMeridianShockTreatmentRecoveryIntent& Right)
+		{
+			return GuidDigits(Left.GetTreatmentId())
+				< GuidDigits(Right.GetTreatmentId());
+		});
+	}
+
 	void CanonicalizeProofs(
 		TArray<Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof>& Proofs)
 	{
@@ -136,6 +179,162 @@ namespace
 			return GuidDigits(Left.GetTreatmentId())
 				< GuidDigits(Right.GetTreatmentId());
 		});
+	}
+
+	void RefreshSetIds(Fdemo_mapShanmenTreatmentRecoveryDocument& Document)
+	{
+		Document.IntentSetId = ExpectedIntentSetId(Document);
+		Document.ProofSetId = ExpectedProofSetId(Document);
+	}
+
+	void InitializeDocument(
+		const Fdemo_mapShanmenTreatmentRecoveryStorageContext& Storage,
+		Fdemo_mapShanmenTreatmentRecoveryDocument& OutDocument)
+	{
+		OutDocument = Fdemo_mapShanmenTreatmentRecoveryDocument();
+		OutDocument.SchemaVersion =
+			Fdemo_mapShanmenTreatmentRecoveryDocument::CurrentSchemaVersion;
+		OutDocument.OwnerId = Storage.OwnerId;
+		OutDocument.RunId = Storage.RunId;
+		OutDocument.DocumentId = ExpectedDocumentId(OutDocument);
+		OutDocument.CreatedUtc = FDateTime::UtcNow().ToIso8601();
+		OutDocument.LastSavedUtc = OutDocument.CreatedUtc;
+		RefreshSetIds(OutDocument);
+	}
+
+	bool TryAdvanceDocument(
+		Fdemo_mapShanmenTreatmentRecoveryDocument& InOutDocument)
+	{
+		if (InOutDocument.SaveGeneration < 0
+			|| InOutDocument.SaveGeneration == MAX_int32)
+		{
+			return false;
+		}
+		InOutDocument.SaveGeneration++;
+		InOutDocument.LastSavedUtc = FDateTime::UtcNow().ToIso8601();
+		RefreshSetIds(InOutDocument);
+		return true;
+	}
+
+	bool IntentMatchesProof(
+		const Fdemo_mapShanmenMeridianShockTreatmentRecoveryIntent& Intent,
+		const Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof& Proof)
+	{
+		return Intent.IsValid()
+			&& Proof.IsValid()
+			&& Intent.GetTreatmentId() == Proof.GetTreatmentId()
+			&& Intent.GetRunId() == Proof.GetRunId()
+			&& Intent.GetTargetEntityId() == Proof.GetTargetEntityId()
+			&& Intent.GetTimelineId() == Proof.GetTimelineId()
+			&& Intent.GetItemInstanceId() == Proof.GetItemInstanceId()
+			&& Intent.GetItemDefinitionId() == Proof.GetItemDefinitionId()
+			&& Intent.GetConditionDefinitionId()
+				== Proof.GetConditionDefinitionId()
+			&& Intent.GetTreatmentTick() == Proof.GetTreatedAtTick()
+			&& Intent.GetExpectedConditionRevision()
+				== Proof.GetConditionRevisionBefore();
+	}
+
+	bool ValidateDocumentForSchema(
+		const Fdemo_mapShanmenTreatmentRecoveryDocument& Document,
+		const int32 ExpectedSchemaVersion,
+		FString* OutError)
+	{
+		const bool bPreviousSchema = ExpectedSchemaVersion
+			== Fdemo_mapShanmenTreatmentRecoveryDocument::
+				PreviousSchemaVersion;
+		const bool bCurrentSchema = ExpectedSchemaVersion
+			== Fdemo_mapShanmenTreatmentRecoveryDocument::
+				CurrentSchemaVersion;
+		FDateTime Created;
+		FDateTime Saved;
+		if ((!bPreviousSchema && !bCurrentSchema)
+			|| Document.SchemaVersion != ExpectedSchemaVersion
+			|| !Document.DocumentId.IsValid()
+			|| !Document.OwnerId.IsValid()
+			|| !Document.RunId.IsValid()
+			|| Document.SaveGeneration <= 0
+			|| Document.Intents.Num()
+				> Fdemo_mapShanmenTreatmentRecoveryDocument::
+					MaximumIntentCount
+			|| Document.Proofs.Num()
+				> Fdemo_mapShanmenTreatmentRecoveryDocument::MaximumProofCount
+			|| Document.Intents.Num() + Document.Proofs.Num()
+				> Fdemo_mapShanmenTreatmentRecoveryDocument::MaximumEntryCount
+			|| Document.DocumentId != ExpectedDocumentId(Document)
+			|| !Document.ProofSetId.IsValid()
+			|| !FDateTime::ParseIso8601(*Document.CreatedUtc, Created)
+			|| !FDateTime::ParseIso8601(*Document.LastSavedUtc, Saved)
+			|| Saved < Created
+			|| (bPreviousSchema
+				&& (!Document.Intents.IsEmpty()
+					|| Document.IntentSetId.IsValid()))
+			|| (bCurrentSchema && !Document.IntentSetId.IsValid()))
+		{
+			SetError(
+				OutError,
+				TEXT("Treatment recovery document identity, generation, timestamp or bounds are invalid."));
+			return false;
+		}
+
+		FString PreviousTreatmentId;
+		TSet<FGuid> IntentIds;
+		TSet<FGuid> TreatmentIds;
+		for (const Fdemo_mapShanmenMeridianShockTreatmentRecoveryIntent& Intent :
+			Document.Intents)
+		{
+			const FString TreatmentId = GuidDigits(Intent.GetTreatmentId());
+			if (!Intent.IsValid()
+				|| Intent.GetRunId() != Document.RunId
+				|| (!PreviousTreatmentId.IsEmpty()
+					&& TreatmentId <= PreviousTreatmentId)
+				|| IntentIds.Contains(Intent.GetIntentId())
+				|| TreatmentIds.Contains(Intent.GetTreatmentId()))
+			{
+				SetError(
+					OutError,
+					TEXT("Treatment recovery intents are invalid, cross-Run, duplicated or non-canonical."));
+				return false;
+			}
+			PreviousTreatmentId = TreatmentId;
+			IntentIds.Add(Intent.GetIntentId());
+			TreatmentIds.Add(Intent.GetTreatmentId());
+		}
+
+		PreviousTreatmentId.Reset();
+		TSet<FGuid> ProofIds;
+		for (const Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof& Proof :
+			Document.Proofs)
+		{
+			const FString TreatmentId = GuidDigits(Proof.GetTreatmentId());
+			if (!Proof.IsValid()
+				|| Proof.GetRunId() != Document.RunId
+				|| (!PreviousTreatmentId.IsEmpty()
+					&& TreatmentId <= PreviousTreatmentId)
+				|| ProofIds.Contains(Proof.GetProofId())
+				|| TreatmentIds.Contains(Proof.GetTreatmentId()))
+			{
+				SetError(
+					OutError,
+					TEXT("Treatment recovery proofs are invalid, cross-Run, duplicated, overlap an intent or are non-canonical."));
+				return false;
+			}
+			PreviousTreatmentId = TreatmentId;
+			ProofIds.Add(Proof.GetProofId());
+			TreatmentIds.Add(Proof.GetTreatmentId());
+		}
+
+		if (Document.ProofSetId
+			!= ExpectedProofSetIdForSchema(Document, ExpectedSchemaVersion)
+			|| (bCurrentSchema
+				&& Document.IntentSetId != ExpectedIntentSetId(Document)))
+		{
+			SetError(
+				OutError,
+				TEXT("Treatment recovery set identity does not match its canonical payload."));
+			return false;
+		}
+		return true;
 	}
 
 	bool JsonToBytes(
@@ -170,6 +369,19 @@ namespace
 		{
 			return false;
 		}
+		TArray<TSharedPtr<FJsonValue>> IntentValues;
+		IntentValues.Reserve(Document.Intents.Num());
+		for (const Fdemo_mapShanmenMeridianShockTreatmentRecoveryIntent& Intent :
+			Document.Intents)
+		{
+			FString Encoded;
+			if (!Intent.TryEncode(Encoded))
+			{
+				SetError(OutError, TEXT("Treatment intent encoding failed."));
+				return false;
+			}
+			IntentValues.Add(MakeShared<FJsonValueString>(MoveTemp(Encoded)));
+		}
 		TArray<TSharedPtr<FJsonValue>> ProofValues;
 		ProofValues.Reserve(Document.Proofs.Num());
 		for (const Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof& Proof :
@@ -192,6 +404,8 @@ namespace
 		Root->SetNumberField(TEXT("SaveGeneration"), Document.SaveGeneration);
 		Root->SetStringField(TEXT("CreatedUtc"), Document.CreatedUtc);
 		Root->SetStringField(TEXT("LastSavedUtc"), Document.LastSavedUtc);
+		Root->SetStringField(TEXT("IntentSetId"), GuidDigits(Document.IntentSetId));
+		Root->SetArrayField(TEXT("Intents"), MoveTemp(IntentValues));
 		Root->SetStringField(TEXT("ProofSetId"), GuidDigits(Document.ProofSetId));
 		Root->SetArrayField(TEXT("Proofs"), MoveTemp(ProofValues));
 		return JsonToBytes(Root, OutBytes, OutError);
@@ -227,6 +441,7 @@ namespace
 				TEXT("Treatment recovery SchemaVersion is invalid.");
 			return Result;
 		}
+		Result.SourceSchemaVersion = SchemaVersion;
 		if (SchemaVersion
 			> Fdemo_mapShanmenTreatmentRecoveryDocument::CurrentSchemaVersion)
 		{
@@ -235,22 +450,37 @@ namespace
 				TEXT("Treatment recovery document uses a future schema.");
 			return Result;
 		}
-		if (SchemaVersion
-				!= Fdemo_mapShanmenTreatmentRecoveryDocument::CurrentSchemaVersion
-			|| !HasExactFields(Root,
+		const bool bPreviousSchema = SchemaVersion
+			== Fdemo_mapShanmenTreatmentRecoveryDocument::
+				PreviousSchemaVersion;
+		const bool bCurrentSchema = SchemaVersion
+			== Fdemo_mapShanmenTreatmentRecoveryDocument::CurrentSchemaVersion;
+		const bool bExactFields = bPreviousSchema
+			? HasExactFields(Root,
 				{
 					TEXT("SchemaVersion"), TEXT("DocumentId"),
 					TEXT("OwnerId"), TEXT("RunId"),
 					TEXT("SaveGeneration"), TEXT("CreatedUtc"),
 					TEXT("LastSavedUtc"), TEXT("ProofSetId"),
 					TEXT("Proofs")
-				}))
+				})
+			: bCurrentSchema && HasExactFields(Root,
+				{
+					TEXT("SchemaVersion"), TEXT("DocumentId"),
+					TEXT("OwnerId"), TEXT("RunId"),
+					TEXT("SaveGeneration"), TEXT("CreatedUtc"),
+					TEXT("LastSavedUtc"), TEXT("IntentSetId"),
+					TEXT("Intents"), TEXT("ProofSetId"),
+					TEXT("Proofs")
+				});
+		if (!bExactFields)
 		{
 			Result.Diagnostic =
 				TEXT("Treatment recovery schema or fields are unsupported.");
 			return Result;
 		}
 
+		const TArray<TSharedPtr<FJsonValue>>* IntentValues = nullptr;
 		const TArray<TSharedPtr<FJsonValue>>* ProofValues = nullptr;
 		Fdemo_mapShanmenTreatmentRecoveryDocument Document;
 		Document.SchemaVersion = SchemaVersion;
@@ -262,6 +492,13 @@ namespace
 			|| !Root->TryGetStringField(TEXT("CreatedUtc"), Document.CreatedUtc)
 			|| !Root->TryGetStringField(
 				TEXT("LastSavedUtc"), Document.LastSavedUtc)
+			|| (bCurrentSchema
+				&& (!TryGuid(Root, TEXT("IntentSetId"), Document.IntentSetId)
+					|| !Root->TryGetArrayField(TEXT("Intents"), IntentValues)
+					|| !IntentValues
+					|| IntentValues->Num()
+						> Fdemo_mapShanmenTreatmentRecoveryDocument::
+							MaximumIntentCount))
 			|| !TryGuid(Root, TEXT("ProofSetId"), Document.ProofSetId)
 			|| !Root->TryGetArrayField(TEXT("Proofs"), ProofValues)
 			|| !ProofValues
@@ -271,6 +508,26 @@ namespace
 			Result.Diagnostic =
 				TEXT("Treatment recovery identity or payload fields are invalid.");
 			return Result;
+		}
+
+		if (IntentValues)
+		{
+			Document.Intents.Reserve(IntentValues->Num());
+			for (const TSharedPtr<FJsonValue>& Value : *IntentValues)
+			{
+				FString Encoded;
+				Fdemo_mapShanmenMeridianShockTreatmentRecoveryIntent Intent;
+				if (!Value.IsValid()
+					|| !Value->TryGetString(Encoded)
+					|| !Fdemo_mapShanmenMeridianShockTreatmentRecoveryIntent::
+						TryDecode(Encoded, Intent))
+				{
+					Result.Diagnostic =
+						TEXT("Treatment recovery intent payload is invalid.");
+					return Result;
+				}
+				Document.Intents.Add(MoveTemp(Intent));
+			}
 		}
 
 		Document.Proofs.Reserve(ProofValues->Num());
@@ -290,15 +547,27 @@ namespace
 			Document.Proofs.Add(MoveTemp(Proof));
 		}
 		FString Error;
-		if (!Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore::
-			ValidateDocument(Document, &Error))
+		if (!ValidateDocumentForSchema(Document, SchemaVersion, &Error))
 		{
 			Result.Diagnostic = Error;
 			return Result;
 		}
+		if (bPreviousSchema)
+		{
+			Document.SchemaVersion =
+				Fdemo_mapShanmenTreatmentRecoveryDocument::CurrentSchemaVersion;
+			RefreshSetIds(Document);
+			if (!Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore::
+				ValidateDocument(Document, &Error))
+			{
+				Result.Diagnostic = Error;
+				return Result;
+			}
+		}
 		Result.Kind = Edemo_mapRecoveryReadKind::Valid;
-		Result.Diagnostic =
-			TEXT("Treatment recovery document parsed and validated.");
+		Result.Diagnostic = bPreviousSchema
+			? TEXT("Previous treatment recovery schema parsed and projected for migration.")
+			: TEXT("Treatment recovery document parsed and validated.");
 		Result.Document = MoveTemp(Document);
 		return Result;
 	}
@@ -641,19 +910,76 @@ namespace
 		return Result;
 	}
 
+	Fdemo_mapShanmenTreatmentRecoveryLoadResult MigratePreviousDocument(
+		const Fdemo_mapRecoveryReadResult& Previous,
+		const Fdemo_mapShanmenTreatmentRecoveryStorageContext& Storage,
+		const bool bRecoveredFromBackup,
+		const bool bPriorDiskStateChanged,
+		const FString& QuarantinedPath)
+	{
+		Fdemo_mapShanmenTreatmentRecoveryLoadResult Result;
+		Result.PrimaryPath = Storage.PrimaryPath();
+		Result.BackupPath = Storage.BackupPath();
+		Result.TempPath = Storage.TempPath();
+		Result.QuarantinedPath = QuarantinedPath;
+		Result.SourceSchemaVersion = Previous.SourceSchemaVersion;
+		Result.bRecoveredFromBackup = bRecoveredFromBackup;
+		Result.bDiskStateChanged = bPriorDiskStateChanged;
+		if (Previous.Kind != Edemo_mapRecoveryReadKind::Valid
+			|| Previous.SourceSchemaVersion
+				!= Fdemo_mapShanmenTreatmentRecoveryDocument::
+					PreviousSchemaVersion
+			|| Previous.Document.SaveGeneration == MAX_int32)
+		{
+			Result.Status =
+				Edemo_mapShanmenTreatmentRecoveryLoadStatus::WriteRecoveryFailed;
+			Result.Diagnostic =
+				TEXT("Previous treatment recovery schema cannot advance its migration generation.");
+			return Result;
+		}
+
+		const Fdemo_mapShanmenTreatmentRecoveryDocument Before =
+			Previous.Document;
+		Fdemo_mapShanmenTreatmentRecoveryDocument Candidate = Before;
+		Candidate.SaveGeneration++;
+		Candidate.LastSavedUtc = FDateTime::UtcNow().ToIso8601();
+		RefreshSetIds(Candidate);
+		Fdemo_mapShanmenTreatmentRecoveryDocument Caller = Before;
+		const Fdemo_mapShanmenTreatmentRecoverySaveResult Saved = CommitDocument(
+			Caller, Candidate, Storage, &Before);
+		Result.bDiskStateChanged =
+			Result.bDiskStateChanged || Saved.bDiskStateChanged;
+		Result.Document = Caller;
+		if (!Saved.IsSuccess())
+		{
+			Result.Status =
+				Edemo_mapShanmenTreatmentRecoveryLoadStatus::WriteRecoveryFailed;
+			Result.Diagnostic = FString::Printf(
+				TEXT("Previous treatment recovery schema migration failed: %s"),
+				*Saved.Diagnostic);
+			return Result;
+		}
+
+		Result.Status =
+			Edemo_mapShanmenTreatmentRecoveryLoadStatus::MigratedPreviousSchema;
+		Result.Diagnostic = bRecoveredFromBackup
+			? TEXT("Previous treatment recovery backup was restored and durably migrated to schema 2.")
+			: TEXT("Previous treatment recovery primary was durably migrated to schema 2.");
+		Result.bMigratedFromPreviousSchema = true;
+		return Result;
+	}
+
 	Fdemo_mapShanmenTreatmentRecoveryMutationResult MutationFromSave(
 		const Fdemo_mapShanmenTreatmentRecoverySaveResult& Saved,
 		const Fdemo_mapShanmenTreatmentRecoveryDocument& Document,
-		const bool bWasForget)
+		const Edemo_mapShanmenTreatmentRecoveryMutationStatus SuccessStatus)
 	{
 		Fdemo_mapShanmenTreatmentRecoveryMutationResult Result;
 		Result.Diagnostic = Saved.Diagnostic;
 		Result.bDiskStateChanged = Saved.bDiskStateChanged;
 		Result.Document = Document;
 		Result.Status = Saved.IsSuccess()
-			? (bWasForget
-				? Edemo_mapShanmenTreatmentRecoveryMutationStatus::Forgotten
-				: Edemo_mapShanmenTreatmentRecoveryMutationStatus::Recorded)
+			? SuccessStatus
 			: Edemo_mapShanmenTreatmentRecoveryMutationStatus::SaveFailed;
 		return Result;
 	}
@@ -669,10 +995,19 @@ bool Fdemo_mapShanmenTreatmentRecoveryDocument::operator==(
 		|| SaveGeneration != Other.SaveGeneration
 		|| CreatedUtc != Other.CreatedUtc
 		|| LastSavedUtc != Other.LastSavedUtc
+		|| IntentSetId != Other.IntentSetId
+		|| Intents.Num() != Other.Intents.Num()
 		|| ProofSetId != Other.ProofSetId
 		|| Proofs.Num() != Other.Proofs.Num())
 	{
 		return false;
+	}
+	for (int32 Index = 0; Index < Intents.Num(); ++Index)
+	{
+		if (!Intents[Index].Matches(Other.Intents[Index]))
+		{
+			return false;
+		}
 	}
 	for (int32 Index = 0; Index < Proofs.Num(); ++Index)
 	{
@@ -748,56 +1083,10 @@ bool Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore::ValidateDocument(
 	const Fdemo_mapShanmenTreatmentRecoveryDocument& Document,
 	FString* OutError)
 {
-	FDateTime Created;
-	FDateTime Saved;
-	if (Document.SchemaVersion
-			!= Fdemo_mapShanmenTreatmentRecoveryDocument::CurrentSchemaVersion
-		|| !Document.DocumentId.IsValid()
-		|| !Document.OwnerId.IsValid()
-		|| !Document.RunId.IsValid()
-		|| Document.SaveGeneration <= 0
-		|| Document.Proofs.Num()
-			> Fdemo_mapShanmenTreatmentRecoveryDocument::MaximumProofCount
-		|| Document.DocumentId != ExpectedDocumentId(Document)
-		|| !Document.ProofSetId.IsValid()
-		|| !FDateTime::ParseIso8601(*Document.CreatedUtc, Created)
-		|| !FDateTime::ParseIso8601(*Document.LastSavedUtc, Saved)
-		|| Saved < Created)
-	{
-		SetError(
-			OutError,
-			TEXT("Treatment recovery document identity, generation, timestamp or bounds are invalid."));
-		return false;
-	}
-
-	FString PreviousTreatmentId;
-	TSet<FGuid> ProofIds;
-	for (const Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof& Proof :
-		Document.Proofs)
-	{
-		const FString TreatmentId = GuidDigits(Proof.GetTreatmentId());
-		if (!Proof.IsValid()
-			|| Proof.GetRunId() != Document.RunId
-			|| (!PreviousTreatmentId.IsEmpty()
-				&& TreatmentId <= PreviousTreatmentId)
-			|| ProofIds.Contains(Proof.GetProofId()))
-		{
-			SetError(
-				OutError,
-				TEXT("Treatment recovery proofs are invalid, cross-Run, duplicated or non-canonical."));
-			return false;
-		}
-		PreviousTreatmentId = TreatmentId;
-		ProofIds.Add(Proof.GetProofId());
-	}
-	if (Document.ProofSetId != ExpectedProofSetId(Document))
-	{
-		SetError(
-			OutError,
-			TEXT("Treatment recovery ProofSetId does not match its canonical payload."));
-		return false;
-	}
-	return true;
+	return ValidateDocumentForSchema(
+		Document,
+		Fdemo_mapShanmenTreatmentRecoveryDocument::CurrentSchemaVersion,
+		OutError);
 }
 
 Fdemo_mapShanmenTreatmentRecoveryLoadResult
@@ -830,10 +1119,18 @@ Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore::LoadExisting(
 				TEXT("Treatment recovery primary identity differs from its path.");
 			return Result;
 		}
+		if (Primary.SourceSchemaVersion
+			== Fdemo_mapShanmenTreatmentRecoveryDocument::
+				PreviousSchemaVersion)
+		{
+			return MigratePreviousDocument(
+				Primary, Storage, false, false, FString());
+		}
 		Result.Status =
 			Edemo_mapShanmenTreatmentRecoveryLoadStatus::LoadedPrimary;
 		Result.Diagnostic =
 			TEXT("Treatment recovery primary loaded without a write.");
+		Result.SourceSchemaVersion = Primary.SourceSchemaVersion;
 		Result.Document = Primary.Document;
 		return Result;
 	}
@@ -994,7 +1291,361 @@ Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore::LoadExisting(
 		: Edemo_mapShanmenTreatmentRecoveryLoadStatus::RecoveredFromBackup;
 	Result.Diagnostic =
 		TEXT("Verified treatment recovery backup restored without changing generation.");
+	Result.SourceSchemaVersion = Recovered.SourceSchemaVersion;
+	Result.bRecoveredFromBackup = true;
+	if (Recovered.SourceSchemaVersion
+		== Fdemo_mapShanmenTreatmentRecoveryDocument::PreviousSchemaVersion)
+	{
+		return MigratePreviousDocument(
+			Recovered,
+			Storage,
+			true,
+			Result.bDiskStateChanged,
+			Result.QuarantinedPath);
+	}
 	Result.Document = Recovered.Document;
+	return Result;
+}
+
+Fdemo_mapShanmenTreatmentRecoveryMutationResult
+Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore::RecordIntent(
+	const Fdemo_mapShanmenMeridianShockTreatmentRecoveryIntent& Intent,
+	const Fdemo_mapShanmenTreatmentRecoveryStorageContext& Storage) const
+{
+	Fdemo_mapShanmenTreatmentRecoveryMutationResult Result;
+	if (!Storage.IsValid()
+		|| !Intent.IsValid()
+		|| Intent.GetRunId() != Storage.RunId)
+	{
+		Result.Status =
+			Edemo_mapShanmenTreatmentRecoveryMutationStatus::InvalidRequest;
+		Result.Diagnostic =
+			TEXT("Treatment intent or Owner/Run storage context is invalid.");
+		return Result;
+	}
+
+	const Fdemo_mapShanmenTreatmentRecoveryLoadResult Loaded =
+		LoadExisting(Storage);
+	const bool bCreating = Loaded.Status
+		== Edemo_mapShanmenTreatmentRecoveryLoadStatus::Missing;
+	if (!Loaded.IsSuccess() && !bCreating)
+	{
+		Result.Status =
+			Edemo_mapShanmenTreatmentRecoveryMutationStatus::LoadFailed;
+		Result.Diagnostic = Loaded.Diagnostic;
+		Result.bDiskStateChanged = Loaded.bDiskStateChanged;
+		return Result;
+	}
+
+	Fdemo_mapShanmenTreatmentRecoveryDocument Document;
+	if (bCreating)
+	{
+		InitializeDocument(Storage, Document);
+	}
+	else
+	{
+		Document = Loaded.Document;
+	}
+
+	for (const Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof& Existing :
+		Document.Proofs)
+	{
+		if (Existing.GetTreatmentId() != Intent.GetTreatmentId())
+		{
+			continue;
+		}
+		Result.bDiskStateChanged = Loaded.bDiskStateChanged;
+		Result.Document = Document;
+		if (IntentMatchesProof(Intent, Existing))
+		{
+			Result.Status = Edemo_mapShanmenTreatmentRecoveryMutationStatus::
+				AlreadyPromoted;
+			Result.Diagnostic =
+				TEXT("Treatment intent already has its exact durable proof.");
+		}
+		else
+		{
+			Result.Status =
+				Edemo_mapShanmenTreatmentRecoveryMutationStatus::Conflict;
+			Result.Diagnostic =
+				TEXT("TreatmentId conflicts with a different durable proof.");
+		}
+		return Result;
+	}
+
+	for (const Fdemo_mapShanmenMeridianShockTreatmentRecoveryIntent& Existing :
+		Document.Intents)
+	{
+		if (Existing.GetTreatmentId() != Intent.GetTreatmentId())
+		{
+			continue;
+		}
+		Result.bDiskStateChanged = Loaded.bDiskStateChanged;
+		Result.Document = Document;
+		if (Existing.Matches(Intent))
+		{
+			Result.Status = Edemo_mapShanmenTreatmentRecoveryMutationStatus::
+				IntentAlreadyRecorded;
+			Result.Diagnostic =
+				TEXT("Exact treatment intent was already durably recorded.");
+		}
+		else
+		{
+			Result.Status =
+				Edemo_mapShanmenTreatmentRecoveryMutationStatus::Conflict;
+			Result.Diagnostic =
+				TEXT("TreatmentId conflicts with a different durable intent.");
+		}
+		return Result;
+	}
+
+	if (Document.Intents.Num()
+			>= Fdemo_mapShanmenTreatmentRecoveryDocument::MaximumIntentCount
+		|| Document.Intents.Num() + Document.Proofs.Num()
+			>= Fdemo_mapShanmenTreatmentRecoveryDocument::MaximumEntryCount)
+	{
+		Result.Status =
+			Edemo_mapShanmenTreatmentRecoveryMutationStatus::InvalidRequest;
+		Result.Diagnostic =
+			TEXT("Treatment recovery intent or entry bound is exhausted.");
+		return Result;
+	}
+	const Fdemo_mapShanmenTreatmentRecoveryDocument Before = Document;
+	Document.Intents.Add(Intent);
+	CanonicalizeIntents(Document.Intents);
+	if (!TryAdvanceDocument(Document))
+	{
+		Result.Status =
+			Edemo_mapShanmenTreatmentRecoveryMutationStatus::InvalidRequest;
+		Result.Diagnostic =
+			TEXT("Treatment recovery generation bound is exhausted.");
+		return Result;
+	}
+	Fdemo_mapShanmenTreatmentRecoveryDocument Caller = Before;
+	const Fdemo_mapShanmenTreatmentRecoverySaveResult Saved = CommitDocument(
+		Caller,
+		Document,
+		Storage,
+		bCreating ? nullptr : &Before);
+	Result = MutationFromSave(
+		Saved,
+		Caller,
+		Edemo_mapShanmenTreatmentRecoveryMutationStatus::IntentRecorded);
+	Result.bDiskStateChanged =
+		Result.bDiskStateChanged || Loaded.bDiskStateChanged;
+	return Result;
+}
+
+Fdemo_mapShanmenTreatmentRecoveryMutationResult
+Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore::PromoteIntentToProof(
+	const Fdemo_mapShanmenMeridianShockTreatmentRecoveryIntent& Intent,
+	const Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof& Proof,
+	const Fdemo_mapShanmenTreatmentRecoveryStorageContext& Storage) const
+{
+	Fdemo_mapShanmenTreatmentRecoveryMutationResult Result;
+	if (!Storage.IsValid()
+		|| Intent.GetRunId() != Storage.RunId
+		|| Proof.GetRunId() != Storage.RunId
+		|| !IntentMatchesProof(Intent, Proof))
+	{
+		Result.Status =
+			Edemo_mapShanmenTreatmentRecoveryMutationStatus::InvalidRequest;
+		Result.Diagnostic =
+			TEXT("Treatment intent and proof do not describe one exact Owner/Run mutation.");
+		return Result;
+	}
+
+	const Fdemo_mapShanmenTreatmentRecoveryLoadResult Loaded =
+		LoadExisting(Storage);
+	if (!Loaded.IsSuccess())
+	{
+		Result.Status = Loaded.Status
+			== Edemo_mapShanmenTreatmentRecoveryLoadStatus::Missing
+			? Edemo_mapShanmenTreatmentRecoveryMutationStatus::Conflict
+			: Edemo_mapShanmenTreatmentRecoveryMutationStatus::LoadFailed;
+		Result.Diagnostic = Loaded.Status
+			== Edemo_mapShanmenTreatmentRecoveryLoadStatus::Missing
+			? TEXT("No durable treatment intent exists to promote.")
+			: Loaded.Diagnostic;
+		Result.bDiskStateChanged = Loaded.bDiskStateChanged;
+		return Result;
+	}
+
+	Fdemo_mapShanmenTreatmentRecoveryDocument Document = Loaded.Document;
+	for (const Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof& Existing :
+		Document.Proofs)
+	{
+		if (Existing.GetTreatmentId() != Proof.GetTreatmentId())
+		{
+			continue;
+		}
+		Result.bDiskStateChanged = Loaded.bDiskStateChanged;
+		Result.Document = Document;
+		if (Existing.Matches(Proof))
+		{
+			Result.Status = Edemo_mapShanmenTreatmentRecoveryMutationStatus::
+				AlreadyPromoted;
+			Result.Diagnostic =
+				TEXT("Exact treatment intent was already atomically promoted.");
+		}
+		else
+		{
+			Result.Status =
+				Edemo_mapShanmenTreatmentRecoveryMutationStatus::Conflict;
+			Result.Diagnostic =
+				TEXT("TreatmentId conflicts with a different durable proof.");
+		}
+		return Result;
+	}
+
+	int32 IntentIndex = INDEX_NONE;
+	for (int32 Index = 0; Index < Document.Intents.Num(); ++Index)
+	{
+		const Fdemo_mapShanmenMeridianShockTreatmentRecoveryIntent& Existing =
+			Document.Intents[Index];
+		if (Existing.GetTreatmentId() != Intent.GetTreatmentId())
+		{
+			continue;
+		}
+		if (!Existing.Matches(Intent))
+		{
+			Result.Status =
+				Edemo_mapShanmenTreatmentRecoveryMutationStatus::Conflict;
+			Result.Diagnostic =
+				TEXT("TreatmentId conflicts with a different durable intent.");
+			Result.bDiskStateChanged = Loaded.bDiskStateChanged;
+			Result.Document = Document;
+			return Result;
+		}
+		IntentIndex = Index;
+		break;
+	}
+	if (IntentIndex == INDEX_NONE)
+	{
+		Result.Status =
+			Edemo_mapShanmenTreatmentRecoveryMutationStatus::Conflict;
+		Result.Diagnostic =
+			TEXT("Exact durable treatment intent is absent; proof was not recorded.");
+		Result.bDiskStateChanged = Loaded.bDiskStateChanged;
+		Result.Document = Document;
+		return Result;
+	}
+
+	const Fdemo_mapShanmenTreatmentRecoveryDocument Before = Document;
+	Document.Intents.RemoveAt(IntentIndex);
+	Document.Proofs.Add(Proof);
+	CanonicalizeIntents(Document.Intents);
+	CanonicalizeProofs(Document.Proofs);
+	if (!TryAdvanceDocument(Document))
+	{
+		Result.Status =
+			Edemo_mapShanmenTreatmentRecoveryMutationStatus::InvalidRequest;
+		Result.Diagnostic =
+			TEXT("Treatment recovery generation bound is exhausted.");
+		return Result;
+	}
+	Fdemo_mapShanmenTreatmentRecoveryDocument Caller = Before;
+	const Fdemo_mapShanmenTreatmentRecoverySaveResult Saved = CommitDocument(
+		Caller, Document, Storage, &Before);
+	Result = MutationFromSave(
+		Saved,
+		Caller,
+		Edemo_mapShanmenTreatmentRecoveryMutationStatus::Promoted);
+	Result.bDiskStateChanged =
+		Result.bDiskStateChanged || Loaded.bDiskStateChanged;
+	return Result;
+}
+
+Fdemo_mapShanmenTreatmentRecoveryMutationResult
+Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore::ForgetIntent(
+	const FGuid& TreatmentId,
+	const Fdemo_mapShanmenTreatmentRecoveryStorageContext& Storage) const
+{
+	Fdemo_mapShanmenTreatmentRecoveryMutationResult Result;
+	if (!Storage.IsValid() || !TreatmentId.IsValid())
+	{
+		Result.Status =
+			Edemo_mapShanmenTreatmentRecoveryMutationStatus::InvalidRequest;
+		Result.Diagnostic =
+			TEXT("Treatment recovery intent-forget request is invalid.");
+		return Result;
+	}
+	const Fdemo_mapShanmenTreatmentRecoveryLoadResult Loaded =
+		LoadExisting(Storage);
+	if (Loaded.Status == Edemo_mapShanmenTreatmentRecoveryLoadStatus::Missing)
+	{
+		Result.Status = Edemo_mapShanmenTreatmentRecoveryMutationStatus::
+			IntentAlreadyAbsent;
+		Result.Diagnostic =
+			TEXT("No treatment recovery document exists; intent is already absent.");
+		return Result;
+	}
+	if (!Loaded.IsSuccess())
+	{
+		Result.Status =
+			Edemo_mapShanmenTreatmentRecoveryMutationStatus::LoadFailed;
+		Result.Diagnostic = Loaded.Diagnostic;
+		Result.bDiskStateChanged = Loaded.bDiskStateChanged;
+		return Result;
+	}
+
+	Fdemo_mapShanmenTreatmentRecoveryDocument Document = Loaded.Document;
+	for (const Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof& Proof :
+		Document.Proofs)
+	{
+		if (Proof.GetTreatmentId() == TreatmentId)
+		{
+			Result.Status = Edemo_mapShanmenTreatmentRecoveryMutationStatus::
+				AlreadyPromoted;
+			Result.Diagnostic =
+				TEXT("Treatment intent is absent because its durable proof exists.");
+			Result.bDiskStateChanged = Loaded.bDiskStateChanged;
+			Result.Document = Document;
+			return Result;
+		}
+	}
+	const int32 Removed = Document.Intents.RemoveAll(
+		[&TreatmentId](
+			const Fdemo_mapShanmenMeridianShockTreatmentRecoveryIntent& Intent)
+		{
+			return Intent.GetTreatmentId() == TreatmentId;
+		});
+	if (Removed == 0)
+	{
+		Result.Status = Edemo_mapShanmenTreatmentRecoveryMutationStatus::
+			IntentAlreadyAbsent;
+		Result.Diagnostic =
+			TEXT("Treatment intent is already absent from durable state.");
+		Result.bDiskStateChanged = Loaded.bDiskStateChanged;
+		Result.Document = Loaded.Document;
+		return Result;
+	}
+	if (Removed != 1)
+	{
+		Result.Status =
+			Edemo_mapShanmenTreatmentRecoveryMutationStatus::Conflict;
+		Result.Diagnostic =
+			TEXT("Treatment recovery document contains conflicting intent identity.");
+		return Result;
+	}
+	const Fdemo_mapShanmenTreatmentRecoveryDocument Before = Loaded.Document;
+	if (!TryAdvanceDocument(Document))
+	{
+		Result.Status =
+			Edemo_mapShanmenTreatmentRecoveryMutationStatus::InvalidRequest;
+		Result.Diagnostic =
+			TEXT("Treatment recovery generation bound is exhausted.");
+		return Result;
+	}
+	Fdemo_mapShanmenTreatmentRecoveryDocument Caller = Before;
+	const Fdemo_mapShanmenTreatmentRecoverySaveResult Saved = CommitDocument(
+		Caller, Document, Storage, &Before);
+	Result = MutationFromSave(
+		Saved,
+		Caller,
+		Edemo_mapShanmenTreatmentRecoveryMutationStatus::IntentForgotten);
+	Result.bDiskStateChanged =
+		Result.bDiskStateChanged || Loaded.bDiskStateChanged;
 	return Result;
 }
 
@@ -1031,13 +1682,7 @@ Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore::RecordProof(
 	Fdemo_mapShanmenTreatmentRecoveryDocument Document;
 	if (bCreating)
 	{
-		Document.SchemaVersion =
-			Fdemo_mapShanmenTreatmentRecoveryDocument::CurrentSchemaVersion;
-		Document.OwnerId = Storage.OwnerId;
-		Document.RunId = Storage.RunId;
-		Document.DocumentId = ExpectedDocumentId(Document);
-		Document.CreatedUtc = FDateTime::UtcNow().ToIso8601();
-		Document.LastSavedUtc = Document.CreatedUtc;
+		InitializeDocument(Storage, Document);
 	}
 	else
 	{
@@ -1069,10 +1714,25 @@ Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore::RecordProof(
 		}
 		return Result;
 	}
+	for (const Fdemo_mapShanmenMeridianShockTreatmentRecoveryIntent& Intent :
+		Document.Intents)
+	{
+		if (Intent.GetTreatmentId() == Proof.GetTreatmentId())
+		{
+			Result.Status =
+				Edemo_mapShanmenTreatmentRecoveryMutationStatus::Conflict;
+			Result.Diagnostic =
+				TEXT("Durable treatment intent must be atomically promoted, not bypassed by RecordProof.");
+			Result.bDiskStateChanged = Loaded.bDiskStateChanged;
+			Result.Document = Document;
+			return Result;
+		}
+	}
 
 	if (Document.Proofs.Num()
 			>= Fdemo_mapShanmenTreatmentRecoveryDocument::MaximumProofCount
-		|| Document.SaveGeneration == MAX_int32)
+		|| Document.Intents.Num() + Document.Proofs.Num()
+			>= Fdemo_mapShanmenTreatmentRecoveryDocument::MaximumEntryCount)
 	{
 		Result.Status =
 			Edemo_mapShanmenTreatmentRecoveryMutationStatus::InvalidRequest;
@@ -1083,16 +1743,24 @@ Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore::RecordProof(
 	const Fdemo_mapShanmenTreatmentRecoveryDocument Before = Document;
 	Document.Proofs.Add(Proof);
 	CanonicalizeProofs(Document.Proofs);
-	Document.SaveGeneration++;
-	Document.LastSavedUtc = FDateTime::UtcNow().ToIso8601();
-	Document.ProofSetId = ExpectedProofSetId(Document);
+	if (!TryAdvanceDocument(Document))
+	{
+		Result.Status =
+			Edemo_mapShanmenTreatmentRecoveryMutationStatus::InvalidRequest;
+		Result.Diagnostic =
+			TEXT("Treatment recovery generation bound is exhausted.");
+		return Result;
+	}
 	Fdemo_mapShanmenTreatmentRecoveryDocument Caller = Before;
 	const Fdemo_mapShanmenTreatmentRecoverySaveResult Saved = CommitDocument(
 		Caller,
 		Document,
 		Storage,
 		bCreating ? nullptr : &Before);
-	Result = MutationFromSave(Saved, Caller, false);
+	Result = MutationFromSave(
+		Saved,
+		Caller,
+		Edemo_mapShanmenTreatmentRecoveryMutationStatus::Recorded);
 	Result.bDiskStateChanged =
 		Result.bDiskStateChanged || Loaded.bDiskStateChanged;
 	return Result;
@@ -1148,7 +1816,7 @@ Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore::ForgetProof(
 		Result.Document = Loaded.Document;
 		return Result;
 	}
-	if (Removed != 1 || Document.SaveGeneration == MAX_int32)
+	if (Removed != 1)
 	{
 		Result.Status =
 			Edemo_mapShanmenTreatmentRecoveryMutationStatus::Conflict;
@@ -1157,13 +1825,21 @@ Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore::ForgetProof(
 		return Result;
 	}
 	const Fdemo_mapShanmenTreatmentRecoveryDocument Before = Loaded.Document;
-	Document.SaveGeneration++;
-	Document.LastSavedUtc = FDateTime::UtcNow().ToIso8601();
-	Document.ProofSetId = ExpectedProofSetId(Document);
+	if (!TryAdvanceDocument(Document))
+	{
+		Result.Status =
+			Edemo_mapShanmenTreatmentRecoveryMutationStatus::InvalidRequest;
+		Result.Diagnostic =
+			TEXT("Treatment recovery generation bound is exhausted.");
+		return Result;
+	}
 	Fdemo_mapShanmenTreatmentRecoveryDocument Caller = Before;
 	const Fdemo_mapShanmenTreatmentRecoverySaveResult Saved = CommitDocument(
 		Caller, Document, Storage, &Before);
-	Result = MutationFromSave(Saved, Caller, true);
+	Result = MutationFromSave(
+		Saved,
+		Caller,
+		Edemo_mapShanmenTreatmentRecoveryMutationStatus::Forgotten);
 	Result.bDiskStateChanged =
 		Result.bDiskStateChanged || Loaded.bDiskStateChanged;
 	return Result;

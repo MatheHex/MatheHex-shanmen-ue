@@ -7,9 +7,11 @@
 #include "demo_mapShanmenCombatConditionComponent.h"
 
 #include "HAL/FileManager.h"
+#include "Misc/DateTime.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "ShanmenDeterministicId.h"
 #include "ShanmenVitalityAuthority.h"
 #include "UObject/UObjectGlobals.h"
 
@@ -26,7 +28,7 @@ namespace
 		return FPaths::Combine(
 			FPaths::ProjectSavedDir(),
 			TEXT("Automation"),
-			TEXT("Dev.D.UE.0.0.10.P16.5.r0"),
+			TEXT("Dev.D.UE.0.0.10.P16.8.r0"),
 			Label,
 			FGuid::NewGuid().ToString(EGuidFormats::Digits));
 	}
@@ -91,10 +93,17 @@ namespace
 			const FGuid& ImpactId,
 			const FGuid& ResolutionId,
 			const bool bAdvanceOneTick,
-			Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof& OutProof)
+			Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof& OutProof,
+			Fdemo_mapShanmenMeridianShockTreatmentRecoveryIntent* OutIntent =
+				nullptr)
 		{
 			OutProof =
 				Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof();
+			if (OutIntent)
+			{
+				*OutIntent =
+					Fdemo_mapShanmenMeridianShockTreatmentRecoveryIntent();
+			}
 			FString Diagnostic;
 			if (bAdvanceOneTick)
 			{
@@ -152,14 +161,24 @@ namespace
 					Fdemo_mapItemIds::MeridianStabilizingPillLevel1,
 					Status.GetConditionRevision(),
 					Intent);
+			Fdemo_mapShanmenMeridianShockTreatmentRecoveryIntent RecoveryIntent;
+			const bool bIntentCaptured = !OutIntent
+				|| (bArranged
+					&& Fdemo_mapShanmenMeridianShockTreatmentRecoveryIntent::
+						TryCapture(Intent, Sample, RecoveryIntent));
 			const Fdemo_mapShanmenCombatConditionTreatmentResult Treatment =
-				bArranged
+				bArranged && bIntentCaptured
 					? Conditions->TryTreatMeridianShock(Intent, Sample)
 					: Fdemo_mapShanmenCombatConditionTreatmentResult();
 			const bool bCaptured = bArranged
+				&& bIntentCaptured
 				&& Treatment.IsSuccess()
 				&& Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof::
 					TryCapture(Treatment.Receipt, OutProof);
+			if (bCaptured && OutIntent)
+			{
+				*OutIntent = RecoveryIntent;
+			}
 
 			Conditions->TryEnd(RecoveryRunId, Diagnostic);
 			Conditions->RemoveFromRoot();
@@ -190,6 +209,71 @@ namespace
 	{
 		OutBytes.Reset();
 		return FFileHelper::LoadFileToArray(OutBytes, *Path);
+	}
+
+	FString GuidDigits(const FGuid& Value)
+	{
+		return Value.ToString(EGuidFormats::Digits);
+	}
+
+	bool WritePreviousSchemaDocument(
+		const Fdemo_mapShanmenTreatmentRecoveryStorageContext& Storage,
+		const FString& Path,
+		TArray<Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof> Proofs,
+		const int32 SaveGeneration)
+	{
+		Proofs.Sort([](
+			const Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof& Left,
+			const Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof& Right)
+		{
+			return GuidDigits(Left.GetTreatmentId())
+				< GuidDigits(Right.GetTreatmentId());
+		});
+		TArray<FString> ProofSetParts =
+			{
+				TEXT("1"),
+				GuidDigits(Storage.OwnerId),
+				GuidDigits(Storage.RunId)
+			};
+		TArray<FString> JsonProofs;
+		for (const Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof& Proof :
+			Proofs)
+		{
+			FString Encoded;
+			if (!Proof.TryEncode(Encoded))
+			{
+				return false;
+			}
+			ProofSetParts.Add(Encoded);
+			JsonProofs.Add(FString::Printf(TEXT("\"%s\""), *Encoded));
+		}
+		const FGuid DocumentId =
+			FShanmenDeterministicId::FromCanonicalParts(
+				TEXT("demo_map.Combat.Condition.MeridianShock.RecoveryStore.r1"),
+				{ GuidDigits(Storage.OwnerId), GuidDigits(Storage.RunId) });
+		const FGuid ProofSetId =
+			FShanmenDeterministicId::FromCanonicalParts(
+				TEXT("demo_map.Combat.Condition.MeridianShock.ProofSet.r1"),
+				ProofSetParts);
+		const FString Timestamp = FDateTime::UtcNow().ToIso8601();
+		const FString Json = FString::Printf(
+			TEXT("{\"SchemaVersion\":1,\"DocumentId\":\"%s\",\"OwnerId\":\"%s\",\"RunId\":\"%s\",\"SaveGeneration\":%d,\"CreatedUtc\":\"%s\",\"LastSavedUtc\":\"%s\",\"ProofSetId\":\"%s\",\"Proofs\":[%s]}"),
+			*GuidDigits(DocumentId),
+			*GuidDigits(Storage.OwnerId),
+			*GuidDigits(Storage.RunId),
+			SaveGeneration,
+			*Timestamp,
+			*Timestamp,
+			*GuidDigits(ProofSetId),
+			*FString::Join(JsonProofs, TEXT(",")));
+		return (IFileManager::Get().DirectoryExists(
+				*Storage.StorageDirectory())
+				|| IFileManager::Get().MakeDirectory(
+					*Storage.StorageDirectory(), true))
+			&& FFileHelper::SaveStringToFile(
+				Json,
+				*Path,
+				FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
 	}
 }
 
@@ -440,7 +524,7 @@ bool Fdemo_mapMeridianShockRecoveryStoreBackupTest::RunTest(const FString&)
 	}
 	FString Json;
 	FFileHelper::LoadFileToString(Json, *FutureStorage.PrimaryPath());
-	Json.ReplaceInline(TEXT("\"SchemaVersion\":1"), TEXT("\"SchemaVersion\":2"));
+	Json.ReplaceInline(TEXT("\"SchemaVersion\":2"), TEXT("\"SchemaVersion\":3"));
 	FFileHelper::SaveStringToFile(
 		Json,
 		*FutureStorage.PrimaryPath(),
@@ -564,6 +648,420 @@ bool Fdemo_mapMeridianShockRecoveryStoreFenceTest::RunTest(const FString&)
 		static_cast<long long>(FirstProof.GetTreatedAtTick()),
 		static_cast<long long>(ConflictingProof.GetTreatedAtTick()),
 		static_cast<int32>(CrossRun.Status)));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapMeridianShockRecoveryStorePreviousSchemaMigrationTest,
+	"Shanmen.0_0_10.Product.MeridianShockTreatment.RecoveryStore.PreviousSchemaMigration",
+	RecoveryStoreFlags)
+
+bool Fdemo_mapMeridianShockRecoveryStorePreviousSchemaMigrationTest::RunTest(
+	const FString&)
+{
+	FRecoveryStoreFixture Fixture;
+	if (!Fixture.Begin(*this, TEXT("PreviousSchemaMigration")))
+	{
+		return false;
+	}
+	Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof Proof;
+	if (!Fixture.CreateProof(
+		*this,
+		FGuid(0xC1680010, 0, 0, 1),
+		FGuid(0xC1680010, 0, 0, 2),
+		FGuid(0xC1680010, 0, 0, 3),
+		FGuid(0xC1680010, 0, 0, 4),
+		false,
+		Proof))
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore Store;
+	const Fdemo_mapShanmenTreatmentRecoveryStorageContext Storage =
+		Fixture.Storage();
+	if (!WritePreviousSchemaDocument(
+		Storage, Storage.PrimaryPath(), { Proof }, 7))
+	{
+		AddError(TEXT("Could not write the schema-1 primary fixture."));
+		return false;
+	}
+	TArray<uint8> PreviousPrimary;
+	ReadBytes(Storage.PrimaryPath(), PreviousPrimary);
+	const Fdemo_mapShanmenTreatmentRecoveryLoadResult Migrated =
+		Store.LoadExisting(Storage);
+	TArray<uint8> CurrentPrimary;
+	TArray<uint8> PreviousBackup;
+	FString CurrentJson;
+	TestTrue(TEXT("schema-1 primary migrates once without losing proofs"),
+		Migrated.Status
+			== Edemo_mapShanmenTreatmentRecoveryLoadStatus::
+				MigratedPreviousSchema
+		&& Migrated.IsSuccess()
+		&& Migrated.bMigratedFromPreviousSchema
+		&& !Migrated.bRecoveredFromBackup
+		&& Migrated.bDiskStateChanged
+		&& Migrated.SourceSchemaVersion
+			== Fdemo_mapShanmenTreatmentRecoveryDocument::
+				PreviousSchemaVersion
+		&& Migrated.Document.SchemaVersion
+			== Fdemo_mapShanmenTreatmentRecoveryDocument::CurrentSchemaVersion
+		&& Migrated.Document.SaveGeneration == 8
+		&& Migrated.Document.Intents.IsEmpty()
+		&& Migrated.Document.Proofs.Num() == 1
+		&& Migrated.Document.Proofs[0].Matches(Proof)
+		&& ReadBytes(Storage.PrimaryPath(), CurrentPrimary)
+		&& CurrentPrimary != PreviousPrimary
+		&& ReadBytes(Storage.BackupPath(), PreviousBackup)
+		&& PreviousBackup == PreviousPrimary
+		&& FFileHelper::LoadFileToString(CurrentJson, *Storage.PrimaryPath())
+		&& CurrentJson.Contains(TEXT("\"SchemaVersion\":2"))
+		&& CurrentJson.Contains(TEXT("\"Intents\":[]")));
+
+	const Fdemo_mapShanmenTreatmentRecoveryLoadResult Reopened =
+		Store.LoadExisting(Storage);
+	TestTrue(TEXT("migrated primary reopens without another write"),
+		Reopened.Status
+			== Edemo_mapShanmenTreatmentRecoveryLoadStatus::LoadedPrimary
+		&& Reopened.SourceSchemaVersion
+			== Fdemo_mapShanmenTreatmentRecoveryDocument::CurrentSchemaVersion
+		&& !Reopened.bDiskStateChanged
+		&& !Reopened.bMigratedFromPreviousSchema
+		&& Reopened.Document.SaveGeneration == 8
+		&& Reopened.Document == Migrated.Document);
+
+	const FString BackupRoot = NewRecoveryStoreRoot(TEXT("PreviousBackupOnly"));
+	const Fdemo_mapShanmenTreatmentRecoveryStorageContext BackupStorage =
+		Fdemo_mapShanmenTreatmentRecoveryStorageContext::ForRoot(
+			BackupRoot, RecoveryOwnerId, RecoveryRunId);
+	const bool bWroteBackup = WritePreviousSchemaDocument(
+		BackupStorage, BackupStorage.BackupPath(), { Proof }, 11);
+	const Fdemo_mapShanmenTreatmentRecoveryLoadResult BackupMigrated =
+		bWroteBackup
+			? Store.LoadExisting(BackupStorage)
+			: Fdemo_mapShanmenTreatmentRecoveryLoadResult();
+	TestTrue(TEXT("backup-only schema-1 state restores and migrates"),
+		bWroteBackup
+		&& BackupMigrated.Status
+			== Edemo_mapShanmenTreatmentRecoveryLoadStatus::
+				MigratedPreviousSchema
+		&& BackupMigrated.bRecoveredFromBackup
+		&& BackupMigrated.bMigratedFromPreviousSchema
+		&& BackupMigrated.bDiskStateChanged
+		&& BackupMigrated.SourceSchemaVersion
+			== Fdemo_mapShanmenTreatmentRecoveryDocument::
+				PreviousSchemaVersion
+		&& BackupMigrated.Document.SaveGeneration == 12
+		&& BackupMigrated.Document.Intents.IsEmpty()
+		&& BackupMigrated.Document.Proofs.Num() == 1
+		&& IFileManager::Get().FileExists(*BackupStorage.PrimaryPath())
+		&& IFileManager::Get().FileExists(*BackupStorage.BackupPath()));
+	IFileManager::Get().DeleteDirectory(*BackupRoot, false, true);
+
+	const FString CorruptRoot = NewRecoveryStoreRoot(TEXT("PreviousCorrupt"));
+	const Fdemo_mapShanmenTreatmentRecoveryStorageContext CorruptStorage =
+		Fdemo_mapShanmenTreatmentRecoveryStorageContext::ForRoot(
+			CorruptRoot, RecoveryOwnerId, RecoveryRunId);
+	const bool bWroteCorruptFixture = WritePreviousSchemaDocument(
+		CorruptStorage, CorruptStorage.PrimaryPath(), { Proof }, 5);
+	FString CorruptJson;
+	FFileHelper::LoadFileToString(CorruptJson, *CorruptStorage.PrimaryPath());
+	CorruptJson.ReplaceInline(
+		TEXT("\"ProofSetId\":\""), TEXT("\"ProofSetId\":\"0"));
+	const bool bTamperedPrevious = FFileHelper::SaveStringToFile(
+		CorruptJson,
+		*CorruptStorage.PrimaryPath(),
+		FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
+	const Fdemo_mapShanmenTreatmentRecoveryLoadResult CorruptPrevious =
+		bWroteCorruptFixture && bTamperedPrevious
+			? Store.LoadExisting(CorruptStorage)
+			: Fdemo_mapShanmenTreatmentRecoveryLoadResult();
+	TestTrue(TEXT("invalid schema-1 integrity is rejected without migration"),
+		bWroteCorruptFixture
+		&& bTamperedPrevious
+		&& CorruptPrevious.Status
+			== Edemo_mapShanmenTreatmentRecoveryLoadStatus::
+				CorruptPrimaryNoValidBackup
+		&& !CorruptPrevious.bDiskStateChanged
+		&& !CorruptPrevious.bMigratedFromPreviousSchema
+		&& IFileManager::Get().FileExists(*CorruptStorage.PrimaryPath())
+		&& !IFileManager::Get().FileExists(*CorruptStorage.BackupPath()));
+	IFileManager::Get().DeleteDirectory(*CorruptRoot, false, true);
+	AddInfo(FString::Printf(
+		TEXT("P16.8 schema migration generations=%d/%d backupRecovered=%d"),
+		Migrated.Document.SaveGeneration,
+		BackupMigrated.Document.SaveGeneration,
+		BackupMigrated.bRecoveredFromBackup ? 1 : 0));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapMeridianShockRecoveryStoreIntentPromotionTest,
+	"Shanmen.0_0_10.Product.MeridianShockTreatment.RecoveryStore.IntentPromotionAtomicity",
+	RecoveryStoreFlags)
+
+bool Fdemo_mapMeridianShockRecoveryStoreIntentPromotionTest::RunTest(
+	const FString&)
+{
+	FRecoveryStoreFixture Fixture;
+	if (!Fixture.Begin(*this, TEXT("IntentPromotionAtomicity")))
+	{
+		return false;
+	}
+	Fdemo_mapShanmenMeridianShockTreatmentRecoveryIntent Intent;
+	Fdemo_mapShanmenMeridianShockTreatmentRecoveryIntent CancelledIntent;
+	Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof Proof;
+	Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof CancelledProof;
+	if (!Fixture.CreateProof(
+		*this,
+		FGuid(0xC1680020, 0, 0, 1),
+		FGuid(0xC1680020, 0, 0, 2),
+		FGuid(0xC1680020, 0, 0, 3),
+		FGuid(0xC1680020, 0, 0, 4),
+		false,
+		Proof,
+		&Intent)
+		|| !Fixture.CreateProof(
+			*this,
+			FGuid(0xC1680021, 0, 0, 1),
+			FGuid(0xC1680021, 0, 0, 2),
+			FGuid(0xC1680021, 0, 0, 3),
+			FGuid(0xC1680021, 0, 0, 4),
+			false,
+			CancelledProof,
+			&CancelledIntent))
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore Store;
+	const Fdemo_mapShanmenTreatmentRecoveryStorageContext Storage =
+		Fixture.Storage();
+	const Fdemo_mapShanmenTreatmentRecoveryMutationResult Recorded =
+		Store.RecordIntent(Intent, Storage);
+	TArray<uint8> IntentPrimary;
+	TestTrue(TEXT("prepared intent publishes generation one"),
+		Recorded.Status
+			== Edemo_mapShanmenTreatmentRecoveryMutationStatus::IntentRecorded
+		&& Recorded.Document.SaveGeneration == 1
+		&& Recorded.Document.Intents.Num() == 1
+		&& Recorded.Document.Proofs.IsEmpty()
+		&& ReadBytes(Storage.PrimaryPath(), IntentPrimary));
+
+	const Fdemo_mapShanmenTreatmentRecoveryMutationResult ReplayedIntent =
+		Store.RecordIntent(Intent, Storage);
+	TArray<uint8> ReplayedBytes;
+	TestTrue(TEXT("exact intent replay is byte- and generation-stable"),
+		ReplayedIntent.Status
+			== Edemo_mapShanmenTreatmentRecoveryMutationStatus::
+				IntentAlreadyRecorded
+		&& !ReplayedIntent.bDiskStateChanged
+		&& ReplayedIntent.Document.SaveGeneration == 1
+		&& ReadBytes(Storage.PrimaryPath(), ReplayedBytes)
+		&& ReplayedBytes == IntentPrimary);
+
+	const Fdemo_mapShanmenTreatmentRecoveryMutationResult Promoted =
+		Store.PromoteIntentToProof(Intent, Proof, Storage);
+	TArray<uint8> PromotedPrimary;
+	TArray<uint8> PromotionBackup;
+	FString IntentEncoded;
+	FString ProofEncoded;
+	FString PromotedJson;
+	Intent.TryEncode(IntentEncoded);
+	Proof.TryEncode(ProofEncoded);
+	TestTrue(TEXT("one document mutation replaces intent with exact proof"),
+		Promoted.Status
+			== Edemo_mapShanmenTreatmentRecoveryMutationStatus::Promoted
+		&& Promoted.Document.SaveGeneration == 2
+		&& Promoted.Document.Intents.IsEmpty()
+		&& Promoted.Document.Proofs.Num() == 1
+		&& Promoted.Document.Proofs[0].Matches(Proof)
+		&& ReadBytes(Storage.PrimaryPath(), PromotedPrimary)
+		&& ReadBytes(Storage.BackupPath(), PromotionBackup)
+		&& PromotionBackup == IntentPrimary
+		&& PromotedPrimary != IntentPrimary
+		&& FFileHelper::LoadFileToString(PromotedJson, *Storage.PrimaryPath())
+		&& !PromotedJson.Contains(IntentEncoded)
+		&& PromotedJson.Contains(ProofEncoded));
+
+	const Fdemo_mapShanmenTreatmentRecoveryMutationResult ReplayedPromotion =
+		Store.PromoteIntentToProof(Intent, Proof, Storage);
+	const Fdemo_mapShanmenTreatmentRecoveryMutationResult LateIntent =
+		Store.RecordIntent(Intent, Storage);
+	TestTrue(TEXT("promotion replay and late intent cannot duplicate state"),
+		ReplayedPromotion.Status
+			== Edemo_mapShanmenTreatmentRecoveryMutationStatus::AlreadyPromoted
+		&& LateIntent.Status
+			== Edemo_mapShanmenTreatmentRecoveryMutationStatus::AlreadyPromoted
+		&& !ReplayedPromotion.bDiskStateChanged
+		&& !LateIntent.bDiskStateChanged
+		&& ReplayedPromotion.Document == Promoted.Document
+		&& LateIntent.Document == Promoted.Document);
+
+	const Fdemo_mapShanmenTreatmentRecoveryMutationResult RecordedCancelled =
+		Store.RecordIntent(CancelledIntent, Storage);
+	const Fdemo_mapShanmenTreatmentRecoveryMutationResult ForgottenIntent =
+		Store.ForgetIntent(CancelledIntent.GetTreatmentId(), Storage);
+	const Fdemo_mapShanmenTreatmentRecoveryMutationResult ForgottenReplay =
+		Store.ForgetIntent(CancelledIntent.GetTreatmentId(), Storage);
+	const Fdemo_mapShanmenTreatmentRecoveryMutationResult ForgetPromoted =
+		Store.ForgetIntent(Intent.GetTreatmentId(), Storage);
+	TestTrue(TEXT("prepared intent cancellation is durable and idempotent"),
+		RecordedCancelled.Status
+			== Edemo_mapShanmenTreatmentRecoveryMutationStatus::IntentRecorded
+		&& RecordedCancelled.Document.SaveGeneration == 3
+		&& RecordedCancelled.Document.Intents.Num() == 1
+		&& RecordedCancelled.Document.Proofs.Num() == 1
+		&& ForgottenIntent.Status
+			== Edemo_mapShanmenTreatmentRecoveryMutationStatus::IntentForgotten
+		&& ForgottenIntent.Document.SaveGeneration == 4
+		&& ForgottenIntent.Document.Intents.IsEmpty()
+		&& ForgottenIntent.Document.Proofs.Num() == 1
+		&& ForgottenReplay.Status
+			== Edemo_mapShanmenTreatmentRecoveryMutationStatus::
+				IntentAlreadyAbsent
+		&& ForgetPromoted.Status
+			== Edemo_mapShanmenTreatmentRecoveryMutationStatus::AlreadyPromoted
+		&& !ForgottenReplay.bDiskStateChanged
+		&& !ForgetPromoted.bDiskStateChanged);
+	AddInfo(FString::Printf(
+		TEXT("P16.8 intent promotion treatment=%s generations=1/2/3/4 replay=%d"),
+		*Intent.GetTreatmentId().ToString(EGuidFormats::Digits),
+		static_cast<int32>(ReplayedPromotion.Status)));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapMeridianShockRecoveryStoreIntentFailureFenceTest,
+	"Shanmen.0_0_10.Product.MeridianShockTreatment.RecoveryStore.IntentFailureConflictFence",
+	RecoveryStoreFlags)
+
+bool Fdemo_mapMeridianShockRecoveryStoreIntentFailureFenceTest::RunTest(
+	const FString&)
+{
+	FRecoveryStoreFixture Fixture;
+	if (!Fixture.Begin(*this, TEXT("IntentFailureConflictFence")))
+	{
+		return false;
+	}
+	const FGuid TargetId(0xC1680030, 0, 0, 1);
+	const FGuid ItemId(0xC1680030, 0, 0, 2);
+	Fdemo_mapShanmenMeridianShockTreatmentRecoveryIntent Intent;
+	Fdemo_mapShanmenMeridianShockTreatmentRecoveryIntent ConflictingIntent;
+	Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof Proof;
+	Fdemo_mapShanmenMeridianShockTreatmentRecoveryProof ConflictingProof;
+	if (!Fixture.CreateProof(
+		*this,
+		TargetId,
+		ItemId,
+		FGuid(0xC1680030, 0, 0, 3),
+		FGuid(0xC1680030, 0, 0, 4),
+		false,
+		Proof,
+		&Intent)
+		|| !Fixture.CreateProof(
+			*this,
+			TargetId,
+			ItemId,
+			FGuid(0xC1680030, 0, 0, 5),
+			FGuid(0xC1680030, 0, 0, 6),
+			true,
+			ConflictingProof,
+			&ConflictingIntent))
+	{
+		return false;
+	}
+	TestTrue(TEXT("fixture shares TreatmentId but changes sampled decision"),
+		Intent.GetTreatmentId() == ConflictingIntent.GetTreatmentId()
+		&& Intent.GetIntentId() != ConflictingIntent.GetIntentId()
+		&& Proof.GetProofId() != ConflictingProof.GetProofId());
+
+	Fdemo_mapShanmenMeridianShockTreatmentRecoveryStore Store;
+	const Fdemo_mapShanmenTreatmentRecoveryStorageContext Storage =
+		Fixture.Storage();
+	if (!Store.RecordIntent(Intent, Storage).IsSuccess())
+	{
+		AddError(TEXT("Could not publish the P16.8 intent failure fixture."));
+		return false;
+	}
+	TArray<uint8> Before;
+	ReadBytes(Storage.PrimaryPath(), Before);
+	const Fdemo_mapShanmenTreatmentRecoveryMutationResult IntentConflict =
+		Store.RecordIntent(ConflictingIntent, Storage);
+	const Fdemo_mapShanmenTreatmentRecoveryMutationResult ProofMismatch =
+		Store.PromoteIntentToProof(Intent, ConflictingProof, Storage);
+	const Fdemo_mapShanmenTreatmentRecoveryMutationResult Bypass =
+		Store.RecordProof(Proof, Storage);
+	TArray<uint8> AfterRejected;
+	TestTrue(TEXT("conflict, mismatched proof and RecordProof bypass fail closed"),
+		IntentConflict.Status
+			== Edemo_mapShanmenTreatmentRecoveryMutationStatus::Conflict
+		&& ProofMismatch.Status
+			== Edemo_mapShanmenTreatmentRecoveryMutationStatus::InvalidRequest
+		&& Bypass.Status
+			== Edemo_mapShanmenTreatmentRecoveryMutationStatus::Conflict
+		&& !IntentConflict.bDiskStateChanged
+		&& !ProofMismatch.bDiskStateChanged
+		&& !Bypass.bDiskStateChanged
+		&& ReadBytes(Storage.PrimaryPath(), AfterRejected)
+		&& AfterRejected == Before);
+
+	Fdemo_mapShanmenTreatmentRecoveryStorageContext Injected = Storage;
+	Injected.InjectedFailure =
+		Edemo_mapShanmenTreatmentRecoveryStoreFailureStage::AtomicReplace;
+	const Fdemo_mapShanmenTreatmentRecoveryMutationResult FailedPromotion =
+		Store.PromoteIntentToProof(Intent, Proof, Injected);
+	TArray<uint8> AfterFailure;
+	const bool bPrimaryPreserved = ReadBytes(
+		Storage.PrimaryPath(), AfterFailure)
+		&& AfterFailure == Before;
+	const Fdemo_mapShanmenTreatmentRecoveryMutationResult Retried =
+		Store.PromoteIntentToProof(Intent, Proof, Storage);
+	TestTrue(TEXT("pre-commit promotion failure preserves durable intent"),
+		FailedPromotion.Status
+			== Edemo_mapShanmenTreatmentRecoveryMutationStatus::SaveFailed
+		&& bPrimaryPreserved);
+	TestTrue(TEXT("same promotion retry commits one exact generation"),
+		Retried.Status
+			== Edemo_mapShanmenTreatmentRecoveryMutationStatus::Promoted
+		&& Retried.Document.SaveGeneration == 2
+		&& Retried.Document.Intents.IsEmpty()
+		&& Retried.Document.Proofs.Num() == 1
+		&& Retried.Document.Proofs[0].Matches(Proof));
+
+	const FString CorruptRoot = NewRecoveryStoreRoot(TEXT("IntentCorruption"));
+	const Fdemo_mapShanmenTreatmentRecoveryStorageContext CorruptStorage =
+		Fdemo_mapShanmenTreatmentRecoveryStorageContext::ForRoot(
+			CorruptRoot, RecoveryOwnerId, RecoveryRunId);
+	const bool bRecordedCorruptFixture =
+		Store.RecordIntent(Intent, CorruptStorage).IsSuccess();
+	FString CorruptJson;
+	FFileHelper::LoadFileToString(CorruptJson, *CorruptStorage.PrimaryPath());
+	CorruptJson.ReplaceInline(
+		*Intent.GetIntentId().ToString(EGuidFormats::Digits),
+		*FGuid(0xC16800FF, 0, 0, 1).ToString(EGuidFormats::Digits));
+	const bool bWroteCorrupt = FFileHelper::SaveStringToFile(
+		CorruptJson,
+		*CorruptStorage.PrimaryPath(),
+		FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
+	const Fdemo_mapShanmenTreatmentRecoveryLoadResult Corrupt =
+		bRecordedCorruptFixture && bWroteCorrupt
+			? Store.LoadExisting(CorruptStorage)
+			: Fdemo_mapShanmenTreatmentRecoveryLoadResult();
+	TestTrue(TEXT("tampered intent without valid backup is never reset"),
+		bRecordedCorruptFixture
+		&& bWroteCorrupt
+		&& Corrupt.Status
+			== Edemo_mapShanmenTreatmentRecoveryLoadStatus::
+				CorruptPrimaryNoValidBackup
+		&& !Corrupt.bDiskStateChanged
+		&& IFileManager::Get().FileExists(*CorruptStorage.PrimaryPath()));
+	IFileManager::Get().DeleteDirectory(*CorruptRoot, false, true);
+	AddInfo(FString::Printf(
+		TEXT("P16.8 intent fences conflict=%d failure=%d retryGeneration=%d"),
+		static_cast<int32>(IntentConflict.Status),
+		static_cast<int32>(FailedPromotion.Status),
+		Retried.Document.SaveGeneration));
 	return true;
 }
 
