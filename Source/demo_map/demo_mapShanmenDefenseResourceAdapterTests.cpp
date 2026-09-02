@@ -1070,6 +1070,232 @@ bool Fdemo_mapHeartMirrorTriggeredChargeTest::RunTest(const FString&)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapHeartMirrorSettlementLifecycleTest,
+	"Shanmen.0_0_10.Items.DefenseResourceAdapter.HeartMirrorSettlementLifecycle",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapHeartMirrorSettlementLifecycleTest::RunTest(const FString&)
+{
+	FP54DefenseFixture Fixture;
+	if (!Fixture.SeedAndStart(
+			*this, TEXT("HeartMirrorSettlementLifecycle"), false, true))
+	{
+		return false;
+	}
+	const FGuid FirstRunId = Fixture.Started.ActiveRunId;
+	Udemo_mapPlayerHealthComponent* FirstHealth =
+		NewObject<Udemo_mapPlayerHealthComponent>(GetTransientPackage());
+	if (!FirstHealth
+		|| !FirstHealth->TryBindCombatEntity(
+			FGuid(0xD3570500, 0, 0, 1)))
+	{
+		AddError(TEXT("P17.2 first Run could not bind vitality."));
+		return false;
+	}
+	FirstHealth->SetCurrentHealthForAutomation(3);
+	FShanmenImpactRequest FirstRequest;
+	FShanmenImpactResult FirstImpact;
+	FString Diagnostic;
+	if (!BuildP54Impact(
+			Fixture,
+			*FirstHealth,
+			20,
+			MakeHeartMirrorBaseDefense(),
+			FirstRequest,
+			FirstImpact,
+			Diagnostic,
+			5.0f))
+	{
+		AddError(Diagnostic);
+		return false;
+	}
+	const Fdemo_mapShanmenDefenseResourceCoordinationResult FirstSpend =
+		Fdemo_mapShanmenDefenseResourceAdapter::CoordinateImpact(
+			*Fixture.Authority,
+			*FirstHealth,
+			FirstRequest,
+			FirstImpact);
+	FShanmenItemAuthoritySnapshot SpentInFirstRun;
+	const FShanmenItemInstance* FirstSpentMirror =
+		Fixture.Authority->TryCaptureSnapshot(SpentInFirstRun)
+			? FindAuthorityItem(
+				SpentInFirstRun, Fixture.HeartMirrorId)
+			: nullptr;
+	TestTrue(TEXT("First Run spends the only mirror charge before settlement"),
+		FirstSpend.IsSuccess()
+			&& FMath::IsNearlyEqual(
+				FirstHealth->GetCurrentVitality(), 1.0f)
+			&& FirstSpentMirror
+			&& FirstSpentMirror->State
+				== EShanmenItemInstanceState::Deployed
+			&& FirstSpentMirror->Charges == 0);
+
+	Fdemo_mapSettlementSummary ExtractionSummary;
+	const Fdemo_mapItemOperationResult RuntimeExtraction =
+		Fixture.Runtime->RequestSettlement(
+			Edemo_mapRunEndReason::Extraction, ExtractionSummary);
+	const Fdemo_mapShanmenRunFinalizeResult Extraction =
+		RuntimeExtraction.bSuccess
+			? Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
+				*Fixture.Authority, ExtractionSummary)
+			: Fdemo_mapShanmenRunFinalizeResult();
+	FShanmenItemAuthoritySnapshot Extracted;
+	const FShanmenItemInstance* ExtractedMirror =
+		Fixture.Authority->TryCaptureSnapshot(Extracted)
+			? FindAuthorityItem(Extracted, Fixture.HeartMirrorId)
+			: nullptr;
+	const Fdemo_mapProfilePreparationSnapshot ExtractedPreparation =
+		Fixture.Session->GetPreparationSnapshot();
+	const Fdemo_mapProfilePreparationStashRow* ExtractedRow =
+		FindPreparationRow(
+			ExtractedPreparation, Fixture.HeartMirrorId);
+	const Fdemo_mapProfilePreparationViewState ExtractedView =
+		Fdemo_mapProfilePreparationPresenter::BuildViewState(
+			ExtractedPreparation);
+	const Fdemo_mapProfilePreparationRowView* ExtractedViewRow =
+		ExtractedView.OrderedPermanentStashRows.FindByPredicate(
+			[&Fixture](const Fdemo_mapProfilePreparationRowView& Row)
+			{
+				return Row.ItemInstanceId == Fixture.HeartMirrorId;
+			});
+	TestTrue(TEXT("Extraction secures the same spent mirror without refilling it"),
+		Extraction.IsFinalized()
+			&& ExtractionSummary.RunId == FirstRunId
+			&& ExtractionSummary.Reason
+				== Edemo_mapRunEndReason::Extraction
+			&& ExtractedMirror
+			&& ExtractedMirror->State == EShanmenItemInstanceState::Stored
+			&& ExtractedMirror->Charges == 0
+			&& ExtractedRow
+			&& ExtractedRow->Charges == 0
+			&& ExtractedRow->MaxCharges == 1
+			&& ExtractedRow->HasValidResourceState()
+			&& ExtractedViewRow
+			&& ExtractedViewRow->ResourceLabel == TEXT("CHG 0/1"));
+
+	if (!Fixture.RestartAndBind(*this))
+	{
+		return false;
+	}
+	FShanmenItemAuthoritySnapshot RestartedAfterExtraction;
+	const FShanmenItemInstance* RestartedSpentMirror =
+		Fixture.Authority->TryCaptureSnapshot(RestartedAfterExtraction)
+			? FindAuthorityItem(
+				RestartedAfterExtraction, Fixture.HeartMirrorId)
+			: nullptr;
+	const Fdemo_mapProfilePreparationStashRow* RestartedSpentRow =
+		FindPreparationRow(
+			Fixture.Session->GetPreparationSnapshot(),
+			Fixture.HeartMirrorId);
+	TestTrue(TEXT("Process restart preserves the extracted zero-charge state"),
+		RestartedSpentMirror
+			&& RestartedSpentMirror->State
+				== EShanmenItemInstanceState::Stored
+			&& RestartedSpentMirror->Charges == 0
+			&& RestartedSpentRow
+			&& RestartedSpentRow->Charges == 0
+			&& RestartedSpentRow->MaxCharges == 1);
+
+	const Fdemo_mapProfilePreparationSelectionResult Reselected =
+		Fixture.Session->SetPreparationEquipment(
+			Fdemo_mapItemIds::AccessorySlot, Fixture.HeartMirrorId);
+	Fixture.Runtime->ResetForAutomation();
+	Fixture.Started =
+		Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
+			*Fixture.Authority, *Fixture.Runtime);
+	FShanmenItemAuthoritySnapshot Redeployed;
+	const FShanmenItemInstance* RedeployedMirror =
+		Fixture.Authority->TryCaptureSnapshot(Redeployed)
+			? FindAuthorityItem(Redeployed, Fixture.HeartMirrorId)
+			: nullptr;
+	TestTrue(TEXT("A later Run redeploys the same identity without restoring charge"),
+		Reselected.IsAccepted()
+			&& Fixture.Started.IsStarted()
+			&& Fixture.Started.ActiveRunId != FirstRunId
+			&& Fixture.Started.RunCorrelation.AccessoryItemInstanceId
+				== Fixture.HeartMirrorId
+			&& RedeployedMirror
+			&& RedeployedMirror->State
+				== EShanmenItemInstanceState::Deployed
+			&& RedeployedMirror->Charges == 0);
+
+	Udemo_mapPlayerHealthComponent* SecondHealth =
+		NewObject<Udemo_mapPlayerHealthComponent>(GetTransientPackage());
+	if (!SecondHealth
+		|| !SecondHealth->TryBindCombatEntity(
+			FGuid(0xD3570500, 0, 0, 2)))
+	{
+		AddError(TEXT("P17.2 later Run could not bind vitality."));
+		return false;
+	}
+	FShanmenDefenseSnapshot ExhaustedDefense = MakeHeartMirrorBaseDefense();
+	const Fdemo_mapShanmenDefenseResourcePreparationResult Exhausted =
+		Fdemo_mapShanmenDefenseResourceAdapter::PrepareImpactDefense(
+			*Fixture.Authority,
+			*SecondHealth,
+			FGuid(0xD3570500, 0, 0, 3),
+			ExhaustedDefense);
+	TestTrue(TEXT("The later Run cannot synthesize a defense layer from zero charge"),
+		Exhausted.IsSuccess()
+			&& Exhausted.Status
+				== Edemo_mapShanmenDefenseResourcePreparationStatus::
+					ResourceUnavailable
+			&& !Exhausted.HasResourceLayer()
+			&& Exhausted.ReservationIds.IsEmpty()
+			&& ExhaustedDefense.Layers.IsEmpty());
+
+	Fdemo_mapSettlementSummary DeathSummary;
+	const Fdemo_mapItemOperationResult RuntimeDeath =
+		Fixture.Runtime->RequestSettlement(
+			Edemo_mapRunEndReason::Death, DeathSummary);
+	const Fdemo_mapShanmenRunFinalizeResult Death = RuntimeDeath.bSuccess
+		? Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
+			*Fixture.Authority, DeathSummary)
+		: Fdemo_mapShanmenRunFinalizeResult();
+	FShanmenItemAuthoritySnapshot Destroyed;
+	const FShanmenItemInstance* DestroyedMirror =
+		Fixture.Authority->TryCaptureSnapshot(Destroyed)
+			? FindAuthorityItem(Destroyed, Fixture.HeartMirrorId)
+			: nullptr;
+	TestTrue(TEXT("Death converts the spent mirror to a zeroed tombstone"),
+		Death.IsFinalized()
+			&& DeathSummary.RunId == Fixture.Started.ActiveRunId
+			&& DeathSummary.Reason == Edemo_mapRunEndReason::Death
+			&& DeathSummary.RuntimeSnapshot.OrderedSecuredItems.IsEmpty()
+			&& DestroyedMirror
+			&& DestroyedMirror->State
+				== EShanmenItemInstanceState::Destroyed
+			&& DestroyedMirror->Quantity == 0
+			&& DestroyedMirror->Durability == 0
+			&& DestroyedMirror->Charges == 0
+			&& !FindPreparationRow(
+				Fixture.Session->GetPreparationSnapshot(),
+				Fixture.HeartMirrorId));
+
+	if (!Fixture.RestartAndBind(*this))
+	{
+		return false;
+	}
+	FShanmenItemAuthoritySnapshot RestartedAfterDeath;
+	const FShanmenItemInstance* RestartedTombstone =
+		Fixture.Authority->TryCaptureSnapshot(RestartedAfterDeath)
+			? FindAuthorityItem(
+				RestartedAfterDeath, Fixture.HeartMirrorId)
+			: nullptr;
+	TestTrue(TEXT("Destroyed mirror remains terminal after another restart"),
+		RestartedTombstone
+			&& RestartedTombstone->State
+				== EShanmenItemInstanceState::Destroyed
+			&& RestartedTombstone->Quantity == 0
+			&& RestartedTombstone->Durability == 0
+			&& RestartedTombstone->Charges == 0
+			&& !FindPreparationRow(
+				Fixture.Session->GetPreparationSnapshot(),
+				Fixture.HeartMirrorId));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	Fdemo_mapHeartMirrorUntriggeredCancellationTest,
 	"Shanmen.0_0_10.Items.DefenseResourceAdapter.HeartMirrorUntriggeredCancel",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
