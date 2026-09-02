@@ -163,6 +163,9 @@ try
     $SwordQiWorldDelivery = New-AutomationLogFixture `
         -Name 'sword-qi-world-delivery.log' `
         -Group 'Shanmen.0_0_10.Product.SwordQiWorldDelivery'
+    $SwordQiProductSession = New-AutomationLogFixture `
+        -Name 'sword-qi-product-session.log' `
+        -Group 'Shanmen.0_0_10.Product.SwordQiProductSession'
     $SwordQiRunHost = New-AutomationLogFixture `
         -Name 'sword-qi-run-host.log' `
         -Group 'Shanmen.0_0_10.Product.SwordQiRunHost'
@@ -2352,6 +2355,14 @@ try
         -Logs @($Full)
 
     Invoke-ExpectedPass `
+        -Name 'sword qi product session maps command route through every owned authority seam' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordQiProductAuthority.cpp',
+            'Source/demo_map/demo_mapShanmenSwordQiProductSession.cpp',
+            'Source/demo_map/demo_mapShanmenSwordQiProductSessionTests.cpp') `
+        -Logs @($Full)
+
+    Invoke-ExpectedPass `
         -Name 'sword qi Run Host maps physical lifetime and all authority seams' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenSwordQiRunHost.cpp',
@@ -2526,6 +2537,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenSwordQiWorldAdapter.cpp') `
         -Logs @($SwordQiWorldDelivery) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'sword qi product focus cannot replace host world arbitration coordinator runtime and core evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordQiProductSession.cpp') `
+        -Logs @($SwordQiProductSession) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

@@ -10,8 +10,10 @@
 
 class AActor;
 class APawn;
+class Fdemo_mapPlayerSwordQiActionReservation;
 class Fdemo_mapPlayerSpiritEvasionActionReservation;
 class Fdemo_mapPlayerWeaponGuardActionReservation;
+class Fdemo_mapShanmenSwordQiProductConfig;
 class Fdemo_mapShanmenSpiritEvasionProductConfig;
 class Fdemo_mapShanmenWeaponGuardProductConfig;
 class UPrimitiveComponent;
@@ -612,6 +614,16 @@ public:
 		Fdemo_mapPlayerThrownWeaponActionReservation& OutReservation,
 		FString& OutDiagnostic);
 	/**
+	 * Reserves one canonical, exact-sword Sword Qi identity from this Run's
+	 * monotonic sequence. Product policy is supplied only by the immutable
+	 * P18.3 config authority; equipment lookup remains external.
+	 */
+	bool TryReservePlayerSwordQiAction(
+		const Fdemo_mapShanmenSwordQiProductConfig& Config,
+		const FGuid& SourceItemInstanceId,
+		Fdemo_mapPlayerSwordQiActionReservation& OutReservation,
+		FString& OutDiagnostic);
+	/**
 	 * Reserves one canonical Spirit Evasion identity from this Run's own
 	 * monotonic sequence. Product content is supplied only by the immutable
 	 * P10.8 config authority; direction and component state remain external.
@@ -663,6 +675,10 @@ public:
 	uint64 GetNextPlayerThrownWeaponActivationSequence() const
 	{
 		return NextPlayerThrownWeaponActivationSequence;
+	}
+	uint64 GetNextPlayerSwordQiActivationSequence() const
+	{
+		return NextPlayerSwordQiActivationSequence;
 	}
 	uint64 GetNextPlayerSpiritEvasionActivationSequence() const
 	{
@@ -717,6 +733,7 @@ private:
 	uint64 NextPlayerSelfSectorActivationSequence = 1;
 	uint64 NextPlayerStraightProjectileActivationSequence = 1;
 	uint64 NextPlayerThrownWeaponActivationSequence = 1;
+	uint64 NextPlayerSwordQiActivationSequence = 1;
 	uint64 NextPlayerSpiritEvasionActivationSequence = 1;
 	uint64 NextPlayerWeaponGuardActivationSequence = 1;
 	uint64 NextPlayerActionArbitrationSequence = 1;

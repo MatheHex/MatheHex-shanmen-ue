@@ -10,6 +10,7 @@ namespace
 		{
 		case Edemo_mapShanmenPlayerActionKind::BasicSword:
 		case Edemo_mapShanmenPlayerActionKind::ThrownWeapon:
+		case Edemo_mapShanmenPlayerActionKind::SwordQi:
 		case Edemo_mapShanmenPlayerActionKind::SpiritEvasion:
 		case Edemo_mapShanmenPlayerActionKind::WeaponGuard:
 			return true;
@@ -21,6 +22,7 @@ namespace
 	bool IsPersistentOccupant(Edemo_mapShanmenPlayerActionKind Action)
 	{
 		return Action == Edemo_mapShanmenPlayerActionKind::ThrownWeapon
+			|| Action == Edemo_mapShanmenPlayerActionKind::SwordQi
 			|| Action == Edemo_mapShanmenPlayerActionKind::SpiritEvasion
 			|| Action == Edemo_mapShanmenPlayerActionKind::WeaponGuard;
 	}
@@ -514,10 +516,23 @@ Fdemo_mapShanmenPlayerActionArbitrationPolicy::Evaluate(
 		{
 			Result.Error = Edemo_mapShanmenPlayerActionArbitrationError::
 				ConflictingProductActive;
-			Result.Diagnostic = Claim->OwningAction
-					== Edemo_mapShanmenPlayerActionKind::ThrownWeapon
-				? TEXT("An in-flight thrown weapon owns the player action lane.")
-				: TEXT("A nonterminal Spirit Evasion owns the player action lane.");
+			if (Claim->OwningAction
+				== Edemo_mapShanmenPlayerActionKind::ThrownWeapon)
+			{
+				Result.Diagnostic =
+					TEXT("An in-flight thrown weapon owns the player action lane.");
+			}
+			else if (Claim->OwningAction
+				== Edemo_mapShanmenPlayerActionKind::SwordQi)
+			{
+				Result.Diagnostic =
+					TEXT("An in-flight Sword Qi owns the player action lane.");
+			}
+			else
+			{
+				Result.Diagnostic =
+					TEXT("A nonterminal Spirit Evasion owns the player action lane.");
+			}
 		}
 		return Result;
 	}

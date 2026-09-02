@@ -17,6 +17,7 @@ namespace
 	const FGuid ArbitrationGuardHost(0xA1150003, 0, 0, 1);
 	const FGuid ArbitrationThrownOwner(0xA1160001, 0, 0, 1);
 	const FGuid ArbitrationSpiritHost(0xA1160002, 0, 0, 1);
+	const FGuid ArbitrationSwordQiOwner(0xA1160003, 0, 0, 1);
 
 	Fdemo_mapShanmenPlayerActionOccupancySnapshot OccupancyWith(
 		const Edemo_mapShanmenPlayerActionKind Action,
@@ -65,6 +66,7 @@ bool Fdemo_mapPlayerActionArbitrationPolicyTest::RunTest(const FString&)
 	const TArray<Edemo_mapShanmenPlayerActionKind> Actions = {
 		Edemo_mapShanmenPlayerActionKind::BasicSword,
 		Edemo_mapShanmenPlayerActionKind::ThrownWeapon,
+		Edemo_mapShanmenPlayerActionKind::SwordQi,
 		Edemo_mapShanmenPlayerActionKind::SpiritEvasion,
 		Edemo_mapShanmenPlayerActionKind::WeaponGuard
 	};
@@ -125,12 +127,19 @@ bool Fdemo_mapPlayerActionArbitrationPolicyTest::RunTest(const FString&)
 			Edemo_mapShanmenPlayerActionKind::SpiritEvasion,
 			ArbitrationSpiritHost,
 			Edemo_mapShanmenPlayerActionClaimPreemption::None);
+	const Fdemo_mapShanmenPlayerActionOccupancySnapshot SwordQi =
+		OccupancyWith(
+			Edemo_mapShanmenPlayerActionKind::SwordQi,
+			ArbitrationSwordQiOwner,
+			Edemo_mapShanmenPlayerActionClaimPreemption::None);
 	for (const Edemo_mapShanmenPlayerActionKind Action : Actions)
 	{
 		const Fdemo_mapShanmenPlayerActionArbitrationReceipt DuringThrow =
 			Evaluate(Sequence++, Action, Thrown);
 		const Fdemo_mapShanmenPlayerActionArbitrationReceipt DuringSpirit =
 			Evaluate(Sequence++, Action, Spirit);
+		const Fdemo_mapShanmenPlayerActionArbitrationReceipt DuringSwordQi =
+			Evaluate(Sequence++, Action, SwordQi);
 		TestTrue(TEXT("in-flight thrown weapon rejects every new lane action"),
 			DuringThrow.IsValid() && !DuringThrow.IsAuthorized()
 				&& DuringThrow.Error
@@ -149,6 +158,15 @@ bool Fdemo_mapPlayerActionArbitrationPolicyTest::RunTest(const FString&)
 					== Edemo_mapShanmenPlayerActionKind::SpiritEvasion
 				&& DuringSpirit.OccupyingOwnerId
 					== ArbitrationSpiritHost);
+		TestTrue(TEXT("in-flight Sword Qi rejects every new lane action"),
+			DuringSwordQi.IsValid() && !DuringSwordQi.IsAuthorized()
+				&& DuringSwordQi.Error
+					== Edemo_mapShanmenPlayerActionArbitrationError::
+						ConflictingProductActive
+				&& DuringSwordQi.OccupyingAction
+					== Edemo_mapShanmenPlayerActionKind::SwordQi
+				&& DuringSwordQi.OccupyingOwnerId
+					== ArbitrationSwordQiOwner);
 	}
 
 	Fdemo_mapShanmenPlayerActionOccupancySnapshot Multiple = GuardOccupancy();
@@ -199,6 +217,13 @@ bool Fdemo_mapPlayerActionClaimProjectionTest::RunTest(const FString&)
 			ArbitrationThrownOwner,
 			Edemo_mapShanmenPlayerActionClaimPreemption::ExactOwner,
 			InvalidThrown));
+	Fdemo_mapShanmenPlayerActionClaim InvalidSwordQi;
+	TestFalse(TEXT("Sword Qi cannot silently become preemptible"),
+		Fdemo_mapShanmenPlayerActionClaim::TryCreate(
+			Edemo_mapShanmenPlayerActionKind::SwordQi,
+			ArbitrationSwordQiOwner,
+			Edemo_mapShanmenPlayerActionClaimPreemption::ExactOwner,
+			InvalidSwordQi));
 
 	Fdemo_mapShanmenPlayerActionOccupancySnapshot Duplicate;
 	TestTrue(TEXT("first typed claim registers"),

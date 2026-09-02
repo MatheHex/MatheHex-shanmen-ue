@@ -24,6 +24,7 @@
 #include "demo_mapShanmenDefenseResourceAdapter.h"
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
 #include "demo_mapShanmenRunLifecycleAdapter.h"
+#include "demo_mapShanmenSwordQiProductAuthority.h"
 #include "demo_mapShanmenSpiritEvasionProductAuthority.h"
 #include "demo_mapShanmenWeaponGuardProductAuthority.h"
 
@@ -1057,6 +1058,7 @@ bool Fdemo_mapCombatRunCoordinator::TryEndRun(
 	NextPlayerSelfSectorActivationSequence = 1;
 	NextPlayerStraightProjectileActivationSequence = 1;
 	NextPlayerThrownWeaponActivationSequence = 1;
+	NextPlayerSwordQiActivationSequence = 1;
 	NextPlayerSpiritEvasionActivationSequence = 1;
 	NextPlayerWeaponGuardActivationSequence = 1;
 	NextPlayerActionArbitrationSequence = 1;
@@ -1091,6 +1093,7 @@ void Fdemo_mapCombatRunCoordinator::Reset()
 	NextPlayerSelfSectorActivationSequence = 1;
 	NextPlayerStraightProjectileActivationSequence = 1;
 	NextPlayerThrownWeaponActivationSequence = 1;
+	NextPlayerSwordQiActivationSequence = 1;
 	NextPlayerSpiritEvasionActivationSequence = 1;
 	NextPlayerWeaponGuardActivationSequence = 1;
 	NextPlayerActionArbitrationSequence = 1;
@@ -2678,6 +2681,69 @@ bool Fdemo_mapCombatRunCoordinator::TryReservePlayerThrownWeaponAction(
 	return true;
 }
 
+bool Fdemo_mapCombatRunCoordinator::TryReservePlayerSwordQiAction(
+	const Fdemo_mapShanmenSwordQiProductConfig& Config,
+	const FGuid& SourceItemInstanceId,
+	Fdemo_mapPlayerSwordQiActionReservation& OutReservation,
+	FString& OutDiagnostic)
+{
+	OutReservation = Fdemo_mapPlayerSwordQiActionReservation();
+	OutDiagnostic.Reset();
+	if (!IsReady())
+	{
+		OutDiagnostic = TEXT("Sword Qi identity requires one ready combat Run.");
+		return false;
+	}
+	if (!Config.IsValid())
+	{
+		OutDiagnostic =
+			TEXT("Sword Qi identity requires the canonical product config.");
+		return false;
+	}
+	if (!SourceItemInstanceId.IsValid())
+	{
+		OutDiagnostic = TEXT("Sword Qi identity requires one exact sword item.");
+		return false;
+	}
+	if (NextPlayerSwordQiActivationSequence == 0
+		|| NextPlayerSwordQiActivationSequence == MAX_uint64)
+	{
+		OutDiagnostic = TEXT("Sword Qi activation sequence is exhausted.");
+		return false;
+	}
+
+	FShanmenCombatActionCapture Capture;
+	Capture.RunId = GetRunId();
+	Capture.OwnerId = PlayerEntityId;
+	Capture.SourceEntityId = PlayerEntityId;
+	Capture.SourceItemInstanceId = SourceItemInstanceId;
+	Capture.ActionDefinitionId =
+		FShanmenSwordQiDefinition::CanonicalActionDefinitionId();
+	Capture.Content = Config.GetContent();
+	Capture.SourceTags.AddTag(FShanmenCombatNativeTags::SourcePlayer());
+	Capture.ActivationId = FShanmenCombatIdFactory::MakeActivationId(
+		Capture.RunId,
+		Capture.SourceEntityId,
+		Capture.ActionDefinitionId,
+		NextPlayerSwordQiActivationSequence);
+
+	Fdemo_mapPlayerSwordQiActionReservation Candidate;
+	Candidate.ActivationSequence = NextPlayerSwordQiActivationSequence;
+	Candidate.ConfigId = Config.GetConfigId();
+	if (!FShanmenCombatActionSnapshot::TryCapture(Capture, Candidate.Action)
+		|| !Candidate.IsValid())
+	{
+		OutDiagnostic =
+			TEXT("Sword Qi deterministic action identity failed closed.");
+		return false;
+	}
+
+	OutReservation = Candidate;
+	++NextPlayerSwordQiActivationSequence;
+	OutDiagnostic = TEXT("Sword Qi action identity reserved by the combat Run.");
+	return true;
+}
+
 bool Fdemo_mapCombatRunCoordinator::TryReservePlayerSpiritEvasionAction(
 	const Fdemo_mapShanmenSpiritEvasionProductConfig& Config,
 	Fdemo_mapPlayerSpiritEvasionActionReservation& OutReservation,
@@ -2829,6 +2895,7 @@ Fdemo_mapCombatRunCoordinator::TryAuthorizePlayerAction(
 	{
 	case Edemo_mapShanmenPlayerActionKind::BasicSword:
 	case Edemo_mapShanmenPlayerActionKind::ThrownWeapon:
+	case Edemo_mapShanmenPlayerActionKind::SwordQi:
 	case Edemo_mapShanmenPlayerActionKind::SpiritEvasion:
 	case Edemo_mapShanmenPlayerActionKind::WeaponGuard:
 		break;
