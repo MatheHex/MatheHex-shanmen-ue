@@ -10,6 +10,7 @@
 #include "demo_mapAttributeDefinitions.h"
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapPersistentProfileTypes.h"
+#include "demo_mapShanmenItemAuthoritySubsystem.h"
 
 namespace
 {
@@ -30,10 +31,7 @@ namespace
 
 	FShanmenContentStamp MakeContent()
 	{
-		FShanmenContentStamp Content;
-		Content.Version = Fdemo_mapItemDefinitions::GetContentVersionId();
-		Content.Digest = Fdemo_mapItemDefinitions::GetContentDigest();
-		return Content;
+		return Udemo_mapShanmenItemAuthoritySubsystem::ProductContentStamp();
 	}
 
 	FShanmenOperationContext MakeContext(const FGuid& RequestId)

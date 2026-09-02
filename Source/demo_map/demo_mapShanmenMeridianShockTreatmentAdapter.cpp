@@ -244,16 +244,17 @@ Fdemo_mapShanmenMeridianShockTreatmentAdapter::BuildPrepareRequest(
 			Edemo_mapShanmenMeridianShockTreatmentStatus::ConditionMismatch,
 			TEXT("Condition status does not belong to the active item Run."));
 	}
+	const FShanmenContentStamp AuthorityContent =
+		Udemo_mapShanmenItemAuthoritySubsystem::ProductContentStamp();
 	if (!Snapshot.Content.IsValid()
-		|| !Fdemo_mapItemDefinitions::IsCurrentContentIdentity(
-			Snapshot.Content.Version,
-			Snapshot.Content.Digest)
+		|| Snapshot.Content.Version != AuthorityContent.Version
+		|| Snapshot.Content.Digest != AuthorityContent.Digest
 		|| Snapshot.AuthorityRevision
 			< Correlation.LifecycleAuthorityRevision)
 	{
 		return Reject(
 			Edemo_mapShanmenMeridianShockTreatmentStatus::SnapshotStale,
-			TEXT("Treatment item evidence is stale or not from the current product catalog."));
+			TEXT("Treatment item evidence is stale or not from the product item authority."));
 	}
 	if (!ItemInstanceId.IsValid()
 		|| !Correlation.OrderedRunInventoryItemInstanceIds.Contains(

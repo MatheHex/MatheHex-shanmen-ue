@@ -17,12 +17,14 @@ function New-AutomationLogFixture {
         [Parameter(Mandatory)][string]$Group,
         [ValidateSet('Success', 'Fail')][string]$Result = 'Success',
         [switch]$UseUE58Completion,
+        [switch]$AppendQuit,
         [switch]$OmitQueueEmpty
     )
 
     $Path = Join-Path $FixtureRoot $Name
     $Lines = [System.Collections.Generic.List[string]]::new()
-    $Lines.Add("[2026.08.28-00.00.00:000][  0]Cmd: Automation RunTests $Group")
+    $CommandSuffix = if ($AppendQuit) { ';Quit' } else { '' }
+    $Lines.Add("[2026.08.28-00.00.00:000][  0]Cmd: Automation RunTests $Group$CommandSuffix")
     $Lines.Add("[2026.08.28-00.00.00:001][  1]LogAutomationController: Display: Test Completed. Result={$Result} Name={Fixture} Path={$Group.Fixture}")
     if ($UseUE58Completion)
     {
@@ -527,6 +529,11 @@ try
         -Name 'ue58-complete.log' `
         -Group 'Shanmen.0_0_10' `
         -UseUE58Completion
+    $UE58CompleteWithQuit = New-AutomationLogFixture `
+        -Name 'ue58-complete-with-quit.log' `
+        -Group 'Shanmen.0_0_10' `
+        -UseUE58Completion `
+        -AppendQuit
 
     Invoke-ExpectedPass `
         -Name 'overlapping rules union and broad suite coverage' `
@@ -553,6 +560,12 @@ try
         -Name 'UE 5.8 native TEST COMPLETE marker is healthy evidence' `
         -Paths @('Docs/Process/P_PHASE_BASELINE.md') `
         -Logs @($UE58Complete)
+
+    Invoke-ExpectedPass `
+        -Name 'UE ExecCmds semicolon Quit suffix preserves the test group' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Private/ShanmenFormationDeployment.cpp') `
+        -Logs @($UE58CompleteWithQuit)
 
     Invoke-ExpectedPass `
         -Name 'formation deployment core is covered by broad full evidence' `

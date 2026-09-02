@@ -60,7 +60,7 @@ function Read-AutomationEvidence {
     $Text = Get-Content -LiteralPath $Resolved -Raw
     $CommandMatches = [regex]::Matches(
         $Text,
-        '(?m)Cmd:\s+Automation RunTests\s+(?<Group>[^\r\n"]+)')
+        '(?m)Cmd:\s+Automation RunTests\s+(?<Group>[^;\r\n"]+)')
     $Groups = @(
         $CommandMatches
         | ForEach-Object { $_.Groups['Group'].Value.Trim() }
