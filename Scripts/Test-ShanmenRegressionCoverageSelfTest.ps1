@@ -131,6 +131,9 @@ try
     $P6Integration = New-AutomationLogFixture `
         -Name 'p6-integration.log' `
         -Group 'demo_map.P6.Integration'
+    $V3Lifecycle = New-AutomationLogFixture `
+        -Name 'v3-lifecycle.log' `
+        -Group 'demo_map.V3.Lifecycle'
     $InputRestore = New-AutomationLogFixture `
         -Name 'input-restore.log' `
         -Group 'demo_map.InputRestore'
@@ -2393,6 +2396,12 @@ try
         -Logs @($P6Integration)
 
     Invoke-ExpectedPass `
+        -Name 'legacy run lifecycle fixture requires its complete exact suite' `
+        -Paths @(
+            'Source/demo_map/demo_mapRunLifecycleTests.cpp') `
+        -Logs @($V3Lifecycle)
+
+    Invoke-ExpectedPass `
         -Name 'automation root boundary changes require their exact safety suite' `
         -Paths @(
             'Source/demo_map/demo_mapAutomationRootBoundary.cpp',
@@ -3640,6 +3649,13 @@ try
         -Name 'P6 integration closure fixture cannot use unrelated full evidence' `
         -Paths @(
             'Source/demo_map/demo_mapP6IntegrationClosureTests.cpp') `
+        -Logs @($Full) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'legacy run lifecycle fixture cannot use unrelated full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapRunLifecycleTests.cpp') `
         -Logs @($Full) `
         -ExpectedText 'missing required groups'
 

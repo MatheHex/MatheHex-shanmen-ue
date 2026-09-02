@@ -2368,6 +2368,13 @@
       ]
     },
     {
+      "name": "LegacyRunLifecycleFixture",
+      "pathRegex": "^Source/demo_map/demo_mapRunLifecycleTests\\.cpp$",
+      "requiredGroups": [
+        "demo_map.V3.Lifecycle"
+      ]
+    },
+    {
       "name": "P5RuntimeInterfaceFixture",
       "pathRegex": "^Source/demo_map/demo_mapRuntimeInterfaceSliceTests\\.cpp$",
       "requiredGroups": [

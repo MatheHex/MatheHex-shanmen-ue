@@ -33,7 +33,36 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRunD, "demo_map.V3.Lifecycle.D.TerminalIdempot
 bool FRunD::RunTest(const FString&){auto* I=NewItems();I->BeginRun();Fdemo_mapSettlementSummary A,B;TestTrue(TEXT("first"),I->RequestSettlement(Edemo_mapRunEndReason::Death,A).bSuccess);const auto R=I->RequestSettlement(Edemo_mapRunEndReason::Extraction,B);TestTrue(TEXT("second rejected"),!R.bSuccess&&R.Code==Edemo_mapItemResultCode::SettlementAlreadyCompleted);TestEqual(TEXT("reason immutable"),I->GetLastSettlementSummary().Reason,Edemo_mapRunEndReason::Death);return true;}
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRunE, "demo_map.V3.Lifecycle.E.AtomicInventoryRollback", EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
-bool FRunE::RunTest(const FString&){Fdemo_mapItemAuthority A;TestTrue(TEXT("fill"),A.AddDefinition(Fdemo_mapItemIds::TrainingBlade,12).bSuccess);const auto Before=A.CaptureState();const auto R=A.AddDefinition(Fdemo_mapItemIds::TrainingVest,1);TestTrue(TEXT("rejected"),!R.bSuccess&&R.Code==Edemo_mapItemResultCode::InventoryFull);TestTrue(TEXT("unchanged"),A.GetInventorySlotSnapshot()==Before.InventorySlots&&A.GetInstanceSnapshot().Num()==Before.Instances.Num());return true;}
+bool FRunE::RunTest(const FString&)
+{
+	Fdemo_mapItemAuthority Authority;
+	const int32 Capacity = Authority.GetInventoryCapacity();
+	if (!TestTrue(TEXT("Definition-backed base capacity is valid"), Capacity > 0))
+	{
+		return false;
+	}
+	TestTrue(
+		TEXT("Fill the current definition-backed capacity"),
+		Authority.AddDefinition(Fdemo_mapItemIds::TrainingBlade, Capacity).bSuccess);
+	TestEqual(TEXT("Every inventory cell is occupied"), Authority.GetUsedInventorySlots(), Capacity);
+
+	const Fdemo_mapItemAuthorityState Before = Authority.CaptureState();
+	const int32 RevisionBefore = Authority.GetAuthorityRevision();
+	const Fdemo_mapItemOperationResult Result =
+		Authority.AddDefinition(Fdemo_mapItemIds::TrainingVest, 1);
+	TestTrue(
+		TEXT("One item beyond capacity is rejected"),
+		!Result.bSuccess && Result.Code == Edemo_mapItemResultCode::InventoryFull);
+	TestTrue(
+		TEXT("Rejected add preserves inventory identity and count"),
+		Authority.GetInventorySlotSnapshot() == Before.InventorySlots
+			&& Authority.GetInstanceSnapshot().Num() == Before.Instances.Num());
+	TestEqual(
+		TEXT("Rejected add does not advance authority revision"),
+		Authority.GetAuthorityRevision(),
+		RevisionBefore);
+	return true;
+}
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRunF, "demo_map.V3.Lifecycle.F.ForbiddenSourceResult", EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
 bool FRunF::RunTest(const FString&){auto* I=NewItems();I->BeginRun();TArray<Ademo_mapWorldItem*> A;const auto R=I->CreateEnemyLoot(nullptr,Edemo_mapEnemyLootArchetype::Melee,FGuid::NewGuid(),FVector::ZeroVector,nullptr,A,false);TestTrue(TEXT("forbidden"),!R.bSuccess&&R.Code==Edemo_mapItemResultCode::ForbiddenLootSource);return true;}
