@@ -2197,6 +2197,20 @@
       ]
     },
     {
+      "name": "DivineSenseCommandRouter",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenDivineSenseCommandRouter(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Product.DivineSenseCommandRouter",
+        "Shanmen.0_0_10.Product.DivineSenseProductHost",
+        "Shanmen.0_0_10.Product.DivineSensePulseCoordinator",
+        "Shanmen.0_0_10.Product.DivineSenseWorldObservation",
+        "Shanmen.0_0_10.CombatRuntime.DivineSense",
+        "Shanmen.0_0_10.CombatRuntime.ActionResource",
+        "Shanmen.0_0_10.CombatRuntime.ActionLifecycle",
+        "Shanmen.0_0_10.WorldGameplay"
+      ]
+    },
+    {
       "name": "Items",
       "pathRegex": "^Source/ShanmenItems/",
       "requiredGroups": [

@@ -412,6 +412,9 @@ try
     $DivineSenseProductHost = New-AutomationLogFixture `
         -Name 'divine-sense-product-host.log' `
         -Group 'Shanmen.0_0_10.Product.DivineSenseProductHost'
+    $DivineSenseCommandRouter = New-AutomationLogFixture `
+        -Name 'divine-sense-command-router.log' `
+        -Group 'Shanmen.0_0_10.Product.DivineSenseCommandRouter'
     $SpiritShieldRuntime = New-AutomationLogFixture `
         -Name 'spirit-shield-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShield'
@@ -2616,6 +2619,21 @@ try
             $ActionLifecycle,
             $WorldGameplay)
 
+    Invoke-ExpectedPass `
+        -Name 'Divine Sense command router maps every routed authority contract' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenDivineSenseCommandRouter.cpp',
+            'Source/demo_map/demo_mapShanmenDivineSenseCommandRouterTests.cpp') `
+        -Logs @(
+            $DivineSenseCommandRouter,
+            $DivineSenseProductHost,
+            $DivineSensePulseCoordinator,
+            $DivineSenseWorldObservation,
+            $DivineSenseRuntime,
+            $ActionResource,
+            $ActionLifecycle,
+            $WorldGameplay)
+
     Invoke-ExpectedFail `
         -Name 'missing mapped group fails closed' `
         -Paths @('Source/demo_map/demo_mapSkillComponent.cpp') `
@@ -2641,6 +2659,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenDivineSenseProductHost.cpp') `
         -Logs @($DivineSenseProductHost, $DivineSensePulseCoordinator) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'Divine Sense command router focus cannot replace routed authority evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenDivineSenseCommandRouter.cpp') `
+        -Logs @($DivineSenseCommandRouter, $DivineSenseProductHost) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
