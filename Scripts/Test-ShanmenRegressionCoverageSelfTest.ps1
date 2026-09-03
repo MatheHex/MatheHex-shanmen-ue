@@ -406,6 +406,9 @@ try
     $DivineSenseWorldObservation = New-AutomationLogFixture `
         -Name 'divine-sense-world-observation.log' `
         -Group 'Shanmen.0_0_10.Product.DivineSenseWorldObservation'
+    $DivineSensePulseCoordinator = New-AutomationLogFixture `
+        -Name 'divine-sense-pulse-coordinator.log' `
+        -Group 'Shanmen.0_0_10.Product.DivineSensePulseCoordinator'
     $SpiritShieldRuntime = New-AutomationLogFixture `
         -Name 'spirit-shield-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShield'
@@ -2583,6 +2586,19 @@ try
             $DivineSenseRuntime,
             $WorldGameplay)
 
+    Invoke-ExpectedPass `
+        -Name 'Divine Sense pulse coordinator maps every composed authority contract' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenDivineSensePulseCoordinator.cpp',
+            'Source/demo_map/demo_mapShanmenDivineSensePulseCoordinatorTests.cpp') `
+        -Logs @(
+            $DivineSensePulseCoordinator,
+            $DivineSenseWorldObservation,
+            $DivineSenseRuntime,
+            $ActionResource,
+            $ActionLifecycle,
+            $WorldGameplay)
+
     Invoke-ExpectedFail `
         -Name 'missing mapped group fails closed' `
         -Paths @('Source/demo_map/demo_mapSkillComponent.cpp') `
@@ -2594,6 +2610,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenDivineSenseWorldObservationAdapter.cpp') `
         -Logs @($DivineSenseWorldObservation) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'Divine Sense pulse focus cannot replace composed authority evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenDivineSensePulseCoordinator.cpp') `
+        -Logs @($DivineSensePulseCoordinator, $DivineSenseWorldObservation) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
