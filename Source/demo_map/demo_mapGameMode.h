@@ -25,6 +25,7 @@
 #include "demo_mapShanmenSwordRhythmProductSession.h"
 #include "demo_mapShanmenSwordRhythmPresentationEvent.h"
 #include "demo_mapShanmenSwordRhythmEffectCuePresentationRunController.h"
+#include "demo_mapShanmenSwordQiInputAdapter.h"
 #include "demo_mapShanmenSwordQiProductController.h"
 #include "demo_mapShanmenWeaponGuardInputAdapter.h"
 #include "demo_mapShanmenWeaponGuardProductSession.h"
@@ -182,6 +183,12 @@ public:
 	/** Routes one already-captured, device-independent Sword Qi intent. */
 	Fdemo_mapShanmenSwordQiControllerResult RouteSwordQiIntent(
 		const Fdemo_mapShanmenSwordQiIntent& Intent);
+	/** Samples one future input event and delegates to the sole Sword Qi route. */
+	Fdemo_mapShanmenSwordQiInputResult RouteSwordQiStartInput(
+		bool bGameplayInputAllowed,
+		const FGuid& InputEventId,
+		TFunctionRef<FVector()> SampleOrigin,
+		TFunctionRef<FVector()> SampleAimDirection);
 	bool InterruptSwordQiFlight();
 	bool ExpireSwordQiRange();
 	bool RetireSwordQiTerminal(

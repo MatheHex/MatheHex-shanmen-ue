@@ -1221,6 +1221,46 @@ Ademo_mapGameMode::RouteSwordQiIntent(
 		});
 }
 
+Fdemo_mapShanmenSwordQiInputResult
+Ademo_mapGameMode::RouteSwordQiStartInput(
+	const bool bGameplayInputAllowed,
+	const FGuid& InputEventId,
+	TFunctionRef<FVector()> SampleOrigin,
+	TFunctionRef<FVector()> SampleAimDirection)
+{
+	const bool bProductRouteAvailable =
+		SwordQiProductController.IsActive()
+		&& SwordQiProductController.IsValid()
+		&& CombatRunCoordinator.IsReady()
+		&& SwordQiProductController.GetRunId()
+			== CombatRunCoordinator.GetRunId()
+		&& PlayerItemSubsystem.IsValid()
+		&& PlayerAttributeComponent.IsValid()
+		&& GetDemoPawn() != nullptr;
+	const FGuid RunId = CombatRunCoordinator.IsReady()
+		? CombatRunCoordinator.GetRunId()
+		: FGuid();
+
+	return Fdemo_mapShanmenSwordQiInputAdapter::RouteStartInput(
+		bGameplayInputAllowed,
+		bProductRouteAvailable,
+		RunId,
+		InputEventId,
+		[&SampleOrigin, &SampleAimDirection]()
+		{
+			Fdemo_mapShanmenSwordQiInputSample Sample;
+			Fdemo_mapShanmenSwordQiInputSample::TryCapture(
+				SampleOrigin(),
+				SampleAimDirection(),
+				Sample);
+			return Sample;
+		},
+		[this](const Fdemo_mapShanmenSwordQiIntent& Intent)
+		{
+			return RouteSwordQiIntent(Intent);
+		});
+}
+
 bool Ademo_mapGameMode::InterruptSwordQiFlight()
 {
 	return SwordQiProductController.TryInterrupt();
