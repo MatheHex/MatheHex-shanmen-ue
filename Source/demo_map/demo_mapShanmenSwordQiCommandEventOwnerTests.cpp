@@ -170,6 +170,30 @@ namespace
 					return Route(Intent);
 				});
 		}
+
+		Fdemo_mapShanmenSwordQiInputResult FrozenInput(
+			const FGuid& EventId,
+			const Fdemo_mapShanmenSwordQiInputSample& FrozenSample,
+			int32& FrozenReadCount,
+			int32& RouteCount)
+		{
+			return Fdemo_mapShanmenSwordQiInputAdapter::RouteStartInput(
+				true,
+				bReady,
+				SwordQiCommandRunA,
+				EventId,
+				[&FrozenSample, &FrozenReadCount]()
+				{
+					++FrozenReadCount;
+					return FrozenSample;
+				},
+				[this, &RouteCount](
+					const Fdemo_mapShanmenSwordQiIntent& Intent)
+				{
+					++RouteCount;
+					return Route(Intent);
+				});
+		}
 	};
 }
 
@@ -242,7 +266,7 @@ bool Fdemo_mapSwordQiCommandEventPreRouteFenceTest::RunTest(
 	FString Diagnostic;
 	if (!Owner.TryBegin(SwordQiCommandRunA, Diagnostic))
 	{
-		AddError(TEXT("Could not bind the P18.6 fence fixture."));
+		AddError(TEXT("Could not bind the P18.7 fence fixture."));
 		return false;
 	}
 	int32 SampleCount = 0;
@@ -322,15 +346,122 @@ bool Fdemo_mapSwordQiCommandEventPreRouteFenceTest::RunTest(
 					},
 					ProductRoute);
 			});
-	TestTrue(TEXT("product invocation commits identity despite rejection"),
+	TestTrue(TEXT("valid sample freezes request despite product rejection"),
 		ProductRejected.Status
 			== Edemo_mapShanmenSwordQiCommandEventStatus::InputRejected
 			&& ProductRejected.bEventCommitted
 			&& ProductRejected.CanReplay()
+			&& ProductRejected.Request.IsValid()
+			&& ProductRejected.Request.GetEvent().GetInputEventId()
+				== ProductRejected.Event.GetInputEventId()
+			&& ProductRejected.Request.GetSample().GetOrigin()
+				== ProductRejected.Input.Sample.GetOrigin()
 			&& ProductRejected.Event.GetEventSequence() == 1
 			&& SampleCount == 2
 			&& RouteCount == 1
 			&& Owner.GetNextEventSequence() == 2);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapSwordQiCommandFrozenBeforeProductRouteTest,
+	"Shanmen.0_0_10.Product.SwordQiCommandEventOwner.FrozenBeforeProductRoute",
+	SwordQiCommandEventFlags)
+
+bool Fdemo_mapSwordQiCommandFrozenBeforeProductRouteTest::RunTest(
+	const FString&)
+{
+	Fdemo_mapShanmenSwordQiCommandEventOwner Owner;
+	FString Diagnostic;
+	if (!Owner.TryBegin(SwordQiCommandRunA, Diagnostic))
+	{
+		AddError(TEXT("Could not bind the P18.7 frozen-request fixture."));
+		return false;
+	}
+	const Fdemo_mapShanmenSwordQiInputSample FrozenSample =
+		CommandSpatialSample(
+			FVector(17.0, 23.0, 61.0),
+			FVector(8.0, 5.0, 3.0));
+	int32 SourceCaptureCount = 0;
+	const Fdemo_mapShanmenSwordQiCommandEventResult Captured =
+		Owner.TryIssue(
+			[&](const FGuid& EventId)
+			{
+				++SourceCaptureCount;
+				Fdemo_mapShanmenSwordQiInputResult Input;
+				Input.Status =
+					Edemo_mapShanmenSwordQiInputStatus::IntentCaptureRejected;
+				Input.bSpatialSampled = true;
+				Input.InputEventId = EventId;
+				Input.RunId = SwordQiCommandRunA;
+				Input.Sample = FrozenSample;
+				Input.Diagnostic =
+					TEXT("Synthetic pre-product capture rejection.");
+				return Input;
+			});
+	TestTrue(TEXT("first valid sample commits a replayable request"),
+		Captured.Status
+			== Edemo_mapShanmenSwordQiCommandEventStatus::InputRejected
+			&& Captured.bNewEvent
+			&& Captured.bEventCommitted
+			&& Captured.CanReplay()
+			&& Captured.Request.IsValid()
+			&& !Captured.Input.bProductRouteInvoked
+			&& SourceCaptureCount == 1
+			&& Owner.GetNextEventSequence() == 2);
+
+	int32 FrozenRouteCount = 0;
+	const Fdemo_mapShanmenSwordQiCommandEventResult Replayed =
+		Owner.TryReplay(
+			Captured.Request,
+			[&](
+				const FGuid& EventId,
+				const Fdemo_mapShanmenSwordQiInputSample& RequestSample)
+			{
+				++FrozenRouteCount;
+				Fdemo_mapShanmenSwordQiInputResult Input;
+				Input.Status =
+					Edemo_mapShanmenSwordQiInputStatus::IntentCaptureRejected;
+				Input.bSpatialSampled = true;
+				Input.InputEventId = EventId;
+				Input.RunId = SwordQiCommandRunA;
+				Input.Sample = RequestSample;
+				Input.Diagnostic =
+					TEXT("Synthetic frozen-request replay rejection.");
+				return Input;
+			});
+	TestTrue(TEXT("replay receives only the frozen sample and never reallocates"),
+		Replayed.Status
+			== Edemo_mapShanmenSwordQiCommandEventStatus::InputRejected
+			&& !Replayed.bNewEvent
+			&& Replayed.CanReplay()
+			&& Replayed.Request.GetSample().GetOrigin()
+				== FrozenSample.GetOrigin()
+			&& Replayed.Request.GetSample().GetAimDirection().Equals(
+				FrozenSample.GetAimDirection())
+			&& SourceCaptureCount == 1
+			&& FrozenRouteCount == 1
+			&& Owner.GetNextEventSequence() == 2);
+
+	Fdemo_mapShanmenSwordQiCommandEventOwner OtherOwner;
+	TestTrue(TEXT("second owner binds another Run"),
+		OtherOwner.TryBegin(SwordQiCommandRunB, Diagnostic));
+	int32 ForeignRouteCount = 0;
+	const Fdemo_mapShanmenSwordQiCommandEventResult Foreign =
+		OtherOwner.TryReplay(
+			Captured.Request,
+			[&](
+				const FGuid&,
+				const Fdemo_mapShanmenSwordQiInputSample&)
+			{
+				++ForeignRouteCount;
+				return Fdemo_mapShanmenSwordQiInputResult();
+			});
+	TestTrue(TEXT("frozen request cannot cross its Run owner"),
+		Foreign.Status
+			== Edemo_mapShanmenSwordQiCommandEventStatus::RequestNotOwned
+			&& ForeignRouteCount == 0
+			&& !Foreign.CanReplay());
 	return true;
 }
 
@@ -345,12 +476,13 @@ bool Fdemo_mapSwordQiCommandEventAppliedReplayTest::RunTest(
 	FSwordQiCommandEventFixture Fixture;
 	if (!Fixture.bReady)
 	{
-		AddError(TEXT("Could not build the P18.6 applied fixture."));
+		AddError(TEXT("Could not build the P18.7 applied fixture."));
 		return false;
 	}
 	const FGuid FirstSword =
 		Fixture.Equip(*this, Fdemo_mapItemIds::TrainingBlade);
 	int32 SampleCount = 0;
+	int32 FrozenReadCount = 0;
 	int32 RouteCount = 0;
 	const FVector FirstOrigin(20.0, 30.0, 60.0);
 	const Fdemo_mapShanmenSwordQiCommandEventResult First =
@@ -371,6 +503,7 @@ bool Fdemo_mapSwordQiCommandEventAppliedReplayTest::RunTest(
 		FirstSword.IsValid()
 			&& First.bNewEvent
 			&& First.bEventCommitted
+			&& First.Request.IsValid()
 			&& First.Event.GetEventSequence() == 1
 			&& First.Input.InputEventId == First.Event.GetInputEventId()
 			&& SampleCount == 1
@@ -384,13 +517,15 @@ bool Fdemo_mapSwordQiCommandEventAppliedReplayTest::RunTest(
 				.IsValid());
 	const Fdemo_mapShanmenSwordQiCommandEventResult Replay =
 		Fixture.Owner.TryReplay(
-			First.Event,
-			[&](const FGuid& EventId)
+			First.Request,
+			[&](
+				const FGuid& EventId,
+				const Fdemo_mapShanmenSwordQiInputSample& FrozenSample)
 			{
-				return Fixture.Input(
-					EventId, FirstOrigin, SampleCount, RouteCount);
+				return Fixture.FrozenInput(
+					EventId, FrozenSample, FrozenReadCount, RouteCount);
 			});
-	TestTrue(TEXT("explicit replay reuses identity without allocating"),
+	TestTrue(TEXT("explicit replay reuses identity and frozen sample"),
 		Replay.IsAccepted()
 			&& !Replay.bNewEvent
 			&& Replay.bEventCommitted
@@ -403,7 +538,8 @@ bool Fdemo_mapSwordQiCommandEventAppliedReplayTest::RunTest(
 				.GetSourceItemInstanceId() == FirstSword
 			&& Replay.Input.Product.Start.Command.GetCommandId()
 				== FrozenCommandId
-			&& SampleCount == 2
+			&& SampleCount == 1
+			&& FrozenReadCount == 1
 			&& RouteCount == 2
 			&& Fixture.Owner.GetNextEventSequence() == 2);
 	return true;
@@ -419,11 +555,12 @@ bool Fdemo_mapSwordQiCommandEventBusyRetryTest::RunTest(const FString&)
 	FSwordQiCommandEventFixture Fixture;
 	if (!Fixture.bReady)
 	{
-		AddError(TEXT("Could not build the P18.6 retry fixture."));
+		AddError(TEXT("Could not build the P18.7 retry fixture."));
 		return false;
 	}
 	Fixture.Equip(*this, Fdemo_mapItemIds::TrainingBlade);
 	int32 SampleCount = 0;
+	int32 FrozenReadCount = 0;
 	int32 RouteCount = 0;
 	const FVector FirstOrigin(20.0, 30.0, 60.0);
 	const Fdemo_mapShanmenSwordQiCommandEventResult First =
@@ -466,11 +603,13 @@ bool Fdemo_mapSwordQiCommandEventBusyRetryTest::RunTest(const FString&)
 				.IsValid());
 	const Fdemo_mapShanmenSwordQiCommandEventResult Retried =
 		Fixture.Owner.TryReplay(
-			Busy.Event,
-			[&](const FGuid& EventId)
+			Busy.Request,
+			[&](
+				const FGuid& EventId,
+				const Fdemo_mapShanmenSwordQiInputSample& FrozenSample)
 			{
-				return Fixture.Input(
-					EventId, SecondOrigin, SampleCount, RouteCount);
+				return Fixture.FrozenInput(
+					EventId, FrozenSample, FrozenReadCount, RouteCount);
 			});
 	TestTrue(TEXT("retry launches frozen command without new event"),
 		Retried.IsAccepted()
@@ -480,7 +619,8 @@ bool Fdemo_mapSwordQiCommandEventBusyRetryTest::RunTest(const FString&)
 			&& Retried.Input.Product.AttackPower == 7.0f
 			&& Retried.Input.Product.Start.Command.GetCommandId()
 				== Busy.Input.Product.Start.Command.GetCommandId()
-			&& SampleCount == 3
+			&& SampleCount == 2
+			&& FrozenReadCount == 1
 			&& RouteCount == 3
 			&& Fixture.AuthorizationCount == 2
 			&& Fixture.Owner.GetNextEventSequence() == 3);

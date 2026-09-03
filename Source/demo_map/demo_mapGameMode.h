@@ -195,12 +195,10 @@ public:
 		bool bGameplayInputAllowed,
 		TFunctionRef<FVector()> SampleOrigin,
 		TFunctionRef<FVector()> SampleAimDirection);
-	/** Explicitly retries one event already committed by this active Run. */
+	/** Replays one owner-frozen request without accepting another sample. */
 	Fdemo_mapShanmenSwordQiCommandEventResult ReplaySwordQiStartCommand(
-		const Fdemo_mapShanmenSwordQiCommandEvent& Event,
-		bool bGameplayInputAllowed,
-		TFunctionRef<FVector()> SampleOrigin,
-		TFunctionRef<FVector()> SampleAimDirection);
+		const Fdemo_mapShanmenSwordQiCommandRequest& Request,
+		bool bGameplayInputAllowed);
 	bool InterruptSwordQiFlight();
 	bool ExpireSwordQiRange();
 	bool RetireSwordQiTerminal(

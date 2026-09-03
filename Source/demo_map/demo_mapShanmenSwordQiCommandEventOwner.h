@@ -22,6 +22,27 @@ private:
 	uint64 EventSequence = 0;
 };
 
+/** Immutable logical command request after the first valid spatial sample. */
+class Fdemo_mapShanmenSwordQiCommandRequest
+{
+public:
+	bool IsValid() const;
+	const Fdemo_mapShanmenSwordQiCommandEvent& GetEvent() const
+	{
+		return Event;
+	}
+	const Fdemo_mapShanmenSwordQiInputSample& GetSample() const
+	{
+		return Sample;
+	}
+
+private:
+	friend class Fdemo_mapShanmenSwordQiCommandEventOwner;
+
+	Fdemo_mapShanmenSwordQiCommandEvent Event;
+	Fdemo_mapShanmenSwordQiInputSample Sample;
+};
+
 enum class Edemo_mapShanmenSwordQiCommandEventStatus : uint8
 {
 	Applied,
@@ -29,7 +50,8 @@ enum class Edemo_mapShanmenSwordQiCommandEventStatus : uint8
 	OwnerInvalid,
 	SequenceExhausted,
 	EventInvalid,
-	EventNotOwned,
+	RequestInvalid,
+	RequestNotOwned,
 	InputRejected,
 	OwnerPostconditionFailed
 };
@@ -42,13 +64,14 @@ struct Fdemo_mapShanmenSwordQiCommandEventResult
 	bool bNewEvent = false;
 	bool bEventCommitted = false;
 	Fdemo_mapShanmenSwordQiCommandEvent Event;
+	Fdemo_mapShanmenSwordQiCommandRequest Request;
 	Fdemo_mapShanmenSwordQiInputResult Input;
 	FString Diagnostic;
 
 	bool IsAccepted() const;
 	bool CanReplay() const
 	{
-		return bEventCommitted && Event.IsValid();
+		return bEventCommitted && Request.IsValid();
 	}
 };
 
@@ -66,12 +89,12 @@ struct Fdemo_mapShanmenSwordQiCommandEventEndSummary
  *
  * A fresh command receives one deterministic InputEventId and delegates once
  * to the P18.5 input adapter. Pre-route gates do not consume the sequence.
- * Once the product route is invoked, the event is committed even when the
- * product rejects it, preventing automatic identity reuse after side effects.
- * Explicit replay requires the immutable committed event value and never
- * allocates another sequence. No physical key, spatial truth, retry loop,
- * item, attribute, Actor, inventory, projectile or damage authority lives
- * here.
+ * The first valid spatial sample freezes an immutable command request and
+ * commits its event identity. Product rejection cannot replace that sample.
+ * Explicit replay requires the frozen request, never calls an external
+ * sampler and never allocates another sequence. No physical key, spatial
+ * authority, retry loop, item, attribute, Actor, inventory, projectile or
+ * damage authority lives here.
  */
 class Fdemo_mapShanmenSwordQiCommandEventOwner
 {
@@ -85,9 +108,10 @@ public:
 		TFunctionRef<Fdemo_mapShanmenSwordQiInputResult(const FGuid&)>
 			RouteInput);
 	Fdemo_mapShanmenSwordQiCommandEventResult TryReplay(
-		const Fdemo_mapShanmenSwordQiCommandEvent& Event,
-		TFunctionRef<Fdemo_mapShanmenSwordQiInputResult(const FGuid&)>
-			RouteInput);
+		const Fdemo_mapShanmenSwordQiCommandRequest& Request,
+		TFunctionRef<Fdemo_mapShanmenSwordQiInputResult(
+			const FGuid&,
+			const Fdemo_mapShanmenSwordQiInputSample&)> RouteFrozenInput);
 	bool TryEnd(
 		const FGuid& ExpectedRunId,
 		Fdemo_mapShanmenSwordQiCommandEventEndSummary& OutSummary,
@@ -105,11 +129,15 @@ public:
 	}
 
 private:
-	Fdemo_mapShanmenSwordQiCommandEventResult RouteEvent(
+	Fdemo_mapShanmenSwordQiCommandEventResult RouteNewEvent(
 		const Fdemo_mapShanmenSwordQiCommandEvent& Event,
-		bool bNewEvent,
 		TFunctionRef<Fdemo_mapShanmenSwordQiInputResult(const FGuid&)>
 			RouteInput);
+	Fdemo_mapShanmenSwordQiCommandEventResult RouteFrozenRequest(
+		const Fdemo_mapShanmenSwordQiCommandRequest& Request,
+		TFunctionRef<Fdemo_mapShanmenSwordQiInputResult(
+			const FGuid&,
+			const Fdemo_mapShanmenSwordQiInputSample&)> RouteFrozenInput);
 
 	FGuid RunId;
 	uint64 NextEventSequence = 1;

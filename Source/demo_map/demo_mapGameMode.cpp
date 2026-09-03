@@ -1283,23 +1283,26 @@ Ademo_mapGameMode::IssueSwordQiStartCommand(
 
 Fdemo_mapShanmenSwordQiCommandEventResult
 Ademo_mapGameMode::ReplaySwordQiStartCommand(
-	const Fdemo_mapShanmenSwordQiCommandEvent& Event,
-	const bool bGameplayInputAllowed,
-	TFunctionRef<FVector()> SampleOrigin,
-	TFunctionRef<FVector()> SampleAimDirection)
+	const Fdemo_mapShanmenSwordQiCommandRequest& Request,
+	const bool bGameplayInputAllowed)
 {
 	return SwordQiCommandEventOwner.TryReplay(
-		Event,
-		[this,
-		 bGameplayInputAllowed,
-		 &SampleOrigin,
-		 &SampleAimDirection](const FGuid& InputEventId)
+		Request,
+		[this, bGameplayInputAllowed](
+			const FGuid& InputEventId,
+			const Fdemo_mapShanmenSwordQiInputSample& FrozenSample)
 		{
 			return RouteSwordQiStartInput(
 				bGameplayInputAllowed,
 				InputEventId,
-				SampleOrigin,
-				SampleAimDirection);
+				[&FrozenSample]()
+				{
+					return FrozenSample.GetOrigin();
+				},
+				[&FrozenSample]()
+				{
+					return FrozenSample.GetAimDirection();
+				});
 		});
 }
 

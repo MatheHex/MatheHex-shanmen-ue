@@ -9,6 +9,16 @@ namespace
 		return Value.ToString(EGuidFormats::Digits);
 	}
 
+	bool SamplesEqual(
+		const Fdemo_mapShanmenSwordQiInputSample& Left,
+		const Fdemo_mapShanmenSwordQiInputSample& Right)
+	{
+		return Left.IsValid()
+			&& Right.IsValid()
+			&& Left.GetOrigin() == Right.GetOrigin()
+			&& Left.GetAimDirection().Equals(Right.GetAimDirection());
+	}
+
 	Fdemo_mapShanmenSwordQiCommandEventResult Reject(
 		const Edemo_mapShanmenSwordQiCommandEventStatus Status,
 		const TCHAR* Diagnostic)
@@ -30,14 +40,24 @@ bool Fdemo_mapShanmenSwordQiCommandEvent::IsValid() const
 				EventSequence);
 }
 
+bool Fdemo_mapShanmenSwordQiCommandRequest::IsValid() const
+{
+	return Event.IsValid() && Sample.IsValid();
+}
+
 bool Fdemo_mapShanmenSwordQiCommandEventResult::IsAccepted() const
 {
 	return Status == Edemo_mapShanmenSwordQiCommandEventStatus::Applied
 		&& bEventCommitted
 		&& Event.IsValid()
+		&& Request.IsValid()
+		&& Request.GetEvent().GetRunId() == Event.GetRunId()
+		&& Request.GetEvent().GetInputEventId() == Event.GetInputEventId()
+		&& Request.GetEvent().GetEventSequence() == Event.GetEventSequence()
 		&& Input.IsAccepted()
 		&& Input.InputEventId == Event.GetInputEventId()
-		&& Input.RunId == Event.GetRunId();
+		&& Input.RunId == Event.GetRunId()
+		&& SamplesEqual(Input.Sample, Request.GetSample());
 }
 
 FGuid Fdemo_mapShanmenSwordQiCommandEventOwner::MakeInputEventId(
@@ -127,14 +147,15 @@ Fdemo_mapShanmenSwordQiCommandEventOwner::TryIssue(
 			Edemo_mapShanmenSwordQiCommandEventStatus::EventInvalid,
 			TEXT("Sword Qi logical command could not derive a stable event identity."));
 	}
-	return RouteEvent(Event, true, RouteInput);
+	return RouteNewEvent(Event, RouteInput);
 }
 
 Fdemo_mapShanmenSwordQiCommandEventResult
 Fdemo_mapShanmenSwordQiCommandEventOwner::TryReplay(
-	const Fdemo_mapShanmenSwordQiCommandEvent& Event,
-	TFunctionRef<Fdemo_mapShanmenSwordQiInputResult(const FGuid&)>
-		RouteInput)
+	const Fdemo_mapShanmenSwordQiCommandRequest& Request,
+	TFunctionRef<Fdemo_mapShanmenSwordQiInputResult(
+		const FGuid&,
+		const Fdemo_mapShanmenSwordQiInputSample&)> RouteFrozenInput)
 {
 	if (!IsActive())
 	{
@@ -148,40 +169,34 @@ Fdemo_mapShanmenSwordQiCommandEventOwner::TryReplay(
 			Edemo_mapShanmenSwordQiCommandEventStatus::OwnerInvalid,
 			TEXT("Sword Qi command-event owner invariants are invalid."));
 	}
-	if (!Event.IsValid())
+	if (!Request.IsValid())
 	{
 		return Reject(
-			Edemo_mapShanmenSwordQiCommandEventStatus::EventInvalid,
-			TEXT("Sword Qi replay requires one valid immutable command event."));
+			Edemo_mapShanmenSwordQiCommandEventStatus::RequestInvalid,
+			TEXT("Sword Qi replay requires one valid frozen command request."));
 	}
+	const Fdemo_mapShanmenSwordQiCommandEvent& Event = Request.GetEvent();
 	if (Event.GetRunId() != RunId
 		|| Event.GetEventSequence() >= NextEventSequence)
 	{
 		return Reject(
-			Edemo_mapShanmenSwordQiCommandEventStatus::EventNotOwned,
-			TEXT("Sword Qi replay event was not committed by this active Run owner."));
+			Edemo_mapShanmenSwordQiCommandEventStatus::RequestNotOwned,
+			TEXT("Sword Qi replay request was not committed by this active Run owner."));
 	}
-	return RouteEvent(Event, false, RouteInput);
+	return RouteFrozenRequest(Request, RouteFrozenInput);
 }
 
 Fdemo_mapShanmenSwordQiCommandEventResult
-Fdemo_mapShanmenSwordQiCommandEventOwner::RouteEvent(
+Fdemo_mapShanmenSwordQiCommandEventOwner::RouteNewEvent(
 	const Fdemo_mapShanmenSwordQiCommandEvent& Event,
-	const bool bNewEvent,
 	TFunctionRef<Fdemo_mapShanmenSwordQiInputResult(const FGuid&)>
 		RouteInput)
 {
 	Fdemo_mapShanmenSwordQiCommandEventResult Result;
-	Result.bNewEvent = bNewEvent;
-	Result.bEventCommitted = !bNewEvent;
+	Result.bNewEvent = true;
 	Result.Event = Event;
 	Result.Input = RouteInput(Event.GetInputEventId());
 
-	if (bNewEvent && Result.Input.bProductRouteInvoked)
-	{
-		++NextEventSequence;
-		Result.bEventCommitted = true;
-	}
 	const bool bInputIdentityValid =
 		Result.Input.InputEventId == Event.GetInputEventId()
 		&& Result.Input.RunId == RunId
@@ -190,12 +205,80 @@ Fdemo_mapShanmenSwordQiCommandEventOwner::RouteEvent(
 				== Fdemo_mapShanmenSwordQiInputAdapter::MakeIntentId(
 					RunId,
 					Event.GetInputEventId()));
-	if (!bInputIdentityValid || !IsValid())
+	const bool bValidSampleCaptured = bInputIdentityValid
+		&& Result.Input.bSpatialSampled
+		&& Result.Input.Sample.IsValid();
+	if (bValidSampleCaptured)
+	{
+		Result.Request.Event = Event;
+		Result.Request.Sample = Result.Input.Sample;
+	}
+	const bool bMustConsumeIdentity = bValidSampleCaptured
+		|| Result.Input.bProductRouteInvoked;
+	if (bMustConsumeIdentity)
+	{
+		++NextEventSequence;
+		Result.bEventCommitted = true;
+	}
+	const bool bRouteShapeValid = !Result.Input.bProductRouteInvoked
+		|| bValidSampleCaptured;
+	if (!bInputIdentityValid
+		|| !bRouteShapeValid
+		|| (bValidSampleCaptured && !Result.Request.IsValid())
+		|| !IsValid())
 	{
 		Result.Status = Edemo_mapShanmenSwordQiCommandEventStatus::
 			OwnerPostconditionFailed;
 		Result.Diagnostic =
 			TEXT("Sword Qi command adapter returned inconsistent event evidence.");
+		return Result;
+	}
+
+	Result.Status = Result.Input.IsAccepted()
+		? Edemo_mapShanmenSwordQiCommandEventStatus::Applied
+		: Edemo_mapShanmenSwordQiCommandEventStatus::InputRejected;
+	Result.Diagnostic = Result.Input.Diagnostic;
+	return Result;
+}
+
+Fdemo_mapShanmenSwordQiCommandEventResult
+Fdemo_mapShanmenSwordQiCommandEventOwner::RouteFrozenRequest(
+	const Fdemo_mapShanmenSwordQiCommandRequest& Request,
+	TFunctionRef<Fdemo_mapShanmenSwordQiInputResult(
+		const FGuid&,
+		const Fdemo_mapShanmenSwordQiInputSample&)> RouteFrozenInput)
+{
+	const Fdemo_mapShanmenSwordQiCommandEvent& Event = Request.GetEvent();
+	Fdemo_mapShanmenSwordQiCommandEventResult Result;
+	Result.bEventCommitted = true;
+	Result.Event = Event;
+	Result.Request = Request;
+	Result.Input = RouteFrozenInput(
+		Event.GetInputEventId(),
+		Request.GetSample());
+
+	const bool bInputIdentityValid =
+		Result.Input.InputEventId == Event.GetInputEventId()
+		&& Result.Input.RunId == RunId
+		&& (!Result.Input.bProductRouteInvoked
+			|| Result.Input.IntentId
+				== Fdemo_mapShanmenSwordQiInputAdapter::MakeIntentId(
+					RunId,
+					Event.GetInputEventId()));
+	const bool bFrozenSamplePreserved = !Result.Input.bSpatialSampled
+		|| SamplesEqual(Result.Input.Sample, Request.GetSample());
+	const bool bRouteShapeValid = !Result.Input.bProductRouteInvoked
+		|| Result.Input.bSpatialSampled;
+	if (!bInputIdentityValid
+		|| !bFrozenSamplePreserved
+		|| !bRouteShapeValid
+		|| !Request.IsValid()
+		|| !IsValid())
+	{
+		Result.Status = Edemo_mapShanmenSwordQiCommandEventStatus::
+			OwnerPostconditionFailed;
+		Result.Diagnostic =
+			TEXT("Sword Qi frozen replay returned inconsistent request evidence.");
 		return Result;
 	}
 
