@@ -424,6 +424,9 @@ try
     $DivineSenseProductAuthority = New-AutomationLogFixture `
         -Name 'divine-sense-product-authority.log' `
         -Group 'Shanmen.0_0_10.Product.DivineSenseProductAuthority'
+    $DivineSenseProductRoute = New-AutomationLogFixture `
+        -Name 'divine-sense-product-route.log' `
+        -Group 'Shanmen.0_0_10.Product.DivineSenseProductRoute'
     $SpiritShieldRuntime = New-AutomationLogFixture `
         -Name 'spirit-shield-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShield'
@@ -2699,6 +2702,27 @@ try
             $ActionLifecycle,
             $WorldGameplay)
 
+    Invoke-ExpectedPass `
+        -Name 'Divine Sense product route maps use retry canonical authority Controller Run and World contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenDivineSenseProductRoute.h',
+            'Source/demo_map/demo_mapShanmenDivineSenseProductRoute.cpp',
+            'Source/demo_map/demo_mapShanmenDivineSenseProductRouteTests.cpp') `
+        -Logs @(
+            $DivineSenseProductRoute,
+            $DivineSenseProductAuthority,
+            $DivineSenseProductController,
+            $DivineSenseProductSession,
+            $DivineSenseCommandRouter,
+            $DivineSenseProductHost,
+            $DivineSensePulseCoordinator,
+            $DivineSenseWorldObservation,
+            $Coordinator,
+            $DivineSenseRuntime,
+            $ActionResource,
+            $ActionLifecycle,
+            $WorldGameplay)
+
     Invoke-ExpectedFail `
         -Name 'missing mapped group fails closed' `
         -Paths @('Source/demo_map/demo_mapSkillComponent.cpp') `
@@ -2755,6 +2779,17 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenDivineSenseProductAuthority.cpp') `
         -Logs @(
+            $DivineSenseProductAuthority,
+            $DivineSenseProductController,
+            $Coordinator) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'Divine Sense product route focus cannot replace canonical Controller Run and World evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenDivineSenseProductRoute.cpp') `
+        -Logs @(
+            $DivineSenseProductRoute,
             $DivineSenseProductAuthority,
             $DivineSenseProductController,
             $Coordinator) `
