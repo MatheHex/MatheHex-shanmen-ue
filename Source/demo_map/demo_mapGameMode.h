@@ -25,6 +25,7 @@
 #include "demo_mapShanmenSwordRhythmProductSession.h"
 #include "demo_mapShanmenSwordRhythmPresentationEvent.h"
 #include "demo_mapShanmenSwordRhythmEffectCuePresentationRunController.h"
+#include "demo_mapShanmenSwordQiProductController.h"
 #include "demo_mapShanmenWeaponGuardInputAdapter.h"
 #include "demo_mapShanmenWeaponGuardProductSession.h"
 #include "demo_mapGameMode.generated.h"
@@ -178,6 +179,18 @@ public:
 		const Fdemo_mapShanmenThrownWeaponHotbarIntent& Intent);
 	bool InterruptThrownWeaponFlight();
 	bool ExpireThrownWeaponRange();
+	/** Routes one already-captured, device-independent Sword Qi intent. */
+	Fdemo_mapShanmenSwordQiControllerResult RouteSwordQiIntent(
+		const Fdemo_mapShanmenSwordQiIntent& Intent);
+	bool InterruptSwordQiFlight();
+	bool ExpireSwordQiRange();
+	bool RetireSwordQiTerminal(
+		Fdemo_mapShanmenSwordQiTerminalReceipt& OutReceipt);
+	const Fdemo_mapShanmenSwordQiProductController&
+	GetSwordQiProductController() const
+	{
+		return SwordQiProductController;
+	}
 	const Fdemo_mapShanmenThrownWeaponProductLifecycle&
 	GetThrownWeaponProductLifecycle() const
 	{
@@ -521,6 +534,7 @@ private:
 	Fdemo_mapShanmenSwordRhythmProductSession SwordRhythmProductSession;
 	Fdemo_mapShanmenSwordRhythmEffectCuePresentationRunController
 		SwordRhythmPresentationRunController;
+	Fdemo_mapShanmenSwordQiProductController SwordQiProductController;
 	Fdemo_mapShanmenWeaponGuardProductSession WeaponGuardProductSession;
 	TArray<TWeakObjectPtr<Ademo_mapM01ExtractionZone>> M01ExtractionZones;
 	TArray<TWeakObjectPtr<AActor>> M01EnemyActors;

@@ -37,6 +37,7 @@
 #include "demo_mapShanmenCombatConditionComponent.h"
 #include "demo_mapShanmenSpiritEvasionComponent.h"
 #include "demo_mapShanmenThrownWeaponProjectile.h"
+#include "demo_mapShanmenSwordQiProjectile.h"
 #include "demo_mapLootChest.h"
 #include "demo_mapCorpseContainerActor.h"
 #include "Algo/AllOf.h"
@@ -329,6 +330,11 @@ Ademo_mapGameMode::CapturePlayerActionOccupancy() const
 		}
 	}
 	if (!ThrownWeaponProductLifecycle.IsValid())
+	{
+		Snapshot.Invalidate();
+		return Snapshot;
+	}
+	if (!SwordQiProductController.TryAppendOccupancy(Snapshot))
 	{
 		Snapshot.Invalidate();
 		return Snapshot;
@@ -1182,6 +1188,55 @@ bool Ademo_mapGameMode::ExpireThrownWeaponRange()
 	return ThrownWeaponProductLifecycle.TryExpireRange();
 }
 
+Fdemo_mapShanmenSwordQiControllerResult
+Ademo_mapGameMode::RouteSwordQiIntent(
+	const Fdemo_mapShanmenSwordQiIntent& Intent)
+{
+	APawn* PlayerPawn = GetDemoPawn();
+	Udemo_mapAttributeComponent* Attributes =
+		PlayerAttributeComponent.Get();
+	if (!PlayerItemSubsystem.IsValid() || !PlayerPawn || !Attributes)
+	{
+		Fdemo_mapShanmenSwordQiControllerResult Result;
+		Result.Status = Edemo_mapShanmenSwordQiControllerStatus::
+			ProductDependenciesUnavailable;
+		Result.IntentId = Intent.GetIntentId();
+		Result.RunId = CombatRunCoordinator.GetRunId();
+		Result.Diagnostic =
+			TEXT("Sword Qi product route requires the active player, item authority and attribute authority.");
+		return Result;
+	}
+	return SwordQiProductController.TrySubmit(
+		GetWorld(),
+		Ademo_mapShanmenSwordQiProjectile::StaticClass(),
+		PlayerItemSubsystem->GetAuthority(),
+		*Attributes,
+		CombatRunCoordinator,
+		PlayerPawn,
+		Intent,
+		[this]()
+		{
+			return RoutePlayerActionGate(
+				Edemo_mapShanmenPlayerActionKind::SwordQi);
+		});
+}
+
+bool Ademo_mapGameMode::InterruptSwordQiFlight()
+{
+	return SwordQiProductController.TryInterrupt();
+}
+
+bool Ademo_mapGameMode::ExpireSwordQiRange()
+{
+	return SwordQiProductController.TryExpireRange();
+}
+
+bool Ademo_mapGameMode::RetireSwordQiTerminal(
+	Fdemo_mapShanmenSwordQiTerminalReceipt& OutReceipt)
+{
+	return SwordQiProductController.TryRetireTerminal(OutReceipt);
+}
+
 bool Ademo_mapGameMode::ShouldUseM01EnemyAttackProductPath() const
 {
 	// M01 owns this routing decision even while the Run is still preparing:
@@ -1889,6 +1944,7 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 		|| !CombatRunFixedTimeline.IsEmpty()
 		|| !SwordRhythmProductSession.IsEmpty()
 		|| !SwordRhythmPresentationRunController.IsEmpty()
+		|| !SwordQiProductController.IsEmpty()
 		|| (ExistingConditions && !ExistingConditions->IsEmpty())
 		|| (SpiritEvasion
 			&& SpiritEvasion->HasHost()
@@ -2112,8 +2168,23 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 		OutDiagnostic = SwordRhythmPresentationDiagnostic;
 		return false;
 	}
+	FString SwordQiDiagnostic;
+	if (!SwordQiProductController.TryBegin(
+			ActiveRunId,
+			SwordQiDiagnostic))
+	{
+		const bool bReleased =
+			ReleaseCombatProductRun(TEXT("SwordQiControllerBindFailure"));
+		OutDiagnostic = SwordQiDiagnostic;
+		if (!bReleased)
+		{
+			OutDiagnostic +=
+				TEXT(" Existing combat products also rejected activation rollback.");
+		}
+		return false;
+	}
 	UE_LOG(Logdemo_map, Log,
-		TEXT("0_0_10_COMBAT_RUN Event=RunBound RunId=%s PlayerEntityId=%s M01Entities=%d M01VitalityHosts=%d ThrownWeaponLifecycle=%d TreatmentLifecycle=%d RunTimelineId=%s RunTickRate=%lld ConditionDefinition=%s ConditionDurationTicks=%lld SwordRhythmConfigId=%s SwordRhythmWindow=[%lld,%lld)"),
+		TEXT("0_0_10_COMBAT_RUN Event=RunBound RunId=%s PlayerEntityId=%s M01Entities=%d M01VitalityHosts=%d ThrownWeaponLifecycle=%d TreatmentLifecycle=%d SwordQiController=%d RunTimelineId=%s RunTickRate=%lld ConditionDefinition=%s ConditionDurationTicks=%lld SwordRhythmConfigId=%s SwordRhythmWindow=[%lld,%lld)"),
 		*ActiveRunId.ToString(EGuidFormats::DigitsWithHyphens),
 		*CombatRunCoordinator.GetPlayerEntityId().ToString(
 			EGuidFormats::DigitsWithHyphens),
@@ -2121,6 +2192,7 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 		CombatRunCoordinator.NumVitalityBoundM01Enemies(),
 		ThrownWeaponProductLifecycle.IsActive() ? 1 : 0,
 		MeridianShockTreatmentProductLifecycle.IsActive() ? 1 : 0,
+		SwordQiProductController.IsActive() ? 1 : 0,
 		*CombatRunFixedTimeline.GetTimelineId().ToString(
 			EGuidFormats::DigitsWithHyphens),
 		static_cast<long long>(
@@ -2146,6 +2218,7 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 	const TCHAR* Context)
 {
 	const TCHAR* SafeContext = Context ? Context : TEXT("Unknown");
+	Fdemo_mapShanmenSwordQiControllerEndSummary SwordQiSummary;
 	// Treatment is the only product path that may own an incomplete durable
 	// commit. Recover it before dismantling any other Run authority.
 	const int32 TreatmentRequestCount =
@@ -2165,6 +2238,30 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 		return false;
 	}
 	MeridianShockTreatmentInputAdapter.Reset();
+	if (!SwordQiProductController.IsEmpty())
+	{
+		const FGuid ExpectedSwordQiRunId = CombatRunCoordinator.IsActive()
+			? CombatRunCoordinator.GetRunId()
+			: SwordQiProductController.GetRunId();
+		FString SwordQiDiagnostic;
+		if (!SwordQiProductController.TryEnd(
+				ExpectedSwordQiRunId,
+				SwordQiSummary,
+				SwordQiDiagnostic))
+		{
+			UE_LOG(
+				Logdemo_map,
+				Error,
+				TEXT("0_0_10_COMBAT_RUN Event=SwordQiRunReleaseRejected Context=%s RunId=%s CapturedIntents=%d ProcessedCommands=%d Diagnostic=%s"),
+				SafeContext,
+				*ExpectedSwordQiRunId.ToString(
+					EGuidFormats::DigitsWithHyphens),
+				SwordQiProductController.NumCapturedIntents(),
+				SwordQiProductController.GetSession().NumProcessedCommands(),
+				*SwordQiDiagnostic);
+			return false;
+		}
+	}
 	// Attempt independent active-product cleanup before evaluating either
 	// result. A SpiritEvasion teardown fault must not strand WeaponGuard, and
 	// a WeaponGuard fault must not strand SpiritEvasion.
@@ -2309,7 +2406,8 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 			&& (!PlayerCombatConditionComponent.IsValid()
 				|| PlayerCombatConditionComponent->IsEmpty())
 			&& SwordRhythmProductSession.IsEmpty()
-			&& SwordRhythmPresentationRunController.IsEmpty())
+			&& SwordRhythmPresentationRunController.IsEmpty()
+			&& SwordQiProductController.IsEmpty())
 		{
 			return bSwordRhythmPresentationReleased;
 		}
@@ -2330,6 +2428,7 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 		CombatRunFixedTimeline.Reset();
 		SwordRhythmProductSession.Reset();
 		SwordRhythmPresentationRunController.Reset();
+		SwordQiProductController.Reset();
 		return false;
 	}
 
@@ -2359,7 +2458,7 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 		ControlledWeaponRunCommandRouter.Reset();
 		ControlledWeaponThreatSampleRouter.Reset();
 		UE_LOG(Logdemo_map, Log,
-			TEXT("0_0_10_COMBAT_RUN Event=RunReleased RunId=%s Context=%s ControlledBound=%d ControlledInterrupted=%d RoutedIntents=%d ThreatSamples=%lld ThrownSelections=%d TreatmentRequests=%d TreatmentPendingAtTeardown=%d ConditionApplications=%d ConditionRevision=%lld SwordRhythmObservations=%d SwordRhythmPresentationPublished=%d SwordRhythmPresentationQueuedAtTeardown=%d WeaponGuardInterrupted=%d"),
+			TEXT("0_0_10_COMBAT_RUN Event=RunReleased RunId=%s Context=%s ControlledBound=%d ControlledInterrupted=%d RoutedIntents=%d ThreatSamples=%lld ThrownSelections=%d TreatmentRequests=%d TreatmentPendingAtTeardown=%d SwordQiIntents=%d SwordQiCommands=%d SwordQiInterrupted=%d ConditionApplications=%d ConditionRevision=%lld SwordRhythmObservations=%d SwordRhythmPresentationPublished=%d SwordRhythmPresentationQueuedAtTeardown=%d WeaponGuardInterrupted=%d"),
 			*Result.RunId.ToString(EGuidFormats::DigitsWithHyphens),
 			SafeContext,
 			Result.BoundItemCount,
@@ -2369,6 +2468,9 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 			ThrownSelectionCount,
 			TreatmentRequestCount,
 			TreatmentPendingCount,
+			SwordQiSummary.CapturedIntentCount,
+			SwordQiSummary.ProcessedCommandCount,
+			SwordQiSummary.bInterruptedFlight ? 1 : 0,
 			ConditionApplicationCount,
 			static_cast<long long>(ConditionRevision),
 			SwordRhythmObservationCount,
@@ -2396,6 +2498,7 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 	CombatRunFixedTimeline.Reset();
 	SwordRhythmProductSession.Reset();
 	SwordRhythmPresentationRunController.Reset();
+	SwordQiProductController.Reset();
 	CombatRunCoordinator.Reset();
 	return false;
 }

@@ -2234,6 +2234,11 @@
         "Shanmen.0_0_10.Product.SwordRhythmPresentation",
         "Shanmen.0_0_10.Product.SwordRhythmPresentationEvent",
         "Shanmen.0_0_10.Product.SwordRhythmProductHost",
+        "Shanmen.0_0_10.Product.SwordQiProductController",
+        "Shanmen.0_0_10.Product.SwordQiItemAdapter",
+        "Shanmen.0_0_10.Product.SwordQiProductSession",
+        "Shanmen.0_0_10.Product.SwordQiRunHost",
+        "Shanmen.0_0_10.Product.SwordQiWorldDelivery",
         "Shanmen.0_0_10.Product.WeaponGuardInputAdapter",
         "Shanmen.0_0_10.Product.WeaponGuardProductRoute",
         "Shanmen.0_0_10.Product.WeaponGuardItemAdapter",
@@ -2648,6 +2653,18 @@
       ]
     },
     {
+      "name": "SwordQiItemAdapter",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenSwordQiItemAdapter(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.SwordQiItemAdapter",
+        "Shanmen.0_0_10.Items",
+        "demo_map.ItemEconomySchema",
+        "demo_map.ItemUseAndArmor",
+        "demo_map.P4.Hotbar"
+      ]
+    },
+    {
       "name": "SwordQiProductSession",
       "pathRegex": "^Source/demo_map/demo_mapShanmenSwordQiProduct(?:Authority|Session(?:Tests)?)\\.(?:h|cpp)$",
       "requiredGroups": [
@@ -2659,6 +2676,28 @@
         "Shanmen.0_0_10.WorldGameplay",
         "Shanmen.0_0_10.CombatRuntime",
         "Shanmen.0_0_10.CombatCore"
+      ]
+    },
+    {
+      "name": "SwordQiProductController",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenSwordQiProductController(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.SwordQiProductController",
+        "Shanmen.0_0_10.Product.SwordQiItemAdapter",
+        "Shanmen.0_0_10.Product.SwordQiProductSession",
+        "Shanmen.0_0_10.Product.SwordQiRunHost",
+        "Shanmen.0_0_10.Product.SwordQiWorldDelivery",
+        "Shanmen.0_0_10.Product.PlayerActionArbitration",
+        "Shanmen.0_0_10.Product.CombatRunCoordinator",
+        "Shanmen.0_0_10.Items",
+        "Shanmen.0_0_10.WorldGameplay",
+        "Shanmen.0_0_10.CombatRuntime",
+        "Shanmen.0_0_10.CombatCore",
+        "demo_map.V3.Attributes",
+        "demo_map.ItemEconomySchema",
+        "demo_map.ItemUseAndArmor",
+        "demo_map.P4.Hotbar"
       ]
     },
     {

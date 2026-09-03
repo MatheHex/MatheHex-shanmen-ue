@@ -163,9 +163,15 @@ try
     $SwordQiWorldDelivery = New-AutomationLogFixture `
         -Name 'sword-qi-world-delivery.log' `
         -Group 'Shanmen.0_0_10.Product.SwordQiWorldDelivery'
+    $SwordQiItemAdapter = New-AutomationLogFixture `
+        -Name 'sword-qi-item-adapter.log' `
+        -Group 'Shanmen.0_0_10.Product.SwordQiItemAdapter'
     $SwordQiProductSession = New-AutomationLogFixture `
         -Name 'sword-qi-product-session.log' `
         -Group 'Shanmen.0_0_10.Product.SwordQiProductSession'
+    $SwordQiProductController = New-AutomationLogFixture `
+        -Name 'sword-qi-product-controller.log' `
+        -Group 'Shanmen.0_0_10.Product.SwordQiProductController'
     $SwordQiRunHost = New-AutomationLogFixture `
         -Name 'sword-qi-run-host.log' `
         -Group 'Shanmen.0_0_10.Product.SwordQiRunHost'
@@ -2355,12 +2361,26 @@ try
         -Logs @($Full)
 
     Invoke-ExpectedPass `
+        -Name 'sword qi item adapter maps exact equipment authority and legacy inventory seams' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordQiItemAdapter.cpp',
+            'Source/demo_map/demo_mapShanmenSwordQiItemAdapterTests.cpp') `
+        -Logs @($Full, $Legacy)
+
+    Invoke-ExpectedPass `
         -Name 'sword qi product session maps command route through every owned authority seam' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenSwordQiProductAuthority.cpp',
             'Source/demo_map/demo_mapShanmenSwordQiProductSession.cpp',
             'Source/demo_map/demo_mapShanmenSwordQiProductSessionTests.cpp') `
         -Logs @($Full)
+
+    Invoke-ExpectedPass `
+        -Name 'sword qi product controller maps Run equipment attributes route and lifecycle seams' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordQiProductController.cpp',
+            'Source/demo_map/demo_mapShanmenSwordQiProductControllerTests.cpp') `
+        -Logs @($Full, $Legacy)
 
     Invoke-ExpectedPass `
         -Name 'sword qi Run Host maps physical lifetime and all authority seams' `
@@ -2540,10 +2560,24 @@ try
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
+        -Name 'sword qi item focus cannot replace catalog and legacy inventory evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordQiItemAdapter.cpp') `
+        -Logs @($SwordQiItemAdapter) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
         -Name 'sword qi product focus cannot replace host world arbitration coordinator runtime and core evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenSwordQiProductSession.cpp') `
         -Logs @($SwordQiProductSession) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'sword qi controller focus cannot replace item route host world attributes and legacy evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordQiProductController.cpp') `
+        -Logs @($SwordQiProductController) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

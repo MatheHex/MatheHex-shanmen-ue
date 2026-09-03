@@ -164,7 +164,9 @@ enum class Edemo_mapItemGameplaySemantic : uint8
 	/** Treats only the canonical minor Meridian Shock condition. */
 	MeridianShockTreatment,
 	/** Passively intercepts one otherwise-lethal impact while charges remain. */
-	LethalInterception
+	LethalInterception,
+	/** May be the exact equipped source item for the canonical Sword Qi action. */
+	SwordQiSource
 };
 
 USTRUCT()

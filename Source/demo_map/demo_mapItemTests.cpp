@@ -68,11 +68,15 @@ bool Fdemo_mapItemDefinitionsTest::RunTest(const FString&)
 	TestTrue(TEXT("Required definitions exist"), Weapon && Armor && Accessory && SpatialRing && Material && HeavyWeapon && ReinforcedArmor && Iron && Token && SpiritGuard && HeartMirror && ThrowingKnife && MeridianPill);
 	if (!Weapon || !Armor || !Accessory || !SpatialRing || !Material || !HeavyWeapon || !ReinforcedArmor || !Iron || !Token || !SpiritGuard || !HeartMirror || !ThrowingKnife || !MeridianPill) return false;
 	TestTrue(TEXT("Weapon compatibility"), Weapon->CompatibleSlotIds == TArray<FName>{ Fdemo_mapItemIds::WeaponSlot });
-	TestTrue(TEXT("Weapons own explicit guard semantics"),
+	TestTrue(TEXT("Weapons own explicit guard and Sword Qi source semantics"),
 		Weapon->HasGameplaySemantic(
 			Edemo_mapItemGameplaySemantic::WeaponGuard)
+		&& Weapon->HasGameplaySemantic(
+			Edemo_mapItemGameplaySemantic::SwordQiSource)
 		&& HeavyWeapon->HasGameplaySemantic(
-			Edemo_mapItemGameplaySemantic::WeaponGuard));
+			Edemo_mapItemGameplaySemantic::WeaponGuard)
+		&& HeavyWeapon->HasGameplaySemantic(
+			Edemo_mapItemGameplaySemantic::SwordQiSource));
 	TestTrue(TEXT("Armor compatibility"), Armor->CompatibleSlotIds == TArray<FName>{ Fdemo_mapItemIds::ArmorSlot });
 	TestTrue(TEXT("Accessory compatibility"), Accessory->CompatibleSlotIds == TArray<FName>{ Fdemo_mapItemIds::AccessorySlot });
 	TestTrue(TEXT("Spatial ring compatibility"), SpatialRing->CompatibleSlotIds == TArray<FName>{ Fdemo_mapItemIds::SpatialRingSlot });
@@ -94,8 +98,8 @@ bool Fdemo_mapItemDefinitionsTest::RunTest(const FString&)
 		&& HeartMirror->GameplaySemantics
 			== TArray<Edemo_mapItemGameplaySemantic>{
 				Edemo_mapItemGameplaySemantic::LethalInterception });
-	TestTrue(TEXT("Training throwing knife owns exact typed product semantics"), ThrowingKnife->CategoryId == Fdemo_mapItemIds::ConsumableCategory && ThrowingKnife->MaxStackSize == 20 && ThrowingKnife->bHotbarEligible && ThrowingKnife->HasGameplaySemantic(Edemo_mapItemGameplaySemantic::ThrownWeapon) && !ThrowingKnife->HasGameplaySemantic(Edemo_mapItemGameplaySemantic::WeaponGuard) && ThrowingKnife->GameplaySemantics.Num() == 1 && ThrowingKnife->CompatibleSlotIds.IsEmpty());
-	TestTrue(TEXT("Meridian pill owns only the exact condition treatment semantic"), MeridianPill->CategoryId == Fdemo_mapItemIds::ConsumableCategory && MeridianPill->MaxStackSize == 20 && MeridianPill->bHotbarEligible && MeridianPill->HasGameplaySemantic(Edemo_mapItemGameplaySemantic::MeridianShockTreatment) && !MeridianPill->HasGameplaySemantic(Edemo_mapItemGameplaySemantic::ThrownWeapon) && !MeridianPill->HasGameplaySemantic(Edemo_mapItemGameplaySemantic::WeaponGuard) && MeridianPill->GameplaySemantics.Num() == 1 && MeridianPill->CompatibleSlotIds.IsEmpty());
+	TestTrue(TEXT("Training throwing knife owns exact typed product semantics"), ThrowingKnife->CategoryId == Fdemo_mapItemIds::ConsumableCategory && ThrowingKnife->MaxStackSize == 20 && ThrowingKnife->bHotbarEligible && ThrowingKnife->HasGameplaySemantic(Edemo_mapItemGameplaySemantic::ThrownWeapon) && !ThrowingKnife->HasGameplaySemantic(Edemo_mapItemGameplaySemantic::WeaponGuard) && !ThrowingKnife->HasGameplaySemantic(Edemo_mapItemGameplaySemantic::SwordQiSource) && ThrowingKnife->GameplaySemantics.Num() == 1 && ThrowingKnife->CompatibleSlotIds.IsEmpty());
+	TestTrue(TEXT("Meridian pill owns only the exact condition treatment semantic"), MeridianPill->CategoryId == Fdemo_mapItemIds::ConsumableCategory && MeridianPill->MaxStackSize == 20 && MeridianPill->bHotbarEligible && MeridianPill->HasGameplaySemantic(Edemo_mapItemGameplaySemantic::MeridianShockTreatment) && !MeridianPill->HasGameplaySemantic(Edemo_mapItemGameplaySemantic::ThrownWeapon) && !MeridianPill->HasGameplaySemantic(Edemo_mapItemGameplaySemantic::WeaponGuard) && !MeridianPill->HasGameplaySemantic(Edemo_mapItemGameplaySemantic::SwordQiSource) && MeridianPill->GameplaySemantics.Num() == 1 && MeridianPill->CompatibleSlotIds.IsEmpty());
 	TestTrue(TEXT("Display name is not a key"), Fdemo_mapItemDefinitions::Find(FName(*Weapon->DisplayName.ToString())) == nullptr);
 	TestTrue(TEXT("Deterministic registry order"), Fdemo_mapItemDefinitions::GetAll()[0].DefinitionId == Fdemo_mapItemIds::TrainingBlade && Fdemo_mapItemDefinitions::GetAll()[3].DefinitionId == Fdemo_mapItemIds::SpiritDust && Fdemo_mapItemDefinitions::GetAll()[7].DefinitionId == Fdemo_mapItemIds::HeartProtectingMirror && Fdemo_mapItemDefinitions::GetAll()[9].DefinitionId == Fdemo_mapItemIds::AncientToken);
 	return true;
