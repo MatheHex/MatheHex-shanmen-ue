@@ -409,6 +409,9 @@ try
     $DivineSensePulseCoordinator = New-AutomationLogFixture `
         -Name 'divine-sense-pulse-coordinator.log' `
         -Group 'Shanmen.0_0_10.Product.DivineSensePulseCoordinator'
+    $DivineSenseProductHost = New-AutomationLogFixture `
+        -Name 'divine-sense-product-host.log' `
+        -Group 'Shanmen.0_0_10.Product.DivineSenseProductHost'
     $SpiritShieldRuntime = New-AutomationLogFixture `
         -Name 'spirit-shield-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShield'
@@ -2599,6 +2602,20 @@ try
             $ActionLifecycle,
             $WorldGameplay)
 
+    Invoke-ExpectedPass `
+        -Name 'Divine Sense product host maps every owned authority contract' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenDivineSenseProductHost.cpp',
+            'Source/demo_map/demo_mapShanmenDivineSenseProductHostTests.cpp') `
+        -Logs @(
+            $DivineSenseProductHost,
+            $DivineSensePulseCoordinator,
+            $DivineSenseWorldObservation,
+            $DivineSenseRuntime,
+            $ActionResource,
+            $ActionLifecycle,
+            $WorldGameplay)
+
     Invoke-ExpectedFail `
         -Name 'missing mapped group fails closed' `
         -Paths @('Source/demo_map/demo_mapSkillComponent.cpp') `
@@ -2617,6 +2634,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenDivineSensePulseCoordinator.cpp') `
         -Logs @($DivineSensePulseCoordinator, $DivineSenseWorldObservation) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'Divine Sense product host focus cannot replace owned authority evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenDivineSenseProductHost.cpp') `
+        -Logs @($DivineSenseProductHost, $DivineSensePulseCoordinator) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
