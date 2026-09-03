@@ -2163,6 +2163,15 @@
       ]
     },
     {
+      "name": "DivineSenseWorldObservationAdapter",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenDivineSenseWorldObservationAdapter(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Product.DivineSenseWorldObservation",
+        "Shanmen.0_0_10.CombatRuntime.DivineSense",
+        "Shanmen.0_0_10.WorldGameplay"
+      ]
+    },
+    {
       "name": "Items",
       "pathRegex": "^Source/ShanmenItems/",
       "requiredGroups": [

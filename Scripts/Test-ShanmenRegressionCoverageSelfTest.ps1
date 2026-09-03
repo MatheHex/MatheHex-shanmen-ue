@@ -400,6 +400,12 @@ try
     $WorldGameplay = New-AutomationLogFixture `
         -Name 'world-gameplay.log' `
         -Group 'Shanmen.0_0_10.WorldGameplay'
+    $DivineSenseRuntime = New-AutomationLogFixture `
+        -Name 'divine-sense-runtime.log' `
+        -Group 'Shanmen.0_0_10.CombatRuntime.DivineSense'
+    $DivineSenseWorldObservation = New-AutomationLogFixture `
+        -Name 'divine-sense-world-observation.log' `
+        -Group 'Shanmen.0_0_10.Product.DivineSenseWorldObservation'
     $SpiritShieldRuntime = New-AutomationLogFixture `
         -Name 'spirit-shield-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShield'
@@ -2567,10 +2573,27 @@ try
             'Source/demo_map/demo_mapShanmenPlayerActionArbitrationTests.cpp') `
         -Logs @($Full, $PlayerActionArbitration, $Coordinator)
 
+    Invoke-ExpectedPass `
+        -Name 'Divine Sense World observation maps product runtime and registry evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenDivineSenseWorldObservationAdapter.cpp',
+            'Source/demo_map/demo_mapShanmenDivineSenseWorldObservationAdapterTests.cpp') `
+        -Logs @(
+            $DivineSenseWorldObservation,
+            $DivineSenseRuntime,
+            $WorldGameplay)
+
     Invoke-ExpectedFail `
         -Name 'missing mapped group fails closed' `
         -Paths @('Source/demo_map/demo_mapSkillComponent.cpp') `
         -Logs @($Full) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'Divine Sense World focus cannot replace runtime and registry evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenDivineSenseWorldObservationAdapter.cpp') `
+        -Logs @($DivineSenseWorldObservation) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
