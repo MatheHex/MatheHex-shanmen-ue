@@ -206,6 +206,10 @@ public:
 	bool CancelPendingSwordQiStartCommand(
 		Fdemo_mapShanmenSwordQiPendingRetryCancellation& OutCancellation,
 		FString& OutDiagnostic);
+	/** Reads structural command availability without mutating product state. */
+	bool TryProjectSwordQiCommandAvailability(
+		Fdemo_mapShanmenSwordQiCommandAvailabilityProjection& OutProjection,
+		FString& OutDiagnostic) const;
 	bool InterruptSwordQiFlight();
 	bool ExpireSwordQiRange();
 	bool RetireSwordQiTerminal(

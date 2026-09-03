@@ -1338,6 +1338,15 @@ bool Ademo_mapGameMode::CancelPendingSwordQiStartCommand(
 		OutDiagnostic);
 }
 
+bool Ademo_mapGameMode::TryProjectSwordQiCommandAvailability(
+	Fdemo_mapShanmenSwordQiCommandAvailabilityProjection& OutProjection,
+	FString& OutDiagnostic) const
+{
+	return SwordQiCommandEventOwner.TryProjectAvailability(
+		OutProjection,
+		OutDiagnostic);
+}
+
 bool Ademo_mapGameMode::InterruptSwordQiFlight()
 {
 	return SwordQiProductController.TryInterrupt();

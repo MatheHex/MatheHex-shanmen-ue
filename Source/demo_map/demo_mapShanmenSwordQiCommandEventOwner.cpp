@@ -56,6 +56,38 @@ bool Fdemo_mapShanmenSwordQiCommandRequest::Matches(
 		&& SamplesEqual(Sample, Other.Sample);
 }
 
+bool Fdemo_mapShanmenSwordQiCommandAvailabilityProjection::IsValid() const
+{
+	bool bShapeValid = false;
+	switch (State)
+	{
+	case Edemo_mapShanmenSwordQiCommandAvailabilityState::OwnerInactive:
+		bShapeValid = !RunId.IsValid()
+			&& NextEventSequence == 1
+			&& !PendingEvent.IsValid();
+		break;
+	case Edemo_mapShanmenSwordQiCommandAvailabilityState::IssueReady:
+		bShapeValid = RunId.IsValid()
+			&& NextEventSequence > 0
+			&& !PendingEvent.IsValid();
+		break;
+	case Edemo_mapShanmenSwordQiCommandAvailabilityState::PendingRetry:
+		bShapeValid = RunId.IsValid()
+			&& NextEventSequence > 1
+			&& PendingEvent.IsValid()
+			&& PendingEvent.GetRunId() == RunId
+			&& PendingEvent.GetEventSequence() < NextEventSequence;
+		break;
+	default:
+		return false;
+	}
+
+	return bShapeValid
+		&& ProjectionId
+			== Fdemo_mapShanmenSwordQiCommandEventOwner::
+				MakeAvailabilityProjectionId(*this);
+}
+
 bool Fdemo_mapShanmenSwordQiCommandEventResult::IsAccepted() const
 {
 	return Status == Edemo_mapShanmenSwordQiCommandEventStatus::Applied
@@ -99,6 +131,25 @@ FGuid Fdemo_mapShanmenSwordQiCommandEventOwner::MakeInputEventId(
 		{
 			GuidDigits(RunId),
 			FString::Printf(TEXT("%llu"), EventSequence)
+		});
+}
+
+FGuid Fdemo_mapShanmenSwordQiCommandEventOwner::
+MakeAvailabilityProjectionId(
+	const Fdemo_mapShanmenSwordQiCommandAvailabilityProjection& Projection)
+{
+	return FShanmenDeterministicId::FromCanonicalParts(
+		FName(TEXT("demo_map.SwordQi.CommandAvailability.r1")),
+		{
+			FString::FromInt(static_cast<int32>(Projection.State)),
+			GuidDigits(Projection.RunId),
+			FString::Printf(
+				TEXT("%llu"),
+				Projection.NextEventSequence),
+			GuidDigits(Projection.PendingEvent.GetInputEventId()),
+			FString::Printf(
+				TEXT("%llu"),
+				Projection.PendingEvent.GetEventSequence())
 		});
 }
 
@@ -298,6 +349,54 @@ bool Fdemo_mapShanmenSwordQiCommandEventOwner::TryCancelPending(
 
 	OutCancellation = Cancellation;
 	OutDiagnostic = TEXT("Cancelled one pending frozen Sword Qi request.");
+	return true;
+}
+
+bool Fdemo_mapShanmenSwordQiCommandEventOwner::TryProjectAvailability(
+	Fdemo_mapShanmenSwordQiCommandAvailabilityProjection& OutProjection,
+	FString& OutDiagnostic) const
+{
+	OutProjection = Fdemo_mapShanmenSwordQiCommandAvailabilityProjection();
+	OutDiagnostic.Reset();
+	if (!IsValid())
+	{
+		OutDiagnostic =
+			TEXT("Sword Qi command availability requires a valid owner state.");
+		return false;
+	}
+
+	Fdemo_mapShanmenSwordQiCommandAvailabilityProjection Candidate;
+	Candidate.RunId = RunId;
+	Candidate.NextEventSequence = NextEventSequence;
+	if (!IsActive())
+	{
+		Candidate.State =
+			Edemo_mapShanmenSwordQiCommandAvailabilityState::OwnerInactive;
+		OutDiagnostic = TEXT("Sword Qi command owner is inactive.");
+	}
+	else if (HasPendingRetry())
+	{
+		Candidate.State =
+			Edemo_mapShanmenSwordQiCommandAvailabilityState::PendingRetry;
+		Candidate.PendingEvent = PendingRetryRequest.GetEvent();
+		OutDiagnostic =
+			TEXT("Sword Qi command owner requires explicit retry or cancel.");
+	}
+	else
+	{
+		Candidate.State =
+			Edemo_mapShanmenSwordQiCommandAvailabilityState::IssueReady;
+		OutDiagnostic = TEXT("Sword Qi command owner can issue a new request.");
+	}
+	Candidate.ProjectionId = MakeAvailabilityProjectionId(Candidate);
+	if (!Candidate.IsValid())
+	{
+		OutDiagnostic =
+			TEXT("Sword Qi command availability projection failed closed.");
+		return false;
+	}
+
+	OutProjection = Candidate;
 	return true;
 }
 

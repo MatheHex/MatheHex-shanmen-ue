@@ -44,6 +44,54 @@ private:
 	Fdemo_mapShanmenSwordQiInputSample Sample;
 };
 
+enum class Edemo_mapShanmenSwordQiCommandAvailabilityState : uint8
+{
+	OwnerInactive,
+	IssueReady,
+	PendingRetry
+};
+
+/** Immutable structural availability read model for a Sword Qi command owner. */
+class Fdemo_mapShanmenSwordQiCommandAvailabilityProjection
+{
+public:
+	bool IsValid() const;
+	bool CanIssue() const
+	{
+		return IsValid()
+			&& State
+				== Edemo_mapShanmenSwordQiCommandAvailabilityState::IssueReady;
+	}
+	bool CanRetry() const
+	{
+		return IsValid()
+			&& State
+				== Edemo_mapShanmenSwordQiCommandAvailabilityState::PendingRetry;
+	}
+	bool CanCancel() const { return CanRetry(); }
+	const FGuid& GetProjectionId() const { return ProjectionId; }
+	Edemo_mapShanmenSwordQiCommandAvailabilityState GetState() const
+	{
+		return State;
+	}
+	const FGuid& GetRunId() const { return RunId; }
+	uint64 GetNextEventSequence() const { return NextEventSequence; }
+	const Fdemo_mapShanmenSwordQiCommandEvent* GetPendingEvent() const
+	{
+		return CanRetry() ? &PendingEvent : nullptr;
+	}
+
+private:
+	friend class Fdemo_mapShanmenSwordQiCommandEventOwner;
+
+	FGuid ProjectionId;
+	Edemo_mapShanmenSwordQiCommandAvailabilityState State =
+		Edemo_mapShanmenSwordQiCommandAvailabilityState::OwnerInactive;
+	FGuid RunId;
+	uint64 NextEventSequence = 0;
+	Fdemo_mapShanmenSwordQiCommandEvent PendingEvent;
+};
+
 enum class Edemo_mapShanmenSwordQiCommandEventStatus : uint8
 {
 	Applied,
@@ -139,6 +187,9 @@ public:
 	bool TryCancelPending(
 		Fdemo_mapShanmenSwordQiPendingRetryCancellation& OutCancellation,
 		FString& OutDiagnostic);
+	bool TryProjectAvailability(
+		Fdemo_mapShanmenSwordQiCommandAvailabilityProjection& OutProjection,
+		FString& OutDiagnostic) const;
 	bool TryEnd(
 		const FGuid& ExpectedRunId,
 		Fdemo_mapShanmenSwordQiCommandEventEndSummary& OutSummary,
@@ -161,6 +212,11 @@ public:
 	}
 
 private:
+	friend class Fdemo_mapShanmenSwordQiCommandAvailabilityProjection;
+
+	static FGuid MakeAvailabilityProjectionId(
+		const Fdemo_mapShanmenSwordQiCommandAvailabilityProjection&
+			Projection);
 	Fdemo_mapShanmenSwordQiCommandEventResult RouteNewEvent(
 		const Fdemo_mapShanmenSwordQiCommandEvent& Event,
 		TFunctionRef<Fdemo_mapShanmenSwordQiInputResult(const FGuid&)>

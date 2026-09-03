@@ -778,4 +778,205 @@ bool Fdemo_mapSwordQiCommandPendingCancelAndTeardownTest::RunTest(
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapSwordQiCommandAvailabilityProjectionTest,
+	"Shanmen.0_0_10.Product.SwordQiCommandEventOwner.AvailabilityProjection",
+	SwordQiCommandEventFlags)
+
+bool Fdemo_mapSwordQiCommandAvailabilityProjectionTest::RunTest(
+	const FString&)
+{
+	Fdemo_mapShanmenSwordQiCommandAvailabilityProjection DefaultProjection;
+	TestFalse(TEXT("default availability projection fails closed"),
+		DefaultProjection.IsValid());
+
+	Fdemo_mapShanmenSwordQiCommandEventOwner Owner;
+	FString Diagnostic;
+	Fdemo_mapShanmenSwordQiCommandAvailabilityProjection Inactive;
+	TestTrue(TEXT("valid empty owner projects one inactive state"),
+		Owner.TryProjectAvailability(Inactive, Diagnostic)
+			&& Inactive.IsValid()
+			&& Inactive.GetState()
+				== Edemo_mapShanmenSwordQiCommandAvailabilityState::
+					OwnerInactive
+			&& !Inactive.CanIssue()
+			&& !Inactive.CanRetry()
+			&& !Inactive.CanCancel()
+			&& !Inactive.GetRunId().IsValid()
+			&& Inactive.GetNextEventSequence() == 1
+			&& Inactive.GetPendingEvent() == nullptr);
+	const FGuid InactiveProjectionId = Inactive.GetProjectionId();
+	Fdemo_mapShanmenSwordQiCommandAvailabilityProjection RepeatedInactive;
+	TestTrue(TEXT("unchanged owner projects the same deterministic identity"),
+		Owner.TryProjectAvailability(RepeatedInactive, Diagnostic)
+			&& RepeatedInactive.GetProjectionId() == InactiveProjectionId);
+
+	if (!Owner.TryBegin(SwordQiCommandRunA, Diagnostic))
+	{
+		AddError(TEXT("Could not bind the P18.9 availability fixture."));
+		return false;
+	}
+	Fdemo_mapShanmenSwordQiCommandAvailabilityProjection IssueReadyA;
+	TestTrue(TEXT("active empty slot exposes issue as the sole operation"),
+		Owner.TryProjectAvailability(IssueReadyA, Diagnostic)
+			&& IssueReadyA.IsValid()
+			&& IssueReadyA.GetState()
+				== Edemo_mapShanmenSwordQiCommandAvailabilityState::
+					IssueReady
+			&& IssueReadyA.CanIssue()
+			&& !IssueReadyA.CanRetry()
+			&& !IssueReadyA.CanCancel()
+			&& IssueReadyA.GetRunId() == SwordQiCommandRunA
+			&& IssueReadyA.GetNextEventSequence() == 1
+			&& IssueReadyA.GetPendingEvent() == nullptr
+			&& IssueReadyA.GetProjectionId() != InactiveProjectionId);
+
+	int32 PreRouteSampleCount = 0;
+	int32 PreRouteProductCount = 0;
+	const Fdemo_mapShanmenSwordQiCommandEventResult PreRouteRejected =
+		Owner.TryIssue(
+			[&](const FGuid& EventId)
+			{
+				return Fdemo_mapShanmenSwordQiInputAdapter::RouteStartInput(
+					false,
+					true,
+					SwordQiCommandRunA,
+					EventId,
+					[&PreRouteSampleCount]()
+					{
+						++PreRouteSampleCount;
+						return CommandSpatialSample();
+					},
+					[&PreRouteProductCount](
+						const Fdemo_mapShanmenSwordQiIntent&)
+					{
+						++PreRouteProductCount;
+						return Fdemo_mapShanmenSwordQiControllerResult();
+					});
+			});
+	Fdemo_mapShanmenSwordQiCommandAvailabilityProjection
+		IssueReadyAfterFence;
+	TestTrue(TEXT("pre-route rejection leaves availability unchanged"),
+		PreRouteRejected.Status
+				== Edemo_mapShanmenSwordQiCommandEventStatus::InputRejected
+			&& !PreRouteRejected.bEventCommitted
+			&& PreRouteSampleCount == 0
+			&& PreRouteProductCount == 0
+			&& Owner.TryProjectAvailability(
+				IssueReadyAfterFence, Diagnostic)
+			&& IssueReadyAfterFence.GetProjectionId()
+				== IssueReadyA.GetProjectionId());
+
+	const Fdemo_mapShanmenSwordQiInputSample FrozenSample =
+		CommandSpatialSample(FVector(91.0, 12.0, 63.0));
+	const auto MakeHostBusyInput = [FrozenSample](
+		const FGuid& EventId,
+		const Fdemo_mapShanmenSwordQiInputSample& Sample)
+	{
+		Fdemo_mapShanmenSwordQiInputResult Input;
+		Input.Status = Edemo_mapShanmenSwordQiInputStatus::ProductRejected;
+		Input.bSpatialSampled = true;
+		Input.bProductRouteInvoked = true;
+		Input.InputEventId = EventId;
+		Input.RunId = SwordQiCommandRunA;
+		Input.IntentId = Fdemo_mapShanmenSwordQiInputAdapter::MakeIntentId(
+			SwordQiCommandRunA,
+			EventId);
+		Input.Sample = Sample;
+		Input.Product.Status =
+			Edemo_mapShanmenSwordQiControllerStatus::RouteRejected;
+		Input.Product.Route.Status =
+			Edemo_mapShanmenSwordQiProductRouteStatus::HostBusy;
+		Input.Diagnostic = TEXT("Synthetic P18.9 HostBusy rejection.");
+		return Input;
+	};
+	const Fdemo_mapShanmenSwordQiCommandEventResult HostBusy =
+		Owner.TryIssue(
+			[&](const FGuid& EventId)
+			{
+				return MakeHostBusyInput(EventId, FrozenSample);
+			});
+	Fdemo_mapShanmenSwordQiCommandAvailabilityProjection Pending;
+	const bool bProjectedPending =
+		Owner.TryProjectAvailability(Pending, Diagnostic);
+	const Fdemo_mapShanmenSwordQiCommandEvent* PendingEvent =
+		Pending.GetPendingEvent();
+	TestTrue(TEXT("HostBusy exposes only retry and cancel with event identity"),
+		HostBusy.bPendingRetryStored
+			&& bProjectedPending
+			&& Pending.IsValid()
+			&& Pending.GetState()
+				== Edemo_mapShanmenSwordQiCommandAvailabilityState::
+					PendingRetry
+			&& !Pending.CanIssue()
+			&& Pending.CanRetry()
+			&& Pending.CanCancel()
+			&& Pending.GetRunId() == SwordQiCommandRunA
+			&& Pending.GetNextEventSequence() == 2
+			&& PendingEvent
+			&& PendingEvent->GetInputEventId()
+				== HostBusy.Event.GetInputEventId()
+			&& PendingEvent->GetEventSequence()
+				== HostBusy.Event.GetEventSequence()
+			&& Pending.GetProjectionId()
+				!= IssueReadyA.GetProjectionId());
+	const FGuid PendingProjectionId = Pending.GetProjectionId();
+
+	int32 PendingRetryCount = 0;
+	const Fdemo_mapShanmenSwordQiCommandEventResult StillBusy =
+		Owner.TryRetryPending(
+			[&](
+				const FGuid& EventId,
+				const Fdemo_mapShanmenSwordQiInputSample& Sample)
+			{
+				++PendingRetryCount;
+				return MakeHostBusyInput(EventId, Sample);
+			});
+	Fdemo_mapShanmenSwordQiCommandAvailabilityProjection RepeatedPending;
+	TestTrue(TEXT("same explicit retry preserves pending projection identity"),
+		StillBusy.bPendingRetryAttempt
+			&& StillBusy.bPendingRetryStored
+			&& PendingRetryCount == 1
+			&& Owner.TryProjectAvailability(RepeatedPending, Diagnostic)
+			&& RepeatedPending.GetProjectionId() == PendingProjectionId);
+
+	Fdemo_mapShanmenSwordQiPendingRetryCancellation Cancellation;
+	TestTrue(TEXT("explicit cancel restores issue with advanced sequence"),
+		Owner.TryCancelPending(Cancellation, Diagnostic)
+			&& Cancellation.IsValid());
+	Fdemo_mapShanmenSwordQiCommandAvailabilityProjection IssueAfterCancel;
+	TestTrue(TEXT("post-cancel projection records structural transition"),
+		Owner.TryProjectAvailability(IssueAfterCancel, Diagnostic)
+			&& IssueAfterCancel.CanIssue()
+			&& IssueAfterCancel.GetNextEventSequence() == 2
+			&& IssueAfterCancel.GetPendingEvent() == nullptr
+			&& IssueAfterCancel.GetProjectionId() != PendingProjectionId
+			&& IssueAfterCancel.GetProjectionId()
+				!= IssueReadyA.GetProjectionId());
+	TestTrue(TEXT("previous projection remains immutable after owner mutation"),
+		Pending.IsValid()
+			&& Pending.GetProjectionId() == PendingProjectionId
+			&& Pending.GetPendingEvent()
+			&& Pending.GetPendingEvent()->GetInputEventId()
+				== HostBusy.Event.GetInputEventId());
+
+	Fdemo_mapShanmenSwordQiCommandEventEndSummary Summary;
+	TestTrue(TEXT("Run teardown restores canonical inactive projection"),
+		Owner.TryEnd(SwordQiCommandRunA, Summary, Diagnostic));
+	Fdemo_mapShanmenSwordQiCommandAvailabilityProjection Ended;
+	TestTrue(TEXT("equal inactive states reproduce the same identity"),
+		Owner.TryProjectAvailability(Ended, Diagnostic)
+			&& Ended.GetProjectionId() == InactiveProjectionId);
+	TestTrue(TEXT("new Run changes otherwise issue-ready identity"),
+		Owner.TryBegin(SwordQiCommandRunB, Diagnostic));
+	Fdemo_mapShanmenSwordQiCommandAvailabilityProjection IssueReadyB;
+	TestTrue(TEXT("availability identity is Run scoped"),
+		Owner.TryProjectAvailability(IssueReadyB, Diagnostic)
+			&& IssueReadyB.CanIssue()
+			&& IssueReadyB.GetRunId() == SwordQiCommandRunB
+			&& IssueReadyB.GetProjectionId()
+				!= IssueReadyA.GetProjectionId());
+	return true;
+}
+
 #endif
