@@ -1306,6 +1306,38 @@ Ademo_mapGameMode::ReplaySwordQiStartCommand(
 		});
 }
 
+Fdemo_mapShanmenSwordQiCommandEventResult
+Ademo_mapGameMode::RetryPendingSwordQiStartCommand(
+	const bool bGameplayInputAllowed)
+{
+	return SwordQiCommandEventOwner.TryRetryPending(
+		[this, bGameplayInputAllowed](
+			const FGuid& InputEventId,
+			const Fdemo_mapShanmenSwordQiInputSample& FrozenSample)
+		{
+			return RouteSwordQiStartInput(
+				bGameplayInputAllowed,
+				InputEventId,
+				[&FrozenSample]()
+				{
+					return FrozenSample.GetOrigin();
+				},
+				[&FrozenSample]()
+				{
+					return FrozenSample.GetAimDirection();
+				});
+		});
+}
+
+bool Ademo_mapGameMode::CancelPendingSwordQiStartCommand(
+	Fdemo_mapShanmenSwordQiPendingRetryCancellation& OutCancellation,
+	FString& OutDiagnostic)
+{
+	return SwordQiCommandEventOwner.TryCancelPending(
+		OutCancellation,
+		OutDiagnostic);
+}
+
 bool Ademo_mapGameMode::InterruptSwordQiFlight()
 {
 	return SwordQiProductController.TryInterrupt();
@@ -2588,7 +2620,7 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 		ControlledWeaponRunCommandRouter.Reset();
 		ControlledWeaponThreatSampleRouter.Reset();
 		UE_LOG(Logdemo_map, Log,
-			TEXT("0_0_10_COMBAT_RUN Event=RunReleased RunId=%s Context=%s ControlledBound=%d ControlledInterrupted=%d RoutedIntents=%d ThreatSamples=%lld ThrownSelections=%d TreatmentRequests=%d TreatmentPendingAtTeardown=%d SwordQiCommandEvents=%llu SwordQiIntents=%d SwordQiCommands=%d SwordQiInterrupted=%d ConditionApplications=%d ConditionRevision=%lld SwordRhythmObservations=%d SwordRhythmPresentationPublished=%d SwordRhythmPresentationQueuedAtTeardown=%d WeaponGuardInterrupted=%d"),
+			TEXT("0_0_10_COMBAT_RUN Event=RunReleased RunId=%s Context=%s ControlledBound=%d ControlledInterrupted=%d RoutedIntents=%d ThreatSamples=%lld ThrownSelections=%d TreatmentRequests=%d TreatmentPendingAtTeardown=%d SwordQiCommandEvents=%llu SwordQiPendingRetryAtTeardown=%d SwordQiIntents=%d SwordQiCommands=%d SwordQiInterrupted=%d ConditionApplications=%d ConditionRevision=%lld SwordRhythmObservations=%d SwordRhythmPresentationPublished=%d SwordRhythmPresentationQueuedAtTeardown=%d WeaponGuardInterrupted=%d"),
 			*Result.RunId.ToString(EGuidFormats::DigitsWithHyphens),
 			SafeContext,
 			Result.BoundItemCount,
@@ -2600,6 +2632,7 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 			TreatmentPendingCount,
 			static_cast<unsigned long long>(
 				SwordQiCommandSummary.CommittedEventCount),
+			SwordQiCommandSummary.HadPendingRetry() ? 1 : 0,
 			SwordQiSummary.CapturedIntentCount,
 			SwordQiSummary.ProcessedCommandCount,
 			SwordQiSummary.bInterruptedFlight ? 1 : 0,

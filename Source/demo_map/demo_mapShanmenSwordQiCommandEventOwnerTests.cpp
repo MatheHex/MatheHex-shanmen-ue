@@ -249,6 +249,7 @@ bool Fdemo_mapSwordQiCommandEventLifecycleTest::RunTest(const FString&)
 			&& Summary.IsValid()
 			&& Summary.RunId == SwordQiCommandRunA
 			&& Summary.CommittedEventCount == 0
+			&& !Summary.HadPendingRetry()
 			&& Owner.IsValid()
 			&& Owner.IsEmpty());
 	return true;
@@ -266,7 +267,7 @@ bool Fdemo_mapSwordQiCommandEventPreRouteFenceTest::RunTest(
 	FString Diagnostic;
 	if (!Owner.TryBegin(SwordQiCommandRunA, Diagnostic))
 	{
-		AddError(TEXT("Could not bind the P18.7 fence fixture."));
+		AddError(TEXT("Could not bind the P18.8 fence fixture."));
 		return false;
 	}
 	int32 SampleCount = 0;
@@ -357,6 +358,8 @@ bool Fdemo_mapSwordQiCommandEventPreRouteFenceTest::RunTest(
 			&& ProductRejected.Request.GetSample().GetOrigin()
 				== ProductRejected.Input.Sample.GetOrigin()
 			&& ProductRejected.Event.GetEventSequence() == 1
+			&& !ProductRejected.bPendingRetryStored
+			&& !Owner.HasPendingRetry()
 			&& SampleCount == 2
 			&& RouteCount == 1
 			&& Owner.GetNextEventSequence() == 2);
@@ -375,7 +378,7 @@ bool Fdemo_mapSwordQiCommandFrozenBeforeProductRouteTest::RunTest(
 	FString Diagnostic;
 	if (!Owner.TryBegin(SwordQiCommandRunA, Diagnostic))
 	{
-		AddError(TEXT("Could not bind the P18.7 frozen-request fixture."));
+		AddError(TEXT("Could not bind the P18.8 frozen-request fixture."));
 		return false;
 	}
 	const Fdemo_mapShanmenSwordQiInputSample FrozenSample =
@@ -407,6 +410,8 @@ bool Fdemo_mapSwordQiCommandFrozenBeforeProductRouteTest::RunTest(
 			&& Captured.CanReplay()
 			&& Captured.Request.IsValid()
 			&& !Captured.Input.bProductRouteInvoked
+			&& !Captured.bPendingRetryStored
+			&& !Owner.HasPendingRetry()
 			&& SourceCaptureCount == 1
 			&& Owner.GetNextEventSequence() == 2);
 
@@ -439,6 +444,9 @@ bool Fdemo_mapSwordQiCommandFrozenBeforeProductRouteTest::RunTest(
 				== FrozenSample.GetOrigin()
 			&& Replayed.Request.GetSample().GetAimDirection().Equals(
 				FrozenSample.GetAimDirection())
+			&& !Replayed.bPendingRetryAttempt
+			&& !Replayed.bPendingRetryStored
+			&& !Owner.HasPendingRetry()
 			&& SourceCaptureCount == 1
 			&& FrozenRouteCount == 1
 			&& Owner.GetNextEventSequence() == 2);
@@ -476,7 +484,7 @@ bool Fdemo_mapSwordQiCommandEventAppliedReplayTest::RunTest(
 	FSwordQiCommandEventFixture Fixture;
 	if (!Fixture.bReady)
 	{
-		AddError(TEXT("Could not build the P18.7 applied fixture."));
+		AddError(TEXT("Could not build the P18.8 applied fixture."));
 		return false;
 	}
 	const FGuid FirstSword =
@@ -494,7 +502,7 @@ bool Fdemo_mapSwordQiCommandEventAppliedReplayTest::RunTest(
 			});
 	if (!First.IsAccepted())
 	{
-		AddError(TEXT("Could not launch the P18.6 applied fixture."));
+		AddError(TEXT("Could not launch the P18.8 applied fixture."));
 		return false;
 	}
 	const FGuid FrozenCommandId =
@@ -538,6 +546,9 @@ bool Fdemo_mapSwordQiCommandEventAppliedReplayTest::RunTest(
 				.GetSourceItemInstanceId() == FirstSword
 			&& Replay.Input.Product.Start.Command.GetCommandId()
 				== FrozenCommandId
+			&& !Replay.bPendingRetryAttempt
+			&& !Replay.bPendingRetryStored
+			&& !Fixture.Owner.HasPendingRetry()
 			&& SampleCount == 1
 			&& FrozenReadCount == 1
 			&& RouteCount == 2
@@ -555,7 +566,7 @@ bool Fdemo_mapSwordQiCommandEventBusyRetryTest::RunTest(const FString&)
 	FSwordQiCommandEventFixture Fixture;
 	if (!Fixture.bReady)
 	{
-		AddError(TEXT("Could not build the P18.7 retry fixture."));
+		AddError(TEXT("Could not build the P18.8 retry fixture."));
 		return false;
 	}
 	Fixture.Equip(*this, Fdemo_mapItemIds::TrainingBlade);
@@ -588,8 +599,66 @@ bool Fdemo_mapSwordQiCommandEventBusyRetryTest::RunTest(const FString&)
 			&& Busy.Event.GetEventSequence() == 2
 			&& Busy.Input.Product.Route.Status
 				== Edemo_mapShanmenSwordQiProductRouteStatus::HostBusy
+			&& Busy.bPendingRetryStored
+			&& Fixture.Owner.HasPendingRetry()
+			&& Fixture.Owner.GetPendingRetryRequest()
+			&& Fixture.Owner.GetPendingRetryRequest()->Matches(Busy.Request)
 			&& Fixture.Owner.GetNextEventSequence() == 3
 			&& Fixture.Controller.NumCapturedIntents() == 2);
+
+	int32 BlockedIssueRouteCount = 0;
+	const Fdemo_mapShanmenSwordQiCommandEventResult BlockedIssue =
+		Fixture.Owner.TryIssue(
+			[&BlockedIssueRouteCount](const FGuid&)
+			{
+				++BlockedIssueRouteCount;
+				return Fdemo_mapShanmenSwordQiInputResult();
+			});
+	int32 BlockedReplayRouteCount = 0;
+	const Fdemo_mapShanmenSwordQiCommandEventResult BlockedReplay =
+		Fixture.Owner.TryReplay(
+			Busy.Request,
+			[&BlockedReplayRouteCount](
+				const FGuid&,
+				const Fdemo_mapShanmenSwordQiInputSample&)
+			{
+				++BlockedReplayRouteCount;
+				return Fdemo_mapShanmenSwordQiInputResult();
+			});
+	TestTrue(TEXT("capacity-one slot blocks replacement and generic replay"),
+		BlockedIssue.Status
+			== Edemo_mapShanmenSwordQiCommandEventStatus::
+				PendingRetryOccupied
+			&& BlockedReplay.Status
+				== Edemo_mapShanmenSwordQiCommandEventStatus::
+					PendingRetryOccupied
+			&& BlockedIssueRouteCount == 0
+			&& BlockedReplayRouteCount == 0
+			&& Fixture.Owner.GetNextEventSequence() == 3);
+
+	const Fdemo_mapShanmenSwordQiCommandEventResult StillBusy =
+		Fixture.Owner.TryRetryPending(
+			[&](
+				const FGuid& EventId,
+				const Fdemo_mapShanmenSwordQiInputSample& FrozenSample)
+			{
+				return Fixture.FrozenInput(
+					EventId, FrozenSample, FrozenReadCount, RouteCount);
+			});
+	TestTrue(TEXT("explicit retry retains the same request while Host is busy"),
+		StillBusy.Status
+			== Edemo_mapShanmenSwordQiCommandEventStatus::InputRejected
+			&& StillBusy.bPendingRetryAttempt
+			&& StillBusy.bPendingRetryStored
+			&& StillBusy.Request.Matches(Busy.Request)
+			&& StillBusy.Input.Product.Route.Status
+				== Edemo_mapShanmenSwordQiProductRouteStatus::HostBusy
+			&& Fixture.Owner.HasPendingRetry()
+			&& SampleCount == 2
+			&& FrozenReadCount == 1
+			&& RouteCount == 3
+			&& Fixture.AuthorizationCount == 1
+			&& Fixture.Owner.GetNextEventSequence() == 3);
 
 	Fdemo_mapShanmenSwordQiTerminalReceipt FirstTerminal;
 	TestTrue(TEXT("first flight retires before explicit retry"),
@@ -602,8 +671,7 @@ bool Fdemo_mapSwordQiCommandEventBusyRetryTest::RunTest(const FString&)
 			&& Fixture.Equip(*this, Fdemo_mapItemIds::WeaponLevel2)
 				.IsValid());
 	const Fdemo_mapShanmenSwordQiCommandEventResult Retried =
-		Fixture.Owner.TryReplay(
-			Busy.Request,
+		Fixture.Owner.TryRetryPending(
 			[&](
 				const FGuid& EventId,
 				const Fdemo_mapShanmenSwordQiInputSample& FrozenSample)
@@ -614,14 +682,17 @@ bool Fdemo_mapSwordQiCommandEventBusyRetryTest::RunTest(const FString&)
 	TestTrue(TEXT("retry launches frozen command without new event"),
 		Retried.IsAccepted()
 			&& !Retried.bNewEvent
+			&& Retried.bPendingRetryAttempt
+			&& !Retried.bPendingRetryStored
 			&& Retried.Input.Product.bReusedIntent
 			&& !Retried.Input.Product.Route.IsReplay()
 			&& Retried.Input.Product.AttackPower == 7.0f
 			&& Retried.Input.Product.Start.Command.GetCommandId()
 				== Busy.Input.Product.Start.Command.GetCommandId()
+			&& !Fixture.Owner.HasPendingRetry()
 			&& SampleCount == 2
-			&& FrozenReadCount == 1
-			&& RouteCount == 3
+			&& FrozenReadCount == 2
+			&& RouteCount == 4
 			&& Fixture.AuthorizationCount == 2
 			&& Fixture.Owner.GetNextEventSequence() == 3);
 
@@ -631,7 +702,79 @@ bool Fdemo_mapSwordQiCommandEventBusyRetryTest::RunTest(const FString&)
 			SwordQiCommandRunA, Summary, Fixture.Diagnostic)
 			&& Summary.IsValid()
 			&& Summary.CommittedEventCount == 2
+			&& !Summary.HadPendingRetry()
 			&& Fixture.Owner.IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapSwordQiCommandPendingCancelAndTeardownTest,
+	"Shanmen.0_0_10.Product.SwordQiCommandEventOwner.PendingCancelAndTeardown",
+	SwordQiCommandEventFlags)
+
+bool Fdemo_mapSwordQiCommandPendingCancelAndTeardownTest::RunTest(
+	const FString&)
+{
+	Fdemo_mapShanmenSwordQiCommandEventOwner Owner;
+	FString Diagnostic;
+	if (!Owner.TryBegin(SwordQiCommandRunA, Diagnostic))
+	{
+		AddError(TEXT("Could not bind the P18.8 cancellation fixture."));
+		return false;
+	}
+	const Fdemo_mapShanmenSwordQiInputSample FrozenSample =
+		CommandSpatialSample(FVector(70.0, 11.0, 62.0));
+	const auto HostBusyInput = [&](const FGuid& EventId)
+	{
+		Fdemo_mapShanmenSwordQiInputResult Input;
+		Input.Status = Edemo_mapShanmenSwordQiInputStatus::ProductRejected;
+		Input.bSpatialSampled = true;
+		Input.bProductRouteInvoked = true;
+		Input.InputEventId = EventId;
+		Input.RunId = SwordQiCommandRunA;
+		Input.IntentId = Fdemo_mapShanmenSwordQiInputAdapter::MakeIntentId(
+			SwordQiCommandRunA,
+			EventId);
+		Input.Sample = FrozenSample;
+		Input.Product.Status =
+			Edemo_mapShanmenSwordQiControllerStatus::RouteRejected;
+		Input.Product.Route.Status =
+			Edemo_mapShanmenSwordQiProductRouteStatus::HostBusy;
+		Input.Diagnostic = TEXT("Synthetic HostBusy rejection.");
+		return Input;
+	};
+
+	const Fdemo_mapShanmenSwordQiCommandEventResult FirstPending =
+		Owner.TryIssue(HostBusyInput);
+	TestTrue(TEXT("HostBusy is the sole retryable rejection"),
+		FirstPending.bPendingRetryStored
+			&& Owner.HasPendingRetry());
+
+	Fdemo_mapShanmenSwordQiPendingRetryCancellation Cancellation;
+	TestTrue(TEXT("explicit cancellation returns immutable request evidence"),
+		Owner.TryCancelPending(Cancellation, Diagnostic)
+			&& Cancellation.IsValid()
+			&& Cancellation.RunId == SwordQiCommandRunA
+			&& Cancellation.Request.Matches(FirstPending.Request)
+			&& !Owner.HasPendingRetry()
+			&& Owner.GetNextEventSequence() == 2);
+	Fdemo_mapShanmenSwordQiPendingRetryCancellation MissingCancellation;
+	TestFalse(TEXT("empty slot cannot be cancelled twice"),
+		Owner.TryCancelPending(MissingCancellation, Diagnostic));
+
+	const Fdemo_mapShanmenSwordQiCommandEventResult SecondPending =
+		Owner.TryIssue(HostBusyInput);
+	Fdemo_mapShanmenSwordQiCommandEventEndSummary Summary;
+	TestTrue(TEXT("Run teardown audits and clears an unconsumed pending request"),
+		SecondPending.bPendingRetryStored
+			&& SecondPending.Event.GetEventSequence() == 2
+			&& Owner.TryEnd(SwordQiCommandRunA, Summary, Diagnostic)
+			&& Summary.IsValid()
+			&& Summary.CommittedEventCount == 2
+			&& Summary.HadPendingRetry()
+			&& Summary.PendingRetryAtTeardown.Matches(SecondPending.Request)
+			&& Owner.IsValid()
+			&& Owner.IsEmpty());
 	return true;
 }
 

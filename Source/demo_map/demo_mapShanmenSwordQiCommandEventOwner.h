@@ -27,6 +27,7 @@ class Fdemo_mapShanmenSwordQiCommandRequest
 {
 public:
 	bool IsValid() const;
+	bool Matches(const Fdemo_mapShanmenSwordQiCommandRequest& Other) const;
 	const Fdemo_mapShanmenSwordQiCommandEvent& GetEvent() const
 	{
 		return Event;
@@ -52,6 +53,8 @@ enum class Edemo_mapShanmenSwordQiCommandEventStatus : uint8
 	EventInvalid,
 	RequestInvalid,
 	RequestNotOwned,
+	PendingRetryOccupied,
+	PendingRetryUnavailable,
 	InputRejected,
 	OwnerPostconditionFailed
 };
@@ -63,6 +66,8 @@ struct Fdemo_mapShanmenSwordQiCommandEventResult
 		Edemo_mapShanmenSwordQiCommandEventStatus::OwnerInactive;
 	bool bNewEvent = false;
 	bool bEventCommitted = false;
+	bool bPendingRetryAttempt = false;
+	bool bPendingRetryStored = false;
 	Fdemo_mapShanmenSwordQiCommandEvent Event;
 	Fdemo_mapShanmenSwordQiCommandRequest Request;
 	Fdemo_mapShanmenSwordQiInputResult Input;
@@ -75,13 +80,27 @@ struct Fdemo_mapShanmenSwordQiCommandEventResult
 	}
 };
 
+/** Audit proof that one pending frozen request was explicitly cancelled. */
+struct Fdemo_mapShanmenSwordQiPendingRetryCancellation
+{
+	FGuid RunId;
+	Fdemo_mapShanmenSwordQiCommandRequest Request;
+
+	bool IsValid() const;
+};
+
 /** Run-teardown evidence before logical command identity state is reset. */
 struct Fdemo_mapShanmenSwordQiCommandEventEndSummary
 {
 	FGuid RunId;
 	uint64 CommittedEventCount = 0;
+	Fdemo_mapShanmenSwordQiCommandRequest PendingRetryAtTeardown;
 
-	bool IsValid() const { return RunId.IsValid(); }
+	bool IsValid() const;
+	bool HadPendingRetry() const
+	{
+		return PendingRetryAtTeardown.IsValid();
+	}
 };
 
 /**
@@ -94,7 +113,8 @@ struct Fdemo_mapShanmenSwordQiCommandEventEndSummary
  * Explicit replay requires the frozen request, never calls an external
  * sampler and never allocates another sequence. No physical key, spatial
  * authority, retry loop, item, attribute, Actor, inventory, projectile or
- * damage authority lives here.
+ * damage authority lives here. Exactly one HostBusy request may be retained
+ * for explicit retry or cancellation; no other rejection enters that slot.
  */
 class Fdemo_mapShanmenSwordQiCommandEventOwner
 {
@@ -112,6 +132,13 @@ public:
 		TFunctionRef<Fdemo_mapShanmenSwordQiInputResult(
 			const FGuid&,
 			const Fdemo_mapShanmenSwordQiInputSample&)> RouteFrozenInput);
+	Fdemo_mapShanmenSwordQiCommandEventResult TryRetryPending(
+		TFunctionRef<Fdemo_mapShanmenSwordQiInputResult(
+			const FGuid&,
+			const Fdemo_mapShanmenSwordQiInputSample&)> RouteFrozenInput);
+	bool TryCancelPending(
+		Fdemo_mapShanmenSwordQiPendingRetryCancellation& OutCancellation,
+		FString& OutDiagnostic);
 	bool TryEnd(
 		const FGuid& ExpectedRunId,
 		Fdemo_mapShanmenSwordQiCommandEventEndSummary& OutSummary,
@@ -127,6 +154,11 @@ public:
 	{
 		return NextEventSequence > 0 ? NextEventSequence - 1 : 0;
 	}
+	bool HasPendingRetry() const { return PendingRetryRequest.IsValid(); }
+	const Fdemo_mapShanmenSwordQiCommandRequest* GetPendingRetryRequest() const
+	{
+		return HasPendingRetry() ? &PendingRetryRequest : nullptr;
+	}
 
 private:
 	Fdemo_mapShanmenSwordQiCommandEventResult RouteNewEvent(
@@ -135,10 +167,16 @@ private:
 			RouteInput);
 	Fdemo_mapShanmenSwordQiCommandEventResult RouteFrozenRequest(
 		const Fdemo_mapShanmenSwordQiCommandRequest& Request,
+		bool bPendingRetryAttempt,
 		TFunctionRef<Fdemo_mapShanmenSwordQiInputResult(
 			const FGuid&,
 			const Fdemo_mapShanmenSwordQiInputSample&)> RouteFrozenInput);
+	void UpdatePendingRetry(
+		Fdemo_mapShanmenSwordQiCommandEventResult& InOutResult);
+	static bool IsRetryableProductRejection(
+		const Fdemo_mapShanmenSwordQiCommandEventResult& Result);
 
 	FGuid RunId;
 	uint64 NextEventSequence = 1;
+	Fdemo_mapShanmenSwordQiCommandRequest PendingRetryRequest;
 };

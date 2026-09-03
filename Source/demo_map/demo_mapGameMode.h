@@ -199,6 +199,13 @@ public:
 	Fdemo_mapShanmenSwordQiCommandEventResult ReplaySwordQiStartCommand(
 		const Fdemo_mapShanmenSwordQiCommandRequest& Request,
 		bool bGameplayInputAllowed);
+	/** Explicitly retries the sole retained HostBusy request. */
+	Fdemo_mapShanmenSwordQiCommandEventResult
+	RetryPendingSwordQiStartCommand(bool bGameplayInputAllowed);
+	/** Explicitly discards the sole retained HostBusy request with evidence. */
+	bool CancelPendingSwordQiStartCommand(
+		Fdemo_mapShanmenSwordQiPendingRetryCancellation& OutCancellation,
+		FString& OutDiagnostic);
 	bool InterruptSwordQiFlight();
 	bool ExpireSwordQiRange();
 	bool RetireSwordQiTerminal(

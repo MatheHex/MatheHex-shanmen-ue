@@ -45,10 +45,22 @@ bool Fdemo_mapShanmenSwordQiCommandRequest::IsValid() const
 	return Event.IsValid() && Sample.IsValid();
 }
 
+bool Fdemo_mapShanmenSwordQiCommandRequest::Matches(
+	const Fdemo_mapShanmenSwordQiCommandRequest& Other) const
+{
+	return IsValid()
+		&& Other.IsValid()
+		&& Event.GetRunId() == Other.Event.GetRunId()
+		&& Event.GetInputEventId() == Other.Event.GetInputEventId()
+		&& Event.GetEventSequence() == Other.Event.GetEventSequence()
+		&& SamplesEqual(Sample, Other.Sample);
+}
+
 bool Fdemo_mapShanmenSwordQiCommandEventResult::IsAccepted() const
 {
 	return Status == Edemo_mapShanmenSwordQiCommandEventStatus::Applied
 		&& bEventCommitted
+		&& !bPendingRetryStored
 		&& Event.IsValid()
 		&& Request.IsValid()
 		&& Request.GetEvent().GetRunId() == Event.GetRunId()
@@ -58,6 +70,20 @@ bool Fdemo_mapShanmenSwordQiCommandEventResult::IsAccepted() const
 		&& Input.InputEventId == Event.GetInputEventId()
 		&& Input.RunId == Event.GetRunId()
 		&& SamplesEqual(Input.Sample, Request.GetSample());
+}
+
+bool Fdemo_mapShanmenSwordQiPendingRetryCancellation::IsValid() const
+{
+	return RunId.IsValid()
+		&& Request.IsValid()
+		&& Request.GetEvent().GetRunId() == RunId;
+}
+
+bool Fdemo_mapShanmenSwordQiCommandEventEndSummary::IsValid() const
+{
+	return RunId.IsValid()
+		&& (!PendingRetryAtTeardown.IsValid()
+			|| PendingRetryAtTeardown.GetEvent().GetRunId() == RunId);
 }
 
 FGuid Fdemo_mapShanmenSwordQiCommandEventOwner::MakeInputEventId(
@@ -130,6 +156,12 @@ Fdemo_mapShanmenSwordQiCommandEventOwner::TryIssue(
 			Edemo_mapShanmenSwordQiCommandEventStatus::OwnerInvalid,
 			TEXT("Sword Qi command-event owner invariants are invalid."));
 	}
+	if (HasPendingRetry())
+	{
+		return Reject(
+			Edemo_mapShanmenSwordQiCommandEventStatus::PendingRetryOccupied,
+			TEXT("Explicitly retry or cancel the pending Sword Qi request before issuing another command."));
+	}
 	if (NextEventSequence == MAX_uint64)
 	{
 		return Reject(
@@ -169,6 +201,12 @@ Fdemo_mapShanmenSwordQiCommandEventOwner::TryReplay(
 			Edemo_mapShanmenSwordQiCommandEventStatus::OwnerInvalid,
 			TEXT("Sword Qi command-event owner invariants are invalid."));
 	}
+	if (HasPendingRetry())
+	{
+		return Reject(
+			Edemo_mapShanmenSwordQiCommandEventStatus::PendingRetryOccupied,
+			TEXT("Use the pending-retry route while a Sword Qi HostBusy request is retained."));
+	}
 	if (!Request.IsValid())
 	{
 		return Reject(
@@ -183,7 +221,84 @@ Fdemo_mapShanmenSwordQiCommandEventOwner::TryReplay(
 			Edemo_mapShanmenSwordQiCommandEventStatus::RequestNotOwned,
 			TEXT("Sword Qi replay request was not committed by this active Run owner."));
 	}
-	return RouteFrozenRequest(Request, RouteFrozenInput);
+	return RouteFrozenRequest(Request, false, RouteFrozenInput);
+}
+
+Fdemo_mapShanmenSwordQiCommandEventResult
+Fdemo_mapShanmenSwordQiCommandEventOwner::TryRetryPending(
+	TFunctionRef<Fdemo_mapShanmenSwordQiInputResult(
+		const FGuid&,
+		const Fdemo_mapShanmenSwordQiInputSample&)> RouteFrozenInput)
+{
+	if (!IsActive())
+	{
+		return Reject(
+			Edemo_mapShanmenSwordQiCommandEventStatus::OwnerInactive,
+			TEXT("Sword Qi pending retry requires one active Run owner."));
+	}
+	if (!IsValid())
+	{
+		return Reject(
+			Edemo_mapShanmenSwordQiCommandEventStatus::OwnerInvalid,
+			TEXT("Sword Qi command-event owner invariants are invalid."));
+	}
+	if (!HasPendingRetry())
+	{
+		return Reject(
+			Edemo_mapShanmenSwordQiCommandEventStatus::PendingRetryUnavailable,
+			TEXT("No Sword Qi HostBusy request is pending explicit retry."));
+	}
+
+	const Fdemo_mapShanmenSwordQiCommandRequest Request = PendingRetryRequest;
+	return RouteFrozenRequest(Request, true, RouteFrozenInput);
+}
+
+bool Fdemo_mapShanmenSwordQiCommandEventOwner::TryCancelPending(
+	Fdemo_mapShanmenSwordQiPendingRetryCancellation& OutCancellation,
+	FString& OutDiagnostic)
+{
+	OutCancellation = Fdemo_mapShanmenSwordQiPendingRetryCancellation();
+	OutDiagnostic.Reset();
+	if (!IsActive())
+	{
+		OutDiagnostic =
+			TEXT("Sword Qi pending cancellation requires one active Run owner.");
+		return false;
+	}
+	if (!IsValid())
+	{
+		OutDiagnostic =
+			TEXT("Sword Qi command-event owner invariants are invalid.");
+		return false;
+	}
+	if (!HasPendingRetry())
+	{
+		OutDiagnostic = TEXT("No Sword Qi pending retry exists to cancel.");
+		return false;
+	}
+
+	Fdemo_mapShanmenSwordQiPendingRetryCancellation Cancellation;
+	Cancellation.RunId = RunId;
+	Cancellation.Request = PendingRetryRequest;
+	if (!Cancellation.IsValid())
+	{
+		OutDiagnostic =
+			TEXT("Sword Qi pending retry could not produce valid cancellation evidence.");
+		return false;
+	}
+
+	PendingRetryRequest = Fdemo_mapShanmenSwordQiCommandRequest();
+	if (!IsValid())
+	{
+		PendingRetryRequest = Cancellation.Request;
+		OutDiagnostic =
+			TEXT("Sword Qi pending cancellation failed owner postconditions.");
+		return false;
+	}
+
+	OutCancellation = Cancellation;
+	OutDiagnostic = TEXT("Cancelled one pending frozen Sword Qi request.");
+	return true;
 }
 
 Fdemo_mapShanmenSwordQiCommandEventResult
@@ -231,6 +346,7 @@ Fdemo_mapShanmenSwordQiCommandEventOwner::RouteNewEvent(
 			OwnerPostconditionFailed;
 		Result.Diagnostic =
 			TEXT("Sword Qi command adapter returned inconsistent event evidence.");
+		UpdatePendingRetry(Result);
 		return Result;
 	}
 
@@ -238,12 +354,14 @@ Fdemo_mapShanmenSwordQiCommandEventOwner::RouteNewEvent(
 		? Edemo_mapShanmenSwordQiCommandEventStatus::Applied
 		: Edemo_mapShanmenSwordQiCommandEventStatus::InputRejected;
 	Result.Diagnostic = Result.Input.Diagnostic;
+	UpdatePendingRetry(Result);
 	return Result;
 }
 
 Fdemo_mapShanmenSwordQiCommandEventResult
 Fdemo_mapShanmenSwordQiCommandEventOwner::RouteFrozenRequest(
 	const Fdemo_mapShanmenSwordQiCommandRequest& Request,
+	const bool bPendingRetryAttempt,
 	TFunctionRef<Fdemo_mapShanmenSwordQiInputResult(
 		const FGuid&,
 		const Fdemo_mapShanmenSwordQiInputSample&)> RouteFrozenInput)
@@ -251,6 +369,7 @@ Fdemo_mapShanmenSwordQiCommandEventOwner::RouteFrozenRequest(
 	const Fdemo_mapShanmenSwordQiCommandEvent& Event = Request.GetEvent();
 	Fdemo_mapShanmenSwordQiCommandEventResult Result;
 	Result.bEventCommitted = true;
+	Result.bPendingRetryAttempt = bPendingRetryAttempt;
 	Result.Event = Event;
 	Result.Request = Request;
 	Result.Input = RouteFrozenInput(
@@ -279,6 +398,7 @@ Fdemo_mapShanmenSwordQiCommandEventOwner::RouteFrozenRequest(
 			OwnerPostconditionFailed;
 		Result.Diagnostic =
 			TEXT("Sword Qi frozen replay returned inconsistent request evidence.");
+		UpdatePendingRetry(Result);
 		return Result;
 	}
 
@@ -286,7 +406,57 @@ Fdemo_mapShanmenSwordQiCommandEventOwner::RouteFrozenRequest(
 		? Edemo_mapShanmenSwordQiCommandEventStatus::Applied
 		: Edemo_mapShanmenSwordQiCommandEventStatus::InputRejected;
 	Result.Diagnostic = Result.Input.Diagnostic;
+	UpdatePendingRetry(Result);
 	return Result;
+}
+
+bool Fdemo_mapShanmenSwordQiCommandEventOwner::
+IsRetryableProductRejection(
+	const Fdemo_mapShanmenSwordQiCommandEventResult& Result)
+{
+	return Result.Status
+			== Edemo_mapShanmenSwordQiCommandEventStatus::InputRejected
+		&& Result.bEventCommitted
+		&& Result.Request.IsValid()
+		&& Result.Input.Status
+			== Edemo_mapShanmenSwordQiInputStatus::ProductRejected
+		&& Result.Input.bProductRouteInvoked
+		&& Result.Input.Product.Status
+			== Edemo_mapShanmenSwordQiControllerStatus::RouteRejected
+		&& Result.Input.Product.Route.Status
+			== Edemo_mapShanmenSwordQiProductRouteStatus::HostBusy;
+}
+
+void Fdemo_mapShanmenSwordQiCommandEventOwner::UpdatePendingRetry(
+	Fdemo_mapShanmenSwordQiCommandEventResult& InOutResult)
+{
+	if (IsRetryableProductRejection(InOutResult))
+	{
+		if (!HasPendingRetry()
+			|| PendingRetryRequest.Matches(InOutResult.Request))
+		{
+			PendingRetryRequest = InOutResult.Request;
+		}
+		else
+		{
+			InOutResult.Status = Edemo_mapShanmenSwordQiCommandEventStatus::
+				OwnerPostconditionFailed;
+			InOutResult.Diagnostic =
+				TEXT("Sword Qi retry slot refused replacement by another frozen request.");
+		}
+	}
+	else if (HasPendingRetry()
+		&& PendingRetryRequest.Matches(InOutResult.Request)
+		&& InOutResult.Input.bProductRouteInvoked
+		&& InOutResult.Status
+			!= Edemo_mapShanmenSwordQiCommandEventStatus::
+				OwnerPostconditionFailed)
+	{
+		PendingRetryRequest = Fdemo_mapShanmenSwordQiCommandRequest();
+	}
+
+	InOutResult.bPendingRetryStored = HasPendingRetry()
+		&& PendingRetryRequest.Matches(InOutResult.Request);
 }
 
 bool Fdemo_mapShanmenSwordQiCommandEventOwner::TryEnd(
@@ -311,6 +481,7 @@ bool Fdemo_mapShanmenSwordQiCommandEventOwner::TryEnd(
 
 	OutSummary.RunId = RunId;
 	OutSummary.CommittedEventCount = NumCommittedEvents();
+	OutSummary.PendingRetryAtTeardown = PendingRetryRequest;
 	if (!ExpectedRunId.IsValid() || ExpectedRunId != RunId)
 	{
 		OutDiagnostic =
@@ -332,13 +503,28 @@ bool Fdemo_mapShanmenSwordQiCommandEventOwner::TryEnd(
 
 bool Fdemo_mapShanmenSwordQiCommandEventOwner::IsValid() const
 {
-	return NextEventSequence > 0
-		&& (RunId.IsValid() || NextEventSequence == 1);
+	if (NextEventSequence == 0
+		|| (!RunId.IsValid() && NextEventSequence != 1))
+	{
+		return false;
+	}
+	if (!HasPendingRetry())
+	{
+		return true;
+	}
+
+	const Fdemo_mapShanmenSwordQiCommandEvent& PendingEvent =
+		PendingRetryRequest.GetEvent();
+	return RunId.IsValid()
+		&& PendingEvent.GetRunId() == RunId
+		&& PendingEvent.GetEventSequence() < NextEventSequence;
 }
 
 bool Fdemo_mapShanmenSwordQiCommandEventOwner::IsEmpty() const
 {
-	return !RunId.IsValid() && NextEventSequence == 1;
+	return !RunId.IsValid()
+		&& NextEventSequence == 1
+		&& !HasPendingRetry();
 }
 
 void Fdemo_mapShanmenSwordQiCommandEventOwner::Reset()
