@@ -415,6 +415,9 @@ try
     $DivineSenseCommandRouter = New-AutomationLogFixture `
         -Name 'divine-sense-command-router.log' `
         -Group 'Shanmen.0_0_10.Product.DivineSenseCommandRouter'
+    $DivineSenseProductSession = New-AutomationLogFixture `
+        -Name 'divine-sense-product-session.log' `
+        -Group 'Shanmen.0_0_10.Product.DivineSenseProductSession'
     $SpiritShieldRuntime = New-AutomationLogFixture `
         -Name 'spirit-shield-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShield'
@@ -2634,6 +2637,23 @@ try
             $ActionLifecycle,
             $WorldGameplay)
 
+    Invoke-ExpectedPass `
+        -Name 'Divine Sense product Session maps Run lifecycle and every routed authority contract' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenDivineSenseProductSession.cpp',
+            'Source/demo_map/demo_mapShanmenDivineSenseProductSessionTests.cpp') `
+        -Logs @(
+            $DivineSenseProductSession,
+            $DivineSenseCommandRouter,
+            $DivineSenseProductHost,
+            $DivineSensePulseCoordinator,
+            $DivineSenseWorldObservation,
+            $Coordinator,
+            $DivineSenseRuntime,
+            $ActionResource,
+            $ActionLifecycle,
+            $WorldGameplay)
+
     Invoke-ExpectedFail `
         -Name 'missing mapped group fails closed' `
         -Paths @('Source/demo_map/demo_mapSkillComponent.cpp') `
@@ -2666,6 +2686,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenDivineSenseCommandRouter.cpp') `
         -Logs @($DivineSenseCommandRouter, $DivineSenseProductHost) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'Divine Sense product Session focus cannot replace Run and routed authority evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenDivineSenseProductSession.cpp') `
+        -Logs @($DivineSenseProductSession, $DivineSenseCommandRouter) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
