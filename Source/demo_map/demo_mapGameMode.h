@@ -25,6 +25,7 @@
 #include "demo_mapShanmenSwordRhythmProductSession.h"
 #include "demo_mapShanmenSwordRhythmPresentationEvent.h"
 #include "demo_mapShanmenSwordRhythmEffectCuePresentationRunController.h"
+#include "demo_mapShanmenSwordQiCommandEventOwner.h"
 #include "demo_mapShanmenSwordQiInputAdapter.h"
 #include "demo_mapShanmenSwordQiProductController.h"
 #include "demo_mapShanmenWeaponGuardInputAdapter.h"
@@ -189,6 +190,17 @@ public:
 		const FGuid& InputEventId,
 		TFunctionRef<FVector()> SampleOrigin,
 		TFunctionRef<FVector()> SampleAimDirection);
+	/** Allocates one Run-scoped logical event and calls the existing adapter. */
+	Fdemo_mapShanmenSwordQiCommandEventResult IssueSwordQiStartCommand(
+		bool bGameplayInputAllowed,
+		TFunctionRef<FVector()> SampleOrigin,
+		TFunctionRef<FVector()> SampleAimDirection);
+	/** Explicitly retries one event already committed by this active Run. */
+	Fdemo_mapShanmenSwordQiCommandEventResult ReplaySwordQiStartCommand(
+		const Fdemo_mapShanmenSwordQiCommandEvent& Event,
+		bool bGameplayInputAllowed,
+		TFunctionRef<FVector()> SampleOrigin,
+		TFunctionRef<FVector()> SampleAimDirection);
 	bool InterruptSwordQiFlight();
 	bool ExpireSwordQiRange();
 	bool RetireSwordQiTerminal(
@@ -197,6 +209,11 @@ public:
 	GetSwordQiProductController() const
 	{
 		return SwordQiProductController;
+	}
+	const Fdemo_mapShanmenSwordQiCommandEventOwner&
+	GetSwordQiCommandEventOwner() const
+	{
+		return SwordQiCommandEventOwner;
 	}
 	const Fdemo_mapShanmenThrownWeaponProductLifecycle&
 	GetThrownWeaponProductLifecycle() const
@@ -542,6 +559,7 @@ private:
 	Fdemo_mapShanmenSwordRhythmEffectCuePresentationRunController
 		SwordRhythmPresentationRunController;
 	Fdemo_mapShanmenSwordQiProductController SwordQiProductController;
+	Fdemo_mapShanmenSwordQiCommandEventOwner SwordQiCommandEventOwner;
 	Fdemo_mapShanmenWeaponGuardProductSession WeaponGuardProductSession;
 	TArray<TWeakObjectPtr<Ademo_mapM01ExtractionZone>> M01ExtractionZones;
 	TArray<TWeakObjectPtr<AActor>> M01EnemyActors;

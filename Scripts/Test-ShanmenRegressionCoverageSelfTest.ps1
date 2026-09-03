@@ -175,6 +175,9 @@ try
     $SwordQiInputAdapter = New-AutomationLogFixture `
         -Name 'sword-qi-input-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.SwordQiInputAdapter'
+    $SwordQiCommandEventOwner = New-AutomationLogFixture `
+        -Name 'sword-qi-command-event-owner.log' `
+        -Group 'Shanmen.0_0_10.Product.SwordQiCommandEventOwner'
     $SwordQiRunHost = New-AutomationLogFixture `
         -Name 'sword-qi-run-host.log' `
         -Group 'Shanmen.0_0_10.Product.SwordQiRunHost'
@@ -2393,6 +2396,13 @@ try
         -Logs @($Full, $Legacy)
 
     Invoke-ExpectedPass `
+        -Name 'sword qi command owner maps Run event identity through the input and product seams' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordQiCommandEventOwner.cpp',
+            'Source/demo_map/demo_mapShanmenSwordQiCommandEventOwnerTests.cpp') `
+        -Logs @($Full, $Legacy)
+
+    Invoke-ExpectedPass `
         -Name 'sword qi Run Host maps physical lifetime and all authority seams' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenSwordQiRunHost.cpp',
@@ -2595,6 +2605,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenSwordQiInputAdapter.cpp') `
         -Logs @($SwordQiInputAdapter) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'sword qi command-owner focus cannot replace adapter controller and legacy evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordQiCommandEventOwner.cpp') `
+        -Logs @($SwordQiCommandEventOwner) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
