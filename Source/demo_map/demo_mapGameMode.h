@@ -25,6 +25,7 @@
 #include "demo_mapShanmenSwordRhythmProductSession.h"
 #include "demo_mapShanmenSwordRhythmPresentationEvent.h"
 #include "demo_mapShanmenSwordRhythmEffectCuePresentationRunController.h"
+#include "demo_mapShanmenSwordQiAvailabilityCommandRouter.h"
 #include "demo_mapShanmenSwordQiCommandEventOwner.h"
 #include "demo_mapShanmenSwordQiInputAdapter.h"
 #include "demo_mapShanmenSwordQiProductController.h"
@@ -210,6 +211,13 @@ public:
 	bool TryProjectSwordQiCommandAvailability(
 		Fdemo_mapShanmenSwordQiCommandAvailabilityProjection& OutProjection,
 		FString& OutDiagnostic) const;
+	/** Rechecks one optimistic decision before reaching the existing owner. */
+	Fdemo_mapShanmenSwordQiAvailabilityCommandResult
+	RouteSwordQiAvailabilityCommand(
+		const Fdemo_mapShanmenSwordQiAvailabilityCommand& Command,
+		bool bGameplayInputAllowed,
+		TFunctionRef<FVector()> SampleOrigin,
+		TFunctionRef<FVector()> SampleAimDirection);
 	bool InterruptSwordQiFlight();
 	bool ExpireSwordQiRange();
 	bool RetireSwordQiTerminal(

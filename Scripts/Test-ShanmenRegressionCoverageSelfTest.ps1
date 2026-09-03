@@ -178,6 +178,9 @@ try
     $SwordQiCommandEventOwner = New-AutomationLogFixture `
         -Name 'sword-qi-command-event-owner.log' `
         -Group 'Shanmen.0_0_10.Product.SwordQiCommandEventOwner'
+    $SwordQiAvailabilityCommandRouter = New-AutomationLogFixture `
+        -Name 'sword-qi-availability-command-router.log' `
+        -Group 'Shanmen.0_0_10.Product.SwordQiAvailabilityCommandRouter'
     $SwordQiRunHost = New-AutomationLogFixture `
         -Name 'sword-qi-run-host.log' `
         -Group 'Shanmen.0_0_10.Product.SwordQiRunHost'
@@ -2403,6 +2406,13 @@ try
         -Logs @($Full, $Legacy)
 
     Invoke-ExpectedPass `
+        -Name 'sword qi availability router maps optimistic decisions through every owner authority seam' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordQiAvailabilityCommandRouter.cpp',
+            'Source/demo_map/demo_mapShanmenSwordQiAvailabilityCommandRouterTests.cpp') `
+        -Logs @($Full, $Legacy)
+
+    Invoke-ExpectedPass `
         -Name 'sword qi Run Host maps physical lifetime and all authority seams' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenSwordQiRunHost.cpp',
@@ -2612,6 +2622,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenSwordQiCommandEventOwner.cpp') `
         -Logs @($SwordQiCommandEventOwner) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'sword qi availability-router focus cannot replace owner adapter controller and legacy evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSwordQiAvailabilityCommandRouter.cpp') `
+        -Logs @($SwordQiAvailabilityCommandRouter) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

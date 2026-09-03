@@ -1347,6 +1347,45 @@ bool Ademo_mapGameMode::TryProjectSwordQiCommandAvailability(
 		OutDiagnostic);
 }
 
+Fdemo_mapShanmenSwordQiAvailabilityCommandResult
+Ademo_mapGameMode::RouteSwordQiAvailabilityCommand(
+	const Fdemo_mapShanmenSwordQiAvailabilityCommand& Command,
+	const bool bGameplayInputAllowed,
+	TFunctionRef<FVector()> SampleOrigin,
+	TFunctionRef<FVector()> SampleAimDirection)
+{
+	return Fdemo_mapShanmenSwordQiAvailabilityCommandRouter::TryRoute(
+		SwordQiCommandEventOwner,
+		Command,
+		[this,
+		 bGameplayInputAllowed,
+		 &SampleOrigin,
+		 &SampleAimDirection](const FGuid& InputEventId)
+		{
+			return RouteSwordQiStartInput(
+				bGameplayInputAllowed,
+				InputEventId,
+				SampleOrigin,
+				SampleAimDirection);
+		},
+		[this, bGameplayInputAllowed](
+			const FGuid& InputEventId,
+			const Fdemo_mapShanmenSwordQiInputSample& FrozenSample)
+		{
+			return RouteSwordQiStartInput(
+				bGameplayInputAllowed,
+				InputEventId,
+				[&FrozenSample]()
+				{
+					return FrozenSample.GetOrigin();
+				},
+				[&FrozenSample]()
+				{
+					return FrozenSample.GetAimDirection();
+				});
+		});
+}
+
 bool Ademo_mapGameMode::InterruptSwordQiFlight()
 {
 	return SwordQiProductController.TryInterrupt();
