@@ -24,6 +24,7 @@
 #include "demo_mapShanmenDefenseResourceAdapter.h"
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
 #include "demo_mapShanmenRunLifecycleAdapter.h"
+#include "demo_mapShanmenDivineSenseProductAuthority.h"
 #include "demo_mapShanmenSwordQiProductAuthority.h"
 #include "demo_mapShanmenSpiritEvasionProductAuthority.h"
 #include "demo_mapShanmenWeaponGuardProductAuthority.h"
@@ -1060,6 +1061,7 @@ bool Fdemo_mapCombatRunCoordinator::TryEndRun(
 	NextPlayerThrownWeaponActivationSequence = 1;
 	NextPlayerSwordQiActivationSequence = 1;
 	NextPlayerSpiritEvasionActivationSequence = 1;
+	NextPlayerDivineSenseActivationSequence = 1;
 	NextPlayerWeaponGuardActivationSequence = 1;
 	NextPlayerActionArbitrationSequence = 1;
 	OutDiagnostic = TEXT("Combat Run identities released.");
@@ -1095,6 +1097,7 @@ void Fdemo_mapCombatRunCoordinator::Reset()
 	NextPlayerThrownWeaponActivationSequence = 1;
 	NextPlayerSwordQiActivationSequence = 1;
 	NextPlayerSpiritEvasionActivationSequence = 1;
+	NextPlayerDivineSenseActivationSequence = 1;
 	NextPlayerWeaponGuardActivationSequence = 1;
 	NextPlayerActionArbitrationSequence = 1;
 }
@@ -2803,6 +2806,74 @@ bool Fdemo_mapCombatRunCoordinator::TryReservePlayerSpiritEvasionAction(
 	++NextPlayerSpiritEvasionActivationSequence;
 	OutDiagnostic =
 		TEXT("Spirit Evasion action identity reserved by the combat Run.");
+	return true;
+}
+
+bool Fdemo_mapCombatRunCoordinator::TryReservePlayerDivineSenseAction(
+	const Fdemo_mapShanmenDivineSenseProductConfig& Config,
+	Fdemo_mapPlayerDivineSenseActionReservation& OutReservation,
+	FString& OutDiagnostic)
+{
+	OutReservation = Fdemo_mapPlayerDivineSenseActionReservation();
+	OutDiagnostic.Reset();
+	if (!IsReady())
+	{
+		OutDiagnostic =
+			TEXT("Divine Sense identity requires one ready combat Run.");
+		return false;
+	}
+	if (!Fdemo_mapShanmenDivineSenseProductAuthority::IsCanonicalConfig(
+			Config))
+	{
+		OutDiagnostic =
+			TEXT("Divine Sense identity requires the canonical P19.7 product config.");
+		return false;
+	}
+	if (NextPlayerDivineSenseActivationSequence == 0
+		|| NextPlayerDivineSenseActivationSequence == MAX_uint64)
+	{
+		OutDiagnostic =
+			TEXT("Divine Sense activation sequence is exhausted.");
+		return false;
+	}
+
+	FShanmenCombatActionCapture Capture;
+	Capture.RunId = GetRunId();
+	Capture.OwnerId = PlayerEntityId;
+	Capture.SourceEntityId = PlayerEntityId;
+	Capture.ActionDefinitionId =
+		FShanmenDivineSenseDefinition::CanonicalActionDefinitionId();
+	Capture.Content.Version =
+		Fdemo_mapShanmenDivineSenseProductAuthority::
+			CanonicalContentVersion();
+	Capture.Content.Digest =
+		Fdemo_mapShanmenDivineSenseProductAuthority::
+			CanonicalContentDigest();
+	Capture.SourceTags.AddTag(FShanmenCombatNativeTags::SourcePlayer());
+	Capture.ActivationId = FShanmenCombatIdFactory::MakeActivationId(
+		Capture.RunId,
+		Capture.SourceEntityId,
+		Capture.ActionDefinitionId,
+		NextPlayerDivineSenseActivationSequence);
+
+	Fdemo_mapPlayerDivineSenseActionReservation Candidate;
+	Candidate.ActivationSequence =
+		NextPlayerDivineSenseActivationSequence;
+	Candidate.ConfigId = Config.GetConfigId();
+	if (!FShanmenCombatActionSnapshot::TryCapture(
+			Capture,
+			Candidate.Action)
+		|| !Candidate.IsValid())
+	{
+		OutDiagnostic =
+			TEXT("Divine Sense deterministic action identity failed closed.");
+		return false;
+	}
+
+	OutReservation = Candidate;
+	++NextPlayerDivineSenseActivationSequence;
+	OutDiagnostic =
+		TEXT("Divine Sense action identity reserved by the combat Run.");
 	return true;
 }
 

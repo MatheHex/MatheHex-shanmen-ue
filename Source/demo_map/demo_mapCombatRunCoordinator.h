@@ -10,9 +10,11 @@
 
 class AActor;
 class APawn;
+class Fdemo_mapPlayerDivineSenseActionReservation;
 class Fdemo_mapPlayerSwordQiActionReservation;
 class Fdemo_mapPlayerSpiritEvasionActionReservation;
 class Fdemo_mapPlayerWeaponGuardActionReservation;
+class Fdemo_mapShanmenDivineSenseProductConfig;
 class Fdemo_mapShanmenSwordQiProductConfig;
 class Fdemo_mapShanmenSpiritEvasionProductConfig;
 class Fdemo_mapShanmenWeaponGuardProductConfig;
@@ -633,6 +635,15 @@ public:
 		Fdemo_mapPlayerSpiritEvasionActionReservation& OutReservation,
 		FString& OutDiagnostic);
 	/**
+	 * Reserves one canonical Divine Sense identity from this Run's monotonic
+	 * sequence. The P19.7 product authority is the sole policy source; no item,
+	 * input device or caller-selected identity participates.
+	 */
+	bool TryReservePlayerDivineSenseAction(
+		const Fdemo_mapShanmenDivineSenseProductConfig& Config,
+		Fdemo_mapPlayerDivineSenseActionReservation& OutReservation,
+		FString& OutDiagnostic);
+	/**
 	 * Reserves one canonical item-backed weapon-guard identity from this Run's
 	 * monotonic sequence. Equipment authorization and timeline ownership remain
 	 * outside the Run coordinator.
@@ -683,6 +694,10 @@ public:
 	uint64 GetNextPlayerSpiritEvasionActivationSequence() const
 	{
 		return NextPlayerSpiritEvasionActivationSequence;
+	}
+	uint64 GetNextPlayerDivineSenseActivationSequence() const
+	{
+		return NextPlayerDivineSenseActivationSequence;
 	}
 	uint64 GetNextPlayerWeaponGuardActivationSequence() const
 	{
@@ -735,6 +750,7 @@ private:
 	uint64 NextPlayerThrownWeaponActivationSequence = 1;
 	uint64 NextPlayerSwordQiActivationSequence = 1;
 	uint64 NextPlayerSpiritEvasionActivationSequence = 1;
+	uint64 NextPlayerDivineSenseActivationSequence = 1;
 	uint64 NextPlayerWeaponGuardActivationSequence = 1;
 	uint64 NextPlayerActionArbitrationSequence = 1;
 };

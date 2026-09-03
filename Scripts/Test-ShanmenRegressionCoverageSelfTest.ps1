@@ -421,6 +421,9 @@ try
     $DivineSenseProductController = New-AutomationLogFixture `
         -Name 'divine-sense-product-controller.log' `
         -Group 'Shanmen.0_0_10.Product.DivineSenseProductController'
+    $DivineSenseProductAuthority = New-AutomationLogFixture `
+        -Name 'divine-sense-product-authority.log' `
+        -Group 'Shanmen.0_0_10.Product.DivineSenseProductAuthority'
     $SpiritShieldRuntime = New-AutomationLogFixture `
         -Name 'spirit-shield-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShield'
@@ -2676,6 +2679,26 @@ try
             $ActionLifecycle,
             $WorldGameplay)
 
+    Invoke-ExpectedPass `
+        -Name 'Divine Sense product authority maps canonical policy Run identity Controller and routed contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenDivineSenseProductAuthority.h',
+            'Source/demo_map/demo_mapShanmenDivineSenseProductAuthority.cpp',
+            'Source/demo_map/demo_mapShanmenDivineSenseProductAuthorityTests.cpp') `
+        -Logs @(
+            $DivineSenseProductAuthority,
+            $DivineSenseProductController,
+            $DivineSenseProductSession,
+            $DivineSenseCommandRouter,
+            $DivineSenseProductHost,
+            $DivineSensePulseCoordinator,
+            $DivineSenseWorldObservation,
+            $Coordinator,
+            $DivineSenseRuntime,
+            $ActionResource,
+            $ActionLifecycle,
+            $WorldGameplay)
+
     Invoke-ExpectedFail `
         -Name 'missing mapped group fails closed' `
         -Paths @('Source/demo_map/demo_mapSkillComponent.cpp') `
@@ -2725,6 +2748,16 @@ try
             $DivineSenseProductController,
             $DivineSenseProductSession,
             $DivineSenseCommandRouter) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'Divine Sense product authority focus cannot replace Controller Run and routed evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenDivineSenseProductAuthority.cpp') `
+        -Logs @(
+            $DivineSenseProductAuthority,
+            $DivineSenseProductController,
+            $Coordinator) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
