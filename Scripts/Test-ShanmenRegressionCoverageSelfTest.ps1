@@ -2514,6 +2514,13 @@ try
 		-Logs @($Full)
 
 	Invoke-ExpectedPass `
+		-Name 'thrown weapon choice intent adapter maps controller session command and broad evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceIntentAdapter.cpp',
+			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceIntentAdapterTests.cpp') `
+		-Logs @($Full)
+
+	Invoke-ExpectedPass `
 		-Name 'thrown weapon choice controller adapter maps command session and broad evidence' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceControllerAdapter.cpp',
@@ -4143,6 +4150,13 @@ try
 		-Name 'thrown input choice session cannot use unrelated item fallback evidence' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceSession.cpp') `
+		-Logs @($ItemUse) `
+		-ExpectedText 'missing required groups'
+
+	Invoke-ExpectedFail `
+		-Name 'thrown choice intent adapter cannot use unrelated item evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceIntentAdapter.cpp') `
 		-Logs @($ItemUse) `
 		-ExpectedText 'missing required groups'
 

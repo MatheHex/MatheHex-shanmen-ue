@@ -8,6 +8,7 @@
 #include "demo_mapShanmenThrownWeaponHotbarConfirmationAdapter.h"
 #include "demo_mapShanmenThrownWeaponArcLaunchInputAdapter.h"
 #include "demo_mapShanmenThrownWeaponInputChoiceControllerAdapter.h"
+#include "demo_mapShanmenThrownWeaponInputChoiceIntentAdapter.h"
 #include "demo_mapShanmenWeaponGuardInputAdapter.h"
 #include "demo_mapPlayerController.generated.h"
 
@@ -116,6 +117,10 @@ public:
 	Fdemo_mapShanmenThrownWeaponInputChoiceControllerResult
 	RouteThrownWeaponInputChoiceCommand(
 		const Fdemo_mapShanmenThrownWeaponInputChoiceCommand& Command);
+	/** Captures one logical choice edit against the sole current revision. */
+	Fdemo_mapShanmenThrownWeaponInputChoiceIntentResult
+	RouteThrownWeaponInputChoiceIntent(
+		const Fdemo_mapShanmenThrownWeaponInputChoiceIntent& Intent);
 	/** Routes the physical hold start through the Run-owned fixed timeline. */
 	Fdemo_mapShanmenWeaponGuardInputResult RouteWeaponGuardStartInput();
 	/** Release deliberately bypasses gameplay UI locks to prevent stuck guard. */
