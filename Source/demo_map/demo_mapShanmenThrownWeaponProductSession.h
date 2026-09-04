@@ -177,6 +177,13 @@ public:
 	bool IsActive() const { return bActive; }
 	bool IsValid() const;
 	const FGuid& GetRunId() const { return Correlation.ActiveRunId; }
+	Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind
+	GetTrajectoryKind() const
+	{
+		return bActive
+			? Config.GetTrajectoryKind()
+			: Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Invalid;
+	}
 	int32 NumCapturedSelections() const { return CapturedSelections.Num(); }
 	Edemo_mapShanmenThrownWeaponHostState GetHostState() const
 	{

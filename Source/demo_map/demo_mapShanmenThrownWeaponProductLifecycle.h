@@ -72,6 +72,11 @@ public:
 	bool IsValid() const;
 	bool IsEmpty() const { return !IsActive() && IsValid(); }
 	const FGuid& GetRunId() const { return Session.GetRunId(); }
+	Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind
+	GetTrajectoryKind() const
+	{
+		return Session.GetTrajectoryKind();
+	}
 	int32 NumCapturedSelections() const
 	{
 		return Session.NumCapturedSelections();

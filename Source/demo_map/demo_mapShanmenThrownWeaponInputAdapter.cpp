@@ -72,6 +72,62 @@ Fdemo_mapShanmenThrownWeaponInputAdapter::RouteHotbarInput(
 	TFunctionRef<FVector()> SampleAimDirection,
 	TFunctionRef<Fdemo_mapShanmenPlayerActionGateResult()> AuthorizeAction)
 {
+	const auto UnusedApexClearance = []() { return 0.0; };
+	return RouteTypedHotbarInput(
+		Authority,
+		Lifecycle,
+		Coordinator,
+		World,
+		ProjectileClass,
+		SourceActor,
+		HotbarSlotNumber,
+		Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight,
+		SampleAimDirection,
+		UnusedApexClearance,
+		AuthorizeAction);
+}
+
+Fdemo_mapShanmenThrownWeaponInputResult
+Fdemo_mapShanmenThrownWeaponInputAdapter::RouteArcHotbarInput(
+	Udemo_mapShanmenItemAuthoritySubsystem* Authority,
+	Fdemo_mapShanmenThrownWeaponProductLifecycle& Lifecycle,
+	Fdemo_mapCombatRunCoordinator& Coordinator,
+	UWorld* World,
+	TSubclassOf<Ademo_mapShanmenThrownWeaponProjectile> ProjectileClass,
+	AActor* SourceActor,
+	const int32 HotbarSlotNumber,
+	TFunctionRef<FVector()> SampleTarget,
+	TFunctionRef<double()> SampleApexClearance,
+	TFunctionRef<Fdemo_mapShanmenPlayerActionGateResult()> AuthorizeAction)
+{
+	return RouteTypedHotbarInput(
+		Authority,
+		Lifecycle,
+		Coordinator,
+		World,
+		ProjectileClass,
+		SourceActor,
+		HotbarSlotNumber,
+		Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc,
+		SampleTarget,
+		SampleApexClearance,
+		AuthorizeAction);
+}
+
+Fdemo_mapShanmenThrownWeaponInputResult
+Fdemo_mapShanmenThrownWeaponInputAdapter::RouteTypedHotbarInput(
+	Udemo_mapShanmenItemAuthoritySubsystem* Authority,
+	Fdemo_mapShanmenThrownWeaponProductLifecycle& Lifecycle,
+	Fdemo_mapCombatRunCoordinator& Coordinator,
+	UWorld* World,
+	TSubclassOf<Ademo_mapShanmenThrownWeaponProjectile> ProjectileClass,
+	AActor* SourceActor,
+	const int32 HotbarSlotNumber,
+	const Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind TrajectoryKind,
+	TFunctionRef<FVector()> SamplePrimaryGeometry,
+	TFunctionRef<double()> SampleArcApexClearance,
+	TFunctionRef<Fdemo_mapShanmenPlayerActionGateResult()> AuthorizeAction)
+{
 	if (HotbarSlotNumber < 1
 		|| HotbarSlotNumber
 			> Fdemo_mapPersistentPreparationLayout::HotbarSlotCount)
@@ -177,6 +233,7 @@ Fdemo_mapShanmenThrownWeaponInputAdapter::RouteHotbarInput(
 	Result.RunId = Correlation.ActiveRunId;
 	Result.ItemInstanceId = ItemId;
 	Result.AuthorityRevision = Snapshot.AuthorityRevision;
+	Result.TrajectoryKind = TrajectoryKind;
 	if (!Lifecycle.IsActive()
 		|| !Lifecycle.IsValid()
 		|| Lifecycle.GetRunId() != Correlation.ActiveRunId
@@ -187,6 +244,14 @@ Fdemo_mapShanmenThrownWeaponInputAdapter::RouteHotbarInput(
 			Edemo_mapShanmenThrownWeaponInputStatus::ProductRunMismatch;
 		Result.Diagnostic =
 			TEXT("Typed thrown weapon requires the matching active product and combat Run.");
+		return Result;
+	}
+	if (Lifecycle.GetTrajectoryKind() != TrajectoryKind)
+	{
+		Result.Status = Edemo_mapShanmenThrownWeaponInputStatus::
+			ProductTrajectoryMismatch;
+		Result.Diagnostic =
+			TEXT("Typed thrown weapon input does not match the bound lifecycle trajectory.");
 		return Result;
 	}
 	FGuid SourceEntityId;
@@ -210,18 +275,52 @@ Fdemo_mapShanmenThrownWeaponInputAdapter::RouteHotbarInput(
 		return Result;
 	}
 
-	Result.bAimSampled = true;
-	const FVector AimDirection = SampleAimDirection();
-	if (!FMath::IsFinite(AimDirection.X)
-		|| !FMath::IsFinite(AimDirection.Y)
-		|| !FMath::IsFinite(AimDirection.Z)
-		|| AimDirection.IsNearlyZero())
+	const FVector Origin = SourceActor->GetActorLocation()
+		+ FVector(0.0, 0.0, ThrownWeaponOriginHeight);
+	FVector PrimaryGeometry = FVector::ZeroVector;
+	double ApexClearance = 0.0;
+	if (TrajectoryKind
+		== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight)
 	{
-		Result.Status =
-			Edemo_mapShanmenThrownWeaponInputStatus::AimUnavailable;
-		Result.Diagnostic =
-			TEXT("Typed thrown weapon input has no finite non-zero aim direction.");
-		return Result;
+		Result.bAimSampled = true;
+		PrimaryGeometry = SamplePrimaryGeometry();
+		if (!FMath::IsFinite(PrimaryGeometry.X)
+			|| !FMath::IsFinite(PrimaryGeometry.Y)
+			|| !FMath::IsFinite(PrimaryGeometry.Z)
+			|| PrimaryGeometry.IsNearlyZero())
+		{
+			Result.Status =
+				Edemo_mapShanmenThrownWeaponInputStatus::AimUnavailable;
+			Result.Diagnostic =
+				TEXT("Typed thrown weapon input has no finite non-zero aim direction.");
+			return Result;
+		}
+	}
+	else
+	{
+		Result.bTargetSampled = true;
+		PrimaryGeometry = SamplePrimaryGeometry();
+		if (!FMath::IsFinite(PrimaryGeometry.X)
+			|| !FMath::IsFinite(PrimaryGeometry.Y)
+			|| !FMath::IsFinite(PrimaryGeometry.Z)
+			|| (PrimaryGeometry - Origin).IsNearlyZero())
+		{
+			Result.Status =
+				Edemo_mapShanmenThrownWeaponInputStatus::TargetUnavailable;
+			Result.Diagnostic =
+				TEXT("Typed Arc input has no finite target distinct from its origin.");
+			return Result;
+		}
+		Result.bApexClearanceSampled = true;
+		ApexClearance = SampleArcApexClearance();
+		if (!FMath::IsFinite(ApexClearance) || ApexClearance <= 0.0)
+		{
+			Result.Status = Edemo_mapShanmenThrownWeaponInputStatus::
+				ApexClearanceUnavailable;
+			Result.Diagnostic =
+				TEXT("Typed Arc input requires finite positive apex clearance.");
+			return Result;
+		}
 	}
 	Result.SelectionOrdinal = NextSelectionOrdinal;
 	Result.SelectionId = MakeSelectionId(
@@ -241,15 +340,23 @@ Fdemo_mapShanmenThrownWeaponInputAdapter::RouteHotbarInput(
 	}
 
 	Fdemo_mapShanmenThrownWeaponHotbarIntent Intent;
-	const FVector Origin = SourceActor->GetActorLocation()
-		+ FVector(0.0, 0.0, ThrownWeaponOriginHeight);
-	if (!Fdemo_mapShanmenThrownWeaponHotbarIntent::TryCapture(
+	const bool bIntentCaptured = TrajectoryKind
+			== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight
+		? Fdemo_mapShanmenThrownWeaponHotbarIntent::TryCapture(
 			Result.SelectionId,
 			HotbarSlotNumber,
 			Origin,
-			AimDirection,
+			PrimaryGeometry,
 			ThrownWeaponMaximumDistance,
-			Intent))
+			Intent)
+		: Fdemo_mapShanmenThrownWeaponHotbarIntent::TryCaptureArc(
+			Result.SelectionId,
+			HotbarSlotNumber,
+			Origin,
+			PrimaryGeometry,
+			ApexClearance,
+			Intent);
+	if (!bIntentCaptured)
 	{
 		Result.Status =
 			Edemo_mapShanmenThrownWeaponInputStatus::IntentCaptureRejected;

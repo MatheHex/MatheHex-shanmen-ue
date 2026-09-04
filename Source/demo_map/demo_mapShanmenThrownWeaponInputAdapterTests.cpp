@@ -31,7 +31,7 @@ namespace
 		return FPaths::Combine(
 			FPaths::ProjectSavedDir(),
 			TEXT("Automation"),
-			TEXT("Dev.D.UE.0.0.10.P7.9.r0"),
+			TEXT("Dev.D.UE.0.0.10.P20.8.r0"),
 			Label,
 			FGuid::NewGuid().ToString(EGuidFormats::Digits));
 	}
@@ -58,6 +58,17 @@ namespace
 		Fdemo_mapShanmenThrownWeaponInputAdapter Adapter;
 
 		bool Start(FAutomationTestBase& Test, const TCHAR* Label)
+		{
+			return Start(
+				Test,
+				Label,
+				Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight);
+		}
+
+		bool Start(
+			FAutomationTestBase& Test,
+			const TCHAR* Label,
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind TrajectoryKind)
 		{
 			Root = NewThrownInputRoot(Label);
 			Storage = Fdemo_mapProfileStorageContext::ForRoot(Root);
@@ -93,7 +104,7 @@ namespace
 			if (!TrainingBladeId.IsValid() || !HealingPillId.IsValid()
 				|| !ThrowingKnifeId.IsValid() || !Saved.IsSuccess() || !GEngine)
 			{
-				Test.AddError(TEXT("P7.9 could not seed isolated hotbar content."));
+				Test.AddError(TEXT("P20.8 could not seed isolated hotbar content."));
 				return false;
 			}
 
@@ -127,7 +138,7 @@ namespace
 					Diagnostic))
 			{
 				Test.AddError(FString::Printf(
-					TEXT("P7.9 stable migration source failed: %s"),
+					TEXT("P20.8 stable migration source failed: %s"),
 					*Diagnostic));
 				return false;
 			}
@@ -152,7 +163,7 @@ namespace
 					2, ThrowingKnifeId).IsAccepted())
 			{
 				Test.AddError(FString::Printf(
-					TEXT("P7.9 authority preparation failed: %s"),
+					TEXT("P20.8 authority preparation failed: %s"),
 					*Cutover.Diagnostic));
 				return false;
 			}
@@ -167,7 +178,7 @@ namespace
 				|| Correlation.HotbarItemInstanceIds[1] != ThrowingKnifeId)
 			{
 				Test.AddError(FString::Printf(
-					TEXT("P7.9 durable active Run failed: %s"),
+					TEXT("P20.8 durable active Run failed: %s"),
 					*Diagnostic));
 				return false;
 			}
@@ -199,11 +210,11 @@ namespace
 			OtherSource = World->SpawnActor<APawn>();
 			Health = Source
 				? NewObject<Udemo_mapPlayerHealthComponent>(
-					Source, TEXT("P79PlayerHealth"))
+					Source, TEXT("P208PlayerHealth"))
 				: nullptr;
 			Attributes = Source
 				? NewObject<Udemo_mapAttributeComponent>(
-					Source, TEXT("P79PlayerAttributes"))
+					Source, TEXT("P208PlayerAttributes"))
 				: nullptr;
 			if (Source && Attributes)
 			{
@@ -220,10 +231,11 @@ namespace
 					*Authority,
 					*Source,
 					Coordinator,
+					TrajectoryKind,
 					Diagnostic))
 			{
 				Test.AddError(FString::Printf(
-					TEXT("P7.9 product lifecycle failed: %s"),
+					TEXT("P20.8 product lifecycle failed: %s"),
 					*Diagnostic));
 				return false;
 			}
@@ -251,6 +263,45 @@ namespace
 				},
 				[this]()
 				{
+					return Fdemo_mapShanmenPlayerActionGateResult::
+						FromArbitration(
+							Coordinator.TryAuthorizePlayerAction(
+								Edemo_mapShanmenPlayerActionKind::
+									ThrownWeapon,
+								Fdemo_mapShanmenPlayerActionOccupancySnapshot()));
+				});
+		}
+
+		Fdemo_mapShanmenThrownWeaponInputResult RouteArc(
+			const int32 Slot,
+			AActor* RequestedSource,
+			int32& TargetSampleCount,
+			const FVector Target,
+			int32& ApexSampleCount,
+			const double ApexClearance,
+			int32& AuthorizationCount)
+		{
+			return Adapter.RouteArcHotbarInput(
+				Authority,
+				Lifecycle,
+				Coordinator,
+				World,
+				Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+				RequestedSource,
+				Slot,
+				[&TargetSampleCount, Target]()
+				{
+					++TargetSampleCount;
+					return Target;
+				},
+				[&ApexSampleCount, ApexClearance]()
+				{
+					++ApexSampleCount;
+					return ApexClearance;
+				},
+				[this, &AuthorizationCount]()
+				{
+					++AuthorizationCount;
 					return Fdemo_mapShanmenPlayerActionGateResult::
 						FromArbitration(
 							Coordinator.TryAuthorizePlayerAction(
@@ -397,6 +448,300 @@ bool Fdemo_mapThrownWeaponInputRoutingTest::RunTest(const FString&)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcInputRoutingTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponInputAdapter.ArcTypedRouteAndPassThrough",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcInputRoutingTest::RunTest(const FString&)
+{
+	FThrownInputFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcRouting"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	FShanmenItemAuthoritySnapshot Before;
+	Fixture.Authority->TryCaptureSnapshot(Before);
+	int32 TargetSamples = 0;
+	int32 ApexSamples = 0;
+	int32 AuthorizationCount = 0;
+	const FVector Target(640.0, 250.0, 70.0);
+	const double ApexClearance = 180.0;
+	const Fdemo_mapShanmenThrownWeaponInputResult Pill = Fixture.RouteArc(
+		1,
+		Fixture.Source,
+		TargetSamples,
+		Target,
+		ApexSamples,
+		ApexClearance,
+		AuthorizationCount);
+	const Fdemo_mapShanmenThrownWeaponInputResult Empty = Fixture.RouteArc(
+		3,
+		Fixture.Source,
+		TargetSamples,
+		Target,
+		ApexSamples,
+		ApexClearance,
+		AuthorizationCount);
+	FShanmenItemAuthoritySnapshot AfterPassThrough;
+	Fixture.Authority->TryCaptureSnapshot(AfterPassThrough);
+	TestTrue(TEXT("Arc route preserves non-thrown and empty hotbar ownership"),
+		Pill.ShouldPassThrough()
+		&& Pill.ItemInstanceId == Fixture.HealingPillId
+		&& Empty.ShouldPassThrough()
+		&& TargetSamples == 0
+		&& ApexSamples == 0
+		&& AuthorizationCount == 0
+		&& Fixture.Adapter.GetNextSelectionOrdinal() == 1
+		&& AfterPassThrough == Before);
+
+	const FGuid ExpectedSelectionId =
+		Fdemo_mapShanmenThrownWeaponInputAdapter::MakeSelectionId(
+			Fixture.Correlation.CorrelationId,
+			Fixture.Correlation.ActiveRunId,
+			Fixture.ThrowingKnifeId,
+			2,
+			Before.AuthorityRevision,
+			1);
+	const Fdemo_mapShanmenThrownWeaponInputResult Arc = Fixture.RouteArc(
+		2,
+		Fixture.Source,
+		TargetSamples,
+		Target,
+		ApexSamples,
+		ApexClearance,
+		AuthorizationCount);
+	FShanmenItemAuthoritySnapshot AfterArc;
+	Fixture.Authority->TryCaptureSnapshot(AfterArc);
+	const Fdemo_mapShanmenThrownWeaponRunCommandIntent* Command =
+		Fixture.Lifecycle.FindCapturedCommand(Arc.SelectionId);
+	const FShanmenThrownWeaponArcRequest* ArcRequest = Command
+		? &Command->GetArcPlan().GetRequest() : nullptr;
+	TestTrue(TEXT("Arc input samples one geometry and enters the typed lifecycle"),
+		Arc.IsAccepted()
+		&& Arc.TrajectoryKind
+			== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc
+		&& !Arc.bAimSampled
+		&& Arc.bTargetSampled
+		&& Arc.bApexClearanceSampled
+		&& Arc.SelectionOrdinal == 1
+		&& Arc.SelectionId == ExpectedSelectionId
+		&& Arc.ItemInstanceId == Fixture.ThrowingKnifeId
+		&& Arc.Session.Product.ActivationSequence == 1
+		&& Command
+		&& Command->GetTrajectoryKind()
+			== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc
+		&& ArcRequest
+		&& ArcRequest->GetOrigin()
+			== Fixture.Source->GetActorLocation() + FVector(0.0, 0.0, 50.0)
+		&& ArcRequest->GetTarget() == Target
+		&& ArcRequest->GetApexClearance() == ApexClearance
+		&& ArcRequest->GetTechniqueTier()
+			== EShanmenThrownWeaponTechniqueTier::Intermediate
+		&& ArcRequest->GetGravityMagnitude() == 980.0
+		&& ArcRequest->GetMaximumLaunchSpeed() == 900.0
+		&& ArcRequest->GetMaximumFlightTime() == 4.0
+		&& Fixture.Lifecycle.GetTrajectoryKind()
+			== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc);
+	TestTrue(TEXT("Accepted Arc samples and authorizes exactly once"),
+		TargetSamples == 1
+		&& ApexSamples == 1
+		&& AuthorizationCount == 1
+		&& Fixture.Adapter.GetNextSelectionOrdinal() == 2
+		&& AfterArc.AuthorityRevision == Before.AuthorityRevision + 2
+		&& Fixture.Coordinator
+			.GetNextPlayerThrownWeaponActivationSequence() == 2);
+	FString Diagnostic;
+	TestTrue(TEXT("Lifecycle owns Arc flight teardown after input routing"),
+		Fixture.Lifecycle.TryEnd(Diagnostic)
+		&& Fixture.Lifecycle.IsEmpty()
+		&& Fixture.Coordinator.IsReady());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcInputPlanRejectionTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponInputAdapter.ArcPlanRejection",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcInputPlanRejectionTest::RunTest(const FString&)
+{
+	FThrownInputFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcPlanReject"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	FShanmenItemAuthoritySnapshot Before;
+	Fixture.Authority->TryCaptureSnapshot(Before);
+	int32 TargetSamples = 0;
+	int32 ApexSamples = 0;
+	int32 AuthorizationCount = 0;
+	const Fdemo_mapShanmenThrownWeaponInputResult Rejected =
+		Fixture.RouteArc(
+			2,
+			Fixture.Source,
+			TargetSamples,
+			FVector(100100.0, 200.0, 80.0),
+			ApexSamples,
+			160.0,
+			AuthorizationCount);
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Authority->TryCaptureSnapshot(After);
+	TestTrue(TEXT("Unreachable Arc consumes one authorized input identity"),
+		Rejected.Status
+			== Edemo_mapShanmenThrownWeaponInputStatus::ProductRejected
+		&& Rejected.TrajectoryKind
+			== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc
+		&& Rejected.ActionGate.IsAuthorized()
+		&& Rejected.Session.Status
+			== Edemo_mapShanmenThrownWeaponSessionStatus::ProductRejected
+		&& Rejected.Session.Product.Status
+			== Edemo_mapShanmenThrownWeaponProductStatus::ArcPlanRejected
+		&& Rejected.Session.Product.HasCapturedAction()
+		&& Rejected.SelectionOrdinal == 1
+		&& Rejected.SelectionId.IsValid()
+		&& TargetSamples == 1
+		&& ApexSamples == 1
+		&& AuthorizationCount == 1
+		&& Fixture.Adapter.GetNextSelectionOrdinal() == 2
+		&& Fixture.Coordinator
+			.GetNextPlayerThrownWeaponActivationSequence() == 2);
+	TestTrue(TEXT("Planning rejection performs no item or Host side effect"),
+		After == Before
+		&& !Fixture.Lifecycle.FindCapturedCommand(Rejected.SelectionId)
+		&& Fixture.Lifecycle.GetHostState()
+			== Edemo_mapShanmenThrownWeaponHostState::Empty
+		&& Fixture.Lifecycle.NumCapturedSelections() == 1
+		&& Fixture.Lifecycle.IsValid());
+	FString Diagnostic;
+	TestTrue(TEXT("Rejected Arc input leaves no hidden recovery work"),
+		Fixture.Lifecycle.TryEnd(Diagnostic)
+		&& Fixture.Lifecycle.IsEmpty()
+		&& Fixture.Coordinator.IsReady());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcInputFailClosedTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponInputAdapter.ArcFailClosedGeometryAndActionConflict",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcInputFailClosedTest::RunTest(const FString&)
+{
+	FThrownInputFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcFailClosed"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	FShanmenItemAuthoritySnapshot Before;
+	Fixture.Authority->TryCaptureSnapshot(Before);
+	int32 TargetSamples = 0;
+	int32 ApexSamples = 0;
+	int32 AuthorizationCount = 0;
+	const auto Route = [&](
+		const FVector Target,
+		const double ApexClearance,
+		const bool bConflict)
+	{
+		return Fixture.Adapter.RouteArcHotbarInput(
+			Fixture.Authority,
+			Fixture.Lifecycle,
+			Fixture.Coordinator,
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			Fixture.Source,
+			2,
+			[&TargetSamples, Target]()
+			{
+				++TargetSamples;
+				return Target;
+			},
+			[&ApexSamples, ApexClearance]()
+			{
+				++ApexSamples;
+				return ApexClearance;
+			},
+			[&Fixture, &AuthorizationCount, bConflict]()
+			{
+				++AuthorizationCount;
+				Fdemo_mapShanmenPlayerActionOccupancySnapshot Occupancy;
+				if (bConflict)
+				{
+					Occupancy.TryRegisterClaim(
+						Edemo_mapShanmenPlayerActionKind::SpiritEvasion,
+						FGuid(0xA1162001, 0, 0, 1),
+						Edemo_mapShanmenPlayerActionClaimPreemption::None);
+				}
+				return Fdemo_mapShanmenPlayerActionGateResult::FromArbitration(
+					Fixture.Coordinator.TryAuthorizePlayerAction(
+						Edemo_mapShanmenPlayerActionKind::ThrownWeapon,
+						Occupancy));
+			});
+	};
+	const FVector Origin =
+		Fixture.Source->GetActorLocation() + FVector(0.0, 0.0, 50.0);
+	const FVector ValidTarget(640.0, 250.0, 70.0);
+	const Fdemo_mapShanmenThrownWeaponInputResult InvalidTarget =
+		Route(Origin, 160.0, false);
+	TestTrue(TEXT("Invalid Arc target stops before apex and authorization"),
+		InvalidTarget.Status
+			== Edemo_mapShanmenThrownWeaponInputStatus::TargetUnavailable
+		&& InvalidTarget.bTargetSampled
+		&& !InvalidTarget.bApexClearanceSampled
+		&& !InvalidTarget.bAimSampled
+		&& TargetSamples == 1
+		&& ApexSamples == 0
+		&& AuthorizationCount == 0
+		&& Fixture.Adapter.GetNextSelectionOrdinal() == 1);
+
+	const Fdemo_mapShanmenThrownWeaponInputResult InvalidApex =
+		Route(ValidTarget, 0.0, false);
+	TestTrue(TEXT("Invalid Arc apex stops before identity and authorization"),
+		InvalidApex.Status
+			== Edemo_mapShanmenThrownWeaponInputStatus::ApexClearanceUnavailable
+		&& InvalidApex.bTargetSampled
+		&& InvalidApex.bApexClearanceSampled
+		&& TargetSamples == 2
+		&& ApexSamples == 1
+		&& AuthorizationCount == 0
+		&& Fixture.Adapter.GetNextSelectionOrdinal() == 1);
+
+	const Fdemo_mapShanmenThrownWeaponInputResult Conflict =
+		Route(ValidTarget, 160.0, true);
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Authority->TryCaptureSnapshot(After);
+	TestTrue(TEXT("Arc action conflict records geometry but consumes no event"),
+		Conflict.Status
+			== Edemo_mapShanmenThrownWeaponInputStatus::ActionConflict
+		&& Conflict.ActionGate.IsValid()
+		&& !Conflict.ActionGate.IsAuthorized()
+		&& Conflict.SelectionId.IsValid()
+		&& Conflict.SelectionOrdinal == 1
+		&& Conflict.bTargetSampled
+		&& Conflict.bApexClearanceSampled
+		&& TargetSamples == 3
+		&& ApexSamples == 2
+		&& AuthorizationCount == 1
+		&& Fixture.Adapter.GetNextSelectionOrdinal() == 1
+		&& Fixture.Coordinator
+			.GetNextPlayerThrownWeaponActivationSequence() == 1);
+	TestTrue(TEXT("Arc pre-product failures preserve every downstream authority"),
+		After == Before
+		&& Fixture.Lifecycle.GetHostState()
+			== Edemo_mapShanmenThrownWeaponHostState::Empty
+		&& Fixture.Lifecycle.NumCapturedSelections() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	Fdemo_mapThrownWeaponInputFailClosedTest,
 	"Shanmen.0_0_10.Product.ThrownWeaponInputAdapter.FailClosedBeforeSampling",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -439,14 +784,55 @@ bool Fdemo_mapThrownWeaponInputFailClosedTest::RunTest(const FString&)
 							Edemo_mapShanmenPlayerActionKind::ThrownWeapon,
 							Fdemo_mapShanmenPlayerActionOccupancySnapshot()));
 			});
-	TestTrue(TEXT("Invalid, foreign, and unbound requests reject before aim sampling"),
+	int32 ArcTargetSamples = 0;
+	int32 ArcApexSamples = 0;
+	int32 ArcAuthorizationCount = 0;
+	const Fdemo_mapShanmenThrownWeaponInputResult ArcMismatch =
+		Fixture.Adapter.RouteArcHotbarInput(
+			Fixture.Authority,
+			Fixture.Lifecycle,
+			Fixture.Coordinator,
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			Fixture.Source,
+			2,
+			[&ArcTargetSamples]()
+			{
+				++ArcTargetSamples;
+				return FVector(640.0, 250.0, 70.0);
+			},
+			[&ArcApexSamples]()
+			{
+				++ArcApexSamples;
+				return 160.0;
+			},
+			[&Fixture, &ArcAuthorizationCount]()
+			{
+				++ArcAuthorizationCount;
+				return Fdemo_mapShanmenPlayerActionGateResult::
+					FromArbitration(
+						Fixture.Coordinator.TryAuthorizePlayerAction(
+							Edemo_mapShanmenPlayerActionKind::ThrownWeapon,
+							Fdemo_mapShanmenPlayerActionOccupancySnapshot()));
+			});
+	TestTrue(TEXT("Invalid, foreign, unbound, and policy mismatches reject before sampling"),
 		InvalidSlot.Status
 			== Edemo_mapShanmenThrownWeaponInputStatus::InvalidSlot
 		&& ForeignSource.Status
 			== Edemo_mapShanmenThrownWeaponInputStatus::SourceUnavailable
 		&& Unbound.Status
 			== Edemo_mapShanmenThrownWeaponInputStatus::ProductRunMismatch
-		&& AimSamples == 0);
+		&& ArcMismatch.Status
+			== Edemo_mapShanmenThrownWeaponInputStatus::ProductTrajectoryMismatch
+		&& ArcMismatch.TrajectoryKind
+			== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc
+		&& !ArcMismatch.bTargetSampled
+		&& !ArcMismatch.bApexClearanceSampled
+		&& AimSamples == 0
+		&& ArcTargetSamples == 0
+		&& ArcApexSamples == 0
+		&& ArcAuthorizationCount == 0
+		&& Fixture.Adapter.GetNextSelectionOrdinal() == 1);
 
 	const Fdemo_mapShanmenThrownWeaponInputResult InvalidAim = Fixture.Route(
 		2, Fixture.Source, AimSamples, FVector::ZeroVector);

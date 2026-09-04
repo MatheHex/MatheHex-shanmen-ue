@@ -17,8 +17,11 @@ enum class Edemo_mapShanmenThrownWeaponInputStatus : uint8
 	SnapshotStale,
 	ItemEvidenceRejected,
 	ProductRunMismatch,
+	ProductTrajectoryMismatch,
 	SourceUnavailable,
 	AimUnavailable,
+	TargetUnavailable,
+	ApexClearanceUnavailable,
 	SelectionSequenceExhausted,
 	IntentCaptureRejected,
 	ActionConflict,
@@ -36,7 +39,11 @@ struct Fdemo_mapShanmenThrownWeaponInputResult
 	FGuid RunId;
 	FGuid ItemInstanceId;
 	FGuid SelectionId;
+	Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind TrajectoryKind =
+		Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Invalid;
 	bool bAimSampled = false;
+	bool bTargetSampled = false;
+	bool bApexClearanceSampled = false;
 	Fdemo_mapShanmenPlayerActionGateResult ActionGate;
 	Fdemo_mapShanmenThrownWeaponSessionResult Session;
 	FString Diagnostic;
@@ -87,10 +94,37 @@ public:
 		TFunctionRef<FVector()> SampleAimDirection,
 		TFunctionRef<Fdemo_mapShanmenPlayerActionGateResult()>
 			AuthorizeAction);
+	/** Platform-neutral Arc request; target and apex are sampled at most once. */
+	Fdemo_mapShanmenThrownWeaponInputResult RouteArcHotbarInput(
+		Udemo_mapShanmenItemAuthoritySubsystem* Authority,
+		Fdemo_mapShanmenThrownWeaponProductLifecycle& Lifecycle,
+		Fdemo_mapCombatRunCoordinator& Coordinator,
+		UWorld* World,
+		TSubclassOf<Ademo_mapShanmenThrownWeaponProjectile> ProjectileClass,
+		AActor* SourceActor,
+		int32 HotbarSlotNumber,
+		TFunctionRef<FVector()> SampleTarget,
+		TFunctionRef<double()> SampleApexClearance,
+		TFunctionRef<Fdemo_mapShanmenPlayerActionGateResult()>
+			AuthorizeAction);
 
 	void Reset() { NextSelectionOrdinal = 1; }
 	uint64 GetNextSelectionOrdinal() const { return NextSelectionOrdinal; }
 
 private:
+	Fdemo_mapShanmenThrownWeaponInputResult RouteTypedHotbarInput(
+		Udemo_mapShanmenItemAuthoritySubsystem* Authority,
+		Fdemo_mapShanmenThrownWeaponProductLifecycle& Lifecycle,
+		Fdemo_mapCombatRunCoordinator& Coordinator,
+		UWorld* World,
+		TSubclassOf<Ademo_mapShanmenThrownWeaponProjectile> ProjectileClass,
+		AActor* SourceActor,
+		int32 HotbarSlotNumber,
+		Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind TrajectoryKind,
+		TFunctionRef<FVector()> SamplePrimaryGeometry,
+		TFunctionRef<double()> SampleArcApexClearance,
+		TFunctionRef<Fdemo_mapShanmenPlayerActionGateResult()>
+			AuthorizeAction);
+
 	uint64 NextSelectionOrdinal = 1;
 };
