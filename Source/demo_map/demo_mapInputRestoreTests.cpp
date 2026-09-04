@@ -275,12 +275,13 @@ bool FInputRestore26::RunTest(const FString&)
 		TEXT("void Ademo_mapPlayerController::UseHotbarSlot(int32 SlotNumber)"),
 		TEXT("void Ademo_mapPlayerController::UseHotbarSlot1()"));
 	const int32 HotbarGate = Hotbar.Find(TEXT("!IsGameplayInputAllowed()"));
-	const int32 ThrownRoute = Hotbar.Find(TEXT("RouteThrownWeaponHotbarInput("));
+	const int32 ThrownRoute = Hotbar.Find(
+		TEXT("RouteThrownWeaponHotbarConfirmationInput("));
 	const int32 TreatmentRoute =
 		Hotbar.Find(TEXT("RouteMeridianShockTreatmentHotbarInput("));
 	const int32 QuickSlotRoute = Hotbar.Find(TEXT("RequestUseBoundQuickSlot("));
 	TestTrue(
-		TEXT("Hotbar gate and typed routes precede generic item use"),
+		TEXT("Hotbar gate and trajectory-aware routes precede generic item use"),
 		HotbarGate != INDEX_NONE
 			&& ThrownRoute > HotbarGate
 			&& TreatmentRoute > ThrownRoute

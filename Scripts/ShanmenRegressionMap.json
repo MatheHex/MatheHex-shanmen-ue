@@ -2440,6 +2440,7 @@
         "Shanmen.0_0_10.Product.CombatRunFixedTimeline",
 		"Shanmen.0_0_10.Product.WeaponGuardInputAdapter",
 		"Shanmen.0_0_10.Product.WeaponGuardProductSession",
+		"Shanmen.0_0_10.Product.ThrownWeaponHotbarConfirmationAdapter",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcConfirmationOwner",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcLaunchInputAdapter",
         "Shanmen.0_0_10.Product.ThrownWeaponInputAdapter",
@@ -3028,6 +3029,21 @@
         "demo_map.ItemUseAndArmor"
       ]
     },
+	{
+	  "name": "ThrownWeaponHotbarConfirmationAdapter",
+	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponHotbarConfirmationAdapter(?:Tests)?\\.(?:h|cpp)$",
+	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponHotbarConfirmationAdapter",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcConfirmationOwner",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcLaunchInputAdapter",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcSourceBasisAdapter",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcChoiceInputComposition",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcChoiceProjection",
+		"Shanmen.0_0_10.Product.ThrownWeaponInputChoice",
+		"Shanmen.0_0_10.Product.ThrownWeaponInputAdapter",
+		"Shanmen.0_0_10"
+	  ]
+	},
 	{
 	  "name": "ThrownWeaponArcConfirmationOwner",
 	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponArcConfirmationOwner(?:Tests)?\\.(?:h|cpp)$",

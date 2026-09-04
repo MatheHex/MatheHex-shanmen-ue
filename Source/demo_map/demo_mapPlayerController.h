@@ -5,7 +5,7 @@
 #include "demo_mapCombatTypes.h"
 #include "demo_mapInputBindingSettings.h"
 #include "demo_mapShanmenSpiritEvasionInputAdapter.h"
-#include "demo_mapShanmenThrownWeaponArcConfirmationOwner.h"
+#include "demo_mapShanmenThrownWeaponHotbarConfirmationAdapter.h"
 #include "demo_mapShanmenThrownWeaponArcLaunchInputAdapter.h"
 #include "demo_mapShanmenWeaponGuardInputAdapter.h"
 #include "demo_mapPlayerController.generated.h"
@@ -63,6 +63,8 @@ protected:
 	uint64 LastMovementApplicationFrame = MAX_uint64;
 	Fdemo_mapShanmenThrownWeaponArcConfirmationOwner
 		ThrownWeaponArcConfirmationOwner;
+	Fdemo_mapShanmenThrownWeaponHotbarConfirmationAdapter
+		ThrownWeaponHotbarConfirmationAdapter;
 #if !UE_BUILD_SHIPPING
 	bool bRecordedMovementAppliedForCurrentPress = false;
 	bool bInputConsumptionReflectedFunctionPresent = false;
@@ -106,6 +108,9 @@ public:
 	Fdemo_mapShanmenThrownWeaponArcConfirmationResult
 	RouteThrownWeaponArcConfirmation(
 		const Fdemo_mapShanmenThrownWeaponArcConfirmationIntent& Intent);
+	/** Routes the existing hotbar press by the sole current trajectory choice. */
+	Fdemo_mapShanmenThrownWeaponHotbarConfirmationResult
+	RouteThrownWeaponHotbarConfirmationInput(int32 HotbarSlotNumber);
 	/** Routes the physical hold start through the Run-owned fixed timeline. */
 	Fdemo_mapShanmenWeaponGuardInputResult RouteWeaponGuardStartInput();
 	/** Release deliberately bypasses gameplay UI locks to prevent stuck guard. */

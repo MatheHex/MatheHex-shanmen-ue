@@ -961,6 +961,53 @@ Ademo_mapPlayerController::RouteThrownWeaponArcConfirmation(
 		});
 }
 
+Fdemo_mapShanmenThrownWeaponHotbarConfirmationResult
+Ademo_mapPlayerController::RouteThrownWeaponHotbarConfirmationInput(
+	const int32 HotbarSlotNumber)
+{
+	const bool bInputAllowed = IsGameplayInputAllowed()
+		&& InputSurfaceState == TEXT("Gameplay")
+		&& InputModeState == TEXT("GameOnly");
+	Ademo_mapGameMode* Mode = nullptr;
+	if (bInputAllowed)
+	{
+		UWorld* World = GetWorld();
+		Mode = World
+			? Cast<Ademo_mapGameMode>(World->GetAuthGameMode())
+			: nullptr;
+	}
+
+	return ThrownWeaponHotbarConfirmationAdapter.Route(
+		HotbarSlotNumber,
+		bInputAllowed,
+		Mode != nullptr,
+		[&Mode]()
+		{
+			return Mode
+				? Mode->GetThrownWeaponInputChoiceState()
+				: Fdemo_mapShanmenThrownWeaponInputChoiceState();
+		},
+		[]()
+		{
+			return Fdemo_mapShanmenThrownWeaponArcChoiceProductPolicySource::
+				GetCanonical();
+		},
+		[this, &Mode](const int32 SlotNumber)
+		{
+			return Mode
+				? Mode->RouteThrownWeaponHotbarInput(
+					SlotNumber,
+					GetPawn(),
+					[this]() { return GetLastValidAimDirection(); })
+				: Fdemo_mapShanmenThrownWeaponInputResult();
+		},
+		[this](
+			const Fdemo_mapShanmenThrownWeaponArcConfirmationIntent& Intent)
+		{
+			return RouteThrownWeaponArcConfirmation(Intent);
+		});
+}
+
 void Ademo_mapPlayerController::StartWeaponGuard()
 {
 	const Fdemo_mapShanmenWeaponGuardInputResult Result =
@@ -1063,19 +1110,16 @@ void Ademo_mapPlayerController::UseHotbarSlot(int32 SlotNumber)
 	{
 		return;
 	}
+	const Fdemo_mapShanmenThrownWeaponHotbarConfirmationResult
+		ThrownRoute = RouteThrownWeaponHotbarConfirmationInput(SlotNumber);
+	if (!ThrownRoute.ShouldPassThrough())
+	{
+		return;
+	}
 	Ademo_mapGameMode* Mode = GetWorld()
 		? Cast<Ademo_mapGameMode>(GetWorld()->GetAuthGameMode()) : nullptr;
 	if (Mode)
 	{
-		const Fdemo_mapShanmenThrownWeaponInputResult ThrownRoute =
-			Mode->RouteThrownWeaponHotbarInput(
-				SlotNumber,
-				GetPawn(),
-				[this]() { return GetLastValidAimDirection(); });
-		if (!ThrownRoute.ShouldPassThrough())
-		{
-			return;
-		}
 		const Fdemo_mapShanmenMeridianShockTreatmentInputResult
 			TreatmentRoute =
 				Mode->RouteMeridianShockTreatmentHotbarInput(SlotNumber);
