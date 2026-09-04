@@ -1156,6 +1156,59 @@ Ademo_mapGameMode::RouteThrownWeaponHotbarInput(
 		});
 }
 
+Fdemo_mapShanmenThrownWeaponInputResult
+Ademo_mapGameMode::RouteThrownWeaponArcHotbarInput(
+	const int32 HotbarSlotNumber,
+	AActor* SourceActor,
+	TFunctionRef<FVector()> SampleTarget,
+	TFunctionRef<double()> SampleApexClearance)
+{
+	Udemo_mapShanmenItemAuthoritySubsystem* Authority = GetGameInstance()
+		? GetGameInstance()->GetSubsystem<
+			Udemo_mapShanmenItemAuthoritySubsystem>()
+		: nullptr;
+	return ThrownWeaponInputAdapter.RouteArcHotbarInput(
+		Authority,
+		ThrownWeaponProductLifecycle,
+		CombatRunCoordinator,
+		GetWorld(),
+		Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+		SourceActor,
+		HotbarSlotNumber,
+		SampleTarget,
+		SampleApexClearance,
+		[this]()
+		{
+			return RoutePlayerActionGate(
+				Edemo_mapShanmenPlayerActionKind::ThrownWeapon);
+		});
+}
+
+bool Ademo_mapGameMode::TryConfigureThrownWeaponTrajectory(
+	const Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind TrajectoryKind,
+	FString& OutDiagnostic)
+{
+	OutDiagnostic.Reset();
+	if (TrajectoryKind
+			!= Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight
+		&& TrajectoryKind
+			!= Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc)
+	{
+		OutDiagnostic =
+			TEXT("Thrown-weapon composition accepts only Straight or BallisticArc.");
+		return false;
+	}
+	if (CombatRunCoordinator.IsActive()
+		|| !ThrownWeaponProductLifecycle.IsEmpty())
+	{
+		OutDiagnostic =
+			TEXT("Thrown-weapon trajectory cannot change during an active or stale combat Run.");
+		return false;
+	}
+	ConfiguredThrownWeaponTrajectoryKind = TrajectoryKind;
+	return true;
+}
+
 Fdemo_mapShanmenMeridianShockTreatmentInputResult
 Ademo_mapGameMode::RouteMeridianShockTreatmentHotbarInput(
 	const int32 HotbarSlotNumber)
@@ -2185,6 +2238,7 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 				*Authority,
 				*PlayerPawn,
 				CombatRunCoordinator,
+				ConfiguredThrownWeaponTrajectoryKind,
 				OutDiagnostic))
 		{
 			FString ReleaseDiagnostic;
@@ -2365,13 +2419,14 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 		return false;
 	}
 	UE_LOG(Logdemo_map, Log,
-		TEXT("0_0_10_COMBAT_RUN Event=RunBound RunId=%s PlayerEntityId=%s M01Entities=%d M01VitalityHosts=%d ThrownWeaponLifecycle=%d TreatmentLifecycle=%d SwordQiController=%d SwordQiCommandOwner=%d RunTimelineId=%s RunTickRate=%lld ConditionDefinition=%s ConditionDurationTicks=%lld SwordRhythmConfigId=%s SwordRhythmWindow=[%lld,%lld)"),
+		TEXT("0_0_10_COMBAT_RUN Event=RunBound RunId=%s PlayerEntityId=%s M01Entities=%d M01VitalityHosts=%d ThrownWeaponLifecycle=%d ThrownWeaponTrajectory=%d TreatmentLifecycle=%d SwordQiController=%d SwordQiCommandOwner=%d RunTimelineId=%s RunTickRate=%lld ConditionDefinition=%s ConditionDurationTicks=%lld SwordRhythmConfigId=%s SwordRhythmWindow=[%lld,%lld)"),
 		*ActiveRunId.ToString(EGuidFormats::DigitsWithHyphens),
 		*CombatRunCoordinator.GetPlayerEntityId().ToString(
 			EGuidFormats::DigitsWithHyphens),
 		CombatRunCoordinator.NumRegisteredM01Enemies(),
 		CombatRunCoordinator.NumVitalityBoundM01Enemies(),
 		ThrownWeaponProductLifecycle.IsActive() ? 1 : 0,
+		static_cast<int32>(ConfiguredThrownWeaponTrajectoryKind),
 		MeridianShockTreatmentProductLifecycle.IsActive() ? 1 : 0,
 		SwordQiProductController.IsActive() ? 1 : 0,
 		SwordQiCommandEventOwner.IsActive() ? 1 : 0,

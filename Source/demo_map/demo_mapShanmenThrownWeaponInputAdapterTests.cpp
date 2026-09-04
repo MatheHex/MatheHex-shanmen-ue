@@ -5,6 +5,7 @@
 #include "demo_map0909BSectWarehouseService.h"
 #include "demo_mapAttributeComponent.h"
 #include "demo_mapCombatRunCoordinator.h"
+#include "demo_mapGameMode.h"
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapPlayerHealthComponent.h"
 #include "demo_mapProfileRepository.h"
@@ -31,7 +32,7 @@ namespace
 		return FPaths::Combine(
 			FPaths::ProjectSavedDir(),
 			TEXT("Automation"),
-			TEXT("Dev.D.UE.0.0.10.P20.8.r0"),
+			TEXT("Dev.D.UE.0.0.10.P20.9.r0"),
 			Label,
 			FGuid::NewGuid().ToString(EGuidFormats::Digits));
 	}
@@ -104,7 +105,7 @@ namespace
 			if (!TrainingBladeId.IsValid() || !HealingPillId.IsValid()
 				|| !ThrowingKnifeId.IsValid() || !Saved.IsSuccess() || !GEngine)
 			{
-				Test.AddError(TEXT("P20.8 could not seed isolated hotbar content."));
+				Test.AddError(TEXT("P20.9 could not seed isolated hotbar content."));
 				return false;
 			}
 
@@ -138,7 +139,7 @@ namespace
 					Diagnostic))
 			{
 				Test.AddError(FString::Printf(
-					TEXT("P20.8 stable migration source failed: %s"),
+					TEXT("P20.9 stable migration source failed: %s"),
 					*Diagnostic));
 				return false;
 			}
@@ -163,7 +164,7 @@ namespace
 					2, ThrowingKnifeId).IsAccepted())
 			{
 				Test.AddError(FString::Printf(
-					TEXT("P20.8 authority preparation failed: %s"),
+					TEXT("P20.9 authority preparation failed: %s"),
 					*Cutover.Diagnostic));
 				return false;
 			}
@@ -178,7 +179,7 @@ namespace
 				|| Correlation.HotbarItemInstanceIds[1] != ThrowingKnifeId)
 			{
 				Test.AddError(FString::Printf(
-					TEXT("P20.8 durable active Run failed: %s"),
+					TEXT("P20.9 durable active Run failed: %s"),
 					*Diagnostic));
 				return false;
 			}
@@ -210,11 +211,11 @@ namespace
 			OtherSource = World->SpawnActor<APawn>();
 			Health = Source
 				? NewObject<Udemo_mapPlayerHealthComponent>(
-					Source, TEXT("P208PlayerHealth"))
+					Source, TEXT("P209PlayerHealth"))
 				: nullptr;
 			Attributes = Source
 				? NewObject<Udemo_mapAttributeComponent>(
-					Source, TEXT("P208PlayerAttributes"))
+					Source, TEXT("P209PlayerAttributes"))
 				: nullptr;
 			if (Source && Attributes)
 			{
@@ -235,7 +236,7 @@ namespace
 					Diagnostic))
 			{
 				Test.AddError(FString::Printf(
-					TEXT("P20.8 product lifecycle failed: %s"),
+					TEXT("P20.9 product lifecycle failed: %s"),
 					*Diagnostic));
 				return false;
 			}
@@ -907,6 +908,101 @@ bool Fdemo_mapThrownWeaponInputActionConflictTest::RunTest(const FString&)
 			&& Fixture.Lifecycle.GetHostState()
 				== Edemo_mapShanmenThrownWeaponHostState::Empty
 			&& After == Before);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponGameModeTrajectoryConfigurationTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponInputAdapter.GameModeTrajectoryConfiguration",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponGameModeTrajectoryConfigurationTest::RunTest(
+	const FString&)
+{
+	Ademo_mapGameMode* GameMode = NewObject<Ademo_mapGameMode>(
+		GetTransientPackage(), NAME_None, RF_Transient);
+	if (!TestNotNull(TEXT("Transient GameMode exists"), GameMode))
+	{
+		return false;
+	}
+	TestTrue(TEXT("Compatibility default remains Straight"),
+		GameMode->GetConfiguredThrownWeaponTrajectoryKind()
+			== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight);
+
+	FString Diagnostic = TEXT("stale");
+	TestFalse(TEXT("Invalid trajectory is rejected"),
+		GameMode->TryConfigureThrownWeaponTrajectory(
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Invalid,
+			Diagnostic));
+	TestTrue(TEXT("Invalid request is diagnostic and non-mutating"),
+		!Diagnostic.IsEmpty()
+			&& GameMode->GetConfiguredThrownWeaponTrajectoryKind()
+				== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight);
+
+	TestTrue(TEXT("Arc can be selected before a combat Run"),
+		GameMode->TryConfigureThrownWeaponTrajectory(
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc,
+			Diagnostic));
+	TestTrue(TEXT("Arc selection is exact and clears diagnostic"),
+		Diagnostic.IsEmpty()
+			&& GameMode->GetConfiguredThrownWeaponTrajectoryKind()
+				== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc);
+	TestTrue(TEXT("Exact Arc selection is idempotent"),
+		GameMode->TryConfigureThrownWeaponTrajectory(
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc,
+			Diagnostic));
+	TestTrue(TEXT("Straight can be restored while composition is empty"),
+		GameMode->TryConfigureThrownWeaponTrajectory(
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight,
+			Diagnostic)
+			&& GameMode->GetConfiguredThrownWeaponTrajectoryKind()
+				== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponGameModeArcRouteFailClosedTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponInputAdapter.GameModeArcRouteFailClosed",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponGameModeArcRouteFailClosedTest::RunTest(
+	const FString&)
+{
+	Ademo_mapGameMode* GameMode = NewObject<Ademo_mapGameMode>(
+		GetTransientPackage(), NAME_None, RF_Transient);
+	if (!TestNotNull(TEXT("Transient GameMode exists"), GameMode))
+	{
+		return false;
+	}
+	FString Diagnostic;
+	if (!TestTrue(TEXT("Arc composition can be selected"),
+		GameMode->TryConfigureThrownWeaponTrajectory(
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc,
+			Diagnostic)))
+	{
+		return false;
+	}
+	int32 TargetSamples = 0;
+	int32 ApexSamples = 0;
+	const Fdemo_mapShanmenThrownWeaponInputResult Result =
+		GameMode->RouteThrownWeaponArcHotbarInput(
+			2,
+			nullptr,
+			[&TargetSamples]()
+			{
+				++TargetSamples;
+				return FVector(1000.0, 0.0, 0.0);
+			},
+			[&ApexSamples]()
+			{
+				++ApexSamples;
+				return 250.0;
+			});
+	TestTrue(TEXT("Missing GameInstance authority preserves hotbar pass-through"),
+		Result.Status
+			== Edemo_mapShanmenThrownWeaponInputStatus::PassThrough);
+	TestTrue(TEXT("Unclaimed composition samples no target or apex"),
+		TargetSamples == 0 && ApexSamples == 0);
 	return true;
 }
 

@@ -173,6 +173,21 @@ public:
 		int32 HotbarSlotNumber,
 		AActor* SourceActor,
 		TFunctionRef<FVector()> SampleAimDirection);
+	/** Routes one platform-neutral Arc press through the configured lifecycle. */
+	Fdemo_mapShanmenThrownWeaponInputResult RouteThrownWeaponArcHotbarInput(
+		int32 HotbarSlotNumber,
+		AActor* SourceActor,
+		TFunctionRef<FVector()> SampleTarget,
+		TFunctionRef<double()> SampleApexClearance);
+	/** Selects canonical Straight or Arc content only between combat Runs. */
+	bool TryConfigureThrownWeaponTrajectory(
+		Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind TrajectoryKind,
+		FString& OutDiagnostic);
+	Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind
+	GetConfiguredThrownWeaponTrajectoryKind() const
+	{
+		return ConfiguredThrownWeaponTrajectoryKind;
+	}
 	/** Claims only the canonical treatment item before generic item use. */
 	Fdemo_mapShanmenMeridianShockTreatmentInputResult
 	RouteMeridianShockTreatmentHotbarInput(int32 HotbarSlotNumber);
@@ -567,6 +582,9 @@ private:
 	Fdemo_mapShanmenThrownWeaponProductLifecycle
 		ThrownWeaponProductLifecycle;
 	Fdemo_mapShanmenThrownWeaponInputAdapter ThrownWeaponInputAdapter;
+	Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind
+		ConfiguredThrownWeaponTrajectoryKind =
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight;
 	Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle
 		MeridianShockTreatmentProductLifecycle;
 	Fdemo_mapShanmenMeridianShockTreatmentInputAdapter
