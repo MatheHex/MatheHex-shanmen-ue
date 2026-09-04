@@ -137,6 +137,17 @@ namespace
 		return Capture;
 	}
 
+	FShanmenThrownWeaponDefinitionCapture SessionArcDefinitionCapture()
+	{
+		FShanmenThrownWeaponDefinitionCapture Capture =
+			SessionDefinitionCapture();
+		Capture.ActionDefinitionId =
+			FShanmenThrownWeaponDefinition::ArcActionDefinitionId();
+		Capture.DetectorId = TEXT("Detector.ThrownWeapon.P20.6.ArcSession");
+		Capture.FormulaId = TEXT("Formula.ThrownWeapon.P20.6.ArcSession");
+		return Capture;
+	}
+
 	Fdemo_mapShanmenThrownWeaponSessionConfig MakeSessionConfig()
 	{
 		FGameplayTagContainer Tags;
@@ -144,6 +155,21 @@ namespace
 		Fdemo_mapShanmenThrownWeaponSessionConfig Config;
 		check(Fdemo_mapShanmenThrownWeaponSessionConfig::TryCapture(
 			SessionDefinitionCapture(), Tags, Config));
+		return Config;
+	}
+
+	Fdemo_mapShanmenThrownWeaponSessionConfig MakeArcSessionConfig()
+	{
+		FGameplayTagContainer Tags;
+		Tags.AddTag(FShanmenCombatNativeTags::SourcePlayer());
+		Fdemo_mapShanmenThrownWeaponSessionConfig Config;
+		check(Fdemo_mapShanmenThrownWeaponSessionConfig::TryCaptureArc(
+			SessionArcDefinitionCapture(),
+			Tags,
+			EShanmenThrownWeaponTechniqueTier::Intermediate,
+			980.0,
+			4.0,
+			Config));
 		return Config;
 	}
 
@@ -163,6 +189,14 @@ namespace
 		Fdemo_mapShanmenThrownWeaponProductSession Session;
 
 		bool Start(FAutomationTestBase& Test, const TCHAR* Label)
+		{
+			return Start(Test, Label, MakeSessionConfig());
+		}
+
+		bool Start(
+			FAutomationTestBase& Test,
+			const TCHAR* Label,
+			const Fdemo_mapShanmenThrownWeaponSessionConfig& RequestedConfig)
 		{
 			Root = NewSessionRoot(Label);
 			const FShanmenItemStorageContext Storage =
@@ -306,7 +340,7 @@ namespace
 				Source->AddInstanceComponent(Attributes);
 			}
 			FString Diagnostic;
-			Config = MakeSessionConfig();
+			Config = RequestedConfig;
 			if (!Source || !Health || !Attributes
 				|| !Coordinator.TryBeginRun(
 					Correlation.ActiveRunId,
@@ -336,6 +370,23 @@ namespace
 				FVector(25.0, 35.0, 65.0),
 				Direction,
 				1600.0f,
+				Intent));
+			return Intent;
+		}
+
+		Fdemo_mapShanmenThrownWeaponHotbarIntent MakeArcIntent(
+			const FGuid& SelectionId,
+			int32 SlotNumber,
+			const FVector& Target,
+			double ApexClearance = 150.0) const
+		{
+			Fdemo_mapShanmenThrownWeaponHotbarIntent Intent;
+			check(Fdemo_mapShanmenThrownWeaponHotbarIntent::TryCaptureArc(
+				SelectionId,
+				SlotNumber,
+				FVector(25.0, 35.0, 65.0),
+				Target,
+				ApexClearance,
 				Intent));
 			return Intent;
 		}
@@ -443,6 +494,23 @@ bool Fdemo_mapThrownWeaponSessionContractTest::RunTest(const FString&)
 			1200.0f,
 			OtherSlot)
 			&& !Forward.Matches(OtherSlot));
+	Fdemo_mapShanmenThrownWeaponHotbarIntent Arc;
+	TestTrue(TEXT("Arc hotbar intent owns target geometry only"),
+		Fdemo_mapShanmenThrownWeaponHotbarIntent::TryCaptureArc(
+			SessionSelectionOneId,
+			1,
+			FVector::ZeroVector,
+			FVector(600.0, 100.0, 40.0),
+			150.0,
+			Arc)
+			&& Arc.IsValid()
+			&& Arc.GetTrajectoryKind()
+				== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc
+			&& Arc.GetTarget() == FVector(600.0, 100.0, 40.0)
+			&& Arc.GetApexClearance() == 150.0
+			&& Arc.GetAimDirection() == FVector::ZeroVector
+			&& Arc.GetMaximumDistance() == 0.0f
+			&& !Forward.Matches(Arc));
 	Fdemo_mapShanmenThrownWeaponHotbarIntent Invalid;
 	TestFalse(TEXT("Slot zero is outside the product contract"),
 		Fdemo_mapShanmenThrownWeaponHotbarIntent::TryCapture(
@@ -452,6 +520,37 @@ bool Fdemo_mapThrownWeaponSessionContractTest::RunTest(const FString&)
 			FVector::ForwardVector,
 			1200.0f,
 			Invalid));
+	TestFalse(TEXT("Arc intent rejects coincident origin and target"),
+		Fdemo_mapShanmenThrownWeaponHotbarIntent::TryCaptureArc(
+			SessionSelectionTwoId,
+			1,
+			FVector::ZeroVector,
+			FVector::ZeroVector,
+			150.0,
+			Invalid));
+	TestFalse(TEXT("Arc intent rejects non-positive apex clearance"),
+		Fdemo_mapShanmenThrownWeaponHotbarIntent::TryCaptureArc(
+			SessionSelectionTwoId,
+			1,
+			FVector::ZeroVector,
+			FVector(600.0, 100.0, 40.0),
+			0.0,
+			Invalid));
+
+	const Fdemo_mapShanmenThrownWeaponSessionConfig StraightConfig =
+		MakeSessionConfig();
+	const Fdemo_mapShanmenThrownWeaponSessionConfig ArcConfig =
+		MakeArcSessionConfig();
+	TestTrue(TEXT("Session content freezes one typed Arc policy"),
+		StraightConfig.IsValid()
+			&& ArcConfig.IsValid()
+			&& ArcConfig.GetTrajectoryKind()
+				== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc
+			&& ArcConfig.GetArcPolicy().GetTechniqueTier()
+				== EShanmenThrownWeaponTechniqueTier::Intermediate
+			&& ArcConfig.GetArcPolicy().GetGravityMagnitude() == 980.0
+			&& ArcConfig.GetArcPolicy().GetMaximumFlightTime() == 4.0
+			&& !StraightConfig.Matches(ArcConfig));
 	TestFalse(TEXT("Slot ten is outside the product contract"),
 		Fdemo_mapShanmenThrownWeaponHotbarIntent::TryCapture(
 			SessionSelectionTwoId,
@@ -474,6 +573,22 @@ bool Fdemo_mapThrownWeaponSessionContractTest::RunTest(const FString&)
 			Fixture.Config,
 			Diagnostic)
 			&& Fixture.Session.IsValid());
+	const Fdemo_mapShanmenThrownWeaponSessionResult TrajectoryMismatch =
+		Fixture.Session.TrySubmitHotbar(
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			*Fixture.Authority,
+			Fixture.Coordinator,
+			Fixture.MakeArcIntent(
+				SessionSelectionTwoId,
+				1,
+				FVector(620.0, 130.0, 60.0)));
+	TestTrue(TEXT("Straight session rejects Arc input before identity or item I/O"),
+		TrajectoryMismatch.Status
+			== Edemo_mapShanmenThrownWeaponSessionStatus::TrajectoryMismatch
+			&& Fixture.Session.NumCapturedSelections() == 0
+			&& Fixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence() == 1);
 	const Fdemo_mapShanmenThrownWeaponSessionResult Empty =
 		Fixture.Session.TrySubmitHotbar(
 			Fixture.World,
@@ -588,6 +703,234 @@ bool Fdemo_mapThrownWeaponSessionFreezeReplayTest::RunTest(const FString&)
 			&& Fixture.Session.GetTerminalReceipt().Kind
 				== Edemo_mapShanmenThrownWeaponTerminalKind::Interrupted
 			&& Fixture.Session.TryEnd(Diagnostic));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcSessionFreezeReplayTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponProductSession.ArcResolveFreezeReplayConflict",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcSessionFreezeReplayTest::RunTest(const FString&)
+{
+	const Fdemo_mapShanmenThrownWeaponSessionConfig ArcConfig =
+		MakeArcSessionConfig();
+	FSessionFixture Fixture;
+	if (!Fixture.Start(*this, TEXT("ArcFreezeReplay"), ArcConfig)
+		|| !Fixture.SetAttackPower(6.0f))
+	{
+		return false;
+	}
+	const FVector Target(620.0, 130.0, 60.0);
+	const Fdemo_mapShanmenThrownWeaponHotbarIntent Intent =
+		Fixture.MakeArcIntent(SessionSelectionOneId, 1, Target);
+	FShanmenItemAuthoritySnapshot Before;
+	Fixture.Authority->TryCaptureSnapshot(Before);
+	const Fdemo_mapShanmenThrownWeaponSessionResult Applied =
+		Fixture.Session.TrySubmitHotbar(
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			*Fixture.Authority,
+			Fixture.Coordinator,
+			Intent);
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Authority->TryCaptureSnapshot(After);
+	const Fdemo_mapShanmenThrownWeaponRunCommandIntent* Command =
+		Fixture.Session.FindCapturedCommand(SessionSelectionOneId);
+	const FShanmenThrownWeaponArcRequest* ArcRequest = Command
+		? &Command->GetArcPlan().GetRequest() : nullptr;
+	Ademo_mapShanmenThrownWeaponProjectile* FirstProjectile =
+		Applied.IsAccepted()
+			? Applied.Product.Command.HostStart.Spawn.Projectile.Get()
+			: nullptr;
+	TestTrue(TEXT("Arc hotbar resolves one item and one deterministic action"),
+		Applied.IsAccepted()
+			&& !Applied.bReusedSelection
+			&& Applied.ItemInstanceId == SessionItemOneId
+			&& Applied.TechniquePower == 6.0f
+			&& Applied.Product.ActivationSequence == 1
+			&& Applied.Product.ActivationId
+				== FShanmenCombatIdFactory::MakeActivationId(
+					Fixture.Correlation.ActiveRunId,
+					Fixture.Coordinator.GetPlayerEntityId(),
+					FShanmenThrownWeaponDefinition::ArcActionDefinitionId(),
+					1)
+			&& Command
+			&& Command->GetTrajectoryKind()
+				== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc
+			&& Command->GetAction().GetSourceItemInstanceId()
+				== SessionItemOneId
+			&& Command->GetAction().GetActionDefinitionId()
+				== FShanmenThrownWeaponDefinition::ArcActionDefinitionId()
+			&& Command->GetOffense().GetTechniquePower() == 6.0f
+			&& ArcRequest
+			&& ArcRequest->GetOrigin() == Intent.GetOrigin()
+			&& ArcRequest->GetTarget() == Target
+			&& ArcRequest->GetApexClearance() == Intent.GetApexClearance()
+			&& ArcRequest->GetTechniqueTier()
+				== EShanmenThrownWeaponTechniqueTier::Intermediate
+			&& ArcRequest->GetGravityMagnitude() == 980.0
+			&& ArcRequest->GetMaximumLaunchSpeed()
+				== ArcConfig.GetDefinition().LaunchSpeed
+			&& ArcRequest->GetMaximumFlightTime() == 4.0
+			&& FirstProjectile
+			&& Fixture.Session.GetHostState()
+				== Edemo_mapShanmenThrownWeaponHostState::InFlight
+			&& After.AuthorityRevision == Before.AuthorityRevision + 2
+			&& Fixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence() == 2
+			&& Fixture.Session.IsValid());
+
+	if (!Fixture.SetAttackPower(10.0f))
+	{
+		return false;
+	}
+	const Fdemo_mapShanmenThrownWeaponSessionResult Replay =
+		Fixture.Session.TrySubmitHotbar(
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			*Fixture.Authority,
+			Fixture.Coordinator,
+			Intent);
+	FShanmenItemAuthoritySnapshot AfterReplay;
+	Fixture.Authority->TryCaptureSnapshot(AfterReplay);
+	TestTrue(TEXT("Exact Arc replay retains first stats, identity, and Actor"),
+		Replay.IsAccepted()
+			&& Replay.bReusedSelection
+			&& Replay.Product.Command.IsReplay()
+			&& Replay.Product.ActivationId == Applied.Product.ActivationId
+			&& Replay.Product.ActivationSequence == 1
+			&& Replay.TechniquePower == 6.0f
+			&& Replay.Product.Command.HostStart.Spawn.Projectile.Get()
+				== FirstProjectile
+			&& AfterReplay == After
+			&& Fixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence() == 2);
+
+	const Fdemo_mapShanmenThrownWeaponSessionResult Conflict =
+		Fixture.Session.TrySubmitHotbar(
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			*Fixture.Authority,
+			Fixture.Coordinator,
+			Fixture.MakeArcIntent(
+				SessionSelectionOneId,
+				1,
+				FVector(720.0, 130.0, 60.0)));
+	TestTrue(TEXT("Conflicting Arc geometry cannot consume another sequence"),
+		Conflict.Status
+			== Edemo_mapShanmenThrownWeaponSessionStatus::SelectionIdConflict
+			&& Fixture.Session.NumCapturedSelections() == 1
+			&& Fixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence() == 2);
+
+	FString Diagnostic;
+	TestTrue(TEXT("Arc flight explicitly terminates before session end"),
+		Fixture.Session.TryInterruptFlight()
+			&& Fixture.Session.GetTerminalReceipt().Kind
+				== Edemo_mapShanmenThrownWeaponTerminalKind::Interrupted
+			&& Fixture.Session.TryEnd(Diagnostic));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcSessionPlanRejectionTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponProductSession.ArcPlanRejectionReplayEnd",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcSessionPlanRejectionTest::RunTest(const FString&)
+{
+	FSessionFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcPlanReject"),
+			MakeArcSessionConfig()))
+	{
+		return false;
+	}
+	const Fdemo_mapShanmenThrownWeaponHotbarIntent Intent =
+		Fixture.MakeArcIntent(
+			SessionSelectionOneId,
+			1,
+			FVector(100025.0, 35.0, 65.0));
+	FShanmenItemAuthoritySnapshot Before;
+	Fixture.Authority->TryCaptureSnapshot(Before);
+	const Fdemo_mapShanmenThrownWeaponSessionResult Rejected =
+		Fixture.Session.TrySubmitHotbar(
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			*Fixture.Authority,
+			Fixture.Coordinator,
+			Intent);
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Authority->TryCaptureSnapshot(After);
+	TestTrue(TEXT("Unreachable Arc records identity without item or Host work"),
+		Rejected.Status
+			== Edemo_mapShanmenThrownWeaponSessionStatus::ProductRejected
+			&& Rejected.Product.Status
+				== Edemo_mapShanmenThrownWeaponProductStatus::ArcPlanRejected
+			&& Rejected.Product.HasCapturedAction()
+			&& !Rejected.bReusedSelection
+			&& Rejected.Product.ActivationSequence == 1
+			&& Rejected.Product.ActivationId
+				== FShanmenCombatIdFactory::MakeActivationId(
+					Fixture.Correlation.ActiveRunId,
+					Fixture.Coordinator.GetPlayerEntityId(),
+					FShanmenThrownWeaponDefinition::ArcActionDefinitionId(),
+					1)
+			&& Before == After
+			&& Fixture.Session.GetHostState()
+				== Edemo_mapShanmenThrownWeaponHostState::Empty
+			&& Fixture.Session.NumCapturedSelections() == 1
+			&& !Fixture.Session.FindCapturedCommand(SessionSelectionOneId)
+			&& Fixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence() == 2
+			&& Fixture.Session.IsValid());
+
+	const Fdemo_mapShanmenThrownWeaponSessionResult Replay =
+		Fixture.Session.TrySubmitHotbar(
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			*Fixture.Authority,
+			Fixture.Coordinator,
+			Intent);
+	FShanmenItemAuthoritySnapshot AfterReplay;
+	Fixture.Authority->TryCaptureSnapshot(AfterReplay);
+	TestTrue(TEXT("Exact unreachable Arc replay reuses its rejection identity"),
+		Replay.Status
+			== Edemo_mapShanmenThrownWeaponSessionStatus::ProductRejected
+			&& Replay.Product.Status
+				== Edemo_mapShanmenThrownWeaponProductStatus::ArcPlanRejected
+			&& Replay.bReusedSelection
+			&& Replay.Product.bReusedSelection
+			&& Replay.Product.ActivationId == Rejected.Product.ActivationId
+			&& Replay.Product.ActivationSequence == 1
+			&& AfterReplay == After
+			&& Fixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence() == 2
+			&& Fixture.Session.IsValid());
+
+	const Fdemo_mapShanmenThrownWeaponSessionResult Conflict =
+		Fixture.Session.TrySubmitHotbar(
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			*Fixture.Authority,
+			Fixture.Coordinator,
+			Fixture.MakeArcIntent(
+				SessionSelectionOneId,
+				1,
+				FVector(110025.0, 35.0, 65.0)));
+	TestTrue(TEXT("Rejected Arc identity still rejects conflicting geometry"),
+		Conflict.Status
+			== Edemo_mapShanmenThrownWeaponSessionStatus::SelectionIdConflict
+			&& Fixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence() == 2);
+
+	FString Diagnostic;
+	TestTrue(TEXT("Plan rejection leaves no hidden recovery or flight gate"),
+		Fixture.Session.TryEnd(Diagnostic)
+			&& !Fixture.Session.IsActive()
+			&& Fixture.Session.IsValid());
 	return true;
 }
 

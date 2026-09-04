@@ -11,6 +11,7 @@ class Udemo_mapShanmenItemAuthoritySubsystem;
 class Fdemo_mapShanmenThrownWeaponHotbarIntent
 {
 public:
+	/** Straight compatibility capture. */
 	static bool TryCapture(
 		const FGuid& SelectionId,
 		int32 HotbarSlotNumber,
@@ -18,21 +19,37 @@ public:
 		const FVector& AimDirection,
 		float MaximumDistance,
 		Fdemo_mapShanmenThrownWeaponHotbarIntent& OutIntent);
+	/** Arc input owns geometry only; product policy stays in SessionConfig. */
+	static bool TryCaptureArc(
+		const FGuid& SelectionId,
+		int32 HotbarSlotNumber,
+		const FVector& Origin,
+		const FVector& Target,
+		double ApexClearance,
+		Fdemo_mapShanmenThrownWeaponHotbarIntent& OutIntent);
 
 	bool IsValid() const;
 	bool Matches(const Fdemo_mapShanmenThrownWeaponHotbarIntent& Other) const;
 	const FGuid& GetSelectionId() const { return SelectionId; }
 	int32 GetHotbarSlotNumber() const { return HotbarSlotNumber; }
 	const FVector& GetOrigin() const { return Origin; }
+	Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind
+	GetTrajectoryKind() const { return TrajectoryKind; }
 	const FVector& GetAimDirection() const { return AimDirection; }
 	float GetMaximumDistance() const { return MaximumDistance; }
+	const FVector& GetTarget() const { return Target; }
+	double GetApexClearance() const { return ApexClearance; }
 
 private:
 	FGuid SelectionId;
 	int32 HotbarSlotNumber = INDEX_NONE;
 	FVector Origin = FVector::ZeroVector;
+	Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind TrajectoryKind =
+		Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Invalid;
 	FVector AimDirection = FVector::ZeroVector;
 	float MaximumDistance = 0.0f;
+	FVector Target = FVector::ZeroVector;
+	double ApexClearance = 0.0;
 };
 
 /** Immutable content policy owned by one thrown-weapon product session. */
@@ -43,19 +60,35 @@ public:
 		const FShanmenThrownWeaponDefinitionCapture& Definition,
 		const FGameplayTagContainer& SourceTags,
 		Fdemo_mapShanmenThrownWeaponSessionConfig& OutConfig);
+	static bool TryCaptureArc(
+		const FShanmenThrownWeaponDefinitionCapture& Definition,
+		const FGameplayTagContainer& SourceTags,
+		EShanmenThrownWeaponTechniqueTier TechniqueTier,
+		double GravityMagnitude,
+		double MaximumFlightTime,
+		Fdemo_mapShanmenThrownWeaponSessionConfig& OutConfig);
 
 	bool IsValid() const;
 	bool Matches(
 		const Fdemo_mapShanmenThrownWeaponSessionConfig& Other) const;
+	Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind
+	GetTrajectoryKind() const { return TrajectoryKind; }
 	const FShanmenThrownWeaponDefinitionCapture& GetDefinition() const
 	{
 		return Definition;
 	}
 	const FGameplayTagContainer& GetSourceTags() const { return SourceTags; }
+	const Fdemo_mapShanmenThrownWeaponArcProductPolicy& GetArcPolicy() const
+	{
+		return ArcPolicy;
+	}
 
 private:
+	Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind TrajectoryKind =
+		Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Invalid;
 	FShanmenThrownWeaponDefinitionCapture Definition;
 	FGameplayTagContainer SourceTags;
+	Fdemo_mapShanmenThrownWeaponArcProductPolicy ArcPolicy;
 };
 
 enum class Edemo_mapShanmenThrownWeaponSessionStatus : uint8
@@ -66,6 +99,7 @@ enum class Edemo_mapShanmenThrownWeaponSessionStatus : uint8
 	SessionInvalid,
 	RunMismatch,
 	RequestInvalid,
+	TrajectoryMismatch,
 	SelectionIdConflict,
 	HotbarSlotEmpty,
 	SourceUnavailable,
@@ -97,9 +131,10 @@ struct Fdemo_mapShanmenThrownWeaponSessionResult
 };
 
 /**
- * Active-Run owner of hotbar resolution, action stat capture, and P7.3-P7.5
- * state. The frozen RunCorrelation is the only hotbar source; this class never
- * reads or writes the legacy item subsystem, input bindings, UI, or inventory.
+ * Active-Run owner of typed hotbar resolution, action stat capture, and the
+ * P7.3-P7.5 state. The frozen RunCorrelation is the only hotbar source; this
+ * class never reads or writes the legacy item subsystem, input bindings, UI,
+ * or inventory.
  */
 class Fdemo_mapShanmenThrownWeaponProductSession
 {
