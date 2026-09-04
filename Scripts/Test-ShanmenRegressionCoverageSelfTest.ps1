@@ -427,6 +427,9 @@ try
     $DivineSenseProductRoute = New-AutomationLogFixture `
         -Name 'divine-sense-product-route.log' `
         -Group 'Shanmen.0_0_10.Product.DivineSenseProductRoute'
+    $DivineSenseLogicalInputAdapter = New-AutomationLogFixture `
+        -Name 'divine-sense-logical-input-adapter.log' `
+        -Group 'Shanmen.0_0_10.Product.DivineSenseLogicalInputAdapter'
     $SpiritShieldRuntime = New-AutomationLogFixture `
         -Name 'spirit-shield-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShield'
@@ -2723,6 +2726,28 @@ try
             $ActionLifecycle,
             $WorldGameplay)
 
+    Invoke-ExpectedPass `
+        -Name 'Divine Sense logical input maps busy availability retry and complete product authority contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenDivineSenseLogicalInputAdapter.h',
+            'Source/demo_map/demo_mapShanmenDivineSenseLogicalInputAdapter.cpp',
+            'Source/demo_map/demo_mapShanmenDivineSenseLogicalInputAdapterTests.cpp') `
+        -Logs @(
+            $DivineSenseLogicalInputAdapter,
+            $DivineSenseProductRoute,
+            $DivineSenseProductAuthority,
+            $DivineSenseProductController,
+            $DivineSenseProductSession,
+            $DivineSenseCommandRouter,
+            $DivineSenseProductHost,
+            $DivineSensePulseCoordinator,
+            $DivineSenseWorldObservation,
+            $Coordinator,
+            $DivineSenseRuntime,
+            $ActionResource,
+            $ActionLifecycle,
+            $WorldGameplay)
+
     Invoke-ExpectedFail `
         -Name 'missing mapped group fails closed' `
         -Paths @('Source/demo_map/demo_mapSkillComponent.cpp') `
@@ -2791,6 +2816,17 @@ try
         -Logs @(
             $DivineSenseProductRoute,
             $DivineSenseProductAuthority,
+            $DivineSenseProductController,
+            $Coordinator) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'Divine Sense logical input focus cannot replace route Controller Run and World evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenDivineSenseLogicalInputAdapter.cpp') `
+        -Logs @(
+            $DivineSenseLogicalInputAdapter,
+            $DivineSenseProductRoute,
             $DivineSenseProductController,
             $Coordinator) `
         -ExpectedText 'missing required groups'
