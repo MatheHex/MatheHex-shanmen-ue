@@ -74,6 +74,8 @@ struct Fdemo_mapShanmenThrownWeaponInputResult
 class Fdemo_mapShanmenThrownWeaponInputAdapter
 {
 public:
+	/** Shared launch-origin height used by input geometry and source basis. */
+	static constexpr double GetLaunchOriginHeight() { return 50.0; }
 	/** Stable event identity; equal canonical inputs always reproduce one GUID. */
 	static FGuid MakeSelectionId(
 		const FGuid& CorrelationId,

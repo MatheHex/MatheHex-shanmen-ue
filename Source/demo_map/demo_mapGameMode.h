@@ -17,6 +17,7 @@
 #include "demo_mapShanmenMeridianShockTreatmentInputAdapter.h"
 #include "demo_mapShanmenMeridianShockTreatmentProductLifecycle.h"
 #include "demo_mapShanmenThrownWeaponArcChoiceInputComposition.h"
+#include "demo_mapShanmenThrownWeaponArcSourceBasisAdapter.h"
 #include "demo_mapShanmenThrownWeaponInputAdapter.h"
 #include "demo_mapShanmenThrownWeaponInputChoiceSession.h"
 #include "demo_mapShanmenThrownWeaponProductLifecycle.h"
@@ -189,6 +190,12 @@ public:
 		const Fdemo_mapShanmenThrownWeaponArcChoicePolicy& Policy,
 		TFunctionRef<Fdemo_mapShanmenThrownWeaponArcChoiceBasis()>
 			SampleBasis);
+	/** Lazily samples the canonical source Actor for the configured Arc choice. */
+	Fdemo_mapShanmenThrownWeaponArcSourceBasisRouteResult
+	RouteThrownWeaponArcChoiceFromSourceHotbarInput(
+		int32 HotbarSlotNumber,
+		AActor* SourceActor,
+		const Fdemo_mapShanmenThrownWeaponArcChoicePolicy& Policy);
 	/** Applies one device-independent choice command with Run/lifecycle fences. */
 	Fdemo_mapShanmenThrownWeaponInputChoiceSessionResult
 	SubmitThrownWeaponInputChoiceCommand(
@@ -603,6 +610,8 @@ private:
 	Fdemo_mapShanmenThrownWeaponInputAdapter ThrownWeaponInputAdapter;
 	Fdemo_mapShanmenThrownWeaponArcChoiceInputComposition
 		ThrownWeaponArcChoiceInputComposition;
+	Fdemo_mapShanmenThrownWeaponArcSourceBasisAdapter
+		ThrownWeaponArcSourceBasisAdapter;
 	Fdemo_mapShanmenThrownWeaponInputChoiceSession
 		ThrownWeaponInputChoiceSession;
 	Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle

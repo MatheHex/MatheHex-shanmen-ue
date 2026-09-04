@@ -1207,6 +1207,26 @@ Ademo_mapGameMode::RouteThrownWeaponArcChoiceHotbarInput(
 		});
 }
 
+Fdemo_mapShanmenThrownWeaponArcSourceBasisRouteResult
+Ademo_mapGameMode::RouteThrownWeaponArcChoiceFromSourceHotbarInput(
+	const int32 HotbarSlotNumber,
+	AActor* SourceActor,
+	const Fdemo_mapShanmenThrownWeaponArcChoicePolicy& Policy)
+{
+	return ThrownWeaponArcSourceBasisAdapter.Route(
+		SourceActor,
+		[this, HotbarSlotNumber, SourceActor, Policy](
+			TFunctionRef<Fdemo_mapShanmenThrownWeaponArcChoiceBasis()>
+				SampleBasis)
+		{
+			return RouteThrownWeaponArcChoiceHotbarInput(
+				HotbarSlotNumber,
+				SourceActor,
+				Policy,
+				SampleBasis);
+		});
+}
+
 Fdemo_mapShanmenThrownWeaponInputChoiceSessionResult
 Ademo_mapGameMode::SubmitThrownWeaponInputChoiceCommand(
 	const Fdemo_mapShanmenThrownWeaponInputChoiceCommand& Command)

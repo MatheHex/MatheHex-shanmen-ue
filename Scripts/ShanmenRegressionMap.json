@@ -2406,6 +2406,7 @@
         "Shanmen.0_0_10.Product.WeaponGuardProductHost",
         "Shanmen.0_0_10.Product.WeaponGuardDefenseCoordinator",
         "Shanmen.0_0_10.Product.WeaponGuardWorldAdapter",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcSourceBasisAdapter",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcChoiceInputComposition",
 		"Shanmen.0_0_10.Product.ThrownWeaponInputChoiceSession",
 		"Shanmen.0_0_10.Product.ThrownWeaponInputChoice",
@@ -3025,6 +3026,18 @@
         "demo_map.ItemUseAndArmor"
       ]
     },
+	{
+	  "name": "ThrownWeaponArcSourceBasisAdapter",
+	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponArcSourceBasisAdapter(?:Tests)?\\.(?:h|cpp)$",
+	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponArcSourceBasisAdapter",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcChoiceInputComposition",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcChoiceProjection",
+		"Shanmen.0_0_10.Product.ThrownWeaponInputChoice",
+		"Shanmen.0_0_10.Product.ThrownWeaponInputAdapter",
+		"Shanmen.0_0_10"
+	  ]
+	},
 	{
 	  "name": "ThrownWeaponArcChoiceInputComposition",
 	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponArcChoiceInputComposition(?:Tests)?\\.(?:h|cpp)$",

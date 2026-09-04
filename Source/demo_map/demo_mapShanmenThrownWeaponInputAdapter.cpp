@@ -10,7 +10,6 @@
 
 namespace
 {
-	constexpr float ThrownWeaponOriginHeight = 50.0f;
 	constexpr float ThrownWeaponMaximumDistance = 1400.0f;
 
 	FString GuidDigits(const FGuid& Value)
@@ -276,7 +275,11 @@ Fdemo_mapShanmenThrownWeaponInputAdapter::RouteTypedHotbarInput(
 	}
 
 	const FVector Origin = SourceActor->GetActorLocation()
-		+ FVector(0.0, 0.0, ThrownWeaponOriginHeight);
+		+ FVector(
+			0.0,
+			0.0,
+			Fdemo_mapShanmenThrownWeaponInputAdapter::
+				GetLaunchOriginHeight());
 	FVector PrimaryGeometry = FVector::ZeroVector;
 	double ApexClearance = 0.0;
 	if (TrajectoryKind
