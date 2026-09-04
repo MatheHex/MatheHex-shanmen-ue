@@ -2507,6 +2507,13 @@ try
         -Logs @($Full, $ItemUse)
 
     Invoke-ExpectedPass `
+		-Name 'thrown weapon input choice reducer maps its exact pure contract' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceReducer.cpp',
+			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceReducerTests.cpp') `
+		-Logs @($Full)
+
+	Invoke-ExpectedPass `
         -Name 'thrown weapon input adapter maps typed hotbar and fallback seams' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenThrownWeaponInputAdapter.cpp') `
@@ -4077,6 +4084,13 @@ try
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
+		-Name 'thrown input choice reducer cannot use unrelated item fallback evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceReducer.cpp') `
+		-Logs @($ItemUse) `
+		-ExpectedText 'missing required groups'
+
+	Invoke-ExpectedFail `
         -Name 'thrown input adapter requires ordinary hotbar fallback evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenThrownWeaponInputAdapter.cpp') `

@@ -3023,6 +3023,14 @@
       ]
     },
     {
+	  "name": "ThrownWeaponInputChoiceReducer",
+	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceReducer(?:Tests)?\\.(?:h|cpp)$",
+	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponInputChoice",
+		"Shanmen.0_0_10"
+	  ]
+	},
+	{
       "name": "ThrownWeaponInputAdapter",
       "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponInputAdapter(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [
