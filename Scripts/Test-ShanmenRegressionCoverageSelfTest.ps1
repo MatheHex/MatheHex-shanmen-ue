@@ -2514,6 +2514,13 @@ try
 		-Logs @($Full)
 
 	Invoke-ExpectedPass `
+		-Name 'thrown weapon choice interaction port maps read intent controller session command and broad evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceInteractionPort.cpp',
+			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceInteractionPortTests.cpp') `
+		-Logs @($Full)
+
+	Invoke-ExpectedPass `
 		-Name 'thrown weapon choice intent adapter maps controller session command and broad evidence' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceIntentAdapter.cpp',
@@ -4150,6 +4157,13 @@ try
 		-Name 'thrown input choice session cannot use unrelated item fallback evidence' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceSession.cpp') `
+		-Logs @($ItemUse) `
+		-ExpectedText 'missing required groups'
+
+	Invoke-ExpectedFail `
+		-Name 'thrown choice interaction port cannot use unrelated item evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceInteractionPort.cpp') `
 		-Logs @($ItemUse) `
 		-ExpectedText 'missing required groups'
 

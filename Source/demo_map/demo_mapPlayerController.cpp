@@ -1064,6 +1064,27 @@ Ademo_mapPlayerController::RouteThrownWeaponInputChoiceIntent(
 		});
 }
 
+Fdemo_mapShanmenThrownWeaponInputChoiceInteractionReadResult
+Ademo_mapPlayerController::ReadThrownWeaponInputChoiceInteraction()
+{
+	Ademo_mapGameMode* Mode = nullptr;
+	return Fdemo_mapShanmenThrownWeaponInputChoiceInteractionPort::Read(
+		[this, &Mode]()
+		{
+			UWorld* World = GetWorld();
+			Mode = World
+				? Cast<Ademo_mapGameMode>(World->GetAuthGameMode())
+				: nullptr;
+			return Mode != nullptr;
+		},
+		[&Mode]()
+		{
+			return Mode
+				? Mode->GetThrownWeaponInputChoiceState()
+				: Fdemo_mapShanmenThrownWeaponInputChoiceState();
+		});
+}
+
 void Ademo_mapPlayerController::StartWeaponGuard()
 {
 	const Fdemo_mapShanmenWeaponGuardInputResult Result =
