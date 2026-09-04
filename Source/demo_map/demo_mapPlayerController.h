@@ -7,6 +7,7 @@
 #include "demo_mapShanmenSpiritEvasionInputAdapter.h"
 #include "demo_mapShanmenThrownWeaponHotbarConfirmationAdapter.h"
 #include "demo_mapShanmenThrownWeaponArcLaunchInputAdapter.h"
+#include "demo_mapShanmenThrownWeaponInputChoiceControllerAdapter.h"
 #include "demo_mapShanmenWeaponGuardInputAdapter.h"
 #include "demo_mapPlayerController.generated.h"
 
@@ -111,6 +112,10 @@ public:
 	/** Routes the existing hotbar press by the sole current trajectory choice. */
 	Fdemo_mapShanmenThrownWeaponHotbarConfirmationResult
 	RouteThrownWeaponHotbarConfirmationInput(int32 HotbarSlotNumber);
+	/** Submits one frozen choice edit through the sole GameMode session. */
+	Fdemo_mapShanmenThrownWeaponInputChoiceControllerResult
+	RouteThrownWeaponInputChoiceCommand(
+		const Fdemo_mapShanmenThrownWeaponInputChoiceCommand& Command);
 	/** Routes the physical hold start through the Run-owned fixed timeline. */
 	Fdemo_mapShanmenWeaponGuardInputResult RouteWeaponGuardStartInput();
 	/** Release deliberately bypasses gameplay UI locks to prevent stuck guard. */

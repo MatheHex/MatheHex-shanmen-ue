@@ -2440,6 +2440,7 @@
         "Shanmen.0_0_10.Product.CombatRunFixedTimeline",
 		"Shanmen.0_0_10.Product.WeaponGuardInputAdapter",
 		"Shanmen.0_0_10.Product.WeaponGuardProductSession",
+		"Shanmen.0_0_10.Product.ThrownWeaponInputChoiceControllerAdapter",
 		"Shanmen.0_0_10.Product.ThrownWeaponHotbarConfirmationAdapter",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcConfirmationOwner",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcLaunchInputAdapter",
@@ -3029,6 +3030,16 @@
         "demo_map.ItemUseAndArmor"
       ]
     },
+	{
+	  "name": "ThrownWeaponInputChoiceControllerAdapter",
+	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceControllerAdapter(?:Tests)?\\.(?:h|cpp)$",
+	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponInputChoiceControllerAdapter",
+		"Shanmen.0_0_10.Product.ThrownWeaponInputChoiceSession",
+		"Shanmen.0_0_10.Product.ThrownWeaponInputChoice",
+		"Shanmen.0_0_10"
+	  ]
+	},
 	{
 	  "name": "ThrownWeaponHotbarConfirmationAdapter",
 	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponHotbarConfirmationAdapter(?:Tests)?\\.(?:h|cpp)$",
