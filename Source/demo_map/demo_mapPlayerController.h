@@ -5,6 +5,7 @@
 #include "demo_mapCombatTypes.h"
 #include "demo_mapInputBindingSettings.h"
 #include "demo_mapShanmenSpiritEvasionInputAdapter.h"
+#include "demo_mapShanmenThrownWeaponArcConfirmationOwner.h"
 #include "demo_mapShanmenThrownWeaponArcLaunchInputAdapter.h"
 #include "demo_mapShanmenWeaponGuardInputAdapter.h"
 #include "demo_mapPlayerController.generated.h"
@@ -60,6 +61,8 @@ protected:
 	int32 ProductInputBindingStartIndex = INDEX_NONE;
 	int32 ProductInputBindingCount = 0;
 	uint64 LastMovementApplicationFrame = MAX_uint64;
+	Fdemo_mapShanmenThrownWeaponArcConfirmationOwner
+		ThrownWeaponArcConfirmationOwner;
 #if !UE_BUILD_SHIPPING
 	bool bRecordedMovementAppliedForCurrentPress = false;
 	bool bInputConsumptionReflectedFunctionPresent = false;
@@ -99,6 +102,10 @@ public:
 	Fdemo_mapShanmenThrownWeaponArcLaunchInputResult
 	RouteThrownWeaponArcLaunchCommand(
 		const Fdemo_mapShanmenThrownWeaponArcLaunchCommand& Command);
+	/** Consumes one device-independent logical Arc confirmation event. */
+	Fdemo_mapShanmenThrownWeaponArcConfirmationResult
+	RouteThrownWeaponArcConfirmation(
+		const Fdemo_mapShanmenThrownWeaponArcConfirmationIntent& Intent);
 	/** Routes the physical hold start through the Run-owned fixed timeline. */
 	Fdemo_mapShanmenWeaponGuardInputResult RouteWeaponGuardStartInput();
 	/** Release deliberately bypasses gameplay UI locks to prevent stuck guard. */

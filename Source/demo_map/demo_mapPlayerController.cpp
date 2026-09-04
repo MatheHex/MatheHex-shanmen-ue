@@ -935,6 +935,32 @@ Ademo_mapPlayerController::RouteThrownWeaponArcLaunchCommand(
 		});
 }
 
+Fdemo_mapShanmenThrownWeaponArcConfirmationResult
+Ademo_mapPlayerController::RouteThrownWeaponArcConfirmation(
+	const Fdemo_mapShanmenThrownWeaponArcConfirmationIntent& Intent)
+{
+	return ThrownWeaponArcConfirmationOwner.Confirm(
+		Intent,
+		IsGameplayInputAllowed()
+			&& InputSurfaceState == TEXT("Gameplay")
+			&& InputModeState == TEXT("GameOnly"),
+		[this]()
+		{
+			UWorld* World = GetWorld();
+			Ademo_mapGameMode* Mode = World
+				? Cast<Ademo_mapGameMode>(World->GetAuthGameMode())
+				: nullptr;
+			return Mode
+				? Mode->GetThrownWeaponInputChoiceState()
+				: Fdemo_mapShanmenThrownWeaponInputChoiceState();
+		},
+		[this](
+			const Fdemo_mapShanmenThrownWeaponArcLaunchCommand& Command)
+		{
+			return RouteThrownWeaponArcLaunchCommand(Command);
+		});
+}
+
 void Ademo_mapPlayerController::StartWeaponGuard()
 {
 	const Fdemo_mapShanmenWeaponGuardInputResult Result =

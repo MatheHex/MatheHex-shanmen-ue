@@ -2514,6 +2514,13 @@ try
 		-Logs @($Full)
 
     Invoke-ExpectedPass `
+		-Name 'thrown weapon Arc confirmation owner maps capture launch and broad evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcConfirmationOwner.cpp',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcConfirmationOwnerTests.cpp') `
+		-Logs @($Full)
+
+    Invoke-ExpectedPass `
 		-Name 'thrown weapon Arc launch input maps every delegated choice seam' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcLaunchInputAdapter.cpp',
@@ -4122,6 +4129,13 @@ try
 		-Name 'thrown input choice session cannot use unrelated item fallback evidence' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceSession.cpp') `
+		-Logs @($ItemUse) `
+		-ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+		-Name 'thrown Arc confirmation owner cannot use unrelated item evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcConfirmationOwner.cpp') `
 		-Logs @($ItemUse) `
 		-ExpectedText 'missing required groups'
 
