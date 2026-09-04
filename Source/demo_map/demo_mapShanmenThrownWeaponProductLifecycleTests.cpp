@@ -58,6 +58,17 @@ namespace
 
 		bool Start(FAutomationTestBase& Test, const TCHAR* Label)
 		{
+			return Start(
+				Test,
+				Label,
+				Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight);
+		}
+
+		bool Start(
+			FAutomationTestBase& Test,
+			const TCHAR* Label,
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind TrajectoryKind)
+		{
 			Root = NewThrownLifecycleRoot(Label);
 			Storage = Fdemo_mapProfileStorageContext::ForRoot(Root);
 			Fdemo_mapProfileRepository Repository;
@@ -210,6 +221,7 @@ namespace
 					*Authority,
 					*Source,
 					Coordinator,
+					TrajectoryKind,
 					Diagnostic))
 			{
 				Test.AddError(FString::Printf(
@@ -231,6 +243,22 @@ namespace
 				FVector(40.0, 10.0, 75.0),
 				Aim,
 				1400.0f,
+				Intent));
+			return Intent;
+		}
+
+		Fdemo_mapShanmenThrownWeaponHotbarIntent MakeArcIntent(
+			const FGuid& SelectionId,
+			const FVector& Target,
+			double ApexClearance = 160.0) const
+		{
+			Fdemo_mapShanmenThrownWeaponHotbarIntent Intent;
+			check(Fdemo_mapShanmenThrownWeaponHotbarIntent::TryCaptureArc(
+				SelectionId,
+				2,
+				FVector(40.0, 10.0, 75.0),
+				Target,
+				ApexClearance,
 				Intent));
 			return Intent;
 		}
@@ -303,6 +331,8 @@ bool Fdemo_mapThrownWeaponProductLifecycleBindingTest::RunTest(
 		Config.GetDefinition();
 	TestTrue(TEXT("Real product content freezes one valid straight-throw policy"),
 		bCaptured && Config.IsValid()
+		&& Config.GetTrajectoryKind()
+			== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight
 		&& Definition.ActionDefinitionId
 			== FShanmenThrownWeaponDefinition::CanonicalActionDefinitionId()
 		&& Definition.DetectorId
@@ -317,6 +347,47 @@ bool Fdemo_mapThrownWeaponProductLifecycleBindingTest::RunTest(
 		&& Definition.RequiredTargetTags.HasTagExact(
 			FShanmenCombatNativeTags::TargetLiving())
 		&& Definition.bRejectSelf);
+
+	Fdemo_mapShanmenThrownWeaponSessionConfig ArcConfig;
+	const bool bArcCaptured =
+		Fdemo_mapShanmenThrownWeaponProductLifecycle::
+			TryCaptureTrainingThrowingKnifeConfig(
+				Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc,
+				ArcConfig,
+				Diagnostic);
+	const FShanmenThrownWeaponDefinitionCapture& ArcDefinition =
+		ArcConfig.GetDefinition();
+	TestTrue(TEXT("Lifecycle owns one canonical Arc policy for the same product"),
+		bArcCaptured
+		&& ArcConfig.IsValid()
+		&& ArcConfig.GetTrajectoryKind()
+			== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc
+		&& ArcDefinition.ActionDefinitionId
+			== FShanmenThrownWeaponDefinition::ArcActionDefinitionId()
+		&& ArcDefinition.DetectorId
+			== FName(TEXT("Detector.ThrownWeapon.TrainingThrowingKnife.Arc"))
+		&& ArcDefinition.FormulaId == Definition.FormulaId
+		&& ArcDefinition.BaseDamage == Definition.BaseDamage
+		&& ArcDefinition.TechniquePowerCoefficient
+			== Definition.TechniquePowerCoefficient
+		&& ArcDefinition.LaunchSpeed == Definition.LaunchSpeed
+		&& ArcDefinition.DamageTags == Definition.DamageTags
+		&& ArcDefinition.RequiredTargetTags == Definition.RequiredTargetTags
+		&& ArcDefinition.bRejectSelf
+		&& ArcConfig.GetArcPolicy().GetTechniqueTier()
+			== EShanmenThrownWeaponTechniqueTier::Intermediate
+		&& ArcConfig.GetArcPolicy().GetGravityMagnitude() == 980.0
+		&& ArcConfig.GetArcPolicy().GetMaximumFlightTime() == 4.0
+		&& !Config.Matches(ArcConfig));
+	Fdemo_mapShanmenThrownWeaponSessionConfig InvalidConfig = ArcConfig;
+	TestFalse(TEXT("Lifecycle rejects an unspecified trajectory and clears output"),
+		Fdemo_mapShanmenThrownWeaponProductLifecycle::
+			TryCaptureTrainingThrowingKnifeConfig(
+				Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Invalid,
+				InvalidConfig,
+				Diagnostic));
+	TestFalse(TEXT("Rejected lifecycle content leaves no injectable config"),
+		InvalidConfig.IsValid());
 
 	FThrownLifecycleFixture Fixture;
 	if (!Fixture.Start(*this, TEXT("Binding")))
@@ -333,6 +404,20 @@ bool Fdemo_mapThrownWeaponProductLifecycleBindingTest::RunTest(
 			*Fixture.Authority,
 			*Fixture.Source,
 			Fixture.Coordinator,
+			Diagnostic));
+	TestTrue(TEXT("Explicit Straight begin matches the compatibility entry"),
+		Fixture.Lifecycle.TryBegin(
+			*Fixture.Authority,
+			*Fixture.Source,
+			Fixture.Coordinator,
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight,
+			Diagnostic));
+	TestFalse(TEXT("An active Straight lifecycle cannot switch to Arc policy"),
+		Fixture.Lifecycle.TryBegin(
+			*Fixture.Authority,
+			*Fixture.Source,
+			Fixture.Coordinator,
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc,
 			Diagnostic));
 	TestFalse(TEXT("Another source Actor cannot take over the live lifecycle"),
 		Fixture.Lifecycle.TryBegin(
@@ -420,6 +505,209 @@ bool Fdemo_mapThrownWeaponProductLifecycleRoutingTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcProductLifecycleRoutingTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponProductLifecycle.ArcHotbarRouteReplayAndEnd",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcProductLifecycleRoutingTest::RunTest(
+	const FString&)
+{
+	FThrownLifecycleFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcRouting"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	FShanmenItemAuthoritySnapshot Before;
+	Fixture.Authority->TryCaptureSnapshot(Before);
+	const FGuid SelectionId = FGuid::NewGuid();
+	const FVector Target(640.0, 110.0, 70.0);
+	const Fdemo_mapShanmenThrownWeaponHotbarIntent Intent =
+		Fixture.MakeArcIntent(SelectionId, Target);
+	const Fdemo_mapShanmenThrownWeaponSessionResult First =
+		Fixture.Lifecycle.TrySubmitHotbar(
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			Fixture.Coordinator,
+			Intent);
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Authority->TryCaptureSnapshot(After);
+	const Fdemo_mapShanmenThrownWeaponRunCommandIntent* Command =
+		Fixture.Lifecycle.FindCapturedCommand(SelectionId);
+	const FShanmenThrownWeaponArcRequest* ArcRequest = Command
+		? &Command->GetArcPlan().GetRequest() : nullptr;
+	Ademo_mapShanmenThrownWeaponProjectile* FirstProjectile =
+		First.IsAccepted()
+			? First.Product.Command.HostStart.Spawn.Projectile.Get()
+			: nullptr;
+	TestTrue(TEXT("Arc lifecycle binds canonical content to the exact Run item"),
+		First.IsAccepted()
+		&& First.ItemInstanceId == Fixture.ThrowingKnifeId
+		&& First.RunId == Fixture.Correlation.ActiveRunId
+		&& First.Product.ActivationSequence == 1
+		&& Command
+		&& Command->GetTrajectoryKind()
+			== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc
+		&& Command->GetAction().GetActionDefinitionId()
+			== FShanmenThrownWeaponDefinition::ArcActionDefinitionId()
+		&& Command->GetAction().GetSourceItemInstanceId()
+			== Fixture.ThrowingKnifeId
+		&& ArcRequest
+		&& ArcRequest->GetOrigin() == Intent.GetOrigin()
+		&& ArcRequest->GetTarget() == Target
+		&& ArcRequest->GetApexClearance() == Intent.GetApexClearance()
+		&& ArcRequest->GetTechniqueTier()
+			== EShanmenThrownWeaponTechniqueTier::Intermediate
+		&& ArcRequest->GetGravityMagnitude() == 980.0
+		&& ArcRequest->GetMaximumLaunchSpeed() == 900.0
+		&& ArcRequest->GetMaximumFlightTime() == 4.0
+		&& FirstProjectile
+		&& Fixture.Lifecycle.GetHostState()
+			== Edemo_mapShanmenThrownWeaponHostState::InFlight
+		&& After.AuthorityRevision == Before.AuthorityRevision + 2
+		&& Fixture.Coordinator
+			.GetNextPlayerThrownWeaponActivationSequence() == 2
+		&& Fixture.Lifecycle.IsValid());
+
+	const Fdemo_mapShanmenThrownWeaponSessionResult Replay =
+		Fixture.Lifecycle.TrySubmitHotbar(
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			Fixture.Coordinator,
+			Intent);
+	FShanmenItemAuthoritySnapshot AfterReplay;
+	Fixture.Authority->TryCaptureSnapshot(AfterReplay);
+	TestTrue(TEXT("Exact Arc lifecycle replay performs no new I/O or spawn"),
+		Replay.IsAccepted()
+		&& Replay.bReusedSelection
+		&& Replay.Product.Command.IsReplay()
+		&& Replay.Product.ActivationId == First.Product.ActivationId
+		&& Replay.Product.ActivationSequence == 1
+		&& Replay.Product.Command.HostStart.Spawn.Projectile.Get()
+			== FirstProjectile
+		&& AfterReplay == After
+		&& Fixture.Lifecycle.NumCapturedSelections() == 1
+		&& Fixture.Coordinator
+			.GetNextPlayerThrownWeaponActivationSequence() == 2);
+
+	const Fdemo_mapShanmenThrownWeaponSessionResult Conflict =
+		Fixture.Lifecycle.TrySubmitHotbar(
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			Fixture.Coordinator,
+			Fixture.MakeArcIntent(
+				SelectionId,
+				FVector(740.0, 110.0, 70.0)));
+	TestTrue(TEXT("Lifecycle preserves SelectionId geometry identity"),
+		Conflict.Status
+			== Edemo_mapShanmenThrownWeaponSessionStatus::SelectionIdConflict
+		&& Fixture.Lifecycle.NumCapturedSelections() == 1
+		&& Fixture.Coordinator
+			.GetNextPlayerThrownWeaponActivationSequence() == 2);
+
+	FString Diagnostic;
+	TestTrue(TEXT("Lifecycle owns Arc interruption before empty teardown"),
+		Fixture.Lifecycle.TryEnd(Diagnostic)
+		&& Fixture.Lifecycle.IsEmpty()
+		&& Fixture.Coordinator.IsReady());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcProductLifecyclePlanRejectionTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponProductLifecycle.ArcPlanRejectionReplayAndEnd",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcProductLifecyclePlanRejectionTest::RunTest(
+	const FString&)
+{
+	FThrownLifecycleFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcPlanReject"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	const FGuid SelectionId = FGuid::NewGuid();
+	const Fdemo_mapShanmenThrownWeaponHotbarIntent Intent =
+		Fixture.MakeArcIntent(
+			SelectionId,
+			FVector(100040.0, 10.0, 75.0));
+	FShanmenItemAuthoritySnapshot Before;
+	Fixture.Authority->TryCaptureSnapshot(Before);
+	const Fdemo_mapShanmenThrownWeaponSessionResult Rejected =
+		Fixture.Lifecycle.TrySubmitHotbar(
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			Fixture.Coordinator,
+			Intent);
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Authority->TryCaptureSnapshot(After);
+	TestTrue(TEXT("Unreachable lifecycle Arc freezes identity without side effects"),
+		Rejected.Status
+			== Edemo_mapShanmenThrownWeaponSessionStatus::ProductRejected
+		&& Rejected.Product.Status
+			== Edemo_mapShanmenThrownWeaponProductStatus::ArcPlanRejected
+		&& Rejected.Product.HasCapturedAction()
+		&& !Rejected.bReusedSelection
+		&& Rejected.Product.ActivationSequence == 1
+		&& Before == After
+		&& !Fixture.Lifecycle.FindCapturedCommand(SelectionId)
+		&& Fixture.Lifecycle.GetHostState()
+			== Edemo_mapShanmenThrownWeaponHostState::Empty
+		&& Fixture.Lifecycle.NumCapturedSelections() == 1
+		&& Fixture.Coordinator
+			.GetNextPlayerThrownWeaponActivationSequence() == 2
+		&& Fixture.Lifecycle.IsValid());
+
+	const Fdemo_mapShanmenThrownWeaponSessionResult Replay =
+		Fixture.Lifecycle.TrySubmitHotbar(
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			Fixture.Coordinator,
+			Intent);
+	FShanmenItemAuthoritySnapshot AfterReplay;
+	Fixture.Authority->TryCaptureSnapshot(AfterReplay);
+	TestTrue(TEXT("Unreachable lifecycle Arc replay reuses rejection identity"),
+		Replay.Status
+			== Edemo_mapShanmenThrownWeaponSessionStatus::ProductRejected
+		&& Replay.Product.Status
+			== Edemo_mapShanmenThrownWeaponProductStatus::ArcPlanRejected
+		&& Replay.bReusedSelection
+		&& Replay.Product.bReusedSelection
+		&& Replay.Product.ActivationId == Rejected.Product.ActivationId
+		&& Replay.Product.ActivationSequence == 1
+		&& AfterReplay == After
+		&& Fixture.Coordinator
+			.GetNextPlayerThrownWeaponActivationSequence() == 2
+		&& Fixture.Lifecycle.IsValid());
+
+	const Fdemo_mapShanmenThrownWeaponSessionResult Conflict =
+		Fixture.Lifecycle.TrySubmitHotbar(
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			Fixture.Coordinator,
+			Fixture.MakeArcIntent(
+				SelectionId,
+				FVector(110040.0, 10.0, 75.0)));
+	TestTrue(TEXT("Rejected Arc identity still rejects another geometry"),
+		Conflict.Status
+			== Edemo_mapShanmenThrownWeaponSessionStatus::SelectionIdConflict
+		&& Fixture.Coordinator
+			.GetNextPlayerThrownWeaponActivationSequence() == 2);
+
+	FString Diagnostic;
+	TestTrue(TEXT("Plan rejection leaves lifecycle free of hidden recovery"),
+		Fixture.Lifecycle.TryEnd(Diagnostic)
+		&& Fixture.Lifecycle.IsEmpty()
+		&& Fixture.Coordinator.IsReady());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	Fdemo_mapThrownWeaponProductLifecycleFailClosedTest,
 	"Shanmen.0_0_10.Product.ThrownWeaponProductLifecycle.FailClosedBoundaries",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -450,6 +738,23 @@ bool Fdemo_mapThrownWeaponProductLifecycleFailClosedTest::RunTest(
 			== Edemo_mapShanmenThrownWeaponSessionStatus::RunMismatch
 		&& AfterMismatch == Before
 		&& Fixture.Lifecycle.NumCapturedSelections() == 0);
+	const Fdemo_mapShanmenThrownWeaponSessionResult TrajectoryMismatch =
+		Fixture.Lifecycle.TrySubmitHotbar(
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			Fixture.Coordinator,
+			Fixture.MakeArcIntent(
+				FGuid::NewGuid(),
+				FVector(640.0, 110.0, 70.0)));
+	FShanmenItemAuthoritySnapshot AfterTrajectoryMismatch;
+	Fixture.Authority->TryCaptureSnapshot(AfterTrajectoryMismatch);
+	TestTrue(TEXT("Straight lifecycle rejects Arc intent before product work"),
+		TrajectoryMismatch.Status
+			== Edemo_mapShanmenThrownWeaponSessionStatus::TrajectoryMismatch
+		&& AfterTrajectoryMismatch == Before
+		&& Fixture.Lifecycle.NumCapturedSelections() == 0
+		&& Fixture.Coordinator
+			.GetNextPlayerThrownWeaponActivationSequence() == 1);
 
 	Fdemo_mapShanmenThrownWeaponProductLifecycle EmptyLifecycle;
 	const Fdemo_mapShanmenThrownWeaponSessionResult Inactive =

@@ -11,8 +11,29 @@ bool Fdemo_mapShanmenThrownWeaponProductLifecycle::
 		Fdemo_mapShanmenThrownWeaponSessionConfig& OutConfig,
 		FString& OutDiagnostic)
 {
+	return TryCaptureTrainingThrowingKnifeConfig(
+		Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight,
+		OutConfig,
+		OutDiagnostic);
+}
+
+bool Fdemo_mapShanmenThrownWeaponProductLifecycle::
+	TryCaptureTrainingThrowingKnifeConfig(
+		Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind RequestedTrajectoryKind,
+		Fdemo_mapShanmenThrownWeaponSessionConfig& OutConfig,
+		FString& OutDiagnostic)
+{
 	OutConfig = Fdemo_mapShanmenThrownWeaponSessionConfig();
 	OutDiagnostic.Reset();
+	if (RequestedTrajectoryKind
+			!= Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight
+		&& RequestedTrajectoryKind
+			!= Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc)
+	{
+		OutDiagnostic =
+			TEXT("TrainingThrowingKnife lifecycle content requires explicit Straight or Arc trajectory.");
+		return false;
+	}
 	const Fdemo_mapItemDefinition* Product =
 		Fdemo_mapItemDefinitions::Find(
 			Fdemo_mapItemIds::TrainingThrowingKnife);
@@ -26,10 +47,21 @@ bool Fdemo_mapShanmenThrownWeaponProductLifecycle::
 	}
 
 	FShanmenThrownWeaponDefinitionCapture Definition;
-	Definition.ActionDefinitionId =
-		FShanmenThrownWeaponDefinition::CanonicalActionDefinitionId();
-	Definition.DetectorId =
-		TEXT("Detector.ThrownWeapon.TrainingThrowingKnife.Straight");
+	if (RequestedTrajectoryKind
+		== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight)
+	{
+		Definition.ActionDefinitionId =
+			FShanmenThrownWeaponDefinition::CanonicalActionDefinitionId();
+		Definition.DetectorId =
+			TEXT("Detector.ThrownWeapon.TrainingThrowingKnife.Straight");
+	}
+	else
+	{
+		Definition.ActionDefinitionId =
+			FShanmenThrownWeaponDefinition::ArcActionDefinitionId();
+		Definition.DetectorId =
+			TEXT("Detector.ThrownWeapon.TrainingThrowingKnife.Arc");
+	}
 	Definition.FormulaId =
 		TEXT("Combat.Formula.ThrownWeapon.TrainingThrowingKnife.r1");
 	Definition.BaseDamage = 12.0f;
@@ -43,15 +75,25 @@ bool Fdemo_mapShanmenThrownWeaponProductLifecycle::
 
 	FGameplayTagContainer SourceTags;
 	SourceTags.AddTag(FShanmenCombatNativeTags::SourcePlayer());
-	if (!Fdemo_mapShanmenThrownWeaponSessionConfig::TryCapture(
-			Definition, SourceTags, OutConfig))
+	const bool bCaptured = RequestedTrajectoryKind
+			== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight
+		? Fdemo_mapShanmenThrownWeaponSessionConfig::TryCapture(
+			Definition, SourceTags, OutConfig)
+		: Fdemo_mapShanmenThrownWeaponSessionConfig::TryCaptureArc(
+			Definition,
+			SourceTags,
+			EShanmenThrownWeaponTechniqueTier::Intermediate,
+			980.0,
+			4.0,
+			OutConfig);
+	if (!bCaptured)
 	{
 		OutDiagnostic =
 			TEXT("TrainingThrowingKnife combat policy failed immutable capture.");
 		return false;
 	}
 	OutDiagnostic =
-		TEXT("TrainingThrowingKnife product policy captured from canonical content identity.");
+		TEXT("TrainingThrowingKnife typed product policy captured from canonical content identity.");
 	return true;
 }
 
@@ -59,6 +101,21 @@ bool Fdemo_mapShanmenThrownWeaponProductLifecycle::TryBegin(
 	Udemo_mapShanmenItemAuthoritySubsystem& Authority,
 	AActor& SourceActor,
 	Fdemo_mapCombatRunCoordinator& Coordinator,
+	FString& OutDiagnostic)
+{
+	return TryBegin(
+		Authority,
+		SourceActor,
+		Coordinator,
+		Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight,
+		OutDiagnostic);
+}
+
+bool Fdemo_mapShanmenThrownWeaponProductLifecycle::TryBegin(
+	Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+	AActor& SourceActor,
+	Fdemo_mapCombatRunCoordinator& Coordinator,
+	Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind RequestedTrajectoryKind,
 	FString& OutDiagnostic)
 {
 	OutDiagnostic.Reset();
@@ -99,7 +156,8 @@ bool Fdemo_mapShanmenThrownWeaponProductLifecycle::TryBegin(
 	}
 
 	Fdemo_mapShanmenThrownWeaponSessionConfig Config;
-	if (!TryCaptureTrainingThrowingKnifeConfig(Config, OutDiagnostic)
+	if (!TryCaptureTrainingThrowingKnifeConfig(
+			RequestedTrajectoryKind, Config, OutDiagnostic)
 		|| !Session.TryBegin(
 			Correlation, SourceActor, Config, OutDiagnostic))
 	{

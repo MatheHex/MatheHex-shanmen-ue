@@ -30,15 +30,28 @@ public:
 	Fdemo_mapShanmenThrownWeaponProductLifecycle& operator=(
 		Fdemo_mapShanmenThrownWeaponProductLifecycle&&) = delete;
 
-	/** Captures the first real product policy for TrainingThrowingKnife. */
+	/** Straight compatibility capture for the real TrainingThrowingKnife. */
 	static bool TryCaptureTrainingThrowingKnifeConfig(
 		Fdemo_mapShanmenThrownWeaponSessionConfig& OutConfig,
 		FString& OutDiagnostic);
+	/** Captures canonical Straight or Arc content; callers cannot inject stats. */
+	static bool TryCaptureTrainingThrowingKnifeConfig(
+		Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind TrajectoryKind,
+		Fdemo_mapShanmenThrownWeaponSessionConfig& OutConfig,
+		FString& OutDiagnostic);
 
+	/** Straight compatibility bind. */
 	bool TryBegin(
 		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
 		AActor& SourceActor,
 		Fdemo_mapCombatRunCoordinator& Coordinator,
+		FString& OutDiagnostic);
+	/** Explicit typed bind using only canonical lifecycle-owned content. */
+	bool TryBegin(
+		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+		AActor& SourceActor,
+		Fdemo_mapCombatRunCoordinator& Coordinator,
+		Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind TrajectoryKind,
 		FString& OutDiagnostic);
 
 	Fdemo_mapShanmenThrownWeaponSessionResult TrySubmitHotbar(
@@ -70,6 +83,11 @@ public:
 	const FGuid& GetOccupancyOwnerId() const
 	{
 		return Session.GetOccupancyOwnerId();
+	}
+	const Fdemo_mapShanmenThrownWeaponRunCommandIntent* FindCapturedCommand(
+		const FGuid& SelectionId) const
+	{
+		return Session.FindCapturedCommand(SelectionId);
 	}
 
 private:
