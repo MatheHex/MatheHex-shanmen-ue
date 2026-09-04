@@ -70,7 +70,7 @@ namespace
 		return true;
 	}
 
-	FGuid MakeLaunchId(
+	FGuid MakeStraightLaunchId(
 		const FShanmenCombatActionSnapshot& Action,
 		const FVector& Origin,
 		const FVector& Direction,
@@ -97,6 +97,34 @@ namespace
 			});
 	}
 
+	FGuid MakeArcLaunchId(
+		const FShanmenCombatActionSnapshot& Action,
+		const FShanmenThrownWeaponArcPlan& Plan)
+	{
+		return FShanmenDeterministicId::FromCanonicalParts(
+			TEXT("Shanmen.ThrownWeapon.ArcLaunch.r1"),
+			{
+				GuidDigits(Action.GetRunId()),
+				GuidDigits(Action.GetOwnerId()),
+				GuidDigits(Action.GetActivationId()),
+				GuidDigits(Action.GetSourceEntityId()),
+				GuidDigits(Action.GetSourceItemInstanceId()),
+				Action.GetActionDefinitionId().ToString(),
+				Action.GetContent().Version.ToString(),
+				Action.GetContent().Digest,
+				GuidDigits(Plan.GetPlanId())
+			});
+	}
+
+	bool NearlyEqualFloatAndDouble(float Left, double Right)
+	{
+		const double Tolerance = FMath::Max(
+			1.0e-4,
+			FMath::Abs(Right) * 1.0e-6);
+		return FMath::IsNearlyEqual(
+			static_cast<double>(Left), Right, Tolerance);
+	}
+
 	bool ActionsMatch(
 		const FShanmenCombatActionSnapshot& Left,
 		const FShanmenCombatActionSnapshot& Right)
@@ -119,7 +147,17 @@ namespace
 
 FName FShanmenThrownWeaponDefinition::CanonicalActionDefinitionId()
 {
+	return StraightActionDefinitionId();
+}
+
+FName FShanmenThrownWeaponDefinition::StraightActionDefinitionId()
+{
 	return TEXT("Combat.Action.ThrownWeapon.Straight01");
+}
+
+FName FShanmenThrownWeaponDefinition::ArcActionDefinitionId()
+{
+	return FShanmenThrownWeaponArcRequest::CanonicalActionDefinitionId();
 }
 
 bool FShanmenThrownWeaponDefinition::TryCapture(
@@ -147,7 +185,8 @@ bool FShanmenThrownWeaponDefinition::TryCapture(
 
 bool FShanmenThrownWeaponDefinition::IsValid() const
 {
-	return ActionDefinitionId == CanonicalActionDefinitionId()
+	return (ActionDefinitionId == StraightActionDefinitionId()
+			|| ActionDefinitionId == ArcActionDefinitionId())
 		&& !DetectorId.IsNone()
 		&& !FormulaId.IsNone()
 		&& FMath::IsFinite(BaseDamage)
@@ -185,17 +224,43 @@ bool FShanmenThrownWeaponOffenseSnapshot::IsValid() const
 
 bool FShanmenThrownWeaponLaunchReceipt::IsValid() const
 {
-	return LaunchId.IsValid()
-		&& Action.IsValid()
-		&& Action.GetSourceItemInstanceId().IsValid()
-		&& Action.GetActionDefinitionId()
-			== FShanmenThrownWeaponDefinition::CanonicalActionDefinitionId()
-		&& IsFiniteVector(Origin)
-		&& IsFiniteVector(Direction)
-		&& FMath::IsNearlyEqual(Direction.SizeSquared(), 1.0)
-		&& FMath::IsFinite(Speed)
-		&& Speed > 0.0f
-		&& LaunchId == MakeLaunchId(Action, Origin, Direction, Speed);
+	if (!LaunchId.IsValid()
+		|| !Action.IsValid()
+		|| !Action.GetSourceItemInstanceId().IsValid()
+		|| !IsFiniteVector(Origin)
+		|| !IsFiniteVector(Direction)
+		|| !FMath::IsNearlyEqual(Direction.SizeSquared(), 1.0)
+		|| !FMath::IsFinite(Speed)
+		|| Speed <= 0.0f)
+	{
+		return false;
+	}
+
+	if (TrajectoryKind == EShanmenThrownWeaponTrajectoryKind::Straight)
+	{
+		return Action.GetActionDefinitionId()
+				== FShanmenThrownWeaponDefinition::StraightActionDefinitionId()
+			&& !ArcPlan.IsValid()
+			&& LaunchId == MakeStraightLaunchId(
+				Action, Origin, Direction, Speed);
+	}
+	if (TrajectoryKind
+		!= EShanmenThrownWeaponTrajectoryKind::BallisticArc
+		|| Action.GetActionDefinitionId()
+			!= FShanmenThrownWeaponDefinition::ArcActionDefinitionId()
+		|| !ArcPlan.IsValid()
+		|| !ActionsMatch(ArcPlan.GetRequest().GetAction(), Action)
+		|| Origin != ArcPlan.GetRequest().GetOrigin()
+		|| !NearlyEqualFloatAndDouble(Speed, ArcPlan.GetLaunchSpeed()))
+	{
+		return false;
+	}
+
+	FVector ExpectedDirection;
+	return TryCanonicalDirection(
+			ArcPlan.GetInitialVelocity(), ExpectedDirection)
+		&& Direction.Equals(ExpectedDirection, UE_DOUBLE_SMALL_NUMBER)
+		&& LaunchId == MakeArcLaunchId(Action, ArcPlan);
 }
 
 bool FShanmenThrownWeaponImpactReceipt::IsValid() const
@@ -265,8 +330,29 @@ bool FShanmenThrownWeaponExecution::IsValid() const
 			&& !EmissionSession.IsEmissionActive();
 	}
 	if (!LaunchReceipt.IsValid()
-		|| !ActionsMatch(LaunchReceipt.GetAction(), Action)
-		|| LaunchReceipt.GetSpeed() != Definition.GetLaunchSpeed())
+		|| !ActionsMatch(LaunchReceipt.GetAction(), Action))
+	{
+		return false;
+	}
+	if (LaunchReceipt.GetTrajectoryKind()
+		== EShanmenThrownWeaponTrajectoryKind::Straight)
+	{
+		if (Definition.GetActionDefinitionId()
+				!= FShanmenThrownWeaponDefinition::StraightActionDefinitionId()
+			|| LaunchReceipt.GetSpeed() != Definition.GetLaunchSpeed())
+		{
+			return false;
+		}
+	}
+	else if (Definition.GetActionDefinitionId()
+			!= FShanmenThrownWeaponDefinition::ArcActionDefinitionId()
+		|| LaunchReceipt.GetArcPlan().GetRequest().GetMaximumLaunchSpeed()
+			> static_cast<double>(Definition.GetLaunchSpeed())
+		|| static_cast<double>(LaunchReceipt.GetSpeed())
+			> static_cast<double>(Definition.GetLaunchSpeed())
+		|| !NearlyEqualFloatAndDouble(
+			LaunchReceipt.GetSpeed(),
+			LaunchReceipt.GetArcPlan().GetLaunchSpeed()))
 	{
 		return false;
 	}
@@ -283,7 +369,9 @@ bool FShanmenThrownWeaponExecution::TryLaunchStraight(
 {
 	OutReceipt = FShanmenThrownWeaponLaunchReceipt();
 	FVector Direction;
-	if (!MatchesActionRuntime(ActionRuntime)
+	if (Definition.GetActionDefinitionId()
+			!= FShanmenThrownWeaponDefinition::StraightActionDefinitionId()
+		|| !MatchesActionRuntime(ActionRuntime)
 		|| !ActionRuntime.CanEmitCandidates()
 		|| !IsFiniteVector(Origin)
 		|| !TryCanonicalDirection(AimDirection, Direction))
@@ -295,7 +383,7 @@ bool FShanmenThrownWeaponExecution::TryLaunchStraight(
 	CanonicalOrigin.X = CanonicalZero(CanonicalOrigin.X);
 	CanonicalOrigin.Y = CanonicalZero(CanonicalOrigin.Y);
 	CanonicalOrigin.Z = CanonicalZero(CanonicalOrigin.Z);
-	const FGuid LaunchId = MakeLaunchId(
+	const FGuid LaunchId = MakeStraightLaunchId(
 		Action,
 		CanonicalOrigin,
 		Direction,
@@ -317,9 +405,77 @@ bool FShanmenThrownWeaponExecution::TryLaunchStraight(
 
 	OutReceipt.LaunchId = LaunchId;
 	OutReceipt.Action = Action;
+	OutReceipt.TrajectoryKind =
+		EShanmenThrownWeaponTrajectoryKind::Straight;
 	OutReceipt.Origin = CanonicalOrigin;
 	OutReceipt.Direction = Direction;
 	OutReceipt.Speed = Definition.GetLaunchSpeed();
+	if (!OutReceipt.IsValid())
+	{
+		OutReceipt = FShanmenThrownWeaponLaunchReceipt();
+		return false;
+	}
+
+	LaunchReceipt = OutReceipt;
+	State = EShanmenThrownWeaponState::InFlight;
+	if (!IsValid())
+	{
+		LaunchReceipt = FShanmenThrownWeaponLaunchReceipt();
+		State = EShanmenThrownWeaponState::Ready;
+		OutReceipt = FShanmenThrownWeaponLaunchReceipt();
+		return false;
+	}
+	return true;
+}
+
+bool FShanmenThrownWeaponExecution::TryLaunchArc(
+	const FShanmenActionOrchestrator& ActionRuntime,
+	const FShanmenThrownWeaponArcPlan& ArcPlan,
+	FShanmenThrownWeaponLaunchReceipt& OutReceipt)
+{
+	OutReceipt = FShanmenThrownWeaponLaunchReceipt();
+	FVector Direction;
+	if (Definition.GetActionDefinitionId()
+			!= FShanmenThrownWeaponDefinition::ArcActionDefinitionId()
+		|| !MatchesActionRuntime(ActionRuntime)
+		|| !ActionRuntime.CanEmitCandidates()
+		|| !ArcPlan.IsValid()
+		|| !ActionsMatch(ArcPlan.GetRequest().GetAction(), Action)
+		|| ArcPlan.GetRequest().GetMaximumLaunchSpeed()
+			> static_cast<double>(Definition.GetLaunchSpeed())
+		|| ArcPlan.GetLaunchSpeed()
+			> static_cast<double>(Definition.GetLaunchSpeed())
+		|| ArcPlan.GetLaunchSpeed() > static_cast<double>(MAX_flt)
+		|| !TryCanonicalDirection(
+			ArcPlan.GetInitialVelocity(), Direction))
+	{
+		return false;
+	}
+
+	const FGuid LaunchId = MakeArcLaunchId(Action, ArcPlan);
+	if (LaunchReceipt.IsValid())
+	{
+		if (LaunchReceipt.GetLaunchId() != LaunchId)
+		{
+			return false;
+		}
+		OutReceipt = LaunchReceipt;
+		return true;
+	}
+	if (State != EShanmenThrownWeaponState::Ready
+		|| EmissionSession.IsEmissionActive())
+	{
+		return false;
+	}
+
+	OutReceipt.LaunchId = LaunchId;
+	OutReceipt.Action = Action;
+	OutReceipt.TrajectoryKind =
+		EShanmenThrownWeaponTrajectoryKind::BallisticArc;
+	OutReceipt.Origin = ArcPlan.GetRequest().GetOrigin();
+	OutReceipt.Direction = Direction;
+	OutReceipt.Speed = static_cast<float>(ArcPlan.GetLaunchSpeed());
+	OutReceipt.ArcPlan = ArcPlan;
 	if (!OutReceipt.IsValid())
 	{
 		OutReceipt = FShanmenThrownWeaponLaunchReceipt();

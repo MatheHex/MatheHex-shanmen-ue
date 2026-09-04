@@ -160,6 +160,9 @@ try
     $ThrownArc = New-AutomationLogFixture `
         -Name 'thrown-arc.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.ThrownWeaponArc'
+    $ThrownArcExecution = New-AutomationLogFixture `
+        -Name 'thrown-arc-execution.log' `
+        -Group 'Shanmen.0_0_10.CombatRuntime.ThrownWeaponArcExecution'
     $CombatRuntime = New-AutomationLogFixture `
         -Name 'combat-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime'
@@ -637,6 +640,19 @@ try
             'Source/ShanmenCombatRuntime/Private/ShanmenThrownWeaponArcPlanner.cpp',
             'Source/ShanmenCombatRuntime/Private/Tests/ShanmenThrownWeaponArcPlannerTests.cpp') `
         -Logs @($ThrownArc, $ThrownRuntime, $CombatCore, $CombatRuntime)
+
+    Invoke-ExpectedPass `
+        -Name 'thrown weapon arc execution requires arc planner straight compatibility core and broad runtime evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Public/ShanmenThrownWeaponExecution.h',
+            'Source/ShanmenCombatRuntime/Private/ShanmenThrownWeaponExecution.cpp',
+            'Source/ShanmenCombatRuntime/Private/Tests/ShanmenThrownWeaponArcExecutionTests.cpp') `
+        -Logs @(
+            $ThrownArcExecution,
+            $ThrownArc,
+            $ThrownRuntime,
+            $CombatCore,
+            $CombatRuntime)
 
     Invoke-ExpectedPass `
         -Name 'sword rhythm requires rhythm BasicSword lifecycle and broad runtime evidence' `
@@ -2980,6 +2996,13 @@ try
         -Paths @(
             'Source/ShanmenCombatRuntime/Private/ShanmenThrownWeaponArcPlanner.cpp') `
         -Logs @($ThrownArc) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'arc execution focus alone cannot cover planner straight core and broad runtime dependencies' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Private/ShanmenThrownWeaponExecution.cpp') `
+        -Logs @($ThrownArcExecution) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

@@ -4,6 +4,7 @@
 #include "ShanmenActionOrchestrator.h"
 #include "ShanmenCombatResolver.h"
 #include "ShanmenDetectorEmissionSession.h"
+#include "ShanmenThrownWeaponArcPlanner.h"
 
 #include "ShanmenThrownWeaponExecution.generated.h"
 
@@ -16,9 +17,18 @@ enum class EShanmenThrownWeaponState : uint8
 	Spent
 };
 
+/** Explicit motion proof carried by one thrown-item launch receipt. */
+UENUM(BlueprintType)
+enum class EShanmenThrownWeaponTrajectoryKind : uint8
+{
+	Straight,
+	BallisticArc
+};
+
 /**
- * Content-owned values for the first straight-flight thrown-weapon action.
- * Arc solving, homing, input bindings, and inventory policy stay external.
+ * Content-owned values shared by the straight and manual-arc thrown actions.
+ * LaunchSpeed is exact for straight flight and an authority ceiling for an arc.
+ * Arc solving, input bindings, and inventory policy stay external.
  */
 USTRUCT(BlueprintType)
 struct SHANMENCOMBATRUNTIME_API FShanmenThrownWeaponDefinitionCapture
@@ -53,14 +63,17 @@ struct SHANMENCOMBATRUNTIME_API FShanmenThrownWeaponDefinitionCapture
 	bool bRejectSelf = true;
 };
 
-/** Immutable content definition for initial straight throwing. */
+/** Immutable damage policy and motion envelope for one thrown-item action. */
 USTRUCT(BlueprintType)
 struct SHANMENCOMBATRUNTIME_API FShanmenThrownWeaponDefinition
 {
 	GENERATED_BODY()
 
 public:
+	/** Backward-compatible alias for the initial straight action. */
 	static FName CanonicalActionDefinitionId();
+	static FName StraightActionDefinitionId();
+	static FName ArcActionDefinitionId();
 	static bool TryCapture(
 		const FShanmenThrownWeaponDefinitionCapture& Capture,
 		FShanmenThrownWeaponDefinition& OutDefinition);
@@ -74,6 +87,7 @@ public:
 	{
 		return TechniquePowerCoefficient;
 	}
+	/** Exact straight speed, or maximum admitted launch speed for an arc. */
 	float GetLaunchSpeed() const { return LaunchSpeed; }
 	const FGameplayTagContainer& GetDamageTags() const { return DamageTags; }
 	const FGameplayTagContainer& GetRequiredTargetTags() const
@@ -133,8 +147,9 @@ private:
 };
 
 /**
- * Immutable straight-flight launch proof. The direction is canonical and there
- * is intentionally no redirect, steering, arc, or homing field.
+ * Immutable motion proof for one exact thrown-item launch. Straight receipts
+ * retain the P7 representation; ballistic receipts embed the self-validating
+ * P20 arc plan rather than copying its geometry into another authority.
  */
 USTRUCT(BlueprintType)
 struct SHANMENCOMBATRUNTIME_API FShanmenThrownWeaponLaunchReceipt
@@ -145,9 +160,35 @@ public:
 	bool IsValid() const;
 	const FGuid& GetLaunchId() const { return LaunchId; }
 	const FShanmenCombatActionSnapshot& GetAction() const { return Action; }
+	EShanmenThrownWeaponTrajectoryKind GetTrajectoryKind() const
+	{
+		return TrajectoryKind;
+	}
 	const FVector& GetOrigin() const { return Origin; }
 	const FVector& GetDirection() const { return Direction; }
 	float GetSpeed() const { return Speed; }
+	FVector GetInitialVelocity() const
+	{
+		return TrajectoryKind
+				== EShanmenThrownWeaponTrajectoryKind::BallisticArc
+			? ArcPlan.GetInitialVelocity()
+			: Direction * Speed;
+	}
+	FVector GetGravityAcceleration() const
+	{
+		return TrajectoryKind
+				== EShanmenThrownWeaponTrajectoryKind::BallisticArc
+			? ArcPlan.GetGravityAcceleration()
+			: FVector::ZeroVector;
+	}
+	double GetFlightTimeSeconds() const
+	{
+		return TrajectoryKind
+				== EShanmenThrownWeaponTrajectoryKind::BallisticArc
+			? ArcPlan.GetFlightTimeSeconds()
+			: 0.0;
+	}
+	const FShanmenThrownWeaponArcPlan& GetArcPlan() const { return ArcPlan; }
 
 private:
 	friend class FShanmenThrownWeaponExecution;
@@ -159,6 +200,10 @@ private:
 	FShanmenCombatActionSnapshot Action;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Shanmen|Combat|ThrownWeapon", meta = (AllowPrivateAccess = "true"))
+	EShanmenThrownWeaponTrajectoryKind TrajectoryKind =
+		EShanmenThrownWeaponTrajectoryKind::Straight;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Shanmen|Combat|ThrownWeapon", meta = (AllowPrivateAccess = "true"))
 	FVector Origin = FVector::ZeroVector;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Shanmen|Combat|ThrownWeapon", meta = (AllowPrivateAccess = "true"))
@@ -166,6 +211,9 @@ private:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Shanmen|Combat|ThrownWeapon", meta = (AllowPrivateAccess = "true"))
 	float Speed = 0.0f;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Shanmen|Combat|ThrownWeapon", meta = (AllowPrivateAccess = "true"))
+	FShanmenThrownWeaponArcPlan ArcPlan;
 };
 
 /** Auditable pure-kernel result for one accepted thrown-item contact. */
@@ -190,11 +238,11 @@ private:
 };
 
 /**
- * Pure deterministic kernel for one exact initial-tier thrown item.
+ * Pure deterministic kernel for one exact hand-thrown item.
  *
- * The runtime freezes a single straight launch and projectile candidate stream.
- * Product Actor motion, inventory reserve/commit, input, gravity, arc authoring,
- * path finding, and presentation remain later adapters.
+ * The runtime freezes one straight or planned ballistic launch and one shared
+ * projectile candidate stream. Product Actor motion, inventory reserve/commit,
+ * input, path finding, and presentation remain later adapters.
  */
 class SHANMENCOMBATRUNTIME_API FShanmenThrownWeaponExecution
 {
@@ -210,6 +258,10 @@ public:
 		const FShanmenActionOrchestrator& ActionRuntime,
 		const FVector& Origin,
 		const FVector& AimDirection,
+		FShanmenThrownWeaponLaunchReceipt& OutReceipt);
+	bool TryLaunchArc(
+		const FShanmenActionOrchestrator& ActionRuntime,
+		const FShanmenThrownWeaponArcPlan& ArcPlan,
 		FShanmenThrownWeaponLaunchReceipt& OutReceipt);
 	bool TryBeginEmission(
 		const FShanmenActionOrchestrator& ActionRuntime,
