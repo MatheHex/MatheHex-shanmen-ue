@@ -6,6 +6,14 @@
 class UWorld;
 class Udemo_mapShanmenItemAuthoritySubsystem;
 
+/** Explicit flight contract carried by one run command. */
+enum class Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind : uint8
+{
+	Invalid,
+	Straight,
+	BallisticArc
+};
+
 /**
  * Frozen, input-device-independent request for one exact physical throw.
  *
@@ -26,6 +34,13 @@ public:
 		const FVector& AimDirection,
 		float MaximumDistance,
 		Fdemo_mapShanmenThrownWeaponRunCommandIntent& OutIntent);
+	static bool TryCaptureArc(
+		const Fdemo_mapShanmenRunCorrelation& Correlation,
+		const FShanmenCombatActionSnapshot& Action,
+		const FShanmenThrownWeaponDefinition& Definition,
+		const FShanmenThrownWeaponOffenseSnapshot& Offense,
+		const FShanmenThrownWeaponArcPlan& ArcPlan,
+		Fdemo_mapShanmenThrownWeaponRunCommandIntent& OutIntent);
 
 	bool IsValid() const;
 	bool Matches(
@@ -45,18 +60,24 @@ public:
 	{
 		return Offense;
 	}
+	Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind
+	GetTrajectoryKind() const { return TrajectoryKind; }
 	const FVector& GetOrigin() const { return Origin; }
 	const FVector& GetAimDirection() const { return AimDirection; }
 	float GetMaximumDistance() const { return MaximumDistance; }
+	const FShanmenThrownWeaponArcPlan& GetArcPlan() const { return ArcPlan; }
 
 private:
 	Fdemo_mapShanmenRunCorrelation Correlation;
 	FShanmenCombatActionSnapshot Action;
 	FShanmenThrownWeaponDefinition Definition;
 	FShanmenThrownWeaponOffenseSnapshot Offense;
+	Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind TrajectoryKind =
+		Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Invalid;
 	FVector Origin = FVector::ZeroVector;
 	FVector AimDirection = FVector::ZeroVector;
 	float MaximumDistance = 0.0f;
+	FShanmenThrownWeaponArcPlan ArcPlan;
 };
 
 enum class Edemo_mapShanmenThrownWeaponRunCommandStatus : uint8
@@ -112,11 +133,12 @@ struct Fdemo_mapShanmenThrownWeaponRunCommandResult
  *
  * One call constructs the pure action runtime, durably prepares one Quantity,
  * crosses the action commit point, and asks the P7.3 Host to spawn and publish
- * the exact straight flight. Exact replay never repeats inventory I/O or Actor
- * creation. A failed pre-launch path is durably cancelled; if cancellation I/O
- * fails, the terminal record blocks unsafe retry until TryRecoverCancellation
- * succeeds. No input binding, inventory mutation, Actor subclass policy, or
- * vitality authority is owned by this router.
+ * the intent's explicit straight or ballistic-arc flight. Exact replay never
+ * repeats inventory I/O or Actor creation. A failed pre-launch path is durably
+ * cancelled; if cancellation I/O fails, the terminal record blocks unsafe
+ * retry until TryRecoverCancellation succeeds. No input binding, inventory
+ * mutation, Actor subclass policy, or vitality authority is owned by this
+ * router.
  */
 class Fdemo_mapShanmenThrownWeaponRunCommandRouter
 {

@@ -130,6 +130,8 @@ bool Fdemo_mapShanmenThrownWeaponRunCommandIntent::TryCapture(
 	OutIntent.Action = RequestedAction;
 	OutIntent.Definition = RequestedDefinition;
 	OutIntent.Offense = RequestedOffense;
+	OutIntent.TrajectoryKind =
+		Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight;
 	OutIntent.Origin = RequestedOrigin;
 	OutIntent.AimDirection = RequestedAimDirection.GetSafeNormal();
 	OutIntent.MaximumDistance = RequestedMaximumDistance;
@@ -141,42 +143,105 @@ bool Fdemo_mapShanmenThrownWeaponRunCommandIntent::TryCapture(
 	return true;
 }
 
+bool Fdemo_mapShanmenThrownWeaponRunCommandIntent::TryCaptureArc(
+	const Fdemo_mapShanmenRunCorrelation& RequestedCorrelation,
+	const FShanmenCombatActionSnapshot& RequestedAction,
+	const FShanmenThrownWeaponDefinition& RequestedDefinition,
+	const FShanmenThrownWeaponOffenseSnapshot& RequestedOffense,
+	const FShanmenThrownWeaponArcPlan& RequestedArcPlan,
+	Fdemo_mapShanmenThrownWeaponRunCommandIntent& OutIntent)
+{
+	OutIntent = Fdemo_mapShanmenThrownWeaponRunCommandIntent();
+	if (!RequestedCorrelation.IsValid()
+		|| !RequestedAction.IsValid()
+		|| !RequestedDefinition.IsValid()
+		|| !RequestedOffense.IsValid()
+		|| !RequestedArcPlan.IsValid())
+	{
+		return false;
+	}
+
+	OutIntent.Correlation = RequestedCorrelation;
+	OutIntent.Action = RequestedAction;
+	OutIntent.Definition = RequestedDefinition;
+	OutIntent.Offense = RequestedOffense;
+	OutIntent.TrajectoryKind =
+		Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc;
+	OutIntent.ArcPlan = RequestedArcPlan;
+	if (!OutIntent.IsValid())
+	{
+		OutIntent = Fdemo_mapShanmenThrownWeaponRunCommandIntent();
+		return false;
+	}
+	return true;
+}
+
 bool Fdemo_mapShanmenThrownWeaponRunCommandIntent::IsValid() const
 {
 	const FGuid& ItemId = Action.GetSourceItemInstanceId();
-	return Correlation.IsValid()
+	const bool bCommonValid = Correlation.IsValid()
 		&& Action.IsValid()
 		&& Definition.IsValid()
 		&& Offense.IsValid()
 		&& Action.GetRunId() == Correlation.ActiveRunId
 		&& Action.GetOwnerId() == Correlation.OwnerId
-		&& Action.GetActionDefinitionId()
-			== FShanmenThrownWeaponDefinition::CanonicalActionDefinitionId()
 		&& Definition.GetActionDefinitionId()
 			== Action.GetActionDefinitionId()
 		&& ItemId.IsValid()
 		&& Correlation.OrderedPreparedItemInstanceIds.Contains(ItemId)
-		&& Correlation.OrderedRunInventoryItemInstanceIds.Contains(ItemId)
-		&& IsFiniteVector(Origin)
-		&& IsFiniteVector(AimDirection)
-		&& AimDirection.IsNormalized()
-		&& FMath::IsFinite(MaximumDistance)
-		&& MaximumDistance > KINDA_SMALL_NUMBER;
+		&& Correlation.OrderedRunInventoryItemInstanceIds.Contains(ItemId);
+	if (!bCommonValid)
+	{
+		return false;
+	}
+
+	switch (TrajectoryKind)
+	{
+	case Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight:
+		return Action.GetActionDefinitionId()
+				== FShanmenThrownWeaponDefinition::StraightActionDefinitionId()
+			&& IsFiniteVector(Origin)
+			&& IsFiniteVector(AimDirection)
+			&& AimDirection.IsNormalized()
+			&& FMath::IsFinite(MaximumDistance)
+			&& MaximumDistance > KINDA_SMALL_NUMBER
+			&& !ArcPlan.IsValid();
+	case Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc:
+		return Action.GetActionDefinitionId()
+				== FShanmenThrownWeaponDefinition::ArcActionDefinitionId()
+			&& Origin == FVector::ZeroVector
+			&& AimDirection == FVector::ZeroVector
+			&& MaximumDistance == 0.0f
+			&& ArcPlan.IsValid()
+			&& ActionsMatch(Action, ArcPlan.GetRequest().GetAction());
+	default:
+		return false;
+	}
 }
 
 bool Fdemo_mapShanmenThrownWeaponRunCommandIntent::Matches(
 	const Fdemo_mapShanmenThrownWeaponRunCommandIntent& Other) const
 {
-	return IsValid()
+	const bool bCommonMatch = IsValid()
 		&& Other.IsValid()
 		&& Correlation == Other.Correlation
 		&& ActionsMatch(Action, Other.Action)
 		&& DefinitionsMatch(Definition, Other.Definition)
 		&& Offense.GetTechniquePower()
 			== Other.Offense.GetTechniquePower()
-		&& Origin == Other.Origin
-		&& AimDirection == Other.AimDirection
-		&& MaximumDistance == Other.MaximumDistance;
+		&& TrajectoryKind == Other.TrajectoryKind;
+	if (!bCommonMatch)
+	{
+		return false;
+	}
+	if (TrajectoryKind
+		== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight)
+	{
+		return Origin == Other.Origin
+			&& AimDirection == Other.AimDirection
+			&& MaximumDistance == Other.MaximumDistance;
+	}
+	return ArcPlan.Matches(Other.ArcPlan);
 }
 
 bool Fdemo_mapShanmenThrownWeaponRunCommandResult::IsAccepted() const
@@ -384,26 +449,44 @@ Fdemo_mapShanmenThrownWeaponRunCommandRouter::TryRoute(
 		return Result;
 	}
 
-	Result.HostStart = Host.TrySpawnAndLaunchPrepared(
-		World,
-		ProjectileClass,
-		Authority,
-		Intent.GetCorrelation(),
-		Result.Preparation,
-		ActionRuntime,
-		Execution,
-		Coordinator,
-		SourceActor,
-		Intent.GetOrigin(),
-		Intent.GetAimDirection(),
-		Intent.GetMaximumDistance());
+	if (Intent.GetTrajectoryKind()
+		== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight)
+	{
+		Result.HostStart = Host.TrySpawnAndLaunchPrepared(
+			World,
+			ProjectileClass,
+			Authority,
+			Intent.GetCorrelation(),
+			Result.Preparation,
+			ActionRuntime,
+			Execution,
+			Coordinator,
+			SourceActor,
+			Intent.GetOrigin(),
+			Intent.GetAimDirection(),
+			Intent.GetMaximumDistance());
+	}
+	else
+	{
+		Result.HostStart = Host.TrySpawnAndLaunchPreparedArc(
+			World,
+			ProjectileClass,
+			Authority,
+			Intent.GetCorrelation(),
+			Result.Preparation,
+			ActionRuntime,
+			Execution,
+			Coordinator,
+			SourceActor,
+			Intent.GetArcPlan());
+	}
 	if (Result.HostStart.IsStarted())
 	{
 		Result.Status =
 			Edemo_mapShanmenThrownWeaponRunCommandStatus::Applied;
 		Result.LaunchId = Result.HostStart.LaunchId;
 		Result.Diagnostic =
-			TEXT("Thrown-weapon Quantity and straight flight committed exactly once.");
+			TEXT("Thrown-weapon Quantity and explicit flight committed exactly once.");
 		RecordTerminal(Intent, Result);
 		return Result;
 	}

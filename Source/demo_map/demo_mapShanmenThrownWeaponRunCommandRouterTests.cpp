@@ -351,6 +351,25 @@ namespace
 				OutIntent);
 		}
 
+		bool MakeArcIntent(
+			uint64 Sequence,
+			const FVector& Target,
+			Fdemo_mapShanmenThrownWeaponRunCommandIntent& OutIntent,
+			const FVector& Origin = FVector(25.0, 40.0, 60.0)) const
+		{
+			const FShanmenCombatActionSnapshot Action = MakeAction(
+				Sequence,
+				FShanmenThrownWeaponDefinition::ArcActionDefinitionId());
+			return Fdemo_mapShanmenThrownWeaponRunCommandIntent::TryCaptureArc(
+				Correlation,
+				Action,
+				MakeRouterDefinition(
+					FShanmenThrownWeaponDefinition::ArcActionDefinitionId()),
+				MakeRouterOffense(),
+				MakeRouterArcPlan(Action, Origin, Target),
+				OutIntent);
+		}
+
 		void Stop()
 		{
 			if (Coordinator.IsActive())
@@ -419,6 +438,50 @@ bool Fdemo_mapThrownWeaponRunCommandIntentTest::RunTest(const FString&)
 	Fdemo_mapShanmenThrownWeaponRunCommandIntent Invalid;
 	TestFalse(TEXT("A non-positive product range cannot enter the Router"),
 		Fixture.MakeIntent(2, FVector::ForwardVector, Invalid, 0.0f));
+
+	Fdemo_mapShanmenThrownWeaponRunCommandIntent Arc;
+	const FVector ArcTarget(525.0, 40.0, 60.0);
+	TestTrue(TEXT("Arc capture freezes one explicit ballistic plan only"),
+		Fixture.MakeArcIntent(3, ArcTarget, Arc)
+			&& Arc.IsValid()
+			&& Arc.GetTrajectoryKind()
+				== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::
+					BallisticArc
+			&& Arc.GetArcPlan().IsValid()
+			&& Arc.GetArcPlan().GetRequest().GetTarget() == ArcTarget
+			&& Arc.GetOrigin() == FVector::ZeroVector
+			&& Arc.GetAimDirection() == FVector::ZeroVector
+			&& Arc.GetMaximumDistance() == 0.0f);
+
+	const FShanmenCombatActionSnapshot ArcAction = Fixture.MakeAction(
+		4, FShanmenThrownWeaponDefinition::ArcActionDefinitionId());
+	const FShanmenThrownWeaponArcPlan ArcPlan = MakeRouterArcPlan(
+		ArcAction,
+		FVector(25.0, 40.0, 60.0),
+		ArcTarget);
+	Fdemo_mapShanmenThrownWeaponRunCommandIntent WrongTrajectory;
+	TestFalse(TEXT("Arc action cannot enter the straight command capture"),
+		Fdemo_mapShanmenThrownWeaponRunCommandIntent::TryCapture(
+			Fixture.Correlation,
+			ArcAction,
+			MakeRouterDefinition(
+				FShanmenThrownWeaponDefinition::ArcActionDefinitionId()),
+			MakeRouterOffense(),
+			FVector(25.0, 40.0, 60.0),
+			FVector::ForwardVector,
+			1200.0f,
+			WrongTrajectory));
+	TestFalse(TEXT("Arc plan cannot be rebound to another action snapshot"),
+		Fdemo_mapShanmenThrownWeaponRunCommandIntent::TryCaptureArc(
+			Fixture.Correlation,
+			Fixture.MakeAction(
+				5,
+				FShanmenThrownWeaponDefinition::ArcActionDefinitionId()),
+			MakeRouterDefinition(
+				FShanmenThrownWeaponDefinition::ArcActionDefinitionId()),
+			MakeRouterOffense(),
+			ArcPlan,
+			WrongTrajectory));
 	return true;
 }
 
@@ -672,6 +735,180 @@ bool Fdemo_mapThrownWeaponRunCommandRecoveryTest::RunTest(const FString&)
 				LaunchRejectedCancelled
 			&& Replay.IsReplay()
 			&& Final == AfterRecovery);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcRunCommandApplyTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponRunCommand.ArcApplyReplayConflict",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcRunCommandApplyTest::RunTest(const FString&)
+{
+	FRouterFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponRunHost Host;
+	if (!Fixture.Start(*this, TEXT("ArcApply")))
+	{
+		return false;
+	}
+	Fdemo_mapShanmenThrownWeaponRunCommandIntent Intent;
+	const FVector Target(525.0, 40.0, 60.0);
+	if (!Fixture.MakeArcIntent(10, Target, Intent))
+	{
+		AddError(TEXT("Could not capture the P20.4 Arc run command."));
+		return false;
+	}
+
+	FShanmenItemAuthoritySnapshot Before;
+	Fixture.Authority->TryCaptureSnapshot(Before);
+	Fdemo_mapShanmenThrownWeaponRunCommandRouter Router;
+	const Fdemo_mapShanmenThrownWeaponRunCommandResult Applied =
+		Router.TryRoute(
+			Host,
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			*Fixture.Authority,
+			Fixture.Coordinator,
+			Fixture.Source,
+			Intent);
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Authority->TryCaptureSnapshot(After);
+	Ademo_mapShanmenThrownWeaponProjectile* FirstProjectile =
+		Host.GetProjectile();
+	const double FlightTime = Intent.GetArcPlan().GetFlightTimeSeconds();
+	TestTrue(TEXT("Arc command prepares, commits, spawns, and adopts once"),
+		Applied.IsAccepted()
+			&& !Applied.IsReplay()
+			&& Applied.HostStart.Launch.IsCommitted()
+			&& Applied.HostStart.Launch.ItemCommit.FinalizeCommand.Receipt
+				.ResourceBefore == 3
+			&& Applied.HostStart.Launch.ItemCommit.FinalizeCommand.Receipt
+				.ResourceAfter == 2
+			&& Host.IsInFlight()
+			&& Host.GetLifetimeKind()
+				== Edemo_mapShanmenThrownWeaponHostLifetimeKind::ArcFlightTime
+			&& Host.GetMaximumDistance() == 0.0f
+			&& Host.GetFlightTimeSeconds() == FlightTime
+			&& FirstProjectile
+			&& FMath::IsNearlyEqual(
+				FirstProjectile->GetLifeSpan(),
+				static_cast<float>(FlightTime),
+				0.01f)
+			&& Router.IsValid()
+			&& Router.NumProcessedIntents() == 1
+			&& After.AuthorityRevision == Before.AuthorityRevision + 2);
+	TestFalse(TEXT("Arc command cannot enter the straight expiry route"),
+		Host.TryExpireRange());
+
+	const Fdemo_mapShanmenThrownWeaponRunCommandResult Replay =
+		Router.TryRoute(
+			Host,
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			*Fixture.Authority,
+			Fixture.Coordinator,
+			Fixture.Source,
+			Intent);
+	FShanmenItemAuthoritySnapshot AfterReplay;
+	Fixture.Authority->TryCaptureSnapshot(AfterReplay);
+	TestTrue(TEXT("Exact Arc replay performs no item I/O or Actor creation"),
+		Replay.IsAccepted()
+			&& Replay.IsReplay()
+			&& Replay.LaunchId == Applied.LaunchId
+			&& Host.GetProjectile() == FirstProjectile
+			&& AfterReplay == After
+			&& Router.NumProcessedIntents() == 1);
+
+	Fdemo_mapShanmenThrownWeaponRunCommandIntent Conflict;
+	Fixture.MakeArcIntent(10, FVector(625.0, 40.0, 60.0), Conflict);
+	const Fdemo_mapShanmenThrownWeaponRunCommandResult Rejected =
+		Router.TryRoute(
+			Host,
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			*Fixture.Authority,
+			Fixture.Coordinator,
+			Fixture.Source,
+			Conflict);
+	FShanmenItemAuthoritySnapshot AfterConflict;
+	Fixture.Authority->TryCaptureSnapshot(AfterConflict);
+	TestTrue(TEXT("Arc ActivationId payload conflict fails without mutation"),
+		Rejected.Status
+			== Edemo_mapShanmenThrownWeaponRunCommandStatus::IntentIdConflict
+			&& !Rejected.IsAccepted()
+			&& Host.GetProjectile() == FirstProjectile
+			&& AfterConflict == After);
+	Host.TryInterrupt();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcRunCommandCancelTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponRunCommand.ArcPreLaunchCancel",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcRunCommandCancelTest::RunTest(const FString&)
+{
+	FRouterFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponRunHost Host;
+	if (!Fixture.Start(*this, TEXT("ArcCancel")))
+	{
+		return false;
+	}
+	Fdemo_mapShanmenThrownWeaponRunCommandIntent Intent;
+	if (!Fixture.MakeArcIntent(11, FVector(525.0, 40.0, 60.0), Intent))
+	{
+		AddError(TEXT("Could not capture the P20.4 Arc cancellation command."));
+		return false;
+	}
+
+	FShanmenItemAuthoritySnapshot Before;
+	Fixture.Authority->TryCaptureSnapshot(Before);
+	Fdemo_mapShanmenThrownWeaponRunCommandRouter Router;
+	const Fdemo_mapShanmenThrownWeaponRunCommandResult Cancelled =
+		Router.TryRoute(
+			Host,
+			Fixture.World,
+			nullptr,
+			*Fixture.Authority,
+			Fixture.Coordinator,
+			Fixture.Source,
+			Intent);
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Authority->TryCaptureSnapshot(After);
+	TestTrue(TEXT("Arc spawn rejection releases prepared Quantity durably"),
+		Cancelled.Status
+			== Edemo_mapShanmenThrownWeaponRunCommandStatus::
+				LaunchRejectedCancelled
+			&& Cancelled.IsDurableTerminal()
+			&& Cancelled.Cancellation.IsFinalized()
+			&& !Cancelled.Cancellation.FinalizeRequest.bCommit
+			&& Cancelled.Cancellation.FinalizeCommand.Receipt.ResourceBefore == 3
+			&& Cancelled.Cancellation.FinalizeCommand.Receipt.ResourceAfter == 3
+			&& Host.GetState()
+				== Edemo_mapShanmenThrownWeaponHostState::Empty
+			&& After.AuthorityRevision == Before.AuthorityRevision + 2
+			&& Router.IsValid());
+
+	const Fdemo_mapShanmenThrownWeaponRunCommandResult Replay =
+		Router.TryRoute(
+			Host,
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			*Fixture.Authority,
+			Fixture.Coordinator,
+			Fixture.Source,
+			Intent);
+	FShanmenItemAuthoritySnapshot AfterReplay;
+	Fixture.Authority->TryCaptureSnapshot(AfterReplay);
+	TestTrue(TEXT("Cancelled Arc replay never commits or launches"),
+		Replay.Status
+			== Edemo_mapShanmenThrownWeaponRunCommandStatus::
+				LaunchRejectedCancelled
+			&& Replay.IsReplay()
+			&& Host.GetState()
+				== Edemo_mapShanmenThrownWeaponHostState::Empty
+			&& AfterReplay == After);
 	return true;
 }
 
