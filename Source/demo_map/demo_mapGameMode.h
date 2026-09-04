@@ -16,6 +16,7 @@
 #include "demo_mapShanmenControlledWeaponThreatSampleRouter.h"
 #include "demo_mapShanmenMeridianShockTreatmentInputAdapter.h"
 #include "demo_mapShanmenMeridianShockTreatmentProductLifecycle.h"
+#include "demo_mapShanmenThrownWeaponArcChoiceInputComposition.h"
 #include "demo_mapShanmenThrownWeaponInputAdapter.h"
 #include "demo_mapShanmenThrownWeaponInputChoiceSession.h"
 #include "demo_mapShanmenThrownWeaponProductLifecycle.h"
@@ -180,6 +181,14 @@ public:
 		AActor* SourceActor,
 		TFunctionRef<FVector()> SampleTarget,
 		TFunctionRef<double()> SampleApexClearance);
+	/** Lazily projects the frozen Arc choice into the existing Arc route. */
+	Fdemo_mapShanmenThrownWeaponArcChoiceInputCompositionResult
+	RouteThrownWeaponArcChoiceHotbarInput(
+		int32 HotbarSlotNumber,
+		AActor* SourceActor,
+		const Fdemo_mapShanmenThrownWeaponArcChoicePolicy& Policy,
+		TFunctionRef<Fdemo_mapShanmenThrownWeaponArcChoiceBasis()>
+			SampleBasis);
 	/** Applies one device-independent choice command with Run/lifecycle fences. */
 	Fdemo_mapShanmenThrownWeaponInputChoiceSessionResult
 	SubmitThrownWeaponInputChoiceCommand(
@@ -592,6 +601,8 @@ private:
 	Fdemo_mapShanmenThrownWeaponProductLifecycle
 		ThrownWeaponProductLifecycle;
 	Fdemo_mapShanmenThrownWeaponInputAdapter ThrownWeaponInputAdapter;
+	Fdemo_mapShanmenThrownWeaponArcChoiceInputComposition
+		ThrownWeaponArcChoiceInputComposition;
 	Fdemo_mapShanmenThrownWeaponInputChoiceSession
 		ThrownWeaponInputChoiceSession;
 	Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle
