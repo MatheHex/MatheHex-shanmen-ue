@@ -2514,6 +2514,13 @@ try
 		-Logs @($Full)
 
     Invoke-ExpectedPass `
+		-Name 'thrown weapon Arc launch input maps every delegated choice seam' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcLaunchInputAdapter.cpp',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcLaunchInputAdapterTests.cpp') `
+		-Logs @($Full)
+
+    Invoke-ExpectedPass `
 		-Name 'thrown weapon Arc source basis maps lazy composition and broad evidence' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcSourceBasisAdapter.cpp',
@@ -4115,6 +4122,13 @@ try
 		-Name 'thrown input choice session cannot use unrelated item fallback evidence' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceSession.cpp') `
+		-Logs @($ItemUse) `
+		-ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+		-Name 'thrown Arc launch input cannot use unrelated item evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcLaunchInputAdapter.cpp') `
 		-Logs @($ItemUse) `
 		-ExpectedText 'missing required groups'
 

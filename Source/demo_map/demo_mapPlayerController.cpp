@@ -900,6 +900,41 @@ Ademo_mapPlayerController::RouteSpiritEvasionStartInput()
 		});
 }
 
+Fdemo_mapShanmenThrownWeaponArcLaunchInputResult
+Ademo_mapPlayerController::RouteThrownWeaponArcLaunchCommand(
+	const Fdemo_mapShanmenThrownWeaponArcLaunchCommand& Command)
+{
+	Ademo_mapGameMode* Mode = nullptr;
+	return Fdemo_mapShanmenThrownWeaponArcLaunchInputAdapter::Route(
+		Command,
+		IsGameplayInputAllowed(),
+		InputSurfaceState == TEXT("Gameplay"),
+		InputModeState == TEXT("GameOnly"),
+		[this, &Mode]()
+		{
+			UWorld* World = GetWorld();
+			Mode = World
+				? Cast<Ademo_mapGameMode>(World->GetAuthGameMode())
+				: nullptr;
+			return Mode != nullptr;
+		},
+		[&Mode]()
+		{
+			return Mode
+				? Mode->GetThrownWeaponInputChoiceState()
+				: Fdemo_mapShanmenThrownWeaponInputChoiceState();
+		},
+		[this, &Mode](
+			const int32 HotbarSlotNumber,
+			const Fdemo_mapShanmenThrownWeaponArcChoicePolicy& Policy)
+		{
+			return Mode
+				? Mode->RouteThrownWeaponArcChoiceFromSourceHotbarInput(
+					HotbarSlotNumber, GetPawn(), Policy)
+				: Fdemo_mapShanmenThrownWeaponArcSourceBasisRouteResult();
+		});
+}
+
 void Ademo_mapPlayerController::StartWeaponGuard()
 {
 	const Fdemo_mapShanmenWeaponGuardInputResult Result =

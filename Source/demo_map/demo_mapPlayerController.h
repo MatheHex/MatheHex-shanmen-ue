@@ -5,6 +5,7 @@
 #include "demo_mapCombatTypes.h"
 #include "demo_mapInputBindingSettings.h"
 #include "demo_mapShanmenSpiritEvasionInputAdapter.h"
+#include "demo_mapShanmenThrownWeaponArcLaunchInputAdapter.h"
 #include "demo_mapShanmenWeaponGuardInputAdapter.h"
 #include "demo_mapPlayerController.generated.h"
 
@@ -94,6 +95,10 @@ public:
 	void RebuildProductInputBindings();
 	/** Adapts one future dedicated input without owning its physical key. */
 	Fdemo_mapShanmenSpiritEvasionInputResult RouteSpiritEvasionStartInput();
+	/** Routes one frozen, device-independent Arc launch command. */
+	Fdemo_mapShanmenThrownWeaponArcLaunchInputResult
+	RouteThrownWeaponArcLaunchCommand(
+		const Fdemo_mapShanmenThrownWeaponArcLaunchCommand& Command);
 	/** Routes the physical hold start through the Run-owned fixed timeline. */
 	Fdemo_mapShanmenWeaponGuardInputResult RouteWeaponGuardStartInput();
 	/** Release deliberately bypasses gameplay UI locks to prevent stuck guard. */
