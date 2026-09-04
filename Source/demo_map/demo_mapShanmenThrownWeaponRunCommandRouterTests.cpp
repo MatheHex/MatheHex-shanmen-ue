@@ -106,16 +106,19 @@ namespace
 		return Evidence;
 	}
 
-	FShanmenThrownWeaponDefinition MakeRouterDefinition()
+	FShanmenThrownWeaponDefinition MakeRouterDefinition(
+		FName ActionDefinitionId =
+			FShanmenThrownWeaponDefinition::StraightActionDefinitionId())
 	{
 		FShanmenThrownWeaponDefinitionCapture Capture;
-		Capture.ActionDefinitionId =
-			FShanmenThrownWeaponDefinition::CanonicalActionDefinitionId();
+		Capture.ActionDefinitionId = ActionDefinitionId;
 		Capture.DetectorId = TEXT("Detector.ThrownWeapon.P7.4.Product");
 		Capture.FormulaId = TEXT("Formula.ThrownWeapon.P7.4.Product");
 		Capture.BaseDamage = 8.0f;
 		Capture.TechniquePowerCoefficient = 0.25f;
-		Capture.LaunchSpeed = 850.0f;
+		Capture.LaunchSpeed = ActionDefinitionId
+			== FShanmenThrownWeaponDefinition::ArcActionDefinitionId()
+			? 1200.0f : 850.0f;
 		Capture.DamageTags.AddTag(
 			FShanmenCombatNativeTags::DamagePhysicalSlash());
 		Capture.RequiredTargetTags.AddTag(
@@ -132,6 +135,27 @@ namespace
 		check(FShanmenThrownWeaponOffenseSnapshot::TryCapture(
 			24.0f, Offense));
 		return Offense;
+	}
+
+	FShanmenThrownWeaponArcPlan MakeRouterArcPlan(
+		const FShanmenCombatActionSnapshot& Action,
+		const FVector& Origin,
+		const FVector& Target)
+	{
+		FShanmenThrownWeaponArcRequestCapture Capture;
+		Capture.Action = Action;
+		Capture.TechniqueTier =
+			EShanmenThrownWeaponTechniqueTier::Intermediate;
+		Capture.Origin = Origin;
+		Capture.Target = Target;
+		Capture.GravityMagnitude = 980.0;
+		Capture.ApexClearance = 150.0;
+		Capture.MaximumLaunchSpeed = 1200.0;
+		Capture.MaximumFlightTime = 5.0;
+		const FShanmenThrownWeaponArcPlanResult Result =
+			FShanmenThrownWeaponArcPlanner::Plan(Capture);
+		check(Result.IsPlanned());
+		return Result.Plan;
 	}
 
 	struct FRouterFixture
@@ -286,15 +310,17 @@ namespace
 			return true;
 		}
 
-		FShanmenCombatActionSnapshot MakeAction(uint64 Sequence) const
+		FShanmenCombatActionSnapshot MakeAction(
+			uint64 Sequence,
+			FName ActionDefinitionId =
+				FShanmenThrownWeaponDefinition::StraightActionDefinitionId()) const
 		{
 			FShanmenCombatActionCapture Capture;
 			Capture.RunId = Correlation.ActiveRunId;
 			Capture.OwnerId = RouterOwnerId;
 			Capture.SourceEntityId = Coordinator.GetPlayerEntityId();
 			Capture.SourceItemInstanceId = RouterItemId;
-			Capture.ActionDefinitionId =
-				FShanmenThrownWeaponDefinition::CanonicalActionDefinitionId();
+			Capture.ActionDefinitionId = ActionDefinitionId;
 			Capture.Content = RouterContent();
 			Capture.SourceTags.AddTag(
 				FShanmenCombatNativeTags::SourcePlayer());
@@ -439,10 +465,15 @@ bool Fdemo_mapThrownWeaponRunCommandApplyTest::RunTest(const FString&)
 			&& Applied.HostStart.Launch.ItemCommit.FinalizeCommand.Receipt
 				.ResourceAfter == 2
 			&& Host.IsInFlight()
+			&& Host.GetLifetimeKind()
+				== Edemo_mapShanmenThrownWeaponHostLifetimeKind::RangeDistance
+			&& Host.GetFlightTimeSeconds() == 0.0
 			&& Host.GetProjectile()
 			&& Router.IsValid()
 			&& Router.NumProcessedIntents() == 1
 			&& After.AuthorityRevision == Before.AuthorityRevision + 2);
+	TestFalse(TEXT("Straight flight cannot enter the Arc expiry route"),
+		Host.TryExpireFlightTime());
 
 	Ademo_mapShanmenThrownWeaponProjectile* FirstProjectile =
 		Host.GetProjectile();
@@ -641,6 +672,144 @@ bool Fdemo_mapThrownWeaponRunCommandRecoveryTest::RunTest(const FString&)
 				LaunchRejectedCancelled
 			&& Replay.IsReplay()
 			&& Final == AfterRecovery);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcRunHostLifecycleTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponRunHost.ArcFlightTimeLifecycle",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcRunHostLifecycleTest::RunTest(const FString&)
+{
+	FRouterFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponRunHost Host;
+	if (!Fixture.Start(*this, TEXT("ArcRunHost")))
+	{
+		return false;
+	}
+
+	const FName ArcActionDefinitionId =
+		FShanmenThrownWeaponDefinition::ArcActionDefinitionId();
+	const FShanmenCombatActionSnapshot Action =
+		Fixture.MakeAction(10, ArcActionDefinitionId);
+	FShanmenActionOrchestrator Runtime;
+	FShanmenActionTransitionReceipt Transition;
+	FShanmenThrownWeaponExecution Execution;
+	if (!FShanmenActionOrchestrator::TryStart(
+			Action, Runtime, Transition)
+		|| !Runtime.TryAdvance(
+			EShanmenCombatActionPhase::Startup, Transition)
+		|| !FShanmenThrownWeaponExecution::TryCreate(
+			Action,
+			MakeRouterDefinition(ArcActionDefinitionId),
+			MakeRouterOffense(),
+			Execution))
+	{
+		AddError(TEXT("Could not create the P20.3 Arc execution."));
+		return false;
+	}
+
+	const Fdemo_mapShanmenThrownWeaponItemResult Preparation =
+		Fdemo_mapShanmenThrownWeaponItemAdapter::PrepareActiveRun(
+			*Fixture.Authority, Fixture.Correlation, Action);
+	if (!Preparation.IsPrepared())
+	{
+		AddError(TEXT("Could not reserve the P20.3 Arc thrown item."));
+		return false;
+	}
+	FShanmenItemAuthoritySnapshot BeforeWrongRoute;
+	Fixture.Authority->TryCaptureSnapshot(BeforeWrongRoute);
+
+	const FVector Origin(25.0, 40.0, 60.0);
+	const FVector Target(525.0, 40.0, 60.0);
+	const FShanmenThrownWeaponArcPlan ArcPlan =
+		MakeRouterArcPlan(Action, Origin, Target);
+	const Fdemo_mapShanmenThrownWeaponHostStartResult WrongRoute =
+		Host.TrySpawnAndLaunchPrepared(
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			*Fixture.Authority,
+			Fixture.Correlation,
+			Preparation,
+			Runtime,
+			Execution,
+			Fixture.Coordinator,
+			Fixture.Source,
+			Origin,
+			FVector::ForwardVector,
+			1200.0f);
+	FShanmenItemAuthoritySnapshot AfterWrongRoute;
+	Fixture.Authority->TryCaptureSnapshot(AfterWrongRoute);
+	TestTrue(TEXT("Arc actions cannot cross the straight Host route"),
+		WrongRoute.Error
+			== Edemo_mapShanmenThrownWeaponHostStartError::LaunchRejected
+			&& Host.GetState()
+				== Edemo_mapShanmenThrownWeaponHostState::Empty
+			&& BeforeWrongRoute == AfterWrongRoute);
+
+	const Fdemo_mapShanmenThrownWeaponHostStartResult Started =
+		Host.TrySpawnAndLaunchPreparedArc(
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			*Fixture.Authority,
+			Fixture.Correlation,
+			Preparation,
+			Runtime,
+			Execution,
+			Fixture.Coordinator,
+			Fixture.Source,
+			ArcPlan);
+	FShanmenItemAuthoritySnapshot AfterArcStart;
+	Fixture.Authority->TryCaptureSnapshot(AfterArcStart);
+	Ademo_mapShanmenThrownWeaponProjectile* Projectile =
+		Host.GetProjectile();
+	const double FlightTime = ArcPlan.GetFlightTimeSeconds();
+	TestTrue(TEXT("Arc Host commits once and retains the solver lifetime"),
+		Started.IsStarted()
+			&& Started.Launch.IsCommitted()
+			&& Started.Launch.ItemCommit.FinalizeCommand.Receipt.ResourceBefore
+				== 3
+			&& Started.Launch.ItemCommit.FinalizeCommand.Receipt.ResourceAfter
+				== 2
+			&& AfterArcStart.AuthorityRevision
+				== BeforeWrongRoute.AuthorityRevision + 1
+			&& Host.IsValid()
+			&& Host.IsInFlight()
+			&& Host.GetLifetimeKind()
+				== Edemo_mapShanmenThrownWeaponHostLifetimeKind::ArcFlightTime
+			&& Host.GetMaximumDistance() == 0.0f
+			&& Host.GetFlightTimeSeconds() == FlightTime
+			&& FMath::IsNearlyEqual(
+				Host.GetActorLifeSpanSeconds(),
+				static_cast<float>(FlightTime))
+			&& Projectile
+			&& FMath::IsNearlyEqual(
+				Projectile->GetLifeSpan(),
+				static_cast<float>(FlightTime),
+				0.01f));
+	TestFalse(TEXT("Arc flight cannot enter the straight expiry route"),
+		Host.TryExpireRange());
+
+	if (!Projectile)
+	{
+		return false;
+	}
+	Projectile->OnRangeExpired().Broadcast(*Projectile);
+	TestTrue(TEXT("Actor lifespan callback publishes one typed Arc terminal"),
+		Host.IsValid()
+			&& Host.IsTerminal()
+			&& Host.GetTerminalReceipt().Kind
+				== Edemo_mapShanmenThrownWeaponTerminalKind::FlightTimeExpired
+			&& Host.GetExecution().GetState()
+				== EShanmenThrownWeaponState::Spent
+			&& Host.GetExecution().NumAcceptedImpacts() == 0
+			&& Host.GetActionRuntime().GetTerminalReason()
+				== EShanmenActionTerminalReason::Completed
+			&& Projectile->GetProjectileState()
+				== Edemo_mapShanmenThrownWeaponProjectileState::Spent);
+	TestFalse(TEXT("Terminal Arc expiry cannot execute twice"),
+		Host.TryExpireFlightTime());
 	return true;
 }
 

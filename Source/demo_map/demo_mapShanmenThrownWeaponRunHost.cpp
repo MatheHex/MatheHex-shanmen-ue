@@ -77,6 +77,134 @@ namespace
 			&& OutCompleted.GetTerminalReason()
 				== EShanmenActionTerminalReason::Completed;
 	}
+
+	bool IsUsableActorLifeSpan(double Seconds)
+	{
+		return FMath::IsFinite(Seconds)
+			&& Seconds > 0.0
+			&& Seconds <= static_cast<double>(MAX_flt)
+			&& FMath::IsFinite(static_cast<float>(Seconds))
+			&& static_cast<float>(Seconds) > 0.0f;
+	}
+
+	template <typename TLaunchCarrier>
+	Fdemo_mapShanmenThrownWeaponHostStartResult SpawnAndLaunchPreparedImpl(
+		Fdemo_mapShanmenThrownWeaponRunHost& Host,
+		UWorld* World,
+		TSubclassOf<Ademo_mapShanmenThrownWeaponProjectile> ProjectileClass,
+		AActor* SourceActor,
+		const FVector& Origin,
+		TLaunchCarrier&& LaunchCarrier)
+	{
+		Fdemo_mapShanmenThrownWeaponHostStartResult Result;
+		if (Host.GetState()
+			!= Edemo_mapShanmenThrownWeaponHostState::Empty)
+		{
+			Result.Error =
+				Edemo_mapShanmenThrownWeaponHostStartError::HostBusy;
+			return Result;
+		}
+		Result.Spawn =
+			Fdemo_mapShanmenThrownWeaponRunHost::SpawnStagedCarrier(
+				World, ProjectileClass, SourceActor, Origin);
+		if (!Result.Spawn.IsSpawned())
+		{
+			Result.Error =
+				Edemo_mapShanmenThrownWeaponHostStartError::SpawnRejected;
+			return Result;
+		}
+		Ademo_mapShanmenThrownWeaponProjectile* Spawned =
+			Result.Spawn.Projectile.Get();
+		Result = LaunchCarrier(*Spawned);
+		Result.Spawn.Error = Edemo_mapShanmenThrownWeaponSpawnError::None;
+		Result.Spawn.Projectile = Spawned;
+		if (!Result.IsStarted() && ::IsValid(Spawned))
+		{
+			Spawned->Destroy();
+		}
+		return Result;
+	}
+
+	template <typename TStage, typename TAdopt>
+	Fdemo_mapShanmenThrownWeaponHostStartResult LaunchPreparedCarrierImpl(
+		Fdemo_mapShanmenThrownWeaponRunHost& Host,
+		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+		const Fdemo_mapShanmenRunCorrelation& Correlation,
+		const Fdemo_mapShanmenThrownWeaponItemResult& Preparation,
+		const FShanmenActionOrchestrator& RequestedActionRuntime,
+		const FShanmenThrownWeaponExecution& RequestedExecution,
+		Ademo_mapShanmenThrownWeaponProjectile& RequestedProjectile,
+		Fdemo_mapCombatRunCoordinator& RequestedCoordinator,
+		AActor* RequestedSourceActor,
+		TStage&& Stage,
+		TAdopt&& Adopt)
+	{
+		Fdemo_mapShanmenThrownWeaponHostStartResult Result;
+		if (Host.GetState()
+			!= Edemo_mapShanmenThrownWeaponHostState::Empty)
+		{
+			Result.Error =
+				Edemo_mapShanmenThrownWeaponHostStartError::HostBusy;
+			return Result;
+		}
+		if (!RequestedActionRuntime.IsValid()
+			|| !RequestedActionRuntime.CanEmitCandidates()
+			|| !RequestedExecution.IsValid()
+			|| RequestedExecution.GetState()
+				!= EShanmenThrownWeaponState::Ready
+			|| RequestedExecution.IsEmissionActive()
+			|| !Preparation.IsPrepared()
+			|| !ActionsMatch(
+				RequestedActionRuntime.GetAction(),
+				RequestedExecution.GetAction())
+			|| !ActionsMatch(
+				RequestedActionRuntime.GetAction(), Preparation.Action)
+			|| RequestedProjectile.GetProjectileState()
+				!= Edemo_mapShanmenThrownWeaponProjectileState::Empty
+			|| !CoordinatorMatches(
+				RequestedCoordinator,
+				RequestedActionRuntime.GetAction(),
+				RequestedSourceActor))
+		{
+			Result.Error =
+				Edemo_mapShanmenThrownWeaponHostStartError::BindingInvalid;
+			return Result;
+		}
+
+		FShanmenThrownWeaponExecution ExecutionCandidate =
+			RequestedExecution;
+		const Fdemo_mapShanmenThrownWeaponLaunchResult Staged =
+			Stage(ExecutionCandidate);
+		if (!Staged.IsStaged())
+		{
+			Result.Error =
+				Edemo_mapShanmenThrownWeaponHostStartError::LaunchRejected;
+			Result.Launch = Staged;
+			return Result;
+		}
+		Result.Launch =
+			Fdemo_mapShanmenThrownWeaponWorldAdapter::CommitStagedLaunch(
+				Authority,
+				RequestedActionRuntime,
+				Staged.Plan,
+				ExecutionCandidate,
+				RequestedProjectile);
+		if (!Result.Launch.IsCommitted())
+		{
+			Result.Error =
+				Edemo_mapShanmenThrownWeaponHostStartError::LaunchRejected;
+			return Result;
+		}
+		if (!Adopt(ExecutionCandidate, Result.Launch.ItemCommit))
+		{
+			Result.Error =
+				Edemo_mapShanmenThrownWeaponHostStartError::AdoptionRejected;
+			return Result;
+		}
+		Result.Error = Edemo_mapShanmenThrownWeaponHostStartError::None;
+		Result.LaunchId = Host.GetExecution().GetLaunchReceipt().GetLaunchId();
+		return Result;
+	}
 }
 
 bool Fdemo_mapShanmenThrownWeaponSpawnResult::IsSpawned() const
@@ -91,6 +219,74 @@ bool Fdemo_mapShanmenThrownWeaponSpawnResult::IsSpawned() const
 		&& Spawned->GetCollisionComponent()->GetCollisionEnabled()
 			== ECollisionEnabled::NoCollision
 		&& !Spawned->GetMovementComponent()->IsActive();
+}
+
+bool Fdemo_mapShanmenThrownWeaponHostLifetime::TryCreateRange(
+	const FShanmenThrownWeaponLaunchReceipt& Launch,
+	float RequestedMaximumDistance,
+	Fdemo_mapShanmenThrownWeaponHostLifetime& OutLifetime)
+{
+	OutLifetime = Fdemo_mapShanmenThrownWeaponHostLifetime();
+	if (!Launch.IsValid()
+		|| Launch.GetTrajectoryKind()
+			!= EShanmenThrownWeaponTrajectoryKind::Straight
+		|| !FMath::IsFinite(RequestedMaximumDistance)
+		|| RequestedMaximumDistance <= KINDA_SMALL_NUMBER
+		|| !FMath::IsFinite(Launch.GetSpeed())
+		|| Launch.GetSpeed() <= KINDA_SMALL_NUMBER)
+	{
+		return false;
+	}
+	const double ActorLifeSpan =
+		static_cast<double>(RequestedMaximumDistance)
+		/ static_cast<double>(Launch.GetSpeed());
+	if (!IsUsableActorLifeSpan(ActorLifeSpan))
+	{
+		return false;
+	}
+
+	OutLifetime.Kind =
+		Edemo_mapShanmenThrownWeaponHostLifetimeKind::RangeDistance;
+	OutLifetime.MaximumDistance = RequestedMaximumDistance;
+	OutLifetime.ActorLifeSpanSeconds = static_cast<float>(ActorLifeSpan);
+	return true;
+}
+
+bool Fdemo_mapShanmenThrownWeaponHostLifetime::TryCreateArc(
+	const FShanmenThrownWeaponLaunchReceipt& Launch,
+	Fdemo_mapShanmenThrownWeaponHostLifetime& OutLifetime)
+{
+	OutLifetime = Fdemo_mapShanmenThrownWeaponHostLifetime();
+	const double FlightTime = Launch.GetFlightTimeSeconds();
+	if (!Launch.IsValid()
+		|| Launch.GetTrajectoryKind()
+			!= EShanmenThrownWeaponTrajectoryKind::BallisticArc
+		|| !IsUsableActorLifeSpan(FlightTime))
+	{
+		return false;
+	}
+
+	OutLifetime.Kind =
+		Edemo_mapShanmenThrownWeaponHostLifetimeKind::ArcFlightTime;
+	OutLifetime.FlightTimeSeconds = FlightTime;
+	OutLifetime.ActorLifeSpanSeconds = static_cast<float>(FlightTime);
+	return true;
+}
+
+bool Fdemo_mapShanmenThrownWeaponHostLifetime::IsValidFor(
+	const FShanmenThrownWeaponLaunchReceipt& Launch) const
+{
+	Fdemo_mapShanmenThrownWeaponHostLifetime Expected;
+	const bool bCreated = Kind
+		== Edemo_mapShanmenThrownWeaponHostLifetimeKind::RangeDistance
+		? TryCreateRange(Launch, MaximumDistance, Expected)
+		: Kind == Edemo_mapShanmenThrownWeaponHostLifetimeKind::ArcFlightTime
+			&& TryCreateArc(Launch, Expected);
+	return bCreated
+		&& Kind == Expected.Kind
+		&& MaximumDistance == Expected.MaximumDistance
+		&& FlightTimeSeconds == Expected.FlightTimeSeconds
+		&& ActorLifeSpanSeconds == Expected.ActorLifeSpanSeconds;
 }
 
 bool Fdemo_mapShanmenThrownWeaponTerminalReceipt::IsValid() const
@@ -116,9 +312,16 @@ bool Fdemo_mapShanmenThrownWeaponTerminalReceipt::IsValid() const
 	{
 		return false;
 	}
-	return Kind == Edemo_mapShanmenThrownWeaponTerminalKind::Impact
-		? Delivery.IsDelivered()
-		: !Delivery.IsDelivered();
+	if (Kind == Edemo_mapShanmenThrownWeaponTerminalKind::Impact)
+	{
+		return Delivery.IsDelivered();
+	}
+	return (Kind == Edemo_mapShanmenThrownWeaponTerminalKind::BlockingMiss
+			|| Kind
+				== Edemo_mapShanmenThrownWeaponTerminalKind::RangeExpired
+			|| Kind
+				== Edemo_mapShanmenThrownWeaponTerminalKind::FlightTimeExpired)
+		&& !Delivery.IsDelivered();
 }
 
 Fdemo_mapShanmenThrownWeaponRunHost::~Fdemo_mapShanmenThrownWeaponRunHost()
@@ -202,41 +405,91 @@ Fdemo_mapShanmenThrownWeaponRunHost::TrySpawnAndLaunchPrepared(
 	const FVector& AimDirection,
 	float RequestedMaximumDistance)
 {
-	Fdemo_mapShanmenThrownWeaponHostStartResult Result;
-	if (State != Edemo_mapShanmenThrownWeaponHostState::Empty)
-	{
-		Result.Error = Edemo_mapShanmenThrownWeaponHostStartError::HostBusy;
-		return Result;
-	}
-	Result.Spawn = SpawnStagedCarrier(
-		World, ProjectileClass, RequestedSourceActor, Origin);
-	if (!Result.Spawn.IsSpawned())
-	{
-		Result.Error = Edemo_mapShanmenThrownWeaponHostStartError::SpawnRejected;
-		return Result;
-	}
-	Ademo_mapShanmenThrownWeaponProjectile* Spawned =
-		Result.Spawn.Projectile.Get();
-	Result = TryLaunchPreparedCarrier(
-		Authority,
-		Correlation,
-		Preparation,
-		RequestedActionRuntime,
-		RequestedExecution,
-		*Spawned,
-		RequestedCoordinator,
+	return SpawnAndLaunchPreparedImpl(
+		*this,
+		World,
+		ProjectileClass,
 		RequestedSourceActor,
 		Origin,
-		AimDirection,
-		RequestedMaximumDistance,
-		true);
-	Result.Spawn.Error = Edemo_mapShanmenThrownWeaponSpawnError::None;
-	Result.Spawn.Projectile = Spawned;
-	if (!Result.IsStarted() && ::IsValid(Spawned))
+		[this,
+			&Authority,
+			&Correlation,
+			&Preparation,
+			&RequestedActionRuntime,
+			&RequestedExecution,
+			&RequestedCoordinator,
+			RequestedSourceActor,
+			&Origin,
+			&AimDirection,
+			RequestedMaximumDistance](
+			Ademo_mapShanmenThrownWeaponProjectile& Spawned)
+		{
+			return TryLaunchPreparedCarrier(
+				Authority,
+				Correlation,
+				Preparation,
+				RequestedActionRuntime,
+				RequestedExecution,
+				Spawned,
+				RequestedCoordinator,
+				RequestedSourceActor,
+				Origin,
+				AimDirection,
+				RequestedMaximumDistance,
+				true);
+		});
+}
+
+Fdemo_mapShanmenThrownWeaponHostStartResult
+Fdemo_mapShanmenThrownWeaponRunHost::TrySpawnAndLaunchPreparedArc(
+	UWorld* World,
+	TSubclassOf<Ademo_mapShanmenThrownWeaponProjectile> ProjectileClass,
+	Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+	const Fdemo_mapShanmenRunCorrelation& Correlation,
+	const Fdemo_mapShanmenThrownWeaponItemResult& Preparation,
+	const FShanmenActionOrchestrator& RequestedActionRuntime,
+	const FShanmenThrownWeaponExecution& RequestedExecution,
+	Fdemo_mapCombatRunCoordinator& RequestedCoordinator,
+	AActor* RequestedSourceActor,
+	const FShanmenThrownWeaponArcPlan& ArcPlan)
+{
+	Fdemo_mapShanmenThrownWeaponHostStartResult Invalid;
+	if (!ArcPlan.IsValid()
+		|| !IsUsableActorLifeSpan(ArcPlan.GetFlightTimeSeconds()))
 	{
-		Spawned->Destroy();
+		Invalid.Error =
+			Edemo_mapShanmenThrownWeaponHostStartError::FlightTimeInvalid;
+		return Invalid;
 	}
-	return Result;
+	return SpawnAndLaunchPreparedImpl(
+		*this,
+		World,
+		ProjectileClass,
+		RequestedSourceActor,
+		ArcPlan.GetRequest().GetOrigin(),
+		[this,
+			&Authority,
+			&Correlation,
+			&Preparation,
+			&RequestedActionRuntime,
+			&RequestedExecution,
+			&RequestedCoordinator,
+			RequestedSourceActor,
+			&ArcPlan](
+			Ademo_mapShanmenThrownWeaponProjectile& Spawned)
+		{
+			return TryLaunchPreparedArcCarrier(
+				Authority,
+				Correlation,
+				Preparation,
+				RequestedActionRuntime,
+				RequestedExecution,
+				Spawned,
+				RequestedCoordinator,
+				RequestedSourceActor,
+				ArcPlan,
+				true);
+		});
 }
 
 Fdemo_mapShanmenThrownWeaponHostStartResult
@@ -266,73 +519,128 @@ Fdemo_mapShanmenThrownWeaponRunHost::TryLaunchPreparedCarrier(
 		Result.Error = Edemo_mapShanmenThrownWeaponHostStartError::RangeInvalid;
 		return Result;
 	}
-	if (!RequestedActionRuntime.IsValid()
-		|| !RequestedActionRuntime.CanEmitCandidates()
-		|| !RequestedExecution.IsValid()
-		|| RequestedExecution.GetState()
-			!= EShanmenThrownWeaponState::Ready
-		|| RequestedExecution.IsEmissionActive()
-		|| !Preparation.IsPrepared()
-		|| !ActionsMatch(
-			RequestedActionRuntime.GetAction(), RequestedExecution.GetAction())
-		|| !ActionsMatch(
-			RequestedActionRuntime.GetAction(), Preparation.Action)
-		|| RequestedProjectile.GetProjectileState()
-			!= Edemo_mapShanmenThrownWeaponProjectileState::Empty
-		|| !CoordinatorMatches(
-			RequestedCoordinator,
-			RequestedActionRuntime.GetAction(),
-			RequestedSourceActor))
-	{
-		Result.Error = Edemo_mapShanmenThrownWeaponHostStartError::BindingInvalid;
-		return Result;
-	}
-
-	FShanmenThrownWeaponExecution ExecutionCandidate = RequestedExecution;
-	const Fdemo_mapShanmenThrownWeaponLaunchResult Staged =
-		Fdemo_mapShanmenThrownWeaponWorldAdapter::StagePreparedLaunch(
-			Correlation,
-			Preparation,
-			RequestedActionRuntime,
-			ExecutionCandidate,
-			RequestedProjectile,
-			RequestedSourceActor,
-			Origin,
-			AimDirection);
-	if (!Staged.IsStaged())
-	{
-		Result.Error = Edemo_mapShanmenThrownWeaponHostStartError::LaunchRejected;
-		Result.Launch = Staged;
-		return Result;
-	}
-	Result.Launch =
-		Fdemo_mapShanmenThrownWeaponWorldAdapter::CommitStagedLaunch(
-			Authority,
-			RequestedActionRuntime,
-			Staged.Plan,
-			ExecutionCandidate,
-			RequestedProjectile);
-	if (!Result.Launch.IsCommitted())
-	{
-		Result.Error = Edemo_mapShanmenThrownWeaponHostStartError::LaunchRejected;
-		return Result;
-	}
-	if (!TryAdoptPublishedFlight(
+	return LaunchPreparedCarrierImpl(
+		*this,
+		Authority,
+		Correlation,
+		Preparation,
 		RequestedActionRuntime,
-		ExecutionCandidate,
-		Result.Launch.ItemCommit,
+		RequestedExecution,
 		RequestedProjectile,
 		RequestedCoordinator,
 		RequestedSourceActor,
-		RequestedMaximumDistance,
-		bDestroyOnTerminal))
+		[&Correlation,
+			&Preparation,
+			&RequestedActionRuntime,
+			&RequestedProjectile,
+			RequestedSourceActor,
+			&Origin,
+			&AimDirection](FShanmenThrownWeaponExecution& Candidate)
+		{
+			return Fdemo_mapShanmenThrownWeaponWorldAdapter::
+				StagePreparedLaunch(
+					Correlation,
+					Preparation,
+					RequestedActionRuntime,
+					Candidate,
+					RequestedProjectile,
+					RequestedSourceActor,
+					Origin,
+					AimDirection);
+		},
+		[this,
+			&RequestedActionRuntime,
+			&RequestedProjectile,
+			&RequestedCoordinator,
+			RequestedSourceActor,
+			RequestedMaximumDistance,
+			bDestroyOnTerminal](
+			const FShanmenThrownWeaponExecution& Candidate,
+			const Fdemo_mapShanmenThrownWeaponItemResult& Committed)
+		{
+			return TryAdoptPublishedFlight(
+				RequestedActionRuntime,
+				Candidate,
+				Committed,
+				RequestedProjectile,
+				RequestedCoordinator,
+				RequestedSourceActor,
+				RequestedMaximumDistance,
+				bDestroyOnTerminal);
+		});
+}
+
+Fdemo_mapShanmenThrownWeaponHostStartResult
+Fdemo_mapShanmenThrownWeaponRunHost::TryLaunchPreparedArcCarrier(
+	Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+	const Fdemo_mapShanmenRunCorrelation& Correlation,
+	const Fdemo_mapShanmenThrownWeaponItemResult& Preparation,
+	const FShanmenActionOrchestrator& RequestedActionRuntime,
+	const FShanmenThrownWeaponExecution& RequestedExecution,
+	Ademo_mapShanmenThrownWeaponProjectile& RequestedProjectile,
+	Fdemo_mapCombatRunCoordinator& RequestedCoordinator,
+	AActor* RequestedSourceActor,
+	const FShanmenThrownWeaponArcPlan& ArcPlan,
+	bool bDestroyOnTerminal)
+{
+	Fdemo_mapShanmenThrownWeaponHostStartResult Result;
+	if (State != Edemo_mapShanmenThrownWeaponHostState::Empty)
 	{
-		Result.Error = Edemo_mapShanmenThrownWeaponHostStartError::AdoptionRejected;
+		Result.Error = Edemo_mapShanmenThrownWeaponHostStartError::HostBusy;
 		return Result;
 	}
-	Result.Error = Edemo_mapShanmenThrownWeaponHostStartError::None;
-	Result.LaunchId = Execution.GetLaunchReceipt().GetLaunchId();
-	return Result;
+	if (!ArcPlan.IsValid()
+		|| !IsUsableActorLifeSpan(ArcPlan.GetFlightTimeSeconds()))
+	{
+		Result.Error =
+			Edemo_mapShanmenThrownWeaponHostStartError::FlightTimeInvalid;
+		return Result;
+	}
+	return LaunchPreparedCarrierImpl(
+		*this,
+		Authority,
+		Correlation,
+		Preparation,
+		RequestedActionRuntime,
+		RequestedExecution,
+		RequestedProjectile,
+		RequestedCoordinator,
+		RequestedSourceActor,
+		[&Correlation,
+			&Preparation,
+			&RequestedActionRuntime,
+			&RequestedProjectile,
+			RequestedSourceActor,
+			&ArcPlan](FShanmenThrownWeaponExecution& Candidate)
+		{
+			return Fdemo_mapShanmenThrownWeaponWorldAdapter::
+				StagePreparedArcLaunch(
+					Correlation,
+					Preparation,
+					RequestedActionRuntime,
+					Candidate,
+					RequestedProjectile,
+					RequestedSourceActor,
+					ArcPlan);
+		},
+		[this,
+			&RequestedActionRuntime,
+			&RequestedProjectile,
+			&RequestedCoordinator,
+			RequestedSourceActor,
+			bDestroyOnTerminal](
+			const FShanmenThrownWeaponExecution& Candidate,
+			const Fdemo_mapShanmenThrownWeaponItemResult& Committed)
+		{
+			return TryAdoptPublishedArcFlight(
+				RequestedActionRuntime,
+				Candidate,
+				Committed,
+				RequestedProjectile,
+				RequestedCoordinator,
+				RequestedSourceActor,
+				bDestroyOnTerminal);
+		});
 }
 
 bool Fdemo_mapShanmenThrownWeaponRunHost::TryAdoptPublishedFlight(
@@ -345,6 +653,56 @@ bool Fdemo_mapShanmenThrownWeaponRunHost::TryAdoptPublishedFlight(
 	float RequestedMaximumDistance,
 	bool bDestroyOnTerminal)
 {
+	Fdemo_mapShanmenThrownWeaponHostLifetime RequestedLifetime;
+	return Fdemo_mapShanmenThrownWeaponHostLifetime::TryCreateRange(
+			RequestedExecution.GetLaunchReceipt(),
+			RequestedMaximumDistance,
+			RequestedLifetime)
+		&& TryAdoptPublishedFlightWithLifetime(
+		RequestedActionRuntime,
+		RequestedExecution,
+		CommittedItem,
+		RequestedProjectile,
+		RequestedCoordinator,
+		RequestedSourceActor,
+		RequestedLifetime,
+		bDestroyOnTerminal);
+}
+
+bool Fdemo_mapShanmenThrownWeaponRunHost::TryAdoptPublishedArcFlight(
+	const FShanmenActionOrchestrator& RequestedActionRuntime,
+	const FShanmenThrownWeaponExecution& RequestedExecution,
+	const Fdemo_mapShanmenThrownWeaponItemResult& CommittedItem,
+	Ademo_mapShanmenThrownWeaponProjectile& RequestedProjectile,
+	Fdemo_mapCombatRunCoordinator& RequestedCoordinator,
+	AActor* RequestedSourceActor,
+	bool bDestroyOnTerminal)
+{
+	Fdemo_mapShanmenThrownWeaponHostLifetime RequestedLifetime;
+	return Fdemo_mapShanmenThrownWeaponHostLifetime::TryCreateArc(
+			RequestedExecution.GetLaunchReceipt(), RequestedLifetime)
+		&& TryAdoptPublishedFlightWithLifetime(
+			RequestedActionRuntime,
+			RequestedExecution,
+			CommittedItem,
+			RequestedProjectile,
+			RequestedCoordinator,
+			RequestedSourceActor,
+			RequestedLifetime,
+			bDestroyOnTerminal);
+}
+
+bool Fdemo_mapShanmenThrownWeaponRunHost::
+TryAdoptPublishedFlightWithLifetime(
+	const FShanmenActionOrchestrator& RequestedActionRuntime,
+	const FShanmenThrownWeaponExecution& RequestedExecution,
+	const Fdemo_mapShanmenThrownWeaponItemResult& CommittedItem,
+	Ademo_mapShanmenThrownWeaponProjectile& RequestedProjectile,
+	Fdemo_mapCombatRunCoordinator& RequestedCoordinator,
+	AActor* RequestedSourceActor,
+	const Fdemo_mapShanmenThrownWeaponHostLifetime& RequestedLifetime,
+	bool bDestroyOnTerminal)
+{
 	if (!ValidateBinding(
 		RequestedActionRuntime,
 		RequestedExecution,
@@ -352,7 +710,7 @@ bool Fdemo_mapShanmenThrownWeaponRunHost::TryAdoptPublishedFlight(
 		RequestedProjectile,
 		RequestedCoordinator,
 		RequestedSourceActor,
-		RequestedMaximumDistance))
+		RequestedLifetime))
 	{
 		return false;
 	}
@@ -363,23 +721,33 @@ bool Fdemo_mapShanmenThrownWeaponRunHost::TryAdoptPublishedFlight(
 	Projectile = &RequestedProjectile;
 	SourceActor = RequestedSourceActor;
 	Coordinator = &RequestedCoordinator;
-	MaximumDistance = RequestedMaximumDistance;
+	Lifetime = RequestedLifetime;
 	bDestroyCarrierOnTerminal = bDestroyOnTerminal;
 	State = Edemo_mapShanmenThrownWeaponHostState::InFlight;
 	BindProjectile();
 	if (bDestroyCarrierOnTerminal && RequestedProjectile.GetWorld())
 	{
 		RequestedProjectile.SetLifeSpan(
-			RequestedMaximumDistance
-			/ RequestedExecution.GetLaunchReceipt().GetSpeed());
+			RequestedLifetime.GetActorLifeSpanSeconds());
 	}
 	return IsValid();
 }
 
 bool Fdemo_mapShanmenThrownWeaponRunHost::TryExpireRange()
 {
-	return FinishWithoutImpact(
+	return Lifetime.GetKind()
+			== Edemo_mapShanmenThrownWeaponHostLifetimeKind::RangeDistance
+		&& FinishWithoutImpact(
 		Edemo_mapShanmenThrownWeaponTerminalKind::RangeExpired, true);
+}
+
+bool Fdemo_mapShanmenThrownWeaponRunHost::TryExpireFlightTime()
+{
+	return Lifetime.GetKind()
+			== Edemo_mapShanmenThrownWeaponHostLifetimeKind::ArcFlightTime
+		&& FinishWithoutImpact(
+			Edemo_mapShanmenThrownWeaponTerminalKind::FlightTimeExpired,
+			true);
 }
 
 bool Fdemo_mapShanmenThrownWeaponRunHost::TryInterrupt()
@@ -426,7 +794,7 @@ bool Fdemo_mapShanmenThrownWeaponRunHost::Reset()
 	SourceActor.Reset();
 	Coordinator = nullptr;
 	TerminalReceipt = Fdemo_mapShanmenThrownWeaponTerminalReceipt();
-	MaximumDistance = 0.0f;
+	Lifetime = Fdemo_mapShanmenThrownWeaponHostLifetime();
 	bDestroyCarrierOnTerminal = false;
 	State = Edemo_mapShanmenThrownWeaponHostState::Empty;
 	return true;
@@ -438,8 +806,8 @@ bool Fdemo_mapShanmenThrownWeaponRunHost::IsValid() const
 		|| ItemCommit.Status
 			!= Edemo_mapShanmenThrownWeaponItemStatus::Committed
 		|| !ItemCommit.FinalizeRequest.bCommit
-		|| !FMath::IsFinite(MaximumDistance)
-		|| MaximumDistance <= KINDA_SMALL_NUMBER)
+		|| !Execution.IsValid()
+		|| !Lifetime.IsValidFor(Execution.GetLaunchReceipt()))
 	{
 		return false;
 	}
@@ -475,14 +843,14 @@ bool Fdemo_mapShanmenThrownWeaponRunHost::ValidateBinding(
 	const Ademo_mapShanmenThrownWeaponProjectile& RequestedProjectile,
 	const Fdemo_mapCombatRunCoordinator& RequestedCoordinator,
 	const AActor* RequestedSourceActor,
-	float RequestedMaximumDistance) const
+	const Fdemo_mapShanmenThrownWeaponHostLifetime& RequestedLifetime) const
 {
 	return State == Edemo_mapShanmenThrownWeaponHostState::Empty
-		&& FMath::IsFinite(RequestedMaximumDistance)
-		&& RequestedMaximumDistance > KINDA_SMALL_NUMBER
 		&& RequestedActionRuntime.IsValid()
 		&& RequestedActionRuntime.CanEmitCandidates()
 		&& RequestedExecution.IsValid()
+		&& RequestedLifetime.IsValidFor(
+			RequestedExecution.GetLaunchReceipt())
 		&& RequestedExecution.GetState()
 			== EShanmenThrownWeaponState::InFlight
 		&& RequestedExecution.IsEmissionActive()
@@ -626,8 +994,12 @@ void Fdemo_mapShanmenThrownWeaponRunHost::HandleRangeExpired(
 {
 	if (Projectile.Get() == &ExpiredProjectile)
 	{
-		FinishWithoutImpact(
-			Edemo_mapShanmenThrownWeaponTerminalKind::RangeExpired, false);
+		const Edemo_mapShanmenThrownWeaponTerminalKind Kind =
+			Lifetime.GetKind()
+				== Edemo_mapShanmenThrownWeaponHostLifetimeKind::ArcFlightTime
+			? Edemo_mapShanmenThrownWeaponTerminalKind::FlightTimeExpired
+			: Edemo_mapShanmenThrownWeaponTerminalKind::RangeExpired;
+		FinishWithoutImpact(Kind, false);
 	}
 }
 
