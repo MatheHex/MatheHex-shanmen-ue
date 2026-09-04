@@ -17,6 +17,7 @@
 #include "demo_mapShanmenMeridianShockTreatmentInputAdapter.h"
 #include "demo_mapShanmenMeridianShockTreatmentProductLifecycle.h"
 #include "demo_mapShanmenThrownWeaponInputAdapter.h"
+#include "demo_mapShanmenThrownWeaponInputChoiceSession.h"
 #include "demo_mapShanmenThrownWeaponProductLifecycle.h"
 #include "demo_mapShanmenRunCorrelation.h"
 #include "demo_mapShanmenSpiritEvasionProductRoute.h"
@@ -179,6 +180,15 @@ public:
 		AActor* SourceActor,
 		TFunctionRef<FVector()> SampleTarget,
 		TFunctionRef<double()> SampleApexClearance);
+	/** Applies one device-independent choice command with Run/lifecycle fences. */
+	Fdemo_mapShanmenThrownWeaponInputChoiceSessionResult
+	SubmitThrownWeaponInputChoiceCommand(
+		const Fdemo_mapShanmenThrownWeaponInputChoiceCommand& Command);
+	const Fdemo_mapShanmenThrownWeaponInputChoiceState&
+	GetThrownWeaponInputChoiceState() const
+	{
+		return ThrownWeaponInputChoiceSession.GetState();
+	}
 	/** Selects canonical Straight or Arc content only between combat Runs. */
 	bool TryConfigureThrownWeaponTrajectory(
 		Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind TrajectoryKind,
@@ -186,7 +196,7 @@ public:
 	Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind
 	GetConfiguredThrownWeaponTrajectoryKind() const
 	{
-		return ConfiguredThrownWeaponTrajectoryKind;
+		return ThrownWeaponInputChoiceSession.GetTrajectoryKind();
 	}
 	/** Claims only the canonical treatment item before generic item use. */
 	Fdemo_mapShanmenMeridianShockTreatmentInputResult
@@ -582,9 +592,8 @@ private:
 	Fdemo_mapShanmenThrownWeaponProductLifecycle
 		ThrownWeaponProductLifecycle;
 	Fdemo_mapShanmenThrownWeaponInputAdapter ThrownWeaponInputAdapter;
-	Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind
-		ConfiguredThrownWeaponTrajectoryKind =
-			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight;
+	Fdemo_mapShanmenThrownWeaponInputChoiceSession
+		ThrownWeaponInputChoiceSession;
 	Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle
 		MeridianShockTreatmentProductLifecycle;
 	Fdemo_mapShanmenMeridianShockTreatmentInputAdapter

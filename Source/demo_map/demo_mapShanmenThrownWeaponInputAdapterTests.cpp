@@ -927,7 +927,11 @@ bool Fdemo_mapThrownWeaponGameModeTrajectoryConfigurationTest::RunTest(
 	}
 	TestTrue(TEXT("Compatibility default remains Straight"),
 		GameMode->GetConfiguredThrownWeaponTrajectoryKind()
-			== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight);
+			== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight
+			&& GameMode->GetThrownWeaponInputChoiceState().IsValid()
+			&& GameMode->GetThrownWeaponInputChoiceState().GetRevision() == 0);
+	const FGuid InitialStateId =
+		GameMode->GetThrownWeaponInputChoiceState().GetStateId();
 
 	FString Diagnostic = TEXT("stale");
 	TestFalse(TEXT("Invalid trajectory is rejected"),
@@ -937,26 +941,53 @@ bool Fdemo_mapThrownWeaponGameModeTrajectoryConfigurationTest::RunTest(
 	TestTrue(TEXT("Invalid request is diagnostic and non-mutating"),
 		!Diagnostic.IsEmpty()
 			&& GameMode->GetConfiguredThrownWeaponTrajectoryKind()
-				== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight);
+				== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight
+			&& GameMode->GetThrownWeaponInputChoiceState().GetStateId()
+				== InitialStateId);
 
-	TestTrue(TEXT("Arc can be selected before a combat Run"),
-		GameMode->TryConfigureThrownWeaponTrajectory(
-			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc,
-			Diagnostic));
-	TestTrue(TEXT("Arc selection is exact and clears diagnostic"),
-		Diagnostic.IsEmpty()
+	Fdemo_mapShanmenThrownWeaponInputChoiceCommand Arc;
+	if (!TestTrue(TEXT("Typed Arc selection captures at GameMode revision"),
+		Fdemo_mapShanmenThrownWeaponInputChoiceCommand::
+			TryCaptureTrajectorySelection(
+				0,
+				Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc,
+				Arc)))
+	{
+		return false;
+	}
+	const Fdemo_mapShanmenThrownWeaponInputChoiceSessionResult Applied =
+		GameMode->SubmitThrownWeaponInputChoiceCommand(Arc);
+	TestTrue(TEXT("Typed Arc selection becomes the sole GameMode read model"),
+		Applied.IsSuccess()
+			&& Applied.DidChange()
 			&& GameMode->GetConfiguredThrownWeaponTrajectoryKind()
-				== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc);
-	TestTrue(TEXT("Exact Arc selection is idempotent"),
+				== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc
+			&& GameMode->GetThrownWeaponInputChoiceState().GetRevision() == 1
+			&& GameMode->GetThrownWeaponInputChoiceState().GetLastCommandId()
+				== Arc.GetCommandId()
+			&& Applied.State.Matches(
+				GameMode->GetThrownWeaponInputChoiceState()));
+	const Fdemo_mapShanmenThrownWeaponInputChoiceSessionResult Replay =
+		GameMode->SubmitThrownWeaponInputChoiceCommand(Arc);
+	TestTrue(TEXT("Exact typed retry is idempotent"),
+		Replay.IsSuccess()
+			&& Replay.IsReplay()
+			&& GameMode->GetThrownWeaponInputChoiceState().GetRevision() == 1);
+	TestTrue(TEXT("Compatibility Arc selection is a fresh no-op"),
 		GameMode->TryConfigureThrownWeaponTrajectory(
 			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc,
-			Diagnostic));
+			Diagnostic)
+			&& Diagnostic.IsEmpty()
+			&& GameMode->GetThrownWeaponInputChoiceState().GetRevision() == 1);
 	TestTrue(TEXT("Straight can be restored while composition is empty"),
 		GameMode->TryConfigureThrownWeaponTrajectory(
 			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight,
 			Diagnostic)
 			&& GameMode->GetConfiguredThrownWeaponTrajectoryKind()
-				== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight);
+				== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight
+			&& GameMode->GetThrownWeaponInputChoiceState().GetRevision() == 2
+			&& GameMode->GetThrownWeaponInputChoiceState().GetStateId()
+				!= InitialStateId);
 	return true;
 }
 

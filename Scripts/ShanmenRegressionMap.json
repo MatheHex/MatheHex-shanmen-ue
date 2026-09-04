@@ -2406,6 +2406,8 @@
         "Shanmen.0_0_10.Product.WeaponGuardProductHost",
         "Shanmen.0_0_10.Product.WeaponGuardDefenseCoordinator",
         "Shanmen.0_0_10.Product.WeaponGuardWorldAdapter",
+		"Shanmen.0_0_10.Product.ThrownWeaponInputChoiceSession",
+		"Shanmen.0_0_10.Product.ThrownWeaponInputChoice",
         "Shanmen.0_0_10.Product.ThrownWeaponInputAdapter",
         "Shanmen.0_0_10.Product.ThrownWeaponProductLifecycle",
         "Shanmen.0_0_10.Product.ThrownWeaponProductSession",
@@ -3022,7 +3024,16 @@
         "demo_map.ItemUseAndArmor"
       ]
     },
-    {
+	{
+	  "name": "ThrownWeaponInputChoiceSession",
+	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceSession(?:Tests)?\\.(?:h|cpp)$",
+	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponInputChoiceSession",
+		"Shanmen.0_0_10.Product.ThrownWeaponInputChoice",
+		"Shanmen.0_0_10"
+	  ]
+	},
+	{
 	  "name": "ThrownWeaponInputChoiceReducer",
 	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceReducer(?:Tests)?\\.(?:h|cpp)$",
 	  "requiredGroups": [
