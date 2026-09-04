@@ -157,6 +157,9 @@ try
     $ThrownRuntime = New-AutomationLogFixture `
         -Name 'thrown-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.ThrownWeapon'
+    $ThrownArc = New-AutomationLogFixture `
+        -Name 'thrown-arc.log' `
+        -Group 'Shanmen.0_0_10.CombatRuntime.ThrownWeaponArc'
     $CombatRuntime = New-AutomationLogFixture `
         -Name 'combat-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime'
@@ -626,6 +629,14 @@ try
         -Paths @(
             'Source/ShanmenCombatRuntime/Private/ShanmenFormationDeployment.cpp') `
         -Logs @($Full)
+
+    Invoke-ExpectedPass `
+        -Name 'thrown weapon arc planner requires focused arc straight-flight core and broad runtime evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Public/ShanmenThrownWeaponArcPlanner.h',
+            'Source/ShanmenCombatRuntime/Private/ShanmenThrownWeaponArcPlanner.cpp',
+            'Source/ShanmenCombatRuntime/Private/Tests/ShanmenThrownWeaponArcPlannerTests.cpp') `
+        -Logs @($ThrownArc, $ThrownRuntime, $CombatCore, $CombatRuntime)
 
     Invoke-ExpectedPass `
         -Name 'sword rhythm requires rhythm BasicSword lifecycle and broad runtime evidence' `
@@ -2962,6 +2973,13 @@ try
         -Name 'narrow child suite does not satisfy required parent suite' `
         -Paths @('Source/demo_map/demo_mapGameMode.cpp') `
         -Logs @($Coordinator) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'thrown weapon arc focus cannot replace straight-flight core and broad runtime evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Private/ShanmenThrownWeaponArcPlanner.cpp') `
+        -Logs @($ThrownArc) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

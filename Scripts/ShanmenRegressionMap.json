@@ -40,6 +40,15 @@
       ]
     },
     {
+      "name": "ThrownWeaponArcPlanner",
+      "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenThrownWeaponArcPlanner\\.h|Private/(?:ShanmenThrownWeaponArcPlanner\\.cpp|Tests/ShanmenThrownWeaponArcPlannerTests\\.cpp))$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.CombatRuntime.ThrownWeaponArc",
+        "Shanmen.0_0_10.CombatRuntime.ThrownWeapon",
+        "Shanmen.0_0_10.CombatCore"
+      ]
+    },
+    {
       "name": "SwordRhythm",
       "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenSwordRhythm\\.h|Private/(?:ShanmenSwordRhythm\\.cpp|Tests/ShanmenSwordRhythmTests\\.cpp))$",
       "requiredGroups": [
