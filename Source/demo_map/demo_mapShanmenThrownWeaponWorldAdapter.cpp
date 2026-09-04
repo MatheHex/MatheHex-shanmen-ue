@@ -93,6 +93,87 @@ namespace
 			&& Projectile.IsInFlightFor(
 				Execution.GetLaunchReceipt(), Projectile.GetHitContext());
 	}
+
+	template <typename TLaunch>
+	Fdemo_mapShanmenThrownWeaponLaunchResult StagePreparedLaunchImpl(
+		const Fdemo_mapShanmenRunCorrelation& Correlation,
+		const Fdemo_mapShanmenThrownWeaponItemResult& Preparation,
+		const FShanmenActionOrchestrator& ActionRuntime,
+		const FShanmenThrownWeaponExecution& Execution,
+		Ademo_mapShanmenThrownWeaponProjectile& Projectile,
+		AActor* SourceActor,
+		TLaunch&& TryLaunch)
+	{
+		Fdemo_mapShanmenThrownWeaponLaunchResult Result;
+		if (!Correlation.IsValid())
+		{
+			return Result;
+		}
+		if (!Preparation.IsPrepared())
+		{
+			Result.Error =
+				Edemo_mapShanmenThrownWeaponLaunchError::PreparationInvalid;
+			return Result;
+		}
+		if (!ActionRuntime.IsValid()
+			|| !ActionRuntime.CanEmitCandidates()
+			|| !ActionsMatch(ActionRuntime.GetAction(), Preparation.Action))
+		{
+			Result.Error =
+				Edemo_mapShanmenThrownWeaponLaunchError::ActionRuntimeInvalid;
+			return Result;
+		}
+		if (!Execution.IsValid()
+			|| Execution.GetState() != EShanmenThrownWeaponState::Ready
+			|| Execution.IsEmissionActive()
+			|| !ActionsMatch(Execution.GetAction(), Preparation.Action))
+		{
+			Result.Error =
+				Edemo_mapShanmenThrownWeaponLaunchError::ExecutionInvalid;
+			return Result;
+		}
+
+		Result.Plan.Correlation = Correlation;
+		Result.Plan.Preparation = Preparation;
+		Result.Plan.ExecutionCandidate = Execution;
+		if (!TryLaunch(Result.Plan.ExecutionCandidate, Result.Plan.Launch))
+		{
+			Result.Error =
+				Edemo_mapShanmenThrownWeaponLaunchError::LaunchRejected;
+			return Result;
+		}
+		if (!Result.Plan.ExecutionCandidate.TryBeginEmission(
+			ActionRuntime, Result.Plan.Context))
+		{
+			Result.Error =
+				Edemo_mapShanmenThrownWeaponLaunchError::EmissionRejected;
+			return Result;
+		}
+		Result.Plan.ItemCommitRequest =
+			Fdemo_mapShanmenThrownWeaponItemAdapter::BuildCommitRequest(
+				Correlation, Preparation, Result.Plan.Launch);
+		if (Result.Plan.ItemCommitRequest.Status
+			!= Edemo_mapShanmenThrownWeaponItemStatus::RequestReady)
+		{
+			Result.Error = Edemo_mapShanmenThrownWeaponLaunchError::
+				ItemCommitRequestRejected;
+			return Result;
+		}
+		if (!Projectile.TryStageLaunch(
+			Result.Plan.Launch, Result.Plan.Context, SourceActor))
+		{
+			Result.Error = Edemo_mapShanmenThrownWeaponLaunchError::
+				ProjectileStageRejected;
+			return Result;
+		}
+		Result.Error = Edemo_mapShanmenThrownWeaponLaunchError::None;
+		if (!Result.IsStaged())
+		{
+			Projectile.CancelStagedLaunch();
+			return Fdemo_mapShanmenThrownWeaponLaunchResult();
+		}
+		return Result;
+	}
 }
 
 bool Fdemo_mapShanmenThrownWeaponLaunchPlan::IsValid() const
@@ -125,74 +206,46 @@ Fdemo_mapShanmenThrownWeaponWorldAdapter::StagePreparedLaunch(
 	const FVector& Origin,
 	const FVector& AimDirection)
 {
-	Fdemo_mapShanmenThrownWeaponLaunchResult Result;
-	if (!Correlation.IsValid())
-	{
-		return Result;
-	}
-	if (!Preparation.IsPrepared())
-	{
-		Result.Error =
-			Edemo_mapShanmenThrownWeaponLaunchError::PreparationInvalid;
-		return Result;
-	}
-	if (!ActionRuntime.IsValid()
-		|| !ActionRuntime.CanEmitCandidates()
-		|| !ActionsMatch(ActionRuntime.GetAction(), Preparation.Action))
-	{
-		Result.Error =
-			Edemo_mapShanmenThrownWeaponLaunchError::ActionRuntimeInvalid;
-		return Result;
-	}
-	if (!Execution.IsValid()
-		|| Execution.GetState() != EShanmenThrownWeaponState::Ready
-		|| Execution.IsEmissionActive()
-		|| !ActionsMatch(Execution.GetAction(), Preparation.Action))
-	{
-		Result.Error =
-			Edemo_mapShanmenThrownWeaponLaunchError::ExecutionInvalid;
-		return Result;
-	}
+	return StagePreparedLaunchImpl(
+		Correlation,
+		Preparation,
+		ActionRuntime,
+		Execution,
+		Projectile,
+		SourceActor,
+		[&ActionRuntime, &Origin, &AimDirection](
+			FShanmenThrownWeaponExecution& Candidate,
+			FShanmenThrownWeaponLaunchReceipt& OutLaunch)
+		{
+			return Candidate.TryLaunchStraight(
+				ActionRuntime, Origin, AimDirection, OutLaunch);
+		});
+}
 
-	Result.Plan.Correlation = Correlation;
-	Result.Plan.Preparation = Preparation;
-	Result.Plan.ExecutionCandidate = Execution;
-	if (!Result.Plan.ExecutionCandidate.TryLaunchStraight(
-		ActionRuntime, Origin, AimDirection, Result.Plan.Launch))
-	{
-		Result.Error = Edemo_mapShanmenThrownWeaponLaunchError::LaunchRejected;
-		return Result;
-	}
-	if (!Result.Plan.ExecutionCandidate.TryBeginEmission(
-		ActionRuntime, Result.Plan.Context))
-	{
-		Result.Error = Edemo_mapShanmenThrownWeaponLaunchError::EmissionRejected;
-		return Result;
-	}
-	Result.Plan.ItemCommitRequest =
-		Fdemo_mapShanmenThrownWeaponItemAdapter::BuildCommitRequest(
-			Correlation, Preparation, Result.Plan.Launch);
-	if (Result.Plan.ItemCommitRequest.Status
-		!= Edemo_mapShanmenThrownWeaponItemStatus::RequestReady)
-	{
-		Result.Error =
-			Edemo_mapShanmenThrownWeaponLaunchError::ItemCommitRequestRejected;
-		return Result;
-	}
-	if (!Projectile.TryStageLaunch(
-		Result.Plan.Launch, Result.Plan.Context, SourceActor))
-	{
-		Result.Error =
-			Edemo_mapShanmenThrownWeaponLaunchError::ProjectileStageRejected;
-		return Result;
-	}
-	Result.Error = Edemo_mapShanmenThrownWeaponLaunchError::None;
-	if (!Result.IsStaged())
-	{
-		Projectile.CancelStagedLaunch();
-		return Fdemo_mapShanmenThrownWeaponLaunchResult();
-	}
-	return Result;
+Fdemo_mapShanmenThrownWeaponLaunchResult
+Fdemo_mapShanmenThrownWeaponWorldAdapter::StagePreparedArcLaunch(
+	const Fdemo_mapShanmenRunCorrelation& Correlation,
+	const Fdemo_mapShanmenThrownWeaponItemResult& Preparation,
+	const FShanmenActionOrchestrator& ActionRuntime,
+	const FShanmenThrownWeaponExecution& Execution,
+	Ademo_mapShanmenThrownWeaponProjectile& Projectile,
+	AActor* SourceActor,
+	const FShanmenThrownWeaponArcPlan& ArcPlan)
+{
+	return StagePreparedLaunchImpl(
+		Correlation,
+		Preparation,
+		ActionRuntime,
+		Execution,
+		Projectile,
+		SourceActor,
+		[&ActionRuntime, &ArcPlan](
+			FShanmenThrownWeaponExecution& Candidate,
+			FShanmenThrownWeaponLaunchReceipt& OutLaunch)
+		{
+			return Candidate.TryLaunchArc(
+				ActionRuntime, ArcPlan, OutLaunch);
+		});
 }
 
 Fdemo_mapShanmenThrownWeaponLaunchResult

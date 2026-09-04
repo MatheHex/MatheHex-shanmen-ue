@@ -9,7 +9,7 @@
 class Udemo_mapShanmenItemAuthoritySubsystem;
 struct FHitResult;
 
-/** Failure while freezing or durably publishing one straight physical launch. */
+/** Failure while freezing or durably publishing one physical launch. */
 enum class Edemo_mapShanmenThrownWeaponLaunchError : uint8
 {
 	None,
@@ -78,7 +78,7 @@ enum class Edemo_mapShanmenThrownWeaponWorldDeliveryError : uint8
 	DeliveryRejected
 };
 
-/** Auditable result for one straight thrown-item projectile contact. */
+/** Auditable result for one thrown-item projectile contact. */
 struct Fdemo_mapShanmenThrownWeaponWorldDeliveryResult
 {
 	Edemo_mapShanmenThrownWeaponWorldDeliveryError Error =
@@ -115,6 +115,7 @@ struct Fdemo_mapShanmenThrownWeaponWorldDeliveryResult
  */
 struct Fdemo_mapShanmenThrownWeaponWorldAdapter
 {
+	/** Backward-compatible P7 straight-flight staging entrypoint. */
 	static Fdemo_mapShanmenThrownWeaponLaunchResult StagePreparedLaunch(
 		const Fdemo_mapShanmenRunCorrelation& Correlation,
 		const Fdemo_mapShanmenThrownWeaponItemResult& Preparation,
@@ -124,6 +125,16 @@ struct Fdemo_mapShanmenThrownWeaponWorldAdapter
 		AActor* SourceActor,
 		const FVector& Origin,
 		const FVector& AimDirection);
+
+	/** Stages one P20 self-validating ballistic plan through the same gate. */
+	static Fdemo_mapShanmenThrownWeaponLaunchResult StagePreparedArcLaunch(
+		const Fdemo_mapShanmenRunCorrelation& Correlation,
+		const Fdemo_mapShanmenThrownWeaponItemResult& Preparation,
+		const FShanmenActionOrchestrator& ActionRuntime,
+		const FShanmenThrownWeaponExecution& Execution,
+		Ademo_mapShanmenThrownWeaponProjectile& Projectile,
+		AActor* SourceActor,
+		const FShanmenThrownWeaponArcPlan& ArcPlan);
 
 	/** Executes the P7.1 durable commit and publishes only after success. */
 	static Fdemo_mapShanmenThrownWeaponLaunchResult CommitStagedLaunch(

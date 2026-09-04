@@ -27,7 +27,9 @@ namespace
 	const FGuid WorldOwnerId(0xD3720002, 0, 0, 1);
 	const FGuid WorldScopeId(0xD3720003, 0, 0, 1);
 	const FGuid WorldItemId(0xD3720004, 0, 0, 1);
-	const FName LaunchPurpose(TEXT("Shanmen.ThrownWeapon.StraightLaunch.r1"));
+	const FName StraightLaunchPurpose(
+		TEXT("Shanmen.ThrownWeapon.StraightLaunch.r1"));
+	const FName ArcLaunchPurpose(TEXT("Shanmen.ThrownWeapon.ArcLaunch.r1"));
 
 	const Fdemo_mapM01EnemyDefinition* FindMeleeDefinition()
 	{
@@ -187,15 +189,16 @@ namespace
 	}
 
 	FShanmenCombatActionSnapshot MakeAction(
-		const Fdemo_mapCombatRunCoordinator& Coordinator)
+		const Fdemo_mapCombatRunCoordinator& Coordinator,
+		FName ActionDefinitionId =
+			FShanmenThrownWeaponDefinition::StraightActionDefinitionId())
 	{
 		FShanmenCombatActionCapture Capture;
 		Capture.RunId = Coordinator.GetRunId();
 		Capture.OwnerId = WorldOwnerId;
 		Capture.SourceEntityId = Coordinator.GetPlayerEntityId();
 		Capture.SourceItemInstanceId = WorldItemId;
-		Capture.ActionDefinitionId =
-			FShanmenThrownWeaponDefinition::CanonicalActionDefinitionId();
+		Capture.ActionDefinitionId = ActionDefinitionId;
 		Capture.Content = MakeContent();
 		Capture.SourceTags.AddTag(FShanmenCombatNativeTags::SourcePlayer());
 		Capture.ActivationId = FShanmenCombatIdFactory::MakeActivationId(
@@ -208,18 +211,21 @@ namespace
 		return Action;
 	}
 
-	FShanmenThrownWeaponDefinition MakeDefinition()
+	FShanmenThrownWeaponDefinition MakeDefinition(
+		FName ActionDefinitionId =
+			FShanmenThrownWeaponDefinition::StraightActionDefinitionId())
 	{
 		FShanmenThrownWeaponDefinitionCapture Capture;
-		Capture.ActionDefinitionId =
-			FShanmenThrownWeaponDefinition::CanonicalActionDefinitionId();
+		Capture.ActionDefinitionId = ActionDefinitionId;
 		Capture.DetectorId = TEXT("Detector.ThrownWeapon.P7.2.Product");
 		Capture.FormulaId = TEXT("Formula.ThrownWeapon.P7.2.Product");
 		// Keep this transient Actor fixture alive; death behavior belongs to the
 		// coordinator suite and requires a registered World.
 		Capture.BaseDamage = 0.5f;
 		Capture.TechniquePowerCoefficient = 0.01f;
-		Capture.LaunchSpeed = 750.0f;
+		Capture.LaunchSpeed = ActionDefinitionId
+			== FShanmenThrownWeaponDefinition::ArcActionDefinitionId()
+			? 1200.0f : 750.0f;
 		Capture.DamageTags.AddTag(
 			FShanmenCombatNativeTags::DamagePhysicalSlash());
 		Capture.RequiredTargetTags.AddTag(
@@ -234,9 +240,11 @@ namespace
 		const Fdemo_mapCombatRunCoordinator& Coordinator,
 		FShanmenActionOrchestrator& OutRuntime,
 		FShanmenThrownWeaponExecution& OutExecution,
-		FShanmenCombatActionSnapshot& OutAction)
+		FShanmenCombatActionSnapshot& OutAction,
+		FName ActionDefinitionId =
+			FShanmenThrownWeaponDefinition::StraightActionDefinitionId())
 	{
-		OutAction = MakeAction(Coordinator);
+		OutAction = MakeAction(Coordinator, ActionDefinitionId);
 		FShanmenActionTransitionReceipt Transition;
 		check(FShanmenActionOrchestrator::TryStart(
 			OutAction, OutRuntime, Transition));
@@ -246,7 +254,31 @@ namespace
 		check(FShanmenThrownWeaponOffenseSnapshot::TryCapture(
 			20.0f, Offense));
 		check(FShanmenThrownWeaponExecution::TryCreate(
-			OutAction, MakeDefinition(), Offense, OutExecution));
+			OutAction,
+			MakeDefinition(ActionDefinitionId),
+			Offense,
+			OutExecution));
+	}
+
+	FShanmenThrownWeaponArcPlan MakeArcPlan(
+		const FShanmenCombatActionSnapshot& Action,
+		const FVector& Origin,
+		const FVector& Target)
+	{
+		FShanmenThrownWeaponArcRequestCapture Capture;
+		Capture.Action = Action;
+		Capture.TechniqueTier =
+			EShanmenThrownWeaponTechniqueTier::Intermediate;
+		Capture.Origin = Origin;
+		Capture.Target = Target;
+		Capture.GravityMagnitude = 980.0;
+		Capture.ApexClearance = 150.0;
+		Capture.MaximumLaunchSpeed = 1200.0;
+		Capture.MaximumFlightTime = 5.0;
+		const FShanmenThrownWeaponArcPlanResult Result =
+			FShanmenThrownWeaponArcPlanner::Plan(Capture);
+		check(Result.IsPlanned());
+		return Result.Plan;
 	}
 
 	FShanmenItemTransactionReceipt MakePrepareReceipt(
@@ -293,7 +325,10 @@ namespace
 		Prepared.PrepareRequest.ItemInstanceId = WorldItemId;
 		Prepared.PrepareRequest.Amount = 1;
 		Prepared.PrepareRequest.ExpectedQuantityBefore = 3;
-		Prepared.PrepareRequest.PurposeId = LaunchPurpose;
+		Prepared.PrepareRequest.PurposeId =
+			Action.GetActionDefinitionId()
+				== FShanmenThrownWeaponDefinition::ArcActionDefinitionId()
+			? ArcLaunchPurpose : StraightLaunchPurpose;
 		Prepared.PrepareCommand.Status =
 			EShanmenItemDurableCommandStatus::Persisted;
 		Prepared.PrepareCommand.Receipt = MakePrepareReceipt(
@@ -328,7 +363,7 @@ namespace
 		Receipt.AvailableAfter = 2;
 		Receipt.ItemRevision = 3;
 		Receipt.AuthorityRevision = 7;
-		Receipt.PurposeId = LaunchPurpose;
+		Receipt.PurposeId = Committed.PrepareRequest.PurposeId;
 		Receipt.ReservationIds =
 		{
 			Committed.FinalizeRequest.ActiveRunId,
@@ -535,6 +570,173 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 		Projectile->GetMovementComponent()->ProjectileGravityScale == 0.0f
 			&& !Projectile->GetMovementComponent()->bShouldBounce
 			&& !Projectile->GetMovementComponent()->bIsHomingProjectile);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcWorldMotionTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponWorldDelivery.ArcReceiptMotion",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcWorldMotionTest::RunTest(const FString&)
+{
+	FThrownWorldFixture IdentityFixture;
+	FThrownSpawnWorldFixture WorldFixture;
+	if (!IdentityFixture.bReady || !WorldFixture.IsValid())
+	{
+		AddError(TEXT("Could not build the P20.2 arc World fixture."));
+		return false;
+	}
+
+	const FVector Origin(25.0, 40.0, 60.0);
+	const FVector Target(525.0, 40.0, 60.0);
+	const Fdemo_mapShanmenThrownWeaponSpawnResult Spawned =
+		Fdemo_mapShanmenThrownWeaponRunHost::SpawnStagedCarrier(
+			WorldFixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			WorldFixture.Source,
+			Origin);
+	Ademo_mapShanmenThrownWeaponProjectile* Projectile =
+		Spawned.Projectile.Get();
+	if (!Spawned.IsSpawned() || !Projectile)
+	{
+		AddError(TEXT("Could not spawn the P20.2 arc carrier."));
+		return false;
+	}
+
+	FShanmenActionOrchestrator Runtime;
+	FShanmenThrownWeaponExecution Execution;
+	FShanmenCombatActionSnapshot Action;
+	StartAction(
+		IdentityFixture.Coordinator,
+		Runtime,
+		Execution,
+		Action,
+		FShanmenThrownWeaponDefinition::ArcActionDefinitionId());
+	const FShanmenThrownWeaponArcPlan ArcPlan =
+		MakeArcPlan(Action, Origin, Target);
+	const Fdemo_mapShanmenThrownWeaponLaunchResult Staged =
+		Fdemo_mapShanmenThrownWeaponWorldAdapter::StagePreparedArcLaunch(
+			MakeCorrelation(),
+			MakePrepared(Action),
+			Runtime,
+			Execution,
+			*Projectile,
+			WorldFixture.Source,
+			ArcPlan);
+	const UProjectileMovementComponent* Movement =
+		Projectile->GetMovementComponent();
+	const double ExpectedGravityScale =
+		ArcPlan.GetGravityAcceleration().Z
+		/ static_cast<double>(WorldFixture.World->GetGravityZ());
+	TestTrue(TEXT("Arc staging consumes the immutable plan while remaining inert"),
+		Staged.IsStaged()
+			&& Staged.Plan.Launch.GetTrajectoryKind()
+				== EShanmenThrownWeaponTrajectoryKind::BallisticArc
+			&& Staged.Plan.Launch.GetArcPlan().Matches(ArcPlan)
+			&& Projectile->GetProjectileState()
+				== Edemo_mapShanmenThrownWeaponProjectileState::Staged
+			&& Movement
+			&& !Movement->IsActive()
+			&& Movement->Velocity.Equals(
+				ArcPlan.GetInitialVelocity(), KINDA_SMALL_NUMBER)
+			&& Movement->MaxSpeed == 0.0f
+			&& FMath::IsNearlyEqual(
+				Movement->ProjectileGravityScale,
+				static_cast<float>(ExpectedGravityScale)));
+
+	const bool bPublished = Staged.IsStaged()
+		&& Fdemo_mapShanmenThrownWeaponWorldAdapter::PublishCommittedLaunch(
+			Runtime,
+			Staged.Plan,
+			MakeCommitted(Staged.Plan),
+			Execution,
+			*Projectile);
+	TestTrue(TEXT("Durable publication activates the same ballistic carrier"),
+		bPublished
+			&& Execution.GetState() == EShanmenThrownWeaponState::InFlight
+			&& Projectile->GetProjectileState()
+				== Edemo_mapShanmenThrownWeaponProjectileState::InFlight
+			&& Movement->IsActive()
+			&& Movement->Velocity.Equals(
+				ArcPlan.GetInitialVelocity(), KINDA_SMALL_NUMBER)
+			&& FMath::IsNearlyEqual(
+				Movement->ProjectileGravityScale,
+				static_cast<float>(ExpectedGravityScale)));
+	TestTrue(TEXT("Arc flight terminates through the existing no-impact path"),
+		Fdemo_mapShanmenThrownWeaponWorldAdapter::FinishFlightWithoutImpact(
+			Runtime, Execution, *Projectile)
+			&& Execution.GetState() == EShanmenThrownWeaponState::Spent
+			&& Projectile->GetProjectileState()
+				== Edemo_mapShanmenThrownWeaponProjectileState::Spent);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcWorldFailClosedTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponWorldDelivery.ArcFailClosed",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcWorldFailClosedTest::RunTest(const FString&)
+{
+	FThrownWorldFixture Fixture;
+	if (!Fixture.bReady)
+	{
+		AddError(TEXT("Could not build the P20.2 fail-closed fixture."));
+		return false;
+	}
+	FShanmenActionOrchestrator Runtime;
+	FShanmenThrownWeaponExecution Execution;
+	FShanmenCombatActionSnapshot Action;
+	StartAction(
+		Fixture.Coordinator,
+		Runtime,
+		Execution,
+		Action,
+		FShanmenThrownWeaponDefinition::ArcActionDefinitionId());
+	const FShanmenThrownWeaponArcPlan ArcPlan = MakeArcPlan(
+		Action, FVector(10.0, 20.0, 30.0), FVector(510.0, 20.0, 30.0));
+	Ademo_mapShanmenThrownWeaponProjectile* Worldless =
+		NewObject<Ademo_mapShanmenThrownWeaponProjectile>(
+			GetTransientPackage());
+	if (!Worldless)
+	{
+		return false;
+	}
+
+	const Fdemo_mapShanmenThrownWeaponLaunchResult WrongTrajectory =
+		Fdemo_mapShanmenThrownWeaponWorldAdapter::StagePreparedLaunch(
+			MakeCorrelation(),
+			MakePrepared(Action),
+			Runtime,
+			Execution,
+			*Worldless,
+			Fixture.Pawn,
+			ArcPlan.GetRequest().GetOrigin(),
+			ArcPlan.GetInitialVelocity());
+	TestTrue(TEXT("Arc actions cannot fall back to the straight staging path"),
+		WrongTrajectory.Error
+			== Edemo_mapShanmenThrownWeaponLaunchError::LaunchRejected
+			&& Execution.GetState() == EShanmenThrownWeaponState::Ready
+			&& Worldless->GetProjectileState()
+				== Edemo_mapShanmenThrownWeaponProjectileState::Empty);
+
+	const Fdemo_mapShanmenThrownWeaponLaunchResult NoWorld =
+		Fdemo_mapShanmenThrownWeaponWorldAdapter::StagePreparedArcLaunch(
+			MakeCorrelation(),
+			MakePrepared(Action),
+			Runtime,
+			Execution,
+			*Worldless,
+			Fixture.Pawn,
+			ArcPlan);
+	TestTrue(TEXT("Ballistic publication requires a World gravity authority"),
+		NoWorld.Error
+			== Edemo_mapShanmenThrownWeaponLaunchError::ProjectileStageRejected
+			&& Execution.GetState() == EShanmenThrownWeaponState::Ready
+			&& !Execution.IsEmissionActive()
+			&& Worldless->GetProjectileState()
+				== Edemo_mapShanmenThrownWeaponProjectileState::Empty);
 	return true;
 }
 

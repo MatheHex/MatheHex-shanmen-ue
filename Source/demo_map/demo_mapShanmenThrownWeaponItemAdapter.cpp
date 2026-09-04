@@ -6,9 +6,24 @@
 
 namespace
 {
-	FName ThrownLaunchPurpose()
+	bool TryGetThrownLaunchPurpose(
+		FName ActionDefinitionId,
+		FName& OutPurposeId)
 	{
-		return TEXT("Shanmen.ThrownWeapon.StraightLaunch.r1");
+		OutPurposeId = NAME_None;
+		if (ActionDefinitionId
+			== FShanmenThrownWeaponDefinition::StraightActionDefinitionId())
+		{
+			OutPurposeId = TEXT("Shanmen.ThrownWeapon.StraightLaunch.r1");
+			return true;
+		}
+		if (ActionDefinitionId
+			== FShanmenThrownWeaponDefinition::ArcActionDefinitionId())
+		{
+			OutPurposeId = TEXT("Shanmen.ThrownWeapon.ArcLaunch.r1");
+			return true;
+		}
+		return false;
 	}
 
 	FString GuidDigits(const FGuid& Value)
@@ -235,9 +250,10 @@ Fdemo_mapShanmenThrownWeaponItemAdapter::BuildPrepareRequest(
 			Edemo_mapShanmenThrownWeaponItemStatus::RunCorrelationInvalid,
 			TEXT("Thrown-item preparation requires one valid immutable Run correlation."));
 	}
+	FName LaunchPurposeId;
 	if (!Action.IsValid()
-		|| Action.GetActionDefinitionId()
-			!= FShanmenThrownWeaponDefinition::CanonicalActionDefinitionId()
+		|| !TryGetThrownLaunchPurpose(
+			Action.GetActionDefinitionId(), LaunchPurposeId)
 		|| Quantity <= 0)
 	{
 		return Reject(
@@ -426,7 +442,7 @@ Fdemo_mapShanmenThrownWeaponItemAdapter::BuildPrepareRequest(
 			|| ExistingPrepare->ReservationIds
 				!= TArray<FGuid>({ Correlation.ActiveRunId })
 			|| ExistingPrepare->Amount != Quantity
-			|| ExistingPrepare->PurposeId != ThrownLaunchPurpose())
+			|| ExistingPrepare->PurposeId != LaunchPurposeId)
 		{
 			return Reject(
 				Edemo_mapShanmenThrownWeaponItemStatus::ActionMismatch,
@@ -480,7 +496,7 @@ Fdemo_mapShanmenThrownWeaponItemAdapter::BuildPrepareRequest(
 	Result.PrepareRequest.ItemInstanceId = ItemId;
 	Result.PrepareRequest.Amount = Quantity;
 	Result.PrepareRequest.ExpectedQuantityBefore = ExpectedQuantityBefore;
-	Result.PrepareRequest.PurposeId = ThrownLaunchPurpose();
+	Result.PrepareRequest.PurposeId = LaunchPurposeId;
 	if (!Result.HasPrepareRequest())
 	{
 		return Reject(

@@ -2,6 +2,7 @@
 
 #include "Components/SphereComponent.h"
 #include "Engine/HitResult.h"
+#include "Engine/World.h"
 #include "GameFramework/ProjectileMovementComponent.h"
 
 namespace
@@ -35,6 +36,96 @@ namespace
 			&& Left.GetDetectorId() == Right.GetDetectorId()
 			&& Left.GetDetectorKind() == Right.GetDetectorKind()
 			&& Left.GetHitOrdinal() == Right.GetHitOrdinal();
+	}
+
+	struct FThrownWeaponMotionConfig
+	{
+		FVector InitialVelocity = FVector::ZeroVector;
+		float InitialSpeed = 0.0f;
+		float MaximumSpeed = 0.0f;
+		float GravityScale = 0.0f;
+	};
+
+	bool TryBuildMotionConfig(
+		const Ademo_mapShanmenThrownWeaponProjectile& Projectile,
+		const FShanmenThrownWeaponLaunchReceipt& Launch,
+		FThrownWeaponMotionConfig& OutConfig)
+	{
+		OutConfig = FThrownWeaponMotionConfig();
+		if (!Launch.IsValid())
+		{
+			return false;
+		}
+
+		const FVector InitialVelocity = Launch.GetInitialVelocity();
+		if (InitialVelocity.ContainsNaN()
+			|| !FMath::IsFinite(InitialVelocity.X)
+			|| !FMath::IsFinite(InitialVelocity.Y)
+			|| !FMath::IsFinite(InitialVelocity.Z)
+			|| InitialVelocity.IsNearlyZero()
+			|| !FMath::IsFinite(Launch.GetSpeed())
+			|| Launch.GetSpeed() <= 0.0f)
+		{
+			return false;
+		}
+
+		OutConfig.InitialVelocity = InitialVelocity;
+		OutConfig.InitialSpeed = Launch.GetSpeed();
+		if (Launch.GetTrajectoryKind()
+			== EShanmenThrownWeaponTrajectoryKind::Straight)
+		{
+			OutConfig.MaximumSpeed = Launch.GetSpeed();
+			return Launch.GetGravityAcceleration().IsNearlyZero();
+		}
+
+		const FVector Gravity = Launch.GetGravityAcceleration();
+		const UWorld* World = Projectile.GetWorld();
+		if (!World
+			|| Gravity.ContainsNaN()
+			|| !FMath::IsFinite(Gravity.X)
+			|| !FMath::IsFinite(Gravity.Y)
+			|| !FMath::IsFinite(Gravity.Z)
+			|| !FMath::IsNearlyZero(Gravity.X, UE_DOUBLE_SMALL_NUMBER)
+			|| !FMath::IsNearlyZero(Gravity.Y, UE_DOUBLE_SMALL_NUMBER)
+			|| Gravity.Z >= -UE_DOUBLE_SMALL_NUMBER)
+		{
+			return false;
+		}
+
+		const double WorldGravityZ = static_cast<double>(World->GetGravityZ());
+		const double GravityScale = Gravity.Z / WorldGravityZ;
+		if (!FMath::IsFinite(WorldGravityZ)
+			|| WorldGravityZ >= -UE_DOUBLE_SMALL_NUMBER
+			|| !FMath::IsFinite(GravityScale)
+			|| GravityScale <= 0.0
+			|| GravityScale > static_cast<double>(MAX_flt))
+		{
+			return false;
+		}
+
+		// Arc speed may increase while descending; zero disables MaxSpeed clamping.
+		OutConfig.MaximumSpeed = 0.0f;
+		OutConfig.GravityScale = static_cast<float>(GravityScale);
+		return true;
+	}
+
+	bool MotionMatches(
+		const Ademo_mapShanmenThrownWeaponProjectile& Projectile,
+		const UProjectileMovementComponent& Movement,
+		const FShanmenThrownWeaponLaunchReceipt& Launch,
+		bool bRequireInitialVelocity)
+	{
+		FThrownWeaponMotionConfig Expected;
+		return TryBuildMotionConfig(Projectile, Launch, Expected)
+			&& FMath::IsNearlyEqual(
+				Movement.InitialSpeed, Expected.InitialSpeed)
+			&& FMath::IsNearlyEqual(
+				Movement.MaxSpeed, Expected.MaximumSpeed)
+			&& FMath::IsNearlyEqual(
+				Movement.ProjectileGravityScale, Expected.GravityScale)
+			&& (!bRequireInitialVelocity
+				|| Movement.Velocity.Equals(
+					Expected.InitialVelocity, KINDA_SMALL_NUMBER));
 	}
 }
 
@@ -78,15 +169,18 @@ bool Ademo_mapShanmenThrownWeaponProjectile::TryStageLaunch(
 		return SourceActor == InSourceActor
 			&& IsStagedFor(InLaunch, InContext);
 	}
+	FThrownWeaponMotionConfig Motion;
 	if (State != Edemo_mapShanmenThrownWeaponProjectileState::Empty
 		|| !InLaunch.IsValid()
 		|| !InContext.IsValid()
 		|| !IsValid(InSourceActor)
 		|| InSourceActor == this
+		|| InSourceActor->GetWorld() != GetWorld()
 		|| InContext.GetDetectorKind()
 			!= EShanmenHitDetectorKind::Projectile
 		|| InContext.GetHitOrdinal() != 0
-		|| !ActionsMatch(InLaunch.GetAction(), InContext.GetAction()))
+		|| !ActionsMatch(InLaunch.GetAction(), InContext.GetAction())
+		|| !TryBuildMotionConfig(*this, InLaunch, Motion))
 	{
 		return false;
 	}
@@ -103,12 +197,13 @@ bool Ademo_mapShanmenThrownWeaponProjectile::TryStageLaunch(
 	Collision->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Movement->Deactivate();
 	Movement->StopMovementImmediately();
-	Movement->InitialSpeed = InLaunch.GetSpeed();
-	Movement->MaxSpeed = InLaunch.GetSpeed();
-	Movement->Velocity = InLaunch.GetDirection() * InLaunch.GetSpeed();
+	Movement->InitialSpeed = Motion.InitialSpeed;
+	Movement->MaxSpeed = Motion.MaximumSpeed;
+	Movement->ProjectileGravityScale = Motion.GravityScale;
+	Movement->Velocity = Motion.InitialVelocity;
 	SetActorLocationAndRotation(
 		InLaunch.GetOrigin(),
-		InLaunch.GetDirection().Rotation(),
+		Motion.InitialVelocity.Rotation(),
 		false,
 		nullptr,
 		ETeleportType::TeleportPhysics);
@@ -128,7 +223,8 @@ bool Ademo_mapShanmenThrownWeaponProjectile::IsStagedFor(
 		&& Collision
 		&& Movement
 		&& Collision->GetCollisionEnabled() == ECollisionEnabled::NoCollision
-		&& !Movement->IsActive();
+		&& !Movement->IsActive()
+		&& MotionMatches(*this, *Movement, InLaunch, true);
 }
 
 bool Ademo_mapShanmenThrownWeaponProjectile::IsInFlightFor(
@@ -143,16 +239,21 @@ bool Ademo_mapShanmenThrownWeaponProjectile::IsInFlightFor(
 		&& Collision
 		&& Movement
 		&& Collision->GetCollisionEnabled() == ECollisionEnabled::QueryOnly
-		&& Movement->IsActive();
+		&& Movement->IsActive()
+		&& MotionMatches(*this, *Movement, InLaunch, false);
 }
 
 void Ademo_mapShanmenThrownWeaponProjectile::ActivateCommittedLaunch()
 {
 	check(State == Edemo_mapShanmenThrownWeaponProjectileState::Staged);
 	check(LaunchReceipt.IsValid() && HitContext.IsValid());
+	FThrownWeaponMotionConfig Motion;
+	check(TryBuildMotionConfig(*this, LaunchReceipt, Motion));
 	Collision->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
-	Movement->Velocity =
-		LaunchReceipt.GetDirection() * LaunchReceipt.GetSpeed();
+	Movement->InitialSpeed = Motion.InitialSpeed;
+	Movement->MaxSpeed = Motion.MaximumSpeed;
+	Movement->ProjectileGravityScale = Motion.GravityScale;
+	Movement->Velocity = Motion.InitialVelocity;
 	Movement->Activate(true);
 	State = Edemo_mapShanmenThrownWeaponProjectileState::InFlight;
 }
@@ -170,6 +271,9 @@ bool Ademo_mapShanmenThrownWeaponProjectile::CancelStagedLaunch()
 	}
 	Movement->StopMovementImmediately();
 	Movement->Deactivate();
+	Movement->InitialSpeed = 0.0f;
+	Movement->MaxSpeed = 0.0f;
+	Movement->ProjectileGravityScale = 0.0f;
 	SetOwner(nullptr);
 	SetInstigator(nullptr);
 	SourceActor = nullptr;

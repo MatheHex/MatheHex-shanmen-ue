@@ -13,7 +13,7 @@ class USphereComponent;
 struct FHitResult;
 struct Fdemo_mapShanmenThrownWeaponWorldAdapter;
 
-/** Product-visible lifecycle of one physical straight thrown item. */
+/** Product-visible lifecycle of one physical thrown item. */
 enum class Edemo_mapShanmenThrownWeaponProjectileState : uint8
 {
 	Empty,
@@ -37,7 +37,7 @@ DECLARE_MULTICAST_DELEGATE_OneParam(
 	Ademo_mapShanmenThrownWeaponProjectile&);
 
 /**
- * Minimal physical carrier for the P7 straight thrown-item contract.
+ * Minimal physical carrier for the shared straight/ballistic launch contract.
  *
  * Staging is deliberately inert. Only an exact durable Quantity commit may
  * call ActivateCommittedLaunch. Geometry is emitted through OnContact; this

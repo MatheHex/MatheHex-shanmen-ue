@@ -45,15 +45,16 @@ namespace
 
 	FShanmenCombatActionSnapshot MakeAction(
 		uint64 ActivationSequence = 7,
-		const FGuid& ItemId = DartId)
+		const FGuid& ItemId = DartId,
+		FName ActionDefinitionId =
+			FShanmenThrownWeaponDefinition::StraightActionDefinitionId())
 	{
 		FShanmenCombatActionCapture Capture;
 		Capture.RunId = FGuid(0xD3710008, 0, 0, 1);
 		Capture.OwnerId = OwnerId;
 		Capture.SourceEntityId = SourceEntityId;
 		Capture.SourceItemInstanceId = ItemId;
-		Capture.ActionDefinitionId =
-			FShanmenThrownWeaponDefinition::CanonicalActionDefinitionId();
+		Capture.ActionDefinitionId = ActionDefinitionId;
 		Capture.Content = MakeContent();
 		Capture.SourceTags.AddTag(FShanmenCombatNativeTags::SourcePlayer());
 		Capture.ActivationId = FShanmenCombatIdFactory::MakeActivationId(
@@ -64,16 +65,19 @@ namespace
 		return Action;
 	}
 
-	FShanmenThrownWeaponDefinition MakeThrownDefinition()
+	FShanmenThrownWeaponDefinition MakeThrownDefinition(
+		FName ActionDefinitionId =
+			FShanmenThrownWeaponDefinition::StraightActionDefinitionId())
 	{
 		FShanmenThrownWeaponDefinitionCapture Capture;
-		Capture.ActionDefinitionId =
-			FShanmenThrownWeaponDefinition::CanonicalActionDefinitionId();
+		Capture.ActionDefinitionId = ActionDefinitionId;
 		Capture.DetectorId = TEXT("Detector.ThrownWeapon.P7.1.Test");
 		Capture.FormulaId = TEXT("Formula.ThrownWeapon.P7.1.Test");
 		Capture.BaseDamage = 10.0f;
 		Capture.TechniquePowerCoefficient = 0.25f;
-		Capture.LaunchSpeed = 800.0f;
+		Capture.LaunchSpeed = ActionDefinitionId
+			== FShanmenThrownWeaponDefinition::ArcActionDefinitionId()
+			? 1200.0f : 800.0f;
 		Capture.DamageTags.AddTag(
 			FShanmenCombatNativeTags::DamagePhysicalSlash());
 		Capture.RequiredTargetTags.AddTag(
@@ -106,6 +110,50 @@ namespace
 		return Launch;
 	}
 
+	FShanmenThrownWeaponArcPlan MakeArcPlan(
+		const FShanmenCombatActionSnapshot& Action)
+	{
+		FShanmenThrownWeaponArcRequestCapture Capture;
+		Capture.Action = Action;
+		Capture.TechniqueTier =
+			EShanmenThrownWeaponTechniqueTier::Intermediate;
+		Capture.Origin = FVector(10.0, 20.0, 30.0);
+		Capture.Target = FVector(510.0, 20.0, 30.0);
+		Capture.GravityMagnitude = 980.0;
+		Capture.ApexClearance = 150.0;
+		Capture.MaximumLaunchSpeed = 1200.0;
+		Capture.MaximumFlightTime = 5.0;
+		const FShanmenThrownWeaponArcPlanResult Result =
+			FShanmenThrownWeaponArcPlanner::Plan(Capture);
+		check(Result.IsPlanned());
+		return Result.Plan;
+	}
+
+	FShanmenThrownWeaponLaunchReceipt MakeArcLaunch(
+		const FShanmenCombatActionSnapshot& Action)
+	{
+		FShanmenThrownWeaponOffenseSnapshot Offense;
+		check(FShanmenThrownWeaponOffenseSnapshot::TryCapture(
+			20.0f, Offense));
+		FShanmenThrownWeaponExecution Execution;
+		check(FShanmenThrownWeaponExecution::TryCreate(
+			Action,
+			MakeThrownDefinition(
+				FShanmenThrownWeaponDefinition::ArcActionDefinitionId()),
+			Offense,
+			Execution));
+		FShanmenActionOrchestrator Runtime;
+		FShanmenActionTransitionReceipt Phase;
+		check(FShanmenActionOrchestrator::TryStart(
+			Action, Runtime, Phase));
+		check(Runtime.TryAdvance(
+			EShanmenCombatActionPhase::Startup, Phase));
+		FShanmenThrownWeaponLaunchReceipt Launch;
+		check(Execution.TryLaunchArc(
+			Runtime, MakeArcPlan(Action), Launch));
+		return Launch;
+	}
+
 	struct FThrownItemFixture
 	{
 		FShanmenItemRepository Repository;
@@ -113,7 +161,9 @@ namespace
 		Fdemo_mapShanmenRunCorrelation Correlation;
 		FShanmenCombatActionSnapshot Action;
 
-		bool Build()
+		bool Build(
+			FName ActionDefinitionId =
+				FShanmenThrownWeaponDefinition::StraightActionDefinitionId())
 		{
 			FShanmenItemAuthoritySnapshot Initial;
 			Initial.Content = MakeContent();
@@ -186,14 +236,13 @@ namespace
 				Fdemo_mapPersistentPreparationLayout::HotbarSlotCount);
 			Correlation.HotbarItemInstanceIds[0] = DartId;
 
-			Action = MakeAction();
+			Action = MakeAction(7, DartId, ActionDefinitionId);
 			FShanmenCombatActionCapture Corrected;
 			Corrected.RunId = Correlation.ActiveRunId;
 			Corrected.OwnerId = OwnerId;
 			Corrected.SourceEntityId = SourceEntityId;
 			Corrected.SourceItemInstanceId = DartId;
-			Corrected.ActionDefinitionId =
-				FShanmenThrownWeaponDefinition::CanonicalActionDefinitionId();
+			Corrected.ActionDefinitionId = ActionDefinitionId;
 			Corrected.Content = MakeContent();
 			Corrected.SourceTags.AddTag(
 				FShanmenCombatNativeTags::SourcePlayer());
@@ -317,6 +366,58 @@ bool Fdemo_mapThrownWeaponItemCommitTest::RunTest(const FString&)
 			&& Replay.PrepareRequest.Context.RequestId
 				== Prepared.PrepareRequest.Context.RequestId
 			&& Replay.PrepareRequest.ExpectedQuantityBefore == 4);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcItemCommitTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponItemAdapter.ArcLaunchCommit",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcItemCommitTest::RunTest(const FString&)
+{
+	FThrownItemFixture Fixture;
+	if (!Fixture.Build(
+		FShanmenThrownWeaponDefinition::ArcActionDefinitionId()))
+	{
+		AddError(TEXT("Could not build the P20.2 arc-item fixture."));
+		return false;
+	}
+
+	const Fdemo_mapShanmenThrownWeaponItemResult Request =
+		Fdemo_mapShanmenThrownWeaponItemAdapter::BuildPrepareRequest(
+			Fixture.Snapshot, Fixture.Correlation, Fixture.Action);
+	TestTrue(TEXT("Arc actions receive their own auditable Quantity purpose"),
+		Request.Status
+			== Edemo_mapShanmenThrownWeaponItemStatus::RequestReady
+			&& Request.PrepareRequest.PurposeId
+				== FName(TEXT("Shanmen.ThrownWeapon.ArcLaunch.r1")));
+
+	const Fdemo_mapShanmenThrownWeaponItemResult Prepared =
+		Fixture.PrepareInRepository();
+	const FShanmenThrownWeaponLaunchReceipt Launch =
+		MakeArcLaunch(Fixture.Action);
+	const Fdemo_mapShanmenThrownWeaponItemResult Commit =
+		Fdemo_mapShanmenThrownWeaponItemAdapter::BuildCommitRequest(
+			Fixture.Correlation, Prepared, Launch);
+	const FShanmenItemTransactionReceipt Committed =
+		Commit.FinalizeRequest.IsValid()
+			? Fixture.Repository.FinalizePreparedRunQuantityIntent(
+				Commit.FinalizeRequest)
+			: FShanmenItemTransactionReceipt();
+	TestTrue(TEXT("Arc launch consumes the same exact durable item intent"),
+		Prepared.IsPrepared()
+			&& Launch.IsValid()
+			&& Launch.GetTrajectoryKind()
+				== EShanmenThrownWeaponTrajectoryKind::BallisticArc
+			&& Commit.Status
+				== Edemo_mapShanmenThrownWeaponItemStatus::RequestReady
+			&& Commit.FinalizeRequest.IntentId
+				== Fixture.Action.GetActivationId()
+			&& Committed.IsSuccess()
+			&& Committed.ResourceBefore == 4
+			&& Committed.ResourceAfter == 3
+			&& Fixture.Repository.ValidateInvariants());
 	return true;
 }
 

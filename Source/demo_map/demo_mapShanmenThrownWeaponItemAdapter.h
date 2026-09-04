@@ -51,10 +51,10 @@ struct Fdemo_mapShanmenThrownWeaponItemResult
 };
 
 /**
- * Product bridge from one P7.0 physical thrown-item action to ShanmenItems.
+ * Product bridge from one physical thrown-item action to ShanmenItems.
  *
  * Prepare freezes one exact active-Run Quantity balance. Commit is legal only
- * after the matching immutable straight-launch receipt exists; cancellation is
+ * after the matching immutable straight/arc launch receipt exists; cancellation is
  * the only pre-launch terminal path. No Runtime inventory or legacy authority
  * is mutated by this adapter.
  */
@@ -85,7 +85,7 @@ struct Fdemo_mapShanmenThrownWeaponItemAdapter
 		const Fdemo_mapShanmenRunCorrelation& Correlation,
 		const Fdemo_mapShanmenThrownWeaponItemResult& Preparation);
 
-	/** Durably consumes only after P7.0 produced the exact launch proof. */
+	/** Durably consumes only after the shared execution produced exact launch proof. */
 	static Fdemo_mapShanmenThrownWeaponItemResult CommitLaunched(
 		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
 		const Fdemo_mapShanmenRunCorrelation& Correlation,
