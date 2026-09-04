@@ -3025,6 +3025,16 @@
       ]
     },
 	{
+	  "name": "ThrownWeaponArcChoiceProjection",
+	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponArcChoiceProjection(?:Tests)?\\.(?:h|cpp)$",
+	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponArcChoiceProjection",
+		"Shanmen.0_0_10.Product.ThrownWeaponInputChoice",
+		"Shanmen.0_0_10.CombatRuntime.ThrownWeaponArc",
+		"Shanmen.0_0_10"
+	  ]
+	},
+	{
 	  "name": "ThrownWeaponInputChoiceSession",
 	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceSession(?:Tests)?\\.(?:h|cpp)$",
 	  "requiredGroups": [

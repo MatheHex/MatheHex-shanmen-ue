@@ -2514,6 +2514,13 @@ try
 		-Logs @($Full)
 
     Invoke-ExpectedPass `
+		-Name 'thrown weapon Arc choice projection maps choice Arc and broad evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcChoiceProjection.cpp',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcChoiceProjectionTests.cpp') `
+		-Logs @($Full)
+
+    Invoke-ExpectedPass `
 		-Name 'thrown weapon input choice reducer maps its exact pure contract' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceReducer.cpp',
@@ -4094,6 +4101,13 @@ try
 		-Name 'thrown input choice session cannot use unrelated item fallback evidence' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceSession.cpp') `
+		-Logs @($ItemUse) `
+		-ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+		-Name 'thrown Arc choice projection cannot use unrelated item evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcChoiceProjection.cpp') `
 		-Logs @($ItemUse) `
 		-ExpectedText 'missing required groups'
 
