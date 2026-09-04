@@ -32,6 +32,25 @@ namespace
 			&& Left.RejectsSelf() == Right.RejectsSelf();
 	}
 
+	FShanmenThrownWeaponArcRequestCapture BuildArcRequest(
+		const FShanmenCombatActionSnapshot& Action,
+		const Fdemo_mapShanmenThrownWeaponSelectionIntent& Selection,
+		const Fdemo_mapShanmenThrownWeaponProductCapture& Product)
+	{
+		const Fdemo_mapShanmenThrownWeaponArcProductPolicy& ArcPolicy =
+			Product.GetArcPolicy();
+		FShanmenThrownWeaponArcRequestCapture Request;
+		Request.Action = Action;
+		Request.TechniqueTier = ArcPolicy.GetTechniqueTier();
+		Request.Origin = Selection.GetOrigin();
+		Request.Target = Selection.GetTarget();
+		Request.GravityMagnitude = ArcPolicy.GetGravityMagnitude();
+		Request.ApexClearance = Selection.GetApexClearance();
+		Request.MaximumLaunchSpeed = Product.GetDefinition().GetLaunchSpeed();
+		Request.MaximumFlightTime = ArcPolicy.GetMaximumFlightTime();
+		return Request;
+	}
+
 	Fdemo_mapShanmenThrownWeaponProductResult Reject(
 		Edemo_mapShanmenThrownWeaponProductStatus Status,
 		const Fdemo_mapShanmenThrownWeaponSelectionIntent& Selection,
@@ -108,6 +127,8 @@ bool Fdemo_mapShanmenThrownWeaponSelectionIntent::TryCapture(
 	OutIntent.RunId = RequestedRunId;
 	OutIntent.SourceItemInstanceId = RequestedSourceItemInstanceId;
 	OutIntent.Origin = RequestedOrigin;
+	OutIntent.TrajectoryKind =
+		Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight;
 	OutIntent.AimDirection = RequestedAimDirection.GetSafeNormal();
 	OutIntent.MaximumDistance = RequestedMaximumDistance;
 	if (!OutIntent.IsValid())
@@ -118,16 +139,75 @@ bool Fdemo_mapShanmenThrownWeaponSelectionIntent::TryCapture(
 	return true;
 }
 
+bool Fdemo_mapShanmenThrownWeaponSelectionIntent::TryCaptureArc(
+	const FGuid& RequestedSelectionId,
+	const FGuid& RequestedRunId,
+	const FGuid& RequestedSourceItemInstanceId,
+	const FVector& RequestedOrigin,
+	const FVector& RequestedTarget,
+	double RequestedApexClearance,
+	Fdemo_mapShanmenThrownWeaponSelectionIntent& OutIntent)
+{
+	OutIntent = Fdemo_mapShanmenThrownWeaponSelectionIntent();
+	if (!RequestedSelectionId.IsValid()
+		|| !RequestedRunId.IsValid()
+		|| !RequestedSourceItemInstanceId.IsValid()
+		|| !IsFiniteVector(RequestedOrigin)
+		|| !IsFiniteVector(RequestedTarget)
+		|| RequestedOrigin.Equals(
+			RequestedTarget, UE_DOUBLE_SMALL_NUMBER)
+		|| !FMath::IsFinite(RequestedApexClearance)
+		|| RequestedApexClearance <= 0.0)
+	{
+		return false;
+	}
+
+	OutIntent.SelectionId = RequestedSelectionId;
+	OutIntent.RunId = RequestedRunId;
+	OutIntent.SourceItemInstanceId = RequestedSourceItemInstanceId;
+	OutIntent.Origin = RequestedOrigin;
+	OutIntent.TrajectoryKind =
+		Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc;
+	OutIntent.Target = RequestedTarget;
+	OutIntent.ApexClearance = RequestedApexClearance;
+	if (!OutIntent.IsValid())
+	{
+		OutIntent = Fdemo_mapShanmenThrownWeaponSelectionIntent();
+		return false;
+	}
+	return true;
+}
+
 bool Fdemo_mapShanmenThrownWeaponSelectionIntent::IsValid() const
 {
-	return SelectionId.IsValid()
+	const bool bCommonValid = SelectionId.IsValid()
 		&& RunId.IsValid()
 		&& SourceItemInstanceId.IsValid()
-		&& IsFiniteVector(Origin)
-		&& IsFiniteVector(AimDirection)
-		&& AimDirection.IsNormalized()
-		&& FMath::IsFinite(MaximumDistance)
-		&& MaximumDistance > KINDA_SMALL_NUMBER;
+		&& IsFiniteVector(Origin);
+	if (!bCommonValid)
+	{
+		return false;
+	}
+
+	switch (TrajectoryKind)
+	{
+	case Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight:
+		return IsFiniteVector(AimDirection)
+			&& AimDirection.IsNormalized()
+			&& FMath::IsFinite(MaximumDistance)
+			&& MaximumDistance > KINDA_SMALL_NUMBER
+			&& Target == FVector::ZeroVector
+			&& ApexClearance == 0.0;
+	case Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc:
+		return AimDirection == FVector::ZeroVector
+			&& MaximumDistance == 0.0f
+			&& IsFiniteVector(Target)
+			&& !Origin.Equals(Target, UE_DOUBLE_SMALL_NUMBER)
+			&& FMath::IsFinite(ApexClearance)
+			&& ApexClearance > 0.0;
+	default:
+		return false;
+	}
 }
 
 bool Fdemo_mapShanmenThrownWeaponSelectionIntent::Matches(
@@ -138,8 +218,56 @@ bool Fdemo_mapShanmenThrownWeaponSelectionIntent::Matches(
 		&& RunId == Other.RunId
 		&& SourceItemInstanceId == Other.SourceItemInstanceId
 		&& Origin == Other.Origin
+		&& TrajectoryKind == Other.TrajectoryKind
 		&& AimDirection == Other.AimDirection
-		&& MaximumDistance == Other.MaximumDistance;
+		&& MaximumDistance == Other.MaximumDistance
+		&& Target == Other.Target
+		&& ApexClearance == Other.ApexClearance;
+}
+
+bool Fdemo_mapShanmenThrownWeaponArcProductPolicy::TryCapture(
+	EShanmenThrownWeaponTechniqueTier RequestedTechniqueTier,
+	double RequestedGravityMagnitude,
+	double RequestedMaximumFlightTime,
+	Fdemo_mapShanmenThrownWeaponArcProductPolicy& OutPolicy)
+{
+	OutPolicy = Fdemo_mapShanmenThrownWeaponArcProductPolicy();
+	if ((RequestedTechniqueTier
+			!= EShanmenThrownWeaponTechniqueTier::Intermediate
+			&& RequestedTechniqueTier
+				!= EShanmenThrownWeaponTechniqueTier::Master)
+		|| !FMath::IsFinite(RequestedGravityMagnitude)
+		|| RequestedGravityMagnitude <= 0.0
+		|| !FMath::IsFinite(RequestedMaximumFlightTime)
+		|| RequestedMaximumFlightTime <= 0.0)
+	{
+		return false;
+	}
+
+	OutPolicy.TechniqueTier = RequestedTechniqueTier;
+	OutPolicy.GravityMagnitude = RequestedGravityMagnitude;
+	OutPolicy.MaximumFlightTime = RequestedMaximumFlightTime;
+	return OutPolicy.IsValid();
+}
+
+bool Fdemo_mapShanmenThrownWeaponArcProductPolicy::IsValid() const
+{
+	return (TechniqueTier
+			== EShanmenThrownWeaponTechniqueTier::Intermediate
+			|| TechniqueTier == EShanmenThrownWeaponTechniqueTier::Master)
+		&& FMath::IsFinite(GravityMagnitude)
+		&& GravityMagnitude > 0.0
+		&& FMath::IsFinite(MaximumFlightTime)
+		&& MaximumFlightTime > 0.0;
+}
+
+bool Fdemo_mapShanmenThrownWeaponArcProductPolicy::Matches(
+	const Fdemo_mapShanmenThrownWeaponArcProductPolicy& Other) const
+{
+	return IsValid() && Other.IsValid()
+		&& TechniqueTier == Other.TechniqueTier
+		&& GravityMagnitude == Other.GravityMagnitude
+		&& MaximumFlightTime == Other.MaximumFlightTime;
 }
 
 bool Fdemo_mapShanmenThrownWeaponProductCapture::TryCapture(
@@ -152,7 +280,38 @@ bool Fdemo_mapShanmenThrownWeaponProductCapture::TryCapture(
 	if (!FShanmenThrownWeaponDefinition::TryCapture(
 			RequestedDefinition, OutCapture.Definition)
 		|| !FShanmenThrownWeaponOffenseSnapshot::TryCapture(
-			TechniquePower, OutCapture.Offense))
+			TechniquePower, OutCapture.Offense)
+		|| OutCapture.Definition.GetActionDefinitionId()
+			!= FShanmenThrownWeaponDefinition::StraightActionDefinitionId())
+	{
+		OutCapture = Fdemo_mapShanmenThrownWeaponProductCapture();
+		return false;
+	}
+	OutCapture.SourceTags = RequestedSourceTags;
+	return OutCapture.IsValid();
+}
+
+bool Fdemo_mapShanmenThrownWeaponProductCapture::TryCaptureArc(
+	const FShanmenThrownWeaponDefinitionCapture& RequestedDefinition,
+	float TechniquePower,
+	const FGameplayTagContainer& RequestedSourceTags,
+	EShanmenThrownWeaponTechniqueTier TechniqueTier,
+	double GravityMagnitude,
+	double MaximumFlightTime,
+	Fdemo_mapShanmenThrownWeaponProductCapture& OutCapture)
+{
+	OutCapture = Fdemo_mapShanmenThrownWeaponProductCapture();
+	if (!FShanmenThrownWeaponDefinition::TryCapture(
+			RequestedDefinition, OutCapture.Definition)
+		|| OutCapture.Definition.GetActionDefinitionId()
+			!= FShanmenThrownWeaponDefinition::ArcActionDefinitionId()
+		|| !FShanmenThrownWeaponOffenseSnapshot::TryCapture(
+			TechniquePower, OutCapture.Offense)
+		|| !Fdemo_mapShanmenThrownWeaponArcProductPolicy::TryCapture(
+			TechniqueTier,
+			GravityMagnitude,
+			MaximumFlightTime,
+			OutCapture.ArcPolicy))
 	{
 		OutCapture = Fdemo_mapShanmenThrownWeaponProductCapture();
 		return false;
@@ -163,7 +322,18 @@ bool Fdemo_mapShanmenThrownWeaponProductCapture::TryCapture(
 
 bool Fdemo_mapShanmenThrownWeaponProductCapture::IsValid() const
 {
-	return Definition.IsValid() && Offense.IsValid();
+	if (!Definition.IsValid() || !Offense.IsValid())
+	{
+		return false;
+	}
+	if (Definition.GetActionDefinitionId()
+		== FShanmenThrownWeaponDefinition::StraightActionDefinitionId())
+	{
+		return !ArcPolicy.IsValid();
+	}
+	return Definition.GetActionDefinitionId()
+			== FShanmenThrownWeaponDefinition::ArcActionDefinitionId()
+		&& ArcPolicy.IsValid();
 }
 
 bool Fdemo_mapShanmenThrownWeaponProductCapture::Matches(
@@ -173,7 +343,9 @@ bool Fdemo_mapShanmenThrownWeaponProductCapture::Matches(
 		&& DefinitionsMatch(Definition, Other.Definition)
 		&& Offense.GetTechniquePower()
 			== Other.Offense.GetTechniquePower()
-		&& SourceTags == Other.SourceTags;
+		&& SourceTags == Other.SourceTags
+		&& ((!ArcPolicy.IsValid() && !Other.ArcPolicy.IsValid())
+			|| ArcPolicy.Matches(Other.ArcPolicy));
 }
 
 bool Fdemo_mapShanmenThrownWeaponProductResult::IsAccepted() const
@@ -240,6 +412,24 @@ Fdemo_mapShanmenThrownWeaponProductController::TrySubmit(
 			Selection,
 			TEXT("Thrown-weapon product combat capture is invalid."));
 	}
+	const FName ProductActionDefinitionId =
+		Product.GetDefinition().GetActionDefinitionId();
+	const bool bTrajectoryMatchesProduct =
+		(Selection.GetTrajectoryKind()
+				== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight
+			&& ProductActionDefinitionId
+				== FShanmenThrownWeaponDefinition::StraightActionDefinitionId())
+		|| (Selection.GetTrajectoryKind()
+				== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc
+			&& ProductActionDefinitionId
+				== FShanmenThrownWeaponDefinition::ArcActionDefinitionId());
+	if (!bTrajectoryMatchesProduct)
+	{
+		return Reject(
+			Edemo_mapShanmenThrownWeaponProductStatus::TrajectoryMismatch,
+			Selection,
+			TEXT("Selection trajectory and immutable product definition disagree."));
+	}
 	if (!Correlation.IsValid()
 		|| Correlation.ActiveRunId != Selection.GetRunId()
 		|| Coordinator.GetRunId() != Selection.GetRunId()
@@ -291,6 +481,27 @@ Fdemo_mapShanmenThrownWeaponProductController::TrySubmit(
 			Existing->ActivationSequence,
 			Existing->Command,
 			true);
+	}
+	if (const FRejectedArcSelection* Existing =
+		RejectedArcSelections.Find(Selection.GetSelectionId()))
+	{
+		if (!Existing->Selection.Matches(Selection)
+			|| !Existing->Product.Matches(Product))
+		{
+			return Reject(
+				Edemo_mapShanmenThrownWeaponProductStatus::SelectionIdConflict,
+				Selection,
+				TEXT("Thrown-weapon SelectionId was reused with another frozen payload."));
+		}
+		Fdemo_mapShanmenThrownWeaponProductResult Result = Reject(
+			Edemo_mapShanmenThrownWeaponProductStatus::ArcPlanRejected,
+			Selection,
+			TEXT("Arc planning rejection was already recorded for this selection."));
+		Result.bReusedSelection = true;
+		Result.ActivationSequence = Existing->ActivationSequence;
+		Result.ActivationId = Existing->Action.GetActivationId();
+		Result.Diagnostic = Existing->Diagnostic;
+		return Result;
 	}
 
 	if (!IsInGameThread()
@@ -359,7 +570,10 @@ Fdemo_mapShanmenThrownWeaponProductController::TrySubmit(
 	Fdemo_mapPlayerThrownWeaponActionReservation Reservation;
 	FString ReservationDiagnostic;
 	if (!Coordinator.TryReservePlayerThrownWeaponAction(
-			ItemId, Reservation, ReservationDiagnostic))
+			ItemId,
+			ProductActionDefinitionId,
+			Reservation,
+			ReservationDiagnostic))
 	{
 		Fdemo_mapShanmenThrownWeaponProductResult Result = Reject(
 			Edemo_mapShanmenThrownWeaponProductStatus::
@@ -377,8 +591,7 @@ Fdemo_mapShanmenThrownWeaponProductController::TrySubmit(
 	ActionCapture.ActivationId = Reservation.ActivationId;
 	ActionCapture.SourceEntityId = Reservation.SourceEntityId;
 	ActionCapture.SourceItemInstanceId = ItemId;
-	ActionCapture.ActionDefinitionId =
-		FShanmenThrownWeaponDefinition::CanonicalActionDefinitionId();
+	ActionCapture.ActionDefinitionId = Reservation.ActionDefinitionId;
 	ActionCapture.Content = Snapshot.Content;
 	ActionCapture.SourceTags = Product.GetSourceTags();
 	ActionCapture.SourceTags.AddTag(
@@ -400,15 +613,73 @@ Fdemo_mapShanmenThrownWeaponProductController::TrySubmit(
 	Captured.Selection = Selection;
 	Captured.Product = Product;
 	Captured.ActivationSequence = Reservation.ActivationSequence;
-	if (!Fdemo_mapShanmenThrownWeaponRunCommandIntent::TryCapture(
-			Correlation,
-			Action,
-			Product.GetDefinition(),
-			Product.GetOffense(),
-			Selection.GetOrigin(),
-			Selection.GetAimDirection(),
-			Selection.GetMaximumDistance(),
-			Captured.Command))
+	bool bCommandCaptured = false;
+	if (Selection.GetTrajectoryKind()
+		== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight)
+	{
+		bCommandCaptured =
+			Fdemo_mapShanmenThrownWeaponRunCommandIntent::TryCapture(
+				Correlation,
+				Action,
+				Product.GetDefinition(),
+				Product.GetOffense(),
+				Selection.GetOrigin(),
+				Selection.GetAimDirection(),
+				Selection.GetMaximumDistance(),
+				Captured.Command);
+	}
+	else
+	{
+		const FShanmenThrownWeaponArcPlanResult ArcResult =
+			FShanmenThrownWeaponArcPlanner::Plan(
+				BuildArcRequest(Action, Selection, Product));
+		if (!ArcResult.IsPlanned())
+		{
+			Fdemo_mapShanmenThrownWeaponProductResult Result = Reject(
+				Edemo_mapShanmenThrownWeaponProductStatus::ArcPlanRejected,
+				Selection,
+				TEXT("Validated Arc selection could not produce a product-owned plan."));
+			Result.ActivationSequence = Reservation.ActivationSequence;
+			Result.ActivationId = Reservation.ActivationId;
+			Result.Diagnostic = ArcResult.Diagnostic.IsEmpty()
+				? Result.Diagnostic : ArcResult.Diagnostic;
+
+			FRejectedArcSelection Rejected;
+			Rejected.Selection = Selection;
+			Rejected.Product = Product;
+			Rejected.ActivationSequence = Reservation.ActivationSequence;
+			Rejected.Action = Action;
+			Rejected.Diagnostic = Result.Diagnostic;
+			if (IsEmpty())
+			{
+				RunId = Selection.GetRunId();
+			}
+			RejectedArcSelections.Add(
+				Selection.GetSelectionId(), MoveTemp(Rejected));
+			if (!IsValid())
+			{
+				RejectedArcSelections.Remove(Selection.GetSelectionId());
+				if (IsEmpty())
+				{
+					RunId.Invalidate();
+				}
+				Result.Status =
+					Edemo_mapShanmenThrownWeaponProductStatus::ControllerInvalid;
+				Result.Diagnostic =
+					TEXT("Rejected Arc selection failed controller invariants.");
+			}
+			return Result;
+		}
+		bCommandCaptured =
+			Fdemo_mapShanmenThrownWeaponRunCommandIntent::TryCaptureArc(
+				Correlation,
+				Action,
+				Product.GetDefinition(),
+				Product.GetOffense(),
+				ArcResult.Plan,
+				Captured.Command);
+	}
+	if (!bCommandCaptured)
 	{
 		Fdemo_mapShanmenThrownWeaponProductResult Result = Reject(
 			Edemo_mapShanmenThrownWeaponProductStatus::CommandCaptureRejected,
@@ -428,7 +699,7 @@ Fdemo_mapShanmenThrownWeaponProductController::TrySubmit(
 	if (!IsValid())
 	{
 		CapturedSelections.Remove(Selection.GetSelectionId());
-		if (CapturedSelections.IsEmpty())
+		if (IsEmpty())
 		{
 			RunId.Invalidate();
 		}
@@ -481,6 +752,26 @@ Fdemo_mapShanmenThrownWeaponProductController::TryRecoverCancellation(
 		CapturedSelections.Find(Selection.GetSelectionId());
 	if (!Existing)
 	{
+		if (const FRejectedArcSelection* Rejected =
+			RejectedArcSelections.Find(Selection.GetSelectionId()))
+		{
+			if (!Rejected->Selection.Matches(Selection))
+			{
+				return Reject(
+					Edemo_mapShanmenThrownWeaponProductStatus::SelectionIdConflict,
+					Selection,
+					TEXT("Cancellation recovery rejected a conflicting selection payload."));
+			}
+			Fdemo_mapShanmenThrownWeaponProductResult Result = Reject(
+				Edemo_mapShanmenThrownWeaponProductStatus::ArcPlanRejected,
+				Selection,
+				TEXT("An Arc planning rejection has no item cancellation to recover."));
+			Result.bReusedSelection = true;
+			Result.ActivationSequence = Rejected->ActivationSequence;
+			Result.ActivationId = Rejected->Action.GetActivationId();
+			Result.Diagnostic = Rejected->Diagnostic;
+			return Result;
+		}
 		return Reject(
 			Edemo_mapShanmenThrownWeaponProductStatus::SelectionNotFound,
 			Selection,
@@ -514,7 +805,7 @@ Fdemo_mapShanmenThrownWeaponProductController::TryRecoverCancellation(
 
 bool Fdemo_mapShanmenThrownWeaponProductController::IsValid() const
 {
-	if (CapturedSelections.IsEmpty())
+	if (IsEmpty())
 	{
 		return !RunId.IsValid();
 	}
@@ -530,6 +821,45 @@ bool Fdemo_mapShanmenThrownWeaponProductController::IsValid() const
 		const FCapturedSelection& Captured = Pair.Value;
 		const FShanmenCombatActionSnapshot& Action =
 			Captured.Command.GetAction();
+		bool bTrajectoryValid = false;
+		if (Captured.Selection.GetTrajectoryKind()
+			== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight)
+		{
+			bTrajectoryValid = Captured.Command.GetTrajectoryKind()
+					== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight
+				&& Captured.Selection.GetOrigin()
+					== Captured.Command.GetOrigin()
+				&& Captured.Selection.GetAimDirection()
+					== Captured.Command.GetAimDirection()
+				&& Captured.Selection.GetMaximumDistance()
+					== Captured.Command.GetMaximumDistance()
+				&& !Captured.Product.GetArcPolicy().IsValid();
+		}
+		else if (Captured.Selection.GetTrajectoryKind()
+			== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc)
+		{
+			const FShanmenThrownWeaponArcRequest& ArcRequest =
+				Captured.Command.GetArcPlan().GetRequest();
+			const Fdemo_mapShanmenThrownWeaponArcProductPolicy& ArcPolicy =
+				Captured.Product.GetArcPolicy();
+			bTrajectoryValid = Captured.Command.GetTrajectoryKind()
+					== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc
+				&& ArcPolicy.IsValid()
+				&& ArcRequest.GetOrigin()
+					== Captured.Selection.GetOrigin()
+				&& ArcRequest.GetTarget()
+					== Captured.Selection.GetTarget()
+				&& ArcRequest.GetApexClearance()
+					== Captured.Selection.GetApexClearance()
+				&& ArcRequest.GetTechniqueTier()
+					== ArcPolicy.GetTechniqueTier()
+				&& ArcRequest.GetGravityMagnitude()
+					== ArcPolicy.GetGravityMagnitude()
+				&& ArcRequest.GetMaximumFlightTime()
+					== ArcPolicy.GetMaximumFlightTime()
+				&& ArcRequest.GetMaximumLaunchSpeed()
+					== Captured.Product.GetDefinition().GetLaunchSpeed();
+		}
 		if (Pair.Key != Captured.Selection.GetSelectionId()
 			|| !Captured.Selection.IsValid()
 			|| !Captured.Product.IsValid()
@@ -539,12 +869,7 @@ bool Fdemo_mapShanmenThrownWeaponProductController::IsValid() const
 			|| Captured.Command.GetRunId() != RunId
 			|| Captured.Selection.GetSourceItemInstanceId()
 				!= Action.GetSourceItemInstanceId()
-			|| Captured.Selection.GetOrigin()
-				!= Captured.Command.GetOrigin()
-			|| Captured.Selection.GetAimDirection()
-				!= Captured.Command.GetAimDirection()
-			|| Captured.Selection.GetMaximumDistance()
-				!= Captured.Command.GetMaximumDistance()
+			|| !bTrajectoryValid
 			|| !DefinitionsMatch(
 				Captured.Product.GetDefinition(),
 				Captured.Command.GetDefinition())
@@ -568,6 +893,58 @@ bool Fdemo_mapShanmenThrownWeaponProductController::IsValid() const
 			return false;
 		}
 		Sequences.Add(Captured.ActivationSequence);
+		ActivationIds.Add(Action.GetActivationId());
+	}
+
+	for (const TPair<FGuid, FRejectedArcSelection>& Pair
+		: RejectedArcSelections)
+	{
+		const FRejectedArcSelection& Rejected = Pair.Value;
+		const FShanmenCombatActionSnapshot& Action = Rejected.Action;
+		const FShanmenThrownWeaponArcPlanResult ArcResult =
+			FShanmenThrownWeaponArcPlanner::Plan(
+				BuildArcRequest(
+					Action, Rejected.Selection, Rejected.Product));
+		if (CapturedSelections.Contains(Pair.Key)
+			|| Pair.Key != Rejected.Selection.GetSelectionId()
+			|| !Rejected.Selection.IsValid()
+			|| Rejected.Selection.GetTrajectoryKind()
+				!= Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::
+					BallisticArc
+			|| !Rejected.Product.IsValid()
+			|| Rejected.Product.GetDefinition().GetActionDefinitionId()
+				!= FShanmenThrownWeaponDefinition::ArcActionDefinitionId()
+			|| Rejected.ActivationSequence == 0
+			|| !Action.IsValid()
+			|| Action.GetRunId() != RunId
+			|| Rejected.Selection.GetRunId() != RunId
+			|| Action.GetSourceItemInstanceId()
+				!= Rejected.Selection.GetSourceItemInstanceId()
+			|| Action.GetActionDefinitionId()
+				!= Rejected.Product.GetDefinition().GetActionDefinitionId()
+			|| !Action.GetSourceTags().HasAll(
+				Rejected.Product.GetSourceTags())
+			|| !Action.GetSourceTags().HasTagExact(
+				FShanmenCombatNativeTags::SourcePlayer())
+			|| !Action.GetSourceTags().HasTagExact(
+				FShanmenItemNativeTags::ItemWeaponThrown())
+			|| Action.GetActivationId()
+				!= FShanmenCombatIdFactory::MakeActivationId(
+					Action.GetRunId(),
+					Action.GetSourceEntityId(),
+					Action.GetActionDefinitionId(),
+					Rejected.ActivationSequence)
+			|| !ArcResult.IsValid()
+			|| ArcResult.Status
+				!= EShanmenThrownWeaponArcPlanStatus::Unreachable
+			|| ArcResult.IsPlanned()
+			|| Rejected.Diagnostic != ArcResult.Diagnostic
+			|| Sequences.Contains(Rejected.ActivationSequence)
+			|| ActivationIds.Contains(Action.GetActivationId()))
+		{
+			return false;
+		}
+		Sequences.Add(Rejected.ActivationSequence);
 		ActivationIds.Add(Action.GetActivationId());
 	}
 	return true;

@@ -542,10 +542,14 @@ bool Fdemo_mapPlayerThrownWeaponActionReservation::IsValid() const
 		&& RunId.IsValid()
 		&& SourceEntityId.IsValid()
 		&& SourceItemInstanceId.IsValid()
+		&& (ActionDefinitionId
+				== FShanmenThrownWeaponDefinition::StraightActionDefinitionId()
+			|| ActionDefinitionId
+				== FShanmenThrownWeaponDefinition::ArcActionDefinitionId())
 		&& ActivationId == FShanmenCombatIdFactory::MakeActivationId(
 			RunId,
 			SourceEntityId,
-			FShanmenThrownWeaponDefinition::CanonicalActionDefinitionId(),
+			ActionDefinitionId,
 			ActivationSequence);
 }
 
@@ -2641,6 +2645,19 @@ bool Fdemo_mapCombatRunCoordinator::TryReservePlayerThrownWeaponAction(
 	Fdemo_mapPlayerThrownWeaponActionReservation& OutReservation,
 	FString& OutDiagnostic)
 {
+	return TryReservePlayerThrownWeaponAction(
+		SourceItemInstanceId,
+		FShanmenThrownWeaponDefinition::StraightActionDefinitionId(),
+		OutReservation,
+		OutDiagnostic);
+}
+
+bool Fdemo_mapCombatRunCoordinator::TryReservePlayerThrownWeaponAction(
+	const FGuid& SourceItemInstanceId,
+	FName ActionDefinitionId,
+	Fdemo_mapPlayerThrownWeaponActionReservation& OutReservation,
+	FString& OutDiagnostic)
+{
 	OutReservation = Fdemo_mapPlayerThrownWeaponActionReservation();
 	OutDiagnostic.Reset();
 	if (!IsReady())
@@ -2655,6 +2672,15 @@ bool Fdemo_mapCombatRunCoordinator::TryReservePlayerThrownWeaponAction(
 			TEXT("Thrown-weapon identity requires one exact source item.");
 		return false;
 	}
+	if (ActionDefinitionId
+			!= FShanmenThrownWeaponDefinition::StraightActionDefinitionId()
+		&& ActionDefinitionId
+			!= FShanmenThrownWeaponDefinition::ArcActionDefinitionId())
+	{
+		OutDiagnostic =
+			TEXT("Thrown-weapon identity requires explicit Straight or Arc product definition.");
+		return false;
+	}
 	if (NextPlayerThrownWeaponActivationSequence == 0
 		|| NextPlayerThrownWeaponActivationSequence == MAX_uint64)
 	{
@@ -2667,10 +2693,11 @@ bool Fdemo_mapCombatRunCoordinator::TryReservePlayerThrownWeaponAction(
 	OutReservation.RunId = GetRunId();
 	OutReservation.SourceEntityId = PlayerEntityId;
 	OutReservation.SourceItemInstanceId = SourceItemInstanceId;
+	OutReservation.ActionDefinitionId = ActionDefinitionId;
 	OutReservation.ActivationId = FShanmenCombatIdFactory::MakeActivationId(
 		OutReservation.RunId,
 		OutReservation.SourceEntityId,
-		FShanmenThrownWeaponDefinition::CanonicalActionDefinitionId(),
+		OutReservation.ActionDefinitionId,
 		OutReservation.ActivationSequence);
 	if (!OutReservation.IsValid())
 	{

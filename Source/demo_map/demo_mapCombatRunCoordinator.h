@@ -279,6 +279,7 @@ struct Fdemo_mapPlayerThrownWeaponActionReservation
 	FGuid RunId;
 	FGuid SourceEntityId;
 	FGuid SourceItemInstanceId;
+	FName ActionDefinitionId;
 
 	bool IsValid() const;
 };
@@ -610,9 +611,15 @@ public:
 	Fdemo_mapPlayerProjectileLaunchResult PreparePlayerStraightProjectile(
 		AActor* SourcePlayer,
 		float RawDamage);
-	/** Reserves the next Run-local action identity without choosing product data. */
+	/** Straight compatibility reservation on the shared thrown-weapon sequence. */
 	bool TryReservePlayerThrownWeaponAction(
 		const FGuid& SourceItemInstanceId,
+		Fdemo_mapPlayerThrownWeaponActionReservation& OutReservation,
+		FString& OutDiagnostic);
+	/** Reserves either explicit Straight or Arc identity on the same sequence. */
+	bool TryReservePlayerThrownWeaponAction(
+		const FGuid& SourceItemInstanceId,
+		FName ActionDefinitionId,
 		Fdemo_mapPlayerThrownWeaponActionReservation& OutReservation,
 		FString& OutDiagnostic);
 	/**

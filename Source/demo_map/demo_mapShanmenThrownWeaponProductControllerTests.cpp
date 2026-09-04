@@ -126,6 +126,17 @@ namespace
 		return Capture;
 	}
 
+	FShanmenThrownWeaponDefinitionCapture ProductArcDefinitionCapture()
+	{
+		FShanmenThrownWeaponDefinitionCapture Capture =
+			ProductDefinitionCapture();
+		Capture.ActionDefinitionId =
+			FShanmenThrownWeaponDefinition::ArcActionDefinitionId();
+		Capture.DetectorId = TEXT("Detector.ThrownWeapon.P20.5.ArcProduct");
+		Capture.FormulaId = TEXT("Formula.ThrownWeapon.P20.5.ArcProduct");
+		return Capture;
+	}
+
 	Fdemo_mapShanmenThrownWeaponProductCapture MakeProductCapture()
 	{
 		Fdemo_mapShanmenThrownWeaponProductCapture Product;
@@ -133,6 +144,20 @@ namespace
 			ProductDefinitionCapture(),
 			30.0f,
 			FGameplayTagContainer(),
+			Product));
+		return Product;
+	}
+
+	Fdemo_mapShanmenThrownWeaponProductCapture MakeArcProductCapture()
+	{
+		Fdemo_mapShanmenThrownWeaponProductCapture Product;
+		check(Fdemo_mapShanmenThrownWeaponProductCapture::TryCaptureArc(
+			ProductArcDefinitionCapture(),
+			30.0f,
+			FGameplayTagContainer(),
+			EShanmenThrownWeaponTechniqueTier::Intermediate,
+			980.0,
+			4.0,
 			Product));
 		return Product;
 	}
@@ -298,6 +323,23 @@ namespace
 			return Selection;
 		}
 
+		Fdemo_mapShanmenThrownWeaponSelectionIntent MakeArcSelection(
+			const FGuid& SelectionId,
+			const FVector& Target,
+			double ApexClearance = 220.0) const
+		{
+			Fdemo_mapShanmenThrownWeaponSelectionIntent Selection;
+			check(Fdemo_mapShanmenThrownWeaponSelectionIntent::TryCaptureArc(
+				SelectionId,
+				Correlation.ActiveRunId,
+				ProductItemId,
+				FVector(20.0, 30.0, 60.0),
+				Target,
+				ApexClearance,
+				Selection));
+			return Selection;
+		}
+
 		FShanmenCombatActionSnapshot MakeAction(uint64 Sequence) const
 		{
 			FShanmenCombatActionCapture Capture;
@@ -403,6 +445,8 @@ bool Fdemo_mapThrownWeaponProductCaptureTest::RunTest(const FString&)
 			1000.0f,
 			Forward)
 			&& Forward.IsValid()
+			&& Forward.GetTrajectoryKind()
+				== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight
 			&& Forward.GetAimDirection() == FVector::ForwardVector);
 	TestTrue(TEXT("Same SelectionId with another trajectory is a conflict"),
 		Fdemo_mapShanmenThrownWeaponSelectionIntent::TryCapture(
@@ -424,6 +468,44 @@ bool Fdemo_mapThrownWeaponProductCaptureTest::RunTest(const FString&)
 			FVector::ForwardVector,
 			0.0f,
 			InvalidSelection));
+	Fdemo_mapShanmenThrownWeaponSelectionIntent Arc;
+	Fdemo_mapShanmenThrownWeaponSelectionIntent OtherArc;
+	TestTrue(TEXT("Arc selection freezes geometry without product policy"),
+		Fdemo_mapShanmenThrownWeaponSelectionIntent::TryCaptureArc(
+			ProductSelectionOneId,
+			RunId,
+			ProductItemId,
+			FVector::ZeroVector,
+			FVector(600.0, 100.0, 0.0),
+			220.0,
+			Arc)
+			&& Arc.IsValid()
+			&& Arc.GetTrajectoryKind()
+				== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc
+			&& Arc.GetAimDirection() == FVector::ZeroVector
+			&& Arc.GetMaximumDistance() == 0.0f
+			&& Arc.GetTarget() == FVector(600.0, 100.0, 0.0)
+			&& Arc.GetApexClearance() == 220.0
+			&& !Forward.Matches(Arc));
+	TestTrue(TEXT("Same Arc SelectionId with another target conflicts"),
+		Fdemo_mapShanmenThrownWeaponSelectionIntent::TryCaptureArc(
+			ProductSelectionOneId,
+			RunId,
+			ProductItemId,
+			FVector::ZeroVector,
+			FVector(700.0, 100.0, 0.0),
+			220.0,
+			OtherArc)
+			&& !Arc.Matches(OtherArc));
+	TestFalse(TEXT("Arc selection rejects coincident endpoints"),
+		Fdemo_mapShanmenThrownWeaponSelectionIntent::TryCaptureArc(
+			ProductSelectionTwoId,
+			RunId,
+			ProductItemId,
+			FVector::ZeroVector,
+			FVector::ZeroVector,
+			220.0,
+			InvalidSelection));
 
 	Fdemo_mapShanmenThrownWeaponProductCapture Product;
 	TestTrue(TEXT("Definition and character offense freeze outside input"),
@@ -443,6 +525,43 @@ bool Fdemo_mapThrownWeaponProductCaptureTest::RunTest(const FString&)
 			InvalidDefinition,
 			30.0f,
 			FGameplayTagContainer(),
+			InvalidProduct));
+	Fdemo_mapShanmenThrownWeaponProductCapture ArcProduct;
+	TestTrue(TEXT("Arc product freezes mastery and physics envelope"),
+		Fdemo_mapShanmenThrownWeaponProductCapture::TryCaptureArc(
+			ProductArcDefinitionCapture(),
+			30.0f,
+			FGameplayTagContainer(),
+			EShanmenThrownWeaponTechniqueTier::Intermediate,
+			980.0,
+			4.0,
+			ArcProduct)
+			&& ArcProduct.IsValid()
+			&& ArcProduct.GetArcPolicy().GetGravityMagnitude() == 980.0
+			&& ArcProduct.GetArcPolicy().GetMaximumFlightTime() == 4.0);
+	TestFalse(TEXT("Straight capture rejects an Arc definition"),
+		Fdemo_mapShanmenThrownWeaponProductCapture::TryCapture(
+			ProductArcDefinitionCapture(),
+			30.0f,
+			FGameplayTagContainer(),
+			InvalidProduct));
+	TestFalse(TEXT("Arc capture rejects a Straight definition"),
+		Fdemo_mapShanmenThrownWeaponProductCapture::TryCaptureArc(
+			ProductDefinitionCapture(),
+			30.0f,
+			FGameplayTagContainer(),
+			EShanmenThrownWeaponTechniqueTier::Intermediate,
+			980.0,
+			4.0,
+			InvalidProduct));
+	TestFalse(TEXT("Beginner mastery cannot author an Arc product"),
+		Fdemo_mapShanmenThrownWeaponProductCapture::TryCaptureArc(
+			ProductArcDefinitionCapture(),
+			30.0f,
+			FGameplayTagContainer(),
+			EShanmenThrownWeaponTechniqueTier::Beginner,
+			980.0,
+			4.0,
 			InvalidProduct));
 	return true;
 }
@@ -579,6 +698,349 @@ bool Fdemo_mapThrownWeaponProductSubmitTest::RunTest(const FString&)
 				.GetNextPlayerThrownWeaponActivationSequence() == 2
 			&& Controller.NumCapturedSelections() == 1);
 	Host.TryInterrupt();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcProductSubmitTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponProductController.ArcSubmitReplayConflict",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcProductSubmitTest::RunTest(const FString&)
+{
+	FProductFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponRunHost Host;
+	if (!Fixture.Start(*this, TEXT("ArcSubmit")))
+	{
+		return false;
+	}
+	Fdemo_mapShanmenThrownWeaponProductController Controller;
+	Fdemo_mapShanmenThrownWeaponRunCommandRouter Router;
+	const Fdemo_mapShanmenThrownWeaponProductCapture ArcProduct =
+		MakeArcProductCapture();
+	const FVector Target(620.0, 130.0, 60.0);
+	const Fdemo_mapShanmenThrownWeaponSelectionIntent Selection =
+		Fixture.MakeArcSelection(ProductSelectionOneId, Target);
+
+	const Fdemo_mapShanmenThrownWeaponProductResult WrongProduct =
+		Controller.TrySubmit(
+			Host,
+			Router,
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			*Fixture.Authority,
+			Fixture.Coordinator,
+			Fixture.Source,
+			Fixture.Correlation,
+			Selection,
+			MakeProductCapture());
+	TestTrue(TEXT("Arc selection rejects Straight product before reservation"),
+		WrongProduct.Status
+			== Edemo_mapShanmenThrownWeaponProductStatus::TrajectoryMismatch
+			&& Fixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence() == 1
+			&& Controller.IsEmpty()
+			&& Router.IsEmpty());
+
+	FShanmenItemAuthoritySnapshot Before;
+	Fixture.Authority->TryCaptureSnapshot(Before);
+	const Fdemo_mapShanmenThrownWeaponProductResult Applied =
+		Controller.TrySubmit(
+			Host,
+			Router,
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			*Fixture.Authority,
+			Fixture.Coordinator,
+			Fixture.Source,
+			Fixture.Correlation,
+			Selection,
+			ArcProduct);
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Authority->TryCaptureSnapshot(After);
+	const Fdemo_mapShanmenThrownWeaponRunCommandIntent* Captured =
+		Controller.FindCapturedCommand(ProductSelectionOneId);
+	const FShanmenThrownWeaponArcRequest* ArcRequest = Captured
+		? &Captured->GetArcPlan().GetRequest() : nullptr;
+	Ademo_mapShanmenThrownWeaponProjectile* FirstProjectile =
+		Host.GetProjectile();
+	TestTrue(TEXT("Product controller plans and publishes Arc sequence one"),
+		Applied.IsAccepted()
+			&& !Applied.bReusedSelection
+			&& Applied.ActivationSequence == 1
+			&& Applied.ActivationId
+				== FShanmenCombatIdFactory::MakeActivationId(
+					Fixture.Correlation.ActiveRunId,
+					Fixture.Coordinator.GetPlayerEntityId(),
+					FShanmenThrownWeaponDefinition::ArcActionDefinitionId(),
+					1)
+			&& Captured
+			&& Captured->GetTrajectoryKind()
+				== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc
+			&& Captured->GetAction().GetActionDefinitionId()
+				== FShanmenThrownWeaponDefinition::ArcActionDefinitionId()
+			&& ArcRequest
+			&& ArcRequest->GetOrigin() == Selection.GetOrigin()
+			&& ArcRequest->GetTarget() == Target
+			&& ArcRequest->GetApexClearance()
+				== Selection.GetApexClearance()
+			&& ArcRequest->GetTechniqueTier()
+				== EShanmenThrownWeaponTechniqueTier::Intermediate
+			&& ArcRequest->GetGravityMagnitude() == 980.0
+			&& ArcRequest->GetMaximumLaunchSpeed()
+				== ArcProduct.GetDefinition().GetLaunchSpeed()
+			&& ArcRequest->GetMaximumFlightTime() == 4.0
+			&& Applied.Command.HostStart.Launch.ItemCommit.FinalizeCommand
+				.Receipt.ResourceBefore == 4
+			&& Applied.Command.HostStart.Launch.ItemCommit.FinalizeCommand
+				.Receipt.ResourceAfter == 3
+			&& Host.GetLifetimeKind()
+				== Edemo_mapShanmenThrownWeaponHostLifetimeKind::ArcFlightTime
+			&& Host.GetFlightTimeSeconds()
+				== Captured->GetArcPlan().GetFlightTimeSeconds()
+			&& FirstProjectile
+			&& Fixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence() == 2
+			&& After.AuthorityRevision == Before.AuthorityRevision + 2
+			&& Controller.IsValid());
+
+	const Fdemo_mapShanmenThrownWeaponProductResult Replay =
+		Controller.TrySubmit(
+			Host,
+			Router,
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			*Fixture.Authority,
+			Fixture.Coordinator,
+			Fixture.Source,
+			Fixture.Correlation,
+			Selection,
+			ArcProduct);
+	FShanmenItemAuthoritySnapshot AfterReplay;
+	Fixture.Authority->TryCaptureSnapshot(AfterReplay);
+	TestTrue(TEXT("Exact Arc selection replay performs no I/O or Actor spawn"),
+		Replay.IsAccepted()
+			&& Replay.bReusedSelection
+			&& Replay.Command.IsReplay()
+			&& Replay.ActivationSequence == 1
+			&& Host.GetProjectile() == FirstProjectile
+			&& AfterReplay == After
+			&& Fixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence() == 2
+			&& Router.NumProcessedIntents() == 1);
+
+	const Fdemo_mapShanmenThrownWeaponSelectionIntent Conflict =
+		Fixture.MakeArcSelection(
+			ProductSelectionOneId, FVector(720.0, 130.0, 60.0));
+	const Fdemo_mapShanmenThrownWeaponProductResult Rejected =
+		Controller.TrySubmit(
+			Host,
+			Router,
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			*Fixture.Authority,
+			Fixture.Coordinator,
+			Fixture.Source,
+			Fixture.Correlation,
+			Conflict,
+			ArcProduct);
+	TestTrue(TEXT("Arc SelectionId conflict consumes no new sequence"),
+		Rejected.Status
+			== Edemo_mapShanmenThrownWeaponProductStatus::SelectionIdConflict
+			&& Fixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence() == 2
+			&& Controller.NumCapturedSelections() == 1
+			&& Router.NumProcessedIntents() == 1);
+	Host.TryInterrupt();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcProductCancelTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponProductController.ArcPreLaunchCancel",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcProductCancelTest::RunTest(const FString&)
+{
+	FProductFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponRunHost Host;
+	if (!Fixture.Start(*this, TEXT("ArcCancel")))
+	{
+		return false;
+	}
+	Fdemo_mapShanmenThrownWeaponProductController Controller;
+	Fdemo_mapShanmenThrownWeaponRunCommandRouter Router;
+	const Fdemo_mapShanmenThrownWeaponProductCapture Product =
+		MakeArcProductCapture();
+	const Fdemo_mapShanmenThrownWeaponSelectionIntent Selection =
+		Fixture.MakeArcSelection(
+			ProductSelectionOneId, FVector(620.0, 130.0, 60.0));
+	FShanmenItemAuthoritySnapshot Before;
+	Fixture.Authority->TryCaptureSnapshot(Before);
+	const Fdemo_mapShanmenThrownWeaponProductResult Cancelled =
+		Controller.TrySubmit(
+			Host,
+			Router,
+			Fixture.World,
+			nullptr,
+			*Fixture.Authority,
+			Fixture.Coordinator,
+			Fixture.Source,
+			Fixture.Correlation,
+			Selection,
+			Product);
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Authority->TryCaptureSnapshot(After);
+	TestTrue(TEXT("Arc product spawn rejection durably restores Quantity"),
+		Cancelled.Status
+			== Edemo_mapShanmenThrownWeaponProductStatus::RouterRejected
+			&& Cancelled.Command.Status
+				== Edemo_mapShanmenThrownWeaponRunCommandStatus::
+					LaunchRejectedCancelled
+			&& Cancelled.Command.IsDurableTerminal()
+			&& Cancelled.Command.Cancellation.FinalizeCommand.Receipt
+				.ResourceBefore == 4
+			&& Cancelled.Command.Cancellation.FinalizeCommand.Receipt
+				.ResourceAfter == 4
+			&& Host.GetState()
+				== Edemo_mapShanmenThrownWeaponHostState::Empty
+			&& After.AuthorityRevision == Before.AuthorityRevision + 2
+			&& Fixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence() == 2
+			&& Controller.IsValid());
+
+	const Fdemo_mapShanmenThrownWeaponProductResult Replay =
+		Controller.TrySubmit(
+			Host,
+			Router,
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			*Fixture.Authority,
+			Fixture.Coordinator,
+			Fixture.Source,
+			Fixture.Correlation,
+			Selection,
+			Product);
+	FShanmenItemAuthoritySnapshot AfterReplay;
+	Fixture.Authority->TryCaptureSnapshot(AfterReplay);
+	TestTrue(TEXT("Cancelled Arc product replay never commits or launches"),
+		Replay.Command.Status
+			== Edemo_mapShanmenThrownWeaponRunCommandStatus::
+				LaunchRejectedCancelled
+			&& Replay.Command.IsReplay()
+			&& Replay.bReusedSelection
+			&& Host.GetState()
+				== Edemo_mapShanmenThrownWeaponHostState::Empty
+			&& AfterReplay == After
+			&& Fixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence() == 2);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcProductPlanRejectionTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponProductController.ArcPlanRejectionReplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcProductPlanRejectionTest::RunTest(const FString&)
+{
+	FProductFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponRunHost Host;
+	if (!Fixture.Start(*this, TEXT("ArcPlanReject")))
+	{
+		return false;
+	}
+	Fdemo_mapShanmenThrownWeaponProductController Controller;
+	Fdemo_mapShanmenThrownWeaponRunCommandRouter Router;
+	const Fdemo_mapShanmenThrownWeaponProductCapture Product =
+		MakeArcProductCapture();
+	const Fdemo_mapShanmenThrownWeaponSelectionIntent Selection =
+		Fixture.MakeArcSelection(
+			ProductSelectionOneId, FVector(100020.0, 30.0, 60.0));
+	FShanmenItemAuthoritySnapshot Before;
+	Fixture.Authority->TryCaptureSnapshot(Before);
+	const Fdemo_mapShanmenThrownWeaponProductResult Rejected =
+		Controller.TrySubmit(
+			Host,
+			Router,
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			*Fixture.Authority,
+			Fixture.Coordinator,
+			Fixture.Source,
+			Fixture.Correlation,
+			Selection,
+			Product);
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Authority->TryCaptureSnapshot(After);
+	TestTrue(TEXT("Unreachable Arc records one identity before item I/O"),
+		Rejected.Status
+			== Edemo_mapShanmenThrownWeaponProductStatus::ArcPlanRejected
+			&& Rejected.HasCapturedAction()
+			&& !Rejected.bReusedSelection
+			&& Rejected.ActivationSequence == 1
+			&& Rejected.ActivationId
+				== FShanmenCombatIdFactory::MakeActivationId(
+					Fixture.Correlation.ActiveRunId,
+					Fixture.Coordinator.GetPlayerEntityId(),
+					FShanmenThrownWeaponDefinition::ArcActionDefinitionId(),
+					1)
+			&& Before == After
+			&& Router.IsEmpty()
+			&& Host.GetState()
+				== Edemo_mapShanmenThrownWeaponHostState::Empty
+			&& Controller.NumCapturedSelections() == 1
+			&& !Controller.FindCapturedCommand(ProductSelectionOneId)
+			&& Fixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence() == 2
+			&& Controller.IsValid());
+
+	const Fdemo_mapShanmenThrownWeaponProductResult Replay =
+		Controller.TrySubmit(
+			Host,
+			Router,
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			*Fixture.Authority,
+			Fixture.Coordinator,
+			Fixture.Source,
+			Fixture.Correlation,
+			Selection,
+			Product);
+	FShanmenItemAuthoritySnapshot AfterReplay;
+	Fixture.Authority->TryCaptureSnapshot(AfterReplay);
+	TestTrue(TEXT("Exact unreachable Arc replay reuses rejection identity"),
+		Replay.Status
+			== Edemo_mapShanmenThrownWeaponProductStatus::ArcPlanRejected
+			&& Replay.bReusedSelection
+			&& Replay.ActivationSequence == Rejected.ActivationSequence
+			&& Replay.ActivationId == Rejected.ActivationId
+			&& AfterReplay == After
+			&& Fixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence() == 2
+			&& Controller.IsValid());
+
+	const Fdemo_mapShanmenThrownWeaponSelectionIntent Conflict =
+		Fixture.MakeArcSelection(
+			ProductSelectionOneId, FVector(110020.0, 30.0, 60.0));
+	const Fdemo_mapShanmenThrownWeaponProductResult ConflictResult =
+		Controller.TrySubmit(
+			Host,
+			Router,
+			Fixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			*Fixture.Authority,
+			Fixture.Coordinator,
+			Fixture.Source,
+			Fixture.Correlation,
+			Conflict,
+			Product);
+	TestTrue(TEXT("Rejected Arc SelectionId still protects frozen payload"),
+		ConflictResult.Status
+			== Edemo_mapShanmenThrownWeaponProductStatus::SelectionIdConflict
+			&& Fixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence() == 2
+			&& Controller.NumCapturedSelections() == 1);
 	return true;
 }
 
