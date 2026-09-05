@@ -4491,6 +4491,283 @@ bool Fdemo_mapThrownWeaponArcPreviewDeliverySessionEmptyRejectionTest::RunTest(
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewDeliverySessionRecoveryPreflightTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliverySession.RecoveryPreflight",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewDeliverySessionRecoveryPreflightTest::
+	RunTest(const FString&)
+{
+	using EOutcome =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceiptOutcome;
+	using ERecovery =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryRecoveryStatus;
+	using FReceipt =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceipt;
+	using FSession =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	const FName OtherConsumer(TEXT("Renderer.ArcPreview.Spectator.r1"));
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Presentation;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewDeliveryRecoveryPreflight"),
+			Fixture, Presentation))
+	{
+		return false;
+	}
+	const auto Show =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Presentation, MakeArcPreviewChoice(false), Fixture));
+	check(Show.IsProjected());
+
+	FSession Session;
+	const auto Inactive = Session.TryRecoverRejected(FReceipt());
+	FString Diagnostic;
+	check(Session.TryBegin(
+		Fixture.Correlation.ActiveRunId, Consumer, Diagnostic));
+	const auto Invalid = Session.TryRecoverRejected(FReceipt());
+	FReceipt RejectedReceipt;
+	FReceipt AppliedReceipt;
+	FReceipt WrongConsumerReceipt;
+	check(FReceipt::TryCreate(
+		Show.GetCommand(), Consumer, EOutcome::Rejected,
+		FName(TEXT("Renderer.ArcPreview.ExternalStillRejected")),
+		RejectedReceipt, Diagnostic));
+	check(FReceipt::TryCreate(
+		Show.GetCommand(), Consumer, EOutcome::Applied,
+		FName(TEXT("Renderer.ArcPreview.ExternalAppliedWithoutRejection")),
+		AppliedReceipt, Diagnostic));
+	check(FReceipt::TryCreate(
+		Show.GetCommand(), OtherConsumer, EOutcome::Applied,
+		FName(TEXT("Renderer.ArcPreview.ExternalWrongConsumer")),
+		WrongConsumerReceipt, Diagnostic));
+	const auto WrongOutcome = Session.TryRecoverRejected(RejectedReceipt);
+	const auto MissingRejection = Session.TryRecoverRejected(AppliedReceipt);
+	const auto WrongConsumer =
+		Session.TryRecoverRejected(WrongConsumerReceipt);
+
+	FThrownLifecycleFixture ForeignFixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession
+		ForeignPresentation;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewDeliveryRecoveryForeignRun"),
+			ForeignFixture, ForeignPresentation))
+	{
+		return false;
+	}
+	const auto ForeignShow =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				ForeignPresentation,
+				MakeArcPreviewChoice(false),
+				ForeignFixture));
+	check(ForeignShow.IsProjected());
+	FReceipt ForeignReceipt;
+	check(FReceipt::TryCreate(
+		ForeignShow.GetCommand(), Consumer, EOutcome::Applied,
+		FName(TEXT("Renderer.ArcPreview.ExternalForeignRun")),
+		ForeignReceipt, Diagnostic));
+	const auto WrongRun = Session.TryRecoverRejected(ForeignReceipt);
+
+	TestTrue(TEXT("recovery preflight rejects invalid scope and evidence"),
+		Inactive.IsValid()
+			&& Inactive.GetStatus() == ERecovery::SessionInactive
+			&& !Inactive.DidRecordLedger()
+			&& Invalid.IsValid()
+			&& Invalid.GetStatus() == ERecovery::ReceiptInvalid
+			&& WrongOutcome.IsValid()
+			&& WrongOutcome.GetStatus()
+				== ERecovery::AppliedReceiptRequired
+			&& !WrongOutcome.DidRecordLedger());
+	TestTrue(TEXT("recovery requires exact Run consumer and prior rejection"),
+		MissingRejection.IsValid()
+			&& MissingRejection.GetStatus()
+				== ERecovery::RejectionNotFound
+			&& WrongConsumer.IsValid()
+			&& WrongConsumer.GetStatus() == ERecovery::ConsumerMismatch
+			&& WrongRun.IsValid()
+			&& WrongRun.GetStatus() == ERecovery::RunMismatch
+			&& !MissingRejection.DidRecordLedger()
+			&& !WrongConsumer.DidRecordLedger()
+			&& !WrongRun.DidRecordLedger());
+	TestTrue(TEXT("all recovery preflight failures preserve the private ledger"),
+		Session.IsValid() && Session.IsActive()
+			&& Session.GetCursorState().IsEmpty()
+			&& Session.NumAppliedCommands() == 0
+			&& Session.NumRejectedCommands() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewDeliverySessionHideRecoveryTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliverySession.RejectedHideRecovery",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewDeliverySessionHideRecoveryTest::RunTest(
+	const FString&)
+{
+	using ELedger =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedgerStatus;
+	using EOutcome =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceiptOutcome;
+	using ERecovery =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryRecoveryStatus;
+	using FReceipt =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceipt;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Presentation;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewDeliveryHideRecovery"),
+			Fixture, Presentation))
+	{
+		return false;
+	}
+	const auto VisibleChoice = MakeArcPreviewChoice(false);
+	const auto Show =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Presentation, VisibleChoice, Fixture));
+	const auto Hide =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Presentation,
+				ClearArcPreviewChoice(VisibleChoice),
+				Fixture));
+	check(Show.IsProjected() && Hide.IsProjected());
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession Session;
+	FString Diagnostic;
+	check(Session.TryBegin(
+		Fixture.Correlation.ActiveRunId, Consumer, Diagnostic));
+	FFakeArcPreviewPresentationPort Port(Consumer);
+	const auto AppliedShow = Session.TryDeliver(Show.GetCommand(), Port);
+	Port.SetMode(FFakeArcPreviewPresentationPort::EMode::Rejected);
+	const auto RejectedHide = Session.TryDeliver(Hide.GetCommand(), Port);
+	FReceipt ExternalApplied;
+	check(FReceipt::TryCreate(
+		Hide.GetCommand(), Consumer, EOutcome::Applied,
+		FName(TEXT("Renderer.ArcPreview.ExternallyAttestedHideApplied")),
+		ExternalApplied, Diagnostic));
+	const auto Recovered = Session.TryRecoverRejected(ExternalApplied);
+	const auto Replayed = Session.TryRecoverRejected(ExternalApplied);
+
+	TestTrue(TEXT("external Applied evidence recovers only the rejected Hide"),
+		AppliedShow.WasApplied() && RejectedHide.WasRejected()
+			&& Recovered.IsValid() && Recovered.IsAccepted()
+			&& Recovered.DidRecover() && !Recovered.IsReplay()
+			&& Recovered.DidRecordLedger()
+			&& Recovered.DidAdvanceCursor()
+			&& Recovered.GetStatus() == ERecovery::Recovered
+			&& Recovered.GetLedgerResult().GetStatus()
+				== ELedger::ApplicationRecovered
+			&& Recovered.GetReceipt().Matches(ExternalApplied)
+			&& Recovered.GetPreviousCursorState().IsVisible()
+			&& Recovered.GetCursorState().IsHidden()
+			&& Recovered.GetPreviousAppliedCount() == 1
+			&& Recovered.GetAppliedCount() == 2
+			&& Recovered.GetRejectedCount() == 1);
+	TestTrue(TEXT("exact external recovery replay is idempotent"),
+		Replayed.IsValid() && Replayed.IsAccepted()
+			&& !Replayed.DidRecover() && Replayed.IsReplay()
+			&& Replayed.DidRecordLedger()
+			&& !Replayed.DidAdvanceCursor()
+			&& Replayed.GetStatus() == ERecovery::RecoveryReplayed
+			&& Replayed.GetLedgerResult().GetStatus()
+				== ELedger::ApplicationReplayed
+			&& Replayed.GetPreviousAppliedCount() == 2
+			&& Replayed.GetAppliedCount() == 2
+			&& Port.ApplyCount == 2);
+	TestTrue(TEXT("recovered Hidden cursor now permits graceful end"),
+		Session.GetCursorState().IsHidden()
+			&& Session.NumAppliedCommands() == 2
+			&& Session.NumRejectedCommands() == 1
+			&& Session.CanEnd()
+			&& Session.TryEnd(
+				Fixture.Correlation.ActiveRunId, Diagnostic)
+			&& Session.IsEmpty() && Session.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewDeliverySessionRecoveryConflictTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliverySession.RecoveryConflict",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewDeliverySessionRecoveryConflictTest::
+	RunTest(const FString&)
+{
+	using ELedger =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedgerStatus;
+	using EOutcome =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceiptOutcome;
+	using ERecovery =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryRecoveryStatus;
+	using FReceipt =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceipt;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Presentation;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewDeliveryRecoveryConflict"),
+			Fixture, Presentation))
+	{
+		return false;
+	}
+	const auto Show =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Presentation, MakeArcPreviewChoice(false), Fixture));
+	check(Show.IsProjected());
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession Session;
+	FString Diagnostic;
+	check(Session.TryBegin(
+		Fixture.Correlation.ActiveRunId, Consumer, Diagnostic));
+	FFakeArcPreviewPresentationPort Port(
+		Consumer, FFakeArcPreviewPresentationPort::EMode::Rejected);
+	const auto Rejected = Session.TryDeliver(Show.GetCommand(), Port);
+	FReceipt FirstApplied;
+	FReceipt ConflictingApplied;
+	check(FReceipt::TryCreate(
+		Show.GetCommand(), Consumer, EOutcome::Applied,
+		FName(TEXT("Renderer.ArcPreview.ExternalRecoveryPrimary")),
+		FirstApplied, Diagnostic));
+	check(FReceipt::TryCreate(
+		Show.GetCommand(), Consumer, EOutcome::Applied,
+		FName(TEXT("Renderer.ArcPreview.ExternalRecoveryConflict")),
+		ConflictingApplied, Diagnostic));
+	const auto Recovered = Session.TryRecoverRejected(FirstApplied);
+	const auto Conflict = Session.TryRecoverRejected(ConflictingApplied);
+	const auto Replay = Session.TryRecoverRejected(FirstApplied);
+
+	TestTrue(TEXT("first exact recovery advances once"),
+		Rejected.WasRejected() && Recovered.DidRecover()
+			&& Session.GetCursorState().IsVisible());
+	TestTrue(TEXT("different Applied evidence for the same command fails closed"),
+		Conflict.IsValid() && !Conflict.IsAccepted()
+			&& Conflict.DidRecordLedger()
+			&& !Conflict.DidAdvanceCursor()
+			&& Conflict.GetStatus() == ERecovery::LedgerRejected
+			&& Conflict.GetLedgerResult().GetStatus()
+				== ELedger::ReceiptConflict
+			&& Conflict.GetPreviousAppliedCount() == 1
+			&& Conflict.GetAppliedCount() == 1
+			&& Conflict.GetRejectedCount() == 1);
+	TestTrue(TEXT("conflict preserves canonical receipt and exact replay"),
+		Replay.IsValid() && Replay.IsAccepted() && Replay.IsReplay()
+			&& Session.GetLedger().HasRejectedCommand(
+				Show.GetCommand().GetCommandId())
+			&& Session.GetLedger().HasAppliedCommand(
+				Show.GetCommand().GetCommandId())
+			&& Session.NumAppliedCommands() == 1
+			&& Session.NumRejectedCommands() == 1
+			&& Port.ApplyCount == 1
+			&& !Session.CanEnd());
+	return true;
+}
+
 namespace
 {
 	class FReentrantArcPreviewPresentationPort final
@@ -4518,11 +4795,26 @@ namespace
 		{
 			using EOutcome =
 				Edemo_mapShanmenThrownWeaponArcPreviewPresentationPortResponseOutcome;
+			using EReceiptOutcome =
+				Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceiptOutcome;
 			using FResponse =
 				Fdemo_mapShanmenThrownWeaponArcPreviewPresentationPortResponse;
+			using FReceipt =
+				Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceipt;
 			++ApplyCount;
 			EndAccepted = Session.TryEnd(Command.GetRunId(), EndDiagnostic);
 			ReentrantResult = Session.TryDeliver(Command, *this);
+			FReceipt RecoveryReceipt;
+			FString RecoveryDiagnostic;
+			check(FReceipt::TryCreate(
+				Command,
+				ConsumerDefinitionId,
+				EReceiptOutcome::Applied,
+				FName(TEXT("Renderer.ArcPreview.ReentrantRecovery")),
+				RecoveryReceipt,
+				RecoveryDiagnostic));
+			ReentrantRecoveryResult =
+				Session.TryRecoverRejected(RecoveryReceipt);
 			FResponse Response;
 			FString Diagnostic;
 			check(FResponse::TryCreate(
@@ -4539,6 +4831,8 @@ namespace
 		FString EndDiagnostic;
 		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySessionResult
 			ReentrantResult;
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryRecoveryResult
+			ReentrantRecoveryResult;
 
 	private:
 		FName ConsumerDefinitionId = NAME_None;
@@ -4555,6 +4849,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool Fdemo_mapThrownWeaponArcPreviewDeliverySessionReentrantTest::RunTest(
 	const FString&)
 {
+	using ERecovery =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryRecoveryStatus;
 	using ESession =
 		Edemo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySessionStatus;
 	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
@@ -4596,6 +4892,12 @@ bool Fdemo_mapThrownWeaponArcPreviewDeliverySessionReentrantTest::RunTest(
 		!Port.EndAccepted && !Port.EndDiagnostic.IsEmpty()
 			&& !Session.IsDeliveryInProgress()
 			&& Session.IsValid());
+	TestTrue(TEXT("port callback cannot inject external recovery evidence"),
+		Port.ReentrantRecoveryResult.IsValid()
+			&& !Port.ReentrantRecoveryResult.IsAccepted()
+			&& Port.ReentrantRecoveryResult.GetStatus()
+				== ERecovery::SessionBusy
+			&& !Port.ReentrantRecoveryResult.DidRecordLedger());
 	return true;
 }
 
