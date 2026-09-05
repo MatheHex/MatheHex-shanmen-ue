@@ -49,6 +49,16 @@
       ]
     },
     {
+      "name": "ThrownWeaponArcPreview",
+      "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenThrownWeaponArcPreview\\.h|Private/(?:ShanmenThrownWeaponArcPreview\\.cpp|Tests/ShanmenThrownWeaponArcPreviewTests\\.cpp))$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.CombatRuntime.ThrownWeaponPreview.Arc",
+        "Shanmen.0_0_10.CombatRuntime.ThrownWeaponArc",
+        "Shanmen.0_0_10.CombatRuntime.ThrownWeapon",
+        "Shanmen.0_0_10.CombatCore"
+      ]
+    },
+    {
       "name": "ThrownWeaponArcExecution",
       "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenThrownWeaponExecution\\.h|Private/(?:ShanmenThrownWeaponExecution\\.cpp|Tests/(?:ShanmenThrownWeaponExecutionTests|ShanmenThrownWeaponArcExecutionTests)\\.cpp))$",
       "requiredGroups": [

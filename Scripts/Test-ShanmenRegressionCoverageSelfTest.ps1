@@ -160,6 +160,9 @@ try
     $ThrownArc = New-AutomationLogFixture `
         -Name 'thrown-arc.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.ThrownWeaponArc'
+    $ThrownArcPreview = New-AutomationLogFixture `
+        -Name 'thrown-arc-preview.log' `
+        -Group 'Shanmen.0_0_10.CombatRuntime.ThrownWeaponPreview.Arc'
     $ThrownArcExecution = New-AutomationLogFixture `
         -Name 'thrown-arc-execution.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.ThrownWeaponArcExecution'
@@ -661,6 +664,19 @@ try
             'Source/ShanmenCombatRuntime/Private/ShanmenThrownWeaponArcPlanner.cpp',
             'Source/ShanmenCombatRuntime/Private/Tests/ShanmenThrownWeaponArcPlannerTests.cpp') `
         -Logs @($ThrownArc, $ThrownRuntime, $CombatCore, $CombatRuntime)
+
+    Invoke-ExpectedPass `
+        -Name 'thrown weapon Arc preview requires sampler planner straight-flight core and broad runtime evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Public/ShanmenThrownWeaponArcPreview.h',
+            'Source/ShanmenCombatRuntime/Private/ShanmenThrownWeaponArcPreview.cpp',
+            'Source/ShanmenCombatRuntime/Private/Tests/ShanmenThrownWeaponArcPreviewTests.cpp') `
+        -Logs @(
+            $ThrownArcPreview,
+            $ThrownArc,
+            $ThrownRuntime,
+            $CombatCore,
+            $CombatRuntime)
 
     Invoke-ExpectedPass `
         -Name 'thrown weapon arc execution requires arc planner straight compatibility core and broad runtime evidence' `
@@ -3192,6 +3208,13 @@ try
         -Paths @(
             'Source/ShanmenCombatRuntime/Private/ShanmenThrownWeaponArcPlanner.cpp') `
         -Logs @($ThrownArc) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'thrown weapon Arc preview focus cannot replace planner straight-flight core and broad runtime evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Private/ShanmenThrownWeaponArcPreview.cpp') `
+        -Logs @($ThrownArcPreview) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
