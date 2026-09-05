@@ -12,6 +12,11 @@
 class Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequest
 {
 public:
+	/** Captures the one alternate trajectory exposed by the current read model. */
+	static bool TryCaptureTrajectoryToggle(
+		const Fdemo_mapShanmenThrownWeaponInputChoiceInteractionReadModel&
+			ReadModel,
+		Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequest& OutRequest);
 	static bool TryCaptureTrajectorySelection(
 		const Fdemo_mapShanmenThrownWeaponInputChoiceInteractionReadModel&
 			ReadModel,

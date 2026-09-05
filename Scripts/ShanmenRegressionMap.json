@@ -1482,6 +1482,7 @@
       "requiredGroups": [
         "Shanmen.0_0_10",
         "Shanmen.0_0_10.Product.MeridianShockTreatment",
+		"Shanmen.0_0_10.Product.ThrownWeaponTrajectoryTogglePhysicalInput",
         "Shanmen.0_0_10.Product.SpiritEvasionPhysicalInput",
         "Shanmen.0_0_10.Product.SpiritEvasionInputAdapter",
         "Shanmen.0_0_10.Product.WeaponGuardPhysicalInput",
@@ -2440,6 +2441,7 @@
         "Shanmen.0_0_10.Product.CombatRunFixedTimeline",
 		"Shanmen.0_0_10.Product.WeaponGuardInputAdapter",
 		"Shanmen.0_0_10.Product.WeaponGuardProductSession",
+		"Shanmen.0_0_10.Product.ThrownWeaponTrajectoryTogglePhysicalInput",
 		"Shanmen.0_0_10.Product.ThrownWeaponInputChoiceInteractionRequestCoordinator",
 		"Shanmen.0_0_10.Product.ThrownWeaponInputChoiceInteractionPort",
 		"Shanmen.0_0_10.Product.ThrownWeaponInputChoiceIntentAdapter",
@@ -3032,11 +3034,28 @@
         "Shanmen.0_0_10.CombatRuntime",
         "demo_map.ItemUseAndArmor"
       ]
-    },
+	},
+	{
+	  "name": "ThrownWeaponTrajectoryTogglePhysicalInput",
+	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponTrajectoryTogglePhysicalInputTests\\.cpp$",
+	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponTrajectoryTogglePhysicalInput",
+		"Shanmen.0_0_10.Product.ThrownWeaponInputChoiceInteractionRequestCoordinator",
+		"Shanmen.0_0_10.Product.ThrownWeaponInputChoiceInteractionPort",
+		"Shanmen.0_0_10.Product.ThrownWeaponInputChoiceIntentAdapter",
+		"Shanmen.0_0_10.Product.ThrownWeaponInputChoiceControllerAdapter",
+		"Shanmen.0_0_10.Product.ThrownWeaponInputChoiceSession",
+		"Shanmen.0_0_10.Product.ThrownWeaponInputChoice",
+		"demo_map.InputRestore",
+		"demo_map.V2RangedCompatibility",
+		"Shanmen.0_0_10"
+	  ]
+	},
 	{
 	  "name": "ThrownWeaponInputChoiceInteractionRequestCoordinator",
 	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceInteractionRequestCoordinator(?:Tests)?\\.(?:h|cpp)$",
 	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponTrajectoryTogglePhysicalInput",
 		"Shanmen.0_0_10.Product.ThrownWeaponInputChoiceInteractionRequestCoordinator",
 		"Shanmen.0_0_10.Product.ThrownWeaponInputChoiceInteractionPort",
 		"Shanmen.0_0_10.Product.ThrownWeaponInputChoiceIntentAdapter",

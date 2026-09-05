@@ -333,7 +333,7 @@ INPUT_RESTORE_TEST(FInputRestore31, "31", "RealPlayerInputMovesAfterCorpseClose"
 bool FInputRestore31::RunTest(const FString&) { const FString S = ReadInputRestoreSource(TEXT("demo_mapV3ProgressionManager.cpp")); TestTrue(TEXT("Corpse boundary real probe"), S.Contains(TEXT("BeginInputRestoreMovementProbe(TEXT(\"CorpseTakeCloseCommitted\"))"))); return true; }
 
 INPUT_RESTORE_TEST(FInputRestore32, "32", "SchemaItemsAndProtectedScopesUnchanged")
-bool FInputRestore32::RunTest(const FString&) { TestEqual(TEXT("Chest frozen capacity"), Fdemo_mapSearchContainerPrototypeConfig::ChestPrototypeCapacity, 6); TestEqual(TEXT("Unified action registry count"), Fdemo_mapInputActionRegistry::GetExactDefaultActions().Num(), 23); return true; }
+bool FInputRestore32::RunTest(const FString&) { TestEqual(TEXT("Chest frozen capacity"), Fdemo_mapSearchContainerPrototypeConfig::ChestPrototypeCapacity, 6); TestEqual(TEXT("Unified action registry count"), Fdemo_mapInputActionRegistry::GetExactDefaultActions().Num(), 24); return true; }
 
 INPUT_RESTORE_TEST(FInputRestore33, "33", "TraceDisabledIsBehaviorNeutral")
 bool FInputRestore33::RunTest(const FString&)

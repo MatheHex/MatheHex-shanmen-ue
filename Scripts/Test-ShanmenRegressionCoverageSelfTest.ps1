@@ -403,6 +403,9 @@ try
     $SpiritEvasionPhysicalInput = New-AutomationLogFixture `
         -Name 'spirit-evasion-physical-input.log' `
         -Group 'Shanmen.0_0_10.Product.SpiritEvasionPhysicalInput'
+    $ThrownWeaponTrajectoryTogglePhysicalInput = New-AutomationLogFixture `
+        -Name 'thrown-weapon-trajectory-toggle-physical-input.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponTrajectoryTogglePhysicalInput'
     $WorldGameplay = New-AutomationLogFixture `
         -Name 'world-gameplay.log' `
         -Group 'Shanmen.0_0_10.WorldGameplay'
@@ -2171,12 +2174,14 @@ try
             'Source/demo_map/demo_mapInputBindingSettings.h',
             'Source/demo_map/demo_mapInputBindingSettings.cpp',
             'Source/demo_map/demo_mapShanmenSpiritEvasionPhysicalInputTests.cpp',
+            'Source/demo_map/demo_mapShanmenThrownWeaponTrajectoryTogglePhysicalInputTests.cpp',
             'Source/demo_map/demo_mapFullSystemLoopTests.cpp',
             'Source/demo_map/demo_mapP7IntegrationTests.cpp',
             'Source/demo_map/demo_mapRuntimeInterfaceSliceTests.cpp',
             'Source/demo_map/demo_mapInputRestoreTests.cpp') `
         -Logs @(
             $Full,
+            $ThrownWeaponTrajectoryTogglePhysicalInput,
             $SpiritEvasionPhysicalInput,
             $SpiritEvasionInputAdapter,
             $FullSystemLoop,
@@ -2512,6 +2517,16 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceSession.cpp',
 			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceSessionTests.cpp') `
 		-Logs @($Full)
+
+	Invoke-ExpectedPass `
+		-Name 'thrown weapon trajectory toggle physical input maps current request stack and legacy input evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponTrajectoryTogglePhysicalInputTests.cpp') `
+		-Logs @(
+			$Full,
+			$ThrownWeaponTrajectoryTogglePhysicalInput,
+			$InputRestore,
+			$Ranged)
 
 	Invoke-ExpectedPass `
 		-Name 'thrown weapon choice interaction request maps current read intent controller session command and broad evidence' `
@@ -4164,6 +4179,13 @@ try
 		-Name 'thrown input choice session cannot use unrelated item fallback evidence' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceSession.cpp') `
+		-Logs @($ItemUse) `
+		-ExpectedText 'missing required groups'
+
+	Invoke-ExpectedFail `
+		-Name 'thrown trajectory toggle physical input cannot use unrelated item evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponTrajectoryTogglePhysicalInputTests.cpp') `
 		-Logs @($ItemUse) `
 		-ExpectedText 'missing required groups'
 

@@ -178,6 +178,25 @@ public:
 	{
 		return LastSpiritEvasionInputResult;
 	}
+	uint64 GetThrownWeaponTrajectoryToggleInvocationCountForAutomation() const
+	{
+		return ThrownWeaponTrajectoryToggleInvocationCount;
+	}
+	const Fdemo_mapShanmenThrownWeaponInputChoiceInteractionReadResult&
+	GetLastThrownWeaponTrajectoryToggleReadForAutomation() const
+	{
+		return LastThrownWeaponTrajectoryToggleRead;
+	}
+	const Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequest&
+	GetLastThrownWeaponTrajectoryToggleRequestForAutomation() const
+	{
+		return LastThrownWeaponTrajectoryToggleRequest;
+	}
+	const Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequestResult&
+	GetLastThrownWeaponTrajectoryToggleResultForAutomation() const
+	{
+		return LastThrownWeaponTrajectoryToggleResult;
+	}
 	uint64 GetWeaponGuardPressInvocationCountForAutomation() const
 	{
 		return WeaponGuardPressInvocationCount;
@@ -270,6 +289,7 @@ protected:
 	void CancelGroundCircle();
 	void CastSelfSector();
 	void FireStraightProjectile();
+	void ToggleThrownWeaponTrajectory();
 	void StartSpiritEvasion();
 	void StartWeaponGuard();
 	void StopWeaponGuard();
@@ -298,6 +318,13 @@ protected:
 	uint64 SpiritEvasionInputInvocationCount = 0;
 	Fdemo_mapShanmenSpiritEvasionInputResult
 		LastSpiritEvasionInputResult;
+	uint64 ThrownWeaponTrajectoryToggleInvocationCount = 0;
+	Fdemo_mapShanmenThrownWeaponInputChoiceInteractionReadResult
+		LastThrownWeaponTrajectoryToggleRead;
+	Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequest
+		LastThrownWeaponTrajectoryToggleRequest;
+	Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequestResult
+		LastThrownWeaponTrajectoryToggleResult;
 	uint64 WeaponGuardPressInvocationCount = 0;
 	uint64 WeaponGuardReleaseInvocationCount = 0;
 	Fdemo_mapShanmenWeaponGuardInputResult LastWeaponGuardInputResult;

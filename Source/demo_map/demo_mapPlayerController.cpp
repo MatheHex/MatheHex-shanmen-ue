@@ -179,6 +179,7 @@ void Ademo_mapPlayerController::BindProductInputActions()
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::SkillGroundCircle), IE_Pressed, this, &Ademo_mapPlayerController::ToggleGroundCircle);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::SkillSelfSector), IE_Pressed, this, &Ademo_mapPlayerController::CastSelfSector);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::SkillStraightProjectile), IE_Pressed, this, &Ademo_mapPlayerController::FireStraightProjectile);
+	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::ThrownWeaponTrajectoryToggle), IE_Pressed, this, &Ademo_mapPlayerController::ToggleThrownWeaponTrajectory);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::SpiritEvasion), IE_Pressed, this, &Ademo_mapPlayerController::StartSpiritEvasion);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::WeaponGuard), IE_Pressed, this, &Ademo_mapPlayerController::StartWeaponGuard);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::WeaponGuard), IE_Released, this, &Ademo_mapPlayerController::StopWeaponGuard);
@@ -868,6 +869,60 @@ void Ademo_mapPlayerController::FireStraightProjectile()
 		Skills->CancelGroundCircleTargeting();
 		Skills->TryFireStraightProjectile(GetLastValidAimDirection());
 	}
+}
+
+void Ademo_mapPlayerController::ToggleThrownWeaponTrajectory()
+{
+#if !UE_BUILD_SHIPPING
+	++ThrownWeaponTrajectoryToggleInvocationCount;
+	LastThrownWeaponTrajectoryToggleRead =
+		Fdemo_mapShanmenThrownWeaponInputChoiceInteractionReadResult();
+	LastThrownWeaponTrajectoryToggleRequest =
+		Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequest();
+	LastThrownWeaponTrajectoryToggleResult =
+		Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequestResult();
+#endif
+
+	const Fdemo_mapShanmenThrownWeaponInputChoiceInteractionReadResult Read =
+		ReadThrownWeaponInputChoiceInteraction();
+#if !UE_BUILD_SHIPPING
+	LastThrownWeaponTrajectoryToggleRead = Read;
+#endif
+	if (!Read.IsProjected())
+	{
+		UE_LOG(
+			Logdemo_map,
+			Log,
+			TEXT("Thrown-weapon trajectory toggle rejected before capture: %s"),
+			*Read.GetDiagnostic());
+		return;
+	}
+
+	Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequest Request;
+	if (!Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequest::
+		TryCaptureTrajectoryToggle(Read.GetReadModel(), Request))
+	{
+		UE_LOG(
+			Logdemo_map,
+			Log,
+			TEXT("Thrown-weapon trajectory toggle could not capture a current request."));
+		return;
+	}
+#if !UE_BUILD_SHIPPING
+	LastThrownWeaponTrajectoryToggleRequest = Request;
+#endif
+
+	const Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequestResult Result =
+		RouteThrownWeaponInputChoiceInteractionRequest(Request);
+#if !UE_BUILD_SHIPPING
+	LastThrownWeaponTrajectoryToggleResult = Result;
+#endif
+	UE_LOG(
+		Logdemo_map,
+		Log,
+		TEXT("Thrown-weapon trajectory toggle %s: %s"),
+		Result.IsAccepted() ? TEXT("accepted") : TEXT("rejected"),
+		*Result.GetDiagnostic());
 }
 
 void Ademo_mapPlayerController::StartSpiritEvasion()

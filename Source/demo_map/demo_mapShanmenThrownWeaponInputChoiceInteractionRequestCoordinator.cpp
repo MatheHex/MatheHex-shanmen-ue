@@ -36,6 +36,28 @@ namespace
 }
 
 bool Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequest::
+TryCaptureTrajectoryToggle(
+	const Fdemo_mapShanmenThrownWeaponInputChoiceInteractionReadModel& ReadModel,
+	Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequest& OutRequest)
+{
+	using ETrajectory =
+		Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind;
+	OutRequest = Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequest();
+	if (!ReadModel.IsValid())
+	{
+		return false;
+	}
+	const ETrajectory Alternate =
+		ReadModel.GetTrajectoryKind() == ETrajectory::Straight
+			? ETrajectory::BallisticArc
+			: ReadModel.GetTrajectoryKind() == ETrajectory::BallisticArc
+				? ETrajectory::Straight
+				: ETrajectory::Invalid;
+	return TryCaptureTrajectorySelection(
+		ReadModel, Alternate, OutRequest);
+}
+
+bool Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequest::
 TryCaptureTrajectorySelection(
 	const Fdemo_mapShanmenThrownWeaponInputChoiceInteractionReadModel& ReadModel,
 	const Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind TrajectoryKind,
