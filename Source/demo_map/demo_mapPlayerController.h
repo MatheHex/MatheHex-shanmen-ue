@@ -130,6 +130,15 @@ public:
 	Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequestResult
 	RouteThrownWeaponInputChoiceInteractionRequest(
 		const Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequest& Request);
+	/** Reads, composes, and stale-safely routes one device-independent Arc target. */
+	Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequestResult
+	RouteThrownWeaponArcTargetInteraction(const FVector2D& RawTargetIntent);
+	/** Reads, composes, and stale-safely routes one device-independent Arc apex delta. */
+	Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequestResult
+	RouteThrownWeaponArcApexAdjustmentInteraction(double RawNormalizedDelta);
+	/** Reads, composes, and stale-safely routes one device-independent Arc target clear. */
+	Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequestResult
+	RouteThrownWeaponArcTargetClearInteraction();
 	/** Routes the physical hold start through the Run-owned fixed timeline. */
 	Fdemo_mapShanmenWeaponGuardInputResult RouteWeaponGuardStartInput();
 	/** Release deliberately bypasses gameplay UI locks to prevent stuck guard. */

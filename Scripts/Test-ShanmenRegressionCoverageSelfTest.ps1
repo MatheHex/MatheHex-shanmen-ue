@@ -415,6 +415,9 @@ try
     $ThrownWeaponArcEditingInteractionComposition = New-AutomationLogFixture `
         -Name 'thrown-weapon-arc-editing-interaction-composition.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcEditingInteractionComposition'
+    $ThrownWeaponArcEditingControllerRoute = New-AutomationLogFixture `
+        -Name 'thrown-weapon-arc-editing-controller-route.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcEditingControllerRoute'
     $WorldGameplay = New-AutomationLogFixture `
         -Name 'world-gameplay.log' `
         -Group 'Shanmen.0_0_10.WorldGameplay'
@@ -2580,6 +2583,14 @@ try
 			$ThrownWeaponArcEditingInteractionComposition)
 
 	Invoke-ExpectedPass `
+		-Name 'thrown weapon Arc editing controller route maps composition request read intent choice and broad evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcEditingControllerRouteTests.cpp') `
+		-Logs @(
+			$Full,
+			$ThrownWeaponArcEditingControllerRoute)
+
+	Invoke-ExpectedPass `
 		-Name 'thrown weapon choice interaction request maps current read intent controller session command and broad evidence' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceInteractionRequestCoordinator.cpp',
@@ -4230,6 +4241,13 @@ try
 		-Name 'thrown input choice session cannot use unrelated item fallback evidence' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceSession.cpp') `
+		-Logs @($ItemUse) `
+		-ExpectedText 'missing required groups'
+
+	Invoke-ExpectedFail `
+		-Name 'thrown Arc editing controller route cannot use unrelated item evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcEditingControllerRouteTests.cpp') `
 		-Logs @($ItemUse) `
 		-ExpectedText 'missing required groups'
 

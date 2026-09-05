@@ -16,6 +16,7 @@
 #include "demo_mapInputConsumptionTrace.h"
 #include "demo_mapProfileSessionSubsystem.h"
 #include "demo_mapProfilePreparationWidget.h"
+#include "demo_mapShanmenThrownWeaponArcEditingInteractionComposition.h"
 #include "CollisionQueryParams.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -37,6 +38,15 @@
 namespace
 {
 	constexpr float PlayerCharacterMovementTickInterval = 0.001f;
+	using FArcEditingInteractionReadResult =
+		Fdemo_mapShanmenThrownWeaponInputChoiceInteractionReadResult;
+	using FArcEditingInteractionRequest =
+		Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequest;
+	using FArcEditingInteractionRequestResult =
+		Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequestResult;
+	using FComposeArcEditingInteractionRequest = TFunctionRef<bool(
+		const FArcEditingInteractionReadResult&,
+		FArcEditingInteractionRequest&)>;
 
 	int32 CountControllerPrerequisites(
 		const UCharacterMovementComponent* Movement,
@@ -60,6 +70,21 @@ namespace
 			}
 		}
 		return Count;
+	}
+
+	FArcEditingInteractionRequestResult RouteArcEditingInteraction(
+		Ademo_mapPlayerController& Controller,
+		FComposeArcEditingInteractionRequest ComposeRequest)
+	{
+		const FArcEditingInteractionReadResult Read =
+			Controller.ReadThrownWeaponInputChoiceInteraction();
+		FArcEditingInteractionRequest Request;
+		if (!ComposeRequest(Read, Request))
+		{
+			Request = FArcEditingInteractionRequest();
+		}
+		return Controller.RouteThrownWeaponInputChoiceInteractionRequest(
+			Request);
 	}
 }
 
@@ -1156,6 +1181,52 @@ Ademo_mapPlayerController::RouteThrownWeaponInputChoiceInteractionRequest(
 			{
 				return RouteThrownWeaponInputChoiceIntent(Intent);
 			});
+}
+
+Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequestResult
+Ademo_mapPlayerController::RouteThrownWeaponArcTargetInteraction(
+	const FVector2D& RawTargetIntent)
+{
+	return RouteArcEditingInteraction(
+		*this,
+		[&RawTargetIntent](
+			const FArcEditingInteractionReadResult& Read,
+			FArcEditingInteractionRequest& OutRequest)
+		{
+			return Fdemo_mapShanmenThrownWeaponArcEditingInteractionComposition::
+				TryComposeTargetRequest(
+					Read, RawTargetIntent, OutRequest);
+		});
+}
+
+Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequestResult
+Ademo_mapPlayerController::RouteThrownWeaponArcApexAdjustmentInteraction(
+	const double RawNormalizedDelta)
+{
+	return RouteArcEditingInteraction(
+		*this,
+		[RawNormalizedDelta](
+			const FArcEditingInteractionReadResult& Read,
+			FArcEditingInteractionRequest& OutRequest)
+		{
+			return Fdemo_mapShanmenThrownWeaponArcEditingInteractionComposition::
+				TryComposeApexAdjustmentRequest(
+					Read, RawNormalizedDelta, OutRequest);
+		});
+}
+
+Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequestResult
+Ademo_mapPlayerController::RouteThrownWeaponArcTargetClearInteraction()
+{
+	return RouteArcEditingInteraction(
+		*this,
+		[](
+			const FArcEditingInteractionReadResult& Read,
+			FArcEditingInteractionRequest& OutRequest)
+		{
+			return Fdemo_mapShanmenThrownWeaponArcEditingInteractionComposition::
+				TryComposeTargetClearRequest(Read, OutRequest);
+		});
 }
 
 void Ademo_mapPlayerController::StartWeaponGuard()
