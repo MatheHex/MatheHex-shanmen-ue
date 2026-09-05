@@ -10,6 +10,7 @@
 #include "demo_mapShanmenThrownWeaponInputChoiceControllerAdapter.h"
 #include "demo_mapShanmenThrownWeaponInputChoiceIntentAdapter.h"
 #include "demo_mapShanmenThrownWeaponInputChoiceInteractionPort.h"
+#include "demo_mapShanmenThrownWeaponInputChoiceInteractionRequestCoordinator.h"
 #include "demo_mapShanmenWeaponGuardInputAdapter.h"
 #include "demo_mapPlayerController.generated.h"
 
@@ -125,6 +126,10 @@ public:
 	/** Reads the current revisionless choice interaction projection. */
 	Fdemo_mapShanmenThrownWeaponInputChoiceInteractionReadResult
 	ReadThrownWeaponInputChoiceInteraction();
+	/** Revalidates one visible choice request before routing its intent. */
+	Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequestResult
+	RouteThrownWeaponInputChoiceInteractionRequest(
+		const Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequest& Request);
 	/** Routes the physical hold start through the Run-owned fixed timeline. */
 	Fdemo_mapShanmenWeaponGuardInputResult RouteWeaponGuardStartInput();
 	/** Release deliberately bypasses gameplay UI locks to prevent stuck guard. */

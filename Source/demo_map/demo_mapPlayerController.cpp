@@ -1085,6 +1085,24 @@ Ademo_mapPlayerController::ReadThrownWeaponInputChoiceInteraction()
 		});
 }
 
+Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequestResult
+Ademo_mapPlayerController::RouteThrownWeaponInputChoiceInteractionRequest(
+	const Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequest& Request)
+{
+	return Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequestCoordinator::
+		Execute(
+			Request,
+			[this]()
+			{
+				return ReadThrownWeaponInputChoiceInteraction();
+			},
+			[this](
+				const Fdemo_mapShanmenThrownWeaponInputChoiceIntent& Intent)
+			{
+				return RouteThrownWeaponInputChoiceIntent(Intent);
+			});
+}
+
 void Ademo_mapPlayerController::StartWeaponGuard()
 {
 	const Fdemo_mapShanmenWeaponGuardInputResult Result =
