@@ -18,6 +18,7 @@
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentation.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationCommand.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger.h"
+#include "demo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryCoordinator.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewUpdateCoordinator.h"
 #include "demo_mapShanmenThrownWeaponProjectile.h"
@@ -3530,6 +3531,571 @@ bool Fdemo_mapThrownWeaponArcPreviewCommandLedgerRotationTest::RunTest(
 	Ledger.Reset();
 	TestTrue(TEXT("explicit reset drops all scope and cursor state"),
 		Ledger.IsEmpty() && Ledger.IsValid());
+	return true;
+}
+
+namespace
+{
+	class FFakeArcPreviewPresentationPort final
+		: public Idemo_mapShanmenThrownWeaponArcPreviewPresentationPort
+	{
+	public:
+		enum class EMode : uint8
+		{
+			Applied,
+			Rejected,
+			InvalidResponse,
+			StaleResponse
+		};
+
+		explicit FFakeArcPreviewPresentationPort(
+			const FName InConsumerDefinitionId,
+			const EMode InMode = EMode::Applied)
+			: ConsumerDefinitionId(InConsumerDefinitionId)
+			, Mode(InMode)
+		{
+		}
+
+		virtual FName GetConsumerDefinitionId() const override
+		{
+			return ConsumerDefinitionId;
+		}
+
+		virtual
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationPortResponse Apply(
+			const Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommand&
+				Command) override
+		{
+			using EOutcome =
+				Edemo_mapShanmenThrownWeaponArcPreviewPresentationPortResponseOutcome;
+			using FResponse =
+				Fdemo_mapShanmenThrownWeaponArcPreviewPresentationPortResponse;
+			++ApplyCount;
+			LastCommandId = Command.GetCommandId();
+			if (Mode == EMode::InvalidResponse)
+			{
+				return FResponse();
+			}
+
+			const FGuid ResponseCommandId = Mode == EMode::StaleResponse
+				? FGuid(
+					0xF3800001, 0xF3800002, 0xF3800003, 0xF3800004)
+				: Command.GetCommandId();
+			const EOutcome Outcome = Mode == EMode::Rejected
+				? EOutcome::Rejected
+				: EOutcome::Applied;
+			const FName OutcomeCode = Mode == EMode::Rejected
+				? FName(TEXT("Renderer.ArcPreview.FakeRejected"))
+				: FName(TEXT("Renderer.ArcPreview.FakeApplied"));
+			FResponse Response;
+			FString Diagnostic;
+			check(FResponse::TryCreate(
+				ResponseCommandId,
+				Outcome,
+				OutcomeCode,
+				Response,
+				Diagnostic));
+			return Response;
+		}
+
+		void SetConsumerDefinitionId(const FName Value)
+		{
+			ConsumerDefinitionId = Value;
+		}
+
+		int32 ApplyCount = 0;
+		FGuid LastCommandId;
+
+	private:
+		FName ConsumerDefinitionId = NAME_None;
+		EMode Mode = EMode::Applied;
+	};
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewPortResponseTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliveryCoordinator.PortResponseDeterminism",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewPortResponseTest::RunTest(
+	const FString&)
+{
+	using EOutcome =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationPortResponseOutcome;
+	using FResponse =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationPortResponse;
+	const FGuid CommandId(
+		0xF3810001, 0xF3810002, 0xF3810003, 0xF3810004);
+	const FName AppliedCode(TEXT("Renderer.ArcPreview.FakeApplied"));
+	FResponse First;
+	FResponse Replay;
+	FResponse Rejected;
+	FResponse Invalid;
+	FString Diagnostic;
+	TestTrue(TEXT("same port evidence produces one deterministic response"),
+		FResponse::TryCreate(
+			CommandId, EOutcome::Applied, AppliedCode, First, Diagnostic)
+			&& FResponse::TryCreate(
+				CommandId, EOutcome::Applied, AppliedCode, Replay, Diagnostic)
+			&& First.IsApplied() && First.Matches(Replay));
+	TestTrue(TEXT("Rejected is distinct self-validating response evidence"),
+		FResponse::TryCreate(
+			CommandId,
+			EOutcome::Rejected,
+			FName(TEXT("Renderer.ArcPreview.FakeRejected")),
+			Rejected,
+			Diagnostic)
+			&& Rejected.IsRejected()
+			&& Rejected.GetResponseId() != First.GetResponseId()
+			&& !Rejected.Matches(First));
+	TestFalse(TEXT("response rejects an invalid command identity"),
+		FResponse::TryCreate(
+			FGuid(), EOutcome::Applied, AppliedCode, Invalid, Diagnostic));
+	TestFalse(TEXT("response rejects an invalid outcome"),
+		FResponse::TryCreate(
+			CommandId, EOutcome::Invalid, AppliedCode, Invalid, Diagnostic));
+	TestFalse(TEXT("response rejects a missing stable outcome code"),
+		FResponse::TryCreate(
+			CommandId, EOutcome::Applied, NAME_None, Invalid, Diagnostic));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewDeliveryPreflightTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliveryCoordinator.PreflightNoPortCall",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewDeliveryPreflightTest::RunTest(
+	const FString&)
+{
+	using EStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryStatus;
+	using FCoordinator =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryCoordinator;
+	using FLedger =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Session;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewDeliveryPreflight"), Fixture, Session))
+	{
+		return false;
+	}
+	const auto Show =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Session, MakeArcPreviewChoice(false), Fixture));
+	const auto Replace =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Session, MakeArcPreviewChoice(true), Fixture));
+	check(Show.IsProjected() && Replace.IsProjected());
+	FFakeArcPreviewPresentationPort Port(Consumer);
+	FLedger Ledger;
+	const auto InvalidCommand = FCoordinator::Deliver(
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommand(),
+		Port,
+		Ledger);
+	const auto Inactive = FCoordinator::Deliver(
+		Show.GetCommand(), Port, Ledger);
+	FString Diagnostic;
+	check(Ledger.TryBegin(FGuid::NewGuid(), Consumer, Diagnostic));
+	const auto WrongRun = FCoordinator::Deliver(
+		Show.GetCommand(), Port, Ledger);
+	Ledger.Reset();
+	check(Ledger.TryBegin(
+		Fixture.Correlation.ActiveRunId, Consumer, Diagnostic));
+	Port.SetConsumerDefinitionId(NAME_None);
+	const auto MissingConsumer = FCoordinator::Deliver(
+		Show.GetCommand(), Port, Ledger);
+	Port.SetConsumerDefinitionId(
+		FName(TEXT("Renderer.ArcPreview.Spectator.r1")));
+	const auto WrongConsumer = FCoordinator::Deliver(
+		Show.GetCommand(), Port, Ledger);
+	Port.SetConsumerDefinitionId(Consumer);
+	const auto WrongCursor = FCoordinator::Deliver(
+		Replace.GetCommand(), Port, Ledger);
+	TestTrue(TEXT("all preflight failures are typed valid results"),
+		InvalidCommand.IsValid()
+			&& InvalidCommand.GetStatus() == EStatus::CommandInvalid
+			&& Inactive.IsValid()
+			&& Inactive.GetStatus() == EStatus::LedgerInactive
+			&& WrongRun.IsValid()
+			&& WrongRun.GetStatus() == EStatus::RunMismatch
+			&& MissingConsumer.IsValid()
+			&& MissingConsumer.GetStatus()
+				== EStatus::PortConsumerInvalid
+			&& WrongConsumer.IsValid()
+			&& WrongConsumer.GetStatus() == EStatus::ConsumerMismatch
+			&& WrongCursor.IsValid()
+			&& WrongCursor.GetStatus() == EStatus::CursorMismatch);
+	TestTrue(TEXT("preflight rejection never invokes the presentation port"),
+		Port.ApplyCount == 0
+			&& !InvalidCommand.DidCallPort()
+			&& !Inactive.DidCallPort()
+			&& !WrongRun.DidCallPort()
+			&& !MissingConsumer.DidCallPort()
+			&& !WrongConsumer.DidCallPort()
+			&& !WrongCursor.DidCallPort()
+			&& Ledger.NumAppliedCommands() == 0
+			&& Ledger.NumRejectedCommands() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewDeliveryAppliedTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliveryCoordinator.AppliedExactlyOnce",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewDeliveryAppliedTest::RunTest(
+	const FString&)
+{
+	using EStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryStatus;
+	using FCoordinator =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryCoordinator;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Session;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewDeliveryApplied"), Fixture, Session))
+	{
+		return false;
+	}
+	const auto Show =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Session, MakeArcPreviewChoice(false), Fixture));
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger Ledger;
+	FString Diagnostic;
+	check(Ledger.TryBegin(
+		Fixture.Correlation.ActiveRunId, Consumer, Diagnostic));
+	FFakeArcPreviewPresentationPort Port(Consumer);
+	const auto First = FCoordinator::Deliver(
+		Show.GetCommand(), Port, Ledger);
+	const auto Replay = FCoordinator::Deliver(
+		Show.GetCommand(), Port, Ledger);
+	TestTrue(TEXT("new command is applied and committed through one port call"),
+		First.IsValid() && First.IsAccepted() && First.WasApplied()
+			&& First.DidCallPort() && !First.IsReplay()
+			&& First.GetStatus() == EStatus::PortApplied
+			&& First.GetPortCallCount() == 1
+			&& First.GetPortResponse().IsApplied()
+			&& First.GetReceipt().IsApplied()
+			&& First.GetLedgerResult().DidAdvanceCursor()
+			&& Ledger.NumAppliedCommands() == 1
+			&& Ledger.GetCursorState().Matches(
+				Show.GetCommand().GetState()));
+	TestTrue(TEXT("applied command replay never invokes the port twice"),
+		Replay.IsValid() && Replay.IsAccepted() && Replay.WasApplied()
+			&& Replay.IsReplay() && !Replay.DidCallPort()
+			&& Replay.GetStatus() == EStatus::ApplicationReplayed
+			&& Port.ApplyCount == 1
+			&& Port.LastCommandId == Show.GetCommand().GetCommandId()
+			&& Ledger.NumAppliedCommands() == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewDeliveryRejectedTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliveryCoordinator.RejectedExactlyOnce",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewDeliveryRejectedTest::RunTest(
+	const FString&)
+{
+	using EStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryStatus;
+	using FCoordinator =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryCoordinator;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Session;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewDeliveryRejected"), Fixture, Session))
+	{
+		return false;
+	}
+	const auto Show =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Session, MakeArcPreviewChoice(false), Fixture));
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger Ledger;
+	FString Diagnostic;
+	check(Ledger.TryBegin(
+		Fixture.Correlation.ActiveRunId, Consumer, Diagnostic));
+	FFakeArcPreviewPresentationPort Port(
+		Consumer, FFakeArcPreviewPresentationPort::EMode::Rejected);
+	const auto First = FCoordinator::Deliver(
+		Show.GetCommand(), Port, Ledger);
+	const auto Replay = FCoordinator::Deliver(
+		Show.GetCommand(), Port, Ledger);
+	TestTrue(TEXT("port rejection is terminal evidence without cursor advance"),
+		First.IsValid() && First.IsAccepted() && First.WasRejected()
+			&& First.DidCallPort() && !First.WasApplied()
+			&& First.GetStatus() == EStatus::PortRejected
+			&& First.GetPortResponse().IsRejected()
+			&& First.GetReceipt().IsRejected()
+			&& !First.GetLedgerResult().DidAdvanceCursor()
+			&& Ledger.NumAppliedCommands() == 0
+			&& Ledger.NumRejectedCommands() == 1
+			&& Ledger.GetCursorState().IsEmpty());
+	TestTrue(TEXT("rejected command replay never retries the port"),
+		Replay.IsValid() && Replay.IsAccepted() && Replay.WasRejected()
+			&& Replay.IsReplay() && !Replay.DidCallPort()
+			&& Replay.GetStatus() == EStatus::RejectionReplayed
+			&& Port.ApplyCount == 1
+			&& Ledger.NumRejectedCommands() == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewDeliveryInvalidResponseTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliveryCoordinator.InvalidResponseFailsClosed",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewDeliveryInvalidResponseTest::RunTest(
+	const FString&)
+{
+	using EStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryStatus;
+	using FCoordinator =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryCoordinator;
+	using FLedger =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Session;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewDeliveryInvalidResponse"), Fixture, Session))
+	{
+		return false;
+	}
+	const auto Show =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Session, MakeArcPreviewChoice(false), Fixture));
+	FString Diagnostic;
+	FLedger InvalidLedger;
+	check(InvalidLedger.TryBegin(
+		Fixture.Correlation.ActiveRunId, Consumer, Diagnostic));
+	FFakeArcPreviewPresentationPort InvalidPort(
+		Consumer, FFakeArcPreviewPresentationPort::EMode::InvalidResponse);
+	const auto Invalid = FCoordinator::Deliver(
+		Show.GetCommand(), InvalidPort, InvalidLedger);
+	const auto InvalidReplay = FCoordinator::Deliver(
+		Show.GetCommand(), InvalidPort, InvalidLedger);
+	FLedger StaleLedger;
+	check(StaleLedger.TryBegin(
+		Fixture.Correlation.ActiveRunId, Consumer, Diagnostic));
+	FFakeArcPreviewPresentationPort StalePort(
+		Consumer, FFakeArcPreviewPresentationPort::EMode::StaleResponse);
+	const auto Stale = FCoordinator::Deliver(
+		Show.GetCommand(), StalePort, StaleLedger);
+	TestTrue(TEXT("missing response becomes one stable terminal rejection"),
+		Invalid.IsValid() && Invalid.IsAccepted()
+			&& Invalid.WasRejected() && Invalid.DidCallPort()
+			&& Invalid.GetStatus() == EStatus::PortResponseRejected
+			&& !Invalid.GetPortResponse().IsValid()
+			&& Invalid.GetReceipt().IsRejected()
+			&& InvalidLedger.NumRejectedCommands() == 1
+			&& InvalidReplay.IsReplay()
+			&& !InvalidReplay.DidCallPort()
+			&& InvalidPort.ApplyCount == 1);
+	TestTrue(TEXT("stale response identity also fails closed after one call"),
+		Stale.IsValid() && Stale.IsAccepted()
+			&& Stale.WasRejected() && Stale.DidCallPort()
+			&& Stale.GetStatus() == EStatus::PortResponseRejected
+			&& Stale.GetPortResponse().IsValid()
+			&& Stale.GetPortResponse().GetCommandId()
+				!= Show.GetCommand().GetCommandId()
+			&& Stale.GetReceipt().IsRejected()
+			&& StaleLedger.NumRejectedCommands() == 1
+			&& StalePort.ApplyCount == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewDeliveryOrderingTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliveryCoordinator.OrderedShowReplace",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewDeliveryOrderingTest::RunTest(
+	const FString&)
+{
+	using EStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryStatus;
+	using FCoordinator =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryCoordinator;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Session;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewDeliveryOrdering"), Fixture, Session))
+	{
+		return false;
+	}
+	const auto Show =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Session, MakeArcPreviewChoice(false), Fixture));
+	const auto Replace =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Session, MakeArcPreviewChoice(true), Fixture));
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger Ledger;
+	FString Diagnostic;
+	check(Ledger.TryBegin(
+		Fixture.Correlation.ActiveRunId, Consumer, Diagnostic));
+	FFakeArcPreviewPresentationPort Port(Consumer);
+	const auto EarlyReplace = FCoordinator::Deliver(
+		Replace.GetCommand(), Port, Ledger);
+	const auto AppliedShow = FCoordinator::Deliver(
+		Show.GetCommand(), Port, Ledger);
+	const auto AppliedReplace = FCoordinator::Deliver(
+		Replace.GetCommand(), Port, Ledger);
+	TestTrue(TEXT("future Replace is rejected before any port side effect"),
+		EarlyReplace.IsValid()
+			&& EarlyReplace.GetStatus() == EStatus::CursorMismatch
+			&& !EarlyReplace.IsAccepted()
+			&& !EarlyReplace.DidCallPort()
+			&& Port.ApplyCount == 2);
+	TestTrue(TEXT("contiguous Show then Replace each call the port once"),
+		AppliedShow.WasApplied() && AppliedShow.DidCallPort()
+			&& AppliedReplace.WasApplied()
+			&& AppliedReplace.DidCallPort()
+			&& AppliedReplace.GetStatus() == EStatus::PortApplied
+			&& Ledger.NumAppliedCommands() == 2
+			&& Ledger.GetCursorState().Matches(
+				Replace.GetCommand().GetState()));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewDeliveryHideNoOpTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliveryCoordinator.HideAndNoOp",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewDeliveryHideNoOpTest::RunTest(
+	const FString&)
+{
+	using FCoordinator =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryCoordinator;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Session;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewDeliveryHideNoOp"), Fixture, Session))
+	{
+		return false;
+	}
+	const auto VisibleChoice = MakeArcPreviewChoice(false);
+	const auto Show =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Session, VisibleChoice, Fixture));
+	const auto ClearChoice = ClearArcPreviewChoice(VisibleChoice);
+	const auto Hide =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Session, ClearChoice, Fixture));
+	const auto NoOp =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Session, MakeLaterNonPreviewChoice(ClearChoice), Fixture));
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger Ledger;
+	FString Diagnostic;
+	check(Ledger.TryBegin(
+		Fixture.Correlation.ActiveRunId, Consumer, Diagnostic));
+	FFakeArcPreviewPresentationPort Port(Consumer);
+	const auto AppliedShow = FCoordinator::Deliver(
+		Show.GetCommand(), Port, Ledger);
+	const auto AppliedHide = FCoordinator::Deliver(
+		Hide.GetCommand(), Port, Ledger);
+	const auto AppliedNoOp = FCoordinator::Deliver(
+		NoOp.GetCommand(), Port, Ledger);
+	TestTrue(TEXT("Show Hide and NoOp are all observed in exact order"),
+		AppliedShow.WasApplied() && AppliedHide.WasApplied()
+			&& AppliedNoOp.WasApplied()
+			&& Show.GetCommand().RequiresRenderMutation()
+			&& Hide.GetCommand().RequiresRenderMutation()
+			&& !NoOp.GetCommand().RequiresRenderMutation()
+			&& AppliedNoOp.DidCallPort()
+			&& Port.ApplyCount == 3
+			&& Ledger.NumAppliedCommands() == 3
+			&& Ledger.GetLastAppliedCommandId()
+				== NoOp.GetCommand().GetCommandId()
+			&& Ledger.GetCursorState().Matches(
+				NoOp.GetCommand().GetState()));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewDeliveryRecoveryReplayTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliveryCoordinator.ExternalRecoveryReplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewDeliveryRecoveryReplayTest::RunTest(
+	const FString&)
+{
+	using EDelivery =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryStatus;
+	using ELedger =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedgerStatus;
+	using EReceipt =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceiptOutcome;
+	using FCoordinator =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryCoordinator;
+	using FReceipt =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceipt;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Session;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewDeliveryRecovery"), Fixture, Session))
+	{
+		return false;
+	}
+	const auto Show =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Session, MakeArcPreviewChoice(false), Fixture));
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger Ledger;
+	FString Diagnostic;
+	check(Ledger.TryBegin(
+		Fixture.Correlation.ActiveRunId, Consumer, Diagnostic));
+	FFakeArcPreviewPresentationPort RejectingPort(
+		Consumer, FFakeArcPreviewPresentationPort::EMode::Rejected);
+	const auto Rejected = FCoordinator::Deliver(
+		Show.GetCommand(), RejectingPort, Ledger);
+	FReceipt ExternalApplied;
+	check(FReceipt::TryCreate(
+		Show.GetCommand(),
+		Consumer,
+		EReceipt::Applied,
+		FName(TEXT("Renderer.ArcPreview.ExternallyRecovered")),
+		ExternalApplied,
+		Diagnostic));
+	const auto Recovered = Ledger.Record(ExternalApplied);
+	FFakeArcPreviewPresentationPort UnusedPort(Consumer);
+	const auto Replay = FCoordinator::Deliver(
+		Show.GetCommand(), UnusedPort, Ledger);
+	TestTrue(TEXT("direct P20.37 recovery remains compatible"),
+		Rejected.WasRejected()
+			&& Rejected.GetStatus() == EDelivery::PortRejected
+			&& Recovered.IsAccepted() && Recovered.DidAdvanceCursor()
+			&& Recovered.GetStatus() == ELedger::ApplicationRecovered
+			&& Ledger.HasRejectedCommand(Show.GetCommand().GetCommandId())
+			&& Ledger.HasAppliedCommand(Show.GetCommand().GetCommandId()));
+	TestTrue(TEXT("coordinator sees recovered application and never retries port"),
+		Replay.IsValid() && Replay.IsAccepted() && Replay.WasApplied()
+			&& Replay.IsReplay() && !Replay.DidCallPort()
+			&& Replay.GetStatus() == EDelivery::ApplicationReplayed
+			&& UnusedPort.ApplyCount == 0
+			&& RejectingPort.ApplyCount == 1
+			&& Ledger.NumAppliedCommands() == 1
+			&& Ledger.NumRejectedCommands() == 1);
 	return true;
 }
 
