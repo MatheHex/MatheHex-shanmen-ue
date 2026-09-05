@@ -190,6 +190,9 @@ try
     $ThrownArcPreviewPresentationDeliveryCoordinator = New-AutomationLogFixture `
         -Name 'thrown-arc-preview-presentation-delivery-coordinator.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliveryCoordinator'
+    $ThrownArcPreviewPresentationDeliverySession = New-AutomationLogFixture `
+        -Name 'thrown-arc-preview-presentation-delivery-session.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliverySession'
     $ThrownArcChoiceProjection = New-AutomationLogFixture `
         -Name 'thrown-arc-choice-projection.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcChoiceProjection'
@@ -2867,6 +2870,33 @@ try
 			$ItemUse)
 
 	Invoke-ExpectedPass `
+		-Name 'thrown weapon Arc preview presentation delivery Session maps owner coordinator ledger and full authority seams' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession.h',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession.cpp') `
+		-Logs @(
+			$ThrownArcPreviewPresentationDeliverySession,
+			$ThrownArcPreviewPresentationDeliveryCoordinator,
+			$ThrownArcPreviewPresentationCommandLedger,
+			$ThrownArcPreviewPresentationCommand,
+			$ThrownArcPreviewPresentationSession,
+			$ThrownArcPreviewUpdateCoordinator,
+			$ThrownArcPreviewPresentation,
+			$ThrownArcPreviewProductBridge,
+			$ThrownArcPreviewCapture,
+			$ThrownArcPreviewComposition,
+			$ThrownArcChoiceProjection,
+			$ThrownProductSession,
+			$ThrownProductController,
+			$ThrownArcPreview,
+			$ThrownArc,
+			$ThrownRuntime,
+			$CombatRuntime,
+			$CombatCore,
+			$Full,
+			$ItemUse)
+
+	Invoke-ExpectedPass `
 		-Name 'thrown weapon Arc preview presentation delivery coordinator maps port ledger and full authority seams' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryCoordinator.h',
@@ -4711,6 +4741,13 @@ try
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger.cpp') `
 		-Logs @($ThrownArcPreviewPresentationCommandLedger) `
+		-ExpectedText 'missing required groups'
+
+	Invoke-ExpectedFail `
+		-Name 'thrown Arc preview delivery Session focus cannot replace coordinator ledger command and authority evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession.cpp') `
+		-Logs @($ThrownArcPreviewPresentationDeliverySession) `
 		-ExpectedText 'missing required groups'
 
 	Invoke-ExpectedFail `

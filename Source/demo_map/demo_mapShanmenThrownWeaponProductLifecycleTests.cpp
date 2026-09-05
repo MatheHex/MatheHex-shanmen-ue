@@ -19,6 +19,7 @@
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationCommand.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryCoordinator.h"
+#include "demo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewUpdateCoordinator.h"
 #include "demo_mapShanmenThrownWeaponProjectile.h"
@@ -3603,6 +3604,11 @@ namespace
 			ConsumerDefinitionId = Value;
 		}
 
+		void SetMode(const EMode Value)
+		{
+			Mode = Value;
+		}
+
 		int32 ApplyCount = 0;
 		FGuid LastCommandId;
 
@@ -4096,6 +4102,500 @@ bool Fdemo_mapThrownWeaponArcPreviewDeliveryRecoveryReplayTest::RunTest(
 			&& RejectingPort.ApplyCount == 1
 			&& Ledger.NumAppliedCommands() == 1
 			&& Ledger.NumRejectedCommands() == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewDeliverySessionLifecycleTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliverySession.Lifecycle",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewDeliverySessionLifecycleTest::RunTest(
+	const FString&)
+{
+	using FDeliverySession =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession;
+	const FGuid RunId(
+		0xF3900001, 0xF3900002, 0xF3900003, 0xF3900004);
+	const FGuid NextRunId(
+		0xF3900011, 0xF3900012, 0xF3900013, 0xF3900014);
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	const FName OtherConsumer(TEXT("Renderer.ArcPreview.Spectator.r1"));
+	FDeliverySession Session;
+	FString Diagnostic;
+	TestFalse(TEXT("begin rejects a missing Run"),
+		Session.TryBegin(FGuid(), Consumer, Diagnostic));
+	TestFalse(TEXT("begin rejects a missing consumer"),
+		Session.TryBegin(RunId, NAME_None, Diagnostic));
+	TestTrue(TEXT("begin creates one private Run-scoped ledger"),
+		Session.TryBegin(RunId, Consumer, Diagnostic)
+			&& Session.IsValid() && Session.IsActive()
+			&& Session.GetRunId() == RunId
+			&& Session.GetConsumerDefinitionId() == Consumer
+			&& Session.GetLedgerId().IsValid()
+			&& Session.GetLedger().IsActive()
+			&& Session.NumAppliedCommands() == 0
+			&& Session.NumRejectedCommands() == 0
+			&& Session.CanEnd());
+	const FGuid FirstLedgerId = Session.GetLedgerId();
+	TestTrue(TEXT("exact begin replay is idempotent"),
+		Session.TryBegin(RunId, Consumer, Diagnostic)
+			&& Session.GetLedgerId() == FirstLedgerId);
+	TestFalse(TEXT("active Session rejects Run rotation"),
+		Session.TryBegin(NextRunId, Consumer, Diagnostic));
+	TestFalse(TEXT("active Session rejects consumer rotation"),
+		Session.TryBegin(RunId, OtherConsumer, Diagnostic));
+	TestFalse(TEXT("foreign Run cannot close the Session"),
+		Session.TryEnd(NextRunId, Diagnostic));
+	TestTrue(TEXT("empty cursor permits exact graceful end"),
+		Session.TryEnd(RunId, Diagnostic)
+			&& Session.IsEmpty() && Session.IsValid()
+			&& !Session.GetLedgerId().IsValid());
+	TestTrue(TEXT("a later Run receives an isolated new ledger"),
+		Session.TryBegin(NextRunId, Consumer, Diagnostic)
+			&& Session.GetLedgerId().IsValid()
+			&& Session.GetLedgerId() != FirstLedgerId
+			&& Session.GetCursorState().IsEmpty()
+			&& Session.TryEnd(NextRunId, Diagnostic));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewDeliverySessionPreflightTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliverySession.Preflight",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewDeliverySessionPreflightTest::RunTest(
+	const FString&)
+{
+	using ECoordinator =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryStatus;
+	using ESession =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySessionStatus;
+	using FDeliverySession =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Presentation;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewDeliverySessionPreflight"),
+			Fixture, Presentation))
+	{
+		return false;
+	}
+	const auto Show =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Presentation, MakeArcPreviewChoice(false), Fixture));
+	const auto Replace =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Presentation, MakeArcPreviewChoice(true), Fixture));
+	check(Show.IsProjected() && Replace.IsProjected());
+	FFakeArcPreviewPresentationPort Port(Consumer);
+	FDeliverySession Session;
+	const auto Inactive = Session.TryDeliver(Show.GetCommand(), Port);
+	FString Diagnostic;
+	check(Session.TryBegin(
+		Fixture.Correlation.ActiveRunId, Consumer, Diagnostic));
+	const auto Invalid = Session.TryDeliver(
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommand(), Port);
+
+	FThrownLifecycleFixture ForeignFixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession ForeignPresentation;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewDeliverySessionForeignRun"),
+			ForeignFixture, ForeignPresentation))
+	{
+		return false;
+	}
+	const auto ForeignShow =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				ForeignPresentation,
+				MakeArcPreviewChoice(false),
+				ForeignFixture));
+	check(ForeignShow.IsProjected());
+	const auto WrongRun = Session.TryDeliver(
+		ForeignShow.GetCommand(), Port);
+	Port.SetConsumerDefinitionId(
+		FName(TEXT("Renderer.ArcPreview.Spectator.r1")));
+	const auto WrongConsumer = Session.TryDeliver(Show.GetCommand(), Port);
+	Port.SetConsumerDefinitionId(Consumer);
+	const auto WrongCursor = Session.TryDeliver(Replace.GetCommand(), Port);
+	TestTrue(TEXT("Session preflight is typed and coordinator-free"),
+		Inactive.IsValid()
+			&& Inactive.GetStatus() == ESession::SessionInactive
+			&& !Inactive.DidCallCoordinator()
+			&& Invalid.IsValid()
+			&& Invalid.GetStatus() == ESession::CommandInvalid
+			&& !Invalid.DidCallCoordinator()
+			&& WrongRun.IsValid()
+			&& WrongRun.GetStatus() == ESession::RunMismatch
+			&& !WrongRun.DidCallCoordinator());
+	TestTrue(TEXT("consumer and cursor checks delegate once but never call port"),
+		WrongConsumer.IsValid()
+			&& WrongConsumer.GetStatus() == ESession::DeliveryRejected
+			&& WrongConsumer.DidCallCoordinator()
+			&& WrongConsumer.GetDelivery().GetStatus()
+				== ECoordinator::ConsumerMismatch
+			&& WrongCursor.IsValid()
+			&& WrongCursor.GetStatus() == ESession::DeliveryRejected
+			&& WrongCursor.DidCallCoordinator()
+			&& WrongCursor.GetDelivery().GetStatus()
+				== ECoordinator::CursorMismatch
+			&& Port.ApplyCount == 0
+			&& Session.NumAppliedCommands() == 0
+			&& Session.NumRejectedCommands() == 0
+			&& Session.GetCursorState().IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewDeliverySessionOrderingTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliverySession.OrderedReplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewDeliverySessionOrderingTest::RunTest(
+	const FString&)
+{
+	using ESession =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySessionStatus;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Presentation;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewDeliverySessionOrdering"),
+			Fixture, Presentation))
+	{
+		return false;
+	}
+	const auto Show =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Presentation, MakeArcPreviewChoice(false), Fixture));
+	const auto Replace =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Presentation, MakeArcPreviewChoice(true), Fixture));
+	check(Show.IsProjected() && Replace.IsProjected());
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession Session;
+	FString Diagnostic;
+	check(Session.TryBegin(
+		Fixture.Correlation.ActiveRunId, Consumer, Diagnostic));
+	FFakeArcPreviewPresentationPort Port(Consumer);
+	const auto AppliedShow = Session.TryDeliver(Show.GetCommand(), Port);
+	const auto ReplayedShow = Session.TryDeliver(Show.GetCommand(), Port);
+	const auto AppliedReplace =
+		Session.TryDeliver(Replace.GetCommand(), Port);
+	TestTrue(TEXT("Show and Replace advance one private serialized cursor"),
+		AppliedShow.IsValid() && AppliedShow.IsAccepted()
+			&& AppliedShow.WasApplied() && !AppliedShow.IsReplay()
+			&& AppliedShow.GetStatus() == ESession::Applied
+			&& AppliedShow.DidCallCoordinator()
+			&& AppliedShow.DidCallPort()
+			&& AppliedShow.DidAdvanceCursor()
+			&& AppliedReplace.IsValid() && AppliedReplace.WasApplied()
+			&& AppliedReplace.GetStatus() == ESession::Applied
+			&& Session.NumAppliedCommands() == 2
+			&& Session.GetCursorState().Matches(
+				Replace.GetCommand().GetState()));
+	TestTrue(TEXT("exact replay delegates once without a second port call"),
+		ReplayedShow.IsValid() && ReplayedShow.IsAccepted()
+			&& ReplayedShow.WasApplied() && ReplayedShow.IsReplay()
+			&& ReplayedShow.GetStatus() == ESession::ApplicationReplayed
+			&& ReplayedShow.DidCallCoordinator()
+			&& !ReplayedShow.DidCallPort()
+			&& !ReplayedShow.DidAdvanceCursor()
+			&& Port.ApplyCount == 2);
+	TestFalse(TEXT("visible cursor cannot be discarded by graceful end"),
+		Session.TryEnd(Fixture.Correlation.ActiveRunId, Diagnostic));
+	TestTrue(TEXT("failed visible end preserves the active exact ledger"),
+		Session.IsActive() && Session.IsValid()
+			&& Session.GetCursorState().IsVisible()
+			&& Session.NumAppliedCommands() == 2);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewDeliverySessionSafeEndTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliverySession.HiddenEnd",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewDeliverySessionSafeEndTest::RunTest(
+	const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Presentation;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewDeliverySessionSafeEnd"),
+			Fixture, Presentation))
+	{
+		return false;
+	}
+	const auto VisibleChoice = MakeArcPreviewChoice(false);
+	const auto Show =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Presentation, VisibleChoice, Fixture));
+	const auto ClearChoice = ClearArcPreviewChoice(VisibleChoice);
+	const auto Hide =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Presentation, ClearChoice, Fixture));
+	const auto NoOp =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Presentation,
+				MakeLaterNonPreviewChoice(ClearChoice),
+				Fixture));
+	check(Show.IsProjected() && Hide.IsProjected() && NoOp.IsProjected());
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession Session;
+	FString Diagnostic;
+	check(Session.TryBegin(
+		Fixture.Correlation.ActiveRunId, Consumer, Diagnostic));
+	FFakeArcPreviewPresentationPort Port(Consumer);
+	const auto AppliedShow = Session.TryDeliver(Show.GetCommand(), Port);
+	const auto AppliedHide = Session.TryDeliver(Hide.GetCommand(), Port);
+	const auto AppliedNoOp = Session.TryDeliver(NoOp.GetCommand(), Port);
+	TestTrue(TEXT("Hide and hidden NoOp retain a safely closed cursor"),
+		AppliedShow.WasApplied() && AppliedHide.WasApplied()
+			&& AppliedNoOp.WasApplied()
+			&& AppliedHide.DidAdvanceCursor()
+			&& AppliedNoOp.DidAdvanceCursor()
+			&& Session.GetCursorState().IsHidden()
+			&& Session.NumAppliedCommands() == 3
+			&& Port.ApplyCount == 3
+			&& Session.CanEnd());
+	TestTrue(TEXT("hidden cursor permits atomic ledger and Session teardown"),
+		Session.TryEnd(Fixture.Correlation.ActiveRunId, Diagnostic)
+			&& Session.IsEmpty() && Session.IsValid()
+			&& Session.GetCursorState().IsEmpty()
+			&& Session.NumAppliedCommands() == 0
+			&& Session.NumRejectedCommands() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewDeliverySessionRejectedHideTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliverySession.RejectedHideBlocksEnd",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewDeliverySessionRejectedHideTest::RunTest(
+	const FString&)
+{
+	using ESession =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySessionStatus;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Presentation;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewDeliverySessionRejectedHide"),
+			Fixture, Presentation))
+	{
+		return false;
+	}
+	const auto VisibleChoice = MakeArcPreviewChoice(false);
+	const auto Show =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Presentation, VisibleChoice, Fixture));
+	const auto Hide =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Presentation,
+				ClearArcPreviewChoice(VisibleChoice),
+				Fixture));
+	check(Show.IsProjected() && Hide.IsProjected());
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession Session;
+	FString Diagnostic;
+	check(Session.TryBegin(
+		Fixture.Correlation.ActiveRunId, Consumer, Diagnostic));
+	FFakeArcPreviewPresentationPort Port(Consumer);
+	const auto AppliedShow = Session.TryDeliver(Show.GetCommand(), Port);
+	Port.SetMode(FFakeArcPreviewPresentationPort::EMode::Rejected);
+	const auto RejectedHide = Session.TryDeliver(Hide.GetCommand(), Port);
+	Port.SetMode(FFakeArcPreviewPresentationPort::EMode::Applied);
+	const auto ReplayedRejection =
+		Session.TryDeliver(Hide.GetCommand(), Port);
+	TestTrue(TEXT("rejected Hide is terminal without clearing visible cursor"),
+		AppliedShow.WasApplied()
+			&& RejectedHide.IsValid() && RejectedHide.IsAccepted()
+			&& RejectedHide.WasRejected() && !RejectedHide.IsReplay()
+			&& RejectedHide.GetStatus() == ESession::Rejected
+			&& !RejectedHide.DidAdvanceCursor()
+			&& Session.GetCursorState().IsVisible()
+			&& Session.NumAppliedCommands() == 1
+			&& Session.NumRejectedCommands() == 1);
+	TestTrue(TEXT("same rejected Hide never retries a newly healthy port"),
+		ReplayedRejection.IsValid()
+			&& ReplayedRejection.WasRejected()
+			&& ReplayedRejection.IsReplay()
+			&& ReplayedRejection.GetStatus()
+				== ESession::RejectionReplayed
+			&& !ReplayedRejection.DidCallPort()
+			&& Port.ApplyCount == 2);
+	TestFalse(TEXT("rejected Hide cannot authorize graceful teardown"),
+		Session.TryEnd(Fixture.Correlation.ActiveRunId, Diagnostic));
+	TestTrue(TEXT("blocked end preserves rejection evidence and visible cursor"),
+		Session.IsValid() && Session.IsActive()
+			&& Session.GetLedger().HasRejectedCommand(
+				Hide.GetCommand().GetCommandId())
+			&& !Session.CanEnd());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewDeliverySessionEmptyRejectionTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliverySession.EmptyCursorRejectionEnd",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewDeliverySessionEmptyRejectionTest::RunTest(
+	const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Presentation;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewDeliverySessionEmptyRejection"),
+			Fixture, Presentation))
+	{
+		return false;
+	}
+	const auto Show =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Presentation, MakeArcPreviewChoice(false), Fixture));
+	check(Show.IsProjected());
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession Session;
+	FString Diagnostic;
+	check(Session.TryBegin(
+		Fixture.Correlation.ActiveRunId, Consumer, Diagnostic));
+	FFakeArcPreviewPresentationPort Port(
+		Consumer, FFakeArcPreviewPresentationPort::EMode::InvalidResponse);
+	const auto RejectedShow = Session.TryDeliver(Show.GetCommand(), Port);
+	TestTrue(TEXT("invalid first Show response leaves consumer cursor empty"),
+		RejectedShow.IsValid() && RejectedShow.IsAccepted()
+			&& RejectedShow.WasRejected()
+			&& RejectedShow.DidCallCoordinator()
+			&& RejectedShow.DidCallPort()
+			&& Session.GetCursorState().IsEmpty()
+			&& Session.NumAppliedCommands() == 0
+			&& Session.NumRejectedCommands() == 1
+			&& Session.CanEnd());
+	TestTrue(TEXT("empty cursor can close while dropping only audit memory"),
+		Session.TryEnd(Fixture.Correlation.ActiveRunId, Diagnostic)
+			&& Session.IsEmpty() && Session.IsValid()
+			&& Port.ApplyCount == 1);
+	return true;
+}
+
+namespace
+{
+	class FReentrantArcPreviewPresentationPort final
+		: public Idemo_mapShanmenThrownWeaponArcPreviewPresentationPort
+	{
+	public:
+		FReentrantArcPreviewPresentationPort(
+			const FName InConsumerDefinitionId,
+			Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession&
+				InSession)
+			: ConsumerDefinitionId(InConsumerDefinitionId)
+			, Session(InSession)
+		{
+		}
+
+		virtual FName GetConsumerDefinitionId() const override
+		{
+			return ConsumerDefinitionId;
+		}
+
+		virtual
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationPortResponse Apply(
+			const Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommand&
+				Command) override
+		{
+			using EOutcome =
+				Edemo_mapShanmenThrownWeaponArcPreviewPresentationPortResponseOutcome;
+			using FResponse =
+				Fdemo_mapShanmenThrownWeaponArcPreviewPresentationPortResponse;
+			++ApplyCount;
+			EndAccepted = Session.TryEnd(Command.GetRunId(), EndDiagnostic);
+			ReentrantResult = Session.TryDeliver(Command, *this);
+			FResponse Response;
+			FString Diagnostic;
+			check(FResponse::TryCreate(
+				Command.GetCommandId(),
+				EOutcome::Applied,
+				FName(TEXT("Renderer.ArcPreview.ReentrantOuterApplied")),
+				Response,
+				Diagnostic));
+			return Response;
+		}
+
+		int32 ApplyCount = 0;
+		bool EndAccepted = true;
+		FString EndDiagnostic;
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySessionResult
+			ReentrantResult;
+
+	private:
+		FName ConsumerDefinitionId = NAME_None;
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession&
+			Session;
+	};
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewDeliverySessionReentrantTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliverySession.ReentrantPortBlocked",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewDeliverySessionReentrantTest::RunTest(
+	const FString&)
+{
+	using ESession =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySessionStatus;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Presentation;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewDeliverySessionReentrant"),
+			Fixture, Presentation))
+	{
+		return false;
+	}
+	const auto Show =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Presentation, MakeArcPreviewChoice(false), Fixture));
+	check(Show.IsProjected());
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession Session;
+	FString Diagnostic;
+	check(Session.TryBegin(
+		Fixture.Correlation.ActiveRunId, Consumer, Diagnostic));
+	FReentrantArcPreviewPresentationPort Port(Consumer, Session);
+	const auto Outer = Session.TryDeliver(Show.GetCommand(), Port);
+	TestTrue(TEXT("outer delivery commits exactly once after guarded callback"),
+		Outer.IsValid() && Outer.IsAccepted() && Outer.WasApplied()
+			&& Outer.GetStatus() == ESession::Applied
+			&& Outer.DidCallCoordinator() && Outer.DidCallPort()
+			&& Port.ApplyCount == 1
+			&& Session.NumAppliedCommands() == 1
+			&& Session.NumRejectedCommands() == 0
+			&& Session.GetCursorState().IsVisible());
+	TestTrue(TEXT("re-entrant delivery is rejected before recursion"),
+		Port.ReentrantResult.IsValid()
+			&& !Port.ReentrantResult.IsAccepted()
+			&& Port.ReentrantResult.GetStatus()
+				== ESession::DeliveryInProgress
+			&& !Port.ReentrantResult.DidCallCoordinator()
+			&& !Port.ReentrantResult.DidCallPort());
+	TestTrue(TEXT("port callback cannot close an in-flight Session"),
+		!Port.EndAccepted && !Port.EndDiagnostic.IsEmpty()
+			&& !Session.IsDeliveryInProgress()
+			&& Session.IsValid());
 	return true;
 }
 
