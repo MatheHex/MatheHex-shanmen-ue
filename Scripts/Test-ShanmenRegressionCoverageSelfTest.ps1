@@ -193,6 +193,9 @@ try
     $ThrownArcPreviewPresentationDeliverySession = New-AutomationLogFixture `
         -Name 'thrown-arc-preview-presentation-delivery-session.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliverySession'
+    $ThrownArcPreviewPresentationDeliveryHost = New-AutomationLogFixture `
+        -Name 'thrown-arc-preview-presentation-delivery-host.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliveryHost'
     $ThrownArcChoiceProjection = New-AutomationLogFixture `
         -Name 'thrown-arc-choice-projection.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcChoiceProjection'
@@ -2870,6 +2873,34 @@ try
 			$ItemUse)
 
 	Invoke-ExpectedPass `
+		-Name 'thrown weapon Arc preview presentation delivery Host maps bounded pipeline and full authority seams' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHost.h',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHost.cpp') `
+		-Logs @(
+			$ThrownArcPreviewPresentationDeliveryHost,
+			$ThrownArcPreviewPresentationDeliverySession,
+			$ThrownArcPreviewPresentationDeliveryCoordinator,
+			$ThrownArcPreviewPresentationCommandLedger,
+			$ThrownArcPreviewPresentationCommand,
+			$ThrownArcPreviewPresentationSession,
+			$ThrownArcPreviewUpdateCoordinator,
+			$ThrownArcPreviewPresentation,
+			$ThrownArcPreviewProductBridge,
+			$ThrownArcPreviewCapture,
+			$ThrownArcPreviewComposition,
+			$ThrownArcChoiceProjection,
+			$ThrownProductSession,
+			$ThrownProductController,
+			$ThrownArcPreview,
+			$ThrownArc,
+			$ThrownRuntime,
+			$CombatRuntime,
+			$CombatCore,
+			$Full,
+			$ItemUse)
+
+	Invoke-ExpectedPass `
 		-Name 'thrown weapon Arc preview presentation delivery Session maps owner coordinator ledger and full authority seams' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession.h',
@@ -4741,6 +4772,13 @@ try
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger.cpp') `
 		-Logs @($ThrownArcPreviewPresentationCommandLedger) `
+		-ExpectedText 'missing required groups'
+
+	Invoke-ExpectedFail `
+		-Name 'thrown Arc preview delivery Host focus cannot replace owned Session and authority evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHost.cpp') `
+		-Logs @($ThrownArcPreviewPresentationDeliveryHost) `
 		-ExpectedText 'missing required groups'
 
 	Invoke-ExpectedFail `

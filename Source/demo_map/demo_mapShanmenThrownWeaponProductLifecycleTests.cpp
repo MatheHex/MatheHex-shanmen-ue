@@ -19,6 +19,7 @@
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationCommand.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryCoordinator.h"
+#include "demo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHost.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewUpdateCoordinator.h"
@@ -4898,6 +4899,527 @@ bool Fdemo_mapThrownWeaponArcPreviewDeliverySessionReentrantTest::RunTest(
 			&& Port.ReentrantRecoveryResult.GetStatus()
 				== ERecovery::SessionBusy
 			&& !Port.ReentrantRecoveryResult.DidRecordLedger());
+	return true;
+}
+
+namespace
+{
+	bool StartArcPreviewDeliveryHost(
+		FAutomationTestBase& Test,
+		const TCHAR* Label,
+		FThrownLifecycleFixture& Fixture,
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHost& Host,
+		const FName ConsumerDefinitionId)
+	{
+		if (!Fixture.Start(
+				Test,
+				Label,
+				Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::
+					BallisticArc))
+		{
+			return false;
+		}
+		FString Diagnostic;
+		if (!Host.TryBegin(
+				Fixture.Correlation.ActiveRunId,
+				ConsumerDefinitionId,
+				Diagnostic))
+		{
+			Test.AddError(Diagnostic);
+			return false;
+		}
+		return true;
+	}
+
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHostResult
+	UpdateArcPreviewDeliveryHost(
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHost& Host,
+		const Fdemo_mapShanmenThrownWeaponInputChoiceState& Choice,
+		const FThrownLifecycleFixture& Fixture,
+		Idemo_mapShanmenThrownWeaponArcPreviewPresentationPort& Port)
+	{
+		return Host.TryUpdate(
+			2,
+			Choice,
+			MakeArcPreviewChoicePolicy(),
+			8,
+			MakeArcPreviewBasis(),
+			Fixture.Lifecycle,
+			Fixture.Coordinator,
+			Port);
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewDeliveryHostLifecycleTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliveryHost.Lifecycle",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewDeliveryHostLifecycleTest::RunTest(
+	const FString&)
+{
+	using FHost =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHost;
+	const FGuid RunA(
+		0xF4100001, 0xF4100002, 0xF4100003, 0xF4100004);
+	const FGuid RunB(
+		0xF4100011, 0xF4100012, 0xF4100013, 0xF4100014);
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FHost Host;
+	FString Diagnostic;
+	TestTrue(TEXT("default Host is valid and safely empty"),
+		Host.IsValid() && Host.IsEmpty() && Host.IsSynchronized()
+			&& Host.CanEnd()
+			&& Host.TryEnd(RunA, Diagnostic));
+	TestFalse(TEXT("begin rejects missing consumer identity"),
+		Host.TryBegin(RunA, NAME_None, Diagnostic));
+	TestTrue(TEXT("begin atomically binds both Sessions"),
+		Host.TryBegin(RunA, Consumer, Diagnostic)
+			&& Host.IsValid() && Host.IsActive()
+			&& Host.GetRunId() == RunA
+			&& Host.GetConsumerDefinitionId() == Consumer
+			&& Host.GetPresentationSession().GetRunId() == RunA
+			&& Host.GetDeliverySession().GetRunId() == RunA
+			&& Host.IsSynchronized() && Host.CanEnd());
+	TestTrue(TEXT("exact begin replay is idempotent"),
+		Host.TryBegin(RunA, Consumer, Diagnostic));
+	TestFalse(TEXT("active Host rejects Run rotation"),
+		Host.TryBegin(RunB, Consumer, Diagnostic));
+	TestTrue(TEXT("empty synchronized Host ends both Sessions"),
+		Host.TryEnd(RunA, Diagnostic)
+			&& Host.IsEmpty() && Host.IsValid()
+			&& Host.GetPresentationSession().IsEmpty()
+			&& Host.GetDeliverySession().IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewDeliveryHostOrderedTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliveryHost.OrderedAppliedReplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewDeliveryHostOrderedTest::RunTest(
+	const FString&)
+{
+	using ECommand =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandKind;
+	using EHost =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHostStatus;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHost Host;
+	if (!StartArcPreviewDeliveryHost(
+			*this, TEXT("ArcPreviewDeliveryHostOrdered"),
+			Fixture, Host, Consumer))
+	{
+		return false;
+	}
+	FFakeArcPreviewPresentationPort Port(Consumer);
+	const auto InitialChoice = MakeArcPreviewChoice(false);
+	const auto RevisedChoice = MakeArcPreviewChoice(true);
+	const auto Show = UpdateArcPreviewDeliveryHost(
+		Host, InitialChoice, Fixture, Port);
+	const auto Replace = UpdateArcPreviewDeliveryHost(
+		Host, RevisedChoice, Fixture, Port);
+	const auto NoOp = UpdateArcPreviewDeliveryHost(
+		Host, RevisedChoice, Fixture, Port);
+	const auto Replay = UpdateArcPreviewDeliveryHost(
+		Host, RevisedChoice, Fixture, Port);
+
+	TestTrue(TEXT("Show and Replace each freeze one ordered call chain"),
+		Show.IsValid() && Show.IsAccepted() && Show.WasApplied()
+			&& Show.GetStatus() == EHost::Applied
+			&& Show.GetStateUpdateCallCount() == 1
+			&& Show.GetProjectionCallCount() == 1
+			&& Show.GetDeliveryCallCount() == 1
+			&& Show.GetProjection().GetCommand().GetKind()
+				== ECommand::Show
+			&& Replace.IsValid() && Replace.WasApplied()
+			&& Replace.GetProjection().GetCommand().GetKind()
+				== ECommand::Replace);
+	TestTrue(TEXT("duplicate state emits and records one NoOp"),
+		NoOp.IsValid() && NoOp.WasApplied() && !NoOp.IsReplay()
+			&& NoOp.GetProjection().GetCommand().GetKind()
+				== ECommand::NoOp
+			&& Port.ApplyCount == 3);
+	TestTrue(TEXT("exact NoOp replay never calls the port twice"),
+		Replay.IsValid() && Replay.WasApplied() && Replay.IsReplay()
+			&& Replay.GetStatus() == EHost::ApplicationReplayed
+			&& !Replay.GetDelivery().DidCallPort()
+			&& Port.ApplyCount == 3);
+	TestTrue(TEXT("committed state and consumer cursor remain identical"),
+		Host.IsValid() && Host.IsSynchronized() && !Host.NeedsRecovery()
+			&& Host.GetState().IsVisible()
+			&& Host.GetState().Matches(Host.GetCursorState())
+			&& Host.GetDeliverySession().NumAppliedCommands() == 3);
+	FString Diagnostic;
+	TestFalse(TEXT("visible synchronized Host still cannot end"),
+		Host.TryEnd(Fixture.Correlation.ActiveRunId, Diagnostic));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewDeliveryHostPreflightTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliveryHost.PreflightAndStateReject",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewDeliveryHostPreflightTest::RunTest(
+	const FString&)
+{
+	using EHost =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHostStatus;
+	using ERecovery =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHostRecoveryStatus;
+	const FGuid RunId(
+		0xF4110001, 0xF4110002, 0xF4110003, 0xF4110004);
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHost Host;
+	FFakeArcPreviewPresentationPort Port(Consumer);
+	Fdemo_mapShanmenThrownWeaponProductLifecycle Lifecycle;
+	Fdemo_mapCombatRunCoordinator Coordinator;
+	const auto Choice = MakeArcPreviewChoice(false);
+	const auto Inactive = Host.TryUpdate(
+		2, Choice, MakeArcPreviewChoicePolicy(), 8, MakeArcPreviewBasis(),
+		Lifecycle, Coordinator, Port);
+	TestTrue(TEXT("inactive Host rejects before every delegated call"),
+		Inactive.IsValid() && !Inactive.IsAccepted()
+			&& Inactive.GetStatus() == EHost::HostInactive
+			&& Inactive.GetStateUpdateCallCount() == 0
+			&& Inactive.GetProjectionCallCount() == 0
+			&& Inactive.GetDeliveryCallCount() == 0
+			&& Port.ApplyCount == 0);
+
+	FString Diagnostic;
+	check(Host.TryBegin(RunId, Consumer, Diagnostic));
+	const auto ProductRejected = Host.TryUpdate(
+		2, Choice, MakeArcPreviewChoicePolicy(), 8, MakeArcPreviewBasis(),
+		Lifecycle, Coordinator, Port);
+	TestTrue(TEXT("unavailable product rejects after state update only"),
+		ProductRejected.IsValid() && !ProductRejected.IsAccepted()
+			&& ProductRejected.GetStatus() == EHost::StateUpdateRejected
+			&& ProductRejected.GetStateUpdateCallCount() == 1
+			&& ProductRejected.GetProjectionCallCount() == 0
+			&& ProductRejected.GetDeliveryCallCount() == 0
+			&& Host.IsSynchronized() && Host.GetState().IsEmpty()
+			&& Port.ApplyCount == 0);
+	const auto NoRecovery = Host.TryRecoverRejected(
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceipt());
+	TestTrue(TEXT("Host without rejection has no recovery side effect"),
+		NoRecovery.IsValid() && !NoRecovery.IsAccepted()
+			&& NoRecovery.GetStatus() == ERecovery::NoRecoveryPending
+			&& NoRecovery.GetDeliveryRecoveryCallCount() == 0);
+	TestTrue(TEXT("preflight-only Host remains safely endable"),
+		Host.TryEnd(RunId, Diagnostic) && Host.IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewDeliveryHostAtomicRejectTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliveryHost.AtomicDeliveryReject",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewDeliveryHostAtomicRejectTest::RunTest(
+	const FString&)
+{
+	using EHost =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHostStatus;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHost Host;
+	if (!StartArcPreviewDeliveryHost(
+			*this, TEXT("ArcPreviewDeliveryHostAtomicReject"),
+			Fixture, Host, Consumer))
+	{
+		return false;
+	}
+	const auto Choice = MakeArcPreviewChoice(false);
+	FFakeArcPreviewPresentationPort ForeignPort(
+		FName(TEXT("Renderer.ArcPreview.Foreign.r1")));
+	const auto Rejected = UpdateArcPreviewDeliveryHost(
+		Host, Choice, Fixture, ForeignPort);
+	TestTrue(TEXT("consumer mismatch rejects after one bounded composition"),
+		Rejected.IsValid() && !Rejected.IsAccepted()
+			&& Rejected.GetStatus() == EHost::DeliveryRejected
+			&& Rejected.GetStateUpdateCallCount() == 1
+			&& Rejected.GetProjectionCallCount() == 1
+			&& Rejected.GetDeliveryCallCount() == 1
+			&& !Rejected.GetDelivery().DidCallPort()
+			&& ForeignPort.ApplyCount == 0);
+	TestTrue(TEXT("rejected candidate leaves both live Sessions untouched"),
+		Host.IsValid() && Host.IsSynchronized()
+			&& Host.GetState().IsEmpty()
+			&& Host.GetCursorState().IsEmpty()
+			&& !Host.NeedsRecovery()
+			&& Host.GetDeliverySession().NumAppliedCommands() == 0
+			&& Host.GetDeliverySession().NumRejectedCommands() == 0);
+	FFakeArcPreviewPresentationPort HealthyPort(Consumer);
+	const auto Applied = UpdateArcPreviewDeliveryHost(
+		Host, Choice, Fixture, HealthyPort);
+	TestTrue(TEXT("same update can succeed after atomic preflight rollback"),
+		Applied.IsValid() && Applied.WasApplied()
+			&& Applied.GetStatus() == EHost::Applied
+			&& Host.IsSynchronized() && Host.GetState().IsVisible()
+			&& HealthyPort.ApplyCount == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewDeliveryHostRecoveryTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliveryHost.RejectionRecoveryFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewDeliveryHostRecoveryTest::RunTest(
+	const FString&)
+{
+	using EHost =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHostStatus;
+	using EOutcome =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceiptOutcome;
+	using ERecovery =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHostRecoveryStatus;
+	using FReceipt =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceipt;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHost Host;
+	if (!StartArcPreviewDeliveryHost(
+			*this, TEXT("ArcPreviewDeliveryHostRecovery"),
+			Fixture, Host, Consumer))
+	{
+		return false;
+	}
+	FFakeArcPreviewPresentationPort Port(
+		Consumer, FFakeArcPreviewPresentationPort::EMode::Rejected);
+	const auto InitialChoice = MakeArcPreviewChoice(false);
+	const auto Rejected = UpdateArcPreviewDeliveryHost(
+		Host, InitialChoice, Fixture, Port);
+	TestTrue(TEXT("port rejection commits exact pending recovery evidence"),
+		Rejected.IsValid() && Rejected.IsAccepted()
+			&& Rejected.WasRejected() && Rejected.NeedsRecovery()
+			&& Rejected.GetStatus() == EHost::RejectedPendingRecovery
+			&& Host.IsValid() && Host.NeedsRecovery()
+			&& Host.GetState().IsVisible()
+			&& Host.GetCursorState().IsEmpty()
+			&& Host.GetDeliverySession().NumRejectedCommands() == 1);
+	const auto Blocked = UpdateArcPreviewDeliveryHost(
+		Host, MakeArcPreviewChoice(true), Fixture, Port);
+	TestTrue(TEXT("pending rejection fences every newer update before calls"),
+		Blocked.IsValid() && !Blocked.IsAccepted()
+			&& Blocked.NeedsRecovery()
+			&& Blocked.GetStatus() == EHost::RecoveryRequired
+			&& Blocked.GetStateUpdateCallCount() == 0
+			&& Blocked.GetProjectionCallCount() == 0
+			&& Blocked.GetDeliveryCallCount() == 0
+			&& Port.ApplyCount == 1);
+
+	FReceipt AppliedReceipt;
+	FReceipt ForeignReceipt;
+	FString Diagnostic;
+	check(FReceipt::TryCreate(
+		Host.GetPendingRejectedCommand(),
+		FName(TEXT("Renderer.ArcPreview.Foreign.r1")),
+		EOutcome::Applied,
+		FName(TEXT("Renderer.ArcPreview.ForeignRecovery")),
+		ForeignReceipt,
+		Diagnostic));
+	const auto Mismatch = Host.TryRecoverRejected(ForeignReceipt);
+	TestTrue(TEXT("foreign recovery evidence is fenced before ledger access"),
+		Mismatch.IsValid() && !Mismatch.IsAccepted()
+			&& Mismatch.GetStatus() == ERecovery::ReceiptMismatch
+			&& Mismatch.GetDeliveryRecoveryCallCount() == 0
+			&& Host.NeedsRecovery());
+	check(FReceipt::TryCreate(
+		Host.GetPendingRejectedCommand(),
+		Consumer,
+		EOutcome::Applied,
+		FName(TEXT("Renderer.ArcPreview.ExternalRecovery")),
+		AppliedReceipt,
+		Diagnostic));
+	const auto Recovered = Host.TryRecoverRejected(AppliedReceipt);
+	const auto Replayed = Host.TryRecoverRejected(AppliedReceipt);
+	TestTrue(TEXT("exact Applied evidence reconciles desired state and cursor"),
+		Recovered.IsValid() && Recovered.IsAccepted()
+			&& Recovered.DidRecover()
+			&& Recovered.GetStatus() == ERecovery::Recovered
+			&& Recovered.GetDeliveryRecoveryCallCount() == 1
+			&& Host.IsValid() && Host.IsSynchronized()
+			&& !Host.NeedsRecovery()
+			&& Host.GetState().Matches(Host.GetCursorState()));
+	TestTrue(TEXT("exact recovery replay is idempotent and port-free"),
+		Replayed.IsValid() && Replayed.IsAccepted()
+			&& Replayed.IsReplay()
+			&& Replayed.GetStatus() == ERecovery::RecoveryReplayed
+			&& Port.ApplyCount == 1);
+	Port.SetMode(FFakeArcPreviewPresentationPort::EMode::Applied);
+	const auto Replace = UpdateArcPreviewDeliveryHost(
+		Host, MakeArcPreviewChoice(true), Fixture, Port);
+	TestTrue(TEXT("newer update resumes only after cursor reconciliation"),
+		Replace.IsValid() && Replace.WasApplied()
+			&& Replace.GetStatus() == EHost::Applied
+			&& Host.IsSynchronized() && Port.ApplyCount == 2);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewDeliveryHostHideRecoveryTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliveryHost.HideRecoveryEnd",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewDeliveryHostHideRecoveryTest::RunTest(
+	const FString&)
+{
+	using ECommand =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandKind;
+	using EOutcome =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceiptOutcome;
+	using FReceipt =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceipt;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHost Host;
+	if (!StartArcPreviewDeliveryHost(
+			*this, TEXT("ArcPreviewDeliveryHostHideRecovery"),
+			Fixture, Host, Consumer))
+	{
+		return false;
+	}
+	FFakeArcPreviewPresentationPort Port(Consumer);
+	const auto VisibleChoice = MakeArcPreviewChoice(false);
+	const auto Show = UpdateArcPreviewDeliveryHost(
+		Host, VisibleChoice, Fixture, Port);
+	Port.SetMode(FFakeArcPreviewPresentationPort::EMode::Rejected);
+	const auto RejectedHide = UpdateArcPreviewDeliveryHost(
+		Host, ClearArcPreviewChoice(VisibleChoice), Fixture, Port);
+	FString Diagnostic;
+	TestTrue(TEXT("rejected Hide keeps visible cursor and hidden desired state"),
+		Show.WasApplied() && RejectedHide.WasRejected()
+			&& Host.GetPendingRejectedCommand().GetKind()
+				== ECommand::Hide
+			&& Host.GetState().IsHidden()
+			&& Host.GetCursorState().IsVisible()
+			&& !Host.CanEnd());
+	TestFalse(TEXT("unreconciled Hide cannot discard renderer state"),
+		Host.TryEnd(Fixture.Correlation.ActiveRunId, Diagnostic));
+
+	FReceipt AppliedHide;
+	check(FReceipt::TryCreate(
+		Host.GetPendingRejectedCommand(),
+		Consumer,
+		EOutcome::Applied,
+		FName(TEXT("Renderer.ArcPreview.ExternalHideRecovery")),
+		AppliedHide,
+		Diagnostic));
+	const auto Recovered = Host.TryRecoverRejected(AppliedHide);
+	TestTrue(TEXT("recovered Hide produces one synchronized hidden cursor"),
+		Recovered.IsValid() && Recovered.DidRecover()
+			&& Host.IsSynchronized() && Host.GetState().IsHidden()
+			&& Host.GetCursorState().IsHidden() && Host.CanEnd());
+	TestTrue(TEXT("hidden synchronized Host atomically ends both Sessions"),
+		Host.TryEnd(Fixture.Correlation.ActiveRunId, Diagnostic)
+			&& Host.IsEmpty() && Host.IsValid()
+			&& Host.GetState().IsEmpty()
+			&& Host.GetCursorState().IsEmpty());
+	return true;
+}
+
+namespace
+{
+	class FReentrantArcPreviewPresentationHostPort final
+		: public Idemo_mapShanmenThrownWeaponArcPreviewPresentationPort
+	{
+	public:
+		FReentrantArcPreviewPresentationHostPort(
+			const FName InConsumerDefinitionId,
+			Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHost&
+				InHost,
+			const FThrownLifecycleFixture& InFixture)
+			: ConsumerDefinitionId(InConsumerDefinitionId)
+			, Host(InHost)
+			, Fixture(InFixture)
+		{
+		}
+
+		virtual FName GetConsumerDefinitionId() const override
+		{
+			return ConsumerDefinitionId;
+		}
+
+		virtual
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationPortResponse Apply(
+			const Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommand&
+				Command) override
+		{
+			using EOutcome =
+				Edemo_mapShanmenThrownWeaponArcPreviewPresentationPortResponseOutcome;
+			using FResponse =
+				Fdemo_mapShanmenThrownWeaponArcPreviewPresentationPortResponse;
+			++ApplyCount;
+			EndAccepted = Host.TryEnd(Command.GetRunId(), EndDiagnostic);
+			ReentrantResult = UpdateArcPreviewDeliveryHost(
+				Host, MakeArcPreviewChoice(true), Fixture, *this);
+			FResponse Response;
+			FString Diagnostic;
+			check(FResponse::TryCreate(
+				Command.GetCommandId(),
+				EOutcome::Applied,
+				FName(TEXT("Renderer.ArcPreview.ReentrantHostApplied")),
+				Response,
+				Diagnostic));
+			return Response;
+		}
+
+		int32 ApplyCount = 0;
+		bool EndAccepted = true;
+		FString EndDiagnostic;
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHostResult
+			ReentrantResult;
+
+	private:
+		FName ConsumerDefinitionId = NAME_None;
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHost& Host;
+		const FThrownLifecycleFixture& Fixture;
+	};
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewDeliveryHostReentrantTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliveryHost.ReentrantPortBlocked",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewDeliveryHostReentrantTest::RunTest(
+	const FString&)
+{
+	using EHost =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHostStatus;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHost Host;
+	if (!StartArcPreviewDeliveryHost(
+			*this, TEXT("ArcPreviewDeliveryHostReentrant"),
+			Fixture, Host, Consumer))
+	{
+		return false;
+	}
+	FReentrantArcPreviewPresentationHostPort Port(
+		Consumer, Host, Fixture);
+	const auto Outer = UpdateArcPreviewDeliveryHost(
+		Host, MakeArcPreviewChoice(false), Fixture, Port);
+	TestTrue(TEXT("outer Host operation applies once after callback"),
+		Outer.IsValid() && Outer.WasApplied()
+			&& Port.ApplyCount == 1
+			&& Host.IsValid() && Host.IsSynchronized()
+			&& !Host.IsOperationInProgress());
+	TestTrue(TEXT("port callback cannot re-enter the Host pipeline"),
+		Port.ReentrantResult.IsValid()
+			&& !Port.ReentrantResult.IsAccepted()
+			&& Port.ReentrantResult.GetStatus()
+				== EHost::OperationInProgress
+			&& Port.ReentrantResult.GetStateUpdateCallCount() == 0
+			&& Port.ReentrantResult.GetProjectionCallCount() == 0
+			&& Port.ReentrantResult.GetDeliveryCallCount() == 0);
+	TestTrue(TEXT("port callback cannot tear down the active Host"),
+		!Port.EndAccepted && !Port.EndDiagnostic.IsEmpty()
+			&& Host.GetState().IsVisible());
 	return true;
 }
 
