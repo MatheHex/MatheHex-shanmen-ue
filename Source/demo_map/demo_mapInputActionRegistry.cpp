@@ -10,6 +10,14 @@ const FName Fdemo_mapInputActionIds::SkillSelfSector(TEXT("SkillSelfSector"));
 const FName Fdemo_mapInputActionIds::SkillStraightProjectile(TEXT("SkillStraightProjectile"));
 const FName Fdemo_mapInputActionIds::ThrownWeaponTrajectoryToggle(
 	TEXT("ThrownWeaponTrajectoryToggle"));
+const FName Fdemo_mapInputActionIds::ThrownWeaponArcTargetSet(
+	TEXT("ThrownWeaponArcTargetSet"));
+const FName Fdemo_mapInputActionIds::ThrownWeaponArcApexIncrease(
+	TEXT("ThrownWeaponArcApexIncrease"));
+const FName Fdemo_mapInputActionIds::ThrownWeaponArcApexDecrease(
+	TEXT("ThrownWeaponArcApexDecrease"));
+const FName Fdemo_mapInputActionIds::ThrownWeaponArcTargetClear(
+	TEXT("ThrownWeaponArcTargetClear"));
 const FName Fdemo_mapInputActionIds::SpiritEvasion(TEXT("SpiritEvasion"));
 const FName Fdemo_mapInputActionIds::WeaponGuard(TEXT("WeaponGuard"));
 const FName Fdemo_mapInputActionIds::Interact(TEXT("Interact"));
@@ -38,6 +46,10 @@ const TArray<Fdemo_mapInputActionDefinition>& Fdemo_mapInputActionRegistry::GetE
 		{ Fdemo_mapInputActionIds::SkillSelfSector, EKeys::E, false, TEXT("扇形技能"), TEXT("战斗") },
 		{ Fdemo_mapInputActionIds::SkillStraightProjectile, EKeys::F, false, TEXT("直线技能"), TEXT("战斗") },
 		{ Fdemo_mapInputActionIds::ThrownWeaponTrajectoryToggle, EKeys::T, false, TEXT("切换投掷轨迹"), TEXT("战斗") },
+		{ Fdemo_mapInputActionIds::ThrownWeaponArcTargetSet, EKeys::MiddleMouseButton, false, TEXT("设定抛投目标方向"), TEXT("战斗") },
+		{ Fdemo_mapInputActionIds::ThrownWeaponArcApexIncrease, EKeys::RightBracket, false, TEXT("提高抛投弧顶"), TEXT("战斗") },
+		{ Fdemo_mapInputActionIds::ThrownWeaponArcApexDecrease, EKeys::LeftBracket, false, TEXT("降低抛投弧顶"), TEXT("战斗") },
+		{ Fdemo_mapInputActionIds::ThrownWeaponArcTargetClear, EKeys::Delete, false, TEXT("清除抛投目标方向"), TEXT("战斗") },
 		{ Fdemo_mapInputActionIds::SpiritEvasion, EKeys::SpaceBar, false, TEXT("灵息闪避"), TEXT("战斗") },
 		{ Fdemo_mapInputActionIds::WeaponGuard, EKeys::RightMouseButton, true, TEXT("武器格挡"), TEXT("战斗") },
 		{ Fdemo_mapInputActionIds::Interact, EKeys::G, true, TEXT("交互 / 开始搜索"), TEXT("页面与交互") },
@@ -87,9 +99,9 @@ FString Fdemo_mapInputActionRegistry::DisplayLabel(FName ActionId)
 bool Fdemo_mapInputActionRegistry::ValidateExactDefaults(FString* OutError)
 {
 	const TArray<Fdemo_mapInputActionDefinition>& Actions = GetExactDefaultActions();
-	if (Actions.Num() != 24)
+	if (Actions.Num() != 28)
 	{
-		if (OutError) *OutError = TEXT("Input registry must contain exactly 24 actions.");
+		if (OutError) *OutError = TEXT("Input registry must contain exactly 28 actions.");
 		return false;
 	}
 	TSet<FName> Ids;

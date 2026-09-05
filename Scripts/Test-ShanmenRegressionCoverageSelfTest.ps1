@@ -418,6 +418,9 @@ try
     $ThrownWeaponArcEditingControllerRoute = New-AutomationLogFixture `
         -Name 'thrown-weapon-arc-editing-controller-route.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcEditingControllerRoute'
+    $ThrownWeaponArcEditingPhysicalInput = New-AutomationLogFixture `
+        -Name 'thrown-weapon-arc-editing-physical-input.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcEditingPhysicalInput'
     $WorldGameplay = New-AutomationLogFixture `
         -Name 'world-gameplay.log' `
         -Group 'Shanmen.0_0_10.WorldGameplay'
@@ -2187,6 +2190,7 @@ try
             'Source/demo_map/demo_mapInputBindingSettings.cpp',
             'Source/demo_map/demo_mapShanmenSpiritEvasionPhysicalInputTests.cpp',
             'Source/demo_map/demo_mapShanmenThrownWeaponTrajectoryTogglePhysicalInputTests.cpp',
+            'Source/demo_map/demo_mapShanmenThrownWeaponArcEditingPhysicalInputTests.cpp',
             'Source/demo_map/demo_mapFullSystemLoopTests.cpp',
             'Source/demo_map/demo_mapP7IntegrationTests.cpp',
             'Source/demo_map/demo_mapRuntimeInterfaceSliceTests.cpp',
@@ -2194,6 +2198,7 @@ try
         -Logs @(
             $Full,
             $ThrownWeaponTrajectoryTogglePhysicalInput,
+            $ThrownWeaponArcEditingPhysicalInput,
             $SpiritEvasionPhysicalInput,
             $SpiritEvasionInputAdapter,
             $FullSystemLoop,
@@ -2589,6 +2594,18 @@ try
 		-Logs @(
 			$Full,
 			$ThrownWeaponArcEditingControllerRoute)
+
+	Invoke-ExpectedPass `
+		-Name 'thrown weapon Arc editing physical input maps v6 registry controller stack and legacy input evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcEditingPhysicalInputTests.cpp') `
+		-Logs @(
+			$Full,
+			$ThrownWeaponArcEditingPhysicalInput,
+			$ThrownWeaponArcEditingControllerRoute,
+			$ThrownWeaponTrajectoryTogglePhysicalInput,
+			$InputRestore,
+			$Ranged)
 
 	Invoke-ExpectedPass `
 		-Name 'thrown weapon choice interaction request maps current read intent controller session command and broad evidence' `
@@ -4248,6 +4265,13 @@ try
 		-Name 'thrown Arc editing controller route cannot use unrelated item evidence' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcEditingControllerRouteTests.cpp') `
+		-Logs @($ItemUse) `
+		-ExpectedText 'missing required groups'
+
+	Invoke-ExpectedFail `
+		-Name 'thrown Arc editing physical input cannot use unrelated item evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcEditingPhysicalInputTests.cpp') `
 		-Logs @($ItemUse) `
 		-ExpectedText 'missing required groups'
 

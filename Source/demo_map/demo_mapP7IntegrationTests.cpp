@@ -167,7 +167,7 @@ bool FP7Integration01::RunTest(const FString&)
 	TestTrue(
 		TEXT("Registry is exact, labeled, and includes Back"),
 		Fdemo_mapInputActionRegistry::ValidateExactDefaults()
-			&& Actions.Num() == 24
+			&& Actions.Num() == 28
 			&& Fdemo_mapInputActionRegistry::Find(
 				Fdemo_mapInputActionIds::SpiritEvasion)
 			&& Fdemo_mapInputActionRegistry::Find(
@@ -255,7 +255,7 @@ bool FP7Integration03::RunTest(const FString&)
 		TEXT("Missing newer action is migrated without losing old keys"),
 		Load.IsSuccess()
 			&& Fdemo_mapInputBindingSettings::Get()
-				.GetBindings().Num() == 24
+				.GetBindings().Num() == 28
 			&& Fdemo_mapInputBindingSettings::Get().GetKey(
 				Fdemo_mapInputActionIds::Back)
 				== EKeys::BackSpace

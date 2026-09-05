@@ -84,6 +84,7 @@ protected:
 	static constexpr float BasicAttackRadius = 85.0f;
 	static constexpr float BasicAttackStartOffset = 60.0f;
 	static constexpr float BasicAttackVerticalOffset = 50.0f;
+	static constexpr double ThrownWeaponArcApexAdjustmentStep = 0.25;
 	float BasicAttackReadyTime = 0.0f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Combat")
@@ -206,6 +207,15 @@ public:
 	{
 		return LastThrownWeaponTrajectoryToggleResult;
 	}
+	uint64 GetThrownWeaponArcEditingInputInvocationCountForAutomation() const
+	{
+		return ThrownWeaponArcEditingInputInvocationCount;
+	}
+	const Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequestResult&
+	GetLastThrownWeaponArcEditingInputResultForAutomation() const
+	{
+		return LastThrownWeaponArcEditingInputResult;
+	}
 	uint64 GetWeaponGuardPressInvocationCountForAutomation() const
 	{
 		return WeaponGuardPressInvocationCount;
@@ -299,6 +309,10 @@ protected:
 	void CastSelfSector();
 	void FireStraightProjectile();
 	void ToggleThrownWeaponTrajectory();
+	void SetThrownWeaponArcTargetFromPointerAim();
+	void IncreaseThrownWeaponArcApex();
+	void DecreaseThrownWeaponArcApex();
+	void ClearThrownWeaponArcTarget();
 	void StartSpiritEvasion();
 	void StartWeaponGuard();
 	void StopWeaponGuard();
@@ -334,6 +348,9 @@ protected:
 		LastThrownWeaponTrajectoryToggleRequest;
 	Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequestResult
 		LastThrownWeaponTrajectoryToggleResult;
+	uint64 ThrownWeaponArcEditingInputInvocationCount = 0;
+	Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequestResult
+		LastThrownWeaponArcEditingInputResult;
 	uint64 WeaponGuardPressInvocationCount = 0;
 	uint64 WeaponGuardReleaseInvocationCount = 0;
 	Fdemo_mapShanmenWeaponGuardInputResult LastWeaponGuardInputResult;

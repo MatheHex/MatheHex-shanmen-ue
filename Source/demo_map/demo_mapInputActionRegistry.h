@@ -23,6 +23,10 @@ struct Fdemo_mapInputActionIds
 	static const FName SkillSelfSector;
 	static const FName SkillStraightProjectile;
 	static const FName ThrownWeaponTrajectoryToggle;
+	static const FName ThrownWeaponArcTargetSet;
+	static const FName ThrownWeaponArcApexIncrease;
+	static const FName ThrownWeaponArcApexDecrease;
+	static const FName ThrownWeaponArcTargetClear;
 	static const FName SpiritEvasion;
 	static const FName WeaponGuard;
 	static const FName Interact;

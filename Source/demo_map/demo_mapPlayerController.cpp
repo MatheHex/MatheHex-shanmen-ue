@@ -205,6 +205,10 @@ void Ademo_mapPlayerController::BindProductInputActions()
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::SkillSelfSector), IE_Pressed, this, &Ademo_mapPlayerController::CastSelfSector);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::SkillStraightProjectile), IE_Pressed, this, &Ademo_mapPlayerController::FireStraightProjectile);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::ThrownWeaponTrajectoryToggle), IE_Pressed, this, &Ademo_mapPlayerController::ToggleThrownWeaponTrajectory);
+	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::ThrownWeaponArcTargetSet), IE_Pressed, this, &Ademo_mapPlayerController::SetThrownWeaponArcTargetFromPointerAim);
+	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::ThrownWeaponArcApexIncrease), IE_Pressed, this, &Ademo_mapPlayerController::IncreaseThrownWeaponArcApex);
+	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::ThrownWeaponArcApexDecrease), IE_Pressed, this, &Ademo_mapPlayerController::DecreaseThrownWeaponArcApex);
+	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::ThrownWeaponArcTargetClear), IE_Pressed, this, &Ademo_mapPlayerController::ClearThrownWeaponArcTarget);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::SpiritEvasion), IE_Pressed, this, &Ademo_mapPlayerController::StartSpiritEvasion);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::WeaponGuard), IE_Pressed, this, &Ademo_mapPlayerController::StartWeaponGuard);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::WeaponGuard), IE_Released, this, &Ademo_mapPlayerController::StopWeaponGuard);
@@ -946,6 +950,74 @@ void Ademo_mapPlayerController::ToggleThrownWeaponTrajectory()
 		Logdemo_map,
 		Log,
 		TEXT("Thrown-weapon trajectory toggle %s: %s"),
+		Result.IsAccepted() ? TEXT("accepted") : TEXT("rejected"),
+		*Result.GetDiagnostic());
+}
+
+void Ademo_mapPlayerController::SetThrownWeaponArcTargetFromPointerAim()
+{
+	const FVector AimDirection = GetLastValidAimDirection();
+	const Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequestResult Result =
+		RouteThrownWeaponArcTargetInteraction(
+			FVector2D(AimDirection.X, AimDirection.Y));
+#if !UE_BUILD_SHIPPING
+	++ThrownWeaponArcEditingInputInvocationCount;
+	LastThrownWeaponArcEditingInputResult = Result;
+#endif
+	UE_LOG(
+		Logdemo_map,
+		Log,
+		TEXT("Thrown-weapon Arc pointer target %s: %s"),
+		Result.IsAccepted() ? TEXT("accepted") : TEXT("rejected"),
+		*Result.GetDiagnostic());
+}
+
+void Ademo_mapPlayerController::IncreaseThrownWeaponArcApex()
+{
+	const Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequestResult Result =
+		RouteThrownWeaponArcApexAdjustmentInteraction(
+			ThrownWeaponArcApexAdjustmentStep);
+#if !UE_BUILD_SHIPPING
+	++ThrownWeaponArcEditingInputInvocationCount;
+	LastThrownWeaponArcEditingInputResult = Result;
+#endif
+	UE_LOG(
+		Logdemo_map,
+		Log,
+		TEXT("Thrown-weapon Arc apex increase %s: %s"),
+		Result.IsAccepted() ? TEXT("accepted") : TEXT("rejected"),
+		*Result.GetDiagnostic());
+}
+
+void Ademo_mapPlayerController::DecreaseThrownWeaponArcApex()
+{
+	const Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequestResult Result =
+		RouteThrownWeaponArcApexAdjustmentInteraction(
+			-ThrownWeaponArcApexAdjustmentStep);
+#if !UE_BUILD_SHIPPING
+	++ThrownWeaponArcEditingInputInvocationCount;
+	LastThrownWeaponArcEditingInputResult = Result;
+#endif
+	UE_LOG(
+		Logdemo_map,
+		Log,
+		TEXT("Thrown-weapon Arc apex decrease %s: %s"),
+		Result.IsAccepted() ? TEXT("accepted") : TEXT("rejected"),
+		*Result.GetDiagnostic());
+}
+
+void Ademo_mapPlayerController::ClearThrownWeaponArcTarget()
+{
+	const Fdemo_mapShanmenThrownWeaponInputChoiceInteractionRequestResult Result =
+		RouteThrownWeaponArcTargetClearInteraction();
+#if !UE_BUILD_SHIPPING
+	++ThrownWeaponArcEditingInputInvocationCount;
+	LastThrownWeaponArcEditingInputResult = Result;
+#endif
+	UE_LOG(
+		Logdemo_map,
+		Log,
+		TEXT("Thrown-weapon Arc target clear %s: %s"),
 		Result.IsAccepted() ? TEXT("accepted") : TEXT("rejected"),
 		*Result.GetDiagnostic());
 }
