@@ -412,6 +412,9 @@ try
     $ThrownWeaponArcEditingPresentation = New-AutomationLogFixture `
         -Name 'thrown-weapon-arc-editing-presentation.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcEditingPresentation'
+    $ThrownWeaponArcEditingInteractionComposition = New-AutomationLogFixture `
+        -Name 'thrown-weapon-arc-editing-interaction-composition.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcEditingInteractionComposition'
     $WorldGameplay = New-AutomationLogFixture `
         -Name 'world-gameplay.log' `
         -Group 'Shanmen.0_0_10.WorldGameplay'
@@ -2567,6 +2570,16 @@ try
 			$ThrownWeaponArcEditingPresentation)
 
 	Invoke-ExpectedPass `
+		-Name 'thrown weapon Arc editing interaction composition maps request read intent and broad evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcEditingInteractionComposition.h',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcEditingInteractionComposition.cpp',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcEditingInteractionCompositionTests.cpp') `
+		-Logs @(
+			$Full,
+			$ThrownWeaponArcEditingInteractionComposition)
+
+	Invoke-ExpectedPass `
 		-Name 'thrown weapon choice interaction request maps current read intent controller session command and broad evidence' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceInteractionRequestCoordinator.cpp',
@@ -4244,6 +4257,13 @@ try
 		-Name 'thrown Arc editing presentation cannot use unrelated item evidence' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcEditingPresentation.cpp') `
+		-Logs @($ItemUse) `
+		-ExpectedText 'missing required groups'
+
+	Invoke-ExpectedFail `
+		-Name 'thrown Arc editing interaction composition cannot use unrelated item evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcEditingInteractionComposition.cpp') `
 		-Logs @($ItemUse) `
 		-ExpectedText 'missing required groups'
 

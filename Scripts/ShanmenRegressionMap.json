@@ -3072,6 +3072,17 @@
 	  ]
 	},
 	{
+	  "name": "ThrownWeaponArcEditingInteractionComposition",
+	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponArcEditingInteractionComposition(?:Tests)?\\.(?:h|cpp)$",
+	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponArcEditingInteractionComposition",
+		"Shanmen.0_0_10.Product.ThrownWeaponInputChoiceInteractionRequestCoordinator",
+		"Shanmen.0_0_10.Product.ThrownWeaponInputChoiceInteractionPort",
+		"Shanmen.0_0_10.Product.ThrownWeaponInputChoiceIntentAdapter",
+		"Shanmen.0_0_10"
+	  ]
+	},
+	{
 	  "name": "MainHUDTrajectoryPresentation",
 	  "pathRegex": "^Source/demo_map/demo_mapHUD\\.cpp$",
 	  "requiredGroups": [
