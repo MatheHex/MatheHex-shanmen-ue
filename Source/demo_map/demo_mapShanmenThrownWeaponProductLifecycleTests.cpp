@@ -18,6 +18,7 @@
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentation.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationCommand.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger.h"
+#include "demo_mapShanmenThrownWeaponArcPreviewPresentationConsumerAdapter.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryCoordinator.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHost.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession.h"
@@ -5420,6 +5421,687 @@ bool Fdemo_mapThrownWeaponArcPreviewDeliveryHostReentrantTest::RunTest(
 	TestTrue(TEXT("port callback cannot tear down the active Host"),
 		!Port.EndAccepted && !Port.EndDiagnostic.IsEmpty()
 			&& Host.GetState().IsVisible());
+	return true;
+}
+
+namespace
+{
+	using EArcSurfaceCommand =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandKind;
+	using EArcSurfaceOutcome =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceResponseOutcome;
+	using FArcSurfaceCommand =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommand;
+	using FArcSurfaceResponse =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceResponse;
+	using FArcSurfaceState =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationState;
+
+	struct FArcPreviewSurfaceCommandSet
+	{
+		FArcSurfaceCommand Show;
+		FArcSurfaceCommand Replace;
+		FArcSurfaceCommand NoOp;
+		FArcSurfaceCommand Hide;
+	};
+
+	bool BuildArcPreviewSurfaceCommands(
+		FAutomationTestBase& Test,
+		const TCHAR* Label,
+		FThrownLifecycleFixture& Fixture,
+		FArcPreviewSurfaceCommandSet& OutCommands)
+	{
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Session;
+		if (!StartArcPreviewPresentationSession(
+				Test, Label, Fixture, Session))
+		{
+			return false;
+		}
+		const auto InitialChoice = MakeArcPreviewChoice(false);
+		const auto RevisedChoice = MakeArcPreviewChoice(true);
+		const auto Show =
+			Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+				Project(UpdateArcPreviewPresentationSession(
+					Session, InitialChoice, Fixture));
+		const auto Replace =
+			Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+				Project(UpdateArcPreviewPresentationSession(
+					Session, RevisedChoice, Fixture));
+		const auto NoOp =
+			Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+				Project(UpdateArcPreviewPresentationSession(
+					Session, RevisedChoice, Fixture));
+		const auto Hide =
+			Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+				Project(UpdateArcPreviewPresentationSession(
+					Session,
+					ClearArcPreviewChoice(RevisedChoice),
+					Fixture));
+		if (!Show.IsProjected() || !Replace.IsProjected()
+			|| !NoOp.IsProjected() || !Hide.IsProjected())
+		{
+			Test.AddError(TEXT(
+				"Could not project the complete Arc preview surface command set."));
+			return false;
+		}
+		OutCommands.Show = Show.GetCommand();
+		OutCommands.Replace = Replace.GetCommand();
+		OutCommands.NoOp = NoOp.GetCommand();
+		OutCommands.Hide = Hide.GetCommand();
+		return OutCommands.Show.IsShow()
+			&& OutCommands.Replace.IsReplace()
+			&& OutCommands.NoOp.IsNoOp()
+			&& OutCommands.Hide.IsHide();
+	}
+
+	FArcSurfaceState SurfaceCursorForCommand(
+		const FArcSurfaceCommand& Command)
+	{
+		return Command.GetState().IsVisible()
+			? Command.GetState()
+			: FArcSurfaceState();
+	}
+
+	class FFakeArcPreviewPresentationSurface final
+		: public Idemo_mapShanmenThrownWeaponArcPreviewPresentationSurface
+	{
+	public:
+		enum class EMode : uint8
+		{
+			Applied,
+			Rejected,
+			InvalidResponse,
+			AppliedWithoutMutation,
+			MutatedThenRejected
+		};
+
+		explicit FFakeArcPreviewPresentationSurface(
+			const FName InConsumerDefinitionId,
+			const EMode InMode = EMode::Applied)
+			: ConsumerDefinitionId(InConsumerDefinitionId)
+			, Mode(InMode)
+		{
+		}
+
+		virtual FName GetConsumerDefinitionId() const override
+		{
+			return ConsumerDefinitionId;
+		}
+
+		virtual FArcSurfaceState GetSurfaceCursor() const override
+		{
+			return Cursor;
+		}
+
+		virtual FArcSurfaceResponse Show(
+			const FArcSurfaceCommand& Command) override
+		{
+			return ApplyMutation(Command, EArcSurfaceCommand::Show);
+		}
+
+		virtual FArcSurfaceResponse Replace(
+			const FArcSurfaceCommand& Command) override
+		{
+			return ApplyMutation(Command, EArcSurfaceCommand::Replace);
+		}
+
+		virtual FArcSurfaceResponse Hide(
+			const FArcSurfaceCommand& Command) override
+		{
+			return ApplyMutation(Command, EArcSurfaceCommand::Hide);
+		}
+
+		void SetMode(const EMode Value) { Mode = Value; }
+		void SetConsumerDefinitionId(const FName Value)
+		{
+			ConsumerDefinitionId = Value;
+		}
+		void ForceCursor(const FArcSurfaceState& Value) { Cursor = Value; }
+
+		int32 MutationCallCount = 0;
+		TArray<EArcSurfaceCommand> MutationKinds;
+
+	private:
+		FArcSurfaceResponse ApplyMutation(
+			const FArcSurfaceCommand& Command,
+			const EArcSurfaceCommand ExpectedKind)
+		{
+			++MutationCallCount;
+			MutationKinds.Add(ExpectedKind);
+			if (!Command.IsValid() || Command.GetKind() != ExpectedKind
+				|| Mode == EMode::InvalidResponse)
+			{
+				return FArcSurfaceResponse();
+			}
+
+			const FArcSurfaceState Previous = Cursor;
+			const FArcSurfaceState Target =
+				SurfaceCursorForCommand(Command);
+			EArcSurfaceOutcome Outcome = EArcSurfaceOutcome::Applied;
+			FArcSurfaceState ReportedCursor = Target;
+			if (Mode == EMode::Rejected)
+			{
+				Outcome = EArcSurfaceOutcome::Rejected;
+				ReportedCursor = Previous;
+			}
+			else if (Mode == EMode::Applied)
+			{
+				Cursor = Target;
+			}
+			else if (Mode == EMode::MutatedThenRejected)
+			{
+				Cursor = Target;
+				Outcome = EArcSurfaceOutcome::Rejected;
+				ReportedCursor = Previous;
+			}
+			// AppliedWithoutMutation deliberately reports Target but leaves Cursor.
+
+			const TCHAR* KindName = ExpectedKind == EArcSurfaceCommand::Show
+				? TEXT("Show")
+				: ExpectedKind == EArcSurfaceCommand::Replace
+					? TEXT("Replace")
+					: TEXT("Hide");
+			const TCHAR* OutcomeName = Outcome == EArcSurfaceOutcome::Applied
+				? TEXT("Applied")
+				: TEXT("Rejected");
+			FArcSurfaceResponse Response;
+			FString Diagnostic;
+			check(FArcSurfaceResponse::TryCreate(
+				Command,
+				Outcome,
+				FName(*FString::Printf(
+					TEXT("Renderer.ArcPreview.FakeSurface.%s%s"),
+					KindName,
+					OutcomeName)),
+				Previous,
+				ReportedCursor,
+				Response,
+				Diagnostic));
+			return Response;
+		}
+
+		FName ConsumerDefinitionId = NAME_None;
+		EMode Mode = EMode::Applied;
+		FArcSurfaceState Cursor;
+	};
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewSurfaceResponseContractTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationConsumerAdapter.SurfaceResponseContract",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewSurfaceResponseContractTest::RunTest(
+	const FString&)
+{
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewSurfaceResponse"), Fixture, Commands))
+	{
+		return false;
+	}
+	FArcSurfaceResponse Applied;
+	FArcSurfaceResponse Replay;
+	FArcSurfaceResponse Rejected;
+	FArcSurfaceResponse Invalid;
+	FString Diagnostic;
+	const FName AppliedCode(TEXT("Renderer.ArcPreview.Surface.ShowApplied"));
+	TestTrue(TEXT("same Show surface evidence is deterministic"),
+		FArcSurfaceResponse::TryCreate(
+			Commands.Show,
+			EArcSurfaceOutcome::Applied,
+			AppliedCode,
+			FArcSurfaceState(),
+			Commands.Show.GetState(),
+			Applied,
+			Diagnostic)
+			&& FArcSurfaceResponse::TryCreate(
+				Commands.Show,
+				EArcSurfaceOutcome::Applied,
+				AppliedCode,
+				FArcSurfaceState(),
+				Commands.Show.GetState(),
+				Replay,
+				Diagnostic)
+			&& Applied.IsApplied()
+			&& Applied.MatchesCommand(Commands.Show)
+			&& Applied.GetResponseId() == Replay.GetResponseId());
+	TestTrue(TEXT("Rejected Show preserves one empty surface cursor"),
+		FArcSurfaceResponse::TryCreate(
+			Commands.Show,
+			EArcSurfaceOutcome::Rejected,
+			FName(TEXT("Renderer.ArcPreview.Surface.ShowRejected")),
+			FArcSurfaceState(),
+			FArcSurfaceState(),
+			Rejected,
+			Diagnostic)
+			&& Rejected.IsRejected()
+			&& Rejected.MatchesCommand(Commands.Show)
+			&& Rejected.GetResponseId() != Applied.GetResponseId());
+	TestFalse(TEXT("NoOp cannot forge a mutating surface response"),
+		FArcSurfaceResponse::TryCreate(
+			Commands.NoOp,
+			EArcSurfaceOutcome::Applied,
+			AppliedCode,
+			Commands.NoOp.GetState(),
+			Commands.NoOp.GetState(),
+			Invalid,
+			Diagnostic));
+	TestFalse(TEXT("surface response rejects invalid outcome"),
+		FArcSurfaceResponse::TryCreate(
+			Commands.Show,
+			EArcSurfaceOutcome::Invalid,
+			AppliedCode,
+			FArcSurfaceState(),
+			Commands.Show.GetState(),
+			Invalid,
+			Diagnostic));
+	TestFalse(TEXT("surface response rejects a missing outcome code"),
+		FArcSurfaceResponse::TryCreate(
+			Commands.Show,
+			EArcSurfaceOutcome::Applied,
+			NAME_None,
+			FArcSurfaceState(),
+			Commands.Show.GetState(),
+			Invalid,
+			Diagnostic));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewConsumerAdapterLifecycleTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationConsumerAdapter.LifecycleAndPreflight",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewConsumerAdapterLifecycleTest::RunTest(
+	const FString&)
+{
+	using EStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationConsumerAdapterStatus;
+	using FAdapter =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationConsumerAdapter;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewConsumerLifecycle"), Fixture, Commands))
+	{
+		return false;
+	}
+	FFakeArcPreviewPresentationSurface Surface(Consumer);
+	FAdapter Adapter;
+	const auto InactiveResponse = Adapter.Apply(Commands.Show);
+	TestTrue(TEXT("inactive adapter rejects with typed zero-call evidence"),
+		InactiveResponse.IsRejected()
+			&& Adapter.GetLastResult().IsValid()
+			&& Adapter.GetLastResult().GetStatus()
+				== EStatus::AdapterInactive
+			&& !Adapter.GetLastResult().DidCallSurface()
+			&& Surface.MutationCallCount == 0);
+
+	FString Diagnostic;
+	Surface.ForceCursor(Commands.Show.GetState());
+	TestFalse(TEXT("visible surface cannot be silently rebound"),
+		Adapter.TryBegin(
+			Fixture.Correlation.ActiveRunId, Surface, Diagnostic));
+	Surface.ForceCursor(FArcSurfaceState());
+	TestTrue(TEXT("empty surface binds and exact begin replay is idempotent"),
+		Adapter.TryBegin(
+			Fixture.Correlation.ActiveRunId, Surface, Diagnostic)
+			&& Adapter.TryBegin(
+				Fixture.Correlation.ActiveRunId, Surface, Diagnostic)
+			&& Adapter.IsValid() && Adapter.IsActive());
+	FFakeArcPreviewPresentationSurface OtherSurface(Consumer);
+	TestFalse(TEXT("active adapter rejects surface rotation"),
+		Adapter.TryBegin(
+			Fixture.Correlation.ActiveRunId, OtherSurface, Diagnostic));
+	FThrownLifecycleFixture ForeignFixture;
+	FArcPreviewSurfaceCommandSet ForeignCommands;
+	check(BuildArcPreviewSurfaceCommands(
+		*this,
+		TEXT("ArcPreviewConsumerForeignRun"),
+		ForeignFixture,
+		ForeignCommands));
+	const auto ForeignRunResponse = Adapter.Apply(ForeignCommands.Show);
+	TestTrue(TEXT("foreign Run command rejects before surface dispatch"),
+		ForeignRunResponse.IsRejected()
+			&& Adapter.GetLastResult().GetStatus() == EStatus::RunMismatch
+			&& Surface.MutationCallCount == 0);
+
+	Surface.SetConsumerDefinitionId(
+		FName(TEXT("Renderer.ArcPreview.Foreign.r1")));
+	const auto InvalidResponse = Adapter.Apply(Commands.Show);
+	TestTrue(TEXT("consumer identity drift fails before surface mutation"),
+		InvalidResponse.IsRejected()
+			&& Adapter.GetLastResult().GetStatus()
+				== EStatus::AdapterInvalid
+			&& Surface.MutationCallCount == 0);
+	Surface.SetConsumerDefinitionId(Consumer);
+	Surface.ForceCursor(Commands.Show.GetState());
+	const auto CursorResponse = Adapter.Apply(Commands.Show);
+	TestTrue(TEXT("surface cursor drift rejects before dispatch"),
+		CursorResponse.IsRejected()
+			&& Adapter.GetLastResult().GetStatus()
+				== EStatus::CursorMismatch
+			&& Surface.MutationCallCount == 0);
+	Surface.ForceCursor(FArcSurfaceState());
+	const auto Applied = Adapter.Apply(Commands.Show);
+	TestTrue(TEXT("valid Show makes the surface visible once"),
+		Applied.IsApplied() && Adapter.GetLastResult().WasApplied()
+			&& Surface.MutationCallCount == 1
+			&& Adapter.GetSurfaceCursor().Matches(
+				Commands.Show.GetState()));
+	TestFalse(TEXT("visible surface prevents adapter teardown"),
+		Adapter.TryEnd(Fixture.Correlation.ActiveRunId, Diagnostic));
+	Surface.ForceCursor(FArcSurfaceState());
+	TestTrue(TEXT("empty exact Run permits adapter teardown"),
+		Adapter.TryEnd(Fixture.Correlation.ActiveRunId, Diagnostic)
+			&& Adapter.IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewConsumerAdapterSequenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationConsumerAdapter.ShowReplaceNoOpHide",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewConsumerAdapterSequenceTest::RunTest(
+	const FString&)
+{
+	using FAdapter =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationConsumerAdapter;
+	using FDeliverySession =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewConsumerSequence"), Fixture, Commands))
+	{
+		return false;
+	}
+	FFakeArcPreviewPresentationSurface Surface(Consumer);
+	FAdapter Adapter;
+	FDeliverySession Delivery;
+	FString Diagnostic;
+	check(Adapter.TryBegin(
+		Fixture.Correlation.ActiveRunId, Surface, Diagnostic));
+	check(Delivery.TryBegin(
+		Fixture.Correlation.ActiveRunId, Consumer, Diagnostic));
+
+	const auto Show = Delivery.TryDeliver(Commands.Show, Adapter);
+	const auto ShowAdapter = Adapter.GetLastResult();
+	const auto Replace = Delivery.TryDeliver(Commands.Replace, Adapter);
+	const auto ReplaceAdapter = Adapter.GetLastResult();
+	const auto NoOp = Delivery.TryDeliver(Commands.NoOp, Adapter);
+	const auto NoOpAdapter = Adapter.GetLastResult();
+	const auto Hide = Delivery.TryDeliver(Commands.Hide, Adapter);
+	const auto HideAdapter = Adapter.GetLastResult();
+	TestTrue(TEXT("Show Replace and Hide each make one typed surface call"),
+		Show.WasApplied() && ShowAdapter.WasApplied()
+			&& ShowAdapter.GetSurfaceCallCount() == 1
+			&& Replace.WasApplied() && ReplaceAdapter.WasApplied()
+			&& ReplaceAdapter.GetSurfaceCallCount() == 1
+			&& Hide.WasApplied() && HideAdapter.WasApplied()
+			&& HideAdapter.GetSurfaceCallCount() == 1
+			&& Surface.MutationCallCount == 3);
+	TestTrue(TEXT("NoOp advances delivery evidence with zero surface mutation"),
+		NoOp.WasApplied() && NoOp.DidCallPort()
+			&& NoOpAdapter.WasApplied() && NoOpAdapter.IsNoOp()
+			&& !NoOpAdapter.DidCallSurface());
+	TestTrue(TEXT("surface dispatch order is exactly Show Replace Hide"),
+		Surface.MutationKinds.Num() == 3
+			&& Surface.MutationKinds[0] == EArcSurfaceCommand::Show
+			&& Surface.MutationKinds[1] == EArcSurfaceCommand::Replace
+			&& Surface.MutationKinds[2] == EArcSurfaceCommand::Hide);
+	TestTrue(TEXT("Hide normalizes physical surface cursor to empty"),
+		Adapter.GetSurfaceCursor().IsEmpty()
+			&& Delivery.GetCursorState().IsHidden()
+			&& Delivery.NumAppliedCommands() == 4);
+	TestTrue(TEXT("empty surface and hidden ledger end independently"),
+		Adapter.TryEnd(Fixture.Correlation.ActiveRunId, Diagnostic)
+			&& Delivery.TryEnd(
+				Fixture.Correlation.ActiveRunId, Diagnostic)
+			&& Adapter.IsEmpty() && Delivery.IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewConsumerAdapterRejectionTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationConsumerAdapter.SurfaceRejectionReplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewConsumerAdapterRejectionTest::RunTest(
+	const FString&)
+{
+	using EStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationConsumerAdapterStatus;
+	using FAdapter =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationConsumerAdapter;
+	using FDeliverySession =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewConsumerRejection"), Fixture, Commands))
+	{
+		return false;
+	}
+	FFakeArcPreviewPresentationSurface Surface(
+		Consumer,
+		FFakeArcPreviewPresentationSurface::EMode::Rejected);
+	FAdapter Adapter;
+	FDeliverySession Delivery;
+	FString Diagnostic;
+	check(Adapter.TryBegin(
+		Fixture.Correlation.ActiveRunId, Surface, Diagnostic));
+	check(Delivery.TryBegin(
+		Fixture.Correlation.ActiveRunId, Consumer, Diagnostic));
+	const auto Rejected = Delivery.TryDeliver(Commands.Show, Adapter);
+	const auto AdapterResult = Adapter.GetLastResult();
+	const auto Replay = Delivery.TryDeliver(Commands.Show, Adapter);
+	TestTrue(TEXT("surface rejection is sealed without moving either cursor"),
+		Rejected.IsValid() && Rejected.WasRejected()
+			&& AdapterResult.IsAccepted() && AdapterResult.WasRejected()
+			&& AdapterResult.GetStatus() == EStatus::SurfaceRejected
+			&& AdapterResult.DidCallSurface()
+			&& Adapter.GetSurfaceCursor().IsEmpty()
+			&& Delivery.GetCursorState().IsEmpty());
+	TestTrue(TEXT("delivery rejection replay never calls the surface twice"),
+		Replay.IsValid() && Replay.WasRejected() && Replay.IsReplay()
+			&& !Replay.DidCallPort()
+			&& Surface.MutationCallCount == 1
+			&& Adapter.GetLastResult().GetSurfaceResponse().MatchesCommand(
+				Commands.Show));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewConsumerAdapterInvariantTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationConsumerAdapter.SurfaceInvariantFailures",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewConsumerAdapterInvariantTest::RunTest(
+	const FString&)
+{
+	using EMode = FFakeArcPreviewPresentationSurface::EMode;
+	using EStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationConsumerAdapterStatus;
+	using FAdapter =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationConsumerAdapter;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewConsumerInvariant"), Fixture, Commands))
+	{
+		return false;
+	}
+	FString Diagnostic;
+
+	FFakeArcPreviewPresentationSurface InvalidSurface(
+		Consumer, EMode::InvalidResponse);
+	FAdapter InvalidAdapter;
+	check(InvalidAdapter.TryBegin(
+		Fixture.Correlation.ActiveRunId, InvalidSurface, Diagnostic));
+	const auto Invalid = InvalidAdapter.Apply(Commands.Show);
+	TestTrue(TEXT("invalid surface evidence becomes a typed port rejection"),
+		Invalid.IsRejected()
+			&& InvalidAdapter.GetLastResult().IsValid()
+			&& InvalidAdapter.GetLastResult().GetStatus()
+				== EStatus::SurfaceResponseInvalid
+			&& InvalidSurface.GetSurfaceCursor().IsEmpty());
+
+	FFakeArcPreviewPresentationSurface NoMutationSurface(
+		Consumer, EMode::AppliedWithoutMutation);
+	FAdapter NoMutationAdapter;
+	check(NoMutationAdapter.TryBegin(
+		Fixture.Correlation.ActiveRunId, NoMutationSurface, Diagnostic));
+	const auto NoMutation = NoMutationAdapter.Apply(Commands.Show);
+	TestTrue(TEXT("Applied response without observed mutation fails closed"),
+		NoMutation.IsRejected()
+			&& NoMutationAdapter.GetLastResult().IsValid()
+			&& NoMutationAdapter.GetLastResult().GetStatus()
+				== EStatus::SurfaceInvariantViolation
+			&& NoMutationSurface.GetSurfaceCursor().IsEmpty());
+
+	FFakeArcPreviewPresentationSurface RejectedMutationSurface(
+		Consumer, EMode::MutatedThenRejected);
+	FAdapter RejectedMutationAdapter;
+	check(RejectedMutationAdapter.TryBegin(
+		Fixture.Correlation.ActiveRunId,
+		RejectedMutationSurface,
+		Diagnostic));
+	const auto RejectedMutation =
+		RejectedMutationAdapter.Apply(Commands.Show);
+	TestTrue(TEXT("Rejected response that mutates the surface fails closed"),
+		RejectedMutation.IsRejected()
+			&& RejectedMutationAdapter.GetLastResult().IsValid()
+			&& RejectedMutationAdapter.GetLastResult().GetStatus()
+				== EStatus::SurfaceInvariantViolation
+			&& RejectedMutationSurface.GetSurfaceCursor().Matches(
+				Commands.Show.GetState())
+			&& !RejectedMutationAdapter.CanEnd());
+	return true;
+}
+
+namespace
+{
+	class FReentrantArcPreviewPresentationSurface final
+		: public Idemo_mapShanmenThrownWeaponArcPreviewPresentationSurface
+	{
+	public:
+		FReentrantArcPreviewPresentationSurface(
+			const FName InConsumerDefinitionId,
+			Fdemo_mapShanmenThrownWeaponArcPreviewPresentationConsumerAdapter&
+				InAdapter)
+			: ConsumerDefinitionId(InConsumerDefinitionId)
+			, Adapter(InAdapter)
+		{
+		}
+
+		virtual FName GetConsumerDefinitionId() const override
+		{
+			return ConsumerDefinitionId;
+		}
+		virtual FArcSurfaceState GetSurfaceCursor() const override
+		{
+			return Cursor;
+		}
+		virtual FArcSurfaceResponse Show(
+			const FArcSurfaceCommand& Command) override
+		{
+			++MutationCallCount;
+			EndAccepted = Adapter.TryEnd(
+				Command.GetRunId(), EndDiagnostic);
+			InnerPortResponse = Adapter.Apply(Command);
+			InnerResult = Adapter.GetLastResult();
+			const FArcSurfaceState Previous = Cursor;
+			Cursor = Command.GetState();
+			FArcSurfaceResponse Response;
+			FString Diagnostic;
+			check(FArcSurfaceResponse::TryCreate(
+				Command,
+				EArcSurfaceOutcome::Applied,
+				FName(TEXT("Renderer.ArcPreview.ReentrantSurface.ShowApplied")),
+				Previous,
+				Cursor,
+				Response,
+				Diagnostic));
+			return Response;
+		}
+		virtual FArcSurfaceResponse Replace(
+			const FArcSurfaceCommand&) override
+		{
+			return FArcSurfaceResponse();
+		}
+		virtual FArcSurfaceResponse Hide(
+			const FArcSurfaceCommand&) override
+		{
+			return FArcSurfaceResponse();
+		}
+
+		int32 MutationCallCount = 0;
+		bool EndAccepted = true;
+		FString EndDiagnostic;
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationPortResponse
+			InnerPortResponse;
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationConsumerAdapterResult
+			InnerResult;
+
+	private:
+		FName ConsumerDefinitionId = NAME_None;
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationConsumerAdapter&
+			Adapter;
+		FArcSurfaceState Cursor;
+	};
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewConsumerAdapterReentrantTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationConsumerAdapter.ReentrantSurfaceBlocked",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewConsumerAdapterReentrantTest::RunTest(
+	const FString&)
+{
+	using EStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationConsumerAdapterStatus;
+	using FAdapter =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationConsumerAdapter;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewConsumerReentrant"), Fixture, Commands))
+	{
+		return false;
+	}
+	FAdapter Adapter;
+	FReentrantArcPreviewPresentationSurface Surface(Consumer, Adapter);
+	FString Diagnostic;
+	check(Adapter.TryBegin(
+		Fixture.Correlation.ActiveRunId, Surface, Diagnostic));
+	const auto OuterResponse = Adapter.Apply(Commands.Show);
+	const auto OuterResult = Adapter.GetLastResult();
+	TestTrue(TEXT("outer surface mutation applies exactly once"),
+		OuterResponse.IsApplied() && OuterResult.WasApplied()
+			&& OuterResult.GetStatus() == EStatus::Applied
+			&& Surface.MutationCallCount == 1
+			&& Adapter.IsValid() && !Adapter.IsOperationInProgress());
+	TestTrue(TEXT("surface callback cannot re-enter adapter Apply"),
+		Surface.InnerPortResponse.IsRejected()
+			&& Surface.InnerResult.IsValid()
+			&& !Surface.InnerResult.IsAccepted()
+			&& Surface.InnerResult.GetStatus()
+				== EStatus::OperationInProgress
+			&& !Surface.InnerResult.DidCallSurface());
+	TestTrue(TEXT("surface callback cannot tear down active adapter"),
+		!Surface.EndAccepted && !Surface.EndDiagnostic.IsEmpty()
+			&& Adapter.GetSurfaceCursor().Matches(
+				Commands.Show.GetState()));
 	return true;
 }
 

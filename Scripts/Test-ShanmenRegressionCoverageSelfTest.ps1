@@ -196,6 +196,9 @@ try
     $ThrownArcPreviewPresentationDeliveryHost = New-AutomationLogFixture `
         -Name 'thrown-arc-preview-presentation-delivery-host.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliveryHost'
+    $ThrownArcPreviewPresentationConsumerAdapter = New-AutomationLogFixture `
+        -Name 'thrown-arc-preview-presentation-consumer-adapter.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationConsumerAdapter'
     $ThrownArcChoiceProjection = New-AutomationLogFixture `
         -Name 'thrown-arc-choice-projection.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcChoiceProjection'
@@ -2873,6 +2876,35 @@ try
 			$ItemUse)
 
 	Invoke-ExpectedPass `
+		-Name 'thrown weapon Arc preview presentation consumer adapter maps surface Host and full authority seams' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationConsumerAdapter.h',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationConsumerAdapter.cpp') `
+		-Logs @(
+			$ThrownArcPreviewPresentationConsumerAdapter,
+			$ThrownArcPreviewPresentationDeliveryHost,
+			$ThrownArcPreviewPresentationDeliverySession,
+			$ThrownArcPreviewPresentationDeliveryCoordinator,
+			$ThrownArcPreviewPresentationCommandLedger,
+			$ThrownArcPreviewPresentationCommand,
+			$ThrownArcPreviewPresentationSession,
+			$ThrownArcPreviewUpdateCoordinator,
+			$ThrownArcPreviewPresentation,
+			$ThrownArcPreviewProductBridge,
+			$ThrownArcPreviewCapture,
+			$ThrownArcPreviewComposition,
+			$ThrownArcChoiceProjection,
+			$ThrownProductSession,
+			$ThrownProductController,
+			$ThrownArcPreview,
+			$ThrownArc,
+			$ThrownRuntime,
+			$CombatRuntime,
+			$CombatCore,
+			$Full,
+			$ItemUse)
+
+	Invoke-ExpectedPass `
 		-Name 'thrown weapon Arc preview presentation delivery Host maps bounded pipeline and full authority seams' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHost.h',
@@ -4772,6 +4804,13 @@ try
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger.cpp') `
 		-Logs @($ThrownArcPreviewPresentationCommandLedger) `
+		-ExpectedText 'missing required groups'
+
+	Invoke-ExpectedFail `
+		-Name 'thrown Arc preview consumer adapter focus cannot replace surface-to-Host authority evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationConsumerAdapter.cpp') `
+		-Logs @($ThrownArcPreviewPresentationConsumerAdapter) `
 		-ExpectedText 'missing required groups'
 
 	Invoke-ExpectedFail `
