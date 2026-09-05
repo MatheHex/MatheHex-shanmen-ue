@@ -17,6 +17,7 @@
 #include "demo_mapShanmenThrownWeaponArcPreviewProductBridge.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentation.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationCommand.h"
+#include "demo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewUpdateCoordinator.h"
 #include "demo_mapShanmenThrownWeaponProjectile.h"
@@ -3007,6 +3008,528 @@ bool Fdemo_mapThrownWeaponArcPreviewPresentationCommandRunIdentityTest::
 			&& First.GetCommand().GetCommandId()
 				!= Other.GetCommand().GetCommandId()
 			&& !First.GetCommand().Matches(Other.GetCommand()));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewCommandLedgerScopeTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCommandLedger.ScopeAndTeardown",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewCommandLedgerScopeTest::RunTest(
+	const FString&)
+{
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger Ledger;
+	const FGuid FirstRun = FGuid::NewGuid();
+	const FGuid OtherRun = FGuid::NewGuid();
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	const FName OtherConsumer(TEXT("Renderer.ArcPreview.Spectator.r1"));
+	FString Diagnostic;
+	TestTrue(TEXT("default command ledger is valid and empty"),
+		Ledger.IsValid() && Ledger.IsEmpty() && !Ledger.IsActive());
+	TestFalse(TEXT("invalid Run cannot bind the command ledger"),
+		Ledger.TryBegin(FGuid(), Consumer, Diagnostic));
+	TestFalse(TEXT("missing consumer cannot bind the command ledger"),
+		Ledger.TryBegin(FirstRun, NAME_None, Diagnostic));
+	TestTrue(TEXT("one exact Run and consumer bind an empty cursor"),
+		Ledger.TryBegin(FirstRun, Consumer, Diagnostic)
+			&& Ledger.IsValid() && Ledger.IsActive()
+			&& Ledger.GetLedgerId().IsValid()
+			&& Ledger.GetRunId() == FirstRun
+			&& Ledger.GetConsumerDefinitionId() == Consumer
+			&& Ledger.GetCursorState().IsEmpty()
+			&& Ledger.NumAppliedCommands() == 0
+			&& Ledger.NumRejectedCommands() == 0);
+	TestTrue(TEXT("exact begin replay is idempotent"),
+		Ledger.TryBegin(FirstRun, Consumer, Diagnostic));
+	TestFalse(TEXT("active ledger rejects Run rotation"),
+		Ledger.TryBegin(OtherRun, Consumer, Diagnostic));
+	TestFalse(TEXT("active ledger rejects consumer rotation"),
+		Ledger.TryBegin(FirstRun, OtherConsumer, Diagnostic));
+	TestFalse(TEXT("foreign Run cannot end the ledger"),
+		Ledger.TryEnd(OtherRun, Diagnostic));
+	TestTrue(TEXT("exact Run end drops all consumer scope"),
+		Ledger.TryEnd(FirstRun, Diagnostic)
+			&& Ledger.IsEmpty() && Ledger.IsValid()
+			&& !Ledger.GetLedgerId().IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewCommandReceiptTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCommandLedger.ReceiptDeterminism",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewCommandReceiptTest::RunTest(
+	const FString&)
+{
+	using EOutcome =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceiptOutcome;
+	using FReceipt =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceipt;
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Session;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewCommandReceipt"), Fixture, Session))
+	{
+		return false;
+	}
+	const auto Projected =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Session, MakeArcPreviewChoice(false), Fixture));
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	const FName AppliedCode(TEXT("Renderer.Applied"));
+	FReceipt First;
+	FReceipt Replay;
+	FReceipt Rejected;
+	FReceipt Invalid;
+	FString Diagnostic;
+	TestTrue(TEXT("same command outcome and consumer seal identically"),
+		Projected.IsProjected()
+			&& FReceipt::TryCreate(
+				Projected.GetCommand(), Consumer, EOutcome::Applied,
+				AppliedCode, First, Diagnostic)
+			&& FReceipt::TryCreate(
+				Projected.GetCommand(), Consumer, EOutcome::Applied,
+				AppliedCode, Replay, Diagnostic)
+			&& First.IsApplied() && First.Matches(Replay));
+	TestTrue(TEXT("rejected outcome remains distinct immutable evidence"),
+		FReceipt::TryCreate(
+			Projected.GetCommand(), Consumer, EOutcome::Rejected,
+			FName(TEXT("Renderer.PortUnavailable")), Rejected, Diagnostic)
+			&& Rejected.IsRejected()
+			&& Rejected.GetReceiptId() != First.GetReceiptId()
+			&& !Rejected.Matches(First));
+	TestFalse(TEXT("invalid command cannot produce a receipt"),
+		FReceipt::TryCreate(
+			Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommand(),
+			Consumer, EOutcome::Applied, AppliedCode, Invalid, Diagnostic));
+	TestFalse(TEXT("missing consumer cannot produce a receipt"),
+		FReceipt::TryCreate(
+			Projected.GetCommand(), NAME_None, EOutcome::Applied,
+			AppliedCode, Invalid, Diagnostic));
+	TestFalse(TEXT("missing stable outcome code cannot produce a receipt"),
+		FReceipt::TryCreate(
+			Projected.GetCommand(), Consumer, EOutcome::Applied,
+			NAME_None, Invalid, Diagnostic));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewCommandLedgerShowTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCommandLedger.ShowApplication",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewCommandLedgerShowTest::RunTest(
+	const FString&)
+{
+	using EOutcome =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceiptOutcome;
+	using EStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedgerStatus;
+	using FReceipt =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceipt;
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Session;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewCommandLedgerShow"), Fixture, Session))
+	{
+		return false;
+	}
+	const auto Projected =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Session, MakeArcPreviewChoice(false), Fixture));
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FReceipt Receipt;
+	FString Diagnostic;
+	check(FReceipt::TryCreate(
+		Projected.GetCommand(), Consumer, EOutcome::Applied,
+		FName(TEXT("Renderer.Applied")), Receipt, Diagnostic));
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger Ledger;
+	check(Ledger.TryBegin(Fixture.Correlation.ActiveRunId, Consumer, Diagnostic));
+	const auto Result = Ledger.Record(Receipt);
+	FReceipt Stored;
+	TestTrue(TEXT("Show application advances the consumer cursor exactly once"),
+		Projected.GetCommand().IsShow()
+			&& Result.IsValid() && Result.IsAccepted()
+			&& Result.DidAdvanceCursor() && !Result.IsReplay()
+			&& Result.GetStatus() == EStatus::ApplicationRecorded
+			&& Result.GetPreviousAppliedCount() == 0
+			&& Result.GetAppliedCount() == 1
+			&& Result.GetPreviousCursorState().IsEmpty()
+			&& Result.GetCursorState().Matches(
+				Projected.GetCommand().GetState())
+			&& Ledger.GetCursorState().Matches(
+				Projected.GetCommand().GetState())
+			&& Ledger.GetLastAppliedCommandId()
+				== Projected.GetCommand().GetCommandId()
+			&& Ledger.HasAppliedCommand(Receipt.GetCommandId())
+			&& !Ledger.HasRejectedCommand(Receipt.GetCommandId())
+			&& Ledger.TryGetAppliedReceipt(Receipt.GetCommandId(), Stored)
+			&& Stored.Matches(Receipt));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewCommandLedgerRecoveryTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCommandLedger.RejectionRecovery",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewCommandLedgerRecoveryTest::RunTest(
+	const FString&)
+{
+	using EOutcome =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceiptOutcome;
+	using EStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedgerStatus;
+	using FReceipt =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceipt;
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Session;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewCommandLedgerRecovery"), Fixture, Session))
+	{
+		return false;
+	}
+	const auto Projected =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Session, MakeArcPreviewChoice(false), Fixture));
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FReceipt RejectedReceipt;
+	FReceipt AppliedReceipt;
+	FString Diagnostic;
+	check(FReceipt::TryCreate(
+		Projected.GetCommand(), Consumer, EOutcome::Rejected,
+		FName(TEXT("Renderer.PortUnavailable")),
+		RejectedReceipt, Diagnostic));
+	check(FReceipt::TryCreate(
+		Projected.GetCommand(), Consumer, EOutcome::Applied,
+		FName(TEXT("Renderer.AppliedAfterRetry")),
+		AppliedReceipt, Diagnostic));
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger Ledger;
+	check(Ledger.TryBegin(Fixture.Correlation.ActiveRunId, Consumer, Diagnostic));
+	const auto Rejected = Ledger.Record(RejectedReceipt);
+	const auto Replayed = Ledger.Record(RejectedReceipt);
+	const auto Recovered = Ledger.Record(AppliedReceipt);
+	const auto OldRejectionReplay = Ledger.Record(RejectedReceipt);
+	FReceipt StoredRejected;
+	FReceipt StoredApplied;
+	TestTrue(TEXT("rejection is auditable but never advances the cursor"),
+		Rejected.IsAccepted() && !Rejected.DidAdvanceCursor()
+			&& Rejected.GetStatus() == EStatus::RejectionRecorded
+			&& Rejected.GetAppliedCount() == 0
+			&& Rejected.GetRejectedCount() == 1
+			&& Rejected.GetCursorState().IsEmpty()
+			&& Replayed.IsReplay()
+			&& Replayed.GetStatus() == EStatus::RejectionReplayed);
+	TestTrue(TEXT("later Applied evidence recovers and advances exactly once"),
+		Recovered.IsAccepted() && Recovered.DidAdvanceCursor()
+			&& Recovered.GetStatus() == EStatus::ApplicationRecovered
+			&& Recovered.GetAppliedCount() == 1
+			&& Recovered.GetRejectedCount() == 1
+			&& Ledger.GetCursorState().Matches(
+				Projected.GetCommand().GetState())
+			&& Ledger.HasRejectedCommand(RejectedReceipt.GetCommandId())
+			&& Ledger.HasAppliedCommand(AppliedReceipt.GetCommandId())
+			&& Ledger.TryGetRejectedReceipt(
+				RejectedReceipt.GetCommandId(), StoredRejected)
+			&& Ledger.TryGetAppliedReceipt(
+				AppliedReceipt.GetCommandId(), StoredApplied)
+			&& StoredRejected.Matches(RejectedReceipt)
+			&& StoredApplied.Matches(AppliedReceipt));
+	TestTrue(TEXT("historical exact rejection remains idempotent after recovery"),
+		OldRejectionReplay.IsAccepted()
+			&& OldRejectionReplay.IsReplay()
+			&& OldRejectionReplay.GetStatus()
+				== EStatus::RejectionReplayed
+			&& OldRejectionReplay.GetAppliedCount() == 1
+			&& OldRejectionReplay.GetRejectedCount() == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewCommandLedgerReplayConflictTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCommandLedger.ReplayAndConflict",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewCommandLedgerReplayConflictTest::RunTest(
+	const FString&)
+{
+	using EOutcome =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceiptOutcome;
+	using EStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedgerStatus;
+	using FReceipt =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceipt;
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Session;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewCommandLedgerReplay"), Fixture, Session))
+	{
+		return false;
+	}
+	const auto Projected =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Session, MakeArcPreviewChoice(false), Fixture));
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FReceipt Applied;
+	FReceipt AlternateApplied;
+	FReceipt LateRejected;
+	FString Diagnostic;
+	check(FReceipt::TryCreate(
+		Projected.GetCommand(), Consumer, EOutcome::Applied,
+		FName(TEXT("Renderer.Applied")), Applied, Diagnostic));
+	check(FReceipt::TryCreate(
+		Projected.GetCommand(), Consumer, EOutcome::Applied,
+		FName(TEXT("Renderer.AlternateApplied")),
+		AlternateApplied, Diagnostic));
+	check(FReceipt::TryCreate(
+		Projected.GetCommand(), Consumer, EOutcome::Rejected,
+		FName(TEXT("Renderer.LateFailure")), LateRejected, Diagnostic));
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger Ledger;
+	check(Ledger.TryBegin(Fixture.Correlation.ActiveRunId, Consumer, Diagnostic));
+	const auto AppliedResult = Ledger.Record(Applied);
+	const auto Replay = Ledger.Record(Applied);
+	const auto Alternate = Ledger.Record(AlternateApplied);
+	const auto RejectedAfterApply = Ledger.Record(LateRejected);
+	TestTrue(TEXT("exact Applied replay never advances twice"),
+		AppliedResult.DidAdvanceCursor()
+			&& Replay.IsAccepted() && Replay.IsReplay()
+			&& !Replay.DidAdvanceCursor()
+			&& Replay.GetStatus() == EStatus::ApplicationReplayed
+			&& Replay.GetAppliedCount() == 1);
+	TestTrue(TEXT("conflicting evidence fails closed after application"),
+		Alternate.IsValid() && !Alternate.IsAccepted()
+			&& Alternate.GetStatus() == EStatus::ReceiptConflict
+			&& RejectedAfterApply.IsValid()
+			&& !RejectedAfterApply.IsAccepted()
+			&& RejectedAfterApply.GetStatus() == EStatus::ReceiptConflict
+			&& Ledger.NumAppliedCommands() == 1
+			&& Ledger.NumRejectedCommands() == 0
+			&& Ledger.GetCursorState().Matches(
+				Projected.GetCommand().GetState()));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewCommandLedgerOrderingTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCommandLedger.OrderAndReplace",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewCommandLedgerOrderingTest::RunTest(
+	const FString&)
+{
+	using EOutcome =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceiptOutcome;
+	using EStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedgerStatus;
+	using FReceipt =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceipt;
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Session;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewCommandLedgerOrder"), Fixture, Session))
+	{
+		return false;
+	}
+	const auto Show =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Session, MakeArcPreviewChoice(false), Fixture));
+	const auto Replace =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Session, MakeArcPreviewChoice(true), Fixture));
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FReceipt ShowReceipt;
+	FReceipt ReplaceReceipt;
+	FString Diagnostic;
+	check(FReceipt::TryCreate(
+		Show.GetCommand(), Consumer, EOutcome::Applied,
+		FName(TEXT("Renderer.ShowApplied")), ShowReceipt, Diagnostic));
+	check(FReceipt::TryCreate(
+		Replace.GetCommand(), Consumer, EOutcome::Applied,
+		FName(TEXT("Renderer.ReplaceApplied")),
+		ReplaceReceipt, Diagnostic));
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger Ledger;
+	check(Ledger.TryBegin(Fixture.Correlation.ActiveRunId, Consumer, Diagnostic));
+	const auto EarlyReplace = Ledger.Record(ReplaceReceipt);
+	const auto ShowApplied = Ledger.Record(ShowReceipt);
+	const auto ReplaceApplied = Ledger.Record(ReplaceReceipt);
+	TestTrue(TEXT("future Replace cannot skip the current cursor"),
+		Show.GetCommand().IsShow() && Replace.GetCommand().IsReplace()
+			&& EarlyReplace.IsValid() && !EarlyReplace.IsAccepted()
+			&& EarlyReplace.GetStatus() == EStatus::CursorMismatch
+			&& EarlyReplace.GetAppliedCount() == 0
+			&& EarlyReplace.GetCursorState().IsEmpty());
+	TestTrue(TEXT("contiguous Show then Replace forms one applied chain"),
+		ShowApplied.DidAdvanceCursor()
+			&& ReplaceApplied.DidAdvanceCursor()
+			&& ReplaceApplied.GetStatus() == EStatus::ApplicationRecorded
+			&& Ledger.IsValid() && Ledger.NumAppliedCommands() == 2
+			&& Ledger.GetLastAppliedCommandId()
+				== Replace.GetCommand().GetCommandId()
+			&& Ledger.GetCursorState().Matches(
+				Replace.GetCommand().GetState()));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewCommandLedgerHideNoOpTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCommandLedger.HideAndNoOp",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewCommandLedgerHideNoOpTest::RunTest(
+	const FString&)
+{
+	using EOutcome =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceiptOutcome;
+	using FReceipt =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceipt;
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Session;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewCommandLedgerHideNoOp"), Fixture, Session))
+	{
+		return false;
+	}
+	const auto VisibleChoice = MakeArcPreviewChoice(false);
+	const auto Show =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Session, VisibleChoice, Fixture));
+	const auto ClearChoice = ClearArcPreviewChoice(VisibleChoice);
+	const auto Hide =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Session, ClearChoice, Fixture));
+	const auto NoOp =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				Session, MakeLaterNonPreviewChoice(ClearChoice), Fixture));
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FReceipt ShowReceipt;
+	FReceipt HideReceipt;
+	FReceipt NoOpReceipt;
+	FString Diagnostic;
+	check(FReceipt::TryCreate(
+		Show.GetCommand(), Consumer, EOutcome::Applied,
+		FName(TEXT("Renderer.ShowApplied")), ShowReceipt, Diagnostic));
+	check(FReceipt::TryCreate(
+		Hide.GetCommand(), Consumer, EOutcome::Applied,
+		FName(TEXT("Renderer.HideApplied")), HideReceipt, Diagnostic));
+	check(FReceipt::TryCreate(
+		NoOp.GetCommand(), Consumer, EOutcome::Applied,
+		FName(TEXT("Renderer.NoOpObserved")), NoOpReceipt, Diagnostic));
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger Ledger;
+	check(Ledger.TryBegin(Fixture.Correlation.ActiveRunId, Consumer, Diagnostic));
+	const auto ShowApplied = Ledger.Record(ShowReceipt);
+	const auto HideApplied = Ledger.Record(HideReceipt);
+	const auto NoOpApplied = Ledger.Record(NoOpReceipt);
+	TestTrue(TEXT("Show Hide and hidden NoOp advance one contiguous cursor"),
+		Show.GetCommand().IsShow() && Hide.GetCommand().IsHide()
+			&& NoOp.GetCommand().IsNoOp()
+			&& !NoOp.GetCommand().RequiresRenderMutation()
+			&& ShowApplied.DidAdvanceCursor()
+			&& HideApplied.DidAdvanceCursor()
+			&& NoOpApplied.DidAdvanceCursor()
+			&& Ledger.NumAppliedCommands() == 3
+			&& Ledger.GetLastAppliedCommandId()
+				== NoOp.GetCommand().GetCommandId()
+			&& Ledger.GetCursorState().IsHidden()
+			&& Ledger.GetCursorState().Matches(
+				NoOp.GetCommand().GetState()));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewCommandLedgerRotationTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCommandLedger.RunConsumerRotation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewCommandLedgerRotationTest::RunTest(
+	const FString&)
+{
+	using EOutcome =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceiptOutcome;
+	using EStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedgerStatus;
+	using FReceipt =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandReceipt;
+	FThrownLifecycleFixture FirstFixture;
+	FThrownLifecycleFixture NextFixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession FirstSession;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession NextSession;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewCommandLedgerRunA"),
+			FirstFixture, FirstSession)
+		|| !StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewCommandLedgerRunB"),
+			NextFixture, NextSession))
+	{
+		return false;
+	}
+	const auto First =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				FirstSession, MakeArcPreviewChoice(false), FirstFixture));
+	const auto Next =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				NextSession, MakeArcPreviewChoice(false), NextFixture));
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	const FName OtherConsumer(TEXT("Renderer.ArcPreview.Spectator.r1"));
+	FReceipt FirstReceipt;
+	FReceipt WrongConsumerReceipt;
+	FReceipt NextReceipt;
+	FString Diagnostic;
+	check(FReceipt::TryCreate(
+		First.GetCommand(), Consumer, EOutcome::Applied,
+		FName(TEXT("Renderer.Applied")), FirstReceipt, Diagnostic));
+	check(FReceipt::TryCreate(
+		First.GetCommand(), OtherConsumer, EOutcome::Applied,
+		FName(TEXT("Renderer.Applied")),
+		WrongConsumerReceipt, Diagnostic));
+	check(FReceipt::TryCreate(
+		Next.GetCommand(), Consumer, EOutcome::Applied,
+		FName(TEXT("Renderer.Applied")), NextReceipt, Diagnostic));
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger Ledger;
+	check(Ledger.TryBegin(
+		FirstFixture.Correlation.ActiveRunId, Consumer, Diagnostic));
+	const auto WrongConsumer = Ledger.Record(WrongConsumerReceipt);
+	const auto WrongRun = Ledger.Record(NextReceipt);
+	const auto FirstApplied = Ledger.Record(FirstReceipt);
+	TestTrue(TEXT("foreign consumer and Run receipts cannot mutate the ledger"),
+		WrongConsumer.IsValid() && !WrongConsumer.IsAccepted()
+			&& WrongConsumer.GetStatus() == EStatus::ConsumerMismatch
+			&& WrongRun.IsValid() && !WrongRun.IsAccepted()
+			&& WrongRun.GetStatus() == EStatus::RunMismatch
+			&& FirstApplied.DidAdvanceCursor()
+			&& Ledger.NumAppliedCommands() == 1);
+	const FGuid OldCommandId = First.GetCommand().GetCommandId();
+	TestTrue(TEXT("exact teardown permits an isolated next Run"),
+		Ledger.TryEnd(
+			FirstFixture.Correlation.ActiveRunId, Diagnostic)
+			&& Ledger.TryBegin(
+				NextFixture.Correlation.ActiveRunId, Consumer, Diagnostic)
+			&& !Ledger.HasAppliedCommand(OldCommandId));
+	const auto NextApplied = Ledger.Record(NextReceipt);
+	TestTrue(TEXT("next Run starts from an empty independent cursor"),
+		NextApplied.DidAdvanceCursor()
+			&& NextApplied.GetStatus() == EStatus::ApplicationRecorded
+			&& NextApplied.GetPreviousCursorState().IsEmpty()
+			&& Ledger.NumAppliedCommands() == 1
+			&& Ledger.GetRunId() == NextFixture.Correlation.ActiveRunId
+			&& Ledger.GetLastAppliedCommandId()
+				== Next.GetCommand().GetCommandId()
+			&& OldCommandId != Next.GetCommand().GetCommandId());
+	Ledger.Reset();
+	TestTrue(TEXT("explicit reset drops all scope and cursor state"),
+		Ledger.IsEmpty() && Ledger.IsValid());
 	return true;
 }
 
