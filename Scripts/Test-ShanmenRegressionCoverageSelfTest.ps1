@@ -181,6 +181,9 @@ try
     $ThrownArcPreviewPresentationSession = New-AutomationLogFixture `
         -Name 'thrown-arc-preview-presentation-session.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSession'
+    $ThrownArcPreviewPresentationCommand = New-AutomationLogFixture `
+        -Name 'thrown-arc-preview-presentation-command.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCommand'
     $ThrownArcChoiceProjection = New-AutomationLogFixture `
         -Name 'thrown-arc-choice-projection.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcChoiceProjection'
@@ -2858,6 +2861,30 @@ try
 			$ItemUse)
 
     Invoke-ExpectedPass `
+		-Name 'thrown weapon Arc preview presentation Command maps visual delta and full state authority seams' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationCommand.h',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationCommand.cpp') `
+		-Logs @(
+			$ThrownArcPreviewPresentationCommand,
+			$ThrownArcPreviewPresentationSession,
+			$ThrownArcPreviewUpdateCoordinator,
+			$ThrownArcPreviewPresentation,
+			$ThrownArcPreviewProductBridge,
+			$ThrownArcPreviewCapture,
+			$ThrownArcPreviewComposition,
+			$ThrownArcChoiceProjection,
+			$ThrownProductSession,
+			$ThrownProductController,
+			$ThrownArcPreview,
+			$ThrownArc,
+			$ThrownRuntime,
+			$CombatRuntime,
+			$CombatCore,
+			$Full,
+			$ItemUse)
+
+    Invoke-ExpectedPass `
 		-Name 'thrown weapon input choice reducer maps its exact pure contract' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceReducer.cpp',
@@ -4613,6 +4640,13 @@ try
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationSession.cpp') `
 		-Logs @($ThrownArcPreviewPresentationSession) `
+		-ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+		-Name 'thrown Arc preview presentation Command focus cannot replace state and authority evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationCommand.cpp') `
+		-Logs @($ThrownArcPreviewPresentationCommand) `
 		-ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

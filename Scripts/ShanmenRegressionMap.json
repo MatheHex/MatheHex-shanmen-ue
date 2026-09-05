@@ -3409,6 +3409,34 @@
 	  ]
 	},
 	{
+	  "name": "ThrownWeaponArcPreviewPresentationCommand",
+	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationCommand(?:Tests)?\\.(?:h|cpp)$",
+	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCommand",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSession",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewUpdateCoordinator",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentation",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewProductBridge",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewCapture",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewComposition",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcChoiceProjection",
+		"Shanmen.0_0_10.Product.ThrownWeaponProductLifecycle",
+		"Shanmen.0_0_10.Product.ThrownWeaponProductSession",
+		"Shanmen.0_0_10.Product.ThrownWeaponProductController",
+		"Shanmen.0_0_10.Product.ThrownWeaponRunCommand",
+		"Shanmen.0_0_10.Product.ThrownWeaponRunHost",
+		"Shanmen.0_0_10.Product.ThrownWeaponWorldDelivery",
+		"Shanmen.0_0_10.Product.ThrownWeaponItemAdapter",
+		"Shanmen.0_0_10.Product.CombatRunCoordinator",
+		"Shanmen.0_0_10.Items",
+		"Shanmen.0_0_10.WorldGameplay",
+		"Shanmen.0_0_10.CombatRuntime",
+		"Shanmen.0_0_10.CombatCore",
+		"Shanmen.0_0_10",
+		"demo_map.ItemUseAndArmor"
+	  ]
+	},
+	{
 	  "name": "ThrownWeaponInputChoiceSession",
 	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceSession(?:Tests)?\\.(?:h|cpp)$",
 	  "requiredGroups": [

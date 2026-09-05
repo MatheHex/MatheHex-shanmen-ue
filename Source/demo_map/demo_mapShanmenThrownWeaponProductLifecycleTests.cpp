@@ -16,6 +16,7 @@
 #include "demo_mapShanmenRunLifecycleAdapter.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewProductBridge.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentation.h"
+#include "demo_mapShanmenThrownWeaponArcPreviewPresentationCommand.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewUpdateCoordinator.h"
 #include "demo_mapShanmenThrownWeaponProjectile.h"
@@ -427,6 +428,61 @@ namespace
 				State.GetRevision(), 0.25, Command));
 		Reduced = Fdemo_mapShanmenThrownWeaponInputChoiceReducer::Reduce(
 			State, Command);
+		check(Reduced.DidChange());
+		return Reduced.State;
+	}
+
+	bool StartArcPreviewPresentationSession(
+		FAutomationTestBase& Test,
+		const TCHAR* Label,
+		FThrownLifecycleFixture& Fixture,
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession& Session)
+	{
+		if (!Fixture.Start(
+				Test,
+				Label,
+				Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::
+					BallisticArc))
+		{
+			return false;
+		}
+		FString Diagnostic;
+		if (!Session.TryBegin(Fixture.Correlation.ActiveRunId, Diagnostic))
+		{
+			Test.AddError(Diagnostic);
+			return false;
+		}
+		return true;
+	}
+
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSessionResult
+	UpdateArcPreviewPresentationSession(
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession& Session,
+		const Fdemo_mapShanmenThrownWeaponInputChoiceState& Choice,
+		const FThrownLifecycleFixture& Fixture)
+	{
+		return Session.TryUpdate(
+			2,
+			Choice,
+			MakeArcPreviewChoicePolicy(),
+			8,
+			MakeArcPreviewBasis(),
+			Fixture.Lifecycle,
+			Fixture.Coordinator);
+	}
+
+	Fdemo_mapShanmenThrownWeaponInputChoiceState MakeLaterNonPreviewChoice(
+		const Fdemo_mapShanmenThrownWeaponInputChoiceState& Previous)
+	{
+		Fdemo_mapShanmenThrownWeaponInputChoiceCommand Command;
+		check(Fdemo_mapShanmenThrownWeaponInputChoiceCommand::
+			TryCaptureTrajectorySelection(
+				Previous.GetRevision(),
+				Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::Straight,
+				Command));
+		const auto Reduced =
+			Fdemo_mapShanmenThrownWeaponInputChoiceReducer::Reduce(
+				Previous, Command);
 		check(Reduced.DidChange());
 		return Reduced.State;
 	}
@@ -2604,6 +2660,353 @@ bool Fdemo_mapThrownWeaponArcPreviewPresentationSessionRotationTest::RunTest(
 			&& Inactive.IsValid()
 			&& Inactive.GetStatus() == ESession::SessionInactive
 			&& Inactive.GetCoordinatorCallCount() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewPresentationCommandRejectionTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCommand.Rejection",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewPresentationCommandRejectionTest::RunTest(
+	const FString&)
+{
+	using EProject =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjectStatus;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSessionResult InvalidSource;
+	const auto Invalid =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(InvalidSource);
+
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession InactiveSession;
+	Fdemo_mapShanmenThrownWeaponProductLifecycle EmptyLifecycle;
+	Fdemo_mapCombatRunCoordinator EmptyCoordinator;
+	Fdemo_mapShanmenThrownWeaponArcChoicePolicy EmptyPolicy;
+	Fdemo_mapShanmenThrownWeaponArcChoiceBasis EmptyBasis;
+	const auto RejectedSession = InactiveSession.TryUpdate(
+		0,
+		Fdemo_mapShanmenThrownWeaponInputChoiceState::CreateInitial(),
+		EmptyPolicy,
+		0,
+		EmptyBasis,
+		EmptyLifecycle,
+		EmptyCoordinator);
+	const auto Rejected =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(RejectedSession);
+	TestTrue(TEXT("invalid and rejected Session results emit no command"),
+		Invalid.IsValid()
+			&& !Invalid.IsProjected()
+			&& Invalid.GetStatus() == EProject::SessionResultInvalid
+			&& !Invalid.GetCommand().IsValid()
+			&& RejectedSession.IsValid()
+			&& !RejectedSession.IsAccepted()
+			&& Rejected.IsValid()
+			&& !Rejected.IsProjected()
+			&& Rejected.GetStatus() == EProject::SessionUpdateRejected
+			&& !Rejected.GetCommand().IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewPresentationCommandShowTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCommand.Show",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewPresentationCommandShowTest::RunTest(
+	const FString&)
+{
+	using ECommand =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandKind;
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Session;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewPresentationCommandShow"), Fixture, Session))
+	{
+		return false;
+	}
+	const auto SessionResult = UpdateArcPreviewPresentationSession(
+		Session, MakeArcPreviewChoice(false), Fixture);
+	const auto Projected =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(SessionResult);
+	const auto Replay =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(SessionResult);
+	const auto& Command = Projected.GetCommand();
+	TestTrue(TEXT("first visible state projects one deterministic Show"),
+		SessionResult.IsAccepted()
+			&& SessionResult.DidChange()
+			&& Projected.IsProjected()
+			&& Command.IsValid()
+			&& Command.GetKind() == ECommand::Show
+			&& Command.IsShow()
+			&& Command.RequiresRenderMutation()
+			&& Command.GetRunId() == Fixture.Correlation.ActiveRunId
+			&& Command.GetPreviousState().IsEmpty()
+			&& Command.GetState().IsVisible()
+			&& Replay.IsProjected()
+			&& Command.Matches(Replay.GetCommand())
+			&& Command.GetCommandId()
+				== Replay.GetCommand().GetCommandId());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewPresentationCommandReplaceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCommand.Replace",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewPresentationCommandReplaceTest::RunTest(
+	const FString&)
+{
+	using ECommand =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandKind;
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Session;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewPresentationCommandReplace"), Fixture, Session))
+	{
+		return false;
+	}
+	const auto First = UpdateArcPreviewPresentationSession(
+		Session, MakeArcPreviewChoice(false), Fixture);
+	const auto Revised = UpdateArcPreviewPresentationSession(
+		Session, MakeArcPreviewChoice(true), Fixture);
+	const auto Projected =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(Revised);
+	const auto& Command = Projected.GetCommand();
+	TestTrue(TEXT("newer visible geometry projects Replace"),
+		First.IsAccepted()
+			&& Revised.IsAccepted()
+			&& Revised.DidChange()
+			&& Projected.IsProjected()
+			&& Command.GetKind() == ECommand::Replace
+			&& Command.IsReplace()
+			&& Command.RequiresRenderMutation()
+			&& Command.GetPreviousState().IsVisible()
+			&& Command.GetState().IsVisible()
+			&& Command.GetState().GetChoiceRevision()
+				> Command.GetPreviousState().GetChoiceRevision()
+			&& Command.GetState().GetPresentationStateId()
+				!= Command.GetPreviousState().GetPresentationStateId());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewPresentationCommandHideTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCommand.Hide",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewPresentationCommandHideTest::RunTest(
+	const FString&)
+{
+	using ECommand =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandKind;
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Session;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewPresentationCommandHide"), Fixture, Session))
+	{
+		return false;
+	}
+	const auto Choice = MakeArcPreviewChoice(false);
+	const auto Visible =
+		UpdateArcPreviewPresentationSession(Session, Choice, Fixture);
+	const auto Cleared = UpdateArcPreviewPresentationSession(
+		Session, ClearArcPreviewChoice(Choice), Fixture);
+	const auto Projected =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(Cleared);
+	const auto& Command = Projected.GetCommand();
+	TestTrue(TEXT("visible-to-hidden transition projects Hide"),
+		Visible.IsAccepted()
+			&& Cleared.IsAccepted()
+			&& Cleared.DidChange()
+			&& Projected.IsProjected()
+			&& Command.GetKind() == ECommand::Hide
+			&& Command.IsHide()
+			&& Command.RequiresRenderMutation()
+			&& Command.GetPreviousState().IsVisible()
+			&& Command.GetState().IsHidden());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewPresentationCommandEmptyNoOpTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCommand.EmptyNoOp",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewPresentationCommandEmptyNoOpTest::RunTest(
+	const FString&)
+{
+	using ECommand =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandKind;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Session;
+	const FGuid RunId = FGuid::NewGuid();
+	FString Diagnostic;
+	check(Session.TryBegin(RunId, Diagnostic));
+	Fdemo_mapShanmenThrownWeaponProductLifecycle EmptyLifecycle;
+	Fdemo_mapCombatRunCoordinator EmptyCoordinator;
+	Fdemo_mapShanmenThrownWeaponArcChoicePolicy EmptyPolicy;
+	Fdemo_mapShanmenThrownWeaponArcChoiceBasis EmptyBasis;
+	const auto SessionResult = Session.TryUpdate(
+		0,
+		Fdemo_mapShanmenThrownWeaponInputChoiceState::CreateInitial(),
+		EmptyPolicy,
+		0,
+		EmptyBasis,
+		EmptyLifecycle,
+		EmptyCoordinator);
+	const auto Projected =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(SessionResult);
+	const auto& Command = Projected.GetCommand();
+	TestTrue(TEXT("accepted empty update projects an auditable NoOp"),
+		SessionResult.IsAccepted()
+			&& SessionResult.IsNoChange()
+			&& Projected.IsProjected()
+			&& Command.GetKind() == ECommand::NoOp
+			&& Command.IsNoOp()
+			&& !Command.RequiresRenderMutation()
+			&& Command.GetRunId() == RunId
+			&& Command.GetPreviousState().IsEmpty()
+			&& Command.GetState().IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewPresentationCommandDuplicateNoOpTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCommand.DuplicateNoOp",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewPresentationCommandDuplicateNoOpTest::
+	RunTest(const FString&)
+{
+	using ECommand =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandKind;
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Session;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewPresentationCommandDuplicate"), Fixture, Session))
+	{
+		return false;
+	}
+	const auto Choice = MakeArcPreviewChoice(false);
+	const auto First =
+		UpdateArcPreviewPresentationSession(Session, Choice, Fixture);
+	const auto Duplicate =
+		UpdateArcPreviewPresentationSession(Session, Choice, Fixture);
+	const auto Projected =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(Duplicate);
+	const auto& Command = Projected.GetCommand();
+	TestTrue(TEXT("duplicate visible snapshot projects NoOp"),
+		First.IsAccepted()
+			&& Duplicate.IsAccepted()
+			&& Duplicate.IsNoChange()
+			&& Projected.IsProjected()
+			&& Command.GetKind() == ECommand::NoOp
+			&& Command.IsNoOp()
+			&& !Command.RequiresRenderMutation()
+			&& Command.GetPreviousState().IsVisible()
+			&& Command.GetPreviousState().Matches(Command.GetState()));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewPresentationCommandHiddenAdvanceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCommand.HiddenAdvanceNoOp",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewPresentationCommandHiddenAdvanceTest::
+	RunTest(const FString&)
+{
+	using ECommand =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCommandKind;
+	FThrownLifecycleFixture Fixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Session;
+	if (!StartArcPreviewPresentationSession(
+			*this, TEXT("ArcPreviewPresentationCommandHidden"), Fixture, Session))
+	{
+		return false;
+	}
+	const auto VisibleChoice = MakeArcPreviewChoice(false);
+	const auto Visible = UpdateArcPreviewPresentationSession(
+		Session, VisibleChoice, Fixture);
+	const auto ClearChoice = ClearArcPreviewChoice(VisibleChoice);
+	const auto Hidden =
+		UpdateArcPreviewPresentationSession(Session, ClearChoice, Fixture);
+	const auto Advanced = UpdateArcPreviewPresentationSession(
+		Session, MakeLaterNonPreviewChoice(ClearChoice), Fixture);
+	const auto Projected =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(Advanced);
+	const auto& Command = Projected.GetCommand();
+	TestTrue(TEXT("hidden tombstone revision advance is visual NoOp"),
+		Visible.IsAccepted()
+			&& Hidden.IsAccepted()
+			&& Hidden.GetState().IsHidden()
+			&& Advanced.IsAccepted()
+			&& Advanced.DidChange()
+			&& Projected.IsProjected()
+			&& Command.GetKind() == ECommand::NoOp
+			&& Command.IsNoOp()
+			&& !Command.RequiresRenderMutation()
+			&& Command.GetPreviousState().IsHidden()
+			&& Command.GetState().IsHidden()
+			&& Command.GetState().GetChoiceRevision()
+				> Command.GetPreviousState().GetChoiceRevision()
+			&& Command.GetState().GetPresentationStateId()
+				!= Command.GetPreviousState().GetPresentationStateId());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewPresentationCommandRunIdentityTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCommand.RunIdentity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewPresentationCommandRunIdentityTest::
+	RunTest(const FString&)
+{
+	FThrownLifecycleFixture FirstFixture;
+	FThrownLifecycleFixture OtherFixture;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession FirstSession;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession OtherSession;
+	if (!StartArcPreviewPresentationSession(
+			*this,
+			TEXT("ArcPreviewPresentationCommandRunA"),
+			FirstFixture,
+			FirstSession)
+		|| !StartArcPreviewPresentationSession(
+			*this,
+			TEXT("ArcPreviewPresentationCommandRunB"),
+			OtherFixture,
+			OtherSession))
+	{
+		return false;
+	}
+	const auto Choice = MakeArcPreviewChoice(false);
+	const auto First =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				FirstSession, Choice, FirstFixture));
+	const auto Other =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCommandProjector::
+			Project(UpdateArcPreviewPresentationSession(
+				OtherSession, Choice, OtherFixture));
+	TestTrue(TEXT("equivalent geometry in different Runs has distinct commands"),
+		First.IsProjected()
+			&& Other.IsProjected()
+			&& First.GetCommand().IsShow()
+			&& Other.GetCommand().IsShow()
+			&& First.GetCommand().GetRunId()
+				!= Other.GetCommand().GetRunId()
+			&& First.GetCommand().GetCommandId()
+				!= Other.GetCommand().GetCommandId()
+			&& !First.GetCommand().Matches(Other.GetCommand()));
 	return true;
 }
 
