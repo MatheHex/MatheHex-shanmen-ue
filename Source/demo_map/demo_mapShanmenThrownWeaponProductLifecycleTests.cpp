@@ -18,6 +18,7 @@
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentation.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationCommand.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger.h"
+#include "demo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwner.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationConsumerAdapter.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryCoordinator.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHost.h"
@@ -6102,6 +6103,444 @@ bool Fdemo_mapThrownWeaponArcPreviewConsumerAdapterReentrantTest::RunTest(
 		!Surface.EndAccepted && !Surface.EndDiagnostic.IsEmpty()
 			&& Adapter.GetSurfaceCursor().Matches(
 				Commands.Show.GetState()));
+	return true;
+}
+
+namespace
+{
+	using FArcCompositionOwner =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwner;
+	using FArcCompositionUpdate =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwnerUpdateResult;
+
+	bool StartArcPreviewCompositionOwner(
+		FAutomationTestBase& Test,
+		const TCHAR* Label,
+		FThrownLifecycleFixture& Fixture,
+		FArcCompositionOwner& Owner,
+		Idemo_mapShanmenThrownWeaponArcPreviewPresentationSurface& Surface)
+	{
+		if (!Fixture.Start(
+				Test,
+				Label,
+				Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::
+					BallisticArc))
+		{
+			return false;
+		}
+		FString Diagnostic;
+		if (!Owner.TryBegin(
+				Fixture.Correlation.ActiveRunId, Surface, Diagnostic))
+		{
+			Test.AddError(Diagnostic);
+			return false;
+		}
+		return true;
+	}
+
+	FArcCompositionUpdate UpdateArcPreviewCompositionOwner(
+		FArcCompositionOwner& Owner,
+		const Fdemo_mapShanmenThrownWeaponInputChoiceState& Choice,
+		const FThrownLifecycleFixture& Fixture)
+	{
+		return Owner.TryUpdate(
+			2,
+			Choice,
+			MakeArcPreviewChoicePolicy(),
+			8,
+			MakeArcPreviewBasis(),
+			Fixture.Lifecycle,
+			Fixture.Coordinator);
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewCompositionOwnerLifecycleTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCompositionOwner.LifecycleAndPreflight",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewCompositionOwnerLifecycleTest::RunTest(
+	const FString&)
+{
+	using EStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwnerUpdateStatus;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewCompositionLifecycle"), Fixture, Commands))
+	{
+		return false;
+	}
+	FFakeArcPreviewPresentationSurface Surface(Consumer);
+	FArcCompositionOwner Owner;
+	FString Diagnostic;
+	TestTrue(TEXT("default composition owner is valid and empty"),
+		Owner.IsValid() && Owner.IsEmpty());
+	Surface.ForceCursor(Commands.Show.GetState());
+	TestFalse(TEXT("visible physical surface cannot be silently adopted"),
+		Owner.TryBegin(
+			Fixture.Correlation.ActiveRunId, Surface, Diagnostic));
+	Surface.ForceCursor(FArcSurfaceState());
+	TestTrue(TEXT("empty surface binds Host and Adapter atomically"),
+		Owner.TryBegin(
+			Fixture.Correlation.ActiveRunId, Surface, Diagnostic)
+			&& Owner.TryBegin(
+				Fixture.Correlation.ActiveRunId, Surface, Diagnostic)
+			&& Owner.IsValid() && Owner.IsActive()
+			&& Owner.IsSynchronized()
+			&& Owner.GetRunId() == Fixture.Correlation.ActiveRunId
+			&& Owner.GetConsumerDefinitionId() == Consumer);
+	FFakeArcPreviewPresentationSurface OtherSurface(Consumer);
+	TestFalse(TEXT("active composition owner rejects surface rotation"),
+		Owner.TryBegin(
+			Fixture.Correlation.ActiveRunId, OtherSurface, Diagnostic));
+
+	Surface.SetConsumerDefinitionId(
+		FName(TEXT("Renderer.ArcPreview.Foreign.r1")));
+	const auto ConsumerDrift = UpdateArcPreviewCompositionOwner(
+		Owner, MakeArcPreviewChoice(false), Fixture);
+	TestTrue(TEXT("consumer drift rejects before Host or Adapter calls"),
+		ConsumerDrift.IsValid()
+			&& ConsumerDrift.GetStatus() == EStatus::OwnerInvalid
+			&& !ConsumerDrift.DidCallHost()
+			&& !ConsumerDrift.DidCallAdapter());
+	Surface.SetConsumerDefinitionId(Consumer);
+	Surface.ForceCursor(Commands.Show.GetState());
+	const auto CursorDrift = UpdateArcPreviewCompositionOwner(
+		Owner, MakeArcPreviewChoice(false), Fixture);
+	TestTrue(TEXT("physical cursor drift rejects before Host mutation"),
+		CursorDrift.IsValid()
+			&& CursorDrift.GetStatus() == EStatus::OwnerInvalid
+			&& !CursorDrift.DidCallHost()
+			&& !CursorDrift.DidCallAdapter());
+	Surface.ForceCursor(FArcSurfaceState());
+	TestFalse(TEXT("foreign Run cannot tear down the active owner"),
+		Owner.TryEnd(
+			FGuid(0xF4300001, 0xF4300002, 0xF4300003, 0xF4300004),
+			Diagnostic));
+	TestTrue(TEXT("empty exact Run ends both child scopes atomically"),
+		Owner.TryEnd(Fixture.Correlation.ActiveRunId, Diagnostic)
+			&& Owner.IsValid() && Owner.IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewCompositionOwnerOrderedTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCompositionOwner.OrderedAppliedReplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewCompositionOwnerOrderedTest::RunTest(
+	const FString&)
+{
+	using EStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwnerUpdateStatus;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewPresentationSurface Surface(Consumer);
+	FArcCompositionOwner Owner;
+	if (!StartArcPreviewCompositionOwner(
+			*this, TEXT("ArcPreviewCompositionOrdered"),
+			Fixture, Owner, Surface))
+	{
+		return false;
+	}
+	const auto InitialChoice = MakeArcPreviewChoice(false);
+	const auto RevisedChoice = MakeArcPreviewChoice(true);
+	const auto Show = UpdateArcPreviewCompositionOwner(
+		Owner, InitialChoice, Fixture);
+	const auto Replace = UpdateArcPreviewCompositionOwner(
+		Owner, RevisedChoice, Fixture);
+	const auto NoOp = UpdateArcPreviewCompositionOwner(
+		Owner, RevisedChoice, Fixture);
+	const auto Replay = UpdateArcPreviewCompositionOwner(
+		Owner, RevisedChoice, Fixture);
+	const auto Hide = UpdateArcPreviewCompositionOwner(
+		Owner, ClearArcPreviewChoice(RevisedChoice), Fixture);
+
+	TestTrue(TEXT("Show and Replace each cross Host and Adapter once"),
+		Show.IsValid() && Show.WasApplied()
+			&& Show.GetStatus() == EStatus::Applied
+			&& Show.DidCallHost() && Show.DidCallAdapter()
+			&& Show.GetAdapterResult().DidCallSurface()
+			&& Replace.IsValid() && Replace.WasApplied()
+			&& Replace.DidCallHost() && Replace.DidCallAdapter()
+			&& Replace.GetAdapterResult().DidCallSurface());
+	TestTrue(TEXT("NoOp calls Adapter but never mutates surface"),
+		NoOp.IsValid() && NoOp.WasApplied()
+			&& NoOp.DidCallAdapter()
+			&& NoOp.GetAdapterResult().IsNoOp()
+			&& !NoOp.GetAdapterResult().DidCallSurface());
+	TestTrue(TEXT("exact command replay stays above the Adapter"),
+		Replay.IsValid() && Replay.WasApplied() && Replay.IsReplay()
+			&& Replay.GetStatus() == EStatus::ApplicationReplayed
+			&& Replay.DidCallHost() && !Replay.DidCallAdapter());
+	TestTrue(TEXT("Hide reconciles audit Hidden with physical Empty"),
+		Hide.IsValid() && Hide.WasApplied()
+			&& Hide.DidCallAdapter()
+			&& Owner.IsValid() && Owner.IsSynchronized()
+			&& Owner.GetState().IsHidden()
+			&& Owner.GetHostCursor().IsHidden()
+			&& Owner.GetSurfaceCursor().IsEmpty()
+			&& Surface.MutationCallCount == 3
+			&& Surface.MutationKinds.Num() == 3
+			&& Surface.MutationKinds[0] == EArcSurfaceCommand::Show
+			&& Surface.MutationKinds[1] == EArcSurfaceCommand::Replace
+			&& Surface.MutationKinds[2] == EArcSurfaceCommand::Hide);
+	FString Diagnostic;
+	TestTrue(TEXT("synchronized Hide permits one owner teardown"),
+		Owner.CanEnd()
+			&& Owner.TryEnd(Fixture.Correlation.ActiveRunId, Diagnostic)
+			&& Owner.IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewCompositionOwnerRecoveryTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCompositionOwner.RejectionRecovery",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewCompositionOwnerRecoveryTest::RunTest(
+	const FString&)
+{
+	using ERecovery =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwnerRecoveryStatus;
+	using EUpdate =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwnerUpdateStatus;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewPresentationSurface Surface(
+		Consumer,
+		FFakeArcPreviewPresentationSurface::EMode::Rejected);
+	FArcCompositionOwner Owner;
+	if (!StartArcPreviewCompositionOwner(
+			*this, TEXT("ArcPreviewCompositionRecovery"),
+			Fixture, Owner, Surface))
+	{
+		return false;
+	}
+	const auto Choice = MakeArcPreviewChoice(false);
+	const auto Rejected = UpdateArcPreviewCompositionOwner(
+		Owner, Choice, Fixture);
+	TestTrue(TEXT("surface rejection freezes exact Host recovery work"),
+		Rejected.IsValid() && Rejected.WasRejected()
+			&& Rejected.GetStatus() == EUpdate::RejectedPendingRecovery
+			&& Rejected.DidCallHost() && Rejected.DidCallAdapter()
+			&& Rejected.GetAdapterResult().WasRejected()
+			&& Owner.IsValid() && Owner.NeedsRecovery()
+			&& Owner.GetState().IsVisible()
+			&& Owner.GetHostCursor().IsEmpty()
+			&& Owner.GetSurfaceCursor().IsEmpty());
+	const auto Fenced = UpdateArcPreviewCompositionOwner(
+		Owner, MakeArcPreviewChoice(true), Fixture);
+	TestTrue(TEXT("pending recovery blocks newer update before Adapter"),
+		Fenced.IsValid() && !Fenced.IsAccepted()
+			&& Fenced.GetStatus() == EUpdate::HostRejected
+			&& Fenced.GetHostResult().NeedsRecovery()
+			&& Fenced.DidCallHost() && !Fenced.DidCallAdapter());
+
+	const auto RetryRejected = Owner.TryRecoverRejected();
+	TestTrue(TEXT("one rejected recovery retry remains bounded and pending"),
+		RetryRejected.IsValid() && RetryRejected.WasRejected()
+			&& RetryRejected.GetStatus() == ERecovery::AdapterRejected
+			&& RetryRejected.DidCallAdapter()
+			&& !RetryRejected.DidCallHostRecovery()
+			&& Owner.IsValid() && Owner.NeedsRecovery()
+			&& Surface.MutationCallCount == 2);
+	Surface.SetMode(FFakeArcPreviewPresentationSurface::EMode::Applied);
+	const auto Recovered = Owner.TryRecoverRejected();
+	TestTrue(TEXT("Applied surface retry is sealed and recorded once"),
+		Recovered.IsValid() && Recovered.DidRecover()
+			&& Recovered.GetStatus() == ERecovery::Recovered
+			&& Recovered.DidCallAdapter()
+			&& Recovered.DidCallHostRecovery()
+			&& Recovered.GetAppliedReceipt().IsApplied()
+			&& Owner.IsValid() && !Owner.NeedsRecovery()
+			&& Owner.IsSynchronized()
+			&& Owner.GetSurfaceCursor().Matches(Owner.GetHostCursor()));
+	const auto NoWork = Owner.TryRecoverRejected();
+	TestTrue(TEXT("recovery replay cannot duplicate an already applied effect"),
+		NoWork.IsValid() && !NoWork.IsAccepted()
+			&& NoWork.GetStatus() == ERecovery::NoRecoveryPending
+			&& !NoWork.DidCallAdapter()
+			&& !NoWork.DidCallHostRecovery()
+			&& Surface.MutationCallCount == 3);
+	const auto Hide = UpdateArcPreviewCompositionOwner(
+		Owner, ClearArcPreviewChoice(Choice), Fixture);
+	FString Diagnostic;
+	TestTrue(TEXT("recovered owner can Hide and end normally"),
+		Hide.WasApplied() && Owner.CanEnd()
+			&& Owner.TryEnd(Fixture.Correlation.ActiveRunId, Diagnostic));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewCompositionOwnerDivergenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCompositionOwner.DivergenceDetected",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewCompositionOwnerDivergenceTest::RunTest(
+	const FString&)
+{
+	using ERecovery =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwnerRecoveryStatus;
+	using EUpdate =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwnerUpdateStatus;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewPresentationSurface Surface(
+		Consumer,
+		FFakeArcPreviewPresentationSurface::EMode::MutatedThenRejected);
+	FArcCompositionOwner Owner;
+	if (!StartArcPreviewCompositionOwner(
+			*this, TEXT("ArcPreviewCompositionDivergence"),
+			Fixture, Owner, Surface))
+	{
+		return false;
+	}
+	const auto Diverged = UpdateArcPreviewCompositionOwner(
+		Owner, MakeArcPreviewChoice(false), Fixture);
+	TestTrue(TEXT("mutated Rejected surface cannot masquerade as recovery work"),
+		Diverged.IsValid() && !Diverged.IsAccepted()
+			&& Diverged.GetStatus() == EUpdate::InvariantViolation
+			&& !Diverged.IsOwnerValidAfter()
+			&& Owner.GetHost().NeedsRecovery()
+			&& Owner.GetHostCursor().IsEmpty()
+			&& Owner.GetSurfaceCursor().IsVisible()
+			&& !Owner.IsValid());
+	const auto Recovery = Owner.TryRecoverRejected();
+	TestTrue(TEXT("divergent owner blocks automatic recovery before effects"),
+		Recovery.IsValid() && !Recovery.IsAccepted()
+			&& Recovery.GetStatus() == ERecovery::OwnerInvalid
+			&& !Recovery.DidCallAdapter()
+			&& !Recovery.DidCallHostRecovery()
+			&& Surface.MutationCallCount == 1);
+	return true;
+}
+
+namespace
+{
+	class FReentrantArcPreviewCompositionSurface final
+		: public Idemo_mapShanmenThrownWeaponArcPreviewPresentationSurface
+	{
+	public:
+		FReentrantArcPreviewCompositionSurface(
+			const FName InConsumerDefinitionId,
+			FArcCompositionOwner& InOwner,
+			const FThrownLifecycleFixture& InFixture)
+			: ConsumerDefinitionId(InConsumerDefinitionId)
+			, Owner(InOwner)
+			, Fixture(InFixture)
+		{
+		}
+
+		virtual FName GetConsumerDefinitionId() const override
+		{
+			return ConsumerDefinitionId;
+		}
+		virtual FArcSurfaceState GetSurfaceCursor() const override
+		{
+			return Cursor;
+		}
+		virtual FArcSurfaceResponse Show(
+			const FArcSurfaceCommand& Command) override
+		{
+			++MutationCallCount;
+			InnerUpdate = UpdateArcPreviewCompositionOwner(
+				Owner, MakeArcPreviewChoice(true), Fixture);
+			InnerRecovery = Owner.TryRecoverRejected();
+			EndAccepted = Owner.TryEnd(
+				Command.GetRunId(), EndDiagnostic);
+			const FArcSurfaceState Previous = Cursor;
+			Cursor = Command.GetState();
+			FArcSurfaceResponse Response;
+			FString Diagnostic;
+			check(FArcSurfaceResponse::TryCreate(
+				Command,
+				EArcSurfaceOutcome::Applied,
+				FName(TEXT("Renderer.ArcPreview.CompositionReentrant.ShowApplied")),
+				Previous,
+				Cursor,
+				Response,
+				Diagnostic));
+			return Response;
+		}
+		virtual FArcSurfaceResponse Replace(
+			const FArcSurfaceCommand&) override
+		{
+			return FArcSurfaceResponse();
+		}
+		virtual FArcSurfaceResponse Hide(
+			const FArcSurfaceCommand&) override
+		{
+			return FArcSurfaceResponse();
+		}
+
+		int32 MutationCallCount = 0;
+		bool EndAccepted = true;
+		FString EndDiagnostic;
+		FArcCompositionUpdate InnerUpdate;
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwnerRecoveryResult
+			InnerRecovery;
+
+	private:
+		FName ConsumerDefinitionId = NAME_None;
+		FArcCompositionOwner& Owner;
+		const FThrownLifecycleFixture& Fixture;
+		FArcSurfaceState Cursor;
+	};
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewCompositionOwnerReentrantTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCompositionOwner.ReentrantSurfaceBlocked",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewCompositionOwnerReentrantTest::RunTest(
+	const FString&)
+{
+	using ERecovery =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwnerRecoveryStatus;
+	using EUpdate =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwnerUpdateStatus;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcPreviewCompositionReentrant"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	FArcCompositionOwner Owner;
+	FReentrantArcPreviewCompositionSurface Surface(
+		Consumer, Owner, Fixture);
+	FString Diagnostic;
+	check(Owner.TryBegin(
+		Fixture.Correlation.ActiveRunId, Surface, Diagnostic));
+	const auto Outer = UpdateArcPreviewCompositionOwner(
+		Owner, MakeArcPreviewChoice(false), Fixture);
+	TestTrue(TEXT("outer owner update applies exactly once"),
+		Outer.IsValid() && Outer.WasApplied()
+			&& Surface.MutationCallCount == 1
+			&& Owner.IsValid() && !Owner.IsOperationInProgress());
+	TestTrue(TEXT("surface callback cannot re-enter owner update"),
+		Surface.InnerUpdate.IsValid()
+			&& !Surface.InnerUpdate.IsAccepted()
+			&& Surface.InnerUpdate.GetStatus()
+				== EUpdate::OperationInProgress
+			&& !Surface.InnerUpdate.DidCallHost()
+			&& !Surface.InnerUpdate.DidCallAdapter());
+	TestTrue(TEXT("surface callback cannot enter owner recovery"),
+		Surface.InnerRecovery.IsValid()
+			&& !Surface.InnerRecovery.IsAccepted()
+			&& Surface.InnerRecovery.GetStatus()
+				== ERecovery::OperationInProgress
+			&& !Surface.InnerRecovery.DidCallAdapter()
+			&& !Surface.InnerRecovery.DidCallHostRecovery());
+	TestTrue(TEXT("surface callback cannot tear down child scopes"),
+		!Surface.EndAccepted && !Surface.EndDiagnostic.IsEmpty()
+			&& Owner.IsActive() && Owner.GetSurfaceCursor().IsVisible());
 	return true;
 }
 

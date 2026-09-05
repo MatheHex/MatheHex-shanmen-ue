@@ -199,6 +199,9 @@ try
     $ThrownArcPreviewPresentationConsumerAdapter = New-AutomationLogFixture `
         -Name 'thrown-arc-preview-presentation-consumer-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationConsumerAdapter'
+    $ThrownArcPreviewPresentationCompositionOwner = New-AutomationLogFixture `
+        -Name 'thrown-arc-preview-presentation-composition-owner.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCompositionOwner'
     $ThrownArcChoiceProjection = New-AutomationLogFixture `
         -Name 'thrown-arc-choice-projection.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcChoiceProjection'
@@ -2876,6 +2879,36 @@ try
 			$ItemUse)
 
 	Invoke-ExpectedPass `
+		-Name 'thrown weapon Arc preview presentation composition owner maps Host surface and full authority seams' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwner.h',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwner.cpp') `
+		-Logs @(
+			$ThrownArcPreviewPresentationCompositionOwner,
+			$ThrownArcPreviewPresentationConsumerAdapter,
+			$ThrownArcPreviewPresentationDeliveryHost,
+			$ThrownArcPreviewPresentationDeliverySession,
+			$ThrownArcPreviewPresentationDeliveryCoordinator,
+			$ThrownArcPreviewPresentationCommandLedger,
+			$ThrownArcPreviewPresentationCommand,
+			$ThrownArcPreviewPresentationSession,
+			$ThrownArcPreviewUpdateCoordinator,
+			$ThrownArcPreviewPresentation,
+			$ThrownArcPreviewProductBridge,
+			$ThrownArcPreviewCapture,
+			$ThrownArcPreviewComposition,
+			$ThrownArcChoiceProjection,
+			$ThrownProductSession,
+			$ThrownProductController,
+			$ThrownArcPreview,
+			$ThrownArc,
+			$ThrownRuntime,
+			$CombatRuntime,
+			$CombatCore,
+			$Full,
+			$ItemUse)
+
+	Invoke-ExpectedPass `
 		-Name 'thrown weapon Arc preview presentation consumer adapter maps surface Host and full authority seams' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationConsumerAdapter.h',
@@ -4804,6 +4837,13 @@ try
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger.cpp') `
 		-Logs @($ThrownArcPreviewPresentationCommandLedger) `
+		-ExpectedText 'missing required groups'
+
+	Invoke-ExpectedFail `
+		-Name 'thrown Arc preview composition owner focus cannot replace Host surface and authority evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwner.cpp') `
+		-Logs @($ThrownArcPreviewPresentationCompositionOwner) `
 		-ExpectedText 'missing required groups'
 
 	Invoke-ExpectedFail `
