@@ -15,6 +15,7 @@
 #include "demo_mapShanmenPreparationAdapter.h"
 #include "demo_mapShanmenRunLifecycleAdapter.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewProductBridge.h"
+#include "demo_mapShanmenThrownWeaponArcPreviewPresentation.h"
 #include "demo_mapShanmenThrownWeaponProjectile.h"
 
 #include "Engine/Engine.h"
@@ -367,6 +368,65 @@ namespace
 			FVector::RightVector,
 			Basis));
 		return Basis;
+	}
+
+	Fdemo_mapShanmenThrownWeaponInputChoiceState ClearArcPreviewChoice(
+		const Fdemo_mapShanmenThrownWeaponInputChoiceState& Previous)
+	{
+		Fdemo_mapShanmenThrownWeaponInputChoiceCommand Command;
+		check(Fdemo_mapShanmenThrownWeaponInputChoiceCommand::
+			TryCaptureArcTargetClear(Previous.GetRevision(), Command));
+		const auto Reduced =
+			Fdemo_mapShanmenThrownWeaponInputChoiceReducer::Reduce(
+				Previous, Command);
+		check(Reduced.DidChange());
+		return Reduced.State;
+	}
+
+	Fdemo_mapShanmenThrownWeaponInputChoiceState RetargetArcPreviewChoice(
+		const Fdemo_mapShanmenThrownWeaponInputChoiceState& Previous)
+	{
+		Fdemo_mapShanmenThrownWeaponInputChoiceCommand Command;
+		check(Fdemo_mapShanmenThrownWeaponInputChoiceCommand::
+			TryCaptureArcTargetIntent(
+				Previous.GetRevision(), FVector2D(0.0, -1.0), Command));
+		const auto Reduced =
+			Fdemo_mapShanmenThrownWeaponInputChoiceReducer::Reduce(
+				Previous, Command);
+		check(Reduced.DidChange());
+		return Reduced.State;
+	}
+
+	Fdemo_mapShanmenThrownWeaponInputChoiceState
+	MakeUnreachableArcPreviewChoice()
+	{
+		using ETrajectory =
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind;
+		Fdemo_mapShanmenThrownWeaponInputChoiceState State =
+			Fdemo_mapShanmenThrownWeaponInputChoiceState::CreateInitial();
+		Fdemo_mapShanmenThrownWeaponInputChoiceCommand Command;
+		check(Fdemo_mapShanmenThrownWeaponInputChoiceCommand::
+			TryCaptureTrajectorySelection(
+				State.GetRevision(), ETrajectory::BallisticArc, Command));
+		auto Reduced =
+			Fdemo_mapShanmenThrownWeaponInputChoiceReducer::Reduce(
+				State, Command);
+		check(Reduced.DidChange());
+		State = Reduced.State;
+		check(Fdemo_mapShanmenThrownWeaponInputChoiceCommand::
+			TryCaptureArcTargetIntent(
+				State.GetRevision(), FVector2D(0.5, 0.5), Command));
+		Reduced = Fdemo_mapShanmenThrownWeaponInputChoiceReducer::Reduce(
+			State, Command);
+		check(Reduced.DidChange());
+		State = Reduced.State;
+		check(Fdemo_mapShanmenThrownWeaponInputChoiceCommand::
+			TryCaptureArcApexAdjustment(
+				State.GetRevision(), 0.25, Command));
+		Reduced = Fdemo_mapShanmenThrownWeaponInputChoiceReducer::Reduce(
+			State, Command);
+		check(Reduced.DidChange());
+		return Reduced.State;
 	}
 }
 
@@ -1145,6 +1205,505 @@ bool Fdemo_mapThrownWeaponArcPreviewProductBridgeCompositionTest::RunTest(
 			&& Fixture.Coordinator
 				.GetNextPlayerThrownWeaponActivationSequence() == 1
 			&& Fixture.Lifecycle.NumCapturedSelections() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewPresentationVisibleTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentation.VisibleSnapshot",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewPresentationVisibleTest::RunTest(
+	const FString&)
+{
+	FThrownLifecycleFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcPreviewPresentationVisible"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	FShanmenItemAuthoritySnapshot Before;
+	Fixture.Authority->TryCaptureSnapshot(Before);
+	const uint64 SequenceBefore = Fixture.Coordinator
+		.GetNextPlayerThrownWeaponActivationSequence();
+	const auto Choice = MakeArcPreviewChoice(false);
+	const auto Bridge =
+		Fdemo_mapShanmenThrownWeaponArcPreviewProductBridge::Capture(
+			2,
+			Choice,
+			MakeArcPreviewChoicePolicy(),
+			8,
+			Fixture.Lifecycle,
+			Fixture.Coordinator);
+	const auto Projected =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationProjector::Project(
+			Bridge, MakeArcPreviewBasis());
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Authority->TryCaptureSnapshot(After);
+
+	const auto& State = Projected.GetState();
+	TestTrue(TEXT("captured product preview projects one visible snapshot"),
+		Projected.IsProjected()
+			&& Projected.GetCompositionCount() == 1
+			&& State.IsVisible()
+			&& State.GetRunId() == Bridge.GetLifecycleRunId()
+			&& State.GetPlayerEntityId() == Bridge.GetPlayerEntityId()
+			&& State.GetSourceItemInstanceId()
+				== Bridge.GetSourceItemInstanceId()
+			&& State.GetSourceProductRequestId()
+				== Bridge.GetPreviewRequestId()
+			&& State.GetSourcePreviewActivationId()
+				== Bridge.GetCapture().GetPreviewActivationId()
+			&& State.GetChoiceState().Matches(Choice)
+			&& State.NumSegments() == 8
+			&& State.GetSourcePreview().GetPositions().Num() == 9);
+	bool bSegmentsMatch = State.NumSegments() == 8;
+	for (int32 Index = 0; bSegmentsMatch && Index < State.NumSegments(); ++Index)
+	{
+		const auto& Segment = State.GetSegments()[Index];
+		bSegmentsMatch = Segment.IsValid()
+			&& Segment.GetIndex() == Index
+			&& Segment.GetStart()
+				== State.GetSourcePreview().GetPositions()[Index]
+			&& Segment.GetEnd()
+				== State.GetSourcePreview().GetPositions()[Index + 1];
+	}
+	TestTrue(TEXT("line segments exactly cover the sampled path"),
+		bSegmentsMatch
+			&& State.GetApexPosition()
+				== State.GetSourcePreview().GetApexPosition()
+			&& State.GetPlannedLandingPosition()
+				== State.GetSourcePreview().GetPlannedLandingPosition());
+	TestTrue(TEXT("presentation projection leaves product authority untouched"),
+		Before == After
+			&& Fixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence()
+				== SequenceBefore
+			&& Fixture.Lifecycle.GetHostState()
+				== Edemo_mapShanmenThrownWeaponHostState::Empty
+			&& Fixture.Lifecycle.NumCapturedSelections() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewPresentationReplayTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentation.DeterministicDuplicate",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewPresentationReplayTest::RunTest(
+	const FString&)
+{
+	FThrownLifecycleFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcPreviewPresentationReplay"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	const auto Bridge =
+		Fdemo_mapShanmenThrownWeaponArcPreviewProductBridge::Capture(
+			2,
+			MakeArcPreviewChoice(false),
+			MakeArcPreviewChoicePolicy(),
+			8,
+			Fixture.Lifecycle,
+			Fixture.Coordinator);
+	const auto Basis = MakeArcPreviewBasis();
+	const auto First =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationProjector::Project(
+			Bridge, Basis);
+	const auto Replay =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationProjector::Project(
+			Bridge, Basis);
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationState Empty;
+	const auto Installed =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationReducer::Replace(
+			Empty, First.GetState());
+	const auto Duplicate =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationReducer::Replace(
+			Installed.GetState(), Replay.GetState());
+	TestTrue(TEXT("equal inputs reproduce exact renderer-neutral evidence"),
+		First.IsProjected()
+			&& Replay.IsProjected()
+			&& First.GetState().Matches(Replay.GetState())
+			&& Installed.IsReplaced()
+			&& Duplicate.IsDuplicate()
+			&& Duplicate.GetState().Matches(Installed.GetState()));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewPresentationReplaceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentation.NewerRevisionReplace",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewPresentationReplaceTest::RunTest(
+	const FString&)
+{
+	FThrownLifecycleFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcPreviewPresentationReplace"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	const auto Policy = MakeArcPreviewChoicePolicy();
+	const auto Basis = MakeArcPreviewBasis();
+	const auto InitialChoice = MakeArcPreviewChoice(false);
+	const auto RevisedChoice = MakeArcPreviewChoice(true);
+	const auto InitialBridge =
+		Fdemo_mapShanmenThrownWeaponArcPreviewProductBridge::Capture(
+			2, InitialChoice, Policy, 8, Fixture.Lifecycle, Fixture.Coordinator);
+	const auto RevisedBridge =
+		Fdemo_mapShanmenThrownWeaponArcPreviewProductBridge::Capture(
+			2, RevisedChoice, Policy, 8, Fixture.Lifecycle, Fixture.Coordinator);
+	const auto Initial =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationProjector::Project(
+			InitialBridge, Basis);
+	const auto Revised =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationProjector::Project(
+			RevisedBridge, Basis);
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationState Empty;
+	const auto Installed =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationReducer::Replace(
+			Empty, Initial.GetState());
+	const auto Replaced =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationReducer::Replace(
+			Installed.GetState(), Revised.GetState());
+	TestTrue(TEXT("newer choice revision atomically replaces visible geometry"),
+		Initial.IsProjected()
+			&& Revised.IsProjected()
+			&& Replaced.IsReplaced()
+			&& Replaced.GetState().GetChoiceRevision()
+				== Installed.GetState().GetChoiceRevision() + 1
+			&& Replaced.GetState().GetPresentationStateId()
+				!= Installed.GetState().GetPresentationStateId()
+			&& Replaced.GetState().GetSourcePreview().GetPreviewId()
+				!= Installed.GetState().GetSourcePreview().GetPreviewId()
+			&& Fixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence() == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewPresentationClearTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentation.ClearTombstone",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewPresentationClearTest::RunTest(
+	const FString&)
+{
+	FThrownLifecycleFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcPreviewPresentationClear"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	FShanmenItemAuthoritySnapshot Before;
+	Fixture.Authority->TryCaptureSnapshot(Before);
+	const auto Choice = MakeArcPreviewChoice(false);
+	const auto Bridge =
+		Fdemo_mapShanmenThrownWeaponArcPreviewProductBridge::Capture(
+			2,
+			Choice,
+			MakeArcPreviewChoicePolicy(),
+			8,
+			Fixture.Lifecycle,
+			Fixture.Coordinator);
+	const auto Projected =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationProjector::Project(
+			Bridge, MakeArcPreviewBasis());
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationState Empty;
+	const auto Installed =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationReducer::Replace(
+			Empty, Projected.GetState());
+	const auto ClearedChoice = ClearArcPreviewChoice(Choice);
+	const auto Cleared =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationReducer::Clear(
+			Installed.GetState(), ClearedChoice);
+	const auto Stale =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationReducer::Replace(
+			Cleared.GetState(), Installed.GetState());
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Authority->TryCaptureSnapshot(After);
+	using EReduce =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationReduceStatus;
+	TestTrue(TEXT("clear emits a newer hidden tombstone without geometry"),
+		Cleared.IsCleared()
+			&& Cleared.GetState().GetChoiceRevision()
+				== Installed.GetState().GetChoiceRevision() + 1
+			&& Cleared.GetState().NumSegments() == 0
+			&& !Cleared.GetState().GetSourceProductRequestId().IsValid()
+			&& !Cleared.GetState().GetSourcePreviewActivationId().IsValid()
+			&& !Cleared.GetState().GetSourcePreview().IsValid());
+	TestTrue(TEXT("hidden revision fences stale asynchronous geometry"),
+		Stale.GetStatus() == EReduce::StaleRevision
+			&& Stale.GetState().IsEmpty()
+			&& Before == After
+			&& Fixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence() == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewPresentationRetargetTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentation.RetargetAfterClear",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewPresentationRetargetTest::RunTest(
+	const FString&)
+{
+	FThrownLifecycleFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcPreviewPresentationRetarget"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	const auto Policy = MakeArcPreviewChoicePolicy();
+	const auto Basis = MakeArcPreviewBasis();
+	const auto InitialChoice = MakeArcPreviewChoice(false);
+	const auto InitialBridge =
+		Fdemo_mapShanmenThrownWeaponArcPreviewProductBridge::Capture(
+			2,
+			InitialChoice,
+			Policy,
+			8,
+			Fixture.Lifecycle,
+			Fixture.Coordinator);
+	const auto Initial =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationProjector::Project(
+			InitialBridge, Basis);
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationState Empty;
+	const auto Installed =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationReducer::Replace(
+			Empty, Initial.GetState());
+	const auto ClearedChoice = ClearArcPreviewChoice(InitialChoice);
+	const auto Hidden =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationReducer::Clear(
+			Installed.GetState(), ClearedChoice);
+	const auto RetargetedChoice = RetargetArcPreviewChoice(ClearedChoice);
+	const auto RetargetedBridge =
+		Fdemo_mapShanmenThrownWeaponArcPreviewProductBridge::Capture(
+			2,
+			RetargetedChoice,
+			Policy,
+			8,
+			Fixture.Lifecycle,
+			Fixture.Coordinator);
+	const auto Retargeted =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationProjector::Project(
+			RetargetedBridge, Basis);
+	const auto Replaced =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationReducer::Replace(
+			Hidden.GetState(), Retargeted.GetState());
+	TestTrue(TEXT("new target after clear installs only its newest geometry"),
+		Hidden.IsCleared()
+			&& Retargeted.IsProjected()
+			&& Replaced.IsReplaced()
+			&& Replaced.GetState().IsVisible()
+			&& Replaced.GetState().GetChoiceRevision()
+				== Hidden.GetState().GetChoiceRevision() + 1
+			&& Replaced.GetState().NumSegments() == 8);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewPresentationScopeTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentation.ScopeFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewPresentationScopeTest::RunTest(
+	const FString&)
+{
+	FThrownLifecycleFixture FirstFixture;
+	FThrownLifecycleFixture OtherFixture;
+	if (!FirstFixture.Start(
+			*this,
+			TEXT("ArcPreviewPresentationScopeA"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc)
+		|| !OtherFixture.Start(
+			*this,
+			TEXT("ArcPreviewPresentationScopeB"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	const auto Choice = MakeArcPreviewChoice(false);
+	const auto Policy = MakeArcPreviewChoicePolicy();
+	const auto Basis = MakeArcPreviewBasis();
+	const auto FirstBridge =
+		Fdemo_mapShanmenThrownWeaponArcPreviewProductBridge::Capture(
+			2,
+			Choice,
+			Policy,
+			8,
+			FirstFixture.Lifecycle,
+			FirstFixture.Coordinator);
+	const auto OtherBridge =
+		Fdemo_mapShanmenThrownWeaponArcPreviewProductBridge::Capture(
+			2,
+			Choice,
+			Policy,
+			8,
+			OtherFixture.Lifecycle,
+			OtherFixture.Coordinator);
+	const auto First =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationProjector::Project(
+			FirstBridge, Basis);
+	const auto Other =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationProjector::Project(
+			OtherBridge, Basis);
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationState Empty;
+	const auto Installed =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationReducer::Replace(
+			Empty, First.GetState());
+	const auto Rejected =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationReducer::Replace(
+			Installed.GetState(), Other.GetState());
+	using EReduce =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationReduceStatus;
+	TestTrue(TEXT("consumer refuses geometry from another Run or item scope"),
+		First.IsProjected()
+			&& Other.IsProjected()
+			&& Rejected.GetStatus() == EReduce::IdentityMismatch
+			&& Rejected.GetState().IsEmpty()
+			&& FirstFixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence() == 1
+			&& OtherFixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence() == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewPresentationSourceFenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentation.SourceFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewPresentationSourceFenceTest::RunTest(
+	const FString&)
+{
+	using EProject =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationProjectStatus;
+	Fdemo_mapShanmenThrownWeaponArcPreviewProductBridgeResult EmptyBridge;
+	const auto MissingBridge =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationProjector::Project(
+			EmptyBridge, MakeArcPreviewBasis());
+
+	FThrownLifecycleFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcPreviewPresentationSourceFence"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	const auto ValidBridge =
+		Fdemo_mapShanmenThrownWeaponArcPreviewProductBridge::Capture(
+			2,
+			MakeArcPreviewChoice(false),
+			MakeArcPreviewChoicePolicy(),
+			8,
+			Fixture.Lifecycle,
+			Fixture.Coordinator);
+	Fdemo_mapShanmenThrownWeaponArcChoiceBasis EmptyBasis;
+	const auto MissingBasis =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationProjector::Project(
+			ValidBridge, EmptyBasis);
+	const auto UnreachableBridge =
+		Fdemo_mapShanmenThrownWeaponArcPreviewProductBridge::Capture(
+			2,
+			MakeUnreachableArcPreviewChoice(),
+			MakeArcPreviewChoicePolicy(),
+			8,
+			Fixture.Lifecycle,
+			Fixture.Coordinator);
+	const auto Unreachable =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationProjector::Project(
+			UnreachableBridge, MakeArcPreviewBasis());
+	TestTrue(TEXT("invalid source stages fail closed with typed status"),
+		MissingBridge.GetStatus() == EProject::BridgeRejected
+			&& MissingBridge.GetCompositionCount() == 0
+			&& MissingBridge.GetState().IsEmpty()
+			&& MissingBasis.GetStatus() == EProject::BasisRejected
+			&& MissingBasis.GetCompositionCount() == 0
+			&& MissingBasis.GetState().IsEmpty()
+			&& UnreachableBridge.IsCaptured()
+			&& Unreachable.GetStatus() == EProject::CompositionRejected
+			&& Unreachable.GetCompositionCount() == 1
+			&& Unreachable.GetState().IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewPresentationClearFenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentation.ClearFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewPresentationClearFenceTest::RunTest(
+	const FString&)
+{
+	using EReduce =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationReduceStatus;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationState Empty;
+	const auto Choice = MakeArcPreviewChoice(false);
+	const auto NoPrevious =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationReducer::Clear(
+			Empty, ClearArcPreviewChoice(Choice));
+
+	FThrownLifecycleFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcPreviewPresentationClearFence"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	const auto Bridge =
+		Fdemo_mapShanmenThrownWeaponArcPreviewProductBridge::Capture(
+			2,
+			Choice,
+			MakeArcPreviewChoicePolicy(),
+			8,
+			Fixture.Lifecycle,
+			Fixture.Coordinator);
+	const auto Projected =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationProjector::Project(
+			Bridge, MakeArcPreviewBasis());
+	const auto Installed =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationReducer::Replace(
+			Empty, Projected.GetState());
+	Fdemo_mapShanmenThrownWeaponInputChoiceState InvalidChoice;
+	const auto Invalid =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationReducer::Clear(
+			Installed.GetState(), InvalidChoice);
+	const auto SameRevision =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationReducer::Clear(
+			Installed.GetState(), Choice);
+	const auto NewerVisible =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationReducer::Clear(
+			Installed.GetState(), MakeArcPreviewChoice(true));
+	const auto Cleared =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationReducer::Clear(
+			Installed.GetState(), ClearArcPreviewChoice(Choice));
+	const auto Duplicate =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationReducer::Clear(
+			Cleared.GetState(), Cleared.GetState().GetChoiceState());
+	TestTrue(TEXT("clear requires a newer non-preview choice and prior state"),
+		NoPrevious.GetStatus() == EReduce::PreviousStateRequired
+			&& Invalid.GetStatus() == EReduce::ChoiceRejected
+			&& SameRevision.GetStatus() == EReduce::RevisionConflict
+			&& NewerVisible.GetStatus() == EReduce::ClearNotRequired
+			&& Cleared.IsCleared()
+			&& Duplicate.IsDuplicate()
+			&& Duplicate.GetState().Matches(Cleared.GetState()));
 	return true;
 }
 
