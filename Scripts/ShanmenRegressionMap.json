@@ -3278,6 +3278,20 @@
 	  ]
 	},
 	{
+	  "name": "ThrownWeaponArcPreviewComposition",
+	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewComposition(?:Tests)?\\.(?:h|cpp)$",
+	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewComposition",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcChoiceProjection",
+		"Shanmen.0_0_10.Product.ThrownWeaponProductController",
+		"Shanmen.0_0_10.CombatRuntime.ThrownWeaponPreview.Arc",
+		"Shanmen.0_0_10.CombatRuntime.ThrownWeaponArc",
+		"Shanmen.0_0_10.CombatRuntime.ThrownWeapon",
+		"Shanmen.0_0_10.CombatCore",
+		"Shanmen.0_0_10"
+	  ]
+	},
+	{
 	  "name": "ThrownWeaponInputChoiceSession",
 	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceSession(?:Tests)?\\.(?:h|cpp)$",
 	  "requiredGroups": [
