@@ -175,6 +175,9 @@ try
     $ThrownArcPreviewPresentation = New-AutomationLogFixture `
         -Name 'thrown-arc-preview-presentation.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentation'
+    $ThrownArcPreviewUpdateCoordinator = New-AutomationLogFixture `
+        -Name 'thrown-arc-preview-update-coordinator.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewUpdateCoordinator'
     $ThrownArcChoiceProjection = New-AutomationLogFixture `
         -Name 'thrown-arc-choice-projection.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcChoiceProjection'
@@ -2807,6 +2810,28 @@ try
 			$ItemUse)
 
     Invoke-ExpectedPass `
+		-Name 'thrown weapon Arc preview update coordinator maps bounded update and full authority seams' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewUpdateCoordinator.h',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewUpdateCoordinator.cpp') `
+		-Logs @(
+			$ThrownArcPreviewUpdateCoordinator,
+			$ThrownArcPreviewPresentation,
+			$ThrownArcPreviewProductBridge,
+			$ThrownArcPreviewCapture,
+			$ThrownArcPreviewComposition,
+			$ThrownArcChoiceProjection,
+			$ThrownProductSession,
+			$ThrownProductController,
+			$ThrownArcPreview,
+			$ThrownArc,
+			$ThrownRuntime,
+			$CombatRuntime,
+			$CombatCore,
+			$Full,
+			$ItemUse)
+
+    Invoke-ExpectedPass `
 		-Name 'thrown weapon input choice reducer maps its exact pure contract' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceReducer.cpp',
@@ -4548,6 +4573,13 @@ try
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentation.cpp') `
 		-Logs @($ThrownArcPreviewPresentation) `
+		-ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+		-Name 'thrown Arc preview update focus cannot replace presentation and authority evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewUpdateCoordinator.cpp') `
+		-Logs @($ThrownArcPreviewUpdateCoordinator) `
 		-ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
