@@ -178,6 +178,9 @@ try
     $ThrownArcPreviewUpdateCoordinator = New-AutomationLogFixture `
         -Name 'thrown-arc-preview-update-coordinator.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewUpdateCoordinator'
+    $ThrownArcPreviewPresentationSession = New-AutomationLogFixture `
+        -Name 'thrown-arc-preview-presentation-session.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSession'
     $ThrownArcChoiceProjection = New-AutomationLogFixture `
         -Name 'thrown-arc-choice-projection.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcChoiceProjection'
@@ -2832,6 +2835,29 @@ try
 			$ItemUse)
 
     Invoke-ExpectedPass `
+		-Name 'thrown weapon Arc preview presentation Session maps state owner and full update authority seams' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationSession.h',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationSession.cpp') `
+		-Logs @(
+			$ThrownArcPreviewPresentationSession,
+			$ThrownArcPreviewUpdateCoordinator,
+			$ThrownArcPreviewPresentation,
+			$ThrownArcPreviewProductBridge,
+			$ThrownArcPreviewCapture,
+			$ThrownArcPreviewComposition,
+			$ThrownArcChoiceProjection,
+			$ThrownProductSession,
+			$ThrownProductController,
+			$ThrownArcPreview,
+			$ThrownArc,
+			$ThrownRuntime,
+			$CombatRuntime,
+			$CombatCore,
+			$Full,
+			$ItemUse)
+
+    Invoke-ExpectedPass `
 		-Name 'thrown weapon input choice reducer maps its exact pure contract' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceReducer.cpp',
@@ -4580,6 +4606,13 @@ try
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewUpdateCoordinator.cpp') `
 		-Logs @($ThrownArcPreviewUpdateCoordinator) `
+		-ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+		-Name 'thrown Arc preview presentation Session focus cannot replace update and authority evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationSession.cpp') `
+		-Logs @($ThrownArcPreviewPresentationSession) `
 		-ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

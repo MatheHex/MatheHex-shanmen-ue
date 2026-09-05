@@ -16,6 +16,7 @@
 #include "demo_mapShanmenRunLifecycleAdapter.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewProductBridge.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentation.h"
+#include "demo_mapShanmenThrownWeaponArcPreviewPresentationSession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewUpdateCoordinator.h"
 #include "demo_mapShanmenThrownWeaponProjectile.h"
 
@@ -2170,6 +2171,439 @@ bool Fdemo_mapThrownWeaponArcPreviewUpdateScopeFenceTest::RunTest(
 				.GetNextPlayerThrownWeaponActivationSequence() == 1
 			&& ForeignFixture.Coordinator
 				.GetNextPlayerThrownWeaponActivationSequence() == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewPresentationSessionRunBindingTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSession.RunBinding",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewPresentationSessionRunBindingTest::
+	RunTest(const FString&)
+{
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Session;
+	const FGuid FirstRun = FGuid::NewGuid();
+	const FGuid OtherRun = FGuid::NewGuid();
+	FString Diagnostic;
+	TestTrue(TEXT("default presentation consumer is valid and empty"),
+		Session.IsValid() && Session.IsEmpty() && !Session.IsActive());
+	TestFalse(TEXT("invalid Run identity cannot bind presentation state"),
+		Session.TryBegin(FGuid(), Diagnostic));
+	TestTrue(TEXT("one valid Run binds an empty consumer"),
+		Session.TryBegin(FirstRun, Diagnostic)
+			&& Session.IsValid()
+			&& Session.IsActive()
+			&& !Session.IsEmpty()
+			&& Session.GetRunId() == FirstRun
+			&& Session.GetState().IsEmpty());
+	TestTrue(TEXT("exact Run begin is idempotent"),
+		Session.TryBegin(FirstRun, Diagnostic)
+			&& Session.GetRunId() == FirstRun);
+	TestFalse(TEXT("active consumer rejects silent Run rotation"),
+		Session.TryBegin(OtherRun, Diagnostic));
+	TestTrue(TEXT("exact Run end returns the consumer to empty state"),
+		Session.TryEnd(FirstRun, Diagnostic)
+			&& Session.IsEmpty()
+			&& Session.GetState().IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewPresentationSessionVisibleCommitTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSession.VisibleCommit",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewPresentationSessionVisibleCommitTest::
+	RunTest(const FString&)
+{
+	using ESession =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationSessionStatus;
+	using EUpdate = Edemo_mapShanmenThrownWeaponArcPreviewUpdateStatus;
+	FThrownLifecycleFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcPreviewPresentationSessionVisible"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Session;
+	FString Diagnostic;
+	if (!Session.TryBegin(Fixture.Correlation.ActiveRunId, Diagnostic))
+	{
+		AddError(Diagnostic);
+		return false;
+	}
+	FShanmenItemAuthoritySnapshot Before;
+	Fixture.Authority->TryCaptureSnapshot(Before);
+	const uint64 SequenceBefore = Fixture.Coordinator
+		.GetNextPlayerThrownWeaponActivationSequence();
+	const auto Result = Session.TryUpdate(
+		2,
+		MakeArcPreviewChoice(false),
+		MakeArcPreviewChoicePolicy(),
+		8,
+		MakeArcPreviewBasis(),
+		Fixture.Lifecycle,
+		Fixture.Coordinator);
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Authority->TryCaptureSnapshot(After);
+	TestTrue(TEXT("session atomically adopts one completed bounded update"),
+		Result.IsValid()
+			&& Result.IsAccepted()
+			&& Result.DidChange()
+			&& !Result.IsNoChange()
+			&& Result.GetStatus() == ESession::Applied
+			&& Result.GetCoordinatorCallCount() == 1
+			&& Result.GetUpdate().GetStatus() == EUpdate::Replaced
+			&& Result.GetPreviousState().IsEmpty()
+			&& Result.GetState().IsVisible()
+			&& Session.GetState().Matches(Result.GetState())
+			&& Session.GetState().GetRunId()
+				== Fixture.Correlation.ActiveRunId);
+	TestTrue(TEXT("presentation commit leaves product authority unchanged"),
+		Before == After
+			&& Fixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence()
+				== SequenceBefore
+			&& Fixture.Lifecycle.GetHostState()
+				== Edemo_mapShanmenThrownWeaponHostState::Empty
+			&& Fixture.Lifecycle.NumCapturedSelections() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewPresentationSessionRevisionTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSession.DuplicateAndRevision",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewPresentationSessionRevisionTest::RunTest(
+	const FString&)
+{
+	using ESession =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationSessionStatus;
+	FThrownLifecycleFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcPreviewPresentationSessionRevision"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Session;
+	FString Diagnostic;
+	check(Session.TryBegin(Fixture.Correlation.ActiveRunId, Diagnostic));
+	const auto InitialChoice = MakeArcPreviewChoice(false);
+	const auto RevisedChoice = MakeArcPreviewChoice(true);
+	const auto Policy = MakeArcPreviewChoicePolicy();
+	const auto Basis = MakeArcPreviewBasis();
+	const auto Initial = Session.TryUpdate(
+		2, InitialChoice, Policy, 8, Basis,
+		Fixture.Lifecycle, Fixture.Coordinator);
+	const auto InitialState = Session.GetState();
+	const auto Duplicate = Session.TryUpdate(
+		2, InitialChoice, Policy, 8, Basis,
+		Fixture.Lifecycle, Fixture.Coordinator);
+	const auto Revised = Session.TryUpdate(
+		2, RevisedChoice, Policy, 8, Basis,
+		Fixture.Lifecycle, Fixture.Coordinator);
+	TestTrue(TEXT("session preserves duplicate and strict revision semantics"),
+		Initial.GetStatus() == ESession::Applied
+			&& Duplicate.IsAccepted()
+			&& Duplicate.IsNoChange()
+			&& Duplicate.GetStatus() == ESession::NoChange
+			&& Duplicate.GetState().Matches(InitialState)
+			&& Revised.IsAccepted()
+			&& Revised.DidChange()
+			&& Revised.GetState().GetChoiceRevision()
+				== InitialState.GetChoiceRevision() + 1
+			&& Revised.GetState().GetPresentationStateId()
+				!= InitialState.GetPresentationStateId()
+			&& Session.GetState().Matches(Revised.GetState()));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewPresentationSessionNoPreviewTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSession.NoPreviewWithoutProduct",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewPresentationSessionNoPreviewTest::
+	RunTest(const FString&)
+{
+	using ESession =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationSessionStatus;
+	using EUpdate = Edemo_mapShanmenThrownWeaponArcPreviewUpdateStatus;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Session;
+	FString Diagnostic;
+	check(Session.TryBegin(FGuid::NewGuid(), Diagnostic));
+	Fdemo_mapShanmenThrownWeaponProductLifecycle EmptyLifecycle;
+	Fdemo_mapCombatRunCoordinator EmptyCoordinator;
+	Fdemo_mapShanmenThrownWeaponArcChoicePolicy EmptyPolicy;
+	Fdemo_mapShanmenThrownWeaponArcChoiceBasis EmptyBasis;
+	const auto Result = Session.TryUpdate(
+		0,
+		Fdemo_mapShanmenThrownWeaponInputChoiceState::CreateInitial(),
+		EmptyPolicy,
+		0,
+		EmptyBasis,
+		EmptyLifecycle,
+		EmptyCoordinator);
+	TestTrue(TEXT("empty non-preview consumer needs no product source"),
+		Result.IsValid()
+			&& Result.IsAccepted()
+			&& Result.IsNoChange()
+			&& Result.GetStatus() == ESession::NoChange
+			&& Result.GetCoordinatorCallCount() == 1
+			&& Result.GetUpdate().GetStatus()
+				== EUpdate::NoPresentationRequired
+			&& Result.GetUpdate().GetCaptureCount() == 0
+			&& Result.GetUpdate().GetProjectCount() == 0
+			&& Result.GetUpdate().GetReduceCount() == 0
+			&& Session.GetState().IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewPresentationSessionShutdownClearTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSession.ClearAfterShutdown",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewPresentationSessionShutdownClearTest::
+	RunTest(const FString&)
+{
+	using ESession =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationSessionStatus;
+	using EUpdate = Edemo_mapShanmenThrownWeaponArcPreviewUpdateStatus;
+	FThrownLifecycleFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcPreviewPresentationSessionShutdownClear"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Session;
+	FString Diagnostic;
+	check(Session.TryBegin(Fixture.Correlation.ActiveRunId, Diagnostic));
+	const auto InitialChoice = MakeArcPreviewChoice(false);
+	const auto Visible = Session.TryUpdate(
+		2,
+		InitialChoice,
+		MakeArcPreviewChoicePolicy(),
+		8,
+		MakeArcPreviewBasis(),
+		Fixture.Lifecycle,
+		Fixture.Coordinator);
+	const auto ClearChoice = ClearArcPreviewChoice(InitialChoice);
+	Fixture.Stop();
+	Fdemo_mapShanmenThrownWeaponArcChoicePolicy EmptyPolicy;
+	Fdemo_mapShanmenThrownWeaponArcChoiceBasis EmptyBasis;
+	const auto Cleared = Session.TryUpdate(
+		0, ClearChoice, EmptyPolicy, 0, EmptyBasis,
+		Fixture.Lifecycle, Fixture.Coordinator);
+	const auto Duplicate = Session.TryUpdate(
+		0, ClearChoice, EmptyPolicy, 0, EmptyBasis,
+		Fixture.Lifecycle, Fixture.Coordinator);
+	TestTrue(TEXT("session clears and deduplicates after product shutdown"),
+		Visible.GetStatus() == ESession::Applied
+			&& !Fixture.Lifecycle.IsActive()
+			&& !Fixture.Coordinator.IsActive()
+			&& Cleared.IsAccepted()
+			&& Cleared.DidChange()
+			&& Cleared.GetUpdate().GetStatus() == EUpdate::Cleared
+			&& Cleared.GetUpdate().GetCaptureCount() == 0
+			&& Cleared.GetUpdate().GetProjectCount() == 0
+			&& Cleared.GetUpdate().GetReduceCount() == 1
+			&& Session.GetState().IsHidden()
+			&& Duplicate.IsNoChange()
+			&& Duplicate.GetUpdate().GetStatus() == EUpdate::Duplicate
+			&& Duplicate.GetState().Matches(Session.GetState()));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewPresentationSessionAtomicRejectTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSession.RejectionAtomicity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewPresentationSessionAtomicRejectTest::
+	RunTest(const FString&)
+{
+	using ESession =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationSessionStatus;
+	using EUpdate = Edemo_mapShanmenThrownWeaponArcPreviewUpdateStatus;
+	FThrownLifecycleFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcPreviewPresentationSessionAtomicReject"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Session;
+	FString Diagnostic;
+	check(Session.TryBegin(Fixture.Correlation.ActiveRunId, Diagnostic));
+	const auto Policy = MakeArcPreviewChoicePolicy();
+	const auto Basis = MakeArcPreviewBasis();
+	const auto Initial = Session.TryUpdate(
+		2, MakeArcPreviewChoice(false), Policy, 8, Basis,
+		Fixture.Lifecycle, Fixture.Coordinator);
+	const auto StableState = Session.GetState();
+	Fdemo_mapShanmenThrownWeaponInputChoiceState InvalidChoice;
+	const auto Invalid = Session.TryUpdate(
+		2, InvalidChoice, Policy, 8, Basis,
+		Fixture.Lifecycle, Fixture.Coordinator);
+	const auto BadCapture = Session.TryUpdate(
+		0, MakeArcPreviewChoice(true), Policy, 8, Basis,
+		Fixture.Lifecycle, Fixture.Coordinator);
+	const auto Recovered = Session.TryUpdate(
+		2, MakeArcPreviewChoice(true), Policy, 8, Basis,
+		Fixture.Lifecycle, Fixture.Coordinator);
+	TestTrue(TEXT("rejected updates cannot poison consumer-owned state"),
+		Initial.IsAccepted()
+			&& Invalid.IsValid()
+			&& Invalid.GetStatus() == ESession::UpdateRejected
+			&& Invalid.GetCoordinatorCallCount() == 1
+			&& Invalid.GetUpdate().GetStatus() == EUpdate::ChoiceRejected
+			&& Invalid.GetState().Matches(StableState)
+			&& BadCapture.IsValid()
+			&& BadCapture.GetStatus() == ESession::UpdateRejected
+			&& BadCapture.GetUpdate().GetStatus() == EUpdate::CaptureRejected
+			&& BadCapture.GetState().Matches(StableState)
+			&& Recovered.IsAccepted()
+			&& Recovered.DidChange()
+			&& Session.GetState().Matches(Recovered.GetState()));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewPresentationSessionRunFenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSession.RunSourceFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewPresentationSessionRunFenceTest::RunTest(
+	const FString&)
+{
+	using ESession =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationSessionStatus;
+	FThrownLifecycleFixture FirstFixture;
+	FThrownLifecycleFixture ForeignFixture;
+	if (!FirstFixture.Start(
+			*this,
+			TEXT("ArcPreviewPresentationSessionRunFenceA"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc)
+		|| !ForeignFixture.Start(
+			*this,
+			TEXT("ArcPreviewPresentationSessionRunFenceB"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Session;
+	FString Diagnostic;
+	check(Session.TryBegin(FirstFixture.Correlation.ActiveRunId, Diagnostic));
+	const auto Policy = MakeArcPreviewChoicePolicy();
+	const auto Basis = MakeArcPreviewBasis();
+	const auto Initial = Session.TryUpdate(
+		2, MakeArcPreviewChoice(false), Policy, 8, Basis,
+		FirstFixture.Lifecycle, FirstFixture.Coordinator);
+	const auto StableState = Session.GetState();
+	const auto Foreign = Session.TryUpdate(
+		2, MakeArcPreviewChoice(true), Policy, 8, Basis,
+		ForeignFixture.Lifecycle, ForeignFixture.Coordinator);
+	FirstFixture.Stop();
+	const auto Unavailable = Session.TryUpdate(
+		2, MakeArcPreviewChoice(true), Policy, 8, Basis,
+		FirstFixture.Lifecycle, FirstFixture.Coordinator);
+	TestTrue(TEXT("visible path rejects foreign or unavailable Run sources"),
+		Initial.IsAccepted()
+			&& Foreign.IsValid()
+			&& Foreign.GetStatus() == ESession::RunMismatch
+			&& Foreign.GetCoordinatorCallCount() == 0
+			&& Foreign.GetState().Matches(StableState)
+			&& Unavailable.IsValid()
+			&& Unavailable.GetStatus() == ESession::ProductUnavailable
+			&& Unavailable.GetCoordinatorCallCount() == 0
+			&& Unavailable.GetState().Matches(StableState)
+			&& Session.GetState().Matches(StableState));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewPresentationSessionRotationTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSession.EndResetRotation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewPresentationSessionRotationTest::RunTest(
+	const FString&)
+{
+	using ESession =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationSessionStatus;
+	FThrownLifecycleFixture FirstFixture;
+	FThrownLifecycleFixture NextFixture;
+	if (!FirstFixture.Start(
+			*this,
+			TEXT("ArcPreviewPresentationSessionRotationA"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc)
+		|| !NextFixture.Start(
+			*this,
+			TEXT("ArcPreviewPresentationSessionRotationB"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSession Session;
+	FString Diagnostic;
+	check(Session.TryBegin(FirstFixture.Correlation.ActiveRunId, Diagnostic));
+	const auto First = Session.TryUpdate(
+		2,
+		MakeArcPreviewChoice(false),
+		MakeArcPreviewChoicePolicy(),
+		8,
+		MakeArcPreviewBasis(),
+		FirstFixture.Lifecycle,
+		FirstFixture.Coordinator);
+	const FGuid OldStateId = Session.GetState().GetPresentationStateId();
+	TestFalse(TEXT("mismatched teardown preserves active presentation"),
+		Session.TryEnd(NextFixture.Correlation.ActiveRunId, Diagnostic));
+	TestTrue(TEXT("exact teardown drops every old Run presentation value"),
+		First.IsAccepted()
+			&& Session.GetState().GetPresentationStateId() == OldStateId
+			&& Session.TryEnd(FirstFixture.Correlation.ActiveRunId, Diagnostic)
+			&& Session.IsEmpty()
+			&& Session.GetState().IsEmpty());
+	check(Session.TryBegin(NextFixture.Correlation.ActiveRunId, Diagnostic));
+	const auto Next = Session.TryUpdate(
+		2,
+		MakeArcPreviewChoice(false),
+		MakeArcPreviewChoicePolicy(),
+		8,
+		MakeArcPreviewBasis(),
+		NextFixture.Lifecycle,
+		NextFixture.Coordinator);
+	TestTrue(TEXT("new Run starts from empty state even at the same choice revision"),
+		Next.IsAccepted()
+			&& Next.GetStatus() == ESession::Applied
+			&& Next.GetPreviousState().IsEmpty()
+			&& Next.GetState().GetRunId()
+				== NextFixture.Correlation.ActiveRunId
+			&& Next.GetState().GetPresentationStateId() != OldStateId);
+	Session.Reset();
+	const auto Inactive = Session.TryUpdate(
+		2,
+		MakeArcPreviewChoice(false),
+		MakeArcPreviewChoicePolicy(),
+		8,
+		MakeArcPreviewBasis(),
+		NextFixture.Lifecycle,
+		NextFixture.Coordinator);
+	TestTrue(TEXT("explicit reset drops scope and blocks updates until begin"),
+		Session.IsEmpty()
+			&& Inactive.IsValid()
+			&& Inactive.GetStatus() == ESession::SessionInactive
+			&& Inactive.GetCoordinatorCallCount() == 0);
 	return true;
 }
 
