@@ -200,6 +200,15 @@ public:
 	}
 	const Fdemo_mapShanmenThrownWeaponRunCommandIntent* FindCapturedCommand(
 		const FGuid& SelectionId) const;
+	/**
+	 * Copies one immutable preview binding from the frozen Run correlation.
+	 * This read-only boundary never captures stats, reserves an action, touches
+	 * inventory authority, or changes the product Host.
+	 */
+	bool TryCaptureReadOnlyHotbarBinding(
+		int32 HotbarSlotNumber,
+		FGuid& OutItemInstanceId,
+		Fdemo_mapShanmenThrownWeaponSessionConfig& OutConfig) const;
 
 private:
 	struct FCapturedSelection

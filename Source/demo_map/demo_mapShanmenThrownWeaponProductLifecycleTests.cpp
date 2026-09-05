@@ -14,6 +14,7 @@
 #include "demo_mapShanmenItemCutover.h"
 #include "demo_mapShanmenPreparationAdapter.h"
 #include "demo_mapShanmenRunLifecycleAdapter.h"
+#include "demo_mapShanmenThrownWeaponArcPreviewProductBridge.h"
 #include "demo_mapShanmenThrownWeaponProjectile.h"
 
 #include "Engine/Engine.h"
@@ -312,6 +313,61 @@ namespace
 			Stop();
 		}
 	};
+
+	Fdemo_mapShanmenThrownWeaponInputChoiceState MakeArcPreviewChoice(
+		const bool bApplyApexAdjustment = true)
+	{
+		using ETrajectory =
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind;
+		Fdemo_mapShanmenThrownWeaponInputChoiceState State =
+			Fdemo_mapShanmenThrownWeaponInputChoiceState::CreateInitial();
+		Fdemo_mapShanmenThrownWeaponInputChoiceCommand Command;
+		check(Fdemo_mapShanmenThrownWeaponInputChoiceCommand::
+			TryCaptureTrajectorySelection(
+				State.GetRevision(), ETrajectory::BallisticArc, Command));
+		auto Reduced =
+			Fdemo_mapShanmenThrownWeaponInputChoiceReducer::Reduce(
+				State, Command);
+		check(Reduced.DidChange());
+		State = Reduced.State;
+		check(Fdemo_mapShanmenThrownWeaponInputChoiceCommand::
+			TryCaptureArcTargetIntent(
+				State.GetRevision(), FVector2D(0.0, -1.0), Command));
+		Reduced = Fdemo_mapShanmenThrownWeaponInputChoiceReducer::Reduce(
+			State, Command);
+		check(Reduced.DidChange());
+		State = Reduced.State;
+		if (bApplyApexAdjustment)
+		{
+			check(Fdemo_mapShanmenThrownWeaponInputChoiceCommand::
+				TryCaptureArcApexAdjustment(
+					State.GetRevision(), -1.0, Command));
+			Reduced = Fdemo_mapShanmenThrownWeaponInputChoiceReducer::Reduce(
+				State, Command);
+			check(Reduced.DidChange());
+			State = Reduced.State;
+		}
+		return State;
+	}
+
+	Fdemo_mapShanmenThrownWeaponArcChoicePolicy MakeArcPreviewChoicePolicy()
+	{
+		Fdemo_mapShanmenThrownWeaponArcChoicePolicy Policy;
+		check(Fdemo_mapShanmenThrownWeaponArcChoicePolicy::TryCapture(
+			400.0, 1200.0, 300.0, 100.0, 500.0, Policy));
+		return Policy;
+	}
+
+	Fdemo_mapShanmenThrownWeaponArcChoiceBasis MakeArcPreviewBasis()
+	{
+		Fdemo_mapShanmenThrownWeaponArcChoiceBasis Basis;
+		check(Fdemo_mapShanmenThrownWeaponArcChoiceBasis::TryCapture(
+			FVector(100.0, 200.0, 50.0),
+			FVector::ForwardVector,
+			FVector::RightVector,
+			Basis));
+		return Basis;
+	}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -770,6 +826,325 @@ bool Fdemo_mapThrownWeaponProductLifecycleFailClosedTest::RunTest(
 			== Edemo_mapShanmenThrownWeaponSessionStatus::SessionInactive
 		&& AfterInactive == Before
 		&& EmptyLifecycle.IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewProductBridgeCanonicalTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewProductBridge.CanonicalReadOnlyCapture",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewProductBridgeCanonicalTest::RunTest(
+	const FString&)
+{
+	FThrownLifecycleFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcPreviewProductBridgeCanonical"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	FShanmenItemAuthoritySnapshot Before;
+	Fixture.Authority->TryCaptureSnapshot(Before);
+	const uint64 SequenceBefore = Fixture.Coordinator
+		.GetNextPlayerThrownWeaponActivationSequence();
+	const auto Choice = MakeArcPreviewChoice();
+	const auto Policy = MakeArcPreviewChoicePolicy();
+	const auto Result =
+		Fdemo_mapShanmenThrownWeaponArcPreviewProductBridge::Capture(
+			2, Choice, Policy, 8, Fixture.Lifecycle, Fixture.Coordinator);
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Authority->TryCaptureSnapshot(After);
+	TestTrue(TEXT("live product state enters one self-validating preview"),
+		Result.IsCaptured()
+			&& Result.GetLifecycleRunId() == Fixture.Correlation.ActiveRunId
+			&& Result.GetCoordinatorRunId() == Fixture.Correlation.ActiveRunId
+			&& Result.GetPlayerEntityId()
+				== Fixture.Coordinator.GetPlayerEntityId()
+			&& Result.GetSourceItemInstanceId() == Fixture.ThrowingKnifeId
+			&& Result.GetSequenceReadCount() == 2
+			&& Result.GetSequenceBefore() == SequenceBefore
+			&& Result.GetSequenceAfter() == SequenceBefore);
+	TestTrue(TEXT("preview bridge leaves real product and inventory untouched"),
+		Before == After
+			&& Fixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence() == SequenceBefore
+			&& Fixture.Lifecycle.GetHostState()
+				== Edemo_mapShanmenThrownWeaponHostState::Empty
+			&& Fixture.Lifecycle.NumCapturedSelections() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewProductBridgeReplayTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewProductBridge.DeterministicReplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewProductBridgeReplayTest::RunTest(
+	const FString&)
+{
+	FThrownLifecycleFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcPreviewProductBridgeReplay"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	FShanmenItemAuthoritySnapshot Before;
+	Fixture.Authority->TryCaptureSnapshot(Before);
+	const auto Choice = MakeArcPreviewChoice();
+	const auto Policy = MakeArcPreviewChoicePolicy();
+	const auto First =
+		Fdemo_mapShanmenThrownWeaponArcPreviewProductBridge::Capture(
+			2, Choice, Policy, 8, Fixture.Lifecycle, Fixture.Coordinator);
+	const auto Replay =
+		Fdemo_mapShanmenThrownWeaponArcPreviewProductBridge::Capture(
+			2, Choice, Policy, 8, Fixture.Lifecycle, Fixture.Coordinator);
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Authority->TryCaptureSnapshot(After);
+	TestTrue(TEXT("equal live reads replay exact preview evidence"),
+		First.Matches(Replay)
+			&& First.GetPreviewRequestId() == Replay.GetPreviewRequestId()
+			&& First.GetCapture().GetPreviewActivationId()
+				== Replay.GetCapture().GetPreviewActivationId());
+	TestTrue(TEXT("replay still consumes no sequence or item state"),
+		Before == After
+			&& Fixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence() == 1
+			&& Fixture.Lifecycle.NumCapturedSelections() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewProductBridgeRevisionTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewProductBridge.ChoiceRevisionIsolation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewProductBridgeRevisionTest::RunTest(
+	const FString&)
+{
+	FThrownLifecycleFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcPreviewProductBridgeRevision"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	const auto Policy = MakeArcPreviewChoicePolicy();
+	const auto Initial =
+		Fdemo_mapShanmenThrownWeaponArcPreviewProductBridge::Capture(
+			2,
+			MakeArcPreviewChoice(false),
+			Policy,
+			8,
+			Fixture.Lifecycle,
+			Fixture.Coordinator);
+	const auto Revised =
+		Fdemo_mapShanmenThrownWeaponArcPreviewProductBridge::Capture(
+			2,
+			MakeArcPreviewChoice(true),
+			Policy,
+			8,
+			Fixture.Lifecycle,
+			Fixture.Coordinator);
+	TestTrue(TEXT("choice revision changes only preview-domain identity"),
+		Initial.IsCaptured()
+			&& Revised.IsCaptured()
+			&& Initial.GetChoiceState().GetRevision() + 1
+				== Revised.GetChoiceState().GetRevision()
+			&& Initial.GetPreviewRequestId() != Revised.GetPreviewRequestId()
+			&& Initial.GetCapture().GetPreviewActivationId()
+				!= Revised.GetCapture().GetPreviewActivationId()
+			&& Initial.GetCapture().GetProspectiveRealActivationId()
+				== Revised.GetCapture().GetProspectiveRealActivationId()
+			&& Fixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence() == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewProductBridgeInputFenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewProductBridge.InputAndChoiceFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewProductBridgeInputFenceTest::RunTest(
+	const FString&)
+{
+	FThrownLifecycleFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcPreviewProductBridgeInputFence"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	using EBridgeStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewProductBridgeStatus;
+	FShanmenItemAuthoritySnapshot Before;
+	Fixture.Authority->TryCaptureSnapshot(Before);
+	const auto InvalidSlot =
+		Fdemo_mapShanmenThrownWeaponArcPreviewProductBridge::Capture(
+			0,
+			MakeArcPreviewChoice(),
+			MakeArcPreviewChoicePolicy(),
+			8,
+			Fixture.Lifecycle,
+			Fixture.Coordinator);
+	const auto StraightChoice =
+		Fdemo_mapShanmenThrownWeaponArcPreviewProductBridge::Capture(
+			2,
+			Fdemo_mapShanmenThrownWeaponInputChoiceState::CreateInitial(),
+			MakeArcPreviewChoicePolicy(),
+			8,
+			Fixture.Lifecycle,
+			Fixture.Coordinator);
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Authority->TryCaptureSnapshot(After);
+	TestTrue(TEXT("invalid input and non-Arc choice reject before product work"),
+		InvalidSlot.GetStatus() == EBridgeStatus::InputRejected
+			&& StraightChoice.GetStatus() == EBridgeStatus::ChoiceRejected
+			&& InvalidSlot.GetSequenceReadCount() == 0
+			&& StraightChoice.GetSequenceReadCount() == 0
+			&& Before == After
+			&& Fixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence() == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewProductBridgeProductFenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewProductBridge.ProductFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewProductBridgeProductFenceTest::RunTest(
+	const FString&)
+{
+	using EBridgeStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewProductBridgeStatus;
+	FThrownLifecycleFixture ArcFixture;
+	if (!ArcFixture.Start(
+			*this,
+			TEXT("ArcPreviewProductBridgeProductFence"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	const auto Choice = MakeArcPreviewChoice();
+	const auto Policy = MakeArcPreviewChoicePolicy();
+	const auto EmptySlot =
+		Fdemo_mapShanmenThrownWeaponArcPreviewProductBridge::Capture(
+			1,
+			Choice,
+			Policy,
+			8,
+			ArcFixture.Lifecycle,
+			ArcFixture.Coordinator);
+	Fdemo_mapShanmenThrownWeaponProductLifecycle EmptyLifecycle;
+	const auto Inactive =
+		Fdemo_mapShanmenThrownWeaponArcPreviewProductBridge::Capture(
+			2,
+			Choice,
+			Policy,
+			8,
+			EmptyLifecycle,
+			ArcFixture.Coordinator);
+	TestTrue(TEXT("empty hotbar and inactive lifecycle fail closed"),
+		EmptySlot.GetStatus() == EBridgeStatus::ProductUnavailable
+			&& Inactive.GetStatus() == EBridgeStatus::ProductUnavailable
+			&& EmptySlot.GetSequenceReadCount() == 0
+			&& Inactive.GetSequenceReadCount() == 0
+			&& ArcFixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence() == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewProductBridgeRunFenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewProductBridge.RunFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewProductBridgeRunFenceTest::RunTest(
+	const FString&)
+{
+	using EBridgeStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewProductBridgeStatus;
+	FThrownLifecycleFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcPreviewProductBridgeRunFence"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	FShanmenItemAuthoritySnapshot Before;
+	Fixture.Authority->TryCaptureSnapshot(Before);
+	Fdemo_mapCombatRunCoordinator EmptyCoordinator;
+	const auto Rejected =
+		Fdemo_mapShanmenThrownWeaponArcPreviewProductBridge::Capture(
+			2,
+			MakeArcPreviewChoice(),
+			MakeArcPreviewChoicePolicy(),
+			8,
+			Fixture.Lifecycle,
+			EmptyCoordinator);
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Authority->TryCaptureSnapshot(After);
+	TestTrue(TEXT("inactive coordinator rejects after immutable product read"),
+		Rejected.GetStatus() == EBridgeStatus::RunUnavailable
+			&& Rejected.GetLifecycleRunId() == Fixture.Correlation.ActiveRunId
+			&& !Rejected.GetCoordinatorRunId().IsValid()
+			&& Rejected.GetSequenceReadCount() == 0
+			&& Before == After
+			&& Fixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence() == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewProductBridgeCompositionTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewProductBridge.CompositionCompatibility",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewProductBridgeCompositionTest::RunTest(
+	const FString&)
+{
+	FThrownLifecycleFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcPreviewProductBridgeComposition"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	const auto Choice = MakeArcPreviewChoice();
+	const auto Bridge =
+		Fdemo_mapShanmenThrownWeaponArcPreviewProductBridge::Capture(
+			2,
+			Choice,
+			MakeArcPreviewChoicePolicy(),
+			8,
+			Fixture.Lifecycle,
+			Fixture.Coordinator);
+	const auto Basis = MakeArcPreviewBasis();
+	const auto Preview =
+		Fdemo_mapShanmenThrownWeaponArcPreviewComposition::Compose(
+			Bridge.GetCapture().GetConfiguration(),
+			[&Choice]() { return Choice; },
+			[&Basis]() { return Basis; });
+	TestTrue(TEXT("live product bridge captures canonical preview inputs"),
+		Bridge.IsCaptured());
+	TestTrue(TEXT("live product bridge output composes into pure geometry"),
+		Preview.IsComposed()
+			&& Preview.GetConfiguration().GetAction().GetActivationId()
+				== Bridge.GetCapture().GetPreviewActivationId()
+			&& Preview.GetProjection().GetChoiceRevision()
+				== Bridge.GetChoiceState().GetRevision()
+			&& Fixture.Coordinator
+				.GetNextPlayerThrownWeaponActivationSequence() == 1
+			&& Fixture.Lifecycle.NumCapturedSelections() == 0);
 	return true;
 }
 

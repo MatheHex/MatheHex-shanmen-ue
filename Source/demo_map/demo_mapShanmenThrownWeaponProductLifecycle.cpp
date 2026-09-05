@@ -273,6 +273,19 @@ bool Fdemo_mapShanmenThrownWeaponProductLifecycle::IsValid() const
 		&& (Session.IsActive() == BoundAuthority.IsValid());
 }
 
+bool Fdemo_mapShanmenThrownWeaponProductLifecycle::
+	TryCaptureReadOnlyHotbarBinding(
+		const int32 HotbarSlotNumber,
+		FGuid& OutItemInstanceId,
+		Fdemo_mapShanmenThrownWeaponSessionConfig& OutConfig) const
+{
+	OutItemInstanceId.Invalidate();
+	OutConfig = Fdemo_mapShanmenThrownWeaponSessionConfig();
+	return IsValid()
+		&& Session.TryCaptureReadOnlyHotbarBinding(
+			HotbarSlotNumber, OutItemInstanceId, OutConfig);
+}
+
 Fdemo_mapShanmenThrownWeaponSessionResult
 Fdemo_mapShanmenThrownWeaponProductLifecycle::RejectUnavailable(
 	const Fdemo_mapShanmenThrownWeaponHotbarIntent& Intent,

@@ -290,6 +290,37 @@ bool Fdemo_mapShanmenThrownWeaponSessionResult::IsRecoveryApplied() const
 		&& Product.IsRecoveryApplied();
 }
 
+bool Fdemo_mapShanmenThrownWeaponProductSession::
+	TryCaptureReadOnlyHotbarBinding(
+		const int32 HotbarSlotNumber,
+		FGuid& OutItemInstanceId,
+		Fdemo_mapShanmenThrownWeaponSessionConfig& OutConfig) const
+{
+	OutItemInstanceId.Invalidate();
+	OutConfig = Fdemo_mapShanmenThrownWeaponSessionConfig();
+	const int32 HotbarIndex = HotbarSlotNumber - 1;
+	if (!bActive || !IsValid()
+		|| HotbarSlotNumber < 1
+		|| HotbarSlotNumber
+			> Fdemo_mapPersistentPreparationLayout::HotbarSlotCount
+		|| !Correlation.HotbarItemInstanceIds.IsValidIndex(HotbarIndex))
+	{
+		return false;
+	}
+
+	const FGuid ItemInstanceId =
+		Correlation.HotbarItemInstanceIds[HotbarIndex];
+	const Fdemo_mapShanmenThrownWeaponSessionConfig ConfigSnapshot = Config;
+	if (!ItemInstanceId.IsValid() || !ConfigSnapshot.IsValid())
+	{
+		return false;
+	}
+
+	OutItemInstanceId = ItemInstanceId;
+	OutConfig = ConfigSnapshot;
+	return true;
+}
+
 bool Fdemo_mapShanmenThrownWeaponProductSession::TryBegin(
 	const Fdemo_mapShanmenRunCorrelation& RequestedCorrelation,
 	AActor& RequestedSourceActor,

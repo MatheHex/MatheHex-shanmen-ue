@@ -169,6 +169,9 @@ try
     $ThrownArcPreviewCapture = New-AutomationLogFixture `
         -Name 'thrown-arc-preview-capture.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewCapture'
+    $ThrownArcPreviewProductBridge = New-AutomationLogFixture `
+        -Name 'thrown-arc-preview-product-bridge.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewProductBridge'
     $ThrownArcChoiceProjection = New-AutomationLogFixture `
         -Name 'thrown-arc-choice-projection.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcChoiceProjection'
@@ -2760,6 +2763,26 @@ try
 			$Full)
 
     Invoke-ExpectedPass `
+		-Name 'thrown weapon Arc preview product bridge maps live read-only product and authority seams' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewProductBridge.h',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewProductBridge.cpp') `
+		-Logs @(
+			$ThrownArcPreviewProductBridge,
+			$ThrownArcPreviewCapture,
+			$ThrownArcPreviewComposition,
+			$ThrownArcChoiceProjection,
+			$ThrownProductSession,
+			$ThrownProductController,
+			$ThrownArcPreview,
+			$ThrownArc,
+			$ThrownRuntime,
+			$CombatRuntime,
+			$CombatCore,
+			$Full,
+			$ItemUse)
+
+    Invoke-ExpectedPass `
 		-Name 'thrown weapon input choice reducer maps its exact pure contract' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceReducer.cpp',
@@ -4487,6 +4510,13 @@ try
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewCapturePolicy.cpp') `
 		-Logs @($ThrownArcPreviewCapture) `
+		-ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+		-Name 'thrown Arc preview product bridge focus cannot replace live product and authority evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewProductBridge.cpp') `
+		-Logs @($ThrownArcPreviewProductBridge) `
 		-ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

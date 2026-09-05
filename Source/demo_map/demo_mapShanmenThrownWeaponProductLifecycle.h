@@ -94,6 +94,11 @@ public:
 	{
 		return Session.FindCapturedCommand(SelectionId);
 	}
+	/** Copies one immutable hotbar/config snapshot without product mutation. */
+	bool TryCaptureReadOnlyHotbarBinding(
+		int32 HotbarSlotNumber,
+		FGuid& OutItemInstanceId,
+		Fdemo_mapShanmenThrownWeaponSessionConfig& OutConfig) const;
 
 private:
 	Fdemo_mapShanmenThrownWeaponSessionResult RejectUnavailable(
