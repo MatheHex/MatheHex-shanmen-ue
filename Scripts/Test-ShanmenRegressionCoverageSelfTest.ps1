@@ -409,6 +409,9 @@ try
     $ThrownWeaponTrajectoryPresentation = New-AutomationLogFixture `
         -Name 'thrown-weapon-trajectory-presentation.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponTrajectoryPresentation'
+    $ThrownWeaponArcEditingPresentation = New-AutomationLogFixture `
+        -Name 'thrown-weapon-arc-editing-presentation.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcEditingPresentation'
     $WorldGameplay = New-AutomationLogFixture `
         -Name 'world-gameplay.log' `
         -Group 'Shanmen.0_0_10.WorldGameplay'
@@ -2548,8 +2551,20 @@ try
 		-Logs @(
 			$Full,
 			$ThrownWeaponTrajectoryPresentation,
+			$ThrownWeaponArcEditingPresentation,
 			$ThrownWeaponTrajectoryTogglePhysicalInput,
 			$Ranged)
+
+	Invoke-ExpectedPass `
+		-Name 'thrown weapon Arc editing presentation maps current Arc mode and read evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcEditingPresentation.h',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcEditingPresentation.cpp',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcEditingPresentationTests.cpp') `
+		-Logs @(
+			$Full,
+			$ThrownWeaponTrajectoryPresentation,
+			$ThrownWeaponArcEditingPresentation)
 
 	Invoke-ExpectedPass `
 		-Name 'thrown weapon choice interaction request maps current read intent controller session command and broad evidence' `
@@ -4223,6 +4238,13 @@ try
 		-Name 'main HUD trajectory presentation cannot omit current toggle and ranged evidence' `
 		-Paths @('Source/demo_map/demo_mapHUD.cpp') `
 		-Logs @($ThrownWeaponTrajectoryPresentation) `
+		-ExpectedText 'missing required groups'
+
+	Invoke-ExpectedFail `
+		-Name 'thrown Arc editing presentation cannot use unrelated item evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcEditingPresentation.cpp') `
+		-Logs @($ItemUse) `
 		-ExpectedText 'missing required groups'
 
 	Invoke-ExpectedFail `

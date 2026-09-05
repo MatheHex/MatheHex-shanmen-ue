@@ -14,6 +14,7 @@
 #include "demo_mapInputActionRegistry.h"
 #include "demo_mapInputBindingSettings.h"
 #include "demo_mapPlayerController.h"
+#include "demo_mapShanmenThrownWeaponArcEditingPresentation.h"
 #include "demo_mapShanmenThrownWeaponTrajectoryPresentation.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
@@ -162,6 +163,25 @@ void Ademo_mapHUD::DrawHUD()
 					? FLinearColor(1.0f, 0.72f, 0.18f)
 					: FLinearColor(0.25f, 0.9f, 1.0f),
 				0.92f);
+		}
+		Fdemo_mapShanmenThrownWeaponArcEditingPresentation ArcPresentation;
+		if (Fdemo_mapShanmenThrownWeaponArcEditingPresentation::TryProject(
+			Read, ArcPresentation))
+		{
+			DrawReadableText(
+				Canvas,
+				GEngine->GetSmallFont(),
+				ArcPresentation.GetTargetDisplayText(),
+				FVector2D(28.0f, Canvas->SizeY - 158.0f),
+				FLinearColor(0.76f, 0.88f, 1.0f),
+				0.78f);
+			DrawReadableText(
+				Canvas,
+				GEngine->GetSmallFont(),
+				ArcPresentation.GetApexDisplayText(),
+				FVector2D(28.0f, Canvas->SizeY - 136.0f),
+				FLinearColor(1.0f, 0.82f, 0.38f),
+				0.78f);
 		}
 	}
 	APawn* PlayerPawn = PlayerController != nullptr ? PlayerController->GetPawn() : nullptr;
