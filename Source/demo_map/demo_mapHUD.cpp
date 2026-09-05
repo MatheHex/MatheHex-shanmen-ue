@@ -14,6 +14,7 @@
 #include "demo_mapInputActionRegistry.h"
 #include "demo_mapInputBindingSettings.h"
 #include "demo_mapPlayerController.h"
+#include "demo_mapShanmenThrownWeaponArcEditingInputHintPresentation.h"
 #include "demo_mapShanmenThrownWeaponArcEditingPresentation.h"
 #include "demo_mapShanmenThrownWeaponTrajectoryPresentation.h"
 #include "Engine/Canvas.h"
@@ -168,6 +169,33 @@ void Ademo_mapHUD::DrawHUD()
 		if (Fdemo_mapShanmenThrownWeaponArcEditingPresentation::TryProject(
 			Read, ArcPresentation))
 		{
+			Fdemo_mapShanmenThrownWeaponArcEditingInputHintPresentation
+				ArcInputHintPresentation;
+			if (Fdemo_mapShanmenThrownWeaponArcEditingInputHintPresentation::
+				TryProject(
+					ArcPresentation,
+					InputSettings.GetKey(
+						Fdemo_mapInputActionIds::ThrownWeaponArcTargetSet)
+						.GetDisplayName().ToString(),
+					InputSettings.GetKey(
+						Fdemo_mapInputActionIds::ThrownWeaponArcApexIncrease)
+						.GetDisplayName().ToString(),
+					InputSettings.GetKey(
+						Fdemo_mapInputActionIds::ThrownWeaponArcApexDecrease)
+						.GetDisplayName().ToString(),
+					InputSettings.GetKey(
+						Fdemo_mapInputActionIds::ThrownWeaponArcTargetClear)
+						.GetDisplayName().ToString(),
+					ArcInputHintPresentation))
+			{
+				DrawReadableText(
+					Canvas,
+					GEngine->GetSmallFont(),
+					ArcInputHintPresentation.GetDisplayText(),
+					FVector2D(28.0f, Canvas->SizeY - 180.0f),
+					FLinearColor(0.58f, 0.92f, 1.0f),
+					0.72f);
+			}
 			DrawReadableText(
 				Canvas,
 				GEngine->GetSmallFont(),

@@ -412,6 +412,9 @@ try
     $ThrownWeaponArcEditingPresentation = New-AutomationLogFixture `
         -Name 'thrown-weapon-arc-editing-presentation.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcEditingPresentation'
+    $ThrownWeaponArcEditingInputHintPresentation = New-AutomationLogFixture `
+        -Name 'thrown-weapon-arc-editing-input-hint-presentation.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcEditingInputHintPresentation'
     $ThrownWeaponArcEditingInteractionComposition = New-AutomationLogFixture `
         -Name 'thrown-weapon-arc-editing-interaction-composition.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcEditingInteractionComposition'
@@ -2199,6 +2202,7 @@ try
             $Full,
             $ThrownWeaponTrajectoryTogglePhysicalInput,
             $ThrownWeaponArcEditingPhysicalInput,
+            $ThrownWeaponArcEditingInputHintPresentation,
             $SpiritEvasionPhysicalInput,
             $SpiritEvasionInputAdapter,
             $FullSystemLoop,
@@ -2563,7 +2567,10 @@ try
 			$Full,
 			$ThrownWeaponTrajectoryPresentation,
 			$ThrownWeaponArcEditingPresentation,
+			$ThrownWeaponArcEditingInputHintPresentation,
 			$ThrownWeaponTrajectoryTogglePhysicalInput,
+			$ThrownWeaponArcEditingPhysicalInput,
+			$InputRestore,
 			$Ranged)
 
 	Invoke-ExpectedPass `
@@ -2576,6 +2583,17 @@ try
 			$Full,
 			$ThrownWeaponTrajectoryPresentation,
 			$ThrownWeaponArcEditingPresentation)
+
+	Invoke-ExpectedPass `
+		-Name 'thrown weapon Arc editing input hint maps Arc presentation and broad evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcEditingInputHintPresentation.h',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcEditingInputHintPresentation.cpp',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcEditingInputHintPresentationTests.cpp') `
+		-Logs @(
+			$Full,
+			$ThrownWeaponArcEditingPresentation,
+			$ThrownWeaponArcEditingInputHintPresentation)
 
 	Invoke-ExpectedPass `
 		-Name 'thrown weapon Arc editing interaction composition maps request read intent and broad evidence' `
@@ -4299,6 +4317,13 @@ try
 		-Name 'thrown Arc editing presentation cannot use unrelated item evidence' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcEditingPresentation.cpp') `
+		-Logs @($ItemUse) `
+		-ExpectedText 'missing required groups'
+
+	Invoke-ExpectedFail `
+		-Name 'thrown Arc editing input hint cannot use unrelated item evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcEditingInputHintPresentation.cpp') `
 		-Logs @($ItemUse) `
 		-ExpectedText 'missing required groups'
 
