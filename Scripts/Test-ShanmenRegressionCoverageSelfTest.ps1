@@ -406,6 +406,9 @@ try
     $ThrownWeaponTrajectoryTogglePhysicalInput = New-AutomationLogFixture `
         -Name 'thrown-weapon-trajectory-toggle-physical-input.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponTrajectoryTogglePhysicalInput'
+    $ThrownWeaponTrajectoryPresentation = New-AutomationLogFixture `
+        -Name 'thrown-weapon-trajectory-presentation.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponTrajectoryPresentation'
     $WorldGameplay = New-AutomationLogFixture `
         -Name 'world-gameplay.log' `
         -Group 'Shanmen.0_0_10.WorldGameplay'
@@ -2529,6 +2532,26 @@ try
 			$Ranged)
 
 	Invoke-ExpectedPass `
+		-Name 'thrown weapon trajectory presentation maps its current read and toggle evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponTrajectoryPresentation.h',
+			'Source/demo_map/demo_mapShanmenThrownWeaponTrajectoryPresentation.cpp',
+			'Source/demo_map/demo_mapShanmenThrownWeaponTrajectoryPresentationTests.cpp') `
+		-Logs @(
+			$Full,
+			$ThrownWeaponTrajectoryPresentation,
+			$ThrownWeaponTrajectoryTogglePhysicalInput)
+
+	Invoke-ExpectedPass `
+		-Name 'main HUD trajectory presentation maps current read toggle and ranged evidence' `
+		-Paths @('Source/demo_map/demo_mapHUD.cpp') `
+		-Logs @(
+			$Full,
+			$ThrownWeaponTrajectoryPresentation,
+			$ThrownWeaponTrajectoryTogglePhysicalInput,
+			$Ranged)
+
+	Invoke-ExpectedPass `
 		-Name 'thrown weapon choice interaction request maps current read intent controller session command and broad evidence' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceInteractionRequestCoordinator.cpp',
@@ -4187,6 +4210,19 @@ try
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponTrajectoryTogglePhysicalInputTests.cpp') `
 		-Logs @($ItemUse) `
+		-ExpectedText 'missing required groups'
+
+	Invoke-ExpectedFail `
+		-Name 'thrown trajectory presentation cannot use unrelated item evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponTrajectoryPresentation.cpp') `
+		-Logs @($ItemUse) `
+		-ExpectedText 'missing required groups'
+
+	Invoke-ExpectedFail `
+		-Name 'main HUD trajectory presentation cannot omit current toggle and ranged evidence' `
+		-Paths @('Source/demo_map/demo_mapHUD.cpp') `
+		-Logs @($ThrownWeaponTrajectoryPresentation) `
 		-ExpectedText 'missing required groups'
 
 	Invoke-ExpectedFail `

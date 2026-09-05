@@ -3052,6 +3052,27 @@
 	  ]
 	},
 	{
+	  "name": "ThrownWeaponTrajectoryPresentation",
+	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponTrajectoryPresentation(?:Tests)?\\.(?:h|cpp)$",
+	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponTrajectoryPresentation",
+		"Shanmen.0_0_10.Product.ThrownWeaponInputChoiceInteractionPort",
+		"Shanmen.0_0_10.Product.ThrownWeaponTrajectoryTogglePhysicalInput",
+		"Shanmen.0_0_10"
+	  ]
+	},
+	{
+	  "name": "MainHUDTrajectoryPresentation",
+	  "pathRegex": "^Source/demo_map/demo_mapHUD\\.cpp$",
+	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponTrajectoryPresentation",
+		"Shanmen.0_0_10.Product.ThrownWeaponInputChoiceInteractionPort",
+		"Shanmen.0_0_10.Product.ThrownWeaponTrajectoryTogglePhysicalInput",
+		"Shanmen.0_0_10",
+		"demo_map.V2RangedCompatibility"
+	  ]
+	},
+	{
 	  "name": "ThrownWeaponInputChoiceInteractionRequestCoordinator",
 	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceInteractionRequestCoordinator(?:Tests)?\\.(?:h|cpp)$",
 	  "requiredGroups": [

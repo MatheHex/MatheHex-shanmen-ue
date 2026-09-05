@@ -13,6 +13,8 @@
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapInputActionRegistry.h"
 #include "demo_mapInputBindingSettings.h"
+#include "demo_mapPlayerController.h"
+#include "demo_mapShanmenThrownWeaponTrajectoryPresentation.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -139,6 +141,29 @@ void Ademo_mapHUD::DrawHUD()
 		}
 	}
 	APlayerController* PlayerController = GetWorld() != nullptr ? GetWorld()->GetFirstPlayerController() : nullptr;
+	if (Ademo_mapPlayerController* DemoController =
+		Cast<Ademo_mapPlayerController>(PlayerController))
+	{
+		const auto Read =
+			DemoController->ReadThrownWeaponInputChoiceInteraction();
+		Fdemo_mapShanmenThrownWeaponTrajectoryPresentation Presentation;
+		const FString ToggleKeyLabel = InputSettings.GetKey(
+			Fdemo_mapInputActionIds::ThrownWeaponTrajectoryToggle)
+			.GetDisplayName().ToString();
+		if (Fdemo_mapShanmenThrownWeaponTrajectoryPresentation::TryProject(
+			Read, ToggleKeyLabel, Presentation))
+		{
+			DrawReadableText(
+				Canvas,
+				GEngine->GetSmallFont(),
+				Presentation.GetDisplayText(),
+				FVector2D(28.0f, Canvas->SizeY - 112.0f),
+				Presentation.IsBallisticArc()
+					? FLinearColor(1.0f, 0.72f, 0.18f)
+					: FLinearColor(0.25f, 0.9f, 1.0f),
+				0.92f);
+		}
+	}
 	APawn* PlayerPawn = PlayerController != nullptr ? PlayerController->GetPawn() : nullptr;
 	const Udemo_mapPlayerHealthComponent* Health = PlayerPawn != nullptr ? PlayerPawn->FindComponentByClass<Udemo_mapPlayerHealthComponent>() : nullptr;
 	if (Health != nullptr)
