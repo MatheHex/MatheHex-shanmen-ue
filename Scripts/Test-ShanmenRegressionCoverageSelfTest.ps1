@@ -166,12 +166,18 @@ try
     $ThrownArcPreviewComposition = New-AutomationLogFixture `
         -Name 'thrown-arc-preview-composition.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewComposition'
+    $ThrownArcPreviewCapture = New-AutomationLogFixture `
+        -Name 'thrown-arc-preview-capture.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewCapture'
     $ThrownArcChoiceProjection = New-AutomationLogFixture `
         -Name 'thrown-arc-choice-projection.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcChoiceProjection'
     $ThrownProductController = New-AutomationLogFixture `
         -Name 'thrown-product-controller.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponProductController'
+    $ThrownProductSession = New-AutomationLogFixture `
+        -Name 'thrown-product-session.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponProductSession'
     $ThrownArcExecution = New-AutomationLogFixture `
         -Name 'thrown-arc-execution.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.ThrownWeaponArcExecution'
@@ -2737,6 +2743,23 @@ try
 			$Full)
 
     Invoke-ExpectedPass `
+		-Name 'thrown weapon Arc preview capture maps read-only identity and every delegated authority' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewCapturePolicy.h',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewCapturePolicy.cpp',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewCapturePolicyTests.cpp') `
+		-Logs @(
+			$ThrownArcPreviewCapture,
+			$ThrownArcPreviewComposition,
+			$ThrownProductSession,
+			$ThrownProductController,
+			$ThrownArcPreview,
+			$ThrownArc,
+			$ThrownRuntime,
+			$CombatCore,
+			$Full)
+
+    Invoke-ExpectedPass `
 		-Name 'thrown weapon input choice reducer maps its exact pure contract' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceReducer.cpp',
@@ -4457,6 +4480,13 @@ try
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewComposition.cpp') `
 		-Logs @($ThrownArcPreviewComposition) `
+		-ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+		-Name 'thrown Arc preview capture focus cannot replace session and geometry evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewCapturePolicy.cpp') `
+		-Logs @($ThrownArcPreviewCapture) `
 		-ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

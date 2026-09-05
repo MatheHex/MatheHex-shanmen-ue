@@ -145,12 +145,36 @@ bool Fdemo_mapShanmenThrownWeaponArcPreviewConfiguration::TryCapture(
 {
 	OutConfiguration =
 		Fdemo_mapShanmenThrownWeaponArcPreviewConfiguration();
+	if (!Product.IsValid())
+	{
+		return false;
+	}
+	return TryCapture(
+		InAction,
+		Product.GetDefinition(),
+		Product.GetArcPolicy(),
+		InChoicePolicy,
+		InSegmentCount,
+		OutConfiguration);
+}
+
+bool Fdemo_mapShanmenThrownWeaponArcPreviewConfiguration::TryCapture(
+	const FShanmenCombatActionSnapshot& InAction,
+	const FShanmenThrownWeaponDefinition& Definition,
+	const Fdemo_mapShanmenThrownWeaponArcProductPolicy& InArcProductPolicy,
+	const Fdemo_mapShanmenThrownWeaponArcChoicePolicy& InChoicePolicy,
+	const int32 InSegmentCount,
+	Fdemo_mapShanmenThrownWeaponArcPreviewConfiguration& OutConfiguration)
+{
+	OutConfiguration =
+		Fdemo_mapShanmenThrownWeaponArcPreviewConfiguration();
 	if (!InAction.IsValid()
-		|| !Product.IsValid()
-		|| Product.GetDefinition().GetActionDefinitionId()
+		|| !Definition.IsValid()
+		|| Definition.GetActionDefinitionId()
 			!= FShanmenThrownWeaponDefinition::ArcActionDefinitionId()
 		|| InAction.GetActionDefinitionId()
-			!= Product.GetDefinition().GetActionDefinitionId()
+			!= Definition.GetActionDefinitionId()
+		|| !InArcProductPolicy.IsValid()
 		|| !InChoicePolicy.IsValid()
 		|| InSegmentCount
 			< FShanmenThrownWeaponArcPreviewSampler::MinimumSegmentCount
@@ -161,9 +185,9 @@ bool Fdemo_mapShanmenThrownWeaponArcPreviewConfiguration::TryCapture(
 	}
 
 	OutConfiguration.Action = InAction;
-	OutConfiguration.ArcProductPolicy = Product.GetArcPolicy();
+	OutConfiguration.ArcProductPolicy = InArcProductPolicy;
 	OutConfiguration.MaximumLaunchSpeed =
-		static_cast<double>(Product.GetDefinition().GetLaunchSpeed());
+		static_cast<double>(Definition.GetLaunchSpeed());
 	OutConfiguration.ChoicePolicy = InChoicePolicy;
 	OutConfiguration.SegmentCount = InSegmentCount;
 	OutConfiguration.ConfigurationId = MakeConfigurationId(OutConfiguration);

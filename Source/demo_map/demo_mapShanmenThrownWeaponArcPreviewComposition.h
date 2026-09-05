@@ -21,6 +21,14 @@ public:
 		const Fdemo_mapShanmenThrownWeaponArcChoicePolicy& ChoicePolicy,
 		int32 SegmentCount,
 		Fdemo_mapShanmenThrownWeaponArcPreviewConfiguration& OutConfiguration);
+	/** Geometry-only overload for read-only preview capture call sites. */
+	static bool TryCapture(
+		const FShanmenCombatActionSnapshot& Action,
+		const FShanmenThrownWeaponDefinition& Definition,
+		const Fdemo_mapShanmenThrownWeaponArcProductPolicy& ArcProductPolicy,
+		const Fdemo_mapShanmenThrownWeaponArcChoicePolicy& ChoicePolicy,
+		int32 SegmentCount,
+		Fdemo_mapShanmenThrownWeaponArcPreviewConfiguration& OutConfiguration);
 
 	bool IsValid() const;
 	bool Matches(
