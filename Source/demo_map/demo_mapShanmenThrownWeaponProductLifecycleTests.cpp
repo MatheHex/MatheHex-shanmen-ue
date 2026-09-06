@@ -27,6 +27,7 @@
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecovery.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundle.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage.h"
+#include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelope.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorage.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal.h"
@@ -8089,6 +8090,26 @@ namespace
 		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorageSaveStatus;
 	using EArcOwnerHandoffRecoveryBundleStorageLoadStatus =
 		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorageLoadStatus;
+	using FArcOwnerHandoffRecoveryBundleWatermarkAdvanceRequest =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAdvanceRequest;
+	using FArcOwnerHandoffRecoveryBundleWatermarkAdvanceReceipt =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAdvanceReceipt;
+	using FArcOwnerHandoffRecoveryBundleWatermarkState =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkState;
+	using FArcOwnerHandoffRecoveryBundleWatermarkReadResult =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkReadResult;
+	using EArcOwnerHandoffRecoveryBundleWatermarkReadStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkReadStatus;
+	using FArcOwnerHandoffRecoveryBundleWatermarkAdvanceResult =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAdvanceResult;
+	using EArcOwnerHandoffRecoveryBundleWatermarkAdvanceStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAdvanceStatus;
+	using IArcOwnerHandoffRecoveryBundleWatermarkAuthority =
+		Idemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority;
+	using FArcOwnerHandoffRecoveryBundleWatermarkCommitCoordinator =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkCommitCoordinator;
+	using EArcOwnerHandoffRecoveryBundleWatermarkCommitStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkCommitStatus;
 	using FArcOwnerHandoffRecoveryPayloadStorageContext =
 		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorageContext;
 	using FArcOwnerHandoffRecoveryPayloadStorageAdapter =
@@ -8285,6 +8306,217 @@ namespace
 		bool bDirectoryExists = false;
 		EFailure Failure = EFailure::None;
 		TMap<FString, TArray<uint8>> Files;
+	};
+
+	class FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority final
+		: public IArcOwnerHandoffRecoveryBundleWatermarkAuthority
+	{
+	public:
+		enum class EReadMode : uint8
+		{
+			Normal,
+			Rejected,
+			Unavailable,
+			Invalid
+		};
+
+		enum class EAdvanceMode : uint8
+		{
+			Normal,
+			Conflict,
+			Rejected,
+			Unavailable,
+			OutcomeUnknownBeforeCommit,
+			OutcomeUnknownAfterCommit,
+			Invalid
+		};
+
+		virtual FArcOwnerHandoffRecoveryBundleWatermarkReadResult Read(
+			const FGuid&,
+			const FGuid&) const override
+		{
+			++ReadCount;
+			switch (ReadMode)
+			{
+			case EReadMode::Rejected:
+				return FArcOwnerHandoffRecoveryBundleWatermarkReadResult::
+					Failure(
+						EArcOwnerHandoffRecoveryBundleWatermarkReadStatus::
+							Rejected,
+						TEXT("Fake authority rejected the read."));
+			case EReadMode::Unavailable:
+				return FArcOwnerHandoffRecoveryBundleWatermarkReadResult::
+					Failure(
+						EArcOwnerHandoffRecoveryBundleWatermarkReadStatus::
+							Unavailable,
+						TEXT("Fake authority is unavailable."));
+			case EReadMode::Invalid:
+				return FArcOwnerHandoffRecoveryBundleWatermarkReadResult();
+			default:
+				return bHasState
+					? FArcOwnerHandoffRecoveryBundleWatermarkReadResult::
+						Current(
+							State,
+							TEXT("Fake authority returned current state."))
+					: FArcOwnerHandoffRecoveryBundleWatermarkReadResult::
+						Missing(
+							TEXT("Fake authority has no watermark."));
+			}
+		}
+
+		virtual FArcOwnerHandoffRecoveryBundleWatermarkAdvanceResult
+		CompareAndAdvance(
+			const FArcOwnerHandoffRecoveryBundleWatermarkAdvanceRequest&
+				Request) override
+		{
+			++AdvanceCount;
+			LastRequest = Request;
+			bPreAdvanceProbePassed =
+				!PreAdvanceProbe || PreAdvanceProbe();
+			if (!Request.IsValid() || !bPreAdvanceProbePassed)
+			{
+				return FArcOwnerHandoffRecoveryBundleWatermarkAdvanceResult::
+					Failure(
+						EArcOwnerHandoffRecoveryBundleWatermarkAdvanceStatus::
+							Rejected,
+						TEXT(
+							"Fake authority observed invalid input or missing committed bundle."));
+			}
+			switch (AdvanceMode)
+			{
+			case EAdvanceMode::Conflict:
+				return FArcOwnerHandoffRecoveryBundleWatermarkAdvanceResult::
+					Failure(
+						EArcOwnerHandoffRecoveryBundleWatermarkAdvanceStatus::
+							Conflict,
+						TEXT("Fake compare-and-advance conflict."));
+			case EAdvanceMode::Rejected:
+				return FArcOwnerHandoffRecoveryBundleWatermarkAdvanceResult::
+					Failure(
+						EArcOwnerHandoffRecoveryBundleWatermarkAdvanceStatus::
+							Rejected,
+						TEXT("Fake authority rejected the advance."));
+			case EAdvanceMode::Unavailable:
+				return FArcOwnerHandoffRecoveryBundleWatermarkAdvanceResult::
+					Failure(
+						EArcOwnerHandoffRecoveryBundleWatermarkAdvanceStatus::
+							Unavailable,
+						TEXT("Fake authority could not advance."));
+			case EAdvanceMode::OutcomeUnknownBeforeCommit:
+				return FArcOwnerHandoffRecoveryBundleWatermarkAdvanceResult::
+					Unknown(TEXT(
+						"Fake authority outcome is unknown before commit."));
+			case EAdvanceMode::Invalid:
+				return FArcOwnerHandoffRecoveryBundleWatermarkAdvanceResult();
+			default:
+				break;
+			}
+
+			if (bHasState)
+			{
+				if (State.MatchesRequest(Request))
+				{
+					return FArcOwnerHandoffRecoveryBundleWatermarkAdvanceResult::
+						Committed(
+							EArcOwnerHandoffRecoveryBundleWatermarkAdvanceStatus::
+								AlreadyCurrent,
+							State.GetLastReceipt(),
+							State,
+							TEXT(
+								"Fake authority replayed the exact advance."));
+				}
+				if (State.GetAuthorityDomainId()
+						!= Request.GetAuthorityDomainId()
+					|| State.GetLineageId() != Request.GetLineageId()
+					|| State.GetGeneration()
+						!= Request.GetExpectedGeneration())
+				{
+					return FArcOwnerHandoffRecoveryBundleWatermarkAdvanceResult::
+						Failure(
+							EArcOwnerHandoffRecoveryBundleWatermarkAdvanceStatus::
+								Conflict,
+							TEXT(
+								"Fake authority compare generation did not match."));
+				}
+			}
+			else if (Request.GetExpectedGeneration() != 0)
+			{
+				return FArcOwnerHandoffRecoveryBundleWatermarkAdvanceResult::
+					Failure(
+						EArcOwnerHandoffRecoveryBundleWatermarkAdvanceStatus::
+							Conflict,
+						TEXT(
+							"Fake authority expected a missing initial watermark."));
+			}
+
+			FArcOwnerHandoffRecoveryBundleWatermarkAdvanceReceipt Receipt;
+			FArcOwnerHandoffRecoveryBundleWatermarkState NextState;
+			if (!FArcOwnerHandoffRecoveryBundleWatermarkAdvanceReceipt::
+					TryCreate(Request, Receipt)
+				|| !FArcOwnerHandoffRecoveryBundleWatermarkState::TryCreate(
+					Receipt, NextState))
+			{
+				return FArcOwnerHandoffRecoveryBundleWatermarkAdvanceResult::
+					Failure(
+						EArcOwnerHandoffRecoveryBundleWatermarkAdvanceStatus::
+							Rejected,
+						TEXT(
+							"Fake authority could not construct committed evidence."));
+			}
+			State = NextState;
+			bHasState = true;
+			if (AdvanceMode == EAdvanceMode::OutcomeUnknownAfterCommit)
+			{
+				return FArcOwnerHandoffRecoveryBundleWatermarkAdvanceResult::
+					Unknown(TEXT(
+						"Fake authority committed before losing its response."));
+			}
+			return FArcOwnerHandoffRecoveryBundleWatermarkAdvanceResult::
+				Committed(
+					EArcOwnerHandoffRecoveryBundleWatermarkAdvanceStatus::
+						Advanced,
+					Receipt,
+					State,
+					TEXT("Fake authority advanced."));
+		}
+
+		void SetReadMode(const EReadMode Value) { ReadMode = Value; }
+		void SetAdvanceMode(const EAdvanceMode Value)
+		{
+			AdvanceMode = Value;
+		}
+		void SetPreAdvanceProbe(TFunction<bool()> Value)
+		{
+			PreAdvanceProbe = MoveTemp(Value);
+		}
+		void SetState(
+			const FArcOwnerHandoffRecoveryBundleWatermarkState& Value)
+		{
+			State = Value;
+			bHasState = Value.IsValid();
+		}
+		void ClearState()
+		{
+			State = {};
+			bHasState = false;
+		}
+		bool HasState() const { return bHasState; }
+		const FArcOwnerHandoffRecoveryBundleWatermarkState& GetState() const
+		{
+			return State;
+		}
+
+		mutable int32 ReadCount = 0;
+		int32 AdvanceCount = 0;
+		bool bPreAdvanceProbePassed = false;
+		FArcOwnerHandoffRecoveryBundleWatermarkAdvanceRequest LastRequest;
+
+	private:
+		EReadMode ReadMode = EReadMode::Normal;
+		EAdvanceMode AdvanceMode = EAdvanceMode::Normal;
+		bool bHasState = false;
+		FArcOwnerHandoffRecoveryBundleWatermarkState State;
+		TFunction<bool()> PreAdvanceProbe;
 	};
 
 	class FFakeArcPreviewHandoffSurface final
@@ -8753,6 +8985,47 @@ namespace
 				Root, OutLineageId, OutContext, Diagnostic))
 		{
 			Test.AddError(Diagnostic);
+			return false;
+		}
+		return true;
+	}
+
+	FGuid ArcOwnerHandoffRecoveryWatermarkDomain()
+	{
+		return FGuid(
+			0xF4540001, 0xF4540002, 0xF4540003, 0xF4540004);
+	}
+
+	bool BuildArcOwnerHandoffRecoveryWatermarkState(
+		FAutomationTestBase& Test,
+		const FGuid& AuthorityDomainId,
+		const FGuid& LineageId,
+		const int32 PreviousGeneration,
+		const int32 CommittedGeneration,
+		const FGuid& BundleId,
+		FArcOwnerHandoffRecoveryBundleWatermarkAdvanceRequest& OutRequest,
+		FArcOwnerHandoffRecoveryBundleWatermarkAdvanceReceipt& OutReceipt,
+		FArcOwnerHandoffRecoveryBundleWatermarkState& OutState)
+	{
+		FString Diagnostic;
+		if (!FArcOwnerHandoffRecoveryBundleWatermarkAdvanceRequest::TryCreate(
+				AuthorityDomainId,
+				LineageId,
+				PreviousGeneration,
+				CommittedGeneration,
+				BundleId,
+				OutRequest,
+				Diagnostic)
+			|| !FArcOwnerHandoffRecoveryBundleWatermarkAdvanceReceipt::
+				TryCreate(OutRequest, OutReceipt)
+			|| !FArcOwnerHandoffRecoveryBundleWatermarkState::TryCreate(
+				OutReceipt, OutState))
+		{
+			Test.AddError(
+				Diagnostic.IsEmpty()
+					? TEXT(
+						"Could not build trusted recovery watermark evidence.")
+					: Diagnostic);
 			return false;
 		}
 		return true;
@@ -12830,6 +13103,987 @@ RunTest(const FString&)
 		bCleanup
 			&& !IFileManager::Get().DirectoryExists(
 				*Context.GetRootDirectory()));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleWatermarkContractTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority.ContractAndDeterminism",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleWatermarkContractTest::
+RunTest(const FString&)
+{
+	const FGuid Domain = ArcOwnerHandoffRecoveryWatermarkDomain();
+	const FGuid Lineage(
+		0xF4541001, 0xF4541002, 0xF4541003, 0xF4541004);
+	const FGuid BundleOne(
+		0xF4542001, 0xF4542002, 0xF4542003, 0xF4542004);
+	const FGuid BundleTwo(
+		0xF4543001, 0xF4543002, 0xF4543003, 0xF4543004);
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceRequest RequestOne;
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceReceipt ReceiptOne;
+	FArcOwnerHandoffRecoveryBundleWatermarkState StateOne;
+	if (!BuildArcOwnerHandoffRecoveryWatermarkState(
+			*this,
+			Domain,
+			Lineage,
+			0,
+			1,
+			BundleOne,
+			RequestOne,
+			ReceiptOne,
+			StateOne))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceRequest ReplayRequest;
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceReceipt ReplayReceipt;
+	FArcOwnerHandoffRecoveryBundleWatermarkState ReplayState;
+	if (!BuildArcOwnerHandoffRecoveryWatermarkState(
+			*this,
+			Domain,
+			Lineage,
+			0,
+			1,
+			BundleOne,
+			ReplayRequest,
+			ReplayReceipt,
+			ReplayState))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceRequest RequestTwo;
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceReceipt ReceiptTwo;
+	FArcOwnerHandoffRecoveryBundleWatermarkState StateTwo;
+	if (!BuildArcOwnerHandoffRecoveryWatermarkState(
+			*this,
+			Domain,
+			Lineage,
+			1,
+			2,
+			BundleTwo,
+			RequestTwo,
+			ReceiptTwo,
+			StateTwo))
+	{
+		return false;
+	}
+
+	FString Diagnostic;
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceRequest Invalid;
+	const bool bAcceptedSameGeneration =
+		FArcOwnerHandoffRecoveryBundleWatermarkAdvanceRequest::TryCreate(
+			Domain, Lineage, 1, 1, BundleTwo, Invalid, Diagnostic);
+	const bool bAcceptedRewind =
+		FArcOwnerHandoffRecoveryBundleWatermarkAdvanceRequest::TryCreate(
+			Domain, Lineage, 2, 1, BundleOne, Invalid, Diagnostic);
+	const bool bAcceptedGenerationNine =
+		FArcOwnerHandoffRecoveryBundleWatermarkAdvanceRequest::TryCreate(
+			Domain, Lineage, 7, 9, BundleTwo, Invalid, Diagnostic);
+	const bool bAcceptedInvalidDomain =
+		FArcOwnerHandoffRecoveryBundleWatermarkAdvanceRequest::TryCreate(
+			FGuid(), Lineage, 0, 1, BundleOne, Invalid, Diagnostic);
+
+	const auto Missing =
+		FArcOwnerHandoffRecoveryBundleWatermarkReadResult::Missing(
+			TEXT("missing"));
+	const auto Current =
+		FArcOwnerHandoffRecoveryBundleWatermarkReadResult::Current(
+			StateTwo, TEXT("current"));
+	const auto ReadUnavailable =
+		FArcOwnerHandoffRecoveryBundleWatermarkReadResult::Failure(
+			EArcOwnerHandoffRecoveryBundleWatermarkReadStatus::Unavailable,
+			TEXT("unavailable"));
+	const auto Advanced =
+		FArcOwnerHandoffRecoveryBundleWatermarkAdvanceResult::Committed(
+			EArcOwnerHandoffRecoveryBundleWatermarkAdvanceStatus::Advanced,
+			ReceiptTwo,
+			StateTwo,
+			TEXT("advanced"));
+	const auto Conflict =
+		FArcOwnerHandoffRecoveryBundleWatermarkAdvanceResult::Failure(
+			EArcOwnerHandoffRecoveryBundleWatermarkAdvanceStatus::Conflict,
+			TEXT("conflict"));
+	const auto Unknown =
+		FArcOwnerHandoffRecoveryBundleWatermarkAdvanceResult::Unknown(
+			TEXT("unknown"));
+
+	TestTrue(TEXT("request receipt and state identities are replay deterministic"),
+		RequestOne.IsValid() && ReceiptOne.IsValid()
+			&& StateOne.IsValid()
+			&& ReplayRequest.IsValid() && ReplayReceipt.IsValid()
+			&& ReplayState.IsValid()
+			&& RequestOne.GetRequestId() == ReplayRequest.GetRequestId()
+			&& ReceiptOne.GetReceiptId() == ReplayReceipt.GetReceiptId()
+			&& ReplayState.MatchesRequest(RequestOne)
+			&& StateTwo.MatchesRequest(RequestTwo)
+			&& StateTwo.GetGeneration() == 2
+			&& StateTwo.GetBundleId() == BundleTwo);
+	TestTrue(TEXT("watermark request only permits strict generation advance"),
+		!bAcceptedSameGeneration
+			&& !bAcceptedRewind
+			&& !bAcceptedGenerationNine
+			&& !bAcceptedInvalidDomain
+			&& !Invalid.IsValid());
+	TestTrue(TEXT("authority result values classify current missing and uncertainty"),
+		Missing.IsValid()
+			&& Missing.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleWatermarkReadStatus::Missing
+			&& Current.IsValid()
+			&& Current.GetState().MatchesRequest(RequestTwo)
+			&& ReadUnavailable.IsValid()
+			&& Advanced.IsValid() && Advanced.IsSuccess()
+			&& Advanced.GetReceipt().Matches(RequestTwo)
+			&& Conflict.IsValid() && !Conflict.IsSuccess()
+			&& Unknown.IsValid() && !Unknown.IsSuccess()
+			&& Unknown.MayHaveAdvanced());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleWatermarkOrderingTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority.BundleBeforeWatermarkAndReplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleWatermarkOrderingTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4544001, 0xF4544002, 0xF4544003, 0xF4544004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4545001, 0xF4545002, 0xF4545003, 0xF4545004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	FArcOwnerHandoffRecoveryJournal Journal;
+	FArcOwnerHandoffRecoveryPayloadEnvelope Envelope;
+	FArcOwnerHandoffRecoveryBundle Bundle;
+	TArray<uint8> Bytes;
+	if (!BuildArcOwnerHandoffRecoveryBundleEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryWatermarkOrdering"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Checkpoint,
+			Journal,
+			Envelope,
+			Bundle,
+			Bytes))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryBundleStorageContext Context;
+	FGuid LineageId;
+	if (!BuildArcOwnerHandoffRecoveryBundleStorageContext(
+			*this,
+			TEXT("WatermarkOrdering"),
+			Bundle,
+			Context,
+			LineageId))
+	{
+		return false;
+	}
+
+	FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem FileSystem;
+	FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority Authority;
+	Authority.SetPreAdvanceProbe([&FileSystem, &Context, &Bytes]()
+	{
+		TArray<uint8> Primary;
+		return FileSystem.TryGetFile(Context.GetPrimaryPath(), Primary)
+			&& Primary == Bytes;
+	});
+	FArcOwnerHandoffRecoveryBundleWatermarkCommitCoordinator Coordinator;
+	const int32 OldRetirements = OldSurface.RetirementCallCount;
+	const int32 OldMutations = OldSurface.MutationCallCount;
+	const int32 NewMutations = NewSurface.MutationCallCount;
+	const auto Committed = Coordinator.CommitBundleThenAdvance(
+		Context,
+		Bundle,
+		ArcOwnerHandoffRecoveryWatermarkDomain(),
+		FileSystem,
+		Authority);
+	const auto Replayed = Coordinator.CommitBundleThenAdvance(
+		Context,
+		Bundle,
+		ArcOwnerHandoffRecoveryWatermarkDomain(),
+		FileSystem,
+		Authority);
+
+	TestTrue(TEXT("exact bundle is readable before the one authority advance"),
+		Committed.IsSuccess()
+			&& Committed.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleWatermarkCommitStatus::
+					Committed
+			&& Committed.WasBundleVerified()
+			&& Committed.IsWatermarkCurrent()
+			&& Committed.GetPreviousGeneration() == 0
+			&& Committed.GetTargetGeneration() == 1
+			&& Committed.GetBundleSaveStatus()
+				== EArcOwnerHandoffRecoveryBundleStorageSaveStatus::Saved
+			&& Committed.GetBundleLoadStatus()
+				== EArcOwnerHandoffRecoveryBundleStorageLoadStatus::Loaded
+			&& Authority.bPreAdvanceProbePassed
+			&& Authority.AdvanceCount == 1
+			&& Authority.GetState().MatchesTarget(
+				ArcOwnerHandoffRecoveryWatermarkDomain(),
+				LineageId,
+				1,
+				Bundle.GetBundleId()));
+	TestTrue(TEXT("committed replay performs no second write replace or advance"),
+		Replayed.IsSuccess()
+			&& Replayed.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleWatermarkCommitStatus::
+					AlreadyCommitted
+			&& Replayed.GetBundleSaveStatus()
+				== EArcOwnerHandoffRecoveryBundleStorageSaveStatus::
+					AlreadyCurrent
+			&& Replayed.GetReceipt().GetReceiptId()
+				== Committed.GetReceipt().GetReceiptId()
+			&& FileSystem.WriteCount == 1
+			&& FileSystem.AtomicReplaceCount == 1
+			&& Authority.ReadCount == 2
+			&& Authority.AdvanceCount == 1);
+	TestTrue(TEXT("watermark composition has no recovery or surface side effect"),
+		OldSurface.RetirementCallCount == OldRetirements
+			&& OldSurface.MutationCallCount == OldMutations
+			&& NewSurface.MutationCallCount == NewMutations);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleWatermarkGenerationTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority.GenerationAdvanceAndRollbackFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleWatermarkGenerationTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4546001, 0xF4546002, 0xF4546003, 0xF4546004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4547001, 0xF4547002, 0xF4547003, 0xF4547004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffRecoveryCheckpoint CheckpointOne;
+	FArcOwnerHandoffRecoveryJournal Journal;
+	FArcOwnerHandoffRecoveryPayloadEnvelope Envelope;
+	FArcOwnerHandoffRecoveryBundle BundleOne;
+	TArray<uint8> BytesOne;
+	if (!BuildArcOwnerHandoffRecoveryBundleEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryWatermarkGenerationOne"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			CheckpointOne,
+			Journal,
+			Envelope,
+			BundleOne,
+			BytesOne))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryBundleStorageContext Context;
+	FGuid LineageId;
+	if (!BuildArcOwnerHandoffRecoveryBundleStorageContext(
+			*this,
+			TEXT("WatermarkGeneration"),
+			BundleOne,
+			Context,
+			LineageId))
+	{
+		return false;
+	}
+
+	FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem FileSystem;
+	FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority Authority;
+	FArcOwnerHandoffRecoveryBundleWatermarkCommitCoordinator Coordinator;
+	const auto First = Coordinator.CommitBundleThenAdvance(
+		Context,
+		BundleOne,
+		ArcOwnerHandoffRecoveryWatermarkDomain(),
+		FileSystem,
+		Authority);
+	FArcOwnerHandoffRecoveryCheckpoint CheckpointTwo;
+	FArcOwnerHandoffRecoveryBundle BundleTwo;
+	TArray<uint8> BytesTwo;
+	if (!First.IsSuccess()
+		|| !AdvanceArcOwnerHandoffRecoveryBundleGeneration(
+			*this,
+			TEXT("ArcPreviewRecoveryWatermarkGenerationTwo"),
+			Owner,
+			OldSurface,
+			NewSurface,
+			CheckpointOne,
+			Journal,
+			CheckpointTwo,
+			BundleTwo,
+			BytesTwo))
+	{
+		return false;
+	}
+	FGuid LineageTwo;
+	if (!FArcOwnerHandoffRecoveryBundleStorageAdapter::TryDeriveLineageId(
+			BundleTwo, LineageTwo))
+	{
+		return false;
+	}
+	const auto Second = Coordinator.CommitBundleThenAdvance(
+		Context,
+		BundleTwo,
+		ArcOwnerHandoffRecoveryWatermarkDomain(),
+		FileSystem,
+		Authority);
+	const int32 WritesBeforeRollback = FileSystem.WriteCount;
+	const int32 ReplacesBeforeRollback = FileSystem.AtomicReplaceCount;
+	const int32 AdvancesBeforeRollback = Authority.AdvanceCount;
+	const auto Rollback = Coordinator.CommitBundleThenAdvance(
+		Context,
+		BundleOne,
+		ArcOwnerHandoffRecoveryWatermarkDomain(),
+		FileSystem,
+		Authority);
+
+	TestTrue(TEXT("second generation replaces one slot then advances one watermark"),
+		Second.IsSuccess()
+			&& Second.GetPreviousGeneration() == 1
+			&& Second.GetTargetGeneration() == 2
+			&& Second.GetReceipt().GetPreviousGeneration() == 1
+			&& Second.GetReceipt().GetCommittedGeneration() == 2
+			&& Second.GetState().MatchesTarget(
+				ArcOwnerHandoffRecoveryWatermarkDomain(),
+				LineageId,
+				2,
+				BundleTwo.GetBundleId())
+			&& LineageTwo == LineageId
+			&& FileSystem.WriteCount == 2
+			&& FileSystem.AtomicReplaceCount == 2
+			&& Authority.AdvanceCount == 2);
+	TestTrue(TEXT("trusted newer watermark rejects rollback before storage mutation"),
+		!Rollback.IsSuccess()
+			&& Rollback.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleWatermarkCommitStatus::
+					AuthorityAheadOfBundle
+			&& WritesBeforeRollback == FileSystem.WriteCount
+			&& ReplacesBeforeRollback == FileSystem.AtomicReplaceCount
+			&& AdvancesBeforeRollback == Authority.AdvanceCount);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleWatermarkPrecommitTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority.PrecommitFailureNeverAdvances",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleWatermarkPrecommitTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4548001, 0xF4548002, 0xF4548003, 0xF4548004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4549001, 0xF4549002, 0xF4549003, 0xF4549004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	FArcOwnerHandoffRecoveryJournal Journal;
+	FArcOwnerHandoffRecoveryPayloadEnvelope Envelope;
+	FArcOwnerHandoffRecoveryBundle Bundle;
+	TArray<uint8> Bytes;
+	if (!BuildArcOwnerHandoffRecoveryBundleEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryWatermarkPrecommit"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Checkpoint,
+			Journal,
+			Envelope,
+			Bundle,
+			Bytes))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryBundleStorageContext Context;
+	FGuid LineageId;
+	if (!BuildArcOwnerHandoffRecoveryBundleStorageContext(
+			*this,
+			TEXT("WatermarkPrecommit"),
+			Bundle,
+			Context,
+			LineageId))
+	{
+		return false;
+	}
+	FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem FileSystem;
+	FileSystem.SetFailure(
+		FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem::EFailure::
+			AtomicReplace);
+	FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority Authority;
+	FArcOwnerHandoffRecoveryBundleWatermarkCommitCoordinator Coordinator;
+	const auto Result = Coordinator.CommitBundleThenAdvance(
+		Context,
+		Bundle,
+		ArcOwnerHandoffRecoveryWatermarkDomain(),
+		FileSystem,
+		Authority);
+	TArray<uint8> Primary;
+
+	TestTrue(TEXT("precommit storage failure cannot call trusted authority advance"),
+		!Result.IsSuccess()
+			&& Result.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleWatermarkCommitStatus::
+					BundleSaveRejected
+			&& Result.GetBundleSaveStatus()
+				== EArcOwnerHandoffRecoveryBundleStorageSaveStatus::
+					AtomicReplaceFailed
+			&& !Result.WasBundleVerified()
+			&& Authority.ReadCount == 1
+			&& Authority.AdvanceCount == 0
+			&& !Authority.HasState()
+			&& !FileSystem.TryGetFile(Context.GetPrimaryPath(), Primary));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleWatermarkPostcommitTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority.PostcommitVerificationAndRetry",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleWatermarkPostcommitTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF454A001, 0xF454A002, 0xF454A003, 0xF454A004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF454B001, 0xF454B002, 0xF454B003, 0xF454B004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	FArcOwnerHandoffRecoveryJournal Journal;
+	FArcOwnerHandoffRecoveryPayloadEnvelope Envelope;
+	FArcOwnerHandoffRecoveryBundle Bundle;
+	TArray<uint8> Bytes;
+	if (!BuildArcOwnerHandoffRecoveryBundleEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryWatermarkPostcommit"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Checkpoint,
+			Journal,
+			Envelope,
+			Bundle,
+			Bytes))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryBundleStorageContext Context;
+	FGuid LineageId;
+	if (!BuildArcOwnerHandoffRecoveryBundleStorageContext(
+			*this,
+			TEXT("WatermarkPostcommit"),
+			Bundle,
+			Context,
+			LineageId))
+	{
+		return false;
+	}
+	FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem FileSystem;
+	FileSystem.SetFailure(
+		FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem::EFailure::
+			ReadPrimary);
+	FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority Authority;
+	FArcOwnerHandoffRecoveryBundleWatermarkCommitCoordinator Coordinator;
+	const auto Unverified = Coordinator.CommitBundleThenAdvance(
+		Context,
+		Bundle,
+		ArcOwnerHandoffRecoveryWatermarkDomain(),
+		FileSystem,
+		Authority);
+	const int32 AdvancesBeforeRetry = Authority.AdvanceCount;
+	FileSystem.SetFailure(
+		FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem::EFailure::None);
+	const auto Retried = Coordinator.CommitBundleThenAdvance(
+		Context,
+		Bundle,
+		ArcOwnerHandoffRecoveryWatermarkDomain(),
+		FileSystem,
+		Authority);
+	TArray<uint8> Primary;
+	const bool bHasPrimary =
+		FileSystem.TryGetFile(Context.GetPrimaryPath(), Primary);
+
+	TestTrue(TEXT("postcommit read ambiguity cannot advance an unverified watermark"),
+		!Unverified.IsSuccess()
+			&& Unverified.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleWatermarkCommitStatus::
+					BundleVerificationRejected
+			&& Unverified.GetBundleSaveStatus()
+				== EArcOwnerHandoffRecoveryBundleStorageSaveStatus::
+					CommittedReadBackFailed
+			&& Unverified.GetBundleLoadStatus()
+				== EArcOwnerHandoffRecoveryBundleStorageLoadStatus::ReadFailed
+			&& !Unverified.WasBundleVerified()
+			&& AdvancesBeforeRetry == 0
+			&& bHasPrimary && Primary == Bytes);
+	TestTrue(TEXT("explicit retry verifies existing bytes without a second replace"),
+		Retried.IsSuccess()
+			&& Retried.GetBundleSaveStatus()
+				== EArcOwnerHandoffRecoveryBundleStorageSaveStatus::
+					AlreadyCurrent
+			&& Retried.WasBundleVerified()
+			&& Retried.IsWatermarkCurrent()
+			&& FileSystem.WriteCount == 1
+			&& FileSystem.AtomicReplaceCount == 1
+			&& Authority.GetState().GetGeneration() == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleWatermarkAuthorityFailureTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority.AuthorityFailureLeavesRetryableBundle",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleWatermarkAuthorityFailureTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF454C001, 0xF454C002, 0xF454C003, 0xF454C004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF454D001, 0xF454D002, 0xF454D003, 0xF454D004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	FArcOwnerHandoffRecoveryJournal Journal;
+	FArcOwnerHandoffRecoveryPayloadEnvelope Envelope;
+	FArcOwnerHandoffRecoveryBundle Bundle;
+	TArray<uint8> Bytes;
+	if (!BuildArcOwnerHandoffRecoveryBundleEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryWatermarkAuthorityFailure"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Checkpoint,
+			Journal,
+			Envelope,
+			Bundle,
+			Bytes))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryBundleStorageContext Context;
+	FGuid LineageId;
+	if (!BuildArcOwnerHandoffRecoveryBundleStorageContext(
+			*this,
+			TEXT("WatermarkAuthorityFailure"),
+			Bundle,
+			Context,
+			LineageId))
+	{
+		return false;
+	}
+	FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem FileSystem;
+	FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority Authority;
+	Authority.SetAdvanceMode(
+		FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority::EAdvanceMode::
+			Unavailable);
+	FArcOwnerHandoffRecoveryBundleWatermarkCommitCoordinator Coordinator;
+	const auto Pending = Coordinator.CommitBundleThenAdvance(
+		Context,
+		Bundle,
+		ArcOwnerHandoffRecoveryWatermarkDomain(),
+		FileSystem,
+		Authority);
+	const bool bHadStateWhilePending = Authority.HasState();
+	const int32 WritesWhilePending = FileSystem.WriteCount;
+	const int32 ReplacesWhilePending = FileSystem.AtomicReplaceCount;
+	const int32 AdvanceCallsWhilePending = Authority.AdvanceCount;
+	Authority.SetAdvanceMode(
+		FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority::EAdvanceMode::
+			Normal);
+	const auto Retried = Coordinator.CommitBundleThenAdvance(
+		Context,
+		Bundle,
+		ArcOwnerHandoffRecoveryWatermarkDomain(),
+		FileSystem,
+		Authority);
+
+	TestTrue(TEXT("unavailable authority leaves verified bundle and old watermark"),
+		!Pending.IsSuccess()
+			&& Pending.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleWatermarkCommitStatus::
+					BundleCommittedWatermarkPending
+			&& Pending.WasBundleVerified()
+			&& !Pending.IsWatermarkCurrent()
+			&& !bHadStateWhilePending
+			&& AdvanceCallsWhilePending == 1
+			&& WritesWhilePending == 1
+			&& ReplacesWhilePending == 1);
+	TestTrue(TEXT("retry reuses current bundle then advances authority once"),
+		Retried.IsSuccess()
+			&& Retried.GetBundleSaveStatus()
+				== EArcOwnerHandoffRecoveryBundleStorageSaveStatus::
+					AlreadyCurrent
+			&& Retried.IsWatermarkCurrent()
+			&& Authority.ReadCount == 2
+			&& Authority.AdvanceCount == 2
+			&& Authority.HasState()
+			&& FileSystem.WriteCount == 1
+			&& FileSystem.AtomicReplaceCount == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleWatermarkUnknownTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority.UnknownOutcomeBoundedRecheck",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleWatermarkUnknownTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF454E001, 0xF454E002, 0xF454E003, 0xF454E004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF454F001, 0xF454F002, 0xF454F003, 0xF454F004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	FArcOwnerHandoffRecoveryJournal Journal;
+	FArcOwnerHandoffRecoveryPayloadEnvelope Envelope;
+	FArcOwnerHandoffRecoveryBundle Bundle;
+	TArray<uint8> Bytes;
+	if (!BuildArcOwnerHandoffRecoveryBundleEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryWatermarkUnknown"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Checkpoint,
+			Journal,
+			Envelope,
+			Bundle,
+			Bytes))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryBundleStorageContext Context;
+	FGuid LineageId;
+	if (!BuildArcOwnerHandoffRecoveryBundleStorageContext(
+			*this,
+			TEXT("WatermarkUnknown"),
+			Bundle,
+			Context,
+			LineageId))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryBundleWatermarkCommitCoordinator Coordinator;
+
+	FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem CommittedFileSystem;
+	FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority CommittedAuthority;
+	CommittedAuthority.SetAdvanceMode(
+		FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority::EAdvanceMode::
+			OutcomeUnknownAfterCommit);
+	const auto Resolved = Coordinator.CommitBundleThenAdvance(
+		Context,
+		Bundle,
+		ArcOwnerHandoffRecoveryWatermarkDomain(),
+		CommittedFileSystem,
+		CommittedAuthority);
+
+	FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem PendingFileSystem;
+	FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority PendingAuthority;
+	PendingAuthority.SetAdvanceMode(
+		FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority::EAdvanceMode::
+			OutcomeUnknownBeforeCommit);
+	const auto Unresolved = Coordinator.CommitBundleThenAdvance(
+		Context,
+		Bundle,
+		ArcOwnerHandoffRecoveryWatermarkDomain(),
+		PendingFileSystem,
+		PendingAuthority);
+	PendingAuthority.SetAdvanceMode(
+		FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority::EAdvanceMode::
+			Normal);
+	const auto Retried = Coordinator.CommitBundleThenAdvance(
+		Context,
+		Bundle,
+		ArcOwnerHandoffRecoveryWatermarkDomain(),
+		PendingFileSystem,
+		PendingAuthority);
+
+	TestTrue(TEXT("unknown committed outcome is resolved by one authority read"),
+		Resolved.IsSuccess()
+			&& Resolved.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleWatermarkCommitStatus::
+					CommittedAfterAuthorityRecheck
+			&& Resolved.GetAuthorityAdvanceStatus()
+				== EArcOwnerHandoffRecoveryBundleWatermarkAdvanceStatus::
+					OutcomeUnknown
+			&& Resolved.GetAuthorityRecheckStatus()
+				== EArcOwnerHandoffRecoveryBundleWatermarkReadStatus::Current
+			&& CommittedAuthority.ReadCount == 2
+			&& CommittedAuthority.AdvanceCount == 1
+			&& CommittedAuthority.HasState());
+	TestTrue(TEXT("unresolved outcome stops after one read and stays retryable"),
+		!Unresolved.IsSuccess()
+			&& Unresolved.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleWatermarkCommitStatus::
+					WatermarkOutcomeUnresolved
+			&& Unresolved.WasBundleVerified()
+			&& PendingAuthority.ReadCount == 3
+			&& PendingAuthority.AdvanceCount == 2
+			&& Retried.IsSuccess()
+			&& Retried.GetBundleSaveStatus()
+				== EArcOwnerHandoffRecoveryBundleStorageSaveStatus::
+					AlreadyCurrent
+			&& PendingFileSystem.WriteCount == 1
+			&& PendingFileSystem.AtomicReplaceCount == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleWatermarkFenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority.InputAuthorityAndConflictFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleWatermarkFenceTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4550001, 0xF4550002, 0xF4550003, 0xF4550004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4551001, 0xF4551002, 0xF4551003, 0xF4551004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	FArcOwnerHandoffRecoveryJournal Journal;
+	FArcOwnerHandoffRecoveryPayloadEnvelope Envelope;
+	FArcOwnerHandoffRecoveryBundle Bundle;
+	TArray<uint8> Bytes;
+	if (!BuildArcOwnerHandoffRecoveryBundleEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryWatermarkFences"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Checkpoint,
+			Journal,
+			Envelope,
+			Bundle,
+			Bytes))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryBundleStorageContext Context;
+	FGuid LineageId;
+	if (!BuildArcOwnerHandoffRecoveryBundleStorageContext(
+			*this,
+			TEXT("WatermarkFences"),
+			Bundle,
+			Context,
+			LineageId))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryBundleWatermarkCommitCoordinator Coordinator;
+
+	FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem InvalidInputFs;
+	FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority InvalidInputAuthority;
+	const auto InvalidInput = Coordinator.CommitBundleThenAdvance(
+		Context,
+		Bundle,
+		FGuid(),
+		InvalidInputFs,
+		InvalidInputAuthority);
+
+	FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem UnavailableFs;
+	FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority UnavailableAuthority;
+	UnavailableAuthority.SetReadMode(
+		FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority::EReadMode::
+			Unavailable);
+	const auto Unavailable = Coordinator.CommitBundleThenAdvance(
+		Context,
+		Bundle,
+		ArcOwnerHandoffRecoveryWatermarkDomain(),
+		UnavailableFs,
+		UnavailableAuthority);
+
+	FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem InvalidReadFs;
+	FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority InvalidReadAuthority;
+	InvalidReadAuthority.SetReadMode(
+		FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority::EReadMode::
+			Invalid);
+	const auto InvalidRead = Coordinator.CommitBundleThenAdvance(
+		Context,
+		Bundle,
+		ArcOwnerHandoffRecoveryWatermarkDomain(),
+		InvalidReadFs,
+		InvalidReadAuthority);
+
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceRequest ForeignRequest;
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceReceipt ForeignReceipt;
+	FArcOwnerHandoffRecoveryBundleWatermarkState ForeignState;
+	if (!BuildArcOwnerHandoffRecoveryWatermarkState(
+			*this,
+			FGuid(0xF4552001, 0xF4552002, 0xF4552003, 0xF4552004),
+			LineageId,
+			0,
+			1,
+			Bundle.GetBundleId(),
+			ForeignRequest,
+			ForeignReceipt,
+			ForeignState))
+	{
+		return false;
+	}
+	FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem ForeignFs;
+	FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority ForeignAuthority;
+	ForeignAuthority.SetState(ForeignState);
+	const auto Foreign = Coordinator.CommitBundleThenAdvance(
+		Context,
+		Bundle,
+		ArcOwnerHandoffRecoveryWatermarkDomain(),
+		ForeignFs,
+		ForeignAuthority);
+
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceRequest AheadRequest;
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceReceipt AheadReceipt;
+	FArcOwnerHandoffRecoveryBundleWatermarkState AheadState;
+	if (!BuildArcOwnerHandoffRecoveryWatermarkState(
+			*this,
+			ArcOwnerHandoffRecoveryWatermarkDomain(),
+			LineageId,
+			0,
+			2,
+			Bundle.GetBundleId(),
+			AheadRequest,
+			AheadReceipt,
+			AheadState))
+	{
+		return false;
+	}
+	FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem AheadFs;
+	FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority AheadAuthority;
+	AheadAuthority.SetState(AheadState);
+	const auto Ahead = Coordinator.CommitBundleThenAdvance(
+		Context,
+		Bundle,
+		ArcOwnerHandoffRecoveryWatermarkDomain(),
+		AheadFs,
+		AheadAuthority);
+
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceRequest ConflictRequest;
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceReceipt ConflictReceipt;
+	FArcOwnerHandoffRecoveryBundleWatermarkState ConflictState;
+	if (!BuildArcOwnerHandoffRecoveryWatermarkState(
+			*this,
+			ArcOwnerHandoffRecoveryWatermarkDomain(),
+			LineageId,
+			0,
+			1,
+			FGuid(0xF4553001, 0xF4553002, 0xF4553003, 0xF4553004),
+			ConflictRequest,
+			ConflictReceipt,
+			ConflictState))
+	{
+		return false;
+	}
+	FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem ConflictFs;
+	FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority ConflictAuthority;
+	ConflictAuthority.SetState(ConflictState);
+	const auto Conflict = Coordinator.CommitBundleThenAdvance(
+		Context,
+		Bundle,
+		ArcOwnerHandoffRecoveryWatermarkDomain(),
+		ConflictFs,
+		ConflictAuthority);
+
+	FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem InvalidAdvanceFs;
+	FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority InvalidAdvanceAuthority;
+	InvalidAdvanceAuthority.SetAdvanceMode(
+		FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority::EAdvanceMode::
+			Invalid);
+	const auto InvalidAdvance = Coordinator.CommitBundleThenAdvance(
+		Context,
+		Bundle,
+		ArcOwnerHandoffRecoveryWatermarkDomain(),
+		InvalidAdvanceFs,
+		InvalidAdvanceAuthority);
+
+	TestTrue(TEXT("invalid input and failed reads stop before storage"),
+		!InvalidInput.IsSuccess()
+			&& InvalidInput.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleWatermarkCommitStatus::
+					InputRejected
+			&& InvalidInputAuthority.ReadCount == 0
+			&& InvalidInputFs.WriteCount == 0
+			&& !Unavailable.IsSuccess()
+			&& Unavailable.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleWatermarkCommitStatus::
+					AuthorityUnavailable
+			&& UnavailableFs.WriteCount == 0
+			&& !InvalidRead.IsSuccess()
+			&& InvalidRead.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleWatermarkCommitStatus::
+					AuthorityReadRejected
+			&& InvalidReadFs.WriteCount == 0);
+	TestTrue(TEXT("foreign newer and same-generation conflicts fail closed"),
+		!Foreign.IsSuccess()
+			&& Foreign.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleWatermarkCommitStatus::
+					AuthorityStateRejected
+			&& ForeignFs.WriteCount == 0
+			&& !Ahead.IsSuccess()
+			&& Ahead.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleWatermarkCommitStatus::
+					AuthorityAheadOfBundle
+			&& AheadFs.WriteCount == 0
+			&& !Conflict.IsSuccess()
+			&& Conflict.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleWatermarkCommitStatus::
+					AuthorityBundleConflict
+			&& ConflictFs.WriteCount == 0);
+	TestTrue(TEXT("malformed advance success is rejected after exact bundle commit"),
+		!InvalidAdvance.IsSuccess()
+			&& InvalidAdvance.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleWatermarkCommitStatus::
+					WatermarkAdvanceRejected
+			&& InvalidAdvance.WasBundleVerified()
+			&& InvalidAdvanceFs.WriteCount == 1
+			&& InvalidAdvanceFs.AtomicReplaceCount == 1
+			&& !InvalidAdvanceAuthority.HasState());
 	return true;
 }
 
