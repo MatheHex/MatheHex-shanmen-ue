@@ -24,6 +24,7 @@
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHost.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff.h"
+#include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecovery.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceLifecycleExecutor.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceOwnershipTransition.h"
@@ -8039,6 +8040,14 @@ namespace
 		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff;
 	using FArcOwnerHandoffResult =
 		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffResult;
+	using EArcOwnerHandoffRecoveryStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryStatus;
+	using FArcOwnerHandoffRecovery =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecovery;
+	using FArcOwnerHandoffRecoveryCheckpoint =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpoint;
+	using FArcOwnerHandoffRecoveryResult =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryResult;
 	using FArcRetirementResponse =
 		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceRetirementResponse;
 
@@ -8067,6 +8076,18 @@ namespace
 		virtual FGuid GetSurfaceInstanceId() const override
 		{
 			++IdentityQueryCount;
+			if (bReenterRecoveryOnNextIdentityQuery
+				&& ReentrantRecoveryCoordinator && ReentrantRecoveryOwner
+				&& ReentrantRecoveryCheckpoint && ReentrantRecoveryNewSurface)
+			{
+				bReenterRecoveryOnNextIdentityQuery = false;
+				ReentrantRecoveryResult =
+					ReentrantRecoveryCoordinator->Execute(
+						*ReentrantRecoveryOwner,
+						*ReentrantRecoveryCheckpoint,
+						*const_cast<FFakeArcPreviewHandoffSurface*>(this),
+						*ReentrantRecoveryNewSurface);
+			}
 			return SurfaceInstanceId;
 		}
 
@@ -8186,6 +8207,18 @@ namespace
 			ReentrantTicket = &Ticket;
 			ReentrantNewSurface = &NewSurface;
 		}
+		void SetReentrantRecovery(
+			FArcOwnerHandoffRecovery& Coordinator,
+			FArcCompositionOwner& Owner,
+			const FArcOwnerHandoffRecoveryCheckpoint& Checkpoint,
+			FFakeArcPreviewHandoffSurface& NewSurface)
+		{
+			ReentrantRecoveryCoordinator = &Coordinator;
+			ReentrantRecoveryOwner = &Owner;
+			ReentrantRecoveryCheckpoint = &Checkpoint;
+			ReentrantRecoveryNewSurface = &NewSurface;
+			bReenterRecoveryOnNextIdentityQuery = true;
+		}
 
 		mutable int32 IdentityQueryCount = 0;
 		mutable int32 ConsumerQueryCount = 0;
@@ -8194,6 +8227,7 @@ namespace
 		int32 LifecycleClearCallCount = 0;
 		int32 RetirementCallCount = 0;
 		FArcOwnerHandoffResult ReentrantResult;
+		mutable FArcOwnerHandoffRecoveryResult ReentrantRecoveryResult;
 
 	private:
 		FArcSurfaceResponse ApplyCommand(
@@ -8228,6 +8262,13 @@ namespace
 		FArcCompositionOwner* ReentrantOwner = nullptr;
 		const FArcSurfaceOwnershipTicket* ReentrantTicket = nullptr;
 		FFakeArcPreviewHandoffSurface* ReentrantNewSurface = nullptr;
+		mutable bool bReenterRecoveryOnNextIdentityQuery = false;
+		mutable FArcOwnerHandoffRecovery* ReentrantRecoveryCoordinator = nullptr;
+		mutable FArcCompositionOwner* ReentrantRecoveryOwner = nullptr;
+		mutable const FArcOwnerHandoffRecoveryCheckpoint*
+			ReentrantRecoveryCheckpoint = nullptr;
+		mutable FFakeArcPreviewHandoffSurface* ReentrantRecoveryNewSurface =
+			nullptr;
 	};
 
 	bool BuildArcOwnerHandoffTicket(
@@ -8262,6 +8303,56 @@ namespace
 		}
 		OutTicket = Result.GetTransitionTicket();
 		return OutTicket.IsValid();
+	}
+
+	bool BuildArcOwnerHandoffRecoveryCheckpoint(
+		FAutomationTestBase& Test,
+		const TCHAR* Label,
+		FThrownLifecycleFixture& Fixture,
+		FArcCompositionOwner& Owner,
+		FFakeArcPreviewHandoffSurface& OldSurface,
+		FFakeArcPreviewHandoffSurface& NewSurface,
+		FArcOwnerHandoffResult& OutFailedHandoff,
+		FArcOwnerHandoffRecoveryCheckpoint& OutCheckpoint)
+	{
+		if (!StartArcPreviewCompositionOwner(
+				Test, Label, Fixture, Owner, OldSurface))
+		{
+			return false;
+		}
+		const auto Show = UpdateArcPreviewCompositionOwner(
+			Owner, MakeArcPreviewChoice(false), Fixture);
+		NewSurface.ForceCursor(Owner.GetSurfaceCursor());
+		FArcSurfaceOwnershipTicket Ticket;
+		if (!Show.IsValid() || !Show.WasApplied()
+			|| !BuildArcOwnerHandoffTicket(
+				Test,
+				Owner,
+				NewSurface,
+				EArcSurfaceRecreationAction::AdoptExact,
+				Ticket))
+		{
+			return false;
+		}
+		OldSurface.SetRetirementMode(
+			FFakeArcPreviewHandoffSurface::ERetirementMode::
+				InvalidAfterMutation);
+		FArcOwnerHandoff Handoff;
+		OutFailedHandoff = Handoff.Execute(
+			Owner, Ticket, OldSurface, NewSurface);
+		FString Diagnostic;
+		if (!OutFailedHandoff.IsValid()
+			|| !OutFailedHandoff.NeedsManualRecovery()
+			|| !FArcOwnerHandoffRecoveryCheckpoint::TryCreate(
+				OutFailedHandoff, OutCheckpoint, Diagnostic))
+		{
+			Test.AddError(
+				Diagnostic.IsEmpty()
+					? OutFailedHandoff.GetDiagnostic()
+					: Diagnostic);
+			return false;
+		}
+		return true;
 	}
 }
 
@@ -8623,6 +8714,386 @@ bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffInvariantTest::RunTest(
 				== EArcOwnerHandoffStatus::OperationInProgress
 			&& !ReentrantOld.ReentrantResult.DidCallRetirement()
 			&& !ReentrantOld.ReentrantResult.HasReceipt());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryEvidenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecovery.EvidenceContract",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryEvidenceTest::RunTest(
+	const FString&)
+{
+	FArcOwnerHandoffRecoveryCheckpoint InvalidCheckpoint;
+	FString InvalidDiagnostic;
+	const bool bInvalidCreated =
+		FArcOwnerHandoffRecoveryCheckpoint::TryCreate(
+			FArcOwnerHandoffResult(),
+			InvalidCheckpoint,
+			InvalidDiagnostic);
+	TestTrue(TEXT("ordinary or invalid handoff evidence cannot become recovery authority"),
+		!bInvalidCreated && !InvalidCheckpoint.IsValid()
+			&& !InvalidDiagnostic.IsEmpty());
+
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4800001, 0xF4800002, 0xF4800003, 0xF4800004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4801001, 0xF4801002, 0xF4801003, 0xF4801004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffResult Failed;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	if (!BuildArcOwnerHandoffRecoveryCheckpoint(
+			*this,
+			TEXT("ArcPreviewOwnerHandoffRecoveryEvidence"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Failed,
+			Checkpoint))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryCheckpoint Duplicate;
+	FString Diagnostic;
+	const bool bDuplicateCreated =
+		FArcOwnerHandoffRecoveryCheckpoint::TryCreate(
+			Failed, Duplicate, Diagnostic);
+	TestTrue(TEXT("manual-recovery boundary seals deterministic immutable evidence"),
+		bDuplicateCreated && Checkpoint.IsValid()
+			&& Checkpoint.MatchesFailedHandoff(Failed)
+			&& Duplicate.GetCheckpointId() == Checkpoint.GetCheckpointId()
+			&& Checkpoint.GetTransitionTicket().GetTicketId()
+				== Failed.GetTransitionTicket().GetTicketId()
+			&& Checkpoint.GetRetiredSurfaceCursor().IsEmpty()
+			&& Checkpoint.GetSurfaceCursor().IsVisible());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryCommitTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecovery.ZeroMutationCommit",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryCommitTest::RunTest(
+	const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4810001, 0xF4810002, 0xF4810003, 0xF4810004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4811001, 0xF4811002, 0xF4811003, 0xF4811004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffResult Failed;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	if (!BuildArcOwnerHandoffRecoveryCheckpoint(
+			*this,
+			TEXT("ArcPreviewOwnerHandoffRecoveryCommit"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Failed,
+			Checkpoint))
+	{
+		return false;
+	}
+	const int32 OldMutationCalls = OldSurface.MutationCallCount;
+	const int32 OldRetirementCalls = OldSurface.RetirementCallCount;
+	const int32 NewMutationCalls = NewSurface.MutationCallCount;
+	FArcOwnerHandoffRecovery Recovery;
+	const auto Recovered = Recovery.Execute(
+		Owner, Checkpoint, OldSurface, NewSurface);
+	TestTrue(TEXT("fresh dual-surface proof commits only Owner and Adapter pointers"),
+		Recovered.IsValid() && Recovered.WasRecovered()
+			&& Recovered.HasReceipt() && !Recovered.DidMutateSurface()
+			&& Recovered.GetSurfaceSnapshotReadCount() == 2
+			&& OldSurface.MutationCallCount == OldMutationCalls
+			&& OldSurface.RetirementCallCount == OldRetirementCalls
+			&& NewSurface.MutationCallCount == NewMutationCalls
+			&& Owner.IsValid() && Owner.IsSynchronized()
+			&& !Owner.GetLastSurfaceHandoffReceipt().IsValid()
+			&& Owner.GetLastSurfaceHandoffRecoveryReceipt().GetReceiptId()
+				== Recovered.GetReceipt().GetReceiptId());
+
+	const auto Replace = UpdateArcPreviewCompositionOwner(
+		Owner, MakeArcPreviewChoice(true), Fixture);
+	TestTrue(TEXT("post-recovery dispatch reaches only the adopted replacement"),
+		Replace.IsValid() && Replace.WasApplied()
+			&& OldSurface.MutationCallCount == OldMutationCalls
+			&& NewSurface.MutationCallCount == NewMutationCalls + 1
+			&& Owner.IsValid() && Owner.IsSynchronized());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryReplayTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecovery.IdempotentReplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryReplayTest::RunTest(
+	const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4820001, 0xF4820002, 0xF4820003, 0xF4820004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4821001, 0xF4821002, 0xF4821003, 0xF4821004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffResult Failed;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	if (!BuildArcOwnerHandoffRecoveryCheckpoint(
+			*this,
+			TEXT("ArcPreviewOwnerHandoffRecoveryReplay"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Failed,
+			Checkpoint))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecovery Recovery;
+	const auto Recovered = Recovery.Execute(
+		Owner, Checkpoint, OldSurface, NewSurface);
+	const int32 OldIdentityReads = OldSurface.IdentityQueryCount;
+	const int32 OldConsumerReads = OldSurface.ConsumerQueryCount;
+	const int32 OldCursorReads = OldSurface.CursorQueryCount;
+	const int32 OldMutationCalls = OldSurface.MutationCallCount;
+	const int32 OldRetirementCalls = OldSurface.RetirementCallCount;
+	const auto Replay = Recovery.Execute(
+		Owner, Checkpoint, OldSurface, NewSurface);
+	TestTrue(TEXT("latest checkpoint replay reads only the current replacement"),
+		Recovered.WasRecovered() && Replay.IsValid() && Replay.IsReplay()
+			&& Replay.GetSurfaceSnapshotReadCount() == 1
+			&& Replay.GetReceipt().GetReceiptId()
+				== Recovered.GetReceipt().GetReceiptId()
+			&& OldSurface.IdentityQueryCount == OldIdentityReads
+			&& OldSurface.ConsumerQueryCount == OldConsumerReads
+			&& OldSurface.CursorQueryCount == OldCursorReads
+			&& OldSurface.MutationCallCount == OldMutationCalls
+			&& OldSurface.RetirementCallCount == OldRetirementCalls
+			&& !Replay.DidMutateSurface());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryOldFenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecovery.OldSurfaceFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryOldFenceTest::RunTest(
+	const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4830001, 0xF4830002, 0xF4830003, 0xF4830004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface WrongOld(
+		FGuid(0xF4830101, 0xF4830102, 0xF4830103, 0xF4830104),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4831001, 0xF4831002, 0xF4831003, 0xF4831004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffResult Failed;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	if (!BuildArcOwnerHandoffRecoveryCheckpoint(
+			*this,
+			TEXT("ArcPreviewOwnerHandoffRecoveryOldFence"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Failed,
+			Checkpoint))
+	{
+		return false;
+	}
+	const int32 WrongOldIdentityReads = WrongOld.IdentityQueryCount;
+	const int32 NewIdentityReads = NewSurface.IdentityQueryCount;
+	const int32 NewConsumerReads = NewSurface.ConsumerQueryCount;
+	const int32 NewCursorReads = NewSurface.CursorQueryCount;
+	FArcOwnerHandoffRecovery Recovery;
+	const auto WrongPointer = Recovery.Execute(
+		Owner, Checkpoint, WrongOld, NewSurface);
+	TestTrue(TEXT("old pointer substitution rejects before either supplied surface is read"),
+		WrongPointer.IsValid()
+			&& WrongPointer.GetStatus()
+				== EArcOwnerHandoffRecoveryStatus::OldSurfaceMismatch
+			&& WrongPointer.GetSurfaceSnapshotReadCount() == 0
+			&& WrongOld.IdentityQueryCount == WrongOldIdentityReads
+			&& NewSurface.IdentityQueryCount == NewIdentityReads);
+
+	OldSurface.ForceCursor(Checkpoint.GetPreviousSurfaceCursor());
+	const auto RestoredOld = Recovery.Execute(
+		Owner, Checkpoint, OldSurface, NewSurface);
+	TestTrue(TEXT("retired old surface must still be exactly Empty before replacement reads"),
+		RestoredOld.IsValid()
+			&& RestoredOld.GetStatus()
+				== EArcOwnerHandoffRecoveryStatus::OldSnapshotMismatch
+			&& RestoredOld.GetSurfaceSnapshotReadCount() == 1
+			&& NewSurface.IdentityQueryCount == NewIdentityReads
+			&& NewSurface.ConsumerQueryCount == NewConsumerReads
+			&& NewSurface.CursorQueryCount == NewCursorReads
+			&& OldSurface.RetirementCallCount == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoverySnapshotFenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecovery.NewAndAuthorityFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoverySnapshotFenceTest::RunTest(
+	const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	const FGuid OldId(0xF4840001, 0xF4840002, 0xF4840003, 0xF4840004);
+	const FGuid NewId(0xF4841001, 0xF4841002, 0xF4841003, 0xF4841004);
+	FThrownLifecycleFixture FixtureA;
+	FFakeArcPreviewHandoffSurface OldA(OldId, Consumer);
+	FFakeArcPreviewHandoffSurface NewA(NewId, Consumer);
+	FArcCompositionOwner OwnerA;
+	FArcOwnerHandoffResult FailedA;
+	FArcOwnerHandoffRecoveryCheckpoint CheckpointA;
+	if (!BuildArcOwnerHandoffRecoveryCheckpoint(
+			*this,
+			TEXT("ArcPreviewOwnerHandoffRecoverySnapshotA"),
+			FixtureA,
+			OwnerA,
+			OldA,
+			NewA,
+			FailedA,
+			CheckpointA))
+	{
+		return false;
+	}
+	NewA.SetConsumerDefinitionId(
+		FName(TEXT("Renderer.ArcPreview.Foreign.r1")));
+	FArcOwnerHandoffRecovery Recovery;
+	const auto NewDrift = Recovery.Execute(
+		OwnerA, CheckpointA, OldA, NewA);
+	TestTrue(TEXT("replacement snapshot drift cannot commit recovered pointers"),
+		NewDrift.IsValid()
+			&& NewDrift.GetStatus()
+				== EArcOwnerHandoffRecoveryStatus::NewSnapshotMismatch
+			&& NewDrift.GetSurfaceSnapshotReadCount() == 2
+			&& !NewDrift.HasReceipt() && !OwnerA.IsValid());
+
+	FThrownLifecycleFixture FixtureB;
+	FFakeArcPreviewHandoffSurface OldB(OldId, Consumer);
+	FFakeArcPreviewHandoffSurface NewB(NewId, Consumer);
+	FArcCompositionOwner OwnerB;
+	FArcOwnerHandoffResult FailedB;
+	FArcOwnerHandoffRecoveryCheckpoint CheckpointB;
+	if (!BuildArcOwnerHandoffRecoveryCheckpoint(
+			*this,
+			TEXT("ArcPreviewOwnerHandoffRecoverySnapshotB"),
+			FixtureB,
+			OwnerB,
+			OldB,
+			NewB,
+			FailedB,
+			CheckpointB))
+	{
+		return false;
+	}
+	NewB.ForceCursor(CheckpointA.GetSurfaceCursor());
+	const auto ForeignAuthority = Recovery.Execute(
+		OwnerB, CheckpointA, OldB, NewB);
+	TestTrue(TEXT("matching physical instances cannot substitute another Run authority"),
+		OwnerB.GetRunId() != CheckpointA.GetTransitionTicket().GetRunId()
+			&& ForeignAuthority.IsValid()
+			&& ForeignAuthority.GetStatus()
+				== EArcOwnerHandoffRecoveryStatus::AuthoritySnapshotMismatch
+			&& ForeignAuthority.GetSurfaceSnapshotReadCount() == 2
+			&& !ForeignAuthority.HasReceipt() && !OwnerB.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryReentrantTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecovery.ReentrantAndReceiptRotation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryReentrantTest::RunTest(
+	const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4850001, 0xF4850002, 0xF4850003, 0xF4850004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4851001, 0xF4851002, 0xF4851003, 0xF4851004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffResult Failed;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	if (!BuildArcOwnerHandoffRecoveryCheckpoint(
+			*this,
+			TEXT("ArcPreviewOwnerHandoffRecoveryReentrant"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Failed,
+			Checkpoint))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecovery Recovery;
+	OldSurface.SetReentrantRecovery(
+		Recovery, Owner, Checkpoint, NewSurface);
+	const auto Outer = Recovery.Execute(
+		Owner, Checkpoint, OldSurface, NewSurface);
+	TestTrue(TEXT("guarded outer recovery still commits one zero-mutation pointer swap"),
+		Outer.IsValid() && Outer.WasRecovered() && Owner.IsValid()
+			&& OldSurface.RetirementCallCount == 1);
+	TestTrue(TEXT("surface query callback cannot re-enter recovery transaction"),
+		OldSurface.ReentrantRecoveryResult.IsValid()
+			&& OldSurface.ReentrantRecoveryResult.GetStatus()
+				== EArcOwnerHandoffRecoveryStatus::OperationInProgress
+			&& OldSurface.ReentrantRecoveryResult
+				.GetSurfaceSnapshotReadCount() == 0
+			&& !OldSurface.ReentrantRecoveryResult.HasReceipt());
+
+	FFakeArcPreviewHandoffSurface ThirdSurface(
+		FGuid(0xF4852001, 0xF4852002, 0xF4852003, 0xF4852004),
+		Consumer);
+	ThirdSurface.ForceCursor(Owner.GetSurfaceCursor());
+	FArcSurfaceOwnershipTicket NextTicket;
+	if (!BuildArcOwnerHandoffTicket(
+			*this,
+			Owner,
+			ThirdSurface,
+			EArcSurfaceRecreationAction::AdoptExact,
+			NextTicket))
+	{
+		return false;
+	}
+	FArcOwnerHandoff Handoff;
+	const auto NextHandoff = Handoff.Execute(
+		Owner, NextTicket, NewSurface, ThirdSurface);
+	TestTrue(TEXT("later normal handoff replaces rather than coexists with recovery receipt"),
+		NextHandoff.IsValid() && NextHandoff.WasCommitted()
+			&& Owner.GetLastSurfaceHandoffReceipt().IsExactAdopted()
+			&& !Owner.GetLastSurfaceHandoffRecoveryReceipt().IsValid()
+			&& Owner.IsValid() && Owner.IsSynchronized());
 	return true;
 }
 

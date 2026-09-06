@@ -787,6 +787,8 @@ bool FOwner::TryEnd(const FGuid& ExpectedRunId, FString& OutDiagnostic)
 	Candidate.BoundSurfaceInstanceId.Invalidate();
 	Candidate.LastSurfaceHandoffReceipt =
 		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffReceipt();
+	Candidate.LastSurfaceHandoffRecoveryReceipt =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryReceipt();
 	Candidate.bOperationInProgress = false;
 	if (!Candidate.IsEmpty())
 	{
@@ -827,6 +829,7 @@ bool FOwner::IsValid() const
 			&& Surface == nullptr && IdentitySurface == nullptr
 			&& !BoundSurfaceInstanceId.IsValid()
 			&& !LastSurfaceHandoffReceipt.IsValid()
+			&& !LastSurfaceHandoffRecoveryReceipt.IsValid()
 			&& !bOperationInProgress;
 	}
 	if (!Host.IsActive() || !Adapter.IsActive()
@@ -842,22 +845,37 @@ bool FOwner::IsValid() const
 	}
 	if (IdentitySurface != nullptr)
 	{
+		const bool bNormalReceiptPresent =
+			LastSurfaceHandoffReceipt.IsValid();
+		const bool bRecoveryReceiptPresent =
+			LastSurfaceHandoffRecoveryReceipt.IsValid();
+		const bool bNormalReceiptMatches =
+			bNormalReceiptPresent
+			&& LastSurfaceHandoffReceipt.MatchesCurrentBinding(
+				Host.GetRunId(),
+				Host.GetConsumerDefinitionId(),
+				BoundSurfaceInstanceId);
+		const bool bRecoveryReceiptMatches =
+			bRecoveryReceiptPresent
+			&& LastSurfaceHandoffRecoveryReceipt.MatchesCurrentBinding(
+				Host.GetRunId(),
+				Host.GetConsumerDefinitionId(),
+				BoundSurfaceInstanceId);
 		if (static_cast<
 				Idemo_mapShanmenThrownWeaponArcPreviewPresentationSurface*>(
 				IdentitySurface)
 				!= Surface
 			|| IdentitySurface->GetSurfaceInstanceId()
 				!= BoundSurfaceInstanceId
-			|| !LastSurfaceHandoffReceipt.IsValid()
-			|| !LastSurfaceHandoffReceipt.MatchesCurrentBinding(
-				Host.GetRunId(),
-				Host.GetConsumerDefinitionId(),
-				BoundSurfaceInstanceId))
+			|| bNormalReceiptPresent == bRecoveryReceiptPresent
+			|| (bNormalReceiptPresent && !bNormalReceiptMatches)
+			|| (bRecoveryReceiptPresent && !bRecoveryReceiptMatches))
 		{
 			return false;
 		}
 	}
-	else if (LastSurfaceHandoffReceipt.IsValid())
+	else if (LastSurfaceHandoffReceipt.IsValid()
+		|| LastSurfaceHandoffRecoveryReceipt.IsValid())
 	{
 		return false;
 	}

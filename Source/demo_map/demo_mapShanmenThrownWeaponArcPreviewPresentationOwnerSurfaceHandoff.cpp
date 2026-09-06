@@ -797,6 +797,8 @@ FResult FHandoff::Execute(
 			Owner.IsValid());
 	}
 	Candidate.LastSurfaceHandoffReceipt = Receipt;
+	Candidate.LastSurfaceHandoffRecoveryReceipt =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryReceipt();
 	if (!Candidate.IsValid() || !Candidate.IsSynchronized())
 	{
 		return Reject(

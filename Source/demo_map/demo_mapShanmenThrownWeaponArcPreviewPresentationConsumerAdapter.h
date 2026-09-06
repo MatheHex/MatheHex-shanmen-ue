@@ -4,6 +4,7 @@
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryCoordinator.h"
 
 class Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff;
+class Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecovery;
 
 enum class
 	Edemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceResponseOutcome
@@ -240,6 +241,8 @@ public:
 private:
 	friend class
 		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff;
+	friend class
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecovery;
 
 	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationConsumerAdapterResult
 	MakeResult(

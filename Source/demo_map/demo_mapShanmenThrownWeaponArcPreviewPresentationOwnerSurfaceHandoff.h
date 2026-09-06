@@ -247,6 +247,11 @@ public:
 		return Status;
 	}
 	const FString& GetDiagnostic() const { return Diagnostic; }
+	const Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceOwnershipTransitionTicket&
+	GetTransitionTicket() const
+	{
+		return TransitionTicket;
+	}
 	int32 GetRetirementCallCount() const { return RetirementCallCount; }
 	const FGuid& GetPreviousSurfaceInstanceId() const
 	{

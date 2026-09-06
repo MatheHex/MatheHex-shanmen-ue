@@ -205,6 +205,9 @@ try
 	$ThrownArcPreviewPresentationOwnerSurfaceHandoff = New-AutomationLogFixture `
 		-Name 'thrown-arc-preview-presentation-owner-surface-handoff.log' `
 		-Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff'
+	$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecovery = New-AutomationLogFixture `
+		-Name 'thrown-arc-preview-presentation-owner-surface-handoff-recovery.log' `
+		-Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecovery'
     $ThrownArcPreviewPresentationSurfaceOwnershipTransition = New-AutomationLogFixture `
         -Name 'thrown-arc-preview-presentation-surface-ownership-transition.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceOwnershipTransition'
@@ -2891,11 +2894,47 @@ try
 			$ItemUse)
 
 	Invoke-ExpectedPass `
+		-Name 'thrown weapon Arc preview Owner surface handoff recovery maps checkpoint ticket owner surface and full authority seams' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecovery.h',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecovery.cpp') `
+		-Logs @(
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecovery,
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoff,
+			$ThrownArcPreviewPresentationSurfaceOwnershipTransition,
+			$ThrownArcPreviewPresentationSurfaceLifecycleExecutor,
+			$ThrownArcPreviewPresentationSurfaceRecreationPolicy,
+			$ThrownArcPreviewPresentationCompositionOwner,
+			$ThrownArcPreviewPresentationConsumerAdapter,
+			$ThrownArcPreviewPresentationDeliveryHost,
+			$ThrownArcPreviewPresentationDeliverySession,
+			$ThrownArcPreviewPresentationDeliveryCoordinator,
+			$ThrownArcPreviewPresentationCommandLedger,
+			$ThrownArcPreviewPresentationCommand,
+			$ThrownArcPreviewPresentationSession,
+			$ThrownArcPreviewUpdateCoordinator,
+			$ThrownArcPreviewPresentation,
+			$ThrownArcPreviewProductBridge,
+			$ThrownArcPreviewCapture,
+			$ThrownArcPreviewComposition,
+			$ThrownArcChoiceProjection,
+			$ThrownProductSession,
+			$ThrownProductController,
+			$ThrownArcPreview,
+			$ThrownArc,
+			$ThrownRuntime,
+			$CombatRuntime,
+			$CombatCore,
+			$Full,
+			$ItemUse)
+
+	Invoke-ExpectedPass `
 		-Name 'thrown weapon Arc preview Owner surface handoff maps ticket lifecycle owner surface and full authority seams' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff.cpp') `
 		-Logs @(
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecovery,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoff,
 			$ThrownArcPreviewPresentationSurfaceOwnershipTransition,
 			$ThrownArcPreviewPresentationSurfaceLifecycleExecutor,
@@ -3026,6 +3065,7 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwner.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwner.cpp') `
 		-Logs @(
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecovery,
 			$ThrownArcPreviewPresentationCompositionOwner,
 			$ThrownArcPreviewPresentationConsumerAdapter,
 			$ThrownArcPreviewPresentationDeliveryHost,
@@ -3056,6 +3096,7 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationConsumerAdapter.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationConsumerAdapter.cpp') `
 		-Logs @(
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecovery,
 			$ThrownArcPreviewPresentationConsumerAdapter,
 			$ThrownArcPreviewPresentationDeliveryHost,
 			$ThrownArcPreviewPresentationDeliverySession,
@@ -4979,6 +5020,13 @@ try
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger.cpp') `
 		-Logs @($ThrownArcPreviewPresentationCommandLedger) `
+		-ExpectedText 'missing required groups'
+
+	Invoke-ExpectedFail `
+		-Name 'thrown Arc preview Owner handoff recovery focus cannot replace ticket owner and authority evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecovery.cpp') `
+		-Logs @($ThrownArcPreviewPresentationOwnerSurfaceHandoffRecovery) `
 		-ExpectedText 'missing required groups'
 
 	Invoke-ExpectedFail `
