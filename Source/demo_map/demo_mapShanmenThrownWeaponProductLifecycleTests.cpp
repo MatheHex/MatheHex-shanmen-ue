@@ -26,6 +26,7 @@
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecovery.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundle.h"
+#include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelope.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorage.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal.h"
@@ -8078,6 +8079,16 @@ namespace
 		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleCodec;
 	using EArcOwnerHandoffRecoveryBundleDecodeStatus =
 		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleDecodeStatus;
+	using FArcOwnerHandoffRecoveryBundleStorageContext =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorageContext;
+	using FArcOwnerHandoffRecoveryBundleStorageAdapter =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorageAdapter;
+	using FArcOwnerHandoffRecoveryBundleLocalFileSystem =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleLocalFileSystem;
+	using EArcOwnerHandoffRecoveryBundleStorageSaveStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorageSaveStatus;
+	using EArcOwnerHandoffRecoveryBundleStorageLoadStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorageLoadStatus;
 	using FArcOwnerHandoffRecoveryPayloadStorageContext =
 		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorageContext;
 	using FArcOwnerHandoffRecoveryPayloadStorageAdapter =
@@ -8714,6 +8725,105 @@ namespace
 			return false;
 		}
 		return true;
+	}
+
+	bool BuildArcOwnerHandoffRecoveryBundleStorageContext(
+		FAutomationTestBase& Test,
+		const TCHAR* Label,
+		const FArcOwnerHandoffRecoveryBundle& Bundle,
+		FArcOwnerHandoffRecoveryBundleStorageContext& OutContext,
+		FGuid& OutLineageId)
+	{
+		OutLineageId.Invalidate();
+		if (!FArcOwnerHandoffRecoveryBundleStorageAdapter::
+				TryDeriveLineageId(Bundle, OutLineageId))
+		{
+			Test.AddError(TEXT(
+				"Could not derive the stable recovery bundle lineage identity."));
+			return false;
+		}
+		const FString Root = FPaths::ConvertRelativePathToFull(FPaths::Combine(
+			FPaths::ProjectSavedDir(),
+			TEXT("Automation"),
+			TEXT("Dev.D.UE.0.0.10.P20.53.r0"),
+			Label,
+			FGuid::NewGuid().ToString(EGuidFormats::Digits)));
+		FString Diagnostic;
+		if (!FArcOwnerHandoffRecoveryBundleStorageContext::TryCreate(
+				Root, OutLineageId, OutContext, Diagnostic))
+		{
+			Test.AddError(Diagnostic);
+			return false;
+		}
+		return true;
+	}
+
+	bool AdvanceArcOwnerHandoffRecoveryBundleGeneration(
+		FAutomationTestBase& Test,
+		const TCHAR* Label,
+		FArcCompositionOwner& FirstOwner,
+		FFakeArcPreviewHandoffSurface& FirstOldSurface,
+		FFakeArcPreviewHandoffSurface& FirstNewSurface,
+		const FArcOwnerHandoffRecoveryCheckpoint& FirstCheckpoint,
+		FArcOwnerHandoffRecoveryJournal& InOutJournal,
+		FArcOwnerHandoffRecoveryCheckpoint& OutCheckpoint,
+		FArcOwnerHandoffRecoveryBundle& OutBundle,
+		TArray<uint8>& OutBytes)
+	{
+		FArcOwnerHandoffRecovery Recovery;
+		const auto Recovered = Recovery.Execute(
+			FirstOwner,
+			FirstCheckpoint,
+			FirstOldSurface,
+			FirstNewSurface);
+		const auto Committed = Recovered.HasReceipt()
+			? InOutJournal.AppendRecoveryReceipt(
+				FirstCheckpoint, Recovered.GetReceipt())
+			: Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournalAppendResult();
+		if (!Committed.DidAppend())
+		{
+			Test.AddError(TEXT(
+				"Could not commit the first recovery bundle generation."));
+			return false;
+		}
+
+		const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+		FThrownLifecycleFixture Fixture;
+		FFakeArcPreviewHandoffSurface OldSurface(
+			FGuid(0xF4D0A001, 0xF4D0A002, 0xF4D0A003, 0xF4D0A004),
+			Consumer);
+		FFakeArcPreviewHandoffSurface NewSurface(
+			FGuid(0xF4D0B001, 0xF4D0B002, 0xF4D0B003, 0xF4D0B004),
+			Consumer);
+		FArcCompositionOwner Owner;
+		FArcOwnerHandoffResult Failed;
+		if (!BuildArcOwnerHandoffRecoveryCheckpoint(
+				Test,
+				Label,
+				Fixture,
+				Owner,
+				OldSurface,
+				NewSurface,
+				Failed,
+				OutCheckpoint))
+		{
+			return false;
+		}
+		const auto Appended = InOutJournal.AppendCheckpoint(OutCheckpoint);
+		FArcOwnerHandoffRecoveryPayloadEnvelope Envelope;
+		if (!Appended.DidAppend()
+			|| !FArcOwnerHandoffRecoveryPayloadEnvelope::TryWrap(
+				OutCheckpoint, InOutJournal, Envelope)
+			|| !FArcOwnerHandoffRecoveryBundle::TryCreate(
+				InOutJournal, Envelope, OutBundle)
+			|| !FArcOwnerHandoffRecoveryBundleCodec::TryEncode(
+				OutBundle, OutBytes))
+		{
+			Test.AddError(TEXT(
+				"Could not advance canonical recovery bundle evidence to generation two."));
+			return false;
+		}
+		return OutBundle.GetGeneration() == 2;
 	}
 
 	bool OverwriteUint32BigEndian(
@@ -11815,6 +11925,911 @@ RunTest(const FString&)
 	TestTrue(TEXT("invalid and future minimum generations fail closed"),
 		!bInvalidMinimumAccepted && !InvalidMinimum.IsValid()
 			&& !bFutureMinimumAccepted && !FutureMinimum.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleStorageLineageTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage.StableLineageContext",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleStorageLineageTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4D00001, 0xF4D00002, 0xF4D00003, 0xF4D00004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4D01001, 0xF4D01002, 0xF4D01003, 0xF4D01004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffRecoveryCheckpoint CheckpointOne;
+	FArcOwnerHandoffRecoveryJournal Journal;
+	FArcOwnerHandoffRecoveryPayloadEnvelope EnvelopeOne;
+	FArcOwnerHandoffRecoveryBundle BundleOne;
+	TArray<uint8> BytesOne;
+	if (!BuildArcOwnerHandoffRecoveryBundleEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryBundleStorageLineageOne"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			CheckpointOne,
+			Journal,
+			EnvelopeOne,
+			BundleOne,
+			BytesOne))
+	{
+		return false;
+	}
+	const FGuid GenerationOneJournalId = Journal.GetJournalId();
+	FGuid LineageOne;
+	FArcOwnerHandoffRecoveryBundleStorageContext ContextOne;
+	if (!BuildArcOwnerHandoffRecoveryBundleStorageContext(
+			*this,
+			TEXT("StableLineage"),
+			BundleOne,
+			ContextOne,
+			LineageOne))
+	{
+		return false;
+	}
+
+	FArcOwnerHandoffRecoveryCheckpoint CheckpointTwo;
+	FArcOwnerHandoffRecoveryBundle BundleTwo;
+	TArray<uint8> BytesTwo;
+	if (!AdvanceArcOwnerHandoffRecoveryBundleGeneration(
+			*this,
+			TEXT("ArcPreviewRecoveryBundleStorageLineageTwo"),
+			Owner,
+			OldSurface,
+			NewSurface,
+			CheckpointOne,
+			Journal,
+			CheckpointTwo,
+			BundleTwo,
+			BytesTwo))
+	{
+		return false;
+	}
+	FGuid LineageTwo;
+	const bool bDerivedTwo =
+		FArcOwnerHandoffRecoveryBundleStorageAdapter::TryDeriveLineageId(
+			BundleTwo, LineageTwo);
+	FArcOwnerHandoffRecoveryBundleStorageContext ContextTwo;
+	FString Diagnostic;
+	const bool bContextTwo = bDerivedTwo
+		&& FArcOwnerHandoffRecoveryBundleStorageContext::TryCreate(
+			ContextOne.GetRootDirectory(),
+			LineageTwo,
+			ContextTwo,
+			Diagnostic);
+	FArcOwnerHandoffRecoveryBundleStorageContext InvalidContext;
+	const bool bAcceptedRelative =
+		FArcOwnerHandoffRecoveryBundleStorageContext::TryCreate(
+			TEXT("Relative/RecoveryBundleRoot"),
+			LineageOne,
+			InvalidContext,
+			Diagnostic);
+	const bool bAcceptedInvalidLineage =
+		FArcOwnerHandoffRecoveryBundleStorageContext::TryCreate(
+			ContextOne.GetRootDirectory(),
+			FGuid(),
+			InvalidContext,
+			Diagnostic);
+
+	TestTrue(TEXT("lineage remains stable while journal and bundle identities advance"),
+		bDerivedTwo && LineageOne.IsValid() && LineageTwo == LineageOne
+			&& BundleOne.GetGeneration() == 1
+			&& BundleTwo.GetGeneration() == 2
+			&& GenerationOneJournalId != Journal.GetJournalId()
+			&& BundleOne.GetBundleId() != BundleTwo.GetBundleId()
+			&& BytesOne != BytesTwo);
+	TestTrue(TEXT("all generations resolve to one deterministic same-volume slot"),
+		ContextOne.IsValid() && bContextTwo && ContextTwo.IsValid()
+			&& ContextOne.GetExpectedLineageId() == LineageOne
+			&& ContextOne.GetPrimaryPath() == ContextTwo.GetPrimaryPath()
+			&& ContextOne.GetTemporaryPath() == ContextTwo.GetTemporaryPath()
+			&& ContextOne.GetPrimaryPath().EndsWith(TEXT(".smarc-bundle"))
+			&& ContextOne.GetTemporaryPath().EndsWith(TEXT(".tmp")));
+	TestTrue(TEXT("relative roots and invalid external lineage identities fail closed"),
+		!bAcceptedRelative && !bAcceptedInvalidLineage
+			&& !InvalidContext.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleStorageSaveLoadTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage.CanonicalSaveLoadAndReplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleStorageSaveLoadTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4D10001, 0xF4D10002, 0xF4D10003, 0xF4D10004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4D11001, 0xF4D11002, 0xF4D11003, 0xF4D11004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	FArcOwnerHandoffRecoveryJournal Journal;
+	FArcOwnerHandoffRecoveryPayloadEnvelope Envelope;
+	FArcOwnerHandoffRecoveryBundle Bundle;
+	TArray<uint8> Canonical;
+	if (!BuildArcOwnerHandoffRecoveryBundleEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryBundleStorageSaveLoad"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Checkpoint,
+			Journal,
+			Envelope,
+			Bundle,
+			Canonical))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryBundleStorageContext Context;
+	FGuid LineageId;
+	if (!BuildArcOwnerHandoffRecoveryBundleStorageContext(
+			*this, TEXT("SaveLoad"), Bundle, Context, LineageId))
+	{
+		return false;
+	}
+
+	FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem FileSystem;
+	FArcOwnerHandoffRecoveryBundleStorageAdapter Adapter;
+	const auto Saved = Adapter.Save(Context, Bundle, 1, FileSystem);
+	const auto Loaded = Adapter.Load(Context, 1, FileSystem);
+	const auto Replay = Adapter.Save(Context, Bundle, 1, FileSystem);
+	const int32 ReadsBeforeInvalid = FileSystem.ReadCount;
+	const auto InvalidSave = Adapter.Save(Context, Bundle, 0, FileSystem);
+	const auto InvalidLoad = Adapter.Load(Context, 9, FileSystem);
+	TArray<uint8> StoredBytes;
+	const bool bHasPrimary = FileSystem.TryGetFile(
+		Context.GetPrimaryPath(), StoredBytes);
+	FArcOwnerHandoffRecoveryCheckpoint Restored;
+	const bool bRestored = Loaded.IsSuccess()
+		&& Loaded.GetBundle().TryCopyPendingCheckpointEvidenceForJournal(
+			Journal, 1, Restored);
+
+	TestTrue(TEXT("one canonical bundle is fully flushed, replaced and decoded"),
+		Saved.IsSuccess() && !Saved.WasAlreadyCurrent()
+			&& Saved.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleStorageSaveStatus::Saved
+			&& Saved.DidReplacePrimary()
+			&& !Saved.TemporaryFileMayRemain()
+			&& Saved.GetLineageId() == LineageId
+			&& Saved.GetEncodedByteCount() == Canonical.Num()
+			&& Loaded.IsSuccess()
+			&& Loaded.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleStorageLoadStatus::Loaded
+			&& Loaded.GetLineageId() == LineageId
+			&& Loaded.GetGeneration() == 1
+			&& Loaded.GetBundle().Matches(Bundle)
+			&& bHasPrimary && StoredBytes == Canonical);
+	TestTrue(TEXT("identical replay is idempotent without another write or replace"),
+		Replay.IsSuccess() && Replay.WasAlreadyCurrent()
+			&& !Replay.DidReplacePrimary()
+			&& !Replay.TemporaryFileMayRemain()
+			&& FileSystem.WriteCount == 1
+			&& FileSystem.AtomicReplaceCount == 1);
+	TestTrue(TEXT("external watermark is mandatory and loaded evidence remains explicit"),
+		!InvalidSave.IsSuccess()
+			&& InvalidSave.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleStorageSaveStatus::
+					MinimumGenerationRejected
+			&& !InvalidLoad.IsSuccess()
+			&& InvalidLoad.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleStorageLoadStatus::
+					MinimumGenerationRejected
+			&& FileSystem.ReadCount == ReadsBeforeInvalid
+			&& bRestored && Restored.IsValid()
+			&& Restored.GetCheckpointId() == Checkpoint.GetCheckpointId());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleStorageGenerationTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage.GenerationAdvanceAndRollbackFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleStorageGenerationTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4D20001, 0xF4D20002, 0xF4D20003, 0xF4D20004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4D21001, 0xF4D21002, 0xF4D21003, 0xF4D21004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffRecoveryCheckpoint CheckpointOne;
+	FArcOwnerHandoffRecoveryJournal Journal;
+	FArcOwnerHandoffRecoveryPayloadEnvelope EnvelopeOne;
+	FArcOwnerHandoffRecoveryBundle BundleOne;
+	TArray<uint8> BytesOne;
+	if (!BuildArcOwnerHandoffRecoveryBundleEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryBundleStorageGenerationOne"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			CheckpointOne,
+			Journal,
+			EnvelopeOne,
+			BundleOne,
+			BytesOne))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryBundleStorageContext Context;
+	FGuid LineageOne;
+	if (!BuildArcOwnerHandoffRecoveryBundleStorageContext(
+			*this, TEXT("Generation"), BundleOne, Context, LineageOne))
+	{
+		return false;
+	}
+	FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem FileSystem;
+	FileSystem.SetDirectoryExists(true);
+	FArcOwnerHandoffRecoveryBundleStorageAdapter Adapter;
+	const auto SavedOne = Adapter.Save(Context, BundleOne, 1, FileSystem);
+
+	FArcOwnerHandoffRecoveryCheckpoint CheckpointTwo;
+	FArcOwnerHandoffRecoveryBundle BundleTwo;
+	TArray<uint8> BytesTwo;
+	if (!AdvanceArcOwnerHandoffRecoveryBundleGeneration(
+			*this,
+			TEXT("ArcPreviewRecoveryBundleStorageGenerationTwo"),
+			Owner,
+			OldSurface,
+			NewSurface,
+			CheckpointOne,
+			Journal,
+			CheckpointTwo,
+			BundleTwo,
+			BytesTwo))
+	{
+		return false;
+	}
+	FGuid LineageTwo;
+	const bool bDerivedTwo =
+		FArcOwnerHandoffRecoveryBundleStorageAdapter::TryDeriveLineageId(
+			BundleTwo, LineageTwo);
+	const auto SavedTwo = Adapter.Save(Context, BundleTwo, 2, FileSystem);
+	const auto LoadedTwo = Adapter.Load(Context, 2, FileSystem);
+	const int32 WritesBeforeRejectedRollback = FileSystem.WriteCount;
+	const int32 ReplacesBeforeRejectedRollback = FileSystem.AtomicReplaceCount;
+	const auto BelowWatermark = Adapter.Save(
+		Context, BundleOne, 2, FileSystem);
+	FileSystem.SetFile(Context.GetPrimaryPath(), BytesOne);
+	const auto StaleLoad = Adapter.Load(Context, 2, FileSystem);
+	FileSystem.SetFile(Context.GetPrimaryPath(), BytesTwo);
+	const auto ExistingNewer = Adapter.Save(
+		Context, BundleOne, 1, FileSystem);
+
+	TestTrue(TEXT("new generation advances in place within one stable lineage"),
+		SavedOne.IsSuccess() && SavedTwo.IsSuccess()
+			&& SavedTwo.DidReplacePrimary()
+			&& bDerivedTwo && LineageTwo == LineageOne
+			&& LoadedTwo.IsSuccess()
+			&& LoadedTwo.GetGeneration() == 2
+			&& LoadedTwo.GetBundle().Matches(BundleTwo)
+			&& FileSystem.WriteCount == 2
+			&& FileSystem.AtomicReplaceCount == 2);
+	TestTrue(TEXT("trusted watermark rejects an old candidate before filesystem mutation"),
+		!BelowWatermark.IsSuccess()
+			&& BelowWatermark.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleStorageSaveStatus::
+					GenerationBelowWatermark
+			&& WritesBeforeRejectedRollback == 2
+			&& ReplacesBeforeRejectedRollback == 2);
+	TestTrue(TEXT("load and existing-primary fences independently reject rollback"),
+		!StaleLoad.IsSuccess()
+			&& StaleLoad.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleStorageLoadStatus::
+					GenerationBelowWatermark
+			&& StaleLoad.GetGeneration() == 1
+			&& !ExistingNewer.IsSuccess()
+			&& ExistingNewer.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleStorageSaveStatus::
+					ExistingGenerationNewer
+			&& FileSystem.WriteCount == WritesBeforeRejectedRollback
+			&& FileSystem.AtomicReplaceCount == ReplacesBeforeRejectedRollback);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleStoragePrecommitTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage.PrecommitFailureAtomicity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleStoragePrecommitTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4D30001, 0xF4D30002, 0xF4D30003, 0xF4D30004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4D31001, 0xF4D31002, 0xF4D31003, 0xF4D31004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	FArcOwnerHandoffRecoveryJournal Journal;
+	FArcOwnerHandoffRecoveryPayloadEnvelope Envelope;
+	FArcOwnerHandoffRecoveryBundle Bundle;
+	TArray<uint8> Canonical;
+	if (!BuildArcOwnerHandoffRecoveryBundleEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryBundleStoragePrecommit"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Checkpoint,
+			Journal,
+			Envelope,
+			Bundle,
+			Canonical))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryBundleStorageContext Context;
+	FGuid LineageId;
+	if (!BuildArcOwnerHandoffRecoveryBundleStorageContext(
+			*this, TEXT("Precommit"), Bundle, Context, LineageId))
+	{
+		return false;
+	}
+
+	using EFailure =
+		FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem::EFailure;
+	struct FFailureCase
+	{
+		EFailure Failure;
+		EArcOwnerHandoffRecoveryBundleStorageSaveStatus Expected;
+		bool bNeedsStaleTemporary = false;
+	};
+	const TArray<FFailureCase> Cases =
+	{
+		{EFailure::CreateDirectory,
+			EArcOwnerHandoffRecoveryBundleStorageSaveStatus::
+				DirectoryCreationFailed},
+		{EFailure::DeleteTemporary,
+			EArcOwnerHandoffRecoveryBundleStorageSaveStatus::
+				StaleTemporaryCleanupFailed,
+			true},
+		{EFailure::OpenTemporary,
+			EArcOwnerHandoffRecoveryBundleStorageSaveStatus::
+				TemporaryOpenFailed},
+		{EFailure::WriteTemporary,
+			EArcOwnerHandoffRecoveryBundleStorageSaveStatus::
+				TemporaryWriteFailed},
+		{EFailure::FlushTemporary,
+			EArcOwnerHandoffRecoveryBundleStorageSaveStatus::
+				TemporaryFlushFailed},
+		{EFailure::ReadTemporary,
+			EArcOwnerHandoffRecoveryBundleStorageSaveStatus::
+				TemporaryReadBackFailed},
+		{EFailure::CorruptTemporaryRead,
+			EArcOwnerHandoffRecoveryBundleStorageSaveStatus::
+				TemporaryValidationFailed},
+		{EFailure::AtomicReplace,
+			EArcOwnerHandoffRecoveryBundleStorageSaveStatus::
+				AtomicReplaceFailed}
+	};
+	FArcOwnerHandoffRecoveryBundleStorageAdapter Adapter;
+	for (int32 Index = 0; Index < Cases.Num(); ++Index)
+	{
+		const FFailureCase& FailureCase = Cases[Index];
+		FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem FileSystem;
+		FileSystem.SetDirectoryExists(
+			FailureCase.Failure != EFailure::CreateDirectory);
+		if (FailureCase.bNeedsStaleTemporary)
+		{
+			FileSystem.SetFile(
+				Context.GetTemporaryPath(), TArray<uint8>({0x99}));
+		}
+		FileSystem.SetFailure(FailureCase.Failure);
+		const auto Result = Adapter.Save(Context, Bundle, 1, FileSystem);
+		TArray<uint8> PrimaryBytes;
+		const bool bHasPrimary = FileSystem.TryGetFile(
+			Context.GetPrimaryPath(), PrimaryBytes);
+
+		TestTrue(
+			*FString::Printf(TEXT("precommit case %d classifies exactly"), Index),
+			!Result.IsSuccess()
+				&& Result.GetStatus() == FailureCase.Expected
+				&& !Result.DidReplacePrimary()
+				&& !bHasPrimary && PrimaryBytes.IsEmpty());
+		TestTrue(
+			*FString::Printf(TEXT("precommit case %d is one-shot"), Index),
+			FileSystem.WriteCount <= 1
+				&& FileSystem.AtomicReplaceCount <= 1
+				&& (FailureCase.Failure != EFailure::AtomicReplace
+					|| FileSystem.AtomicReplaceCount == 1));
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleStorageExistingTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage.ExistingPrimaryFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleStorageExistingTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture FixtureA;
+	FFakeArcPreviewHandoffSurface OldA(
+		FGuid(0xF4D40001, 0xF4D40002, 0xF4D40003, 0xF4D40004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewA(
+		FGuid(0xF4D41001, 0xF4D41002, 0xF4D41003, 0xF4D41004),
+		Consumer);
+	FArcCompositionOwner OwnerA;
+	FArcOwnerHandoffRecoveryCheckpoint CheckpointA;
+	FArcOwnerHandoffRecoveryJournal JournalA;
+	FArcOwnerHandoffRecoveryPayloadEnvelope EnvelopeA;
+	FArcOwnerHandoffRecoveryBundle BundleA;
+	TArray<uint8> BytesA;
+	if (!BuildArcOwnerHandoffRecoveryBundleEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryBundleStorageExistingA"),
+			FixtureA,
+			OwnerA,
+			OldA,
+			NewA,
+			CheckpointA,
+			JournalA,
+			EnvelopeA,
+			BundleA,
+			BytesA))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryBundleStorageContext Context;
+	FGuid LineageA;
+	if (!BuildArcOwnerHandoffRecoveryBundleStorageContext(
+			*this, TEXT("Existing"), BundleA, Context, LineageA))
+	{
+		return false;
+	}
+
+	FThrownLifecycleFixture FixtureB;
+	FFakeArcPreviewHandoffSurface OldB(
+		FGuid(0xF4D42001, 0xF4D42002, 0xF4D42003, 0xF4D42004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewB(
+		FGuid(0xF4D43001, 0xF4D43002, 0xF4D43003, 0xF4D43004),
+		Consumer);
+	FArcCompositionOwner OwnerB;
+	FArcOwnerHandoffRecoveryCheckpoint CheckpointB;
+	FArcOwnerHandoffRecoveryJournal JournalB;
+	FArcOwnerHandoffRecoveryPayloadEnvelope EnvelopeB;
+	FArcOwnerHandoffRecoveryBundle BundleB;
+	TArray<uint8> BytesB;
+	if (!BuildArcOwnerHandoffRecoveryBundleEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryBundleStorageExistingB"),
+			FixtureB,
+			OwnerB,
+			OldB,
+			NewB,
+			CheckpointB,
+			JournalB,
+			EnvelopeB,
+			BundleB,
+			BytesB))
+	{
+		return false;
+	}
+
+	using EFailure =
+		FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem::EFailure;
+	struct FExistingCase
+	{
+		TArray<uint8> Bytes;
+		EFailure Failure;
+		EArcOwnerHandoffRecoveryBundleStorageSaveStatus Expected;
+	};
+	TArray<uint8> Oversized;
+	Oversized.SetNumZeroed(
+		FArcOwnerHandoffRecoveryBundleCodec::MaximumEncodedBytes() + 1);
+	const TArray<FExistingCase> Cases =
+	{
+		{BytesA,
+			EFailure::ReadPrimary,
+			EArcOwnerHandoffRecoveryBundleStorageSaveStatus::
+				ExistingReadFailed},
+		{Oversized,
+			EFailure::None,
+			EArcOwnerHandoffRecoveryBundleStorageSaveStatus::
+				ExistingSizeRejected},
+		{TArray<uint8>({0x01, 0x02, 0x03}),
+			EFailure::None,
+			EArcOwnerHandoffRecoveryBundleStorageSaveStatus::
+				ExistingDecodeRejected},
+		{BytesB,
+			EFailure::None,
+			EArcOwnerHandoffRecoveryBundleStorageSaveStatus::
+				ExistingLineageMismatch}
+	};
+	FArcOwnerHandoffRecoveryBundleStorageAdapter Adapter;
+	for (int32 Index = 0; Index < Cases.Num(); ++Index)
+	{
+		FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem FileSystem;
+		FileSystem.SetDirectoryExists(true);
+		FileSystem.SetFile(Context.GetPrimaryPath(), Cases[Index].Bytes);
+		FileSystem.SetFailure(Cases[Index].Failure);
+		const auto Result = Adapter.Save(Context, BundleA, 1, FileSystem);
+		TArray<uint8> Preserved;
+		const bool bPreserved = FileSystem.TryGetFile(
+			Context.GetPrimaryPath(), Preserved);
+
+		TestTrue(
+			*FString::Printf(TEXT("existing-primary case %d fails closed"), Index),
+			!Result.IsSuccess()
+				&& Result.GetStatus() == Cases[Index].Expected
+				&& !Result.DidReplacePrimary()
+				&& bPreserved && Preserved == Cases[Index].Bytes
+				&& FileSystem.WriteCount == 0
+				&& FileSystem.AtomicReplaceCount == 0);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleStoragePostcommitTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage.PostcommitOutcomeRequiresLoad",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleStoragePostcommitTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4D50001, 0xF4D50002, 0xF4D50003, 0xF4D50004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4D51001, 0xF4D51002, 0xF4D51003, 0xF4D51004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	FArcOwnerHandoffRecoveryJournal Journal;
+	FArcOwnerHandoffRecoveryPayloadEnvelope Envelope;
+	FArcOwnerHandoffRecoveryBundle Bundle;
+	TArray<uint8> Canonical;
+	if (!BuildArcOwnerHandoffRecoveryBundleEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryBundleStoragePostcommit"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Checkpoint,
+			Journal,
+			Envelope,
+			Bundle,
+			Canonical))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryBundleStorageContext Context;
+	FGuid LineageId;
+	if (!BuildArcOwnerHandoffRecoveryBundleStorageContext(
+			*this, TEXT("Postcommit"), Bundle, Context, LineageId))
+	{
+		return false;
+	}
+
+	using EFailure =
+		FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem::EFailure;
+	struct FFailureCase
+	{
+		EFailure Failure;
+		EArcOwnerHandoffRecoveryBundleStorageSaveStatus Expected;
+	};
+	const TArray<FFailureCase> Cases =
+	{
+		{EFailure::ReadPrimary,
+			EArcOwnerHandoffRecoveryBundleStorageSaveStatus::
+				CommittedReadBackFailed},
+		{EFailure::CorruptPrimaryRead,
+			EArcOwnerHandoffRecoveryBundleStorageSaveStatus::
+				CommittedValidationFailed}
+	};
+	FArcOwnerHandoffRecoveryBundleStorageAdapter Adapter;
+	for (int32 Index = 0; Index < Cases.Num(); ++Index)
+	{
+		FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem FileSystem;
+		FileSystem.SetDirectoryExists(true);
+		FileSystem.SetFailure(Cases[Index].Failure);
+		const auto Result = Adapter.Save(Context, Bundle, 1, FileSystem);
+		FileSystem.SetFailure(EFailure::None);
+		const auto ResolvedByLoad = Adapter.Load(Context, 1, FileSystem);
+		TArray<uint8> PrimaryBytes;
+		const bool bHasPrimary = FileSystem.TryGetFile(
+			Context.GetPrimaryPath(), PrimaryBytes);
+
+		TestTrue(
+			*FString::Printf(TEXT("postcommit case %d exposes indeterminate stage"), Index),
+			!Result.IsSuccess()
+				&& Result.GetStatus() == Cases[Index].Expected
+				&& Result.DidReplacePrimary()
+				&& !Result.TemporaryFileMayRemain());
+		TestTrue(
+			*FString::Printf(TEXT("postcommit case %d resolves only by explicit load"), Index),
+			ResolvedByLoad.IsSuccess()
+				&& ResolvedByLoad.GetBundle().Matches(Bundle)
+				&& bHasPrimary && PrimaryBytes == Canonical
+				&& FileSystem.WriteCount == 1
+				&& FileSystem.AtomicReplaceCount == 1);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleStorageLoadFenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage.LoadBoundsDecodeLineageAndWatermark",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleStorageLoadFenceTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture FixtureA;
+	FFakeArcPreviewHandoffSurface OldA(
+		FGuid(0xF4D60001, 0xF4D60002, 0xF4D60003, 0xF4D60004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewA(
+		FGuid(0xF4D61001, 0xF4D61002, 0xF4D61003, 0xF4D61004),
+		Consumer);
+	FArcCompositionOwner OwnerA;
+	FArcOwnerHandoffRecoveryCheckpoint CheckpointA;
+	FArcOwnerHandoffRecoveryJournal JournalA;
+	FArcOwnerHandoffRecoveryPayloadEnvelope EnvelopeA;
+	FArcOwnerHandoffRecoveryBundle BundleA;
+	TArray<uint8> BytesA;
+	if (!BuildArcOwnerHandoffRecoveryBundleEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryBundleStorageLoadA"),
+			FixtureA,
+			OwnerA,
+			OldA,
+			NewA,
+			CheckpointA,
+			JournalA,
+			EnvelopeA,
+			BundleA,
+			BytesA))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryBundleStorageContext Context;
+	FGuid LineageA;
+	if (!BuildArcOwnerHandoffRecoveryBundleStorageContext(
+			*this, TEXT("LoadFence"), BundleA, Context, LineageA))
+	{
+		return false;
+	}
+
+	FThrownLifecycleFixture FixtureB;
+	FFakeArcPreviewHandoffSurface OldB(
+		FGuid(0xF4D62001, 0xF4D62002, 0xF4D62003, 0xF4D62004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewB(
+		FGuid(0xF4D63001, 0xF4D63002, 0xF4D63003, 0xF4D63004),
+		Consumer);
+	FArcCompositionOwner OwnerB;
+	FArcOwnerHandoffRecoveryCheckpoint CheckpointB;
+	FArcOwnerHandoffRecoveryJournal JournalB;
+	FArcOwnerHandoffRecoveryPayloadEnvelope EnvelopeB;
+	FArcOwnerHandoffRecoveryBundle BundleB;
+	TArray<uint8> BytesB;
+	if (!BuildArcOwnerHandoffRecoveryBundleEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryBundleStorageLoadB"),
+			FixtureB,
+			OwnerB,
+			OldB,
+			NewB,
+			CheckpointB,
+			JournalB,
+			EnvelopeB,
+			BundleB,
+			BytesB))
+	{
+		return false;
+	}
+
+	FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem FileSystem;
+	FileSystem.SetDirectoryExists(true);
+	FArcOwnerHandoffRecoveryBundleStorageAdapter Adapter;
+	const auto Missing = Adapter.Load(Context, 1, FileSystem);
+	TArray<uint8> Oversized;
+	Oversized.SetNumZeroed(
+		FArcOwnerHandoffRecoveryBundleCodec::MaximumEncodedBytes() + 1);
+	FileSystem.SetFile(Context.GetPrimaryPath(), Oversized);
+	const auto TooLarge = Adapter.Load(Context, 1, FileSystem);
+	FileSystem.SetFile(
+		Context.GetPrimaryPath(), TArray<uint8>({0x01, 0x02, 0x03}));
+	const auto Corrupt = Adapter.Load(Context, 1, FileSystem);
+	FileSystem.SetFile(Context.GetPrimaryPath(), BytesA);
+	FileSystem.SetFailure(
+		FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem::EFailure::
+			ReadPrimary);
+	const auto ReadFailure = Adapter.Load(Context, 1, FileSystem);
+	FileSystem.SetFailure(
+		FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem::EFailure::None);
+	FileSystem.SetFile(Context.GetPrimaryPath(), BytesB);
+	const auto Foreign = Adapter.Load(Context, 1, FileSystem);
+	FileSystem.SetFile(Context.GetPrimaryPath(), BytesA);
+	const auto BelowWatermark = Adapter.Load(Context, 2, FileSystem);
+
+	TestTrue(TEXT("missing, oversized and unreadable primaries classify exactly"),
+		!Missing.IsSuccess()
+			&& Missing.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleStorageLoadStatus::Missing
+			&& !TooLarge.IsSuccess()
+			&& TooLarge.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleStorageLoadStatus::SizeRejected
+			&& TooLarge.GetObservedByteCount()
+				== FArcOwnerHandoffRecoveryBundleCodec::MaximumEncodedBytes() + 1
+			&& !ReadFailure.IsSuccess()
+			&& ReadFailure.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleStorageLoadStatus::ReadFailed);
+	TestTrue(TEXT("codec corruption remains distinct from filesystem failure"),
+		!Corrupt.IsSuccess()
+			&& Corrupt.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleStorageLoadStatus::DecodeRejected
+			&& Corrupt.GetDecodeStatus()
+				!= EArcOwnerHandoffRecoveryBundleDecodeStatus::Decoded);
+	TestTrue(TEXT("foreign lineage and stale generation fail after canonical decode"),
+		!Foreign.IsSuccess()
+			&& Foreign.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleStorageLoadStatus::
+					LineageSlotMismatch
+			&& Foreign.GetDecodeStatus()
+				== EArcOwnerHandoffRecoveryBundleDecodeStatus::Decoded
+			&& !BelowWatermark.IsSuccess()
+			&& BelowWatermark.GetStatus()
+				== EArcOwnerHandoffRecoveryBundleStorageLoadStatus::
+					GenerationBelowWatermark
+			&& BelowWatermark.GetGeneration() == 1
+			&& FileSystem.WriteCount == 0
+			&& FileSystem.AtomicReplaceCount == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleStorageLocalFileTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage.LocalFileAtomicGenerationReplace",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryBundleStorageLocalFileTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4D70001, 0xF4D70002, 0xF4D70003, 0xF4D70004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4D71001, 0xF4D71002, 0xF4D71003, 0xF4D71004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffRecoveryCheckpoint CheckpointOne;
+	FArcOwnerHandoffRecoveryJournal Journal;
+	FArcOwnerHandoffRecoveryPayloadEnvelope EnvelopeOne;
+	FArcOwnerHandoffRecoveryBundle BundleOne;
+	TArray<uint8> BytesOne;
+	if (!BuildArcOwnerHandoffRecoveryBundleEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryBundleStorageLocalOne"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			CheckpointOne,
+			Journal,
+			EnvelopeOne,
+			BundleOne,
+			BytesOne))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryBundleStorageContext Context;
+	FGuid LineageId;
+	if (!BuildArcOwnerHandoffRecoveryBundleStorageContext(
+			*this, TEXT("LocalFile"), BundleOne, Context, LineageId))
+	{
+		return false;
+	}
+	IFileManager::Get().DeleteDirectory(
+		*Context.GetRootDirectory(), false, true);
+
+	FArcOwnerHandoffRecoveryBundleLocalFileSystem FileSystem;
+	FArcOwnerHandoffRecoveryBundleStorageAdapter Adapter;
+	const auto SavedOne = Adapter.Save(Context, BundleOne, 1, FileSystem);
+	const auto LoadedOne = Adapter.Load(Context, 1, FileSystem);
+	const auto ReplayedOne = Adapter.Save(Context, BundleOne, 1, FileSystem);
+	FArcOwnerHandoffRecoveryCheckpoint CheckpointTwo;
+	FArcOwnerHandoffRecoveryBundle BundleTwo;
+	TArray<uint8> BytesTwo;
+	if (!AdvanceArcOwnerHandoffRecoveryBundleGeneration(
+			*this,
+			TEXT("ArcPreviewRecoveryBundleStorageLocalTwo"),
+			Owner,
+			OldSurface,
+			NewSurface,
+			CheckpointOne,
+			Journal,
+			CheckpointTwo,
+			BundleTwo,
+			BytesTwo))
+	{
+		return false;
+	}
+	const int32 OldRetirementsBeforeStorage = OldSurface.RetirementCallCount;
+	const int32 OldMutationsBeforeStorage = OldSurface.MutationCallCount;
+	const int32 NewMutationsBeforeStorage = NewSurface.MutationCallCount;
+	const auto SavedTwo = Adapter.Save(Context, BundleTwo, 2, FileSystem);
+	const auto LoadedTwo = Adapter.Load(Context, 2, FileSystem);
+	TArray<uint8> PrimaryBytes;
+	int64 PrimarySize = INDEX_NONE;
+	const auto PrimaryRead = FileSystem.ReadBounded(
+		Context.GetPrimaryPath(),
+		FArcOwnerHandoffRecoveryBundleCodec::MaximumEncodedBytes(),
+		PrimaryBytes,
+		PrimarySize);
+	const bool bTemporaryMissing =
+		!IFileManager::Get().FileExists(*Context.GetTemporaryPath());
+	FArcOwnerHandoffRecoveryCheckpoint RestoredTwo;
+	const bool bRestoredTwo = LoadedTwo.IsSuccess()
+		&& LoadedTwo.GetBundle().TryCopyPendingCheckpointEvidenceForJournal(
+			Journal, 2, RestoredTwo);
+	const bool bCleanup = IFileManager::Get().DeleteDirectory(
+		*Context.GetRootDirectory(), false, true);
+
+	TestTrue(TEXT("local backend atomically keeps one exact newest-generation file"),
+		SavedOne.IsSuccess() && LoadedOne.IsSuccess()
+			&& ReplayedOne.IsSuccess() && ReplayedOne.WasAlreadyCurrent()
+			&& SavedTwo.IsSuccess() && SavedTwo.DidReplacePrimary()
+			&& LoadedTwo.IsSuccess()
+			&& LoadedTwo.GetGeneration() == 2
+			&& LoadedTwo.GetBundle().Matches(BundleTwo)
+			&& PrimaryRead
+				== EArcOwnerHandoffRecoveryPayloadStorageFileReadStatus::Read
+			&& PrimarySize == BytesTwo.Num()
+			&& PrimaryBytes == BytesTwo
+			&& bTemporaryMissing);
+	TestTrue(TEXT("storage remains evidence-only and delegates recovery explicitly"),
+		OldSurface.RetirementCallCount == OldRetirementsBeforeStorage
+			&& OldSurface.MutationCallCount == OldMutationsBeforeStorage
+			&& NewSurface.MutationCallCount == NewMutationsBeforeStorage
+			&& bRestoredTwo && RestoredTwo.IsValid()
+			&& RestoredTwo.GetCheckpointId() == CheckpointTwo.GetCheckpointId());
+	TestTrue(TEXT("test-owned bundle storage root is cleaned after verification"),
+		bCleanup
+			&& !IFileManager::Get().DirectoryExists(
+				*Context.GetRootDirectory()));
 	return true;
 }
 
