@@ -3410,9 +3410,57 @@
 	  ]
 	},
 	{
+	  "name": "ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession",
+	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession(?:Tests)?\\.(?:h|cpp)$",
+	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundle",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorage",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelope",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecovery",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceOwnershipTransition",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceLifecycleExecutor",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceRecreationPolicy",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCompositionOwner",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationConsumerAdapter",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliveryHost",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliverySession",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationDeliveryCoordinator",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCommandLedger",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCommand",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSession",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewUpdateCoordinator",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentation",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewProductBridge",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewCapture",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewComposition",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcChoiceProjection",
+		"Shanmen.0_0_10.Product.ThrownWeaponProductLifecycle",
+		"Shanmen.0_0_10.Product.ThrownWeaponProductSession",
+		"Shanmen.0_0_10.Product.ThrownWeaponProductController",
+		"Shanmen.0_0_10.Product.ThrownWeaponRunCommand",
+		"Shanmen.0_0_10.Product.ThrownWeaponRunHost",
+		"Shanmen.0_0_10.Product.ThrownWeaponWorldDelivery",
+		"Shanmen.0_0_10.Product.ThrownWeaponItemAdapter",
+		"Shanmen.0_0_10.Product.CombatRunCoordinator",
+		"Shanmen.0_0_10.Items",
+		"Shanmen.0_0_10.WorldGameplay",
+		"Shanmen.0_0_10.CombatRuntime",
+		"Shanmen.0_0_10.CombatCore",
+		"Shanmen.0_0_10",
+		"demo_map.ItemUseAndArmor"
+	  ]
+	},
+	{
 	  "name": "ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession",
 	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession(?:Tests)?\\.(?:h|cpp)$",
 	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage",
@@ -3459,6 +3507,7 @@
 	  "name": "ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority",
 	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority(?:Tests)?\\.(?:h|cpp)$",
 	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage",
@@ -3505,6 +3554,7 @@
 	  "name": "ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage",
 	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage(?:Tests)?\\.(?:h|cpp)$",
 	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage",
@@ -3551,6 +3601,7 @@
 	  "name": "ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundle",
 	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundle(?:Tests)?\\.(?:h|cpp)$",
 	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage",
@@ -3596,6 +3647,7 @@
 	  "name": "ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorage",
 	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorage(?:Tests)?\\.(?:h|cpp)$",
 	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage",
@@ -3641,6 +3693,7 @@
 	  "name": "ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelope",
 	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelope(?:Tests)?\\.(?:h|cpp)$",
 	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage",
@@ -3687,6 +3740,7 @@
 	  "name": "ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal",
 	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal(?:Tests)?\\.(?:h|cpp)$",
 	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage",
@@ -3733,6 +3787,7 @@
 	  "name": "ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecovery",
 	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecovery(?:Tests)?\\.(?:h|cpp)$",
 	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelope",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal",

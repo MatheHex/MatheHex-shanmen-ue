@@ -229,6 +229,9 @@ try
 	$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorage = New-AutomationLogFixture `
 		-Name 'thrown-arc-preview-presentation-owner-surface-handoff-recovery-checkpoint-payload-storage.log' `
 		-Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorage'
+	$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession = New-AutomationLogFixture `
+		-Name 'thrown-arc-preview-presentation-owner-surface-handoff-recovery-completion-session.log' `
+		-Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession'
     $ThrownArcPreviewPresentationSurfaceOwnershipTransition = New-AutomationLogFixture `
         -Name 'thrown-arc-preview-presentation-surface-ownership-transition.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceOwnershipTransition'
@@ -2916,11 +2919,55 @@ try
 			$ItemUse)
 
 	Invoke-ExpectedPass `
+		-Name 'thrown weapon Arc preview Owner surface handoff recovery completion Session maps durable completion and full authority seams' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession.h',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession.cpp') `
+		-Logs @(
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession,
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession,
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority,
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage,
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundle,
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorage,
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelope,
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal,
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecovery,
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoff,
+			$ThrownArcPreviewPresentationSurfaceOwnershipTransition,
+			$ThrownArcPreviewPresentationSurfaceLifecycleExecutor,
+			$ThrownArcPreviewPresentationSurfaceRecreationPolicy,
+			$ThrownArcPreviewPresentationCompositionOwner,
+			$ThrownArcPreviewPresentationConsumerAdapter,
+			$ThrownArcPreviewPresentationDeliveryHost,
+			$ThrownArcPreviewPresentationDeliverySession,
+			$ThrownArcPreviewPresentationDeliveryCoordinator,
+			$ThrownArcPreviewPresentationCommandLedger,
+			$ThrownArcPreviewPresentationCommand,
+			$ThrownArcPreviewPresentationSession,
+			$ThrownArcPreviewUpdateCoordinator,
+			$ThrownArcPreviewPresentation,
+			$ThrownArcPreviewProductBridge,
+			$ThrownArcPreviewCapture,
+			$ThrownArcPreviewComposition,
+			$ThrownArcChoiceProjection,
+			$ThrownProductSession,
+			$ThrownProductController,
+			$ThrownRuntime,
+			$WorldGameplay,
+			$Coordinator,
+			$CombatRuntime,
+			$CombatCore,
+			$Full,
+			$ItemUse)
+
+	Invoke-ExpectedPass `
 		-Name 'thrown weapon Arc preview Owner surface handoff recovery admission Session maps trusted storage and full live authority seams' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession.cpp') `
 		-Logs @(
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage,
@@ -2961,6 +3008,7 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority.cpp') `
 		-Logs @(
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage,
@@ -3001,6 +3049,7 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage.cpp') `
 		-Logs @(
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage,
@@ -3041,6 +3090,7 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundle.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundle.cpp') `
 		-Logs @(
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage,
@@ -3080,6 +3130,7 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorage.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorage.cpp') `
 		-Logs @(
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage,
@@ -3119,6 +3170,7 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelope.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelope.cpp') `
 		-Logs @(
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage,
@@ -3159,6 +3211,7 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal.cpp') `
 		-Logs @(
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage,
@@ -3199,6 +3252,7 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecovery.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecovery.cpp') `
 		-Logs @(
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelope,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal,
@@ -5149,6 +5203,13 @@ try
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceSession.cpp') `
 		-Logs @($ItemUse) `
+		-ExpectedText 'missing required groups'
+
+	Invoke-ExpectedFail `
+		-Name 'thrown Arc preview Owner handoff recovery completion focus cannot replace durable storage and authority evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession.cpp') `
+		-Logs @($ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession) `
 		-ExpectedText 'missing required groups'
 
 	Invoke-ExpectedFail `
