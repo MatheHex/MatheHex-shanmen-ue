@@ -25,6 +25,7 @@
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecovery.h"
+#include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceLifecycleExecutor.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceOwnershipTransition.h"
@@ -8048,6 +8049,20 @@ namespace
 		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpoint;
 	using FArcOwnerHandoffRecoveryResult =
 		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryResult;
+	using EArcOwnerHandoffRecoveryJournalKind =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournalRecordKind;
+	using EArcOwnerHandoffRecoveryJournalDisposition =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournalDisposition;
+	using EArcOwnerHandoffRecoveryJournalAppendStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournalAppendStatus;
+	using EArcOwnerHandoffRecoveryJournalDecodeStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournalDecodeStatus;
+	using FArcOwnerHandoffRecoveryJournalRecord =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournalRecord;
+	using FArcOwnerHandoffRecoveryJournal =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal;
+	using FArcOwnerHandoffRecoveryJournalCodec =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournalCodec;
 	using FArcRetirementResponse =
 		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceRetirementResponse;
 
@@ -8353,6 +8368,44 @@ namespace
 			return false;
 		}
 		return true;
+	}
+
+	bool BuildArcOwnerHandoffRecoveryJournalEvidence(
+		FAutomationTestBase& Test,
+		const TCHAR* Label,
+		FThrownLifecycleFixture& Fixture,
+		FArcCompositionOwner& Owner,
+		FFakeArcPreviewHandoffSurface& OldSurface,
+		FFakeArcPreviewHandoffSurface& NewSurface,
+		FArcOwnerHandoffRecoveryCheckpoint& OutCheckpoint,
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryReceipt&
+			OutReceipt)
+	{
+		FArcOwnerHandoffResult Failed;
+		if (!BuildArcOwnerHandoffRecoveryCheckpoint(
+				Test,
+				Label,
+				Fixture,
+				Owner,
+				OldSurface,
+				NewSurface,
+				Failed,
+				OutCheckpoint))
+		{
+			return false;
+		}
+		FArcOwnerHandoffRecovery Recovery;
+		const FArcOwnerHandoffRecoveryResult Recovered = Recovery.Execute(
+			Owner, OutCheckpoint, OldSurface, NewSurface);
+		if (!Recovered.IsValid() || !Recovered.WasRecovered()
+			|| !Recovered.HasReceipt())
+		{
+			Test.AddError(Recovered.GetDiagnostic());
+			return false;
+		}
+		OutReceipt = Recovered.GetReceipt();
+		return OutReceipt.IsValid()
+			&& OutReceipt.MatchesCheckpoint(OutCheckpoint);
 	}
 }
 
@@ -9094,6 +9147,605 @@ bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryReentrantTest::RunTest(
 			&& Owner.GetLastSurfaceHandoffReceipt().IsExactAdopted()
 			&& !Owner.GetLastSurfaceHandoffRecoveryReceipt().IsValid()
 			&& Owner.IsValid() && Owner.IsSynchronized());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryJournalEvidenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal.EvidenceContract",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryJournalEvidenceTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4900001, 0xF4900002, 0xF4900003, 0xF4900004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4901001, 0xF4901002, 0xF4901003, 0xF4901004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryReceipt
+		Receipt;
+	if (!BuildArcOwnerHandoffRecoveryJournalEvidence(
+			*this,
+			TEXT("ArcPreviewOwnerHandoffRecoveryJournalEvidence"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Checkpoint,
+			Receipt))
+	{
+		return false;
+	}
+
+	FArcOwnerHandoffRecoveryJournal Journal;
+	const FGuid EmptyJournalId = Journal.GetJournalId();
+	const auto PrematureReceipt =
+		Journal.AppendRecoveryReceipt(Checkpoint, Receipt);
+	const auto InvalidCheckpoint = Journal.AppendCheckpoint(
+		FArcOwnerHandoffRecoveryCheckpoint());
+	const auto Prepared = Journal.AppendCheckpoint(Checkpoint);
+	const auto PreparedReplay = Journal.AppendCheckpoint(Checkpoint);
+	FArcOwnerHandoffRecoveryJournalRecord PreparedRecord;
+	const bool bReadPrepared = Journal.TryGetLatestRecord(PreparedRecord);
+	const auto Committed =
+		Journal.AppendRecoveryReceipt(Checkpoint, Receipt);
+	const auto CommittedReplay =
+		Journal.AppendRecoveryReceipt(Checkpoint, Receipt);
+	FArcOwnerHandoffRecoveryJournalRecord CommittedRecord;
+	const bool bReadCommitted = Journal.TryGetLatestRecord(CommittedRecord);
+
+	TestTrue(TEXT("empty journal is valid and rejects evidence out of order"),
+		EmptyJournalId.IsValid()
+			&& PrematureReceipt.IsValid()
+			&& PrematureReceipt.GetStatus()
+				== EArcOwnerHandoffRecoveryJournalAppendStatus::
+					CheckpointNotPending
+			&& InvalidCheckpoint.IsValid()
+			&& InvalidCheckpoint.GetStatus()
+				== EArcOwnerHandoffRecoveryJournalAppendStatus::
+					CheckpointInvalid
+			&& Journal.IsValid());
+	TestTrue(TEXT("checkpoint append is deterministic and idempotent"),
+		Prepared.IsValid() && Prepared.DidAppend()
+			&& Prepared.GetPreviousRecordCount() == 0
+			&& Prepared.GetRecordCount() == 1
+			&& PreparedReplay.IsValid() && PreparedReplay.IsReplay()
+			&& PreparedReplay.GetRecord().GetRecordId()
+				== Prepared.GetRecord().GetRecordId()
+			&& bReadPrepared && PreparedRecord.MatchesCheckpoint(Checkpoint)
+			&& PreparedRecord.GetKind()
+				== EArcOwnerHandoffRecoveryJournalKind::CheckpointPrepared
+			&& PreparedRecord.GetSequence() == 0
+			&& !PreparedRecord.GetPreviousRecordId().IsValid()
+			&& !PreparedRecord.GetRecoveryReceiptId().IsValid());
+	TestTrue(TEXT("receipt append closes only the matching pending checkpoint"),
+		Committed.IsValid() && Committed.DidAppend()
+			&& CommittedReplay.IsValid() && CommittedReplay.IsReplay()
+			&& bReadCommitted
+			&& CommittedRecord.GetKind()
+				== EArcOwnerHandoffRecoveryJournalKind::RecoveryCommitted
+			&& CommittedRecord.GetSequence() == 1
+			&& CommittedRecord.GetPreviousRecordId()
+				== PreparedRecord.GetRecordId()
+			&& CommittedRecord.MatchesRecoveryReceipt(
+				Checkpoint, Receipt)
+			&& Journal.MatchesLatestRecovery(Checkpoint, Receipt)
+			&& Journal.GetLatestDisposition()
+				== EArcOwnerHandoffRecoveryJournalDisposition::
+					RecoveryCommitted
+			&& Journal.GetRecordCount() == 2
+			&& Journal.GetJournalId() != EmptyJournalId);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryJournalRoundTripTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal.CanonicalRoundTrip",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryJournalRoundTripTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4910001, 0xF4910002, 0xF4910003, 0xF4910004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4911001, 0xF4911002, 0xF4911003, 0xF4911004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryReceipt
+		Receipt;
+	if (!BuildArcOwnerHandoffRecoveryJournalEvidence(
+			*this,
+			TEXT("ArcPreviewOwnerHandoffRecoveryJournalRoundTrip"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Checkpoint,
+			Receipt))
+	{
+		return false;
+	}
+
+	FArcOwnerHandoffRecoveryJournal Journal;
+	const auto Prepared = Journal.AppendCheckpoint(Checkpoint);
+	const auto Committed =
+		Journal.AppendRecoveryReceipt(Checkpoint, Receipt);
+	TArray<uint8> FirstBytes;
+	TArray<uint8> SecondBytes;
+	const bool bFirstEncoded =
+		FArcOwnerHandoffRecoveryJournalCodec::TryEncode(
+			Journal, FirstBytes);
+	const bool bSecondEncoded =
+		FArcOwnerHandoffRecoveryJournalCodec::TryEncode(
+			Journal, SecondBytes);
+	const auto Decoded =
+		FArcOwnerHandoffRecoveryJournalCodec::Decode(FirstBytes);
+	TArray<uint8> ReencodedBytes;
+	const bool bReencoded = Decoded.IsSuccess()
+		&& FArcOwnerHandoffRecoveryJournalCodec::TryEncode(
+			Decoded.GetJournal(), ReencodedBytes);
+
+	FArcOwnerHandoffRecoveryJournal Empty;
+	TArray<uint8> EmptyBytes;
+	const bool bEmptyEncoded =
+		FArcOwnerHandoffRecoveryJournalCodec::TryEncode(
+			Empty, EmptyBytes);
+	const auto EmptyDecoded =
+		FArcOwnerHandoffRecoveryJournalCodec::Decode(EmptyBytes);
+
+	TestTrue(TEXT("current codec emits one exact deterministic byte layout"),
+		Prepared.DidAppend() && Committed.DidAppend()
+			&& bFirstEncoded && bSecondEncoded
+			&& FirstBytes == SecondBytes
+			&& FirstBytes.Num()
+				== FArcOwnerHandoffRecoveryJournalCodec::HeaderSize()
+					+ 2 * FArcOwnerHandoffRecoveryJournalCodec::
+						CurrentRecordSize());
+	TestTrue(TEXT("current bytes round-trip into the same candidate-bound chain"),
+		Decoded.IsSuccess() && !Decoded.WasMigrated()
+			&& Decoded.GetStatus()
+				== EArcOwnerHandoffRecoveryJournalDecodeStatus::DecodedCurrent
+			&& Decoded.GetSourceSchemaVersion()
+				== FArcOwnerHandoffRecoveryJournalCodec::
+					CurrentSchemaVersion()
+			&& Decoded.GetJournal().GetJournalId()
+				== Journal.GetJournalId()
+			&& Decoded.GetJournal().GetRecordCount() == 2
+			&& Decoded.GetJournal().MatchesLatestRecovery(
+				Checkpoint, Receipt)
+			&& bReencoded && ReencodedBytes == FirstBytes);
+	TestTrue(TEXT("empty journal has a canonical current-schema representation"),
+		bEmptyEncoded
+			&& EmptyBytes.Num()
+				== FArcOwnerHandoffRecoveryJournalCodec::HeaderSize()
+			&& EmptyDecoded.IsSuccess()
+			&& EmptyDecoded.GetJournal().IsValid()
+			&& EmptyDecoded.GetJournal().GetRecordCount() == 0
+			&& EmptyDecoded.GetJournal().GetJournalId()
+				== Empty.GetJournalId());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryJournalCorruptionTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal.CorruptionAndTruncation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryJournalCorruptionTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4920001, 0xF4920002, 0xF4920003, 0xF4920004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4921001, 0xF4921002, 0xF4921003, 0xF4921004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryReceipt
+		Receipt;
+	if (!BuildArcOwnerHandoffRecoveryJournalEvidence(
+			*this,
+			TEXT("ArcPreviewOwnerHandoffRecoveryJournalCorruption"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Checkpoint,
+			Receipt))
+	{
+		return false;
+	}
+
+	FArcOwnerHandoffRecoveryJournal Journal;
+	Journal.AppendCheckpoint(Checkpoint);
+	Journal.AppendRecoveryReceipt(Checkpoint, Receipt);
+	TArray<uint8> Canonical;
+	if (!FArcOwnerHandoffRecoveryJournalCodec::TryEncode(
+			Journal, Canonical))
+	{
+		return false;
+	}
+
+	int32 AcceptedCorruptions = 0;
+	for (int32 Index = 0; Index < Canonical.Num(); ++Index)
+	{
+		TArray<uint8> Corrupted = Canonical;
+		Corrupted[Index] ^= 0x01;
+		if (FArcOwnerHandoffRecoveryJournalCodec::Decode(Corrupted)
+			.IsSuccess())
+		{
+			++AcceptedCorruptions;
+		}
+	}
+	int32 AcceptedTruncations = 0;
+	for (int32 Length = 0; Length < Canonical.Num(); ++Length)
+	{
+		TArray<uint8> Truncated;
+		Truncated.Append(Canonical.GetData(), Length);
+		if (FArcOwnerHandoffRecoveryJournalCodec::Decode(Truncated)
+			.IsSuccess())
+		{
+			++AcceptedTruncations;
+		}
+	}
+	TArray<uint8> Trailing = Canonical;
+	Trailing.Add(0x00);
+	const auto TrailingResult =
+		FArcOwnerHandoffRecoveryJournalCodec::Decode(Trailing);
+
+	TestEqual(
+		TEXT("every one-bit byte corruption is rejected"),
+		AcceptedCorruptions,
+		0);
+	TestEqual(
+		TEXT("every strict prefix truncation is rejected"),
+		AcceptedTruncations,
+		0);
+	TestTrue(TEXT("trailing bytes are not silently ignored"),
+		!TrailingResult.IsSuccess()
+			&& TrailingResult.GetStatus()
+				== EArcOwnerHandoffRecoveryJournalDecodeStatus::SizeMismatch);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryJournalSelectionTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal.LatestSelectionAndConflicts",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryJournalSelectionTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture FixtureA;
+	FFakeArcPreviewHandoffSurface OldA(
+		FGuid(0xF4930001, 0xF4930002, 0xF4930003, 0xF4930004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewA(
+		FGuid(0xF4931001, 0xF4931002, 0xF4931003, 0xF4931004),
+		Consumer);
+	FArcCompositionOwner OwnerA;
+	FArcOwnerHandoffRecoveryCheckpoint CheckpointA;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryReceipt
+		ReceiptA;
+	if (!BuildArcOwnerHandoffRecoveryJournalEvidence(
+			*this,
+			TEXT("ArcPreviewOwnerHandoffRecoveryJournalSelectionA"),
+			FixtureA,
+			OwnerA,
+			OldA,
+			NewA,
+			CheckpointA,
+			ReceiptA))
+	{
+		return false;
+	}
+
+	FThrownLifecycleFixture FixtureB;
+	FFakeArcPreviewHandoffSurface OldB(
+		FGuid(0xF4932001, 0xF4932002, 0xF4932003, 0xF4932004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewB(
+		FGuid(0xF4933001, 0xF4933002, 0xF4933003, 0xF4933004),
+		Consumer);
+	FArcCompositionOwner OwnerB;
+	FArcOwnerHandoffRecoveryCheckpoint CheckpointB;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryReceipt
+		ReceiptB;
+	if (!BuildArcOwnerHandoffRecoveryJournalEvidence(
+			*this,
+			TEXT("ArcPreviewOwnerHandoffRecoveryJournalSelectionB"),
+			FixtureB,
+			OwnerB,
+			OldB,
+			NewB,
+			CheckpointB,
+			ReceiptB))
+	{
+		return false;
+	}
+
+	FArcOwnerHandoffRecoveryJournal Journal;
+	const auto PreparedA = Journal.AppendCheckpoint(CheckpointA);
+	const FGuid PendingAId = Journal.GetJournalId();
+	const auto PendingConflict = Journal.AppendCheckpoint(CheckpointB);
+	const auto CommittedA =
+		Journal.AppendRecoveryReceipt(CheckpointA, ReceiptA);
+	const auto CompletedReplay = Journal.AppendCheckpoint(CheckpointA);
+	const auto ReceiptWithoutPending =
+		Journal.AppendRecoveryReceipt(CheckpointB, ReceiptB);
+	const auto PreparedB = Journal.AppendCheckpoint(CheckpointB);
+	const FGuid PendingBId = Journal.GetJournalId();
+	const auto ForeignReceipt =
+		Journal.AppendRecoveryReceipt(CheckpointA, ReceiptA);
+	const auto CommittedB =
+		Journal.AppendRecoveryReceipt(CheckpointB, ReceiptB);
+
+	TestTrue(TEXT("a foreign checkpoint cannot replace the pending tail"),
+		PreparedA.DidAppend()
+			&& PendingConflict.IsValid()
+			&& PendingConflict.GetStatus()
+				== EArcOwnerHandoffRecoveryJournalAppendStatus::
+					PendingCheckpointConflict
+			&& PendingConflict.GetRecordCount() == 1
+			&& PendingAId.IsValid());
+	TestTrue(TEXT("completed checkpoint replay is idempotent but not reopened"),
+		CommittedA.DidAppend()
+			&& CompletedReplay.IsReplay()
+			&& CompletedReplay.GetRecord().MatchesRecoveryReceipt(
+				CheckpointA, ReceiptA)
+			&& ReceiptWithoutPending.IsValid()
+			&& ReceiptWithoutPending.GetStatus()
+				== EArcOwnerHandoffRecoveryJournalAppendStatus::
+					CheckpointNotPending
+			&& Journal.IsValid());
+	TestTrue(TEXT("latest pending checkpoint alone can accept a receipt"),
+		PreparedB.DidAppend()
+			&& PendingBId.IsValid() && PendingBId != PendingAId
+			&& ForeignReceipt.IsValid()
+			&& ForeignReceipt.GetStatus()
+				== EArcOwnerHandoffRecoveryJournalAppendStatus::
+					PendingCheckpointConflict
+			&& ForeignReceipt.GetRecordCount() == 3
+			&& CommittedB.DidAppend()
+			&& Journal.GetRecordCount() == 4
+			&& Journal.MatchesLatestRecovery(CheckpointB, ReceiptB)
+			&& !Journal.MatchesLatestRecovery(CheckpointA, ReceiptA));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryJournalMigrationTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal.PreviousSchemaMigration",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryJournalMigrationTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4940001, 0xF4940002, 0xF4940003, 0xF4940004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4941001, 0xF4941002, 0xF4941003, 0xF4941004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryReceipt
+		Receipt;
+	if (!BuildArcOwnerHandoffRecoveryJournalEvidence(
+			*this,
+			TEXT("ArcPreviewOwnerHandoffRecoveryJournalMigration"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Checkpoint,
+			Receipt))
+	{
+		return false;
+	}
+
+	FArcOwnerHandoffRecoveryJournal Pending;
+	Pending.AppendCheckpoint(Checkpoint);
+	TArray<uint8> PreviousBytes;
+	const bool bPreviousEncoded =
+		FArcOwnerHandoffRecoveryJournalCodec::TryEncodePreviousSchema(
+			Pending, PreviousBytes);
+	const auto Migrated =
+		FArcOwnerHandoffRecoveryJournalCodec::Decode(PreviousBytes);
+	TArray<uint8> CurrentBytes;
+	const bool bCurrentEncoded = Migrated.IsSuccess()
+		&& FArcOwnerHandoffRecoveryJournalCodec::TryEncode(
+			Migrated.GetJournal(), CurrentBytes);
+	const auto Current =
+		FArcOwnerHandoffRecoveryJournalCodec::Decode(CurrentBytes);
+
+	int32 AcceptedPreviousCorruptions = 0;
+	for (int32 Index = 0; Index < PreviousBytes.Num(); ++Index)
+	{
+		TArray<uint8> Corrupted = PreviousBytes;
+		Corrupted[Index] ^= 0x01;
+		if (FArcOwnerHandoffRecoveryJournalCodec::Decode(Corrupted)
+			.IsSuccess())
+		{
+			++AcceptedPreviousCorruptions;
+		}
+	}
+
+	FArcOwnerHandoffRecoveryJournal Completed = Pending;
+	Completed.AppendRecoveryReceipt(Checkpoint, Receipt);
+	TArray<uint8> UnsupportedPrevious;
+	const bool bCompletedDowngraded =
+		FArcOwnerHandoffRecoveryJournalCodec::TryEncodePreviousSchema(
+			Completed, UnsupportedPrevious);
+
+	TestTrue(TEXT("N-1 pending record migrates into the current chain model"),
+		bPreviousEncoded
+			&& PreviousBytes.Num()
+				== FArcOwnerHandoffRecoveryJournalCodec::HeaderSize()
+					+ FArcOwnerHandoffRecoveryJournalCodec::
+						PreviousRecordSize()
+			&& Migrated.IsSuccess() && Migrated.WasMigrated()
+			&& Migrated.GetStatus()
+				== EArcOwnerHandoffRecoveryJournalDecodeStatus::
+					MigratedPrevious
+			&& Migrated.GetSourceSchemaVersion()
+				== FArcOwnerHandoffRecoveryJournalCodec::
+					PreviousSchemaVersion()
+			&& Migrated.GetJournal().MatchesLatestCheckpoint(Checkpoint));
+	TestTrue(TEXT("migrated journal re-encodes canonically as current schema"),
+		bCurrentEncoded
+			&& CurrentBytes.Num()
+				== FArcOwnerHandoffRecoveryJournalCodec::HeaderSize()
+					+ FArcOwnerHandoffRecoveryJournalCodec::
+						CurrentRecordSize()
+			&& Current.IsSuccess() && !Current.WasMigrated()
+			&& Current.GetJournal().GetJournalId()
+				== Pending.GetJournalId());
+	TestEqual(TEXT("N-1 digest rejects every one-bit byte corruption"),
+		AcceptedPreviousCorruptions, 0);
+	TestTrue(TEXT("N-1 writer refuses a completed or multi-record shape"),
+		!bCompletedDowngraded && UnsupportedPrevious.IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryJournalCapacityTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal.BoundedAppendOnly",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryJournalCapacityTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FArcOwnerHandoffRecoveryJournal Journal;
+	TArray<FGuid> AppendedRecordIds;
+	for (int32 Cycle = 0;
+		Cycle < FArcOwnerHandoffRecoveryJournal::MaxRecordCount() / 2;
+		++Cycle)
+	{
+		FThrownLifecycleFixture Fixture;
+		FFakeArcPreviewHandoffSurface OldSurface(
+			FGuid::NewGuid(), Consumer);
+		FFakeArcPreviewHandoffSurface NewSurface(
+			FGuid::NewGuid(), Consumer);
+		FArcCompositionOwner Owner;
+		FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryReceipt
+			Receipt;
+		const FString Label = FString::Printf(
+			TEXT("ArcPreviewOwnerHandoffRecoveryJournalCapacity%d"),
+			Cycle);
+		if (!BuildArcOwnerHandoffRecoveryJournalEvidence(
+				*this,
+				*Label,
+				Fixture,
+				Owner,
+				OldSurface,
+				NewSurface,
+				Checkpoint,
+				Receipt))
+		{
+			return false;
+		}
+		const auto Prepared = Journal.AppendCheckpoint(Checkpoint);
+		const auto Committed =
+			Journal.AppendRecoveryReceipt(Checkpoint, Receipt);
+		if (!Prepared.DidAppend() || !Committed.DidAppend())
+		{
+			AddError(TEXT("bounded journal could not append one valid recovery pair"));
+			return false;
+		}
+		AppendedRecordIds.Add(Prepared.GetRecord().GetRecordId());
+		AppendedRecordIds.Add(Committed.GetRecord().GetRecordId());
+	}
+
+	const FGuid FullJournalId = Journal.GetJournalId();
+	FThrownLifecycleFixture OverflowFixture;
+	FFakeArcPreviewHandoffSurface OverflowOld(FGuid::NewGuid(), Consumer);
+	FFakeArcPreviewHandoffSurface OverflowNew(FGuid::NewGuid(), Consumer);
+	FArcCompositionOwner OverflowOwner;
+	FArcOwnerHandoffResult OverflowFailed;
+	FArcOwnerHandoffRecoveryCheckpoint OverflowCheckpoint;
+	if (!BuildArcOwnerHandoffRecoveryCheckpoint(
+			*this,
+			TEXT("ArcPreviewOwnerHandoffRecoveryJournalOverflow"),
+			OverflowFixture,
+			OverflowOwner,
+			OverflowOld,
+			OverflowNew,
+			OverflowFailed,
+			OverflowCheckpoint))
+	{
+		return false;
+	}
+	const auto Overflow = Journal.AppendCheckpoint(OverflowCheckpoint);
+
+	bool bEarlierRecordsUnchanged =
+		AppendedRecordIds.Num()
+		== FArcOwnerHandoffRecoveryJournal::MaxRecordCount();
+	for (int32 Index = 0;
+		bEarlierRecordsUnchanged && Index < AppendedRecordIds.Num();
+		++Index)
+	{
+		FArcOwnerHandoffRecoveryJournalRecord Record;
+		bEarlierRecordsUnchanged = Journal.TryGetRecordAt(Index, Record)
+			&& Record.GetRecordId() == AppendedRecordIds[Index];
+	}
+	TArray<uint8> FullBytes;
+	const bool bFullEncoded =
+		FArcOwnerHandoffRecoveryJournalCodec::TryEncode(
+			Journal, FullBytes);
+	const auto FullDecoded =
+		FArcOwnerHandoffRecoveryJournalCodec::Decode(FullBytes);
+
+	TestTrue(TEXT("journal reaches its explicit bound with one intact hash chain"),
+		Journal.IsValid()
+			&& Journal.GetRecordCount()
+				== FArcOwnerHandoffRecoveryJournal::MaxRecordCount()
+			&& Journal.GetLatestDisposition()
+				== EArcOwnerHandoffRecoveryJournalDisposition::
+					RecoveryCommitted
+			&& FullJournalId.IsValid()
+			&& bEarlierRecordsUnchanged);
+	TestTrue(TEXT("capacity rejection neither evicts nor rewrites prior evidence"),
+		Overflow.IsValid()
+			&& Overflow.GetStatus()
+				== EArcOwnerHandoffRecoveryJournalAppendStatus::
+					CapacityExceeded
+			&& Overflow.GetPreviousRecordCount()
+				== FArcOwnerHandoffRecoveryJournal::MaxRecordCount()
+			&& Overflow.GetRecordCount()
+				== FArcOwnerHandoffRecoveryJournal::MaxRecordCount()
+			&& Journal.GetJournalId() == FullJournalId
+			&& bEarlierRecordsUnchanged);
+	TestTrue(TEXT("maximum-size journal remains canonical and decodable"),
+		bFullEncoded
+			&& FullBytes.Num()
+				== FArcOwnerHandoffRecoveryJournalCodec::HeaderSize()
+					+ FArcOwnerHandoffRecoveryJournal::MaxRecordCount()
+						* FArcOwnerHandoffRecoveryJournalCodec::
+							CurrentRecordSize()
+			&& FullDecoded.IsSuccess()
+			&& FullDecoded.GetJournal().GetJournalId() == FullJournalId
+			&& FullDecoded.GetJournal().GetRecordCount()
+				== FArcOwnerHandoffRecoveryJournal::MaxRecordCount());
 	return true;
 }
 
