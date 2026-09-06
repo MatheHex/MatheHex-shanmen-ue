@@ -202,6 +202,9 @@ try
     $ThrownArcPreviewPresentationCompositionOwner = New-AutomationLogFixture `
         -Name 'thrown-arc-preview-presentation-composition-owner.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCompositionOwner'
+    $ThrownArcPreviewPresentationSurfaceOwnershipTransition = New-AutomationLogFixture `
+        -Name 'thrown-arc-preview-presentation-surface-ownership-transition.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceOwnershipTransition'
     $ThrownArcPreviewPresentationSurfaceLifecycleExecutor = New-AutomationLogFixture `
         -Name 'thrown-arc-preview-presentation-surface-lifecycle-executor.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceLifecycleExecutor'
@@ -2885,6 +2888,39 @@ try
 			$ItemUse)
 
 	Invoke-ExpectedPass `
+		-Name 'thrown weapon Arc preview surface ownership transition maps lifecycle policy owner surface and full authority seams' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceOwnershipTransition.h',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceOwnershipTransition.cpp') `
+		-Logs @(
+			$ThrownArcPreviewPresentationSurfaceOwnershipTransition,
+			$ThrownArcPreviewPresentationSurfaceLifecycleExecutor,
+			$ThrownArcPreviewPresentationSurfaceRecreationPolicy,
+			$ThrownArcPreviewPresentationCompositionOwner,
+			$ThrownArcPreviewPresentationConsumerAdapter,
+			$ThrownArcPreviewPresentationDeliveryHost,
+			$ThrownArcPreviewPresentationDeliverySession,
+			$ThrownArcPreviewPresentationDeliveryCoordinator,
+			$ThrownArcPreviewPresentationCommandLedger,
+			$ThrownArcPreviewPresentationCommand,
+			$ThrownArcPreviewPresentationSession,
+			$ThrownArcPreviewUpdateCoordinator,
+			$ThrownArcPreviewPresentation,
+			$ThrownArcPreviewProductBridge,
+			$ThrownArcPreviewCapture,
+			$ThrownArcPreviewComposition,
+			$ThrownArcChoiceProjection,
+			$ThrownProductSession,
+			$ThrownProductController,
+			$ThrownArcPreview,
+			$ThrownArc,
+			$ThrownRuntime,
+			$CombatRuntime,
+			$CombatCore,
+			$Full,
+			$ItemUse)
+
+	Invoke-ExpectedPass `
 		-Name 'thrown weapon Arc preview surface lifecycle executor maps policy owner surface and full authority seams' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceLifecycleExecutor.h',
@@ -4906,6 +4942,13 @@ try
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger.cpp') `
 		-Logs @($ThrownArcPreviewPresentationCommandLedger) `
+		-ExpectedText 'missing required groups'
+
+	Invoke-ExpectedFail `
+		-Name 'thrown Arc preview surface ownership focus cannot replace lifecycle policy owner and authority evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceOwnershipTransition.cpp') `
+		-Logs @($ThrownArcPreviewPresentationSurfaceOwnershipTransition) `
 		-ExpectedText 'missing required groups'
 
 	Invoke-ExpectedFail `

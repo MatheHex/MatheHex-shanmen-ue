@@ -25,6 +25,7 @@
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceLifecycleExecutor.h"
+#include "demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceOwnershipTransition.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceRecreationPolicy.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewUpdateCoordinator.h"
 #include "demo_mapShanmenThrownWeaponProjectile.h"
@@ -7492,6 +7493,538 @@ bool Fdemo_mapThrownWeaponArcPreviewSurfaceLifecyclePreflightTest::RunTest(
 			&& !ReentrantSurface.InnerResult.HasReceipt()
 			&& ReentrantSurface.InnerResult.GetPreviousSurfaceCursor().IsEmpty()
 			&& ReentrantSurface.InnerResult.GetSurfaceCursor().IsEmpty());
+	return true;
+}
+
+namespace
+{
+	using EArcSurfaceOwnershipStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceOwnershipTransitionStatus;
+	using FArcSurfaceOwnershipRequest =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceOwnershipTransitionRequest;
+	using FArcSurfaceOwnershipResult =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceOwnershipTransitionResult;
+	using FArcSurfaceOwnershipTicket =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceOwnershipTransitionTicket;
+	using FArcSurfaceOwnershipTransition =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceOwnershipTransition;
+
+	bool BuildArcSurfaceOwnershipRequest(
+		FAutomationTestBase& Test,
+		const FThrownLifecycleFixture& Fixture,
+		const FName ConsumerDefinitionId,
+		const FArcSurfaceState& AuthoritativeCursor,
+		const FGuid& SurfaceInstanceId,
+		const EArcSurfaceRecreationAction Action,
+		FArcSurfaceOwnershipRequest& OutRequest)
+	{
+		FString Diagnostic;
+		if (!FArcSurfaceOwnershipRequest::TryCreate(
+				Fixture.Correlation.ActiveRunId,
+				ConsumerDefinitionId,
+				AuthoritativeCursor,
+				SurfaceInstanceId,
+				Action,
+				OutRequest,
+				Diagnostic))
+		{
+			Test.AddError(FString::Printf(
+				TEXT("Could not create Arc preview ownership request: %s"),
+				*Diagnostic));
+			return false;
+		}
+		return true;
+	}
+
+	class FFakeArcPreviewSurfaceOwnershipCandidate final
+		: public Idemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceOwnershipCandidate
+	{
+	public:
+		enum class EMode : uint8
+		{
+			Applied,
+			Rejected
+		};
+
+		FFakeArcPreviewSurfaceOwnershipCandidate(
+			const FGuid& InSurfaceInstanceId,
+			const FName InConsumerDefinitionId,
+			const FArcSurfaceState& InCursor,
+			const EMode InMode = EMode::Applied)
+			: SurfaceInstanceId(InSurfaceInstanceId)
+			, ConsumerDefinitionId(InConsumerDefinitionId)
+			, Cursor(InCursor)
+			, Mode(InMode)
+		{
+		}
+
+		virtual FGuid GetSurfaceInstanceId() const override
+		{
+			++IdentityQueryCount;
+			if (bReenterOnFirstIdentityQuery && IdentityQueryCount == 1
+				&& ReentrantTransition && ReentrantRequest)
+			{
+				ReentrantResult = ReentrantTransition->Execute(
+					*ReentrantRequest,
+					const_cast<FFakeArcPreviewSurfaceOwnershipCandidate&>(*this));
+			}
+			return bDriftIdentityOnSecondQuery && IdentityQueryCount >= 2
+				? DriftSurfaceInstanceId
+				: SurfaceInstanceId;
+		}
+
+		virtual FName GetConsumerDefinitionId() const override
+		{
+			++ConsumerQueryCount;
+			return ConsumerDefinitionId;
+		}
+
+		virtual FArcSurfaceState GetSurfaceCursor() const override
+		{
+			++CursorQueryCount;
+			if (bDriftCursorOnSecondQuery && CursorQueryCount >= 2)
+			{
+				Cursor = DriftCursor;
+			}
+			return Cursor;
+		}
+
+		virtual FArcSurfaceLifecycleResponse ClearToEmpty(
+			const FArcSurfaceLifecyclePermit& Permit) override
+		{
+			++ClearCallCount;
+			const FArcSurfaceState Previous = Cursor;
+			const bool bApply = Mode == EMode::Applied;
+			if (bApply)
+			{
+				Cursor = FArcSurfaceState();
+			}
+			FArcSurfaceLifecycleResponse Response;
+			FString Diagnostic;
+			check(FArcSurfaceLifecycleResponse::TryCreate(
+				Permit,
+				bApply
+					? EArcSurfaceLifecycleResponseOutcome::Applied
+					: EArcSurfaceLifecycleResponseOutcome::Rejected,
+				bApply
+					? FName(TEXT("Renderer.ArcPreview.Ownership.Cleared"))
+					: FName(TEXT("Renderer.ArcPreview.Ownership.Rejected")),
+				Previous,
+				Cursor,
+				Response,
+				Diagnostic));
+			return Response;
+		}
+
+		void SetMode(const EMode Value) { Mode = Value; }
+		void SetIdentityDrift(
+			const FGuid& Value,
+			const bool bEnabled = true)
+		{
+			DriftSurfaceInstanceId = Value;
+			bDriftIdentityOnSecondQuery = bEnabled;
+		}
+		void SetCursorDrift(
+			const FArcSurfaceState& Value,
+			const bool bEnabled = true)
+		{
+			DriftCursor = Value;
+			bDriftCursorOnSecondQuery = bEnabled;
+		}
+		void SetReentrantIdentityCallback(
+			FArcSurfaceOwnershipTransition& Transition,
+			const FArcSurfaceOwnershipRequest& Request)
+		{
+			ReentrantTransition = &Transition;
+			ReentrantRequest = &Request;
+			bReenterOnFirstIdentityQuery = true;
+		}
+
+		mutable int32 IdentityQueryCount = 0;
+		mutable int32 ConsumerQueryCount = 0;
+		mutable int32 CursorQueryCount = 0;
+		int32 ClearCallCount = 0;
+		mutable FArcSurfaceOwnershipResult ReentrantResult;
+
+	private:
+		FGuid SurfaceInstanceId;
+		FName ConsumerDefinitionId = NAME_None;
+		mutable FArcSurfaceState Cursor;
+		EMode Mode = EMode::Applied;
+		bool bDriftIdentityOnSecondQuery = false;
+		FGuid DriftSurfaceInstanceId;
+		bool bDriftCursorOnSecondQuery = false;
+		FArcSurfaceState DriftCursor;
+		bool bReenterOnFirstIdentityQuery = false;
+		FArcSurfaceOwnershipTransition* ReentrantTransition = nullptr;
+		const FArcSurfaceOwnershipRequest* ReentrantRequest = nullptr;
+	};
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewSurfaceOwnershipEvidenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceOwnershipTransition.EvidenceContract",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewSurfaceOwnershipEvidenceTest::RunTest(
+	const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	const FGuid SurfaceId(
+		0xF4600001, 0xF4600002, 0xF4600003, 0xF4600004);
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewSurfaceOwnershipEvidence"),
+			Fixture, Commands))
+	{
+		return false;
+	}
+	FArcSurfaceOwnershipRequest Request;
+	FArcSurfaceOwnershipRequest Replay;
+	FString Diagnostic;
+	TestTrue(TEXT("exact ownership request identity is deterministic"),
+		FArcSurfaceOwnershipRequest::TryCreate(
+			Fixture.Correlation.ActiveRunId,
+			Consumer,
+			Commands.Show.GetState(),
+			SurfaceId,
+			EArcSurfaceRecreationAction::AdoptExact,
+			Request,
+			Diagnostic)
+			&& FArcSurfaceOwnershipRequest::TryCreate(
+				Fixture.Correlation.ActiveRunId,
+				Consumer,
+				Commands.Show.GetState(),
+				SurfaceId,
+				EArcSurfaceRecreationAction::AdoptExact,
+				Replay,
+				Diagnostic)
+			&& Request.IsValid()
+			&& Request.GetRequestId() == Replay.GetRequestId());
+	FArcSurfaceOwnershipRequest Invalid;
+	TestFalse(TEXT("inspect cannot masquerade as an ownership transition"),
+		FArcSurfaceOwnershipRequest::TryCreate(
+			Fixture.Correlation.ActiveRunId,
+			Consumer,
+			Commands.Show.GetState(),
+			SurfaceId,
+			EArcSurfaceRecreationAction::Inspect,
+			Invalid,
+			Diagnostic));
+	FFakeArcPreviewSurfaceOwnershipCandidate Surface(
+		SurfaceId, Consumer, Commands.Show.GetState());
+	FArcSurfaceOwnershipTransition Transition;
+	const auto InvalidResult = Transition.Execute(Invalid, Surface);
+	TestTrue(TEXT("invalid request rejects before every candidate callback"),
+		InvalidResult.IsValid()
+			&& InvalidResult.GetStatus()
+				== EArcSurfaceOwnershipStatus::RequestInvalid
+			&& Surface.IdentityQueryCount == 0
+			&& Surface.ConsumerQueryCount == 0
+			&& Surface.CursorQueryCount == 0
+			&& Surface.ClearCallCount == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewSurfaceOwnershipBindFreshTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceOwnershipTransition.BindFresh",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewSurfaceOwnershipBindFreshTest::RunTest(
+	const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	const FGuid SurfaceId(
+		0xF4610001, 0xF4610002, 0xF4610003, 0xF4610004);
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewSurfaceOwnershipBindFresh"),
+			Fixture, Commands))
+	{
+		return false;
+	}
+	FArcSurfaceOwnershipRequest Request;
+	if (!BuildArcSurfaceOwnershipRequest(
+			*this, Fixture, Consumer, FArcSurfaceState(), SurfaceId,
+			EArcSurfaceRecreationAction::BindFresh, Request))
+	{
+		return false;
+	}
+	FFakeArcPreviewSurfaceOwnershipCandidate Surface(
+		SurfaceId, Consumer, FArcSurfaceState());
+	FArcSurfaceOwnershipTransition Transition;
+	const auto First = Transition.Execute(Request, Surface);
+	const auto Replay = Transition.Execute(Request, Surface);
+	TestTrue(TEXT("fresh empty surface receives a zero-mutation ownership ticket"),
+		First.IsValid() && First.IsAccepted()
+			&& First.DidAuthorizeBinding()
+			&& First.HasTransitionTicket()
+			&& !First.DidCallSurface()
+			&& First.GetIdentityQueryCount() == 2
+			&& First.GetPolicySnapshotReadCount() == 1
+			&& Surface.ClearCallCount == 0);
+	TestTrue(TEXT("ticket binds the exact surface identity consumer and cursor"),
+		First.GetTransitionTicket().MatchesCandidateSnapshot(
+			SurfaceId, Consumer, FArcSurfaceState())
+			&& !First.GetTransitionTicket().MatchesCandidateSnapshot(
+				FGuid::NewGuid(), Consumer, FArcSurfaceState()));
+	TestTrue(TEXT("unchanged binding evidence replays deterministically"),
+		Replay.DidAuthorizeBinding()
+			&& Replay.GetTransitionTicket().GetTicketId()
+				== First.GetTransitionTicket().GetTicketId());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewSurfaceOwnershipAdoptExactTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceOwnershipTransition.AdoptExact",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewSurfaceOwnershipAdoptExactTest::RunTest(
+	const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	const FGuid SurfaceId(
+		0xF4620001, 0xF4620002, 0xF4620003, 0xF4620004);
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewSurfaceOwnershipAdoptExact"),
+			Fixture, Commands))
+	{
+		return false;
+	}
+	FArcSurfaceOwnershipRequest Request;
+	if (!BuildArcSurfaceOwnershipRequest(
+			*this, Fixture, Consumer, Commands.Show.GetState(), SurfaceId,
+			EArcSurfaceRecreationAction::AdoptExact, Request))
+	{
+		return false;
+	}
+	FFakeArcPreviewSurfaceOwnershipCandidate Surface(
+		SurfaceId, Consumer, Commands.Show.GetState());
+	FArcSurfaceOwnershipTransition Transition;
+	const auto Result = Transition.Execute(Request, Surface);
+	TestTrue(TEXT("exact visible surface receives an inert adoption ticket"),
+		Result.IsValid() && Result.DidAuthorizeBinding()
+			&& Result.HasTransitionTicket()
+			&& !Result.DidCallSurface()
+			&& Surface.ClearCallCount == 0
+			&& Result.GetTransitionTicket().GetAction()
+				== EArcSurfaceRecreationAction::AdoptExact);
+	TestTrue(TEXT("adoption ticket rejects cursor and consumer substitution"),
+		Result.GetTransitionTicket().MatchesCandidateSnapshot(
+			SurfaceId, Consumer, Commands.Show.GetState())
+			&& !Result.GetTransitionTicket().MatchesCandidateSnapshot(
+				SurfaceId, Consumer, Commands.Replace.GetState())
+			&& !Result.GetTransitionTicket().MatchesCandidateSnapshot(
+				SurfaceId,
+				FName(TEXT("Renderer.ArcPreview.Other.r1")),
+				Commands.Show.GetState()));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewSurfaceOwnershipCleanupTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceOwnershipTransition.CleanupOutcomes",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewSurfaceOwnershipCleanupTest::RunTest(
+	const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	const FGuid AppliedSurfaceId(
+		0xF4630001, 0xF4630002, 0xF4630003, 0xF4630004);
+	const FGuid RejectedSurfaceId(
+		0xF4631001, 0xF4631002, 0xF4631003, 0xF4631004);
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewSurfaceOwnershipCleanup"),
+			Fixture, Commands))
+	{
+		return false;
+	}
+	FArcSurfaceOwnershipRequest AppliedRequest;
+	FArcSurfaceOwnershipRequest RejectedRequest;
+	if (!BuildArcSurfaceOwnershipRequest(
+			*this, Fixture, Consumer, Commands.Hide.GetState(),
+			AppliedSurfaceId, EArcSurfaceRecreationAction::ClearToEmpty,
+			AppliedRequest)
+		|| !BuildArcSurfaceOwnershipRequest(
+			*this, Fixture, Consumer, Commands.Hide.GetState(),
+			RejectedSurfaceId, EArcSurfaceRecreationAction::ClearToEmpty,
+			RejectedRequest))
+	{
+		return false;
+	}
+	FFakeArcPreviewSurfaceOwnershipCandidate AppliedSurface(
+		AppliedSurfaceId, Consumer, Commands.Show.GetState());
+	FArcSurfaceOwnershipTransition AppliedTransition;
+	const auto Applied = AppliedTransition.Execute(
+		AppliedRequest, AppliedSurface);
+	const auto StaleReplay = AppliedTransition.Execute(
+		AppliedRequest, AppliedSurface);
+	TestTrue(TEXT("applied cleanup emits no binding ticket and forces reevaluation"),
+		Applied.IsValid() && Applied.IsAccepted() && Applied.DidClear()
+			&& Applied.DidCallSurface() && !Applied.HasTransitionTicket()
+			&& Applied.NeedsReevaluation()
+			&& AppliedSurface.ClearCallCount == 1
+			&& StaleReplay.IsValid()
+			&& StaleReplay.GetStatus()
+				== EArcSurfaceOwnershipStatus::PolicyRejected
+			&& AppliedSurface.ClearCallCount == 1);
+
+	FFakeArcPreviewSurfaceOwnershipCandidate RejectedSurface(
+		RejectedSurfaceId,
+		Consumer,
+		Commands.Show.GetState(),
+		FFakeArcPreviewSurfaceOwnershipCandidate::EMode::Rejected);
+	FArcSurfaceOwnershipTransition RejectedTransition;
+	const auto Rejected = RejectedTransition.Execute(
+		RejectedRequest, RejectedSurface);
+	RejectedSurface.SetMode(
+		FFakeArcPreviewSurfaceOwnershipCandidate::EMode::Applied);
+	const auto Retried = RejectedTransition.Execute(
+		RejectedRequest, RejectedSurface);
+	TestTrue(TEXT("rejected cleanup preserves exact bounded retry authority"),
+		Rejected.IsValid() && Rejected.WasCleanupRejected()
+			&& Rejected.CanRetryExactRequest()
+			&& !Rejected.HasTransitionTicket()
+			&& Retried.IsValid() && Retried.DidClear()
+			&& RejectedSurface.ClearCallCount == 2);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewSurfaceOwnershipFenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceOwnershipTransition.IdentityAndPolicyFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewSurfaceOwnershipFenceTest::RunTest(
+	const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	const FGuid SurfaceId(
+		0xF4640001, 0xF4640002, 0xF4640003, 0xF4640004);
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewSurfaceOwnershipFence"),
+			Fixture, Commands))
+	{
+		return false;
+	}
+	FArcSurfaceOwnershipRequest FreshRequest;
+	FArcSurfaceOwnershipRequest RehydrateRequest;
+	if (!BuildArcSurfaceOwnershipRequest(
+			*this, Fixture, Consumer, FArcSurfaceState(), SurfaceId,
+			EArcSurfaceRecreationAction::BindFresh, FreshRequest)
+		|| !BuildArcSurfaceOwnershipRequest(
+			*this, Fixture, Consumer, Commands.Show.GetState(), SurfaceId,
+			EArcSurfaceRecreationAction::BindFresh, RehydrateRequest))
+	{
+		return false;
+	}
+	FFakeArcPreviewSurfaceOwnershipCandidate WrongIdentity(
+		FGuid::NewGuid(), Consumer, FArcSurfaceState());
+	FArcSurfaceOwnershipTransition Transition;
+	const auto IdentityRejected = Transition.Execute(
+		FreshRequest, WrongIdentity);
+	TestTrue(TEXT("surface instance mismatch rejects before policy reads"),
+		IdentityRejected.IsValid()
+			&& IdentityRejected.GetStatus()
+				== EArcSurfaceOwnershipStatus::SurfaceIdentityMismatch
+			&& IdentityRejected.GetPolicySnapshotReadCount() == 0
+			&& WrongIdentity.ConsumerQueryCount == 0
+			&& WrongIdentity.CursorQueryCount == 0
+			&& WrongIdentity.ClearCallCount == 0);
+
+	FFakeArcPreviewSurfaceOwnershipCandidate EmptySurface(
+		SurfaceId, Consumer, FArcSurfaceState());
+	const auto RehydrateRejected = Transition.Execute(
+		RehydrateRequest, EmptySurface);
+	TestTrue(TEXT("empty-to-visible rehydrate remains outside ownership scope"),
+		RehydrateRejected.IsValid()
+			&& RehydrateRejected.GetStatus()
+				== EArcSurfaceOwnershipStatus::PolicyRejected
+			&& RehydrateRejected.GetPolicyResult().NeedsRehydrate()
+			&& !RehydrateRejected.HasTransitionTicket()
+			&& EmptySurface.ClearCallCount == 0);
+
+	FFakeArcPreviewSurfaceOwnershipCandidate DriftedCursor(
+		SurfaceId, Consumer, FArcSurfaceState());
+	DriftedCursor.SetCursorDrift(Commands.Show.GetState());
+	const auto LifecycleRejected = Transition.Execute(
+		FreshRequest, DriftedCursor);
+	TestTrue(TEXT("cursor drift between policy and lifecycle fails closed"),
+		LifecycleRejected.IsValid()
+			&& LifecycleRejected.GetStatus()
+				== EArcSurfaceOwnershipStatus::LifecycleRejected
+			&& LifecycleRejected.GetLifecycleResult().GetStatus()
+				== EArcSurfaceLifecycleExecutorStatus::SnapshotMismatch
+			&& !LifecycleRejected.HasTransitionTicket()
+			&& DriftedCursor.ClearCallCount == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewSurfaceOwnershipReentrantTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceOwnershipTransition.IdentityDriftAndReentrant",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewSurfaceOwnershipReentrantTest::RunTest(
+	const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	const FGuid SurfaceId(
+		0xF4650001, 0xF4650002, 0xF4650003, 0xF4650004);
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewSurfaceOwnershipReentrant"),
+			Fixture, Commands))
+	{
+		return false;
+	}
+	FArcSurfaceOwnershipRequest Request;
+	if (!BuildArcSurfaceOwnershipRequest(
+			*this, Fixture, Consumer, FArcSurfaceState(), SurfaceId,
+			EArcSurfaceRecreationAction::BindFresh, Request))
+	{
+		return false;
+	}
+	FFakeArcPreviewSurfaceOwnershipCandidate IdentityDrift(
+		SurfaceId, Consumer, FArcSurfaceState());
+	IdentityDrift.SetIdentityDrift(FGuid::NewGuid());
+	FArcSurfaceOwnershipTransition DriftTransition;
+	const auto Drifted = DriftTransition.Execute(Request, IdentityDrift);
+	TestTrue(TEXT("identity drift after lifecycle evidence suppresses ticket"),
+		Drifted.IsValid()
+			&& Drifted.GetStatus()
+				== EArcSurfaceOwnershipStatus::SurfaceIdentityDrift
+			&& !Drifted.HasTransitionTicket()
+			&& !DriftTransition.IsOperationInProgress());
+
+	FFakeArcPreviewSurfaceOwnershipCandidate Reentrant(
+		SurfaceId, Consumer, FArcSurfaceState());
+	FArcSurfaceOwnershipTransition ReentrantTransition;
+	Reentrant.SetReentrantIdentityCallback(ReentrantTransition, Request);
+	const auto Outer = ReentrantTransition.Execute(Request, Reentrant);
+	TestTrue(TEXT("outer ownership transaction completes after guarded callback"),
+		Outer.IsValid() && Outer.DidAuthorizeBinding()
+			&& Reentrant.IdentityQueryCount == 2
+			&& !ReentrantTransition.IsOperationInProgress());
+	TestTrue(TEXT("first identity callback cannot re-enter transaction"),
+		Reentrant.ReentrantResult.IsValid()
+			&& Reentrant.ReentrantResult.GetStatus()
+				== EArcSurfaceOwnershipStatus::OperationInProgress
+			&& Reentrant.ReentrantResult.GetIdentityQueryCount() == 0
+			&& Reentrant.ReentrantResult.GetPolicySnapshotReadCount() == 0
+			&& !Reentrant.ReentrantResult.HasTransitionTicket());
 	return true;
 }
 
