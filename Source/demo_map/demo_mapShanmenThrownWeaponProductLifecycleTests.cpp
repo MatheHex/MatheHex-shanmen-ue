@@ -15,6 +15,7 @@
 #include "demo_mapShanmenPreparationAdapter.h"
 #include "demo_mapShanmenRunLifecycleAdapter.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewProductBridge.h"
+#include "demo_mapShanmenThrownWeaponArcPreviewMainHUDRendererAdapter.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentation.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationCommand.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger.h"
@@ -17410,6 +17411,318 @@ RunTest(const FString&)
 	TestTrue(TEXT("terminal adoption cannot authorize generation nine"),
 		!bRequestCreated && !OverflowRequest.IsValid()
 			&& Diagnostic.Len() > 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewMainHUDRendererInitializationTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRendererAdapter.InitializationAndPhysicalIdentity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewMainHUDRendererInitializationTest::
+RunTest(const FString&)
+{
+	using FRenderer =
+		Fdemo_mapShanmenThrownWeaponArcPreviewMainHUDRendererAdapter;
+	const FGuid SurfaceId(
+		0xF4606001, 0xF4606002, 0xF4606003, 0xF4606004);
+	const FGuid OtherSurfaceId(
+		0xF4606101, 0xF4606102, 0xF4606103, 0xF4606104);
+	FRenderer Renderer;
+	FString Diagnostic;
+
+	TestTrue(TEXT("default MainHUD renderer is explicitly uninitialized"),
+		!Renderer.IsInitialized() && !Renderer.IsValid()
+			&& !Renderer.GetSurfaceInstanceId().IsValid()
+			&& Renderer.GetConsumerDefinitionId().IsNone()
+			&& Renderer.GetSurfaceCursor().IsEmpty());
+	TestFalse(TEXT("missing physical surface identity fails closed"),
+		Renderer.TryInitialize(FGuid(), Diagnostic));
+	TestTrue(TEXT("one explicit physical identity initializes an empty surface"),
+		Renderer.TryInitialize(SurfaceId, Diagnostic)
+			&& Renderer.IsInitialized() && Renderer.IsValid()
+			&& Renderer.GetSurfaceInstanceId() == SurfaceId
+			&& Renderer.GetConsumerDefinitionId()
+				== FRenderer::StableConsumerDefinitionId()
+			&& Renderer.GetSurfaceCursor().IsEmpty());
+	TestTrue(TEXT("exact initialization replay is idempotent"),
+		Renderer.TryInitialize(SurfaceId, Diagnostic)
+			&& Renderer.GetSurfaceInstanceId() == SurfaceId);
+	TestFalse(TEXT("initialized surface rejects silent identity rotation"),
+		Renderer.TryInitialize(OtherSurfaceId, Diagnostic));
+	TestTrue(TEXT("rejected identity rotation leaves the surface unchanged"),
+		Renderer.IsValid() && Renderer.GetSurfaceInstanceId() == SurfaceId
+			&& Renderer.GetSurfaceCursor().IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewMainHUDRendererDeliveryTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRendererAdapter.DeliverySequence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewMainHUDRendererDeliveryTest::
+RunTest(const FString&)
+{
+	using FConsumer =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationConsumerAdapter;
+	using FDelivery =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession;
+	using FRenderer =
+		Fdemo_mapShanmenThrownWeaponArcPreviewMainHUDRendererAdapter;
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewMainHUDRendererDelivery"),
+			Fixture, Commands))
+	{
+		return false;
+	}
+
+	FRenderer Renderer;
+	FConsumer Consumer;
+	FDelivery Delivery;
+	FString Diagnostic;
+	check(Renderer.TryInitialize(
+		FGuid(0xF4606201, 0xF4606202, 0xF4606203, 0xF4606204),
+		Diagnostic));
+	check(Consumer.TryBegin(
+		Fixture.Correlation.ActiveRunId, Renderer, Diagnostic));
+	check(Delivery.TryBegin(
+		Fixture.Correlation.ActiveRunId,
+		FRenderer::StableConsumerDefinitionId(),
+		Diagnostic));
+
+	const auto Show = Delivery.TryDeliver(Commands.Show, Consumer);
+	const auto ShowAdapter = Consumer.GetLastResult();
+	const FArcSurfaceState ShowCursor = Renderer.GetSurfaceCursor();
+	const auto ShowReplay = Delivery.TryDeliver(Commands.Show, Consumer);
+	const auto Replace = Delivery.TryDeliver(Commands.Replace, Consumer);
+	const auto ReplaceAdapter = Consumer.GetLastResult();
+	const FArcSurfaceState ReplaceCursor = Renderer.GetSurfaceCursor();
+	const auto NoOp = Delivery.TryDeliver(Commands.NoOp, Consumer);
+	const auto NoOpAdapter = Consumer.GetLastResult();
+	const FArcSurfaceState NoOpCursor = Renderer.GetSurfaceCursor();
+	const auto Hide = Delivery.TryDeliver(Commands.Hide, Consumer);
+	const auto HideAdapter = Consumer.GetLastResult();
+
+	TestTrue(TEXT("Show and Replace apply exact renderer-neutral cursors"),
+		Show.WasApplied() && ShowAdapter.WasApplied()
+			&& ShowAdapter.DidCallSurface()
+			&& ShowCursor.Matches(Commands.Show.GetState())
+			&& Replace.WasApplied() && ReplaceAdapter.WasApplied()
+			&& ReplaceAdapter.DidCallSurface()
+			&& ReplaceCursor.Matches(Commands.Replace.GetState()));
+	TestTrue(TEXT("exact Show replay is sealed without another surface call"),
+		ShowReplay.IsValid() && ShowReplay.WasApplied()
+			&& ShowReplay.IsReplay() && !ShowReplay.DidCallPort());
+	TestTrue(TEXT("NoOp advances delivery without mutating the MainHUD surface"),
+		NoOp.WasApplied() && NoOpAdapter.WasApplied()
+			&& NoOpAdapter.IsNoOp() && !NoOpAdapter.DidCallSurface()
+			&& NoOpCursor.Matches(Commands.Replace.GetState()));
+	TestTrue(TEXT("Hide applies once and normalizes the physical cursor to empty"),
+		Hide.WasApplied() && HideAdapter.WasApplied()
+			&& HideAdapter.DidCallSurface()
+			&& Renderer.GetSurfaceCursor().IsEmpty()
+			&& Delivery.GetCursorState().IsHidden()
+			&& Delivery.NumAppliedCommands() == 4);
+	TestTrue(TEXT("empty renderer and hidden delivery ledger end independently"),
+		Consumer.TryEnd(Fixture.Correlation.ActiveRunId, Diagnostic)
+			&& Delivery.TryEnd(
+				Fixture.Correlation.ActiveRunId, Diagnostic)
+			&& Consumer.IsEmpty() && Delivery.IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewMainHUDRendererFenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRendererAdapter.DirectCommandFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewMainHUDRendererFenceTest::
+RunTest(const FString&)
+{
+	using FRenderer =
+		Fdemo_mapShanmenThrownWeaponArcPreviewMainHUDRendererAdapter;
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewMainHUDRendererFences"),
+			Fixture, Commands))
+	{
+		return false;
+	}
+
+	FRenderer Renderer;
+	const auto NotReady = Renderer.Show(Commands.Show);
+	FString Diagnostic;
+	check(Renderer.TryInitialize(
+		FGuid(0xF4606301, 0xF4606302, 0xF4606303, 0xF4606304),
+		Diagnostic));
+	const auto ReplaceBeforeShow = Renderer.Replace(Commands.Replace);
+	const auto Show = Renderer.Show(Commands.Show);
+	const auto WrongEntrypoint = Renderer.Show(Commands.Replace);
+	const FArcSurfaceState AfterWrongEntrypoint = Renderer.GetSurfaceCursor();
+	const auto Replace = Renderer.Replace(Commands.Replace);
+	const auto StaleShow = Renderer.Show(Commands.Show);
+	const FArcSurfaceState AfterStaleShow = Renderer.GetSurfaceCursor();
+	const auto InvalidNoOp = Renderer.Replace(Commands.NoOp);
+	const FArcSurfaceState AfterInvalidNoOp = Renderer.GetSurfaceCursor();
+	const auto Hide = Renderer.Hide(Commands.Hide);
+
+	TestTrue(TEXT("uninitialized renderer returns typed rejection without mutation"),
+		NotReady.IsValid() && NotReady.IsRejected()
+			&& Renderer.IsValid());
+	TestTrue(TEXT("Replace before Show fails closed without a cursor"),
+		!ReplaceBeforeShow.IsValid());
+	TestTrue(TEXT("correct Show applies one exact visible cursor"),
+		Show.IsValid() && Show.IsApplied());
+	TestTrue(TEXT("wrong entrypoint is rejected with unchanged typed evidence"),
+		WrongEntrypoint.IsValid() && WrongEntrypoint.IsRejected()
+			&& AfterWrongEntrypoint.Matches(Commands.Show.GetState()));
+	TestTrue(TEXT("correct Replace applies while stale Show cannot rewind it"),
+		Replace.IsValid() && Replace.IsApplied()
+			&& !StaleShow.IsValid()
+			&& AfterStaleShow.Matches(Commands.Replace.GetState()));
+	TestTrue(TEXT("NoOp cannot enter a mutating renderer endpoint"),
+		!InvalidNoOp.IsValid()
+			&& AfterStaleShow.Matches(AfterInvalidNoOp));
+	TestTrue(TEXT("correct Hide returns the physical surface to empty"),
+		Hide.IsValid() && Hide.IsApplied()
+			&& Renderer.GetSurfaceCursor().IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewMainHUDRendererCleanupTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRendererAdapter.ExactCleanupPermit",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewMainHUDRendererCleanupTest::
+RunTest(const FString&)
+{
+	using FRenderer =
+		Fdemo_mapShanmenThrownWeaponArcPreviewMainHUDRendererAdapter;
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewMainHUDRendererCleanup"),
+			Fixture, Commands))
+	{
+		return false;
+	}
+
+	FRenderer Renderer;
+	FString Diagnostic;
+	check(Renderer.TryInitialize(
+		FGuid(0xF4606401, 0xF4606402, 0xF4606403, 0xF4606404),
+		Diagnostic));
+	check(Renderer.Show(Commands.Show).IsApplied());
+	const auto CleanupDecision = EvaluateArcSurfaceRecreation(
+		Fixture,
+		FRenderer::StableConsumerDefinitionId(),
+		Commands.Hide.GetState(),
+		FRenderer::StableConsumerDefinitionId(),
+		Commands.Show.GetState(),
+		EArcSurfaceRecreationAction::ClearToEmpty);
+	const auto BindingDecision = EvaluateArcSurfaceRecreation(
+		Fixture,
+		FRenderer::StableConsumerDefinitionId(),
+		Commands.Show.GetState(),
+		FRenderer::StableConsumerDefinitionId(),
+		Commands.Show.GetState(),
+		EArcSurfaceRecreationAction::AdoptExact);
+	check(CleanupDecision.IsAuthorized() && CleanupDecision.HasPermit());
+	check(BindingDecision.IsAuthorized() && BindingDecision.HasPermit());
+
+	const auto WrongPermit = Renderer.ClearToEmpty(
+		BindingDecision.GetPermit());
+	const auto Cleared = Renderer.ClearToEmpty(
+		CleanupDecision.GetPermit());
+	const auto Replay = Renderer.ClearToEmpty(
+		CleanupDecision.GetPermit());
+	TestTrue(TEXT("binding permit cannot masquerade as cleanup authority"),
+		!WrongPermit.IsValid());
+	TestTrue(TEXT("exact cleanup permit emits applied evidence and clears once"),
+		Cleared.IsValid() && Cleared.IsApplied()
+			&& Cleared.GetPreviousSurfaceCursor().Matches(
+				Commands.Show.GetState())
+			&& Cleared.GetSurfaceCursor().IsEmpty()
+			&& Renderer.GetSurfaceCursor().IsEmpty());
+	TestTrue(TEXT("consumed cleanup snapshot cannot clear an empty surface again"),
+		!Replay.IsValid() && Renderer.GetSurfaceCursor().IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewMainHUDRendererRetirementTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRendererAdapter.ExactHandoffRetirement",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewMainHUDRendererRetirementTest::
+RunTest(const FString&)
+{
+	using FRenderer =
+		Fdemo_mapShanmenThrownWeaponArcPreviewMainHUDRendererAdapter;
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewMainHUDRendererRetirement"),
+			Fixture, Commands))
+	{
+		return false;
+	}
+
+	const FGuid OldSurfaceId(
+		0xF4606501, 0xF4606502, 0xF4606503, 0xF4606504);
+	const FGuid NewSurfaceId(
+		0xF4606601, 0xF4606602, 0xF4606603, 0xF4606604);
+	FRenderer OldRenderer;
+	FRenderer NewRenderer;
+	FString Diagnostic;
+	check(OldRenderer.TryInitialize(OldSurfaceId, Diagnostic));
+	check(NewRenderer.TryInitialize(NewSurfaceId, Diagnostic));
+	check(OldRenderer.Show(Commands.Show).IsApplied());
+	check(NewRenderer.Show(Commands.Show).IsApplied());
+
+	FArcSurfaceOwnershipRequest Request;
+	if (!BuildArcSurfaceOwnershipRequest(
+			*this,
+			Fixture,
+			FRenderer::StableConsumerDefinitionId(),
+			Commands.Show.GetState(),
+			NewSurfaceId,
+			EArcSurfaceRecreationAction::AdoptExact,
+			Request))
+	{
+		return false;
+	}
+	FArcSurfaceOwnershipTransition Transition;
+	const auto Ownership = Transition.Execute(Request, NewRenderer);
+	check(Ownership.IsValid() && Ownership.DidAuthorizeBinding()
+		&& Ownership.HasTransitionTicket());
+
+	const auto Retired = OldRenderer.RetireForHandoff(
+		Ownership.GetTransitionTicket());
+	const auto Replay = OldRenderer.RetireForHandoff(
+		Ownership.GetTransitionTicket());
+	TestTrue(TEXT("new physical surface authorizes exact visible adoption"),
+		Ownership.GetTransitionTicket().MatchesCandidateSnapshot(
+			NewSurfaceId,
+			FRenderer::StableConsumerDefinitionId(),
+			Commands.Show.GetState())
+			&& NewRenderer.GetSurfaceCursor().Matches(
+				Commands.Show.GetState()));
+	TestTrue(TEXT("old physical surface retires with typed applied evidence"),
+		Retired.IsValid() && Retired.IsApplied()
+			&& Retired.GetPreviousSurfaceCursor().Matches(
+				Commands.Show.GetState())
+			&& Retired.GetSurfaceCursor().IsEmpty()
+			&& OldRenderer.GetSurfaceCursor().IsEmpty());
+	TestTrue(TEXT("retirement replay cannot mutate the already empty surface"),
+		!Replay.IsValid() && OldRenderer.GetSurfaceCursor().IsEmpty()
+			&& NewRenderer.GetSurfaceCursor().Matches(
+				Commands.Show.GetState()));
 	return true;
 }
 

@@ -175,6 +175,9 @@ try
     $ThrownArcPreviewPresentation = New-AutomationLogFixture `
         -Name 'thrown-arc-preview-presentation.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentation'
+    $ThrownArcPreviewMainHUDRendererAdapter = New-AutomationLogFixture `
+        -Name 'thrown-arc-preview-main-hud-renderer-adapter.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRendererAdapter'
     $ThrownArcPreviewUpdateCoordinator = New-AutomationLogFixture `
         -Name 'thrown-arc-preview-update-coordinator.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewUpdateCoordinator'
@@ -2674,14 +2677,36 @@ try
 
 	Invoke-ExpectedPass `
 		-Name 'main HUD trajectory presentation maps current read toggle and ranged evidence' `
-		-Paths @('Source/demo_map/demo_mapHUD.cpp') `
+		-Paths @(
+			'Source/demo_map/demo_mapHUD.h',
+			'Source/demo_map/demo_mapHUD.cpp') `
 		-Logs @(
 			$Full,
+			$ThrownArcPreviewMainHUDRendererAdapter,
 			$ThrownWeaponTrajectoryPresentation,
 			$ThrownWeaponArcEditingPresentation,
 			$ThrownWeaponArcEditingInputHintPresentation,
 			$ThrownWeaponTrajectoryTogglePhysicalInput,
 			$ThrownWeaponArcEditingPhysicalInput,
+			$InputRestore,
+			$Ranged)
+
+	Invoke-ExpectedPass `
+		-Name 'thrown weapon Arc preview MainHUD renderer maps command lifecycle handoff and HUD compatibility seams' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewMainHUDRendererAdapter.h',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewMainHUDRendererAdapter.cpp') `
+		-Logs @(
+			$ThrownArcPreviewMainHUDRendererAdapter,
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoff,
+			$ThrownArcPreviewPresentationSurfaceOwnershipTransition,
+			$ThrownArcPreviewPresentationSurfaceLifecycleExecutor,
+			$ThrownArcPreviewPresentationSurfaceRecreationPolicy,
+			$ThrownArcPreviewPresentationConsumerAdapter,
+			$ThrownArcPreviewPresentationDeliverySession,
+			$ThrownArcPreviewPresentationCommand,
+			$ThrownArcPreviewPresentation,
+			$Full,
 			$InputRestore,
 			$Ranged)
 
@@ -2866,6 +2891,7 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentation.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentation.cpp') `
 		-Logs @(
+			$ThrownArcPreviewMainHUDRendererAdapter,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelope,
 			$ThrownArcPreviewPresentation,
 			$ThrownArcPreviewProductBridge,
@@ -3465,6 +3491,7 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff.cpp') `
 		-Logs @(
+			$ThrownArcPreviewMainHUDRendererAdapter,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelope,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecovery,
@@ -3502,6 +3529,7 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceOwnershipTransition.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceOwnershipTransition.cpp') `
 		-Logs @(
+			$ThrownArcPreviewMainHUDRendererAdapter,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelope,
 			$ThrownArcPreviewPresentationSurfaceOwnershipTransition,
 			$ThrownArcPreviewPresentationSurfaceLifecycleExecutor,
@@ -3536,6 +3564,7 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceLifecycleExecutor.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceLifecycleExecutor.cpp') `
 		-Logs @(
+			$ThrownArcPreviewMainHUDRendererAdapter,
 			$ThrownArcPreviewPresentationSurfaceLifecycleExecutor,
 			$ThrownArcPreviewPresentationSurfaceRecreationPolicy,
 			$ThrownArcPreviewPresentationCompositionOwner,
@@ -3568,6 +3597,7 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceRecreationPolicy.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceRecreationPolicy.cpp') `
 		-Logs @(
+			$ThrownArcPreviewMainHUDRendererAdapter,
 			$ThrownArcPreviewPresentationSurfaceRecreationPolicy,
 			$ThrownArcPreviewPresentationCompositionOwner,
 			$ThrownArcPreviewPresentationConsumerAdapter,
@@ -3632,6 +3662,7 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationConsumerAdapter.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationConsumerAdapter.cpp') `
 		-Logs @(
+			$ThrownArcPreviewMainHUDRendererAdapter,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelope,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecovery,
@@ -3770,6 +3801,7 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationCommand.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationCommand.cpp') `
 		-Logs @(
+			$ThrownArcPreviewMainHUDRendererAdapter,
 			$ThrownArcPreviewPresentationCommand,
 			$ThrownArcPreviewPresentationSession,
 			$ThrownArcPreviewUpdateCoordinator,
@@ -5467,6 +5499,13 @@ try
 		-Name 'main HUD trajectory presentation cannot omit current toggle and ranged evidence' `
 		-Paths @('Source/demo_map/demo_mapHUD.cpp') `
 		-Logs @($ThrownWeaponTrajectoryPresentation) `
+		-ExpectedText 'missing required groups'
+
+	Invoke-ExpectedFail `
+		-Name 'thrown Arc preview MainHUD renderer focus cannot replace command lifecycle handoff and HUD compatibility evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewMainHUDRendererAdapter.cpp') `
+		-Logs @($ThrownArcPreviewMainHUDRendererAdapter) `
 		-ExpectedText 'missing required groups'
 
 	Invoke-ExpectedFail `

@@ -1,4 +1,5 @@
 #include "demo_mapHUD.h"
+#include "demo_map.h"
 #include "demo_mapGameState.h"
 #include "demo_mapGameMode.h"
 #include "demo_mapPlayerHealthComponent.h"
@@ -43,6 +44,90 @@ namespace
 		Tile.BlendMode = SE_BLEND_Translucent;
 		Canvas->DrawItem(Tile);
 	}
+
+	void DrawArcPreviewMarker(
+		UCanvas* Canvas,
+		APlayerController* PlayerController,
+		const FVector& WorldPosition,
+		const FLinearColor& Color,
+		const float Radius)
+	{
+		FVector2D ScreenPosition;
+		if (Canvas == nullptr || PlayerController == nullptr
+			|| !PlayerController->ProjectWorldLocationToScreen(
+				WorldPosition, ScreenPosition, false))
+		{
+			return;
+		}
+		FCanvasLineItem Horizontal(
+			ScreenPosition - FVector2D(Radius, 0.0f),
+			ScreenPosition + FVector2D(Radius, 0.0f));
+		Horizontal.SetColor(Color);
+		Horizontal.LineThickness = 2.0f;
+		Canvas->DrawItem(Horizontal);
+		FCanvasLineItem Vertical(
+			ScreenPosition - FVector2D(0.0f, Radius),
+			ScreenPosition + FVector2D(0.0f, Radius));
+		Vertical.SetColor(Color);
+		Vertical.LineThickness = 2.0f;
+		Canvas->DrawItem(Vertical);
+	}
+
+	void DrawThrownWeaponArcPreview(
+		UCanvas* Canvas,
+		APlayerController* PlayerController,
+		const Fdemo_mapShanmenThrownWeaponArcPreviewPresentationState& State)
+	{
+		if (Canvas == nullptr || PlayerController == nullptr
+			|| !State.IsVisible())
+		{
+			return;
+		}
+		const FLinearColor ArcColor(0.18f, 0.92f, 1.0f, 0.96f);
+		for (const auto& Segment : State.GetSegments())
+		{
+			FVector2D Start;
+			FVector2D End;
+			if (!PlayerController->ProjectWorldLocationToScreen(
+					Segment.GetStart(), Start, false)
+				|| !PlayerController->ProjectWorldLocationToScreen(
+					Segment.GetEnd(), End, false))
+			{
+				continue;
+			}
+			FCanvasLineItem Line(Start, End);
+			Line.SetColor(ArcColor);
+			Line.LineThickness = 2.5f;
+			Canvas->DrawItem(Line);
+		}
+		DrawArcPreviewMarker(
+			Canvas,
+			PlayerController,
+			State.GetApexPosition(),
+			FLinearColor(1.0f, 0.78f, 0.18f, 1.0f),
+			5.0f);
+		DrawArcPreviewMarker(
+			Canvas,
+			PlayerController,
+			State.GetPlannedLandingPosition(),
+			FLinearColor(0.25f, 1.0f, 0.38f, 1.0f),
+			7.0f);
+	}
+}
+
+void Ademo_mapHUD::BeginPlay()
+{
+	Super::BeginPlay();
+	FString Diagnostic;
+	if (!ThrownWeaponArcPreviewRendererAdapter.TryInitialize(
+			FGuid::NewGuid(), Diagnostic))
+	{
+		UE_LOG(
+			Logdemo_map,
+			Warning,
+			TEXT("Arc preview MainHUD renderer initialization rejected: %s"),
+			*Diagnostic);
+	}
 }
 
 void Ademo_mapHUD::DrawHUD()
@@ -56,6 +141,12 @@ void Ademo_mapHUD::DrawHUD()
 	const Ademo_mapGameMode* ActiveMode = GetWorld() != nullptr ? Cast<Ademo_mapGameMode>(GetWorld()->GetAuthGameMode()) : nullptr;
 	const Ademo_mapV3ProgressionManager* V3 = ActiveMode ? ActiveMode->GetV3ProgressionManager() : nullptr;
 	const Fdemo_mapInputBindingSettings& InputSettings = Fdemo_mapInputBindingSettings::Get();
+	APlayerController* PlayerController =
+		GetWorld() != nullptr ? GetWorld()->GetFirstPlayerController() : nullptr;
+	DrawThrownWeaponArcPreview(
+		Canvas,
+		PlayerController,
+		ThrownWeaponArcPreviewRendererAdapter.GetSurfaceCursor());
 	DrawHUDPanel(
 		Canvas,
 		FVector2D(18.0f, 14.0f),
@@ -142,7 +233,6 @@ void Ademo_mapHUD::DrawHUD()
 			}
 		}
 	}
-	APlayerController* PlayerController = GetWorld() != nullptr ? GetWorld()->GetFirstPlayerController() : nullptr;
 	if (Ademo_mapPlayerController* DemoController =
 		Cast<Ademo_mapPlayerController>(PlayerController))
 	{
