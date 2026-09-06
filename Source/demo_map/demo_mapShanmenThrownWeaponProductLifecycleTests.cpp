@@ -25,6 +25,7 @@
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecovery.h"
+#include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundle.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority.h"
@@ -8054,6 +8055,14 @@ namespace
 		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpoint;
 	using FArcOwnerHandoffRecoveryResult =
 		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryResult;
+	using FArcOwnerHandoffRecoveryAdmissionRequest =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionRequest;
+	using EArcOwnerHandoffRecoveryAdmissionStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionStatus;
+	using FArcOwnerHandoffRecoveryAdmissionResult =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionResult;
+	using FArcOwnerHandoffRecoveryAdmissionSession =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession;
 	using EArcOwnerHandoffRecoveryJournalKind =
 		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournalRecordKind;
 	using EArcOwnerHandoffRecoveryJournalDisposition =
@@ -8332,10 +8341,17 @@ namespace
 		};
 
 		virtual FArcOwnerHandoffRecoveryBundleWatermarkReadResult Read(
-			const FGuid&,
-			const FGuid&) const override
+			const FGuid& AuthorityDomainId,
+			const FGuid& LineageId) const override
 		{
 			++ReadCount;
+			LastReadAuthorityDomainId = AuthorityDomainId;
+			LastReadLineageId = LineageId;
+			if (ReadCallback)
+			{
+				TFunction<void()> Callback = MoveTemp(ReadCallback);
+				Callback();
+			}
 			switch (ReadMode)
 			{
 			case EReadMode::Rejected:
@@ -8489,6 +8505,10 @@ namespace
 		{
 			PreAdvanceProbe = MoveTemp(Value);
 		}
+		void SetReadCallback(TFunction<void()> Value) const
+		{
+			ReadCallback = MoveTemp(Value);
+		}
 		void SetState(
 			const FArcOwnerHandoffRecoveryBundleWatermarkState& Value)
 		{
@@ -8507,6 +8527,8 @@ namespace
 		}
 
 		mutable int32 ReadCount = 0;
+		mutable FGuid LastReadAuthorityDomainId;
+		mutable FGuid LastReadLineageId;
 		int32 AdvanceCount = 0;
 		bool bPreAdvanceProbePassed = false;
 		FArcOwnerHandoffRecoveryBundleWatermarkAdvanceRequest LastRequest;
@@ -8517,6 +8539,7 @@ namespace
 		bool bHasState = false;
 		FArcOwnerHandoffRecoveryBundleWatermarkState State;
 		TFunction<bool()> PreAdvanceProbe;
+		mutable TFunction<void()> ReadCallback;
 	};
 
 	class FFakeArcPreviewHandoffSurface final
@@ -9098,6 +9121,89 @@ namespace
 		}
 		return OutBundle.GetGeneration() == 2;
 	}
+
+	struct FArcOwnerHandoffRecoveryAdmissionFixture
+	{
+		FArcOwnerHandoffRecoveryAdmissionFixture()
+			: OldSurface(
+				FGuid(0xF4555001, 0xF4555002, 0xF4555003, 0xF4555004),
+				Consumer)
+			, NewSurface(
+				FGuid(0xF4556001, 0xF4556002, 0xF4556003, 0xF4556004),
+				Consumer)
+		{
+		}
+
+		bool Build(FAutomationTestBase& Test, const TCHAR* Label)
+		{
+			if (!BuildArcOwnerHandoffRecoveryBundleEvidence(
+					Test,
+					Label,
+					Lifecycle,
+					Owner,
+					OldSurface,
+					NewSurface,
+					Checkpoint,
+					Journal,
+					Envelope,
+					Bundle,
+					Bytes)
+				|| !BuildArcOwnerHandoffRecoveryBundleStorageContext(
+					Test,
+					Label,
+					Bundle,
+					StorageContext,
+					LineageId)
+				|| !BuildArcOwnerHandoffRecoveryWatermarkState(
+					Test,
+					AuthorityDomainId,
+					LineageId,
+					Bundle.GetGeneration() - 1,
+					Bundle.GetGeneration(),
+					Bundle.GetBundleId(),
+					WatermarkRequest,
+					WatermarkReceipt,
+					WatermarkState))
+			{
+				return false;
+			}
+			FileSystem.SetFile(StorageContext.GetPrimaryPath(), Bytes);
+			Authority.SetState(WatermarkState);
+			FString Diagnostic;
+			if (!FArcOwnerHandoffRecoveryAdmissionRequest::TryCreate(
+					AuthorityDomainId,
+					LineageId,
+					Journal.GetJournalId(),
+					Checkpoint.GetCheckpointId(),
+					Request,
+					Diagnostic))
+			{
+				Test.AddError(Diagnostic);
+				return false;
+			}
+			return true;
+		}
+
+		const FName Consumer = FName(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+		const FGuid AuthorityDomainId = ArcOwnerHandoffRecoveryWatermarkDomain();
+		FThrownLifecycleFixture Lifecycle;
+		FFakeArcPreviewHandoffSurface OldSurface;
+		FFakeArcPreviewHandoffSurface NewSurface;
+		FArcCompositionOwner Owner;
+		FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+		FArcOwnerHandoffRecoveryJournal Journal;
+		FArcOwnerHandoffRecoveryPayloadEnvelope Envelope;
+		FArcOwnerHandoffRecoveryBundle Bundle;
+		TArray<uint8> Bytes;
+		FArcOwnerHandoffRecoveryBundleStorageContext StorageContext;
+		FGuid LineageId;
+		FArcOwnerHandoffRecoveryBundleWatermarkAdvanceRequest WatermarkRequest;
+		FArcOwnerHandoffRecoveryBundleWatermarkAdvanceReceipt WatermarkReceipt;
+		FArcOwnerHandoffRecoveryBundleWatermarkState WatermarkState;
+		FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem FileSystem;
+		FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority Authority;
+		FArcOwnerHandoffRecoveryAdmissionRequest Request;
+	};
 
 	bool OverwriteUint32BigEndian(
 		TArray<uint8>& Bytes,
@@ -14084,6 +14190,610 @@ RunTest(const FString&)
 			&& InvalidAdvanceFs.WriteCount == 1
 			&& InvalidAdvanceFs.AtomicReplaceCount == 1
 			&& !InvalidAdvanceAuthority.HasState());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryAdmissionContractTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession.ContractAndDeterminism",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryAdmissionContractTest::
+RunTest(const FString&)
+{
+	const FGuid Domain(0xF4557001, 0xF4557002, 0xF4557003, 0xF4557004);
+	const FGuid Lineage(0xF4557101, 0xF4557102, 0xF4557103, 0xF4557104);
+	const FGuid Journal(0xF4557201, 0xF4557202, 0xF4557203, 0xF4557204);
+	const FGuid Checkpoint(0xF4557301, 0xF4557302, 0xF4557303, 0xF4557304);
+	const FGuid OtherCheckpoint(
+		0xF4557401, 0xF4557402, 0xF4557403, 0xF4557404);
+	FString Diagnostic;
+	FArcOwnerHandoffRecoveryAdmissionRequest First;
+	FArcOwnerHandoffRecoveryAdmissionRequest Replay;
+	FArcOwnerHandoffRecoveryAdmissionRequest Different;
+	FArcOwnerHandoffRecoveryAdmissionRequest Rejected;
+	const bool bFirst = FArcOwnerHandoffRecoveryAdmissionRequest::TryCreate(
+		Domain, Lineage, Journal, Checkpoint, First, Diagnostic);
+	const bool bReplay = FArcOwnerHandoffRecoveryAdmissionRequest::TryCreate(
+		Domain, Lineage, Journal, Checkpoint, Replay, Diagnostic);
+	const bool bDifferent = FArcOwnerHandoffRecoveryAdmissionRequest::TryCreate(
+		Domain, Lineage, Journal, OtherCheckpoint, Different, Diagnostic);
+	const bool bRejected = FArcOwnerHandoffRecoveryAdmissionRequest::TryCreate(
+		FGuid(), Lineage, Journal, Checkpoint, Rejected, Diagnostic);
+
+	TestTrue(TEXT("request identity binds all explicit admission evidence"),
+		bFirst && bReplay && bDifferent
+			&& First.IsValid() && Replay.IsValid() && Different.IsValid()
+			&& First.GetRequestId() == Replay.GetRequestId()
+			&& First.GetRequestId() != Different.GetRequestId()
+			&& First.GetAuthorityDomainId() == Domain
+			&& First.GetLineageId() == Lineage
+			&& First.GetExpectedJournalId() == Journal
+			&& First.GetExpectedCheckpointId() == Checkpoint);
+	TestTrue(TEXT("invalid explicit evidence fails closed"),
+		!bRejected && !Rejected.IsValid()
+			&& !FArcOwnerHandoffRecoveryAdmissionRequest().IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryAdmissionSuccessTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession.ExactAdmissionAndRecovery",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryAdmissionSuccessTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryAdmissionFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("RecoveryAdmissionSuccess")))
+	{
+		return false;
+	}
+	const int32 OldMutations = Fixture.OldSurface.MutationCallCount;
+	const int32 NewMutations = Fixture.NewSurface.MutationCallCount;
+	FArcOwnerHandoffRecoveryAdmissionSession Session;
+	const auto Result = Session.ExecuteExplicit(
+		Fixture.Request,
+		Fixture.StorageContext,
+		Fixture.Journal,
+		Fixture.Owner,
+		Fixture.OldSurface,
+		Fixture.NewSurface,
+		Fixture.FileSystem,
+		Fixture.Authority);
+
+	TestTrue(TEXT("exact trusted evidence admits one P20.48 recovery"),
+		Result.IsValid() && Result.IsSuccess() && Result.WasRecovered()
+			&& !Result.IsReplay() && Result.WasCheckpointAdmitted()
+			&& Result.DidInvokeRecovery() && !Result.DidMutateSurface()
+			&& Result.GetStatus()
+				== EArcOwnerHandoffRecoveryAdmissionStatus::Recovered
+			&& Result.GetLoadedGeneration() == Fixture.Bundle.GetGeneration()
+			&& Result.GetLoadedBundleId() == Fixture.Bundle.GetBundleId()
+			&& Result.GetLoadedJournalId() == Fixture.Journal.GetJournalId()
+			&& Result.GetLoadedCheckpointId()
+				== Fixture.Checkpoint.GetCheckpointId()
+			&& Result.GetRecoveryResult().HasReceipt());
+	TestTrue(TEXT("one read and one load are the only admission callbacks"),
+		Fixture.Authority.ReadCount == 1
+			&& Fixture.Authority.AdvanceCount == 0
+			&& Fixture.Authority.LastReadAuthorityDomainId
+				== Fixture.AuthorityDomainId
+			&& Fixture.Authority.LastReadLineageId == Fixture.LineageId
+			&& Fixture.FileSystem.ReadCount == 1
+			&& Fixture.FileSystem.WriteCount == 0
+			&& Fixture.FileSystem.AtomicReplaceCount == 0);
+	TestTrue(TEXT("recovery changes ownership without renderer mutation"),
+		Fixture.Owner.IsValid() && Fixture.Owner.IsSynchronized()
+			&& Fixture.Owner.GetBoundSurfaceInstanceId()
+				== Fixture.NewSurface.GetSurfaceInstanceId()
+			&& Fixture.OldSurface.MutationCallCount == OldMutations
+			&& Fixture.NewSurface.MutationCallCount == NewMutations
+			&& !Session.IsOperationInProgress());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryAdmissionReplayTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession.IdempotentReplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryAdmissionReplayTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryAdmissionFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("RecoveryAdmissionReplay")))
+	{
+		return false;
+	}
+	const int32 OldMutations = Fixture.OldSurface.MutationCallCount;
+	const int32 NewMutations = Fixture.NewSurface.MutationCallCount;
+	FArcOwnerHandoffRecoveryAdmissionSession Session;
+	const auto First = Session.ExecuteExplicit(
+		Fixture.Request, Fixture.StorageContext, Fixture.Journal,
+		Fixture.Owner, Fixture.OldSurface, Fixture.NewSurface,
+		Fixture.FileSystem, Fixture.Authority);
+	const auto Replay = Session.ExecuteExplicit(
+		Fixture.Request, Fixture.StorageContext, Fixture.Journal,
+		Fixture.Owner, Fixture.OldSurface, Fixture.NewSurface,
+		Fixture.FileSystem, Fixture.Authority);
+
+	TestTrue(TEXT("same explicit transaction replays the P20.48 receipt"),
+		First.IsValid() && First.WasRecovered()
+			&& Replay.IsValid() && Replay.IsSuccess() && Replay.IsReplay()
+			&& Replay.GetStatus()
+				== EArcOwnerHandoffRecoveryAdmissionStatus::Replayed
+			&& First.GetRecoveryResult().HasReceipt()
+			&& Replay.GetRecoveryResult().HasReceipt()
+			&& First.GetRecoveryResult().GetReceipt().GetReceiptId()
+				== Replay.GetRecoveryResult().GetReceipt().GetReceiptId());
+	TestTrue(TEXT("replay remains bounded and zero-surface-mutation"),
+		Fixture.Authority.ReadCount == 2
+			&& Fixture.Authority.AdvanceCount == 0
+			&& Fixture.FileSystem.ReadCount == 2
+			&& Fixture.FileSystem.WriteCount == 0
+			&& Fixture.OldSurface.MutationCallCount == OldMutations
+			&& Fixture.NewSurface.MutationCallCount == NewMutations
+			&& !Session.IsOperationInProgress());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryAdmissionInputFenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession.RequestAndCurrentJournalFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryAdmissionInputFenceTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryAdmissionFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("RecoveryAdmissionInputFences")))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryAdmissionSession Session;
+	const FArcOwnerHandoffRecoveryAdmissionRequest InvalidRequest;
+	const auto Invalid = Session.ExecuteExplicit(
+		InvalidRequest, Fixture.StorageContext, Fixture.Journal,
+		Fixture.Owner, Fixture.OldSurface, Fixture.NewSurface,
+		Fixture.FileSystem, Fixture.Authority);
+
+	FString Diagnostic;
+	FArcOwnerHandoffRecoveryAdmissionRequest CrossLineageRequest;
+	check(FArcOwnerHandoffRecoveryAdmissionRequest::TryCreate(
+		Fixture.AuthorityDomainId,
+		FGuid(0xF4558001, 0xF4558002, 0xF4558003, 0xF4558004),
+		Fixture.Journal.GetJournalId(),
+		Fixture.Checkpoint.GetCheckpointId(),
+		CrossLineageRequest,
+		Diagnostic));
+	const auto CrossLineage = Session.ExecuteExplicit(
+		CrossLineageRequest, Fixture.StorageContext, Fixture.Journal,
+		Fixture.Owner, Fixture.OldSurface, Fixture.NewSurface,
+		Fixture.FileSystem, Fixture.Authority);
+
+	FArcOwnerHandoffRecoveryAdmissionRequest ForeignJournalRequest;
+	check(FArcOwnerHandoffRecoveryAdmissionRequest::TryCreate(
+		Fixture.AuthorityDomainId,
+		Fixture.LineageId,
+		FGuid(0xF4558101, 0xF4558102, 0xF4558103, 0xF4558104),
+		Fixture.Checkpoint.GetCheckpointId(),
+		ForeignJournalRequest,
+		Diagnostic));
+	const auto ForeignJournal = Session.ExecuteExplicit(
+		ForeignJournalRequest, Fixture.StorageContext, Fixture.Journal,
+		Fixture.Owner, Fixture.OldSurface, Fixture.NewSurface,
+		Fixture.FileSystem, Fixture.Authority);
+	const FArcOwnerHandoffRecoveryJournal EmptyJournal;
+	const auto Empty = Session.ExecuteExplicit(
+		Fixture.Request, Fixture.StorageContext, EmptyJournal,
+		Fixture.Owner, Fixture.OldSurface, Fixture.NewSurface,
+		Fixture.FileSystem, Fixture.Authority);
+
+	TestTrue(TEXT("invalid and cross-lineage requests reject before callbacks"),
+		Invalid.IsValid()
+			&& Invalid.GetStatus()
+				== EArcOwnerHandoffRecoveryAdmissionStatus::RequestRejected
+			&& CrossLineage.IsValid()
+			&& CrossLineage.GetStatus()
+				== EArcOwnerHandoffRecoveryAdmissionStatus::RequestRejected);
+	TestTrue(TEXT("non-current journals reject before authority and storage"),
+		ForeignJournal.IsValid()
+			&& ForeignJournal.GetStatus()
+				== EArcOwnerHandoffRecoveryAdmissionStatus::CurrentJournalRejected
+			&& Empty.IsValid()
+			&& Empty.GetStatus()
+				== EArcOwnerHandoffRecoveryAdmissionStatus::CurrentJournalRejected
+			&& Fixture.Authority.ReadCount == 0
+			&& Fixture.FileSystem.ReadCount == 0
+			&& !Session.IsOperationInProgress());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryAdmissionAuthorityFenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession.AuthorityFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryAdmissionAuthorityFenceTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryAdmissionFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("RecoveryAdmissionAuthorityFences")))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryAdmissionSession Session;
+	Fixture.Authority.ClearState();
+	const auto Missing = Session.ExecuteExplicit(
+		Fixture.Request, Fixture.StorageContext, Fixture.Journal,
+		Fixture.Owner, Fixture.OldSurface, Fixture.NewSurface,
+		Fixture.FileSystem, Fixture.Authority);
+	Fixture.Authority.SetReadMode(
+		FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority::EReadMode::Rejected);
+	const auto Rejected = Session.ExecuteExplicit(
+		Fixture.Request, Fixture.StorageContext, Fixture.Journal,
+		Fixture.Owner, Fixture.OldSurface, Fixture.NewSurface,
+		Fixture.FileSystem, Fixture.Authority);
+	Fixture.Authority.SetReadMode(
+		FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority::EReadMode::Unavailable);
+	const auto Unavailable = Session.ExecuteExplicit(
+		Fixture.Request, Fixture.StorageContext, Fixture.Journal,
+		Fixture.Owner, Fixture.OldSurface, Fixture.NewSurface,
+		Fixture.FileSystem, Fixture.Authority);
+	Fixture.Authority.SetReadMode(
+		FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority::EReadMode::Invalid);
+	const auto Invalid = Session.ExecuteExplicit(
+		Fixture.Request, Fixture.StorageContext, Fixture.Journal,
+		Fixture.Owner, Fixture.OldSurface, Fixture.NewSurface,
+		Fixture.FileSystem, Fixture.Authority);
+
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceRequest ForeignRequest;
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceReceipt ForeignReceipt;
+	FArcOwnerHandoffRecoveryBundleWatermarkState ForeignState;
+	if (!BuildArcOwnerHandoffRecoveryWatermarkState(
+			*this,
+			FGuid(0xF4558201, 0xF4558202, 0xF4558203, 0xF4558204),
+			Fixture.LineageId,
+			0,
+			1,
+			Fixture.Bundle.GetBundleId(),
+			ForeignRequest,
+			ForeignReceipt,
+			ForeignState))
+	{
+		return false;
+	}
+	Fixture.Authority.SetReadMode(
+		FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority::EReadMode::Normal);
+	Fixture.Authority.SetState(ForeignState);
+	const auto Foreign = Session.ExecuteExplicit(
+		Fixture.Request, Fixture.StorageContext, Fixture.Journal,
+		Fixture.Owner, Fixture.OldSurface, Fixture.NewSurface,
+		Fixture.FileSystem, Fixture.Authority);
+
+	TestTrue(TEXT("all trusted authority failure modes remain distinct"),
+		Missing.IsValid()
+			&& Missing.GetStatus()
+				== EArcOwnerHandoffRecoveryAdmissionStatus::AuthorityMissing
+			&& Rejected.IsValid()
+			&& Rejected.GetStatus()
+				== EArcOwnerHandoffRecoveryAdmissionStatus::AuthorityReadRejected
+			&& Unavailable.IsValid()
+			&& Unavailable.GetStatus()
+				== EArcOwnerHandoffRecoveryAdmissionStatus::AuthorityUnavailable
+			&& Invalid.IsValid()
+			&& Invalid.GetStatus()
+				== EArcOwnerHandoffRecoveryAdmissionStatus::AuthorityReadRejected
+			&& Foreign.IsValid()
+			&& Foreign.GetStatus()
+				== EArcOwnerHandoffRecoveryAdmissionStatus::AuthorityStateRejected);
+	TestTrue(TEXT("authority fences never read storage or execute recovery"),
+		Fixture.Authority.ReadCount == 5
+			&& Fixture.Authority.AdvanceCount == 0
+			&& Fixture.FileSystem.ReadCount == 0
+			&& Fixture.FileSystem.WriteCount == 0
+			&& !Missing.DidInvokeRecovery()
+			&& !Foreign.WasCheckpointAdmitted()
+			&& !Session.IsOperationInProgress());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryAdmissionBundleFenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession.BundleAndWatermarkFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryAdmissionBundleFenceTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryAdmissionFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("RecoveryAdmissionBundleFences")))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryAdmissionSession Session;
+	FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem MissingFileSystem;
+	const auto Missing = Session.ExecuteExplicit(
+		Fixture.Request, Fixture.StorageContext, Fixture.Journal,
+		Fixture.Owner, Fixture.OldSurface, Fixture.NewSurface,
+		MissingFileSystem, Fixture.Authority);
+
+	FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem CorruptFileSystem;
+	TArray<uint8> CorruptBytes = Fixture.Bytes;
+	CorruptBytes[0] ^= 0x01;
+	CorruptFileSystem.SetFile(
+		Fixture.StorageContext.GetPrimaryPath(), CorruptBytes);
+	const auto Corrupt = Session.ExecuteExplicit(
+		Fixture.Request, Fixture.StorageContext, Fixture.Journal,
+		Fixture.Owner, Fixture.OldSurface, Fixture.NewSurface,
+		CorruptFileSystem, Fixture.Authority);
+
+	FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem OversizedFileSystem;
+	TArray<uint8> OversizedBytes;
+	OversizedBytes.SetNumZeroed(
+		FArcOwnerHandoffRecoveryBundleCodec::MaximumEncodedBytes() + 1);
+	OversizedFileSystem.SetFile(
+		Fixture.StorageContext.GetPrimaryPath(), OversizedBytes);
+	const auto Oversized = Session.ExecuteExplicit(
+		Fixture.Request, Fixture.StorageContext, Fixture.Journal,
+		Fixture.Owner, Fixture.OldSurface, Fixture.NewSurface,
+		OversizedFileSystem, Fixture.Authority);
+
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceRequest ConflictRequest;
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceReceipt ConflictReceipt;
+	FArcOwnerHandoffRecoveryBundleWatermarkState ConflictState;
+	if (!BuildArcOwnerHandoffRecoveryWatermarkState(
+			*this,
+			Fixture.AuthorityDomainId,
+			Fixture.LineageId,
+			0,
+			1,
+			FGuid(0xF4558301, 0xF4558302, 0xF4558303, 0xF4558304),
+			ConflictRequest,
+			ConflictReceipt,
+			ConflictState))
+	{
+		return false;
+	}
+	FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority ConflictAuthority;
+	ConflictAuthority.SetState(ConflictState);
+	const auto Conflict = Session.ExecuteExplicit(
+		Fixture.Request, Fixture.StorageContext, Fixture.Journal,
+		Fixture.Owner, Fixture.OldSurface, Fixture.NewSurface,
+		Fixture.FileSystem, ConflictAuthority);
+
+	TestTrue(TEXT("missing corrupt and oversized bundle bytes fail closed"),
+		Missing.IsValid()
+			&& Missing.GetStatus()
+				== EArcOwnerHandoffRecoveryAdmissionStatus::BundleLoadRejected
+			&& Missing.GetBundleLoadStatus()
+				== EArcOwnerHandoffRecoveryBundleStorageLoadStatus::Missing
+			&& Corrupt.IsValid()
+			&& Corrupt.GetBundleLoadStatus()
+				== EArcOwnerHandoffRecoveryBundleStorageLoadStatus::DecodeRejected
+			&& Oversized.IsValid()
+			&& Oversized.GetBundleLoadStatus()
+				== EArcOwnerHandoffRecoveryBundleStorageLoadStatus::SizeRejected);
+	TestTrue(TEXT("same generation with foreign bundle identity is fenced"),
+		Conflict.IsValid()
+			&& Conflict.GetStatus()
+				== EArcOwnerHandoffRecoveryAdmissionStatus::BundleWatermarkMismatch
+			&& Conflict.GetLoadedGeneration() == 1
+			&& Conflict.GetLoadedBundleId() == Fixture.Bundle.GetBundleId()
+			&& !Conflict.WasCheckpointAdmitted()
+			&& !Conflict.DidInvokeRecovery());
+	TestTrue(TEXT("bundle admission failures are read-only"),
+		MissingFileSystem.ReadCount == 1
+			&& CorruptFileSystem.ReadCount == 1
+			&& OversizedFileSystem.ReadCount == 1
+			&& Fixture.FileSystem.ReadCount == 1
+			&& Fixture.FileSystem.WriteCount == 0
+			&& ConflictAuthority.AdvanceCount == 0
+			&& !Session.IsOperationInProgress());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryAdmissionEvidenceFenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession.JournalAndCheckpointFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryAdmissionEvidenceFenceTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryAdmissionFixture CheckpointFixture;
+	if (!CheckpointFixture.Build(*this, TEXT("RecoveryAdmissionCheckpointFence")))
+	{
+		return false;
+	}
+	FString Diagnostic;
+	FArcOwnerHandoffRecoveryAdmissionRequest WrongCheckpointRequest;
+	check(FArcOwnerHandoffRecoveryAdmissionRequest::TryCreate(
+		CheckpointFixture.AuthorityDomainId,
+		CheckpointFixture.LineageId,
+		CheckpointFixture.Journal.GetJournalId(),
+		FGuid(0xF4558401, 0xF4558402, 0xF4558403, 0xF4558404),
+		WrongCheckpointRequest,
+		Diagnostic));
+	FArcOwnerHandoffRecoveryAdmissionSession CheckpointSession;
+	const int32 CheckpointOldReads =
+		CheckpointFixture.OldSurface.IdentityQueryCount;
+	const auto WrongCheckpoint = CheckpointSession.ExecuteExplicit(
+		WrongCheckpointRequest,
+		CheckpointFixture.StorageContext,
+		CheckpointFixture.Journal,
+		CheckpointFixture.Owner,
+		CheckpointFixture.OldSurface,
+		CheckpointFixture.NewSurface,
+		CheckpointFixture.FileSystem,
+		CheckpointFixture.Authority);
+
+	FArcOwnerHandoffRecoveryAdmissionFixture JournalFixture;
+	if (!JournalFixture.Build(*this, TEXT("RecoveryAdmissionJournalFence")))
+	{
+		return false;
+	}
+	const FArcOwnerHandoffRecoveryJournal OriginalJournal = JournalFixture.Journal;
+	const FArcOwnerHandoffRecoveryAdmissionRequest OriginalRequest =
+		JournalFixture.Request;
+	FArcOwnerHandoffRecoveryCheckpoint SecondCheckpoint;
+	FArcOwnerHandoffRecoveryBundle SecondBundle;
+	TArray<uint8> SecondBytes;
+	if (!AdvanceArcOwnerHandoffRecoveryBundleGeneration(
+			*this,
+			TEXT("RecoveryAdmissionJournalFenceGenerationTwo"),
+			JournalFixture.Owner,
+			JournalFixture.OldSurface,
+			JournalFixture.NewSurface,
+			JournalFixture.Checkpoint,
+			JournalFixture.Journal,
+			SecondCheckpoint,
+			SecondBundle,
+			SecondBytes))
+	{
+		return false;
+	}
+	JournalFixture.FileSystem.SetFile(
+		JournalFixture.StorageContext.GetPrimaryPath(), SecondBytes);
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceRequest SecondStateRequest;
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceReceipt SecondStateReceipt;
+	FArcOwnerHandoffRecoveryBundleWatermarkState SecondState;
+	if (!BuildArcOwnerHandoffRecoveryWatermarkState(
+			*this,
+			JournalFixture.AuthorityDomainId,
+			JournalFixture.LineageId,
+			1,
+			2,
+			SecondBundle.GetBundleId(),
+			SecondStateRequest,
+			SecondStateReceipt,
+			SecondState))
+	{
+		return false;
+	}
+	JournalFixture.Authority.SetState(SecondState);
+	const int32 JournalOldReads = JournalFixture.OldSurface.IdentityQueryCount;
+	FArcOwnerHandoffRecoveryAdmissionSession JournalSession;
+	const auto WrongJournal = JournalSession.ExecuteExplicit(
+		OriginalRequest,
+		JournalFixture.StorageContext,
+		OriginalJournal,
+		JournalFixture.Owner,
+		JournalFixture.OldSurface,
+		JournalFixture.NewSurface,
+		JournalFixture.FileSystem,
+		JournalFixture.Authority);
+
+	TestTrue(TEXT("requested checkpoint must match canonical pending evidence"),
+		WrongCheckpoint.IsValid()
+			&& WrongCheckpoint.GetStatus()
+				== EArcOwnerHandoffRecoveryAdmissionStatus::CheckpointEvidenceRejected
+			&& !WrongCheckpoint.WasCheckpointAdmitted()
+			&& !WrongCheckpoint.DidInvokeRecovery()
+			&& CheckpointFixture.OldSurface.IdentityQueryCount
+				== CheckpointOldReads);
+	TestTrue(TEXT("trusted newer bundle cannot replace caller current journal"),
+		WrongJournal.IsValid()
+			&& WrongJournal.GetStatus()
+				== EArcOwnerHandoffRecoveryAdmissionStatus::BundleJournalMismatch
+			&& WrongJournal.GetLoadedGeneration() == 2
+			&& WrongJournal.GetLoadedBundleId() == SecondBundle.GetBundleId()
+			&& !WrongJournal.WasCheckpointAdmitted()
+			&& !WrongJournal.DidInvokeRecovery()
+			&& JournalFixture.OldSurface.IdentityQueryCount == JournalOldReads);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryAdmissionLiveFenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession.LiveAuthorityAndReentryFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryAdmissionLiveFenceTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryAdmissionFixture DriftFixture;
+	if (!DriftFixture.Build(*this, TEXT("RecoveryAdmissionLiveFence")))
+	{
+		return false;
+	}
+	FFakeArcPreviewHandoffSurface ForeignOldSurface(
+		FGuid(0xF4558501, 0xF4558502, 0xF4558503, 0xF4558504),
+		DriftFixture.Consumer,
+		DriftFixture.Checkpoint.GetRetiredSurfaceCursor());
+	const int32 ForeignMutations = ForeignOldSurface.MutationCallCount;
+	const int32 NewMutations = DriftFixture.NewSurface.MutationCallCount;
+	FArcOwnerHandoffRecoveryAdmissionSession DriftSession;
+	const auto Drifted = DriftSession.ExecuteExplicit(
+		DriftFixture.Request,
+		DriftFixture.StorageContext,
+		DriftFixture.Journal,
+		DriftFixture.Owner,
+		ForeignOldSurface,
+		DriftFixture.NewSurface,
+		DriftFixture.FileSystem,
+		DriftFixture.Authority);
+
+	FArcOwnerHandoffRecoveryAdmissionFixture ReentrantFixture;
+	if (!ReentrantFixture.Build(*this, TEXT("RecoveryAdmissionReentry")))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryAdmissionSession ReentrantSession;
+	FArcOwnerHandoffRecoveryAdmissionResult Nested;
+	ReentrantFixture.Authority.SetReadCallback([&]()
+	{
+		Nested = ReentrantSession.ExecuteExplicit(
+			ReentrantFixture.Request,
+			ReentrantFixture.StorageContext,
+			ReentrantFixture.Journal,
+			ReentrantFixture.Owner,
+			ReentrantFixture.OldSurface,
+			ReentrantFixture.NewSurface,
+			ReentrantFixture.FileSystem,
+			ReentrantFixture.Authority);
+	});
+	const int32 ReentrantOldMutations =
+		ReentrantFixture.OldSurface.MutationCallCount;
+	const int32 ReentrantNewMutations =
+		ReentrantFixture.NewSurface.MutationCallCount;
+	const auto Outer = ReentrantSession.ExecuteExplicit(
+		ReentrantFixture.Request,
+		ReentrantFixture.StorageContext,
+		ReentrantFixture.Journal,
+		ReentrantFixture.Owner,
+		ReentrantFixture.OldSurface,
+		ReentrantFixture.NewSurface,
+		ReentrantFixture.FileSystem,
+		ReentrantFixture.Authority);
+
+	TestTrue(TEXT("fresh P20.48 authority drift rejects after evidence admission"),
+		Drifted.IsValid()
+			&& Drifted.GetStatus()
+				== EArcOwnerHandoffRecoveryAdmissionStatus::RecoveryRejected
+			&& Drifted.WasCheckpointAdmitted()
+			&& Drifted.DidInvokeRecovery()
+			&& Drifted.GetRecoveryResult().GetStatus()
+				== EArcOwnerHandoffRecoveryStatus::OldSurfaceMismatch
+			&& !Drifted.DidMutateSurface()
+			&& ForeignOldSurface.MutationCallCount == ForeignMutations
+			&& DriftFixture.NewSurface.MutationCallCount == NewMutations);
+	TestTrue(TEXT("authority callback cannot re-enter the admission session"),
+		Nested.IsValid()
+			&& Nested.GetStatus()
+				== EArcOwnerHandoffRecoveryAdmissionStatus::OperationInProgress
+			&& !Nested.WasCheckpointAdmitted()
+			&& !Nested.DidInvokeRecovery()
+			&& Outer.IsValid() && Outer.WasRecovered()
+			&& ReentrantFixture.Authority.ReadCount == 1
+			&& ReentrantFixture.Authority.AdvanceCount == 0
+			&& ReentrantFixture.FileSystem.ReadCount == 1
+			&& ReentrantFixture.OldSurface.MutationCallCount
+				== ReentrantOldMutations
+			&& ReentrantFixture.NewSurface.MutationCallCount
+				== ReentrantNewMutations
+			&& !ReentrantSession.IsOperationInProgress());
 	return true;
 }
 
