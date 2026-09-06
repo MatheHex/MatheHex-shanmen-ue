@@ -24,6 +24,7 @@
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHost.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSession.h"
+#include "demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceLifecycleExecutor.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceRecreationPolicy.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewUpdateCoordinator.h"
 #include "demo_mapShanmenThrownWeaponProjectile.h"
@@ -6931,6 +6932,566 @@ bool Fdemo_mapThrownWeaponArcPreviewSurfaceRecreationActionFenceTest::
 	TestTrue(TEXT("decision identity binds the requested action"),
 		AdoptEmpty.GetDecisionId() != Inspect.GetDecisionId()
 			&& InvalidAction.GetDecisionId() != Inspect.GetDecisionId());
+	return true;
+}
+
+namespace
+{
+	using EArcSurfaceLifecycleExecutorStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceLifecycleExecutorStatus;
+	using EArcSurfaceLifecycleReceiptOutcome =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceLifecycleReceiptOutcome;
+	using EArcSurfaceLifecycleResponseOutcome =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceLifecycleResponseOutcome;
+	using FArcSurfaceLifecycleExecutor =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceLifecycleExecutor;
+	using FArcSurfaceLifecycleExecutorResult =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceLifecycleExecutorResult;
+	using FArcSurfaceLifecyclePermit =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceRecreationPermit;
+	using FArcSurfaceLifecycleReceipt =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceLifecycleReceipt;
+	using FArcSurfaceLifecycleResponse =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceLifecycleResponse;
+
+	FArcSurfaceLifecyclePermit MakeArcSurfaceLifecyclePermit(
+		const FThrownLifecycleFixture& Fixture,
+		const FName Consumer,
+		const FArcSurfaceState& AuthoritativeCursor,
+		const FArcSurfaceState& ObservedCursor,
+		const EArcSurfaceRecreationAction Action)
+	{
+		const auto Result = EvaluateArcSurfaceRecreation(
+			Fixture,
+			Consumer,
+			AuthoritativeCursor,
+			Consumer,
+			ObservedCursor,
+			Action);
+		return Result.IsAuthorized()
+			? Result.GetPermit()
+			: FArcSurfaceLifecyclePermit();
+	}
+
+	class FFakeArcPreviewSurfaceLifecycle final
+		: public Idemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceLifecycle
+	{
+	public:
+		enum class EMode : uint8
+		{
+			Applied,
+			Rejected,
+			InvalidResponse,
+			AppliedWithoutMutation,
+			MutatedThenRejected
+		};
+
+		FFakeArcPreviewSurfaceLifecycle(
+			const FName InConsumerDefinitionId,
+			const FArcSurfaceState& InCursor,
+			const EMode InMode = EMode::Applied)
+			: ConsumerDefinitionId(InConsumerDefinitionId)
+			, Cursor(InCursor)
+			, Mode(InMode)
+		{
+		}
+
+		virtual FName GetConsumerDefinitionId() const override
+		{
+			return ConsumerDefinitionId;
+		}
+
+		virtual FArcSurfaceState GetSurfaceCursor() const override
+		{
+			return Cursor;
+		}
+
+		virtual FArcSurfaceLifecycleResponse ClearToEmpty(
+			const FArcSurfaceLifecyclePermit& Permit) override
+		{
+			++ClearCallCount;
+			if (Mode == EMode::InvalidResponse)
+			{
+				return FArcSurfaceLifecycleResponse();
+			}
+			const FArcSurfaceState Previous = Cursor;
+			EArcSurfaceLifecycleResponseOutcome Outcome =
+				EArcSurfaceLifecycleResponseOutcome::Applied;
+			FArcSurfaceState ReportedCursor;
+			if (Mode == EMode::Applied)
+			{
+				Cursor = FArcSurfaceState();
+			}
+			else if (Mode == EMode::Rejected)
+			{
+				Outcome = EArcSurfaceLifecycleResponseOutcome::Rejected;
+				ReportedCursor = Previous;
+			}
+			else if (Mode == EMode::AppliedWithoutMutation)
+			{
+				// Reported empty while the physical cursor stays visible.
+			}
+			else if (Mode == EMode::MutatedThenRejected)
+			{
+				Cursor = FArcSurfaceState();
+				Outcome = EArcSurfaceLifecycleResponseOutcome::Rejected;
+				ReportedCursor = Previous;
+			}
+
+			FArcSurfaceLifecycleResponse Response;
+			FString Diagnostic;
+			check(FArcSurfaceLifecycleResponse::TryCreate(
+				Permit,
+				Outcome,
+				Outcome == EArcSurfaceLifecycleResponseOutcome::Applied
+					? FName(TEXT("Renderer.ArcPreview.FakeLifecycle.Cleared"))
+					: FName(TEXT("Renderer.ArcPreview.FakeLifecycle.Rejected")),
+				Previous,
+				ReportedCursor,
+				Response,
+				Diagnostic));
+			return Response;
+		}
+
+		void SetMode(const EMode Value) { Mode = Value; }
+		void SetConsumerDefinitionId(const FName Value)
+		{
+			ConsumerDefinitionId = Value;
+		}
+		void ForceCursor(const FArcSurfaceState& Value) { Cursor = Value; }
+
+		int32 ClearCallCount = 0;
+
+	private:
+		FName ConsumerDefinitionId = NAME_None;
+		FArcSurfaceState Cursor;
+		EMode Mode = EMode::Applied;
+	};
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewSurfaceLifecycleEvidenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceLifecycleExecutor.EvidenceContract",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewSurfaceLifecycleEvidenceTest::RunTest(
+	const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewSurfaceLifecycleEvidence"),
+			Fixture, Commands))
+	{
+		return false;
+	}
+	const auto CleanupPermit = MakeArcSurfaceLifecyclePermit(
+		Fixture,
+		Consumer,
+		Commands.Hide.GetState(),
+		Commands.Show.GetState(),
+		EArcSurfaceRecreationAction::ClearToEmpty);
+	const auto BindingPermit = MakeArcSurfaceLifecyclePermit(
+		Fixture,
+		Consumer,
+		FArcSurfaceState(),
+		FArcSurfaceState(),
+		EArcSurfaceRecreationAction::BindFresh);
+	FArcSurfaceLifecycleResponse Applied;
+	FArcSurfaceLifecycleResponse AppliedReplay;
+	FArcSurfaceLifecycleResponse Rejected;
+	FArcSurfaceLifecycleResponse Invalid;
+	FString Diagnostic;
+	const FName AppliedCode(TEXT("Renderer.ArcPreview.Lifecycle.Cleared"));
+	TestTrue(TEXT("cleanup response identity is deterministic"),
+		FArcSurfaceLifecycleResponse::TryCreate(
+			CleanupPermit,
+			EArcSurfaceLifecycleResponseOutcome::Applied,
+			AppliedCode,
+			Commands.Show.GetState(),
+			FArcSurfaceState(),
+			Applied,
+			Diagnostic)
+			&& FArcSurfaceLifecycleResponse::TryCreate(
+				CleanupPermit,
+				EArcSurfaceLifecycleResponseOutcome::Applied,
+				AppliedCode,
+				Commands.Show.GetState(),
+				FArcSurfaceState(),
+				AppliedReplay,
+				Diagnostic)
+			&& Applied.IsApplied()
+			&& Applied.GetResponseId() == AppliedReplay.GetResponseId());
+	TestTrue(TEXT("rejected cleanup response preserves exact visible cursor"),
+		FArcSurfaceLifecycleResponse::TryCreate(
+			CleanupPermit,
+			EArcSurfaceLifecycleResponseOutcome::Rejected,
+			FName(TEXT("Renderer.ArcPreview.Lifecycle.Rejected")),
+			Commands.Show.GetState(),
+			Commands.Show.GetState(),
+			Rejected,
+			Diagnostic)
+			&& Rejected.IsRejected());
+	TestFalse(TEXT("binding permit cannot forge a cleanup response"),
+		FArcSurfaceLifecycleResponse::TryCreate(
+			BindingPermit,
+			EArcSurfaceLifecycleResponseOutcome::Applied,
+			AppliedCode,
+			Commands.Show.GetState(),
+			FArcSurfaceState(),
+			Invalid,
+			Diagnostic));
+
+	FArcSurfaceLifecycleReceipt BindingReceipt;
+	FArcSurfaceLifecycleReceipt AppliedReceipt;
+	TestTrue(TEXT("binding readiness receipt has zero surface calls"),
+		FArcSurfaceLifecycleReceipt::TryCreate(
+			BindingPermit,
+			EArcSurfaceLifecycleReceiptOutcome::BindingReady,
+			0,
+			FArcSurfaceLifecycleResponse(),
+			FArcSurfaceState(),
+			FArcSurfaceState(),
+			BindingReceipt,
+			Diagnostic)
+			&& BindingReceipt.IsBindingReady()
+			&& BindingReceipt.MatchesPermit(BindingPermit));
+	TestTrue(TEXT("cleanup receipt binds one exact applied response"),
+		FArcSurfaceLifecycleReceipt::TryCreate(
+			CleanupPermit,
+			EArcSurfaceLifecycleReceiptOutcome::CleanupApplied,
+			1,
+			Applied,
+			Commands.Show.GetState(),
+			FArcSurfaceState(),
+			AppliedReceipt,
+			Diagnostic)
+			&& AppliedReceipt.WasCleanupApplied()
+			&& AppliedReceipt.MatchesPermit(CleanupPermit));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewSurfaceLifecycleBindingTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceLifecycleExecutor.BindingReady",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewSurfaceLifecycleBindingTest::RunTest(
+	const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewSurfaceLifecycleBinding"),
+			Fixture, Commands))
+	{
+		return false;
+	}
+	const auto FreshPermit = MakeArcSurfaceLifecyclePermit(
+		Fixture, Consumer, FArcSurfaceState(), FArcSurfaceState(),
+		EArcSurfaceRecreationAction::BindFresh);
+	const auto AdoptPermit = MakeArcSurfaceLifecyclePermit(
+		Fixture, Consumer, Commands.Show.GetState(),
+		Commands.Show.GetState(), EArcSurfaceRecreationAction::AdoptExact);
+	FFakeArcPreviewSurfaceLifecycle FreshSurface(
+		Consumer, FArcSurfaceState());
+	FFakeArcPreviewSurfaceLifecycle AdoptSurface(
+		Consumer, Commands.Show.GetState());
+	FArcSurfaceLifecycleExecutor Executor;
+
+	const auto Fresh = Executor.Execute(FreshPermit, FreshSurface);
+	const auto Adopt = Executor.Execute(AdoptPermit, AdoptSurface);
+	const auto AdoptReplay = Executor.Execute(AdoptPermit, AdoptSurface);
+	TestTrue(TEXT("fresh and exact permits become zero-call binding receipts"),
+		Fresh.IsValid() && Fresh.IsAccepted() && Fresh.IsBindingReady()
+			&& !Fresh.DidCallSurface() && Fresh.HasReceipt()
+			&& Adopt.IsValid() && Adopt.IsAccepted()
+			&& Adopt.IsBindingReady() && !Adopt.DidCallSurface()
+			&& FreshSurface.ClearCallCount == 0
+			&& AdoptSurface.ClearCallCount == 0);
+	TestTrue(TEXT("binding readiness replay is deterministic and inert"),
+		AdoptReplay.IsBindingReady()
+			&& Adopt.GetReceipt().GetReceiptId()
+				== AdoptReplay.GetReceipt().GetReceiptId()
+			&& AdoptSurface.GetSurfaceCursor().Matches(
+				Commands.Show.GetState()));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewSurfaceLifecycleCleanupTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceLifecycleExecutor.CleanupApplied",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewSurfaceLifecycleCleanupTest::RunTest(
+	const FString&)
+{
+	using EStatus = EArcSurfaceLifecycleExecutorStatus;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewSurfaceLifecycleCleanup"),
+			Fixture, Commands))
+	{
+		return false;
+	}
+	const auto Permit = MakeArcSurfaceLifecyclePermit(
+		Fixture,
+		Consumer,
+		Commands.Hide.GetState(),
+		Commands.Show.GetState(),
+		EArcSurfaceRecreationAction::ClearToEmpty);
+	FFakeArcPreviewSurfaceLifecycle Surface(
+		Consumer, Commands.Show.GetState());
+	FArcSurfaceLifecycleExecutor Executor;
+
+	const auto Cleared = Executor.Execute(Permit, Surface);
+	const auto Replay = Executor.Execute(Permit, Surface);
+	TestTrue(TEXT("cleanup permit calls the lifecycle surface exactly once"),
+		Cleared.IsValid() && Cleared.IsAccepted() && Cleared.DidClear()
+			&& Cleared.DidCallSurface()
+			&& Cleared.GetSurfaceCallCount() == 1
+			&& Surface.ClearCallCount == 1
+			&& Surface.GetSurfaceCursor().IsEmpty());
+	TestTrue(TEXT("applied cleanup returns an exact receipt and requires reevaluation"),
+		Cleared.HasReceipt()
+			&& Cleared.GetReceipt().WasCleanupApplied()
+			&& Cleared.GetReceipt().MatchesPermit(Permit)
+			&& Cleared.NeedsReevaluation());
+	TestTrue(TEXT("old cleanup permit cannot replay after cursor changed"),
+		Replay.IsValid() && !Replay.IsAccepted()
+			&& Replay.GetStatus() == EStatus::SnapshotMismatch
+			&& !Replay.DidCallSurface()
+			&& Surface.ClearCallCount == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewSurfaceLifecycleRejectionTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceLifecycleExecutor.CleanupRejectedRetry",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewSurfaceLifecycleRejectionTest::RunTest(
+	const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewSurfaceLifecycleRejected"),
+			Fixture, Commands))
+	{
+		return false;
+	}
+	const auto Permit = MakeArcSurfaceLifecyclePermit(
+		Fixture,
+		Consumer,
+		Commands.Hide.GetState(),
+		Commands.Show.GetState(),
+		EArcSurfaceRecreationAction::ClearToEmpty);
+	FFakeArcPreviewSurfaceLifecycle Surface(
+		Consumer,
+		Commands.Show.GetState(),
+		FFakeArcPreviewSurfaceLifecycle::EMode::Rejected);
+	FArcSurfaceLifecycleExecutor Executor;
+
+	const auto Rejected = Executor.Execute(Permit, Surface);
+	TestTrue(TEXT("one rejected call preserves cursor and seals rejection"),
+		Rejected.IsValid() && !Rejected.IsAccepted()
+			&& Rejected.WasSurfaceRejected()
+			&& Rejected.DidCallSurface()
+			&& Rejected.HasReceipt()
+			&& Rejected.GetReceipt().WasCleanupRejected()
+			&& Rejected.CanRetryExactPermit()
+			&& Surface.GetSurfaceCursor().Matches(
+				Commands.Show.GetState())
+			&& Surface.ClearCallCount == 1);
+	Surface.SetMode(FFakeArcPreviewSurfaceLifecycle::EMode::Applied);
+	const auto Retried = Executor.Execute(Permit, Surface);
+	TestTrue(TEXT("caller may make one later retry but executor never loops"),
+		Retried.IsValid() && Retried.DidClear()
+			&& Retried.GetSurfaceCallCount() == 1
+			&& Surface.ClearCallCount == 2
+			&& Surface.GetSurfaceCursor().IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewSurfaceLifecycleInvariantTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceLifecycleExecutor.InvariantFailures",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewSurfaceLifecycleInvariantTest::RunTest(
+	const FString&)
+{
+	using EMode = FFakeArcPreviewSurfaceLifecycle::EMode;
+	using EStatus = EArcSurfaceLifecycleExecutorStatus;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewSurfaceLifecycleInvariant"),
+			Fixture, Commands))
+	{
+		return false;
+	}
+	const auto Permit = MakeArcSurfaceLifecyclePermit(
+		Fixture,
+		Consumer,
+		Commands.Hide.GetState(),
+		Commands.Show.GetState(),
+		EArcSurfaceRecreationAction::ClearToEmpty);
+	FArcSurfaceLifecycleExecutor Executor;
+
+	FFakeArcPreviewSurfaceLifecycle InvalidSurface(
+		Consumer, Commands.Show.GetState(), EMode::InvalidResponse);
+	const auto Invalid = Executor.Execute(Permit, InvalidSurface);
+	TestTrue(TEXT("invalid response fails closed after one surface call"),
+		Invalid.IsValid() && !Invalid.IsAccepted()
+			&& Invalid.GetStatus() == EStatus::SurfaceResponseInvalid
+			&& Invalid.DidCallSurface() && !Invalid.HasReceipt()
+			&& InvalidSurface.ClearCallCount == 1);
+
+	FFakeArcPreviewSurfaceLifecycle NoMutationSurface(
+		Consumer, Commands.Show.GetState(), EMode::AppliedWithoutMutation);
+	const auto NoMutation = Executor.Execute(Permit, NoMutationSurface);
+	TestTrue(TEXT("Applied response without physical clear is detected"),
+		NoMutation.IsValid() && !NoMutation.IsAccepted()
+			&& NoMutation.GetStatus()
+				== EStatus::SurfaceInvariantViolation
+			&& NoMutation.DidCallSurface() && !NoMutation.HasReceipt()
+			&& NoMutationSurface.GetSurfaceCursor().IsVisible());
+
+	FFakeArcPreviewSurfaceLifecycle RejectedMutationSurface(
+		Consumer, Commands.Show.GetState(), EMode::MutatedThenRejected);
+	const auto RejectedMutation =
+		Executor.Execute(Permit, RejectedMutationSurface);
+	TestTrue(TEXT("Rejected response with physical clear is detected"),
+		RejectedMutation.IsValid() && !RejectedMutation.IsAccepted()
+			&& RejectedMutation.GetStatus()
+				== EStatus::SurfaceInvariantViolation
+			&& RejectedMutation.DidCallSurface()
+			&& !RejectedMutation.HasReceipt()
+			&& RejectedMutationSurface.GetSurfaceCursor().IsEmpty());
+	return true;
+}
+
+namespace
+{
+	class FReentrantArcPreviewSurfaceLifecycle final
+		: public Idemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceLifecycle
+	{
+	public:
+		FReentrantArcPreviewSurfaceLifecycle(
+			const FName InConsumerDefinitionId,
+			const FArcSurfaceState& InCursor,
+			FArcSurfaceLifecycleExecutor& InExecutor)
+			: ConsumerDefinitionId(InConsumerDefinitionId)
+			, Cursor(InCursor)
+			, Executor(InExecutor)
+		{
+		}
+
+		virtual FName GetConsumerDefinitionId() const override
+		{
+			return ConsumerDefinitionId;
+		}
+		virtual FArcSurfaceState GetSurfaceCursor() const override
+		{
+			return Cursor;
+		}
+		virtual FArcSurfaceLifecycleResponse ClearToEmpty(
+			const FArcSurfaceLifecyclePermit& Permit) override
+		{
+			++ClearCallCount;
+			InnerResult = Executor.Execute(Permit, *this);
+			const FArcSurfaceState Previous = Cursor;
+			Cursor = FArcSurfaceState();
+			FArcSurfaceLifecycleResponse Response;
+			FString Diagnostic;
+			check(FArcSurfaceLifecycleResponse::TryCreate(
+				Permit,
+				EArcSurfaceLifecycleResponseOutcome::Applied,
+				FName(TEXT("Renderer.ArcPreview.ReentrantLifecycle.Cleared")),
+				Previous,
+				Cursor,
+				Response,
+				Diagnostic));
+			return Response;
+		}
+
+		int32 ClearCallCount = 0;
+		FArcSurfaceLifecycleExecutorResult InnerResult;
+
+	private:
+		FName ConsumerDefinitionId = NAME_None;
+		FArcSurfaceState Cursor;
+		FArcSurfaceLifecycleExecutor& Executor;
+	};
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewSurfaceLifecyclePreflightTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceLifecycleExecutor.PreflightAndReentrant",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewSurfaceLifecyclePreflightTest::RunTest(
+	const FString&)
+{
+	using EStatus = EArcSurfaceLifecycleExecutorStatus;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewSurfaceLifecyclePreflight"),
+			Fixture, Commands))
+	{
+		return false;
+	}
+	const auto Permit = MakeArcSurfaceLifecyclePermit(
+		Fixture,
+		Consumer,
+		Commands.Hide.GetState(),
+		Commands.Show.GetState(),
+		EArcSurfaceRecreationAction::ClearToEmpty);
+	FArcSurfaceLifecycleExecutor Executor;
+	FFakeArcPreviewSurfaceLifecycle Surface(
+		Consumer, Commands.Show.GetState());
+
+	const auto Invalid = Executor.Execute(
+		FArcSurfaceLifecyclePermit(), Surface);
+	Surface.SetConsumerDefinitionId(
+		FName(TEXT("Renderer.ArcPreview.Other.r1")));
+	const auto ConsumerMismatch = Executor.Execute(Permit, Surface);
+	Surface.SetConsumerDefinitionId(Consumer);
+	Surface.ForceCursor(Commands.Replace.GetState());
+	const auto SnapshotMismatch = Executor.Execute(Permit, Surface);
+	TestTrue(TEXT("invalid permit consumer and snapshot reject before clear"),
+		Invalid.IsValid() && Invalid.GetStatus() == EStatus::PermitInvalid
+			&& ConsumerMismatch.IsValid()
+			&& ConsumerMismatch.GetStatus() == EStatus::ConsumerMismatch
+			&& SnapshotMismatch.IsValid()
+			&& SnapshotMismatch.GetStatus() == EStatus::SnapshotMismatch
+			&& Surface.ClearCallCount == 0);
+
+	FReentrantArcPreviewSurfaceLifecycle ReentrantSurface(
+		Consumer, Commands.Show.GetState(), Executor);
+	const auto Outer = Executor.Execute(Permit, ReentrantSurface);
+	TestTrue(TEXT("outer cleanup remains one exact applied call"),
+		Outer.IsValid() && Outer.DidClear()
+			&& ReentrantSurface.ClearCallCount == 1
+			&& !Executor.IsOperationInProgress());
+	TestTrue(TEXT("surface callback cannot re-enter lifecycle executor"),
+		ReentrantSurface.InnerResult.IsValid()
+			&& ReentrantSurface.InnerResult.GetStatus()
+				== EStatus::OperationInProgress
+			&& !ReentrantSurface.InnerResult.DidCallSurface()
+			&& !ReentrantSurface.InnerResult.HasReceipt()
+			&& ReentrantSurface.InnerResult.GetPreviousSurfaceCursor().IsEmpty()
+			&& ReentrantSurface.InnerResult.GetSurfaceCursor().IsEmpty());
 	return true;
 }
 
