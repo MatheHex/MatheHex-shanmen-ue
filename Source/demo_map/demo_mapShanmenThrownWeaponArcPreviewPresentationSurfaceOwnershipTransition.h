@@ -75,6 +75,24 @@ private:
 class Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceOwnershipTransitionTicket
 {
 public:
+	static bool TryRehydrate(
+		const FGuid& ExpectedTicketId,
+		const FGuid& RequestId,
+		const FGuid& PolicyDecisionId,
+		const FGuid& PermitId,
+		const FGuid& LifecycleReceiptId,
+		const FGuid& RunId,
+		FName ConsumerDefinitionId,
+		const FGuid& SurfaceInstanceId,
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceRecreationAction
+			Action,
+		const Fdemo_mapShanmenThrownWeaponArcPreviewPresentationState&
+			ExpectedSurfaceCursor,
+		const Fdemo_mapShanmenThrownWeaponArcPreviewPresentationState&
+			ObservedSurfaceCursor,
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceOwnershipTransitionTicket&
+			OutTicket);
+
 	bool IsValid() const;
 	bool MatchesCandidateSnapshot(
 		const FGuid& SurfaceInstanceId,

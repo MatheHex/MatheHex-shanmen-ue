@@ -70,6 +70,15 @@ class Fdemo_mapShanmenThrownWeaponInputChoiceState
 {
 public:
 	static Fdemo_mapShanmenThrownWeaponInputChoiceState CreateInitial();
+	static bool TryRehydrate(
+		const FGuid& ExpectedStateId,
+		const FGuid& LastCommandId,
+		uint64 Revision,
+		Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind TrajectoryKind,
+		bool bHasArcTargetIntent,
+		const FVector2D& ArcTargetIntent,
+		double ArcApexAdjustment,
+		Fdemo_mapShanmenThrownWeaponInputChoiceState& OutState);
 
 	bool IsValid() const;
 	bool Matches(

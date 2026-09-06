@@ -355,6 +355,36 @@ Fdemo_mapShanmenThrownWeaponInputChoiceState::CreateInitial()
 	return State;
 }
 
+bool Fdemo_mapShanmenThrownWeaponInputChoiceState::TryRehydrate(
+	const FGuid& ExpectedStateId,
+	const FGuid& InLastCommandId,
+	const uint64 InRevision,
+	const Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind
+		InTrajectoryKind,
+	const bool bInHasArcTargetIntent,
+	const FVector2D& InArcTargetIntent,
+	const double InArcApexAdjustment,
+	Fdemo_mapShanmenThrownWeaponInputChoiceState& OutState)
+{
+	OutState = Fdemo_mapShanmenThrownWeaponInputChoiceState();
+	Fdemo_mapShanmenThrownWeaponInputChoiceState Candidate;
+	Candidate.LastCommandId = InLastCommandId;
+	Candidate.Revision = InRevision;
+	Candidate.TrajectoryKind = InTrajectoryKind;
+	Candidate.bHasArcTargetIntent = bInHasArcTargetIntent;
+	Candidate.ArcTargetIntent = InArcTargetIntent;
+	Candidate.ArcApexAdjustment = InArcApexAdjustment;
+	Candidate.StateId = MakeStateId(Candidate);
+	if (!ExpectedStateId.IsValid()
+		|| Candidate.StateId != ExpectedStateId
+		|| !Candidate.IsValid())
+	{
+		return false;
+	}
+	OutState = MoveTemp(Candidate);
+	return true;
+}
+
 bool Fdemo_mapShanmenThrownWeaponInputChoiceState::IsValid() const
 {
 	return StateId.IsValid()

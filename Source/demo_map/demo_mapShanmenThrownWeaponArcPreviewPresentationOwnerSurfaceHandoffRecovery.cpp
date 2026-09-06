@@ -227,6 +227,47 @@ bool FCheckpoint::IsValid() const
 			SurfaceCursor);
 }
 
+bool FCheckpoint::TryRehydrate(
+	const FGuid& ExpectedCheckpointId,
+	const FTicket& InTransitionTicket,
+	const EFailure InSourceFailureStatus,
+	const FGuid& InSourceRetirementResponseId,
+	const FGuid& InPreviousSurfaceInstanceId,
+	const FGuid& InSurfaceInstanceId,
+	const FState& InPreviousSurfaceCursor,
+	const FState& InRetiredSurfaceCursor,
+	const FState& InSurfaceCursor,
+	FCheckpoint& OutCheckpoint)
+{
+	OutCheckpoint = FCheckpoint();
+	FCheckpoint Candidate;
+	Candidate.TransitionTicket = InTransitionTicket;
+	Candidate.SourceFailureStatus = InSourceFailureStatus;
+	Candidate.SourceRetirementResponseId = InSourceRetirementResponseId;
+	Candidate.PreviousSurfaceInstanceId = InPreviousSurfaceInstanceId;
+	Candidate.SurfaceInstanceId = InSurfaceInstanceId;
+	Candidate.PreviousSurfaceCursor = InPreviousSurfaceCursor;
+	Candidate.RetiredSurfaceCursor = InRetiredSurfaceCursor;
+	Candidate.SurfaceCursor = InSurfaceCursor;
+	Candidate.CheckpointId = MakeCheckpointId(
+		Candidate.TransitionTicket.GetTicketId(),
+		Candidate.SourceFailureStatus,
+		Candidate.SourceRetirementResponseId,
+		Candidate.PreviousSurfaceInstanceId,
+		Candidate.SurfaceInstanceId,
+		Candidate.PreviousSurfaceCursor,
+		Candidate.RetiredSurfaceCursor,
+		Candidate.SurfaceCursor);
+	if (!ExpectedCheckpointId.IsValid()
+		|| Candidate.CheckpointId != ExpectedCheckpointId
+		|| !Candidate.IsValid())
+	{
+		return false;
+	}
+	OutCheckpoint = MoveTemp(Candidate);
+	return true;
+}
+
 bool FCheckpoint::MatchesFailedHandoff(
 	const FFailedHandoff& FailedHandoff) const
 {

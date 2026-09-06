@@ -196,6 +196,53 @@ bool FRequest::IsValid() const
 			Action);
 }
 
+bool FTicket::TryRehydrate(
+	const FGuid& ExpectedTicketId,
+	const FGuid& InRequestId,
+	const FGuid& InPolicyDecisionId,
+	const FGuid& InPermitId,
+	const FGuid& InLifecycleReceiptId,
+	const FGuid& InRunId,
+	const FName InConsumerDefinitionId,
+	const FGuid& InSurfaceInstanceId,
+	const EAction InAction,
+	const FState& InExpectedSurfaceCursor,
+	const FState& InObservedSurfaceCursor,
+	FTicket& OutTicket)
+{
+	OutTicket = FTicket();
+	FTicket Candidate;
+	Candidate.RequestId = InRequestId;
+	Candidate.PolicyDecisionId = InPolicyDecisionId;
+	Candidate.PermitId = InPermitId;
+	Candidate.LifecycleReceiptId = InLifecycleReceiptId;
+	Candidate.RunId = InRunId;
+	Candidate.ConsumerDefinitionId = InConsumerDefinitionId;
+	Candidate.SurfaceInstanceId = InSurfaceInstanceId;
+	Candidate.Action = InAction;
+	Candidate.ExpectedSurfaceCursor = InExpectedSurfaceCursor;
+	Candidate.ObservedSurfaceCursor = InObservedSurfaceCursor;
+	Candidate.TicketId = MakeTicketId(
+		Candidate.RequestId,
+		Candidate.PolicyDecisionId,
+		Candidate.PermitId,
+		Candidate.LifecycleReceiptId,
+		Candidate.RunId,
+		Candidate.ConsumerDefinitionId,
+		Candidate.SurfaceInstanceId,
+		Candidate.Action,
+		Candidate.ExpectedSurfaceCursor,
+		Candidate.ObservedSurfaceCursor);
+	if (!ExpectedTicketId.IsValid()
+		|| Candidate.TicketId != ExpectedTicketId
+		|| !Candidate.IsValid())
+	{
+		return false;
+	}
+	OutTicket = MoveTemp(Candidate);
+	return true;
+}
+
 bool FTicket::IsValid() const
 {
 	if (!TicketId.IsValid() || !RequestId.IsValid()

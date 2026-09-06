@@ -25,6 +25,7 @@
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecovery.h"
+#include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelope.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceLifecycleExecutor.h"
@@ -8063,6 +8064,12 @@ namespace
 		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal;
 	using FArcOwnerHandoffRecoveryJournalCodec =
 		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournalCodec;
+	using FArcOwnerHandoffRecoveryPayloadEnvelope =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelope;
+	using FArcOwnerHandoffRecoveryPayloadCodec =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelopeCodec;
+	using EArcOwnerHandoffRecoveryPayloadDecodeStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelopeDecodeStatus;
 	using FArcRetirementResponse =
 		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceRetirementResponse;
 
@@ -8406,6 +8413,45 @@ namespace
 		OutReceipt = Recovered.GetReceipt();
 		return OutReceipt.IsValid()
 			&& OutReceipt.MatchesCheckpoint(OutCheckpoint);
+	}
+
+	bool BuildArcOwnerHandoffRecoveryPayloadEvidence(
+		FAutomationTestBase& Test,
+		const TCHAR* Label,
+		FThrownLifecycleFixture& Fixture,
+		FArcCompositionOwner& Owner,
+		FFakeArcPreviewHandoffSurface& OldSurface,
+		FFakeArcPreviewHandoffSurface& NewSurface,
+		FArcOwnerHandoffRecoveryCheckpoint& OutCheckpoint,
+		FArcOwnerHandoffRecoveryJournal& OutJournal,
+		FArcOwnerHandoffRecoveryPayloadEnvelope& OutEnvelope,
+		TArray<uint8>& OutBytes)
+	{
+		FArcOwnerHandoffResult Failed;
+		if (!BuildArcOwnerHandoffRecoveryCheckpoint(
+				Test,
+				Label,
+				Fixture,
+				Owner,
+				OldSurface,
+				NewSurface,
+				Failed,
+				OutCheckpoint))
+		{
+			return false;
+		}
+		const auto Appended = OutJournal.AppendCheckpoint(OutCheckpoint);
+		if (!Appended.DidAppend()
+			|| !FArcOwnerHandoffRecoveryPayloadEnvelope::TryWrap(
+				OutCheckpoint, OutJournal, OutEnvelope)
+			|| !FArcOwnerHandoffRecoveryPayloadCodec::TryEncode(
+				OutEnvelope, OutBytes))
+		{
+			Test.AddError(TEXT(
+				"Could not build canonical Arc preview recovery checkpoint payload evidence."));
+			return false;
+		}
+		return true;
 	}
 }
 
@@ -9746,6 +9792,502 @@ RunTest(const FString&)
 			&& FullDecoded.GetJournal().GetJournalId() == FullJournalId
 			&& FullDecoded.GetJournal().GetRecordCount()
 				== FArcOwnerHandoffRecoveryJournal::MaxRecordCount());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryPayloadEvidenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelope.EvidenceAndJournalBinding",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryPayloadEvidenceTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4A00001, 0xF4A00002, 0xF4A00003, 0xF4A00004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4A01001, 0xF4A01002, 0xF4A01003, 0xF4A01004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	FArcOwnerHandoffRecoveryJournal Journal;
+	FArcOwnerHandoffRecoveryPayloadEnvelope Envelope;
+	TArray<uint8> FirstBytes;
+	if (!BuildArcOwnerHandoffRecoveryPayloadEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryPayloadEvidence"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Checkpoint,
+			Journal,
+			Envelope,
+			FirstBytes))
+	{
+		return false;
+	}
+	const int32 OldRetirementsBefore = OldSurface.RetirementCallCount;
+	const int32 OldMutationsBefore = OldSurface.MutationCallCount;
+	const int32 NewMutationsBefore = NewSurface.MutationCallCount;
+
+	FArcOwnerHandoffRecoveryPayloadEnvelope ReplayEnvelope;
+	TArray<uint8> ReplayBytes;
+	const bool bReplayWrapped =
+		FArcOwnerHandoffRecoveryPayloadEnvelope::TryWrap(
+			Checkpoint, Journal, ReplayEnvelope);
+	const bool bReplayEncoded = bReplayWrapped
+		&& FArcOwnerHandoffRecoveryPayloadCodec::TryEncode(
+			ReplayEnvelope, ReplayBytes);
+	FArcOwnerHandoffRecoveryPayloadEnvelope InvalidEnvelope;
+	FArcOwnerHandoffRecoveryJournal EmptyJournal;
+	const bool bWrappedAgainstEmpty =
+		FArcOwnerHandoffRecoveryPayloadEnvelope::TryWrap(
+			Checkpoint, EmptyJournal, InvalidEnvelope);
+
+	TestTrue(TEXT("pending journal seals one deterministic payload envelope"),
+		Envelope.IsValid() && Envelope.MatchesJournal(Journal)
+			&& Envelope.GetSchemaVersion()
+				== FArcOwnerHandoffRecoveryPayloadCodec::
+					CurrentSchemaVersion()
+			&& Envelope.GetJournalId() == Journal.GetJournalId()
+			&& Envelope.GetCheckpoint().GetCheckpointId()
+				== Checkpoint.GetCheckpointId()
+			&& Envelope.GetPayloadDigest().IsValid()
+			&& Envelope.GetEnvelopeId().IsValid());
+	TestTrue(TEXT("same evidence emits byte-identical canonical payload"),
+		bReplayWrapped && bReplayEncoded
+			&& ReplayEnvelope.Matches(Envelope)
+			&& ReplayBytes == FirstBytes
+			&& FirstBytes.Num()
+				> FArcOwnerHandoffRecoveryPayloadCodec::HeaderSize());
+	TestTrue(TEXT("payload creation neither broadens scope nor touches surfaces"),
+		!bWrappedAgainstEmpty && !InvalidEnvelope.IsValid()
+			&& OldSurface.RetirementCallCount == OldRetirementsBefore
+			&& OldSurface.MutationCallCount == OldMutationsBefore
+			&& NewSurface.MutationCallCount == NewMutationsBefore);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryPayloadRoundTripTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelope.CanonicalRoundTripAndRecovery",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryPayloadRoundTripTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4A10001, 0xF4A10002, 0xF4A10003, 0xF4A10004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4A11001, 0xF4A11002, 0xF4A11003, 0xF4A11004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	FArcOwnerHandoffRecoveryJournal Journal;
+	FArcOwnerHandoffRecoveryPayloadEnvelope Envelope;
+	TArray<uint8> Bytes;
+	if (!BuildArcOwnerHandoffRecoveryPayloadEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryPayloadRoundTrip"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Checkpoint,
+			Journal,
+			Envelope,
+			Bytes))
+	{
+		return false;
+	}
+	const int32 OldRetirementsBefore = OldSurface.RetirementCallCount;
+	const int32 OldMutationsBefore = OldSurface.MutationCallCount;
+	const int32 NewMutationsBefore = NewSurface.MutationCallCount;
+
+	const auto Decoded = FArcOwnerHandoffRecoveryPayloadCodec::Decode(Bytes);
+	TArray<uint8> Reencoded;
+	const bool bReencoded = Decoded.IsSuccess()
+		&& FArcOwnerHandoffRecoveryPayloadCodec::TryEncode(
+			Decoded.GetEnvelope(), Reencoded);
+	FArcOwnerHandoffRecoveryCheckpoint Restored;
+	const bool bUnwrapped = Decoded.IsSuccess()
+		&& Decoded.GetEnvelope().TryUnwrapForJournal(Journal, Restored);
+	FArcOwnerHandoffRecovery Recovery;
+	const auto Recovered = bUnwrapped
+		? Recovery.Execute(Owner, Restored, OldSurface, NewSurface)
+		: FArcOwnerHandoffRecoveryResult();
+	const auto Committed =
+		Journal.AppendRecoveryReceipt(Restored, Recovered.GetReceipt());
+	FArcOwnerHandoffRecoveryCheckpoint Stale;
+	const bool bStaleUnwrapped =
+		Decoded.GetEnvelope().TryUnwrapForJournal(Journal, Stale);
+
+	TestTrue(TEXT("payload round-trip restores the exact semantic checkpoint"),
+		Decoded.IsSuccess()
+			&& Decoded.GetStatus()
+				== EArcOwnerHandoffRecoveryPayloadDecodeStatus::Decoded
+			&& Decoded.GetEnvelope().Matches(Envelope)
+			&& bReencoded && Reencoded == Bytes
+			&& bUnwrapped && Restored.IsValid()
+			&& Restored.GetCheckpointId() == Checkpoint.GetCheckpointId());
+	TestTrue(TEXT("restored evidence still passes the live P20.48 authority gate"),
+		Recovered.IsValid() && Recovered.WasRecovered()
+			&& Recovered.HasReceipt() && !Recovered.DidMutateSurface()
+			&& Recovered.GetReceipt().MatchesCheckpoint(Restored)
+			&& Owner.IsValid() && Owner.IsSynchronized()
+			&& OldSurface.RetirementCallCount == OldRetirementsBefore
+			&& OldSurface.MutationCallCount == OldMutationsBefore
+			&& NewSurface.MutationCallCount == NewMutationsBefore);
+	TestTrue(TEXT("committed journal fences the previously valid payload"),
+		Committed.DidAppend()
+			&& Journal.GetLatestDisposition()
+				== EArcOwnerHandoffRecoveryJournalDisposition::
+					RecoveryCommitted
+			&& !Decoded.GetEnvelope().MatchesJournal(Journal)
+			&& !bStaleUnwrapped && !Stale.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryPayloadCorruptionTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelope.CorruptionTruncationAndTrailing",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryPayloadCorruptionTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4A20001, 0xF4A20002, 0xF4A20003, 0xF4A20004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4A21001, 0xF4A21002, 0xF4A21003, 0xF4A21004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	FArcOwnerHandoffRecoveryJournal Journal;
+	FArcOwnerHandoffRecoveryPayloadEnvelope Envelope;
+	TArray<uint8> Canonical;
+	if (!BuildArcOwnerHandoffRecoveryPayloadEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryPayloadCorruption"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Checkpoint,
+			Journal,
+			Envelope,
+			Canonical))
+	{
+		return false;
+	}
+
+	int32 AcceptedCorruptions = 0;
+	for (int32 Index = 0; Index < Canonical.Num(); ++Index)
+	{
+		TArray<uint8> Corrupted = Canonical;
+		Corrupted[Index] ^= 0x01;
+		if (FArcOwnerHandoffRecoveryPayloadCodec::Decode(Corrupted)
+			.IsSuccess())
+		{
+			++AcceptedCorruptions;
+		}
+	}
+	int32 AcceptedTruncations = 0;
+	for (int32 Length = 0; Length < Canonical.Num(); ++Length)
+	{
+		TArray<uint8> Truncated;
+		Truncated.Append(Canonical.GetData(), Length);
+		if (FArcOwnerHandoffRecoveryPayloadCodec::Decode(Truncated)
+			.IsSuccess())
+		{
+			++AcceptedTruncations;
+		}
+	}
+	TArray<uint8> Trailing = Canonical;
+	Trailing.Add(0x00);
+	const auto TrailingResult =
+		FArcOwnerHandoffRecoveryPayloadCodec::Decode(Trailing);
+
+	TestEqual(TEXT("every one-bit payload-envelope corruption is rejected"),
+		AcceptedCorruptions, 0);
+	TestEqual(TEXT("every strict payload-envelope prefix is rejected"),
+		AcceptedTruncations, 0);
+	TestTrue(TEXT("payload-envelope trailing bytes are rejected"),
+		!TrailingResult.IsSuccess()
+			&& TrailingResult.GetStatus()
+				== EArcOwnerHandoffRecoveryPayloadDecodeStatus::SizeMismatch);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryPayloadSemanticTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelope.SemanticIdentityAndTags",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryPayloadSemanticTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4A30001, 0xF4A30002, 0xF4A30003, 0xF4A30004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4A31001, 0xF4A31002, 0xF4A31003, 0xF4A31004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	FArcOwnerHandoffRecoveryJournal Journal;
+	FArcOwnerHandoffRecoveryPayloadEnvelope Envelope;
+	TArray<uint8> Bytes;
+	if (!BuildArcOwnerHandoffRecoveryPayloadEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryPayloadSemantic"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Checkpoint,
+			Journal,
+			Envelope,
+			Bytes))
+	{
+		return false;
+	}
+	const auto Decoded = FArcOwnerHandoffRecoveryPayloadCodec::Decode(Bytes);
+	if (!Decoded.IsSuccess())
+	{
+		AddError(Decoded.GetDiagnostic());
+		return false;
+	}
+	const auto& OriginalState = Checkpoint.GetSurfaceCursor();
+	const auto& RestoredState =
+		Decoded.GetEnvelope().GetCheckpoint().GetSurfaceCursor();
+	const auto& OriginalRequest =
+		OriginalState.GetSourcePreview().GetPlan().GetRequest();
+	const auto& RestoredRequest =
+		RestoredState.GetSourcePreview().GetPlan().GetRequest();
+	const auto& RestoredAction = RestoredRequest.GetAction();
+
+	TestTrue(TEXT("all derived presentation roots are deterministically rebuilt"),
+		RestoredState.Matches(OriginalState)
+			&& RestoredState.GetChoiceState().Matches(
+				OriginalState.GetChoiceState())
+			&& RestoredState.GetSourcePreview().Matches(
+				OriginalState.GetSourcePreview())
+			&& RestoredState.GetSourcePreview().GetPlan().Matches(
+				OriginalState.GetSourcePreview().GetPlan())
+			&& RestoredRequest.Matches(OriginalRequest));
+	TestTrue(TEXT("action metadata and explicit GameplayTags survive the envelope"),
+		RestoredAction.GetRunId() == OriginalRequest.GetAction().GetRunId()
+			&& RestoredAction.GetOwnerId()
+				== OriginalRequest.GetAction().GetOwnerId()
+			&& RestoredAction.GetActivationId()
+				== OriginalRequest.GetAction().GetActivationId()
+			&& RestoredAction.GetActionDefinitionId()
+				== OriginalRequest.GetAction().GetActionDefinitionId()
+			&& RestoredAction.GetContent().Version
+				== OriginalRequest.GetAction().GetContent().Version
+			&& RestoredAction.GetContent().Digest
+				== OriginalRequest.GetAction().GetContent().Digest
+			&& RestoredAction.GetSourceTags()
+				== OriginalRequest.GetAction().GetSourceTags()
+			&& RestoredAction.GetSourceTags().HasTagExact(
+				FShanmenCombatNativeTags::SourcePlayer()));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryPayloadBoundsTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelope.BoundsAndUnknownSchema",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryPayloadBoundsTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4A40001, 0xF4A40002, 0xF4A40003, 0xF4A40004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4A41001, 0xF4A41002, 0xF4A41003, 0xF4A41004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	FArcOwnerHandoffRecoveryJournal Journal;
+	FArcOwnerHandoffRecoveryPayloadEnvelope Envelope;
+	TArray<uint8> Canonical;
+	if (!BuildArcOwnerHandoffRecoveryPayloadEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryPayloadBounds"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Checkpoint,
+			Journal,
+			Envelope,
+			Canonical))
+	{
+		return false;
+	}
+
+	TArray<uint8> WrongMagic = Canonical;
+	WrongMagic[0] ^= 0x01;
+	TArray<uint8> UnknownSchema = Canonical;
+	UnknownSchema[11] = 0x02;
+	TArray<uint8> WrongSize = Canonical;
+	WrongSize[12] = WrongSize[13] = WrongSize[14] = WrongSize[15] = 0;
+	TArray<uint8> Oversized;
+	Oversized.SetNumZeroed(
+		FArcOwnerHandoffRecoveryPayloadCodec::MaximumEncodedBytes() + 1);
+	TArray<uint8> ShortHeader;
+	ShortHeader.Append(
+		Canonical.GetData(),
+		FArcOwnerHandoffRecoveryPayloadCodec::HeaderSize() - 1);
+
+	const TArray<uint8> EmptyBytes;
+	const auto Empty =
+		FArcOwnerHandoffRecoveryPayloadCodec::Decode(EmptyBytes);
+	const auto Magic =
+		FArcOwnerHandoffRecoveryPayloadCodec::Decode(WrongMagic);
+	const auto Schema =
+		FArcOwnerHandoffRecoveryPayloadCodec::Decode(UnknownSchema);
+	const auto Size =
+		FArcOwnerHandoffRecoveryPayloadCodec::Decode(WrongSize);
+	const auto Over =
+		FArcOwnerHandoffRecoveryPayloadCodec::Decode(Oversized);
+	const auto Short =
+		FArcOwnerHandoffRecoveryPayloadCodec::Decode(ShortHeader);
+
+	TestTrue(TEXT("empty, wrong-magic and unknown-schema inputs fail closed"),
+		!Empty.IsSuccess()
+			&& Empty.GetStatus()
+				== EArcOwnerHandoffRecoveryPayloadDecodeStatus::InputEmpty
+			&& !Magic.IsSuccess()
+			&& Magic.GetStatus()
+				== EArcOwnerHandoffRecoveryPayloadDecodeStatus::MagicMismatch
+			&& !Schema.IsSuccess()
+			&& Schema.GetStatus()
+				== EArcOwnerHandoffRecoveryPayloadDecodeStatus::
+					UnsupportedSchema);
+	TestTrue(TEXT("declared, minimum and maximum sizes are enforced before allocation"),
+		!Size.IsSuccess()
+			&& Size.GetStatus()
+				== EArcOwnerHandoffRecoveryPayloadDecodeStatus::SizeMismatch
+			&& !Over.IsSuccess()
+			&& Over.GetStatus()
+				== EArcOwnerHandoffRecoveryPayloadDecodeStatus::SizeMismatch
+			&& !Short.IsSuccess()
+			&& Short.GetStatus()
+				== EArcOwnerHandoffRecoveryPayloadDecodeStatus::SizeMismatch);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryPayloadFenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelope.ForeignJournalAndCommittedFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryPayloadFenceTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture FixtureA;
+	FFakeArcPreviewHandoffSurface OldA(
+		FGuid(0xF4A50001, 0xF4A50002, 0xF4A50003, 0xF4A50004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewA(
+		FGuid(0xF4A51001, 0xF4A51002, 0xF4A51003, 0xF4A51004),
+		Consumer);
+	FArcCompositionOwner OwnerA;
+	FArcOwnerHandoffRecoveryCheckpoint CheckpointA;
+	FArcOwnerHandoffRecoveryJournal JournalA;
+	FArcOwnerHandoffRecoveryPayloadEnvelope EnvelopeA;
+	TArray<uint8> BytesA;
+	if (!BuildArcOwnerHandoffRecoveryPayloadEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryPayloadFenceA"),
+			FixtureA,
+			OwnerA,
+			OldA,
+			NewA,
+			CheckpointA,
+			JournalA,
+			EnvelopeA,
+			BytesA))
+	{
+		return false;
+	}
+
+	FThrownLifecycleFixture FixtureB;
+	FFakeArcPreviewHandoffSurface OldB(
+		FGuid(0xF4A52001, 0xF4A52002, 0xF4A52003, 0xF4A52004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewB(
+		FGuid(0xF4A53001, 0xF4A53002, 0xF4A53003, 0xF4A53004),
+		Consumer);
+	FArcCompositionOwner OwnerB;
+	FArcOwnerHandoffRecoveryCheckpoint CheckpointB;
+	FArcOwnerHandoffRecoveryJournal JournalB;
+	FArcOwnerHandoffRecoveryPayloadEnvelope EnvelopeB;
+	TArray<uint8> BytesB;
+	if (!BuildArcOwnerHandoffRecoveryPayloadEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryPayloadFenceB"),
+			FixtureB,
+			OwnerB,
+			OldB,
+			NewB,
+			CheckpointB,
+			JournalB,
+			EnvelopeB,
+			BytesB))
+	{
+		return false;
+	}
+
+	FArcOwnerHandoffRecoveryCheckpoint Foreign;
+	const bool bForeignUnwrapped =
+		EnvelopeA.TryUnwrapForJournal(JournalB, Foreign);
+	FArcOwnerHandoffRecoveryCheckpoint Exact;
+	const bool bExactUnwrapped =
+		EnvelopeA.TryUnwrapForJournal(JournalA, Exact);
+	FArcOwnerHandoffRecovery Recovery;
+	const auto Recovered = bExactUnwrapped
+		? Recovery.Execute(OwnerA, Exact, OldA, NewA)
+		: FArcOwnerHandoffRecoveryResult();
+	const auto Committed =
+		JournalA.AppendRecoveryReceipt(Exact, Recovered.GetReceipt());
+	FArcOwnerHandoffRecoveryCheckpoint Completed;
+	const bool bCompletedUnwrapped =
+		EnvelopeA.TryUnwrapForJournal(JournalA, Completed);
+	const auto StaleDecoded =
+		FArcOwnerHandoffRecoveryPayloadCodec::Decode(BytesA);
+
+	TestTrue(TEXT("foreign pending journal cannot authorize another envelope"),
+		EnvelopeA.IsValid() && EnvelopeB.IsValid()
+			&& EnvelopeA.GetJournalId() != EnvelopeB.GetJournalId()
+			&& !bForeignUnwrapped && !Foreign.IsValid());
+	TestTrue(TEXT("exact pending journal permits evidence extraction only"),
+		bExactUnwrapped && Exact.IsValid()
+			&& Exact.GetCheckpointId() == CheckpointA.GetCheckpointId()
+			&& Recovered.IsValid() && Recovered.WasRecovered());
+	TestTrue(TEXT("valid stale bytes remain evidence but fail the committed gate"),
+		Committed.DidAppend() && StaleDecoded.IsSuccess()
+			&& !StaleDecoded.GetEnvelope().MatchesJournal(JournalA)
+			&& !bCompletedUnwrapped && !Completed.IsValid());
 	return true;
 }
 

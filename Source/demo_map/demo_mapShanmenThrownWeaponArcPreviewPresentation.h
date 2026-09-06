@@ -26,6 +26,7 @@ public:
 
 private:
 	friend class Fdemo_mapShanmenThrownWeaponArcPreviewPresentationProjector;
+	friend class Fdemo_mapShanmenThrownWeaponArcPreviewPresentationState;
 
 	FGuid SegmentId;
 	FGuid SourcePreviewId;
@@ -46,6 +47,17 @@ private:
 class Fdemo_mapShanmenThrownWeaponArcPreviewPresentationState
 {
 public:
+	static bool TryRehydrateVisible(
+		const FGuid& ExpectedPresentationStateId,
+		const FGuid& RunId,
+		const FGuid& PlayerEntityId,
+		const FGuid& SourceItemInstanceId,
+		const Fdemo_mapShanmenThrownWeaponInputChoiceState& ChoiceState,
+		const FGuid& SourceProductRequestId,
+		const FGuid& SourcePreviewActivationId,
+		const FShanmenThrownWeaponArcPreview& SourcePreview,
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationState& OutState);
+
 	bool IsEmpty() const;
 	bool IsValid() const;
 	bool IsVisible() const;

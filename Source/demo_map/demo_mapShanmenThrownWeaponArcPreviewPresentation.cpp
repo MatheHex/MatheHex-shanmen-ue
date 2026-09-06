@@ -163,6 +163,68 @@ bool Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSegment::Matches(
 		&& End == Other.End;
 }
 
+bool Fdemo_mapShanmenThrownWeaponArcPreviewPresentationState::
+TryRehydrateVisible(
+	const FGuid& ExpectedPresentationStateId,
+	const FGuid& InRunId,
+	const FGuid& InPlayerEntityId,
+	const FGuid& InSourceItemInstanceId,
+	const Fdemo_mapShanmenThrownWeaponInputChoiceState& InChoiceState,
+	const FGuid& InSourceProductRequestId,
+	const FGuid& InSourcePreviewActivationId,
+	const FShanmenThrownWeaponArcPreview& InSourcePreview,
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationState& OutState)
+{
+	OutState = Fdemo_mapShanmenThrownWeaponArcPreviewPresentationState();
+	if (!ExpectedPresentationStateId.IsValid()
+		|| !InRunId.IsValid() || !InPlayerEntityId.IsValid()
+		|| !InSourceItemInstanceId.IsValid() || !InChoiceState.IsValid()
+		|| !InSourceProductRequestId.IsValid()
+		|| !InSourcePreviewActivationId.IsValid()
+		|| !InSourcePreview.IsValid())
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationState Candidate;
+	Candidate.Mode = EMode::Visible;
+	Candidate.RunId = InRunId;
+	Candidate.PlayerEntityId = InPlayerEntityId;
+	Candidate.SourceItemInstanceId = InSourceItemInstanceId;
+	Candidate.ChoiceState = InChoiceState;
+	Candidate.SourceProductRequestId = InSourceProductRequestId;
+	Candidate.SourcePreviewActivationId = InSourcePreviewActivationId;
+	Candidate.SourcePreview = InSourcePreview;
+	Candidate.Segments.Reserve(InSourcePreview.GetSegmentCount());
+	const TArray<FVector>& Positions = InSourcePreview.GetPositions();
+	for (int32 Index = 0; Index < InSourcePreview.GetSegmentCount(); ++Index)
+	{
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSegment Segment;
+		Segment.SourcePreviewId = InSourcePreview.GetPreviewId();
+		Segment.Index = Index;
+		Segment.Start = Positions[Index];
+		Segment.End = Positions[Index + 1];
+		Segment.SegmentId = MakeSegmentId(
+			Segment.SourcePreviewId,
+			Segment.Index,
+			Segment.Start,
+			Segment.End);
+		Candidate.Segments.Add(MoveTemp(Segment));
+	}
+	Candidate.ApexPosition = InSourcePreview.GetApexPosition();
+	Candidate.PlannedLandingPosition =
+		InSourcePreview.GetPlannedLandingPosition();
+	Candidate.FlightTimeSeconds = InSourcePreview.GetFlightTimeSeconds();
+	Candidate.PresentationStateId = MakeStateId(Candidate);
+	if (Candidate.PresentationStateId != ExpectedPresentationStateId
+		|| !Candidate.IsVisible())
+	{
+		return false;
+	}
+	OutState = MoveTemp(Candidate);
+	return true;
+}
+
 bool Fdemo_mapShanmenThrownWeaponArcPreviewPresentationState::IsEmpty() const
 {
 	return !PresentationStateId.IsValid()

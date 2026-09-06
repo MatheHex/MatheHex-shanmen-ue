@@ -21,6 +21,23 @@ public:
 		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpoint&
 			OutCheckpoint,
 		FString& OutDiagnostic);
+	static bool TryRehydrate(
+		const FGuid& ExpectedCheckpointId,
+		const Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceOwnershipTransitionTicket&
+			TransitionTicket,
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffStatus
+			SourceFailureStatus,
+		const FGuid& SourceRetirementResponseId,
+		const FGuid& PreviousSurfaceInstanceId,
+		const FGuid& SurfaceInstanceId,
+		const Fdemo_mapShanmenThrownWeaponArcPreviewPresentationState&
+			PreviousSurfaceCursor,
+		const Fdemo_mapShanmenThrownWeaponArcPreviewPresentationState&
+			RetiredSurfaceCursor,
+		const Fdemo_mapShanmenThrownWeaponArcPreviewPresentationState&
+			SurfaceCursor,
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpoint&
+			OutCheckpoint);
 
 	bool IsValid() const;
 	bool MatchesFailedHandoff(
