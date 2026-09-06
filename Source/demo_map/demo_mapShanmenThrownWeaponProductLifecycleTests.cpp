@@ -26,6 +26,7 @@
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecovery.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelope.h"
+#include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorage.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceLifecycleExecutor.h"
@@ -8070,8 +8071,203 @@ namespace
 		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelopeCodec;
 	using EArcOwnerHandoffRecoveryPayloadDecodeStatus =
 		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelopeDecodeStatus;
+	using FArcOwnerHandoffRecoveryPayloadStorageContext =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorageContext;
+	using FArcOwnerHandoffRecoveryPayloadStorageAdapter =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorageAdapter;
+	using FArcOwnerHandoffRecoveryPayloadLocalFileSystem =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadLocalFileSystem;
+	using IArcOwnerHandoffRecoveryPayloadStorageFileSystem =
+		Idemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorageFileSystem;
+	using EArcOwnerHandoffRecoveryPayloadStorageFileWriteStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorageFileWriteStatus;
+	using EArcOwnerHandoffRecoveryPayloadStorageFileReadStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorageFileReadStatus;
+	using EArcOwnerHandoffRecoveryPayloadStorageSaveStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorageSaveStatus;
+	using EArcOwnerHandoffRecoveryPayloadStorageLoadStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorageLoadStatus;
 	using FArcRetirementResponse =
 		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceRetirementResponse;
+
+	class FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem final
+		: public IArcOwnerHandoffRecoveryPayloadStorageFileSystem
+	{
+	public:
+		enum class EFailure : uint8
+		{
+			None,
+			CreateDirectory,
+			DeleteTemporary,
+			OpenTemporary,
+			WriteTemporary,
+			FlushTemporary,
+			ReadTemporary,
+			CorruptTemporaryRead,
+			AtomicReplace,
+			ReadPrimary,
+			CorruptPrimaryRead
+		};
+
+		virtual bool DirectoryExists(const FString&) const override
+		{
+			++DirectoryQueryCount;
+			return bDirectoryExists;
+		}
+
+		virtual bool CreateDirectoryTree(const FString&) override
+		{
+			++CreateDirectoryCount;
+			if (Failure == EFailure::CreateDirectory)
+			{
+				return false;
+			}
+			bDirectoryExists = true;
+			return true;
+		}
+
+		virtual bool FileExists(const FString& Path) const override
+		{
+			++FileExistsQueryCount;
+			return Files.Contains(Path);
+		}
+
+		virtual bool DeleteFile(const FString& Path) override
+		{
+			++DeleteCount;
+			if (Failure == EFailure::DeleteTemporary)
+			{
+				return false;
+			}
+			Files.Remove(Path);
+			return true;
+		}
+
+		virtual EArcOwnerHandoffRecoveryPayloadStorageFileWriteStatus
+		WriteAndFlush(
+			const FString& Path,
+			const TArray<uint8>& Bytes) override
+		{
+			++WriteCount;
+			if (Failure == EFailure::OpenTemporary)
+			{
+				return EArcOwnerHandoffRecoveryPayloadStorageFileWriteStatus::
+					OpenFailed;
+			}
+			if (Failure == EFailure::WriteTemporary)
+			{
+				Files.Add(Path, TArray<uint8>({0x5a}));
+				return EArcOwnerHandoffRecoveryPayloadStorageFileWriteStatus::
+					WriteFailed;
+			}
+			Files.Add(Path, Bytes);
+			if (Failure == EFailure::FlushTemporary)
+			{
+				return EArcOwnerHandoffRecoveryPayloadStorageFileWriteStatus::
+					FlushFailed;
+			}
+			return EArcOwnerHandoffRecoveryPayloadStorageFileWriteStatus::
+				WrittenAndFlushed;
+		}
+
+		virtual EArcOwnerHandoffRecoveryPayloadStorageFileReadStatus
+		ReadBounded(
+			const FString& Path,
+			const int64 MaximumBytes,
+			TArray<uint8>& OutBytes,
+			int64& OutObservedSize) const override
+		{
+			++ReadCount;
+			const bool bTemporary = Path.EndsWith(TEXT(".tmp"));
+			if ((bTemporary && Failure == EFailure::ReadTemporary)
+				|| (!bTemporary && Failure == EFailure::ReadPrimary))
+			{
+				OutBytes.Reset();
+				OutObservedSize = INDEX_NONE;
+				return EArcOwnerHandoffRecoveryPayloadStorageFileReadStatus::
+					Failed;
+			}
+			const TArray<uint8>* Stored = Files.Find(Path);
+			if (!Stored)
+			{
+				OutBytes.Reset();
+				OutObservedSize = INDEX_NONE;
+				return EArcOwnerHandoffRecoveryPayloadStorageFileReadStatus::
+					Missing;
+			}
+			OutObservedSize = Stored->Num();
+			if (OutObservedSize > MaximumBytes)
+			{
+				OutBytes.Reset();
+				return EArcOwnerHandoffRecoveryPayloadStorageFileReadStatus::
+					TooLarge;
+			}
+			OutBytes = *Stored;
+			if (!OutBytes.IsEmpty()
+				&& ((bTemporary
+						&& Failure == EFailure::CorruptTemporaryRead)
+					|| (!bTemporary
+						&& Failure == EFailure::CorruptPrimaryRead)))
+			{
+				OutBytes[0] ^= 0x01;
+			}
+			return EArcOwnerHandoffRecoveryPayloadStorageFileReadStatus::Read;
+		}
+
+		virtual bool AtomicReplace(
+			const FString& DestinationPath,
+			const FString& SourcePath) override
+		{
+			++AtomicReplaceCount;
+			if (Failure == EFailure::AtomicReplace)
+			{
+				return false;
+			}
+			const TArray<uint8>* Source = Files.Find(SourcePath);
+			if (!Source)
+			{
+				return false;
+			}
+			const TArray<uint8> Copy = *Source;
+			Files.Add(DestinationPath, Copy);
+			Files.Remove(SourcePath);
+			return true;
+		}
+
+		void SetFailure(const EFailure Value) { Failure = Value; }
+		void SetDirectoryExists(const bool Value)
+		{
+			bDirectoryExists = Value;
+		}
+		void SetFile(const FString& Path, const TArray<uint8>& Bytes)
+		{
+			Files.Add(Path, Bytes);
+		}
+		bool TryGetFile(const FString& Path, TArray<uint8>& OutBytes) const
+		{
+			const TArray<uint8>* Value = Files.Find(Path);
+			if (!Value)
+			{
+				OutBytes.Reset();
+				return false;
+			}
+			OutBytes = *Value;
+			return true;
+		}
+
+		mutable int32 DirectoryQueryCount = 0;
+		mutable int32 FileExistsQueryCount = 0;
+		int32 CreateDirectoryCount = 0;
+		int32 DeleteCount = 0;
+		int32 WriteCount = 0;
+		mutable int32 ReadCount = 0;
+		int32 AtomicReplaceCount = 0;
+
+	private:
+		bool bDirectoryExists = false;
+		EFailure Failure = EFailure::None;
+		TMap<FString, TArray<uint8>> Files;
+	};
 
 	class FFakeArcPreviewHandoffSurface final
 		: public Idemo_mapShanmenThrownWeaponArcPreviewPresentationHandoffSurface
@@ -8449,6 +8645,28 @@ namespace
 		{
 			Test.AddError(TEXT(
 				"Could not build canonical Arc preview recovery checkpoint payload evidence."));
+			return false;
+		}
+		return true;
+	}
+
+	bool BuildArcOwnerHandoffRecoveryPayloadStorageContext(
+		FAutomationTestBase& Test,
+		const TCHAR* Label,
+		const FGuid& JournalId,
+		FArcOwnerHandoffRecoveryPayloadStorageContext& OutContext)
+	{
+		const FString Root = FPaths::ConvertRelativePathToFull(FPaths::Combine(
+			FPaths::ProjectSavedDir(),
+			TEXT("Automation"),
+			TEXT("Dev.D.UE.0.0.10.P20.51.r0"),
+			Label,
+			FGuid::NewGuid().ToString(EGuidFormats::Digits)));
+		FString Diagnostic;
+		if (!FArcOwnerHandoffRecoveryPayloadStorageContext::TryCreate(
+				Root, JournalId, OutContext, Diagnostic))
+		{
+			Test.AddError(Diagnostic);
 			return false;
 		}
 		return true;
@@ -10288,6 +10506,652 @@ RunTest(const FString&)
 		Committed.DidAppend() && StaleDecoded.IsSuccess()
 			&& !StaleDecoded.GetEnvelope().MatchesJournal(JournalA)
 			&& !bCompletedUnwrapped && !Completed.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryPayloadStorageContextTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorage.ContextAndJournalFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryPayloadStorageContextTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4B00001, 0xF4B00002, 0xF4B00003, 0xF4B00004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4B01001, 0xF4B01002, 0xF4B01003, 0xF4B01004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	FArcOwnerHandoffRecoveryJournal Journal;
+	FArcOwnerHandoffRecoveryPayloadEnvelope Envelope;
+	TArray<uint8> Bytes;
+	if (!BuildArcOwnerHandoffRecoveryPayloadEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryPayloadStorageContext"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Checkpoint,
+			Journal,
+			Envelope,
+			Bytes))
+	{
+		return false;
+	}
+
+	FArcOwnerHandoffRecoveryPayloadStorageContext Context;
+	if (!BuildArcOwnerHandoffRecoveryPayloadStorageContext(
+			*this,
+			TEXT("Context"),
+			Journal.GetJournalId(),
+			Context))
+	{
+		return false;
+	}
+	FString Diagnostic;
+	FArcOwnerHandoffRecoveryPayloadStorageContext Relative;
+	const bool bAcceptedRelative =
+		FArcOwnerHandoffRecoveryPayloadStorageContext::TryCreate(
+			TEXT("Relative/CheckpointPayload"),
+			Journal.GetJournalId(),
+			Relative,
+			Diagnostic);
+	FArcOwnerHandoffRecoveryPayloadStorageContext EmptyJournal;
+	const bool bAcceptedEmptyJournal =
+		FArcOwnerHandoffRecoveryPayloadStorageContext::TryCreate(
+			Context.GetRootDirectory(),
+			FGuid(),
+			EmptyJournal,
+			Diagnostic);
+	const FGuid ForeignJournalId(
+		0xF4B02001, 0xF4B02002, 0xF4B02003, 0xF4B02004);
+	FArcOwnerHandoffRecoveryPayloadStorageContext ForeignContext;
+	const bool bForeignContext =
+		FArcOwnerHandoffRecoveryPayloadStorageContext::TryCreate(
+			Context.GetRootDirectory(),
+			ForeignJournalId,
+			ForeignContext,
+			Diagnostic);
+
+	FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem FileSystem;
+	FArcOwnerHandoffRecoveryPayloadStorageAdapter Adapter;
+	const auto InvalidContext = Adapter.Save(
+		FArcOwnerHandoffRecoveryPayloadStorageContext(),
+		Envelope,
+		FileSystem);
+	const auto InvalidEnvelope = Adapter.Save(
+		Context,
+		FArcOwnerHandoffRecoveryPayloadEnvelope(),
+		FileSystem);
+	const auto ForeignSlot = Adapter.Save(
+		ForeignContext,
+		Envelope,
+		FileSystem);
+
+	TestTrue(TEXT("context canonicalizes one absolute caller root and journal slot"),
+		Context.IsValid()
+			&& Context.GetExpectedJournalId() == Journal.GetJournalId()
+			&& FPaths::GetPath(Context.GetPrimaryPath())
+				== Context.GetStorageDirectory()
+			&& FPaths::GetPath(Context.GetTemporaryPath())
+				== Context.GetStorageDirectory()
+			&& Context.GetPrimaryPath().Contains(
+				Journal.GetJournalId().ToString(EGuidFormats::Digits)));
+	TestTrue(TEXT("relative root and invalid journal identity fail closed"),
+		!bAcceptedRelative && !Relative.IsValid()
+			&& !bAcceptedEmptyJournal && !EmptyJournal.IsValid()
+			&& bForeignContext && ForeignContext.IsValid());
+	TestTrue(TEXT("invalid requests reject before all filesystem callbacks"),
+		!InvalidContext.IsSuccess()
+			&& InvalidContext.GetStatus()
+				== EArcOwnerHandoffRecoveryPayloadStorageSaveStatus::
+					ContextRejected
+			&& !InvalidEnvelope.IsSuccess()
+			&& InvalidEnvelope.GetStatus()
+				== EArcOwnerHandoffRecoveryPayloadStorageSaveStatus::
+					EnvelopeRejected
+			&& !ForeignSlot.IsSuccess()
+			&& ForeignSlot.GetStatus()
+				== EArcOwnerHandoffRecoveryPayloadStorageSaveStatus::
+					JournalSlotMismatch
+			&& FileSystem.DirectoryQueryCount == 0
+			&& FileSystem.FileExistsQueryCount == 0
+			&& FileSystem.CreateDirectoryCount == 0
+			&& FileSystem.DeleteCount == 0
+			&& FileSystem.WriteCount == 0
+			&& FileSystem.ReadCount == 0
+			&& FileSystem.AtomicReplaceCount == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryPayloadStorageRoundTripTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorage.AtomicRoundTripAndEvidenceOnly",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryPayloadStorageRoundTripTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4B10001, 0xF4B10002, 0xF4B10003, 0xF4B10004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4B11001, 0xF4B11002, 0xF4B11003, 0xF4B11004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	FArcOwnerHandoffRecoveryJournal Journal;
+	FArcOwnerHandoffRecoveryPayloadEnvelope Envelope;
+	TArray<uint8> Canonical;
+	if (!BuildArcOwnerHandoffRecoveryPayloadEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryPayloadStorageRoundTrip"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Checkpoint,
+			Journal,
+			Envelope,
+			Canonical))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryPayloadStorageContext Context;
+	if (!BuildArcOwnerHandoffRecoveryPayloadStorageContext(
+			*this,
+			TEXT("RoundTrip"),
+			Journal.GetJournalId(),
+			Context))
+	{
+		return false;
+	}
+
+	const int32 OldRetirementsBefore = OldSurface.RetirementCallCount;
+	const int32 OldMutationsBefore = OldSurface.MutationCallCount;
+	const int32 NewMutationsBefore = NewSurface.MutationCallCount;
+	FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem FileSystem;
+	FArcOwnerHandoffRecoveryPayloadStorageAdapter Adapter;
+	const auto Saved = Adapter.Save(Context, Envelope, FileSystem);
+	const auto Loaded = Adapter.Load(Context, FileSystem);
+	TArray<uint8> PrimaryBytes;
+	const bool bHasPrimary =
+		FileSystem.TryGetFile(Context.GetPrimaryPath(), PrimaryBytes);
+	TArray<uint8> TemporaryBytes;
+	const bool bHasTemporary =
+		FileSystem.TryGetFile(Context.GetTemporaryPath(), TemporaryBytes);
+	FArcOwnerHandoffRecoveryCheckpoint ExplicitCheckpoint;
+	const bool bExplicitlyUnwrapped = Loaded.IsSuccess()
+		&& Loaded.GetEnvelope().TryUnwrapForJournal(
+			Journal, ExplicitCheckpoint);
+
+	TestTrue(TEXT("one-shot save publishes only exact canonical bytes"),
+		Saved.IsSuccess()
+			&& Saved.GetStatus()
+				== EArcOwnerHandoffRecoveryPayloadStorageSaveStatus::Saved
+			&& Saved.GetEnvelopeId() == Envelope.GetEnvelopeId()
+			&& Saved.GetEncodedByteCount() == Canonical.Num()
+			&& Saved.DidReplacePrimary()
+			&& !Saved.TemporaryFileMayRemain()
+			&& bHasPrimary && PrimaryBytes == Canonical
+			&& !bHasTemporary);
+	TestTrue(TEXT("load returns decoded envelope evidence without implicit authority"),
+		Loaded.IsSuccess()
+			&& Loaded.GetStatus()
+				== EArcOwnerHandoffRecoveryPayloadStorageLoadStatus::Loaded
+			&& Loaded.GetObservedByteCount() == Canonical.Num()
+			&& Loaded.GetDecodeStatus()
+				== EArcOwnerHandoffRecoveryPayloadDecodeStatus::Decoded
+			&& Loaded.GetEnvelope().Matches(Envelope)
+			&& bExplicitlyUnwrapped && ExplicitCheckpoint.IsValid());
+	TestTrue(TEXT("storage calls neither surface nor recovery coordinator"),
+		OldSurface.RetirementCallCount == OldRetirementsBefore
+			&& OldSurface.MutationCallCount == OldMutationsBefore
+			&& NewSurface.MutationCallCount == NewMutationsBefore
+			&& FileSystem.CreateDirectoryCount == 1
+			&& FileSystem.WriteCount == 1
+			&& FileSystem.ReadCount == 3
+			&& FileSystem.AtomicReplaceCount == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryPayloadStoragePrecommitTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorage.PrecommitFailureAtomicity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryPayloadStoragePrecommitTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4B20001, 0xF4B20002, 0xF4B20003, 0xF4B20004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4B21001, 0xF4B21002, 0xF4B21003, 0xF4B21004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	FArcOwnerHandoffRecoveryJournal Journal;
+	FArcOwnerHandoffRecoveryPayloadEnvelope Envelope;
+	TArray<uint8> Canonical;
+	if (!BuildArcOwnerHandoffRecoveryPayloadEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryPayloadStoragePrecommit"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Checkpoint,
+			Journal,
+			Envelope,
+			Canonical))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryPayloadStorageContext Context;
+	if (!BuildArcOwnerHandoffRecoveryPayloadStorageContext(
+			*this,
+			TEXT("Precommit"),
+			Journal.GetJournalId(),
+			Context))
+	{
+		return false;
+	}
+
+	using EFailure =
+		FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem::EFailure;
+	struct FFailureCase
+	{
+		EFailure Failure;
+		EArcOwnerHandoffRecoveryPayloadStorageSaveStatus Expected;
+		bool bNeedsStaleTemporary = false;
+		bool bDirectoryInitiallyExists = true;
+	};
+	const TArray<FFailureCase> Cases =
+	{
+		{EFailure::CreateDirectory,
+			EArcOwnerHandoffRecoveryPayloadStorageSaveStatus::
+				DirectoryCreationFailed,
+			false,
+			false},
+		{EFailure::DeleteTemporary,
+			EArcOwnerHandoffRecoveryPayloadStorageSaveStatus::
+				StaleTemporaryCleanupFailed,
+			true},
+		{EFailure::OpenTemporary,
+			EArcOwnerHandoffRecoveryPayloadStorageSaveStatus::
+				TemporaryOpenFailed},
+		{EFailure::WriteTemporary,
+			EArcOwnerHandoffRecoveryPayloadStorageSaveStatus::
+				TemporaryWriteFailed},
+		{EFailure::FlushTemporary,
+			EArcOwnerHandoffRecoveryPayloadStorageSaveStatus::
+				TemporaryFlushFailed},
+		{EFailure::ReadTemporary,
+			EArcOwnerHandoffRecoveryPayloadStorageSaveStatus::
+				TemporaryReadBackFailed},
+		{EFailure::CorruptTemporaryRead,
+			EArcOwnerHandoffRecoveryPayloadStorageSaveStatus::
+				TemporaryValidationFailed},
+		{EFailure::AtomicReplace,
+			EArcOwnerHandoffRecoveryPayloadStorageSaveStatus::
+				AtomicReplaceFailed}
+	};
+	const TArray<uint8> ExistingPrimary = {0x11, 0x22, 0x33, 0x44};
+	FArcOwnerHandoffRecoveryPayloadStorageAdapter Adapter;
+	for (int32 Index = 0; Index < Cases.Num(); ++Index)
+	{
+		const FFailureCase& FailureCase = Cases[Index];
+		FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem FileSystem;
+		FileSystem.SetDirectoryExists(
+			FailureCase.bDirectoryInitiallyExists);
+		FileSystem.SetFile(Context.GetPrimaryPath(), ExistingPrimary);
+		if (FailureCase.bNeedsStaleTemporary)
+		{
+			FileSystem.SetFile(
+				Context.GetTemporaryPath(), TArray<uint8>({0x99}));
+		}
+		FileSystem.SetFailure(FailureCase.Failure);
+		const auto Result = Adapter.Save(Context, Envelope, FileSystem);
+		TArray<uint8> PrimaryAfter;
+		const bool bHasPrimary = FileSystem.TryGetFile(
+			Context.GetPrimaryPath(), PrimaryAfter);
+
+		TestTrue(
+			*FString::Printf(TEXT("precommit case %d reports exact stage"), Index),
+			!Result.IsSuccess()
+				&& Result.GetStatus() == FailureCase.Expected);
+		TestTrue(
+			*FString::Printf(TEXT("precommit case %d preserves primary"), Index),
+			bHasPrimary && PrimaryAfter == ExistingPrimary
+				&& !Result.DidReplacePrimary());
+		TestTrue(
+			*FString::Printf(TEXT("precommit case %d is one-shot"), Index),
+			FileSystem.WriteCount <= 1
+				&& FileSystem.AtomicReplaceCount <= 1
+				&& (FailureCase.Failure != EFailure::AtomicReplace
+					|| FileSystem.AtomicReplaceCount == 1));
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryPayloadStoragePostcommitTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorage.PostcommitOutcomeRequiresLoad",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryPayloadStoragePostcommitTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4B30001, 0xF4B30002, 0xF4B30003, 0xF4B30004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4B31001, 0xF4B31002, 0xF4B31003, 0xF4B31004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	FArcOwnerHandoffRecoveryJournal Journal;
+	FArcOwnerHandoffRecoveryPayloadEnvelope Envelope;
+	TArray<uint8> Canonical;
+	if (!BuildArcOwnerHandoffRecoveryPayloadEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryPayloadStoragePostcommit"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Checkpoint,
+			Journal,
+			Envelope,
+			Canonical))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryPayloadStorageContext Context;
+	if (!BuildArcOwnerHandoffRecoveryPayloadStorageContext(
+			*this,
+			TEXT("Postcommit"),
+			Journal.GetJournalId(),
+			Context))
+	{
+		return false;
+	}
+
+	using EFailure =
+		FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem::EFailure;
+	struct FFailureCase
+	{
+		EFailure Failure;
+		EArcOwnerHandoffRecoveryPayloadStorageSaveStatus Expected;
+	};
+	const TArray<FFailureCase> Cases =
+	{
+		{EFailure::ReadPrimary,
+			EArcOwnerHandoffRecoveryPayloadStorageSaveStatus::
+				CommittedReadBackFailed},
+		{EFailure::CorruptPrimaryRead,
+			EArcOwnerHandoffRecoveryPayloadStorageSaveStatus::
+				CommittedValidationFailed}
+	};
+	FArcOwnerHandoffRecoveryPayloadStorageAdapter Adapter;
+	for (int32 Index = 0; Index < Cases.Num(); ++Index)
+	{
+		FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem FileSystem;
+		FileSystem.SetDirectoryExists(true);
+		FileSystem.SetFailure(Cases[Index].Failure);
+		const auto Result = Adapter.Save(Context, Envelope, FileSystem);
+		FileSystem.SetFailure(EFailure::None);
+		const auto ResolvedByLoad = Adapter.Load(Context, FileSystem);
+		TArray<uint8> PrimaryBytes;
+		const bool bHasPrimary = FileSystem.TryGetFile(
+			Context.GetPrimaryPath(), PrimaryBytes);
+
+		TestTrue(
+			*FString::Printf(TEXT("postcommit case %d exposes indeterminate stage"), Index),
+			!Result.IsSuccess()
+				&& Result.GetStatus() == Cases[Index].Expected
+				&& Result.DidReplacePrimary()
+				&& !Result.TemporaryFileMayRemain());
+		TestTrue(
+			*FString::Printf(TEXT("postcommit case %d is resolved only by explicit load"), Index),
+			ResolvedByLoad.IsSuccess()
+				&& ResolvedByLoad.GetEnvelope().Matches(Envelope)
+				&& bHasPrimary && PrimaryBytes == Canonical);
+		TestTrue(
+			*FString::Printf(TEXT("postcommit case %d never retries replacement"), Index),
+			FileSystem.WriteCount == 1
+				&& FileSystem.AtomicReplaceCount == 1);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryPayloadStorageLoadFenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorage.LoadBoundsDecodeAndJournalFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryPayloadStorageLoadFenceTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4B40001, 0xF4B40002, 0xF4B40003, 0xF4B40004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4B41001, 0xF4B41002, 0xF4B41003, 0xF4B41004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	FArcOwnerHandoffRecoveryJournal Journal;
+	FArcOwnerHandoffRecoveryPayloadEnvelope Envelope;
+	TArray<uint8> Canonical;
+	if (!BuildArcOwnerHandoffRecoveryPayloadEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryPayloadStorageLoadFence"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Checkpoint,
+			Journal,
+			Envelope,
+			Canonical))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryPayloadStorageContext Context;
+	if (!BuildArcOwnerHandoffRecoveryPayloadStorageContext(
+			*this,
+			TEXT("LoadFence"),
+			Journal.GetJournalId(),
+			Context))
+	{
+		return false;
+	}
+
+	FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem FileSystem;
+	FileSystem.SetDirectoryExists(true);
+	FArcOwnerHandoffRecoveryPayloadStorageAdapter Adapter;
+	const auto Missing = Adapter.Load(Context, FileSystem);
+	TArray<uint8> Oversized;
+	Oversized.SetNumZeroed(
+		FArcOwnerHandoffRecoveryPayloadCodec::MaximumEncodedBytes() + 1);
+	FileSystem.SetFile(Context.GetPrimaryPath(), Oversized);
+	const auto TooLarge = Adapter.Load(Context, FileSystem);
+	FileSystem.SetFile(
+		Context.GetPrimaryPath(), TArray<uint8>({0x01, 0x02, 0x03}));
+	const auto Corrupt = Adapter.Load(Context, FileSystem);
+	FileSystem.SetFile(Context.GetPrimaryPath(), Canonical);
+	FileSystem.SetFailure(
+		FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem::EFailure::
+			ReadPrimary);
+	const auto ReadFailure = Adapter.Load(Context, FileSystem);
+	FileSystem.SetFailure(
+		FFakeArcOwnerHandoffRecoveryPayloadStorageFileSystem::EFailure::None);
+
+	const FGuid ForeignJournalId(
+		0xF4B42001, 0xF4B42002, 0xF4B42003, 0xF4B42004);
+	FArcOwnerHandoffRecoveryPayloadStorageContext ForeignContext;
+	FString Diagnostic;
+	if (!FArcOwnerHandoffRecoveryPayloadStorageContext::TryCreate(
+			Context.GetRootDirectory(),
+			ForeignJournalId,
+			ForeignContext,
+			Diagnostic))
+	{
+		AddError(Diagnostic);
+		return false;
+	}
+	FileSystem.SetFile(ForeignContext.GetPrimaryPath(), Canonical);
+	const auto Foreign = Adapter.Load(ForeignContext, FileSystem);
+
+	TestTrue(TEXT("missing, oversized and unreadable primaries classify exactly"),
+		!Missing.IsSuccess()
+			&& Missing.GetStatus()
+				== EArcOwnerHandoffRecoveryPayloadStorageLoadStatus::Missing
+			&& !TooLarge.IsSuccess()
+			&& TooLarge.GetStatus()
+				== EArcOwnerHandoffRecoveryPayloadStorageLoadStatus::SizeRejected
+			&& TooLarge.GetObservedByteCount()
+				== FArcOwnerHandoffRecoveryPayloadCodec::MaximumEncodedBytes() + 1
+			&& !ReadFailure.IsSuccess()
+			&& ReadFailure.GetStatus()
+				== EArcOwnerHandoffRecoveryPayloadStorageLoadStatus::ReadFailed);
+	TestTrue(TEXT("codec corruption remains distinct from filesystem failure"),
+		!Corrupt.IsSuccess()
+			&& Corrupt.GetStatus()
+				== EArcOwnerHandoffRecoveryPayloadStorageLoadStatus::DecodeRejected
+			&& Corrupt.GetDecodeStatus()
+				!= EArcOwnerHandoffRecoveryPayloadDecodeStatus::Decoded);
+	TestTrue(TEXT("valid foreign bytes cannot cross the expected journal slot"),
+		!Foreign.IsSuccess()
+			&& Foreign.GetStatus()
+				== EArcOwnerHandoffRecoveryPayloadStorageLoadStatus::
+					JournalSlotMismatch
+			&& Foreign.GetDecodeStatus()
+				== EArcOwnerHandoffRecoveryPayloadDecodeStatus::Decoded
+			&& FileSystem.WriteCount == 0
+			&& FileSystem.AtomicReplaceCount == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryPayloadStorageLocalFileTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorage.LocalFileAtomicReplaceAndCommittedFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryPayloadStorageLocalFileTest::
+RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4B50001, 0xF4B50002, 0xF4B50003, 0xF4B50004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4B51001, 0xF4B51002, 0xF4B51003, 0xF4B51004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+	FArcOwnerHandoffRecoveryJournal Journal;
+	FArcOwnerHandoffRecoveryPayloadEnvelope Envelope;
+	TArray<uint8> Canonical;
+	if (!BuildArcOwnerHandoffRecoveryPayloadEvidence(
+			*this,
+			TEXT("ArcPreviewRecoveryPayloadStorageLocal"),
+			Fixture,
+			Owner,
+			OldSurface,
+			NewSurface,
+			Checkpoint,
+			Journal,
+			Envelope,
+			Canonical))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryPayloadStorageContext Context;
+	if (!BuildArcOwnerHandoffRecoveryPayloadStorageContext(
+			*this,
+			TEXT("LocalFile"),
+			Journal.GetJournalId(),
+			Context))
+	{
+		return false;
+	}
+	IFileManager::Get().DeleteDirectory(
+		*Context.GetRootDirectory(), false, true);
+
+	const int32 OldRetirementsBefore = OldSurface.RetirementCallCount;
+	const int32 OldMutationsBefore = OldSurface.MutationCallCount;
+	const int32 NewMutationsBefore = NewSurface.MutationCallCount;
+	FArcOwnerHandoffRecoveryPayloadLocalFileSystem FileSystem;
+	FArcOwnerHandoffRecoveryPayloadStorageAdapter Adapter;
+	const auto FirstSave = Adapter.Save(Context, Envelope, FileSystem);
+	const auto FirstLoad = Adapter.Load(Context, FileSystem);
+	const auto ReplacementSave = Adapter.Save(Context, Envelope, FileSystem);
+	TArray<uint8> PrimaryBytes;
+	int64 PrimarySize = INDEX_NONE;
+	const auto PrimaryRead = FileSystem.ReadBounded(
+		Context.GetPrimaryPath(),
+		FArcOwnerHandoffRecoveryPayloadCodec::MaximumEncodedBytes(),
+		PrimaryBytes,
+		PrimarySize);
+	const bool bNoStorageSurfaceCalls =
+		OldSurface.RetirementCallCount == OldRetirementsBefore
+		&& OldSurface.MutationCallCount == OldMutationsBefore
+		&& NewSurface.MutationCallCount == NewMutationsBefore;
+	const bool bTemporaryMissingAfterReplace =
+		!IFileManager::Get().FileExists(*Context.GetTemporaryPath());
+
+	FArcOwnerHandoffRecoveryCheckpoint Restored;
+	const bool bExplicitlyUnwrapped = FirstLoad.IsSuccess()
+		&& FirstLoad.GetEnvelope().TryUnwrapForJournal(Journal, Restored);
+	FArcOwnerHandoffRecovery Recovery;
+	const auto Recovered = bExplicitlyUnwrapped
+		? Recovery.Execute(Owner, Restored, OldSurface, NewSurface)
+		: FArcOwnerHandoffRecoveryResult();
+	const auto Committed = Recovered.HasReceipt()
+		? Journal.AppendRecoveryReceipt(Restored, Recovered.GetReceipt())
+		: Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournalAppendResult();
+	const auto HistoricalLoad = Adapter.Load(Context, FileSystem);
+	FArcOwnerHandoffRecoveryCheckpoint Stale;
+	const bool bStaleUnwrapped = HistoricalLoad.IsSuccess()
+		&& HistoricalLoad.GetEnvelope().TryUnwrapForJournal(Journal, Stale);
+	const bool bCleanup = IFileManager::Get().DeleteDirectory(
+		*Context.GetRootDirectory(), false, true);
+
+	TestTrue(TEXT("real local backend flushes, replaces and verifies exact bytes"),
+		FirstSave.IsSuccess() && FirstLoad.IsSuccess()
+			&& ReplacementSave.IsSuccess()
+			&& PrimaryRead
+				== EArcOwnerHandoffRecoveryPayloadStorageFileReadStatus::Read
+			&& PrimarySize == Canonical.Num()
+			&& PrimaryBytes == Canonical
+			&& bTemporaryMissingAfterReplace);
+	TestTrue(TEXT("local storage remains evidence-only across journal commit"),
+		bNoStorageSurfaceCalls && bExplicitlyUnwrapped
+			&& Recovered.IsValid() && Recovered.WasRecovered()
+			&& Committed.DidAppend() && HistoricalLoad.IsSuccess()
+			&& !bStaleUnwrapped && !Stale.IsValid());
+	TestTrue(TEXT("test-owned storage root is cleaned after verification"),
+		bCleanup
+			&& !IFileManager::Get().DirectoryExists(
+				*Context.GetRootDirectory()));
 	return true;
 }
 
