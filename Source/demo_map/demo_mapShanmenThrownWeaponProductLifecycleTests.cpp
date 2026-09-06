@@ -33,6 +33,7 @@
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorage.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal.h"
+#include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryTerminalAdoptionSession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceLifecycleExecutor.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceOwnershipTransition.h"
@@ -8086,6 +8087,16 @@ namespace
 		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSessionResult;
 	using EArcOwnerHandoffRecoveryCompletionSessionStatus =
 		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSessionStatus;
+	using FArcOwnerHandoffRecoveryTerminalAdoptionRequest =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryTerminalAdoptionRequest;
+	using FArcOwnerHandoffRecoveryTerminalAdoption =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryTerminalAdoption;
+	using FArcOwnerHandoffRecoveryTerminalAdoptionSession =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryTerminalAdoptionSession;
+	using FArcOwnerHandoffRecoveryTerminalAdoptionSessionResult =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryTerminalAdoptionSessionResult;
+	using EArcOwnerHandoffRecoveryTerminalAdoptionSessionStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryTerminalAdoptionSessionStatus;
 	using EArcOwnerHandoffRecoveryJournalKind =
 		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournalRecordKind;
 	using EArcOwnerHandoffRecoveryJournalDisposition =
@@ -9370,6 +9381,69 @@ namespace
 			CompletionStorageContext;
 		FArcOwnerHandoffRecoveryCompletionRequest Request;
 		FFakeArcOwnerHandoffRecoveryCompletionAuthority Authority;
+	};
+
+	FGuid ArcOwnerHandoffRecoveryTerminalAdoptionWatermarkDomain()
+	{
+		return FGuid(
+			0xF4570001, 0xF4570002, 0xF4570003, 0xF4570004);
+	}
+
+	struct FArcOwnerHandoffRecoveryTerminalAdoptionFixture
+	{
+		bool Build(FAutomationTestBase& Test, const TCHAR* Label)
+		{
+			FArcOwnerHandoffRecoveryCompletionSession CompletionSession;
+			if (!Completion.Build(Test, Label))
+			{
+				return false;
+			}
+			CompletionResult = Completion.Execute(CompletionSession);
+			FString Diagnostic;
+			if (!CompletionResult.IsSuccess()
+				|| !FArcOwnerHandoffRecoveryTerminalAdoptionRequest::TryCreate(
+					AdoptionAuthorityDomainId,
+					Completion.Request,
+					Request,
+					Diagnostic))
+			{
+				Test.AddError(
+					Diagnostic.IsEmpty()
+						? TEXT(
+							"Could not build trusted terminal adoption fixture.")
+						: Diagnostic);
+				return false;
+			}
+			AdoptionAuthority.ClearState();
+			return true;
+		}
+
+		FArcOwnerHandoffRecoveryTerminalAdoptionSessionResult Execute(
+			FArcOwnerHandoffRecoveryTerminalAdoptionSession& Session,
+			const FArcOwnerHandoffRecoveryJournal& CurrentJournal)
+		{
+			return Session.ExecuteExplicit(
+				Request,
+				Completion.CompletionStorageContext,
+				CurrentJournal,
+				Completion.Admission.FileSystem,
+				Completion.Authority,
+				AdoptionAuthority);
+		}
+
+		FArcOwnerHandoffRecoveryTerminalAdoptionSessionResult Execute(
+			FArcOwnerHandoffRecoveryTerminalAdoptionSession& Session)
+		{
+			return Execute(Session, Completion.Admission.Journal);
+		}
+
+		const FGuid AdoptionAuthorityDomainId =
+			ArcOwnerHandoffRecoveryTerminalAdoptionWatermarkDomain();
+		FArcOwnerHandoffRecoveryCompletionFixture Completion;
+		FArcOwnerHandoffRecoveryCompletionSessionResult CompletionResult;
+		FArcOwnerHandoffRecoveryTerminalAdoptionRequest Request;
+		FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority
+			AdoptionAuthority;
 	};
 
 	bool OverwriteUint32BigEndian(
@@ -15501,6 +15575,492 @@ RunTest(const FString&)
 					CompletionAdvanceConflict
 			&& AdvanceFailed.WasCompletionVerified()
 			&& !AdvanceFailed.IsCompletionAuthorityCurrent());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryTerminalAdoptionContractTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryTerminalAdoptionSession.RequestContractAndDeterminism",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryTerminalAdoptionContractTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryTerminalAdoptionFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("RecoveryTerminalAdoptionContract")))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryTerminalAdoptionRequest Duplicate;
+	FArcOwnerHandoffRecoveryTerminalAdoptionRequest Different;
+	FArcOwnerHandoffRecoveryTerminalAdoptionRequest Invalid;
+	FString Diagnostic;
+	const bool bDuplicate =
+		FArcOwnerHandoffRecoveryTerminalAdoptionRequest::TryCreate(
+			Fixture.AdoptionAuthorityDomainId,
+			Fixture.Completion.Request,
+			Duplicate,
+			Diagnostic);
+	const bool bDifferent =
+		FArcOwnerHandoffRecoveryTerminalAdoptionRequest::TryCreate(
+			FGuid(0xF4571001, 0xF4571002, 0xF4571003, 0xF4571004),
+			Fixture.Completion.Request,
+			Different,
+			Diagnostic);
+	const bool bRejected =
+		FArcOwnerHandoffRecoveryTerminalAdoptionRequest::TryCreate(
+			Fixture.Completion.CompletionAuthorityDomainId,
+			Fixture.Completion.Request,
+			Invalid,
+			Diagnostic);
+	FArcOwnerHandoffRecoveryTerminalAdoption Adoption;
+	FArcOwnerHandoffRecoveryTerminalAdoption DuplicateAdoption;
+	const bool bAdoption = FArcOwnerHandoffRecoveryTerminalAdoption::TryCreate(
+		Fixture.Request,
+		Fixture.CompletionResult.GetCompletion(),
+		Adoption);
+	const bool bDuplicateAdoption =
+		FArcOwnerHandoffRecoveryTerminalAdoption::TryCreate(
+			Duplicate,
+			Fixture.CompletionResult.GetCompletion(),
+			DuplicateAdoption);
+
+	TestTrue(TEXT("same terminal adoption intent derives one stable request"),
+		bDuplicate && Duplicate.IsValid()
+			&& Duplicate.GetRequestId() == Fixture.Request.GetRequestId());
+	TestTrue(TEXT("authority domain is part of terminal adoption identity"),
+		bDifferent && Different.IsValid()
+			&& Different.GetRequestId() != Fixture.Request.GetRequestId());
+	TestTrue(TEXT("adoption authority cannot alias completion authority"),
+		!bRejected && !Invalid.IsValid());
+	TestTrue(TEXT("trusted completion derives stable adoption evidence"),
+		bAdoption && bDuplicateAdoption && Adoption.IsValid()
+			&& Adoption.MatchesRequest(Fixture.Request)
+			&& Adoption.MatchesCompletion(
+				Fixture.CompletionResult.GetCompletion())
+			&& Adoption.GetAdoptionId()
+				== DuplicateAdoption.GetAdoptionId()
+			&& Adoption.GetGeneration() == 1
+			&& Adoption.GetNextGeneration() == 2
+			&& Adoption.HasNextGenerationCapacity());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryTerminalAdoptionExactTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryTerminalAdoptionSession.ExactTrustedAdoption",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryTerminalAdoptionExactTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryTerminalAdoptionFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("RecoveryTerminalAdoptionExact")))
+	{
+		return false;
+	}
+	const int32 CompletionReads =
+		Fixture.Completion.Authority.Completion.ReadCount;
+	const int32 FileReads = Fixture.Completion.Admission.FileSystem.ReadCount;
+	const int32 FileWrites = Fixture.Completion.Admission.FileSystem.WriteCount;
+	const FGuid SourceJournalId =
+		Fixture.Completion.Admission.Journal.GetJournalId();
+	const int32 SourceRecordCount =
+		Fixture.Completion.Admission.Journal.GetRecordCount();
+	FArcOwnerHandoffRecoveryTerminalAdoptionSession Session;
+	const auto Result = Fixture.Execute(Session);
+
+	TestTrue(TEXT("exact trusted completion advances caller adoption authority"),
+		Result.IsValid() && Result.IsSuccess() && !Result.IsReplay()
+			&& Result.GetStatus()
+				== EArcOwnerHandoffRecoveryTerminalAdoptionSessionStatus::
+					Adopted
+			&& Result.IsCompletionTrusted()
+			&& Result.IsAdoptionAuthorityCurrent());
+	TestTrue(TEXT("adoption exposes the exact terminal journal and next boundary"),
+		Result.GetTerminalJournal().GetJournalId()
+				== Fixture.CompletionResult.GetTerminalJournal().GetJournalId()
+			&& Result.GetAdoption().MatchesCompletion(
+				Fixture.CompletionResult.GetCompletion())
+			&& Result.GetTargetGeneration() == 1
+			&& Result.GetPreviousAdoptionGeneration() == 0
+			&& Result.HasNextGenerationCapacity()
+			&& Result.GetAdoption().GetNextGeneration() == 2);
+	TestTrue(TEXT("adoption performs bounded reads and one authority advance"),
+		Fixture.Completion.Authority.Completion.ReadCount
+				== CompletionReads + 1
+			&& Fixture.AdoptionAuthority.ReadCount == 1
+			&& Fixture.AdoptionAuthority.AdvanceCount == 1
+			&& Fixture.Completion.Admission.FileSystem.ReadCount
+				== FileReads + 1
+			&& Fixture.Completion.Admission.FileSystem.WriteCount
+				== FileWrites);
+	TestTrue(TEXT("caller source journal and completion files remain unchanged"),
+		Fixture.Completion.Admission.Journal.GetJournalId()
+				== SourceJournalId
+			&& Fixture.Completion.Admission.Journal.GetRecordCount()
+				== SourceRecordCount
+			&& !Session.IsOperationInProgress());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryTerminalAdoptionReplayTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryTerminalAdoptionSession.TrustedReplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryTerminalAdoptionReplayTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryTerminalAdoptionFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("RecoveryTerminalAdoptionReplay")))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryTerminalAdoptionSession FirstSession;
+	const auto First = Fixture.Execute(FirstSession);
+	const int32 AdvanceCount = Fixture.AdoptionAuthority.AdvanceCount;
+	const int32 CompletionReads =
+		Fixture.Completion.Authority.Completion.ReadCount;
+	const int32 FileReads = Fixture.Completion.Admission.FileSystem.ReadCount;
+	FArcOwnerHandoffRecoveryTerminalAdoptionSession ReplaySession;
+	const auto Replay = Fixture.Execute(
+		ReplaySession, First.GetTerminalJournal());
+
+	TestTrue(TEXT("trusted terminal journal replay is idempotent"),
+		First.IsSuccess() && Replay.IsValid() && Replay.IsSuccess()
+			&& Replay.IsReplay()
+			&& Replay.GetStatus()
+				== EArcOwnerHandoffRecoveryTerminalAdoptionSessionStatus::
+					Replayed
+			&& Replay.GetAdoption().GetAdoptionId()
+				== First.GetAdoption().GetAdoptionId());
+	TestTrue(TEXT("replay verifies completion but skips compare-and-advance"),
+		Fixture.AdoptionAuthority.AdvanceCount == AdvanceCount
+			&& Fixture.AdoptionAuthority.ReadCount == 2
+			&& Fixture.Completion.Authority.Completion.ReadCount
+				== CompletionReads + 1
+			&& Fixture.Completion.Admission.FileSystem.ReadCount
+				== FileReads + 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryTerminalAdoptionCompletionFenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryTerminalAdoptionSession.CompletionTrustFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryTerminalAdoptionCompletionFenceTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryTerminalAdoptionFixture MissingFixture;
+	if (!MissingFixture.Build(*this, TEXT("RecoveryTerminalAdoptionMissing")))
+	{
+		return false;
+	}
+	MissingFixture.Completion.Authority.Completion.ClearState();
+	FArcOwnerHandoffRecoveryTerminalAdoptionSession MissingSession;
+	const auto Missing = MissingFixture.Execute(MissingSession);
+
+	FArcOwnerHandoffRecoveryTerminalAdoptionFixture CorruptFixture;
+	if (!CorruptFixture.Build(*this, TEXT("RecoveryTerminalAdoptionCorrupt")))
+	{
+		return false;
+	}
+	TArray<uint8> CorruptBytes;
+	if (!CorruptFixture.Completion.Admission.FileSystem.TryGetFile(
+			CorruptFixture.Completion.CompletionStorageContext.GetPrimaryPath(),
+			CorruptBytes)
+		|| CorruptBytes.IsEmpty())
+	{
+		AddError(TEXT("Could not read completion bytes for tamper test."));
+		return false;
+	}
+	CorruptBytes[0] ^= 0x01;
+	CorruptFixture.Completion.Admission.FileSystem.SetFile(
+		CorruptFixture.Completion.CompletionStorageContext.GetPrimaryPath(),
+		CorruptBytes);
+	FArcOwnerHandoffRecoveryTerminalAdoptionSession CorruptSession;
+	const auto Corrupt = CorruptFixture.Execute(CorruptSession);
+
+	TestTrue(TEXT("ordinary completion file without authority is not trusted"),
+		Missing.IsValid() && !Missing.IsSuccess()
+			&& Missing.GetStatus()
+				== EArcOwnerHandoffRecoveryTerminalAdoptionSessionStatus::
+					CompletionAuthorityMissing
+			&& MissingFixture.AdoptionAuthority.ReadCount == 0
+			&& MissingFixture.AdoptionAuthority.AdvanceCount == 0);
+	TestTrue(TEXT("tampered trusted completion fails before adoption authority"),
+		Corrupt.IsValid() && !Corrupt.IsSuccess()
+			&& Corrupt.GetStatus()
+				== EArcOwnerHandoffRecoveryTerminalAdoptionSessionStatus::
+					TrustedCompletionLoadRejected
+			&& CorruptFixture.AdoptionAuthority.ReadCount == 0
+			&& CorruptFixture.AdoptionAuthority.AdvanceCount == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryTerminalAdoptionAuthorityFenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryTerminalAdoptionSession.AdoptionAuthorityFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryTerminalAdoptionAuthorityFenceTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryTerminalAdoptionFixture ConflictFixture;
+	if (!ConflictFixture.Build(*this, TEXT("RecoveryTerminalAdoptionConflict")))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceRequest ConflictRequest;
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceReceipt ConflictReceipt;
+	FArcOwnerHandoffRecoveryBundleWatermarkState ConflictState;
+	if (!BuildArcOwnerHandoffRecoveryWatermarkState(
+			*this,
+			ConflictFixture.AdoptionAuthorityDomainId,
+			ConflictFixture.Completion.Admission.LineageId,
+			0,
+			1,
+			FGuid(0xF457C001, 0xF457C002, 0xF457C003, 0xF457C004),
+			ConflictRequest,
+			ConflictReceipt,
+			ConflictState))
+	{
+		return false;
+	}
+	ConflictFixture.AdoptionAuthority.SetState(ConflictState);
+	FArcOwnerHandoffRecoveryTerminalAdoptionSession ConflictSession;
+	const auto Conflict = ConflictFixture.Execute(ConflictSession);
+
+	FArcOwnerHandoffRecoveryTerminalAdoptionFixture AheadFixture;
+	if (!AheadFixture.Build(*this, TEXT("RecoveryTerminalAdoptionAhead")))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceRequest AheadRequest;
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceReceipt AheadReceipt;
+	FArcOwnerHandoffRecoveryBundleWatermarkState AheadState;
+	if (!BuildArcOwnerHandoffRecoveryWatermarkState(
+			*this,
+			AheadFixture.AdoptionAuthorityDomainId,
+			AheadFixture.Completion.Admission.LineageId,
+			0,
+			2,
+			FGuid(0xF457A001, 0xF457A002, 0xF457A003, 0xF457A004),
+			AheadRequest,
+			AheadReceipt,
+			AheadState))
+	{
+		return false;
+	}
+	AheadFixture.AdoptionAuthority.SetState(AheadState);
+	FArcOwnerHandoffRecoveryTerminalAdoptionSession AheadSession;
+	const auto Ahead = AheadFixture.Execute(AheadSession);
+
+	TestTrue(TEXT("same-generation foreign adoption evidence conflicts"),
+		Conflict.IsValid() && !Conflict.IsSuccess()
+			&& Conflict.GetStatus()
+				== EArcOwnerHandoffRecoveryTerminalAdoptionSessionStatus::
+					AdoptionAuthorityConflict
+			&& ConflictFixture.AdoptionAuthority.AdvanceCount == 0);
+	TestTrue(TEXT("caller adoption authority cannot roll back"),
+		Ahead.IsValid() && !Ahead.IsSuccess()
+			&& Ahead.GetStatus()
+				== EArcOwnerHandoffRecoveryTerminalAdoptionSessionStatus::
+					AdoptionAuthorityAhead
+			&& AheadFixture.AdoptionAuthority.AdvanceCount == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryTerminalAdoptionUnknownTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryTerminalAdoptionSession.UnknownOutcomeClosure",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryTerminalAdoptionUnknownTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryTerminalAdoptionFixture CommittedFixture;
+	if (!CommittedFixture.Build(
+			*this, TEXT("RecoveryTerminalAdoptionUnknownCommitted")))
+	{
+		return false;
+	}
+	CommittedFixture.AdoptionAuthority.SetAdvanceMode(
+		FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority::EAdvanceMode::
+			OutcomeUnknownAfterCommit);
+	FArcOwnerHandoffRecoveryTerminalAdoptionSession CommittedSession;
+	const auto Committed = CommittedFixture.Execute(CommittedSession);
+
+	FArcOwnerHandoffRecoveryTerminalAdoptionFixture UnresolvedFixture;
+	if (!UnresolvedFixture.Build(
+			*this, TEXT("RecoveryTerminalAdoptionUnknownBefore")))
+	{
+		return false;
+	}
+	UnresolvedFixture.AdoptionAuthority.SetAdvanceMode(
+		FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority::EAdvanceMode::
+			OutcomeUnknownBeforeCommit);
+	FArcOwnerHandoffRecoveryTerminalAdoptionSession UnresolvedSession;
+	const auto Unresolved = UnresolvedFixture.Execute(UnresolvedSession);
+
+	TestTrue(TEXT("unknown response after commit closes with one exact re-read"),
+		Committed.IsValid() && Committed.IsSuccess()
+			&& Committed.GetStatus()
+				== EArcOwnerHandoffRecoveryTerminalAdoptionSessionStatus::
+					AdoptedAfterAuthorityRecheck
+			&& CommittedFixture.AdoptionAuthority.ReadCount == 2
+			&& CommittedFixture.AdoptionAuthority.AdvanceCount == 1);
+	TestTrue(TEXT("unknown response before commit remains unresolved"),
+		Unresolved.IsValid() && !Unresolved.IsSuccess()
+			&& Unresolved.GetStatus()
+				== EArcOwnerHandoffRecoveryTerminalAdoptionSessionStatus::
+					AdoptionOutcomeUnresolved
+			&& UnresolvedFixture.AdoptionAuthority.ReadCount == 2
+			&& UnresolvedFixture.AdoptionAuthority.AdvanceCount == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryTerminalAdoptionFailureTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryTerminalAdoptionSession.AuthorityFailureFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryTerminalAdoptionFailureTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryTerminalAdoptionFixture CompletionFixture;
+	if (!CompletionFixture.Build(
+			*this, TEXT("RecoveryTerminalAdoptionCompletionUnavailable")))
+	{
+		return false;
+	}
+	CompletionFixture.Completion.Authority.Completion.SetReadMode(
+		FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority::EReadMode::
+			Unavailable);
+	FArcOwnerHandoffRecoveryTerminalAdoptionSession CompletionSession;
+	const auto CompletionUnavailable =
+		CompletionFixture.Execute(CompletionSession);
+
+	FArcOwnerHandoffRecoveryTerminalAdoptionFixture AdoptionFixture;
+	if (!AdoptionFixture.Build(
+			*this, TEXT("RecoveryTerminalAdoptionAuthorityUnavailable")))
+	{
+		return false;
+	}
+	AdoptionFixture.AdoptionAuthority.SetReadMode(
+		FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority::EReadMode::
+			Unavailable);
+	FArcOwnerHandoffRecoveryTerminalAdoptionSession AdoptionSession;
+	const auto AdoptionUnavailable = AdoptionFixture.Execute(AdoptionSession);
+
+	FArcOwnerHandoffRecoveryTerminalAdoptionFixture AdvanceFixture;
+	if (!AdvanceFixture.Build(
+			*this, TEXT("RecoveryTerminalAdoptionAdvanceConflict")))
+	{
+		return false;
+	}
+	AdvanceFixture.AdoptionAuthority.SetAdvanceMode(
+		FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority::EAdvanceMode::
+			Conflict);
+	FArcOwnerHandoffRecoveryTerminalAdoptionSession AdvanceSession;
+	const auto AdvanceConflict = AdvanceFixture.Execute(AdvanceSession);
+
+	TestTrue(TEXT("completion authority outage closes before file access"),
+		CompletionUnavailable.IsValid()
+			&& !CompletionUnavailable.IsSuccess()
+			&& CompletionUnavailable.GetStatus()
+				== EArcOwnerHandoffRecoveryTerminalAdoptionSessionStatus::
+					CompletionAuthorityUnavailable
+			&& CompletionFixture.AdoptionAuthority.ReadCount == 0);
+	TestTrue(TEXT("adoption authority outage preserves trusted evidence"),
+		AdoptionUnavailable.IsValid() && !AdoptionUnavailable.IsSuccess()
+			&& AdoptionUnavailable.GetStatus()
+				== EArcOwnerHandoffRecoveryTerminalAdoptionSessionStatus::
+					AdoptionAuthorityUnavailable
+			&& AdoptionUnavailable.IsCompletionTrusted()
+			&& AdoptionFixture.AdoptionAuthority.AdvanceCount == 0);
+	TestTrue(TEXT("adoption CAS conflict never reports caller authority current"),
+		AdvanceConflict.IsValid() && !AdvanceConflict.IsSuccess()
+			&& AdvanceConflict.GetStatus()
+				== EArcOwnerHandoffRecoveryTerminalAdoptionSessionStatus::
+					AdoptionAdvanceConflict
+			&& !AdvanceConflict.IsAdoptionAuthorityCurrent());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryTerminalAdoptionInputTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryTerminalAdoptionSession.InputAndReentryFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryTerminalAdoptionInputTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryTerminalAdoptionFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("RecoveryTerminalAdoptionInput")))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryTerminalAdoptionSession Session;
+	const auto Invalid = Session.ExecuteExplicit(
+		FArcOwnerHandoffRecoveryTerminalAdoptionRequest(),
+		Fixture.Completion.CompletionStorageContext,
+		Fixture.Completion.Admission.Journal,
+		Fixture.Completion.Admission.FileSystem,
+		Fixture.Completion.Authority,
+		Fixture.AdoptionAuthority);
+	FArcOwnerHandoffRecoveryCompletionStorageContext WrongContext;
+	FString Diagnostic;
+	const FString WrongRoot = FPaths::ConvertRelativePathToFull(FPaths::Combine(
+		FPaths::ProjectSavedDir(),
+		TEXT("Automation"),
+		TEXT("Dev.D.UE.0.0.10.P20.57.r0"),
+		TEXT("WrongLineage"),
+		FGuid::NewGuid().ToString(EGuidFormats::Digits)));
+	if (!FArcOwnerHandoffRecoveryCompletionStorageContext::TryCreate(
+			WrongRoot,
+			FGuid(0xF457E001, 0xF457E002, 0xF457E003, 0xF457E004),
+			WrongContext,
+			Diagnostic))
+	{
+		AddError(Diagnostic);
+		return false;
+	}
+	const auto WrongLineage = Session.ExecuteExplicit(
+		Fixture.Request,
+		WrongContext,
+		Fixture.Completion.Admission.Journal,
+		Fixture.Completion.Admission.FileSystem,
+		Fixture.Completion.Authority,
+		Fixture.AdoptionAuthority);
+
+	FArcOwnerHandoffRecoveryTerminalAdoptionSessionResult Nested;
+	Fixture.AdoptionAuthority.SetReadCallback([&]()
+	{
+		Nested = Fixture.Execute(Session);
+	});
+	const auto Outer = Fixture.Execute(Session);
+
+	TestTrue(TEXT("invalid request rejects before authority access"),
+		Invalid.IsValid() && !Invalid.IsSuccess()
+			&& Invalid.GetStatus()
+				== EArcOwnerHandoffRecoveryTerminalAdoptionSessionStatus::
+					RequestRejected);
+	TestTrue(TEXT("cross-lineage storage rejects before authority access"),
+		WrongLineage.IsValid() && !WrongLineage.IsSuccess()
+			&& WrongLineage.GetStatus()
+				== EArcOwnerHandoffRecoveryTerminalAdoptionSessionStatus::
+					RequestRejected);
+	TestTrue(TEXT("authority callback cannot re-enter the same Session"),
+		Nested.IsValid() && !Nested.IsSuccess()
+			&& Nested.GetStatus()
+				== EArcOwnerHandoffRecoveryTerminalAdoptionSessionStatus::
+					OperationInProgress
+			&& Outer.IsValid() && Outer.IsSuccess()
+			&& Fixture.AdoptionAuthority.AdvanceCount == 1
+			&& !Session.IsOperationInProgress());
 	return true;
 }
 
