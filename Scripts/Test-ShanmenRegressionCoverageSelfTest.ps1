@@ -202,6 +202,9 @@ try
     $ThrownArcPreviewPresentationCompositionOwner = New-AutomationLogFixture `
         -Name 'thrown-arc-preview-presentation-composition-owner.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCompositionOwner'
+    $ThrownArcPreviewPresentationSurfaceRecreationPolicy = New-AutomationLogFixture `
+        -Name 'thrown-arc-preview-presentation-surface-recreation-policy.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceRecreationPolicy'
     $ThrownArcChoiceProjection = New-AutomationLogFixture `
         -Name 'thrown-arc-choice-projection.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcChoiceProjection'
@@ -2879,6 +2882,37 @@ try
 			$ItemUse)
 
 	Invoke-ExpectedPass `
+		-Name 'thrown weapon Arc preview surface recreation policy maps owner surface and full authority seams' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceRecreationPolicy.h',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceRecreationPolicy.cpp') `
+		-Logs @(
+			$ThrownArcPreviewPresentationSurfaceRecreationPolicy,
+			$ThrownArcPreviewPresentationCompositionOwner,
+			$ThrownArcPreviewPresentationConsumerAdapter,
+			$ThrownArcPreviewPresentationDeliveryHost,
+			$ThrownArcPreviewPresentationDeliverySession,
+			$ThrownArcPreviewPresentationDeliveryCoordinator,
+			$ThrownArcPreviewPresentationCommandLedger,
+			$ThrownArcPreviewPresentationCommand,
+			$ThrownArcPreviewPresentationSession,
+			$ThrownArcPreviewUpdateCoordinator,
+			$ThrownArcPreviewPresentation,
+			$ThrownArcPreviewProductBridge,
+			$ThrownArcPreviewCapture,
+			$ThrownArcPreviewComposition,
+			$ThrownArcChoiceProjection,
+			$ThrownProductSession,
+			$ThrownProductController,
+			$ThrownArcPreview,
+			$ThrownArc,
+			$ThrownRuntime,
+			$CombatRuntime,
+			$CombatCore,
+			$Full,
+			$ItemUse)
+
+	Invoke-ExpectedPass `
 		-Name 'thrown weapon Arc preview presentation composition owner maps Host surface and full authority seams' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwner.h',
@@ -4837,6 +4871,13 @@ try
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger.cpp') `
 		-Logs @($ThrownArcPreviewPresentationCommandLedger) `
+		-ExpectedText 'missing required groups'
+
+	Invoke-ExpectedFail `
+		-Name 'thrown Arc preview surface recreation focus cannot replace owner surface and authority evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceRecreationPolicy.cpp') `
+		-Logs @($ThrownArcPreviewPresentationSurfaceRecreationPolicy) `
 		-ExpectedText 'missing required groups'
 
 	Invoke-ExpectedFail `

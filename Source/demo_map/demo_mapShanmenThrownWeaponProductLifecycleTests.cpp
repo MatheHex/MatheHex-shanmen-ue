@@ -24,6 +24,7 @@
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHost.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSession.h"
+#include "demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceRecreationPolicy.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewUpdateCoordinator.h"
 #include "demo_mapShanmenThrownWeaponProjectile.h"
 
@@ -6541,6 +6542,395 @@ bool Fdemo_mapThrownWeaponArcPreviewCompositionOwnerReentrantTest::RunTest(
 	TestTrue(TEXT("surface callback cannot tear down child scopes"),
 		!Surface.EndAccepted && !Surface.EndDiagnostic.IsEmpty()
 			&& Owner.IsActive() && Owner.GetSurfaceCursor().IsVisible());
+	return true;
+}
+
+namespace
+{
+	using EArcSurfaceRecreationAction =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceRecreationAction;
+	using EArcSurfaceRecreationDisposition =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceRecreationDisposition;
+	using EArcSurfaceRecreationOutcome =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceRecreationOutcome;
+	using FArcSurfaceRecreationPolicy =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceRecreationPolicy;
+	using FArcSurfaceRecreationResult =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceRecreationResult;
+
+	FArcSurfaceRecreationResult EvaluateArcSurfaceRecreation(
+		const FThrownLifecycleFixture& Fixture,
+		const FName ExpectedConsumer,
+		const FArcSurfaceState& AuthoritativeCursor,
+		const FName ObservedConsumer,
+		const FArcSurfaceState& ObservedCursor,
+		const EArcSurfaceRecreationAction Action)
+	{
+		return FArcSurfaceRecreationPolicy::Evaluate(
+			Fixture.Correlation.ActiveRunId,
+			ExpectedConsumer,
+			AuthoritativeCursor,
+			ObservedConsumer,
+			ObservedCursor,
+			Action);
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewSurfaceRecreationClassificationTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceRecreationPolicy.ClassificationMatrix",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewSurfaceRecreationClassificationTest::
+	RunTest(const FString&)
+{
+	using EDisposition = EArcSurfaceRecreationDisposition;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewSurfaceRecreationClassification"),
+			Fixture, Commands))
+	{
+		return false;
+	}
+	FThrownLifecycleFixture ForeignFixture;
+	FArcPreviewSurfaceCommandSet ForeignCommands;
+	check(BuildArcPreviewSurfaceCommands(
+		*this, TEXT("ArcPreviewSurfaceRecreationForeign"),
+		ForeignFixture, ForeignCommands));
+
+	const auto Fresh = EvaluateArcSurfaceRecreation(
+		Fixture, Consumer, FArcSurfaceState(), Consumer,
+		FArcSurfaceState(), EArcSurfaceRecreationAction::Inspect);
+	const auto Hidden = EvaluateArcSurfaceRecreation(
+		Fixture, Consumer, Commands.Hide.GetState(), Consumer,
+		FArcSurfaceState(), EArcSurfaceRecreationAction::Inspect);
+	const auto Exact = EvaluateArcSurfaceRecreation(
+		Fixture, Consumer, Commands.Show.GetState(), Consumer,
+		Commands.Show.GetState(), EArcSurfaceRecreationAction::Inspect);
+	const auto Rehydrate = EvaluateArcSurfaceRecreation(
+		Fixture, Consumer, Commands.Show.GetState(), Consumer,
+		FArcSurfaceState(), EArcSurfaceRecreationAction::Inspect);
+	const auto Residual = EvaluateArcSurfaceRecreation(
+		Fixture, Consumer, Commands.Hide.GetState(), Consumer,
+		Commands.Show.GetState(), EArcSurfaceRecreationAction::Inspect);
+	const auto Foreign = EvaluateArcSurfaceRecreation(
+		Fixture, Consumer, Commands.Show.GetState(), Consumer,
+		ForeignCommands.Show.GetState(),
+		EArcSurfaceRecreationAction::Inspect);
+	const auto Conflict = EvaluateArcSurfaceRecreation(
+		Fixture, Consumer, Commands.Show.GetState(), Consumer,
+		Commands.Replace.GetState(), EArcSurfaceRecreationAction::Inspect);
+	const auto ConsumerMismatch = EvaluateArcSurfaceRecreation(
+		Fixture, Consumer, Commands.Show.GetState(),
+		FName(TEXT("Renderer.ArcPreview.Other.r1")),
+		Commands.Show.GetState(), EArcSurfaceRecreationAction::Inspect);
+
+	TestTrue(TEXT("empty and hidden authority both normalize to fresh empty"),
+		Fresh.IsValid() && Fresh.IsInspected()
+			&& Fresh.GetDisposition() == EDisposition::FreshEmpty
+			&& Fresh.CanBindFresh()
+			&& Hidden.IsValid() && Hidden.IsInspected()
+			&& Hidden.GetDisposition() == EDisposition::FreshEmpty
+			&& Hidden.GetExpectedSurfaceCursor().IsEmpty());
+	TestTrue(TEXT("exact visible surface is the only direct adoption state"),
+		Exact.IsValid() && Exact.IsInspected()
+			&& Exact.GetDisposition() == EDisposition::ExactVisible
+			&& Exact.CanAdoptExact() && !Exact.HasPermit());
+	TestTrue(TEXT("empty replacement of visible authority requires rehydrate"),
+		Rehydrate.IsValid() && Rehydrate.IsInspected()
+			&& Rehydrate.GetDisposition()
+				== EDisposition::EmptyNeedsRehydrate
+			&& Rehydrate.NeedsRehydrate());
+	TestTrue(TEXT("visible conflicts are separated by residual foreign and state"),
+		Residual.GetDisposition() == EDisposition::ResidualVisible
+			&& Residual.RequiresExplicitCleanup()
+			&& Foreign.GetDisposition() == EDisposition::ForeignVisible
+			&& Foreign.RequiresExplicitCleanup()
+			&& Conflict.GetDisposition() == EDisposition::ConflictingVisible
+			&& Conflict.RequiresExplicitCleanup());
+	TestTrue(TEXT("consumer mismatch remains inspectable but never bindable"),
+		ConsumerMismatch.IsValid() && ConsumerMismatch.IsInspected()
+			&& ConsumerMismatch.GetDisposition()
+				== EDisposition::ConsumerMismatch
+			&& !ConsumerMismatch.CanBindFresh()
+			&& !ConsumerMismatch.CanAdoptExact());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewSurfaceRecreationBindingPermitTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceRecreationPolicy.BindingPermits",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewSurfaceRecreationBindingPermitTest::
+	RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewSurfaceRecreationBinding"),
+			Fixture, Commands))
+	{
+		return false;
+	}
+	const auto Fresh = EvaluateArcSurfaceRecreation(
+		Fixture, Consumer, FArcSurfaceState(), Consumer,
+		FArcSurfaceState(), EArcSurfaceRecreationAction::BindFresh);
+	const auto FreshReplay = EvaluateArcSurfaceRecreation(
+		Fixture, Consumer, FArcSurfaceState(), Consumer,
+		FArcSurfaceState(), EArcSurfaceRecreationAction::BindFresh);
+	const auto Adopt = EvaluateArcSurfaceRecreation(
+		Fixture, Consumer, Commands.Show.GetState(), Consumer,
+		Commands.Show.GetState(), EArcSurfaceRecreationAction::AdoptExact);
+	const auto AdoptReplay = EvaluateArcSurfaceRecreation(
+		Fixture, Consumer, Commands.Show.GetState(), Consumer,
+		Commands.Show.GetState(), EArcSurfaceRecreationAction::AdoptExact);
+
+	TestTrue(TEXT("fresh empty binding produces one deterministic exact permit"),
+		Fresh.IsValid() && Fresh.IsAuthorized() && Fresh.HasPermit()
+			&& Fresh.GetPermit().IsBindingPermit()
+			&& Fresh.GetDecisionId() == FreshReplay.GetDecisionId()
+			&& Fresh.GetPermit().GetPermitId()
+				== FreshReplay.GetPermit().GetPermitId()
+			&& Fresh.GetPermit().MatchesSnapshot(
+				Fixture.Correlation.ActiveRunId,
+				Consumer, FArcSurfaceState(), FArcSurfaceState()));
+	TestTrue(TEXT("exact visible adoption produces a different bound permit"),
+		Adopt.IsValid() && Adopt.IsAuthorized() && Adopt.HasPermit()
+			&& Adopt.GetPermit().IsBindingPermit()
+			&& Adopt.GetDecisionId() == AdoptReplay.GetDecisionId()
+			&& Adopt.GetPermit().GetPermitId()
+				== AdoptReplay.GetPermit().GetPermitId()
+			&& Adopt.GetPermit().GetPermitId()
+				!= Fresh.GetPermit().GetPermitId()
+			&& Adopt.GetPermit().MatchesSnapshot(
+				Fixture.Correlation.ActiveRunId,
+				Consumer,
+				Commands.Show.GetState(),
+				Commands.Show.GetState()));
+	TestFalse(TEXT("adoption permit rejects a changed observed cursor"),
+		Adopt.GetPermit().MatchesSnapshot(
+			Fixture.Correlation.ActiveRunId,
+			Consumer,
+			Commands.Show.GetState(),
+			Commands.Replace.GetState()));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewSurfaceRecreationCleanupPermitTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceRecreationPolicy.ExplicitCleanupPermits",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewSurfaceRecreationCleanupPermitTest::
+	RunTest(const FString&)
+{
+	using EDisposition = EArcSurfaceRecreationDisposition;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewSurfaceRecreationCleanup"),
+			Fixture, Commands))
+	{
+		return false;
+	}
+	FThrownLifecycleFixture ForeignFixture;
+	FArcPreviewSurfaceCommandSet ForeignCommands;
+	check(BuildArcPreviewSurfaceCommands(
+		*this, TEXT("ArcPreviewSurfaceRecreationCleanupForeign"),
+		ForeignFixture, ForeignCommands));
+
+	const auto Residual = EvaluateArcSurfaceRecreation(
+		Fixture, Consumer, Commands.Hide.GetState(), Consumer,
+		Commands.Show.GetState(), EArcSurfaceRecreationAction::ClearToEmpty);
+	const auto Foreign = EvaluateArcSurfaceRecreation(
+		Fixture, Consumer, Commands.Show.GetState(), Consumer,
+		ForeignCommands.Show.GetState(),
+		EArcSurfaceRecreationAction::ClearToEmpty);
+	const auto Conflict = EvaluateArcSurfaceRecreation(
+		Fixture, Consumer, Commands.Show.GetState(), Consumer,
+		Commands.Replace.GetState(),
+		EArcSurfaceRecreationAction::ClearToEmpty);
+
+	TestTrue(TEXT("all visible conflicts require separately authorized cleanup"),
+		Residual.IsAuthorized()
+			&& Residual.GetDisposition() == EDisposition::ResidualVisible
+			&& Foreign.IsAuthorized()
+			&& Foreign.GetDisposition() == EDisposition::ForeignVisible
+			&& Conflict.IsAuthorized()
+			&& Conflict.GetDisposition() == EDisposition::ConflictingVisible);
+	TestTrue(TEXT("cleanup decisions issue exact non-binding permits"),
+		Residual.GetPermit().IsCleanupPermit()
+			&& Foreign.GetPermit().IsCleanupPermit()
+			&& Conflict.GetPermit().IsCleanupPermit()
+			&& Residual.GetPermit().GetPermitId()
+				!= Foreign.GetPermit().GetPermitId()
+			&& Foreign.GetPermit().GetPermitId()
+				!= Conflict.GetPermit().GetPermitId());
+	TestTrue(TEXT("cleanup permit binds the exact observed visible snapshot"),
+		Foreign.GetPermit().MatchesSnapshot(
+			Fixture.Correlation.ActiveRunId,
+			Consumer,
+			Commands.Show.GetState(),
+			ForeignCommands.Show.GetState()));
+	TestFalse(TEXT("cleanup permit cannot clear a subsequently changed surface"),
+		Foreign.GetPermit().MatchesSnapshot(
+			Fixture.Correlation.ActiveRunId,
+			Consumer,
+			Commands.Show.GetState(),
+			Commands.Show.GetState()));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewSurfaceRecreationRehydrateFenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceRecreationPolicy.RehydrateFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewSurfaceRecreationRehydrateFenceTest::
+	RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewSurfaceRecreationRehydrate"),
+			Fixture, Commands))
+	{
+		return false;
+	}
+	const auto Inspect = EvaluateArcSurfaceRecreation(
+		Fixture, Consumer, Commands.Show.GetState(), Consumer,
+		FArcSurfaceState(), EArcSurfaceRecreationAction::Inspect);
+	const auto Bind = EvaluateArcSurfaceRecreation(
+		Fixture, Consumer, Commands.Show.GetState(), Consumer,
+		FArcSurfaceState(), EArcSurfaceRecreationAction::BindFresh);
+	const auto Adopt = EvaluateArcSurfaceRecreation(
+		Fixture, Consumer, Commands.Show.GetState(), Consumer,
+		FArcSurfaceState(), EArcSurfaceRecreationAction::AdoptExact);
+	const auto Clear = EvaluateArcSurfaceRecreation(
+		Fixture, Consumer, Commands.Show.GetState(), Consumer,
+		FArcSurfaceState(), EArcSurfaceRecreationAction::ClearToEmpty);
+
+	TestTrue(TEXT("inspection exposes one explicit rehydrate requirement"),
+		Inspect.IsValid() && Inspect.IsInspected()
+			&& Inspect.NeedsRehydrate() && !Inspect.HasPermit());
+	TestTrue(TEXT("policy cannot reinterpret rehydrate as bind adopt or clear"),
+		Bind.IsValid() && Bind.IsRejected() && !Bind.HasPermit()
+			&& Adopt.IsValid() && Adopt.IsRejected() && !Adopt.HasPermit()
+			&& Clear.IsValid() && Clear.IsRejected() && !Clear.HasPermit());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewSurfaceRecreationInvalidInputTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceRecreationPolicy.InvalidInputs",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewSurfaceRecreationInvalidInputTest::
+	RunTest(const FString&)
+{
+	using EDisposition = EArcSurfaceRecreationDisposition;
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewSurfaceRecreationInvalid"),
+			Fixture, Commands))
+	{
+		return false;
+	}
+	FThrownLifecycleFixture ForeignFixture;
+	FArcPreviewSurfaceCommandSet ForeignCommands;
+	check(BuildArcPreviewSurfaceCommands(
+		*this, TEXT("ArcPreviewSurfaceRecreationInvalidForeign"),
+		ForeignFixture, ForeignCommands));
+
+	const auto InvalidRun = FArcSurfaceRecreationPolicy::Evaluate(
+		FGuid(), Consumer, FArcSurfaceState(), Consumer,
+		FArcSurfaceState(), EArcSurfaceRecreationAction::Inspect);
+	const auto MissingConsumer = EvaluateArcSurfaceRecreation(
+		Fixture, NAME_None, FArcSurfaceState(), Consumer,
+		FArcSurfaceState(), EArcSurfaceRecreationAction::Inspect);
+	const auto WrongAuthorityRun = EvaluateArcSurfaceRecreation(
+		Fixture, Consumer, ForeignCommands.Show.GetState(), Consumer,
+		FArcSurfaceState(), EArcSurfaceRecreationAction::Inspect);
+	const auto HiddenPhysicalCursor = EvaluateArcSurfaceRecreation(
+		Fixture, Consumer, Commands.Show.GetState(), Consumer,
+		Commands.Hide.GetState(), EArcSurfaceRecreationAction::Inspect);
+	const auto ConsumerMismatchAction = EvaluateArcSurfaceRecreation(
+		Fixture, Consumer, Commands.Show.GetState(),
+		FName(TEXT("Renderer.ArcPreview.Other.r1")),
+		Commands.Show.GetState(), EArcSurfaceRecreationAction::AdoptExact);
+
+	TestTrue(TEXT("invalid Run consumer and authority become typed rejections"),
+		InvalidRun.IsValid() && InvalidRun.IsRejected()
+			&& InvalidRun.GetDisposition() == EDisposition::InputRejected
+			&& MissingConsumer.IsValid() && MissingConsumer.IsRejected()
+			&& WrongAuthorityRun.IsValid() && WrongAuthorityRun.IsRejected());
+	TestTrue(TEXT("physical surface cannot report a hidden audit cursor"),
+		HiddenPhysicalCursor.IsValid() && HiddenPhysicalCursor.IsRejected()
+			&& HiddenPhysicalCursor.GetDisposition()
+				== EDisposition::InputRejected
+			&& !HiddenPhysicalCursor.HasPermit());
+	TestTrue(TEXT("consumer mismatch cannot authorize an otherwise exact state"),
+		ConsumerMismatchAction.IsValid()
+			&& ConsumerMismatchAction.IsRejected()
+			&& ConsumerMismatchAction.GetDisposition()
+				== EDisposition::ConsumerMismatch
+			&& !ConsumerMismatchAction.HasPermit());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewSurfaceRecreationActionFenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceRecreationPolicy.ActionFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewSurfaceRecreationActionFenceTest::
+	RunTest(const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FArcPreviewSurfaceCommandSet Commands;
+	if (!BuildArcPreviewSurfaceCommands(
+			*this, TEXT("ArcPreviewSurfaceRecreationActionFence"),
+			Fixture, Commands))
+	{
+		return false;
+	}
+	const auto AdoptEmpty = EvaluateArcSurfaceRecreation(
+		Fixture, Consumer, FArcSurfaceState(), Consumer,
+		FArcSurfaceState(), EArcSurfaceRecreationAction::AdoptExact);
+	const auto BindVisible = EvaluateArcSurfaceRecreation(
+		Fixture, Consumer, Commands.Show.GetState(), Consumer,
+		Commands.Show.GetState(), EArcSurfaceRecreationAction::BindFresh);
+	const auto ClearExact = EvaluateArcSurfaceRecreation(
+		Fixture, Consumer, Commands.Show.GetState(), Consumer,
+		Commands.Show.GetState(), EArcSurfaceRecreationAction::ClearToEmpty);
+	const auto InvalidAction = EvaluateArcSurfaceRecreation(
+		Fixture, Consumer, FArcSurfaceState(), Consumer,
+		FArcSurfaceState(), EArcSurfaceRecreationAction::Invalid);
+	const auto Inspect = EvaluateArcSurfaceRecreation(
+		Fixture, Consumer, FArcSurfaceState(), Consumer,
+		FArcSurfaceState(), EArcSurfaceRecreationAction::Inspect);
+
+	TestTrue(TEXT("each lifecycle action is fenced to one disposition"),
+		AdoptEmpty.IsValid() && AdoptEmpty.IsRejected()
+			&& BindVisible.IsValid() && BindVisible.IsRejected()
+			&& ClearExact.IsValid() && ClearExact.IsRejected()
+			&& InvalidAction.IsValid() && InvalidAction.IsRejected());
+	TestTrue(TEXT("rejected and inspect decisions never leak a permit"),
+		!AdoptEmpty.HasPermit() && !BindVisible.HasPermit()
+			&& !ClearExact.HasPermit() && !InvalidAction.HasPermit()
+			&& Inspect.IsInspected() && !Inspect.HasPermit());
+	TestTrue(TEXT("decision identity binds the requested action"),
+		AdoptEmpty.GetDecisionId() != Inspect.GetDecisionId()
+			&& InvalidAction.GetDecisionId() != Inspect.GetDecisionId());
 	return true;
 }
 
