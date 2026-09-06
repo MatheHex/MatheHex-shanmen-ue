@@ -783,6 +783,10 @@ bool FOwner::TryEnd(const FGuid& ExpectedRunId, FString& OutDiagnostic)
 		return false;
 	}
 	Candidate.Surface = nullptr;
+	Candidate.IdentitySurface = nullptr;
+	Candidate.BoundSurfaceInstanceId.Invalidate();
+	Candidate.LastSurfaceHandoffReceipt =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffReceipt();
 	Candidate.bOperationInProgress = false;
 	if (!Candidate.IsEmpty())
 	{
@@ -820,12 +824,40 @@ bool FOwner::IsValid() const
 	if (!IsActive())
 	{
 		return Host.IsEmpty() && Adapter.IsEmpty()
-			&& Surface == nullptr && !bOperationInProgress;
+			&& Surface == nullptr && IdentitySurface == nullptr
+			&& !BoundSurfaceInstanceId.IsValid()
+			&& !LastSurfaceHandoffReceipt.IsValid()
+			&& !bOperationInProgress;
 	}
 	if (!Host.IsActive() || !Adapter.IsActive()
 		|| Host.GetRunId() != Adapter.GetRunId()
 		|| Host.GetConsumerDefinitionId()
 			!= Adapter.GetConsumerDefinitionId())
+	{
+		return false;
+	}
+	if ((IdentitySurface == nullptr) != !BoundSurfaceInstanceId.IsValid())
+	{
+		return false;
+	}
+	if (IdentitySurface != nullptr)
+	{
+		if (static_cast<
+				Idemo_mapShanmenThrownWeaponArcPreviewPresentationSurface*>(
+				IdentitySurface)
+				!= Surface
+			|| IdentitySurface->GetSurfaceInstanceId()
+				!= BoundSurfaceInstanceId
+			|| !LastSurfaceHandoffReceipt.IsValid()
+			|| !LastSurfaceHandoffReceipt.MatchesCurrentBinding(
+				Host.GetRunId(),
+				Host.GetConsumerDefinitionId(),
+				BoundSurfaceInstanceId))
+		{
+			return false;
+		}
+	}
+	else if (LastSurfaceHandoffReceipt.IsValid())
 	{
 		return false;
 	}

@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationConsumerAdapter.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHost.h"
+#include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff.h"
 
 enum class
 	Edemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwnerUpdateStatus
@@ -314,8 +315,20 @@ public:
 	{
 		return Adapter;
 	}
+	const FGuid& GetBoundSurfaceInstanceId() const
+	{
+		return BoundSurfaceInstanceId;
+	}
+	const Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffReceipt&
+	GetLastSurfaceHandoffReceipt() const
+	{
+		return LastSurfaceHandoffReceipt;
+	}
 
 private:
+	friend class
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff;
+
 	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwnerUpdateResult
 	MakeUpdateResult(
 		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwnerUpdateStatus
@@ -359,5 +372,10 @@ private:
 	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHost Host;
 	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationConsumerAdapter Adapter;
 	Idemo_mapShanmenThrownWeaponArcPreviewPresentationSurface* Surface = nullptr;
+	Idemo_mapShanmenThrownWeaponArcPreviewPresentationHandoffSurface*
+		IdentitySurface = nullptr;
+	FGuid BoundSurfaceInstanceId;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffReceipt
+		LastSurfaceHandoffReceipt;
 	bool bOperationInProgress = false;
 };

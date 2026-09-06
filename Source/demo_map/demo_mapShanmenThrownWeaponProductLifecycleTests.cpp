@@ -23,6 +23,7 @@
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryCoordinator.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryHost.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationDeliverySession.h"
+#include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceLifecycleExecutor.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceOwnershipTransition.h"
@@ -8025,6 +8026,603 @@ bool Fdemo_mapThrownWeaponArcPreviewSurfaceOwnershipReentrantTest::RunTest(
 			&& Reentrant.ReentrantResult.GetIdentityQueryCount() == 0
 			&& Reentrant.ReentrantResult.GetPolicySnapshotReadCount() == 0
 			&& !Reentrant.ReentrantResult.HasTransitionTicket());
+	return true;
+}
+
+namespace
+{
+	using EArcOwnerHandoffStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffStatus;
+	using EArcRetirementOutcome =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceRetirementOutcome;
+	using FArcOwnerHandoff =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff;
+	using FArcOwnerHandoffResult =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffResult;
+	using FArcRetirementResponse =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceRetirementResponse;
+
+	class FFakeArcPreviewHandoffSurface final
+		: public Idemo_mapShanmenThrownWeaponArcPreviewPresentationHandoffSurface
+	{
+	public:
+		enum class ERetirementMode : uint8
+		{
+			Applied,
+			Rejected,
+			AppliedWithoutMutation,
+			InvalidAfterMutation
+		};
+
+		FFakeArcPreviewHandoffSurface(
+			const FGuid& InSurfaceInstanceId,
+			const FName InConsumerDefinitionId,
+			const FArcSurfaceState& InCursor = FArcSurfaceState())
+			: SurfaceInstanceId(InSurfaceInstanceId)
+			, ConsumerDefinitionId(InConsumerDefinitionId)
+			, Cursor(InCursor)
+		{
+		}
+
+		virtual FGuid GetSurfaceInstanceId() const override
+		{
+			++IdentityQueryCount;
+			return SurfaceInstanceId;
+		}
+
+		virtual FName GetConsumerDefinitionId() const override
+		{
+			++ConsumerQueryCount;
+			return ConsumerDefinitionId;
+		}
+
+		virtual FArcSurfaceState GetSurfaceCursor() const override
+		{
+			++CursorQueryCount;
+			return Cursor;
+		}
+
+		virtual FArcSurfaceResponse Show(
+			const FArcSurfaceCommand& Command) override
+		{
+			return ApplyCommand(Command, EArcSurfaceCommand::Show);
+		}
+
+		virtual FArcSurfaceResponse Replace(
+			const FArcSurfaceCommand& Command) override
+		{
+			return ApplyCommand(Command, EArcSurfaceCommand::Replace);
+		}
+
+		virtual FArcSurfaceResponse Hide(
+			const FArcSurfaceCommand& Command) override
+		{
+			return ApplyCommand(Command, EArcSurfaceCommand::Hide);
+		}
+
+		virtual FArcSurfaceLifecycleResponse ClearToEmpty(
+			const FArcSurfaceLifecyclePermit& Permit) override
+		{
+			++LifecycleClearCallCount;
+			const FArcSurfaceState Previous = Cursor;
+			Cursor = FArcSurfaceState();
+			FArcSurfaceLifecycleResponse Response;
+			FString Diagnostic;
+			check(FArcSurfaceLifecycleResponse::TryCreate(
+				Permit,
+				EArcSurfaceLifecycleResponseOutcome::Applied,
+				FName(TEXT("Renderer.ArcPreview.HandoffSurface.Cleared")),
+				Previous,
+				Cursor,
+				Response,
+				Diagnostic));
+			return Response;
+		}
+
+		virtual FArcRetirementResponse RetireForHandoff(
+			const FArcSurfaceOwnershipTicket& TransitionTicket) override
+		{
+			++RetirementCallCount;
+			if (ReentrantCoordinator && ReentrantOwner
+				&& ReentrantTicket && ReentrantNewSurface)
+			{
+				ReentrantResult = ReentrantCoordinator->Execute(
+					*ReentrantOwner,
+					*ReentrantTicket,
+					*this,
+					*ReentrantNewSurface);
+			}
+
+			const FArcSurfaceState Previous = Cursor;
+			if (RetirementMode == ERetirementMode::InvalidAfterMutation)
+			{
+				Cursor = FArcSurfaceState();
+				return FArcRetirementResponse();
+			}
+			const bool bRejected =
+				RetirementMode == ERetirementMode::Rejected;
+			if (RetirementMode == ERetirementMode::Applied)
+			{
+				Cursor = FArcSurfaceState();
+			}
+			const FArcSurfaceState ReportedCursor = bRejected
+				? Previous
+				: FArcSurfaceState();
+			FArcRetirementResponse Response;
+			FString Diagnostic;
+			check(FArcRetirementResponse::TryCreate(
+				TransitionTicket,
+				SurfaceInstanceId,
+				bRejected
+					? EArcRetirementOutcome::Rejected
+					: EArcRetirementOutcome::Applied,
+				bRejected
+					? FName(TEXT("Renderer.ArcPreview.Handoff.RetirementRejected"))
+					: FName(TEXT("Renderer.ArcPreview.Handoff.Retired")),
+				Previous,
+				ReportedCursor,
+				Response,
+				Diagnostic));
+			return Response;
+		}
+
+		void ForceCursor(const FArcSurfaceState& Value) { Cursor = Value; }
+		void SetConsumerDefinitionId(const FName Value)
+		{
+			ConsumerDefinitionId = Value;
+		}
+		void SetRetirementMode(const ERetirementMode Value)
+		{
+			RetirementMode = Value;
+		}
+		void SetReentrantRetirement(
+			FArcOwnerHandoff& Coordinator,
+			FArcCompositionOwner& Owner,
+			const FArcSurfaceOwnershipTicket& Ticket,
+			FFakeArcPreviewHandoffSurface& NewSurface)
+		{
+			ReentrantCoordinator = &Coordinator;
+			ReentrantOwner = &Owner;
+			ReentrantTicket = &Ticket;
+			ReentrantNewSurface = &NewSurface;
+		}
+
+		mutable int32 IdentityQueryCount = 0;
+		mutable int32 ConsumerQueryCount = 0;
+		mutable int32 CursorQueryCount = 0;
+		int32 MutationCallCount = 0;
+		int32 LifecycleClearCallCount = 0;
+		int32 RetirementCallCount = 0;
+		FArcOwnerHandoffResult ReentrantResult;
+
+	private:
+		FArcSurfaceResponse ApplyCommand(
+			const FArcSurfaceCommand& Command,
+			const EArcSurfaceCommand ExpectedKind)
+		{
+			++MutationCallCount;
+			if (!Command.IsValid() || Command.GetKind() != ExpectedKind)
+			{
+				return FArcSurfaceResponse();
+			}
+			const FArcSurfaceState Previous = Cursor;
+			Cursor = SurfaceCursorForCommand(Command);
+			FArcSurfaceResponse Response;
+			FString Diagnostic;
+			check(FArcSurfaceResponse::TryCreate(
+				Command,
+				EArcSurfaceOutcome::Applied,
+				FName(TEXT("Renderer.ArcPreview.HandoffSurface.Applied")),
+				Previous,
+				Cursor,
+				Response,
+				Diagnostic));
+			return Response;
+		}
+
+		FGuid SurfaceInstanceId;
+		FName ConsumerDefinitionId = NAME_None;
+		FArcSurfaceState Cursor;
+		ERetirementMode RetirementMode = ERetirementMode::Applied;
+		FArcOwnerHandoff* ReentrantCoordinator = nullptr;
+		FArcCompositionOwner* ReentrantOwner = nullptr;
+		const FArcSurfaceOwnershipTicket* ReentrantTicket = nullptr;
+		FFakeArcPreviewHandoffSurface* ReentrantNewSurface = nullptr;
+	};
+
+	bool BuildArcOwnerHandoffTicket(
+		FAutomationTestBase& Test,
+		const FArcCompositionOwner& Owner,
+		FFakeArcPreviewHandoffSurface& NewSurface,
+		const EArcSurfaceRecreationAction Action,
+		FArcSurfaceOwnershipTicket& OutTicket)
+	{
+		FArcSurfaceOwnershipRequest Request;
+		FString Diagnostic;
+		if (!FArcSurfaceOwnershipRequest::TryCreate(
+				Owner.GetRunId(),
+				Owner.GetConsumerDefinitionId(),
+				Owner.GetHostCursor(),
+				NewSurface.GetSurfaceInstanceId(),
+				Action,
+				Request,
+				Diagnostic))
+		{
+			Test.AddError(Diagnostic);
+			return false;
+		}
+		FArcSurfaceOwnershipTransition Transition;
+		const FArcSurfaceOwnershipResult Result =
+			Transition.Execute(Request, NewSurface);
+		if (!Result.IsValid() || !Result.DidAuthorizeBinding()
+			|| !Result.HasTransitionTicket())
+		{
+			Test.AddError(Result.GetDiagnostic());
+			return false;
+		}
+		OutTicket = Result.GetTransitionTicket();
+		return OutTicket.IsValid();
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffEvidenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff.EvidenceContract",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffEvidenceTest::RunTest(
+	const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4700001, 0xF4700002, 0xF4700003, 0xF4700004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4701001, 0xF4701002, 0xF4701003, 0xF4701004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	if (!StartArcPreviewCompositionOwner(
+			*this, TEXT("ArcPreviewOwnerHandoffEvidence"),
+			Fixture, Owner, OldSurface))
+	{
+		return false;
+	}
+	const int32 OldIdentityReads = OldSurface.IdentityQueryCount;
+	const int32 NewIdentityReads = NewSurface.IdentityQueryCount;
+	FArcOwnerHandoff Coordinator;
+	const auto Invalid = Coordinator.Execute(
+		Owner, FArcSurfaceOwnershipTicket(), OldSurface, NewSurface);
+	TestTrue(TEXT("invalid ticket rejects before every surface callback"),
+		Invalid.IsValid()
+			&& Invalid.GetStatus() == EArcOwnerHandoffStatus::TicketInvalid
+			&& !Invalid.IsAccepted() && !Invalid.DidCallRetirement()
+			&& OldSurface.IdentityQueryCount == OldIdentityReads
+			&& NewSurface.IdentityQueryCount == NewIdentityReads
+			&& OldSurface.RetirementCallCount == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffFreshTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff.BindFreshCommit",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffFreshTest::RunTest(
+	const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4710001, 0xF4710002, 0xF4710003, 0xF4710004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4711001, 0xF4711002, 0xF4711003, 0xF4711004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	if (!StartArcPreviewCompositionOwner(
+			*this, TEXT("ArcPreviewOwnerHandoffFresh"),
+			Fixture, Owner, OldSurface))
+	{
+		return false;
+	}
+	FArcSurfaceOwnershipTicket Ticket;
+	if (!BuildArcOwnerHandoffTicket(
+			*this, Owner, NewSurface,
+			EArcSurfaceRecreationAction::BindFresh, Ticket))
+	{
+		return false;
+	}
+	FArcOwnerHandoff Coordinator;
+	const auto Committed = Coordinator.Execute(
+		Owner, Ticket, OldSurface, NewSurface);
+	const auto Replay = Coordinator.Execute(
+		Owner, Ticket, OldSurface, NewSurface);
+	const auto Show = UpdateArcPreviewCompositionOwner(
+		Owner, MakeArcPreviewChoice(false), Fixture);
+	TestTrue(TEXT("fresh ticket swaps two empty surfaces without retirement"),
+		Committed.IsValid() && Committed.WasCommitted()
+			&& Committed.HasReceipt()
+			&& Committed.GetReceipt().IsFreshBound()
+			&& !Committed.DidCallRetirement()
+			&& OldSurface.RetirementCallCount == 0
+			&& Owner.GetBoundSurfaceInstanceId()
+				== Ticket.GetSurfaceInstanceId());
+	TestTrue(TEXT("exact consumed ticket replays without mutation"),
+		Replay.IsValid() && Replay.IsReplay()
+			&& !Replay.DidCallRetirement()
+			&& Replay.GetReceipt().GetReceiptId()
+				== Committed.GetReceipt().GetReceiptId());
+	TestTrue(TEXT("post-handoff Owner dispatch reaches only replacement"),
+		Show.IsValid() && Show.WasApplied()
+			&& OldSurface.MutationCallCount == 0
+			&& NewSurface.MutationCallCount == 1
+			&& Owner.IsValid() && Owner.IsSynchronized());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffAdoptTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff.AdoptExactCommit",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffAdoptTest::RunTest(
+	const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4720001, 0xF4720002, 0xF4720003, 0xF4720004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4721001, 0xF4721002, 0xF4721003, 0xF4721004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	if (!StartArcPreviewCompositionOwner(
+			*this, TEXT("ArcPreviewOwnerHandoffAdopt"),
+			Fixture, Owner, OldSurface))
+	{
+		return false;
+	}
+	const auto Show = UpdateArcPreviewCompositionOwner(
+		Owner, MakeArcPreviewChoice(false), Fixture);
+	NewSurface.ForceCursor(Owner.GetSurfaceCursor());
+	FArcSurfaceOwnershipTicket Ticket;
+	if (!Show.WasApplied()
+		|| !BuildArcOwnerHandoffTicket(
+			*this, Owner, NewSurface,
+			EArcSurfaceRecreationAction::AdoptExact, Ticket))
+	{
+		return false;
+	}
+	FArcOwnerHandoff Coordinator;
+	const auto Committed = Coordinator.Execute(
+		Owner, Ticket, OldSurface, NewSurface);
+	const auto Replay = Coordinator.Execute(
+		Owner, Ticket, OldSurface, NewSurface);
+	const auto Replace = UpdateArcPreviewCompositionOwner(
+		Owner, MakeArcPreviewChoice(true), Fixture);
+	TestTrue(TEXT("exact adoption retires old visibility once before commit"),
+		Committed.IsValid() && Committed.WasCommitted()
+			&& Committed.DidCallRetirement()
+			&& Committed.GetReceipt().IsExactAdopted()
+			&& OldSurface.RetirementCallCount == 1
+			&& OldSurface.GetSurfaceCursor().IsEmpty()
+			&& Replay.IsReplay()
+			&& OldSurface.RetirementCallCount == 1);
+	TestTrue(TEXT("visible handoff preserves authority and redirects updates"),
+		Replace.IsValid() && Replace.WasApplied()
+			&& OldSurface.MutationCallCount == 1
+			&& NewSurface.MutationCallCount == 1
+			&& Owner.IsValid() && Owner.IsSynchronized());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRetryTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff.RetirementRejectedRetry",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRetryTest::RunTest(
+	const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4730001, 0xF4730002, 0xF4730003, 0xF4730004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4731001, 0xF4731002, 0xF4731003, 0xF4731004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	if (!StartArcPreviewCompositionOwner(
+			*this, TEXT("ArcPreviewOwnerHandoffRetry"),
+			Fixture, Owner, OldSurface))
+	{
+		return false;
+	}
+	UpdateArcPreviewCompositionOwner(
+		Owner, MakeArcPreviewChoice(false), Fixture);
+	NewSurface.ForceCursor(Owner.GetSurfaceCursor());
+	FArcSurfaceOwnershipTicket Ticket;
+	if (!BuildArcOwnerHandoffTicket(
+			*this, Owner, NewSurface,
+			EArcSurfaceRecreationAction::AdoptExact, Ticket))
+	{
+		return false;
+	}
+	OldSurface.SetRetirementMode(
+		FFakeArcPreviewHandoffSurface::ERetirementMode::Rejected);
+	FArcOwnerHandoff Coordinator;
+	const auto Rejected = Coordinator.Execute(
+		Owner, Ticket, OldSurface, NewSurface);
+	OldSurface.SetRetirementMode(
+		FFakeArcPreviewHandoffSurface::ERetirementMode::Applied);
+	const auto Retried = Coordinator.Execute(
+		Owner, Ticket, OldSurface, NewSurface);
+	TestTrue(TEXT("unchanged retirement rejection preserves exact retry"),
+		Rejected.IsValid() && Rejected.WasRetirementRejected()
+			&& Rejected.CanRetryExactTicket()
+			&& Rejected.IsOwnerValidAfter()
+			&& !Rejected.HasReceipt());
+	TestTrue(TEXT("one later explicit attempt can consume the same ticket"),
+		Retried.IsValid() && Retried.WasCommitted()
+			&& OldSurface.RetirementCallCount == 2
+			&& Owner.GetLastSurfaceHandoffReceipt().IsExactAdopted());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffFenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff.IdentityAndSnapshotFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffFenceTest::RunTest(
+	const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture Fixture;
+	FFakeArcPreviewHandoffSurface OldSurface(
+		FGuid(0xF4740001, 0xF4740002, 0xF4740003, 0xF4740004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface WrongOld(
+		FGuid(0xF4740101, 0xF4740102, 0xF4740103, 0xF4740104),
+		Consumer);
+	FFakeArcPreviewHandoffSurface NewSurface(
+		FGuid(0xF4741001, 0xF4741002, 0xF4741003, 0xF4741004),
+		Consumer);
+	FArcCompositionOwner Owner;
+	if (!StartArcPreviewCompositionOwner(
+			*this, TEXT("ArcPreviewOwnerHandoffFence"),
+			Fixture, Owner, OldSurface))
+	{
+		return false;
+	}
+	FArcSurfaceOwnershipTicket Ticket;
+	if (!BuildArcOwnerHandoffTicket(
+			*this, Owner, NewSurface,
+			EArcSurfaceRecreationAction::BindFresh, Ticket))
+	{
+		return false;
+	}
+	const int32 NewReads = NewSurface.IdentityQueryCount;
+	FArcOwnerHandoff Coordinator;
+	const auto WrongPointer = Coordinator.Execute(
+		Owner, Ticket, WrongOld, NewSurface);
+	const bool bWrongPointerReadNothing =
+		WrongOld.IdentityQueryCount == 0
+		&& NewSurface.IdentityQueryCount == NewReads;
+	NewSurface.SetConsumerDefinitionId(
+		FName(TEXT("Renderer.ArcPreview.Foreign.r1")));
+	const auto DriftedNew = Coordinator.Execute(
+		Owner, Ticket, OldSurface, NewSurface);
+	TestTrue(TEXT("old pointer mismatch rejects before supplied surface reads"),
+		WrongPointer.IsValid()
+			&& WrongPointer.GetStatus()
+				== EArcOwnerHandoffStatus::OldSurfaceMismatch
+			&& bWrongPointerReadNothing
+			&& OldSurface.RetirementCallCount == 0);
+	TestTrue(TEXT("replacement snapshot substitution cannot retire old surface"),
+		DriftedNew.IsValid()
+			&& DriftedNew.GetStatus()
+				== EArcOwnerHandoffStatus::NewSurfaceMismatch
+			&& OldSurface.RetirementCallCount == 0
+			&& Owner.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffInvariantTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff.InvariantAndReentrant",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffInvariantTest::RunTest(
+	const FString&)
+{
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture BrokenFixture;
+	FFakeArcPreviewHandoffSurface BrokenOld(
+		FGuid(0xF4750001, 0xF4750002, 0xF4750003, 0xF4750004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface BrokenNew(
+		FGuid(0xF4751001, 0xF4751002, 0xF4751003, 0xF4751004),
+		Consumer);
+	FArcCompositionOwner BrokenOwner;
+	if (!StartArcPreviewCompositionOwner(
+			*this, TEXT("ArcPreviewOwnerHandoffBroken"),
+			BrokenFixture, BrokenOwner, BrokenOld))
+	{
+		return false;
+	}
+	UpdateArcPreviewCompositionOwner(
+		BrokenOwner, MakeArcPreviewChoice(false), BrokenFixture);
+	BrokenNew.ForceCursor(BrokenOwner.GetSurfaceCursor());
+	FArcSurfaceOwnershipTicket BrokenTicket;
+	if (!BuildArcOwnerHandoffTicket(
+			*this, BrokenOwner, BrokenNew,
+			EArcSurfaceRecreationAction::AdoptExact, BrokenTicket))
+	{
+		return false;
+	}
+	BrokenOld.SetRetirementMode(
+		FFakeArcPreviewHandoffSurface::ERetirementMode::InvalidAfterMutation);
+	FArcOwnerHandoff BrokenCoordinator;
+	const auto Broken = BrokenCoordinator.Execute(
+		BrokenOwner, BrokenTicket, BrokenOld, BrokenNew);
+	TestTrue(TEXT("mutation with invalid evidence fails closed for recovery"),
+		Broken.IsValid()
+			&& Broken.GetStatus()
+				== EArcOwnerHandoffStatus::RetirementResponseInvalid
+			&& Broken.DidCallRetirement()
+			&& Broken.NeedsManualRecovery()
+			&& !Broken.IsOwnerValidAfter()
+			&& !Broken.HasReceipt());
+
+	FThrownLifecycleFixture ReentrantFixture;
+	FFakeArcPreviewHandoffSurface ReentrantOld(
+		FGuid(0xF4752001, 0xF4752002, 0xF4752003, 0xF4752004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface ReentrantNew(
+		FGuid(0xF4753001, 0xF4753002, 0xF4753003, 0xF4753004),
+		Consumer);
+	FArcCompositionOwner ReentrantOwner;
+	if (!StartArcPreviewCompositionOwner(
+			*this, TEXT("ArcPreviewOwnerHandoffReentrant"),
+			ReentrantFixture, ReentrantOwner, ReentrantOld))
+	{
+		return false;
+	}
+	UpdateArcPreviewCompositionOwner(
+		ReentrantOwner, MakeArcPreviewChoice(false), ReentrantFixture);
+	ReentrantNew.ForceCursor(ReentrantOwner.GetSurfaceCursor());
+	FArcSurfaceOwnershipTicket ReentrantTicket;
+	if (!BuildArcOwnerHandoffTicket(
+			*this, ReentrantOwner, ReentrantNew,
+			EArcSurfaceRecreationAction::AdoptExact, ReentrantTicket))
+	{
+		return false;
+	}
+	FArcOwnerHandoff ReentrantCoordinator;
+	ReentrantOld.SetReentrantRetirement(
+		ReentrantCoordinator,
+		ReentrantOwner,
+		ReentrantTicket,
+		ReentrantNew);
+	const auto Outer = ReentrantCoordinator.Execute(
+		ReentrantOwner,
+		ReentrantTicket,
+		ReentrantOld,
+		ReentrantNew);
+	TestTrue(TEXT("outer guarded retirement still commits once"),
+		Outer.IsValid() && Outer.WasCommitted()
+			&& ReentrantOld.RetirementCallCount == 1
+			&& ReentrantOwner.IsValid());
+	TestTrue(TEXT("retirement callback cannot re-enter Owner handoff"),
+		ReentrantOld.ReentrantResult.IsValid()
+			&& ReentrantOld.ReentrantResult.GetStatus()
+				== EArcOwnerHandoffStatus::OperationInProgress
+			&& !ReentrantOld.ReentrantResult.DidCallRetirement()
+			&& !ReentrantOld.ReentrantResult.HasReceipt());
 	return true;
 }
 

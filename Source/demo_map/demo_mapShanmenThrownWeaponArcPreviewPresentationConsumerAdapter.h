@@ -3,6 +3,8 @@
 #include "CoreMinimal.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationDeliveryCoordinator.h"
 
+class Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff;
+
 enum class
 	Edemo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceResponseOutcome
 	: uint8
@@ -236,6 +238,9 @@ public:
 	}
 
 private:
+	friend class
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff;
+
 	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationConsumerAdapterResult
 	MakeResult(
 		Edemo_mapShanmenThrownWeaponArcPreviewPresentationConsumerAdapterStatus
