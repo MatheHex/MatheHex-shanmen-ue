@@ -33,6 +33,7 @@
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorage.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal.h"
+#include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryTerminalAdoptionSession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSurfaceLifecycleExecutor.h"
@@ -8097,6 +8098,16 @@ namespace
 		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryTerminalAdoptionSessionResult;
 	using EArcOwnerHandoffRecoveryTerminalAdoptionSessionStatus =
 		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryTerminalAdoptionSessionStatus;
+	using FArcOwnerHandoffRecoveryNextGenerationRotationRequest =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationRequest;
+	using FArcOwnerHandoffRecoveryNextGenerationRotation =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotation;
+	using FArcOwnerHandoffRecoveryNextGenerationRotationSession =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSession;
+	using FArcOwnerHandoffRecoveryNextGenerationRotationSessionResult =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSessionResult;
+	using EArcOwnerHandoffRecoveryNextGenerationRotationSessionStatus =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSessionStatus;
 	using EArcOwnerHandoffRecoveryJournalKind =
 		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournalRecordKind;
 	using EArcOwnerHandoffRecoveryJournalDisposition =
@@ -9444,6 +9455,91 @@ namespace
 		FArcOwnerHandoffRecoveryTerminalAdoptionRequest Request;
 		FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority
 			AdoptionAuthority;
+	};
+
+	struct FArcOwnerHandoffRecoveryNextGenerationRotationFixture
+	{
+		FArcOwnerHandoffRecoveryNextGenerationRotationFixture()
+			: NextOldSurface(
+				FGuid(0xF4580001, 0xF4580002, 0xF4580003, 0xF4580004),
+				Consumer)
+			, NextNewSurface(
+				FGuid(0xF4581001, 0xF4581002, 0xF4581003, 0xF4581004),
+				Consumer)
+		{
+		}
+
+		bool Build(FAutomationTestBase& Test, const TCHAR* Label)
+		{
+			if (!Terminal.Build(Test, Label))
+			{
+				return false;
+			}
+			FArcOwnerHandoffRecoveryTerminalAdoptionSession AdoptionSession;
+			AdoptionResult = Terminal.Execute(AdoptionSession);
+			CurrentTerminalJournal = AdoptionResult.GetTerminalJournal();
+			const FString CheckpointLabel = FString::Printf(
+				TEXT("%s.NextCheckpoint"), Label);
+			FString Diagnostic;
+			if (!AdoptionResult.IsSuccess()
+				|| !BuildArcOwnerHandoffRecoveryCheckpoint(
+					Test,
+					*CheckpointLabel,
+					NextLifecycle,
+					NextOwner,
+					NextOldSurface,
+					NextNewSurface,
+					NextFailed,
+					NewCheckpoint)
+				|| !FArcOwnerHandoffRecoveryNextGenerationRotationRequest::
+					TryCreate(
+						AdoptionResult.GetAdoption(),
+						NewCheckpoint,
+						Request,
+						Diagnostic))
+			{
+				Test.AddError(
+					Diagnostic.IsEmpty()
+						? TEXT(
+							"Could not build next-generation recovery rotation fixture.")
+						: Diagnostic);
+				return false;
+			}
+			return true;
+		}
+
+		FArcOwnerHandoffRecoveryNextGenerationRotationSessionResult Execute(
+			FArcOwnerHandoffRecoveryNextGenerationRotationSession& Session,
+			const FArcOwnerHandoffRecoveryJournal& CurrentJournal)
+		{
+			return Session.ExecuteExplicit(
+				Request,
+				Terminal.Completion.CompletionStorageContext,
+				Terminal.Completion.Admission.StorageContext,
+				CurrentJournal,
+				Terminal.Completion.Admission.FileSystem,
+				Terminal.Completion.Authority,
+				Terminal.AdoptionAuthority,
+				Terminal.Completion.Authority);
+		}
+
+		FArcOwnerHandoffRecoveryNextGenerationRotationSessionResult Execute(
+			FArcOwnerHandoffRecoveryNextGenerationRotationSession& Session)
+		{
+			return Execute(Session, CurrentTerminalJournal);
+		}
+
+		const FName Consumer = FName(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+		FArcOwnerHandoffRecoveryTerminalAdoptionFixture Terminal;
+		FArcOwnerHandoffRecoveryTerminalAdoptionSessionResult AdoptionResult;
+		FArcOwnerHandoffRecoveryJournal CurrentTerminalJournal;
+		FThrownLifecycleFixture NextLifecycle;
+		FFakeArcPreviewHandoffSurface NextOldSurface;
+		FFakeArcPreviewHandoffSurface NextNewSurface;
+		FArcCompositionOwner NextOwner;
+		FArcOwnerHandoffResult NextFailed;
+		FArcOwnerHandoffRecoveryCheckpoint NewCheckpoint;
+		FArcOwnerHandoffRecoveryNextGenerationRotationRequest Request;
 	};
 
 	bool OverwriteUint32BigEndian(
@@ -16060,6 +16156,567 @@ RunTest(const FString&)
 					OperationInProgress
 			&& Outer.IsValid() && Outer.IsSuccess()
 			&& Fixture.AdoptionAuthority.AdvanceCount == 1
+			&& !Session.IsOperationInProgress());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryNextGenerationRotationContractTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSession.RequestContractAndDeterminism",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryNextGenerationRotationContractTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryNextGenerationRotationFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("RecoveryNextGenerationRotationContract")))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryNextGenerationRotationRequest Duplicate;
+	FArcOwnerHandoffRecoveryNextGenerationRotationRequest Reused;
+	FString Diagnostic;
+	const bool bDuplicate =
+		FArcOwnerHandoffRecoveryNextGenerationRotationRequest::TryCreate(
+			Fixture.AdoptionResult.GetAdoption(),
+			Fixture.NewCheckpoint,
+			Duplicate,
+			Diagnostic);
+	const bool bReused =
+		FArcOwnerHandoffRecoveryNextGenerationRotationRequest::TryCreate(
+			Fixture.AdoptionResult.GetAdoption(),
+			Fixture.Terminal.Completion.Admission.Checkpoint,
+			Reused,
+			Diagnostic);
+
+	TestTrue(TEXT("same adopted terminal and checkpoint derive one request id"),
+		bDuplicate && Duplicate.IsValid()
+			&& Duplicate.GetRequestId() == Fixture.Request.GetRequestId());
+	TestTrue(TEXT("source-generation checkpoint identity cannot be reused"),
+		!bReused && !Reused.IsValid());
+	TestTrue(TEXT("request exposes the exact G to G+1 boundary"),
+		Fixture.Request.IsValid()
+			&& Fixture.Request.GetAdoption().GetGeneration() == 1
+			&& Fixture.Request.GetAdoption().GetNextGeneration() == 2
+			&& Fixture.Request.GetNewCheckpoint().GetCheckpointId()
+				== Fixture.NewCheckpoint.GetCheckpointId());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryNextGenerationRotationExactTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSession.ExactTrustedRotation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryNextGenerationRotationExactTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryNextGenerationRotationFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("RecoveryNextGenerationRotationExact")))
+	{
+		return false;
+	}
+	TArray<uint8> CompletionBytesBefore;
+	if (!Fixture.Terminal.Completion.Admission.FileSystem.TryGetFile(
+			Fixture.Terminal.Completion.CompletionStorageContext.GetPrimaryPath(),
+			CompletionBytesBefore))
+	{
+		AddError(TEXT("Could not capture completion evidence before rotation."));
+		return false;
+	}
+	const FGuid SourceJournalId =
+		Fixture.CurrentTerminalJournal.GetJournalId();
+	const int32 SourceRecordCount =
+		Fixture.CurrentTerminalJournal.GetRecordCount();
+	const int32 WritesBefore =
+		Fixture.Terminal.Completion.Admission.FileSystem.WriteCount;
+	const int32 PendingReadsBefore =
+		Fixture.Terminal.Completion.Authority.Pending.ReadCount;
+	const int32 PendingAdvancesBefore =
+		Fixture.Terminal.Completion.Authority.Pending.AdvanceCount;
+	const int32 AdoptionAdvancesBefore =
+		Fixture.Terminal.AdoptionAuthority.AdvanceCount;
+	FArcOwnerHandoffRecoveryNextGenerationRotationSession Session;
+	const auto Result = Fixture.Execute(Session);
+	TArray<uint8> CompletionBytesAfter;
+	const bool bCompletionPreserved =
+		Fixture.Terminal.Completion.Admission.FileSystem.TryGetFile(
+			Fixture.Terminal.Completion.CompletionStorageContext.GetPrimaryPath(),
+			CompletionBytesAfter)
+		&& CompletionBytesAfter == CompletionBytesBefore;
+
+	TestTrue(TEXT("exact trusted evidence rotates one pending generation"),
+		Result.IsValid() && Result.IsSuccess() && !Result.IsReplay()
+			&& Result.GetStatus()
+				== EArcOwnerHandoffRecoveryNextGenerationRotationSessionStatus::
+					Rotated
+			&& Result.WasCompletionTrusted()
+			&& Result.WasAdoptionTrusted()
+			&& Result.WasPendingAuthorityAccepted());
+	TestTrue(TEXT("rotation is the exact terminal prefix plus one checkpoint"),
+		Result.GetRotation().IsValid()
+			&& Result.GetRotation().GetSourceGeneration() == 1
+			&& Result.GetRotation().GetTargetGeneration() == 2
+			&& Result.GetRotation().GetSourceTerminalJournal().GetJournalId()
+				== SourceJournalId
+			&& Result.GetRotation().GetPendingJournal().GetRecordCount()
+				== SourceRecordCount + 1
+			&& Result.GetRotation().GetPendingJournal().MatchesLatestCheckpoint(
+				Fixture.NewCheckpoint)
+			&& Result.GetRotation().GetPendingBundle().GetGeneration() == 2);
+	TestTrue(TEXT("rotation performs one durable write and one pending CAS"),
+		Fixture.Terminal.Completion.Admission.FileSystem.WriteCount
+				== WritesBefore + 1
+			&& Fixture.Terminal.Completion.Authority.Pending.ReadCount
+				== PendingReadsBefore + 2
+			&& Fixture.Terminal.Completion.Authority.Pending.AdvanceCount
+				== PendingAdvancesBefore + 1);
+	TestTrue(TEXT("source terminal completion and adoption authority stay read-only"),
+		Fixture.CurrentTerminalJournal.GetJournalId() == SourceJournalId
+			&& Fixture.CurrentTerminalJournal.GetRecordCount()
+				== SourceRecordCount
+			&& bCompletionPreserved
+			&& Fixture.Terminal.AdoptionAuthority.AdvanceCount
+				== AdoptionAdvancesBefore
+			&& !Result.DidMutateSurface()
+			&& !Result.DidWriteCompletionEvidence()
+			&& !Result.DidAdvanceAdoptionAuthority()
+			&& !Session.IsOperationInProgress());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryNextGenerationRotationReplayTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSession.TrustedReplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryNextGenerationRotationReplayTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryNextGenerationRotationFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("RecoveryNextGenerationRotationReplay")))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryNextGenerationRotationSession FirstSession;
+	const auto First = Fixture.Execute(FirstSession);
+	const int32 WritesAfterFirst =
+		Fixture.Terminal.Completion.Admission.FileSystem.WriteCount;
+	const int32 AdvancesAfterFirst =
+		Fixture.Terminal.Completion.Authority.Pending.AdvanceCount;
+	FArcOwnerHandoffRecoveryNextGenerationRotationSession ReplaySession;
+	const auto Replay = Fixture.Execute(ReplaySession);
+
+	TestTrue(TEXT("exact rotation replay returns the same durable identity"),
+		First.IsSuccess() && Replay.IsValid() && Replay.IsSuccess()
+			&& Replay.IsReplay()
+			&& Replay.GetStatus()
+				== EArcOwnerHandoffRecoveryNextGenerationRotationSessionStatus::
+					Replayed
+			&& Replay.GetRotation().GetRotationId()
+				== First.GetRotation().GetRotationId());
+	TestTrue(TEXT("replay performs no second write or authority advance"),
+		Fixture.Terminal.Completion.Admission.FileSystem.WriteCount
+				== WritesAfterFirst
+			&& Fixture.Terminal.Completion.Authority.Pending.AdvanceCount
+				== AdvancesAfterFirst
+			&& Replay.GetBundleCommitResult().GetStatus()
+				== EArcOwnerHandoffRecoveryBundleWatermarkCommitStatus::
+					AlreadyCommitted);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryNextGenerationRotationCompletionFenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSession.CompletionTrustFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryNextGenerationRotationCompletionFenceTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryNextGenerationRotationFixture MissingFixture;
+	if (!MissingFixture.Build(
+			*this, TEXT("RecoveryNextGenerationRotationCompletionMissing")))
+	{
+		return false;
+	}
+	MissingFixture.Terminal.Completion.Authority.Completion.ClearState();
+	const int32 MissingWrites =
+		MissingFixture.Terminal.Completion.Admission.FileSystem.WriteCount;
+	FArcOwnerHandoffRecoveryNextGenerationRotationSession MissingSession;
+	const auto Missing = MissingFixture.Execute(MissingSession);
+
+	FArcOwnerHandoffRecoveryNextGenerationRotationFixture CorruptFixture;
+	if (!CorruptFixture.Build(
+			*this, TEXT("RecoveryNextGenerationRotationCompletionCorrupt")))
+	{
+		return false;
+	}
+	TArray<uint8> CorruptBytes;
+	if (!CorruptFixture.Terminal.Completion.Admission.FileSystem.TryGetFile(
+			CorruptFixture.Terminal.Completion.CompletionStorageContext.
+				GetPrimaryPath(),
+			CorruptBytes)
+		|| CorruptBytes.IsEmpty())
+	{
+		AddError(TEXT("Could not read completion bytes for rotation tamper test."));
+		return false;
+	}
+	CorruptBytes[0] ^= 0x01;
+	CorruptFixture.Terminal.Completion.Admission.FileSystem.SetFile(
+		CorruptFixture.Terminal.Completion.CompletionStorageContext.
+			GetPrimaryPath(),
+		CorruptBytes);
+	const int32 CorruptWrites =
+		CorruptFixture.Terminal.Completion.Admission.FileSystem.WriteCount;
+	FArcOwnerHandoffRecoveryNextGenerationRotationSession CorruptSession;
+	const auto Corrupt = CorruptFixture.Execute(CorruptSession);
+
+	TestTrue(TEXT("ordinary completion file without authority is rejected"),
+		Missing.IsValid() && !Missing.IsSuccess()
+			&& Missing.GetStatus()
+				== EArcOwnerHandoffRecoveryNextGenerationRotationSessionStatus::
+					CompletionAuthorityMissing
+			&& MissingFixture.Terminal.AdoptionAuthority.ReadCount == 1
+			&& MissingFixture.Terminal.Completion.Authority.Pending.ReadCount
+				== 1
+			&& MissingFixture.Terminal.Completion.Admission.FileSystem.WriteCount
+				== MissingWrites);
+	TestTrue(TEXT("tampered trusted completion stops before adoption or pending reads"),
+		Corrupt.IsValid() && !Corrupt.IsSuccess()
+			&& Corrupt.GetStatus()
+				== EArcOwnerHandoffRecoveryNextGenerationRotationSessionStatus::
+					TrustedCompletionLoadRejected
+			&& CorruptFixture.Terminal.AdoptionAuthority.ReadCount == 1
+			&& CorruptFixture.Terminal.Completion.Authority.Pending.ReadCount
+				== 1
+			&& CorruptFixture.Terminal.Completion.Admission.FileSystem.WriteCount
+				== CorruptWrites);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryNextGenerationRotationAdoptionFenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSession.AdoptionTrustFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryNextGenerationRotationAdoptionFenceTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryNextGenerationRotationFixture MissingFixture;
+	if (!MissingFixture.Build(
+			*this, TEXT("RecoveryNextGenerationRotationAdoptionMissing")))
+	{
+		return false;
+	}
+	MissingFixture.Terminal.AdoptionAuthority.ClearState();
+	const int32 MissingWrites =
+		MissingFixture.Terminal.Completion.Admission.FileSystem.WriteCount;
+	FArcOwnerHandoffRecoveryNextGenerationRotationSession MissingSession;
+	const auto Missing = MissingFixture.Execute(MissingSession);
+
+	FArcOwnerHandoffRecoveryNextGenerationRotationFixture ConflictFixture;
+	if (!ConflictFixture.Build(
+			*this, TEXT("RecoveryNextGenerationRotationAdoptionConflict")))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceRequest ConflictRequest;
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceReceipt ConflictReceipt;
+	FArcOwnerHandoffRecoveryBundleWatermarkState ConflictState;
+	if (!BuildArcOwnerHandoffRecoveryWatermarkState(
+			*this,
+			ConflictFixture.Terminal.AdoptionAuthorityDomainId,
+			ConflictFixture.Terminal.Completion.Admission.LineageId,
+			0,
+			1,
+			FGuid(0xF458C001, 0xF458C002, 0xF458C003, 0xF458C004),
+			ConflictRequest,
+			ConflictReceipt,
+			ConflictState))
+	{
+		return false;
+	}
+	ConflictFixture.Terminal.AdoptionAuthority.SetState(ConflictState);
+	const int32 ConflictWrites =
+		ConflictFixture.Terminal.Completion.Admission.FileSystem.WriteCount;
+	FArcOwnerHandoffRecoveryNextGenerationRotationSession ConflictSession;
+	const auto Conflict = ConflictFixture.Execute(ConflictSession);
+
+	TestTrue(TEXT("missing adoption authority rejects the next generation"),
+		Missing.IsValid() && !Missing.IsSuccess()
+			&& Missing.GetStatus()
+				== EArcOwnerHandoffRecoveryNextGenerationRotationSessionStatus::
+					AdoptionAuthorityMissing
+			&& Missing.WasCompletionTrusted()
+			&& MissingFixture.Terminal.Completion.Authority.Pending.ReadCount
+				== 1
+			&& MissingFixture.Terminal.Completion.Admission.FileSystem.WriteCount
+				== MissingWrites);
+	TestTrue(TEXT("same-generation foreign adoption evidence conflicts"),
+		Conflict.IsValid() && !Conflict.IsSuccess()
+			&& Conflict.GetStatus()
+				== EArcOwnerHandoffRecoveryNextGenerationRotationSessionStatus::
+					AdoptionAuthorityConflict
+			&& Conflict.WasCompletionTrusted()
+			&& ConflictFixture.Terminal.Completion.Authority.Pending.ReadCount
+				== 1
+			&& ConflictFixture.Terminal.Completion.Admission.FileSystem.WriteCount
+				== ConflictWrites);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryNextGenerationRotationPendingFenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSession.PendingAuthorityFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryNextGenerationRotationPendingFenceTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryNextGenerationRotationFixture ConflictFixture;
+	if (!ConflictFixture.Build(
+			*this, TEXT("RecoveryNextGenerationRotationPendingConflict")))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceRequest ConflictRequest;
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceReceipt ConflictReceipt;
+	FArcOwnerHandoffRecoveryBundleWatermarkState ConflictState;
+	if (!BuildArcOwnerHandoffRecoveryWatermarkState(
+			*this,
+			ConflictFixture.Terminal.Completion.Admission.AuthorityDomainId,
+			ConflictFixture.Terminal.Completion.Admission.LineageId,
+			0,
+			1,
+			FGuid(0xF458D001, 0xF458D002, 0xF458D003, 0xF458D004),
+			ConflictRequest,
+			ConflictReceipt,
+			ConflictState))
+	{
+		return false;
+	}
+	ConflictFixture.Terminal.Completion.Authority.Pending.SetState(
+		ConflictState);
+	const int32 ConflictWrites =
+		ConflictFixture.Terminal.Completion.Admission.FileSystem.WriteCount;
+	FArcOwnerHandoffRecoveryNextGenerationRotationSession ConflictSession;
+	const auto Conflict = ConflictFixture.Execute(ConflictSession);
+
+	FArcOwnerHandoffRecoveryNextGenerationRotationFixture AheadFixture;
+	if (!AheadFixture.Build(
+			*this, TEXT("RecoveryNextGenerationRotationPendingAhead")))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceRequest AheadRequest;
+	FArcOwnerHandoffRecoveryBundleWatermarkAdvanceReceipt AheadReceipt;
+	FArcOwnerHandoffRecoveryBundleWatermarkState AheadState;
+	if (!BuildArcOwnerHandoffRecoveryWatermarkState(
+			*this,
+			AheadFixture.Terminal.Completion.Admission.AuthorityDomainId,
+			AheadFixture.Terminal.Completion.Admission.LineageId,
+			2,
+			3,
+			FGuid(0xF458E001, 0xF458E002, 0xF458E003, 0xF458E004),
+			AheadRequest,
+			AheadReceipt,
+			AheadState))
+	{
+		return false;
+	}
+	AheadFixture.Terminal.Completion.Authority.Pending.SetState(AheadState);
+	const int32 AheadWrites =
+		AheadFixture.Terminal.Completion.Admission.FileSystem.WriteCount;
+	FArcOwnerHandoffRecoveryNextGenerationRotationSession AheadSession;
+	const auto Ahead = AheadFixture.Execute(AheadSession);
+
+	TestTrue(TEXT("foreign source-generation pending authority conflicts"),
+		Conflict.IsValid() && !Conflict.IsSuccess()
+			&& Conflict.GetStatus()
+				== EArcOwnerHandoffRecoveryNextGenerationRotationSessionStatus::
+					PendingAuthorityConflict
+			&& Conflict.WasAdoptionTrusted()
+			&& ConflictFixture.Terminal.Completion.Admission.FileSystem.WriteCount
+				== ConflictWrites
+			&& ConflictFixture.Terminal.Completion.Authority.Pending.AdvanceCount
+				== 0);
+	TestTrue(TEXT("pending authority ahead of G+1 cannot roll back"),
+		Ahead.IsValid() && !Ahead.IsSuccess()
+			&& Ahead.GetStatus()
+				== EArcOwnerHandoffRecoveryNextGenerationRotationSessionStatus::
+					PendingAuthorityAhead
+			&& AheadFixture.Terminal.Completion.Admission.FileSystem.WriteCount
+				== AheadWrites
+			&& AheadFixture.Terminal.Completion.Authority.Pending.AdvanceCount
+				== 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryNextGenerationRotationRepairTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSession.DurableBundleBeforeWatermarkRepair",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryNextGenerationRotationRepairTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryNextGenerationRotationFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("RecoveryNextGenerationRotationRepair")))
+	{
+		return false;
+	}
+	Fixture.Terminal.Completion.Authority.Pending.SetAdvanceMode(
+		FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority::EAdvanceMode::
+			Unavailable);
+	FArcOwnerHandoffRecoveryNextGenerationRotationSession PendingSession;
+	const auto Pending = Fixture.Execute(PendingSession);
+	const int32 WritesWhilePending =
+		Fixture.Terminal.Completion.Admission.FileSystem.WriteCount;
+	const FGuid RotationId = Pending.GetRotation().GetRotationId();
+	Fixture.Terminal.Completion.Authority.Pending.SetAdvanceMode(
+		FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority::EAdvanceMode::
+			Normal);
+	FArcOwnerHandoffRecoveryNextGenerationRotationSession RepairSession;
+	const auto Repaired = Fixture.Execute(RepairSession);
+
+	TestTrue(TEXT("bundle remains durable when the first pending CAS is unavailable"),
+		Pending.IsValid() && !Pending.IsSuccess()
+			&& Pending.GetStatus()
+				== EArcOwnerHandoffRecoveryNextGenerationRotationSessionStatus::
+					BundleCommittedWatermarkPending
+			&& Pending.GetRotation().IsValid()
+			&& Pending.GetBundleCommitResult().WasBundleVerified());
+	TestTrue(TEXT("later bounded call repairs only the pending watermark"),
+		Repaired.IsValid() && Repaired.IsSuccess()
+			&& Repaired.GetRotation().GetRotationId() == RotationId
+			&& Repaired.GetBundleCommitResult().GetBundleSaveStatus()
+				== EArcOwnerHandoffRecoveryBundleStorageSaveStatus::
+					AlreadyCurrent
+			&& Fixture.Terminal.Completion.Admission.FileSystem.WriteCount
+				== WritesWhilePending
+			&& Fixture.Terminal.Completion.Authority.Pending.AdvanceCount == 2
+			&& Fixture.Terminal.AdoptionAuthority.AdvanceCount == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryNextGenerationRotationUnknownTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSession.UnknownOutcomeClosure",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryNextGenerationRotationUnknownTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryNextGenerationRotationFixture CommittedFixture;
+	if (!CommittedFixture.Build(
+			*this, TEXT("RecoveryNextGenerationRotationUnknownCommitted")))
+	{
+		return false;
+	}
+	const int32 CommittedReads =
+		CommittedFixture.Terminal.Completion.Authority.Pending.ReadCount;
+	CommittedFixture.Terminal.Completion.Authority.Pending.SetAdvanceMode(
+		FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority::EAdvanceMode::
+			OutcomeUnknownAfterCommit);
+	FArcOwnerHandoffRecoveryNextGenerationRotationSession CommittedSession;
+	const auto Committed = CommittedFixture.Execute(CommittedSession);
+
+	FArcOwnerHandoffRecoveryNextGenerationRotationFixture UnresolvedFixture;
+	if (!UnresolvedFixture.Build(
+			*this, TEXT("RecoveryNextGenerationRotationUnknownBefore")))
+	{
+		return false;
+	}
+	UnresolvedFixture.Terminal.Completion.Authority.Pending.SetAdvanceMode(
+		FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority::EAdvanceMode::
+			OutcomeUnknownBeforeCommit);
+	FArcOwnerHandoffRecoveryNextGenerationRotationSession UnresolvedSession;
+	const auto Unresolved = UnresolvedFixture.Execute(UnresolvedSession);
+	const int32 WritesAfterUnresolved =
+		UnresolvedFixture.Terminal.Completion.Admission.FileSystem.WriteCount;
+	const FGuid UnresolvedRotationId =
+		Unresolved.GetRotation().GetRotationId();
+	UnresolvedFixture.Terminal.Completion.Authority.Pending.SetAdvanceMode(
+		FFakeArcOwnerHandoffRecoveryBundleWatermarkAuthority::EAdvanceMode::
+			Normal);
+	FArcOwnerHandoffRecoveryNextGenerationRotationSession RetrySession;
+	const auto Retried = UnresolvedFixture.Execute(RetrySession);
+
+	TestTrue(TEXT("unknown response after commit closes with one exact reread"),
+		Committed.IsValid() && Committed.IsSuccess()
+			&& Committed.GetStatus()
+				== EArcOwnerHandoffRecoveryNextGenerationRotationSessionStatus::
+					Rotated
+			&& Committed.GetBundleCommitResult().GetStatus()
+				== EArcOwnerHandoffRecoveryBundleWatermarkCommitStatus::
+					CommittedAfterAuthorityRecheck
+			&& CommittedFixture.Terminal.Completion.Authority.Pending.ReadCount
+				== CommittedReads + 3);
+	TestTrue(TEXT("unknown response before commit remains bounded and retryable"),
+		Unresolved.IsValid() && !Unresolved.IsSuccess()
+			&& Unresolved.GetStatus()
+				== EArcOwnerHandoffRecoveryNextGenerationRotationSessionStatus::
+					PendingWatermarkOutcomeUnresolved
+			&& Retried.IsValid() && Retried.IsSuccess()
+			&& Retried.GetRotation().GetRotationId() == UnresolvedRotationId
+			&& Retried.GetBundleCommitResult().GetBundleSaveStatus()
+				== EArcOwnerHandoffRecoveryBundleStorageSaveStatus::
+					AlreadyCurrent
+			&& UnresolvedFixture.Terminal.Completion.Admission.FileSystem.
+				WriteCount == WritesAfterUnresolved);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryNextGenerationRotationInputTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSession.InputAndReentryFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryNextGenerationRotationInputTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryNextGenerationRotationFixture Fixture;
+	if (!Fixture.Build(*this, TEXT("RecoveryNextGenerationRotationInput")))
+	{
+		return false;
+	}
+	FArcOwnerHandoffRecoveryNextGenerationRotationSession Session;
+	const auto Invalid = Session.ExecuteExplicit(
+		FArcOwnerHandoffRecoveryNextGenerationRotationRequest(),
+		Fixture.Terminal.Completion.CompletionStorageContext,
+		Fixture.Terminal.Completion.Admission.StorageContext,
+		Fixture.CurrentTerminalJournal,
+		Fixture.Terminal.Completion.Admission.FileSystem,
+		Fixture.Terminal.Completion.Authority,
+		Fixture.Terminal.AdoptionAuthority,
+		Fixture.Terminal.Completion.Authority);
+	const auto NonTerminal = Fixture.Execute(
+		Session, Fixture.Terminal.Completion.Admission.Journal);
+
+	FArcOwnerHandoffRecoveryNextGenerationRotationSessionResult Nested;
+	Fixture.Terminal.AdoptionAuthority.SetReadCallback([&]()
+	{
+		Nested = Fixture.Execute(Session);
+	});
+	const auto Outer = Fixture.Execute(Session);
+
+	TestTrue(TEXT("invalid request rejects before every callback"),
+		Invalid.IsValid() && !Invalid.IsSuccess()
+			&& Invalid.GetStatus()
+				== EArcOwnerHandoffRecoveryNextGenerationRotationSessionStatus::
+					RequestRejected);
+	TestTrue(TEXT("pending source journal cannot masquerade as adopted terminal"),
+		NonTerminal.IsValid() && !NonTerminal.IsSuccess()
+			&& NonTerminal.GetStatus()
+				== EArcOwnerHandoffRecoveryNextGenerationRotationSessionStatus::
+					CurrentJournalRejected);
+	TestTrue(TEXT("authority callback cannot re-enter the same rotation Session"),
+		Nested.IsValid() && !Nested.IsSuccess()
+			&& Nested.GetStatus()
+				== EArcOwnerHandoffRecoveryNextGenerationRotationSessionStatus::
+					OperationInProgress
+			&& Outer.IsValid() && Outer.IsSuccess()
 			&& !Session.IsOperationInProgress());
 	return true;
 }
