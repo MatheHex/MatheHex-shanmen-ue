@@ -232,6 +232,9 @@ try
 	$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession = New-AutomationLogFixture `
 		-Name 'thrown-arc-preview-presentation-owner-surface-handoff-recovery-completion-session.log' `
 		-Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession'
+	$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryMultiGenerationCycleProof = New-AutomationLogFixture `
+		-Name 'thrown-arc-preview-presentation-owner-surface-handoff-recovery-multi-generation-cycle-proof.log' `
+		-Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryMultiGenerationCycleProof'
 	$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSession = New-AutomationLogFixture `
 		-Name 'thrown-arc-preview-presentation-owner-surface-handoff-recovery-next-generation-rotation-session.log' `
 		-Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSession'
@@ -2925,11 +2928,58 @@ try
 			$ItemUse)
 
 	Invoke-ExpectedPass `
+		-Name 'thrown weapon Arc preview Owner surface handoff recovery multi generation cycle proof maps both rotations and the canonical authority chain' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryMultiGenerationCycleProof.h',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryMultiGenerationCycleProof.cpp') `
+		-Logs @(
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryMultiGenerationCycleProof,
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSession,
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryTerminalAdoptionSession,
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession,
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession,
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority,
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage,
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundle,
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorage,
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelope,
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal,
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecovery,
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoff,
+			$ThrownArcPreviewPresentationSurfaceOwnershipTransition,
+			$ThrownArcPreviewPresentationSurfaceLifecycleExecutor,
+			$ThrownArcPreviewPresentationSurfaceRecreationPolicy,
+			$ThrownArcPreviewPresentationCompositionOwner,
+			$ThrownArcPreviewPresentationConsumerAdapter,
+			$ThrownArcPreviewPresentationDeliveryHost,
+			$ThrownArcPreviewPresentationDeliverySession,
+			$ThrownArcPreviewPresentationDeliveryCoordinator,
+			$ThrownArcPreviewPresentationCommandLedger,
+			$ThrownArcPreviewPresentationCommand,
+			$ThrownArcPreviewPresentationSession,
+			$ThrownArcPreviewUpdateCoordinator,
+			$ThrownArcPreviewPresentation,
+			$ThrownArcPreviewProductBridge,
+			$ThrownArcPreviewCapture,
+			$ThrownArcPreviewComposition,
+			$ThrownArcChoiceProjection,
+			$ThrownProductSession,
+			$ThrownProductController,
+			$ThrownRuntime,
+			$WorldGameplay,
+			$Coordinator,
+			$CombatRuntime,
+			$CombatCore,
+			$Full,
+			$ItemUse)
+
+	Invoke-ExpectedPass `
 		-Name 'thrown weapon Arc preview Owner surface handoff recovery next generation rotation Session maps adopted completion and pending commit seams' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSession.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSession.cpp') `
 		-Logs @(
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryMultiGenerationCycleProof,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryTerminalAdoptionSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession,
@@ -2975,6 +3025,7 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryTerminalAdoptionSession.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryTerminalAdoptionSession.cpp') `
 		-Logs @(
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryMultiGenerationCycleProof,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryTerminalAdoptionSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession,
@@ -3020,6 +3071,7 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession.cpp') `
 		-Logs @(
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryMultiGenerationCycleProof,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryTerminalAdoptionSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryTerminalAdoptionSession,
@@ -3073,6 +3125,7 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession.cpp') `
 		-Logs @(
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryMultiGenerationCycleProof,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession,
@@ -3115,6 +3168,7 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleWatermarkAuthority.cpp') `
 		-Logs @(
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryMultiGenerationCycleProof,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession,
@@ -3157,6 +3211,7 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundleStorage.cpp') `
 		-Logs @(
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryMultiGenerationCycleProof,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession,
@@ -3199,6 +3254,7 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundle.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryBundle.cpp') `
 		-Logs @(
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryMultiGenerationCycleProof,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession,
@@ -3240,6 +3296,7 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorage.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorage.cpp') `
 		-Logs @(
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryMultiGenerationCycleProof,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession,
@@ -3281,6 +3338,7 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelope.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadEnvelope.cpp') `
 		-Logs @(
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryMultiGenerationCycleProof,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession,
@@ -3323,6 +3381,7 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal.cpp') `
 		-Logs @(
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryMultiGenerationCycleProof,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession,
@@ -3365,6 +3424,7 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecovery.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecovery.cpp') `
 		-Logs @(
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryMultiGenerationCycleProof,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryAdmissionSession,
@@ -5317,6 +5377,13 @@ try
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponInputChoiceSession.cpp') `
 		-Logs @($ItemUse) `
+		-ExpectedText 'missing required groups'
+
+	Invoke-ExpectedFail `
+		-Name 'thrown Arc preview Owner handoff recovery multi generation proof focus cannot replace both rotations and canonical authority evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryMultiGenerationCycleProof.cpp') `
+		-Logs @($ThrownArcPreviewPresentationOwnerSurfaceHandoffRecoveryMultiGenerationCycleProof) `
 		-ExpectedText 'missing required groups'
 
 	Invoke-ExpectedFail `

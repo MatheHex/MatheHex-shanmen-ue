@@ -33,6 +33,7 @@
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCheckpointPayloadStorage.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryCompletionSession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal.h"
+#include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryMultiGenerationCycleProof.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryTerminalAdoptionSession.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationSession.h"
@@ -8108,6 +8109,8 @@ namespace
 		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSessionResult;
 	using EArcOwnerHandoffRecoveryNextGenerationRotationSessionStatus =
 		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryNextGenerationRotationSessionStatus;
+	using FArcOwnerHandoffRecoveryMultiGenerationCycleProof =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryMultiGenerationCycleProof;
 	using EArcOwnerHandoffRecoveryJournalKind =
 		Edemo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournalRecordKind;
 	using EArcOwnerHandoffRecoveryJournalDisposition =
@@ -9540,6 +9543,278 @@ namespace
 		FArcOwnerHandoffResult NextFailed;
 		FArcOwnerHandoffRecoveryCheckpoint NewCheckpoint;
 		FArcOwnerHandoffRecoveryNextGenerationRotationRequest Request;
+	};
+
+	struct FArcOwnerHandoffRecoveryGenerationExecution
+	{
+		FArcOwnerHandoffRecoveryCheckpoint Checkpoint;
+		FArcOwnerHandoffRecoveryNextGenerationRotationRequest RotationRequest;
+		FArcOwnerHandoffRecoveryNextGenerationRotationSessionResult
+			RotationResult;
+		FArcOwnerHandoffRecoveryCompletionRequest CompletionRequest;
+		FArcOwnerHandoffRecoveryCompletionSessionResult CompletionResult;
+		FArcOwnerHandoffRecoveryTerminalAdoptionRequest AdoptionRequest;
+		FArcOwnerHandoffRecoveryTerminalAdoptionSessionResult AdoptionResult;
+		FArcOwnerHandoffRecoveryNextGenerationRotationSessionResult
+			RotationReplay;
+		FArcOwnerHandoffRecoveryCompletionSessionResult CompletionReplay;
+		FArcOwnerHandoffRecoveryTerminalAdoptionSessionResult AdoptionReplay;
+		bool bRotationReplaySideEffectFree = false;
+		bool bCompletionReplaySideEffectFree = false;
+		bool bAdoptionReplaySideEffectFree = false;
+	};
+
+	/**
+	 * Test-only driver that composes the existing P20.55-P20.58 calls. It owns
+	 * no additional production authority and keeps every generation bounded to
+	 * one rotation, one completion and one terminal adoption.
+	 */
+	struct FArcOwnerHandoffRecoveryMultiGenerationHarness
+	{
+		bool Build(FAutomationTestBase& Test, const TCHAR* Label)
+		{
+			if (!Seed.Build(Test, Label))
+			{
+				return false;
+			}
+			FArcOwnerHandoffRecoveryTerminalAdoptionSession AdoptionSession;
+			const auto SeedAdoption = Seed.Execute(AdoptionSession);
+			if (!SeedAdoption.IsSuccess())
+			{
+				Test.AddError(SeedAdoption.GetDiagnostic());
+				return false;
+			}
+			CurrentAdoption = SeedAdoption.GetAdoption();
+			CurrentTerminalJournal = SeedAdoption.GetTerminalJournal();
+			return CurrentAdoption.IsValid()
+				&& CurrentAdoption.GetGeneration() == 1
+				&& CurrentTerminalJournal.IsValid()
+				&& CurrentTerminalJournal.GetRecordCount() == 2;
+		}
+
+		bool ExecuteGeneration(
+			FAutomationTestBase& Test,
+			const TCHAR* Label,
+			const bool bExerciseReplay,
+			FArcOwnerHandoffRecoveryGenerationExecution& OutExecution)
+		{
+			OutExecution = {};
+			const int32 TargetGeneration =
+				CurrentAdoption.GetNextGeneration();
+			if (!CurrentAdoption.IsValid() || TargetGeneration <= 0)
+			{
+				Test.AddError(TEXT(
+					"Multi-generation harness has no next generation capacity."));
+				return false;
+			}
+
+			const uint32 GenerationWord =
+				static_cast<uint32>(TargetGeneration);
+			const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+			FThrownLifecycleFixture Lifecycle;
+			FFakeArcPreviewHandoffSurface OldSurface(
+				FGuid(
+					0xF4590001,
+					0xF4590002,
+					0xF4590003,
+					GenerationWord),
+				Consumer);
+			FFakeArcPreviewHandoffSurface NewSurface(
+				FGuid(
+					0xF4591001,
+					0xF4591002,
+					0xF4591003,
+					GenerationWord),
+				Consumer);
+			FArcCompositionOwner Owner;
+			FArcOwnerHandoffResult Failed;
+			const FString GenerationLabel = FString::Printf(
+				TEXT("%s.G%d"), Label, TargetGeneration);
+			FString Diagnostic;
+			if (!BuildArcOwnerHandoffRecoveryCheckpoint(
+					Test,
+					*GenerationLabel,
+					Lifecycle,
+					Owner,
+					OldSurface,
+					NewSurface,
+					Failed,
+					OutExecution.Checkpoint)
+				|| !FArcOwnerHandoffRecoveryNextGenerationRotationRequest::
+					TryCreate(
+						CurrentAdoption,
+						OutExecution.Checkpoint,
+						OutExecution.RotationRequest,
+						Diagnostic))
+			{
+				Test.AddError(
+					Diagnostic.IsEmpty()
+						? TEXT("Could not prepare the next recovery generation.")
+						: Diagnostic);
+				return false;
+			}
+
+			FArcOwnerHandoffRecoveryNextGenerationRotationSession
+				RotationSession;
+			OutExecution.RotationResult = RotationSession.ExecuteExplicit(
+				OutExecution.RotationRequest,
+				Seed.Completion.CompletionStorageContext,
+				Seed.Completion.Admission.StorageContext,
+				CurrentTerminalJournal,
+				Seed.Completion.Admission.FileSystem,
+				Seed.Completion.Authority,
+				Seed.AdoptionAuthority,
+				Seed.Completion.Authority);
+			if (!OutExecution.RotationResult.IsSuccess())
+			{
+				Test.AddError(OutExecution.RotationResult.GetDiagnostic());
+				return false;
+			}
+
+			if (bExerciseReplay)
+			{
+				const int32 WritesBeforeReplay =
+					Seed.Completion.Admission.FileSystem.WriteCount;
+				const int32 AdvancesBeforeReplay =
+					Seed.Completion.Authority.Pending.AdvanceCount;
+				FArcOwnerHandoffRecoveryNextGenerationRotationSession
+					ReplaySession;
+				OutExecution.RotationReplay =
+					ReplaySession.ExecuteExplicit(
+						OutExecution.RotationRequest,
+						Seed.Completion.CompletionStorageContext,
+						Seed.Completion.Admission.StorageContext,
+						CurrentTerminalJournal,
+						Seed.Completion.Admission.FileSystem,
+						Seed.Completion.Authority,
+						Seed.AdoptionAuthority,
+						Seed.Completion.Authority);
+				OutExecution.bRotationReplaySideEffectFree =
+					Seed.Completion.Admission.FileSystem.WriteCount
+						== WritesBeforeReplay
+					&& Seed.Completion.Authority.Pending.AdvanceCount
+						== AdvancesBeforeReplay;
+			}
+
+			const auto& Rotation =
+				OutExecution.RotationResult.GetRotation();
+			FArcOwnerHandoffRecoveryAdmissionRequest AdmissionRequest;
+			if (!FArcOwnerHandoffRecoveryAdmissionRequest::TryCreate(
+					Seed.Completion.Admission.AuthorityDomainId,
+					Seed.Completion.Admission.LineageId,
+					Rotation.GetPendingJournal().GetJournalId(),
+					OutExecution.Checkpoint.GetCheckpointId(),
+					AdmissionRequest,
+					Diagnostic)
+				|| !FArcOwnerHandoffRecoveryCompletionRequest::TryCreate(
+					Seed.Completion.CompletionAuthorityDomainId,
+					AdmissionRequest,
+					OutExecution.CompletionRequest,
+					Diagnostic))
+			{
+				Test.AddError(Diagnostic);
+				return false;
+			}
+
+			FArcOwnerHandoffRecoveryCompletionSession CompletionSession;
+			OutExecution.CompletionResult = CompletionSession.ExecuteExplicit(
+				OutExecution.CompletionRequest,
+				Seed.Completion.Admission.StorageContext,
+				Seed.Completion.CompletionStorageContext,
+				Rotation.GetPendingJournal(),
+				Owner,
+				OldSurface,
+				NewSurface,
+				Seed.Completion.Admission.FileSystem,
+				Seed.Completion.Authority);
+			if (!OutExecution.CompletionResult.IsSuccess())
+			{
+				Test.AddError(OutExecution.CompletionResult.GetDiagnostic());
+				return false;
+			}
+
+			if (bExerciseReplay)
+			{
+				const int32 WritesBeforeReplay =
+					Seed.Completion.Admission.FileSystem.WriteCount;
+				const int32 AdvancesBeforeReplay =
+					Seed.Completion.Authority.Completion.AdvanceCount;
+				FArcOwnerHandoffRecoveryCompletionSession ReplaySession;
+				OutExecution.CompletionReplay =
+					ReplaySession.ExecuteExplicit(
+						OutExecution.CompletionRequest,
+						Seed.Completion.Admission.StorageContext,
+						Seed.Completion.CompletionStorageContext,
+						Rotation.GetPendingJournal(),
+						Owner,
+						OldSurface,
+						NewSurface,
+						Seed.Completion.Admission.FileSystem,
+						Seed.Completion.Authority);
+				OutExecution.bCompletionReplaySideEffectFree =
+					Seed.Completion.Admission.FileSystem.WriteCount
+						== WritesBeforeReplay
+					&& Seed.Completion.Authority.Completion.AdvanceCount
+						== AdvancesBeforeReplay;
+			}
+
+			if (!FArcOwnerHandoffRecoveryTerminalAdoptionRequest::TryCreate(
+					Seed.AdoptionAuthorityDomainId,
+					OutExecution.CompletionRequest,
+					OutExecution.AdoptionRequest,
+					Diagnostic))
+			{
+				Test.AddError(Diagnostic);
+				return false;
+			}
+			FArcOwnerHandoffRecoveryTerminalAdoptionSession AdoptionSession;
+			OutExecution.AdoptionResult = AdoptionSession.ExecuteExplicit(
+				OutExecution.AdoptionRequest,
+				Seed.Completion.CompletionStorageContext,
+				Rotation.GetPendingJournal(),
+				Seed.Completion.Admission.FileSystem,
+				Seed.Completion.Authority,
+				Seed.AdoptionAuthority);
+			if (!OutExecution.AdoptionResult.IsSuccess())
+			{
+				Test.AddError(OutExecution.AdoptionResult.GetDiagnostic());
+				return false;
+			}
+
+			if (bExerciseReplay)
+			{
+				const int32 WritesBeforeReplay =
+					Seed.Completion.Admission.FileSystem.WriteCount;
+				const int32 AdvancesBeforeReplay =
+					Seed.AdoptionAuthority.AdvanceCount;
+				FArcOwnerHandoffRecoveryTerminalAdoptionSession ReplaySession;
+				OutExecution.AdoptionReplay = ReplaySession.ExecuteExplicit(
+					OutExecution.AdoptionRequest,
+					Seed.Completion.CompletionStorageContext,
+					Rotation.GetPendingJournal(),
+					Seed.Completion.Admission.FileSystem,
+					Seed.Completion.Authority,
+					Seed.AdoptionAuthority);
+				OutExecution.bAdoptionReplaySideEffectFree =
+					Seed.Completion.Admission.FileSystem.WriteCount
+						== WritesBeforeReplay
+					&& Seed.AdoptionAuthority.AdvanceCount
+						== AdvancesBeforeReplay;
+			}
+
+			CurrentAdoption = OutExecution.AdoptionResult.GetAdoption();
+			CurrentTerminalJournal =
+				OutExecution.AdoptionResult.GetTerminalJournal();
+			return CurrentAdoption.IsValid()
+				&& CurrentAdoption.GetGeneration() == TargetGeneration
+				&& CurrentTerminalJournal.IsValid()
+				&& CurrentTerminalJournal.GetRecordCount()
+					== TargetGeneration * 2;
+		}
+
+		FArcOwnerHandoffRecoveryTerminalAdoptionFixture Seed;
+		FArcOwnerHandoffRecoveryTerminalAdoption CurrentAdoption;
+		FArcOwnerHandoffRecoveryJournal CurrentTerminalJournal;
 	};
 
 	bool OverwriteUint32BigEndian(
@@ -16718,6 +16993,423 @@ RunTest(const FString&)
 					OperationInProgress
 			&& Outer.IsValid() && Outer.IsSuccess()
 			&& !Session.IsOperationInProgress());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryMultiGenerationCycleExactTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryMultiGenerationCycleProof.ExactG1ToG3Cycle",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryMultiGenerationCycleExactTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryMultiGenerationHarness Harness;
+	FArcOwnerHandoffRecoveryGenerationExecution GenerationTwo;
+	FArcOwnerHandoffRecoveryGenerationExecution GenerationThree;
+	if (!Harness.Build(*this, TEXT("RecoveryMultiGenerationExact"))
+		|| !Harness.ExecuteGeneration(
+			*this,
+			TEXT("RecoveryMultiGenerationExact"),
+			false,
+			GenerationTwo)
+		|| !Harness.ExecuteGeneration(
+			*this,
+			TEXT("RecoveryMultiGenerationExact"),
+			false,
+			GenerationThree))
+	{
+		return false;
+	}
+
+	FArcOwnerHandoffRecoveryMultiGenerationCycleProof Proof;
+	FString Diagnostic;
+	const bool bCreated =
+		FArcOwnerHandoffRecoveryMultiGenerationCycleProof::TryCreate(
+			GenerationTwo.RotationResult.GetRotation(),
+			GenerationTwo.CompletionResult.GetCompletion(),
+			GenerationTwo.AdoptionResult.GetAdoption(),
+			GenerationThree.RotationResult.GetRotation(),
+			Proof,
+			Diagnostic);
+
+	TestTrue(TEXT("two adjacent rotations produce one valid G1 to G3 proof"),
+		bCreated && Proof.IsValid() && Diagnostic.Len() > 0
+			&& Proof.GetInitialGeneration() == 1
+			&& Proof.GetIntermediateGeneration() == 2
+			&& Proof.GetFinalGeneration() == 3);
+	TestTrue(TEXT("proof preserves the exact terminal and pending prefixes"),
+		Proof.GetFirstRotation().GetSourceTerminalJournal().GetRecordCount()
+				== 2
+			&& Proof.GetFirstRotation().GetPendingJournal().GetRecordCount()
+				== 3
+			&& Proof.GetIntermediateCompletion().GetTerminalJournal().
+				GetRecordCount() == 4
+			&& Proof.GetSecondRotation().GetPendingJournal().GetRecordCount()
+				== 5);
+	TestTrue(TEXT("all three existing authority domains reach generation three"),
+		Harness.Seed.Completion.Authority.Pending.GetState().GetGeneration()
+				== 3
+			&& Harness.Seed.Completion.Authority.Completion.GetState().
+				GetGeneration() == 3
+			&& Harness.Seed.AdoptionAuthority.GetState().GetGeneration() == 3
+			&& Harness.CurrentTerminalJournal.GetRecordCount() == 6);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryMultiGenerationCycleIdentityTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryMultiGenerationCycleProof.DeterministicIdentityAndCrossChainFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryMultiGenerationCycleIdentityTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryMultiGenerationHarness FirstHarness;
+	FArcOwnerHandoffRecoveryGenerationExecution FirstTwo;
+	FArcOwnerHandoffRecoveryGenerationExecution FirstThree;
+	FArcOwnerHandoffRecoveryMultiGenerationHarness OtherHarness;
+	FArcOwnerHandoffRecoveryGenerationExecution OtherTwo;
+	FArcOwnerHandoffRecoveryGenerationExecution OtherThree;
+	if (!FirstHarness.Build(*this, TEXT("RecoveryMultiGenerationIdentityA"))
+		|| !FirstHarness.ExecuteGeneration(
+			*this,
+			TEXT("RecoveryMultiGenerationIdentityA"),
+			false,
+			FirstTwo)
+		|| !FirstHarness.ExecuteGeneration(
+			*this,
+			TEXT("RecoveryMultiGenerationIdentityA"),
+			false,
+			FirstThree)
+		|| !OtherHarness.Build(*this, TEXT("RecoveryMultiGenerationIdentityB"))
+		|| !OtherHarness.ExecuteGeneration(
+			*this,
+			TEXT("RecoveryMultiGenerationIdentityB"),
+			false,
+			OtherTwo)
+		|| !OtherHarness.ExecuteGeneration(
+			*this,
+			TEXT("RecoveryMultiGenerationIdentityB"),
+			false,
+			OtherThree))
+	{
+		return false;
+	}
+
+	FArcOwnerHandoffRecoveryMultiGenerationCycleProof FirstProof;
+	FArcOwnerHandoffRecoveryMultiGenerationCycleProof RepeatedProof;
+	FArcOwnerHandoffRecoveryMultiGenerationCycleProof CrossChainProof;
+	FArcOwnerHandoffRecoveryMultiGenerationCycleProof ReorderedProof;
+	FString Diagnostic;
+	const bool bFirst =
+		FArcOwnerHandoffRecoveryMultiGenerationCycleProof::TryCreate(
+			FirstTwo.RotationResult.GetRotation(),
+			FirstTwo.CompletionResult.GetCompletion(),
+			FirstTwo.AdoptionResult.GetAdoption(),
+			FirstThree.RotationResult.GetRotation(),
+			FirstProof,
+			Diagnostic);
+	const bool bRepeated =
+		FArcOwnerHandoffRecoveryMultiGenerationCycleProof::TryCreate(
+			FirstTwo.RotationResult.GetRotation(),
+			FirstTwo.CompletionResult.GetCompletion(),
+			FirstTwo.AdoptionResult.GetAdoption(),
+			FirstThree.RotationResult.GetRotation(),
+			RepeatedProof,
+			Diagnostic);
+	const bool bCrossChain =
+		FArcOwnerHandoffRecoveryMultiGenerationCycleProof::TryCreate(
+			FirstTwo.RotationResult.GetRotation(),
+			FirstTwo.CompletionResult.GetCompletion(),
+			FirstTwo.AdoptionResult.GetAdoption(),
+			OtherThree.RotationResult.GetRotation(),
+			CrossChainProof,
+			Diagnostic);
+	const bool bReordered =
+		FArcOwnerHandoffRecoveryMultiGenerationCycleProof::TryCreate(
+			FirstThree.RotationResult.GetRotation(),
+			FirstTwo.CompletionResult.GetCompletion(),
+			FirstTwo.AdoptionResult.GetAdoption(),
+			FirstTwo.RotationResult.GetRotation(),
+			ReorderedProof,
+			Diagnostic);
+
+	TestTrue(TEXT("same immutable evidence derives the same proof identity"),
+		bFirst && bRepeated && FirstProof.Matches(RepeatedProof)
+			&& FirstProof.GetProofId() == RepeatedProof.GetProofId());
+	TestTrue(TEXT("foreign lineage and reordered evidence fail closed"),
+		!bCrossChain && !CrossChainProof.IsValid()
+			&& !bReordered && !ReorderedProof.IsValid()
+			&& !FArcOwnerHandoffRecoveryMultiGenerationCycleProof().IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryMultiGenerationCycleReplayTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryMultiGenerationCycleProof.ReplayAtEveryBoundary",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryMultiGenerationCycleReplayTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryMultiGenerationHarness Harness;
+	FArcOwnerHandoffRecoveryGenerationExecution GenerationTwo;
+	FArcOwnerHandoffRecoveryGenerationExecution GenerationThree;
+	if (!Harness.Build(*this, TEXT("RecoveryMultiGenerationReplay"))
+		|| !Harness.ExecuteGeneration(
+			*this,
+			TEXT("RecoveryMultiGenerationReplay"),
+			true,
+			GenerationTwo)
+		|| !Harness.ExecuteGeneration(
+			*this,
+			TEXT("RecoveryMultiGenerationReplay"),
+			true,
+			GenerationThree))
+	{
+		return false;
+	}
+
+	auto HasExactReplays = [](const auto& Generation)
+	{
+		return Generation.RotationReplay.IsReplay()
+			&& Generation.RotationReplay.GetStatus()
+				== EArcOwnerHandoffRecoveryNextGenerationRotationSessionStatus::
+					Replayed
+			&& Generation.RotationReplay.GetRotation().GetRotationId()
+				== Generation.RotationResult.GetRotation().GetRotationId()
+			&& Generation.CompletionReplay.IsReplay()
+			&& Generation.CompletionReplay.GetStatus()
+				== EArcOwnerHandoffRecoveryCompletionSessionStatus::Replayed
+			&& Generation.CompletionReplay.GetCompletion().GetCompletionId()
+				== Generation.CompletionResult.GetCompletion().GetCompletionId()
+			&& Generation.AdoptionReplay.IsReplay()
+			&& Generation.AdoptionReplay.GetStatus()
+				== EArcOwnerHandoffRecoveryTerminalAdoptionSessionStatus::
+					Replayed
+			&& Generation.AdoptionReplay.GetAdoption().GetAdoptionId()
+				== Generation.AdoptionResult.GetAdoption().GetAdoptionId();
+	};
+	auto ReplaysAreSideEffectFree = [](const auto& Generation)
+	{
+		return Generation.bRotationReplaySideEffectFree
+			&& Generation.bCompletionReplaySideEffectFree
+			&& Generation.bAdoptionReplaySideEffectFree;
+	};
+
+	TestTrue(TEXT("generation two replays every durable boundary exactly"),
+		HasExactReplays(GenerationTwo)
+			&& ReplaysAreSideEffectFree(GenerationTwo));
+	TestTrue(TEXT("generation three replays every durable boundary exactly"),
+		HasExactReplays(GenerationThree)
+			&& ReplaysAreSideEffectFree(GenerationThree));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryMultiGenerationCycleHistoryTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryMultiGenerationCycleProof.HistoricalCheckpointReuseFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryMultiGenerationCycleHistoryTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryMultiGenerationHarness Harness;
+	FArcOwnerHandoffRecoveryGenerationExecution GenerationTwo;
+	if (!Harness.Build(*this, TEXT("RecoveryMultiGenerationHistory")))
+	{
+		return false;
+	}
+	const FArcOwnerHandoffRecoveryCheckpoint HistoricalCheckpoint =
+		Harness.Seed.Completion.Admission.Checkpoint;
+	if (!Harness.ExecuteGeneration(
+			*this,
+			TEXT("RecoveryMultiGenerationHistory"),
+			false,
+			GenerationTwo))
+	{
+		return false;
+	}
+
+	FArcOwnerHandoffRecoveryNextGenerationRotationRequest ImmediateRequest;
+	FArcOwnerHandoffRecoveryNextGenerationRotationRequest HistoricalRequest;
+	FString Diagnostic;
+	const bool bImmediateCreated =
+		FArcOwnerHandoffRecoveryNextGenerationRotationRequest::TryCreate(
+			Harness.CurrentAdoption,
+			GenerationTwo.Checkpoint,
+			ImmediateRequest,
+			Diagnostic);
+	const bool bHistoricalCreated =
+		FArcOwnerHandoffRecoveryNextGenerationRotationRequest::TryCreate(
+			Harness.CurrentAdoption,
+			HistoricalCheckpoint,
+			HistoricalRequest,
+			Diagnostic);
+
+	const int32 WritesBefore =
+		Harness.Seed.Completion.Admission.FileSystem.WriteCount;
+	const int32 FileReadsBefore =
+		Harness.Seed.Completion.Admission.FileSystem.ReadCount;
+	const int32 PendingReadsBefore =
+		Harness.Seed.Completion.Authority.Pending.ReadCount;
+	const int32 CompletionReadsBefore =
+		Harness.Seed.Completion.Authority.Completion.ReadCount;
+	const int32 AdoptionReadsBefore =
+		Harness.Seed.AdoptionAuthority.ReadCount;
+	const int32 PendingAdvancesBefore =
+		Harness.Seed.Completion.Authority.Pending.AdvanceCount;
+	FArcOwnerHandoffRecoveryNextGenerationRotationSession HistoricalSession;
+	const auto Historical = HistoricalSession.ExecuteExplicit(
+		HistoricalRequest,
+		Harness.Seed.Completion.CompletionStorageContext,
+		Harness.Seed.Completion.Admission.StorageContext,
+		Harness.CurrentTerminalJournal,
+		Harness.Seed.Completion.Admission.FileSystem,
+		Harness.Seed.Completion.Authority,
+		Harness.Seed.AdoptionAuthority,
+		Harness.Seed.Completion.Authority);
+
+	TestTrue(TEXT("immediate predecessor checkpoint is rejected by request identity"),
+		!bImmediateCreated && !ImmediateRequest.IsValid());
+	TestTrue(TEXT("older checkpoint is rejected by full journal history"),
+		bHistoricalCreated && Historical.IsValid() && !Historical.IsSuccess()
+			&& Historical.GetStatus()
+				== EArcOwnerHandoffRecoveryNextGenerationRotationSessionStatus::
+					CheckpointHistoryConflict);
+	TestTrue(TEXT("history rejection occurs before storage or authority callbacks"),
+		Harness.Seed.Completion.Admission.FileSystem.WriteCount == WritesBefore
+			&& Harness.Seed.Completion.Admission.FileSystem.ReadCount
+				== FileReadsBefore
+			&& Harness.Seed.Completion.Authority.Pending.ReadCount
+				== PendingReadsBefore
+			&& Harness.Seed.Completion.Authority.Completion.ReadCount
+				== CompletionReadsBefore
+			&& Harness.Seed.AdoptionAuthority.ReadCount
+				== AdoptionReadsBefore
+			&& Harness.Seed.Completion.Authority.Pending.AdvanceCount
+				== PendingAdvancesBefore);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryMultiGenerationCycleCapacityTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryMultiGenerationCycleProof.MaximumGenerationCapacity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewOwnerHandoffRecoveryMultiGenerationCycleCapacityTest::
+RunTest(const FString&)
+{
+	FArcOwnerHandoffRecoveryMultiGenerationHarness Harness;
+	if (!Harness.Build(*this, TEXT("RecoveryMultiGenerationCapacity")))
+	{
+		return false;
+	}
+
+	TArray<FArcOwnerHandoffRecoveryMultiGenerationCycleProof> Proofs;
+	FArcOwnerHandoffRecoveryGenerationExecution Previous;
+	bool bHasPrevious = false;
+	for (int32 TargetGeneration = 2;
+		TargetGeneration <= FArcOwnerHandoffRecoveryBundle::MaximumGeneration();
+		++TargetGeneration)
+	{
+		FArcOwnerHandoffRecoveryGenerationExecution Current;
+		if (!Harness.ExecuteGeneration(
+				*this,
+				TEXT("RecoveryMultiGenerationCapacity"),
+				false,
+				Current))
+		{
+			return false;
+		}
+		if (bHasPrevious)
+		{
+			FArcOwnerHandoffRecoveryMultiGenerationCycleProof Proof;
+			FString Diagnostic;
+			if (!FArcOwnerHandoffRecoveryMultiGenerationCycleProof::TryCreate(
+					Previous.RotationResult.GetRotation(),
+					Previous.CompletionResult.GetCompletion(),
+					Previous.AdoptionResult.GetAdoption(),
+					Current.RotationResult.GetRotation(),
+					Proof,
+					Diagnostic))
+			{
+				AddError(Diagnostic);
+				return false;
+			}
+			Proofs.Add(Proof);
+		}
+		Previous = Current;
+		bHasPrevious = true;
+	}
+
+	const int32 MaximumGeneration =
+		FArcOwnerHandoffRecoveryBundle::MaximumGeneration();
+	TestTrue(TEXT("all adjacent cycle proofs reach the bounded final generation"),
+		Proofs.Num() == MaximumGeneration - 2
+			&& Harness.CurrentAdoption.GetGeneration() == MaximumGeneration
+			&& !Harness.CurrentAdoption.HasNextGenerationCapacity()
+			&& Harness.CurrentTerminalJournal.GetRecordCount()
+				== FArcOwnerHandoffRecoveryJournal::MaxRecordCount()
+			&& Harness.CurrentTerminalJournal.GetLatestDisposition()
+				== EArcOwnerHandoffRecoveryJournalDisposition::
+					RecoveryCommitted);
+	TestTrue(TEXT("all canonical authorities stop at the same final generation"),
+		Harness.Seed.Completion.Authority.Pending.GetState().GetGeneration()
+				== MaximumGeneration
+			&& Harness.Seed.Completion.Authority.Completion.GetState().
+				GetGeneration() == MaximumGeneration
+			&& Harness.Seed.AdoptionAuthority.GetState().GetGeneration()
+				== MaximumGeneration);
+
+	const FName Consumer(TEXT("Renderer.ArcPreview.MainHUD.r1"));
+	FThrownLifecycleFixture OverflowLifecycle;
+	FFakeArcPreviewHandoffSurface OverflowOld(
+		FGuid(0xF459F001, 0xF459F002, 0xF459F003, 0xF459F004),
+		Consumer);
+	FFakeArcPreviewHandoffSurface OverflowNew(
+		FGuid(0xF459F101, 0xF459F102, 0xF459F103, 0xF459F104),
+		Consumer);
+	FArcCompositionOwner OverflowOwner;
+	FArcOwnerHandoffResult OverflowFailed;
+	FArcOwnerHandoffRecoveryCheckpoint OverflowCheckpoint;
+	if (!BuildArcOwnerHandoffRecoveryCheckpoint(
+			*this,
+			TEXT("RecoveryMultiGenerationCapacity.Overflow"),
+			OverflowLifecycle,
+			OverflowOwner,
+			OverflowOld,
+			OverflowNew,
+			OverflowFailed,
+			OverflowCheckpoint))
+	{
+		return false;
+	}
+
+	FArcOwnerHandoffRecoveryJournal OverflowJournal =
+		Harness.CurrentTerminalJournal;
+	const FGuid JournalIdBefore = OverflowJournal.GetJournalId();
+	const auto Capacity = OverflowJournal.AppendCheckpoint(OverflowCheckpoint);
+	FArcOwnerHandoffRecoveryNextGenerationRotationRequest OverflowRequest;
+	FString Diagnostic;
+	const bool bRequestCreated =
+		FArcOwnerHandoffRecoveryNextGenerationRotationRequest::TryCreate(
+			Harness.CurrentAdoption,
+			OverflowCheckpoint,
+			OverflowRequest,
+			Diagnostic);
+
+	TestTrue(TEXT("journal capacity rejects the seventeenth record without mutation"),
+		Capacity.IsValid() && !Capacity.IsSuccess()
+			&& Capacity.GetStatus()
+				== EArcOwnerHandoffRecoveryJournalAppendStatus::CapacityExceeded
+			&& OverflowJournal.GetRecordCount()
+				== FArcOwnerHandoffRecoveryJournal::MaxRecordCount()
+			&& OverflowJournal.GetJournalId() == JournalIdBefore);
+	TestTrue(TEXT("terminal adoption cannot authorize generation nine"),
+		!bRequestCreated && !OverflowRequest.IsValid()
+			&& Diagnostic.Len() > 0);
 	return true;
 }
 
