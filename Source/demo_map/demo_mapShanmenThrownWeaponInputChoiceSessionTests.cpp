@@ -150,25 +150,55 @@ bool Fdemo_mapThrownWeaponInputChoiceSessionFenceTest::RunTest(const FString&)
 	{
 		return false;
 	}
-	const FGuid ArcStateId = Session.GetState().GetStateId();
 	Fdemo_mapShanmenThrownWeaponInputChoiceCommand Target;
 	if (!Fdemo_mapShanmenThrownWeaponInputChoiceCommand::
 		TryCaptureArcTargetIntent(1, FVector2D(0.25, 0.5), Target))
 	{
 		return false;
 	}
-	TestTrue(TEXT("Run lock protects Arc-only choice state"),
-		Session.Submit(Target, true, true).Status
+	const auto TargetApplied = Session.Submit(Target, true, false);
+	Fdemo_mapShanmenThrownWeaponInputChoiceCommand Apex;
+	Fdemo_mapShanmenThrownWeaponInputChoiceCommand Clear;
+	if (!Fdemo_mapShanmenThrownWeaponInputChoiceCommand::
+			TryCaptureArcApexAdjustment(2, 0.5, Apex)
+		|| !Fdemo_mapShanmenThrownWeaponInputChoiceCommand::
+			TryCaptureArcTargetClear(3, Clear))
+	{
+		return false;
+	}
+	const auto ApexApplied = Session.Submit(Apex, true, false);
+	const auto ClearApplied = Session.Submit(Clear, true, false);
+	TestTrue(TEXT("Active Arc Run accepts target, apex, and clear edits"),
+		TargetApplied.IsSuccess() && TargetApplied.DidChange()
+			&& ApexApplied.IsSuccess() && ApexApplied.DidChange()
+			&& ClearApplied.IsSuccess() && ClearApplied.DidChange()
+			&& Session.GetState().GetRevision() == 4
+			&& !Session.GetState().HasArcTargetIntent()
+			&& Session.GetState().GetArcApexAdjustment() == 0.5);
+
+	const auto Straight = [&Session]()
+	{
+		Fdemo_mapShanmenThrownWeaponInputChoiceCommand Command;
+		check(Fdemo_mapShanmenThrownWeaponInputChoiceCommand::
+			TryCaptureTrajectorySelection(
+				Session.GetState().GetRevision(),
+				ETrajectory::Straight,
+				Command));
+		return Command;
+	}();
+	const FGuid LiveArcStateId = Session.GetState().GetStateId();
+	TestTrue(TEXT("Active Run still freezes trajectory selection"),
+		Session.Submit(Straight, true, true).Status
 			== EChoiceSessionStatus::CombatRunActive
-			&& Session.GetState().GetStateId() == ArcStateId);
-	TestTrue(TEXT("Lifecycle lock protects Arc-only choice state"),
-		Session.Submit(Target, false, false).Status
+			&& Session.GetState().GetStateId() == LiveArcStateId);
+	TestTrue(TEXT("Non-empty lifecycle still freezes trajectory selection"),
+		Session.Submit(Straight, false, false).Status
 			== EChoiceSessionStatus::ProductLifecycleNotEmpty
-			&& Session.GetState().GetStateId() == ArcStateId);
-	TestTrue(TEXT("Unlocked Arc target advances once"),
-		Session.Submit(Target, false, true).DidChange()
-			&& Session.GetState().GetRevision() == 2
-			&& Session.GetState().HasArcTargetIntent());
+			&& Session.GetState().GetStateId() == LiveArcStateId);
+	TestTrue(TEXT("Trajectory can change after Run and lifecycle release"),
+		Session.Submit(Straight, false, true).DidChange()
+			&& Session.GetState().GetRevision() == 5
+			&& Session.GetTrajectoryKind() == ETrajectory::Straight);
 	return true;
 }
 

@@ -230,6 +230,64 @@ bool Fdemo_mapThrownWeaponInputChoiceControllerCommandKindsTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponInputChoiceControllerRuntimeArcEditingTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponInputChoiceControllerAdapter.RuntimeArcEditing",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponInputChoiceControllerRuntimeArcEditingTest::RunTest(
+	const FString&)
+{
+	FRouteProbe Probe;
+	if (!TestTrue(TEXT("Arc mode is selected before product binding"),
+		Probe.Route(MakeTrajectoryCommand()).IsAccepted()))
+	{
+		return false;
+	}
+	Probe.bCombatRunActive = true;
+	Probe.bProductLifecycleEmpty = false;
+
+	Fdemo_mapShanmenThrownWeaponInputChoiceCommand Target;
+	Fdemo_mapShanmenThrownWeaponInputChoiceCommand Apex;
+	Fdemo_mapShanmenThrownWeaponInputChoiceCommand Clear;
+	if (!Fdemo_mapShanmenThrownWeaponInputChoiceCommand::
+			TryCaptureArcTargetIntent(1, FVector2D(0.6, 0.8), Target)
+		|| !Fdemo_mapShanmenThrownWeaponInputChoiceCommand::
+			TryCaptureArcApexAdjustment(2, 0.25, Apex)
+		|| !Fdemo_mapShanmenThrownWeaponInputChoiceCommand::
+			TryCaptureArcTargetClear(3, Clear))
+	{
+		return false;
+	}
+	const auto TargetResult = Probe.Route(Target);
+	const auto ApexResult = Probe.Route(Apex);
+	const auto ClearResult = Probe.Route(Clear);
+	TestTrue(TEXT("Controller delegates all live Arc aim edits during the Run"),
+		TargetResult.IsAccepted() && ApexResult.IsAccepted()
+			&& ClearResult.IsAccepted()
+			&& TargetResult.GetSessionResult().Status
+				== ESessionStatus::Applied
+			&& ApexResult.GetSessionResult().Status
+				== ESessionStatus::Applied
+			&& ClearResult.GetSessionResult().Status
+				== ESessionStatus::Applied
+			&& Probe.Session.GetState().GetRevision() == 4
+			&& !Probe.Session.GetState().HasArcTargetIntent()
+			&& Probe.Session.GetState().GetArcApexAdjustment() == 0.25);
+
+	const auto LockedTrajectory = Probe.Route(
+		MakeTrajectoryCommand(4, ETrajectory::Straight));
+	TestTrue(TEXT("Controller retains the active-Run trajectory fence"),
+		LockedTrajectory.IsValid()
+			&& LockedTrajectory.WasRejectedBySession()
+			&& LockedTrajectory.GetSessionResult().Status
+				== ESessionStatus::CombatRunActive
+			&& Probe.Session.GetTrajectoryKind() == ETrajectory::BallisticArc);
+	TestTrue(TEXT("Each eligible command resolves and submits once"),
+		Probe.ResolutionCount == 5 && Probe.SubmissionCount == 5);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	Fdemo_mapThrownWeaponInputChoiceControllerSessionRejectionTest,
 	"Shanmen.0_0_10.Product.ThrownWeaponInputChoiceControllerAdapter.SessionRejections",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

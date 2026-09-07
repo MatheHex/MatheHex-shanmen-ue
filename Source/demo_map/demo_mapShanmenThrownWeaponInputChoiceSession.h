@@ -38,12 +38,14 @@ struct Fdemo_mapShanmenThrownWeaponInputChoiceSessionResult
 };
 
 /**
- * Consumer-owned choice state between combat Runs.
+ * Consumer-owned trajectory choice plus live Arc-aim state.
  *
  * The reducer remains the only state transition authority. This session adds
- * product lifetime fences: a command that would change state is rejected while
- * the combat Run is active or the thrown-weapon lifecycle is not empty. Exact
- * replay and fresh no-op acknowledgements remain safe while locked.
+ * product lifetime fences: trajectory selection is rejected while the combat
+ * Run is active or the thrown-weapon lifecycle is not empty. Arc target/apex
+ * edits remain live for a Run already frozen to BallisticArc; launch captures
+ * its own immutable snapshot, so later edits cannot mutate an in-flight action.
+ * Exact replay and fresh no-op acknowledgements remain safe while locked.
  */
 class Fdemo_mapShanmenThrownWeaponInputChoiceSession
 {

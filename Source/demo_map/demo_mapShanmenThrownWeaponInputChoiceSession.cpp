@@ -2,6 +2,23 @@
 
 namespace
 {
+	bool IsLiveArcAimEdit(
+		const Fdemo_mapShanmenThrownWeaponInputChoiceCommand& Command)
+	{
+		switch (Command.GetKind())
+		{
+		case Edemo_mapShanmenThrownWeaponInputChoiceCommandKind::
+			SetArcTargetIntent:
+		case Edemo_mapShanmenThrownWeaponInputChoiceCommandKind::
+			AdjustArcApex:
+		case Edemo_mapShanmenThrownWeaponInputChoiceCommandKind::
+			ClearArcTargetIntent:
+			return true;
+		default:
+			return false;
+		}
+	}
+
 	Fdemo_mapShanmenThrownWeaponInputChoiceSessionResult Accept(
 		const Edemo_mapShanmenThrownWeaponInputChoiceSessionStatus Status,
 		const Fdemo_mapShanmenThrownWeaponInputChoiceReduceResult& Reduced)
@@ -76,7 +93,8 @@ Fdemo_mapShanmenThrownWeaponInputChoiceSession::Submit(
 			Edemo_mapShanmenThrownWeaponInputChoiceSessionStatus::NoChange,
 			Reduced);
 	}
-	if (bCombatRunActive)
+	const bool bLiveArcAimEdit = IsLiveArcAimEdit(Command);
+	if (bCombatRunActive && !bLiveArcAimEdit)
 	{
 		return Reject(
 			Edemo_mapShanmenThrownWeaponInputChoiceSessionStatus::
@@ -84,7 +102,7 @@ Fdemo_mapShanmenThrownWeaponInputChoiceSession::Submit(
 			Reduced.Status,
 			TEXT("Thrown-weapon input choice is frozen during an active combat Run."));
 	}
-	if (!bProductLifecycleEmpty)
+	if (!bProductLifecycleEmpty && !bLiveArcAimEdit)
 	{
 		return Reject(
 			Edemo_mapShanmenThrownWeaponInputChoiceSessionStatus::

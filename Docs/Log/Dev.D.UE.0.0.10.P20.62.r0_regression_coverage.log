@@ -1,0 +1,8 @@
+REGRESSION_COVERAGE: PASS Changed=5 Rules=3 Required=5 Logs=2
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10 Evidence=Dev.D.UE.0.0.10.P20.62.r0_full.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.ThrownWeaponInputChoice Evidence=Dev.D.UE.0.0.10.P20.62.r0_focused.log,Dev.D.UE.0.0.10.P20.62.r0_full.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.ThrownWeaponInputChoiceControllerAdapter Evidence=Dev.D.UE.0.0.10.P20.62.r0_full.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.ThrownWeaponInputChoiceIntentAdapter Evidence=Dev.D.UE.0.0.10.P20.62.r0_full.log
+REGRESSION_COVERAGE: Group=Shanmen.0_0_10.Product.ThrownWeaponInputChoiceSession Evidence=Dev.D.UE.0.0.10.P20.62.r0_full.log
+REGRESSION_COVERAGE: Log=Dev.D.UE.0.0.10.P20.62.r0_focused.log Group=Shanmen.0_0_10.Product.ThrownWeaponInputChoice Success=39 SHA256=B5F1F308A0F65F27F536242F2A3BD8D9E1684466016AEFAD016608749CFBCAC5
+REGRESSION_COVERAGE: Log=Dev.D.UE.0.0.10.P20.62.r0_full.log Group=Shanmen.0_0_10 Success=1210 SHA256=DD8E3037A84287B5D48E0827E507375B156B6453B1632960C15C4B24614B7CFF

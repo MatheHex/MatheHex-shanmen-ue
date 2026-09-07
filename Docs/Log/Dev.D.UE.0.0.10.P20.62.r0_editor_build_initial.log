@@ -1,0 +1,85 @@
+Using bundled DotNet SDK version: 10.0 win-x64
+Running UnrealBuildTool: dotnet "..\..\Engine\Binaries\DotNET\UnrealBuildTool\UnrealBuildTool.dll" demo_mapEditor Win64 Development C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\demo_map.uproject -WaitMutex -NoHotReloadFromIDE
+Log file: C:\Users\qq187\AppData\Local\UnrealBuildTool\Log.txt
+Determining max actions to execute in parallel (16 physical cores, 32 logical cores)
+  Executing up to 16 processes, one per physical core
+Using 'git status' to determine working set for adaptive non-unity build (C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B).
+UbaServer - Listening on 0.0.0.0:1345
+Invalidating makefile for demo_mapEditor (working set of source files changed)
+Building demo_mapEditor...
+===== Toolchain Information =====
+Using ISPC compiler (C:\Program Files\Epic Games\UE_5.8\Engine\Source\ThirdParty\Intel\ISPC\bin\Windows\ispc.exe)
+  Intel(r) Implicit SPMD Program Compiler (Intel(r) ISPC), 1.24.0 (build commit  @ 20250404, LLVM 18.1.2) 
+Using Visual Studio 14.44.35228 toolchain (C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207) and Windows 10.0.22621.0 SDK (C:\Program Files (x86)\Windows Kits\10).
+[Adaptive Build] Excluded from demo_map unity file: demo_mapShanmenThrownWeaponInputChoiceControllerAdapterTests.cpp, demo_mapShanmenThrownWeaponInputChoiceIntentAdapterTests.cpp, demo_mapShanmenThrownWeaponInputChoiceSession.cpp, demo_mapShanmenThrownWeaponInputChoiceSessionTests.cpp
+=================================
+Using Unreal Build Accelerator local executor to run 58 action(s)
+  CPU 16 physical cores, 32 logical cores
+  Memory 31.74 GB physical, 75.4 GB/89.74 GB committed
+  UBA Storage capacity 40 GB
+[1/58] Compile [x64] demo_map0909BCodeBItemBridge.cpp
+[2/58] Compile [x64] demo_map0909BEditorSupport.cpp
+[3/58] Compile [x64] Module.demo_map.gen.cpp
+[4/58] Compile [x64] demo_map0909BFramework.cpp
+[5/58] Compile [x64] demo_map0909BM01RuntimeAdapter.cpp
+[6/58] Compile [x64] demo_map0909BRunStartCoordinator.cpp
+[7/58] Compile [x64] demo_mapEnemyCharacter.cpp
+[8/58] Compile [x64] demo_mapExitZone.cpp
+[9/58] Compile [x64] demo_mapHUD.cpp
+[10/58] Compile [x64] demo_mapGameMode.cpp
+[11/58] Compile [x64] demo_mapHeavyEnemyCharacter.cpp
+[12/58] Compile [x64] demo_mapInputConsumptionTrace.cpp
+[13/58] Compile [x64] demo_mapInputRestoreTests.cpp
+[14/58] Compile [x64] demo_mapItemUseAndArmorTests.cpp
+[15/58] Compile [x64] demo_mapM01ExtractionZone.cpp
+[16/58] Compile [x64] demo_mapM01BossCharacter.cpp
+[17/58] Compile [x64] demo_mapM01RiskZone.cpp
+[18/58] Compile [x64] demo_mapPlayerController.cpp
+[19/58] Compile [x64] demo_mapProfilePreparationWidget.cpp
+[20/58] Compile [x64] demo_mapRangedEnemyCharacter.cpp
+[21/58] Compile [x64] demo_mapShanmenCombatConditionComponentTests.cpp
+[22/58] Compile [x64] demo_mapShanmenSpiritEvasionPhysicalInputTests.cpp
+[23/58] Compile [x64] demo_mapShanmenSwordRhythmPresentationEventTests.cpp
+[24/58] Compile [x64] demo_mapShanmenSwordRhythmPresentationTests.cpp
+[25/58] Compile [x64] demo_mapShanmenThrownWeaponArcChoiceInputCompositionTests.cpp
+[26/58] Compile [x64] demo_mapShanmenThrownWeaponArcConfirmationOwnerTests.cpp
+[27/58] Compile [x64] demo_mapShanmenThrownWeaponArcEditingInputHintPresentation.cpp
+[28/58] Compile [x64] demo_mapShanmenThrownWeaponArcEditingControllerRouteTests.cpp
+[29/58] Compile [x64] demo_mapShanmenThrownWeaponArcEditingInputHintPresentationTests.cpp
+[30/58] Compile [x64] demo_mapShanmenThrownWeaponArcEditingInteractionComposition.cpp
+[31/58] Compile [x64] demo_mapShanmenThrownWeaponArcEditingInteractionCompositionTests.cpp
+[32/58] Compile [x64] demo_mapShanmenThrownWeaponArcEditingPhysicalInputTests.cpp
+[33/58] Compile [x64] demo_mapShanmenThrownWeaponArcEditingPresentation.cpp
+[34/58] Compile [x64] demo_mapShanmenThrownWeaponArcEditingPresentationTests.cpp
+[35/58] Compile [x64] demo_mapShanmenThrownWeaponArcLaunchInputAdapterTests.cpp
+[36/58] Compile [x64] demo_mapShanmenThrownWeaponArcSourceBasisAdapterTests.cpp
+[37/58] Compile [x64] demo_mapShanmenThrownWeaponHotbarConfirmationAdapterTests.cpp
+[38/58] Compile [x64] demo_mapShanmenThrownWeaponInputChoiceControllerAdapter.cpp
+[39/58] Compile [x64] demo_mapShanmenThrownWeaponInputAdapterTests.cpp
+[40/58] Compile [x64] demo_mapShanmenThrownWeaponInputChoiceControllerAdapterTests.cpp
+[41/58] Compile [x64] demo_mapShanmenThrownWeaponInputChoiceIntentAdapter.cpp
+[42/58] Compile [x64] demo_mapShanmenThrownWeaponInputChoiceIntentAdapterTests.cpp
+[43/58] Compile [x64] demo_mapShanmenThrownWeaponInputChoiceInteractionPort.cpp
+[44/58] Compile [x64] demo_mapShanmenThrownWeaponInputChoiceInteractionPortTests.cpp
+[45/58] Compile [x64] demo_mapShanmenThrownWeaponInputChoiceInteractionRequestCoordinator.cpp
+[46/58] Compile [x64] demo_mapShanmenThrownWeaponInputChoiceInteractionRequestCoordinatorTests.cpp
+[47/58] Compile [x64] demo_mapShanmenThrownWeaponInputChoiceSession.cpp
+[48/58] Compile [x64] demo_mapShanmenThrownWeaponInputChoiceSessionTests.cpp
+[49/58] Compile [x64] demo_mapShanmenThrownWeaponTrajectoryPresentation.cpp
+[50/58] Compile [x64] demo_mapShanmenThrownWeaponTrajectoryPresentationTests.cpp
+[51/58] Compile [x64] demo_mapShanmenThrownWeaponTrajectoryTogglePhysicalInputTests.cpp
+[52/58] Compile [x64] demo_mapShanmenWeaponGuardPhysicalInputTests.cpp
+[53/58] Compile [x64] demo_mapSkillComponent.cpp
+[54/58] Compile [x64] demo_mapSkillProjectile.cpp
+[55/58] Compile [x64] demo_mapV3ProgressionManager.cpp
+[56/58] Link [x64] UnrealEditor-demo_map.lib
+  正在创建库 C:/AIDev/shanmen-ue/Dev.D.UE.0.0.9B/Intermediate/Build/Win64/x64/UnrealEditor/Development/demo_map/UnrealEditor-demo_map.lib 和对象 C:/AIDev/shanmen-ue/Dev.D.UE.0.0.9B/Intermediate/Build/Win64/x64/UnrealEditor/Development/demo_map/UnrealEditor-demo_map.exp
+[57/58] Link [x64] UnrealEditor-demo_map.dll
+[58/58] WriteMetadata demo_mapEditor.target [NoUba]
+
+Total time in Unreal Build Accelerator local executor: 105.59 seconds
+Output binary: C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor.exe
+
+Result: Succeeded
+Total execution time: 108.10 seconds
+Trace written to file C:\Users\qq187\AppData\Local\UnrealBuildTool\Trace.uba with size 27.9kb

@@ -399,6 +399,54 @@ bool Fdemo_mapThrownWeaponInputChoiceIntentReplayConflictTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponInputChoiceIntentRuntimeArcEditingTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponInputChoiceIntentAdapter.RuntimeArcEditing",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponInputChoiceIntentRuntimeArcEditingTest::RunTest(
+	const FString&)
+{
+	FIntentRouteProbe Probe;
+	if (!TestTrue(TEXT("Arc mode is selected before product binding"),
+		Probe.Route(MakeTrajectoryIntent()).IsAccepted()))
+	{
+		return false;
+	}
+	Probe.bCombatRunActive = true;
+	Probe.bProductLifecycleEmpty = false;
+	const auto Target = Probe.Route(MakeTargetIntent());
+	const auto Apex = Probe.Route(MakeApexIntent(0.25));
+	const auto Clear = Probe.Route(MakeClearIntent());
+	TestTrue(TEXT("Logical target, apex, and clear intents remain live in Arc Run"),
+		Target.IsAccepted() && Apex.IsAccepted() && Clear.IsAccepted()
+			&& Target.GetControllerResult().GetSessionResult().Status
+				== ESessionStatus::Applied
+			&& Apex.GetControllerResult().GetSessionResult().Status
+				== ESessionStatus::Applied
+			&& Clear.GetControllerResult().GetSessionResult().Status
+				== ESessionStatus::Applied
+			&& Probe.Session.GetState().GetRevision() == 4
+			&& !Probe.Session.GetState().HasArcTargetIntent()
+			&& Probe.Session.GetState().GetArcApexAdjustment() == 0.25);
+
+	const auto LockedTrajectory = Probe.Route(
+		MakeTrajectoryIntent(ETrajectory::Straight));
+	TestTrue(TEXT("Logical trajectory selection remains frozen in active Run"),
+		LockedTrajectory.IsValid()
+			&& LockedTrajectory.WasRejectedByController()
+			&& LockedTrajectory.GetControllerResult().WasRejectedBySession()
+			&& LockedTrajectory.GetControllerResult().GetSessionResult().Status
+				== ESessionStatus::CombatRunActive
+			&& Probe.Session.GetTrajectoryKind() == ETrajectory::BallisticArc);
+	TestTrue(TEXT("Every runtime edit keeps one read, capture, and route"),
+		Probe.ChoiceSourceResolutionCount == 5
+			&& Probe.ChoiceStateReadCount == 5
+			&& Probe.ControllerRouteCount == 5
+			&& Probe.ControllerSessionSubmissionCount == 5);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	Fdemo_mapThrownWeaponInputChoiceIntentRejectionsTest,
 	"Shanmen.0_0_10.Product.ThrownWeaponInputChoiceIntentAdapter.ControllerRejections",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
