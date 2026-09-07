@@ -15,6 +15,7 @@
 #include "demo_mapShanmenPreparationAdapter.h"
 #include "demo_mapShanmenRunLifecycleAdapter.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewProductBridge.h"
+#include "demo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation.h"
 #include "demo_mapShanmenThrownWeaponArcPreLaunchPreviewContext.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewMainHUDRendererAdapter.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewMainHUDRuntimeBinding.h"
@@ -18227,6 +18228,157 @@ RunTest(const FString&)
 				== InitialActivationSequence
 			&& Fixture.Lifecycle.NumCapturedSelections()
 				== InitialCapturedSelections);
+
+	check(Binding.TryEndRun(
+		Fixture.Correlation.ActiveRunId,
+		Fixture.Lifecycle,
+		Fixture.Coordinator,
+		Diagnostic));
+	check(Context.TryEnd(Fixture.Correlation.ActiveRunId, Diagnostic));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreLaunchGestureFeedbackRuntimeTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreLaunchGestureFeedbackPresentation.VisibleCurrentAndStaleFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreLaunchGestureFeedbackRuntimeTest::RunTest(
+	const FString&)
+{
+	using EAction =
+		Edemo_mapShanmenThrownWeaponArcPreLaunchPressAction;
+	using FBinding =
+		Fdemo_mapShanmenThrownWeaponArcPreviewMainHUDRuntimeBinding;
+	using FFeedback =
+		Fdemo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation;
+	using FRenderer =
+		Fdemo_mapShanmenThrownWeaponArcPreviewMainHUDRendererAdapter;
+	using FUpdate =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwnerUpdateResult;
+
+	FThrownLifecycleFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcPreLaunchGestureFeedbackRuntime"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+
+	FBinding Binding;
+	FRenderer HUD;
+	Fdemo_mapShanmenThrownWeaponArcPreLaunchPreviewContext Context;
+	FString Diagnostic;
+	check(Binding.TryInitialize(
+		FGuid(0xF4640201, 0xF4640202, 0xF4640203, 0xF4640204),
+		Diagnostic));
+	check(HUD.TryInitialize(
+		FGuid(0xF4640301, 0xF4640302, 0xF4640303, 0xF4640304),
+		Diagnostic));
+	check(Binding.TryAttachHUD(HUD, Diagnostic));
+	check(Binding.TryBeginRun(Fixture.Correlation.ActiveRunId, Diagnostic));
+	check(Context.TryBegin(Fixture.Correlation.ActiveRunId, Diagnostic));
+
+	const auto Choice = MakeArcPreviewChoice(false);
+	const auto ReadChoice =
+		Fdemo_mapShanmenThrownWeaponInputChoiceInteractionPort::Read(
+			[]() { return true; },
+			[&Choice]() { return Choice; });
+	FUpdate InitialPreview;
+	check(Binding.TryUpdate(
+		2,
+		Choice,
+		MakeArcPreviewChoicePolicy(),
+		MakeArcPreviewBasis(),
+		Fixture.Lifecycle,
+		Fixture.Coordinator,
+		InitialPreview,
+		Diagnostic));
+	EAction Action = EAction::Invalid;
+	check(Context.RouteEligibleHotbarPress(
+		Fixture.Correlation.ActiveRunId, 2, Action, Diagnostic));
+	const uint64 ArmedRevision = Context.GetRevision();
+	const FGuid VisibleStateId =
+		HUD.GetSurfaceCursor().GetPresentationStateId();
+	FFeedback Feedback;
+	TestTrue(TEXT("current physical preview projects a same-slot confirmation hint"),
+		FFeedback::TryProject(
+			Context,
+			ReadChoice,
+			HUD.GetSurfaceCursor(),
+			TEXT("2"),
+			Feedback));
+	TestTrue(TEXT("ready feedback is read-only and identifies the armed slot"),
+		Feedback.IsValid()
+			&& Feedback.IsReadyToConfirm()
+			&& !Feedback.NeedsArcTarget()
+			&& Feedback.GetArmedHotbarSlotNumber() == 2
+			&& Feedback.GetContextRevision() == ArmedRevision
+			&& Feedback.GetDisplayText() == TEXT(
+				"ARC PREVIEW: SLOT 2 [2] ARMED | EDIT TARGET/APEX | PRESS [2] AGAIN TO THROW")
+			&& Context.GetRevision() == ArmedRevision
+			&& HUD.GetSurfaceCursor().GetPresentationStateId()
+				== VisibleStateId);
+
+	Fdemo_mapShanmenThrownWeaponInputChoiceCommand AdjustCommand;
+	check(Fdemo_mapShanmenThrownWeaponInputChoiceCommand::
+		TryCaptureArcApexAdjustment(
+			Choice.GetRevision(), -1.0, AdjustCommand));
+	const auto Adjusted =
+		Fdemo_mapShanmenThrownWeaponInputChoiceReducer::Reduce(
+			Choice, AdjustCommand);
+	check(Adjusted.DidChange());
+	const auto AdjustedRead =
+		Fdemo_mapShanmenThrownWeaponInputChoiceInteractionPort::Read(
+			[]() { return true; },
+			[&Adjusted]() { return Adjusted.State; });
+	TestFalse(TEXT("a stale physical cursor cannot claim the new choice is ready"),
+		FFeedback::TryProject(
+			Context,
+			AdjustedRead,
+			HUD.GetSurfaceCursor(),
+			TEXT("2"),
+			Feedback));
+	TestTrue(TEXT("stale rejection clears reused feedback"),
+		!Feedback.IsValid() && Feedback.GetDisplayText().IsEmpty());
+
+	FUpdate AdjustedPreview;
+	check(Binding.TryUpdate(
+		2,
+		Adjusted.State,
+		MakeArcPreviewChoicePolicy(),
+		MakeArcPreviewBasis(),
+		Fixture.Lifecycle,
+		Fixture.Coordinator,
+		AdjustedPreview,
+		Diagnostic));
+	TestTrue(TEXT("the refreshed physical cursor restores ready feedback"),
+		FFeedback::TryProject(
+			Context,
+			AdjustedRead,
+			HUD.GetSurfaceCursor(),
+			TEXT("2"),
+			Feedback)
+			&& Feedback.IsReadyToConfirm()
+			&& Context.GetRevision() == ArmedRevision);
+
+	FUpdate ClearResult;
+	check(Binding.TryClear(
+		Adjusted.State,
+		Fixture.Lifecycle,
+		Fixture.Coordinator,
+		ClearResult,
+		Diagnostic));
+	check(Context.TryCancel(
+		Fixture.Correlation.ActiveRunId, Diagnostic));
+	TestFalse(TEXT("cancelled context emits no residual gesture feedback"),
+		FFeedback::TryProject(
+			Context,
+			AdjustedRead,
+			HUD.GetSurfaceCursor(),
+			TEXT("2"),
+			Feedback));
 
 	check(Binding.TryEndRun(
 		Fixture.Correlation.ActiveRunId,

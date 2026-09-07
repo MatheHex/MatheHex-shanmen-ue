@@ -17,6 +17,7 @@
 #include "demo_mapPlayerController.h"
 #include "demo_mapShanmenThrownWeaponArcEditingInputHintPresentation.h"
 #include "demo_mapShanmenThrownWeaponArcEditingPresentation.h"
+#include "demo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation.h"
 #include "demo_mapShanmenThrownWeaponTrajectoryPresentation.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
@@ -274,6 +275,40 @@ void Ademo_mapHUD::DrawHUD()
 	{
 		const auto Read =
 			DemoController->ReadThrownWeaponInputChoiceInteraction();
+		if (ActiveMode)
+		{
+			const auto& PreLaunchContext =
+				ActiveMode->GetThrownWeaponArcPreLaunchPreviewContext();
+			if (PreLaunchContext.HasArmedHotbarSlot())
+			{
+				const int32 ArmedSlot =
+					PreLaunchContext.GetArmedHotbarSlotNumber();
+				const FString HotbarKeyLabel = InputSettings.GetKey(
+					Fdemo_mapInputActionRegistry::HotbarActionId(ArmedSlot))
+					.GetDisplayName().ToString();
+				Fdemo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation
+					Feedback;
+				if (Fdemo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation::
+					TryProject(
+						PreLaunchContext,
+						Read,
+						ThrownWeaponArcPreviewRendererAdapter.
+							GetSurfaceCursor(),
+						HotbarKeyLabel,
+						Feedback))
+				{
+					DrawReadableText(
+						Canvas,
+						GEngine->GetSmallFont(),
+						Feedback.GetDisplayText(),
+						FVector2D(28.0f, Canvas->SizeY - 202.0f),
+						Feedback.IsReadyToConfirm()
+							? FLinearColor(0.35f, 1.0f, 0.48f)
+							: FLinearColor(1.0f, 0.72f, 0.18f),
+						0.76f);
+				}
+			}
+		}
 		Fdemo_mapShanmenThrownWeaponTrajectoryPresentation Presentation;
 		const FString ToggleKeyLabel = InputSettings.GetKey(
 			Fdemo_mapInputActionIds::ThrownWeaponTrajectoryToggle)

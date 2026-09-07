@@ -184,6 +184,12 @@ try
     $ThrownArcPreLaunchPreviewContext = New-AutomationLogFixture `
         -Name 'thrown-arc-pre-launch-preview-context.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreLaunchPreviewContext'
+    $ThrownArcPreLaunchGestureFeedbackPresentation = New-AutomationLogFixture `
+        -Name 'thrown-arc-pre-launch-gesture-feedback-presentation.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreLaunchGestureFeedbackPresentation'
+    $ThrownWeaponInputChoiceInteractionPort = New-AutomationLogFixture `
+        -Name 'thrown-weapon-input-choice-interaction-port.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponInputChoiceInteractionPort'
     $ThrownArcPreviewUpdateCoordinator = New-AutomationLogFixture `
         -Name 'thrown-arc-preview-update-coordinator.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewUpdateCoordinator'
@@ -2688,6 +2694,7 @@ try
 			'Source/demo_map/demo_mapHUD.cpp') `
 		-Logs @(
 			$Full,
+			$ThrownArcPreLaunchGestureFeedbackPresentation,
 			$ThrownArcPreviewMainHUDRuntimeBinding,
 			$ThrownArcPreviewMainHUDRendererAdapter,
 			$ThrownWeaponTrajectoryPresentation,
@@ -2735,6 +2742,22 @@ try
 			$InputRestore,
 			$Ranged,
 			$ItemUse)
+
+	Invoke-ExpectedPass `
+		-Name 'thrown weapon Arc pre-launch gesture feedback maps context physical cursor choice read and HUD compatibility' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation.h',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation.cpp',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentationTests.cpp') `
+		-Logs @(
+			$ThrownArcPreLaunchGestureFeedbackPresentation,
+			$ThrownArcPreLaunchPreviewContext,
+			$ThrownArcPreviewMainHUDRuntimeBinding,
+			$ThrownArcPreviewMainHUDRendererAdapter,
+			$ThrownWeaponInputChoiceInteractionPort,
+			$Full,
+			$InputRestore,
+			$Ranged)
 
 	Invoke-ExpectedPass `
 		-Name 'thrown weapon Arc pre-launch context maps live preview lifecycle and compatibility seams' `
@@ -5560,6 +5583,13 @@ try
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreLaunchPreviewContext.cpp') `
 		-Logs @($ThrownArcPreLaunchPreviewContext) `
+		-ExpectedText 'missing required groups'
+
+	Invoke-ExpectedFail `
+		-Name 'thrown Arc pre-launch gesture feedback focus cannot replace context surface read and HUD compatibility evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation.cpp') `
+		-Logs @($ThrownArcPreLaunchGestureFeedbackPresentation) `
 		-ExpectedText 'missing required groups'
 
 	Invoke-ExpectedFail `

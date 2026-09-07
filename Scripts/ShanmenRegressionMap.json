@@ -3147,6 +3147,7 @@
 	  "name": "MainHUDTrajectoryPresentation",
 	  "pathRegex": "^Source/demo_map/demo_mapHUD\\.(?:h|cpp)$",
 	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreLaunchGestureFeedbackPresentation",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRuntimeBinding",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRendererAdapter",
 		"Shanmen.0_0_10.Product.ThrownWeaponTrajectoryPresentation",
@@ -3209,6 +3210,20 @@
 		"demo_map.InputRestore",
 		"demo_map.V2RangedCompatibility",
 		"demo_map.ItemUseAndArmor"
+	  ]
+	},
+	{
+	  "name": "ThrownWeaponArcPreLaunchGestureFeedbackPresentation",
+	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation(?:Tests)?\\.(?:h|cpp)$",
+	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreLaunchGestureFeedbackPresentation",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreLaunchPreviewContext",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRuntimeBinding",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRendererAdapter",
+		"Shanmen.0_0_10.Product.ThrownWeaponInputChoiceInteractionPort",
+		"Shanmen.0_0_10",
+		"demo_map.InputRestore",
+		"demo_map.V2RangedCompatibility"
 	  ]
 	},
 	{
