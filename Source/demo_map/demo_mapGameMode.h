@@ -16,6 +16,7 @@
 #include "demo_mapShanmenControlledWeaponRunLifecycle.h"
 #include "demo_mapShanmenControlledWeaponThreatSampleRouter.h"
 #include "demo_mapShanmenControlledWeaponWorldLifecycle.h"
+#include "demo_mapShanmenControlledWeaponWorldThreatSampler.h"
 #include "demo_mapShanmenMeridianShockTreatmentInputAdapter.h"
 #include "demo_mapShanmenMeridianShockTreatmentProductLifecycle.h"
 #include "demo_mapShanmenThrownWeaponArcChoiceInputComposition.h"
@@ -183,6 +184,11 @@ public:
 	GetControlledWeaponThreatSampleRouter() const
 	{
 		return ControlledWeaponThreatSampleRouter;
+	}
+	const Fdemo_mapShanmenControlledWeaponWorldThreatSampler&
+	GetControlledWeaponWorldThreatSampler() const
+	{
+		return ControlledWeaponWorldThreatSampler;
 	}
 	/** Routes one already-captured, device-independent hotbar trajectory. */
 	Fdemo_mapShanmenThrownWeaponSessionResult RouteThrownWeaponHotbarIntent(
@@ -656,6 +662,8 @@ private:
 		ControlledWeaponRunCommandRouter;
 	Fdemo_mapShanmenControlledWeaponThreatSampleRouter
 		ControlledWeaponThreatSampleRouter;
+	Fdemo_mapShanmenControlledWeaponWorldThreatSampler
+		ControlledWeaponWorldThreatSampler;
 	Fdemo_mapShanmenThrownWeaponProductLifecycle
 		ThrownWeaponProductLifecycle;
 	Fdemo_mapShanmenThrownWeaponInputAdapter ThrownWeaponInputAdapter;

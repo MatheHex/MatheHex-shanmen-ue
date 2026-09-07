@@ -547,6 +547,9 @@ try
     $WorldGameplay = New-AutomationLogFixture `
         -Name 'world-gameplay.log' `
         -Group 'Shanmen.0_0_10.WorldGameplay'
+    $ControlledWeaponThreatSampleRouter = New-AutomationLogFixture `
+        -Name 'controlled-weapon-threat-sample-router.log' `
+        -Group 'Shanmen.0_0_10.Product.ControlledWeaponThreatSampleRouter'
     $DivineSenseRuntime = New-AutomationLogFixture `
         -Name 'divine-sense-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.DivineSense'
@@ -2558,6 +2561,12 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenControlledWeaponWorldLifecycle.cpp',
             'Source/demo_map/demo_mapShanmenControlledWeaponActor.cpp') `
+        -Logs @($Full)
+
+    Invoke-ExpectedPass `
+        -Name 'controlled weapon World threat sampler is covered by the full suite' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenControlledWeaponWorldThreatSampler.cpp') `
         -Logs @($Full)
 
     Invoke-ExpectedPass `
@@ -5480,6 +5489,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenControlledWeaponWorldLifecycle.cpp') `
         -Logs @($Coordinator) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'World threat sampler cannot use router-only evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenControlledWeaponWorldThreatSampler.cpp') `
+        -Logs @($ControlledWeaponThreatSampleRouter) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

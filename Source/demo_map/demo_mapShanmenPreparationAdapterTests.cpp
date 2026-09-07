@@ -11,8 +11,11 @@
 #include "demo_map0909BSectWarehouseService.h"
 #include "demo_mapAttributeComponent.h"
 #include "demo_mapCombatRunCoordinator.h"
+#include "demo_mapEnemyCharacter.h"
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapItemSubsystem.h"
+#include "demo_mapM01EnemyIdentityComponent.h"
+#include "demo_mapM01EnemyTypes.h"
 #include "demo_mapProfileRepository.h"
 #include "demo_mapProfileSessionSubsystem.h"
 #include "demo_mapPlayerHealthComponent.h"
@@ -21,6 +24,7 @@
 #include "demo_mapShanmenControlledWeaponActor.h"
 #include "demo_mapShanmenControlledWeaponRunLifecycle.h"
 #include "demo_mapShanmenControlledWeaponWorldLifecycle.h"
+#include "demo_mapShanmenControlledWeaponWorldThreatSampler.h"
 #include "demo_mapShanmenItemCutover.h"
 #include "demo_mapShanmenItemMetadataAdapter.h"
 #include "demo_mapShanmenRunLifecycleAdapter.h"
@@ -283,6 +287,9 @@ namespace
 		Fdemo_mapCombatRunCoordinator Coordinator;
 		Fdemo_mapShanmenControlledWeaponRunHost Host;
 		Fdemo_mapShanmenControlledWeaponWorldLifecycle Lifecycle;
+		Fdemo_mapShanmenControlledWeaponThreatSampleRouter ThreatRouter;
+		Fdemo_mapShanmenControlledWeaponWorldThreatSampler ThreatSampler;
+		Fdemo_mapShanmenCombatRunFixedTimeline Timeline;
 		FString Diagnostic;
 
 		bool Start(
@@ -311,14 +318,14 @@ namespace
 			World->SetGameInstance(GameInstance);
 			World->InitializeNewWorld(
 				UWorld::InitializationValues()
-					.InitializeScenes(false)
+					.InitializeScenes(true)
 					.AllowAudioPlayback(false)
 					.RequiresHitProxies(false)
-					.CreatePhysicsScene(false)
+					.CreatePhysicsScene(true)
 					.CreateNavigation(false)
 					.CreateAISystem(false)
 					.ShouldSimulatePhysics(false)
-					.EnableTraceCollision(false)
+					.EnableTraceCollision(true)
 					.SetTransactional(false)
 					.CreateFXSystem(false));
 
@@ -351,7 +358,8 @@ namespace
 					ActiveRunId,
 					Player,
 					PlayerHealth,
-					Diagnostic))
+					Diagnostic)
+				|| !Timeline.TryBegin(ActiveRunId, Diagnostic))
 			{
 				Test.AddError(FString::Printf(
 					TEXT("P21.2 CombatRunCoordinator failed: %s"),
@@ -359,6 +367,69 @@ namespace
 				return false;
 			}
 			return true;
+		}
+
+		Ademo_mapEnemyCharacter* SpawnRegisteredEnemy(
+			FAutomationTestBase& Test,
+			const FVector& Location)
+		{
+			const Fdemo_mapM01EnemyDefinition* Definition = nullptr;
+			for (const Fdemo_mapM01EnemyDefinition& Candidate :
+				Fdemo_mapM01EnemyConfig::GetDefinitions())
+			{
+				if (Candidate.Archetype
+					== Edemo_mapM01EnemyArchetype::StandardSkirmisher)
+				{
+					Definition = &Candidate;
+					break;
+				}
+			}
+			if (!World || !Definition)
+			{
+				Test.AddError(TEXT(
+					"P21.3 could not resolve the canonical M01 enemy definition."));
+				return nullptr;
+			}
+
+			FActorSpawnParameters Parameters;
+			Parameters.ObjectFlags |= RF_Transient;
+			Parameters.SpawnCollisionHandlingOverride =
+				ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			Ademo_mapEnemyCharacter* Enemy =
+				World->SpawnActor<Ademo_mapEnemyCharacter>(
+					Ademo_mapEnemyCharacter::StaticClass(),
+					FTransform(Location),
+					Parameters);
+			Udemo_mapM01EnemyIdentityComponent* Identity = Enemy
+				? NewObject<Udemo_mapM01EnemyIdentityComponent>(
+					Enemy, TEXT("P213EnemyIdentity"), RF_Transient)
+				: nullptr;
+			Fdemo_mapEnemyEncounterIdentity Encounter;
+			Encounter.EncounterId = Definition->EncounterId;
+			Encounter.RouteId = Definition->RouteId;
+			Encounter.SpawnMarkerId = Definition->SpawnMarkerId;
+			Encounter.LootTableId = Definition->CorpseIdentity;
+			Encounter.SkillProfileId = Definition->SkillProfileId;
+			if (!Enemy || !Identity)
+			{
+				Test.AddError(TEXT("P21.3 could not spawn the overlap target."));
+				return nullptr;
+			}
+			Enemy->AddInstanceComponent(Identity);
+			Identity->RegisterComponent();
+			Enemy->SetCombatSuppressed(true);
+			if (!Identity->Configure(*Definition)
+				|| !Enemy->ConfigureEncounter(
+					Encounter, Definition->Tuning, Definition->IsElite())
+				|| !Coordinator.TryRegisterM01Enemy(Enemy, Diagnostic))
+			{
+				Test.AddError(FString::Printf(
+					TEXT("P21.3 could not register the overlap target: %s"),
+					*Diagnostic));
+				return nullptr;
+			}
+			World->UpdateWorldComponents(true, false);
+			return Enemy;
 		}
 
 		int32 CountControlledWeaponActors() const
@@ -391,6 +462,9 @@ namespace
 			}
 			Host.Reset();
 			Lifecycle.Reset();
+			ThreatRouter.Reset();
+			ThreatSampler.Reset();
+			Timeline.Reset();
 			Coordinator.Reset();
 			if (World)
 			{
@@ -2074,6 +2148,269 @@ bool FShanmenCanonicalControlledWeaponWorldLifecycleTest::RunTest(
 	TestTrue(TEXT("World lifecycle never rewrites durable item evidence"),
 		Fixture.Authority->TryCaptureSnapshot(AuthorityAfterEnd)
 		&& AuthorityAfterEnd == AuthorityBefore);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenControlledWeaponWorldThreatSamplingTest,
+	"Shanmen.0_0_10.Product.ControlledWeaponWorldThreatSampler.CanonicalCadenceOverlapAndFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenControlledWeaponWorldThreatSamplingTest::RunTest(
+	const FString&)
+{
+	FPreparationAdapterFixture Fixture;
+	if (!Fixture.StartAndCutover(
+			*this, TEXT("ControlledWeaponWorldThreatSampling")))
+	{
+		return false;
+	}
+	const Fdemo_mapProfilePreparationSelectionResult Selected =
+		Fixture.Session->SetPreparationEquipment(
+			Fdemo_mapItemIds::WeaponSlot,
+			Fixture.FlyingSwordId);
+	Udemo_mapItemSubsystem* Runtime =
+		Fixture.GameInstance->GetSubsystem<Udemo_mapItemSubsystem>();
+	if (!Selected.IsAccepted() || !Runtime)
+	{
+		AddError(TEXT("P21.3 flying-sword selection could not reach Runtime."));
+		return false;
+	}
+	Runtime->ResetForAutomation();
+	const Fdemo_mapShanmenRunStartResult Started =
+		Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
+			*Fixture.Authority, *Runtime);
+	if (!Started.IsStarted())
+	{
+		AddError(FString::Printf(
+			TEXT("P21.3 durable flying-sword Run failed: %s"),
+			*Started.Diagnostic));
+		return false;
+	}
+
+	FControlledWeaponWorldFixture WorldFixture;
+	if (!WorldFixture.Start(
+			*this, Fixture.GameInstance, Started.ActiveRunId))
+	{
+		return false;
+	}
+	const Fdemo_mapShanmenControlledWeaponWorldStartResult Began =
+		WorldFixture.Lifecycle.TryBegin(
+			WorldFixture.World,
+			Fixture.Authority,
+			Runtime,
+			WorldFixture.Coordinator,
+			WorldFixture.Host,
+			WorldFixture.Player,
+			1);
+	FString SamplerDiagnostic;
+	if (!Began.IsStarted()
+		|| !WorldFixture.ThreatSampler.TryBegin(
+			Started.ActiveRunId,
+			WorldFixture.Timeline.GetTimelineId(),
+			WorldFixture.Lifecycle,
+			SamplerDiagnostic))
+	{
+		AddError(FString::Printf(
+			TEXT("P21.3 World threat cadence failed to begin: %s"),
+			*SamplerDiagnostic));
+		return false;
+	}
+
+	Ademo_mapShanmenControlledWeaponActor* Weapon =
+		WorldFixture.Lifecycle.GetWeaponActor();
+	Ademo_mapEnemyCharacter* Enemy = Weapon
+		? WorldFixture.SpawnRegisteredEnemy(
+			*this, Weapon->GetActorLocation())
+		: nullptr;
+	if (!Weapon || !Enemy)
+	{
+		return false;
+	}
+	const float VitalityBefore = Enemy->GetCurrentVitality();
+	const int32 ImpactsBefore = Enemy->NumCommittedCombatImpacts();
+	Fdemo_mapShanmenCombatRunTimelineSample TickZero;
+	if (!WorldFixture.Timeline.TryCapture(TickZero))
+	{
+		AddError(TEXT("P21.3 could not capture timeline tick zero."));
+		return false;
+	}
+
+	const Fdemo_mapShanmenControlledWeaponWorldThreatSampleResult First =
+		WorldFixture.ThreatSampler.TrySample(
+			WorldFixture.World,
+			TickZero,
+			WorldFixture.Lifecycle,
+			WorldFixture.Coordinator,
+			WorldFixture.Host,
+			WorldFixture.ThreatRouter);
+	const bool bFirstSampleValid =
+		First.IsSampled()
+		&& First.ObservedTick == 0
+		&& First.ScheduledTick == 0
+		&& First.SampleSequence == 0
+		&& First.RawOverlapCount >= 1
+		&& First.RoutedContactCount == 1
+		&& First.IntentId
+			== Fdemo_mapShanmenControlledWeaponWorldThreatSampler::MakeIntentId(
+				Started.ActiveRunId,
+				WorldFixture.Timeline.GetTimelineId(),
+				Fixture.FlyingSwordId,
+				0,
+				0)
+		&& WorldFixture.ThreatRouter.GetNextSampleSequence() == 1
+		&& WorldFixture.ThreatSampler.NumCommittedSamples() == 1
+		&& WorldFixture.ThreatSampler.GetNextScheduledTick() == 3
+		&& WorldFixture.Host.NumConsumedThreatPresenceIntents() == 1;
+	if (!bFirstSampleValid)
+	{
+		AddError(FString::Printf(
+			TEXT("P21.3 tick-zero audit Status=%d Observed=%lld Scheduled=%lld Sequence=%lld Raw=%d Routed=%d RouteStatus=%d RouteAccepted=%d RouterNext=%lld OwnerCount=%lld OwnerNext=%lld HostConsumed=%d Diagnostic=%s"),
+			static_cast<int32>(First.Status),
+			static_cast<long long>(First.ObservedTick),
+			static_cast<long long>(First.ScheduledTick),
+			static_cast<long long>(First.SampleSequence),
+			First.RawOverlapCount,
+			First.RoutedContactCount,
+			static_cast<int32>(First.Route.Status),
+			First.Route.IsAccepted() ? 1 : 0,
+			static_cast<long long>(
+				WorldFixture.ThreatRouter.GetNextSampleSequence()),
+			static_cast<long long>(
+				WorldFixture.ThreatSampler.NumCommittedSamples()),
+			static_cast<long long>(
+				WorldFixture.ThreatSampler.GetNextScheduledTick()),
+			WorldFixture.Host.NumConsumedThreatPresenceIntents(),
+			*First.Diagnostic));
+	}
+	TestTrue(TEXT("Tick zero samples the physical sword box through P6.22"),
+		bFirstSampleValid);
+	TestTrue(TEXT("Near-body threat remains a zero-effect observation"),
+		Enemy->GetCurrentVitality() == VitalityBefore
+		&& Enemy->NumCommittedCombatImpacts() == ImpactsBefore);
+
+	const Fdemo_mapShanmenControlledWeaponWorldThreatSampleResult SameTick =
+		WorldFixture.ThreatSampler.TrySample(
+			WorldFixture.World,
+			TickZero,
+			WorldFixture.Lifecycle,
+			WorldFixture.Coordinator,
+			WorldFixture.Host,
+			WorldFixture.ThreatRouter);
+	TestTrue(TEXT("Repeated owner calls inside one cadence window are no-ops"),
+		SameTick.IsNoOp()
+		&& SameTick.Status
+			== Edemo_mapShanmenControlledWeaponWorldThreatSampleStatus::NotDue
+		&& WorldFixture.ThreatSampler.NumCommittedSamples() == 1
+		&& WorldFixture.ThreatRouter.GetNextSampleSequence() == 1);
+
+	int64 AdvancedTicks = 0;
+	FString TimelineDiagnostic;
+	if (!WorldFixture.Timeline.TryAdvance(
+			2.0 / 30.0, AdvancedTicks, TimelineDiagnostic))
+	{
+		AddError(TimelineDiagnostic);
+		return false;
+	}
+	Fdemo_mapShanmenCombatRunTimelineSample TickTwo;
+	WorldFixture.Timeline.TryCapture(TickTwo);
+	const Fdemo_mapShanmenControlledWeaponWorldThreatSampleResult BeforeDue =
+		WorldFixture.ThreatSampler.TrySample(
+			WorldFixture.World,
+			TickTwo,
+			WorldFixture.Lifecycle,
+			WorldFixture.Coordinator,
+			WorldFixture.Host,
+			WorldFixture.ThreatRouter);
+	TestTrue(TEXT("Two canonical ticks remain below the 10 Hz sample cadence"),
+		AdvancedTicks == 2
+		&& TickTwo.GetCurrentTick() == 2
+		&& BeforeDue.IsNoOp()
+		&& BeforeDue.Status
+			== Edemo_mapShanmenControlledWeaponWorldThreatSampleStatus::NotDue);
+
+	Enemy->SetActorLocation(
+		Weapon->GetActorLocation() + FVector(1000.0f, 0.0f, 0.0f),
+		false,
+		nullptr,
+		ETeleportType::TeleportPhysics);
+	WorldFixture.World->UpdateWorldComponents(true, false);
+	if (!WorldFixture.Timeline.TryAdvance(
+			1.0 / 30.0, AdvancedTicks, TimelineDiagnostic))
+	{
+		AddError(TimelineDiagnostic);
+		return false;
+	}
+	Fdemo_mapShanmenCombatRunTimelineSample TickThree;
+	WorldFixture.Timeline.TryCapture(TickThree);
+	const Fdemo_mapShanmenControlledWeaponWorldThreatSampleResult Empty =
+		WorldFixture.ThreatSampler.TrySample(
+			WorldFixture.World,
+			TickThree,
+			WorldFixture.Lifecycle,
+			WorldFixture.Coordinator,
+			WorldFixture.Host,
+			WorldFixture.ThreatRouter);
+	TestTrue(TEXT("A due empty query still advances one auditable sample"),
+		TickThree.GetCurrentTick() == 3
+		&& Empty.IsSampled()
+		&& Empty.SampleSequence == 1
+		&& Empty.ScheduledTick == 3
+		&& Empty.RoutedContactCount == 0
+		&& Empty.Route.Batch.Entries.Num() == 1
+		&& Empty.Route.Batch.Entries[0].Finalization.GetConsumption()
+			.GetStatus()
+				== EShanmenControlledWeaponThreatPresenceConsumeStatus::NoOp
+		&& WorldFixture.ThreatSampler.NumCommittedSamples() == 2
+		&& WorldFixture.ThreatSampler.GetNextScheduledTick() == 6);
+
+	if (!WorldFixture.Timeline.TryAdvance(
+			1.0, AdvancedTicks, TimelineDiagnostic))
+	{
+		AddError(TimelineDiagnostic);
+		return false;
+	}
+	Fdemo_mapShanmenCombatRunTimelineSample TickThirtyThree;
+	WorldFixture.Timeline.TryCapture(TickThirtyThree);
+	const Fdemo_mapShanmenControlledWeaponWorldThreatSampleResult BoundedCatchUp =
+		WorldFixture.ThreatSampler.TrySample(
+			WorldFixture.World,
+			TickThirtyThree,
+			WorldFixture.Lifecycle,
+			WorldFixture.Coordinator,
+			WorldFixture.Host,
+			WorldFixture.ThreatRouter);
+	TestTrue(TEXT("A long frame performs one query and skips stale cadence slots"),
+		AdvancedTicks == 30
+		&& TickThirtyThree.GetCurrentTick() == 33
+		&& BoundedCatchUp.IsSampled()
+		&& BoundedCatchUp.SampleSequence == 2
+		&& BoundedCatchUp.ScheduledTick == 6
+		&& WorldFixture.ThreatSampler.NumCommittedSamples() == 3
+		&& WorldFixture.ThreatSampler.GetNextScheduledTick() == 36
+		&& WorldFixture.ThreatRouter.GetNextSampleSequence() == 3);
+
+	Fdemo_mapShanmenCombatRunTimelineSample ForeignTimeline;
+	Fdemo_mapShanmenCombatRunTimelineSample::TryCapture(
+		FGuid(0xF213FFFF, 0, 0, 1),
+		36,
+		ForeignTimeline);
+	const Fdemo_mapShanmenControlledWeaponWorldThreatSampleResult Foreign =
+		WorldFixture.ThreatSampler.TrySample(
+			WorldFixture.World,
+			ForeignTimeline,
+			WorldFixture.Lifecycle,
+			WorldFixture.Coordinator,
+			WorldFixture.Host,
+			WorldFixture.ThreatRouter);
+	TestTrue(TEXT("A foreign timeline cannot spend the next sample sequence"),
+		Foreign.Status
+			== Edemo_mapShanmenControlledWeaponWorldThreatSampleStatus::
+				TimelineMismatch
+		&& WorldFixture.ThreatSampler.NumCommittedSamples() == 3
+		&& WorldFixture.ThreatRouter.GetNextSampleSequence() == 3
+		&& Enemy->GetCurrentVitality() == VitalityBefore
+		&& Enemy->NumCommittedCombatImpacts() == ImpactsBefore);
 	return true;
 }
 

@@ -2479,6 +2479,56 @@ void Ademo_mapGameMode::Tick(float DeltaSeconds)
 				OrbitFrame.Batch.AttemptedCount,
 				OrbitFrame.Batch.AdvancedCount);
 		}
+		else if (!ControlledWeaponWorldThreatSampler.IsEmpty())
+		{
+			Fdemo_mapShanmenCombatRunTimelineSample TimelineSample;
+			if (!CombatRunFixedTimeline.TryCapture(TimelineSample))
+			{
+				UE_LOG(Logdemo_map, Error,
+					TEXT("0_0_10_CONTROLLED_WEAPON Event=WorldThreatTimelineCaptureRejected RunId=%s"),
+					*ControlledWeaponWorldThreatSampler.GetRunId().ToString(
+						EGuidFormats::DigitsWithHyphens));
+			}
+			else
+			{
+				const Fdemo_mapShanmenControlledWeaponWorldThreatSampleResult
+					ThreatSample = ControlledWeaponWorldThreatSampler.TrySample(
+						GetWorld(),
+						TimelineSample,
+						ControlledWeaponWorldLifecycle,
+						CombatRunCoordinator,
+						ControlledWeaponRunHost,
+						ControlledWeaponThreatSampleRouter);
+				if (!ThreatSample.IsSuccess())
+				{
+					UE_LOG(Logdemo_map, Error,
+						TEXT("0_0_10_CONTROLLED_WEAPON Event=WorldThreatSampleRejected RunId=%s ItemId=%s Status=%d Tick=%lld Scheduled=%lld Sequence=%lld Raw=%d Routed=%d Diagnostic=%s"),
+						*ThreatSample.RunId.ToString(
+							EGuidFormats::DigitsWithHyphens),
+						*ThreatSample.ItemInstanceId.ToString(
+							EGuidFormats::DigitsWithHyphens),
+						static_cast<int32>(ThreatSample.Status),
+						static_cast<long long>(ThreatSample.ObservedTick),
+						static_cast<long long>(ThreatSample.ScheduledTick),
+						static_cast<long long>(ThreatSample.SampleSequence),
+						ThreatSample.RawOverlapCount,
+						ThreatSample.RoutedContactCount,
+						*ThreatSample.Diagnostic);
+				}
+				else if (ThreatSample.IsSampled()
+					&& ThreatSample.RoutedContactCount > 0)
+				{
+					UE_LOG(Logdemo_map, VeryVerbose,
+						TEXT("0_0_10_CONTROLLED_WEAPON Event=WorldThreatSampled RunId=%s Tick=%lld Sequence=%lld Raw=%d Routed=%d"),
+						*ThreatSample.RunId.ToString(
+							EGuidFormats::DigitsWithHyphens),
+						static_cast<long long>(ThreatSample.ObservedTick),
+						static_cast<long long>(ThreatSample.SampleSequence),
+						ThreatSample.RawOverlapCount,
+						ThreatSample.RoutedContactCount);
+				}
+			}
+		}
 	}
 	if (!bM01ExtractionFoundationActive || M01ExtractionAuthority.IsRunTerminal()) return;
 	if (PlayerItemSubsystem.IsValid())
@@ -2630,6 +2680,7 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 		|| !ControlledWeaponWorldLifecycle.IsEmpty()
 		|| !ControlledWeaponRunCommandRouter.IsEmpty()
 		|| !ControlledWeaponThreatSampleRouter.IsEmpty()
+		|| !ControlledWeaponWorldThreatSampler.IsEmpty()
 		|| !ThrownWeaponProductLifecycle.IsEmpty()
 		|| ThrownWeaponArcPreviewMainHUDRuntimeBinding.IsActive()
 		|| !MeridianShockTreatmentProductLifecycle.IsEmpty()
@@ -2951,8 +3002,28 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 		}
 		return false;
 	}
+	if (ControlledWeaponWorldStart.IsStarted())
+	{
+		FString WorldThreatDiagnostic;
+		if (!ControlledWeaponWorldThreatSampler.TryBegin(
+				ActiveRunId,
+				CombatRunFixedTimeline.GetTimelineId(),
+				ControlledWeaponWorldLifecycle,
+				WorldThreatDiagnostic))
+		{
+			const bool bReleased = ReleaseCombatProductRun(
+				TEXT("ControlledWeaponWorldThreatSamplerBindFailure"));
+			OutDiagnostic = WorldThreatDiagnostic;
+			if (!bReleased)
+			{
+				OutDiagnostic += TEXT(
+					" Existing combat products also rejected activation rollback.");
+			}
+			return false;
+		}
+	}
 	UE_LOG(Logdemo_map, Log,
-		TEXT("0_0_10_COMBAT_RUN Event=RunBound RunId=%s PlayerEntityId=%s M01Entities=%d M01VitalityHosts=%d ControlledWeaponWorldStatus=%d ControlledWeaponWorldActive=%d ThrownWeaponLifecycle=%d ThrownWeaponTrajectory=%d ThrownWeaponChoiceStateId=%s ThrownWeaponChoiceRevision=%llu ThrownWeaponArcPreLaunchContext=%d TreatmentLifecycle=%d SwordQiController=%d SwordQiCommandOwner=%d RunTimelineId=%s RunTickRate=%lld ConditionDefinition=%s ConditionDurationTicks=%lld SwordRhythmConfigId=%s SwordRhythmWindow=[%lld,%lld)"),
+		TEXT("0_0_10_COMBAT_RUN Event=RunBound RunId=%s PlayerEntityId=%s M01Entities=%d M01VitalityHosts=%d ControlledWeaponWorldStatus=%d ControlledWeaponWorldActive=%d ControlledWeaponWorldThreatSampler=%d ControlledWeaponWorldThreatIntervalTicks=%lld ThrownWeaponLifecycle=%d ThrownWeaponTrajectory=%d ThrownWeaponChoiceStateId=%s ThrownWeaponChoiceRevision=%llu ThrownWeaponArcPreLaunchContext=%d TreatmentLifecycle=%d SwordQiController=%d SwordQiCommandOwner=%d RunTimelineId=%s RunTickRate=%lld ConditionDefinition=%s ConditionDurationTicks=%lld SwordRhythmConfigId=%s SwordRhythmWindow=[%lld,%lld)"),
 		*ActiveRunId.ToString(EGuidFormats::DigitsWithHyphens),
 		*CombatRunCoordinator.GetPlayerEntityId().ToString(
 			EGuidFormats::DigitsWithHyphens),
@@ -2960,6 +3031,10 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 		CombatRunCoordinator.NumVitalityBoundM01Enemies(),
 		static_cast<int32>(ControlledWeaponWorldStart.Status),
 		ControlledWeaponWorldLifecycle.IsActive() ? 1 : 0,
+		ControlledWeaponWorldThreatSampler.IsActiveForRun(ActiveRunId) ? 1 : 0,
+		static_cast<long long>(
+			Fdemo_mapShanmenControlledWeaponWorldThreatSampler::
+				CanonicalSampleIntervalTicks()),
 		ThrownWeaponProductLifecycle.IsActive() ? 1 : 0,
 		static_cast<int32>(
 			ThrownWeaponInputChoiceSession.GetTrajectoryKind()),
@@ -3264,6 +3339,7 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 			&& ControlledWeaponWorldLifecycle.IsEmpty()
 			&& ControlledWeaponRunCommandRouter.IsEmpty()
 			&& ControlledWeaponThreatSampleRouter.IsEmpty()
+			&& ControlledWeaponWorldThreatSampler.IsEmpty()
 			&& MeridianShockTreatmentProductLifecycle.IsEmpty()
 			&& CombatRunFixedTimeline.IsEmpty()
 			&& (!PlayerCombatConditionComponent.IsValid()
@@ -3276,16 +3352,19 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 			return bSwordRhythmPresentationReleased;
 		}
 		UE_LOG(Logdemo_map, Error,
-			TEXT("0_0_10_COMBAT_RUN Event=OrphanedControlledWeaponState Context=%s BoundItems=%d RoutedIntents=%d ThreatSamples=%lld"),
+			TEXT("0_0_10_COMBAT_RUN Event=OrphanedControlledWeaponState Context=%s BoundItems=%d RoutedIntents=%d ThreatSamples=%lld WorldThreatSamples=%lld"),
 			SafeContext,
 			ControlledWeaponRunHost.NumBound(),
 			ControlledWeaponRunCommandRouter.NumProcessedIntents(),
 			static_cast<long long>(
-				ControlledWeaponThreatSampleRouter.NumAcceptedSamples()));
+				ControlledWeaponThreatSampleRouter.NumAcceptedSamples()),
+			static_cast<long long>(
+				ControlledWeaponWorldThreatSampler.NumCommittedSamples()));
 		ControlledWeaponRunHost.Reset();
 		ControlledWeaponWorldLifecycle.Reset();
 		ControlledWeaponRunCommandRouter.Reset();
 		ControlledWeaponThreatSampleRouter.Reset();
+		ControlledWeaponWorldThreatSampler.Reset();
 		if (PlayerCombatConditionComponent.IsValid())
 		{
 			PlayerCombatConditionComponent->Reset();
@@ -3304,6 +3383,8 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 			CombatRunCoordinator);
 	if (Result.IsEnded())
 	{
+		const int64 WorldThreatSampleCount =
+			ControlledWeaponWorldThreatSampler.NumCommittedSamples();
 		FString ControlledWeaponWorldDiagnostic;
 		const bool bControlledWeaponWorldReleased =
 			ControlledWeaponWorldLifecycle.TryEndAfterRun(
@@ -3321,6 +3402,7 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 				*ControlledWeaponWorldDiagnostic);
 			ControlledWeaponWorldLifecycle.Reset();
 		}
+		ControlledWeaponWorldThreatSampler.Reset();
 		FString TimelineDiagnostic;
 		if (!CombatRunFixedTimeline.TryEnd(
 				Result.RunId,
@@ -3341,13 +3423,14 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 		ControlledWeaponRunCommandRouter.Reset();
 		ControlledWeaponThreatSampleRouter.Reset();
 		UE_LOG(Logdemo_map, Log,
-			TEXT("0_0_10_COMBAT_RUN Event=RunReleased RunId=%s Context=%s ControlledBound=%d ControlledInterrupted=%d RoutedIntents=%d ThreatSamples=%lld ThrownSelections=%d TreatmentRequests=%d TreatmentPendingAtTeardown=%d SwordQiCommandEvents=%llu SwordQiPendingRetryAtTeardown=%d SwordQiIntents=%d SwordQiCommands=%d SwordQiInterrupted=%d ConditionApplications=%d ConditionRevision=%lld SwordRhythmObservations=%d SwordRhythmPresentationPublished=%d SwordRhythmPresentationQueuedAtTeardown=%d WeaponGuardInterrupted=%d"),
+		TEXT("0_0_10_COMBAT_RUN Event=RunReleased RunId=%s Context=%s ControlledBound=%d ControlledInterrupted=%d RoutedIntents=%d ThreatSamples=%lld WorldThreatSamples=%lld ThrownSelections=%d TreatmentRequests=%d TreatmentPendingAtTeardown=%d SwordQiCommandEvents=%llu SwordQiPendingRetryAtTeardown=%d SwordQiIntents=%d SwordQiCommands=%d SwordQiInterrupted=%d ConditionApplications=%d ConditionRevision=%lld SwordRhythmObservations=%d SwordRhythmPresentationPublished=%d SwordRhythmPresentationQueuedAtTeardown=%d WeaponGuardInterrupted=%d"),
 			*Result.RunId.ToString(EGuidFormats::DigitsWithHyphens),
 			SafeContext,
 			Result.BoundItemCount,
 			Result.InterruptedItemCount,
 			RoutedIntentCount,
 			static_cast<long long>(ThreatSampleCount),
+			static_cast<long long>(WorldThreatSampleCount),
 			ThrownSelectionCount,
 			TreatmentRequestCount,
 			TreatmentPendingCount,
@@ -3377,6 +3460,7 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 		*Result.Diagnostic);
 	ControlledWeaponRunCommandRouter.Reset();
 	ControlledWeaponThreatSampleRouter.Reset();
+	ControlledWeaponWorldThreatSampler.Reset();
 	ControlledWeaponRunHost.Reset();
 	ControlledWeaponWorldLifecycle.Reset();
 	if (PlayerCombatConditionComponent.IsValid())
