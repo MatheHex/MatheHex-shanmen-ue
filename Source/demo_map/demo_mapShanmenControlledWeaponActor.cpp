@@ -136,6 +136,8 @@ bool Ademo_mapShanmenControlledWeaponActor::TryPresentThreatPresenceCue(
 		if (Sample.SampleSequence == LastThreatPresenceCueSampleSequence)
 		{
 			return LastThreatPresenceCueIntentId == Sample.IntentId
+				&& ThreatPresenceCueContactCount
+					== Sample.RoutedContactCount
 				&& bThreatPresenceCueActive
 					== (Sample.RoutedContactCount > 0)
 				&& IsThreatPresenceCueStateValid();
@@ -144,7 +146,8 @@ bool Ademo_mapShanmenControlledWeaponActor::TryPresentThreatPresenceCue(
 
 	LastThreatPresenceCueIntentId = Sample.IntentId;
 	LastThreatPresenceCueSampleSequence = Sample.SampleSequence;
-	bThreatPresenceCueActive = Sample.RoutedContactCount > 0;
+	ThreatPresenceCueContactCount = Sample.RoutedContactCount;
+	bThreatPresenceCueActive = ThreatPresenceCueContactCount > 0;
 	RefreshThreatPresenceCue();
 	return IsThreatPresenceCueStateValid();
 }
@@ -158,6 +161,7 @@ bool Ademo_mapShanmenControlledWeaponActor::TryClearThreatPresenceCue(
 	{
 		return false;
 	}
+	ThreatPresenceCueContactCount = 0;
 	bThreatPresenceCueActive = false;
 	RefreshThreatPresenceCue();
 	return IsThreatPresenceCueStateValid();
@@ -176,11 +180,15 @@ bool Ademo_mapShanmenControlledWeaponActor::IsThreatPresenceCueStateValid()
 		LastThreatPresenceCueSampleSequence != INDEX_NONE;
 	return ThreatCueLight
 		&& ThreatCueLight->GetAttachParent() == Collision
+		&& ThreatPresenceCueContactCount >= 0
+		&& bThreatPresenceCueActive
+			== (ThreatPresenceCueContactCount > 0)
 		&& IsThreatPresenceCueVisualActive() == bThreatPresenceCueActive
 		&& (bHasCommittedSample
 			? LastThreatPresenceCueSampleSequence >= 0
 				&& LastThreatPresenceCueIntentId.IsValid()
 			: !LastThreatPresenceCueIntentId.IsValid()
+				&& ThreatPresenceCueContactCount == 0
 				&& !bThreatPresenceCueActive);
 }
 
@@ -208,6 +216,7 @@ void Ademo_mapShanmenControlledWeaponActor::ActivateProductCollision()
 
 void Ademo_mapShanmenControlledWeaponActor::DeactivateProductCollision()
 {
+	ThreatPresenceCueContactCount = 0;
 	bThreatPresenceCueActive = false;
 	RefreshThreatPresenceCue();
 	if (Collision)

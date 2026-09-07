@@ -3211,6 +3211,7 @@
 	  "name": "MainHUDTrajectoryPresentation",
 	  "pathRegex": "^Source/demo_map/demo_mapHUD\\.(?:h|cpp)$",
 	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ControlledWeaponThreatCue",
 		"Shanmen.0_0_10.Product.ThrownWeaponMainHUDCombatHintLayoutPolicy",
 		"Shanmen.0_0_10.Product.ThrownWeaponMainHUDCombatHintStackPresentation",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreLaunchGestureFeedbackPresentation",

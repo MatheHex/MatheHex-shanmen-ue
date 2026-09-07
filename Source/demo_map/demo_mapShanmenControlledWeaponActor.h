@@ -55,6 +55,10 @@ public:
 		return bThreatPresenceCueActive;
 	}
 	bool IsThreatPresenceCueVisualActive() const;
+	int32 GetThreatPresenceCueContactCount() const
+	{
+		return ThreatPresenceCueContactCount;
+	}
 	int64 GetLastThreatPresenceCueSampleSequence() const
 	{
 		return LastThreatPresenceCueSampleSequence;
@@ -99,6 +103,9 @@ private:
 
 	UPROPERTY(VisibleAnywhere)
 	int64 LastThreatPresenceCueSampleSequence = INDEX_NONE;
+
+	UPROPERTY(VisibleAnywhere)
+	int32 ThreatPresenceCueContactCount = 0;
 
 	UPROPERTY(VisibleAnywhere)
 	bool bThreatPresenceCueActive = false;

@@ -15,6 +15,7 @@
 #include "demo_mapInputActionRegistry.h"
 #include "demo_mapInputBindingSettings.h"
 #include "demo_mapPlayerController.h"
+#include "demo_mapShanmenControlledWeaponActor.h"
 #include "demo_mapShanmenThrownWeaponArcEditingInputHintPresentation.h"
 #include "demo_mapShanmenThrownWeaponArcEditingPresentation.h"
 #include "demo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation.h"
@@ -46,6 +47,53 @@ namespace
 		FCanvasTileItem Tile(Position, Size, Color);
 		Tile.BlendMode = SE_BLEND_Translucent;
 		Canvas->DrawItem(Tile);
+	}
+
+	void DrawControlledWeaponThreatReadout(
+		UCanvas* Canvas,
+		APlayerController* PlayerController,
+		const Ademo_mapShanmenControlledWeaponActor* Weapon)
+	{
+		if (Canvas == nullptr || PlayerController == nullptr
+			|| Weapon == nullptr || !Weapon->IsThreatPresenceCueActive()
+			|| Weapon->GetThreatPresenceCueContactCount() <= 0)
+		{
+			return;
+		}
+
+		FVector2D ScreenPosition;
+		if (!PlayerController->ProjectWorldLocationToScreen(
+				Weapon->GetActorLocation() + FVector(0.0f, 0.0f, 72.0f),
+				ScreenPosition,
+				false))
+		{
+			return;
+		}
+
+		const FVector2D PanelSize(230.0f, 30.0f);
+		const FVector2D PanelPosition(
+			FMath::Clamp(
+				ScreenPosition.X - PanelSize.X * 0.5f,
+				8.0,
+				FMath::Max(8.0, Canvas->SizeX - PanelSize.X - 8.0)),
+			FMath::Clamp(
+				ScreenPosition.Y - 46.0f,
+				54.0,
+				FMath::Max(54.0, Canvas->SizeY - PanelSize.Y - 92.0)));
+		DrawHUDPanel(
+			Canvas,
+			PanelPosition,
+			PanelSize,
+			FLinearColor(0.02f, 0.18f, 0.14f, 0.88f));
+		DrawReadableText(
+			Canvas,
+			GEngine->GetSmallFont(),
+			FString::Printf(
+				TEXT("飞剑警戒 · 近身目标 %d"),
+				Weapon->GetThreatPresenceCueContactCount()),
+			PanelPosition + FVector2D(10.0f, 6.0f),
+			FLinearColor(0.2f, 1.0f, 0.72f),
+			0.82f);
 	}
 
 	void DrawArcPreviewMarker(
@@ -234,6 +282,12 @@ void Ademo_mapHUD::DrawHUD()
 		Canvas,
 		PlayerController,
 		ThrownWeaponArcPreviewRendererAdapter.GetSurfaceCursor());
+	DrawControlledWeaponThreatReadout(
+		Canvas,
+		PlayerController,
+		ActiveMode
+			? ActiveMode->GetControlledWeaponWorldLifecycle().GetWeaponActor()
+			: nullptr);
 	DrawHUDPanel(
 		Canvas,
 		FVector2D(18.0f, 14.0f),

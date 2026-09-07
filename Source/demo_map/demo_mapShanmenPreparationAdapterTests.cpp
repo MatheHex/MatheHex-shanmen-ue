@@ -2494,6 +2494,7 @@ bool FShanmenControlledWeaponThreatCueTest::RunTest(const FString&)
 	TestTrue(TEXT("Fresh flying sword starts with an idle threat cue"),
 		!Weapon->IsThreatPresenceCueActive()
 		&& !Weapon->IsThreatPresenceCueVisualActive()
+		&& Weapon->GetThreatPresenceCueContactCount() == 0
 		&& Weapon->GetLastThreatPresenceCueSampleSequence() == INDEX_NONE
 		&& !Weapon->GetLastThreatPresenceCueIntentId().IsValid());
 
@@ -2517,10 +2518,24 @@ bool FShanmenControlledWeaponThreatCueTest::RunTest(const FString&)
 		&& Weapon->TryPresentThreatPresenceCue(Presence)
 		&& Weapon->IsThreatPresenceCueActive()
 		&& Weapon->IsThreatPresenceCueVisualActive()
+		&& Weapon->GetThreatPresenceCueContactCount() == 1
 		&& Weapon->GetLastThreatPresenceCueSampleSequence() == 0
 		&& Weapon->GetLastThreatPresenceCueIntentId() == Presence.IntentId);
 	TestTrue(TEXT("Exact sample replay is presentation-idempotent"),
 		Weapon->TryPresentThreatPresenceCue(Presence)
+		&& Weapon->GetLastThreatPresenceCueSampleSequence() == 0
+		&& Weapon->GetLastThreatPresenceCueIntentId() == Presence.IntentId
+		&& Weapon->GetThreatPresenceCueContactCount() == 1
+		&& Weapon->IsThreatPresenceCueVisualActive());
+
+	Fdemo_mapShanmenControlledWeaponWorldThreatSampleResult
+		ConflictingCount = Presence;
+	ConflictingCount.RawOverlapCount = 2;
+	ConflictingCount.RoutedContactCount = 2;
+	TestFalse(TEXT("Same-sequence contact-count conflicts fail closed"),
+		Weapon->TryPresentThreatPresenceCue(ConflictingCount));
+	TestTrue(TEXT("Rejected count conflict preserves the accepted readout"),
+		Weapon->GetThreatPresenceCueContactCount() == 1
 		&& Weapon->GetLastThreatPresenceCueSampleSequence() == 0
 		&& Weapon->GetLastThreatPresenceCueIntentId() == Presence.IntentId
 		&& Weapon->IsThreatPresenceCueVisualActive());
@@ -2532,6 +2547,7 @@ bool FShanmenControlledWeaponThreatCueTest::RunTest(const FString&)
 	TestTrue(TEXT("Rejected foreign presentation preserves accepted state"),
 		Weapon->GetLastThreatPresenceCueSampleSequence() == 0
 		&& Weapon->GetLastThreatPresenceCueIntentId() == Presence.IntentId
+		&& Weapon->GetThreatPresenceCueContactCount() == 1
 		&& Weapon->IsThreatPresenceCueVisualActive());
 
 	Enemy->SetActorLocation(
@@ -2566,12 +2582,14 @@ bool FShanmenControlledWeaponThreatCueTest::RunTest(const FString&)
 		&& Weapon->TryPresentThreatPresenceCue(Empty)
 		&& !Weapon->IsThreatPresenceCueActive()
 		&& !Weapon->IsThreatPresenceCueVisualActive()
+		&& Weapon->GetThreatPresenceCueContactCount() == 0
 		&& Weapon->GetLastThreatPresenceCueSampleSequence() == 1
 		&& Weapon->GetLastThreatPresenceCueIntentId() == Empty.IntentId);
 	TestFalse(TEXT("A stale presence cannot relight the sword"),
 		Weapon->TryPresentThreatPresenceCue(Presence));
 	TestTrue(TEXT("Threat presentation never mutates enemy combat authority"),
 		!Weapon->IsThreatPresenceCueActive()
+		&& Weapon->GetThreatPresenceCueContactCount() == 0
 		&& Weapon->GetLastThreatPresenceCueSampleSequence() == 1
 		&& Enemy->GetCurrentVitality() == VitalityBefore
 		&& Enemy->NumCommittedCombatImpacts() == ImpactsBefore);
