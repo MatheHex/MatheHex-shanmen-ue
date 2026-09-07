@@ -2,15 +2,23 @@
 
 #include "demo_mapShanmenPreparationAdapter.h"
 
+#include "Components/BoxComponent.h"
+#include "GameFramework/Actor.h"
+#include "GameFramework/Pawn.h"
+#include "ShanmenCombatTags.h"
 #include "ShanmenItemRepository.h"
+#include "ShanmenItemTags.h"
 #include "demo_map0909BSectWarehouseService.h"
 #include "demo_mapAttributeComponent.h"
+#include "demo_mapCombatRunCoordinator.h"
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapItemSubsystem.h"
 #include "demo_mapProfileRepository.h"
 #include "demo_mapProfileSessionSubsystem.h"
 #include "demo_mapPlayerHealthComponent.h"
 #include "demo_mapRewardAffix.h"
+#include "demo_mapShanmenControlledWeaponActiveRunRoute.h"
+#include "demo_mapShanmenControlledWeaponRunLifecycle.h"
 #include "demo_mapShanmenItemCutover.h"
 #include "demo_mapShanmenItemMetadataAdapter.h"
 #include "demo_mapShanmenRunLifecycleAdapter.h"
@@ -72,6 +80,7 @@ namespace
 		Fdemo_mapProfileStorageContext Storage;
 		Fdemo_mapPersistentProfile SeedProfile;
 		FGuid TrainingBladeId;
+		FGuid FlyingSwordId;
 		FGuid HeavyBladeId;
 		FGuid ArmorId;
 		FGuid DustId;
@@ -107,6 +116,15 @@ namespace
 			Heavy.StackCount = 1;
 			Heavy.PersistentDomain = Edemo_mapPersistentDomain::PermanentStash;
 			SeedProfile.PermanentStash.Add(Heavy);
+
+			Fdemo_mapPersistentItemRecord FlyingSword;
+			FlyingSwordId = FlyingSword.ItemInstanceId = FGuid::NewGuid();
+			FlyingSword.ItemDefinitionId =
+				Fdemo_mapItemIds::TrainingFlyingSword;
+			FlyingSword.StackCount = 1;
+			FlyingSword.PersistentDomain =
+				Edemo_mapPersistentDomain::PermanentStash;
+			SeedProfile.PermanentStash.Add(FlyingSword);
 
 			Fdemo_mapPersistentItemRecord Dust;
 			DustId = Dust.ItemInstanceId = FGuid::NewGuid();
@@ -148,7 +166,8 @@ namespace
 			SeedProfile.PreparationLayout.WeaponItemInstanceId = TrainingBladeId;
 			const Fdemo_mapProfileSaveResult Saved =
 				Repository.SaveProfile(SeedProfile, Storage);
-			if (!TrainingBladeId.IsValid() || !ArmorId.IsValid()
+			if (!TrainingBladeId.IsValid() || !FlyingSwordId.IsValid()
+				|| !ArmorId.IsValid()
 				|| !Saved.IsSuccess())
 			{
 				Test.AddError(FString::Printf(
@@ -1569,6 +1588,187 @@ bool FShanmenPreparedRunDestructiveTerminalTest::RunTest(const FString&)
 			Fixture.Authority->TryCaptureSnapshot(Restarted)
 			&& Restarted == Terminal);
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenCanonicalControlledWeaponActiveRunRouteTest,
+	"Shanmen.0_0_10.Product.ControlledWeaponActiveRunRoute.CanonicalCutoverStart",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenCanonicalControlledWeaponActiveRunRouteTest::RunTest(
+	const FString&)
+{
+	FPreparationAdapterFixture Fixture;
+	if (!Fixture.StartAndCutover(
+			*this, TEXT("CanonicalControlledWeaponActiveRun")))
+	{
+		return false;
+	}
+	const Fdemo_mapProfilePreparationSelectionResult Selected =
+		Fixture.Session->SetPreparationEquipment(
+			Fdemo_mapItemIds::WeaponSlot,
+			Fixture.FlyingSwordId);
+	Udemo_mapItemSubsystem* Runtime =
+		Fixture.GameInstance->GetSubsystem<Udemo_mapItemSubsystem>();
+	if (!Selected.IsAccepted() || !Runtime)
+	{
+		AddError(TEXT(
+			"Canonical flying-sword preparation could not reach Runtime."));
+		return false;
+	}
+	Runtime->ResetForAutomation();
+	const Fdemo_mapShanmenRunStartResult Started =
+		Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
+			*Fixture.Authority, *Runtime);
+	if (!Started.IsStarted())
+	{
+		AddError(FString::Printf(
+			TEXT("Canonical flying-sword Run did not start: %s"),
+			*Started.Diagnostic));
+		return false;
+	}
+	TestTrue(TEXT("Exact selected flying sword owns the durable Run weapon slot"),
+		Started.RunCorrelation.IsValid()
+		&& Started.RunCorrelation.WeaponItemInstanceId
+			== Fixture.FlyingSwordId
+		&& Started.RunCorrelation.OrderedPreparedItemInstanceIds.Contains(
+			Fixture.FlyingSwordId));
+
+	APawn* Player = NewObject<APawn>(GetTransientPackage());
+	UBoxComponent* PlayerRoot = Player
+		? NewObject<UBoxComponent>(Player, TEXT("P211PlayerRoot"))
+		: nullptr;
+	Udemo_mapPlayerHealthComponent* PlayerHealth = Player
+		? NewObject<Udemo_mapPlayerHealthComponent>(
+			Player, TEXT("P211PlayerHealth"))
+		: nullptr;
+	AActor* Weapon = NewObject<AActor>(GetTransientPackage());
+	UBoxComponent* WeaponRoot = Weapon
+		? NewObject<UBoxComponent>(Weapon, TEXT("P211WeaponRoot"))
+		: nullptr;
+	if (!Player || !PlayerRoot || !PlayerHealth || !Weapon || !WeaponRoot)
+	{
+		AddError(TEXT("Canonical active-Run Actors could not be allocated."));
+		return false;
+	}
+	Player->SetRootComponent(PlayerRoot);
+	Weapon->SetRootComponent(WeaponRoot);
+
+	Fdemo_mapCombatRunCoordinator Coordinator;
+	FString CoordinatorDiagnostic;
+	if (!Coordinator.TryBeginRun(
+			Started.ActiveRunId,
+			Player,
+			PlayerHealth,
+			CoordinatorDiagnostic))
+	{
+		AddError(FString::Printf(
+			TEXT("Canonical CombatRunCoordinator did not start: %s"),
+			*CoordinatorDiagnostic));
+		return false;
+	}
+
+	Fdemo_mapShanmenControlledWeaponActiveRunIntent Intent;
+	Intent.SourceItemInstanceId = Fixture.FlyingSwordId;
+	Intent.ActivationSequence = 21;
+	Intent.Definition.ActionDefinitionId =
+		FShanmenControlledWeaponDefinition::CanonicalActionDefinitionId();
+	Intent.Definition.DetectorId =
+		TEXT("Detector.ControlledWeapon.P21.1.TrainingFlyingSword");
+	Intent.Definition.FormulaId =
+		TEXT("Formula.ControlledWeapon.P21.1.Training");
+	Intent.Definition.BaseDamage = 10.0f;
+	Intent.Definition.ControlPowerCoefficient = 0.25f;
+	Intent.Definition.DamageTags.AddTag(
+		FShanmenCombatNativeTags::DamagePhysicalSlash());
+	Intent.Definition.RequiredTargetTags.AddTag(
+		FShanmenCombatNativeTags::TargetLiving());
+	Intent.ControlPower = 40.0f;
+	Intent.SourceTags.AddTag(FShanmenCombatNativeTags::SourcePlayer());
+	Intent.Motion.DirectedSpeed = 400.0f;
+	Intent.Motion.OrbitCenterOffset = FVector(0.0, 0.0, 50.0);
+	Intent.Motion.OrbitPlaneNormal = FVector::UpVector;
+	Intent.Motion.OrbitReferenceAxis = FVector::ForwardVector;
+	Intent.Motion.OrbitRadius = 100.0f;
+	Intent.Motion.OrbitAngularSpeedRadiansPerSecond = UE_PI * 0.5f;
+	Intent.Motion.InitialOrbitPhaseRadians = 0.0f;
+	Intent.Motion.MaximumStepSeconds = 0.5f;
+
+	FShanmenItemAuthoritySnapshot AuthorityBefore;
+	if (!Fixture.Authority->TryCaptureSnapshot(AuthorityBefore))
+	{
+		AddError(TEXT("Canonical authority snapshot was unavailable."));
+		return false;
+	}
+	Fdemo_mapShanmenControlledWeaponRunHost Host;
+	const Fdemo_mapShanmenControlledWeaponActiveRunResult Result =
+		Fdemo_mapShanmenControlledWeaponActiveRunRoute::TryStart(
+			Fixture.Authority,
+			Runtime,
+			Coordinator,
+			Host,
+			Player,
+			Weapon,
+			WeaponRoot,
+			Intent);
+	FShanmenItemAuthoritySnapshot AuthorityAfter;
+	const bool bCapturedAfter =
+		Fixture.Authority->TryCaptureSnapshot(AuthorityAfter);
+	TestTrue(TEXT("One canonical flying-sword instance crosses every boundary"),
+		Result.IsStarted()
+		&& Result.Preparation.Evidence.ItemDefinitionId
+			== Fdemo_mapItemIds::TrainingFlyingSword
+		&& Result.Preparation.Evidence.ItemInstanceId
+			== Fixture.FlyingSwordId
+		&& Result.Preparation.Action.GetRunId() == Started.ActiveRunId
+		&& Result.Preparation.Action.GetSourceEntityId()
+			== Coordinator.GetPlayerEntityId()
+		&& Result.Preparation.Action.GetSourceTags().HasTagExact(
+			FShanmenCombatNativeTags::SourcePlayer())
+		&& Result.Preparation.Action.GetSourceTags().HasTagExact(
+			FShanmenItemNativeTags::CapabilityDeploy())
+		&& Result.Preparation.Action.GetSourceTags().HasTagExact(
+			FShanmenItemNativeTags::ItemWeaponFlyingSword())
+		&& Host.IsValid()
+		&& Host.NumBound() == 1
+		&& Host.NumOrbiting() == 1
+		&& Host.GetOrderedItemInstanceIds()
+			== TArray<FGuid>({ Fixture.FlyingSwordId }));
+	TestTrue(TEXT("Canonical start is read-only against durable item authority"),
+		bCapturedAfter && AuthorityAfter == AuthorityBefore);
+
+	const Fdemo_mapShanmenControlledWeaponActiveRunResult Replay =
+		Fdemo_mapShanmenControlledWeaponActiveRunRoute::TryStart(
+			Fixture.Authority,
+			Runtime,
+			Coordinator,
+			Host,
+			Player,
+			Weapon,
+			WeaponRoot,
+			Intent);
+	FShanmenItemAuthoritySnapshot AuthorityAfterReplay;
+	const bool bCapturedAfterReplay =
+		Fixture.Authority->TryCaptureSnapshot(AuthorityAfterReplay);
+	TestTrue(TEXT("Exact replay prepares the same evidence but cannot double bind"),
+		Replay.Error
+			== Edemo_mapShanmenControlledWeaponActiveRunError::
+				AttachmentRejected
+		&& Replay.Preparation.IsPrepared()
+		&& Replay.Attachment.Error
+			== Edemo_mapShanmenControlledWeaponHostAttachError::ItemAlreadyBound
+		&& Host.NumBound() == 1
+		&& bCapturedAfterReplay
+		&& AuthorityAfterReplay == AuthorityBefore);
+
+	const Fdemo_mapShanmenControlledWeaponRunEndResult Ended =
+		Fdemo_mapShanmenControlledWeaponRunLifecycle::TryEndRun(
+			Host, Coordinator);
+	TestTrue(TEXT("Canonical controlled weapon retires before Run identity"),
+		Ended.IsEnded()
+		&& Host.IsEmpty()
+		&& !Coordinator.IsActive());
 	return true;
 }
 

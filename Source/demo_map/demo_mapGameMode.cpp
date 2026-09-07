@@ -885,6 +885,27 @@ Ademo_mapGameMode::ExecuteM01PlayerStraightProjectileImpact(
 	return Result;
 }
 
+Fdemo_mapShanmenControlledWeaponActiveRunResult
+Ademo_mapGameMode::StartControlledWeaponForActiveCombatRun(
+	const Fdemo_mapShanmenControlledWeaponActiveRunIntent& Intent,
+	AActor* WeaponActor,
+	UPrimitiveComponent* WeaponCollisionRoot)
+{
+	Udemo_mapShanmenItemAuthoritySubsystem* Authority = GetGameInstance()
+		? GetGameInstance()->GetSubsystem<
+			Udemo_mapShanmenItemAuthoritySubsystem>()
+		: nullptr;
+	return Fdemo_mapShanmenControlledWeaponActiveRunRoute::TryStart(
+		Authority,
+		PlayerItemSubsystem.Get(),
+		CombatRunCoordinator,
+		ControlledWeaponRunHost,
+		GetDemoPawn(),
+		WeaponActor,
+		WeaponCollisionRoot,
+		Intent);
+}
+
 Fdemo_mapShanmenControlledWeaponHostAttachResult
 Ademo_mapGameMode::AttachControlledWeaponToActiveCombatRun(
 	const Fdemo_mapShanmenControlledWeaponPrepareResult& Prepared,

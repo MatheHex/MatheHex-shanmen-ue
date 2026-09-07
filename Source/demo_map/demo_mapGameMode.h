@@ -11,6 +11,7 @@
 #include "demo_mapItemTypes.h"
 #include "demo_mapProfileSessionTypes.h"
 #include "demo_mapCombatRunCoordinator.h"
+#include "demo_mapShanmenControlledWeaponActiveRunRoute.h"
 #include "demo_mapShanmenControlledWeaponRunCommandRouter.h"
 #include "demo_mapShanmenControlledWeaponRunLifecycle.h"
 #include "demo_mapShanmenControlledWeaponThreatSampleRouter.h"
@@ -134,6 +135,12 @@ public:
 		float RawDamage,
 		const FVector& ImpactLocation,
 		const FVector& ImpactNormal);
+	/** Prepares and attaches one exact deployed item through the canonical P6 route. */
+	Fdemo_mapShanmenControlledWeaponActiveRunResult
+	StartControlledWeaponForActiveCombatRun(
+		const Fdemo_mapShanmenControlledWeaponActiveRunIntent& Intent,
+		AActor* WeaponActor,
+		UPrimitiveComponent* WeaponCollisionRoot);
 	/** Attaches one externally spawned exact item to the active combat Run. */
 	Fdemo_mapShanmenControlledWeaponHostAttachResult
 	AttachControlledWeaponToActiveCombatRun(
