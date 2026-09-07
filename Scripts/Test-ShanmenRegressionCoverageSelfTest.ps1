@@ -190,6 +190,9 @@ try
     $ThrownWeaponMainHUDCombatHintStackPresentation = New-AutomationLogFixture `
         -Name 'thrown-weapon-main-hud-combat-hint-stack-presentation.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponMainHUDCombatHintStackPresentation'
+    $ThrownWeaponMainHUDCombatHintLayoutPolicy = New-AutomationLogFixture `
+        -Name 'thrown-weapon-main-hud-combat-hint-layout-policy.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponMainHUDCombatHintLayoutPolicy'
     $ThrownWeaponInputChoiceInteractionPort = New-AutomationLogFixture `
         -Name 'thrown-weapon-input-choice-interaction-port.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponInputChoiceInteractionPort'
@@ -2697,6 +2700,7 @@ try
 			'Source/demo_map/demo_mapHUD.cpp') `
 		-Logs @(
 			$Full,
+			$ThrownWeaponMainHUDCombatHintLayoutPolicy,
 			$ThrownWeaponMainHUDCombatHintStackPresentation,
 			$ThrownArcPreLaunchGestureFeedbackPresentation,
 			$ThrownArcPreviewMainHUDRuntimeBinding,
@@ -2775,6 +2779,19 @@ try
 			$ThrownWeaponTrajectoryPresentation,
 			$ThrownWeaponArcEditingPresentation,
 			$ThrownWeaponArcEditingInputHintPresentation,
+			$Full,
+			$InputRestore,
+			$Ranged)
+
+	Invoke-ExpectedPass `
+		-Name 'thrown weapon MainHUD combat hint layout maps stack and compatibility evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponMainHUDCombatHintLayoutPolicy.h',
+			'Source/demo_map/demo_mapShanmenThrownWeaponMainHUDCombatHintLayoutPolicy.cpp',
+			'Source/demo_map/demo_mapShanmenThrownWeaponMainHUDCombatHintLayoutPolicyTests.cpp') `
+		-Logs @(
+			$ThrownWeaponMainHUDCombatHintLayoutPolicy,
+			$ThrownWeaponMainHUDCombatHintStackPresentation,
 			$Full,
 			$InputRestore,
 			$Ranged)
@@ -5617,6 +5634,13 @@ try
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponMainHUDCombatHintStackPresentation.cpp') `
 		-Logs @($ThrownWeaponMainHUDCombatHintStackPresentation) `
+		-ExpectedText 'missing required groups'
+
+	Invoke-ExpectedFail `
+		-Name 'MainHUD combat hint layout focus cannot replace stack and compatibility evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponMainHUDCombatHintLayoutPolicy.cpp') `
+		-Logs @($ThrownWeaponMainHUDCombatHintLayoutPolicy) `
 		-ExpectedText 'missing required groups'
 
 	Invoke-ExpectedFail `

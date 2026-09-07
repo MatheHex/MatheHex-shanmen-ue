@@ -18,6 +18,7 @@
 #include "demo_mapShanmenThrownWeaponArcEditingInputHintPresentation.h"
 #include "demo_mapShanmenThrownWeaponArcEditingPresentation.h"
 #include "demo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation.h"
+#include "demo_mapShanmenThrownWeaponMainHUDCombatHintLayoutPolicy.h"
 #include "demo_mapShanmenThrownWeaponMainHUDCombatHintStackPresentation.h"
 #include "demo_mapShanmenThrownWeaponTrajectoryPresentation.h"
 #include "Engine/Canvas.h"
@@ -377,31 +378,36 @@ void Ademo_mapHUD::DrawHUD()
 					ArcInputHintPresentation);
 		}
 		Fdemo_mapShanmenThrownWeaponMainHUDCombatHintStackPresentation Stack;
+		Fdemo_mapShanmenThrownWeaponMainHUDCombatHintLayoutPlan Layout;
 		if (Fdemo_mapShanmenThrownWeaponMainHUDCombatHintStackPresentation::
 			TryCompose(
 				Presentation,
 				ArcPresentation,
 				ArcInputHintPresentation,
 				Feedback,
-				Stack))
+				Stack)
+			&& Fdemo_mapShanmenThrownWeaponMainHUDCombatHintLayoutPlan::TryPlan(
+				FVector2D(Canvas->SizeX, Canvas->SizeY),
+				Stack.NumLines(),
+				Layout))
 		{
-			constexpr float BottomAnchor = 112.0f;
-			constexpr float LineSpacing = 22.5f;
 			const auto& Lines = Stack.GetLines();
 			for (int32 LineIndex = 0; LineIndex < Lines.Num(); ++LineIndex)
 			{
 				const auto& Line = Lines[LineIndex];
+				FVector2D LinePosition;
+				if (!Layout.TryGetLinePosition(LineIndex, LinePosition))
+				{
+					continue;
+				}
 				DrawReadableText(
 					Canvas,
 					GEngine->GetSmallFont(),
 					Line.GetDisplayText(),
-					FVector2D(
-						28.0f,
-						Canvas->SizeY
-							- BottomAnchor
-							- LineSpacing * LineIndex),
+					LinePosition,
 					GetThrownWeaponCombatHintColor(Line.GetTone()),
-					GetThrownWeaponCombatHintScale(Line.GetTone()));
+					GetThrownWeaponCombatHintScale(Line.GetTone())
+						* Layout.GetScaleMultiplier());
 			}
 		}
 	}
