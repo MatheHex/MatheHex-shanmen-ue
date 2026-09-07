@@ -17,6 +17,7 @@
 #include "demo_mapShanmenMeridianShockTreatmentInputAdapter.h"
 #include "demo_mapShanmenMeridianShockTreatmentProductLifecycle.h"
 #include "demo_mapShanmenThrownWeaponArcChoiceInputComposition.h"
+#include "demo_mapShanmenThrownWeaponArcPreviewMainHUDRuntimeBinding.h"
 #include "demo_mapShanmenThrownWeaponArcSourceBasisAdapter.h"
 #include "demo_mapShanmenThrownWeaponInputAdapter.h"
 #include "demo_mapShanmenThrownWeaponInputChoiceSession.h"
@@ -196,6 +197,19 @@ public:
 		int32 HotbarSlotNumber,
 		AActor* SourceActor,
 		const Fdemo_mapShanmenThrownWeaponArcChoicePolicy& Policy);
+	/** Registers one physical MainHUD surface without polling presentation state. */
+	bool TryAttachThrownWeaponArcPreviewHUD(
+		Fdemo_mapShanmenThrownWeaponArcPreviewMainHUDRendererAdapter& Surface,
+		FString& OutDiagnostic);
+	/** Moves any live preview to the fallback before this HUD can be destroyed. */
+	bool TryDetachThrownWeaponArcPreviewHUD(
+		Fdemo_mapShanmenThrownWeaponArcPreviewMainHUDRendererAdapter& Surface,
+		FString& OutDiagnostic);
+	const Fdemo_mapShanmenThrownWeaponArcPreviewMainHUDRuntimeBinding&
+	GetThrownWeaponArcPreviewMainHUDRuntimeBinding() const
+	{
+		return ThrownWeaponArcPreviewMainHUDRuntimeBinding;
+	}
 	/** Applies one device-independent choice command with Run/lifecycle fences. */
 	Fdemo_mapShanmenThrownWeaponInputChoiceSessionResult
 	SubmitThrownWeaponInputChoiceCommand(
@@ -612,6 +626,8 @@ private:
 		ThrownWeaponArcChoiceInputComposition;
 	Fdemo_mapShanmenThrownWeaponArcSourceBasisAdapter
 		ThrownWeaponArcSourceBasisAdapter;
+	Fdemo_mapShanmenThrownWeaponArcPreviewMainHUDRuntimeBinding
+		ThrownWeaponArcPreviewMainHUDRuntimeBinding;
 	Fdemo_mapShanmenThrownWeaponInputChoiceSession
 		ThrownWeaponInputChoiceSession;
 	Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle

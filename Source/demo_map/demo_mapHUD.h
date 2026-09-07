@@ -13,6 +13,7 @@ class Ademo_mapHUD : public AHUD
 
 public:
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void DrawHUD() override;
 
 	Fdemo_mapShanmenThrownWeaponArcPreviewMainHUDRendererAdapter&

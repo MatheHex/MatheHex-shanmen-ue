@@ -16,6 +16,7 @@
 #include "demo_mapShanmenRunLifecycleAdapter.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewProductBridge.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewMainHUDRendererAdapter.h"
+#include "demo_mapShanmenThrownWeaponArcPreviewMainHUDRuntimeBinding.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentation.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationCommand.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentationCommandLedger.h"
@@ -17723,6 +17724,337 @@ RunTest(const FString&)
 		!Replay.IsValid() && OldRenderer.GetSurfaceCursor().IsEmpty()
 			&& NewRenderer.GetSurfaceCursor().Matches(
 				Commands.Show.GetState()));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewMainHUDRuntimeInitializationTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRuntimeBinding.InitializationAndDirectHUDRunBinding",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewMainHUDRuntimeInitializationTest::
+RunTest(const FString&)
+{
+	using FBinding =
+		Fdemo_mapShanmenThrownWeaponArcPreviewMainHUDRuntimeBinding;
+	using FRenderer =
+		Fdemo_mapShanmenThrownWeaponArcPreviewMainHUDRendererAdapter;
+	FThrownLifecycleFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcPreviewMainHUDRuntimeInitialization"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+
+	const FGuid FallbackId(
+		0xF4610001, 0xF4610002, 0xF4610003, 0xF4610004);
+	const FGuid HUDId(
+		0xF4610101, 0xF4610102, 0xF4610103, 0xF4610104);
+	FBinding Binding;
+	FRenderer HUD;
+	FString Diagnostic;
+	TestTrue(TEXT("default runtime binding is valid but explicitly uninitialized"),
+		Binding.IsValid() && !Binding.IsInitialized()
+			&& !Binding.IsActive() && !Binding.HasAttachedHUD());
+	TestFalse(TEXT("missing fallback identity fails closed"),
+		Binding.TryInitialize(FGuid(), Diagnostic));
+	check(Binding.TryInitialize(FallbackId, Diagnostic));
+	check(HUD.TryInitialize(HUDId, Diagnostic));
+	TestTrue(TEXT("HUD can attach before any product Run"),
+		Binding.TryAttachHUD(HUD, Diagnostic)
+			&& Binding.IsValid() && Binding.HasAttachedHUD()
+			&& !Binding.IsActive());
+	TestTrue(TEXT("Run begins directly on the already attached HUD"),
+		Binding.TryBeginRun(Fixture.Correlation.ActiveRunId, Diagnostic)
+			&& Binding.IsValid() && Binding.IsActive()
+			&& Binding.IsBoundToHUD()
+			&& Binding.GetBoundSurfaceInstanceId() == HUDId
+			&& HUD.GetSurfaceCursor().IsEmpty());
+	TestTrue(TEXT("empty presentation Run tears down without product mutation"),
+		Binding.TryEndRun(
+			Fixture.Correlation.ActiveRunId,
+			Fixture.Lifecycle,
+			Fixture.Coordinator,
+			Diagnostic)
+			&& Binding.IsValid() && !Binding.IsActive()
+			&& Binding.HasAttachedHUD());
+	TestTrue(TEXT("inactive HUD detach removes only registration"),
+		Binding.TryDetachHUD(HUD, Diagnostic)
+			&& Binding.IsValid() && !Binding.HasAttachedHUD());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewMainHUDRuntimeFallbackTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRuntimeBinding.FallbackAndFreshLateAttach",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewMainHUDRuntimeFallbackTest::
+RunTest(const FString&)
+{
+	using FBinding =
+		Fdemo_mapShanmenThrownWeaponArcPreviewMainHUDRuntimeBinding;
+	using FRenderer =
+		Fdemo_mapShanmenThrownWeaponArcPreviewMainHUDRendererAdapter;
+	FThrownLifecycleFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcPreviewMainHUDRuntimeFallback"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+
+	const FGuid FallbackId(
+		0xF4610201, 0xF4610202, 0xF4610203, 0xF4610204);
+	const FGuid HUDId(
+		0xF4610301, 0xF4610302, 0xF4610303, 0xF4610304);
+	FBinding Binding;
+	FRenderer HUD;
+	FString Diagnostic;
+	check(Binding.TryInitialize(FallbackId, Diagnostic));
+	check(HUD.TryInitialize(HUDId, Diagnostic));
+	check(Binding.TryBeginRun(Fixture.Correlation.ActiveRunId, Diagnostic));
+	TestTrue(TEXT("Run without a HUD binds the permanent empty fallback"),
+		Binding.IsValid() && Binding.IsActive()
+			&& !Binding.IsBoundToHUD()
+			&& Binding.GetBoundSurfaceInstanceId() == FallbackId
+			&& Binding.GetFallbackSurface().GetSurfaceCursor().IsEmpty());
+	TestTrue(TEXT("late empty HUD uses the existing BindFresh ownership path"),
+		Binding.TryAttachHUD(HUD, Diagnostic)
+			&& Binding.IsValid() && Binding.IsBoundToHUD()
+			&& Binding.GetBoundSurfaceInstanceId() == HUDId
+			&& Binding.GetFallbackSurface().GetSurfaceCursor().IsEmpty()
+			&& HUD.GetSurfaceCursor().IsEmpty()
+			&& Binding.GetOwner().GetLastSurfaceHandoffReceipt()
+				.IsFreshBound());
+	check(Binding.TryEndRun(
+		Fixture.Correlation.ActiveRunId,
+		Fixture.Lifecycle,
+		Fixture.Coordinator,
+		Diagnostic));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewMainHUDRuntimeVisibleRecreationTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRuntimeBinding.VisibleHUDRecreationAndDetach",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewMainHUDRuntimeVisibleRecreationTest::
+RunTest(const FString&)
+{
+	using FBinding =
+		Fdemo_mapShanmenThrownWeaponArcPreviewMainHUDRuntimeBinding;
+	using FRenderer =
+		Fdemo_mapShanmenThrownWeaponArcPreviewMainHUDRendererAdapter;
+	using FUpdate =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwnerUpdateResult;
+	FThrownLifecycleFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcPreviewMainHUDRuntimeVisibleRecreation"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+
+	FBinding Binding;
+	FRenderer FirstHUD;
+	FRenderer ReplacementHUD;
+	FString Diagnostic;
+	check(Binding.TryInitialize(
+		FGuid(0xF4610401, 0xF4610402, 0xF4610403, 0xF4610404),
+		Diagnostic));
+	check(FirstHUD.TryInitialize(
+		FGuid(0xF4610501, 0xF4610502, 0xF4610503, 0xF4610504),
+		Diagnostic));
+	check(ReplacementHUD.TryInitialize(
+		FGuid(0xF4610601, 0xF4610602, 0xF4610603, 0xF4610604),
+		Diagnostic));
+	check(Binding.TryAttachHUD(FirstHUD, Diagnostic));
+	check(Binding.TryBeginRun(Fixture.Correlation.ActiveRunId, Diagnostic));
+	const auto Choice = MakeArcPreviewChoice(false);
+	FUpdate ShowResult;
+	check(Binding.TryUpdate(
+		2,
+		Choice,
+		MakeArcPreviewChoicePolicy(),
+		MakeArcPreviewBasis(),
+		Fixture.Lifecycle,
+		Fixture.Coordinator,
+		ShowResult,
+		Diagnostic));
+	const FArcSurfaceState Visible = Binding.GetState();
+	TestTrue(TEXT("explicit source-basis update publishes one visible cursor"),
+		ShowResult.IsAccepted() && Visible.IsVisible()
+			&& FirstHUD.GetSurfaceCursor().Matches(Visible));
+
+	TestTrue(TEXT("replacement HUD rehydrates and adopts the exact visible cursor"),
+		Binding.TryAttachHUD(ReplacementHUD, Diagnostic)
+			&& Binding.IsValid() && Binding.IsBoundToHUD()
+			&& ReplacementHUD.GetSurfaceCursor().Matches(Visible)
+			&& FirstHUD.GetSurfaceCursor().IsEmpty()
+			&& Binding.GetOwner().GetLastSurfaceHandoffReceipt()
+				.IsExactAdopted());
+	TestTrue(TEXT("destroying the visible HUD first hands ownership to fallback"),
+		Binding.TryDetachHUD(ReplacementHUD, Diagnostic)
+			&& Binding.IsValid() && Binding.IsActive()
+			&& !Binding.IsBoundToHUD() && !Binding.HasAttachedHUD()
+			&& ReplacementHUD.GetSurfaceCursor().IsEmpty()
+			&& Binding.GetFallbackSurface().GetSurfaceCursor().Matches(
+				Visible));
+	TestTrue(TEXT("an empty former HUD can be attached as a new generation"),
+		Binding.TryAttachHUD(FirstHUD, Diagnostic)
+			&& Binding.IsValid() && Binding.IsBoundToHUD()
+			&& FirstHUD.GetSurfaceCursor().Matches(Visible)
+			&& Binding.GetFallbackSurface().GetSurfaceCursor().IsEmpty());
+	check(Binding.TryEndRun(
+		Fixture.Correlation.ActiveRunId,
+		Fixture.Lifecycle,
+		Fixture.Coordinator,
+		Diagnostic));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewMainHUDRuntimeReplayTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRuntimeBinding.ExactUpdateReplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewMainHUDRuntimeReplayTest::
+RunTest(const FString&)
+{
+	using EUpdate =
+		Edemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwnerUpdateStatus;
+	using FBinding =
+		Fdemo_mapShanmenThrownWeaponArcPreviewMainHUDRuntimeBinding;
+	using FUpdate =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwnerUpdateResult;
+	FThrownLifecycleFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcPreviewMainHUDRuntimeReplay"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	FBinding Binding;
+	FString Diagnostic;
+	check(Binding.TryInitialize(
+		FGuid(0xF4610701, 0xF4610702, 0xF4610703, 0xF4610704),
+		Diagnostic));
+	check(Binding.TryBeginRun(Fixture.Correlation.ActiveRunId, Diagnostic));
+	const auto Choice = MakeArcPreviewChoice();
+	const auto Policy = MakeArcPreviewChoicePolicy();
+	const auto Basis = MakeArcPreviewBasis();
+	FUpdate First;
+	FUpdate NoOp;
+	FUpdate Replay;
+	check(Binding.TryUpdate(
+		2, Choice, Policy, Basis, Fixture.Lifecycle, Fixture.Coordinator,
+		First, Diagnostic));
+	const FArcSurfaceState FirstCursor = Binding.GetBoundSurfaceCursor();
+	check(Binding.TryUpdate(
+		2, Choice, Policy, Basis, Fixture.Lifecycle, Fixture.Coordinator,
+		NoOp, Diagnostic));
+	check(Binding.TryUpdate(
+		2, Choice, Policy, Basis, Fixture.Lifecycle, Fixture.Coordinator,
+		Replay, Diagnostic));
+	TestTrue(TEXT("duplicate produces one NoOp then exact replay stays above the surface"),
+		First.GetStatus() == EUpdate::Applied
+			&& NoOp.GetStatus() == EUpdate::Applied
+			&& NoOp.DidCallAdapter()
+			&& NoOp.GetAdapterResult().IsNoOp()
+			&& !NoOp.GetAdapterResult().DidCallSurface()
+			&& Replay.GetStatus() == EUpdate::ApplicationReplayed
+			&& Replay.IsReplay()
+			&& !Replay.DidCallAdapter()
+			&& Binding.GetBoundSurfaceCursor().Matches(FirstCursor));
+	check(Binding.TryEndRun(
+		Fixture.Correlation.ActiveRunId,
+		Fixture.Lifecycle,
+		Fixture.Coordinator,
+		Diagnostic));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreviewMainHUDRuntimeTeardownFenceTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRuntimeBinding.LocalClearAndLifecycleFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreviewMainHUDRuntimeTeardownFenceTest::
+RunTest(const FString&)
+{
+	using FBinding =
+		Fdemo_mapShanmenThrownWeaponArcPreviewMainHUDRuntimeBinding;
+	using FRenderer =
+		Fdemo_mapShanmenThrownWeaponArcPreviewMainHUDRendererAdapter;
+	using FUpdate =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwnerUpdateResult;
+	FThrownLifecycleFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcPreviewMainHUDRuntimeTeardownFence"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+	FBinding Binding;
+	FRenderer HUD;
+	FRenderer StaleHUD;
+	FString Diagnostic;
+	check(Binding.TryInitialize(
+		FGuid(0xF4610801, 0xF4610802, 0xF4610803, 0xF4610804),
+		Diagnostic));
+	check(HUD.TryInitialize(
+		FGuid(0xF4610901, 0xF4610902, 0xF4610903, 0xF4610904),
+		Diagnostic));
+	check(StaleHUD.TryInitialize(
+		FGuid(0xF4610A01, 0xF4610A02, 0xF4610A03, 0xF4610A04),
+		Diagnostic));
+	check(Binding.TryAttachHUD(HUD, Diagnostic));
+	check(Binding.TryBeginRun(Fixture.Correlation.ActiveRunId, Diagnostic));
+	const auto AuthoritativeChoice = MakeArcPreviewChoice(false);
+	FUpdate VisibleResult;
+	check(Binding.TryUpdate(
+		2,
+		AuthoritativeChoice,
+		MakeArcPreviewChoicePolicy(),
+		MakeArcPreviewBasis(),
+		Fixture.Lifecycle,
+		Fixture.Coordinator,
+		VisibleResult,
+		Diagnostic));
+
+	TestFalse(TEXT("foreign Run teardown cannot clear or end the live owner"),
+		Binding.TryEndRun(
+			FGuid::NewGuid(),
+			Fixture.Lifecycle,
+			Fixture.Coordinator,
+			Diagnostic));
+	TestTrue(TEXT("foreign teardown leaves exact visible state intact"),
+		Binding.IsValid() && Binding.IsActive()
+			&& HUD.GetSurfaceCursor().IsVisible());
+	TestTrue(TEXT("stale HUD detach is an idempotent no-op"),
+		Binding.TryDetachHUD(StaleHUD, Diagnostic)
+			&& Binding.IsBoundToHUD()
+			&& HUD.GetSurfaceCursor().IsVisible());
+	TestTrue(TEXT("matching teardown derives a local clear and empties the surface"),
+		Binding.TryEndRun(
+			Fixture.Correlation.ActiveRunId,
+			Fixture.Lifecycle,
+			Fixture.Coordinator,
+			Diagnostic)
+			&& Binding.IsValid() && !Binding.IsActive()
+			&& HUD.GetSurfaceCursor().IsEmpty());
+	TestTrue(TEXT("presentation teardown never mutates caller-owned choice"),
+		AuthoritativeChoice.IsValid()
+			&& AuthoritativeChoice.HasArcTargetIntent()
+			&& AuthoritativeChoice.GetRevision() == 2);
 	return true;
 }
 

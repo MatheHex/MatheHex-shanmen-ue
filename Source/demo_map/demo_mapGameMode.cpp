@@ -1191,10 +1191,51 @@ Ademo_mapGameMode::RouteThrownWeaponArcChoiceHotbarInput(
 	const Fdemo_mapShanmenThrownWeaponArcChoicePolicy& Policy,
 	TFunctionRef<Fdemo_mapShanmenThrownWeaponArcChoiceBasis()> SampleBasis)
 {
+	bool bBasisSampled = false;
+	bool bPreviewUpdateAttempted = false;
+	Fdemo_mapShanmenThrownWeaponArcChoiceBasis FrozenBasis;
+	const auto SampleAndPublishBasis = [this, HotbarSlotNumber, &Policy,
+		&SampleBasis, &bBasisSampled, &bPreviewUpdateAttempted,
+		&FrozenBasis]()
+	{
+		if (!bBasisSampled)
+		{
+			FrozenBasis = SampleBasis();
+			bBasisSampled = true;
+		}
+		if (!bPreviewUpdateAttempted
+			&& ThrownWeaponArcPreviewMainHUDRuntimeBinding.IsActive())
+		{
+			bPreviewUpdateAttempted = true;
+			Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwnerUpdateResult
+				PreviewResult;
+			FString PreviewDiagnostic;
+			if (!ThrownWeaponArcPreviewMainHUDRuntimeBinding.TryUpdate(
+					HotbarSlotNumber,
+					ThrownWeaponInputChoiceSession.GetState(),
+					Policy,
+					FrozenBasis,
+					ThrownWeaponProductLifecycle,
+					CombatRunCoordinator,
+					PreviewResult,
+					PreviewDiagnostic))
+			{
+				UE_LOG(
+					Logdemo_map,
+					Warning,
+					TEXT("0_0_10_THROWN_ARC_PREVIEW Event=RuntimeUpdateRejected RunId=%s Slot=%d Diagnostic=%s"),
+					*CombatRunCoordinator.GetRunId().ToString(
+						EGuidFormats::DigitsWithHyphens),
+					HotbarSlotNumber,
+					*PreviewDiagnostic);
+			}
+		}
+		return FrozenBasis;
+	};
 	return ThrownWeaponArcChoiceInputComposition.Route(
 		ThrownWeaponInputChoiceSession.GetState(),
 		Policy,
-		SampleBasis,
+		SampleAndPublishBasis,
 		[this, HotbarSlotNumber, SourceActor](
 			TFunctionRef<FVector()> SampleTarget,
 			TFunctionRef<double()> SampleApexClearance)
@@ -1930,8 +1971,51 @@ void Ademo_mapGameMode::Set0909BOutOfRaidClosedCallback(
 void Ademo_mapGameMode::BeginPlay()
 {
 	Super::BeginPlay();
+	FString ArcPreviewDiagnostic;
+	if (!ThrownWeaponArcPreviewMainHUDRuntimeBinding.TryInitialize(
+			FGuid::NewGuid(), ArcPreviewDiagnostic))
+	{
+		UE_LOG(
+			Logdemo_map,
+			Error,
+			TEXT("Arc preview MainHUD runtime initialization rejected: %s"),
+			*ArcPreviewDiagnostic);
+	}
+	else if (APlayerController* PlayerController =
+		GetWorld() != nullptr ? GetWorld()->GetFirstPlayerController() : nullptr)
+	{
+		if (Ademo_mapHUD* ExistingHUD = Cast<Ademo_mapHUD>(
+			PlayerController->GetHUD()))
+		{
+			TryAttachThrownWeaponArcPreviewHUD(
+				ExistingHUD->GetThrownWeaponArcPreviewRendererAdapter(),
+				ArcPreviewDiagnostic);
+		}
+	}
 	PrepareV2CNavigation();
 	InitializeRuntimeMission();
+}
+
+bool Ademo_mapGameMode::TryAttachThrownWeaponArcPreviewHUD(
+	Fdemo_mapShanmenThrownWeaponArcPreviewMainHUDRendererAdapter& Surface,
+	FString& OutDiagnostic)
+{
+	if (!ThrownWeaponArcPreviewMainHUDRuntimeBinding.IsInitialized()
+		&& !ThrownWeaponArcPreviewMainHUDRuntimeBinding.TryInitialize(
+			FGuid::NewGuid(), OutDiagnostic))
+	{
+		return false;
+	}
+	return ThrownWeaponArcPreviewMainHUDRuntimeBinding.TryAttachHUD(
+		Surface, OutDiagnostic);
+}
+
+bool Ademo_mapGameMode::TryDetachThrownWeaponArcPreviewHUD(
+	Fdemo_mapShanmenThrownWeaponArcPreviewMainHUDRendererAdapter& Surface,
+	FString& OutDiagnostic)
+{
+	return ThrownWeaponArcPreviewMainHUDRuntimeBinding.TryDetachHUD(
+		Surface, OutDiagnostic);
 }
 
 void Ademo_mapGameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -2212,6 +2296,7 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 		|| !ControlledWeaponRunCommandRouter.IsEmpty()
 		|| !ControlledWeaponThreatSampleRouter.IsEmpty()
 		|| !ThrownWeaponProductLifecycle.IsEmpty()
+		|| ThrownWeaponArcPreviewMainHUDRuntimeBinding.IsActive()
 		|| !MeridianShockTreatmentProductLifecycle.IsEmpty()
 		|| !WeaponGuardProductSession.IsEmpty()
 		|| !CombatRunFixedTimeline.IsEmpty()
@@ -2473,6 +2558,23 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 		}
 		return false;
 	}
+	FString ArcPreviewDiagnostic;
+	if ((!ThrownWeaponArcPreviewMainHUDRuntimeBinding.IsInitialized()
+			&& !ThrownWeaponArcPreviewMainHUDRuntimeBinding.TryInitialize(
+				FGuid::NewGuid(), ArcPreviewDiagnostic))
+		|| !ThrownWeaponArcPreviewMainHUDRuntimeBinding.TryBeginRun(
+			ActiveRunId, ArcPreviewDiagnostic))
+	{
+		const bool bReleased =
+			ReleaseCombatProductRun(TEXT("ArcPreviewRuntimeBindFailure"));
+		OutDiagnostic = ArcPreviewDiagnostic;
+		if (!bReleased)
+		{
+			OutDiagnostic += TEXT(
+				" Existing combat products also rejected activation rollback.");
+		}
+		return false;
+	}
 	UE_LOG(Logdemo_map, Log,
 		TEXT("0_0_10_COMBAT_RUN Event=RunBound RunId=%s PlayerEntityId=%s M01Entities=%d M01VitalityHosts=%d ThrownWeaponLifecycle=%d ThrownWeaponTrajectory=%d ThrownWeaponChoiceStateId=%s ThrownWeaponChoiceRevision=%llu TreatmentLifecycle=%d SwordQiController=%d SwordQiCommandOwner=%d RunTimelineId=%s RunTickRate=%lld ConditionDefinition=%s ConditionDurationTicks=%lld SwordRhythmConfigId=%s SwordRhythmWindow=[%lld,%lld)"),
 		*ActiveRunId.ToString(EGuidFormats::DigitsWithHyphens),
@@ -2515,6 +2617,30 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 	const TCHAR* Context)
 {
 	const TCHAR* SafeContext = Context ? Context : TEXT("Unknown");
+	if (ThrownWeaponArcPreviewMainHUDRuntimeBinding.IsActive())
+	{
+		const FGuid ExpectedArcPreviewRunId =
+			CombatRunCoordinator.IsActive()
+				? CombatRunCoordinator.GetRunId()
+				: ThrownWeaponArcPreviewMainHUDRuntimeBinding.GetRunId();
+		FString ArcPreviewDiagnostic;
+		if (!ThrownWeaponArcPreviewMainHUDRuntimeBinding.TryEndRun(
+				ExpectedArcPreviewRunId,
+				ThrownWeaponProductLifecycle,
+				CombatRunCoordinator,
+				ArcPreviewDiagnostic))
+		{
+			UE_LOG(
+				Logdemo_map,
+				Error,
+				TEXT("0_0_10_COMBAT_RUN Event=ArcPreviewRuntimeReleaseRejected Context=%s RunId=%s Diagnostic=%s"),
+				SafeContext,
+				*ExpectedArcPreviewRunId.ToString(
+					EGuidFormats::DigitsWithHyphens),
+				*ArcPreviewDiagnostic);
+			return false;
+		}
+	}
 	Fdemo_mapShanmenSwordQiCommandEventEndSummary SwordQiCommandSummary;
 	Fdemo_mapShanmenSwordQiControllerEndSummary SwordQiSummary;
 	// Treatment is the only product path that may own an incomplete durable

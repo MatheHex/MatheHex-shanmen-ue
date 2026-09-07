@@ -134,6 +134,75 @@ bool FAdapter::IsValid() const
 		&& (SurfaceCursor.IsEmpty() || SurfaceCursor.IsVisible());
 }
 
+bool FAdapter::TryRehydrateVisibleForHandoff(
+	const FGuid& ExpectedRunId,
+	const FName ExpectedConsumerDefinitionId,
+	const FState& AuthoritativeVisibleState,
+	FString& OutDiagnostic)
+{
+	OutDiagnostic.Reset();
+	if (!IsValid() || !ExpectedRunId.IsValid()
+		|| ExpectedConsumerDefinitionId != ConsumerDefinitionId
+		|| !AuthoritativeVisibleState.IsValid()
+		|| !AuthoritativeVisibleState.IsVisible()
+		|| AuthoritativeVisibleState.GetRunId() != ExpectedRunId)
+	{
+		OutDiagnostic = TEXT(
+			"MainHUD Arc preview rehydrate requires one exact visible Run/consumer snapshot.");
+		return false;
+	}
+	if (SurfaceCursor.IsVisible())
+	{
+		if (SurfaceCursor.Matches(AuthoritativeVisibleState))
+		{
+			OutDiagnostic = TEXT(
+				"MainHUD Arc preview surface already holds the exact rehydrated cursor.");
+			return true;
+		}
+		OutDiagnostic = TEXT(
+			"MainHUD Arc preview rehydrate rejects a conflicting visible cursor.");
+		return false;
+	}
+	if (!SurfaceCursor.IsEmpty())
+	{
+		OutDiagnostic = TEXT(
+			"MainHUD Arc preview rehydrate requires an empty physical surface.");
+		return false;
+	}
+
+	SurfaceCursor = AuthoritativeVisibleState;
+	if (!IsValid())
+	{
+		SurfaceCursor = FState();
+		OutDiagnostic = TEXT(
+			"MainHUD Arc preview rehydrate failed post-mutation validation.");
+		return false;
+	}
+	OutDiagnostic = TEXT(
+		"MainHUD Arc preview surface rehydrated the exact authoritative cursor.");
+	return true;
+}
+
+bool FAdapter::TryDiscardRehydratedVisibleForHandoff(
+	const FState& ExpectedVisibleState,
+	FString& OutDiagnostic)
+{
+	OutDiagnostic.Reset();
+	if (!IsValid() || !ExpectedVisibleState.IsValid()
+		|| !ExpectedVisibleState.IsVisible()
+		|| !SurfaceCursor.IsVisible()
+		|| !SurfaceCursor.Matches(ExpectedVisibleState))
+	{
+		OutDiagnostic = TEXT(
+			"MainHUD Arc preview rollback requires the exact unadopted visible cursor.");
+		return false;
+	}
+	SurfaceCursor = FState();
+	OutDiagnostic = TEXT(
+		"MainHUD Arc preview discarded one unadopted rehydrated cursor.");
+	return true;
+}
+
 FSurfaceResponse FAdapter::Show(const FCommand& Command)
 {
 	return ApplyMutation(Command, ECommand::Show);

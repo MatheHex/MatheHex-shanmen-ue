@@ -178,6 +178,9 @@ try
     $ThrownArcPreviewMainHUDRendererAdapter = New-AutomationLogFixture `
         -Name 'thrown-arc-preview-main-hud-renderer-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRendererAdapter'
+    $ThrownArcPreviewMainHUDRuntimeBinding = New-AutomationLogFixture `
+        -Name 'thrown-arc-preview-main-hud-runtime-binding.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRuntimeBinding'
     $ThrownArcPreviewUpdateCoordinator = New-AutomationLogFixture `
         -Name 'thrown-arc-preview-update-coordinator.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewUpdateCoordinator'
@@ -2682,6 +2685,7 @@ try
 			'Source/demo_map/demo_mapHUD.cpp') `
 		-Logs @(
 			$Full,
+			$ThrownArcPreviewMainHUDRuntimeBinding,
 			$ThrownArcPreviewMainHUDRendererAdapter,
 			$ThrownWeaponTrajectoryPresentation,
 			$ThrownWeaponArcEditingPresentation,
@@ -2697,6 +2701,7 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewMainHUDRendererAdapter.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewMainHUDRendererAdapter.cpp') `
 		-Logs @(
+			$ThrownArcPreviewMainHUDRuntimeBinding,
 			$ThrownArcPreviewMainHUDRendererAdapter,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoff,
 			$ThrownArcPreviewPresentationSurfaceOwnershipTransition,
@@ -2709,6 +2714,23 @@ try
 			$Full,
 			$InputRestore,
 			$Ranged)
+
+	Invoke-ExpectedPass `
+		-Name 'thrown weapon Arc preview MainHUD runtime binding maps run lifecycle surface handoff and compatibility seams' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewMainHUDRuntimeBinding.h',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewMainHUDRuntimeBinding.cpp') `
+		-Logs @(
+			$ThrownArcPreviewMainHUDRuntimeBinding,
+			$ThrownArcPreviewMainHUDRendererAdapter,
+			$ThrownArcPreviewPresentationOwnerSurfaceHandoff,
+			$ThrownArcPreviewPresentationSurfaceOwnershipTransition,
+			$ThrownArcPreviewPresentationCompositionOwner,
+			$Coordinator,
+			$Full,
+			$InputRestore,
+			$Ranged,
+			$ItemUse)
 
 	Invoke-ExpectedPass `
 		-Name 'thrown weapon Arc editing presentation maps current Arc mode and read evidence' `
@@ -5506,6 +5528,13 @@ try
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewMainHUDRendererAdapter.cpp') `
 		-Logs @($ThrownArcPreviewMainHUDRendererAdapter) `
+		-ExpectedText 'missing required groups'
+
+	Invoke-ExpectedFail `
+		-Name 'thrown Arc preview MainHUD runtime binding focus cannot replace lifecycle handoff and compatibility evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewMainHUDRuntimeBinding.cpp') `
+		-Logs @($ThrownArcPreviewMainHUDRuntimeBinding) `
 		-ExpectedText 'missing required groups'
 
 	Invoke-ExpectedFail `

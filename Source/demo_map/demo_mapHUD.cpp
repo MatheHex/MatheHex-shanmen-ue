@@ -128,6 +128,42 @@ void Ademo_mapHUD::BeginPlay()
 			TEXT("Arc preview MainHUD renderer initialization rejected: %s"),
 			*Diagnostic);
 	}
+	else if (Ademo_mapGameMode* ActiveMode = GetWorld() != nullptr
+		? Cast<Ademo_mapGameMode>(GetWorld()->GetAuthGameMode())
+		: nullptr;
+		ActiveMode
+		&& !ActiveMode->TryAttachThrownWeaponArcPreviewHUD(
+			ThrownWeaponArcPreviewRendererAdapter, Diagnostic))
+	{
+		UE_LOG(
+			Logdemo_map,
+			Warning,
+			TEXT("Arc preview MainHUD runtime attach rejected: %s"),
+			*Diagnostic);
+	}
+}
+
+void Ademo_mapHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (ThrownWeaponArcPreviewRendererAdapter.IsInitialized())
+	{
+		if (Ademo_mapGameMode* ActiveMode = GetWorld() != nullptr
+			? Cast<Ademo_mapGameMode>(GetWorld()->GetAuthGameMode())
+			: nullptr)
+		{
+			FString Diagnostic;
+			if (!ActiveMode->TryDetachThrownWeaponArcPreviewHUD(
+					ThrownWeaponArcPreviewRendererAdapter, Diagnostic))
+			{
+				UE_LOG(
+					Logdemo_map,
+					Error,
+					TEXT("Arc preview MainHUD runtime detach rejected: %s"),
+					*Diagnostic);
+			}
+		}
+	}
+	Super::EndPlay(EndPlayReason);
 }
 
 void Ademo_mapHUD::DrawHUD()

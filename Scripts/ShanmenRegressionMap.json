@@ -2383,6 +2383,7 @@
       "pathRegex": "^Source/demo_map/demo_mapGameMode\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRuntimeBinding",
         "Shanmen.0_0_10.Product.MeridianShockTreatment",
         "Shanmen.0_0_10.Product.CombatCondition.MeridianShock",
         "Shanmen.0_0_10.Product.SpiritEvasionProductRoute",
@@ -3144,6 +3145,7 @@
 	  "name": "MainHUDTrajectoryPresentation",
 	  "pathRegex": "^Source/demo_map/demo_mapHUD\\.(?:h|cpp)$",
 	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRuntimeBinding",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRendererAdapter",
 		"Shanmen.0_0_10.Product.ThrownWeaponTrajectoryPresentation",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcEditingPresentation",
@@ -3160,6 +3162,7 @@
 	  "name": "ThrownWeaponArcPreviewMainHUDRendererAdapter",
 	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewMainHUDRendererAdapter(?:Tests)?\\.(?:h|cpp)$",
 	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRuntimeBinding",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRendererAdapter",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceOwnershipTransition",
@@ -3172,6 +3175,23 @@
 		"Shanmen.0_0_10",
 		"demo_map.InputRestore",
 		"demo_map.V2RangedCompatibility"
+	  ]
+	},
+	{
+	  "name": "ThrownWeaponArcPreviewMainHUDRuntimeBinding",
+	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewMainHUDRuntimeBinding\\.(?:h|cpp)$",
+	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRuntimeBinding",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRendererAdapter",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceOwnershipTransition",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCompositionOwner",
+		"Shanmen.0_0_10.Product.ThrownWeaponProductLifecycle",
+		"Shanmen.0_0_10.Product.CombatRunCoordinator",
+		"Shanmen.0_0_10",
+		"demo_map.InputRestore",
+		"demo_map.V2RangedCompatibility",
+		"demo_map.ItemUseAndArmor"
 	  ]
 	},
 	{

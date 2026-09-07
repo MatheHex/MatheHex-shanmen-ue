@@ -30,6 +30,23 @@ public:
 		FString& OutDiagnostic);
 	bool IsInitialized() const;
 	bool IsValid() const;
+	/**
+	 * Restores one exact authoritative visible cursor onto a newly-created
+	 * physical HUD surface before the existing ownership protocol adopts it.
+	 * This is a renderer reconstruction operation, not a logical presentation
+	 * command, and therefore emits no command or delivery receipt.
+	 */
+	bool TryRehydrateVisibleForHandoff(
+		const FGuid& ExpectedRunId,
+		FName ExpectedConsumerDefinitionId,
+		const Fdemo_mapShanmenThrownWeaponArcPreviewPresentationState&
+			AuthoritativeVisibleState,
+		FString& OutDiagnostic);
+	/** Rolls back only the exact unadopted cursor restored by the method above. */
+	bool TryDiscardRehydratedVisibleForHandoff(
+		const Fdemo_mapShanmenThrownWeaponArcPreviewPresentationState&
+			ExpectedVisibleState,
+		FString& OutDiagnostic);
 
 	virtual FGuid GetSurfaceInstanceId() const override
 	{
