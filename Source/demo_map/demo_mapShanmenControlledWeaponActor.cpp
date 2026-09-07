@@ -1,9 +1,18 @@
 #include "demo_mapShanmenControlledWeaponActor.h"
 
 #include "Components/BoxComponent.h"
+#include "Components/PointLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "GameFramework/Pawn.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "UObject/ConstructorHelpers.h"
+#include "demo_mapShanmenControlledWeaponWorldThreatSampler.h"
+
+namespace
+{
+	const FLinearColor IdleSwordColor(0.20f, 0.48f, 0.95f);
+	const FLinearColor ThreatSwordColor(0.05f, 1.00f, 0.72f);
+}
 
 Ademo_mapShanmenControlledWeaponActor::
 Ademo_mapShanmenControlledWeaponActor()
@@ -34,6 +43,16 @@ Ademo_mapShanmenControlledWeaponActor()
 	{
 		Visual->SetStaticMesh(CubeMesh.Object);
 	}
+	VisualMaterial = Visual->CreateDynamicMaterialInstance(0);
+
+	ThreatCueLight = CreateDefaultSubobject<UPointLightComponent>(
+		TEXT("ControlledWeaponThreatCueLight"));
+	ThreatCueLight->SetupAttachment(Collision);
+	ThreatCueLight->SetLightColor(ThreatSwordColor);
+	ThreatCueLight->SetIntensity(2200.0f);
+	ThreatCueLight->SetAttenuationRadius(180.0f);
+	ThreatCueLight->SetVisibility(false);
+	RefreshThreatPresenceCue();
 }
 
 bool Ademo_mapShanmenControlledWeaponActor::TryBindProductIdentity(
@@ -54,7 +73,8 @@ bool Ademo_mapShanmenControlledWeaponActor::TryBindProductIdentity(
 		|| !::IsValid(InSourceActor)
 		|| InSourceActor == this
 		|| !Collision
-		|| GetRootComponent() != Collision)
+		|| GetRootComponent() != Collision
+		|| !IsThreatPresenceCueStateValid())
 	{
 		return false;
 	}
@@ -93,7 +113,91 @@ bool Ademo_mapShanmenControlledWeaponActor::IsProductBoundTo(
 		&& GetOwner() == ExpectedSourceActor
 		&& Collision
 		&& Collision->GetOwner() == this
-		&& GetRootComponent() == Collision;
+		&& GetRootComponent() == Collision
+		&& IsThreatPresenceCueStateValid();
+}
+
+bool Ademo_mapShanmenControlledWeaponActor::TryPresentThreatPresenceCue(
+	const Fdemo_mapShanmenControlledWeaponWorldThreatSampleResult& Sample)
+{
+	if (!Sample.IsSampled()
+		|| !IsProductBoundTo(
+			Sample.RunId, Sample.ItemInstanceId, SourceActor.Get()))
+	{
+		return false;
+	}
+
+	if (LastThreatPresenceCueSampleSequence != INDEX_NONE)
+	{
+		if (Sample.SampleSequence < LastThreatPresenceCueSampleSequence)
+		{
+			return false;
+		}
+		if (Sample.SampleSequence == LastThreatPresenceCueSampleSequence)
+		{
+			return LastThreatPresenceCueIntentId == Sample.IntentId
+				&& bThreatPresenceCueActive
+					== (Sample.RoutedContactCount > 0)
+				&& IsThreatPresenceCueStateValid();
+		}
+	}
+
+	LastThreatPresenceCueIntentId = Sample.IntentId;
+	LastThreatPresenceCueSampleSequence = Sample.SampleSequence;
+	bThreatPresenceCueActive = Sample.RoutedContactCount > 0;
+	RefreshThreatPresenceCue();
+	return IsThreatPresenceCueStateValid();
+}
+
+bool Ademo_mapShanmenControlledWeaponActor::TryClearThreatPresenceCue(
+	const FGuid& ExpectedRunId,
+	const FGuid& ExpectedItemInstanceId)
+{
+	if (!IsProductBoundTo(
+			ExpectedRunId, ExpectedItemInstanceId, SourceActor.Get()))
+	{
+		return false;
+	}
+	bThreatPresenceCueActive = false;
+	RefreshThreatPresenceCue();
+	return IsThreatPresenceCueStateValid();
+}
+
+bool Ademo_mapShanmenControlledWeaponActor::IsThreatPresenceCueVisualActive()
+	const
+{
+	return ThreatCueLight && ThreatCueLight->IsVisible();
+}
+
+bool Ademo_mapShanmenControlledWeaponActor::IsThreatPresenceCueStateValid()
+	const
+{
+	const bool bHasCommittedSample =
+		LastThreatPresenceCueSampleSequence != INDEX_NONE;
+	return ThreatCueLight
+		&& ThreatCueLight->GetAttachParent() == Collision
+		&& IsThreatPresenceCueVisualActive() == bThreatPresenceCueActive
+		&& (bHasCommittedSample
+			? LastThreatPresenceCueSampleSequence >= 0
+				&& LastThreatPresenceCueIntentId.IsValid()
+			: !LastThreatPresenceCueIntentId.IsValid()
+				&& !bThreatPresenceCueActive);
+}
+
+void Ademo_mapShanmenControlledWeaponActor::RefreshThreatPresenceCue()
+{
+	const FLinearColor Color = bThreatPresenceCueActive
+		? ThreatSwordColor
+		: IdleSwordColor;
+	if (VisualMaterial)
+	{
+		VisualMaterial->SetVectorParameterValue(TEXT("Color"), Color);
+		VisualMaterial->SetVectorParameterValue(TEXT("BaseColor"), Color);
+	}
+	if (ThreatCueLight)
+	{
+		ThreatCueLight->SetVisibility(bThreatPresenceCueActive);
+	}
 }
 
 void Ademo_mapShanmenControlledWeaponActor::ActivateProductCollision()
@@ -104,6 +208,8 @@ void Ademo_mapShanmenControlledWeaponActor::ActivateProductCollision()
 
 void Ademo_mapShanmenControlledWeaponActor::DeactivateProductCollision()
 {
+	bThreatPresenceCueActive = false;
+	RefreshThreatPresenceCue();
 	if (Collision)
 	{
 		Collision->SetCollisionEnabled(ECollisionEnabled::NoCollision);

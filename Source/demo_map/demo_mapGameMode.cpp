@@ -36,6 +36,7 @@
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
 #include "demo_mapShanmenCombatConditionComponent.h"
 #include "demo_mapShanmenSpiritEvasionComponent.h"
+#include "demo_mapShanmenControlledWeaponActor.h"
 #include "demo_mapShanmenThrownWeaponProjectile.h"
 #include "demo_mapShanmenSwordQiProjectile.h"
 #include "demo_mapLootChest.h"
@@ -2515,17 +2516,51 @@ void Ademo_mapGameMode::Tick(float DeltaSeconds)
 						ThreatSample.RoutedContactCount,
 						*ThreatSample.Diagnostic);
 				}
-				else if (ThreatSample.IsSampled()
-					&& ThreatSample.RoutedContactCount > 0)
+				else if (ThreatSample.IsSampled())
 				{
-					UE_LOG(Logdemo_map, VeryVerbose,
-						TEXT("0_0_10_CONTROLLED_WEAPON Event=WorldThreatSampled RunId=%s Tick=%lld Sequence=%lld Raw=%d Routed=%d"),
-						*ThreatSample.RunId.ToString(
-							EGuidFormats::DigitsWithHyphens),
-						static_cast<long long>(ThreatSample.ObservedTick),
-						static_cast<long long>(ThreatSample.SampleSequence),
-						ThreatSample.RawOverlapCount,
-						ThreatSample.RoutedContactCount);
+					Ademo_mapShanmenControlledWeaponActor* WeaponActor =
+						ControlledWeaponWorldLifecycle.GetWeaponActor();
+					if (!WeaponActor
+						|| !WeaponActor->TryPresentThreatPresenceCue(
+							ThreatSample))
+					{
+						UE_LOG(Logdemo_map, Error,
+							TEXT("0_0_10_CONTROLLED_WEAPON Event=WorldThreatCueRejected RunId=%s ItemId=%s Tick=%lld Sequence=%lld Routed=%d"),
+							*ThreatSample.RunId.ToString(
+								EGuidFormats::DigitsWithHyphens),
+							*ThreatSample.ItemInstanceId.ToString(
+								EGuidFormats::DigitsWithHyphens),
+							static_cast<long long>(
+								ThreatSample.ObservedTick),
+							static_cast<long long>(
+								ThreatSample.SampleSequence),
+							ThreatSample.RoutedContactCount);
+					}
+					else if (ThreatSample.RoutedContactCount > 0)
+					{
+						UE_LOG(Logdemo_map, VeryVerbose,
+							TEXT("0_0_10_CONTROLLED_WEAPON Event=WorldThreatSampled RunId=%s Tick=%lld Sequence=%lld Raw=%d Routed=%d CueActive=1"),
+							*ThreatSample.RunId.ToString(
+								EGuidFormats::DigitsWithHyphens),
+							static_cast<long long>(
+								ThreatSample.ObservedTick),
+							static_cast<long long>(
+								ThreatSample.SampleSequence),
+							ThreatSample.RawOverlapCount,
+							ThreatSample.RoutedContactCount);
+					}
+				}
+				else if (ThreatSample.Status
+					== Edemo_mapShanmenControlledWeaponWorldThreatSampleStatus::
+						NotOrbiting)
+				{
+					if (Ademo_mapShanmenControlledWeaponActor* WeaponActor =
+							ControlledWeaponWorldLifecycle.GetWeaponActor())
+					{
+						WeaponActor->TryClearThreatPresenceCue(
+							ThreatSample.RunId,
+							ThreatSample.ItemInstanceId);
+					}
 				}
 			}
 		}

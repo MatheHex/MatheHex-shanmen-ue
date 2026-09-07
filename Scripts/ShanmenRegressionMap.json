@@ -2746,6 +2746,21 @@
       ]
     },
     {
+      "name": "ControlledWeaponThreatCue",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenControlledWeaponActor\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Product.ControlledWeaponThreatCue",
+        "Shanmen.0_0_10.Product.ControlledWeaponWorldThreatSampler",
+        "Shanmen.0_0_10.Product.ControlledWeaponThreatSampleRouter",
+        "Shanmen.0_0_10.Product.ControlledWeaponWorldLifecycle",
+        "Shanmen.0_0_10.Product.ControlledWeaponRunHost",
+        "Shanmen.0_0_10.Product.CombatRunFixedTimeline",
+        "Shanmen.0_0_10.Product.CombatRunCoordinator",
+        "Shanmen.0_0_10.WorldGameplay",
+        "Shanmen.0_0_10.CombatRuntime"
+      ]
+    },
+    {
       "name": "ControlledWeaponProductSession",
       "pathRegex": "^Source/demo_map/demo_mapShanmenControlledWeaponSession(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [

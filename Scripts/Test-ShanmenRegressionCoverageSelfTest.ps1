@@ -550,6 +550,9 @@ try
     $ControlledWeaponThreatSampleRouter = New-AutomationLogFixture `
         -Name 'controlled-weapon-threat-sample-router.log' `
         -Group 'Shanmen.0_0_10.Product.ControlledWeaponThreatSampleRouter'
+    $ControlledWeaponThreatCue = New-AutomationLogFixture `
+        -Name 'controlled-weapon-threat-cue.log' `
+        -Group 'Shanmen.0_0_10.Product.ControlledWeaponThreatCue'
     $DivineSenseRuntime = New-AutomationLogFixture `
         -Name 'divine-sense-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.DivineSense'
@@ -2560,6 +2563,12 @@ try
         -Name 'controlled weapon World lifecycle is covered by the full suite' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenControlledWeaponWorldLifecycle.cpp',
+            'Source/demo_map/demo_mapShanmenControlledWeaponActor.cpp') `
+        -Logs @($Full)
+
+    Invoke-ExpectedPass `
+        -Name 'controlled weapon threat cue is covered by the full suite' `
+        -Paths @(
             'Source/demo_map/demo_mapShanmenControlledWeaponActor.cpp') `
         -Logs @($Full)
 
@@ -5489,6 +5498,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenControlledWeaponWorldLifecycle.cpp') `
         -Logs @($Coordinator) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'World threat cue cannot use cue-only evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenControlledWeaponActor.cpp') `
+        -Logs @($ControlledWeaponThreatCue) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

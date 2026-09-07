@@ -2414,4 +2414,168 @@ bool FShanmenControlledWeaponWorldThreatSamplingTest::RunTest(
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenControlledWeaponThreatCueTest,
+	"Shanmen.0_0_10.Product.ControlledWeaponThreatCue.AcceptedPresenceAndEmptyRelease",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenControlledWeaponThreatCueTest::RunTest(const FString&)
+{
+	FPreparationAdapterFixture Fixture;
+	if (!Fixture.StartAndCutover(
+			*this, TEXT("ControlledWeaponThreatCue")))
+	{
+		return false;
+	}
+	const Fdemo_mapProfilePreparationSelectionResult Selected =
+		Fixture.Session->SetPreparationEquipment(
+			Fdemo_mapItemIds::WeaponSlot,
+			Fixture.FlyingSwordId);
+	Udemo_mapItemSubsystem* Runtime =
+		Fixture.GameInstance->GetSubsystem<Udemo_mapItemSubsystem>();
+	if (!Selected.IsAccepted() || !Runtime)
+	{
+		AddError(TEXT("P21.4 flying-sword selection could not reach Runtime."));
+		return false;
+	}
+	Runtime->ResetForAutomation();
+	const Fdemo_mapShanmenRunStartResult Started =
+		Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
+			*Fixture.Authority, *Runtime);
+	if (!Started.IsStarted())
+	{
+		AddError(FString::Printf(
+			TEXT("P21.4 durable flying-sword Run failed: %s"),
+			*Started.Diagnostic));
+		return false;
+	}
+
+	FControlledWeaponWorldFixture WorldFixture;
+	if (!WorldFixture.Start(
+			*this, Fixture.GameInstance, Started.ActiveRunId))
+	{
+		return false;
+	}
+	const Fdemo_mapShanmenControlledWeaponWorldStartResult Began =
+		WorldFixture.Lifecycle.TryBegin(
+			WorldFixture.World,
+			Fixture.Authority,
+			Runtime,
+			WorldFixture.Coordinator,
+			WorldFixture.Host,
+			WorldFixture.Player,
+			1);
+	FString SamplerDiagnostic;
+	if (!Began.IsStarted()
+		|| !WorldFixture.ThreatSampler.TryBegin(
+			Started.ActiveRunId,
+			WorldFixture.Timeline.GetTimelineId(),
+			WorldFixture.Lifecycle,
+			SamplerDiagnostic))
+	{
+		AddError(FString::Printf(
+			TEXT("P21.4 World threat cadence failed to begin: %s"),
+			*SamplerDiagnostic));
+		return false;
+	}
+
+	Ademo_mapShanmenControlledWeaponActor* Weapon =
+		WorldFixture.Lifecycle.GetWeaponActor();
+	Ademo_mapEnemyCharacter* Enemy = Weapon
+		? WorldFixture.SpawnRegisteredEnemy(
+			*this, Weapon->GetActorLocation())
+		: nullptr;
+	if (!Weapon || !Enemy)
+	{
+		return false;
+	}
+	const float VitalityBefore = Enemy->GetCurrentVitality();
+	const int32 ImpactsBefore = Enemy->NumCommittedCombatImpacts();
+	TestTrue(TEXT("Fresh flying sword starts with an idle threat cue"),
+		!Weapon->IsThreatPresenceCueActive()
+		&& !Weapon->IsThreatPresenceCueVisualActive()
+		&& Weapon->GetLastThreatPresenceCueSampleSequence() == INDEX_NONE
+		&& !Weapon->GetLastThreatPresenceCueIntentId().IsValid());
+
+	Fdemo_mapShanmenCombatRunTimelineSample TickZero;
+	if (!WorldFixture.Timeline.TryCapture(TickZero))
+	{
+		AddError(TEXT("P21.4 could not capture timeline tick zero."));
+		return false;
+	}
+	const Fdemo_mapShanmenControlledWeaponWorldThreatSampleResult Presence =
+		WorldFixture.ThreatSampler.TrySample(
+			WorldFixture.World,
+			TickZero,
+			WorldFixture.Lifecycle,
+			WorldFixture.Coordinator,
+			WorldFixture.Host,
+			WorldFixture.ThreatRouter);
+	TestTrue(TEXT("Accepted nearby presence lights the same physical sword"),
+		Presence.IsSampled()
+		&& Presence.RoutedContactCount == 1
+		&& Weapon->TryPresentThreatPresenceCue(Presence)
+		&& Weapon->IsThreatPresenceCueActive()
+		&& Weapon->IsThreatPresenceCueVisualActive()
+		&& Weapon->GetLastThreatPresenceCueSampleSequence() == 0
+		&& Weapon->GetLastThreatPresenceCueIntentId() == Presence.IntentId);
+	TestTrue(TEXT("Exact sample replay is presentation-idempotent"),
+		Weapon->TryPresentThreatPresenceCue(Presence)
+		&& Weapon->GetLastThreatPresenceCueSampleSequence() == 0
+		&& Weapon->GetLastThreatPresenceCueIntentId() == Presence.IntentId
+		&& Weapon->IsThreatPresenceCueVisualActive());
+
+	Fdemo_mapShanmenControlledWeaponWorldThreatSampleResult Foreign = Presence;
+	Foreign.ItemInstanceId = FGuid(0xF214FFFF, 0, 0, 1);
+	TestFalse(TEXT("A foreign item cannot repaint the bound sword"),
+		Weapon->TryPresentThreatPresenceCue(Foreign));
+	TestTrue(TEXT("Rejected foreign presentation preserves accepted state"),
+		Weapon->GetLastThreatPresenceCueSampleSequence() == 0
+		&& Weapon->GetLastThreatPresenceCueIntentId() == Presence.IntentId
+		&& Weapon->IsThreatPresenceCueVisualActive());
+
+	Enemy->SetActorLocation(
+		Weapon->GetActorLocation() + FVector(1000.0f, 0.0f, 0.0f),
+		false,
+		nullptr,
+		ETeleportType::TeleportPhysics);
+	WorldFixture.World->UpdateWorldComponents(true, false);
+	int64 AdvancedTicks = 0;
+	FString TimelineDiagnostic;
+	if (!WorldFixture.Timeline.TryAdvance(
+			3.0 / 30.0, AdvancedTicks, TimelineDiagnostic))
+	{
+		AddError(TimelineDiagnostic);
+		return false;
+	}
+	Fdemo_mapShanmenCombatRunTimelineSample TickThree;
+	WorldFixture.Timeline.TryCapture(TickThree);
+	const Fdemo_mapShanmenControlledWeaponWorldThreatSampleResult Empty =
+		WorldFixture.ThreatSampler.TrySample(
+			WorldFixture.World,
+			TickThree,
+			WorldFixture.Lifecycle,
+			WorldFixture.Coordinator,
+			WorldFixture.Host,
+			WorldFixture.ThreatRouter);
+	TestTrue(TEXT("Accepted empty sample releases the visible threat cue"),
+		AdvancedTicks == 3
+		&& Empty.IsSampled()
+		&& Empty.SampleSequence == 1
+		&& Empty.RoutedContactCount == 0
+		&& Weapon->TryPresentThreatPresenceCue(Empty)
+		&& !Weapon->IsThreatPresenceCueActive()
+		&& !Weapon->IsThreatPresenceCueVisualActive()
+		&& Weapon->GetLastThreatPresenceCueSampleSequence() == 1
+		&& Weapon->GetLastThreatPresenceCueIntentId() == Empty.IntentId);
+	TestFalse(TEXT("A stale presence cannot relight the sword"),
+		Weapon->TryPresentThreatPresenceCue(Presence));
+	TestTrue(TEXT("Threat presentation never mutates enemy combat authority"),
+		!Weapon->IsThreatPresenceCueActive()
+		&& Weapon->GetLastThreatPresenceCueSampleSequence() == 1
+		&& Enemy->GetCurrentVitality() == VitalityBefore
+		&& Enemy->NumCommittedCombatImpacts() == ImpactsBefore);
+	return true;
+}
+
 #endif
