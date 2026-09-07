@@ -69,6 +69,7 @@ const FName Fdemo_mapItemIds::HealingPillLevel2(TEXT("Prototype.Item.Consumable.
 const FName Fdemo_mapItemIds::HealingPillLevel3(TEXT("Prototype.Item.Consumable.HealingPill.Level3"));
 const FName Fdemo_mapItemIds::MeridianStabilizingPillLevel1(TEXT("Prototype.Item.Consumable.MeridianStabilizingPill.Level1"));
 const FName Fdemo_mapItemIds::TrainingThrowingKnife(TEXT("Prototype.Item.Consumable.TrainingThrowingKnife"));
+const FName Fdemo_mapItemIds::TrainingFlyingSword(TEXT("Prototype.Item.Weapon.TrainingFlyingSword"));
 const FName Fdemo_mapItemIds::SoulBone(TEXT("Prototype.Item.Material.SoulBone"));
 const FName Fdemo_mapItemIds::SpiritBone(TEXT("Prototype.Item.Material.SpiritBone"));
 const FName Fdemo_mapItemIds::DaoBone(TEXT("Prototype.Item.Material.DaoBone"));
@@ -360,14 +361,14 @@ bool Fdemo_mapRewardDistributionProfile::IsValid() const
 
 FName Fdemo_mapItemDefinitions::GetContentVersionId()
 {
-	return FName(TEXT("CodeB.Content.0.0.10.P18.4"));
+	return FName(TEXT("CodeB.Content.0.0.10.P21.0"));
 }
 
 const FString& Fdemo_mapItemDefinitions::GetContentDigest()
 {
 	// This is a content-contract digest, not a save migration key. Existing
 	// persisted items keep their DefinitionId and are never remapped by P73.
-	static const FString Digest(TEXT("D6EF276B3BB268D33A9E1242DC3620A7F33F2B4B966503E1056BA3E381C7B043"));
+	static const FString Digest(TEXT("A52AA4EEE9DBF314C017205BFC6E417B8C9A108D37471C7DDE088013B85FC685"));
 	return Digest;
 }
 
@@ -384,6 +385,8 @@ bool Fdemo_mapItemDefinitions::IsKnownContentIdentity(
 	const FString& ContentDigest)
 {
 	return IsCurrentContentIdentity(ContentVersionId, ContentDigest)
+		|| (ContentVersionId == FName(TEXT("CodeB.Content.0.0.10.P18.4"))
+			&& ContentDigest == TEXT("D6EF276B3BB268D33A9E1242DC3620A7F33F2B4B966503E1056BA3E381C7B043"))
 		|| (ContentVersionId == FName(TEXT("CodeB.Content.0.0.10.P17.0"))
 			&& ContentDigest == TEXT("5C09D58AA2EB206FA39F2BE896F7B071149CE8FE3D4E75780CFE213432638399"))
 		|| (ContentVersionId == FName(TEXT("CodeB.Content.0.0.10.P16.0"))
@@ -453,7 +456,10 @@ const TArray<Fdemo_mapItemDefinition>& Fdemo_mapItemDefinitions::GetAll()
 		MakeDefinition(Fdemo_mapItemIds::DaoBone, TEXT("道骨"), TEXT("DAO BONE"), Fdemo_mapItemIds::MaterialCategory, 3, 99, NAME_None, {}, {}, {}, false, true, 0, 600, 600),
 		MakeDefinition(Fdemo_mapItemIds::InnerCoreLevel5, TEXT("五级内丹"), TEXT("TIER 5 INNER CORE"), Fdemo_mapItemIds::CoreCategory, 5, 99, NAME_None, {}, {}, {}, false, true, 0, 150, 150),
 		MakeDefinition(Fdemo_mapItemIds::InnerCoreLevel10, TEXT("十级内丹"), TEXT("TIER 10 INNER CORE"), Fdemo_mapItemIds::CoreCategory, 10, 99, NAME_None, {}, {}, {}, false, true, 0, 400, 400),
-		MakeDefinition(Fdemo_mapItemIds::InnerCoreLevel15, TEXT("十五级内丹"), TEXT("TIER 15 INNER CORE"), Fdemo_mapItemIds::CoreCategory, 15, 99, NAME_None, {}, {}, {}, false, true, 0, 1000, 1000)
+		MakeDefinition(Fdemo_mapItemIds::InnerCoreLevel15, TEXT("十五级内丹"), TEXT("TIER 15 INNER CORE"), Fdemo_mapItemIds::CoreCategory, 15, 99, NAME_None, {}, {}, {}, false, true, 0, 1000, 1000),
+
+		// P21.0 is append-only so every pre-existing registry ordinal remains stable.
+		MakeDefinition(Fdemo_mapItemIds::TrainingFlyingSword, TEXT("练习飞剑"), TEXT("TRAINING FLYING SWORD"), Fdemo_mapItemIds::WeaponCategory, 1, 1, Fdemo_mapItemIds::WeaponSlot, { Fdemo_mapItemIds::WeaponSlot }, {}, {}, true, true, 100, 50, 100, 0, 0, { Edemo_mapItemGameplaySemantic::FlyingSword })
 	};
 	return Definitions;
 }
@@ -847,9 +853,9 @@ Fdemo_mapItemDefinitions::ResolveSpatialRingCapacity(
 
 bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 {
-	if (GetAll().Num() != 42 || GetEquipmentSlotIds().Num() != 5)
+	if (GetAll().Num() != 43 || GetEquipmentSlotIds().Num() != 5)
 	{
-		if (OutError) *OutError = TEXT("The current registry must contain 42 definitions and expose five active runtime slots.");
+		if (OutError) *OutError = TEXT("The current registry must contain 43 definitions and expose five active runtime slots.");
 		return false;
 	}
 	TSet<FName> DefinitionIds;
@@ -858,6 +864,7 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 	int32 ThrownWeaponDefinitionCount = 0;
 	int32 WeaponGuardDefinitionCount = 0;
 	int32 SwordQiSourceDefinitionCount = 0;
+	int32 FlyingSwordDefinitionCount = 0;
 	int32 MeridianShockTreatmentDefinitionCount = 0;
 	int32 LethalInterceptionDefinitionCount = 0;
 	for (FName SlotId : GetEquipmentSlotIds())
@@ -892,6 +899,8 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 			Edemo_mapItemGameplaySemantic::MeridianShockTreatment);
 		const bool bLethalInterception = Definition.HasGameplaySemantic(
 			Edemo_mapItemGameplaySemantic::LethalInterception);
+		const bool bFlyingSword = Definition.HasGameplaySemantic(
+			Edemo_mapItemGameplaySemantic::FlyingSword);
 		if (bThrownWeapon)
 		{
 			++ThrownWeaponDefinitionCount;
@@ -911,6 +920,10 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 		if (bLethalInterception)
 		{
 			++LethalInterceptionDefinitionCount;
+		}
+		if (bFlyingSword)
+		{
+			++FlyingSwordDefinitionCount;
 		}
 		if (Definition.DefinitionId.IsNone()
 			|| DefinitionIds.Contains(Definition.DefinitionId)
@@ -962,6 +975,22 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 					|| Definition.CompatibleSlotIds
 						!= TArray<FName>({ Fdemo_mapItemIds::WeaponSlot })
 					|| bThrownWeapon))
+			|| (bFlyingSword
+				&& (Definition.DefinitionId
+						!= Fdemo_mapItemIds::TrainingFlyingSword
+					|| Definition.CategoryId
+						!= Fdemo_mapItemIds::WeaponCategory
+					|| Definition.MaxStackSize != 1
+					|| Definition.EquipmentSlotId
+						!= Fdemo_mapItemIds::WeaponSlot
+					|| Definition.CompatibleSlotIds
+						!= TArray<FName>({ Fdemo_mapItemIds::WeaponSlot })
+					|| Definition.bHotbarEligible
+					|| Definition.MaxDurability != 0
+					|| Definition.MaxCharges != 0
+					|| bThrownWeapon
+					|| bWeaponGuard
+					|| bSwordQiSource))
 			|| (bMeridianShockTreatment
 				&& (Definition.DefinitionId
 						!= Fdemo_mapItemIds::MeridianStabilizingPillLevel1
@@ -1060,6 +1089,11 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 		if (OutError) *OutError = TEXT("P17.0 requires exactly one canonical lethal-interception artifact definition.");
 		return false;
 	}
+	if (FlyingSwordDefinitionCount != 1)
+	{
+		if (OutError) *OutError = TEXT("P21.0 requires exactly one canonical flying-sword product definition.");
+		return false;
+	}
 	TSet<FName> FixedProfileIds;
 	int32 CorpseProfileCount = 0;
 	int32 ChestProfileCount = 0;
@@ -1099,7 +1133,8 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 		Fdemo_mapItemIds::HealingPillLevel2,
 		Fdemo_mapItemIds::HealingPillLevel3,
 		Fdemo_mapItemIds::MeridianStabilizingPillLevel1,
-		Fdemo_mapItemIds::TrainingThrowingKnife }))
+		Fdemo_mapItemIds::TrainingThrowingKnife,
+		Fdemo_mapItemIds::TrainingFlyingSword }))
 	{
 		if (OutError) *OutError = TEXT("Purchasable definition ordering drifted from the current content catalog.");
 		return false;

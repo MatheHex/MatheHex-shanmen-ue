@@ -117,6 +117,15 @@ namespace
 		ThrowingKnife.PersistentDomain =
 			Edemo_mapPersistentDomain::PermanentStash;
 		OutProfile.PermanentStash.Add(ThrowingKnife);
+
+		Fdemo_mapPersistentItemRecord FlyingSword;
+		FlyingSword.ItemInstanceId = MigrationGuid(105);
+		FlyingSword.ItemDefinitionId =
+			Fdemo_mapItemIds::TrainingFlyingSword;
+		FlyingSword.StackCount = 1;
+		FlyingSword.PersistentDomain =
+			Edemo_mapPersistentDomain::PermanentStash;
+		OutProfile.PermanentStash.Add(FlyingSword);
 		if (!ProfileRepository.ValidateProfile(OutProfile, &OutError))
 		{
 			return false;
@@ -231,10 +240,10 @@ bool FShanmenThrownWeaponProductContentTest::RunTest(const FString&)
 		&& Product->SellPrice == 15
 		&& Product->HasGameplaySemantic(
 			Edemo_mapItemGameplaySemantic::ThrownWeapon));
-	TestTrue(TEXT("P18.4 content identity is current"),
+	TestTrue(TEXT("P21.0 content identity is current"),
 		Fdemo_mapItemDefinitions::IsCurrentContentIdentity(
-			TEXT("CodeB.Content.0.0.10.P18.4"),
-			TEXT("D6EF276B3BB268D33A9E1242DC3620A7F33F2B4B966503E1056BA3E381C7B043")));
+			TEXT("CodeB.Content.0.0.10.P21.0"),
+			TEXT("A52AA4EEE9DBF314C017205BFC6E417B8C9A108D37471C7DDE088013B85FC685")));
 	TestTrue(TEXT("P16.0 identity remains known historical evidence"),
 		Fdemo_mapItemDefinitions::IsKnownContentIdentity(
 			TEXT("CodeB.Content.0.0.10.P16.0"),
@@ -293,6 +302,83 @@ bool FShanmenThrownWeaponProductContentTest::RunTest(const FString&)
 		&& AuthorityItem->DefinitionId
 			== Fdemo_mapItemIds::TrainingThrowingKnife
 		&& AuthorityItem->Quantity == 3);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenControlledWeaponProductContentTest,
+	"Shanmen.0_0_10.Product.ControlledWeaponContent.CanonicalAuthorityProjection",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenControlledWeaponProductContentTest::RunTest(const FString&)
+{
+	const Fdemo_mapItemDefinition* Product =
+		Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::TrainingFlyingSword);
+	TestTrue(TEXT("Canonical product definition is one equipable flying sword"),
+		Product
+		&& Product->DefinitionId == Fdemo_mapItemIds::TrainingFlyingSword
+		&& Product->CategoryId == Fdemo_mapItemIds::WeaponCategory
+		&& Product->MaxStackSize == 1
+		&& Product->EquipmentSlotId == Fdemo_mapItemIds::WeaponSlot
+		&& Product->CompatibleSlotIds
+			== TArray<FName>({ Fdemo_mapItemIds::WeaponSlot })
+		&& !Product->bHotbarEligible
+		&& Product->bPurchasable
+		&& Product->BuyPrice == 100
+		&& Product->SellPrice == 50
+		&& Product->HasGameplaySemantic(
+			Edemo_mapItemGameplaySemantic::FlyingSword));
+	TestTrue(TEXT("P18.4 identity remains known historical evidence"),
+		Fdemo_mapItemDefinitions::IsKnownContentIdentity(
+			TEXT("CodeB.Content.0.0.10.P18.4"),
+			TEXT("D6EF276B3BB268D33A9E1242DC3620A7F33F2B4B966503E1056BA3E381C7B043")));
+
+	Fdemo_mapPersistentProfile Profile;
+	FCodeBOutOfRaidInventoryRecord Record;
+	FString Error;
+	TestTrue(TEXT("Product source fixture builds"),
+		BuildLegacyFixture(Profile, Record, Error));
+	const FCodeBItemDefinition* CodeBDefinition =
+		Record.RepositorySnapshot.Definitions.Find(
+			Fdemo_mapItemIds::TrainingFlyingSword);
+	TestTrue(TEXT("Code B projects the product as one weapon-slot item"),
+		CodeBDefinition
+		&& CodeBDefinition->ItemType == ECodeBItemType::Weapon
+		&& !CodeBDefinition->bStackable
+		&& !CodeBDefinition->bQuickUsable
+		&& CodeBDefinition->MaxStack == 1
+		&& CodeBDefinition->EquipSlot == ECodeBEquipSlot::Weapon);
+
+	const Fdemo_mapShanmenItemMigrationResult Migration =
+		Fdemo_mapShanmenItemMigration::BuildCandidate(
+			Profile, Record, TargetContent());
+	const FShanmenItemDefinition* AuthorityDefinition =
+		Migration.Candidate.Definitions.FindByPredicate([](
+			const FShanmenItemDefinition& Definition)
+		{
+			return Definition.DefinitionId
+				== Fdemo_mapItemIds::TrainingFlyingSword;
+		});
+	const FShanmenItemInstance* AuthorityItem =
+		Migration.Candidate.Items.FindByPredicate([](
+			const FShanmenItemInstance& Item)
+		{
+			return Item.ItemInstanceId == MigrationGuid(105);
+		});
+	TestTrue(TEXT("Migration projects the exact P6 authority capabilities"),
+		Migration.IsSuccess()
+		&& AuthorityDefinition
+		&& AuthorityDefinition->MaxStack == 1
+		&& AuthorityDefinition->ItemTags.HasTagExact(
+			FShanmenItemNativeTags::CapabilityDeploy())
+		&& AuthorityDefinition->ItemTags.HasTagExact(
+			FShanmenItemNativeTags::ItemWeaponFlyingSword())
+		&& !AuthorityDefinition->ItemTags.HasTagExact(
+			FShanmenItemNativeTags::ItemWeaponThrown())
+		&& AuthorityItem
+		&& AuthorityItem->DefinitionId
+			== Fdemo_mapItemIds::TrainingFlyingSword
+		&& AuthorityItem->Quantity == 1);
 	return true;
 }
 

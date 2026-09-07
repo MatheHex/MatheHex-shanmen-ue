@@ -234,8 +234,9 @@ bool FProfileTrade01::RunTest(const FString&)
 		Fdemo_mapItemIds::AccessoryLevel1, Fdemo_mapItemIds::BackpackLevel1, Fdemo_mapItemIds::HealingPillLevel1,
 		Fdemo_mapItemIds::HealingPillLevel2, Fdemo_mapItemIds::HealingPillLevel3,
 		Fdemo_mapItemIds::MeridianStabilizingPillLevel1,
-		Fdemo_mapItemIds::TrainingThrowingKnife };
-	const TArray<int64> Prices = { 100, 200, 400, 800, 100, 200, 400, 800, 80, 120, 30, 60, 120, 45, 30 };
+		Fdemo_mapItemIds::TrainingThrowingKnife,
+		Fdemo_mapItemIds::TrainingFlyingSword };
+	const TArray<int64> Prices = { 100, 200, 400, 800, 100, 200, 400, 800, 80, 120, 30, 60, 120, 45, 30, 100 };
 	bool bExact = Rows.Num() == Expected.Num();
 	for (int32 Index = 0; bExact && Index < Rows.Num(); ++Index)
 		bExact = Rows[Index].ItemDefinitionId == Expected[Index] && Rows[Index].BuyPrice == Prices[Index];

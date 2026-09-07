@@ -21,7 +21,7 @@ namespace
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(Fdemo_mapV3DefinitionExtensionTest, "demo_map.V3.WorldInteraction.DefinitionExtension", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool Fdemo_mapV3DefinitionExtensionTest::RunTest(const FString&)
 {
-	TestEqual(TEXT("Current catalog definitions"), Fdemo_mapItemDefinitions::GetAll().Num(), 42);
+	TestEqual(TEXT("Current catalog definitions"), Fdemo_mapItemDefinitions::GetAll().Num(), 43);
 	const Fdemo_mapItemDefinition* Weapon = Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::HeavyPracticeBlade);
 	const Fdemo_mapItemDefinition* Armor = Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::ReinforcedVest);
 	const Fdemo_mapItemDefinition* Accessory = Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::EvasionCharm);

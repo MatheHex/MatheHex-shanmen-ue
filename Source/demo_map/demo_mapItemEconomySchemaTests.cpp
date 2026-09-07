@@ -204,12 +204,13 @@ bool FItemEconomySchema02NewDefinitionSet::RunTest(const FString&)
 		Fdemo_mapItemIds::MeridianStabilizingPillLevel1,
 		Fdemo_mapItemIds::TrainingThrowingKnife,
 		Fdemo_mapItemIds::SoulBone, Fdemo_mapItemIds::SpiritBone, Fdemo_mapItemIds::DaoBone,
-		Fdemo_mapItemIds::InnerCoreLevel5, Fdemo_mapItemIds::InnerCoreLevel10, Fdemo_mapItemIds::InnerCoreLevel15 };
-	TestEqual(TEXT("Exactly 33 new IDs"), Expected.Num(), 33);
+		Fdemo_mapItemIds::InnerCoreLevel5, Fdemo_mapItemIds::InnerCoreLevel10, Fdemo_mapItemIds::InnerCoreLevel15,
+		Fdemo_mapItemIds::TrainingFlyingSword };
+	TestEqual(TEXT("Exactly 34 new IDs"), Expected.Num(), 34);
 	TSet<FName> Unique(Expected);
-	TestEqual(TEXT("New IDs are unique"), Unique.Num(), 33);
+	TestEqual(TEXT("New IDs are unique"), Unique.Num(), 34);
 	for (FName Id : Expected) TestTrue(TEXT("New stable ID resolves"), ContainsDefinition(Expected, Id));
-	TestEqual(TEXT("Legacy nine plus new thirty-three"), Fdemo_mapItemDefinitions::GetAll().Num(), 42);
+	TestEqual(TEXT("Legacy nine plus new thirty-four"), Fdemo_mapItemDefinitions::GetAll().Num(), 43);
 	return true;
 }
 
@@ -261,7 +262,8 @@ bool FItemEconomySchema05EconomyValues::RunTest(const FString&)
 		{Fdemo_mapItemIds::MeridianStabilizingPillLevel1,true,true,45,22},
 		{Fdemo_mapItemIds::TrainingThrowingKnife,true,true,30,15},
 		{Fdemo_mapItemIds::SoulBone,false,true,0,100},{Fdemo_mapItemIds::SpiritBone,false,true,0,250},{Fdemo_mapItemIds::DaoBone,false,true,0,600},
-		{Fdemo_mapItemIds::InnerCoreLevel5,false,true,0,150},{Fdemo_mapItemIds::InnerCoreLevel10,false,true,0,400},{Fdemo_mapItemIds::InnerCoreLevel15,false,true,0,1000} };
+		{Fdemo_mapItemIds::InnerCoreLevel5,false,true,0,150},{Fdemo_mapItemIds::InnerCoreLevel10,false,true,0,400},{Fdemo_mapItemIds::InnerCoreLevel15,false,true,0,1000},
+		{Fdemo_mapItemIds::TrainingFlyingSword,true,true,100,50} };
 	for (const FEconomyExpectation& Row : Expected)
 	{
 		const Fdemo_mapItemDefinition* Definition = Fdemo_mapItemDefinitions::Find(Row.Id);
@@ -279,7 +281,8 @@ bool FItemEconomySchema06PurchasableOrder::RunTest(const FString&)
 		Fdemo_mapItemIds::AccessoryLevel1,
 		Fdemo_mapItemIds::BackpackLevel1, Fdemo_mapItemIds::HealingPillLevel1, Fdemo_mapItemIds::HealingPillLevel2, Fdemo_mapItemIds::HealingPillLevel3,
 		Fdemo_mapItemIds::MeridianStabilizingPillLevel1,
-		Fdemo_mapItemIds::TrainingThrowingKnife };
+		Fdemo_mapItemIds::TrainingThrowingKnife,
+		Fdemo_mapItemIds::TrainingFlyingSword };
 	TestTrue(TEXT("Purchasable set and order derive exactly from definitions"), Fdemo_mapItemDefinitions::GetPurchasableDefinitionIds() == Expected);
 	return true;
 }

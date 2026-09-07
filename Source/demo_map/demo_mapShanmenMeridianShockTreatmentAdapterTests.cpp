@@ -279,10 +279,10 @@ bool Fdemo_mapMeridianShockTreatmentCatalogTest::RunTest(const FString&)
 			&& Definition->HasGameplaySemantic(
 				Edemo_mapItemGameplaySemantic::MeridianShockTreatment)
 			&& Definition->GameplaySemantics.Num() == 1);
-	TestTrue(TEXT("P18.4 content identity is current"),
+	TestTrue(TEXT("P21.0 content identity is current"),
 		Fdemo_mapItemDefinitions::IsCurrentContentIdentity(
-			TEXT("CodeB.Content.0.0.10.P18.4"),
-			TEXT("D6EF276B3BB268D33A9E1242DC3620A7F33F2B4B966503E1056BA3E381C7B043")));
+			TEXT("CodeB.Content.0.0.10.P21.0"),
+			TEXT("A52AA4EEE9DBF314C017205BFC6E417B8C9A108D37471C7DDE088013B85FC685")));
 	TestTrue(TEXT("P16.0 identity remains known historical evidence"),
 		Fdemo_mapItemDefinitions::IsKnownContentIdentity(
 			TEXT("CodeB.Content.0.0.10.P16.0"),

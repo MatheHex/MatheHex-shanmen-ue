@@ -18007,7 +18007,7 @@ void Ademo_mapV3ProgressionManager::RunWorldInteractionAutomation()
 {
 #if !UE_BUILD_SHIPPING
 	auto Fail = [this](const FString& Detail){ FailAutomation(TEXT("V3_WORLD_INTERACTION_AUTOMATION: FAIL: ") + Detail); return; };
-	if (!Items.IsValid() || !PlayerPawn.IsValid() || Fdemo_mapItemDefinitions::GetAll().Num() != 42 || Chests.Num() != 3 || InitialWorldItems.Num() != 3 || Items->GetWorldActorCount() != 3) { Fail(TEXT("initial V3 foundation.")); return; }
+	if (!Items.IsValid() || !PlayerPawn.IsValid() || Fdemo_mapItemDefinitions::GetAll().Num() != 43 || Chests.Num() != 3 || InitialWorldItems.Num() != 3 || Items->GetWorldActorCount() != 3) { Fail(TEXT("initial V3 foundation.")); return; }
 	FString Error;
 	if (!Items->ValidateInvariants(&Error)) { Fail(TEXT("initial invariants: ") + Error); return; }
 	for (const TWeakObjectPtr<Ademo_mapWorldItem>& ItemActor : InitialWorldItems)

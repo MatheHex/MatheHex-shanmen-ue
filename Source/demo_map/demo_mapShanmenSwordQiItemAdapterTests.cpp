@@ -84,10 +84,10 @@ bool Fdemo_mapSwordQiItemCatalogTest::RunTest(const FString&)
 				Edemo_mapItemGameplaySemantic::SwordQiSource)
 			&& !Thrown->HasGameplaySemantic(
 				Edemo_mapItemGameplaySemantic::SwordQiSource));
-	TestTrue(TEXT("P18.4 identity names the Sword Qi catalog change"),
+	TestTrue(TEXT("P21.0 identity includes the Sword Qi source catalog"),
 		Fdemo_mapItemDefinitions::IsCurrentContentIdentity(
-			TEXT("CodeB.Content.0.0.10.P18.4"),
-			TEXT("D6EF276B3BB268D33A9E1242DC3620A7F33F2B4B966503E1056BA3E381C7B043")));
+			TEXT("CodeB.Content.0.0.10.P21.0"),
+			TEXT("A52AA4EEE9DBF314C017205BFC6E417B8C9A108D37471C7DDE088013B85FC685")));
 	TestTrue(TEXT("P17.0 identity remains historical evidence"),
 		Fdemo_mapItemDefinitions::IsKnownContentIdentity(
 			TEXT("CodeB.Content.0.0.10.P17.0"),

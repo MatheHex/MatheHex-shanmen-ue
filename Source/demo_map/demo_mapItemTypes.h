@@ -166,7 +166,9 @@ enum class Edemo_mapItemGameplaySemantic : uint8
 	/** Passively intercepts one otherwise-lethal impact while charges remain. */
 	LethalInterception,
 	/** May be the exact equipped source item for the canonical Sword Qi action. */
-	SwordQiSource
+	SwordQiSource,
+	/** May be deployed as the exact source item for controlled-weapon actions. */
+	FlyingSword
 };
 
 USTRUCT()

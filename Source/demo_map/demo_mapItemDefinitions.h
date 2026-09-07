@@ -72,6 +72,8 @@ struct Fdemo_mapItemIds
 	static const FName MeridianStabilizingPillLevel1;
 	/** First real product item accepted by the 0.0.10 thrown-weapon pipeline. */
 	static const FName TrainingThrowingKnife;
+	/** First real equipment item accepted by the 0.0.10 controlled-weapon pipeline. */
+	static const FName TrainingFlyingSword;
 	static const FName SoulBone;
 	static const FName SpiritBone;
 	static const FName DaoBone;
