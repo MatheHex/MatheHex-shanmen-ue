@@ -2383,6 +2383,7 @@
       "pathRegex": "^Source/demo_map/demo_mapGameMode\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreLaunchPreviewContext",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRuntimeBinding",
         "Shanmen.0_0_10.Product.MeridianShockTreatment",
         "Shanmen.0_0_10.Product.CombatCondition.MeridianShock",
@@ -2447,6 +2448,7 @@
       "pathRegex": "^Source/demo_map/demo_mapPlayerController\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreLaunchPreviewContext",
         "Shanmen.0_0_10.Product.MeridianShockTreatment",
         "Shanmen.0_0_10.Product.SpiritEvasionPhysicalInput",
         "Shanmen.0_0_10.Product.SpiritEvasionInputAdapter",
@@ -3181,11 +3183,26 @@
 	  "name": "ThrownWeaponArcPreviewMainHUDRuntimeBinding",
 	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewMainHUDRuntimeBinding\\.(?:h|cpp)$",
 	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreLaunchPreviewContext",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRuntimeBinding",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRendererAdapter",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationOwnerSurfaceHandoff",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationSurfaceOwnershipTransition",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewPresentationCompositionOwner",
+		"Shanmen.0_0_10.Product.ThrownWeaponProductLifecycle",
+		"Shanmen.0_0_10.Product.CombatRunCoordinator",
+		"Shanmen.0_0_10",
+		"demo_map.InputRestore",
+		"demo_map.V2RangedCompatibility",
+		"demo_map.ItemUseAndArmor"
+	  ]
+	},
+	{
+	  "name": "ThrownWeaponArcPreLaunchPreviewContext",
+	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponArcPreLaunchPreviewContext(?:Tests)?\\.(?:h|cpp)$",
+	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreLaunchPreviewContext",
+		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRuntimeBinding",
 		"Shanmen.0_0_10.Product.ThrownWeaponProductLifecycle",
 		"Shanmen.0_0_10.Product.CombatRunCoordinator",
 		"Shanmen.0_0_10",

@@ -50,6 +50,14 @@ public:
 		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwnerUpdateResult&
 			OutResult,
 		FString& OutDiagnostic);
+	/** Hides a live preview through a local choice copy; caller authority is untouched. */
+	bool TryClear(
+		const Fdemo_mapShanmenThrownWeaponInputChoiceState& CurrentChoice,
+		const Fdemo_mapShanmenThrownWeaponProductLifecycle& Lifecycle,
+		const Fdemo_mapCombatRunCoordinator& Coordinator,
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwnerUpdateResult&
+			OutResult,
+		FString& OutDiagnostic);
 	bool TryEndRun(
 		const FGuid& ExpectedRunId,
 		const Fdemo_mapShanmenThrownWeaponProductLifecycle& Lifecycle,
@@ -105,6 +113,13 @@ private:
 		const Fdemo_mapShanmenThrownWeaponInputChoiceState& CurrentChoice,
 		const Fdemo_mapShanmenThrownWeaponArcChoicePolicy& ChoicePolicy,
 		const Fdemo_mapShanmenThrownWeaponArcChoiceBasis& SourceBasis,
+		const Fdemo_mapShanmenThrownWeaponProductLifecycle& Lifecycle,
+		const Fdemo_mapCombatRunCoordinator& Coordinator,
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwnerUpdateResult&
+			OutResult,
+		FString& OutDiagnostic);
+	bool TryApplyClear(
+		const Fdemo_mapShanmenThrownWeaponInputChoiceState& CurrentChoice,
 		const Fdemo_mapShanmenThrownWeaponProductLifecycle& Lifecycle,
 		const Fdemo_mapCombatRunCoordinator& Coordinator,
 		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwnerUpdateResult&

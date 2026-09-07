@@ -15,6 +15,7 @@
 #include "demo_mapShanmenPreparationAdapter.h"
 #include "demo_mapShanmenRunLifecycleAdapter.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewProductBridge.h"
+#include "demo_mapShanmenThrownWeaponArcPreLaunchPreviewContext.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewMainHUDRendererAdapter.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewMainHUDRuntimeBinding.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewPresentation.h"
@@ -18043,7 +18044,18 @@ RunTest(const FString&)
 		Binding.TryDetachHUD(StaleHUD, Diagnostic)
 			&& Binding.IsBoundToHUD()
 			&& HUD.GetSurfaceCursor().IsVisible());
-	TestTrue(TEXT("matching teardown derives a local clear and empties the surface"),
+	FUpdate LocalClear;
+	TestTrue(TEXT("explicit completion clear hides the surface through a local choice copy"),
+		Binding.TryClear(
+			AuthoritativeChoice,
+			Fixture.Lifecycle,
+			Fixture.Coordinator,
+			LocalClear,
+			Diagnostic)
+			&& LocalClear.IsAccepted()
+			&& Binding.IsActive()
+			&& HUD.GetSurfaceCursor().IsEmpty());
+	TestTrue(TEXT("matching teardown ends an already hidden runtime binding"),
 		Binding.TryEndRun(
 			Fixture.Correlation.ActiveRunId,
 			Fixture.Lifecycle,
@@ -18055,6 +18067,173 @@ RunTest(const FString&)
 		AuthoritativeChoice.IsValid()
 			&& AuthoritativeChoice.HasArcTargetIntent()
 			&& AuthoritativeChoice.GetRevision() == 2);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponArcPreLaunchPreviewRuntimeCompositionTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponArcPreLaunchPreviewContext.LiveEditCancelAndConfirmation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponArcPreLaunchPreviewRuntimeCompositionTest::
+RunTest(const FString&)
+{
+	using EAction =
+		Edemo_mapShanmenThrownWeaponArcPreLaunchPressAction;
+	using FBinding =
+		Fdemo_mapShanmenThrownWeaponArcPreviewMainHUDRuntimeBinding;
+	using FUpdate =
+		Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwnerUpdateResult;
+	FThrownLifecycleFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ArcPreLaunchPreviewRuntimeComposition"),
+			Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc))
+	{
+		return false;
+	}
+
+	FBinding Binding;
+	Fdemo_mapShanmenThrownWeaponArcPreLaunchPreviewContext Context;
+	FString Diagnostic;
+	check(Binding.TryInitialize(
+		FGuid(0xF4630301, 0xF4630302, 0xF4630303, 0xF4630304),
+		Diagnostic));
+	check(Binding.TryBeginRun(Fixture.Correlation.ActiveRunId, Diagnostic));
+	check(Context.TryBegin(Fixture.Correlation.ActiveRunId, Diagnostic));
+	const uint64 InitialActivationSequence =
+		Fixture.Coordinator.GetNextPlayerThrownWeaponActivationSequence();
+	const int32 InitialCapturedSelections =
+		Fixture.Lifecycle.NumCapturedSelections();
+	const auto Policy = MakeArcPreviewChoicePolicy();
+	const auto Basis = MakeArcPreviewBasis();
+	const auto InitialChoice = MakeArcPreviewChoice(false);
+
+	FUpdate InitialPreview;
+	check(Binding.TryUpdate(
+		2,
+		InitialChoice,
+		Policy,
+		Basis,
+		Fixture.Lifecycle,
+		Fixture.Coordinator,
+		InitialPreview,
+		Diagnostic));
+	EAction Action = EAction::Invalid;
+	check(Context.RouteEligibleHotbarPress(
+		Fixture.Correlation.ActiveRunId, 2, Action, Diagnostic));
+	TestTrue(TEXT("first hotbar press arms one visible preview without launching"),
+		Action == EAction::Armed
+			&& Context.GetArmedHotbarSlotNumber() == 2
+			&& Binding.GetState().IsVisible()
+			&& Fixture.Coordinator.
+				GetNextPlayerThrownWeaponActivationSequence()
+				== InitialActivationSequence
+			&& Fixture.Lifecycle.NumCapturedSelections()
+				== InitialCapturedSelections);
+
+	Fdemo_mapShanmenThrownWeaponInputChoiceCommand AdjustCommand;
+	check(Fdemo_mapShanmenThrownWeaponInputChoiceCommand::
+		TryCaptureArcApexAdjustment(
+			InitialChoice.GetRevision(), -1.0, AdjustCommand));
+	const auto Adjusted =
+		Fdemo_mapShanmenThrownWeaponInputChoiceReducer::Reduce(
+			InitialChoice, AdjustCommand);
+	check(Adjusted.DidChange());
+	FUpdate AdjustedPreview;
+	check(Binding.TryUpdate(
+		2,
+		Adjusted.State,
+		Policy,
+		Basis,
+		Fixture.Lifecycle,
+		Fixture.Coordinator,
+		AdjustedPreview,
+		Diagnostic));
+	TestTrue(TEXT("live apex edit replaces only presentation state"),
+		AdjustedPreview.IsAccepted()
+			&& Binding.GetState().IsVisible()
+			&& Binding.GetState().GetChoiceRevision()
+				== Adjusted.State.GetRevision()
+			&& Fixture.Coordinator.
+				GetNextPlayerThrownWeaponActivationSequence()
+				== InitialActivationSequence
+			&& Fixture.Lifecycle.NumCapturedSelections()
+				== InitialCapturedSelections);
+
+	const uint64 ArmedRevision = Context.GetRevision();
+	check(Context.RouteEligibleHotbarPress(
+		Fixture.Correlation.ActiveRunId, 2, Action, Diagnostic));
+	check(Context.TryCompleteConfirmation(
+		Fixture.Correlation.ActiveRunId, 2, false, Diagnostic));
+	TestTrue(TEXT("rejected confirmation keeps the exact preview correctable"),
+		Action == EAction::ConfirmationRequested
+			&& Context.GetArmedHotbarSlotNumber() == 2
+			&& Context.GetRevision() == ArmedRevision
+			&& Binding.GetState().IsVisible());
+
+	const auto ClearedChoice = ClearArcPreviewChoice(Adjusted.State);
+	FUpdate ClearedPreview;
+	check(Binding.TryUpdate(
+		2,
+		ClearedChoice,
+		Policy,
+		Fdemo_mapShanmenThrownWeaponArcChoiceBasis(),
+		Fixture.Lifecycle,
+		Fixture.Coordinator,
+		ClearedPreview,
+		Diagnostic));
+	check(Context.TryCancel(
+		Fixture.Correlation.ActiveRunId, Diagnostic));
+	TestTrue(TEXT("target clear hides and disarms without product mutation"),
+		!Context.HasArmedHotbarSlot()
+			&& Binding.GetState().IsHidden()
+			&& Fixture.Coordinator.
+				GetNextPlayerThrownWeaponActivationSequence()
+				== InitialActivationSequence
+			&& Fixture.Lifecycle.NumCapturedSelections()
+				== InitialCapturedSelections);
+
+	const auto RetargetedChoice = RetargetArcPreviewChoice(ClearedChoice);
+	FUpdate RetargetedPreview;
+	check(Binding.TryUpdate(
+		2,
+		RetargetedChoice,
+		Policy,
+		Basis,
+		Fixture.Lifecycle,
+		Fixture.Coordinator,
+		RetargetedPreview,
+		Diagnostic));
+	check(Context.RouteEligibleHotbarPress(
+		Fixture.Correlation.ActiveRunId, 2, Action, Diagnostic));
+	check(Context.RouteEligibleHotbarPress(
+		Fixture.Correlation.ActiveRunId, 2, Action, Diagnostic));
+	check(Context.TryCompleteConfirmation(
+		Fixture.Correlation.ActiveRunId, 2, true, Diagnostic));
+	FUpdate CompletionClear;
+	check(Binding.TryClear(
+		RetargetedChoice,
+		Fixture.Lifecycle,
+		Fixture.Coordinator,
+		CompletionClear,
+		Diagnostic));
+	TestTrue(TEXT("accepted confirmation consumes only context and preview"),
+		!Context.HasArmedHotbarSlot()
+			&& Binding.GetState().IsHidden()
+			&& RetargetedChoice.HasArcTargetIntent()
+			&& Fixture.Coordinator.
+				GetNextPlayerThrownWeaponActivationSequence()
+				== InitialActivationSequence
+			&& Fixture.Lifecycle.NumCapturedSelections()
+				== InitialCapturedSelections);
+
+	check(Binding.TryEndRun(
+		Fixture.Correlation.ActiveRunId,
+		Fixture.Lifecycle,
+		Fixture.Coordinator,
+		Diagnostic));
+	check(Context.TryEnd(Fixture.Correlation.ActiveRunId, Diagnostic));
 	return true;
 }
 

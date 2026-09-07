@@ -18,8 +18,10 @@
 #include "demo_mapShanmenMeridianShockTreatmentProductLifecycle.h"
 #include "demo_mapShanmenThrownWeaponArcChoiceInputComposition.h"
 #include "demo_mapShanmenThrownWeaponArcPreviewMainHUDRuntimeBinding.h"
+#include "demo_mapShanmenThrownWeaponArcPreLaunchPreviewContext.h"
 #include "demo_mapShanmenThrownWeaponArcSourceBasisAdapter.h"
 #include "demo_mapShanmenThrownWeaponInputAdapter.h"
+#include "demo_mapShanmenThrownWeaponInputChoiceIntentAdapter.h"
 #include "demo_mapShanmenThrownWeaponInputChoiceSession.h"
 #include "demo_mapShanmenThrownWeaponProductLifecycle.h"
 #include "demo_mapShanmenRunCorrelation.h"
@@ -197,6 +199,26 @@ public:
 		int32 HotbarSlotNumber,
 		AActor* SourceActor,
 		const Fdemo_mapShanmenThrownWeaponArcChoicePolicy& Policy);
+	/** Arms, re-arms, confirms, or passes through one pre-launch hotbar press. */
+	Fdemo_mapShanmenThrownWeaponArcPreLaunchHotbarResult
+	RouteThrownWeaponArcPreLaunchHotbarInput(
+		int32 HotbarSlotNumber,
+		AActor* SourceActor);
+	/** Refreshes only an already-armed preview after one accepted live Arc edit. */
+	bool RefreshThrownWeaponArcPreLaunchPreview(
+		AActor* SourceActor,
+		Edemo_mapShanmenThrownWeaponInputChoiceIntentKind IntentKind,
+		FString& OutDiagnostic);
+	/** Preserves rejected confirmation or clears context and preview after launch. */
+	bool CompleteThrownWeaponArcPreLaunchConfirmation(
+		int32 HotbarSlotNumber,
+		bool bLaunchAccepted,
+		FString& OutDiagnostic);
+	const Fdemo_mapShanmenThrownWeaponArcPreLaunchPreviewContext&
+	GetThrownWeaponArcPreLaunchPreviewContext() const
+	{
+		return ThrownWeaponArcPreLaunchPreviewContext;
+	}
 	/** Registers one physical MainHUD surface without polling presentation state. */
 	bool TryAttachThrownWeaponArcPreviewHUD(
 		Fdemo_mapShanmenThrownWeaponArcPreviewMainHUDRendererAdapter& Surface,
@@ -628,6 +650,8 @@ private:
 		ThrownWeaponArcSourceBasisAdapter;
 	Fdemo_mapShanmenThrownWeaponArcPreviewMainHUDRuntimeBinding
 		ThrownWeaponArcPreviewMainHUDRuntimeBinding;
+	Fdemo_mapShanmenThrownWeaponArcPreLaunchPreviewContext
+		ThrownWeaponArcPreLaunchPreviewContext;
 	Fdemo_mapShanmenThrownWeaponInputChoiceSession
 		ThrownWeaponInputChoiceSession;
 	Fdemo_mapShanmenMeridianShockTreatmentProductLifecycle

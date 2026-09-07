@@ -181,6 +181,9 @@ try
     $ThrownArcPreviewMainHUDRuntimeBinding = New-AutomationLogFixture `
         -Name 'thrown-arc-preview-main-hud-runtime-binding.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRuntimeBinding'
+    $ThrownArcPreLaunchPreviewContext = New-AutomationLogFixture `
+        -Name 'thrown-arc-pre-launch-preview-context.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreLaunchPreviewContext'
     $ThrownArcPreviewUpdateCoordinator = New-AutomationLogFixture `
         -Name 'thrown-arc-preview-update-coordinator.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreviewUpdateCoordinator'
@@ -2721,12 +2724,27 @@ try
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewMainHUDRuntimeBinding.h',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewMainHUDRuntimeBinding.cpp') `
 		-Logs @(
+			$ThrownArcPreLaunchPreviewContext,
 			$ThrownArcPreviewMainHUDRuntimeBinding,
 			$ThrownArcPreviewMainHUDRendererAdapter,
 			$ThrownArcPreviewPresentationOwnerSurfaceHandoff,
 			$ThrownArcPreviewPresentationSurfaceOwnershipTransition,
 			$ThrownArcPreviewPresentationCompositionOwner,
 			$Coordinator,
+			$Full,
+			$InputRestore,
+			$Ranged,
+			$ItemUse)
+
+	Invoke-ExpectedPass `
+		-Name 'thrown weapon Arc pre-launch context maps live preview lifecycle and compatibility seams' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreLaunchPreviewContext.h',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreLaunchPreviewContext.cpp',
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreLaunchPreviewContextTests.cpp') `
+		-Logs @(
+			$ThrownArcPreLaunchPreviewContext,
+			$ThrownArcPreviewMainHUDRuntimeBinding,
 			$Full,
 			$InputRestore,
 			$Ranged,
@@ -5535,6 +5553,13 @@ try
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewMainHUDRuntimeBinding.cpp') `
 		-Logs @($ThrownArcPreviewMainHUDRuntimeBinding) `
+		-ExpectedText 'missing required groups'
+
+	Invoke-ExpectedFail `
+		-Name 'thrown Arc pre-launch context focus cannot replace runtime and compatibility evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreLaunchPreviewContext.cpp') `
+		-Logs @($ThrownArcPreLaunchPreviewContext) `
 		-ExpectedText 'missing required groups'
 
 	Invoke-ExpectedFail `

@@ -1193,7 +1193,8 @@ Ademo_mapPlayerController::RouteThrownWeaponInputChoiceIntent(
 	const Fdemo_mapShanmenThrownWeaponInputChoiceIntent& Intent)
 {
 	Ademo_mapGameMode* Mode = nullptr;
-	return Fdemo_mapShanmenThrownWeaponInputChoiceIntentAdapter::Route(
+	const Fdemo_mapShanmenThrownWeaponInputChoiceIntentResult Result =
+		Fdemo_mapShanmenThrownWeaponInputChoiceIntentAdapter::Route(
 		Intent,
 		[this, &Mode]()
 		{
@@ -1214,6 +1215,21 @@ Ademo_mapPlayerController::RouteThrownWeaponInputChoiceIntent(
 		{
 			return RouteThrownWeaponInputChoiceCommand(Command);
 		});
+	if (Result.IsAccepted() && Mode != nullptr)
+	{
+		FString PreviewDiagnostic;
+		if (!Mode->RefreshThrownWeaponArcPreLaunchPreview(
+				GetPawn(), Intent.GetKind(), PreviewDiagnostic))
+		{
+			UE_LOG(
+				Logdemo_map,
+				Warning,
+				TEXT("0_0_10_THROWN_ARC_PREVIEW Event=LiveEditRefreshRejected Kind=%d Diagnostic=%s"),
+				static_cast<int32>(Intent.GetKind()),
+				*PreviewDiagnostic);
+		}
+	}
+	return Result;
 }
 
 Fdemo_mapShanmenThrownWeaponInputChoiceInteractionReadResult
@@ -1403,14 +1419,65 @@ void Ademo_mapPlayerController::UseHotbarSlot(int32 SlotNumber)
 	{
 		return;
 	}
-	const Fdemo_mapShanmenThrownWeaponHotbarConfirmationResult
-		ThrownRoute = RouteThrownWeaponHotbarConfirmationInput(SlotNumber);
-	if (!ThrownRoute.ShouldPassThrough())
-	{
-		return;
-	}
 	Ademo_mapGameMode* Mode = GetWorld()
 		? Cast<Ademo_mapGameMode>(GetWorld()->GetAuthGameMode()) : nullptr;
+	bool bRouteExistingThrownConfirmation = true;
+	bool bCompleteArcPreLaunchConfirmation = false;
+	if (Mode != nullptr)
+	{
+		const Fdemo_mapShanmenThrownWeaponArcPreLaunchHotbarResult
+			PreLaunch = Mode->RouteThrownWeaponArcPreLaunchHotbarInput(
+				SlotNumber, GetPawn());
+		if (!PreLaunch.IsValid())
+		{
+			UE_LOG(
+				Logdemo_map,
+				Warning,
+				TEXT("0_0_10_THROWN_ARC_PREVIEW Event=PreLaunchProtocolRejected Slot=%d Diagnostic=%s"),
+				SlotNumber,
+				*PreLaunch.GetDiagnostic());
+			return;
+		}
+		if (PreLaunch.ShouldPassThrough())
+		{
+			bRouteExistingThrownConfirmation = false;
+		}
+		else if (PreLaunch.ShouldRouteExistingConfirmation())
+		{
+			bCompleteArcPreLaunchConfirmation =
+				PreLaunch.IsArcConfirmationRequested();
+		}
+		else
+		{
+			return;
+		}
+	}
+	if (bRouteExistingThrownConfirmation)
+	{
+		const Fdemo_mapShanmenThrownWeaponHotbarConfirmationResult
+			ThrownRoute = RouteThrownWeaponHotbarConfirmationInput(SlotNumber);
+		if (Mode != nullptr && bCompleteArcPreLaunchConfirmation)
+		{
+			FString CompletionDiagnostic;
+			if (!Mode->CompleteThrownWeaponArcPreLaunchConfirmation(
+					SlotNumber,
+					ThrownRoute.IsAccepted(),
+					CompletionDiagnostic))
+			{
+				UE_LOG(
+					Logdemo_map,
+					Warning,
+					TEXT("0_0_10_THROWN_ARC_PREVIEW Event=ConfirmationCompletionRejected Slot=%d LaunchAccepted=%d Diagnostic=%s"),
+					SlotNumber,
+					ThrownRoute.IsAccepted() ? 1 : 0,
+					*CompletionDiagnostic);
+			}
+		}
+		if (!ThrownRoute.ShouldPassThrough())
+		{
+			return;
+		}
+	}
 	if (Mode)
 	{
 		const Fdemo_mapShanmenMeridianShockTreatmentInputResult

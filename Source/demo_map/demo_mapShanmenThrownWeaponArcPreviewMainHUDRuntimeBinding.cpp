@@ -230,6 +230,30 @@ bool FBinding::TryUpdate(
 		OutDiagnostic);
 }
 
+bool FBinding::TryClear(
+	const FChoice& CurrentChoice,
+	const Fdemo_mapShanmenThrownWeaponProductLifecycle& Lifecycle,
+	const Fdemo_mapCombatRunCoordinator& Coordinator,
+	FUpdateResult& OutResult,
+	FString& OutDiagnostic)
+{
+	OutResult = FUpdateResult();
+	OutDiagnostic.Reset();
+	if (!IsValid() || bOperationInProgress || !Owner.IsActive())
+	{
+		OutDiagnostic = TEXT(
+			"Arc preview MainHUD clear requires one active stable runtime binding.");
+		return false;
+	}
+	TGuardValue<bool> OperationGuard(bOperationInProgress, true);
+	return TryApplyClear(
+		CurrentChoice,
+		Lifecycle,
+		Coordinator,
+		OutResult,
+		OutDiagnostic);
+}
+
 bool FBinding::TryApplyUpdate(
 	const int32 HotbarSlotNumber,
 	const FChoice& CurrentChoice,
@@ -270,6 +294,55 @@ bool FBinding::TryApplyUpdate(
 	return false;
 }
 
+bool FBinding::TryApplyClear(
+	const FChoice& CurrentChoice,
+	const Fdemo_mapShanmenThrownWeaponProductLifecycle& Lifecycle,
+	const Fdemo_mapCombatRunCoordinator& Coordinator,
+	FUpdateResult& OutResult,
+	FString& OutDiagnostic)
+{
+	OutResult = FUpdateResult();
+	if (!CurrentChoice.IsValid())
+	{
+		OutDiagnostic = TEXT(
+			"Arc preview MainHUD clear requires one valid caller-owned choice.");
+		return false;
+	}
+
+	FChoice HiddenChoice = CurrentChoice;
+	if (CurrentChoice.HasArcTargetIntent())
+	{
+		FChoiceCommand ClearCommand;
+		if (!FChoiceCommand::TryCaptureArcTargetClear(
+				CurrentChoice.GetRevision(), ClearCommand))
+		{
+			OutDiagnostic = TEXT(
+				"Arc preview MainHUD clear could not capture its local clear command.");
+			return false;
+		}
+		const auto ClearedChoice = FChoiceReducer::Reduce(
+			CurrentChoice, ClearCommand);
+		if (!ClearedChoice.DidChange())
+		{
+			OutDiagnostic = TEXT(
+				"Arc preview MainHUD clear could not derive a local hidden choice.");
+			return false;
+		}
+		HiddenChoice = ClearedChoice.State;
+	}
+
+	return TryApplyUpdate(
+		1,
+		HiddenChoice,
+		Fdemo_mapShanmenThrownWeaponArcChoiceProductPolicySource::
+			GetCanonical(),
+		MakeTeardownBasis(),
+		Lifecycle,
+		Coordinator,
+		OutResult,
+		OutDiagnostic);
+}
+
 bool FBinding::TryEndRun(
 	const FGuid& ExpectedRunId,
 	const Fdemo_mapShanmenThrownWeaponProductLifecycle& Lifecycle,
@@ -299,30 +372,9 @@ bool FBinding::TryEndRun(
 	TGuardValue<bool> OperationGuard(bOperationInProgress, true);
 	if (Owner.GetState().IsVisible())
 	{
-		const FChoice PreviousChoice = Owner.GetState().GetChoiceState();
-		FChoiceCommand ClearCommand;
-		if (!FChoiceCommand::TryCaptureArcTargetClear(
-				PreviousChoice.GetRevision(), ClearCommand))
-		{
-			OutDiagnostic = TEXT(
-				"Arc preview MainHUD teardown could not capture its local clear command.");
-			return false;
-		}
-		const auto ClearedChoice = FChoiceReducer::Reduce(
-			PreviousChoice, ClearCommand);
-		if (!ClearedChoice.DidChange())
-		{
-			OutDiagnostic = TEXT(
-				"Arc preview MainHUD teardown could not derive a local hidden choice.");
-			return false;
-		}
 		FUpdateResult ClearResult;
-		if (!TryApplyUpdate(
-				1,
-				ClearedChoice.State,
-				Fdemo_mapShanmenThrownWeaponArcChoiceProductPolicySource::
-					GetCanonical(),
-				MakeTeardownBasis(),
+		if (!TryApplyClear(
+				Owner.GetState().GetChoiceState(),
 				Lifecycle,
 				Coordinator,
 				ClearResult,

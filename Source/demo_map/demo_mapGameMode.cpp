@@ -1268,6 +1268,319 @@ Ademo_mapGameMode::RouteThrownWeaponArcChoiceFromSourceHotbarInput(
 		});
 }
 
+Fdemo_mapShanmenThrownWeaponArcPreLaunchHotbarResult
+Ademo_mapGameMode::RouteThrownWeaponArcPreLaunchHotbarInput(
+	const int32 HotbarSlotNumber,
+	AActor* SourceActor)
+{
+	using EAction =
+		Edemo_mapShanmenThrownWeaponArcPreLaunchPressAction;
+	using EStatus =
+		Edemo_mapShanmenThrownWeaponArcPreLaunchHotbarStatus;
+	using ETrajectory =
+		Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind;
+
+	Fdemo_mapShanmenThrownWeaponArcPreLaunchHotbarResult Result;
+	Result.HotbarSlotNumber = HotbarSlotNumber;
+	const auto Reject = [&Result](const TCHAR* Diagnostic)
+	{
+		Result.Status = EStatus::Rejected;
+		Result.Diagnostic = Diagnostic;
+		return Result;
+	};
+	if (HotbarSlotNumber < 1 || HotbarSlotNumber > 9)
+	{
+		return Reject(
+			TEXT("Arc pre-launch hotbar route requires slot 1 through 9."));
+	}
+
+	const Fdemo_mapShanmenThrownWeaponInputChoiceState& Choice =
+		ThrownWeaponInputChoiceSession.GetState();
+	if (!Choice.IsValid())
+	{
+		return Reject(
+			TEXT("Arc pre-launch hotbar route requires one valid choice state."));
+	}
+	if (Choice.GetTrajectoryKind() == ETrajectory::Straight)
+	{
+		Result.Status = EStatus::StraightRouteRequired;
+		Result.Diagnostic = TEXT(
+			"Straight trajectory remains delegated to the existing hotbar route.");
+		return Result;
+	}
+	if (Choice.GetTrajectoryKind() != ETrajectory::BallisticArc)
+	{
+		return Reject(
+			TEXT("Arc pre-launch hotbar route rejects an unknown trajectory."));
+	}
+
+	Fdemo_mapShanmenThrownWeaponSessionConfig Config;
+	if (!ThrownWeaponProductLifecycle.TryCaptureReadOnlyHotbarBinding(
+			HotbarSlotNumber, Result.ItemInstanceId, Config))
+	{
+		Result.Status = EStatus::ArcNonThrownPassThrough;
+		Result.Diagnostic = TEXT(
+			"Arc hotbar slot is not bound to the active thrown-weapon product.");
+		return Result;
+	}
+	if (!Config.IsValid()
+		|| Config.GetTrajectoryKind() != ETrajectory::BallisticArc)
+	{
+		return Reject(
+			TEXT("Arc pre-launch choice and frozen product trajectory disagree."));
+	}
+	if (!CombatRunCoordinator.IsReady()
+		|| !ThrownWeaponArcPreviewMainHUDRuntimeBinding.IsActive()
+		|| !ThrownWeaponArcPreLaunchPreviewContext.IsActive()
+		|| ThrownWeaponProductLifecycle.GetRunId()
+			!= CombatRunCoordinator.GetRunId()
+		|| ThrownWeaponArcPreviewMainHUDRuntimeBinding.GetRunId()
+			!= CombatRunCoordinator.GetRunId()
+		|| ThrownWeaponArcPreLaunchPreviewContext.GetRunId()
+			!= CombatRunCoordinator.GetRunId())
+	{
+		return Reject(
+			TEXT("Arc pre-launch hotbar route requires one matching active product Run."));
+	}
+	Result.bPreviewVisibleAfter =
+		ThrownWeaponArcPreviewMainHUDRuntimeBinding.GetState().IsVisible();
+
+	const FGuid RunId = CombatRunCoordinator.GetRunId();
+	if (ThrownWeaponArcPreLaunchPreviewContext.HasArmedHotbarSlot()
+		&& ThrownWeaponArcPreLaunchPreviewContext.
+			GetArmedHotbarSlotNumber() == HotbarSlotNumber)
+	{
+		if (!ThrownWeaponArcPreLaunchPreviewContext.RouteEligibleHotbarPress(
+				RunId,
+				HotbarSlotNumber,
+				Result.PressAction,
+				Result.Diagnostic))
+		{
+			return Reject(
+				TEXT("Arc pre-launch context rejected same-slot confirmation."));
+		}
+		Result.ContextRevisionAfter =
+			ThrownWeaponArcPreLaunchPreviewContext.GetRevision();
+		Result.bPreviewVisibleAfter =
+			ThrownWeaponArcPreviewMainHUDRuntimeBinding.GetState().IsVisible();
+		Result.Status = EStatus::ArcConfirmationRequested;
+		return Result;
+	}
+
+	Fdemo_mapShanmenThrownWeaponArcChoiceBasis Basis;
+	if (Choice.HasArcTargetIntent())
+	{
+		const Fdemo_mapShanmenThrownWeaponArcSourceBasisSampleResult Sample =
+			Fdemo_mapShanmenThrownWeaponArcSourceBasisAdapter::Sample(
+				SourceActor);
+		Result.SourceBasisSampleCount = Sample.GetTransformSampleCount();
+		if (!Sample.IsSampled())
+		{
+			Result.Diagnostic = Sample.GetDiagnostic();
+			Result.Status = EStatus::Rejected;
+			return Result;
+		}
+		Basis = Sample.GetBasis();
+	}
+
+	Result.bPreviewUpdateAttempted = true;
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwnerUpdateResult
+		PreviewResult;
+	FString PreviewDiagnostic;
+	if (!ThrownWeaponArcPreviewMainHUDRuntimeBinding.TryUpdate(
+			HotbarSlotNumber,
+			Choice,
+			Fdemo_mapShanmenThrownWeaponArcChoiceProductPolicySource::
+				GetCanonical(),
+			Basis,
+			ThrownWeaponProductLifecycle,
+			CombatRunCoordinator,
+			PreviewResult,
+			PreviewDiagnostic))
+	{
+		Result.bPreviewVisibleAfter =
+			ThrownWeaponArcPreviewMainHUDRuntimeBinding.GetState().IsVisible();
+		Result.Status = EStatus::Rejected;
+		Result.Diagnostic = PreviewDiagnostic.IsEmpty()
+			? TEXT("Arc pre-launch preview update failed closed.")
+			: PreviewDiagnostic;
+		return Result;
+	}
+	Result.bPreviewVisibleAfter =
+		ThrownWeaponArcPreviewMainHUDRuntimeBinding.GetState().IsVisible();
+
+	if (!ThrownWeaponArcPreLaunchPreviewContext.RouteEligibleHotbarPress(
+			RunId,
+			HotbarSlotNumber,
+			Result.PressAction,
+			Result.Diagnostic))
+	{
+		return Reject(
+			TEXT("Arc pre-launch context rejected an already-validated slot."));
+	}
+	Result.ContextRevisionAfter =
+		ThrownWeaponArcPreLaunchPreviewContext.GetRevision();
+	Result.Status = Result.PressAction == EAction::Armed
+		? EStatus::ArcArmed
+		: EStatus::ArcRearmed;
+	return Result;
+}
+
+bool Ademo_mapGameMode::RefreshThrownWeaponArcPreLaunchPreview(
+	AActor* SourceActor,
+	const Edemo_mapShanmenThrownWeaponInputChoiceIntentKind IntentKind,
+	FString& OutDiagnostic)
+{
+	using EIntent = Edemo_mapShanmenThrownWeaponInputChoiceIntentKind;
+	using ETrajectory =
+		Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind;
+	OutDiagnostic.Reset();
+	if (IntentKind != EIntent::SetArcTargetIntent
+		&& IntentKind != EIntent::AdjustArcApex
+		&& IntentKind != EIntent::ClearArcTargetIntent
+		&& IntentKind != EIntent::SelectTrajectory)
+	{
+		OutDiagnostic = TEXT(
+			"Choice edit requires no pre-launch Arc preview refresh.");
+		return true;
+	}
+	if (!ThrownWeaponArcPreLaunchPreviewContext.HasArmedHotbarSlot())
+	{
+		OutDiagnostic = TEXT(
+			"Live Arc edit has no armed pre-launch preview to refresh.");
+		return true;
+	}
+	if (!CombatRunCoordinator.IsReady()
+		|| !ThrownWeaponProductLifecycle.IsActive()
+		|| !ThrownWeaponArcPreviewMainHUDRuntimeBinding.IsActive()
+		|| !ThrownWeaponArcPreLaunchPreviewContext.IsActive()
+		|| ThrownWeaponProductLifecycle.GetRunId()
+			!= CombatRunCoordinator.GetRunId()
+		|| ThrownWeaponArcPreviewMainHUDRuntimeBinding.GetRunId()
+			!= CombatRunCoordinator.GetRunId()
+		|| ThrownWeaponArcPreLaunchPreviewContext.GetRunId()
+			!= CombatRunCoordinator.GetRunId())
+	{
+		OutDiagnostic = TEXT(
+			"Arc preview refresh requires one matching active product Run.");
+		return false;
+	}
+
+	const Fdemo_mapShanmenThrownWeaponInputChoiceState& Choice =
+		ThrownWeaponInputChoiceSession.GetState();
+	if (!Choice.IsValid())
+	{
+		OutDiagnostic = TEXT(
+			"Arc preview refresh requires one valid authoritative choice.");
+		return false;
+	}
+	if (IntentKind == EIntent::SelectTrajectory
+		&& Choice.GetTrajectoryKind() == ETrajectory::Straight)
+	{
+		if (ThrownWeaponArcPreviewMainHUDRuntimeBinding.GetState().IsVisible())
+		{
+			Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwnerUpdateResult
+				ClearResult;
+			const auto& VisibleChoice =
+				ThrownWeaponArcPreviewMainHUDRuntimeBinding.GetState().
+					GetChoiceState();
+			if (!ThrownWeaponArcPreviewMainHUDRuntimeBinding.TryClear(
+					VisibleChoice,
+					ThrownWeaponProductLifecycle,
+					CombatRunCoordinator,
+					ClearResult,
+					OutDiagnostic))
+			{
+				return false;
+			}
+		}
+		return ThrownWeaponArcPreLaunchPreviewContext.TryCancel(
+			CombatRunCoordinator.GetRunId(), OutDiagnostic);
+	}
+	if (Choice.GetTrajectoryKind() != ETrajectory::BallisticArc)
+	{
+		OutDiagnostic = TEXT(
+			"Arc preview refresh rejects an unknown trajectory choice.");
+		return false;
+	}
+
+	Fdemo_mapShanmenThrownWeaponArcChoiceBasis Basis;
+	if (Choice.HasArcTargetIntent())
+	{
+		const Fdemo_mapShanmenThrownWeaponArcSourceBasisSampleResult Sample =
+			Fdemo_mapShanmenThrownWeaponArcSourceBasisAdapter::Sample(
+				SourceActor);
+		if (!Sample.IsSampled())
+		{
+			OutDiagnostic = Sample.GetDiagnostic();
+			return false;
+		}
+		Basis = Sample.GetBasis();
+	}
+
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwnerUpdateResult
+		PreviewResult;
+	if (!ThrownWeaponArcPreviewMainHUDRuntimeBinding.TryUpdate(
+			ThrownWeaponArcPreLaunchPreviewContext.
+				GetArmedHotbarSlotNumber(),
+			Choice,
+			Fdemo_mapShanmenThrownWeaponArcChoiceProductPolicySource::
+				GetCanonical(),
+			Basis,
+			ThrownWeaponProductLifecycle,
+			CombatRunCoordinator,
+			PreviewResult,
+			OutDiagnostic))
+	{
+		return false;
+	}
+	if (IntentKind == EIntent::ClearArcTargetIntent
+		&& !ThrownWeaponArcPreLaunchPreviewContext.TryCancel(
+			CombatRunCoordinator.GetRunId(), OutDiagnostic))
+	{
+		return false;
+	}
+	return true;
+}
+
+bool Ademo_mapGameMode::CompleteThrownWeaponArcPreLaunchConfirmation(
+	const int32 HotbarSlotNumber,
+	const bool bLaunchAccepted,
+	FString& OutDiagnostic)
+{
+	OutDiagnostic.Reset();
+	if (!CombatRunCoordinator.IsReady()
+		|| !ThrownWeaponArcPreLaunchPreviewContext.IsActive()
+		|| ThrownWeaponArcPreLaunchPreviewContext.GetRunId()
+			!= CombatRunCoordinator.GetRunId())
+	{
+		OutDiagnostic = TEXT(
+			"Arc pre-launch completion requires its matching active Run.");
+		return false;
+	}
+	if (!ThrownWeaponArcPreLaunchPreviewContext.TryCompleteConfirmation(
+			CombatRunCoordinator.GetRunId(),
+			HotbarSlotNumber,
+			bLaunchAccepted,
+			OutDiagnostic))
+	{
+		return false;
+	}
+	if (!bLaunchAccepted)
+	{
+		return true;
+	}
+
+	Fdemo_mapShanmenThrownWeaponArcPreviewPresentationCompositionOwnerUpdateResult
+		ClearResult;
+	return ThrownWeaponArcPreviewMainHUDRuntimeBinding.TryClear(
+		ThrownWeaponInputChoiceSession.GetState(),
+		ThrownWeaponProductLifecycle,
+		CombatRunCoordinator,
+		ClearResult,
+		OutDiagnostic);
+}
+
 Fdemo_mapShanmenThrownWeaponInputChoiceSessionResult
 Ademo_mapGameMode::SubmitThrownWeaponInputChoiceCommand(
 	const Fdemo_mapShanmenThrownWeaponInputChoiceCommand& Command)
@@ -2575,8 +2888,22 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 		}
 		return false;
 	}
+	FString ArcPreLaunchDiagnostic;
+	if (!ThrownWeaponArcPreLaunchPreviewContext.TryBegin(
+			ActiveRunId, ArcPreLaunchDiagnostic))
+	{
+		const bool bReleased =
+			ReleaseCombatProductRun(TEXT("ArcPreLaunchContextBindFailure"));
+		OutDiagnostic = ArcPreLaunchDiagnostic;
+		if (!bReleased)
+		{
+			OutDiagnostic += TEXT(
+				" Existing combat products also rejected activation rollback.");
+		}
+		return false;
+	}
 	UE_LOG(Logdemo_map, Log,
-		TEXT("0_0_10_COMBAT_RUN Event=RunBound RunId=%s PlayerEntityId=%s M01Entities=%d M01VitalityHosts=%d ThrownWeaponLifecycle=%d ThrownWeaponTrajectory=%d ThrownWeaponChoiceStateId=%s ThrownWeaponChoiceRevision=%llu TreatmentLifecycle=%d SwordQiController=%d SwordQiCommandOwner=%d RunTimelineId=%s RunTickRate=%lld ConditionDefinition=%s ConditionDurationTicks=%lld SwordRhythmConfigId=%s SwordRhythmWindow=[%lld,%lld)"),
+		TEXT("0_0_10_COMBAT_RUN Event=RunBound RunId=%s PlayerEntityId=%s M01Entities=%d M01VitalityHosts=%d ThrownWeaponLifecycle=%d ThrownWeaponTrajectory=%d ThrownWeaponChoiceStateId=%s ThrownWeaponChoiceRevision=%llu ThrownWeaponArcPreLaunchContext=%d TreatmentLifecycle=%d SwordQiController=%d SwordQiCommandOwner=%d RunTimelineId=%s RunTickRate=%lld ConditionDefinition=%s ConditionDurationTicks=%lld SwordRhythmConfigId=%s SwordRhythmWindow=[%lld,%lld)"),
 		*ActiveRunId.ToString(EGuidFormats::DigitsWithHyphens),
 		*CombatRunCoordinator.GetPlayerEntityId().ToString(
 			EGuidFormats::DigitsWithHyphens),
@@ -2589,6 +2916,7 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 			EGuidFormats::DigitsWithHyphens),
 		static_cast<unsigned long long>(
 			ThrownWeaponInputChoiceSession.GetState().GetRevision()),
+		ThrownWeaponArcPreLaunchPreviewContext.IsActive() ? 1 : 0,
 		MeridianShockTreatmentProductLifecycle.IsActive() ? 1 : 0,
 		SwordQiProductController.IsActive() ? 1 : 0,
 		SwordQiCommandEventOwner.IsActive() ? 1 : 0,
@@ -2617,6 +2945,19 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 	const TCHAR* Context)
 {
 	const TCHAR* SafeContext = Context ? Context : TEXT("Unknown");
+	if (ThrownWeaponArcPreLaunchPreviewContext.IsActive()
+		&& (!ThrownWeaponArcPreLaunchPreviewContext.IsValid()
+			|| (CombatRunCoordinator.IsActive()
+				&& ThrownWeaponArcPreLaunchPreviewContext.GetRunId()
+					!= CombatRunCoordinator.GetRunId())))
+	{
+		UE_LOG(
+			Logdemo_map,
+			Error,
+			TEXT("0_0_10_COMBAT_RUN Event=ArcPreLaunchContextReleaseRejected Context=%s Diagnostic=ContextRunMismatch"),
+			SafeContext);
+		return false;
+	}
 	if (ThrownWeaponArcPreviewMainHUDRuntimeBinding.IsActive())
 	{
 		const FGuid ExpectedArcPreviewRunId =
@@ -2638,6 +2979,27 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 				*ExpectedArcPreviewRunId.ToString(
 					EGuidFormats::DigitsWithHyphens),
 				*ArcPreviewDiagnostic);
+			return false;
+		}
+	}
+	if (ThrownWeaponArcPreLaunchPreviewContext.IsActive())
+	{
+		const FGuid ExpectedArcPreLaunchRunId =
+			CombatRunCoordinator.IsActive()
+				? CombatRunCoordinator.GetRunId()
+				: ThrownWeaponArcPreLaunchPreviewContext.GetRunId();
+		FString ArcPreLaunchDiagnostic;
+		if (!ThrownWeaponArcPreLaunchPreviewContext.TryEnd(
+				ExpectedArcPreLaunchRunId, ArcPreLaunchDiagnostic))
+		{
+			UE_LOG(
+				Logdemo_map,
+				Error,
+				TEXT("0_0_10_COMBAT_RUN Event=ArcPreLaunchContextReleaseRejected Context=%s RunId=%s Diagnostic=%s"),
+				SafeContext,
+				*ExpectedArcPreLaunchRunId.ToString(
+					EGuidFormats::DigitsWithHyphens),
+				*ArcPreLaunchDiagnostic);
 			return false;
 		}
 	}
