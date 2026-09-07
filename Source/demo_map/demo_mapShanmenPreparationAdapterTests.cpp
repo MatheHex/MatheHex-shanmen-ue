@@ -18,13 +18,17 @@
 #include "demo_mapPlayerHealthComponent.h"
 #include "demo_mapRewardAffix.h"
 #include "demo_mapShanmenControlledWeaponActiveRunRoute.h"
+#include "demo_mapShanmenControlledWeaponActor.h"
 #include "demo_mapShanmenControlledWeaponRunLifecycle.h"
+#include "demo_mapShanmenControlledWeaponWorldLifecycle.h"
 #include "demo_mapShanmenItemCutover.h"
 #include "demo_mapShanmenItemMetadataAdapter.h"
 #include "demo_mapShanmenRunLifecycleAdapter.h"
 
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
+#include "Engine/World.h"
+#include "EngineUtils.h"
 #include "HAL/FileManager.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/FileHelper.h"
@@ -267,6 +271,144 @@ namespace
 		{
 			Stop();
 			if (!Root.IsEmpty()) RemovePreparationAdapterRoot(Root);
+		}
+	};
+
+	struct FControlledWeaponWorldFixture
+	{
+		UWorld* World = nullptr;
+		APawn* Player = nullptr;
+		UBoxComponent* PlayerRoot = nullptr;
+		Udemo_mapPlayerHealthComponent* PlayerHealth = nullptr;
+		Fdemo_mapCombatRunCoordinator Coordinator;
+		Fdemo_mapShanmenControlledWeaponRunHost Host;
+		Fdemo_mapShanmenControlledWeaponWorldLifecycle Lifecycle;
+		FString Diagnostic;
+
+		bool Start(
+			FAutomationTestBase& Test,
+			UGameInstance* GameInstance,
+			const FGuid& ActiveRunId)
+		{
+			if (!GEngine || !GameInstance || !ActiveRunId.IsValid())
+			{
+				Test.AddError(TEXT(
+					"P21.2 World fixture requires Engine, GameInstance, and Run identity."));
+				return false;
+			}
+			World = NewObject<UWorld>(
+				GetTransientPackage(), NAME_None, RF_Transient);
+			if (!World)
+			{
+				Test.AddError(TEXT("P21.2 could not allocate a preview World."));
+				return false;
+			}
+			World->WorldType = EWorldType::GamePreview;
+			FWorldContext& Context =
+				GEngine->CreateNewWorldContext(EWorldType::GamePreview);
+			Context.OwningGameInstance = GameInstance;
+			Context.SetCurrentWorld(World);
+			World->SetGameInstance(GameInstance);
+			World->InitializeNewWorld(
+				UWorld::InitializationValues()
+					.InitializeScenes(false)
+					.AllowAudioPlayback(false)
+					.RequiresHitProxies(false)
+					.CreatePhysicsScene(false)
+					.CreateNavigation(false)
+					.CreateAISystem(false)
+					.ShouldSimulatePhysics(false)
+					.EnableTraceCollision(false)
+					.SetTransactional(false)
+					.CreateFXSystem(false));
+
+			FActorSpawnParameters Parameters;
+			Parameters.ObjectFlags |= RF_Transient;
+			Parameters.SpawnCollisionHandlingOverride =
+				ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			Player = World->SpawnActor<APawn>(
+				APawn::StaticClass(),
+				FTransform(FVector(25.0f, -10.0f, 5.0f)),
+				Parameters);
+			PlayerRoot = Player
+				? NewObject<UBoxComponent>(
+					Player, TEXT("P212PlayerRoot"), RF_Transient)
+				: nullptr;
+			PlayerHealth = Player
+				? NewObject<Udemo_mapPlayerHealthComponent>(
+					Player, TEXT("P212PlayerHealth"), RF_Transient)
+				: nullptr;
+			if (!Player || !PlayerRoot || !PlayerHealth)
+			{
+				Test.AddError(TEXT(
+					"P21.2 could not construct the canonical player Actor."));
+				return false;
+			}
+			Player->SetRootComponent(PlayerRoot);
+			Player->AddInstanceComponent(PlayerRoot);
+			Player->AddInstanceComponent(PlayerHealth);
+			if (!Coordinator.TryBeginRun(
+					ActiveRunId,
+					Player,
+					PlayerHealth,
+					Diagnostic))
+			{
+				Test.AddError(FString::Printf(
+					TEXT("P21.2 CombatRunCoordinator failed: %s"),
+					*Diagnostic));
+				return false;
+			}
+			return true;
+		}
+
+		int32 CountControlledWeaponActors() const
+		{
+			if (!World)
+			{
+				return 0;
+			}
+			int32 Count = 0;
+			for (TActorIterator<Ademo_mapShanmenControlledWeaponActor>
+				Iterator(World); Iterator; ++Iterator)
+			{
+				++Count;
+			}
+			return Count;
+		}
+
+		void Stop()
+		{
+			if (Coordinator.IsActive())
+			{
+				const Fdemo_mapShanmenControlledWeaponRunEndResult Ended =
+					Fdemo_mapShanmenControlledWeaponRunLifecycle::TryEndRun(
+						Host, Coordinator);
+				if (Ended.IsEnded())
+				{
+					Lifecycle.TryEndAfterRun(
+						Ended.RunId, Host, Diagnostic);
+				}
+			}
+			Host.Reset();
+			Lifecycle.Reset();
+			Coordinator.Reset();
+			if (World)
+			{
+				World->DestroyWorld(false);
+				if (GEngine)
+				{
+					GEngine->DestroyWorldContext(World);
+				}
+				World = nullptr;
+			}
+			Player = nullptr;
+			PlayerRoot = nullptr;
+			PlayerHealth = nullptr;
+		}
+
+		~FControlledWeaponWorldFixture()
+		{
+			Stop();
 		}
 	};
 }
@@ -1769,6 +1911,169 @@ bool FShanmenCanonicalControlledWeaponActiveRunRouteTest::RunTest(
 		Ended.IsEnded()
 		&& Host.IsEmpty()
 		&& !Coordinator.IsActive());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenCanonicalControlledWeaponWorldLifecycleTest,
+	"Shanmen.0_0_10.Product.ControlledWeaponWorldLifecycle.CanonicalTrainingFlyingSword",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenCanonicalControlledWeaponWorldLifecycleTest::RunTest(
+	const FString&)
+{
+	FPreparationAdapterFixture Fixture;
+	if (!Fixture.StartAndCutover(
+			*this, TEXT("CanonicalControlledWeaponWorldLifecycle")))
+	{
+		return false;
+	}
+	const Fdemo_mapProfilePreparationSelectionResult Selected =
+		Fixture.Session->SetPreparationEquipment(
+			Fdemo_mapItemIds::WeaponSlot,
+			Fixture.FlyingSwordId);
+	Udemo_mapItemSubsystem* Runtime =
+		Fixture.GameInstance->GetSubsystem<Udemo_mapItemSubsystem>();
+	if (!Selected.IsAccepted() || !Runtime)
+	{
+		AddError(TEXT("P21.2 flying-sword selection could not reach Runtime."));
+		return false;
+	}
+	Runtime->ResetForAutomation();
+	const Fdemo_mapShanmenRunStartResult Started =
+		Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
+			*Fixture.Authority, *Runtime);
+	if (!Started.IsStarted()
+		|| Started.RunCorrelation.WeaponItemInstanceId
+			!= Fixture.FlyingSwordId)
+	{
+		AddError(FString::Printf(
+			TEXT("P21.2 durable flying-sword Run failed: %s"),
+			*Started.Diagnostic));
+		return false;
+	}
+
+	FControlledWeaponWorldFixture WorldFixture;
+	if (!WorldFixture.Start(
+			*this, Fixture.GameInstance, Started.ActiveRunId))
+	{
+		return false;
+	}
+	FShanmenItemAuthoritySnapshot AuthorityBefore;
+	if (!Fixture.Authority->TryCaptureSnapshot(AuthorityBefore))
+	{
+		AddError(TEXT("P21.2 could not capture authority before World start."));
+		return false;
+	}
+
+	const Fdemo_mapShanmenControlledWeaponWorldStartResult Began =
+		WorldFixture.Lifecycle.TryBegin(
+			WorldFixture.World,
+			Fixture.Authority,
+			Runtime,
+			WorldFixture.Coordinator,
+			WorldFixture.Host,
+			WorldFixture.Player,
+			1);
+	Ademo_mapShanmenControlledWeaponActor* Weapon =
+		WorldFixture.Lifecycle.GetWeaponActor();
+	const FVector ExpectedInitialLocation =
+		WorldFixture.Player->GetActorLocation()
+		+ FVector(100.0f, 0.0f, 50.0f);
+	TestTrue(TEXT("Canonical Run creates exactly one bound physical flying sword"),
+		Began.IsStarted()
+		&& WorldFixture.Lifecycle.IsActive()
+		&& Weapon
+		&& Weapon->IsProductBoundTo(
+			Started.ActiveRunId,
+			Fixture.FlyingSwordId,
+			WorldFixture.Player)
+		&& Weapon->GetCollisionComponent()
+		&& Weapon->GetCollisionComponent()->GetCollisionEnabled()
+			== ECollisionEnabled::QueryOnly
+		&& WorldFixture.Host.IsValid()
+		&& WorldFixture.Host.NumBound() == 1
+		&& WorldFixture.CountControlledWeaponActors() == 1);
+	TestTrue(TEXT("Spawn pose is defense-ready before the first frame pump"),
+		Weapon
+		&& Weapon->GetActorLocation().Equals(
+			ExpectedInitialLocation, KINDA_SMALL_NUMBER));
+	const TArray<FGuid> RequestedItems = { Fixture.FlyingSwordId };
+	Fdemo_mapShanmenControlledWeaponDefenseReadinessBatch Readiness;
+	TestTrue(TEXT("Initial physical pose backs exact-item defense readiness"),
+		WorldFixture.Host.TryCaptureOrbitDefenseReadinessInOrder(
+			RequestedItems, Readiness)
+		&& Readiness.IsFullyCaptured()
+		&& Readiness.Entries.Num() == 1
+		&& Readiness.Entries[0].ItemInstanceId
+			== Fixture.FlyingSwordId
+		&& WorldFixture.Host.IsOrbitDefenseReadinessCurrent(Readiness));
+
+	FShanmenItemAuthoritySnapshot AuthorityAfterStart;
+	TestTrue(TEXT("World projection is read-only against durable item authority"),
+		Fixture.Authority->TryCaptureSnapshot(AuthorityAfterStart)
+		&& AuthorityAfterStart == AuthorityBefore);
+	const Fdemo_mapShanmenControlledWeaponWorldStartResult Duplicate =
+		WorldFixture.Lifecycle.TryBegin(
+			WorldFixture.World,
+			Fixture.Authority,
+			Runtime,
+			WorldFixture.Coordinator,
+			WorldFixture.Host,
+			WorldFixture.Player,
+			2);
+	TestTrue(TEXT("Lifecycle rejects duplicate World publication without spawning"),
+		Duplicate.Status
+			== Edemo_mapShanmenControlledWeaponWorldStartStatus::LifecycleBusy
+		&& WorldFixture.Lifecycle.GetWeaponActor() == Weapon
+		&& WorldFixture.Host.NumBound() == 1
+		&& WorldFixture.CountControlledWeaponActors() == 1);
+
+	const FVector BeforeOrbit = Weapon
+		? Weapon->GetActorLocation() : FVector::ZeroVector;
+	const Fdemo_mapShanmenControlledWeaponOrbitFrameResult Orbit =
+		WorldFixture.Host.AdvanceOrbitingFrame(0.25f);
+	TestTrue(TEXT("Existing frame owner advances the same physical Actor"),
+		Orbit.IsAdvanced()
+		&& Orbit.Batch.IsFullyAdvanced()
+		&& Weapon
+		&& !Weapon->GetActorLocation().Equals(
+			BeforeOrbit, KINDA_SMALL_NUMBER));
+
+	FString EarlyRetirementDiagnostic;
+	TestFalse(TEXT("World Actor cannot retire before logical Host teardown"),
+		WorldFixture.Lifecycle.TryEndAfterRun(
+			Started.ActiveRunId,
+			WorldFixture.Host,
+			EarlyRetirementDiagnostic));
+	TestTrue(TEXT("Rejected early retirement preserves Actor and Host"),
+		WorldFixture.Lifecycle.IsActive()
+		&& WorldFixture.Host.NumBound() == 1
+		&& WorldFixture.CountControlledWeaponActors() == 1);
+
+	const Fdemo_mapShanmenControlledWeaponRunEndResult Ended =
+		Fdemo_mapShanmenControlledWeaponRunLifecycle::TryEndRun(
+			WorldFixture.Host, WorldFixture.Coordinator);
+	TestTrue(TEXT("Logical Host retires atomically before physical carrier"),
+		Ended.IsEnded()
+		&& WorldFixture.Host.IsEmpty()
+		&& !WorldFixture.Coordinator.IsActive()
+		&& WorldFixture.Lifecycle.IsActive()
+		&& WorldFixture.CountControlledWeaponActors() == 1);
+	FString RetirementDiagnostic;
+	TestTrue(TEXT("Physical carrier retires after exact logical Run end"),
+		WorldFixture.Lifecycle.TryEndAfterRun(
+			Ended.RunId,
+			WorldFixture.Host,
+			RetirementDiagnostic)
+		&& WorldFixture.Lifecycle.IsEmpty()
+		&& WorldFixture.CountControlledWeaponActors() == 0
+		&& (!::IsValid(Weapon) || Weapon->IsActorBeingDestroyed()));
+
+	FShanmenItemAuthoritySnapshot AuthorityAfterEnd;
+	TestTrue(TEXT("World lifecycle never rewrites durable item evidence"),
+		Fixture.Authority->TryCaptureSnapshot(AuthorityAfterEnd)
+		&& AuthorityAfterEnd == AuthorityBefore);
 	return true;
 }
 

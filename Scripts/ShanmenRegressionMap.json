@@ -2728,6 +2728,24 @@
       ]
     },
     {
+      "name": "ControlledWeaponWorldLifecycle",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenControlledWeapon(?:Actor|WorldLifecycle)\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Product.ControlledWeaponWorldLifecycle",
+        "Shanmen.0_0_10.Product.ControlledWeaponActiveRunRoute",
+        "Shanmen.0_0_10.Product.ControlledWeaponRunHost",
+        "Shanmen.0_0_10.Product.ControlledWeaponRunLifecycle",
+        "Shanmen.0_0_10.Product.ControlledWeaponController",
+        "Shanmen.0_0_10.Product.ControlledWeaponWorldDelivery",
+        "Shanmen.0_0_10.Product.ControlledWeaponSession",
+        "Shanmen.0_0_10.Product.ControlledWeaponAdapter",
+        "Shanmen.0_0_10.Product.CombatRunCoordinator",
+        "Shanmen.0_0_10.Items",
+        "Shanmen.0_0_10.WorldGameplay",
+        "Shanmen.0_0_10.CombatRuntime"
+      ]
+    },
+    {
       "name": "ControlledWeaponProductSession",
       "pathRegex": "^Source/demo_map/demo_mapShanmenControlledWeaponSession(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [

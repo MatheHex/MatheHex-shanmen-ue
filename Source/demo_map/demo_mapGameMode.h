@@ -15,6 +15,7 @@
 #include "demo_mapShanmenControlledWeaponRunCommandRouter.h"
 #include "demo_mapShanmenControlledWeaponRunLifecycle.h"
 #include "demo_mapShanmenControlledWeaponThreatSampleRouter.h"
+#include "demo_mapShanmenControlledWeaponWorldLifecycle.h"
 #include "demo_mapShanmenMeridianShockTreatmentInputAdapter.h"
 #include "demo_mapShanmenMeridianShockTreatmentProductLifecycle.h"
 #include "demo_mapShanmenThrownWeaponArcChoiceInputComposition.h"
@@ -167,6 +168,11 @@ public:
 	GetControlledWeaponRunHost() const
 	{
 		return ControlledWeaponRunHost;
+	}
+	const Fdemo_mapShanmenControlledWeaponWorldLifecycle&
+	GetControlledWeaponWorldLifecycle() const
+	{
+		return ControlledWeaponWorldLifecycle;
 	}
 	const Fdemo_mapShanmenControlledWeaponRunCommandRouter&
 	GetControlledWeaponRunCommandRouter() const
@@ -644,6 +650,8 @@ private:
 	TOptional<Fdemo_mapShanmenRunCorrelation> Prepared0909BRunCorrelation;
 	Fdemo_mapCombatRunCoordinator CombatRunCoordinator;
 	Fdemo_mapShanmenControlledWeaponRunHost ControlledWeaponRunHost;
+	Fdemo_mapShanmenControlledWeaponWorldLifecycle
+		ControlledWeaponWorldLifecycle;
 	Fdemo_mapShanmenControlledWeaponRunCommandRouter
 		ControlledWeaponRunCommandRouter;
 	Fdemo_mapShanmenControlledWeaponThreatSampleRouter

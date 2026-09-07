@@ -2554,6 +2554,13 @@ try
         -Logs @($Full)
 
     Invoke-ExpectedPass `
+        -Name 'controlled weapon World lifecycle is covered by the full suite' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenControlledWeaponWorldLifecycle.cpp',
+            'Source/demo_map/demo_mapShanmenControlledWeaponActor.cpp') `
+        -Logs @($Full)
+
+    Invoke-ExpectedPass `
         -Name 'controlled weapon Run lifecycle is covered by the full suite' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenControlledWeaponRunLifecycle.cpp') `
@@ -5465,6 +5472,13 @@ try
         -Name 'active Run route cannot use coordinator-only evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenControlledWeaponActiveRunRoute.cpp') `
+        -Logs @($Coordinator) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'World lifecycle cannot use coordinator-only evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenControlledWeaponWorldLifecycle.cpp') `
         -Logs @($Coordinator) `
         -ExpectedText 'missing required groups'
 
