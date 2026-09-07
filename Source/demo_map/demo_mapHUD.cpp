@@ -18,6 +18,7 @@
 #include "demo_mapShanmenThrownWeaponArcEditingInputHintPresentation.h"
 #include "demo_mapShanmenThrownWeaponArcEditingPresentation.h"
 #include "demo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation.h"
+#include "demo_mapShanmenThrownWeaponMainHUDCombatHintStackPresentation.h"
 #include "demo_mapShanmenThrownWeaponTrajectoryPresentation.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
@@ -113,6 +114,54 @@ namespace
 			State.GetPlannedLandingPosition(),
 			FLinearColor(0.25f, 1.0f, 0.38f, 1.0f),
 			7.0f);
+	}
+
+	FLinearColor GetThrownWeaponCombatHintColor(
+		const Edemo_mapShanmenThrownWeaponMainHUDCombatHintTone Tone)
+	{
+		using ETone =
+			Edemo_mapShanmenThrownWeaponMainHUDCombatHintTone;
+		switch (Tone)
+		{
+		case ETone::StraightMode:
+			return FLinearColor(0.25f, 0.9f, 1.0f);
+		case ETone::ArcMode:
+		case ETone::TargetRequired:
+			return FLinearColor(1.0f, 0.72f, 0.18f);
+		case ETone::ArcApex:
+			return FLinearColor(1.0f, 0.82f, 0.38f);
+		case ETone::ArcTarget:
+			return FLinearColor(0.76f, 0.88f, 1.0f);
+		case ETone::ArcInput:
+			return FLinearColor(0.58f, 0.92f, 1.0f);
+		case ETone::ReadyToConfirm:
+			return FLinearColor(0.35f, 1.0f, 0.48f);
+		default:
+			return FLinearColor::White;
+		}
+	}
+
+	float GetThrownWeaponCombatHintScale(
+		const Edemo_mapShanmenThrownWeaponMainHUDCombatHintTone Tone)
+	{
+		using ETone =
+			Edemo_mapShanmenThrownWeaponMainHUDCombatHintTone;
+		switch (Tone)
+		{
+		case ETone::StraightMode:
+		case ETone::ArcMode:
+			return 0.92f;
+		case ETone::ArcApex:
+		case ETone::ArcTarget:
+			return 0.78f;
+		case ETone::ArcInput:
+			return 0.72f;
+		case ETone::TargetRequired:
+		case ETone::ReadyToConfirm:
+			return 0.76f;
+		default:
+			return 1.0f;
+		}
 	}
 }
 
@@ -275,6 +324,8 @@ void Ademo_mapHUD::DrawHUD()
 	{
 		const auto Read =
 			DemoController->ReadThrownWeaponInputChoiceInteraction();
+		Fdemo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation
+			Feedback;
 		if (ActiveMode)
 		{
 			const auto& PreLaunchContext =
@@ -286,53 +337,29 @@ void Ademo_mapHUD::DrawHUD()
 				const FString HotbarKeyLabel = InputSettings.GetKey(
 					Fdemo_mapInputActionRegistry::HotbarActionId(ArmedSlot))
 					.GetDisplayName().ToString();
-				Fdemo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation
-					Feedback;
-				if (Fdemo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation::
+				Fdemo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation::
 					TryProject(
 						PreLaunchContext,
 						Read,
 						ThrownWeaponArcPreviewRendererAdapter.
 							GetSurfaceCursor(),
 						HotbarKeyLabel,
-						Feedback))
-				{
-					DrawReadableText(
-						Canvas,
-						GEngine->GetSmallFont(),
-						Feedback.GetDisplayText(),
-						FVector2D(28.0f, Canvas->SizeY - 202.0f),
-						Feedback.IsReadyToConfirm()
-							? FLinearColor(0.35f, 1.0f, 0.48f)
-							: FLinearColor(1.0f, 0.72f, 0.18f),
-						0.76f);
-				}
+						Feedback);
 			}
 		}
 		Fdemo_mapShanmenThrownWeaponTrajectoryPresentation Presentation;
 		const FString ToggleKeyLabel = InputSettings.GetKey(
 			Fdemo_mapInputActionIds::ThrownWeaponTrajectoryToggle)
 			.GetDisplayName().ToString();
-		if (Fdemo_mapShanmenThrownWeaponTrajectoryPresentation::TryProject(
-			Read, ToggleKeyLabel, Presentation))
-		{
-			DrawReadableText(
-				Canvas,
-				GEngine->GetSmallFont(),
-				Presentation.GetDisplayText(),
-				FVector2D(28.0f, Canvas->SizeY - 112.0f),
-				Presentation.IsBallisticArc()
-					? FLinearColor(1.0f, 0.72f, 0.18f)
-					: FLinearColor(0.25f, 0.9f, 1.0f),
-				0.92f);
-		}
+		Fdemo_mapShanmenThrownWeaponTrajectoryPresentation::TryProject(
+			Read, ToggleKeyLabel, Presentation);
 		Fdemo_mapShanmenThrownWeaponArcEditingPresentation ArcPresentation;
+		Fdemo_mapShanmenThrownWeaponArcEditingInputHintPresentation
+			ArcInputHintPresentation;
 		if (Fdemo_mapShanmenThrownWeaponArcEditingPresentation::TryProject(
 			Read, ArcPresentation))
 		{
-			Fdemo_mapShanmenThrownWeaponArcEditingInputHintPresentation
-				ArcInputHintPresentation;
-			if (Fdemo_mapShanmenThrownWeaponArcEditingInputHintPresentation::
+			Fdemo_mapShanmenThrownWeaponArcEditingInputHintPresentation::
 				TryProject(
 					ArcPresentation,
 					InputSettings.GetKey(
@@ -347,30 +374,35 @@ void Ademo_mapHUD::DrawHUD()
 					InputSettings.GetKey(
 						Fdemo_mapInputActionIds::ThrownWeaponArcTargetClear)
 						.GetDisplayName().ToString(),
-					ArcInputHintPresentation))
+					ArcInputHintPresentation);
+		}
+		Fdemo_mapShanmenThrownWeaponMainHUDCombatHintStackPresentation Stack;
+		if (Fdemo_mapShanmenThrownWeaponMainHUDCombatHintStackPresentation::
+			TryCompose(
+				Presentation,
+				ArcPresentation,
+				ArcInputHintPresentation,
+				Feedback,
+				Stack))
+		{
+			constexpr float BottomAnchor = 112.0f;
+			constexpr float LineSpacing = 22.5f;
+			const auto& Lines = Stack.GetLines();
+			for (int32 LineIndex = 0; LineIndex < Lines.Num(); ++LineIndex)
 			{
+				const auto& Line = Lines[LineIndex];
 				DrawReadableText(
 					Canvas,
 					GEngine->GetSmallFont(),
-					ArcInputHintPresentation.GetDisplayText(),
-					FVector2D(28.0f, Canvas->SizeY - 180.0f),
-					FLinearColor(0.58f, 0.92f, 1.0f),
-					0.72f);
+					Line.GetDisplayText(),
+					FVector2D(
+						28.0f,
+						Canvas->SizeY
+							- BottomAnchor
+							- LineSpacing * LineIndex),
+					GetThrownWeaponCombatHintColor(Line.GetTone()),
+					GetThrownWeaponCombatHintScale(Line.GetTone()));
 			}
-			DrawReadableText(
-				Canvas,
-				GEngine->GetSmallFont(),
-				ArcPresentation.GetTargetDisplayText(),
-				FVector2D(28.0f, Canvas->SizeY - 158.0f),
-				FLinearColor(0.76f, 0.88f, 1.0f),
-				0.78f);
-			DrawReadableText(
-				Canvas,
-				GEngine->GetSmallFont(),
-				ArcPresentation.GetApexDisplayText(),
-				FVector2D(28.0f, Canvas->SizeY - 136.0f),
-				FLinearColor(1.0f, 0.82f, 0.38f),
-				0.78f);
 		}
 	}
 	APawn* PlayerPawn = PlayerController != nullptr ? PlayerController->GetPawn() : nullptr;

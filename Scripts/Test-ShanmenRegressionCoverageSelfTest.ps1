@@ -187,6 +187,9 @@ try
     $ThrownArcPreLaunchGestureFeedbackPresentation = New-AutomationLogFixture `
         -Name 'thrown-arc-pre-launch-gesture-feedback-presentation.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcPreLaunchGestureFeedbackPresentation'
+    $ThrownWeaponMainHUDCombatHintStackPresentation = New-AutomationLogFixture `
+        -Name 'thrown-weapon-main-hud-combat-hint-stack-presentation.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponMainHUDCombatHintStackPresentation'
     $ThrownWeaponInputChoiceInteractionPort = New-AutomationLogFixture `
         -Name 'thrown-weapon-input-choice-interaction-port.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponInputChoiceInteractionPort'
@@ -2694,6 +2697,7 @@ try
 			'Source/demo_map/demo_mapHUD.cpp') `
 		-Logs @(
 			$Full,
+			$ThrownWeaponMainHUDCombatHintStackPresentation,
 			$ThrownArcPreLaunchGestureFeedbackPresentation,
 			$ThrownArcPreviewMainHUDRuntimeBinding,
 			$ThrownArcPreviewMainHUDRendererAdapter,
@@ -2755,6 +2759,22 @@ try
 			$ThrownArcPreviewMainHUDRuntimeBinding,
 			$ThrownArcPreviewMainHUDRendererAdapter,
 			$ThrownWeaponInputChoiceInteractionPort,
+			$Full,
+			$InputRestore,
+			$Ranged)
+
+	Invoke-ExpectedPass `
+		-Name 'thrown weapon MainHUD combat hint stack maps every source presentation and compatibility seam' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponMainHUDCombatHintStackPresentation.h',
+			'Source/demo_map/demo_mapShanmenThrownWeaponMainHUDCombatHintStackPresentation.cpp',
+			'Source/demo_map/demo_mapShanmenThrownWeaponMainHUDCombatHintStackPresentationTests.cpp') `
+		-Logs @(
+			$ThrownWeaponMainHUDCombatHintStackPresentation,
+			$ThrownArcPreLaunchGestureFeedbackPresentation,
+			$ThrownWeaponTrajectoryPresentation,
+			$ThrownWeaponArcEditingPresentation,
+			$ThrownWeaponArcEditingInputHintPresentation,
 			$Full,
 			$InputRestore,
 			$Ranged)
@@ -5590,6 +5610,13 @@ try
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation.cpp') `
 		-Logs @($ThrownArcPreLaunchGestureFeedbackPresentation) `
+		-ExpectedText 'missing required groups'
+
+	Invoke-ExpectedFail `
+		-Name 'MainHUD combat hint stack focus cannot replace source presentation and compatibility evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponMainHUDCombatHintStackPresentation.cpp') `
+		-Logs @($ThrownWeaponMainHUDCombatHintStackPresentation) `
 		-ExpectedText 'missing required groups'
 
 	Invoke-ExpectedFail `
