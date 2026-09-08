@@ -37,6 +37,8 @@ bool Fdemo_mapControlledWeaponThreatReadoutWorldTrackedTest::RunTest(
 			FVector2D(1920.0, 1080.0),
 			EFlightPhase::Orbiting,
 			3,
+			TEXT("X"),
+			TEXT("C"),
 			true,
 			FVector2D(960.0, 540.0),
 			Style,
@@ -45,6 +47,8 @@ bool Fdemo_mapControlledWeaponThreatReadoutWorldTrackedTest::RunTest(
 			FVector2D(1920.0, 1080.0),
 			EFlightPhase::Orbiting,
 			3,
+			TEXT("X"),
+			TEXT("C"),
 			true,
 			FVector2D(960.0, 540.0),
 			Style,
@@ -56,11 +60,14 @@ bool Fdemo_mapControlledWeaponThreatReadoutWorldTrackedTest::RunTest(
 			&& !Plan.IsViewportFallback()
 			&& Plan.GetPhase() == EFlightPhase::Orbiting
 			&& Plan.GetContactCount() == 3
-			&& Plan.GetText() == TEXT("飞剑 · 环绕待命 · 近身目标 3")
-			&& Plan.GetPanelPosition() == FVector2D(845.0, 494.0)
-			&& Plan.GetPanelSize() == FVector2D(230.0, 30.0)
-			&& Plan.GetTextPosition() == FVector2D(855.0, 500.0)
-			&& Plan.GetTextScale() == 0.82);
+			&& Plan.GetLaunchRecallKeyLabel() == TEXT("X")
+			&& Plan.GetRedirectKeyLabel() == TEXT("C")
+			&& Plan.GetText()
+				== TEXT("飞剑 · 环绕待命 · 近身目标 3 · [X] 发射")
+			&& Plan.GetPanelPosition() == FVector2D(750.0, 494.0)
+			&& Plan.GetPanelSize() == FVector2D(420.0, 30.0)
+			&& Plan.GetTextPosition() == FVector2D(760.0, 500.0)
+			&& Plan.GetTextScale() == 0.72);
 
 	FPlan Edge;
 	TestTrue(TEXT("an on-screen edge anchor clamps without becoming fallback"),
@@ -68,6 +75,8 @@ bool Fdemo_mapControlledWeaponThreatReadoutWorldTrackedTest::RunTest(
 			FVector2D(1920.0, 1080.0),
 			EFlightPhase::Redeployed,
 			1,
+			TEXT("X"),
+			TEXT("C"),
 			true,
 			FVector2D(0.0, 0.0),
 			Style,
@@ -94,6 +103,8 @@ bool Fdemo_mapControlledWeaponThreatReadoutViewportFallbackTest::RunTest(
 			FVector2D(1920.0, 1080.0),
 			EFlightPhase::Returning,
 			0,
+			TEXT("X"),
+			TEXT("C"),
 			false,
 			FVector2D::ZeroVector,
 			Style,
@@ -103,6 +114,8 @@ bool Fdemo_mapControlledWeaponThreatReadoutViewportFallbackTest::RunTest(
 			FVector2D(1920.0, 1080.0),
 			EFlightPhase::Returning,
 			0,
+			TEXT("X"),
+			TEXT("C"),
 			true,
 			FVector2D(1921.0, 540.0),
 			Style,
@@ -111,6 +124,8 @@ bool Fdemo_mapControlledWeaponThreatReadoutViewportFallbackTest::RunTest(
 			FVector2D(1920.0, 1080.0),
 			EFlightPhase::Returning,
 			0,
+			TEXT("X"),
+			TEXT("C"),
 			true,
 			FVector2D(
 				std::numeric_limits<double>::quiet_NaN(),
@@ -126,16 +141,16 @@ bool Fdemo_mapControlledWeaponThreatReadoutViewportFallbackTest::RunTest(
 			&& ProjectionFailed.GetPhase() == EFlightPhase::Returning
 			&& ProjectionFailed.GetContactCount() == 0
 			&& ProjectionFailed.GetPanelPosition()
-				== FVector2D(845.0, 54.0));
+				== FVector2D(750.0, 54.0));
 
 	FStyle CustomStyle;
-	CustomStyle.PanelSize = FVector2D(260.0, 36.0);
+	CustomStyle.PanelSize = FVector2D(460.0, 36.0);
 	CustomStyle.TextInset = FVector2D(12.0, 8.0);
 	CustomStyle.WorldVerticalLift = 52.0;
 	CustomStyle.HorizontalMargin = 20.0;
 	CustomStyle.TopMargin = 64.0;
 	CustomStyle.BottomMargin = 100.0;
-	CustomStyle.TextScale = 0.9;
+	CustomStyle.TextScale = 0.78;
 	CustomStyle.PanelColor = FLinearColor(0.1f, 0.2f, 0.3f, 0.8f);
 	CustomStyle.TextColor = FLinearColor(0.8f, 0.9f, 1.0f);
 	FPlan Custom;
@@ -144,17 +159,19 @@ bool Fdemo_mapControlledWeaponThreatReadoutViewportFallbackTest::RunTest(
 			FVector2D(1280.0, 720.0),
 			EFlightPhase::Directed,
 			4,
+			TEXT("V"),
+			TEXT("Z"),
 			true,
 			FVector2D(640.0, 360.0),
 			CustomStyle,
 			Custom)
-			&& Custom.GetPanelPosition() == FVector2D(510.0, 308.0)
-			&& Custom.GetPanelSize() == FVector2D(260.0, 36.0)
-			&& Custom.GetTextPosition() == FVector2D(522.0, 316.0)
-			&& Custom.GetTextScale() == 0.9
+			&& Custom.GetPanelPosition() == FVector2D(410.0, 308.0)
+			&& Custom.GetPanelSize() == FVector2D(460.0, 36.0)
+			&& Custom.GetTextPosition() == FVector2D(422.0, 316.0)
+			&& Custom.GetTextScale() == 0.78
 			&& Custom.GetPhase() == EFlightPhase::Directed
 			&& Custom.GetText()
-				== TEXT("飞剑 · 御剑出击 · 近身目标 4")
+				== TEXT("飞剑 · 御剑出击 · 近身目标 4 · [Z] 改向 · [V] 召回")
 			&& Custom.GetPanelColor() == CustomStyle.PanelColor
 			&& Custom.GetTextColor() == CustomStyle.TextColor);
 	return true;
@@ -174,6 +191,8 @@ bool Fdemo_mapControlledWeaponThreatReadoutFenceTest::RunTest(
 		FVector2D(1920.0, 1080.0),
 		EFlightPhase::Orbiting,
 		1,
+		TEXT("X"),
+		TEXT("C"),
 		true,
 		FVector2D(960.0, 540.0),
 		Style,
@@ -183,18 +202,22 @@ bool Fdemo_mapControlledWeaponThreatReadoutFenceTest::RunTest(
 			FVector2D(1920.0, 1080.0),
 			EFlightPhase::Orbiting,
 			0,
+			TEXT("X"),
+			TEXT("C"),
 			true,
 			FVector2D(960.0, 540.0),
 			Style,
 			Reused)
 		&& Reused.IsValid()
 		&& Reused.GetContactCount() == 0
-		&& Reused.GetText() == TEXT("飞剑 · 环绕待命"));
+		&& Reused.GetText() == TEXT("飞剑 · 环绕待命 · [X] 发射"));
 	TestFalse(TEXT("negative contact evidence fails closed"),
 		FPlan::TryPlan(
 			FVector2D(1920.0, 1080.0),
 			EFlightPhase::Orbiting,
 			-1,
+			TEXT("X"),
+			TEXT("C"),
 			true,
 			FVector2D(960.0, 540.0),
 			Style,
@@ -211,6 +234,8 @@ bool Fdemo_mapControlledWeaponThreatReadoutFenceTest::RunTest(
 			FVector2D(1920.0, 1080.0),
 			EFlightPhase::Invalid,
 			0,
+			TEXT("X"),
+			TEXT("C"),
 			true,
 			FVector2D(960.0, 540.0),
 			Style,
@@ -221,6 +246,8 @@ bool Fdemo_mapControlledWeaponThreatReadoutFenceTest::RunTest(
 			FVector2D(245.0, 1080.0),
 			EFlightPhase::Returning,
 			1,
+			TEXT("X"),
+			TEXT("C"),
 			false,
 			FVector2D::ZeroVector,
 			Style,
@@ -232,6 +259,8 @@ bool Fdemo_mapControlledWeaponThreatReadoutFenceTest::RunTest(
 			FVector2D(1920.0, 1080.0),
 			EFlightPhase::Orbiting,
 			1,
+			TEXT("X"),
+			TEXT("C"),
 			true,
 			FVector2D(960.0, 540.0),
 			InvalidStyle,
@@ -244,9 +273,94 @@ bool Fdemo_mapControlledWeaponThreatReadoutFenceTest::RunTest(
 			FVector2D(1920.0, 1080.0),
 			EFlightPhase::Orbiting,
 			1,
+			TEXT("X"),
+			TEXT("C"),
 			true,
 			FVector2D(960.0, 540.0),
 			InvalidStyle,
+			Reused));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapControlledWeaponThreatReadoutInputHintTest,
+	"Shanmen.0_0_10.Product.ControlledWeaponThreatReadoutPresentation.ContextualInputHints",
+	PresentationFlags)
+
+bool Fdemo_mapControlledWeaponThreatReadoutInputHintTest::RunTest(
+	const FString&)
+{
+	const FStyle Style;
+	FPlan DefaultDirected;
+	FPlan RemappedDirected;
+	FPlan Returning;
+	TestTrue(TEXT("directed phase exposes both current player actions"),
+		FPlan::TryPlan(
+			FVector2D(1920.0, 1080.0),
+			EFlightPhase::Directed,
+			0,
+			TEXT("X"),
+			TEXT("C"),
+			true,
+			FVector2D(960.0, 540.0),
+			Style,
+			DefaultDirected)
+			&& DefaultDirected.GetText()
+				== TEXT("飞剑 · 御剑出击 · [C] 改向 · [X] 召回"));
+	TestTrue(TEXT("readout uses live remapped labels without cached defaults"),
+		FPlan::TryPlan(
+			FVector2D(1920.0, 1080.0),
+			EFlightPhase::Directed,
+			0,
+			TEXT("V"),
+			TEXT("Z"),
+			true,
+			FVector2D(960.0, 540.0),
+			Style,
+			RemappedDirected)
+			&& RemappedDirected.GetText()
+				== TEXT("飞剑 · 御剑出击 · [Z] 改向 · [V] 召回")
+			&& !DefaultDirected.Matches(RemappedDirected));
+	TestTrue(TEXT("returning phase advertises no unavailable command"),
+		FPlan::TryPlan(
+			FVector2D(1920.0, 1080.0),
+			EFlightPhase::Returning,
+			0,
+			TEXT("V"),
+			TEXT("Z"),
+			false,
+			FVector2D::ZeroVector,
+			Style,
+			Returning)
+			&& Returning.GetText() == TEXT("飞剑 · 返航 · 屏外")
+			&& !Returning.GetText().Contains(TEXT("[")));
+
+	FPlan Reused = DefaultDirected;
+	TestFalse(TEXT("empty launch label fails closed"),
+		FPlan::TryPlan(
+			FVector2D(1920.0, 1080.0),
+			EFlightPhase::Orbiting,
+			0,
+			FString(),
+			TEXT("C"),
+			true,
+			FVector2D(960.0, 540.0),
+			Style,
+			Reused));
+	TestTrue(TEXT("failed label validation clears reusable output"),
+		!Reused.IsValid()
+			&& Reused.GetLaunchRecallKeyLabel().IsEmpty()
+			&& Reused.GetRedirectKeyLabel().IsEmpty());
+	TestFalse(TEXT("multiline redirect label fails closed"),
+		FPlan::TryPlan(
+			FVector2D(1920.0, 1080.0),
+			EFlightPhase::Directed,
+			0,
+			TEXT("X"),
+			TEXT("C\nZ"),
+			true,
+			FVector2D(960.0, 540.0),
+			Style,
 			Reused));
 	return true;
 }

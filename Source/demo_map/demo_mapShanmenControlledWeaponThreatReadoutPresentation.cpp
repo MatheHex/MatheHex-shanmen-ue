@@ -32,10 +32,45 @@ namespace
 			|| Phase == EFlightPhase::Redeployed;
 	}
 
+	bool IsValidKeyLabel(const FString& Label)
+	{
+		return !Label.IsEmpty()
+			&& Label == Label.TrimStartAndEnd()
+			&& !Label.Contains(TEXT("\r"))
+			&& !Label.Contains(TEXT("\n"))
+			&& !Label.Contains(TEXT("\t"));
+	}
+
+	FString BuildInputHint(
+		const EFlightPhase Phase,
+		const FString& LaunchRecallKeyLabel,
+		const FString& RedirectKeyLabel)
+	{
+		switch (Phase)
+		{
+		case EFlightPhase::Orbiting:
+			return FString::Printf(
+				TEXT("[%s] 发射"), *LaunchRecallKeyLabel);
+		case EFlightPhase::Directed:
+			return FString::Printf(
+				TEXT("[%s] 改向 · [%s] 召回"),
+				*RedirectKeyLabel,
+				*LaunchRecallKeyLabel);
+		case EFlightPhase::Redeployed:
+			return FString::Printf(
+				TEXT("[%s] 再次出击"), *LaunchRecallKeyLabel);
+		case EFlightPhase::Returning:
+		default:
+			return FString();
+		}
+	}
+
 	FString BuildText(
 		const EPlacement Placement,
 		const EFlightPhase Phase,
-		const int32 ContactCount)
+		const int32 ContactCount,
+		const FString& LaunchRecallKeyLabel,
+		const FString& RedirectKeyLabel)
 	{
 		FString Text;
 		switch (Phase)
@@ -68,6 +103,12 @@ namespace
 		{
 			Text += FString::Printf(
 				TEXT(" · 近身目标 %d"), ContactCount);
+		}
+		const FString InputHint = BuildInputHint(
+			Phase, LaunchRecallKeyLabel, RedirectKeyLabel);
+		if (!InputHint.IsEmpty())
+		{
+			Text += TEXT(" · ") + InputHint;
 		}
 		return Text;
 	}
@@ -103,6 +144,8 @@ bool FPlan::TryPlan(
 	const FVector2D& InCanvasSize,
 	const EFlightPhase InPhase,
 	const int32 InContactCount,
+	const FString& InLaunchRecallKeyLabel,
+	const FString& InRedirectKeyLabel,
 	const bool bProjectionSucceeded,
 	const FVector2D& ProjectedScreenPosition,
 	const FStyle& InStyle,
@@ -112,7 +155,10 @@ bool FPlan::TryPlan(
 	if (!IsFiniteVector(InCanvasSize)
 		|| InCanvasSize.X <= 0.0 || InCanvasSize.Y <= 0.0
 		|| !IsVisiblePhase(InPhase)
-		|| InContactCount < 0 || !InStyle.IsValid())
+		|| InContactCount < 0
+		|| !IsValidKeyLabel(InLaunchRecallKeyLabel)
+		|| !IsValidKeyLabel(InRedirectKeyLabel)
+		|| !InStyle.IsValid())
 	{
 		return false;
 	}
@@ -132,6 +178,8 @@ bool FPlan::TryPlan(
 	Candidate.CanvasSize = InCanvasSize;
 	Candidate.Phase = InPhase;
 	Candidate.ContactCount = InContactCount;
+	Candidate.LaunchRecallKeyLabel = InLaunchRecallKeyLabel;
+	Candidate.RedirectKeyLabel = InRedirectKeyLabel;
 	Candidate.Style = InStyle;
 	const bool bWorldTracked = bProjectionSucceeded
 		&& IsInsideViewport(InCanvasSize, ProjectedScreenPosition);
@@ -155,7 +203,11 @@ bool FPlan::TryPlan(
 				MaximumPanelX),
 			MinimumPanelY);
 	Candidate.Text = BuildText(
-		Candidate.Placement, InPhase, InContactCount);
+		Candidate.Placement,
+		InPhase,
+		InContactCount,
+		InLaunchRecallKeyLabel,
+		InRedirectKeyLabel);
 	if (!Candidate.IsValid())
 	{
 		return false;
@@ -172,9 +224,17 @@ bool FPlan::IsValid() const
 		|| !IsFiniteVector(CanvasSize)
 		|| CanvasSize.X <= 0.0 || CanvasSize.Y <= 0.0
 		|| !IsVisiblePhase(Phase)
-		|| ContactCount < 0 || !Style.IsValid()
+		|| ContactCount < 0
+		|| !IsValidKeyLabel(LaunchRecallKeyLabel)
+		|| !IsValidKeyLabel(RedirectKeyLabel)
+		|| !Style.IsValid()
 		|| !IsFiniteVector(PanelPosition)
-		|| Text != BuildText(Placement, Phase, ContactCount))
+		|| Text != BuildText(
+			Placement,
+			Phase,
+			ContactCount,
+			LaunchRecallKeyLabel,
+			RedirectKeyLabel))
 	{
 		return false;
 	}
@@ -197,6 +257,8 @@ bool FPlan::Matches(const FPlan& Other) const
 		&& PanelPosition == Other.PanelPosition
 		&& Phase == Other.Phase
 		&& ContactCount == Other.ContactCount
+		&& LaunchRecallKeyLabel == Other.LaunchRecallKeyLabel
+		&& RedirectKeyLabel == Other.RedirectKeyLabel
 		&& Text == Other.Text
 		&& Style.PanelSize == Other.Style.PanelSize
 		&& Style.TextInset == Other.Style.TextInset

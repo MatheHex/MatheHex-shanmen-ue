@@ -74,6 +74,12 @@ namespace
 				FVector2D(Canvas->SizeX, Canvas->SizeY),
 				ReadModel.GetPhase(),
 				Weapon->GetThreatPresenceCueContactCount(),
+				Fdemo_mapInputBindingSettings::Get().GetKey(
+					Fdemo_mapInputActionIds::ControlledWeaponLaunchRecall)
+					.GetDisplayName().ToString(),
+				Fdemo_mapInputBindingSettings::Get().GetKey(
+					Fdemo_mapInputActionIds::ControlledWeaponRedirect)
+					.GetDisplayName().ToString(),
 				bProjectionSucceeded,
 				ScreenPosition,
 				Fdemo_mapShanmenControlledWeaponThreatReadoutStyle(),

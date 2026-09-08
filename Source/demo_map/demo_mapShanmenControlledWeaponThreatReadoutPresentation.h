@@ -18,13 +18,13 @@ enum class Edemo_mapShanmenControlledWeaponThreatReadoutPlacement : uint8
  */
 struct Fdemo_mapShanmenControlledWeaponThreatReadoutStyle
 {
-	FVector2D PanelSize = FVector2D(230.0, 30.0);
+	FVector2D PanelSize = FVector2D(420.0, 30.0);
 	FVector2D TextInset = FVector2D(10.0, 6.0);
 	double WorldVerticalLift = 46.0;
 	double HorizontalMargin = 8.0;
 	double TopMargin = 54.0;
 	double BottomMargin = 92.0;
-	double TextScale = 0.82;
+	double TextScale = 0.72;
 	FLinearColor PanelColor = FLinearColor(0.02f, 0.18f, 0.14f, 0.88f);
 	FLinearColor TextColor = FLinearColor(0.2f, 1.0f, 0.72f);
 
@@ -39,6 +39,8 @@ public:
 		const FVector2D& CanvasSize,
 		Edemo_mapShanmenControlledWeaponFlightPhase Phase,
 		int32 ContactCount,
+		const FString& LaunchRecallKeyLabel,
+		const FString& RedirectKeyLabel,
 		bool bProjectionSucceeded,
 		const FVector2D& ProjectedScreenPosition,
 		const Fdemo_mapShanmenControlledWeaponThreatReadoutStyle& Style,
@@ -67,6 +69,14 @@ public:
 		return Phase;
 	}
 	const FString& GetText() const { return Text; }
+	const FString& GetLaunchRecallKeyLabel() const
+	{
+		return LaunchRecallKeyLabel;
+	}
+	const FString& GetRedirectKeyLabel() const
+	{
+		return RedirectKeyLabel;
+	}
 	const FVector2D& GetPanelPosition() const { return PanelPosition; }
 	const FVector2D& GetPanelSize() const { return Style.PanelSize; }
 	FVector2D GetTextPosition() const
@@ -85,6 +95,8 @@ private:
 	Edemo_mapShanmenControlledWeaponFlightPhase Phase =
 		Edemo_mapShanmenControlledWeaponFlightPhase::Invalid;
 	int32 ContactCount = 0;
+	FString LaunchRecallKeyLabel;
+	FString RedirectKeyLabel;
 	FString Text;
 	Fdemo_mapShanmenControlledWeaponThreatReadoutStyle Style;
 };
