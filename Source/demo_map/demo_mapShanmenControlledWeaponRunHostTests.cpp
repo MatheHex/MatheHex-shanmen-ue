@@ -734,6 +734,8 @@ bool Fdemo_mapControlledWeaponRunHostBlockingTimelineTest::RunTest(
 		AddError(TEXT("P21.13 could not publish directed presentation."));
 		return false;
 	}
+	const FLinearColor DirectedPresentationColor =
+		Fixture.Weapon->GetResolvedPresentationColor();
 
 	const float VitalityBefore = Fixture.Enemy->GetCurrentVitality();
 	const int32 ImpactsBefore = Fixture.Enemy->NumCommittedCombatImpacts();
@@ -789,6 +791,12 @@ bool Fdemo_mapControlledWeaponRunHostBlockingTimelineTest::RunTest(
 	const bool bPresentedReplay = Blocked.DeliveredImpacts.Num() == 1
 		&& Fixture.Weapon->TryPresentCommittedImpactFeedback(
 			Blocked.DeliveredImpacts[0]);
+	TestTrue(TEXT("impact color waits for the canonical return phase"),
+		bPresentedImpact
+			&& bPresentedReplay
+			&& !Fixture.Weapon->IsCommittedImpactCueActive()
+			&& Fixture.Weapon->GetResolvedPresentationColor()
+				== DirectedPresentationColor);
 	TestTrue(TEXT("the same Actor projects the fresh commit during return"),
 		bPresentedImpact
 			&& bPresentedReplay
@@ -798,6 +806,9 @@ bool Fdemo_mapControlledWeaponRunHostBlockingTimelineTest::RunTest(
 				== Edemo_mapShanmenControlledWeaponFlightPhase::Returning
 			&& Fixture.Weapon->TryPresentFlightReadModel(ReturningReadModel)
 			&& Fixture.Weapon->HasCommittedImpactFeedback()
+			&& Fixture.Weapon->IsCommittedImpactCueActive()
+			&& Fixture.Weapon->GetResolvedPresentationColor()
+				== FLinearColor(1.00f, 0.82f, 0.05f)
 			&& Fixture.Weapon->GetPresentedImpactId()
 				== Blocked.DeliveredImpacts[0].Impact.GetRequest().ImpactId
 			&& Fixture.Weapon->GetPresentedImpactTargetEntityId()
@@ -833,7 +844,10 @@ bool Fdemo_mapControlledWeaponRunHostBlockingTimelineTest::RunTest(
 			NextActivationReadModel)
 			&& Fixture.Weapon->TryPresentFlightReadModel(
 				NextActivationReadModel)
-			&& !Fixture.Weapon->HasCommittedImpactFeedback());
+			&& !Fixture.Weapon->HasCommittedImpactFeedback()
+			&& !Fixture.Weapon->IsCommittedImpactCueActive()
+			&& Fixture.Weapon->GetResolvedPresentationColor()
+				!= FLinearColor(1.00f, 0.82f, 0.05f));
 
 	Fdemo_mapShanmenCombatRunTimelineSample TickSixteen;
 	check(Fdemo_mapShanmenCombatRunTimelineSample::TryCapture(

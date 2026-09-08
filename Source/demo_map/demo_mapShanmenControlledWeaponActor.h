@@ -104,7 +104,15 @@ public:
 			&& PresentedImpactAppliedDamage > 0.0f
 			&& PresentedImpactTargetVitalityAfter <= 0.0f;
 	}
-	/** Threat presence overlays, but never replaces, the base flight phase. */
+	/** Impact feedback is visible only during its canonical return phase. */
+	bool IsCommittedImpactCueActive() const
+	{
+		return HasCommittedImpactFeedback()
+			&& FlightReadModel.IsValid()
+			&& FlightReadModel.GetPhase()
+				== Edemo_mapShanmenControlledWeaponFlightPhase::Returning;
+	}
+	/** Return impact outranks threat; threat otherwise overlays flight phase. */
 	FLinearColor GetResolvedPresentationColor() const;
 
 private:
@@ -117,7 +125,7 @@ private:
 	bool IsFlightPresentationStateValid() const;
 	bool IsCommittedImpactFeedbackStateValid() const;
 	void ClearCommittedImpactFeedback();
-	void RefreshThreatPresenceCue();
+	void RefreshPresentation();
 
 	UPROPERTY(VisibleAnywhere)
 	TObjectPtr<UBoxComponent> Collision;

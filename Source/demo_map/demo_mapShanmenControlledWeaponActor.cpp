@@ -16,6 +16,9 @@ namespace
 	const FLinearColor ReturningSwordColor(0.48f, 0.32f, 1.00f);
 	const FLinearColor RedeployedSwordColor(0.72f, 1.00f, 0.88f);
 	const FLinearColor ThreatSwordColor(0.05f, 1.00f, 0.72f);
+	const FLinearColor ImpactNoDamageSwordColor(0.82f, 0.86f, 1.00f);
+	const FLinearColor ImpactHitSwordColor(1.00f, 0.82f, 0.05f);
+	const FLinearColor ImpactDefeatSwordColor(1.00f, 0.12f, 0.03f);
 }
 
 Ademo_mapShanmenControlledWeaponActor::
@@ -56,7 +59,7 @@ Ademo_mapShanmenControlledWeaponActor()
 	ThreatCueLight->SetIntensity(2200.0f);
 	ThreatCueLight->SetAttenuationRadius(180.0f);
 	ThreatCueLight->SetVisibility(false);
-	RefreshThreatPresenceCue();
+	RefreshPresentation();
 }
 
 bool Ademo_mapShanmenControlledWeaponActor::TryBindProductIdentity(
@@ -154,7 +157,7 @@ bool Ademo_mapShanmenControlledWeaponActor::TryPresentThreatPresenceCue(
 	LastThreatPresenceCueSampleSequence = Sample.SampleSequence;
 	ThreatPresenceCueContactCount = Sample.RoutedContactCount;
 	bThreatPresenceCueActive = ThreatPresenceCueContactCount > 0;
-	RefreshThreatPresenceCue();
+	RefreshPresentation();
 	return IsThreatPresenceCueStateValid();
 }
 
@@ -169,7 +172,7 @@ bool Ademo_mapShanmenControlledWeaponActor::TryClearThreatPresenceCue(
 	}
 	ThreatPresenceCueContactCount = 0;
 	bThreatPresenceCueActive = false;
-	RefreshThreatPresenceCue();
+	RefreshPresentation();
 	return IsThreatPresenceCueStateValid();
 }
 
@@ -203,7 +206,7 @@ bool Ademo_mapShanmenControlledWeaponActor::TryPresentFlightReadModel(
 		ClearCommittedImpactFeedback();
 	}
 	FlightReadModel = ReadModel;
-	RefreshThreatPresenceCue();
+	RefreshPresentation();
 	return IsFlightPresentationStateValid()
 		&& IsCommittedImpactFeedbackStateValid();
 }
@@ -256,12 +259,23 @@ TryPresentCommittedImpactFeedback(
 	PresentedImpactTargetEntityId = Delivery.TargetEntityId;
 	PresentedImpactAppliedDamage = AppliedDamage;
 	PresentedImpactTargetVitalityAfter = VitalityAfter;
+	RefreshPresentation();
 	return IsCommittedImpactFeedbackStateValid();
 }
 
 FLinearColor
 Ademo_mapShanmenControlledWeaponActor::GetResolvedPresentationColor() const
 {
+	if (IsCommittedImpactCueActive())
+	{
+		if (DidPresentedImpactDefeatTarget())
+		{
+			return ImpactDefeatSwordColor;
+		}
+		return PresentedImpactAppliedDamage > 0.0f
+			? ImpactHitSwordColor
+			: ImpactNoDamageSwordColor;
+	}
 	if (bThreatPresenceCueActive)
 	{
 		return ThreatSwordColor;
@@ -341,7 +355,7 @@ void Ademo_mapShanmenControlledWeaponActor::ClearCommittedImpactFeedback()
 	PresentedImpactTargetVitalityAfter = 0.0f;
 }
 
-void Ademo_mapShanmenControlledWeaponActor::RefreshThreatPresenceCue()
+void Ademo_mapShanmenControlledWeaponActor::RefreshPresentation()
 {
 	const FLinearColor Color = GetResolvedPresentationColor();
 	if (VisualMaterial)
@@ -368,7 +382,7 @@ void Ademo_mapShanmenControlledWeaponActor::DeactivateProductCollision()
 	FlightReadModel =
 		Fdemo_mapShanmenControlledWeaponFlightReadModel();
 	ClearCommittedImpactFeedback();
-	RefreshThreatPresenceCue();
+	RefreshPresentation();
 	if (Collision)
 	{
 		Collision->SetCollisionEnabled(ECollisionEnabled::NoCollision);
