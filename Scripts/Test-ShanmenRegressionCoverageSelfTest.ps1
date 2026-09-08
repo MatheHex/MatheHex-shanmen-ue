@@ -553,6 +553,9 @@ try
     $ControlledWeaponThreatCue = New-AutomationLogFixture `
         -Name 'controlled-weapon-threat-cue.log' `
         -Group 'Shanmen.0_0_10.Product.ControlledWeaponThreatCue'
+    $ControlledWeaponThreatReadoutPresentation = New-AutomationLogFixture `
+        -Name 'controlled-weapon-threat-readout-presentation.log' `
+        -Group 'Shanmen.0_0_10.Product.ControlledWeaponThreatReadoutPresentation'
     $DivineSenseRuntime = New-AutomationLogFixture `
         -Name 'divine-sense-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.DivineSense'
@@ -2573,6 +2576,14 @@ try
         -Logs @($Full)
 
     Invoke-ExpectedPass `
+        -Name 'controlled weapon threat readout presentation maps focused and full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenControlledWeaponThreatReadoutPresentation.h',
+            'Source/demo_map/demo_mapShanmenControlledWeaponThreatReadoutPresentation.cpp',
+            'Source/demo_map/demo_mapShanmenControlledWeaponThreatReadoutPresentationTests.cpp') `
+        -Logs @($Full, $ControlledWeaponThreatReadoutPresentation)
+
+    Invoke-ExpectedPass `
         -Name 'controlled weapon World threat sampler is covered by the full suite' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenControlledWeaponWorldThreatSampler.cpp') `
@@ -2732,6 +2743,7 @@ try
 		-Logs @(
 			$Full,
 			$ControlledWeaponThreatCue,
+			$ControlledWeaponThreatReadoutPresentation,
 			$ThrownWeaponMainHUDCombatHintLayoutPolicy,
 			$ThrownWeaponMainHUDCombatHintStackPresentation,
 			$ThrownArcPreLaunchGestureFeedbackPresentation,
@@ -5506,6 +5518,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenControlledWeaponActor.cpp') `
         -Logs @($ControlledWeaponThreatCue) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'threat readout focus cannot replace full product evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenControlledWeaponThreatReadoutPresentation.cpp') `
+        -Logs @($ControlledWeaponThreatReadoutPresentation) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

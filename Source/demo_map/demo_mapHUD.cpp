@@ -16,6 +16,7 @@
 #include "demo_mapInputBindingSettings.h"
 #include "demo_mapPlayerController.h"
 #include "demo_mapShanmenControlledWeaponActor.h"
+#include "demo_mapShanmenControlledWeaponThreatReadoutPresentation.h"
 #include "demo_mapShanmenThrownWeaponArcEditingInputHintPresentation.h"
 #include "demo_mapShanmenThrownWeaponArcEditingPresentation.h"
 #include "demo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation.h"
@@ -61,39 +62,36 @@ namespace
 			return;
 		}
 
-		FVector2D ScreenPosition;
-		if (!PlayerController->ProjectWorldLocationToScreen(
+		FVector2D ScreenPosition = FVector2D::ZeroVector;
+		const bool bProjectionSucceeded =
+			PlayerController->ProjectWorldLocationToScreen(
 				Weapon->GetActorLocation() + FVector(0.0f, 0.0f, 72.0f),
 				ScreenPosition,
-				false))
+				false);
+		Fdemo_mapShanmenControlledWeaponThreatReadoutPlan Plan;
+		if (!Fdemo_mapShanmenControlledWeaponThreatReadoutPlan::TryPlan(
+				FVector2D(Canvas->SizeX, Canvas->SizeY),
+				Weapon->GetThreatPresenceCueContactCount(),
+				bProjectionSucceeded,
+				ScreenPosition,
+				Fdemo_mapShanmenControlledWeaponThreatReadoutStyle(),
+				Plan))
 		{
 			return;
 		}
 
-		const FVector2D PanelSize(230.0f, 30.0f);
-		const FVector2D PanelPosition(
-			FMath::Clamp(
-				ScreenPosition.X - PanelSize.X * 0.5f,
-				8.0,
-				FMath::Max(8.0, Canvas->SizeX - PanelSize.X - 8.0)),
-			FMath::Clamp(
-				ScreenPosition.Y - 46.0f,
-				54.0,
-				FMath::Max(54.0, Canvas->SizeY - PanelSize.Y - 92.0)));
 		DrawHUDPanel(
 			Canvas,
-			PanelPosition,
-			PanelSize,
-			FLinearColor(0.02f, 0.18f, 0.14f, 0.88f));
+			Plan.GetPanelPosition(),
+			Plan.GetPanelSize(),
+			Plan.GetPanelColor());
 		DrawReadableText(
 			Canvas,
 			GEngine->GetSmallFont(),
-			FString::Printf(
-				TEXT("飞剑警戒 · 近身目标 %d"),
-				Weapon->GetThreatPresenceCueContactCount()),
-			PanelPosition + FVector2D(10.0f, 6.0f),
-			FLinearColor(0.2f, 1.0f, 0.72f),
-			0.82f);
+			Plan.GetText(),
+			Plan.GetTextPosition(),
+			Plan.GetTextColor(),
+			Plan.GetTextScale());
 	}
 
 	void DrawArcPreviewMarker(
