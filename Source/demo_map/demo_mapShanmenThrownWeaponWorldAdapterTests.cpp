@@ -478,7 +478,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 {
 	FThrownWorldFixture Fixture;
-	if (!Fixture.bReady)
+	FThrownSpawnWorldFixture WorldFixture;
+	if (!Fixture.bReady || !WorldFixture.IsValid())
 	{
 		AddError(TEXT("Could not build the P7.2 launch fixture."));
 		return false;
@@ -487,9 +488,15 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 	FShanmenThrownWeaponExecution Execution;
 	FShanmenCombatActionSnapshot Action;
 	StartAction(Fixture.Coordinator, Runtime, Execution, Action);
+	const Fdemo_mapShanmenThrownWeaponSpawnResult Spawned =
+		Fdemo_mapShanmenThrownWeaponRunHost::SpawnStagedCarrier(
+			WorldFixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			WorldFixture.Source,
+			FVector(10.0, 20.0, 30.0));
 	Ademo_mapShanmenThrownWeaponProjectile* Projectile =
-		NewObject<Ademo_mapShanmenThrownWeaponProjectile>(GetTransientPackage());
-	if (!Projectile)
+		Spawned.Projectile.Get();
+	if (!Spawned.IsSpawned() || !Projectile)
 	{
 		return false;
 	}
@@ -500,7 +507,7 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 			Runtime,
 			Execution,
 			*Projectile,
-			Fixture.Pawn,
+			WorldFixture.Source,
 			FVector(10.0, 20.0, 30.0),
 			FVector(4.0, 0.0, 0.0));
 	TestTrue(TEXT("Staging freezes canonical launch evidence"),
@@ -512,6 +519,7 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 			&& !Execution.IsEmissionActive()
 			&& Projectile->GetCollisionComponent()->GetCollisionEnabled()
 				== ECollisionEnabled::NoCollision
+			&& !Projectile->IsPresentationVisible()
 			&& !Projectile->GetMovementComponent()->IsActive());
 
 	if (!GEngine)
@@ -533,7 +541,8 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 			== Edemo_mapShanmenThrownWeaponLaunchError::AuthorityCommitRejected
 			&& Execution.GetState() == EShanmenThrownWeaponState::Ready
 			&& Projectile->GetProjectileState()
-				== Edemo_mapShanmenThrownWeaponProjectileState::Empty);
+				== Edemo_mapShanmenThrownWeaponProjectileState::Empty
+			&& !Projectile->IsPresentationVisible());
 	GameInstance->Shutdown();
 	GameInstance->RemoveFromRoot();
 	GameInstance->MarkAsGarbage();
@@ -545,9 +554,9 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 			Runtime,
 			Execution,
 			*Projectile,
-			Fixture.Pawn,
+			WorldFixture.Source,
 			FVector(10.0, 20.0, 30.0),
-			FVector::ForwardVector);
+			FVector::RightVector);
 	const bool bPublished = Restaged.IsStaged()
 		&& Fdemo_mapShanmenThrownWeaponWorldAdapter::PublishCommittedLaunch(
 			Runtime,
@@ -563,9 +572,12 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 				== Edemo_mapShanmenThrownWeaponProjectileState::InFlight
 			&& Projectile->GetCollisionComponent()->GetCollisionEnabled()
 				== ECollisionEnabled::QueryOnly
+			&& Projectile->IsPresentationVisible()
+			&& Projectile->GetPresentationForwardDirection().Equals(
+				FVector::RightVector, KINDA_SMALL_NUMBER)
 			&& Projectile->GetMovementComponent()->IsActive()
 			&& Projectile->GetMovementComponent()->Velocity.Equals(
-				FVector::ForwardVector * 750.0f));
+				FVector::RightVector * 750.0f));
 	TestTrue(TEXT("Physical contract has no gravity, bounce, or homing"),
 		Projectile->GetMovementComponent()->ProjectileGravityScale == 0.0f
 			&& !Projectile->GetMovementComponent()->bShouldBounce
@@ -641,6 +653,7 @@ bool Fdemo_mapThrownWeaponArcWorldMotionTest::RunTest(const FString&)
 			&& Movement->Velocity.Equals(
 				ArcPlan.GetInitialVelocity(), KINDA_SMALL_NUMBER)
 			&& Movement->MaxSpeed == 0.0f
+			&& !Projectile->IsPresentationVisible()
 			&& FMath::IsNearlyEqual(
 				Movement->ProjectileGravityScale,
 				static_cast<float>(ExpectedGravityScale)));
@@ -657,6 +670,10 @@ bool Fdemo_mapThrownWeaponArcWorldMotionTest::RunTest(const FString&)
 			&& Execution.GetState() == EShanmenThrownWeaponState::InFlight
 			&& Projectile->GetProjectileState()
 				== Edemo_mapShanmenThrownWeaponProjectileState::InFlight
+			&& Projectile->IsPresentationVisible()
+			&& Projectile->GetPresentationForwardDirection().Equals(
+				ArcPlan.GetInitialVelocity().GetSafeNormal(),
+				KINDA_SMALL_NUMBER)
 			&& Movement->IsActive()
 			&& Movement->Velocity.Equals(
 				ArcPlan.GetInitialVelocity(), KINDA_SMALL_NUMBER)
@@ -668,7 +685,8 @@ bool Fdemo_mapThrownWeaponArcWorldMotionTest::RunTest(const FString&)
 			Runtime, Execution, *Projectile)
 			&& Execution.GetState() == EShanmenThrownWeaponState::Spent
 			&& Projectile->GetProjectileState()
-				== Edemo_mapShanmenThrownWeaponProjectileState::Spent);
+				== Edemo_mapShanmenThrownWeaponProjectileState::Spent
+			&& !Projectile->IsPresentationVisible());
 	return true;
 }
 

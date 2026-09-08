@@ -10,6 +10,7 @@
 class UPrimitiveComponent;
 class UProjectileMovementComponent;
 class USphereComponent;
+class UStaticMeshComponent;
 struct FHitResult;
 struct Fdemo_mapShanmenThrownWeaponWorldAdapter;
 
@@ -80,6 +81,10 @@ public:
 	{
 		return Movement;
 	}
+	/** The prototype carrier is visible only after durable launch publication. */
+	bool IsPresentationVisible() const;
+	/** World-space forward direction of the collisionless prototype mesh. */
+	FVector GetPresentationForwardDirection() const;
 	Fdemo_mapShanmenThrownWeaponContact& OnContact() { return ContactEvent; }
 	Fdemo_mapShanmenThrownWeaponRangeExpired& OnRangeExpired()
 	{
@@ -109,6 +114,9 @@ private:
 
 	UPROPERTY(VisibleAnywhere)
 	TObjectPtr<UProjectileMovementComponent> Movement;
+
+	UPROPERTY(VisibleAnywhere)
+	TObjectPtr<UStaticMeshComponent> Visual;
 
 	UPROPERTY()
 	TObjectPtr<AActor> SourceActor;

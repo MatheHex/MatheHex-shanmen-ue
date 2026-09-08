@@ -1,9 +1,11 @@
 #include "demo_mapShanmenThrownWeaponProjectile.h"
 
 #include "Components/SphereComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Engine/HitResult.h"
 #include "Engine/World.h"
 #include "GameFramework/ProjectileMovementComponent.h"
+#include "UObject/ConstructorHelpers.h"
 
 namespace
 {
@@ -149,6 +151,20 @@ Ademo_mapShanmenThrownWeaponProjectile()
 	Collision->OnComponentHit.AddDynamic(
 		this, &Ademo_mapShanmenThrownWeaponProjectile::HandleHit);
 
+	Visual = CreateDefaultSubobject<UStaticMeshComponent>(
+		TEXT("ThrownWeaponVisual"));
+	Visual->SetupAttachment(Collision);
+	Visual->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	Visual->SetGenerateOverlapEvents(false);
+	Visual->SetRelativeScale3D(FVector(0.30f, 0.045f, 0.012f));
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeMesh(
+		TEXT("/Engine/BasicShapes/Cube.Cube"));
+	if (CubeMesh.Succeeded())
+	{
+		Visual->SetStaticMesh(CubeMesh.Object);
+	}
+	Visual->SetVisibility(false, true);
+
 	Movement = CreateDefaultSubobject<UProjectileMovementComponent>(
 		TEXT("ThrownWeaponMovement"));
 	Movement->UpdatedComponent = Collision;
@@ -157,6 +173,21 @@ Ademo_mapShanmenThrownWeaponProjectile()
 	Movement->bIsHomingProjectile = false;
 	Movement->bRotationFollowsVelocity = true;
 	Movement->bAutoActivate = false;
+}
+
+bool Ademo_mapShanmenThrownWeaponProjectile::IsPresentationVisible() const
+{
+	return Visual
+		&& Visual->GetStaticMesh()
+		&& Visual->IsVisible();
+}
+
+FVector Ademo_mapShanmenThrownWeaponProjectile::
+GetPresentationForwardDirection() const
+{
+	return Visual
+		? Visual->GetForwardVector().GetSafeNormal()
+		: FVector::ZeroVector;
 }
 
 bool Ademo_mapShanmenThrownWeaponProjectile::TryStageLaunch(
@@ -180,6 +211,8 @@ bool Ademo_mapShanmenThrownWeaponProjectile::TryStageLaunch(
 			!= EShanmenHitDetectorKind::Projectile
 		|| InContext.GetHitOrdinal() != 0
 		|| !ActionsMatch(InLaunch.GetAction(), InContext.GetAction())
+		|| !Visual
+		|| !Visual->GetStaticMesh()
 		|| !TryBuildMotionConfig(*this, InLaunch, Motion))
 	{
 		return false;
@@ -195,6 +228,7 @@ bool Ademo_mapShanmenThrownWeaponProjectile::TryStageLaunch(
 	}
 	Collision->IgnoreActorWhenMoving(InSourceActor, true);
 	Collision->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	Visual->SetVisibility(false, true);
 	Movement->Deactivate();
 	Movement->StopMovementImmediately();
 	Movement->InitialSpeed = Motion.InitialSpeed;
@@ -222,7 +256,10 @@ bool Ademo_mapShanmenThrownWeaponProjectile::IsStagedFor(
 		&& ContextsMatch(HitContext, InContext)
 		&& Collision
 		&& Movement
+		&& Visual
+		&& Visual->GetStaticMesh()
 		&& Collision->GetCollisionEnabled() == ECollisionEnabled::NoCollision
+		&& !IsPresentationVisible()
 		&& !Movement->IsActive()
 		&& MotionMatches(*this, *Movement, InLaunch, true);
 }
@@ -238,7 +275,9 @@ bool Ademo_mapShanmenThrownWeaponProjectile::IsInFlightFor(
 		&& ContextsMatch(HitContext, InContext)
 		&& Collision
 		&& Movement
+		&& Visual
 		&& Collision->GetCollisionEnabled() == ECollisionEnabled::QueryOnly
+		&& IsPresentationVisible()
 		&& Movement->IsActive()
 		&& MotionMatches(*this, *Movement, InLaunch, false);
 }
@@ -255,6 +294,7 @@ void Ademo_mapShanmenThrownWeaponProjectile::ActivateCommittedLaunch()
 	Movement->ProjectileGravityScale = Motion.GravityScale;
 	Movement->Velocity = Motion.InitialVelocity;
 	Movement->Activate(true);
+	Visual->SetVisibility(true, true);
 	State = Edemo_mapShanmenThrownWeaponProjectileState::InFlight;
 }
 
@@ -265,6 +305,7 @@ bool Ademo_mapShanmenThrownWeaponProjectile::CancelStagedLaunch()
 		return false;
 	}
 	Collision->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	Visual->SetVisibility(false, true);
 	if (SourceActor)
 	{
 		Collision->IgnoreActorWhenMoving(SourceActor, false);
@@ -290,6 +331,7 @@ bool Ademo_mapShanmenThrownWeaponProjectile::MarkSpent()
 		return false;
 	}
 	Collision->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	Visual->SetVisibility(false, true);
 	Movement->StopMovementImmediately();
 	Movement->Deactivate();
 	State = Edemo_mapShanmenThrownWeaponProjectileState::Spent;
