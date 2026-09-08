@@ -449,6 +449,58 @@ IsAtInitialOrbitLocation(const float Tolerance) const
 			GetInitialOrbitLocation(), Tolerance);
 }
 
+bool Fdemo_mapShanmenControlledWeaponProductController::
+TryCaptureFlightReadModel(
+	const bool bRedeployedThisFrame,
+	Fdemo_mapShanmenControlledWeaponFlightReadModel& OutReadModel) const
+{
+	OutReadModel = Fdemo_mapShanmenControlledWeaponFlightReadModel();
+	AActor* BoundWeaponActor = WeaponActor.Get();
+	if (!IsValid() || !BoundWeaponActor)
+	{
+		return false;
+	}
+
+	using EFlightPhase =
+		Edemo_mapShanmenControlledWeaponFlightPhase;
+	EFlightPhase Phase = EFlightPhase::Invalid;
+	if (bRedeployedThisFrame)
+	{
+		if (!IsOrbiting()
+			|| !BoundWeaponActor->GetActorLocation().Equals(
+				GetInitialOrbitLocation(), KINDA_SMALL_NUMBER))
+		{
+			return false;
+		}
+		Phase = EFlightPhase::Redeployed;
+	}
+	else if (IsOrbiting())
+	{
+		Phase = EFlightPhase::Orbiting;
+	}
+	else if (IsDirected())
+	{
+		Phase = EFlightPhase::Directed;
+	}
+	else if (IsCompletedForReturn())
+	{
+		Phase = EFlightPhase::Returning;
+	}
+	else
+	{
+		return false;
+	}
+
+	return Fdemo_mapShanmenControlledWeaponFlightReadModel::TryCapture(
+		RunId,
+		Session.GetEvidence().ItemInstanceId,
+		Session.GetActionRuntime().GetAction().GetActivationId(),
+		Phase,
+		BoundWeaponActor->GetActorLocation(),
+		GetInitialOrbitLocation(),
+		OutReadModel);
+}
+
 bool Fdemo_mapShanmenControlledWeaponProductController::HasActiveContactWindow() const
 {
 	return IsValid()

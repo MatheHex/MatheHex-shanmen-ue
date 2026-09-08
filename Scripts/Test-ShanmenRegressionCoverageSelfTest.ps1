@@ -2585,6 +2585,13 @@ try
         -Logs @($Full)
 
     Invoke-ExpectedPass `
+        -Name 'controlled weapon flight read model is covered by the full suite' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenControlledWeaponFlightReadModel.h',
+            'Source/demo_map/demo_mapShanmenControlledWeaponFlightReadModel.cpp') `
+        -Logs @($Full)
+
+    Invoke-ExpectedPass `
         -Name 'controlled weapon threat readout presentation maps focused and full evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenControlledWeaponThreatReadoutPresentation.h',
@@ -5540,6 +5547,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenControlledWeaponActor.cpp') `
         -Logs @($ControlledWeaponThreatCue) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'flight read model cannot use readout-only evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenControlledWeaponFlightReadModel.cpp') `
+        -Logs @($ControlledWeaponThreatReadoutPresentation) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

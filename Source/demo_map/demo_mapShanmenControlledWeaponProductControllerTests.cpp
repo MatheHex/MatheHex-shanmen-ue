@@ -395,6 +395,107 @@ bool Fdemo_mapControlledWeaponProductOrbitMotionTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapControlledWeaponProductFlightReadModelTest,
+	"Shanmen.0_0_10.Product.ControlledWeaponController.FlightReadModel",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapControlledWeaponProductFlightReadModelTest::RunTest(
+	const FString&)
+{
+	using EFlightPhase =
+		Edemo_mapShanmenControlledWeaponFlightPhase;
+	using FFlightReadModel =
+		Fdemo_mapShanmenControlledWeaponFlightReadModel;
+
+	FControlledWeaponProductFixture Fixture;
+	Fdemo_mapShanmenControlledWeaponProductController Controller;
+	if (!Fixture.bReady || !StartProduct(Fixture, Controller).IsStarted())
+	{
+		AddError(TEXT("Could not prepare P21.10 flight-read fixture."));
+		return false;
+	}
+
+	const FGuid ActivationId = Controller.GetSession()
+		.GetActionRuntime().GetAction().GetActivationId();
+	FFlightReadModel ReadModel;
+	FFlightReadModel Replay;
+	TestTrue(TEXT("Orbiting authority captures a deterministic read model"),
+		Controller.TryCaptureFlightReadModel(false, ReadModel)
+		&& Controller.TryCaptureFlightReadModel(false, Replay)
+		&& ReadModel.Matches(Replay)
+		&& ReadModel.GetRunId() == ProductRunId
+		&& ReadModel.GetItemInstanceId() == ProductItemId
+		&& ReadModel.GetActivationId() == ActivationId
+		&& ReadModel.GetPhase() == EFlightPhase::Orbiting
+		&& ReadModel.GetWeaponLocation().Equals(
+			Fixture.Weapon->GetActorLocation())
+		&& ReadModel.GetReturnAnchor().Equals(
+			Controller.GetInitialOrbitLocation()));
+
+	TestFalse(TEXT("Redeployed is rejected away from the canonical anchor"),
+		Controller.TryCaptureFlightReadModel(true, ReadModel));
+	TestTrue(TEXT("Rejected transient capture clears reusable output"),
+		!ReadModel.IsValid()
+		&& ReadModel.GetPhase() == EFlightPhase::Invalid);
+
+	Fixture.Weapon->SetActorLocation(
+		Controller.GetInitialOrbitLocation(),
+		false,
+		nullptr,
+		ETeleportType::TeleportPhysics);
+	TestTrue(TEXT("Frame-owner evidence exposes a one-frame redeploy phase"),
+		Controller.TryCaptureFlightReadModel(true, ReadModel)
+		&& ReadModel.GetPhase() == EFlightPhase::Redeployed
+		&& ReadModel.IsAtReturnAnchor());
+	TestTrue(TEXT("Without the frame event the same authority remains Orbiting"),
+		Controller.TryCaptureFlightReadModel(false, ReadModel)
+		&& ReadModel.GetPhase() == EFlightPhase::Orbiting);
+
+	FShanmenControlledWeaponCommandReceipt Launch;
+	TestTrue(TEXT("Canonical Launch is reflected without a second state machine"),
+		Controller.TryLaunch(0, FVector::ForwardVector, Launch)
+		&& Controller.TryCaptureFlightReadModel(false, ReadModel)
+		&& ReadModel.GetPhase() == EFlightPhase::Directed
+		&& ReadModel.GetActivationId() == ActivationId);
+
+	FShanmenControlledWeaponCommandReceipt Recall;
+	FShanmenActionTransitionReceipt Recovery;
+	FShanmenActionTransitionReceipt Completed;
+	TestTrue(TEXT("Existing Completed state is presented as Returning"),
+		Controller.TryRecallAndComplete(
+			1, Recall, Recovery, Completed)
+		&& Controller.TryCaptureFlightReadModel(false, ReadModel)
+		&& ReadModel.GetPhase() == EFlightPhase::Returning
+		&& ReadModel.GetActivationId() == ActivationId);
+	TestFalse(TEXT("Terminal state cannot forge a redeploy event"),
+		Controller.TryCaptureFlightReadModel(true, ReadModel));
+	TestTrue(TEXT("Failed terminal redeploy observation clears output"),
+		!ReadModel.IsValid()
+		&& ReadModel.GetPhase() == EFlightPhase::Invalid);
+
+	FFlightReadModel Invalid;
+	TestFalse(TEXT("The immutable model rejects invalid product identity"),
+		FFlightReadModel::TryCapture(
+			FGuid(),
+			ProductItemId,
+			ActivationId,
+			EFlightPhase::Orbiting,
+			FVector::ZeroVector,
+			FVector::ZeroVector,
+			Invalid));
+	TestFalse(TEXT("Redeployed snapshots must prove anchor arrival"),
+		FFlightReadModel::TryCapture(
+			ProductRunId,
+			ProductItemId,
+			ActivationId,
+			EFlightPhase::Redeployed,
+			FVector::ZeroVector,
+			FVector(1.0, 0.0, 0.0),
+			Invalid));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	Fdemo_mapControlledWeaponProductContactCompletionTest,
 	"Shanmen.0_0_10.Product.ControlledWeaponController.ContactAndCompletion",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "demo_mapShanmenControlledWeaponFlightReadModel.h"
 
 enum class Edemo_mapShanmenControlledWeaponThreatReadoutPlacement : uint8
 {
@@ -36,6 +37,7 @@ class Fdemo_mapShanmenControlledWeaponThreatReadoutPlan
 public:
 	static bool TryPlan(
 		const FVector2D& CanvasSize,
+		Edemo_mapShanmenControlledWeaponFlightPhase Phase,
 		int32 ContactCount,
 		bool bProjectionSucceeded,
 		const FVector2D& ProjectedScreenPosition,
@@ -60,6 +62,10 @@ public:
 		return Placement;
 	}
 	int32 GetContactCount() const { return ContactCount; }
+	Edemo_mapShanmenControlledWeaponFlightPhase GetPhase() const
+	{
+		return Phase;
+	}
 	const FString& GetText() const { return Text; }
 	const FVector2D& GetPanelPosition() const { return PanelPosition; }
 	const FVector2D& GetPanelSize() const { return Style.PanelSize; }
@@ -76,6 +82,8 @@ private:
 		Edemo_mapShanmenControlledWeaponThreatReadoutPlacement::Invalid;
 	FVector2D CanvasSize = FVector2D::ZeroVector;
 	FVector2D PanelPosition = FVector2D::ZeroVector;
+	Edemo_mapShanmenControlledWeaponFlightPhase Phase =
+		Edemo_mapShanmenControlledWeaponFlightPhase::Invalid;
 	int32 ContactCount = 0;
 	FString Text;
 	Fdemo_mapShanmenControlledWeaponThreatReadoutStyle Style;

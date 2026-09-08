@@ -13,6 +13,8 @@ namespace
 		Fdemo_mapShanmenControlledWeaponThreatReadoutPlan;
 	using FStyle =
 		Fdemo_mapShanmenControlledWeaponThreatReadoutStyle;
+	using EFlightPhase =
+		Edemo_mapShanmenControlledWeaponFlightPhase;
 
 	constexpr EAutomationTestFlags PresentationFlags =
 		EAutomationTestFlags::EditorContext
@@ -33,6 +35,7 @@ bool Fdemo_mapControlledWeaponThreatReadoutWorldTrackedTest::RunTest(
 	TestTrue(TEXT("an on-screen flying sword receives a tracked plan"),
 		FPlan::TryPlan(
 			FVector2D(1920.0, 1080.0),
+			EFlightPhase::Orbiting,
 			3,
 			true,
 			FVector2D(960.0, 540.0),
@@ -40,6 +43,7 @@ bool Fdemo_mapControlledWeaponThreatReadoutWorldTrackedTest::RunTest(
 			Plan)
 		&& FPlan::TryPlan(
 			FVector2D(1920.0, 1080.0),
+			EFlightPhase::Orbiting,
 			3,
 			true,
 			FVector2D(960.0, 540.0),
@@ -50,8 +54,9 @@ bool Fdemo_mapControlledWeaponThreatReadoutWorldTrackedTest::RunTest(
 			&& Plan.Matches(Replay)
 			&& Plan.GetPlacement() == EPlacement::WorldTracked
 			&& !Plan.IsViewportFallback()
+			&& Plan.GetPhase() == EFlightPhase::Orbiting
 			&& Plan.GetContactCount() == 3
-			&& Plan.GetText() == TEXT("飞剑警戒 · 近身目标 3")
+			&& Plan.GetText() == TEXT("飞剑 · 环绕待命 · 近身目标 3")
 			&& Plan.GetPanelPosition() == FVector2D(845.0, 494.0)
 			&& Plan.GetPanelSize() == FVector2D(230.0, 30.0)
 			&& Plan.GetTextPosition() == FVector2D(855.0, 500.0)
@@ -61,6 +66,7 @@ bool Fdemo_mapControlledWeaponThreatReadoutWorldTrackedTest::RunTest(
 	TestTrue(TEXT("an on-screen edge anchor clamps without becoming fallback"),
 		FPlan::TryPlan(
 			FVector2D(1920.0, 1080.0),
+			EFlightPhase::Redeployed,
 			1,
 			true,
 			FVector2D(0.0, 0.0),
@@ -86,7 +92,8 @@ bool Fdemo_mapControlledWeaponThreatReadoutViewportFallbackTest::RunTest(
 	TestTrue(TEXT("a failed projection resolves to a stable viewport fallback"),
 		FPlan::TryPlan(
 			FVector2D(1920.0, 1080.0),
-			2,
+			EFlightPhase::Returning,
+			0,
 			false,
 			FVector2D::ZeroVector,
 			Style,
@@ -94,14 +101,16 @@ bool Fdemo_mapControlledWeaponThreatReadoutViewportFallbackTest::RunTest(
 	TestTrue(TEXT("outside and non-finite projections use the same fallback"),
 		FPlan::TryPlan(
 			FVector2D(1920.0, 1080.0),
-			2,
+			EFlightPhase::Returning,
+			0,
 			true,
 			FVector2D(1921.0, 540.0),
 			Style,
 			OutsideViewport)
 		&& FPlan::TryPlan(
 			FVector2D(1920.0, 1080.0),
-			2,
+			EFlightPhase::Returning,
+			0,
 			true,
 			FVector2D(
 				std::numeric_limits<double>::quiet_NaN(),
@@ -113,7 +122,9 @@ bool Fdemo_mapControlledWeaponThreatReadoutViewportFallbackTest::RunTest(
 			&& ProjectionFailed.Matches(OutsideViewport)
 			&& ProjectionFailed.Matches(NonFiniteProjection)
 			&& ProjectionFailed.GetText()
-				== TEXT("飞剑警戒 · 屏外 · 目标 2")
+				== TEXT("飞剑 · 返航 · 屏外")
+			&& ProjectionFailed.GetPhase() == EFlightPhase::Returning
+			&& ProjectionFailed.GetContactCount() == 0
 			&& ProjectionFailed.GetPanelPosition()
 				== FVector2D(845.0, 54.0));
 
@@ -131,6 +142,7 @@ bool Fdemo_mapControlledWeaponThreatReadoutViewportFallbackTest::RunTest(
 	TestTrue(TEXT("validated style values configure the resolved plan"),
 		FPlan::TryPlan(
 			FVector2D(1280.0, 720.0),
+			EFlightPhase::Directed,
 			4,
 			true,
 			FVector2D(640.0, 360.0),
@@ -140,6 +152,9 @@ bool Fdemo_mapControlledWeaponThreatReadoutViewportFallbackTest::RunTest(
 			&& Custom.GetPanelSize() == FVector2D(260.0, 36.0)
 			&& Custom.GetTextPosition() == FVector2D(522.0, 316.0)
 			&& Custom.GetTextScale() == 0.9
+			&& Custom.GetPhase() == EFlightPhase::Directed
+			&& Custom.GetText()
+				== TEXT("飞剑 · 御剑出击 · 近身目标 4")
 			&& Custom.GetPanelColor() == CustomStyle.PanelColor
 			&& Custom.GetTextColor() == CustomStyle.TextColor);
 	return true;
@@ -157,15 +172,29 @@ bool Fdemo_mapControlledWeaponThreatReadoutFenceTest::RunTest(
 	FPlan Reused;
 	check(FPlan::TryPlan(
 		FVector2D(1920.0, 1080.0),
+		EFlightPhase::Orbiting,
 		1,
 		true,
 		FVector2D(960.0, 540.0),
 		Style,
 		Reused));
-	TestFalse(TEXT("zero contacts hide instead of fabricating a readout"),
+	TestTrue(TEXT("zero contacts retain the authoritative flight phase"),
 		FPlan::TryPlan(
 			FVector2D(1920.0, 1080.0),
+			EFlightPhase::Orbiting,
 			0,
+			true,
+			FVector2D(960.0, 540.0),
+			Style,
+			Reused)
+		&& Reused.IsValid()
+		&& Reused.GetContactCount() == 0
+		&& Reused.GetText() == TEXT("飞剑 · 环绕待命"));
+	TestFalse(TEXT("negative contact evidence fails closed"),
+		FPlan::TryPlan(
+			FVector2D(1920.0, 1080.0),
+			EFlightPhase::Orbiting,
+			-1,
 			true,
 			FVector2D(960.0, 540.0),
 			Style,
@@ -173,12 +202,24 @@ bool Fdemo_mapControlledWeaponThreatReadoutFenceTest::RunTest(
 	TestTrue(TEXT("failed planning clears reusable output"),
 		!Reused.IsValid()
 			&& Reused.GetPlacement() == EPlacement::Invalid
+			&& Reused.GetPhase() == EFlightPhase::Invalid
 			&& Reused.GetContactCount() == 0
 			&& Reused.GetText().IsEmpty());
+
+	TestFalse(TEXT("invalid product phase cannot fabricate presentation"),
+		FPlan::TryPlan(
+			FVector2D(1920.0, 1080.0),
+			EFlightPhase::Invalid,
+			0,
+			true,
+			FVector2D(960.0, 540.0),
+			Style,
+			Reused));
 
 	TestFalse(TEXT("undersized canvas fails closed"),
 		FPlan::TryPlan(
 			FVector2D(245.0, 1080.0),
+			EFlightPhase::Returning,
 			1,
 			false,
 			FVector2D::ZeroVector,
@@ -189,6 +230,7 @@ bool Fdemo_mapControlledWeaponThreatReadoutFenceTest::RunTest(
 	TestFalse(TEXT("invalid visual configuration is rejected"),
 		FPlan::TryPlan(
 			FVector2D(1920.0, 1080.0),
+			EFlightPhase::Orbiting,
 			1,
 			true,
 			FVector2D(960.0, 540.0),
@@ -200,6 +242,7 @@ bool Fdemo_mapControlledWeaponThreatReadoutFenceTest::RunTest(
 	TestFalse(TEXT("non-finite configuration is rejected"),
 		FPlan::TryPlan(
 			FVector2D(1920.0, 1080.0),
+			EFlightPhase::Orbiting,
 			1,
 			true,
 			FVector2D(960.0, 540.0),

@@ -2765,6 +2765,18 @@
       ]
     },
     {
+      "name": "ControlledWeaponFlightReadModel",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenControlledWeaponFlightReadModel\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Product.ControlledWeaponController",
+        "Shanmen.0_0_10.Product.ControlledWeaponWorldLifecycle",
+        "Shanmen.0_0_10.Product.ControlledWeaponThreatCue",
+        "Shanmen.0_0_10.Product.ControlledWeaponThreatReadoutPresentation",
+        "Shanmen.0_0_10.WorldGameplay",
+        "Shanmen.0_0_10.CombatRuntime"
+      ]
+    },
+    {
       "name": "ControlledWeaponThreatReadoutPresentation",
       "pathRegex": "^Source/demo_map/demo_mapShanmenControlledWeaponThreatReadoutPresentation(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [

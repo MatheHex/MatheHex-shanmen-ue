@@ -50,17 +50,18 @@ namespace
 		Canvas->DrawItem(Tile);
 	}
 
-	void DrawControlledWeaponThreatReadout(
+	void DrawControlledWeaponReadout(
 		UCanvas* Canvas,
 		APlayerController* PlayerController,
 		const Ademo_mapShanmenControlledWeaponActor* Weapon)
 	{
 		if (Canvas == nullptr || PlayerController == nullptr
-			|| Weapon == nullptr || !Weapon->IsThreatPresenceCueActive()
-			|| Weapon->GetThreatPresenceCueContactCount() <= 0)
+			|| Weapon == nullptr || !Weapon->HasFlightPresentation())
 		{
 			return;
 		}
+		const Fdemo_mapShanmenControlledWeaponFlightReadModel& ReadModel =
+			Weapon->GetFlightPresentationReadModel();
 
 		FVector2D ScreenPosition = FVector2D::ZeroVector;
 		const bool bProjectionSucceeded =
@@ -71,6 +72,7 @@ namespace
 		Fdemo_mapShanmenControlledWeaponThreatReadoutPlan Plan;
 		if (!Fdemo_mapShanmenControlledWeaponThreatReadoutPlan::TryPlan(
 				FVector2D(Canvas->SizeX, Canvas->SizeY),
+				ReadModel.GetPhase(),
 				Weapon->GetThreatPresenceCueContactCount(),
 				bProjectionSucceeded,
 				ScreenPosition,
@@ -280,7 +282,7 @@ void Ademo_mapHUD::DrawHUD()
 		Canvas,
 		PlayerController,
 		ThrownWeaponArcPreviewRendererAdapter.GetSurfaceCursor());
-	DrawControlledWeaponThreatReadout(
+	DrawControlledWeaponReadout(
 		Canvas,
 		PlayerController,
 		ActiveMode

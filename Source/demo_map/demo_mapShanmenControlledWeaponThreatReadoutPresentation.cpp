@@ -8,6 +8,8 @@ namespace
 		Fdemo_mapShanmenControlledWeaponThreatReadoutPlan;
 	using FStyle =
 		Fdemo_mapShanmenControlledWeaponThreatReadoutStyle;
+	using EFlightPhase =
+		Edemo_mapShanmenControlledWeaponFlightPhase;
 
 	bool IsFiniteVector(const FVector2D& Value)
 	{
@@ -22,19 +24,52 @@ namespace
 			&& FMath::IsFinite(Value.A);
 	}
 
-	FString BuildText(const EPlacement Placement, const int32 ContactCount)
+	bool IsVisiblePhase(const EFlightPhase Phase)
 	{
-		if (Placement == EPlacement::WorldTracked)
+		return Phase == EFlightPhase::Orbiting
+			|| Phase == EFlightPhase::Directed
+			|| Phase == EFlightPhase::Returning
+			|| Phase == EFlightPhase::Redeployed;
+	}
+
+	FString BuildText(
+		const EPlacement Placement,
+		const EFlightPhase Phase,
+		const int32 ContactCount)
+	{
+		FString Text;
+		switch (Phase)
 		{
-			return FString::Printf(
-				TEXT("飞剑警戒 · 近身目标 %d"), ContactCount);
+		case EFlightPhase::Orbiting:
+			Text = TEXT("飞剑 · 环绕待命");
+			break;
+		case EFlightPhase::Directed:
+			Text = TEXT("飞剑 · 御剑出击");
+			break;
+		case EFlightPhase::Returning:
+			Text = TEXT("飞剑 · 返航");
+			break;
+		case EFlightPhase::Redeployed:
+			Text = TEXT("飞剑 · 已归位");
+			break;
+		default:
+			return FString();
 		}
+
 		if (Placement == EPlacement::ViewportFallback)
 		{
-			return FString::Printf(
-				TEXT("飞剑警戒 · 屏外 · 目标 %d"), ContactCount);
+			Text += TEXT(" · 屏外");
 		}
-		return FString();
+		else if (Placement != EPlacement::WorldTracked)
+		{
+			return FString();
+		}
+		if (ContactCount > 0)
+		{
+			Text += FString::Printf(
+				TEXT(" · 近身目标 %d"), ContactCount);
+		}
+		return Text;
 	}
 
 	bool IsInsideViewport(
@@ -66,6 +101,7 @@ bool FStyle::IsValid() const
 
 bool FPlan::TryPlan(
 	const FVector2D& InCanvasSize,
+	const EFlightPhase InPhase,
 	const int32 InContactCount,
 	const bool bProjectionSucceeded,
 	const FVector2D& ProjectedScreenPosition,
@@ -75,7 +111,8 @@ bool FPlan::TryPlan(
 	OutPlan = FPlan();
 	if (!IsFiniteVector(InCanvasSize)
 		|| InCanvasSize.X <= 0.0 || InCanvasSize.Y <= 0.0
-		|| InContactCount <= 0 || !InStyle.IsValid())
+		|| !IsVisiblePhase(InPhase)
+		|| InContactCount < 0 || !InStyle.IsValid())
 	{
 		return false;
 	}
@@ -93,6 +130,7 @@ bool FPlan::TryPlan(
 
 	FPlan Candidate;
 	Candidate.CanvasSize = InCanvasSize;
+	Candidate.Phase = InPhase;
 	Candidate.ContactCount = InContactCount;
 	Candidate.Style = InStyle;
 	const bool bWorldTracked = bProjectionSucceeded
@@ -116,7 +154,8 @@ bool FPlan::TryPlan(
 				MinimumPanelX,
 				MaximumPanelX),
 			MinimumPanelY);
-	Candidate.Text = BuildText(Candidate.Placement, InContactCount);
+	Candidate.Text = BuildText(
+		Candidate.Placement, InPhase, InContactCount);
 	if (!Candidate.IsValid())
 	{
 		return false;
@@ -132,9 +171,10 @@ bool FPlan::IsValid() const
 			&& Placement != EPlacement::ViewportFallback)
 		|| !IsFiniteVector(CanvasSize)
 		|| CanvasSize.X <= 0.0 || CanvasSize.Y <= 0.0
-		|| ContactCount <= 0 || !Style.IsValid()
+		|| !IsVisiblePhase(Phase)
+		|| ContactCount < 0 || !Style.IsValid()
 		|| !IsFiniteVector(PanelPosition)
-		|| Text != BuildText(Placement, ContactCount))
+		|| Text != BuildText(Placement, Phase, ContactCount))
 	{
 		return false;
 	}
@@ -155,6 +195,7 @@ bool FPlan::Matches(const FPlan& Other) const
 		&& Placement == Other.Placement
 		&& CanvasSize == Other.CanvasSize
 		&& PanelPosition == Other.PanelPosition
+		&& Phase == Other.Phase
 		&& ContactCount == Other.ContactCount
 		&& Text == Other.Text
 		&& Style.PanelSize == Other.Style.PanelSize

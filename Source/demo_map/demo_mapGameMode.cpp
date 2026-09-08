@@ -2706,6 +2706,33 @@ void Ademo_mapGameMode::Tick(float DeltaSeconds)
 			}
 		}
 	}
+	if (ControlledWeaponWorldLifecycle.IsActive())
+	{
+		Ademo_mapShanmenControlledWeaponActor* WeaponActor =
+			ControlledWeaponWorldLifecycle.GetWeaponActor();
+		const FGuid ItemInstanceId =
+			ControlledWeaponWorldLifecycle.GetItemInstanceId();
+		const Fdemo_mapShanmenControlledWeaponProductController* Controller =
+			ControlledWeaponRunHost.FindController(ItemInstanceId);
+		Fdemo_mapShanmenControlledWeaponFlightReadModel ReadModel;
+		if (!WeaponActor
+			|| !Controller
+			|| Controller->GetWeaponActor() != WeaponActor
+			|| !Controller->TryCaptureFlightReadModel(
+				bControlledWeaponRedeployedThisFrame, ReadModel)
+			|| !WeaponActor->TryPresentFlightReadModel(ReadModel))
+		{
+			UE_LOG(Logdemo_map, Error,
+				TEXT("0_0_10_CONTROLLED_WEAPON Event=FlightPresentationRejected RunId=%s ItemId=%s RedeployedThisFrame=%d Actor=%s Controller=%d"),
+				*ControlledWeaponWorldLifecycle.GetRunId().ToString(
+					EGuidFormats::DigitsWithHyphens),
+				*ItemInstanceId.ToString(
+					EGuidFormats::DigitsWithHyphens),
+				bControlledWeaponRedeployedThisFrame ? 1 : 0,
+				*GetNameSafe(WeaponActor),
+				Controller ? 1 : 0);
+		}
+	}
 	if (!bM01ExtractionFoundationActive || M01ExtractionAuthority.IsRunTerminal()) return;
 	if (PlayerItemSubsystem.IsValid())
 	{

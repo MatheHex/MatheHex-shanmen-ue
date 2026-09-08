@@ -2164,6 +2164,19 @@ bool FShanmenCanonicalControlledWeaponWorldLifecycleTest::RunTest(
 		&& Weapon
 		&& Weapon->GetActorLocation().Equals(
 			ExpectedInitialLocation, KINDA_SMALL_NUMBER));
+	Fdemo_mapShanmenControlledWeaponFlightReadModel ReturningReadModel;
+	TestTrue(TEXT("Completed authority publishes the returned Actor phase"),
+		FirstController
+		&& FirstController->TryCaptureFlightReadModel(
+			false, ReturningReadModel)
+		&& ReturningReadModel.GetPhase()
+			== Edemo_mapShanmenControlledWeaponFlightPhase::Returning
+		&& ReturningReadModel.GetActivationId() == FirstActivationId
+		&& ReturningReadModel.IsAtReturnAnchor()
+		&& Weapon->TryPresentFlightReadModel(ReturningReadModel)
+		&& Weapon->HasFlightPresentation()
+		&& Weapon->GetFlightPresentationReadModel().Matches(
+			ReturningReadModel));
 
 	const Fdemo_mapShanmenControlledWeaponWorldRedeployResult Redeployed =
 		WorldFixture.Lifecycle.TryRedeployReturned(
@@ -2190,6 +2203,37 @@ bool FShanmenCanonicalControlledWeaponWorldLifecycleTest::RunTest(
 		&& Fixture.Authority->TryCaptureSnapshot(AuthorityAfterRedeploy)
 		&& AuthorityAfterRedeploy == AuthorityBefore);
 
+	Fdemo_mapShanmenControlledWeaponFlightReadModel RedeployedReadModel;
+	const FLinearColor ReturningColor = Weapon
+		? Weapon->GetResolvedPresentationColor()
+		: FLinearColor::Transparent;
+	TestTrue(TEXT("Atomic reuse emits one exact new-activation redeploy cue"),
+		SecondController
+		&& SecondController->TryCaptureFlightReadModel(
+			true, RedeployedReadModel)
+		&& RedeployedReadModel.GetPhase()
+			== Edemo_mapShanmenControlledWeaponFlightPhase::Redeployed
+		&& RedeployedReadModel.GetActivationId()
+			== Redeployed.NewActivationId
+		&& RedeployedReadModel.IsAtReturnAnchor()
+		&& Weapon->TryPresentFlightReadModel(RedeployedReadModel)
+		&& Weapon->GetFlightPresentationReadModel().Matches(
+			RedeployedReadModel)
+		&& Weapon->GetResolvedPresentationColor() != ReturningColor);
+
+	Fdemo_mapShanmenControlledWeaponFlightReadModel OrbitingReadModel;
+	TestTrue(TEXT("Next observation returns to the authoritative Orbiting phase"),
+		SecondController
+		&& SecondController->TryCaptureFlightReadModel(
+			false, OrbitingReadModel)
+		&& OrbitingReadModel.GetPhase()
+			== Edemo_mapShanmenControlledWeaponFlightPhase::Orbiting
+		&& OrbitingReadModel.GetActivationId()
+			== Redeployed.NewActivationId
+		&& Weapon->TryPresentFlightReadModel(OrbitingReadModel)
+		&& Weapon->GetFlightPresentationReadModel().Matches(
+			OrbitingReadModel));
+
 	const FVector BeforeSecondLaunch = Weapon
 		? Weapon->GetActorLocation() : FVector::ZeroVector;
 	FShanmenControlledWeaponCommandReceipt SecondLaunch;
@@ -2206,6 +2250,16 @@ bool FShanmenCanonicalControlledWeaponWorldLifecycleTest::RunTest(
 		&& Weapon
 		&& !Weapon->GetActorLocation().Equals(BeforeSecondLaunch)
 		&& WorldFixture.CountControlledWeaponActors() == 1);
+	Fdemo_mapShanmenControlledWeaponFlightReadModel DirectedReadModel;
+	TestTrue(TEXT("Second launch projects Directed from the same Controller"),
+		SecondController
+		&& SecondController->TryCaptureFlightReadModel(
+			false, DirectedReadModel)
+		&& DirectedReadModel.GetPhase()
+			== Edemo_mapShanmenControlledWeaponFlightPhase::Directed
+		&& DirectedReadModel.GetActivationId()
+			== Redeployed.NewActivationId
+		&& Weapon->TryPresentFlightReadModel(DirectedReadModel));
 
 	FString EarlyRetirementDiagnostic;
 	TestFalse(TEXT("World Actor cannot retire before logical Host teardown"),
@@ -2582,6 +2636,18 @@ bool FShanmenControlledWeaponThreatCueTest::RunTest(const FString&)
 	{
 		return false;
 	}
+	const Fdemo_mapShanmenControlledWeaponProductController* Controller =
+		WorldFixture.Host.FindController(Fixture.FlyingSwordId);
+	Fdemo_mapShanmenControlledWeaponFlightReadModel OrbitingReadModel;
+	TestTrue(TEXT("Threat cue overlays one authoritative flight presentation"),
+		Controller
+		&& Controller->TryCaptureFlightReadModel(
+			false, OrbitingReadModel)
+		&& OrbitingReadModel.GetPhase()
+			== Edemo_mapShanmenControlledWeaponFlightPhase::Orbiting
+		&& Weapon->TryPresentFlightReadModel(OrbitingReadModel));
+	const FLinearColor OrbitingColor =
+		Weapon->GetResolvedPresentationColor();
 	const float VitalityBefore = Enemy->GetCurrentVitality();
 	const int32 ImpactsBefore = Enemy->NumCommittedCombatImpacts();
 	TestTrue(TEXT("Fresh flying sword starts with an idle threat cue"),
@@ -2613,7 +2679,10 @@ bool FShanmenControlledWeaponThreatCueTest::RunTest(const FString&)
 		&& Weapon->IsThreatPresenceCueVisualActive()
 		&& Weapon->GetThreatPresenceCueContactCount() == 1
 		&& Weapon->GetLastThreatPresenceCueSampleSequence() == 0
-		&& Weapon->GetLastThreatPresenceCueIntentId() == Presence.IntentId);
+		&& Weapon->GetLastThreatPresenceCueIntentId() == Presence.IntentId
+		&& Weapon->GetResolvedPresentationColor() != OrbitingColor);
+	const FLinearColor ThreatColor =
+		Weapon->GetResolvedPresentationColor();
 	TestTrue(TEXT("Exact sample replay is presentation-idempotent"),
 		Weapon->TryPresentThreatPresenceCue(Presence)
 		&& Weapon->GetLastThreatPresenceCueSampleSequence() == 0
@@ -2677,7 +2746,9 @@ bool FShanmenControlledWeaponThreatCueTest::RunTest(const FString&)
 		&& !Weapon->IsThreatPresenceCueVisualActive()
 		&& Weapon->GetThreatPresenceCueContactCount() == 0
 		&& Weapon->GetLastThreatPresenceCueSampleSequence() == 1
-		&& Weapon->GetLastThreatPresenceCueIntentId() == Empty.IntentId);
+		&& Weapon->GetLastThreatPresenceCueIntentId() == Empty.IntentId
+		&& Weapon->GetResolvedPresentationColor() == OrbitingColor
+		&& Weapon->GetResolvedPresentationColor() != ThreatColor);
 	TestFalse(TEXT("A stale presence cannot relight the sword"),
 		Weapon->TryPresentThreatPresenceCue(Presence));
 	TestTrue(TEXT("Threat presentation never mutates enemy combat authority"),

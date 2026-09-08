@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "demo_mapShanmenControlledWeaponFlightReadModel.h"
 #include "demo_mapShanmenControlledWeaponWorldAdapter.h"
 
 class AActor;
@@ -173,6 +174,10 @@ public:
 	FVector GetInitialOrbitLocation() const;
 	bool IsAtInitialOrbitLocation(
 		float Tolerance = KINDA_SMALL_NUMBER) const;
+	/** Captures presentation evidence from the current authoritative state. */
+	bool TryCaptureFlightReadModel(
+		bool bRedeployedThisFrame,
+		Fdemo_mapShanmenControlledWeaponFlightReadModel& OutReadModel) const;
 	bool HasActiveContactWindow() const;
 	bool HasActiveOrbitThreatWindow() const;
 	bool HasActiveDirectedContactWindow() const;

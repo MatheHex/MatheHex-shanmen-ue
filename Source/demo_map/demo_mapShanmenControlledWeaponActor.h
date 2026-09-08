@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "demo_mapShanmenControlledWeaponFlightReadModel.h"
 
 #include "demo_mapShanmenControlledWeaponActor.generated.h"
 
@@ -67,6 +68,20 @@ public:
 	{
 		return LastThreatPresenceCueIntentId;
 	}
+	/** Accepts only an exact-item snapshot of this Actor's current transform. */
+	bool TryPresentFlightReadModel(
+		const Fdemo_mapShanmenControlledWeaponFlightReadModel& ReadModel);
+	bool HasFlightPresentation() const
+	{
+		return FlightReadModel.IsValid();
+	}
+	const Fdemo_mapShanmenControlledWeaponFlightReadModel&
+	GetFlightPresentationReadModel() const
+	{
+		return FlightReadModel;
+	}
+	/** Threat presence overlays, but never replaces, the base flight phase. */
+	FLinearColor GetResolvedPresentationColor() const;
 
 private:
 	friend struct Fdemo_mapShanmenControlledWeaponWorldLifecycle;
@@ -75,6 +90,7 @@ private:
 	void ActivateProductCollision();
 	void DeactivateProductCollision();
 	bool IsThreatPresenceCueStateValid() const;
+	bool IsFlightPresentationStateValid() const;
 	void RefreshThreatPresenceCue();
 
 	UPROPERTY(VisibleAnywhere)
@@ -109,4 +125,6 @@ private:
 
 	UPROPERTY(VisibleAnywhere)
 	bool bThreatPresenceCueActive = false;
+
+	Fdemo_mapShanmenControlledWeaponFlightReadModel FlightReadModel;
 };

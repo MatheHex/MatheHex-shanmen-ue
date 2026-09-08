@@ -11,6 +11,9 @@
 namespace
 {
 	const FLinearColor IdleSwordColor(0.20f, 0.48f, 0.95f);
+	const FLinearColor DirectedSwordColor(1.00f, 0.48f, 0.08f);
+	const FLinearColor ReturningSwordColor(0.48f, 0.32f, 1.00f);
+	const FLinearColor RedeployedSwordColor(0.72f, 1.00f, 0.88f);
 	const FLinearColor ThreatSwordColor(0.05f, 1.00f, 0.72f);
 }
 
@@ -114,7 +117,8 @@ bool Ademo_mapShanmenControlledWeaponActor::IsProductBoundTo(
 		&& Collision
 		&& Collision->GetOwner() == this
 		&& GetRootComponent() == Collision
-		&& IsThreatPresenceCueStateValid();
+		&& IsThreatPresenceCueStateValid()
+		&& IsFlightPresentationStateValid();
 }
 
 bool Ademo_mapShanmenControlledWeaponActor::TryPresentThreatPresenceCue(
@@ -173,6 +177,55 @@ bool Ademo_mapShanmenControlledWeaponActor::IsThreatPresenceCueVisualActive()
 	return ThreatCueLight && ThreatCueLight->IsVisible();
 }
 
+bool Ademo_mapShanmenControlledWeaponActor::TryPresentFlightReadModel(
+	const Fdemo_mapShanmenControlledWeaponFlightReadModel& ReadModel)
+{
+	if (!ReadModel.IsValid()
+		|| !IsProductBoundTo(
+			ReadModel.GetRunId(),
+			ReadModel.GetItemInstanceId(),
+			SourceActor.Get())
+		|| !ReadModel.GetWeaponLocation().Equals(
+			GetActorLocation(), KINDA_SMALL_NUMBER))
+	{
+		return false;
+	}
+
+	if (FlightReadModel.Matches(ReadModel))
+	{
+		return true;
+	}
+	FlightReadModel = ReadModel;
+	RefreshThreatPresenceCue();
+	return IsFlightPresentationStateValid();
+}
+
+FLinearColor
+Ademo_mapShanmenControlledWeaponActor::GetResolvedPresentationColor() const
+{
+	if (bThreatPresenceCueActive)
+	{
+		return ThreatSwordColor;
+	}
+	if (!FlightReadModel.IsValid())
+	{
+		return IdleSwordColor;
+	}
+
+	switch (FlightReadModel.GetPhase())
+	{
+	case Edemo_mapShanmenControlledWeaponFlightPhase::Directed:
+		return DirectedSwordColor;
+	case Edemo_mapShanmenControlledWeaponFlightPhase::Returning:
+		return ReturningSwordColor;
+	case Edemo_mapShanmenControlledWeaponFlightPhase::Redeployed:
+		return RedeployedSwordColor;
+	case Edemo_mapShanmenControlledWeaponFlightPhase::Orbiting:
+	default:
+		return IdleSwordColor;
+	}
+}
+
 bool Ademo_mapShanmenControlledWeaponActor::IsThreatPresenceCueStateValid()
 	const
 {
@@ -192,11 +245,16 @@ bool Ademo_mapShanmenControlledWeaponActor::IsThreatPresenceCueStateValid()
 				&& !bThreatPresenceCueActive);
 }
 
+bool Ademo_mapShanmenControlledWeaponActor::IsFlightPresentationStateValid()
+	const
+{
+	return !FlightReadModel.IsValid()
+		|| FlightReadModel.MatchesProduct(RunId, ItemInstanceId);
+}
+
 void Ademo_mapShanmenControlledWeaponActor::RefreshThreatPresenceCue()
 {
-	const FLinearColor Color = bThreatPresenceCueActive
-		? ThreatSwordColor
-		: IdleSwordColor;
+	const FLinearColor Color = GetResolvedPresentationColor();
 	if (VisualMaterial)
 	{
 		VisualMaterial->SetVectorParameterValue(TEXT("Color"), Color);
@@ -218,6 +276,8 @@ void Ademo_mapShanmenControlledWeaponActor::DeactivateProductCollision()
 {
 	ThreatPresenceCueContactCount = 0;
 	bThreatPresenceCueActive = false;
+	FlightReadModel =
+		Fdemo_mapShanmenControlledWeaponFlightReadModel();
 	RefreshThreatPresenceCue();
 	if (Collision)
 	{
