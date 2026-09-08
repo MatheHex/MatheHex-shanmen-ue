@@ -35,12 +35,27 @@ struct Fdemo_mapShanmenControlledWeaponThreatReadoutStyle
 class Fdemo_mapShanmenControlledWeaponThreatReadoutPlan
 {
 public:
+	/** Compatibility entry for phases with no committed impact feedback. */
 	static bool TryPlan(
 		const FVector2D& CanvasSize,
 		Edemo_mapShanmenControlledWeaponFlightPhase Phase,
 		int32 ContactCount,
 		const FString& LaunchRecallKeyLabel,
 		const FString& RedirectKeyLabel,
+		bool bProjectionSucceeded,
+		const FVector2D& ProjectedScreenPosition,
+		const Fdemo_mapShanmenControlledWeaponThreatReadoutStyle& Style,
+		Fdemo_mapShanmenControlledWeaponThreatReadoutPlan& OutPlan);
+
+	static bool TryPlan(
+		const FVector2D& CanvasSize,
+		Edemo_mapShanmenControlledWeaponFlightPhase Phase,
+		int32 ContactCount,
+		const FString& LaunchRecallKeyLabel,
+		const FString& RedirectKeyLabel,
+		bool bHasCommittedImpactFeedback,
+		float ImpactAppliedDamage,
+		bool bImpactDefeatedTarget,
 		bool bProjectionSucceeded,
 		const FVector2D& ProjectedScreenPosition,
 		const Fdemo_mapShanmenControlledWeaponThreatReadoutStyle& Style,
@@ -77,6 +92,12 @@ public:
 	{
 		return RedirectKeyLabel;
 	}
+	bool HasCommittedImpactFeedback() const
+	{
+		return bHasCommittedImpactFeedback;
+	}
+	float GetImpactAppliedDamage() const { return ImpactAppliedDamage; }
+	bool DidImpactDefeatTarget() const { return bImpactDefeatedTarget; }
 	const FVector2D& GetPanelPosition() const { return PanelPosition; }
 	const FVector2D& GetPanelSize() const { return Style.PanelSize; }
 	FVector2D GetTextPosition() const
@@ -97,6 +118,9 @@ private:
 	int32 ContactCount = 0;
 	FString LaunchRecallKeyLabel;
 	FString RedirectKeyLabel;
+	bool bHasCommittedImpactFeedback = false;
+	float ImpactAppliedDamage = 0.0f;
+	bool bImpactDefeatedTarget = false;
 	FString Text;
 	Fdemo_mapShanmenControlledWeaponThreatReadoutStyle Style;
 };

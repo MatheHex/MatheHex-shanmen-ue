@@ -41,6 +41,26 @@ namespace
 			&& !Label.Contains(TEXT("\t"));
 	}
 
+	bool IsValidImpactFeedback(
+		const EFlightPhase Phase,
+		const bool bHasCommittedImpactFeedback,
+		const float ImpactAppliedDamage,
+		const bool bImpactDefeatedTarget)
+	{
+		if (!FMath::IsFinite(ImpactAppliedDamage)
+			|| ImpactAppliedDamage < 0.0f)
+		{
+			return false;
+		}
+		if (!bHasCommittedImpactFeedback)
+		{
+			return ImpactAppliedDamage == 0.0f
+				&& !bImpactDefeatedTarget;
+		}
+		return Phase == EFlightPhase::Returning
+			&& (!bImpactDefeatedTarget || ImpactAppliedDamage > 0.0f);
+	}
+
 	FString BuildInputHint(
 		const EFlightPhase Phase,
 		const FString& LaunchRecallKeyLabel,
@@ -70,7 +90,10 @@ namespace
 		const EFlightPhase Phase,
 		const int32 ContactCount,
 		const FString& LaunchRecallKeyLabel,
-		const FString& RedirectKeyLabel)
+		const FString& RedirectKeyLabel,
+		const bool bHasCommittedImpactFeedback,
+		const float ImpactAppliedDamage,
+		const bool bImpactDefeatedTarget)
 	{
 		FString Text;
 		switch (Phase)
@@ -98,6 +121,15 @@ namespace
 		else if (Placement != EPlacement::WorldTracked)
 		{
 			return FString();
+		}
+		if (bHasCommittedImpactFeedback)
+		{
+			Text += ImpactAppliedDamage <= 0.0f
+				? TEXT(" · 未造成伤害")
+				: FString::Printf(
+					TEXT(" · %s -%.1f"),
+					bImpactDefeatedTarget ? TEXT("击破") : TEXT("命中"),
+					static_cast<double>(ImpactAppliedDamage));
 		}
 		if (ContactCount > 0)
 		{
@@ -151,6 +183,35 @@ bool FPlan::TryPlan(
 	const FStyle& InStyle,
 	FPlan& OutPlan)
 {
+	return TryPlan(
+		InCanvasSize,
+		InPhase,
+		InContactCount,
+		InLaunchRecallKeyLabel,
+		InRedirectKeyLabel,
+		false,
+		0.0f,
+		false,
+		bProjectionSucceeded,
+		ProjectedScreenPosition,
+		InStyle,
+		OutPlan);
+}
+
+bool FPlan::TryPlan(
+	const FVector2D& InCanvasSize,
+	const EFlightPhase InPhase,
+	const int32 InContactCount,
+	const FString& InLaunchRecallKeyLabel,
+	const FString& InRedirectKeyLabel,
+	const bool bInHasCommittedImpactFeedback,
+	const float InImpactAppliedDamage,
+	const bool bInImpactDefeatedTarget,
+	const bool bProjectionSucceeded,
+	const FVector2D& ProjectedScreenPosition,
+	const FStyle& InStyle,
+	FPlan& OutPlan)
+{
 	OutPlan = FPlan();
 	if (!IsFiniteVector(InCanvasSize)
 		|| InCanvasSize.X <= 0.0 || InCanvasSize.Y <= 0.0
@@ -158,6 +219,11 @@ bool FPlan::TryPlan(
 		|| InContactCount < 0
 		|| !IsValidKeyLabel(InLaunchRecallKeyLabel)
 		|| !IsValidKeyLabel(InRedirectKeyLabel)
+		|| !IsValidImpactFeedback(
+			InPhase,
+			bInHasCommittedImpactFeedback,
+			InImpactAppliedDamage,
+			bInImpactDefeatedTarget)
 		|| !InStyle.IsValid())
 	{
 		return false;
@@ -180,6 +246,10 @@ bool FPlan::TryPlan(
 	Candidate.ContactCount = InContactCount;
 	Candidate.LaunchRecallKeyLabel = InLaunchRecallKeyLabel;
 	Candidate.RedirectKeyLabel = InRedirectKeyLabel;
+	Candidate.bHasCommittedImpactFeedback =
+		bInHasCommittedImpactFeedback;
+	Candidate.ImpactAppliedDamage = InImpactAppliedDamage;
+	Candidate.bImpactDefeatedTarget = bInImpactDefeatedTarget;
 	Candidate.Style = InStyle;
 	const bool bWorldTracked = bProjectionSucceeded
 		&& IsInsideViewport(InCanvasSize, ProjectedScreenPosition);
@@ -207,7 +277,10 @@ bool FPlan::TryPlan(
 		InPhase,
 		InContactCount,
 		InLaunchRecallKeyLabel,
-		InRedirectKeyLabel);
+		InRedirectKeyLabel,
+		bInHasCommittedImpactFeedback,
+		InImpactAppliedDamage,
+		bInImpactDefeatedTarget);
 	if (!Candidate.IsValid())
 	{
 		return false;
@@ -227,6 +300,11 @@ bool FPlan::IsValid() const
 		|| ContactCount < 0
 		|| !IsValidKeyLabel(LaunchRecallKeyLabel)
 		|| !IsValidKeyLabel(RedirectKeyLabel)
+		|| !IsValidImpactFeedback(
+			Phase,
+			bHasCommittedImpactFeedback,
+			ImpactAppliedDamage,
+			bImpactDefeatedTarget)
 		|| !Style.IsValid()
 		|| !IsFiniteVector(PanelPosition)
 		|| Text != BuildText(
@@ -234,7 +312,10 @@ bool FPlan::IsValid() const
 			Phase,
 			ContactCount,
 			LaunchRecallKeyLabel,
-			RedirectKeyLabel))
+			RedirectKeyLabel,
+			bHasCommittedImpactFeedback,
+			ImpactAppliedDamage,
+			bImpactDefeatedTarget))
 	{
 		return false;
 	}
@@ -259,6 +340,10 @@ bool FPlan::Matches(const FPlan& Other) const
 		&& ContactCount == Other.ContactCount
 		&& LaunchRecallKeyLabel == Other.LaunchRecallKeyLabel
 		&& RedirectKeyLabel == Other.RedirectKeyLabel
+		&& bHasCommittedImpactFeedback
+			== Other.bHasCommittedImpactFeedback
+		&& ImpactAppliedDamage == Other.ImpactAppliedDamage
+		&& bImpactDefeatedTarget == Other.bImpactDefeatedTarget
 		&& Text == Other.Text
 		&& Style.PanelSize == Other.Style.PanelSize
 		&& Style.TextInset == Other.Style.TextInset

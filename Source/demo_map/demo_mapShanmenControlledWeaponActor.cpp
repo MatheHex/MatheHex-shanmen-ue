@@ -6,6 +6,7 @@
 #include "GameFramework/Pawn.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "UObject/ConstructorHelpers.h"
+#include "demo_mapShanmenControlledWeaponWorldAdapter.h"
 #include "demo_mapShanmenControlledWeaponWorldThreatSampler.h"
 
 namespace
@@ -118,7 +119,8 @@ bool Ademo_mapShanmenControlledWeaponActor::IsProductBoundTo(
 		&& Collision->GetOwner() == this
 		&& GetRootComponent() == Collision
 		&& IsThreatPresenceCueStateValid()
-		&& IsFlightPresentationStateValid();
+		&& IsFlightPresentationStateValid()
+		&& IsCommittedImpactFeedbackStateValid();
 }
 
 bool Ademo_mapShanmenControlledWeaponActor::TryPresentThreatPresenceCue(
@@ -195,9 +197,66 @@ bool Ademo_mapShanmenControlledWeaponActor::TryPresentFlightReadModel(
 	{
 		return true;
 	}
+	if (PresentedImpactActivationId.IsValid()
+		&& PresentedImpactActivationId != ReadModel.GetActivationId())
+	{
+		ClearCommittedImpactFeedback();
+	}
 	FlightReadModel = ReadModel;
 	RefreshThreatPresenceCue();
-	return IsFlightPresentationStateValid();
+	return IsFlightPresentationStateValid()
+		&& IsCommittedImpactFeedbackStateValid();
+}
+
+bool Ademo_mapShanmenControlledWeaponActor::
+TryPresentCommittedImpactFeedback(
+	const Fdemo_mapShanmenControlledWeaponWorldDeliveryResult& Delivery)
+{
+	const FShanmenImpactRequest& Request = Delivery.Impact.GetRequest();
+	const FShanmenVitalityCommitResult& CommitResult =
+		Delivery.Delivery.CommitResult;
+	const FShanmenVitalityCommitReceipt& CommitReceipt =
+		CommitResult.Receipt;
+	const float AppliedDamage = CommitReceipt.GetAppliedDamage();
+	const float VitalityAfter = CommitReceipt.GetVitalityAfter();
+	if (!Delivery.IsDelivered()
+		|| CommitResult.Status != EShanmenVitalityCommitStatus::Committed
+		|| !IsProductBoundTo(
+			Request.Action.GetRunId(),
+			Request.Action.GetSourceItemInstanceId(),
+			SourceActor.Get())
+		|| !Request.Action.GetActivationId().IsValid()
+		|| Delivery.TargetEntityId != Request.Candidate.TargetEntityId
+		|| CommitReceipt.GetImpactId() != Request.ImpactId
+		|| CommitReceipt.GetTargetEntityId() != Delivery.TargetEntityId
+		|| !FMath::IsFinite(AppliedDamage)
+		|| AppliedDamage < 0.0f
+		|| !FMath::IsFinite(VitalityAfter)
+		|| VitalityAfter < 0.0f
+		|| (FlightReadModel.IsValid()
+			&& FlightReadModel.GetActivationId()
+				!= Request.Action.GetActivationId()))
+	{
+		return false;
+	}
+
+	if (PresentedImpactId.IsValid())
+	{
+		return PresentedImpactId == Request.ImpactId
+			&& PresentedImpactActivationId
+				== Request.Action.GetActivationId()
+			&& PresentedImpactTargetEntityId == Delivery.TargetEntityId
+			&& PresentedImpactAppliedDamage == AppliedDamage
+			&& PresentedImpactTargetVitalityAfter == VitalityAfter
+			&& IsCommittedImpactFeedbackStateValid();
+	}
+
+	PresentedImpactId = Request.ImpactId;
+	PresentedImpactActivationId = Request.Action.GetActivationId();
+	PresentedImpactTargetEntityId = Delivery.TargetEntityId;
+	PresentedImpactAppliedDamage = AppliedDamage;
+	PresentedImpactTargetVitalityAfter = VitalityAfter;
+	return IsCommittedImpactFeedbackStateValid();
 }
 
 FLinearColor
@@ -252,6 +311,36 @@ bool Ademo_mapShanmenControlledWeaponActor::IsFlightPresentationStateValid()
 		|| FlightReadModel.MatchesProduct(RunId, ItemInstanceId);
 }
 
+bool Ademo_mapShanmenControlledWeaponActor::
+IsCommittedImpactFeedbackStateValid() const
+{
+	if (!PresentedImpactId.IsValid())
+	{
+		return !PresentedImpactActivationId.IsValid()
+			&& !PresentedImpactTargetEntityId.IsValid()
+			&& PresentedImpactAppliedDamage == 0.0f
+			&& PresentedImpactTargetVitalityAfter == 0.0f;
+	}
+	return PresentedImpactActivationId.IsValid()
+		&& PresentedImpactTargetEntityId.IsValid()
+		&& FMath::IsFinite(PresentedImpactAppliedDamage)
+		&& PresentedImpactAppliedDamage >= 0.0f
+		&& FMath::IsFinite(PresentedImpactTargetVitalityAfter)
+		&& PresentedImpactTargetVitalityAfter >= 0.0f
+		&& (!FlightReadModel.IsValid()
+			|| FlightReadModel.GetActivationId()
+				== PresentedImpactActivationId);
+}
+
+void Ademo_mapShanmenControlledWeaponActor::ClearCommittedImpactFeedback()
+{
+	PresentedImpactId.Invalidate();
+	PresentedImpactActivationId.Invalidate();
+	PresentedImpactTargetEntityId.Invalidate();
+	PresentedImpactAppliedDamage = 0.0f;
+	PresentedImpactTargetVitalityAfter = 0.0f;
+}
+
 void Ademo_mapShanmenControlledWeaponActor::RefreshThreatPresenceCue()
 {
 	const FLinearColor Color = GetResolvedPresentationColor();
@@ -278,6 +367,7 @@ void Ademo_mapShanmenControlledWeaponActor::DeactivateProductCollision()
 	bThreatPresenceCueActive = false;
 	FlightReadModel =
 		Fdemo_mapShanmenControlledWeaponFlightReadModel();
+	ClearCommittedImpactFeedback();
 	RefreshThreatPresenceCue();
 	if (Collision)
 	{

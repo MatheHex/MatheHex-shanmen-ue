@@ -80,6 +80,9 @@ namespace
 				Fdemo_mapInputBindingSettings::Get().GetKey(
 					Fdemo_mapInputActionIds::ControlledWeaponRedirect)
 					.GetDisplayName().ToString(),
+				Weapon->HasCommittedImpactFeedback(),
+				Weapon->GetPresentedImpactAppliedDamage(),
+				Weapon->DidPresentedImpactDefeatTarget(),
 				bProjectionSucceeded,
 				ScreenPosition,
 				Fdemo_mapShanmenControlledWeaponThreatReadoutStyle(),

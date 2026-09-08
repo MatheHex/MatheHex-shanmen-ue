@@ -2550,6 +2550,60 @@ void Ademo_mapGameMode::Tick(float DeltaSeconds)
 					}
 				}
 
+				if (DirectedFlight.IsSuccess()
+					&& !DirectedFlight.DeliveredImpacts.IsEmpty())
+				{
+					Ademo_mapShanmenControlledWeaponActor* WeaponActor =
+						ControlledWeaponWorldLifecycle.GetWeaponActor();
+					const FGuid LifecycleItemId =
+						ControlledWeaponWorldLifecycle.GetItemInstanceId();
+					for (const Fdemo_mapShanmenControlledWeaponWorldDeliveryResult&
+						Delivery : DirectedFlight.DeliveredImpacts)
+					{
+						const FShanmenImpactRequest& Request =
+							Delivery.Impact.GetRequest();
+						if (Request.Action.GetSourceItemInstanceId()
+								!= LifecycleItemId
+							|| Delivery.Delivery.CommitResult.Status
+								!= EShanmenVitalityCommitStatus::Committed)
+						{
+							continue;
+						}
+						if (!WeaponActor
+							|| !WeaponActor->TryPresentCommittedImpactFeedback(
+								Delivery))
+						{
+							UE_LOG(Logdemo_map, Error,
+								TEXT("0_0_10_CONTROLLED_WEAPON Event=ImpactFeedbackRejected RunId=%s ItemId=%s ActivationId=%s ImpactId=%s TargetId=%s Actor=%s"),
+								*Request.Action.GetRunId().ToString(
+									EGuidFormats::DigitsWithHyphens),
+								*Request.Action.GetSourceItemInstanceId().ToString(
+									EGuidFormats::DigitsWithHyphens),
+								*Request.Action.GetActivationId().ToString(
+									EGuidFormats::DigitsWithHyphens),
+								*Request.ImpactId.ToString(
+									EGuidFormats::DigitsWithHyphens),
+								*Delivery.TargetEntityId.ToString(
+									EGuidFormats::DigitsWithHyphens),
+								*GetNameSafe(WeaponActor));
+						}
+						else
+						{
+							UE_LOG(Logdemo_map, Log,
+								TEXT("0_0_10_CONTROLLED_WEAPON Event=ImpactFeedbackPresented RunId=%s ItemId=%s ImpactId=%s Applied=%.3f Defeated=%d"),
+								*Request.Action.GetRunId().ToString(
+									EGuidFormats::DigitsWithHyphens),
+								*Request.Action.GetSourceItemInstanceId().ToString(
+									EGuidFormats::DigitsWithHyphens),
+								*Request.ImpactId.ToString(
+									EGuidFormats::DigitsWithHyphens),
+								Delivery.GetNewlyCommittedDamage(),
+								WeaponActor->DidPresentedImpactDefeatTarget()
+									? 1 : 0);
+						}
+					}
+				}
+
 				if (PlayerCombatConditionComponent.IsValid()
 					&& !PlayerCombatConditionComponent->IsEmpty())
 				{

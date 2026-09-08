@@ -92,6 +92,9 @@ struct Fdemo_mapShanmenControlledWeaponDirectedTimelineResult
 	int64 MovementCount = 0;
 	int32 BlockingContactCount = 0;
 	int32 DeliveredImpactCount = 0;
+	/** Exact canonical deliveries preserved for presentation and audit consumers. */
+	TArray<Fdemo_mapShanmenControlledWeaponWorldDeliveryResult>
+		DeliveredImpacts;
 	int32 TerminalizedCount = 0;
 	int32 FallbackInterruptedCount = 0;
 	FGuid FailedItemInstanceId;

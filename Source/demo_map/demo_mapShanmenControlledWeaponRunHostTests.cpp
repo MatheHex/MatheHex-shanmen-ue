@@ -15,6 +15,8 @@
 #include "demo_mapM01EnemyIdentityComponent.h"
 #include "demo_mapM01EnemyTypes.h"
 #include "demo_mapPlayerHealthComponent.h"
+#include "demo_mapShanmenControlledWeaponActor.h"
+#include "demo_mapShanmenControlledWeaponThreatReadoutPresentation.h"
 
 namespace
 {
@@ -284,7 +286,7 @@ namespace
 		APawn* Pawn = nullptr;
 		UBoxComponent* PlayerRoot = nullptr;
 		Udemo_mapPlayerHealthComponent* PlayerHealth = nullptr;
-		AActor* Weapon = nullptr;
+		Ademo_mapShanmenControlledWeaponActor* Weapon = nullptr;
 		UBoxComponent* WeaponRoot = nullptr;
 		Ademo_mapEnemyCharacter* Enemy = nullptr;
 		Udemo_mapM01EnemyIdentityComponent* EnemyIdentity = nullptr;
@@ -354,27 +356,24 @@ namespace
 			PlayerRoot->RegisterComponent();
 			PlayerHealth->RegisterComponent();
 
-			Weapon = World->SpawnActor<AActor>(
-				AActor::StaticClass(), FTransform::Identity, Parameters);
-			WeaponRoot = Weapon
-				? NewObject<UBoxComponent>(
-					Weapon, TEXT("P218WeaponRoot"), RF_Transient)
-				: nullptr;
+			Weapon = World->SpawnActor<Ademo_mapShanmenControlledWeaponActor>(
+				Ademo_mapShanmenControlledWeaponActor::StaticClass(),
+				FTransform::Identity,
+				Parameters);
+			WeaponRoot = Weapon ? Weapon->GetCollisionComponent() : nullptr;
 			if (!Weapon || !WeaponRoot)
 			{
 				Test.AddError(TEXT("P21.8 could not construct the weapon Actor."));
 				return false;
 			}
-			Weapon->SetRootComponent(WeaponRoot);
-			Weapon->AddInstanceComponent(WeaponRoot);
 			WeaponRoot->InitBoxExtent(FVector(10.0f));
+			if (!Weapon->TryBindProductIdentity(
+					HostRunId, HostLowItemId, Pawn))
+			{
+				Test.AddError(TEXT("P21.13 could not bind the weapon Actor."));
+				return false;
+			}
 			WeaponRoot->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
-			WeaponRoot->SetCollisionObjectType(ECC_WorldDynamic);
-			WeaponRoot->SetCollisionResponseToAllChannels(ECR_Ignore);
-			WeaponRoot->SetCollisionResponseToChannel(
-				ECC_WorldDynamic, ECR_Block);
-			WeaponRoot->IgnoreActorWhenMoving(Pawn, true);
-			WeaponRoot->RegisterComponent();
 
 			Enemy = World->SpawnActor<Ademo_mapEnemyCharacter>(
 				Ademo_mapEnemyCharacter::StaticClass(),
@@ -724,6 +723,17 @@ bool Fdemo_mapControlledWeaponRunHostBlockingTimelineTest::RunTest(
 		AddError(TEXT("P21.8 blocking fixture could not launch."));
 		return false;
 	}
+	const Fdemo_mapShanmenControlledWeaponProductController* Controller =
+		Fixture.Host.FindController(HostLowItemId);
+	Fdemo_mapShanmenControlledWeaponFlightReadModel DirectedReadModel;
+	if (!Controller
+		|| !Controller->TryCaptureFlightReadModel(
+			false, DirectedReadModel)
+		|| !Fixture.Weapon->TryPresentFlightReadModel(DirectedReadModel))
+	{
+		AddError(TEXT("P21.13 could not publish directed presentation."));
+		return false;
+	}
 
 	const float VitalityBefore = Fixture.Enemy->GetCurrentVitality();
 	const int32 ImpactsBefore = Fixture.Enemy->NumCommittedCombatImpacts();
@@ -735,8 +745,6 @@ bool Fdemo_mapControlledWeaponRunHostBlockingTimelineTest::RunTest(
 	const Fdemo_mapShanmenControlledWeaponDirectedTimelineResult Blocked =
 		Fixture.Host.AdvanceDirectedFixedTicks(
 			TickFifteen, 15, Fixture.Coordinator);
-	const Fdemo_mapShanmenControlledWeaponProductController* Controller =
-		Fixture.Host.FindController(HostLowItemId);
 	TestTrue(TEXT("A real swept enemy block delivers once and terminalizes"),
 		Blocked.IsAdvanced()
 		&& Blocked.MovementTickCount > 0
@@ -751,6 +759,81 @@ bool Fdemo_mapControlledWeaponRunHostBlockingTimelineTest::RunTest(
 		&& Fixture.Host.NumActive() == 0
 		&& Fixture.Enemy->GetCurrentVitality() < VitalityBefore
 		&& Fixture.Enemy->NumCommittedCombatImpacts() == ImpactsBefore + 1);
+	TestEqual(TEXT("the timeline preserves one canonical delivery"),
+		Blocked.DeliveredImpacts.Num(), 1);
+	if (Blocked.DeliveredImpacts.Num() == 1)
+	{
+		const Fdemo_mapShanmenControlledWeaponWorldDeliveryResult& Delivery =
+			Blocked.DeliveredImpacts[0];
+		TestTrue(TEXT("the preserved delivery remains self-valid"),
+			Delivery.IsDelivered());
+		TestTrue(TEXT("the preserved delivery retains the exact item"),
+			Delivery.Impact.GetRequest().Action.GetSourceItemInstanceId()
+				== HostLowItemId);
+		TestTrue(TEXT("the preserved delivery retains the exact target"),
+			Delivery.TargetEntityId == Fixture.Enemy->GetCombatEntityId());
+		TestTrue(TEXT("the preserved delivery is the fresh commit"),
+			Delivery.Delivery.CommitResult.Status
+				== EShanmenVitalityCommitStatus::Committed);
+		TestEqual(TEXT("the preserved damage matches target vitality"),
+			Delivery.GetNewlyCommittedDamage(),
+			VitalityBefore - Fixture.Enemy->GetCurrentVitality(),
+			KINDA_SMALL_NUMBER);
+	}
+
+	Fdemo_mapShanmenControlledWeaponFlightReadModel ReturningReadModel;
+	Fdemo_mapShanmenControlledWeaponThreatReadoutPlan ReturningPlan;
+	const bool bPresentedImpact = Blocked.DeliveredImpacts.Num() == 1
+		&& Fixture.Weapon->TryPresentCommittedImpactFeedback(
+			Blocked.DeliveredImpacts[0]);
+	const bool bPresentedReplay = Blocked.DeliveredImpacts.Num() == 1
+		&& Fixture.Weapon->TryPresentCommittedImpactFeedback(
+			Blocked.DeliveredImpacts[0]);
+	TestTrue(TEXT("the same Actor projects the fresh commit during return"),
+		bPresentedImpact
+			&& bPresentedReplay
+			&& Controller->TryCaptureFlightReadModel(
+				false, ReturningReadModel)
+			&& ReturningReadModel.GetPhase()
+				== Edemo_mapShanmenControlledWeaponFlightPhase::Returning
+			&& Fixture.Weapon->TryPresentFlightReadModel(ReturningReadModel)
+			&& Fixture.Weapon->HasCommittedImpactFeedback()
+			&& Fixture.Weapon->GetPresentedImpactId()
+				== Blocked.DeliveredImpacts[0].Impact.GetRequest().ImpactId
+			&& Fixture.Weapon->GetPresentedImpactTargetEntityId()
+				== Fixture.Enemy->GetCombatEntityId()
+			&& Fdemo_mapShanmenControlledWeaponThreatReadoutPlan::TryPlan(
+				FVector2D(1920.0, 1080.0),
+				ReturningReadModel.GetPhase(),
+				0,
+				TEXT("X"),
+				TEXT("C"),
+				Fixture.Weapon->HasCommittedImpactFeedback(),
+				Fixture.Weapon->GetPresentedImpactAppliedDamage(),
+				Fixture.Weapon->DidPresentedImpactDefeatTarget(),
+				true,
+				FVector2D(960.0, 540.0),
+				Fdemo_mapShanmenControlledWeaponThreatReadoutStyle(),
+				ReturningPlan)
+			&& ReturningPlan.GetText() == FString::Printf(
+				TEXT("飞剑 · 返航 · 命中 -%.1f"),
+				static_cast<double>(
+					Fixture.Weapon->GetPresentedImpactAppliedDamage())));
+
+	Fdemo_mapShanmenControlledWeaponFlightReadModel NextActivationReadModel;
+	const FGuid NextActivationId(0xD36500F1, 0, 0, 1);
+	TestTrue(TEXT("a later activation clears the previous hit feedback"),
+		Fdemo_mapShanmenControlledWeaponFlightReadModel::TryCapture(
+			HostRunId,
+			HostLowItemId,
+			NextActivationId,
+			Edemo_mapShanmenControlledWeaponFlightPhase::Orbiting,
+			Fixture.Weapon->GetActorLocation(),
+			ReturningReadModel.GetReturnAnchor(),
+			NextActivationReadModel)
+			&& Fixture.Weapon->TryPresentFlightReadModel(
+				NextActivationReadModel)
+			&& !Fixture.Weapon->HasCommittedImpactFeedback());
 
 	Fdemo_mapShanmenCombatRunTimelineSample TickSixteen;
 	check(Fdemo_mapShanmenCombatRunTimelineSample::TryCapture(
@@ -763,6 +846,7 @@ bool Fdemo_mapControlledWeaponRunHostBlockingTimelineTest::RunTest(
 			TickSixteen, 1, Fixture.Coordinator);
 	TestTrue(TEXT("Later ticks cannot move or damage a terminal weapon again"),
 		AfterTerminal.IsNoOp()
+		&& AfterTerminal.DeliveredImpacts.IsEmpty()
 		&& Fixture.Weapon->GetActorLocation().Equals(TerminalLocation)
 		&& Fixture.Enemy->NumCommittedCombatImpacts() == ImpactsBefore + 1);
 	return true;

@@ -365,4 +365,120 @@ bool Fdemo_mapControlledWeaponThreatReadoutInputHintTest::RunTest(
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapControlledWeaponThreatReadoutImpactFeedbackTest,
+	"Shanmen.0_0_10.Product.ControlledWeaponThreatReadoutPresentation.ImpactFeedback",
+	PresentationFlags)
+
+bool Fdemo_mapControlledWeaponThreatReadoutImpactFeedbackTest::RunTest(
+	const FString&)
+{
+	const FStyle Style;
+	FPlan Hit;
+	FPlan Defeat;
+	TestTrue(TEXT("returning flight exposes one canonical committed hit"),
+		FPlan::TryPlan(
+			FVector2D(1920.0, 1080.0),
+			EFlightPhase::Returning,
+			0,
+			TEXT("X"),
+			TEXT("C"),
+			true,
+			12.5f,
+			false,
+			true,
+			FVector2D(960.0, 540.0),
+			Style,
+			Hit)
+			&& Hit.HasCommittedImpactFeedback()
+			&& Hit.GetImpactAppliedDamage() == 12.5f
+			&& !Hit.DidImpactDefeatTarget()
+			&& Hit.GetText() == TEXT("飞剑 · 返航 · 命中 -12.5"));
+	TestTrue(TEXT("a lethal commit is distinguished without a second panel"),
+		FPlan::TryPlan(
+			FVector2D(1920.0, 1080.0),
+			EFlightPhase::Returning,
+			0,
+			TEXT("X"),
+			TEXT("C"),
+			true,
+			7.0f,
+			true,
+			false,
+			FVector2D::ZeroVector,
+			Style,
+			Defeat)
+			&& Defeat.DidImpactDefeatTarget()
+			&& Defeat.GetText()
+				== TEXT("飞剑 · 返航 · 屏外 · 击破 -7.0")
+			&& !Hit.Matches(Defeat));
+	FPlan FullyPrevented;
+	TestTrue(TEXT("a zero-damage commit still gives honest contact feedback"),
+		FPlan::TryPlan(
+			FVector2D(1920.0, 1080.0),
+			EFlightPhase::Returning,
+			0,
+			TEXT("X"),
+			TEXT("C"),
+			true,
+			0.0f,
+			false,
+			true,
+			FVector2D(960.0, 540.0),
+			Style,
+			FullyPrevented)
+			&& FullyPrevented.GetText()
+				== TEXT("飞剑 · 返航 · 未造成伤害"));
+
+	FPlan Reused = Hit;
+	TestFalse(TEXT("impact feedback cannot outlive the returning phase"),
+		FPlan::TryPlan(
+			FVector2D(1920.0, 1080.0),
+			EFlightPhase::Directed,
+			0,
+			TEXT("X"),
+			TEXT("C"),
+			true,
+			12.5f,
+			false,
+			true,
+			FVector2D(960.0, 540.0),
+			Style,
+			Reused));
+	TestTrue(TEXT("rejected feedback clears reusable output"),
+		!Reused.IsValid()
+			&& !Reused.HasCommittedImpactFeedback()
+			&& Reused.GetImpactAppliedDamage() == 0.0f
+			&& !Reused.DidImpactDefeatTarget());
+	TestFalse(TEXT("hidden feedback cannot carry stale damage"),
+		FPlan::TryPlan(
+			FVector2D(1920.0, 1080.0),
+			EFlightPhase::Returning,
+			0,
+			TEXT("X"),
+			TEXT("C"),
+			false,
+			1.0f,
+			false,
+			true,
+			FVector2D(960.0, 540.0),
+			Style,
+			Reused));
+	TestFalse(TEXT("non-finite committed damage fails closed"),
+		FPlan::TryPlan(
+			FVector2D(1920.0, 1080.0),
+			EFlightPhase::Returning,
+			0,
+			TEXT("X"),
+			TEXT("C"),
+			true,
+			std::numeric_limits<float>::quiet_NaN(),
+			false,
+			true,
+			FVector2D(960.0, 540.0),
+			Style,
+			Reused));
+	return true;
+}
+
 #endif

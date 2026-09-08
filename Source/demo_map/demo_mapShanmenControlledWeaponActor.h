@@ -11,6 +11,7 @@ class UMaterialInstanceDynamic;
 class UPointLightComponent;
 class UStaticMeshComponent;
 struct Fdemo_mapShanmenControlledWeaponWorldThreatSampleResult;
+struct Fdemo_mapShanmenControlledWeaponWorldDeliveryResult;
 struct Fdemo_mapShanmenControlledWeaponWorldLifecycle;
 
 /**
@@ -80,6 +81,29 @@ public:
 	{
 		return FlightReadModel;
 	}
+	/** Accepts only a fresh canonical vitality commit from this exact activation. */
+	bool TryPresentCommittedImpactFeedback(
+		const Fdemo_mapShanmenControlledWeaponWorldDeliveryResult& Delivery);
+	bool HasCommittedImpactFeedback() const
+	{
+		return PresentedImpactId.IsValid()
+			&& IsCommittedImpactFeedbackStateValid();
+	}
+	const FGuid& GetPresentedImpactId() const { return PresentedImpactId; }
+	const FGuid& GetPresentedImpactTargetEntityId() const
+	{
+		return PresentedImpactTargetEntityId;
+	}
+	float GetPresentedImpactAppliedDamage() const
+	{
+		return PresentedImpactAppliedDamage;
+	}
+	bool DidPresentedImpactDefeatTarget() const
+	{
+		return HasCommittedImpactFeedback()
+			&& PresentedImpactAppliedDamage > 0.0f
+			&& PresentedImpactTargetVitalityAfter <= 0.0f;
+	}
 	/** Threat presence overlays, but never replaces, the base flight phase. */
 	FLinearColor GetResolvedPresentationColor() const;
 
@@ -91,6 +115,8 @@ private:
 	void DeactivateProductCollision();
 	bool IsThreatPresenceCueStateValid() const;
 	bool IsFlightPresentationStateValid() const;
+	bool IsCommittedImpactFeedbackStateValid() const;
+	void ClearCommittedImpactFeedback();
 	void RefreshThreatPresenceCue();
 
 	UPROPERTY(VisibleAnywhere)
@@ -127,4 +153,9 @@ private:
 	bool bThreatPresenceCueActive = false;
 
 	Fdemo_mapShanmenControlledWeaponFlightReadModel FlightReadModel;
+	FGuid PresentedImpactId;
+	FGuid PresentedImpactActivationId;
+	FGuid PresentedImpactTargetEntityId;
+	float PresentedImpactAppliedDamage = 0.0f;
+	float PresentedImpactTargetVitalityAfter = 0.0f;
 };

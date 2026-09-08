@@ -54,6 +54,7 @@ bool Fdemo_mapShanmenControlledWeaponDirectedTimelineResult::IsSuccess()
 		|| static_cast<int64>(BlockingContactCount) > MovementCount
 		|| DeliveredImpactCount < 0
 		|| DeliveredImpactCount > BlockingContactCount
+		|| DeliveredImpacts.Num() != DeliveredImpactCount
 		|| TerminalizedCount != BlockingContactCount
 		|| FallbackInterruptedCount < 0
 		|| FallbackInterruptedCount > TerminalizedCount
@@ -61,6 +62,27 @@ bool Fdemo_mapShanmenControlledWeaponDirectedTimelineResult::IsSuccess()
 		|| Diagnostic.IsEmpty())
 	{
 		return false;
+	}
+
+	TSet<FGuid> DeliveredImpactIds;
+	for (const Fdemo_mapShanmenControlledWeaponWorldDeliveryResult& Delivery :
+		DeliveredImpacts)
+	{
+		const FShanmenImpactRequest& Request =
+			Delivery.Impact.GetRequest();
+		const FShanmenVitalityCommitReceipt& CommitReceipt =
+			Delivery.Delivery.CommitResult.Receipt;
+		if (!Delivery.IsDelivered()
+			|| Request.Action.GetRunId() != RunId
+			|| !Request.Action.GetSourceItemInstanceId().IsValid()
+			|| Delivery.TargetEntityId != Request.Candidate.TargetEntityId
+			|| CommitReceipt.GetImpactId() != Request.ImpactId
+			|| CommitReceipt.GetTargetEntityId() != Delivery.TargetEntityId
+			|| DeliveredImpactIds.Contains(Request.ImpactId))
+		{
+			return false;
+		}
+		DeliveredImpactIds.Add(Request.ImpactId);
 	}
 	return MovementTickCount > 0
 		|| (MovementCount == 0
@@ -1213,10 +1235,14 @@ Fdemo_mapShanmenControlledWeaponRunHost::AdvanceDirectedFixedTicks(
 			if (Entry.BlockingHit.bBlockingHit
 				&& TryBeginContactWindow(Entry.ItemInstanceId, Context))
 			{
-				const Fdemo_mapShanmenControlledWeaponWorldDeliveryResult Delivery =
+				Fdemo_mapShanmenControlledWeaponWorldDeliveryResult Delivery =
 					ResolveSweepContact(
 						Entry.ItemInstanceId, Coordinator, Entry.BlockingHit);
-				Result.DeliveredImpactCount += Delivery.IsDelivered() ? 1 : 0;
+				if (Delivery.IsDelivered())
+				{
+					++Result.DeliveredImpactCount;
+					Result.DeliveredImpacts.Add(MoveTemp(Delivery));
+				}
 				bContactClosed = TryEndContactWindow(Entry.ItemInstanceId);
 			}
 
