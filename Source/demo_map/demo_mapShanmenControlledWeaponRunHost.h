@@ -108,6 +108,47 @@ struct Fdemo_mapShanmenControlledWeaponDirectedTimelineResult
 	}
 };
 
+/** Why a canonical-timeline visible return pump failed before convergence. */
+enum class Edemo_mapShanmenControlledWeaponReturnTimelineError : uint8
+{
+	None,
+	InputInvalid,
+	TickBudgetExceeded,
+	CoordinatorMismatch,
+	HostInvalid,
+	MovementRejected
+};
+
+/** Compact audit for Completed swords returning to their canonical anchors. */
+struct Fdemo_mapShanmenControlledWeaponReturnTimelineResult
+{
+	Edemo_mapShanmenControlledWeaponReturnTimelineError Error =
+		Edemo_mapShanmenControlledWeaponReturnTimelineError::InputInvalid;
+	FGuid RunId;
+	FGuid TimelineId;
+	int64 StartTick = INDEX_NONE;
+	int64 EndTick = INDEX_NONE;
+	int64 RequestedTickCount = 0;
+	int64 ProcessedTickCount = 0;
+	int64 MovementCount = 0;
+	TArray<FGuid> ArrivedItemInstanceIds;
+	FGuid FailedItemInstanceId;
+	FString Diagnostic;
+
+	bool IsSuccess() const;
+	bool HasArrivals() const
+	{
+		return IsSuccess() && !ArrivedItemInstanceIds.IsEmpty();
+	}
+	bool IsNoOp() const
+	{
+		return IsSuccess()
+			&& ProcessedTickCount == 0
+			&& MovementCount == 0
+			&& ArrivedItemInstanceIds.IsEmpty();
+	}
+};
+
 /** One deterministic entry from a best-effort multi-weapon orbit step. */
 struct Fdemo_mapShanmenControlledWeaponHostOrbitEntry
 {
@@ -436,6 +477,16 @@ public:
 		const Fdemo_mapShanmenCombatRunTimelineSample& TimelineSample,
 		int64 AdvancedTicks,
 		Fdemo_mapCombatRunCoordinator& Coordinator);
+	/**
+	 * Uses the same canonical ticks to move items already in Completed state.
+	 * Return is derived from terminal state plus physical distance; no second
+	 * logical state machine or contact path is introduced.
+	 */
+	Fdemo_mapShanmenControlledWeaponReturnTimelineResult
+	AdvanceCompletedReturnsFixedTicks(
+		const Fdemo_mapShanmenCombatRunTimelineSample& TimelineSample,
+		int64 AdvancedTicks,
+		const Fdemo_mapCombatRunCoordinator& Coordinator);
 
 	bool TryBeginContactWindow(
 		const FGuid& ItemInstanceId,

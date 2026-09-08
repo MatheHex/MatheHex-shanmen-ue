@@ -2114,6 +2114,99 @@ bool FShanmenCanonicalControlledWeaponWorldLifecycleTest::RunTest(
 		&& !Weapon->GetActorLocation().Equals(
 			BeforeOrbit, KINDA_SMALL_NUMBER));
 
+	const Fdemo_mapShanmenControlledWeaponProductController* FirstController =
+		WorldFixture.Host.FindController(Fixture.FlyingSwordId);
+	const FGuid FirstActivationId = FirstController
+		? FirstController->GetSession().GetActionRuntime()
+			.GetAction().GetActivationId()
+		: FGuid();
+	FShanmenControlledWeaponCommandReceipt FirstLaunch;
+	Fdemo_mapShanmenControlledWeaponHostMovementBatch Outbound;
+	FShanmenControlledWeaponCommandReceipt FirstRecall;
+	FShanmenActionTransitionReceipt FirstRecovery;
+	FShanmenActionTransitionReceipt FirstCompleted;
+	TestTrue(TEXT("First activation can launch and enter existing Completed state"),
+		FirstActivationId.IsValid()
+		&& WorldFixture.Host.TryLaunch(
+			Fixture.FlyingSwordId,
+			0,
+			FVector::ForwardVector,
+			FirstLaunch)
+		&& WorldFixture.Host.TryAdvanceDirectedInOrder(0.25f, Outbound)
+		&& Outbound.IsFullyAdvanced()
+		&& WorldFixture.Host.TryRecallAndComplete(
+			Fixture.FlyingSwordId,
+			1,
+			FirstRecall,
+			FirstRecovery,
+			FirstCompleted));
+
+	int64 ReturnTicks = 0;
+	FString ReturnTimelineDiagnostic;
+	Fdemo_mapShanmenCombatRunTimelineSample ReturnSample;
+	const bool bReturnTimelineReady = WorldFixture.Timeline.TryAdvance(
+		0.5,
+		ReturnTicks,
+		ReturnTimelineDiagnostic)
+		&& WorldFixture.Timeline.TryCapture(ReturnSample);
+	const Fdemo_mapShanmenControlledWeaponReturnTimelineResult Return =
+		bReturnTimelineReady
+			? WorldFixture.Host.AdvanceCompletedReturnsFixedTicks(
+				ReturnSample,
+				ReturnTicks,
+				WorldFixture.Coordinator)
+			: Fdemo_mapShanmenControlledWeaponReturnTimelineResult();
+	TestTrue(TEXT("Same canonical timeline visibly returns the terminal Actor"),
+		bReturnTimelineReady
+		&& Return.IsSuccess()
+		&& Return.HasArrivals()
+		&& Return.ArrivedItemInstanceIds.Contains(Fixture.FlyingSwordId)
+		&& Weapon
+		&& Weapon->GetActorLocation().Equals(
+			ExpectedInitialLocation, KINDA_SMALL_NUMBER));
+
+	const Fdemo_mapShanmenControlledWeaponWorldRedeployResult Redeployed =
+		WorldFixture.Lifecycle.TryRedeployReturned(
+			Fixture.Authority,
+			Runtime,
+			WorldFixture.Coordinator,
+			WorldFixture.Host);
+	const Fdemo_mapShanmenControlledWeaponProductController* SecondController =
+		WorldFixture.Host.FindController(Fixture.FlyingSwordId);
+	FShanmenItemAuthoritySnapshot AuthorityAfterRedeploy;
+	TestTrue(TEXT("Return atomically reuses item and Actor with a new activation"),
+		Redeployed.IsRedeployed()
+		&& Redeployed.PreviousActivationId == FirstActivationId
+		&& Redeployed.NewActivationId != FirstActivationId
+		&& Redeployed.ActivationSequence == 2
+		&& Redeployed.WeaponActor.Get() == Weapon
+		&& WorldFixture.Lifecycle.GetWeaponActor() == Weapon
+		&& WorldFixture.Lifecycle.GetNextActivationSequence() == 3
+		&& WorldFixture.Host.NumBound() == 1
+		&& SecondController
+		&& SecondController->IsOrbiting()
+		&& SecondController->GetWeaponActor() == Weapon
+		&& WorldFixture.CountControlledWeaponActors() == 1
+		&& Fixture.Authority->TryCaptureSnapshot(AuthorityAfterRedeploy)
+		&& AuthorityAfterRedeploy == AuthorityBefore);
+
+	const FVector BeforeSecondLaunch = Weapon
+		? Weapon->GetActorLocation() : FVector::ZeroVector;
+	FShanmenControlledWeaponCommandReceipt SecondLaunch;
+	Fdemo_mapShanmenControlledWeaponHostMovementBatch SecondOutbound;
+	TestTrue(TEXT("Fresh activation supports a second launch on the same Actor"),
+		WorldFixture.Host.TryLaunch(
+			Fixture.FlyingSwordId,
+			0,
+			FVector::RightVector,
+			SecondLaunch)
+		&& WorldFixture.Host.TryAdvanceDirectedInOrder(
+			0.1f, SecondOutbound)
+		&& SecondOutbound.IsFullyAdvanced()
+		&& Weapon
+		&& !Weapon->GetActorLocation().Equals(BeforeSecondLaunch)
+		&& WorldFixture.CountControlledWeaponActors() == 1);
+
 	FString EarlyRetirementDiagnostic;
 	TestFalse(TEXT("World Actor cannot retire before logical Host teardown"),
 		WorldFixture.Lifecycle.TryEndAfterRun(

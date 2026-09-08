@@ -147,6 +147,42 @@ bool Fdemo_mapShanmenControlledWeaponMovementReceipt::IsValid() const
 		&& (bMoved || bBlockingHit);
 }
 
+bool Fdemo_mapShanmenControlledWeaponReturnMovementReceipt::IsValid() const
+{
+	if (!ActivationId.IsValid()
+		|| !SourceItemInstanceId.IsValid()
+		|| !IsFiniteVector(StartLocation)
+		|| !IsFiniteVector(ReturnAnchor)
+		|| !IsFiniteVector(RequestedEndLocation)
+		|| !IsFiniteVector(ActualEndLocation)
+		|| !FMath::IsFinite(ReturnSpeed)
+		|| ReturnSpeed <= 0.0f
+		|| !FMath::IsFinite(DeltaSeconds)
+		|| DeltaSeconds <= 0.0f
+		|| !bPlaced
+		|| !ActualEndLocation.Equals(
+			RequestedEndLocation, KINDA_SMALL_NUMBER)
+		|| bMoved != !ActualEndLocation.Equals(
+			StartLocation, KINDA_SMALL_NUMBER)
+		|| bArrived != ActualEndLocation.Equals(
+			ReturnAnchor, KINDA_SMALL_NUMBER))
+	{
+		return false;
+	}
+
+	const double StartDistance = FVector::Distance(
+		StartLocation, ReturnAnchor);
+	const double EndDistance = FVector::Distance(
+		ActualEndLocation, ReturnAnchor);
+	const double TravelDistance = FVector::Distance(
+		StartLocation, ActualEndLocation);
+	const double MaximumTravel =
+		static_cast<double>(ReturnSpeed) * DeltaSeconds;
+	return EndDistance <= StartDistance + KINDA_SMALL_NUMBER
+		&& TravelDistance <= MaximumTravel + KINDA_SMALL_NUMBER
+		&& (bArrived || (bMoved && EndDistance < StartDistance));
+}
+
 bool Fdemo_mapShanmenControlledWeaponOrbitMovementReceipt::IsValid() const
 {
 	if (!ActivationId.IsValid()
@@ -369,6 +405,48 @@ bool Fdemo_mapShanmenControlledWeaponProductController::IsDirected() const
 	return IsActive()
 		&& Session.GetExecution().GetState()
 			== EShanmenControlledWeaponState::Directed;
+}
+
+bool Fdemo_mapShanmenControlledWeaponProductController::
+IsCompletedForReturn() const
+{
+	return IsValid()
+		&& Session.GetState()
+			== Edemo_mapShanmenControlledWeaponSessionState::Completed
+		&& Session.IsTerminal()
+		&& Session.GetActionRuntime().GetTerminalReason()
+			== EShanmenActionTerminalReason::Completed
+		&& !HasActiveContactWindow();
+}
+
+FVector Fdemo_mapShanmenControlledWeaponProductController::
+GetInitialOrbitLocation() const
+{
+	const AActor* BoundSourceActor = SourceActor.Get();
+	if (!BoundSourceActor || !Motion.IsValid())
+	{
+		return FVector::ZeroVector;
+	}
+	const FVector Center =
+		BoundSourceActor->GetActorLocation() + Motion.OrbitCenterOffset;
+	return MakeOrbitLocation(
+		Center,
+		Motion.OrbitReferenceAxis,
+		Motion.OrbitPlaneNormal,
+		Motion.OrbitRadius,
+		Motion.InitialOrbitPhaseRadians);
+}
+
+bool Fdemo_mapShanmenControlledWeaponProductController::
+IsAtInitialOrbitLocation(const float Tolerance) const
+{
+	const AActor* BoundWeaponActor = WeaponActor.Get();
+	return IsCompletedForReturn()
+		&& BoundWeaponActor
+		&& FMath::IsFinite(Tolerance)
+		&& Tolerance >= 0.0f
+		&& BoundWeaponActor->GetActorLocation().Equals(
+			GetInitialOrbitLocation(), Tolerance);
 }
 
 bool Fdemo_mapShanmenControlledWeaponProductController::HasActiveContactWindow() const
@@ -769,6 +847,68 @@ bool Fdemo_mapShanmenControlledWeaponProductController::TryAdvanceDirected(
 	{
 		OutReceipt = Fdemo_mapShanmenControlledWeaponMovementReceipt();
 		OutBlockingHit = FHitResult();
+		return false;
+	}
+	return true;
+}
+
+bool Fdemo_mapShanmenControlledWeaponProductController::
+TryAdvanceCompletedReturn(
+	const float DeltaSeconds,
+	Fdemo_mapShanmenControlledWeaponReturnMovementReceipt& OutReceipt)
+{
+	OutReceipt = Fdemo_mapShanmenControlledWeaponReturnMovementReceipt();
+	if (!IsCompletedForReturn()
+		|| !FMath::IsFinite(DeltaSeconds)
+		|| DeltaSeconds <= 0.0f
+		|| DeltaSeconds > Motion.MaximumStepSeconds)
+	{
+		return false;
+	}
+
+	AActor* BoundWeaponActor = WeaponActor.Get();
+	const FVector StartLocation = BoundWeaponActor->GetActorLocation();
+	const FVector ReturnAnchor = GetInitialOrbitLocation();
+	if (!IsFiniteVector(StartLocation) || !IsFiniteVector(ReturnAnchor))
+	{
+		return false;
+	}
+
+	const FVector ToAnchor = ReturnAnchor - StartLocation;
+	const double RemainingDistance = ToAnchor.Size();
+	const double MaximumTravel =
+		static_cast<double>(Motion.DirectedSpeed) * DeltaSeconds;
+	const FVector RequestedEndLocation =
+		RemainingDistance <= MaximumTravel
+			? ReturnAnchor
+			: StartLocation + ToAnchor.GetSafeNormal() * MaximumTravel;
+	const bool bAlreadyAtAnchor = StartLocation.Equals(
+		ReturnAnchor, KINDA_SMALL_NUMBER);
+	const bool bPlaced = bAlreadyAtAnchor
+		|| BoundWeaponActor->SetActorLocation(
+			RequestedEndLocation,
+			false,
+			nullptr,
+			ETeleportType::None);
+	const FVector ActualEndLocation = BoundWeaponActor->GetActorLocation();
+
+	OutReceipt.ActivationId = Session.GetActionRuntime()
+		.GetAction().GetActivationId();
+	OutReceipt.SourceItemInstanceId = Session.GetEvidence().ItemInstanceId;
+	OutReceipt.StartLocation = StartLocation;
+	OutReceipt.ReturnAnchor = ReturnAnchor;
+	OutReceipt.RequestedEndLocation = RequestedEndLocation;
+	OutReceipt.ActualEndLocation = ActualEndLocation;
+	OutReceipt.ReturnSpeed = Motion.DirectedSpeed;
+	OutReceipt.DeltaSeconds = DeltaSeconds;
+	OutReceipt.bPlaced = bPlaced;
+	OutReceipt.bMoved = !ActualEndLocation.Equals(
+		StartLocation, KINDA_SMALL_NUMBER);
+	OutReceipt.bArrived = ActualEndLocation.Equals(
+		ReturnAnchor, KINDA_SMALL_NUMBER);
+	if (!OutReceipt.IsValid())
+	{
+		OutReceipt = Fdemo_mapShanmenControlledWeaponReturnMovementReceipt();
 		return false;
 	}
 	return true;

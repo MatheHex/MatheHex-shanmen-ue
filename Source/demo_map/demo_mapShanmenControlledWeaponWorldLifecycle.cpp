@@ -75,6 +75,27 @@ bool Fdemo_mapShanmenControlledWeaponWorldStartResult::IsStarted() const
 		&& Route.Preparation.Evidence.ItemInstanceId == ItemInstanceId;
 }
 
+bool Fdemo_mapShanmenControlledWeaponWorldRedeployResult::IsRedeployed() const
+{
+	Ademo_mapShanmenControlledWeaponActor* Actor = WeaponActor.Get();
+	return Status
+			== Edemo_mapShanmenControlledWeaponWorldRedeployStatus::Redeployed
+		&& RunId.IsValid()
+		&& ItemInstanceId.IsValid()
+		&& PreviousActivationId.IsValid()
+		&& NewActivationId.IsValid()
+		&& PreviousActivationId != NewActivationId
+		&& ActivationSequence > 0
+		&& ::IsValid(Actor)
+		&& Actor->IsProductBoundTo(
+			RunId, ItemInstanceId, Actor->GetSourceActor())
+		&& Route.IsStarted()
+		&& Route.Preparation.Action.GetRunId() == RunId
+		&& Route.Preparation.Evidence.ItemInstanceId == ItemInstanceId
+		&& Route.Attachment.ActivationId == NewActivationId
+		&& !Diagnostic.IsEmpty();
+}
+
 Fdemo_mapShanmenControlledWeaponWorldStartResult
 Fdemo_mapShanmenControlledWeaponWorldLifecycle::TryBegin(
 	UWorld* World,
@@ -111,6 +132,13 @@ Fdemo_mapShanmenControlledWeaponWorldLifecycle::TryBegin(
 			Edemo_mapShanmenControlledWeaponWorldStartStatus::
 				CoordinatorNotReady,
 			TEXT("Controlled-weapon World start requires the canonical combat Run."));
+	}
+	if (ActivationSequence == 0 || ActivationSequence == MAX_uint64)
+	{
+		return RejectWorldStart(
+			Edemo_mapShanmenControlledWeaponWorldStartStatus::
+				ActivationSequenceUnavailable,
+			TEXT("Controlled-weapon World start requires a usable non-terminal activation sequence."));
 	}
 
 	Fdemo_mapShanmenRunCorrelation Correlation;
@@ -237,6 +265,7 @@ Fdemo_mapShanmenControlledWeaponWorldLifecycle::TryBegin(
 	RunId = Correlation.ActiveRunId;
 	ItemInstanceId = WeaponItem->ItemInstanceId;
 	WeaponActor = Spawned;
+	NextActivationSequence = ActivationSequence + 1;
 	Spawned->ActivateProductCollision();
 	Result.Status =
 		Edemo_mapShanmenControlledWeaponWorldStartStatus::Started;
@@ -249,6 +278,135 @@ Fdemo_mapShanmenControlledWeaponWorldLifecycle::TryBegin(
 		Result.Diagnostic =
 			TEXT("Controlled-weapon World publication failed final validation.");
 	}
+	return Result;
+}
+
+Fdemo_mapShanmenControlledWeaponWorldRedeployResult
+Fdemo_mapShanmenControlledWeaponWorldLifecycle::TryRedeployReturned(
+	const Udemo_mapShanmenItemAuthoritySubsystem* Authority,
+	const Udemo_mapItemSubsystem* Runtime,
+	Fdemo_mapCombatRunCoordinator& Coordinator,
+	Fdemo_mapShanmenControlledWeaponRunHost& Host)
+{
+	Fdemo_mapShanmenControlledWeaponWorldRedeployResult Result;
+	Result.RunId = RunId;
+	Result.ItemInstanceId = ItemInstanceId;
+	Result.ActivationSequence = NextActivationSequence;
+	Result.WeaponActor = WeaponActor;
+	if (!IsValid() || IsEmpty())
+	{
+		Result.Status =
+			Edemo_mapShanmenControlledWeaponWorldRedeployStatus::
+				LifecycleInvalid;
+		Result.Diagnostic =
+			TEXT("Controlled-weapon redeployment requires one valid retained World Actor.");
+		return Result;
+	}
+	if (!Authority || !Runtime || !Coordinator.IsReady())
+	{
+		Result.Diagnostic =
+			TEXT("Controlled-weapon redeployment requires current item authorities and Combat Run.");
+		return Result;
+	}
+	if (NextActivationSequence == 0
+		|| NextActivationSequence == MAX_uint64)
+	{
+		Result.Status =
+			Edemo_mapShanmenControlledWeaponWorldRedeployStatus::
+				ActivationSequenceUnavailable;
+		Result.Diagnostic =
+			TEXT("Controlled-weapon redeployment exhausted its activation sequence domain.");
+		return Result;
+	}
+	if (!Host.IsValid()
+		|| Host.GetRunId() != RunId
+		|| Host.GetSourceEntityId() != Coordinator.GetPlayerEntityId())
+	{
+		Result.Status =
+			Edemo_mapShanmenControlledWeaponWorldRedeployStatus::HostMismatch;
+		Result.Diagnostic =
+			TEXT("Controlled-weapon Host does not match the retained World lifecycle.");
+		return Result;
+	}
+
+	const Fdemo_mapShanmenControlledWeaponProductController* Controller =
+		Host.FindController(ItemInstanceId);
+	Ademo_mapShanmenControlledWeaponActor* Actor = WeaponActor.Get();
+	if (!Controller
+		|| Controller->GetWeaponActor() != Actor
+		|| Controller->GetSourceActor() != Actor->GetSourceActor()
+		|| !Controller->IsCompletedForReturn()
+		|| !Controller->IsAtInitialOrbitLocation())
+	{
+		Result.Status =
+			Edemo_mapShanmenControlledWeaponWorldRedeployStatus::
+				ReturnNotReady;
+		Result.Diagnostic =
+			TEXT("Exact completed weapon has not reached its canonical return anchor.");
+		return Result;
+	}
+	Result.PreviousActivationId = Controller->GetSession()
+		.GetActionRuntime().GetAction().GetActivationId();
+
+	Fdemo_mapShanmenControlledWeaponRunHost HostCandidate = Host;
+	if (!HostCandidate.TryRemoveTerminal(ItemInstanceId))
+	{
+		Result.Status =
+			Edemo_mapShanmenControlledWeaponWorldRedeployStatus::
+				TerminalRemovalRejected;
+		Result.Diagnostic =
+			TEXT("Returned terminal activation could not be retired from the candidate Host.");
+		return Result;
+	}
+
+	const Fdemo_mapShanmenControlledWeaponActiveRunIntent Intent =
+		MakeTrainingSwordIntent(ItemInstanceId, NextActivationSequence);
+	Result.Route =
+		Fdemo_mapShanmenControlledWeaponActiveRunRoute::TryStart(
+			Authority,
+			Runtime,
+			Coordinator,
+			HostCandidate,
+			Actor->GetSourceActor(),
+			Actor,
+			Actor->GetCollisionComponent(),
+			Intent);
+	if (!Result.Route.IsStarted())
+	{
+		Result.Status =
+			Edemo_mapShanmenControlledWeaponWorldRedeployStatus::RouteRejected;
+		Result.Diagnostic = Result.Route.Diagnostic.IsEmpty()
+			? TEXT("Authority-backed active-Run route rejected the returned Actor.")
+			: Result.Route.Diagnostic;
+		return Result;
+	}
+	Result.NewActivationId = Result.Route.Attachment.ActivationId;
+	Result.Status =
+		Edemo_mapShanmenControlledWeaponWorldRedeployStatus::Redeployed;
+	Result.Diagnostic =
+		TEXT("Returned flying sword reused its exact item and Actor under a new activation.");
+	if (!HostCandidate.IsValid() || !Result.IsRedeployed())
+	{
+		Result.Status =
+			Edemo_mapShanmenControlledWeaponWorldRedeployStatus::ResultInvalid;
+		Result.Diagnostic =
+			TEXT("Controlled-weapon redeployment failed final publication validation.");
+		return Result;
+	}
+
+	Fdemo_mapShanmenControlledWeaponWorldLifecycle LifecycleCandidate = *this;
+	++LifecycleCandidate.NextActivationSequence;
+	if (!LifecycleCandidate.IsValid())
+	{
+		Result.Status =
+			Edemo_mapShanmenControlledWeaponWorldRedeployStatus::ResultInvalid;
+		Result.Diagnostic =
+			TEXT("Controlled-weapon lifecycle rejected the next activation checkpoint.");
+		return Result;
+	}
+	Actor->ActivateProductCollision();
+	Host = MoveTemp(HostCandidate);
+	*this = MoveTemp(LifecycleCandidate);
 	return Result;
 }
 
@@ -309,6 +467,7 @@ bool Fdemo_mapShanmenControlledWeaponWorldLifecycle::IsValid() const
 	return bOwnsSpawnedActor
 		&& RunId.IsValid()
 		&& ItemInstanceId.IsValid()
+		&& NextActivationSequence > 0
 		&& ::IsValid(Actor)
 		&& Actor->IsProductBoundTo(
 			RunId, ItemInstanceId, Actor->GetSourceActor())
@@ -322,7 +481,8 @@ bool Fdemo_mapShanmenControlledWeaponWorldLifecycle::IsEmpty() const
 	return !bOwnsSpawnedActor
 		&& !RunId.IsValid()
 		&& !ItemInstanceId.IsValid()
-		&& !WeaponActor.IsValid();
+		&& !WeaponActor.IsValid()
+		&& NextActivationSequence == 0;
 }
 
 bool Fdemo_mapShanmenControlledWeaponWorldLifecycle::IsActive() const
@@ -349,4 +509,5 @@ void Fdemo_mapShanmenControlledWeaponWorldLifecycle::Clear()
 	RunId.Invalidate();
 	ItemInstanceId.Invalidate();
 	WeaponActor.Reset();
+	NextActivationSequence = 0;
 }

@@ -20,6 +20,7 @@ enum class Edemo_mapShanmenControlledWeaponWorldStartStatus : uint8
 	DependenciesUnavailable,
 	CoordinatorNotReady,
 	CorrelationUnavailable,
+	ActivationSequenceUnavailable,
 	CorrelationMismatch,
 	EvidenceUnavailable,
 	WeaponEvidenceInvalid,
@@ -51,6 +52,38 @@ struct Fdemo_mapShanmenControlledWeaponWorldStartResult
 	bool IsStarted() const;
 };
 
+/** Exact outcome for replacing one returned terminal activation in-place. */
+enum class Edemo_mapShanmenControlledWeaponWorldRedeployStatus : uint8
+{
+	Redeployed,
+	LifecycleInvalid,
+	DependenciesUnavailable,
+	ActivationSequenceUnavailable,
+	HostMismatch,
+	ReturnNotReady,
+	TerminalRemovalRejected,
+	RouteRejected,
+	ResultInvalid
+};
+
+/** Audit proving that redeployment reused the same item and physical Actor. */
+struct Fdemo_mapShanmenControlledWeaponWorldRedeployResult
+{
+	Edemo_mapShanmenControlledWeaponWorldRedeployStatus Status =
+		Edemo_mapShanmenControlledWeaponWorldRedeployStatus::
+			DependenciesUnavailable;
+	FGuid RunId;
+	FGuid ItemInstanceId;
+	FGuid PreviousActivationId;
+	FGuid NewActivationId;
+	uint64 ActivationSequence = 0;
+	TWeakObjectPtr<Ademo_mapShanmenControlledWeaponActor> WeaponActor;
+	Fdemo_mapShanmenControlledWeaponActiveRunResult Route;
+	FString Diagnostic;
+
+	bool IsRedeployed() const;
+};
+
 /**
  * World projection owned by one product combat Run.
  *
@@ -69,6 +102,17 @@ struct Fdemo_mapShanmenControlledWeaponWorldLifecycle
 		AActor* SourceActor,
 		uint64 ActivationSequence);
 
+	/**
+	 * Replaces one returned Completed activation using the existing Actor and
+	 * authority-backed active-Run route. Inventory and World ownership do not
+	 * change; only the Host activation is atomically replaced.
+	 */
+	Fdemo_mapShanmenControlledWeaponWorldRedeployResult TryRedeployReturned(
+		const Udemo_mapShanmenItemAuthoritySubsystem* Authority,
+		const Udemo_mapItemSubsystem* Runtime,
+		Fdemo_mapCombatRunCoordinator& Coordinator,
+		Fdemo_mapShanmenControlledWeaponRunHost& Host);
+
 	/** Physical retirement follows the atomic logical Host -> Coordinator end. */
 	bool TryEndAfterRun(
 		const FGuid& ExpectedRunId,
@@ -84,6 +128,10 @@ struct Fdemo_mapShanmenControlledWeaponWorldLifecycle
 	{
 		return WeaponActor.Get();
 	}
+	uint64 GetNextActivationSequence() const
+	{
+		return NextActivationSequence;
+	}
 	void Reset();
 
 private:
@@ -93,4 +141,5 @@ private:
 	FGuid RunId;
 	FGuid ItemInstanceId;
 	TWeakObjectPtr<Ademo_mapShanmenControlledWeaponActor> WeaponActor;
+	uint64 NextActivationSequence = 0;
 };

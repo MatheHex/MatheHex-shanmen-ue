@@ -40,6 +40,24 @@ struct Fdemo_mapShanmenControlledWeaponMovementReceipt
 	bool IsValid() const;
 };
 
+/** Auditable non-swept step from a completed flight back to its orbit anchor. */
+struct Fdemo_mapShanmenControlledWeaponReturnMovementReceipt
+{
+	FGuid ActivationId;
+	FGuid SourceItemInstanceId;
+	FVector StartLocation = FVector::ZeroVector;
+	FVector ReturnAnchor = FVector::ZeroVector;
+	FVector RequestedEndLocation = FVector::ZeroVector;
+	FVector ActualEndLocation = FVector::ZeroVector;
+	float ReturnSpeed = 0.0f;
+	float DeltaSeconds = 0.0f;
+	bool bPlaced = false;
+	bool bMoved = false;
+	bool bArrived = false;
+
+	bool IsValid() const;
+};
+
 /** Auditable, non-swept preparation-pose sample while the item is Orbiting. */
 struct Fdemo_mapShanmenControlledWeaponOrbitMovementReceipt
 {
@@ -150,6 +168,11 @@ public:
 	bool IsActive() const;
 	bool IsOrbiting() const;
 	bool IsDirected() const;
+	/** Existing Completed terminal state is the sole logical return trigger. */
+	bool IsCompletedForReturn() const;
+	FVector GetInitialOrbitLocation() const;
+	bool IsAtInitialOrbitLocation(
+		float Tolerance = KINDA_SMALL_NUMBER) const;
 	bool HasActiveContactWindow() const;
 	bool HasActiveOrbitThreatWindow() const;
 	bool HasActiveDirectedContactWindow() const;
@@ -207,6 +230,10 @@ public:
 		float DeltaSeconds,
 		Fdemo_mapShanmenControlledWeaponMovementReceipt& OutReceipt,
 		FHitResult& OutBlockingHit);
+	/** Moves a Completed item toward its canonical anchor without hit emission. */
+	bool TryAdvanceCompletedReturn(
+		float DeltaSeconds,
+		Fdemo_mapShanmenControlledWeaponReturnMovementReceipt& OutReceipt);
 
 	bool TryBeginContactWindow(FShanmenWorldHitContext& OutContext);
 	Fdemo_mapShanmenControlledWeaponWorldDeliveryResult ResolveSweepContact(

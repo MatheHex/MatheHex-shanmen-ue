@@ -70,6 +70,41 @@ bool Fdemo_mapShanmenControlledWeaponDirectedTimelineResult::IsSuccess()
 			&& FallbackInterruptedCount == 0);
 }
 
+bool Fdemo_mapShanmenControlledWeaponReturnTimelineResult::IsSuccess() const
+{
+	if (Error
+			!= Edemo_mapShanmenControlledWeaponReturnTimelineError::None
+		|| !RunId.IsValid()
+		|| !TimelineId.IsValid()
+		|| StartTick < 0
+		|| EndTick < StartTick
+		|| RequestedTickCount < 0
+		|| RequestedTickCount != EndTick - StartTick
+		|| RequestedTickCount > MaximumDirectedTimelineTicksPerPump
+		|| ProcessedTickCount < 0
+		|| ProcessedTickCount > RequestedTickCount
+		|| MovementCount < 0
+		|| MovementCount < ArrivedItemInstanceIds.Num()
+		|| FailedItemInstanceId.IsValid()
+		|| Diagnostic.IsEmpty())
+	{
+		return false;
+	}
+
+	FGuid PreviousItemInstanceId;
+	for (const FGuid& ItemInstanceId : ArrivedItemInstanceIds)
+	{
+		if (!ItemInstanceId.IsValid()
+			|| (PreviousItemInstanceId.IsValid()
+				&& !GuidLess(PreviousItemInstanceId, ItemInstanceId)))
+		{
+			return false;
+		}
+		PreviousItemInstanceId = ItemInstanceId;
+	}
+	return true;
+}
+
 bool Fdemo_mapShanmenControlledWeaponHostOrbitBatch::IsFullyAdvanced() const
 {
 	if (AttemptedCount <= 0
@@ -1249,6 +1284,178 @@ Fdemo_mapShanmenControlledWeaponRunHost::AdvanceDirectedFixedTicks(
 				ContactLifecycleRejected;
 		Result.Diagnostic =
 			TEXT("Directed flight produced an invalid audit or Host state.");
+	}
+	return Result;
+}
+
+Fdemo_mapShanmenControlledWeaponReturnTimelineResult
+Fdemo_mapShanmenControlledWeaponRunHost::
+AdvanceCompletedReturnsFixedTicks(
+	const Fdemo_mapShanmenCombatRunTimelineSample& TimelineSample,
+	const int64 AdvancedTicks,
+	const Fdemo_mapCombatRunCoordinator& Coordinator)
+{
+	Fdemo_mapShanmenControlledWeaponReturnTimelineResult Result;
+	Result.RunId = Coordinator.IsReady() ? Coordinator.GetRunId() : FGuid();
+	Result.TimelineId = TimelineSample.GetTimelineId();
+	Result.EndTick = TimelineSample.GetCurrentTick();
+	Result.RequestedTickCount = AdvancedTicks;
+	if (!TimelineSample.IsValid()
+		|| AdvancedTicks < 0
+		|| AdvancedTicks > Result.EndTick)
+	{
+		Result.Diagnostic =
+			TEXT("Visible return requires a valid current timeline sample and non-negative tick delta.");
+		return Result;
+	}
+	Result.StartTick = Result.EndTick - AdvancedTicks;
+	if (AdvancedTicks > MaximumDirectedTimelineTicksPerPump)
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponReturnTimelineError::
+				TickBudgetExceeded;
+		Result.Diagnostic = FString::Printf(
+			TEXT("Visible return rejected %lld catch-up ticks; the bounded per-pump maximum is %lld."),
+			static_cast<long long>(AdvancedTicks),
+			static_cast<long long>(MaximumDirectedTimelineTicksPerPump));
+		return Result;
+	}
+	if (!Coordinator.IsReady()
+		|| TimelineSample.GetTimelineId()
+			!= Fdemo_mapShanmenCombatRunFixedTimeline::MakeTimelineId(
+				Coordinator.GetRunId()))
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponReturnTimelineError::
+				CoordinatorMismatch;
+		Result.Diagnostic =
+			TEXT("Visible-return timeline does not belong to the canonical Combat Run.");
+		return Result;
+	}
+	if (AdvancedTicks == 0)
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponReturnTimelineError::None;
+		Result.Diagnostic =
+			TEXT("No whole canonical tick advanced; completed weapons remained unchanged.");
+		return Result;
+	}
+	if (IsEmpty())
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponReturnTimelineError::None;
+		Result.Diagnostic =
+			TEXT("No controlled weapon is bound to the active Run.");
+		return Result;
+	}
+	if (!IsValid())
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponReturnTimelineError::HostInvalid;
+		Result.Diagnostic =
+			TEXT("Visible return rejected an invalid non-empty controlled-weapon Host.");
+		return Result;
+	}
+	if (!CoordinatorMatches(Coordinator))
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponReturnTimelineError::
+				CoordinatorMismatch;
+		Result.Diagnostic =
+			TEXT("Controlled-weapon Host and Combat Run identities do not match.");
+		return Result;
+	}
+
+	TArray<FGuid> PendingItemInstanceIds;
+	for (const FGuid& ItemInstanceId : GetOrderedItemInstanceIds())
+	{
+		const Fdemo_mapShanmenControlledWeaponProductController* Controller =
+			FindController(ItemInstanceId);
+		if (Controller && Controller->IsCompletedForReturn())
+		{
+			const float FixedStepSeconds = 1.0f / static_cast<float>(
+				Fdemo_mapShanmenCombatRunFixedTimeline::
+					CanonicalTicksPerSecond());
+			if (FixedStepSeconds > Controller->GetMotion().MaximumStepSeconds)
+			{
+				Result.Error =
+					Edemo_mapShanmenControlledWeaponReturnTimelineError::
+						MovementRejected;
+				Result.FailedItemInstanceId = ItemInstanceId;
+				Result.Diagnostic =
+					TEXT("A completed weapon rejected the canonical return step during preflight.");
+				return Result;
+			}
+			PendingItemInstanceIds.Add(ItemInstanceId);
+		}
+	}
+	if (PendingItemInstanceIds.IsEmpty())
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponReturnTimelineError::None;
+		Result.Diagnostic =
+			TEXT("No completed controlled weapon requires a visible return.");
+		return Result;
+	}
+
+	const float FixedStepSeconds = 1.0f / static_cast<float>(
+		Fdemo_mapShanmenCombatRunFixedTimeline::CanonicalTicksPerSecond());
+	for (int64 TickOffset = 0;
+		TickOffset < AdvancedTicks && !PendingItemInstanceIds.IsEmpty();
+		++TickOffset)
+	{
+		TArray<FGuid> RemainingItemInstanceIds;
+		RemainingItemInstanceIds.Reserve(PendingItemInstanceIds.Num());
+		for (const FGuid& ItemInstanceId : PendingItemInstanceIds)
+		{
+			Fdemo_mapShanmenControlledWeaponProductController* Controller =
+				Controllers.Find(ItemInstanceId);
+			Fdemo_mapShanmenControlledWeaponReturnMovementReceipt Movement;
+			if (!Controller
+				|| !Controller->TryAdvanceCompletedReturn(
+					FixedStepSeconds, Movement)
+				|| !Movement.IsValid()
+				|| Movement.SourceItemInstanceId != ItemInstanceId)
+			{
+				Result.Error =
+					Edemo_mapShanmenControlledWeaponReturnTimelineError::
+						MovementRejected;
+				Result.FailedItemInstanceId = ItemInstanceId;
+				Result.Diagnostic = FString::Printf(
+					TEXT("Visible return rejected canonical tick %lld for item %s."),
+					static_cast<long long>(
+						Result.StartTick + TickOffset + 1),
+					*ItemInstanceId.ToString(
+						EGuidFormats::DigitsWithHyphens));
+				return Result;
+			}
+			++Result.MovementCount;
+			if (Movement.bArrived)
+			{
+				Result.ArrivedItemInstanceIds.Add(ItemInstanceId);
+			}
+			else
+			{
+				RemainingItemInstanceIds.Add(ItemInstanceId);
+			}
+		}
+		++Result.ProcessedTickCount;
+		PendingItemInstanceIds = MoveTemp(RemainingItemInstanceIds);
+	}
+
+	Result.ArrivedItemInstanceIds.Sort(GuidLess);
+	Result.Error =
+		Edemo_mapShanmenControlledWeaponReturnTimelineError::None;
+	Result.Diagnostic = Result.ArrivedItemInstanceIds.IsEmpty()
+		? TEXT("Completed weapons advanced visibly toward their canonical orbit anchors.")
+		: TEXT("Completed weapons reached their canonical orbit anchors and are ready for redeployment.");
+	if (!Result.IsSuccess() || !IsValid())
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponReturnTimelineError::
+				MovementRejected;
+		Result.Diagnostic =
+			TEXT("Visible return produced an invalid audit or Host state.");
 	}
 	return Result;
 }

@@ -2383,6 +2383,7 @@ void Ademo_mapGameMode::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 	ReconcileWeaponGuardAuthorization(TEXT("GameModeTick"));
+	bool bControlledWeaponRedeployedThisFrame = false;
 	if (!CombatRunFixedTimeline.IsEmpty())
 	{
 		int64 AdvancedTicks = 0;
@@ -2413,6 +2414,85 @@ void Ademo_mapGameMode::Tick(float DeltaSeconds)
 			}
 			else
 			{
+				const Fdemo_mapShanmenControlledWeaponReturnTimelineResult
+					VisibleReturn =
+						ControlledWeaponRunHost.
+							AdvanceCompletedReturnsFixedTicks(
+								TimelineSample,
+								AdvancedTicks,
+								CombatRunCoordinator);
+				if (!VisibleReturn.IsSuccess())
+				{
+					UE_LOG(Logdemo_map, Error,
+						TEXT("0_0_10_CONTROLLED_WEAPON Event=ReturnTimelineRejected RunId=%s TimelineId=%s TickRange=[%lld,%lld] Requested=%lld Processed=%lld Movements=%lld Arrived=%d Error=%d FailedItem=%s Diagnostic=%s"),
+						*VisibleReturn.RunId.ToString(
+							EGuidFormats::DigitsWithHyphens),
+						*VisibleReturn.TimelineId.ToString(
+							EGuidFormats::DigitsWithHyphens),
+						static_cast<long long>(VisibleReturn.StartTick),
+						static_cast<long long>(VisibleReturn.EndTick),
+						static_cast<long long>(
+							VisibleReturn.RequestedTickCount),
+						static_cast<long long>(
+							VisibleReturn.ProcessedTickCount),
+						static_cast<long long>(VisibleReturn.MovementCount),
+						VisibleReturn.ArrivedItemInstanceIds.Num(),
+						static_cast<int32>(VisibleReturn.Error),
+						*VisibleReturn.FailedItemInstanceId.ToString(
+							EGuidFormats::DigitsWithHyphens),
+						*VisibleReturn.Diagnostic);
+				}
+				else if (VisibleReturn.ArrivedItemInstanceIds.Contains(
+					ControlledWeaponWorldLifecycle.GetItemInstanceId()))
+				{
+					Udemo_mapShanmenItemAuthoritySubsystem* ItemAuthority =
+						GetGameInstance()
+							? GetGameInstance()->GetSubsystem<
+								Udemo_mapShanmenItemAuthoritySubsystem>()
+							: nullptr;
+					const Fdemo_mapShanmenControlledWeaponWorldRedeployResult
+						Redeploy =
+							ControlledWeaponWorldLifecycle.TryRedeployReturned(
+								ItemAuthority,
+								PlayerItemSubsystem.Get(),
+								CombatRunCoordinator,
+								ControlledWeaponRunHost);
+					if (!Redeploy.IsRedeployed())
+					{
+						UE_LOG(Logdemo_map, Error,
+							TEXT("0_0_10_CONTROLLED_WEAPON Event=ReturnRedeployRejected RunId=%s ItemId=%s PreviousActivation=%s NewActivation=%s Sequence=%llu Status=%d Diagnostic=%s"),
+							*Redeploy.RunId.ToString(
+								EGuidFormats::DigitsWithHyphens),
+							*Redeploy.ItemInstanceId.ToString(
+								EGuidFormats::DigitsWithHyphens),
+							*Redeploy.PreviousActivationId.ToString(
+								EGuidFormats::DigitsWithHyphens),
+							*Redeploy.NewActivationId.ToString(
+								EGuidFormats::DigitsWithHyphens),
+							static_cast<unsigned long long>(
+								Redeploy.ActivationSequence),
+							static_cast<int32>(Redeploy.Status),
+							*Redeploy.Diagnostic);
+					}
+					else
+					{
+						bControlledWeaponRedeployedThisFrame = true;
+						UE_LOG(Logdemo_map, Log,
+							TEXT("0_0_10_CONTROLLED_WEAPON Event=ReturnRedeployed RunId=%s ItemId=%s PreviousActivation=%s NewActivation=%s Sequence=%llu Actor=%s"),
+							*Redeploy.RunId.ToString(
+								EGuidFormats::DigitsWithHyphens),
+							*Redeploy.ItemInstanceId.ToString(
+								EGuidFormats::DigitsWithHyphens),
+							*Redeploy.PreviousActivationId.ToString(
+								EGuidFormats::DigitsWithHyphens),
+							*Redeploy.NewActivationId.ToString(
+								EGuidFormats::DigitsWithHyphens),
+							static_cast<unsigned long long>(
+								Redeploy.ActivationSequence),
+							*GetNameSafe(Redeploy.WeaponActor.Get()));
+					}
+				}
+
 				const Fdemo_mapShanmenControlledWeaponDirectedTimelineResult
 					DirectedFlight =
 						ControlledWeaponRunHost.AdvanceDirectedFixedTicks(
@@ -2507,7 +2587,8 @@ void Ademo_mapGameMode::Tick(float DeltaSeconds)
 			}
 		}
 	}
-	if (!ControlledWeaponRunHost.IsEmpty())
+	if (!bControlledWeaponRedeployedThisFrame
+		&& !ControlledWeaponRunHost.IsEmpty())
 	{
 		const Fdemo_mapShanmenControlledWeaponOrbitFrameResult OrbitFrame =
 			AdvanceControlledWeaponOrbitFrame(DeltaSeconds);

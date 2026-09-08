@@ -596,6 +596,115 @@ bool Fdemo_mapControlledWeaponRunHostFixedTimelineMovementTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapControlledWeaponRunHostFixedTimelineReturnTest,
+	"Shanmen.0_0_10.Product.ControlledWeaponRunHost.FixedTimelineVisibleReturn",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapControlledWeaponRunHostFixedTimelineReturnTest::RunTest(
+	const FString&)
+{
+	FControlledWeaponHostFixture Fixture;
+	Fdemo_mapShanmenControlledWeaponRunHost Host;
+	if (!Fixture.bReady
+		|| !AttachHostWeapon(
+			Fixture, Host, HostLowItemId, 1, 0).IsAttached())
+	{
+		AddError(TEXT("Could not prepare P21.9 fixed-timeline return fixture."));
+		return false;
+	}
+
+	FShanmenControlledWeaponCommandReceipt Launch;
+	if (!Host.TryLaunch(
+			HostLowItemId, 0, FVector::ForwardVector, Launch))
+	{
+		AddError(TEXT("P21.9 return fixture could not launch."));
+		return false;
+	}
+	const FGuid TimelineId =
+		Fdemo_mapShanmenCombatRunFixedTimeline::MakeTimelineId(HostRunId);
+	Fdemo_mapShanmenCombatRunTimelineSample TickThree;
+	check(Fdemo_mapShanmenCombatRunTimelineSample::TryCapture(
+		TimelineId, 3, TickThree));
+	const Fdemo_mapShanmenControlledWeaponDirectedTimelineResult Outbound =
+		Host.AdvanceDirectedFixedTicks(
+			TickThree, 3, Fixture.Coordinator);
+	FShanmenControlledWeaponCommandReceipt Recall;
+	FShanmenActionTransitionReceipt Recovery;
+	FShanmenActionTransitionReceipt Completed;
+	const FVector OutboundLocation = Fixture.Weapons[0]->GetActorLocation();
+	TestTrue(TEXT("Existing lifecycle terminalizes before physical return"),
+		Outbound.IsAdvanced()
+		&& Host.TryRecallAndComplete(
+			HostLowItemId, 1, Recall, Recovery, Completed)
+		&& Host.FindController(HostLowItemId)
+		&& Host.FindController(HostLowItemId)->IsCompletedForReturn()
+		&& !Host.FindController(HostLowItemId)->IsAtInitialOrbitLocation());
+
+	const Fdemo_mapShanmenControlledWeaponReturnTimelineResult Zero =
+		Host.AdvanceCompletedReturnsFixedTicks(
+			TickThree, 0, Fixture.Coordinator);
+	TestTrue(TEXT("Sub-tick owner frames cannot move a completed weapon"),
+		Zero.IsNoOp()
+		&& Fixture.Weapons[0]->GetActorLocation().Equals(OutboundLocation));
+
+	Fdemo_mapShanmenCombatRunTimelineSample Foreign;
+	check(Fdemo_mapShanmenCombatRunTimelineSample::TryCapture(
+		FGuid(0xD365FFFF, 0, 0, 2), 4, Foreign));
+	const Fdemo_mapShanmenControlledWeaponReturnTimelineResult Mismatch =
+		Host.AdvanceCompletedReturnsFixedTicks(
+			Foreign, 1, Fixture.Coordinator);
+	Fdemo_mapShanmenCombatRunTimelineSample OversizedSample;
+	check(Fdemo_mapShanmenCombatRunTimelineSample::TryCapture(
+		TimelineId, 304, OversizedSample));
+	const Fdemo_mapShanmenControlledWeaponReturnTimelineResult Oversized =
+		Host.AdvanceCompletedReturnsFixedTicks(
+			OversizedSample, 301, Fixture.Coordinator);
+	TestTrue(TEXT("Foreign and abusive return pumps fail before movement"),
+		Mismatch.Error
+			== Edemo_mapShanmenControlledWeaponReturnTimelineError::
+				CoordinatorMismatch
+		&& Oversized.Error
+			== Edemo_mapShanmenControlledWeaponReturnTimelineError::
+				TickBudgetExceeded
+		&& Fixture.Weapons[0]->GetActorLocation().Equals(OutboundLocation));
+
+	Fdemo_mapShanmenCombatRunTimelineSample TickFive;
+	check(Fdemo_mapShanmenCombatRunTimelineSample::TryCapture(
+		TimelineId, 5, TickFive));
+	const Fdemo_mapShanmenControlledWeaponReturnTimelineResult Partial =
+		Host.AdvanceCompletedReturnsFixedTicks(
+			TickFive, 2, Fixture.Coordinator);
+	const FVector PartialLocation = Fixture.Weapons[0]->GetActorLocation();
+	TestTrue(TEXT("Canonical ticks visibly move the same terminal Actor home"),
+		Partial.IsSuccess()
+		&& Partial.ProcessedTickCount == 2
+		&& Partial.MovementCount == 2
+		&& Partial.ArrivedItemInstanceIds.IsEmpty()
+		&& !PartialLocation.Equals(OutboundLocation)
+		&& Host.FindController(HostLowItemId)->IsCompletedForReturn());
+
+	Fdemo_mapShanmenCombatRunTimelineSample TickEight;
+	check(Fdemo_mapShanmenCombatRunTimelineSample::TryCapture(
+		TimelineId, 8, TickEight));
+	const Fdemo_mapShanmenControlledWeaponReturnTimelineResult Arrived =
+		Host.AdvanceCompletedReturnsFixedTicks(
+			TickEight, 3, Fixture.Coordinator);
+	const Fdemo_mapShanmenControlledWeaponProductController* Controller =
+		Host.FindController(HostLowItemId);
+	TestTrue(TEXT("Return snaps exactly once to the canonical initial anchor"),
+		Arrived.IsSuccess()
+		&& Arrived.HasArrivals()
+		&& Arrived.ArrivedItemInstanceIds.Num() == 1
+		&& Arrived.ArrivedItemInstanceIds[0] == HostLowItemId
+		&& Controller
+		&& Controller->IsAtInitialOrbitLocation()
+		&& Controller->GetSession().IsTerminal()
+		&& Fixture.Weapons[0]->GetActorLocation().Equals(
+			FVector(100.0f, 0.f, 50.0f), 0.01f));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	Fdemo_mapControlledWeaponRunHostBlockingTimelineTest,
 	"Shanmen.0_0_10.Product.ControlledWeaponRunHost.BlockingContactTerminal",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
