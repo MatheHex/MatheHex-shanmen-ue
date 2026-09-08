@@ -34,6 +34,7 @@ enum class Edemo_mapShanmenControlledWeaponInputStatus : uint8
 	GameplayBlocked,
 	ProductRouteUnavailable,
 	CanonicalWeaponUnavailable,
+	CommandUnavailable,
 	IntentIdInvalid,
 	IntentCaptureRejected,
 	ProductRejected
@@ -62,11 +63,12 @@ struct Fdemo_mapShanmenControlledWeaponInputResult
 /**
  * Stateless physical-input seam for the canonical TrainingFlyingSword.
  *
- * Orbiting maps to Launch with one current-aim sample. Directed maps to Recall
- * without sampling aim. Canonical identity is read once, a fresh intent id is
- * created once, and the existing P6 Run command route is invoked at most once.
- * This adapter never chooses another item, retries, moves an Actor, or resolves
- * damage.
+ * Toggle maps Orbiting to Launch with one current-aim sample and Directed to
+ * Recall without sampling aim. Redirect is a separate Directed-only press with
+ * one current-aim sample, so recall remains available while the sword is in
+ * flight. Canonical identity is read once, a fresh intent id is created once,
+ * and the existing P6 Run command route is invoked at most once. This adapter
+ * never chooses another item, retries, moves an Actor, or resolves damage.
  */
 struct Fdemo_mapShanmenControlledWeaponInputAdapter
 {
@@ -82,6 +84,16 @@ struct Fdemo_mapShanmenControlledWeaponInputAdapter
 			Fdemo_mapShanmenControlledWeaponInputReadModel&)> ReadCanonicalWeapon,
 		TFunctionRef<FGuid()> CreateIntentId,
 		TFunctionRef<FVector()> SampleLaunchDirection,
+		TFunctionRef<Fdemo_mapShanmenControlledWeaponRunCommandResult(
+			const Fdemo_mapShanmenControlledWeaponRunCommandIntent&)> RouteIntent);
+
+	static Fdemo_mapShanmenControlledWeaponInputResult RouteRedirectInput(
+		bool bGameplayInputAllowed,
+		bool bProductRouteAvailable,
+		TFunctionRef<bool(
+			Fdemo_mapShanmenControlledWeaponInputReadModel&)> ReadCanonicalWeapon,
+		TFunctionRef<FGuid()> CreateIntentId,
+		TFunctionRef<FVector()> SampleRedirectDirection,
 		TFunctionRef<Fdemo_mapShanmenControlledWeaponRunCommandResult(
 			const Fdemo_mapShanmenControlledWeaponRunCommandIntent&)> RouteIntent);
 };

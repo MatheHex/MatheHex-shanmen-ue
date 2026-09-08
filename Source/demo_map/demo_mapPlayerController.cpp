@@ -205,6 +205,7 @@ void Ademo_mapPlayerController::BindProductInputActions()
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::SkillSelfSector), IE_Pressed, this, &Ademo_mapPlayerController::CastSelfSector);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::SkillStraightProjectile), IE_Pressed, this, &Ademo_mapPlayerController::FireStraightProjectile);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::ControlledWeaponLaunchRecall), IE_Pressed, this, &Ademo_mapPlayerController::ToggleControlledWeaponLaunchRecall);
+	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::ControlledWeaponRedirect), IE_Pressed, this, &Ademo_mapPlayerController::RedirectControlledWeapon);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::ThrownWeaponTrajectoryToggle), IE_Pressed, this, &Ademo_mapPlayerController::ToggleThrownWeaponTrajectory);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::ThrownWeaponArcTargetSet), IE_Pressed, this, &Ademo_mapPlayerController::SetThrownWeaponArcTargetFromPointerAim);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::ThrownWeaponArcApexIncrease), IE_Pressed, this, &Ademo_mapPlayerController::IncreaseThrownWeaponArcApex);
@@ -924,6 +925,49 @@ Ademo_mapPlayerController::RouteControlledWeaponLaunchRecallInput()
 		? Cast<Ademo_mapGameMode>(GetWorld()->GetAuthGameMode())
 		: nullptr;
 	return Fdemo_mapShanmenControlledWeaponInputAdapter::RouteToggleInput(
+		IsGameplayInputAllowed(),
+		Mode != nullptr,
+		[Mode](Fdemo_mapShanmenControlledWeaponInputReadModel& OutReadModel)
+		{
+			return Mode
+				&& Fdemo_mapShanmenControlledWeaponInputAdapter::TryReadCanonical(
+					Mode->GetControlledWeaponWorldLifecycle(),
+					Mode->GetControlledWeaponRunHost(),
+					OutReadModel);
+		},
+		[]() { return FGuid::NewGuid(); },
+		[this]() { return GetLastValidAimDirection(); },
+		[Mode](const Fdemo_mapShanmenControlledWeaponRunCommandIntent& Intent)
+		{
+			return Mode
+				? Mode->RouteControlledWeaponIntent(Intent)
+				: Fdemo_mapShanmenControlledWeaponRunCommandResult();
+		});
+}
+
+void Ademo_mapPlayerController::RedirectControlledWeapon()
+{
+	const Fdemo_mapShanmenControlledWeaponInputResult Result =
+		RouteControlledWeaponRedirectInput();
+#if !UE_BUILD_SHIPPING
+	++ControlledWeaponRedirectInputInvocationCount;
+	LastControlledWeaponRedirectInputResult = Result;
+#endif
+	UE_LOG(
+		Logdemo_map,
+		Log,
+		TEXT("Controlled flying-sword redirect %s: %s"),
+		Result.IsAccepted() ? TEXT("accepted") : TEXT("rejected"),
+		*Result.Diagnostic);
+}
+
+Fdemo_mapShanmenControlledWeaponInputResult
+Ademo_mapPlayerController::RouteControlledWeaponRedirectInput()
+{
+	Ademo_mapGameMode* Mode = GetWorld()
+		? Cast<Ademo_mapGameMode>(GetWorld()->GetAuthGameMode())
+		: nullptr;
+	return Fdemo_mapShanmenControlledWeaponInputAdapter::RouteRedirectInput(
 		IsGameplayInputAllowed(),
 		Mode != nullptr,
 		[Mode](Fdemo_mapShanmenControlledWeaponInputReadModel& OutReadModel)

@@ -613,9 +613,11 @@ namespace
 		}
 		case 41:
 			return Check(Test, Fdemo_mapInputActionRegistry::ValidateExactDefaults()
-				&& Fdemo_mapInputActionRegistry::GetExactDefaultActions().Num() == 29
+				&& Fdemo_mapInputActionRegistry::GetExactDefaultActions().Num() == 30
 				&& Fdemo_mapInputActionRegistry::Find(Fdemo_mapInputActionIds::ControlledWeaponLaunchRecall)
 				&& Fdemo_mapInputActionRegistry::Find(Fdemo_mapInputActionIds::ControlledWeaponLaunchRecall)->DefaultKey == EKeys::X
+				&& Fdemo_mapInputActionRegistry::Find(Fdemo_mapInputActionIds::ControlledWeaponRedirect)
+				&& Fdemo_mapInputActionRegistry::Find(Fdemo_mapInputActionIds::ControlledWeaponRedirect)->DefaultKey == EKeys::C
 				&& Fdemo_mapInputActionRegistry::Find(Fdemo_mapInputActionIds::SpiritEvasion)->DefaultKey == EKeys::SpaceBar
 				&& Fdemo_mapInputActionRegistry::Find(Fdemo_mapInputActionIds::WeaponGuard)->DefaultKey == EKeys::RightMouseButton
 				&& Fdemo_mapInputActionRegistry::Find(Fdemo_mapInputActionIds::Interact)->DefaultKey == EKeys::G,
@@ -675,7 +677,7 @@ namespace
 			Settings.ApplyOverride(Fdemo_mapInputActionIds::Interact, EKeys::H);
 			const auto Restored = Settings.RestoreDefaults();
 			return Check(Test, Restored.IsSuccess() && Settings.GetKey(Fdemo_mapInputActionIds::Interact) == EKeys::G
-				&& Settings.GetBindings().Num() == 29, TEXT("Restore defaults was not exact."));
+				&& Settings.GetBindings().Num() == 30, TEXT("Restore defaults was not exact."));
 		}
 		case 48:
 		{

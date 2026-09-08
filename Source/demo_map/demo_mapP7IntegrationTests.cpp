@@ -167,12 +167,17 @@ bool FP7Integration01::RunTest(const FString&)
 	TestTrue(
 		TEXT("Registry is exact, labeled, and includes Back"),
 		Fdemo_mapInputActionRegistry::ValidateExactDefaults()
-			&& Actions.Num() == 29
+			&& Actions.Num() == 30
 			&& Fdemo_mapInputActionRegistry::Find(
 				Fdemo_mapInputActionIds::ControlledWeaponLaunchRecall)
 			&& Fdemo_mapInputActionRegistry::Find(
 				Fdemo_mapInputActionIds::ControlledWeaponLaunchRecall)
 				->DefaultKey == EKeys::X
+			&& Fdemo_mapInputActionRegistry::Find(
+				Fdemo_mapInputActionIds::ControlledWeaponRedirect)
+			&& Fdemo_mapInputActionRegistry::Find(
+				Fdemo_mapInputActionIds::ControlledWeaponRedirect)
+				->DefaultKey == EKeys::C
 			&& Fdemo_mapInputActionRegistry::Find(
 				Fdemo_mapInputActionIds::SpiritEvasion)
 			&& Fdemo_mapInputActionRegistry::Find(
@@ -260,7 +265,7 @@ bool FP7Integration03::RunTest(const FString&)
 		TEXT("Missing newer action is migrated without losing old keys"),
 		Load.IsSuccess()
 			&& Fdemo_mapInputBindingSettings::Get()
-				.GetBindings().Num() == 29
+				.GetBindings().Num() == 30
 			&& Fdemo_mapInputBindingSettings::Get().GetKey(
 				Fdemo_mapInputActionIds::Back)
 				== EKeys::BackSpace

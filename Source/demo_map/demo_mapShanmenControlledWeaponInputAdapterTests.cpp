@@ -21,7 +21,8 @@ namespace
 	const FGuid InputItemId(0xD3770010, 0, 0, 1);
 	const FGuid InputOwnerId(0xD3770020, 0, 0, 1);
 	const FGuid LaunchIntentId(0xD3770100, 0, 0, 1);
-	const FGuid RecallIntentId(0xD3770101, 0, 0, 1);
+	const FGuid RedirectIntentId(0xD3770101, 0, 0, 1);
+	const FGuid RecallIntentId(0xD3770102, 0, 0, 1);
 
 	Fdemo_mapShanmenControlledWeaponRunCommandResult MakeRejectedRoute()
 	{
@@ -194,6 +195,31 @@ namespace
 					return Router.TryRoute(Host, Coordinator, Intent);
 				});
 		}
+
+		Fdemo_mapShanmenControlledWeaponInputResult RouteRedirect(
+			const FGuid& IntentId,
+			EShanmenControlledWeaponState State,
+			TFunctionRef<FVector()> SampleDirection)
+		{
+			return Fdemo_mapShanmenControlledWeaponInputAdapter::
+				RouteRedirectInput(
+					true,
+					true,
+					[State](
+						Fdemo_mapShanmenControlledWeaponInputReadModel& Out)
+					{
+						return Fdemo_mapShanmenControlledWeaponInputReadModel::
+							TryCapture(InputRunId, InputItemId, State, Out);
+					},
+					[IntentId]() { return IntentId; },
+					SampleDirection,
+					[this](
+						const Fdemo_mapShanmenControlledWeaponRunCommandIntent&
+							Intent)
+					{
+						return Router.TryRoute(Host, Coordinator, Intent);
+					});
+		}
 	};
 }
 
@@ -339,8 +365,71 @@ bool Fdemo_mapControlledWeaponInputIdentityFenceTest::RunTest(const FString&)
 		NoAim.Status
 			== Edemo_mapShanmenControlledWeaponInputStatus::IntentCaptureRejected
 		&& NoAim.bDirectionSampled
-		&& !NoAim.bIntentCaptured
-		&& RouteCount == 0);
+			&& !NoAim.bIntentCaptured
+			&& RouteCount == 0);
+
+	int32 RedirectIdCount = 0;
+	int32 RedirectAimCount = 0;
+	int32 RedirectRouteCount = 0;
+	const Fdemo_mapShanmenControlledWeaponInputResult OrbitRedirect =
+		Fdemo_mapShanmenControlledWeaponInputAdapter::RouteRedirectInput(
+			true,
+			true,
+			[](Fdemo_mapShanmenControlledWeaponInputReadModel& Out)
+			{
+				Out = MakeReadModel(
+					EShanmenControlledWeaponState::Orbiting);
+				return true;
+			},
+			[&RedirectIdCount]()
+			{
+				++RedirectIdCount;
+				return RedirectIntentId;
+			},
+			[&RedirectAimCount]()
+			{
+				++RedirectAimCount;
+				return FVector::RightVector;
+			},
+			[&RedirectRouteCount](
+				const Fdemo_mapShanmenControlledWeaponRunCommandIntent&)
+			{
+				++RedirectRouteCount;
+				return MakeRejectedRoute();
+			});
+	TestTrue(TEXT("redirect before launch fails before identity, aim, and route"),
+		OrbitRedirect.Status
+			== Edemo_mapShanmenControlledWeaponInputStatus::CommandUnavailable
+		&& OrbitRedirect.bCanonicalReadInvoked
+		&& RedirectIdCount == 0
+		&& RedirectAimCount == 0
+		&& RedirectRouteCount == 0);
+
+	const Fdemo_mapShanmenControlledWeaponInputResult InvalidRedirectAim =
+		Fdemo_mapShanmenControlledWeaponInputAdapter::RouteRedirectInput(
+			true,
+			true,
+			[](Fdemo_mapShanmenControlledWeaponInputReadModel& Out)
+			{
+				Out = MakeReadModel(
+					EShanmenControlledWeaponState::Directed);
+				return true;
+			},
+			[]() { return RedirectIntentId; },
+			[]() { return FVector::ZeroVector; },
+			[&RedirectRouteCount](
+				const Fdemo_mapShanmenControlledWeaponRunCommandIntent&)
+			{
+				++RedirectRouteCount;
+				return MakeRejectedRoute();
+			});
+	TestTrue(TEXT("invalid redirect aim fails before product mutation"),
+		InvalidRedirectAim.Status
+			== Edemo_mapShanmenControlledWeaponInputStatus::
+				IntentCaptureRejected
+		&& InvalidRedirectAim.bDirectionSampled
+		&& !InvalidRedirectAim.bIntentCaptured
+		&& RedirectRouteCount == 0);
 	return true;
 }
 
@@ -383,6 +472,38 @@ bool Fdemo_mapControlledWeaponInputLaunchRecallTest::RunTest(const FString&)
 		&& Controller->IsDirected()
 		&& Fixture.Router.NumProcessedIntents() == 1);
 
+	int32 RedirectAimCount = 0;
+	const FVector RawRedirect(0.0f, -8.0f, 3.0f);
+	const Fdemo_mapShanmenControlledWeaponInputResult Redirect =
+		Fixture.RouteRedirect(
+			RedirectIntentId,
+			EShanmenControlledWeaponState::Directed,
+			[&RedirectAimCount, &RawRedirect]()
+			{
+				++RedirectAimCount;
+				return RawRedirect;
+			});
+	const Fdemo_mapShanmenControlledWeaponProductController*
+		ControllerAfterRedirect = Fixture.Host.FindController(InputItemId);
+	TestTrue(TEXT("separate redirect press retargets the same directed item"),
+		Redirect.IsAccepted()
+		&& RedirectAimCount == 1
+		&& Redirect.SampledDirection == RawRedirect
+		&& Redirect.Intent.GetKind()
+			== EShanmenControlledWeaponCommandKind::Redirect
+		&& Redirect.Intent.GetTargetItemInstanceIds()
+			== TArray<FGuid>({ InputItemId })
+		&& Redirect.Intent.GetDesiredDirection().Equals(
+			RawRedirect.GetSafeNormal())
+		&& Redirect.ProductRoute.Entries.Num() == 1
+		&& Redirect.ProductRoute.Entries[0].Command.GetKind()
+			== EShanmenControlledWeaponCommandKind::Redirect
+		&& Redirect.ProductRoute.Entries[0].Command.GetDirectionAfter().Equals(
+			RawRedirect.GetSafeNormal())
+		&& ControllerAfterRedirect
+		&& ControllerAfterRedirect->IsDirected()
+		&& Fixture.Router.NumProcessedIntents() == 2);
+
 	int32 RecallAimCount = 0;
 	const Fdemo_mapShanmenControlledWeaponInputResult Recall = Fixture.Route(
 		RecallIntentId,
@@ -401,7 +522,7 @@ bool Fdemo_mapControlledWeaponInputLaunchRecallTest::RunTest(const FString&)
 		&& Recall.Intent.GetTargetItemInstanceIds()
 			== TArray<FGuid>({ InputItemId })
 		&& Fixture.Host.NumActive() == 0
-		&& Fixture.Router.NumProcessedIntents() == 2);
+		&& Fixture.Router.NumProcessedIntents() == 3);
 	return true;
 }
 

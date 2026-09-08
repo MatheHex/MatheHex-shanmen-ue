@@ -46,13 +46,20 @@ bool Fdemo_mapShanmenControlledWeaponInputResult::IsAccepted() const
 	{
 		return false;
 	}
-	return ReadModel.GetState() == EShanmenControlledWeaponState::Orbiting
-		? bDirectionSampled
-			&& Intent.GetKind()
-				== EShanmenControlledWeaponCommandKind::Launch
-		: !bDirectionSampled
-			&& Intent.GetKind()
-				== EShanmenControlledWeaponCommandKind::Recall;
+	switch (Intent.GetKind())
+	{
+	case EShanmenControlledWeaponCommandKind::Launch:
+		return ReadModel.GetState() == EShanmenControlledWeaponState::Orbiting
+			&& bDirectionSampled;
+	case EShanmenControlledWeaponCommandKind::Redirect:
+		return ReadModel.GetState() == EShanmenControlledWeaponState::Directed
+			&& bDirectionSampled;
+	case EShanmenControlledWeaponCommandKind::Recall:
+		return ReadModel.GetState() == EShanmenControlledWeaponState::Directed
+			&& !bDirectionSampled;
+	default:
+		return false;
+	}
 }
 
 bool Fdemo_mapShanmenControlledWeaponInputAdapter::TryReadCanonical(
@@ -160,6 +167,94 @@ Fdemo_mapShanmenControlledWeaponInputAdapter::RouteToggleInput(
 		Result.Diagnostic = bLaunch
 			? TEXT("Controlled-weapon launch requires one valid current aim direction.")
 			: TEXT("Controlled-weapon recall intent capture was rejected.");
+		return Result;
+	}
+	Result.bIntentCaptured = true;
+
+	Result.bProductRouteInvoked = true;
+	Result.ProductRoute = RouteIntent(Result.Intent);
+	Result.Status = Result.ProductRoute.IsAccepted()
+		? Edemo_mapShanmenControlledWeaponInputStatus::Applied
+		: Edemo_mapShanmenControlledWeaponInputStatus::ProductRejected;
+	Result.Diagnostic = Result.ProductRoute.Diagnostic;
+	return Result;
+}
+
+Fdemo_mapShanmenControlledWeaponInputResult
+Fdemo_mapShanmenControlledWeaponInputAdapter::RouteRedirectInput(
+	const bool bGameplayInputAllowed,
+	const bool bProductRouteAvailable,
+	TFunctionRef<bool(
+		Fdemo_mapShanmenControlledWeaponInputReadModel&)> ReadCanonicalWeapon,
+	TFunctionRef<FGuid()> CreateIntentId,
+	TFunctionRef<FVector()> SampleRedirectDirection,
+	TFunctionRef<Fdemo_mapShanmenControlledWeaponRunCommandResult(
+		const Fdemo_mapShanmenControlledWeaponRunCommandIntent&)> RouteIntent)
+{
+	Fdemo_mapShanmenControlledWeaponInputResult Result;
+	if (!bGameplayInputAllowed)
+	{
+		Result.Diagnostic =
+			TEXT("Controlled-weapon redirect is blocked by the current gameplay surface.");
+		return Result;
+	}
+	if (!bProductRouteAvailable)
+	{
+		Result.Status =
+			Edemo_mapShanmenControlledWeaponInputStatus::ProductRouteUnavailable;
+		Result.Diagnostic =
+			TEXT("Controlled-weapon redirect requires the authoritative GameMode route.");
+		return Result;
+	}
+
+	Result.bCanonicalReadInvoked = true;
+	if (!ReadCanonicalWeapon(Result.ReadModel)
+		|| !Result.ReadModel.IsValid())
+	{
+		Result.Status =
+			Edemo_mapShanmenControlledWeaponInputStatus::
+				CanonicalWeaponUnavailable;
+		Result.Diagnostic =
+			TEXT("No active canonical TrainingFlyingSword can consume this redirect.");
+		return Result;
+	}
+	if (Result.ReadModel.GetState()
+		!= EShanmenControlledWeaponState::Directed)
+	{
+		Result.Status =
+			Edemo_mapShanmenControlledWeaponInputStatus::CommandUnavailable;
+		Result.Diagnostic =
+			TEXT("Controlled-weapon redirect is available only during directed flight.");
+		return Result;
+	}
+
+	Result.bIntentIdCreated = true;
+	Result.IntentId = CreateIntentId();
+	if (!Result.IntentId.IsValid())
+	{
+		Result.Status =
+			Edemo_mapShanmenControlledWeaponInputStatus::IntentIdInvalid;
+		Result.Diagnostic =
+			TEXT("Controlled-weapon redirect could not create a valid intent identity.");
+		return Result;
+	}
+
+	Result.bDirectionSampled = true;
+	Result.SampledDirection = SampleRedirectDirection();
+	const TArray<FGuid> TargetItemInstanceIds = {
+		Result.ReadModel.GetItemInstanceId() };
+	if (!Fdemo_mapShanmenControlledWeaponRunCommandIntent::TryCapture(
+			Result.IntentId,
+			Result.ReadModel.GetRunId(),
+			EShanmenControlledWeaponCommandKind::Redirect,
+			TargetItemInstanceIds,
+			Result.SampledDirection,
+			Result.Intent))
+	{
+		Result.Status =
+			Edemo_mapShanmenControlledWeaponInputStatus::IntentCaptureRejected;
+		Result.Diagnostic =
+			TEXT("Controlled-weapon redirect requires one valid current aim direction.");
 		return Result;
 	}
 	Result.bIntentCaptured = true;

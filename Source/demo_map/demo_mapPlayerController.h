@@ -109,6 +109,9 @@ public:
 	/** Routes one canonical flying-sword Launch-or-Recall physical command. */
 	Fdemo_mapShanmenControlledWeaponInputResult
 	RouteControlledWeaponLaunchRecallInput();
+	/** Redirects the canonical flying sword to one frozen current-aim sample. */
+	Fdemo_mapShanmenControlledWeaponInputResult
+	RouteControlledWeaponRedirectInput();
 	/** Routes one frozen, device-independent Arc launch command. */
 	Fdemo_mapShanmenThrownWeaponArcLaunchInputResult
 	RouteThrownWeaponArcLaunchCommand(
@@ -200,6 +203,15 @@ public:
 	GetLastControlledWeaponInputResultForAutomation() const
 	{
 		return LastControlledWeaponInputResult;
+	}
+	uint64 GetControlledWeaponRedirectInputInvocationCountForAutomation() const
+	{
+		return ControlledWeaponRedirectInputInvocationCount;
+	}
+	const Fdemo_mapShanmenControlledWeaponInputResult&
+	GetLastControlledWeaponRedirectInputResultForAutomation() const
+	{
+		return LastControlledWeaponRedirectInputResult;
 	}
 	uint64 GetThrownWeaponTrajectoryToggleInvocationCountForAutomation() const
 	{
@@ -322,6 +334,7 @@ protected:
 	void CastSelfSector();
 	void FireStraightProjectile();
 	void ToggleControlledWeaponLaunchRecall();
+	void RedirectControlledWeapon();
 	void ToggleThrownWeaponTrajectory();
 	void SetThrownWeaponArcTargetFromPointerAim();
 	void IncreaseThrownWeaponArcApex();
@@ -358,6 +371,9 @@ protected:
 	uint64 ControlledWeaponInputInvocationCount = 0;
 	Fdemo_mapShanmenControlledWeaponInputResult
 		LastControlledWeaponInputResult;
+	uint64 ControlledWeaponRedirectInputInvocationCount = 0;
+	Fdemo_mapShanmenControlledWeaponInputResult
+		LastControlledWeaponRedirectInputResult;
 	uint64 ThrownWeaponTrajectoryToggleInvocationCount = 0;
 	Fdemo_mapShanmenThrownWeaponInputChoiceInteractionReadResult
 		LastThrownWeaponTrajectoryToggleRead;

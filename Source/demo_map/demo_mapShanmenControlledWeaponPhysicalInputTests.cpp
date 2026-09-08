@@ -116,13 +116,38 @@ namespace
 			Fdemo_mapInputActionRegistry::GetExactDefaultActions())
 		{
 			if (Action.ActionId
-				== Fdemo_mapInputActionIds::ControlledWeaponLaunchRecall)
+					== Fdemo_mapInputActionIds::ControlledWeaponLaunchRecall
+				|| Action.ActionId
+					== Fdemo_mapInputActionIds::ControlledWeaponRedirect)
 			{
 				continue;
 			}
 			const FKey Key = bOccupyNewDefault
 				&& Action.ActionId == Fdemo_mapInputActionIds::Interact
 				? EKeys::X
+				: Action.DefaultKey;
+			Text += FString::Printf(
+				TEXT("%s=%s\n"),
+				*Action.ActionId.ToString(),
+				*Key.GetFName().ToString());
+		}
+		return Text;
+	}
+
+	FString MakeVersionSevenConfig(bool bOccupyNewDefault)
+	{
+		FString Text = TEXT("[ShanmenInputBindings]\nVersion=7\n");
+		for (const Fdemo_mapInputActionDefinition& Action :
+			Fdemo_mapInputActionRegistry::GetExactDefaultActions())
+		{
+			if (Action.ActionId
+				== Fdemo_mapInputActionIds::ControlledWeaponRedirect)
+			{
+				continue;
+			}
+			const FKey Key = bOccupyNewDefault
+				&& Action.ActionId == Fdemo_mapInputActionIds::Interact
+				? EKeys::C
 				: Action.DefaultKey;
 			Text += FString::Printf(
 				TEXT("%s=%s\n"),
@@ -143,15 +168,23 @@ bool Fdemo_mapControlledWeaponPhysicalRegistryTest::RunTest(const FString&)
 	const Fdemo_mapInputActionDefinition* Action =
 		Fdemo_mapInputActionRegistry::Find(
 			Fdemo_mapInputActionIds::ControlledWeaponLaunchRecall);
-	TestTrue(TEXT("registry is exact after adding the flying-sword command"),
+	const Fdemo_mapInputActionDefinition* Redirect =
+		Fdemo_mapInputActionRegistry::Find(
+			Fdemo_mapInputActionIds::ControlledWeaponRedirect);
+	TestTrue(TEXT("registry is exact after adding flying-sword redirect"),
 		Fdemo_mapInputActionRegistry::ValidateExactDefaults()
-			&& Fdemo_mapInputActionRegistry::GetExactDefaultActions().Num() == 29);
+			&& Fdemo_mapInputActionRegistry::GetExactDefaultActions().Num() == 30);
 	TestTrue(TEXT("flying-sword command owns a conflict-free press-only X default"),
 		Action
 			&& Action->DefaultKey == EKeys::X
 			&& !Action->bRequiresReleasedEvent
 			&& Action->DisplayLabel.Contains(TEXT("飞剑"))
 			&& Action->DisplayLabel.Contains(TEXT("召回")));
+	TestTrue(TEXT("redirect owns a separate conflict-free press-only C default"),
+		Redirect
+			&& Redirect->DefaultKey == EKeys::C
+			&& !Redirect->bRequiresReleasedEvent
+			&& Redirect->DisplayLabel.Contains(TEXT("改向")));
 	return true;
 }
 
@@ -169,12 +202,15 @@ bool Fdemo_mapControlledWeaponPhysicalMigrationTest::RunTest(const FString&)
 			MakeVersionSixConfig(false), *Config.Path));
 	const Fdemo_mapInputBindingResult Result =
 		Fdemo_mapInputBindingSettings::Get().Load();
-	TestTrue(TEXT("missing flying-sword command receives free X default"),
+	TestTrue(TEXT("version six receives both later flying-sword defaults"),
 		Result.IsSuccess()
-			&& Fdemo_mapInputBindingSettings::Get().GetBindings().Num() == 29
+			&& Fdemo_mapInputBindingSettings::Get().GetBindings().Num() == 30
 			&& Fdemo_mapInputBindingSettings::Get().GetKey(
 				Fdemo_mapInputActionIds::ControlledWeaponLaunchRecall)
-				== EKeys::X);
+				== EKeys::X
+			&& Fdemo_mapInputBindingSettings::Get().GetKey(
+				Fdemo_mapInputActionIds::ControlledWeaponRedirect)
+				== EKeys::C);
 	return true;
 }
 
@@ -194,16 +230,59 @@ bool Fdemo_mapControlledWeaponPhysicalMigrationConflictTest::RunTest(
 	const Fdemo_mapInputBindingResult Result =
 		Fdemo_mapInputBindingSettings::Get().Load();
 	FString Diagnostic;
-	TestTrue(TEXT("migration preserves old override and uses the free G key"),
+	TestTrue(TEXT("migration preserves old override and allocates both new actions"),
 		Result.IsSuccess()
 			&& Fdemo_mapInputBindingSettings::Get().GetKey(
 				Fdemo_mapInputActionIds::Interact) == EKeys::X
 			&& Fdemo_mapInputBindingSettings::Get().GetKey(
 				Fdemo_mapInputActionIds::ControlledWeaponLaunchRecall)
+				== EKeys::C
+			&& Fdemo_mapInputBindingSettings::Get().GetKey(
+				Fdemo_mapInputActionIds::ControlledWeaponRedirect)
 				== EKeys::G
 			&& Fdemo_mapInputBindingSettings::ValidateBindings(
 				Fdemo_mapInputBindingSettings::Get().GetBindings(),
 				Diagnostic));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapControlledWeaponRedirectPhysicalMigrationTest,
+	"Shanmen.0_0_10.Product.ControlledWeaponPhysicalInput.VersionSevenRedirectMigration",
+	ControlledWeaponPhysicalInputFlags)
+
+bool Fdemo_mapControlledWeaponRedirectPhysicalMigrationTest::RunTest(
+	const FString&)
+{
+	FScopedControlledWeaponInputConfig Config;
+	IFileManager::Get().MakeDirectory(*FPaths::GetPath(Config.Path), true);
+	TestTrue(TEXT("version seven input fixture written"),
+		FFileHelper::SaveStringToFile(
+			MakeVersionSevenConfig(false), *Config.Path));
+	const Fdemo_mapInputBindingResult Result =
+		Fdemo_mapInputBindingSettings::Get().Load();
+	TestTrue(TEXT("missing redirect receives free C without moving old keys"),
+		Result.IsSuccess()
+			&& Fdemo_mapInputBindingSettings::Get().GetBindings().Num() == 30
+			&& Fdemo_mapInputBindingSettings::Get().GetKey(
+				Fdemo_mapInputActionIds::ControlledWeaponLaunchRecall)
+				== EKeys::X
+			&& Fdemo_mapInputBindingSettings::Get().GetKey(
+				Fdemo_mapInputActionIds::ControlledWeaponRedirect)
+				== EKeys::C);
+
+	TestTrue(TEXT("occupied-C version seven fixture written"),
+		FFileHelper::SaveStringToFile(
+			MakeVersionSevenConfig(true), *Config.Path));
+	const Fdemo_mapInputBindingResult Conflict =
+		Fdemo_mapInputBindingSettings::Get().Load();
+	TestTrue(TEXT("redirect migration preserves C override and uses free G"),
+		Conflict.IsSuccess()
+			&& Fdemo_mapInputBindingSettings::Get().GetKey(
+				Fdemo_mapInputActionIds::Interact) == EKeys::C
+			&& Fdemo_mapInputBindingSettings::Get().GetKey(
+				Fdemo_mapInputActionIds::ControlledWeaponRedirect)
+				== EKeys::G);
 	return true;
 }
 
@@ -225,6 +304,8 @@ bool Fdemo_mapControlledWeaponPhysicalPressTest::RunTest(const FString&)
 	}
 	const uint64 Before = Fixture.Controller
 		->GetControlledWeaponInputInvocationCountForAutomation();
+	const uint64 RedirectBefore = Fixture.Controller
+		->GetControlledWeaponRedirectInputInvocationCountForAutomation();
 	TestTrue(TEXT("X press reaches the product handler"),
 		Fixture.Controller->DispatchAutomationKeyPressed(EKeys::X));
 	TestTrue(TEXT("one press invokes once and preserves missing GameMode fence"),
@@ -238,6 +319,21 @@ bool Fdemo_mapControlledWeaponPhysicalPressTest::RunTest(const FString&)
 	TestEqual(TEXT("release owns no duplicate binding"),
 		Fixture.Controller->GetControlledWeaponInputInvocationCountForAutomation(),
 		Before + 1);
+	TestTrue(TEXT("C press reaches the separate redirect handler"),
+		Fixture.Controller->DispatchAutomationKeyPressed(EKeys::C));
+	TestTrue(TEXT("one redirect press invokes once and preserves route fence"),
+		Fixture.Controller
+				->GetControlledWeaponRedirectInputInvocationCountForAutomation()
+			== RedirectBefore + 1
+		&& Fixture.Controller
+			->GetLastControlledWeaponRedirectInputResultForAutomation().Status
+				== Edemo_mapShanmenControlledWeaponInputStatus::
+					ProductRouteUnavailable);
+	Fixture.Controller->DispatchAutomationKeyReleased(EKeys::C);
+	TestEqual(TEXT("redirect release owns no duplicate binding"),
+		Fixture.Controller
+			->GetControlledWeaponRedirectInputInvocationCountForAutomation(),
+		RedirectBefore + 1);
 	return true;
 }
 
@@ -260,27 +356,79 @@ bool Fdemo_mapControlledWeaponPhysicalRemapAndLockTest::RunTest(
 	const Fdemo_mapInputBindingResult Remap =
 		Fdemo_mapInputBindingSettings::Get().ApplyOverrideWithSwap(
 			Fdemo_mapInputActionIds::ControlledWeaponLaunchRecall,
-			EKeys::C);
+			EKeys::V);
 	Fixture.Controller->RebuildProductInputBindings();
 	const uint64 Before = Fixture.Controller
 		->GetControlledWeaponInputInvocationCountForAutomation();
 	Fixture.Controller->DispatchAutomationKey(EKeys::X);
-	Fixture.Controller->DispatchAutomationKey(EKeys::C);
-	TestTrue(TEXT("live remap detaches X and activates C exactly once"),
+	Fixture.Controller->DispatchAutomationKey(EKeys::V);
+	TestTrue(TEXT("live remap detaches X and activates V exactly once"),
 		Remap.IsSuccess()
 			&& Fdemo_mapInputBindingSettings::Get().GetKey(
 				Fdemo_mapInputActionIds::ControlledWeaponLaunchRecall)
-				== EKeys::C
+				== EKeys::V
 			&& Fixture.Controller
 				->GetControlledWeaponInputInvocationCountForAutomation()
 					== Before + 1);
 
 	Fixture.Controller->BeginSettlementInputLock(nullptr);
-	Fixture.Controller->DispatchAutomationKey(EKeys::C);
+	Fixture.Controller->DispatchAutomationKey(EKeys::V);
 	const Fdemo_mapShanmenControlledWeaponInputResult& Locked =
 		Fixture.Controller->GetLastControlledWeaponInputResultForAutomation();
 	TestTrue(TEXT("remapped press reaches the shared gameplay lock"),
 		Fixture.Controller->GetControlledWeaponInputInvocationCountForAutomation()
+			== Before + 2
+		&& Locked.Status
+			== Edemo_mapShanmenControlledWeaponInputStatus::GameplayBlocked
+		&& !Locked.bCanonicalReadInvoked
+		&& !Locked.bIntentIdCreated
+		&& !Locked.bDirectionSampled
+		&& !Locked.bProductRouteInvoked);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapControlledWeaponRedirectPhysicalRemapAndLockTest,
+	"Shanmen.0_0_10.Product.ControlledWeaponPhysicalInput.RedirectLiveRemapAndLock",
+	ControlledWeaponPhysicalInputFlags)
+
+bool Fdemo_mapControlledWeaponRedirectPhysicalRemapAndLockTest::RunTest(
+	const FString&)
+{
+	FScopedControlledWeaponInputConfig Config;
+	Fdemo_mapInputBindingSettings::Get().RestoreDefaults();
+	FControlledWeaponPhysicalWorldFixture Fixture;
+	TestTrue(TEXT("redirect remap fixture is ready"), Fixture.IsReady());
+	if (!Fixture.IsReady())
+	{
+		return false;
+	}
+	const Fdemo_mapInputBindingResult Remap =
+		Fdemo_mapInputBindingSettings::Get().ApplyOverrideWithSwap(
+			Fdemo_mapInputActionIds::ControlledWeaponRedirect,
+			EKeys::Z);
+	Fixture.Controller->RebuildProductInputBindings();
+	const uint64 Before = Fixture.Controller
+		->GetControlledWeaponRedirectInputInvocationCountForAutomation();
+	Fixture.Controller->DispatchAutomationKey(EKeys::C);
+	Fixture.Controller->DispatchAutomationKey(EKeys::Z);
+	TestTrue(TEXT("live remap detaches C and activates Z exactly once"),
+		Remap.IsSuccess()
+			&& Fdemo_mapInputBindingSettings::Get().GetKey(
+				Fdemo_mapInputActionIds::ControlledWeaponRedirect)
+				== EKeys::Z
+			&& Fixture.Controller
+				->GetControlledWeaponRedirectInputInvocationCountForAutomation()
+					== Before + 1);
+
+	Fixture.Controller->BeginSettlementInputLock(nullptr);
+	Fixture.Controller->DispatchAutomationKey(EKeys::Z);
+	const Fdemo_mapShanmenControlledWeaponInputResult& Locked =
+		Fixture.Controller
+			->GetLastControlledWeaponRedirectInputResultForAutomation();
+	TestTrue(TEXT("remapped redirect reaches the shared gameplay lock"),
+		Fixture.Controller
+				->GetControlledWeaponRedirectInputInvocationCountForAutomation()
 			== Before + 2
 		&& Locked.Status
 			== Edemo_mapShanmenControlledWeaponInputStatus::GameplayBlocked
