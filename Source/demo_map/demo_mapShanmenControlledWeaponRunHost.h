@@ -4,6 +4,7 @@
 #include "Engine/HitResult.h"
 #include "Engine/OverlapResult.h"
 #include "ShanmenControlledWeaponThreatPresenceAuthority.h"
+#include "demo_mapShanmenCombatRunFixedTimeline.h"
 #include "demo_mapShanmenControlledWeaponProductController.h"
 
 /** Run-host failure before another physical controlled weapon can be attached. */
@@ -63,6 +64,48 @@ struct Fdemo_mapShanmenControlledWeaponHostMovementBatch
 	TArray<Fdemo_mapShanmenControlledWeaponHostMovementEntry> Entries;
 
 	bool IsFullyAdvanced() const;
+};
+
+/** Why one fixed-timeline directed-flight pump failed before safe convergence. */
+enum class Edemo_mapShanmenControlledWeaponDirectedTimelineError : uint8
+{
+	None,
+	InputInvalid,
+	TickBudgetExceeded,
+	CoordinatorMismatch,
+	HostInvalid,
+	MovementRejected,
+	ContactLifecycleRejected
+};
+
+/** Compact audit for one GameMode-owned batch of canonical 30 Hz flight ticks. */
+struct Fdemo_mapShanmenControlledWeaponDirectedTimelineResult
+{
+	Edemo_mapShanmenControlledWeaponDirectedTimelineError Error =
+		Edemo_mapShanmenControlledWeaponDirectedTimelineError::InputInvalid;
+	FGuid RunId;
+	FGuid TimelineId;
+	int64 StartTick = INDEX_NONE;
+	int64 EndTick = INDEX_NONE;
+	int64 RequestedTickCount = 0;
+	int64 MovementTickCount = 0;
+	int64 MovementCount = 0;
+	int32 BlockingContactCount = 0;
+	int32 DeliveredImpactCount = 0;
+	int32 TerminalizedCount = 0;
+	int32 FallbackInterruptedCount = 0;
+	FGuid FailedItemInstanceId;
+	FString Diagnostic;
+
+	bool IsSuccess() const;
+	bool IsAdvanced() const
+	{
+		return IsSuccess() && MovementTickCount > 0;
+	}
+	bool IsNoOp() const
+	{
+		return IsSuccess() && MovementTickCount == 0;
+	}
 };
 
 /** One deterministic entry from a best-effort multi-weapon orbit step. */
@@ -382,6 +425,17 @@ public:
 	bool TryAdvanceDirectedInOrder(
 		float DeltaSeconds,
 		Fdemo_mapShanmenControlledWeaponHostMovementBatch& OutBatch);
+	/**
+	 * Consumes one bounded set of already-advanced canonical Run ticks.
+	 * Blocking sweeps use the existing contact/vitality path, then converge the
+	 * exact item to its existing terminal lifecycle. No independent clock lives
+	 * here and terminal items remain bound for normal Run teardown.
+	 */
+	Fdemo_mapShanmenControlledWeaponDirectedTimelineResult
+	AdvanceDirectedFixedTicks(
+		const Fdemo_mapShanmenCombatRunTimelineSample& TimelineSample,
+		int64 AdvancedTicks,
+		Fdemo_mapCombatRunCoordinator& Coordinator);
 
 	bool TryBeginContactWindow(
 		const FGuid& ItemInstanceId,

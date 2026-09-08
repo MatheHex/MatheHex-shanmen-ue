@@ -6,6 +6,8 @@
 
 namespace
 {
+	constexpr int64 MaximumDirectedTimelineTicksPerPump = 300;
+
 	bool GuidLess(const FGuid& Left, const FGuid& Right)
 	{
 		return Left.ToString(EGuidFormats::Digits)
@@ -31,6 +33,41 @@ IsFullyAdvanced() const
 		}
 	}
 	return true;
+}
+
+bool Fdemo_mapShanmenControlledWeaponDirectedTimelineResult::IsSuccess()
+	const
+{
+	if (Error
+			!= Edemo_mapShanmenControlledWeaponDirectedTimelineError::None
+		|| !RunId.IsValid()
+		|| !TimelineId.IsValid()
+		|| StartTick < 0
+		|| EndTick < StartTick
+		|| RequestedTickCount < 0
+		|| RequestedTickCount != EndTick - StartTick
+		|| RequestedTickCount > MaximumDirectedTimelineTicksPerPump
+		|| MovementTickCount < 0
+		|| MovementTickCount > RequestedTickCount
+		|| MovementCount < MovementTickCount
+		|| BlockingContactCount < 0
+		|| static_cast<int64>(BlockingContactCount) > MovementCount
+		|| DeliveredImpactCount < 0
+		|| DeliveredImpactCount > BlockingContactCount
+		|| TerminalizedCount != BlockingContactCount
+		|| FallbackInterruptedCount < 0
+		|| FallbackInterruptedCount > TerminalizedCount
+		|| FailedItemInstanceId.IsValid()
+		|| Diagnostic.IsEmpty())
+	{
+		return false;
+	}
+	return MovementTickCount > 0
+		|| (MovementCount == 0
+			&& BlockingContactCount == 0
+			&& DeliveredImpactCount == 0
+			&& TerminalizedCount == 0
+			&& FallbackInterruptedCount == 0);
 }
 
 bool Fdemo_mapShanmenControlledWeaponHostOrbitBatch::IsFullyAdvanced() const
@@ -1005,6 +1042,215 @@ bool Fdemo_mapShanmenControlledWeaponRunHost::TryAdvanceDirectedInOrder(
 		OutBatch.Entries.Add(MoveTemp(Entry));
 	}
 	return OutBatch.IsFullyAdvanced();
+}
+
+Fdemo_mapShanmenControlledWeaponDirectedTimelineResult
+Fdemo_mapShanmenControlledWeaponRunHost::AdvanceDirectedFixedTicks(
+	const Fdemo_mapShanmenCombatRunTimelineSample& TimelineSample,
+	const int64 AdvancedTicks,
+	Fdemo_mapCombatRunCoordinator& Coordinator)
+{
+	Fdemo_mapShanmenControlledWeaponDirectedTimelineResult Result;
+	Result.RunId = Coordinator.IsReady() ? Coordinator.GetRunId() : FGuid();
+	Result.TimelineId = TimelineSample.GetTimelineId();
+	Result.EndTick = TimelineSample.GetCurrentTick();
+	Result.RequestedTickCount = AdvancedTicks;
+	if (!TimelineSample.IsValid()
+		|| AdvancedTicks < 0
+		|| AdvancedTicks > Result.EndTick)
+	{
+		Result.Diagnostic =
+			TEXT("Directed flight requires a valid current timeline sample and non-negative tick delta.");
+		return Result;
+	}
+	Result.StartTick = Result.EndTick - AdvancedTicks;
+	if (AdvancedTicks > MaximumDirectedTimelineTicksPerPump)
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponDirectedTimelineError::
+				TickBudgetExceeded;
+		Result.Diagnostic = FString::Printf(
+			TEXT("Directed flight rejected %lld catch-up ticks; the bounded per-pump maximum is %lld."),
+			static_cast<long long>(AdvancedTicks),
+			static_cast<long long>(MaximumDirectedTimelineTicksPerPump));
+		return Result;
+	}
+	if (!Coordinator.IsReady()
+		|| TimelineSample.GetTimelineId()
+			!= Fdemo_mapShanmenCombatRunFixedTimeline::MakeTimelineId(
+				Coordinator.GetRunId()))
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponDirectedTimelineError::
+				CoordinatorMismatch;
+		Result.Diagnostic =
+			TEXT("Directed flight timeline does not belong to the canonical Combat Run.");
+		return Result;
+	}
+	if (AdvancedTicks == 0)
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponDirectedTimelineError::None;
+		Result.Diagnostic =
+			TEXT("No whole canonical tick advanced; directed flight remained unchanged.");
+		return Result;
+	}
+	if (IsEmpty())
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponDirectedTimelineError::None;
+		Result.Diagnostic =
+			TEXT("No controlled weapon is bound to the active Run.");
+		return Result;
+	}
+	if (!IsValid())
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponDirectedTimelineError::HostInvalid;
+		Result.Diagnostic =
+			TEXT("Directed flight rejected an invalid non-empty controlled-weapon Host.");
+		return Result;
+	}
+	if (!CoordinatorMatches(Coordinator))
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponDirectedTimelineError::
+				CoordinatorMismatch;
+		Result.Diagnostic =
+			TEXT("Controlled-weapon Host and Combat Run identities do not match.");
+		return Result;
+	}
+
+	auto CountDirected = [this]()
+	{
+		int32 Count = 0;
+		for (const FGuid& ItemInstanceId : GetOrderedItemInstanceIds())
+		{
+			const Fdemo_mapShanmenControlledWeaponProductController* Controller =
+				FindController(ItemInstanceId);
+			Count += Controller && Controller->IsDirected() ? 1 : 0;
+		}
+		return Count;
+	};
+	if (CountDirected() == 0)
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponDirectedTimelineError::None;
+		Result.Diagnostic =
+			TEXT("No controlled weapon is in directed flight for these ticks.");
+		return Result;
+	}
+
+	const float FixedStepSeconds = 1.0f / static_cast<float>(
+		Fdemo_mapShanmenCombatRunFixedTimeline::CanonicalTicksPerSecond());
+	for (int64 TickOffset = 0; TickOffset < AdvancedTicks; ++TickOffset)
+	{
+		if (CountDirected() == 0)
+		{
+			break;
+		}
+
+		Fdemo_mapShanmenControlledWeaponHostMovementBatch Batch;
+		if (!TryAdvanceDirectedInOrder(FixedStepSeconds, Batch)
+			|| !Batch.IsFullyAdvanced())
+		{
+			Result.Error =
+				Edemo_mapShanmenControlledWeaponDirectedTimelineError::
+					MovementRejected;
+			Result.Diagnostic = FString::Printf(
+				TEXT("Directed movement rejected canonical tick %lld."),
+				static_cast<long long>(Result.StartTick + TickOffset + 1));
+			return Result;
+		}
+		++Result.MovementTickCount;
+		Result.MovementCount += Batch.AdvancedCount;
+
+		for (const Fdemo_mapShanmenControlledWeaponHostMovementEntry& Entry :
+			Batch.Entries)
+		{
+			if (!Entry.Movement.bBlockingHit)
+			{
+				continue;
+			}
+			++Result.BlockingContactCount;
+			bool bContactClosed = false;
+			FShanmenWorldHitContext Context;
+			if (Entry.BlockingHit.bBlockingHit
+				&& TryBeginContactWindow(Entry.ItemInstanceId, Context))
+			{
+				const Fdemo_mapShanmenControlledWeaponWorldDeliveryResult Delivery =
+					ResolveSweepContact(
+						Entry.ItemInstanceId, Coordinator, Entry.BlockingHit);
+				Result.DeliveredImpactCount += Delivery.IsDelivered() ? 1 : 0;
+				bContactClosed = TryEndContactWindow(Entry.ItemInstanceId);
+			}
+
+			bool bTerminalized = false;
+			if (bContactClosed)
+			{
+				const Fdemo_mapShanmenControlledWeaponProductController* Controller =
+					FindController(Entry.ItemInstanceId);
+				const int64 ExpectedSequence = Controller
+					? Controller->GetSession().GetExecution()
+						.GetNextCommandSequence()
+					: INDEX_NONE;
+				FShanmenControlledWeaponCommandReceipt Recall;
+				FShanmenActionTransitionReceipt Recovery;
+				FShanmenActionTransitionReceipt Completed;
+				bTerminalized = Controller
+					&& TryRecallAndComplete(
+						Entry.ItemInstanceId,
+						ExpectedSequence,
+						Recall,
+						Recovery,
+						Completed);
+			}
+			if (!bTerminalized)
+			{
+				const Fdemo_mapShanmenControlledWeaponProductController* Controller =
+					FindController(Entry.ItemInstanceId);
+				if (Controller && Controller->GetSession().IsTerminal())
+				{
+					bTerminalized = true;
+				}
+				else if (Controller && Controller->IsActive())
+				{
+					FShanmenActionTransitionReceipt Interrupted;
+					bTerminalized = TryInterrupt(
+						Entry.ItemInstanceId, Interrupted);
+					Result.FallbackInterruptedCount += bTerminalized ? 1 : 0;
+				}
+			}
+			if (!bTerminalized)
+			{
+				Result.Error =
+					Edemo_mapShanmenControlledWeaponDirectedTimelineError::
+						ContactLifecycleRejected;
+				Result.FailedItemInstanceId = Entry.ItemInstanceId;
+				Result.Diagnostic = FString::Printf(
+					TEXT("Blocking contact for item %s could not reach a terminal lifecycle."),
+					*Entry.ItemInstanceId.ToString(
+						EGuidFormats::DigitsWithHyphens));
+				return Result;
+			}
+			++Result.TerminalizedCount;
+		}
+	}
+
+	Result.Error =
+		Edemo_mapShanmenControlledWeaponDirectedTimelineError::None;
+	Result.Diagnostic = Result.BlockingContactCount > 0
+		? TEXT("Directed flight advanced on canonical ticks and every blocking item reached its existing terminal lifecycle.")
+		: TEXT("Directed flight advanced on canonical ticks without blocking contact.");
+	if (!Result.IsSuccess() || !IsValid())
+	{
+		Result.Error =
+			Edemo_mapShanmenControlledWeaponDirectedTimelineError::
+				ContactLifecycleRejected;
+		Result.Diagnostic =
+			TEXT("Directed flight produced an invalid audit or Host state.");
+	}
+	return Result;
 }
 
 bool Fdemo_mapShanmenControlledWeaponRunHost::TryBeginContactWindow(

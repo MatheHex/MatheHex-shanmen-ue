@@ -3,7 +3,9 @@
 #include "demo_mapShanmenControlledWeaponRunHost.h"
 
 #include "Components/BoxComponent.h"
+#include "Engine/Engine.h"
 #include "Engine/OverlapResult.h"
+#include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/Pawn.h"
 #include "Misc/AutomationTest.h"
@@ -275,6 +277,176 @@ namespace
 		Contact.ContactNormal = FVector::BackwardVector;
 		return Contact;
 	}
+
+	struct FControlledWeaponDirectedWorldFixture
+	{
+		UWorld* World = nullptr;
+		APawn* Pawn = nullptr;
+		UBoxComponent* PlayerRoot = nullptr;
+		Udemo_mapPlayerHealthComponent* PlayerHealth = nullptr;
+		AActor* Weapon = nullptr;
+		UBoxComponent* WeaponRoot = nullptr;
+		Ademo_mapEnemyCharacter* Enemy = nullptr;
+		Udemo_mapM01EnemyIdentityComponent* EnemyIdentity = nullptr;
+		Fdemo_mapCombatRunCoordinator Coordinator;
+		Fdemo_mapShanmenControlledWeaponRunHost Host;
+		FString Diagnostic;
+
+		bool Start(FAutomationTestBase& Test)
+		{
+			const Fdemo_mapM01EnemyDefinition* Definition =
+				FindHostEnemyDefinition();
+			if (!GEngine || !Definition)
+			{
+				Test.AddError(TEXT(
+					"P21.8 directed-flight fixture requires Engine and M01 content."));
+				return false;
+			}
+
+			World = NewObject<UWorld>(
+				GetTransientPackage(), NAME_None, RF_Transient);
+			if (!World)
+			{
+				Test.AddError(TEXT("P21.8 could not allocate a preview World."));
+				return false;
+			}
+			World->WorldType = EWorldType::GamePreview;
+			FWorldContext& Context =
+				GEngine->CreateNewWorldContext(EWorldType::GamePreview);
+			Context.SetCurrentWorld(World);
+			World->InitializeNewWorld(
+				UWorld::InitializationValues()
+					.InitializeScenes(true)
+					.AllowAudioPlayback(false)
+					.RequiresHitProxies(false)
+					.CreatePhysicsScene(true)
+					.CreateNavigation(false)
+					.CreateAISystem(false)
+					.ShouldSimulatePhysics(false)
+					.EnableTraceCollision(true)
+					.SetTransactional(false)
+					.CreateFXSystem(false));
+
+			FActorSpawnParameters Parameters;
+			Parameters.ObjectFlags |= RF_Transient;
+			Parameters.SpawnCollisionHandlingOverride =
+				ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			Pawn = World->SpawnActor<APawn>(
+				APawn::StaticClass(),
+				FTransform(FVector(-1000.0f, 0.0f, 0.0f)),
+				Parameters);
+			PlayerRoot = Pawn
+				? NewObject<UBoxComponent>(
+					Pawn, TEXT("P218PlayerRoot"), RF_Transient)
+				: nullptr;
+			PlayerHealth = Pawn
+				? NewObject<Udemo_mapPlayerHealthComponent>(
+					Pawn, TEXT("P218PlayerHealth"), RF_Transient)
+				: nullptr;
+			if (!Pawn || !PlayerRoot || !PlayerHealth)
+			{
+				Test.AddError(TEXT("P21.8 could not construct the source Pawn."));
+				return false;
+			}
+			Pawn->SetRootComponent(PlayerRoot);
+			Pawn->AddInstanceComponent(PlayerRoot);
+			Pawn->AddInstanceComponent(PlayerHealth);
+			PlayerRoot->RegisterComponent();
+			PlayerHealth->RegisterComponent();
+
+			Weapon = World->SpawnActor<AActor>(
+				AActor::StaticClass(), FTransform::Identity, Parameters);
+			WeaponRoot = Weapon
+				? NewObject<UBoxComponent>(
+					Weapon, TEXT("P218WeaponRoot"), RF_Transient)
+				: nullptr;
+			if (!Weapon || !WeaponRoot)
+			{
+				Test.AddError(TEXT("P21.8 could not construct the weapon Actor."));
+				return false;
+			}
+			Weapon->SetRootComponent(WeaponRoot);
+			Weapon->AddInstanceComponent(WeaponRoot);
+			WeaponRoot->InitBoxExtent(FVector(10.0f));
+			WeaponRoot->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+			WeaponRoot->SetCollisionObjectType(ECC_WorldDynamic);
+			WeaponRoot->SetCollisionResponseToAllChannels(ECR_Ignore);
+			WeaponRoot->SetCollisionResponseToChannel(
+				ECC_WorldDynamic, ECR_Block);
+			WeaponRoot->IgnoreActorWhenMoving(Pawn, true);
+			WeaponRoot->RegisterComponent();
+
+			Enemy = World->SpawnActor<Ademo_mapEnemyCharacter>(
+				Ademo_mapEnemyCharacter::StaticClass(),
+				FTransform(FVector(120.0f, 0.0f, 0.0f)),
+				Parameters);
+			EnemyIdentity = Enemy
+				? NewObject<Udemo_mapM01EnemyIdentityComponent>(
+					Enemy, TEXT("P218EnemyIdentity"), RF_Transient)
+				: nullptr;
+			if (!Enemy || !EnemyIdentity)
+			{
+				Test.AddError(TEXT("P21.8 could not construct the blocking enemy."));
+				return false;
+			}
+			Enemy->AddInstanceComponent(EnemyIdentity);
+			EnemyIdentity->RegisterComponent();
+			Enemy->SetCombatSuppressed(true);
+			if (!EnemyIdentity->Configure(*Definition)
+				|| !Enemy->ConfigureEncounter(
+					MakeHostEncounterIdentity(*Definition),
+					Definition->Tuning,
+					Definition->IsElite())
+				|| !Coordinator.TryBeginRun(
+					HostRunId, Pawn, PlayerHealth, Diagnostic)
+				|| !Coordinator.TryRegisterM01Enemy(Enemy, Diagnostic)
+				|| !Host.TryAttach(
+					MakeHostPrepared(Coordinator, HostLowItemId, 1),
+					Coordinator,
+					Pawn,
+					Weapon,
+					WeaponRoot,
+					MakeHostMotion()).IsAttached())
+			{
+				Test.AddError(FString::Printf(
+					TEXT("P21.8 world binding failed: %s"), *Diagnostic));
+				return false;
+			}
+			World->UpdateWorldComponents(true, false);
+			return true;
+		}
+
+		void Stop()
+		{
+			Host.Reset();
+			if (Coordinator.IsActive())
+			{
+				Coordinator.TryEndRun(HostRunId, Diagnostic);
+			}
+			Coordinator.Reset();
+			if (World)
+			{
+				World->DestroyWorld(false);
+				if (GEngine)
+				{
+					GEngine->DestroyWorldContext(World);
+				}
+				World = nullptr;
+			}
+			Pawn = nullptr;
+			PlayerRoot = nullptr;
+			PlayerHealth = nullptr;
+			Weapon = nullptr;
+			WeaponRoot = nullptr;
+			Enemy = nullptr;
+			EnemyIdentity = nullptr;
+		}
+
+		~FControlledWeaponDirectedWorldFixture()
+		{
+			Stop();
+		}
+	};
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -335,6 +507,155 @@ bool Fdemo_mapControlledWeaponRunHostStableOrderTest::RunTest(
 		Fixture.Weapons[0]->GetActorLocation().Equals(LowBeforeRejected)
 		&& Fixture.Weapons[1]->GetActorLocation().Equals(
 			HighBeforeRejected));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapControlledWeaponRunHostFixedTimelineMovementTest,
+	"Shanmen.0_0_10.Product.ControlledWeaponRunHost.FixedTimelineDirectedMovement",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapControlledWeaponRunHostFixedTimelineMovementTest::RunTest(
+	const FString&)
+{
+	FControlledWeaponHostFixture Fixture;
+	Fdemo_mapShanmenControlledWeaponRunHost Host;
+	if (!Fixture.bReady
+		|| !AttachHostWeapon(
+			Fixture, Host, HostLowItemId, 1, 0).IsAttached())
+	{
+		AddError(TEXT("Could not prepare P21.8 fixed-timeline fixture."));
+		return false;
+	}
+
+	FShanmenControlledWeaponCommandReceipt Launch;
+	if (!Host.TryLaunch(
+			HostLowItemId, 0, FVector::ForwardVector, Launch))
+	{
+		AddError(TEXT("P21.8 fixed-timeline fixture could not launch."));
+		return false;
+	}
+	const FVector Start = Fixture.Weapons[0]->GetActorLocation();
+	const FGuid TimelineId =
+		Fdemo_mapShanmenCombatRunFixedTimeline::MakeTimelineId(HostRunId);
+	Fdemo_mapShanmenCombatRunTimelineSample TickZero;
+	Fdemo_mapShanmenCombatRunTimelineSample TickThree;
+	check(Fdemo_mapShanmenCombatRunTimelineSample::TryCapture(
+		TimelineId, 0, TickZero));
+	check(Fdemo_mapShanmenCombatRunTimelineSample::TryCapture(
+		TimelineId, 3, TickThree));
+
+	const Fdemo_mapShanmenControlledWeaponDirectedTimelineResult Zero =
+		Host.AdvanceDirectedFixedTicks(
+			TickZero, 0, Fixture.Coordinator);
+	TestTrue(TEXT("Sub-tick owner frames cannot move a directed weapon"),
+		Zero.IsNoOp()
+		&& Zero.StartTick == 0
+		&& Zero.EndTick == 0
+		&& Fixture.Weapons[0]->GetActorLocation().Equals(Start));
+
+	const Fdemo_mapShanmenControlledWeaponDirectedTimelineResult Three =
+		Host.AdvanceDirectedFixedTicks(
+			TickThree, 3, Fixture.Coordinator);
+	TestTrue(TEXT("Three canonical ticks perform three exact swept steps"),
+		Three.IsAdvanced()
+		&& Three.StartTick == 0
+		&& Three.EndTick == 3
+		&& Three.RequestedTickCount == 3
+		&& Three.MovementTickCount == 3
+		&& Three.MovementCount == 3
+		&& Three.BlockingContactCount == 0
+		&& Fixture.Weapons[0]->GetActorLocation().Equals(
+			Start + FVector(40.0f, 0.0f, 0.0f), 0.01f));
+
+	const FVector BeforeRejected = Fixture.Weapons[0]->GetActorLocation();
+	Fdemo_mapShanmenCombatRunTimelineSample Foreign;
+	check(Fdemo_mapShanmenCombatRunTimelineSample::TryCapture(
+		FGuid(0xD365FFFF, 0, 0, 1), 4, Foreign));
+	const Fdemo_mapShanmenControlledWeaponDirectedTimelineResult Mismatch =
+		Host.AdvanceDirectedFixedTicks(
+			Foreign, 1, Fixture.Coordinator);
+	TestTrue(TEXT("A foreign timeline fails before physical movement"),
+		Mismatch.Error
+			== Edemo_mapShanmenControlledWeaponDirectedTimelineError::
+				CoordinatorMismatch
+		&& Fixture.Weapons[0]->GetActorLocation().Equals(BeforeRejected));
+
+	Fdemo_mapShanmenCombatRunTimelineSample OversizedSample;
+	check(Fdemo_mapShanmenCombatRunTimelineSample::TryCapture(
+		TimelineId, 304, OversizedSample));
+	const Fdemo_mapShanmenControlledWeaponDirectedTimelineResult Oversized =
+		Host.AdvanceDirectedFixedTicks(
+			OversizedSample, 301, Fixture.Coordinator);
+	TestTrue(TEXT("An abusive catch-up request is bounded before movement"),
+		Oversized.Error
+			== Edemo_mapShanmenControlledWeaponDirectedTimelineError::
+				TickBudgetExceeded
+		&& Fixture.Weapons[0]->GetActorLocation().Equals(BeforeRejected));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapControlledWeaponRunHostBlockingTimelineTest,
+	"Shanmen.0_0_10.Product.ControlledWeaponRunHost.BlockingContactTerminal",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapControlledWeaponRunHostBlockingTimelineTest::RunTest(
+	const FString&)
+{
+	FControlledWeaponDirectedWorldFixture Fixture;
+	if (!Fixture.Start(*this))
+	{
+		return false;
+	}
+	FShanmenControlledWeaponCommandReceipt Launch;
+	if (!Fixture.Host.TryLaunch(
+			HostLowItemId, 0, FVector::ForwardVector, Launch))
+	{
+		AddError(TEXT("P21.8 blocking fixture could not launch."));
+		return false;
+	}
+
+	const float VitalityBefore = Fixture.Enemy->GetCurrentVitality();
+	const int32 ImpactsBefore = Fixture.Enemy->NumCommittedCombatImpacts();
+	Fdemo_mapShanmenCombatRunTimelineSample TickFifteen;
+	check(Fdemo_mapShanmenCombatRunTimelineSample::TryCapture(
+		Fdemo_mapShanmenCombatRunFixedTimeline::MakeTimelineId(HostRunId),
+		15,
+		TickFifteen));
+	const Fdemo_mapShanmenControlledWeaponDirectedTimelineResult Blocked =
+		Fixture.Host.AdvanceDirectedFixedTicks(
+			TickFifteen, 15, Fixture.Coordinator);
+	const Fdemo_mapShanmenControlledWeaponProductController* Controller =
+		Fixture.Host.FindController(HostLowItemId);
+	TestTrue(TEXT("A real swept enemy block delivers once and terminalizes"),
+		Blocked.IsAdvanced()
+		&& Blocked.MovementTickCount > 0
+		&& Blocked.MovementTickCount < 15
+		&& Blocked.BlockingContactCount == 1
+		&& Blocked.DeliveredImpactCount == 1
+		&& Blocked.TerminalizedCount == 1
+		&& Blocked.FallbackInterruptedCount == 0
+		&& Controller
+		&& Controller->GetSession().IsTerminal()
+		&& !Controller->HasActiveContactWindow()
+		&& Fixture.Host.NumActive() == 0
+		&& Fixture.Enemy->GetCurrentVitality() < VitalityBefore
+		&& Fixture.Enemy->NumCommittedCombatImpacts() == ImpactsBefore + 1);
+
+	Fdemo_mapShanmenCombatRunTimelineSample TickSixteen;
+	check(Fdemo_mapShanmenCombatRunTimelineSample::TryCapture(
+		Fdemo_mapShanmenCombatRunFixedTimeline::MakeTimelineId(HostRunId),
+		16,
+		TickSixteen));
+	const FVector TerminalLocation = Fixture.Weapon->GetActorLocation();
+	const Fdemo_mapShanmenControlledWeaponDirectedTimelineResult AfterTerminal =
+		Fixture.Host.AdvanceDirectedFixedTicks(
+			TickSixteen, 1, Fixture.Coordinator);
+	TestTrue(TEXT("Later ticks cannot move or damage a terminal weapon again"),
+		AfterTerminal.IsNoOp()
+		&& Fixture.Weapon->GetActorLocation().Equals(TerminalLocation)
+		&& Fixture.Enemy->NumCommittedCombatImpacts() == ImpactsBefore + 1);
 	return true;
 }
 

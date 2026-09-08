@@ -2399,8 +2399,7 @@ void Ademo_mapGameMode::Tick(float DeltaSeconds)
 				DeltaSeconds,
 				*TimelineDiagnostic);
 		}
-		else if (PlayerCombatConditionComponent.IsValid()
-			&& !PlayerCombatConditionComponent->IsEmpty())
+		else
 		{
 			Fdemo_mapShanmenCombatRunTimelineSample TimelineSample;
 			if (!CombatRunFixedTimeline.TryCapture(TimelineSample))
@@ -2408,41 +2407,102 @@ void Ademo_mapGameMode::Tick(float DeltaSeconds)
 				UE_LOG(
 					Logdemo_map,
 					Error,
-					TEXT("0_0_10_COMBAT_CONDITION Event=TimelineCaptureRejected RunId=%s"),
+					TEXT("0_0_10_COMBAT_RUN Event=TimelineCaptureRejected RunId=%s"),
 					*CombatRunFixedTimeline.GetRunId().ToString(
 						EGuidFormats::DigitsWithHyphens));
 			}
 			else
 			{
-				const Fdemo_mapShanmenCombatConditionAdvanceResult
-					ConditionAdvance =
-						PlayerCombatConditionComponent->TryAdvance(
-							TimelineSample);
-				if (!ConditionAdvance.IsSuccess())
+				const Fdemo_mapShanmenControlledWeaponDirectedTimelineResult
+					DirectedFlight =
+						ControlledWeaponRunHost.AdvanceDirectedFixedTicks(
+							TimelineSample,
+							AdvancedTicks,
+							CombatRunCoordinator);
+				if (!DirectedFlight.IsSuccess())
 				{
-					UE_LOG(
-						Logdemo_map,
-						Error,
-						TEXT("0_0_10_COMBAT_CONDITION Event=AdvanceRejected RunId=%s Tick=%lld Error=%d"),
-						*CombatRunFixedTimeline.GetRunId().ToString(
+					UE_LOG(Logdemo_map, Error,
+						TEXT("0_0_10_CONTROLLED_WEAPON Event=DirectedTimelineRejected RunId=%s TimelineId=%s TickRange=[%lld,%lld] Requested=%lld MovementTicks=%lld Movements=%lld Blocking=%d Delivered=%d Terminalized=%d FallbackInterrupted=%d Error=%d FailedItem=%s Diagnostic=%s"),
+						*DirectedFlight.RunId.ToString(
 							EGuidFormats::DigitsWithHyphens),
+						*DirectedFlight.TimelineId.ToString(
+							EGuidFormats::DigitsWithHyphens),
+						static_cast<long long>(DirectedFlight.StartTick),
+						static_cast<long long>(DirectedFlight.EndTick),
 						static_cast<long long>(
-							TimelineSample.GetCurrentTick()),
-						static_cast<int32>(ConditionAdvance.Error));
+							DirectedFlight.RequestedTickCount),
+						static_cast<long long>(
+							DirectedFlight.MovementTickCount),
+						static_cast<long long>(DirectedFlight.MovementCount),
+						DirectedFlight.BlockingContactCount,
+						DirectedFlight.DeliveredImpactCount,
+						DirectedFlight.TerminalizedCount,
+						DirectedFlight.FallbackInterruptedCount,
+						static_cast<int32>(DirectedFlight.Error),
+						*DirectedFlight.FailedItemInstanceId.ToString(
+							EGuidFormats::DigitsWithHyphens),
+						*DirectedFlight.Diagnostic);
 				}
-				else if (ConditionAdvance.Status
-					== Edemo_mapShanmenCombatConditionAdvanceStatus::Expired)
+				else if (DirectedFlight.BlockingContactCount > 0)
 				{
-					UE_LOG(
-						Logdemo_map,
-						Log,
-						TEXT("0_0_10_COMBAT_CONDITION Event=MeridianShockExpired RunId=%s Tick=%lld Revision=%lld"),
-						*CombatRunFixedTimeline.GetRunId().ToString(
-							EGuidFormats::DigitsWithHyphens),
-						static_cast<long long>(
-							ConditionAdvance.ObservedTick),
-						static_cast<long long>(
-							ConditionAdvance.ConditionRevision));
+					if (DirectedFlight.FallbackInterruptedCount > 0)
+					{
+						UE_LOG(Logdemo_map, Warning,
+							TEXT("0_0_10_CONTROLLED_WEAPON Event=DirectedBlockingTerminal RunId=%s Tick=%lld Blocking=%d Delivered=%d Terminalized=%d FallbackInterrupted=%d"),
+							*DirectedFlight.RunId.ToString(
+								EGuidFormats::DigitsWithHyphens),
+							static_cast<long long>(DirectedFlight.EndTick),
+							DirectedFlight.BlockingContactCount,
+							DirectedFlight.DeliveredImpactCount,
+							DirectedFlight.TerminalizedCount,
+							DirectedFlight.FallbackInterruptedCount);
+					}
+					else
+					{
+						UE_LOG(Logdemo_map, Log,
+							TEXT("0_0_10_CONTROLLED_WEAPON Event=DirectedBlockingTerminal RunId=%s Tick=%lld Blocking=%d Delivered=%d Terminalized=%d FallbackInterrupted=0"),
+							*DirectedFlight.RunId.ToString(
+								EGuidFormats::DigitsWithHyphens),
+							static_cast<long long>(DirectedFlight.EndTick),
+							DirectedFlight.BlockingContactCount,
+							DirectedFlight.DeliveredImpactCount,
+							DirectedFlight.TerminalizedCount);
+					}
+				}
+
+				if (PlayerCombatConditionComponent.IsValid()
+					&& !PlayerCombatConditionComponent->IsEmpty())
+				{
+					const Fdemo_mapShanmenCombatConditionAdvanceResult
+						ConditionAdvance =
+							PlayerCombatConditionComponent->TryAdvance(
+								TimelineSample);
+					if (!ConditionAdvance.IsSuccess())
+					{
+						UE_LOG(
+							Logdemo_map,
+							Error,
+							TEXT("0_0_10_COMBAT_CONDITION Event=AdvanceRejected RunId=%s Tick=%lld Error=%d"),
+							*CombatRunFixedTimeline.GetRunId().ToString(
+								EGuidFormats::DigitsWithHyphens),
+							static_cast<long long>(
+								TimelineSample.GetCurrentTick()),
+							static_cast<int32>(ConditionAdvance.Error));
+					}
+					else if (ConditionAdvance.Status
+						== Edemo_mapShanmenCombatConditionAdvanceStatus::Expired)
+					{
+						UE_LOG(
+							Logdemo_map,
+							Log,
+							TEXT("0_0_10_COMBAT_CONDITION Event=MeridianShockExpired RunId=%s Tick=%lld Revision=%lld"),
+							*CombatRunFixedTimeline.GetRunId().ToString(
+								EGuidFormats::DigitsWithHyphens),
+							static_cast<long long>(
+								ConditionAdvance.ObservedTick),
+							static_cast<long long>(
+								ConditionAdvance.ConditionRevision));
+					}
 				}
 			}
 		}
