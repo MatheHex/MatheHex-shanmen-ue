@@ -1488,10 +1488,12 @@
     },
     {
       "name": "UnifiedInputRegistryAndBindings",
-      "pathRegex": "^Source/demo_map/(?:demo_mapInputActionRegistry|demo_mapInputBindingSettings|demo_mapShanmenSpiritEvasionPhysicalInputTests|demo_mapShanmenWeaponGuardPhysicalInputTests|demo_mapFullSystemLoopTests|demo_mapP7IntegrationTests)\\.(?:h|cpp)$",
+      "pathRegex": "^Source/demo_map/(?:demo_mapInputActionRegistry|demo_mapInputBindingSettings|demo_mapShanmenControlledWeaponPhysicalInputTests|demo_mapShanmenSpiritEvasionPhysicalInputTests|demo_mapShanmenWeaponGuardPhysicalInputTests|demo_mapFullSystemLoopTests|demo_mapP7IntegrationTests)\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10",
         "Shanmen.0_0_10.Product.MeridianShockTreatment",
+		"Shanmen.0_0_10.Product.ControlledWeaponPhysicalInput",
+		"Shanmen.0_0_10.Product.ControlledWeaponInputAdapter",
 		"Shanmen.0_0_10.Product.ThrownWeaponTrajectoryTogglePhysicalInput",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcEditingPhysicalInput",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcEditingInputHintPresentation",
@@ -2450,6 +2452,8 @@
         "Shanmen.0_0_10",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreLaunchPreviewContext",
         "Shanmen.0_0_10.Product.MeridianShockTreatment",
+		"Shanmen.0_0_10.Product.ControlledWeaponPhysicalInput",
+		"Shanmen.0_0_10.Product.ControlledWeaponInputAdapter",
         "Shanmen.0_0_10.Product.SpiritEvasionPhysicalInput",
         "Shanmen.0_0_10.Product.SpiritEvasionInputAdapter",
         "Shanmen.0_0_10.Product.WeaponGuardPhysicalInput",
@@ -2865,6 +2869,25 @@
         "Shanmen.0_0_10.Items",
         "Shanmen.0_0_10.WorldGameplay",
         "Shanmen.0_0_10.CombatRuntime"
+      ]
+    },
+    {
+      "name": "ControlledWeaponInputAdapter",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenControlledWeaponInputAdapter(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.ControlledWeaponInputAdapter",
+        "Shanmen.0_0_10.Product.ControlledWeaponPhysicalInput",
+        "Shanmen.0_0_10.Product.ControlledWeaponRunCommandRouter",
+        "Shanmen.0_0_10.Product.ControlledWeaponRunHost",
+        "Shanmen.0_0_10.Product.ControlledWeaponController",
+        "Shanmen.0_0_10.Product.ControlledWeaponWorldLifecycle",
+        "Shanmen.0_0_10.Product.CombatRunCoordinator",
+        "Shanmen.0_0_10.Items",
+        "Shanmen.0_0_10.WorldGameplay",
+        "Shanmen.0_0_10.CombatRuntime",
+        "demo_map.InputRestore",
+        "demo_map.V2RangedCompatibility"
       ]
     },
     {

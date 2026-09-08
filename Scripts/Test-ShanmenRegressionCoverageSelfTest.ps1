@@ -556,6 +556,12 @@ try
     $ControlledWeaponThreatReadoutPresentation = New-AutomationLogFixture `
         -Name 'controlled-weapon-threat-readout-presentation.log' `
         -Group 'Shanmen.0_0_10.Product.ControlledWeaponThreatReadoutPresentation'
+    $ControlledWeaponInputAdapter = New-AutomationLogFixture `
+        -Name 'controlled-weapon-input-adapter.log' `
+        -Group 'Shanmen.0_0_10.Product.ControlledWeaponInputAdapter'
+    $ControlledWeaponPhysicalInput = New-AutomationLogFixture `
+        -Name 'controlled-weapon-physical-input.log' `
+        -Group 'Shanmen.0_0_10.Product.ControlledWeaponPhysicalInput'
     $DivineSenseRuntime = New-AutomationLogFixture `
         -Name 'divine-sense-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.DivineSense'
@@ -2333,6 +2339,7 @@ try
             'Source/demo_map/demo_mapInputActionRegistry.cpp',
             'Source/demo_map/demo_mapInputBindingSettings.h',
             'Source/demo_map/demo_mapInputBindingSettings.cpp',
+            'Source/demo_map/demo_mapShanmenControlledWeaponPhysicalInputTests.cpp',
             'Source/demo_map/demo_mapShanmenSpiritEvasionPhysicalInputTests.cpp',
             'Source/demo_map/demo_mapShanmenThrownWeaponTrajectoryTogglePhysicalInputTests.cpp',
             'Source/demo_map/demo_mapShanmenThrownWeaponArcEditingPhysicalInputTests.cpp',
@@ -2342,6 +2349,8 @@ try
             'Source/demo_map/demo_mapInputRestoreTests.cpp') `
         -Logs @(
             $Full,
+            $ControlledWeaponPhysicalInput,
+            $ControlledWeaponInputAdapter,
             $ThrownWeaponTrajectoryTogglePhysicalInput,
             $ThrownWeaponArcEditingPhysicalInput,
             $ThrownWeaponArcEditingInputHintPresentation,
@@ -2600,6 +2609,19 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenControlledWeaponRunCommandRouter.cpp') `
         -Logs @($Full)
+
+    Invoke-ExpectedPass `
+        -Name 'controlled weapon input maps canonical state command and physical input evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenControlledWeaponInputAdapter.h',
+            'Source/demo_map/demo_mapShanmenControlledWeaponInputAdapter.cpp',
+            'Source/demo_map/demo_mapShanmenControlledWeaponInputAdapterTests.cpp') `
+        -Logs @(
+            $Full,
+            $ControlledWeaponInputAdapter,
+            $ControlledWeaponPhysicalInput,
+            $InputRestore,
+            $Ranged)
 
     Invoke-ExpectedPass `
         -Name 'controlled weapon threat sample router is covered by the full suite' `
@@ -5546,6 +5568,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenControlledWeaponRunCommandRouter.cpp') `
         -Logs @($Coordinator) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'controlled weapon input focus cannot replace physical and legacy input evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenControlledWeaponInputAdapter.cpp') `
+        -Logs @($ControlledWeaponInputAdapter) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

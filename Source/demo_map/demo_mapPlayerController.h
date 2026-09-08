@@ -4,6 +4,7 @@
 #include "GameFramework/PlayerController.h"
 #include "demo_mapCombatTypes.h"
 #include "demo_mapInputBindingSettings.h"
+#include "demo_mapShanmenControlledWeaponInputAdapter.h"
 #include "demo_mapShanmenSpiritEvasionInputAdapter.h"
 #include "demo_mapShanmenThrownWeaponHotbarConfirmationAdapter.h"
 #include "demo_mapShanmenThrownWeaponArcLaunchInputAdapter.h"
@@ -105,6 +106,9 @@ public:
 	void RebuildProductInputBindings();
 	/** Adapts one future dedicated input without owning its physical key. */
 	Fdemo_mapShanmenSpiritEvasionInputResult RouteSpiritEvasionStartInput();
+	/** Routes one canonical flying-sword Launch-or-Recall physical command. */
+	Fdemo_mapShanmenControlledWeaponInputResult
+	RouteControlledWeaponLaunchRecallInput();
 	/** Routes one frozen, device-independent Arc launch command. */
 	Fdemo_mapShanmenThrownWeaponArcLaunchInputResult
 	RouteThrownWeaponArcLaunchCommand(
@@ -187,6 +191,15 @@ public:
 	GetLastSpiritEvasionInputResultForAutomation() const
 	{
 		return LastSpiritEvasionInputResult;
+	}
+	uint64 GetControlledWeaponInputInvocationCountForAutomation() const
+	{
+		return ControlledWeaponInputInvocationCount;
+	}
+	const Fdemo_mapShanmenControlledWeaponInputResult&
+	GetLastControlledWeaponInputResultForAutomation() const
+	{
+		return LastControlledWeaponInputResult;
 	}
 	uint64 GetThrownWeaponTrajectoryToggleInvocationCountForAutomation() const
 	{
@@ -308,6 +321,7 @@ protected:
 	void CancelGroundCircle();
 	void CastSelfSector();
 	void FireStraightProjectile();
+	void ToggleControlledWeaponLaunchRecall();
 	void ToggleThrownWeaponTrajectory();
 	void SetThrownWeaponArcTargetFromPointerAim();
 	void IncreaseThrownWeaponArcApex();
@@ -341,6 +355,9 @@ protected:
 	uint64 SpiritEvasionInputInvocationCount = 0;
 	Fdemo_mapShanmenSpiritEvasionInputResult
 		LastSpiritEvasionInputResult;
+	uint64 ControlledWeaponInputInvocationCount = 0;
+	Fdemo_mapShanmenControlledWeaponInputResult
+		LastControlledWeaponInputResult;
 	uint64 ThrownWeaponTrajectoryToggleInvocationCount = 0;
 	Fdemo_mapShanmenThrownWeaponInputChoiceInteractionReadResult
 		LastThrownWeaponTrajectoryToggleRead;

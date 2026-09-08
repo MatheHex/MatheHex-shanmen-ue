@@ -144,7 +144,7 @@ bool Fdemo_mapWeaponGuardPhysicalRegistryTest::RunTest(const FString&)
 			Fdemo_mapInputActionIds::WeaponGuard);
 	TestTrue(TEXT("registry remains exact after adding Weapon Guard"),
 		Fdemo_mapInputActionRegistry::ValidateExactDefaults()
-			&& Fdemo_mapInputActionRegistry::GetExactDefaultActions().Num() == 28);
+			&& Fdemo_mapInputActionRegistry::GetExactDefaultActions().Num() == 29);
 	TestTrue(TEXT("Weapon Guard owns a conflict-free press/release default"),
 		Action
 			&& Action->DefaultKey == EKeys::RightMouseButton
@@ -169,7 +169,7 @@ bool Fdemo_mapWeaponGuardPhysicalMigrationTest::RunTest(const FString&)
 		Fdemo_mapInputBindingSettings::Get().Load();
 	TestTrue(TEXT("missing Weapon Guard receives its free default"),
 		Result.IsSuccess()
-			&& Fdemo_mapInputBindingSettings::Get().GetBindings().Num() == 28
+			&& Fdemo_mapInputBindingSettings::Get().GetBindings().Num() == 29
 			&& Fdemo_mapInputBindingSettings::Get().GetKey(
 				Fdemo_mapInputActionIds::WeaponGuard)
 				== EKeys::RightMouseButton);

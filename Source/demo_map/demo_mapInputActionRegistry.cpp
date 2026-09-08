@@ -8,6 +8,8 @@ const FName Fdemo_mapInputActionIds::PrimaryAttack(TEXT("PrimaryAttack"));
 const FName Fdemo_mapInputActionIds::SkillGroundCircle(TEXT("SkillGroundCircle"));
 const FName Fdemo_mapInputActionIds::SkillSelfSector(TEXT("SkillSelfSector"));
 const FName Fdemo_mapInputActionIds::SkillStraightProjectile(TEXT("SkillStraightProjectile"));
+const FName Fdemo_mapInputActionIds::ControlledWeaponLaunchRecall(
+	TEXT("ControlledWeaponLaunchRecall"));
 const FName Fdemo_mapInputActionIds::ThrownWeaponTrajectoryToggle(
 	TEXT("ThrownWeaponTrajectoryToggle"));
 const FName Fdemo_mapInputActionIds::ThrownWeaponArcTargetSet(
@@ -45,6 +47,7 @@ const TArray<Fdemo_mapInputActionDefinition>& Fdemo_mapInputActionRegistry::GetE
 		{ Fdemo_mapInputActionIds::SkillGroundCircle, EKeys::Q, false, TEXT("范围技能"), TEXT("战斗") },
 		{ Fdemo_mapInputActionIds::SkillSelfSector, EKeys::E, false, TEXT("扇形技能"), TEXT("战斗") },
 		{ Fdemo_mapInputActionIds::SkillStraightProjectile, EKeys::F, false, TEXT("直线技能"), TEXT("战斗") },
+		{ Fdemo_mapInputActionIds::ControlledWeaponLaunchRecall, EKeys::X, false, TEXT("飞剑发射 / 召回"), TEXT("战斗") },
 		{ Fdemo_mapInputActionIds::ThrownWeaponTrajectoryToggle, EKeys::T, false, TEXT("切换投掷轨迹"), TEXT("战斗") },
 		{ Fdemo_mapInputActionIds::ThrownWeaponArcTargetSet, EKeys::MiddleMouseButton, false, TEXT("设定抛投目标方向"), TEXT("战斗") },
 		{ Fdemo_mapInputActionIds::ThrownWeaponArcApexIncrease, EKeys::RightBracket, false, TEXT("提高抛投弧顶"), TEXT("战斗") },
@@ -99,9 +102,9 @@ FString Fdemo_mapInputActionRegistry::DisplayLabel(FName ActionId)
 bool Fdemo_mapInputActionRegistry::ValidateExactDefaults(FString* OutError)
 {
 	const TArray<Fdemo_mapInputActionDefinition>& Actions = GetExactDefaultActions();
-	if (Actions.Num() != 28)
+	if (Actions.Num() != 29)
 	{
-		if (OutError) *OutError = TEXT("Input registry must contain exactly 28 actions.");
+		if (OutError) *OutError = TEXT("Input registry must contain exactly 29 actions.");
 		return false;
 	}
 	TSet<FName> Ids;
