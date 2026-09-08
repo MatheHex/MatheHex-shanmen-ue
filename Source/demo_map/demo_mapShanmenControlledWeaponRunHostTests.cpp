@@ -716,9 +716,11 @@ bool Fdemo_mapControlledWeaponRunHostBlockingTimelineTest::RunTest(
 	{
 		return false;
 	}
+	Fixture.Enemy->SetActorLocation(FVector(0.0f, 120.0f, 0.0f));
+	Fixture.World->UpdateWorldComponents(true, false);
 	FShanmenControlledWeaponCommandReceipt Launch;
 	if (!Fixture.Host.TryLaunch(
-			HostLowItemId, 0, FVector::ForwardVector, Launch))
+			HostLowItemId, 0, FVector::RightVector, Launch))
 	{
 		AddError(TEXT("P21.8 blocking fixture could not launch."));
 		return false;
@@ -736,6 +738,7 @@ bool Fdemo_mapControlledWeaponRunHostBlockingTimelineTest::RunTest(
 	}
 	const FLinearColor DirectedPresentationColor =
 		Fixture.Weapon->GetResolvedPresentationColor();
+	const FRotator CollisionActorRotation = Fixture.Weapon->GetActorRotation();
 
 	const float VitalityBefore = Fixture.Enemy->GetCurrentVitality();
 	const int32 ImpactsBefore = Fixture.Enemy->NumCommittedCombatImpacts();
@@ -791,6 +794,12 @@ bool Fdemo_mapControlledWeaponRunHostBlockingTimelineTest::RunTest(
 	const bool bPresentedReplay = Blocked.DeliveredImpacts.Num() == 1
 		&& Fixture.Weapon->TryPresentCommittedImpactFeedback(
 			Blocked.DeliveredImpacts[0]);
+	const bool bCapturedReturningReadModel = Controller
+		&& Controller->TryCaptureFlightReadModel(false, ReturningReadModel);
+	const FVector PresentedTravelDirection = bCapturedReturningReadModel
+		? (ReturningReadModel.GetWeaponLocation()
+			- DirectedReadModel.GetWeaponLocation()).GetSafeNormal()
+		: FVector::ZeroVector;
 	TestTrue(TEXT("impact color waits for the canonical return phase"),
 		bPresentedImpact
 			&& bPresentedReplay
@@ -800,8 +809,7 @@ bool Fdemo_mapControlledWeaponRunHostBlockingTimelineTest::RunTest(
 	TestTrue(TEXT("the same Actor projects the fresh commit during return"),
 		bPresentedImpact
 			&& bPresentedReplay
-			&& Controller->TryCaptureFlightReadModel(
-				false, ReturningReadModel)
+			&& bCapturedReturningReadModel
 			&& ReturningReadModel.GetPhase()
 				== Edemo_mapShanmenControlledWeaponFlightPhase::Returning
 			&& Fixture.Weapon->TryPresentFlightReadModel(ReturningReadModel)
@@ -830,6 +838,12 @@ bool Fdemo_mapControlledWeaponRunHostBlockingTimelineTest::RunTest(
 				TEXT("飞剑 · 返航 · 命中 -%.1f"),
 				static_cast<double>(
 					Fixture.Weapon->GetPresentedImpactAppliedDamage())));
+	TestTrue(TEXT("the visual mesh follows travel without rotating collision"),
+		PresentedTravelDirection.Equals(FVector::RightVector, 0.01f)
+			&& Fixture.Weapon->GetPresentationForwardDirection().Equals(
+				PresentedTravelDirection, 0.01f)
+			&& Fixture.Weapon->GetActorRotation().Equals(
+				CollisionActorRotation, 0.01f));
 
 	Fdemo_mapShanmenControlledWeaponFlightReadModel NextActivationReadModel;
 	const FGuid NextActivationId(0xD36500F1, 0, 0, 1);

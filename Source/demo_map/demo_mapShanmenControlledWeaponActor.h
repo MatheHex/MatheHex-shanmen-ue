@@ -81,6 +81,8 @@ public:
 	{
 		return FlightReadModel;
 	}
+	/** World-space facing of the presentation mesh; collision orientation is unchanged. */
+	FVector GetPresentationForwardDirection() const;
 	/** Accepts only a fresh canonical vitality commit from this exact activation. */
 	bool TryPresentCommittedImpactFeedback(
 		const Fdemo_mapShanmenControlledWeaponWorldDeliveryResult& Delivery);
@@ -125,6 +127,9 @@ private:
 	bool IsFlightPresentationStateValid() const;
 	bool IsCommittedImpactFeedbackStateValid() const;
 	void ClearCommittedImpactFeedback();
+	void RefreshTravelFacing(
+		const Fdemo_mapShanmenControlledWeaponFlightReadModel& PreviousReadModel,
+		const Fdemo_mapShanmenControlledWeaponFlightReadModel& ReadModel);
 	void RefreshPresentation();
 
 	UPROPERTY(VisibleAnywhere)

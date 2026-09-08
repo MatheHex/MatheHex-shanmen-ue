@@ -205,10 +205,21 @@ bool Ademo_mapShanmenControlledWeaponActor::TryPresentFlightReadModel(
 	{
 		ClearCommittedImpactFeedback();
 	}
+	const Fdemo_mapShanmenControlledWeaponFlightReadModel PreviousReadModel =
+		FlightReadModel;
 	FlightReadModel = ReadModel;
+	RefreshTravelFacing(PreviousReadModel, ReadModel);
 	RefreshPresentation();
 	return IsFlightPresentationStateValid()
 		&& IsCommittedImpactFeedbackStateValid();
+}
+
+FVector Ademo_mapShanmenControlledWeaponActor::
+GetPresentationForwardDirection() const
+{
+	return Visual
+		? Visual->GetForwardVector().GetSafeNormal()
+		: FVector::ZeroVector;
 }
 
 bool Ademo_mapShanmenControlledWeaponActor::
@@ -353,6 +364,27 @@ void Ademo_mapShanmenControlledWeaponActor::ClearCommittedImpactFeedback()
 	PresentedImpactTargetEntityId.Invalidate();
 	PresentedImpactAppliedDamage = 0.0f;
 	PresentedImpactTargetVitalityAfter = 0.0f;
+}
+
+void Ademo_mapShanmenControlledWeaponActor::RefreshTravelFacing(
+	const Fdemo_mapShanmenControlledWeaponFlightReadModel& PreviousReadModel,
+	const Fdemo_mapShanmenControlledWeaponFlightReadModel& ReadModel)
+{
+	if (!Visual
+		|| !PreviousReadModel.IsValid()
+		|| !ReadModel.IsValid()
+		|| PreviousReadModel.GetActivationId() != ReadModel.GetActivationId())
+	{
+		return;
+	}
+
+	const FVector TravelDelta = ReadModel.GetWeaponLocation()
+		- PreviousReadModel.GetWeaponLocation();
+	if (TravelDelta.IsNearlyZero(KINDA_SMALL_NUMBER))
+	{
+		return;
+	}
+	Visual->SetWorldRotation(TravelDelta.Rotation());
 }
 
 void Ademo_mapShanmenControlledWeaponActor::RefreshPresentation()
