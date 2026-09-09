@@ -16,9 +16,12 @@
 #include "demo_mapShanmenRunLifecycleAdapter.h"
 #include "demo_mapShanmenThrownWeaponProjectile.h"
 
+#include "Components/SkeletalMeshComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
+#include "Engine/SkeletalMesh.h"
 #include "Engine/World.h"
+#include "GameFramework/Character.h"
 #include "GameFramework/Pawn.h"
 #include "HAL/FileManager.h"
 #include "Misc/AutomationTest.h"
@@ -207,7 +210,7 @@ namespace
 					.EnableTraceCollision(false)
 					.SetTransactional(false)
 					.CreateFXSystem(false));
-			Source = World->SpawnActor<APawn>();
+			Source = World->SpawnActor<ACharacter>();
 			OtherSource = World->SpawnActor<APawn>();
 			Health = Source
 				? NewObject<Udemo_mapPlayerHealthComponent>(
@@ -408,6 +411,75 @@ bool Fdemo_mapThrownWeaponHandReleaseOriginTest::RunTest(const FString&)
 		FacingForward.Equals(FVector(155.0, 228.0, 80.0)));
 	TestTrue(TEXT("Hand offset rotates with source yaw while height stays world-up"),
 		FacingRight.Equals(FVector(72.0, 255.0, 80.0)));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponSkeletalHandReleaseOriginTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponInputAdapter.SkeletalHandReleaseOrigin",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponSkeletalHandReleaseOriginTest::RunTest(
+	const FString&)
+{
+	FThrownInputFixture Fixture;
+	if (!Fixture.Start(*this, TEXT("SkeletalHandReleaseOrigin")))
+	{
+		return false;
+	}
+	ACharacter* Character = Cast<ACharacter>(Fixture.Source);
+	USkeletalMesh* MannyMesh = LoadObject<USkeletalMesh>(
+		nullptr,
+		TEXT("/Game/Characters/Mannequins/Meshes/SKM_Manny_Simple.SKM_Manny_Simple"));
+	USkeletalMeshComponent* Mesh = Character ? Character->GetMesh() : nullptr;
+	if (!TestNotNull(TEXT("Fixture source is a Character"), Character)
+		|| !TestNotNull(TEXT("Manny skeletal mesh asset loads"), MannyMesh)
+		|| !TestNotNull(TEXT("Character skeletal mesh component exists"), Mesh))
+	{
+		return false;
+	}
+
+	Mesh->SetRelativeLocation(FVector(0.0, 0.0, -90.0));
+	Mesh->SetRelativeRotation(FRotator(0.0, -90.0, 0.0));
+	Mesh->SetSkeletalMeshAsset(MannyMesh);
+	Mesh->UpdateComponentToWorld();
+	Mesh->TickPose(0.0f, false);
+	Mesh->RefreshBoneTransforms();
+	const int32 HandBoneIndex = Mesh->GetBoneIndex(FName(TEXT("hand_r")));
+	if (!TestTrue(TEXT("Manny exposes a live right-hand pose"),
+		HandBoneIndex != INDEX_NONE
+			&& HandBoneIndex < Mesh->GetNumComponentSpaceTransforms()))
+	{
+		return false;
+	}
+
+	bool bUsedSkeletalHandOrigin = false;
+	const FVector Origin =
+		Fdemo_mapShanmenThrownWeaponInputAdapter::ResolveLaunchOrigin(
+			Character, &bUsedSkeletalHandOrigin);
+	const FVector ExpectedOrigin = Mesh->GetBoneTransform(HandBoneIndex).GetLocation()
+		+ Character->GetActorForwardVector()
+			* Fdemo_mapShanmenThrownWeaponInputAdapter::
+				GetSkeletalHandForwardClearance();
+	const FVector ProxyOrigin =
+		Fdemo_mapShanmenThrownWeaponInputAdapter::MakeLaunchOrigin(
+			Character->GetActorTransform());
+	TestTrue(TEXT("Live right hand replaces the centerline proxy"),
+		bUsedSkeletalHandOrigin
+			&& Origin.Equals(ExpectedOrigin)
+			&& !Origin.Equals(ProxyOrigin));
+
+	int32 AimSamples = 0;
+	const Fdemo_mapShanmenThrownWeaponInputResult Routed = Fixture.Route(
+		2, Character, AimSamples, FVector::ForwardVector);
+	const Fdemo_mapShanmenThrownWeaponRunCommandIntent* Command =
+		Fixture.Lifecycle.FindCapturedCommand(Routed.SelectionId);
+	TestTrue(TEXT("Straight release captures the same skeletal hand origin"),
+		Routed.IsAccepted()
+			&& Routed.bUsedSkeletalHandOrigin
+			&& AimSamples == 1
+			&& Command
+			&& Command->GetOrigin().Equals(ExpectedOrigin));
 	return true;
 }
 

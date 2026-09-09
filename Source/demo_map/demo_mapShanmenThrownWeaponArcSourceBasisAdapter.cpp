@@ -34,7 +34,7 @@ bool Fdemo_mapShanmenThrownWeaponArcSourceBasisSampleResult::IsValid() const
 	{
 		return TransformSampleCount == 1 && Basis.IsValid();
 	}
-	if (Basis.IsValid())
+	if (Basis.IsValid() || bUsedSkeletalHandOrigin)
 	{
 		return false;
 	}
@@ -141,8 +141,10 @@ Fdemo_mapShanmenThrownWeaponArcSourceBasisAdapter::Sample(
 	}
 
 	Fdemo_mapShanmenThrownWeaponArcChoiceBasis Basis;
+	bool bUsedSkeletalHandOrigin = false;
 	const FVector Origin =
-		Fdemo_mapShanmenThrownWeaponInputAdapter::MakeLaunchOrigin(Transform);
+		Fdemo_mapShanmenThrownWeaponInputAdapter::ResolveLaunchOrigin(
+			SourceActor, &bUsedSkeletalHandOrigin);
 	if (!Fdemo_mapShanmenThrownWeaponArcChoiceBasis::TryCapture(
 			Origin, Forward, Right, Basis))
 	{
@@ -154,9 +156,11 @@ Fdemo_mapShanmenThrownWeaponArcSourceBasisAdapter::Sample(
 
 	Fdemo_mapShanmenThrownWeaponArcSourceBasisSampleResult Result;
 	Result.Status = ESampleStatus::Sampled;
-	Result.Diagnostic =
-		TEXT("Arc source basis sampled from one Actor transform snapshot.");
+	Result.Diagnostic = bUsedSkeletalHandOrigin
+		? TEXT("Arc source basis sampled from the live right-hand pose.")
+		: TEXT("Arc source basis sampled from the safe Actor proxy.");
 	Result.TransformSampleCount = 1;
+	Result.bUsedSkeletalHandOrigin = bUsedSkeletalHandOrigin;
 	Result.Basis = Basis;
 	return Result;
 }

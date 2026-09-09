@@ -101,6 +101,7 @@ bool Fdemo_mapThrownWeaponArcSourceBasisSampleContractTest::RunTest(
 	TestTrue(TEXT("One transform snapshot yields the canonical launch basis"),
 		First.IsSampled()
 			&& First.GetTransformSampleCount() == 1
+			&& !First.UsedSkeletalHandOrigin()
 			&& First.GetBasis().GetOrigin().Equals(
 				FVector(155.0, 228.0, 50.0))
 			&& First.GetBasis().GetForward().Equals(FVector::ForwardVector)

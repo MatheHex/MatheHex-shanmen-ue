@@ -14,7 +14,7 @@ enum class Edemo_mapShanmenThrownWeaponArcSourceBasisStatus : uint8
 	BasisRejected
 };
 
-/** Immutable evidence from one canonical source Actor transform snapshot. */
+/** Immutable evidence from one canonical source Actor pose snapshot. */
 class Fdemo_mapShanmenThrownWeaponArcSourceBasisSampleResult
 {
 public:
@@ -26,6 +26,7 @@ public:
 	}
 	const FString& GetDiagnostic() const { return Diagnostic; }
 	int32 GetTransformSampleCount() const { return TransformSampleCount; }
+	bool UsedSkeletalHandOrigin() const { return bUsedSkeletalHandOrigin; }
 	const Fdemo_mapShanmenThrownWeaponArcChoiceBasis& GetBasis() const
 	{
 		return Basis;
@@ -38,6 +39,7 @@ private:
 		Edemo_mapShanmenThrownWeaponArcSourceBasisStatus::Invalid;
 	FString Diagnostic;
 	int32 TransformSampleCount = 0;
+	bool bUsedSkeletalHandOrigin = false;
 	Fdemo_mapShanmenThrownWeaponArcChoiceBasis Basis;
 };
 

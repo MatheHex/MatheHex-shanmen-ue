@@ -44,6 +44,7 @@ struct Fdemo_mapShanmenThrownWeaponInputResult
 	bool bAimSampled = false;
 	bool bTargetSampled = false;
 	bool bApexClearanceSampled = false;
+	bool bUsedSkeletalHandOrigin = false;
 	Fdemo_mapShanmenPlayerActionGateResult ActionGate;
 	Fdemo_mapShanmenThrownWeaponSessionResult Session;
 	FString Diagnostic;
@@ -80,8 +81,16 @@ public:
 	static constexpr double GetLaunchOriginForwardOffset() { return 55.0; }
 	/** Positive local-right offset presents the release from the weapon hand. */
 	static constexpr double GetLaunchOriginRightOffset() { return 28.0; }
-	/** Canonical hand-release point shared by straight and Arc routes. */
+	/** Forward clearance keeps a hand-sourced knife center outside the palm. */
+	static constexpr double GetSkeletalHandForwardClearance() { return 18.0; }
+	/** Reject malformed pose samples that place the hand outside the character. */
+	static constexpr double GetMaximumSkeletalHandDistance() { return 200.0; }
+	/** Canonical proxy release point used when no trustworthy hand pose exists. */
 	static FVector MakeLaunchOrigin(const FTransform& SourceTransform);
+	/** Right-hand pose first, with the canonical proxy as a fail-safe fallback. */
+	static FVector ResolveLaunchOrigin(
+		AActor* SourceActor,
+		bool* bOutUsedSkeletalHandOrigin = nullptr);
 	/** Stable event identity; equal canonical inputs always reproduce one GUID. */
 	static FGuid MakeSelectionId(
 		const FGuid& CorrelationId,

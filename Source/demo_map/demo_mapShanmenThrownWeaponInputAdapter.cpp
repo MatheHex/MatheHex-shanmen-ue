@@ -6,11 +6,14 @@
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
 #include "demo_mapShanmenRunLifecycleAdapter.h"
 
+#include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/Actor.h"
+#include "GameFramework/Character.h"
 
 namespace
 {
 	constexpr float ThrownWeaponMaximumDistance = 1400.0f;
+	const FName RightHandBoneName(TEXT("hand_r"));
 
 	FString GuidDigits(const FGuid& Value)
 	{
@@ -66,6 +69,67 @@ FVector Fdemo_mapShanmenThrownWeaponInputAdapter::MakeLaunchOrigin(
 		+ SourceTransform.GetUnitAxis(EAxis::X) * GetLaunchOriginForwardOffset()
 		+ SourceTransform.GetUnitAxis(EAxis::Y) * GetLaunchOriginRightOffset()
 		+ FVector::UpVector * GetLaunchOriginHeight();
+}
+
+FVector Fdemo_mapShanmenThrownWeaponInputAdapter::ResolveLaunchOrigin(
+	AActor* SourceActor,
+	bool* bOutUsedSkeletalHandOrigin)
+{
+	if (bOutUsedSkeletalHandOrigin)
+	{
+		*bOutUsedSkeletalHandOrigin = false;
+	}
+	if (!IsValid(SourceActor) || SourceActor->IsActorBeingDestroyed())
+	{
+		return FVector::ZeroVector;
+	}
+
+	const FTransform SourceTransform = SourceActor->GetActorTransform();
+	const FVector ProxyOrigin = MakeLaunchOrigin(SourceTransform);
+	const ACharacter* Character = Cast<ACharacter>(SourceActor);
+	const USkeletalMeshComponent* Mesh = Character
+		? Character->GetMesh()
+		: nullptr;
+	if (!IsValid(Mesh)
+		|| !Mesh->GetSkeletalMeshAsset()
+		|| !Mesh->IsRegistered())
+	{
+		return ProxyOrigin;
+	}
+
+	const int32 HandBoneIndex = Mesh->GetBoneIndex(RightHandBoneName);
+	if (HandBoneIndex == INDEX_NONE
+		|| HandBoneIndex >= Mesh->GetNumComponentSpaceTransforms())
+	{
+		return ProxyOrigin;
+	}
+
+	const FVector SourceLocation = SourceTransform.GetLocation();
+	const FVector SourceForward = SourceTransform.GetUnitAxis(EAxis::X);
+	const FVector HandLocation = Mesh->GetBoneTransform(HandBoneIndex).GetLocation();
+	const FVector HandOrigin = HandLocation
+		+ SourceForward * GetSkeletalHandForwardClearance();
+	const auto IsFiniteVector = [](const FVector& Value)
+	{
+		return FMath::IsFinite(Value.X)
+			&& FMath::IsFinite(Value.Y)
+			&& FMath::IsFinite(Value.Z);
+	};
+	if (!IsFiniteVector(SourceLocation)
+		|| !IsFiniteVector(SourceForward)
+		|| !IsFiniteVector(HandLocation)
+		|| !IsFiniteVector(HandOrigin)
+		|| FVector::DistSquared(SourceLocation, HandLocation)
+			> FMath::Square(GetMaximumSkeletalHandDistance()))
+	{
+		return ProxyOrigin;
+	}
+
+	if (bOutUsedSkeletalHandOrigin)
+	{
+		*bOutUsedSkeletalHandOrigin = true;
+	}
+	return HandOrigin;
 }
 
 Fdemo_mapShanmenThrownWeaponInputResult
@@ -283,7 +347,8 @@ Fdemo_mapShanmenThrownWeaponInputAdapter::RouteTypedHotbarInput(
 		return Result;
 	}
 
-	const FVector Origin = MakeLaunchOrigin(SourceActor->GetActorTransform());
+	const FVector Origin = ResolveLaunchOrigin(
+		SourceActor, &Result.bUsedSkeletalHandOrigin);
 	FVector PrimaryGeometry = FVector::ZeroVector;
 	double ApexClearance = 0.0;
 	if (TrajectoryKind
