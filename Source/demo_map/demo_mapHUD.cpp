@@ -214,6 +214,8 @@ namespace
 			const FVector CameraForward = ViewRotation.Vector();
 			const FVector CameraRight =
 				FRotationMatrix(ViewRotation).GetScaledAxis(EAxis::Y);
+			TArray<FVector2D> OccupiedMarkerPositions;
+			OccupiedMarkerPositions.Reserve(Receipt.NumReveals());
 			for (const FShanmenDivineSenseReveal& Reveal : Receipt.GetReveals())
 			{
 				const FVector MarkerWorldLocation =
@@ -229,17 +231,26 @@ namespace
 				const FVector2D CameraRelativeBearing(
 					FVector::DotProduct(ViewToSubject, CameraRight),
 					-FVector::DotProduct(ViewToSubject, CameraForward));
-				Fdemo_mapShanmenDivineSenseHUDMarkerPlan MarkerPlan;
+				Fdemo_mapShanmenDivineSenseHUDMarkerPlan BaseMarkerPlan;
 				if (!Fdemo_mapShanmenDivineSenseHUDMarkerPlan::TryPlan(
 						FVector2D(Canvas->SizeX, Canvas->SizeY),
 						bWorldProjectionSucceeded,
 						ProjectedScreenPosition,
 						CameraRelativeBearing,
+						BaseMarkerPlan))
+				{
+					continue;
+				}
+				Fdemo_mapShanmenDivineSenseHUDMarkerPlan MarkerPlan;
+				if (!Fdemo_mapShanmenDivineSenseHUDMarkerPlan::TryDeconflict(
+						BaseMarkerPlan,
+						OccupiedMarkerPositions,
 						MarkerPlan))
 				{
 					continue;
 				}
 				const FVector2D ScreenPosition = MarkerPlan.GetScreenPosition();
+				OccupiedMarkerPositions.Add(ScreenPosition);
 				const FLinearColor Color = Reveal.WasOccluded()
 					? FLinearColor(1.0f, 0.66f, 0.12f, 0.95f)
 					: FLinearColor(0.16f, 0.95f, 1.0f, 0.95f);

@@ -109,6 +109,190 @@ bool Fdemo_mapDivineSenseHUDBehindCameraMarkerTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapDivineSenseHUDProjectedMarkerDeconflictionTest,
+	"Shanmen.0_0_10.Product.DivineSenseHUDPresentation.ProjectedDeconfliction",
+	PresentationFlags)
+
+bool Fdemo_mapDivineSenseHUDProjectedMarkerDeconflictionTest::RunTest(
+	const FString&)
+{
+	FPlan BasePlan;
+	check(FPlan::TryPlan(
+		FVector2D(1920.0, 1080.0),
+		true,
+		FVector2D(810.0, 420.0),
+		FVector2D::ZeroVector,
+		BasePlan));
+
+	FPlan NearestPlan;
+	const TArray<FVector2D> Empty;
+	TestTrue(TEXT("the first nearest marker retains its exact projected pixel"),
+		FPlan::TryDeconflict(BasePlan, Empty, NearestPlan)
+			&& NearestPlan.Matches(BasePlan));
+
+	const TArray<FVector2D> Occupied = { BasePlan.GetScreenPosition() };
+	FPlan ShiftedPlan;
+	FPlan Replay;
+	TestTrue(TEXT("an overlapping later marker finds a deterministic nearby slot"),
+		FPlan::TryDeconflict(BasePlan, Occupied, ShiftedPlan)
+			&& FPlan::TryDeconflict(BasePlan, Occupied, Replay));
+	TestTrue(TEXT("projected deconfliction preserves placement and stable priority"),
+		ShiftedPlan.IsValid()
+			&& ShiftedPlan.Matches(Replay)
+			&& ShiftedPlan.GetPlacement() == EPlacement::WorldProjected
+			&& ShiftedPlan.GetScreenPosition()
+				== FVector2D(810.0, 388.0)
+			&& FVector2D::Distance(
+					ShiftedPlan.GetScreenPosition(),
+					Occupied[0])
+				>= FPlan::GetMinimumVerticalMarkerSeparation());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapDivineSenseHUDMarkerDeconflictionCapacityTest,
+	"Shanmen.0_0_10.Product.DivineSenseHUDPresentation.DeconflictionCapacity",
+	PresentationFlags)
+
+bool Fdemo_mapDivineSenseHUDMarkerDeconflictionCapacityTest::RunTest(
+	const FString&)
+{
+	FPlan BasePlan;
+	check(FPlan::TryPlan(
+		FVector2D(1920.0, 1080.0),
+		true,
+		FVector2D(960.0, 540.0),
+		FVector2D::ZeroVector,
+		BasePlan));
+
+	TArray<FVector2D> Layout;
+	TArray<FVector2D> ReplayLayout;
+	for (int32 Index = 0; Index < 8; ++Index)
+	{
+		FPlan Planned;
+		FPlan Replayed;
+		const bool bPlanned = FPlan::TryDeconflict(
+			BasePlan,
+			Layout,
+			Planned);
+		const bool bReplayed = FPlan::TryDeconflict(
+			BasePlan,
+			ReplayLayout,
+			Replayed);
+		TestTrue(
+			*FString::Printf(
+				TEXT("marker %d of the canonical eight-target capacity is placed"),
+				Index + 1),
+			bPlanned && bReplayed);
+		if (!bPlanned || !bReplayed)
+		{
+			return false;
+		}
+		TestTrue(
+			*FString::Printf(
+				TEXT("marker %d replays at the identical deterministic slot"),
+				Index + 1),
+			Planned.Matches(Replayed));
+		for (const FVector2D& OccupiedPosition : Layout)
+		{
+			const FVector2D Separation =
+				Planned.GetScreenPosition() - OccupiedPosition;
+			TestTrue(
+				TEXT("every planned marker respects the readable HUD footprint"),
+				FMath::Abs(Separation.X)
+						>= FPlan::GetMinimumHorizontalMarkerSeparation()
+					|| FMath::Abs(Separation.Y)
+						>= FPlan::GetMinimumVerticalMarkerSeparation());
+		}
+		Layout.Add(Planned.GetScreenPosition());
+		ReplayLayout.Add(Replayed.GetScreenPosition());
+	}
+
+	TestTrue(TEXT("the nearest marker remains exact at full reveal capacity"),
+		Layout.Num() == 8
+			&& Layout[0] == BasePlan.GetScreenPosition());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapDivineSenseHUDEdgeMarkerDeconflictionTest,
+	"Shanmen.0_0_10.Product.DivineSenseHUDPresentation.EdgeDeconfliction",
+	PresentationFlags)
+
+bool Fdemo_mapDivineSenseHUDEdgeMarkerDeconflictionTest::RunTest(
+	const FString&)
+{
+	FPlan BasePlan;
+	check(FPlan::TryPlan(
+		FVector2D(1920.0, 1080.0),
+		true,
+		FVector2D(2500.0, 540.0),
+		FVector2D::ZeroVector,
+		BasePlan));
+	const TArray<FVector2D> Occupied = { BasePlan.GetScreenPosition() };
+	FPlan ShiftedPlan;
+	TestTrue(TEXT("an overlapping screen-edge marker moves along that edge"),
+		FPlan::TryDeconflict(BasePlan, Occupied, ShiftedPlan));
+	TestTrue(TEXT("edge avoidance retains arrow direction and edge semantics"),
+		ShiftedPlan.IsAtScreenEdge()
+			&& ShiftedPlan.GetScreenPosition().X
+				== BasePlan.GetScreenPosition().X
+			&& ShiftedPlan.GetScreenPosition().Y
+				== BasePlan.GetScreenPosition().Y
+					- FPlan::GetMinimumVerticalMarkerSeparation()
+			&& ShiftedPlan.GetEdgeDirection()
+				== BasePlan.GetEdgeDirection());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapDivineSenseHUDMarkerDeconflictionFenceTest,
+	"Shanmen.0_0_10.Product.DivineSenseHUDPresentation.DeconflictionFences",
+	PresentationFlags)
+
+bool Fdemo_mapDivineSenseHUDMarkerDeconflictionFenceTest::RunTest(
+	const FString&)
+{
+	FPlan BasePlan;
+	check(FPlan::TryPlan(
+		FVector2D(320.0, 240.0),
+		false,
+		FVector2D::ZeroVector,
+		FVector2D(-1.0, 0.0),
+		BasePlan));
+	FPlan AliasedPlan = BasePlan;
+	const TArray<FVector2D> Empty;
+	TestTrue(TEXT("base and output may safely alias for in-place planning"),
+		FPlan::TryDeconflict(AliasedPlan, Empty, AliasedPlan)
+			&& AliasedPlan.Matches(BasePlan));
+	FPlan Reused = BasePlan;
+	const TArray<FVector2D> SaturatedEdge = {
+		BasePlan.GetScreenPosition(),
+		BasePlan.GetScreenPosition()
+			+ FVector2D(
+				0.0,
+				FPlan::GetMinimumVerticalMarkerSeparation()),
+		BasePlan.GetScreenPosition()
+			+ FVector2D(
+				0.0,
+				FPlan::GetMinimumVerticalMarkerSeparation() * 2.0)
+	};
+	TestFalse(TEXT("a saturated minimum-height edge fails closed"),
+		FPlan::TryDeconflict(BasePlan, SaturatedEdge, Reused));
+	TestFalse(TEXT("failed deconfliction clears reusable output"),
+		Reused.IsValid());
+
+	const TArray<FVector2D> NonFiniteOccupied = {
+		FVector2D(std::numeric_limits<double>::quiet_NaN(), 120.0)
+	};
+	TestFalse(TEXT("non-finite occupied positions are rejected"),
+		FPlan::TryDeconflict(BasePlan, NonFiniteOccupied, Reused));
+	TestFalse(TEXT("invalid occupied evidence cannot leak a stale plan"),
+		Reused.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	Fdemo_mapDivineSenseHUDPresentationFenceTest,
 	"Shanmen.0_0_10.Product.DivineSenseHUDPresentation.Fences",
 	PresentationFlags)

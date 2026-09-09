@@ -20,6 +20,7 @@ namespace
 	constexpr double DirectionToleranceSquared = 1.0e-8;
 	constexpr double UnitTolerance = 1.0e-6;
 	constexpr double EdgeTolerance = 1.0e-4;
+	constexpr int32 MaximumDeconflictionRings = 8;
 
 	bool IsFiniteVector(const FVector2D& Value)
 	{
@@ -174,6 +175,116 @@ bool FPlan::IsValid() const
 	}
 	return FMath::IsNearlyEqual(
 		EdgeDirection.SizeSquared(), 1.0, UnitTolerance);
+}
+
+bool FPlan::TryDeconflict(
+	const FPlan& BasePlan,
+	const TConstArrayView<FVector2D> OccupiedScreenPositions,
+	FPlan& OutPlan)
+{
+	const FPlan FrozenBasePlan = BasePlan;
+	OutPlan = FPlan();
+	if (!FrozenBasePlan.IsValid())
+	{
+		return false;
+	}
+	for (const FVector2D& OccupiedPosition : OccupiedScreenPositions)
+	{
+		if (!IsFiniteVector(OccupiedPosition)
+			|| !IsInsideSafeArea(
+				OccupiedPosition,
+				FrozenBasePlan.CanvasSize))
+		{
+			return false;
+		}
+	}
+
+	const auto TryCandidate =
+		[&](const FVector2D& CandidatePosition) -> bool
+		{
+			if (!IsInsideSafeArea(CandidatePosition, FrozenBasePlan.CanvasSize))
+			{
+				return false;
+			}
+			for (const FVector2D& OccupiedPosition : OccupiedScreenPositions)
+			{
+				const FVector2D Separation = CandidatePosition - OccupiedPosition;
+				if (FMath::Abs(Separation.X)
+						< GetMinimumHorizontalMarkerSeparation()
+					&& FMath::Abs(Separation.Y)
+						< GetMinimumVerticalMarkerSeparation())
+				{
+					return false;
+				}
+			}
+
+			FPlan Candidate = FrozenBasePlan;
+			Candidate.ScreenPosition = CandidatePosition;
+			if (!Candidate.IsValid())
+			{
+				return false;
+			}
+			OutPlan = Candidate;
+			return true;
+		};
+
+	if (TryCandidate(FrozenBasePlan.ScreenPosition))
+	{
+		return true;
+	}
+
+	if (FrozenBasePlan.Placement == EPlacement::ScreenEdge)
+	{
+		const bool bOnHorizontalEdge = FMath::IsNearlyEqual(
+				FrozenBasePlan.ScreenPosition.Y,
+				GetTopSafeMargin(),
+				EdgeTolerance)
+			|| FMath::IsNearlyEqual(
+				FrozenBasePlan.ScreenPosition.Y,
+				FrozenBasePlan.CanvasSize.Y - GetBottomSafeMargin(),
+				EdgeTolerance);
+		const FVector2D EdgeTangent = bOnHorizontalEdge
+			? FVector2D(1.0, 0.0)
+			: FVector2D(0.0, 1.0);
+		const double EdgeStep = bOnHorizontalEdge
+			? GetMinimumHorizontalMarkerSeparation()
+			: GetMinimumVerticalMarkerSeparation();
+		for (int32 Ring = 1; Ring <= MaximumDeconflictionRings; ++Ring)
+		{
+			const FVector2D Offset = EdgeTangent * (EdgeStep * Ring);
+			if (TryCandidate(FrozenBasePlan.ScreenPosition - Offset)
+				|| TryCandidate(FrozenBasePlan.ScreenPosition + Offset))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	static const FVector2D Directions[] = {
+		FVector2D(0.0, -1.0),
+		FVector2D(1.0, 0.0),
+		FVector2D(0.0, 1.0),
+		FVector2D(-1.0, 0.0),
+		FVector2D(-1.0, -1.0),
+		FVector2D(1.0, -1.0),
+		FVector2D(1.0, 1.0),
+		FVector2D(-1.0, 1.0)
+	};
+	for (int32 Ring = 1; Ring <= MaximumDeconflictionRings; ++Ring)
+	{
+		for (const FVector2D& Direction : Directions)
+		{
+			const FVector2D Offset(
+				Direction.X * GetMinimumHorizontalMarkerSeparation() * Ring,
+				Direction.Y * GetMinimumVerticalMarkerSeparation() * Ring);
+			if (TryCandidate(FrozenBasePlan.ScreenPosition + Offset))
+			{
+				return true;
+			}
+		}
+	}
+	return false;
 }
 
 bool FPlan::Matches(const FPlan& Other) const

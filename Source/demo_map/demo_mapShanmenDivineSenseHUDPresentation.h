@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Containers/ArrayView.h"
 #include "CoreMinimal.h"
 #include "demo_mapShanmenDivineSenseLogicalInputAdapter.h"
 
@@ -27,6 +28,14 @@ public:
 		const FVector2D& ProjectedScreenPosition,
 		const FVector2D& CameraRelativeFallbackBearing,
 		Fdemo_mapShanmenDivineSenseHUDMarkerPlan& OutPlan);
+	/**
+	 * Keeps the first/nearest marker exact, then finds a deterministic nearby
+	 * slot for later markers without changing reveal order or edge direction.
+	 */
+	static bool TryDeconflict(
+		const Fdemo_mapShanmenDivineSenseHUDMarkerPlan& BasePlan,
+		TConstArrayView<FVector2D> OccupiedScreenPositions,
+		Fdemo_mapShanmenDivineSenseHUDMarkerPlan& OutPlan);
 
 	bool IsValid() const;
 	bool Matches(
@@ -48,6 +57,8 @@ public:
 	static double GetHorizontalSafeMargin() { return 36.0; }
 	static double GetTopSafeMargin() { return 112.0; }
 	static double GetBottomSafeMargin() { return 56.0; }
+	static double GetMinimumHorizontalMarkerSeparation() { return 136.0; }
+	static double GetMinimumVerticalMarkerSeparation() { return 32.0; }
 
 private:
 	Edemo_mapShanmenDivineSenseMarkerPlacement Placement =
