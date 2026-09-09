@@ -74,8 +74,14 @@ struct Fdemo_mapShanmenThrownWeaponInputResult
 class Fdemo_mapShanmenThrownWeaponInputAdapter
 {
 public:
-	/** Shared launch-origin height used by input geometry and source basis. */
+	/** Shared world-up release height used by input geometry and Arc preview. */
 	static constexpr double GetLaunchOriginHeight() { return 50.0; }
+	/** Forward clearance moves the visible knife ahead of the source centerline. */
+	static constexpr double GetLaunchOriginForwardOffset() { return 55.0; }
+	/** Positive local-right offset presents the release from the weapon hand. */
+	static constexpr double GetLaunchOriginRightOffset() { return 28.0; }
+	/** Canonical hand-release point shared by straight and Arc routes. */
+	static FVector MakeLaunchOrigin(const FTransform& SourceTransform);
 	/** Stable event identity; equal canonical inputs always reproduce one GUID. */
 	static FGuid MakeSelectionId(
 		const FGuid& CorrelationId,

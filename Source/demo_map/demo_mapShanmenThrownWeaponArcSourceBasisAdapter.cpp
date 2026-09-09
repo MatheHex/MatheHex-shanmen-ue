@@ -141,10 +141,8 @@ Fdemo_mapShanmenThrownWeaponArcSourceBasisAdapter::Sample(
 	}
 
 	Fdemo_mapShanmenThrownWeaponArcChoiceBasis Basis;
-	const FVector Origin = Location + FVector(
-		0.0,
-		0.0,
-		Fdemo_mapShanmenThrownWeaponInputAdapter::GetLaunchOriginHeight());
+	const FVector Origin =
+		Fdemo_mapShanmenThrownWeaponInputAdapter::MakeLaunchOrigin(Transform);
 	if (!Fdemo_mapShanmenThrownWeaponArcChoiceBasis::TryCapture(
 			Origin, Forward, Right, Basis))
 	{

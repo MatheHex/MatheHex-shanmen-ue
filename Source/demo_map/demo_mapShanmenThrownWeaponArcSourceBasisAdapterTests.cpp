@@ -102,7 +102,7 @@ bool Fdemo_mapThrownWeaponArcSourceBasisSampleContractTest::RunTest(
 		First.IsSampled()
 			&& First.GetTransformSampleCount() == 1
 			&& First.GetBasis().GetOrigin().Equals(
-				FVector(100.0, 200.0, 50.0))
+				FVector(155.0, 228.0, 50.0))
 			&& First.GetBasis().GetForward().Equals(FVector::ForwardVector)
 			&& First.GetBasis().GetRight().Equals(FVector::RightVector));
 	TestTrue(TEXT("Unchanged source transform replays the same basis identity"),
@@ -117,7 +117,7 @@ bool Fdemo_mapThrownWeaponArcSourceBasisSampleContractTest::RunTest(
 	TestTrue(TEXT("Moved source produces a fresh oriented launch basis"),
 		Moved.IsSampled()
 			&& Moved.GetBasis().GetOrigin().Equals(
-				FVector(-20.0, 300.0, 60.0))
+				FVector(-48.0, 355.0, 60.0))
 			&& Moved.GetBasis().GetForward().Equals(FVector::RightVector)
 			&& Moved.GetBasis().GetRight().Equals(FVector::BackwardVector)
 			&& !First.GetBasis().Matches(Moved.GetBasis()));
@@ -207,7 +207,7 @@ bool Fdemo_mapThrownWeaponArcSourceBasisDelegationTest::RunTest(
 			&& Result.GetSourceSample().GetTransformSampleCount() == 1
 			&& Result.GetComposition().GetStatus()
 				== ECompositionStatus::Delegated
-			&& CapturedTarget.Equals(FVector(1100.0, 350.0, 50.0))
+			&& CapturedTarget.Equals(FVector(1155.0, 378.0, 50.0))
 			&& CapturedApex == 350.0);
 	TestTrue(TEXT("Source, basis, target, and apex are each requested once"),
 		Result.GetSourceSampleRequestCount() == 1

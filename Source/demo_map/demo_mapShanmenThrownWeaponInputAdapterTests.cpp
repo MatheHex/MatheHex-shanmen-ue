@@ -391,6 +391,27 @@ bool Fdemo_mapThrownWeaponInputIdentityTest::RunTest(const FString&)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponHandReleaseOriginTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponInputAdapter.HandReleaseOrigin",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponHandReleaseOriginTest::RunTest(const FString&)
+{
+	const FVector Location(100.0, 200.0, 30.0);
+	const FVector FacingForward =
+		Fdemo_mapShanmenThrownWeaponInputAdapter::MakeLaunchOrigin(
+			FTransform(FRotator::ZeroRotator, Location));
+	const FVector FacingRight =
+		Fdemo_mapShanmenThrownWeaponInputAdapter::MakeLaunchOrigin(
+			FTransform(FRotator(0.0, 90.0, 0.0), Location));
+	TestTrue(TEXT("Forward-facing release is ahead, right, and above the source"),
+		FacingForward.Equals(FVector(155.0, 228.0, 80.0)));
+	TestTrue(TEXT("Hand offset rotates with source yaw while height stays world-up"),
+		FacingRight.Equals(FVector(72.0, 255.0, 80.0)));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	Fdemo_mapThrownWeaponInputRoutingTest,
 	"Shanmen.0_0_10.Product.ThrownWeaponInputAdapter.TypedRouteAndPassThrough",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -431,12 +452,20 @@ bool Fdemo_mapThrownWeaponInputRoutingTest::RunTest(const FString&)
 		2, Fixture.Source, AimSamples, FVector::ForwardVector);
 	FShanmenItemAuthoritySnapshot AfterThrown;
 	Fixture.Authority->TryCaptureSnapshot(AfterThrown);
+	const FVector ExpectedOrigin = Fixture.Source->GetActorLocation()
+		+ Fixture.Source->GetActorForwardVector() * 55.0
+		+ Fixture.Source->GetActorRightVector() * 28.0
+		+ FVector::UpVector * 50.0;
+	const Fdemo_mapShanmenThrownWeaponRunCommandIntent* Command =
+		Fixture.Lifecycle.FindCapturedCommand(Thrown.SelectionId);
 	TestTrue(TEXT("Typed thrown slot alone samples aim and enters the product lifecycle"),
 		Thrown.IsAccepted()
 		&& Thrown.bAimSampled
 		&& Thrown.SelectionOrdinal == 1
 		&& Thrown.SelectionId == ExpectedSelectionId
 		&& Thrown.ItemInstanceId == Fixture.ThrowingKnifeId
+		&& Command
+		&& Command->GetOrigin().Equals(ExpectedOrigin)
 		&& AimSamples == 1
 		&& Fixture.Adapter.GetNextSelectionOrdinal() == 2
 		&& AfterThrown.AuthorityRevision == Before.AuthorityRevision + 2);
@@ -520,6 +549,10 @@ bool Fdemo_mapThrownWeaponArcInputRoutingTest::RunTest(const FString&)
 		Fixture.Lifecycle.FindCapturedCommand(Arc.SelectionId);
 	const FShanmenThrownWeaponArcRequest* ArcRequest = Command
 		? &Command->GetArcPlan().GetRequest() : nullptr;
+	const FVector ExpectedOrigin = Fixture.Source->GetActorLocation()
+		+ Fixture.Source->GetActorForwardVector() * 55.0
+		+ Fixture.Source->GetActorRightVector() * 28.0
+		+ FVector::UpVector * 50.0;
 	TestTrue(TEXT("Arc input samples one geometry and enters the typed lifecycle"),
 		Arc.IsAccepted()
 		&& Arc.TrajectoryKind
@@ -535,8 +568,7 @@ bool Fdemo_mapThrownWeaponArcInputRoutingTest::RunTest(const FString&)
 		&& Command->GetTrajectoryKind()
 			== Edemo_mapShanmenThrownWeaponRunCommandTrajectoryKind::BallisticArc
 		&& ArcRequest
-		&& ArcRequest->GetOrigin()
-			== Fixture.Source->GetActorLocation() + FVector(0.0, 0.0, 50.0)
+		&& ArcRequest->GetOrigin().Equals(ExpectedOrigin)
 		&& ArcRequest->GetTarget() == Target
 		&& ArcRequest->GetApexClearance() == ApexClearance
 		&& ArcRequest->GetTechniqueTier()
@@ -687,8 +719,10 @@ bool Fdemo_mapThrownWeaponArcInputFailClosedTest::RunTest(const FString&)
 						Occupancy));
 			});
 	};
-	const FVector Origin =
-		Fixture.Source->GetActorLocation() + FVector(0.0, 0.0, 50.0);
+	const FVector Origin = Fixture.Source->GetActorLocation()
+		+ Fixture.Source->GetActorForwardVector() * 55.0
+		+ Fixture.Source->GetActorRightVector() * 28.0
+		+ FVector::UpVector * 50.0;
 	const FVector ValidTarget(640.0, 250.0, 70.0);
 	const Fdemo_mapShanmenThrownWeaponInputResult InvalidTarget =
 		Route(Origin, 160.0, false);

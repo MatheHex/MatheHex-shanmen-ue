@@ -59,6 +59,15 @@ FGuid Fdemo_mapShanmenThrownWeaponInputAdapter::MakeSelectionId(
 		});
 }
 
+FVector Fdemo_mapShanmenThrownWeaponInputAdapter::MakeLaunchOrigin(
+	const FTransform& SourceTransform)
+{
+	return SourceTransform.GetLocation()
+		+ SourceTransform.GetUnitAxis(EAxis::X) * GetLaunchOriginForwardOffset()
+		+ SourceTransform.GetUnitAxis(EAxis::Y) * GetLaunchOriginRightOffset()
+		+ FVector::UpVector * GetLaunchOriginHeight();
+}
+
 Fdemo_mapShanmenThrownWeaponInputResult
 Fdemo_mapShanmenThrownWeaponInputAdapter::RouteHotbarInput(
 	Udemo_mapShanmenItemAuthoritySubsystem* Authority,
@@ -274,12 +283,7 @@ Fdemo_mapShanmenThrownWeaponInputAdapter::RouteTypedHotbarInput(
 		return Result;
 	}
 
-	const FVector Origin = SourceActor->GetActorLocation()
-		+ FVector(
-			0.0,
-			0.0,
-			Fdemo_mapShanmenThrownWeaponInputAdapter::
-				GetLaunchOriginHeight());
+	const FVector Origin = MakeLaunchOrigin(SourceActor->GetActorTransform());
 	FVector PrimaryGeometry = FVector::ZeroVector;
 	double ApexClearance = 0.0;
 	if (TrajectoryKind

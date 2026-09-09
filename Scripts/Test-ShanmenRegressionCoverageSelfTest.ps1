@@ -196,6 +196,18 @@ try
     $ThrownWeaponRunHost = New-AutomationLogFixture `
         -Name 'thrown-weapon-run-host.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponRunHost'
+    $ThrownArcSourceBasis = New-AutomationLogFixture `
+        -Name 'thrown-arc-source-basis.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcSourceBasisAdapter'
+    $ThrownArcChoiceInputComposition = New-AutomationLogFixture `
+        -Name 'thrown-arc-choice-input-composition.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponArcChoiceInputComposition'
+    $ThrownInputChoice = New-AutomationLogFixture `
+        -Name 'thrown-input-choice.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponInputChoice'
+    $ThrownInputAdapter = New-AutomationLogFixture `
+        -Name 'thrown-input-adapter.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponInputAdapter'
     $ThrownWeaponMainHUDCombatHintLayoutPolicy = New-AutomationLogFixture `
         -Name 'thrown-weapon-main-hud-combat-hint-layout-policy.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponMainHUDCombatHintLayoutPolicy'
@@ -3001,11 +3013,16 @@ try
 		-Logs @($Full)
 
     Invoke-ExpectedPass `
-		-Name 'thrown weapon Arc source basis maps lazy composition and broad evidence' `
+		-Name 'thrown weapon Arc source basis maps exact product geometry evidence' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcSourceBasisAdapter.cpp',
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcSourceBasisAdapterTests.cpp') `
-		-Logs @($Full)
+		-Logs @(
+			$ThrownArcSourceBasis,
+			$ThrownArcChoiceInputComposition,
+			$ThrownArcChoiceProjection,
+			$ThrownInputChoice,
+			$ThrownInputAdapter)
 
     Invoke-ExpectedPass `
 		-Name 'thrown weapon Arc choice composition maps projection input and broad evidence' `
