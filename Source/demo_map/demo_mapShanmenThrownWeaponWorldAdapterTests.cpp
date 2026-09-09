@@ -4,7 +4,6 @@
 #include "demo_mapShanmenThrownWeaponRunHost.h"
 
 #include "Components/BoxComponent.h"
-#include "Components/SphereComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
 #include "Engine/HitResult.h"
@@ -156,6 +155,91 @@ namespace
 		}
 
 		bool IsValid() const { return World && Source; }
+	};
+
+	struct FThrownCollisionWorldFixture
+	{
+		UWorld* World = nullptr;
+		APawn* Source = nullptr;
+		AActor* Blocker = nullptr;
+		UBoxComponent* BlockerRoot = nullptr;
+
+		FThrownCollisionWorldFixture()
+		{
+			if (!GEngine)
+			{
+				return;
+			}
+			World = NewObject<UWorld>(
+				GetTransientPackage(), NAME_None, RF_Transient);
+			if (!World)
+			{
+				return;
+			}
+			World->WorldType = EWorldType::GamePreview;
+			FWorldContext& Context =
+				GEngine->CreateNewWorldContext(EWorldType::GamePreview);
+			Context.SetCurrentWorld(World);
+			World->InitializeNewWorld(
+				UWorld::InitializationValues()
+					.InitializeScenes(true)
+					.AllowAudioPlayback(false)
+					.RequiresHitProxies(false)
+					.CreatePhysicsScene(true)
+					.CreateNavigation(false)
+					.CreateAISystem(false)
+					.ShouldSimulatePhysics(false)
+					.EnableTraceCollision(true)
+					.SetTransactional(false)
+					.CreateFXSystem(false));
+
+			FActorSpawnParameters Parameters;
+			Parameters.ObjectFlags |= RF_Transient;
+			Parameters.SpawnCollisionHandlingOverride =
+				ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			Source = World->SpawnActor<APawn>(
+				APawn::StaticClass(),
+				FTransform(FVector(-1000.0f, 0.0f, 100.0f)),
+				Parameters);
+			Blocker = World->SpawnActor<AActor>(
+				AActor::StaticClass(),
+				FTransform(FVector(8.0f, 100.0f, 100.0f)),
+				Parameters);
+			BlockerRoot = Blocker
+				? NewObject<UBoxComponent>(
+					Blocker, TEXT("P221NarrowBlocker"), RF_Transient)
+				: nullptr;
+			if (!Source || !Blocker || !BlockerRoot)
+			{
+				return;
+			}
+			Blocker->SetRootComponent(BlockerRoot);
+			Blocker->AddInstanceComponent(BlockerRoot);
+			BlockerRoot->InitBoxExtent(FVector(1.0f, 2.0f, 10.0f));
+			BlockerRoot->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+			BlockerRoot->SetCollisionObjectType(ECC_WorldStatic);
+			BlockerRoot->SetCollisionResponseToAllChannels(ECR_Block);
+			BlockerRoot->RegisterComponent();
+			World->UpdateWorldComponents(true, false);
+			World->InitializeActorsForPlay(FURL());
+		}
+
+		~FThrownCollisionWorldFixture()
+		{
+			if (World)
+			{
+				World->DestroyWorld(false);
+				if (GEngine)
+				{
+					GEngine->DestroyWorldContext(World);
+				}
+			}
+		}
+
+		bool IsValid() const
+		{
+			return World && Source && Blocker && BlockerRoot;
+		}
 	};
 
 	FShanmenContentStamp MakeContent()
@@ -582,6 +666,165 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 		Projectile->GetMovementComponent()->ProjectileGravityScale == 0.0f
 			&& !Projectile->GetMovementComponent()->bShouldBounce
 			&& !Projectile->GetMovementComponent()->bIsHomingProjectile);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponCollisionProfileSweepTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponWorldDelivery.CollisionProfileSweep",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponCollisionProfileSweepTest::RunTest(const FString&)
+{
+	FThrownWorldFixture IdentityFixture;
+	FThrownCollisionWorldFixture WorldFixture;
+	if (!IdentityFixture.bReady || !WorldFixture.IsValid())
+	{
+		AddError(TEXT("Could not build the P22.1 collision World fixture."));
+		return false;
+	}
+
+	const FVector Origin(0.0f, 0.0f, 100.0f);
+	const Fdemo_mapShanmenThrownWeaponSpawnResult Spawned =
+		Fdemo_mapShanmenThrownWeaponRunHost::SpawnStagedCarrier(
+			WorldFixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			WorldFixture.Source,
+			Origin);
+	Ademo_mapShanmenThrownWeaponProjectile* Projectile =
+		Spawned.Projectile.Get();
+	if (!Spawned.IsSpawned() || !Projectile)
+	{
+		AddError(TEXT("Could not spawn the P22.1 collision carrier."));
+		return false;
+	}
+
+	FShanmenActionOrchestrator Runtime;
+	FShanmenThrownWeaponExecution Execution;
+	FShanmenCombatActionSnapshot Action;
+	StartAction(
+		IdentityFixture.Coordinator, Runtime, Execution, Action);
+	const Fdemo_mapShanmenThrownWeaponLaunchResult Staged =
+		Fdemo_mapShanmenThrownWeaponWorldAdapter::StagePreparedLaunch(
+			MakeCorrelation(),
+			MakePrepared(Action),
+			Runtime,
+			Execution,
+			*Projectile,
+			WorldFixture.Source,
+			Origin,
+			FVector::RightVector);
+	const bool bPublished = Staged.IsStaged()
+		&& Fdemo_mapShanmenThrownWeaponWorldAdapter::PublishCommittedLaunch(
+			Runtime,
+			Staged.Plan,
+			MakeCommitted(Staged.Plan),
+			Execution,
+			*Projectile);
+	UBoxComponent* Collision = Projectile->GetCollisionComponent();
+	if (!bPublished || !Collision)
+	{
+		AddError(TEXT("Could not publish the P22.1 collision carrier."));
+		return false;
+	}
+
+	TestTrue(TEXT("The contact profile matches the visible knife dimensions"),
+		Collision->GetUnscaledBoxExtent().Equals(
+			FVector(15.0f, 2.25f, 0.6f), KINDA_SMALL_NUMBER)
+			&& Projectile->GetActorForwardVector().Equals(
+				FVector::RightVector, KINDA_SMALL_NUMBER));
+	int32 ContactCount = 0;
+	AActor* ContactActor = nullptr;
+	Projectile->OnContact().AddLambda(
+		[&ContactCount, &ContactActor](
+			Ademo_mapShanmenThrownWeaponProjectile&,
+			const FHitResult& Hit)
+		{
+			++ContactCount;
+			ContactActor = Hit.GetActor();
+		});
+	TestTrue(TEXT("Projectile stop owns the production contact handler"),
+		Projectile->GetMovementComponent()->OnProjectileStop.IsBound());
+	const TArray<UObject*> StopBindingObjects =
+		Projectile->GetMovementComponent()->OnProjectileStop.GetAllObjects();
+	TestTrue(TEXT("The live carrier owns the projectile stop binding"),
+		StopBindingObjects.Contains(Projectile));
+	TestTrue(TEXT("The test observer is bound to the native contact seam"),
+		Projectile->OnContact().IsBound());
+
+	FHitResult SideOffsetSweep;
+	Collision->MoveComponent(
+		FVector(0.0f, 200.0f, 0.0f),
+		Projectile->GetActorQuat(),
+		true,
+		&SideOffsetSweep,
+		MOVECOMP_NoFlags,
+		ETeleportType::None);
+	TestTrue(TEXT("A narrow blocker outside the visible width does not hit"),
+		!SideOffsetSweep.bBlockingHit
+			&& ContactCount == 0
+			&& Projectile->GetActorLocation().Equals(
+				Origin + FVector(0.0f, 200.0f, 0.0f), 0.01f));
+
+	const bool bResetForAlignedSweep =
+		Projectile->SetActorLocationAndRotation(
+		Origin,
+		FVector::RightVector.Rotation(),
+		false,
+		nullptr,
+		ETeleportType::TeleportPhysics);
+	WorldFixture.Blocker->SetActorLocation(
+		FVector(0.0f, 100.0f, 100.0f),
+		false,
+		nullptr,
+		ETeleportType::TeleportPhysics);
+	WorldFixture.World->UpdateWorldComponents(true, false);
+
+	FHitResult AlignedSweep;
+	Collision->MoveComponent(
+		FVector(0.0f, 200.0f, 0.0f),
+		Projectile->GetActorQuat(),
+		true,
+		&AlignedSweep,
+		MOVECOMP_NoFlags,
+		ETeleportType::None);
+	TestTrue(TEXT("The aligned knife nose produces one real blocking sweep"),
+		bResetForAlignedSweep
+			&& AlignedSweep.bBlockingHit
+			&& AlignedSweep.GetActor() == WorldFixture.Blocker
+			&& AlignedSweep.GetComponent() == WorldFixture.BlockerRoot
+			&& AlignedSweep.Time > 0.0f
+			&& AlignedSweep.Time < 1.0f);
+	const bool bResetForMovement = Projectile->SetActorLocationAndRotation(
+		Origin,
+		FVector::RightVector.Rotation(),
+		false,
+		nullptr,
+		ETeleportType::TeleportPhysics);
+	ContactCount = 0;
+	ContactActor = nullptr;
+	Projectile->GetMovementComponent()->Velocity =
+		FVector::RightVector * 750.0f;
+	Projectile->GetMovementComponent()->Activate(true);
+	TestTrue(TEXT("The movement proof resets the carrier before its frame"),
+		bResetForMovement
+			&& Projectile->GetActorLocation().Equals(Origin, 0.01f)
+			&& Projectile->GetProjectileState()
+				== Edemo_mapShanmenThrownWeaponProjectileState::InFlight
+			&& Projectile->GetMovementComponent()->UpdatedComponent
+				== Collision);
+	Projectile->GetMovementComponent()->TickComponent(
+		0.2f, LEVELTICK_All, nullptr);
+	TestEqual(TEXT("Canonical projectile movement emits one contact"),
+		ContactCount, 1);
+	TestTrue(TEXT("Canonical movement identifies the aligned blocker"),
+		ContactActor == WorldFixture.Blocker);
+	TestTrue(TEXT("Canonical movement stops at the aligned knife nose"),
+		Projectile->GetActorLocation().Y > Origin.Y
+			&& Projectile->GetActorLocation().Y <
+				WorldFixture.Blocker->GetActorLocation().Y
+			&& Projectile->GetMovementComponent()->UpdatedComponent
+				== nullptr);
 	return true;
 }
 

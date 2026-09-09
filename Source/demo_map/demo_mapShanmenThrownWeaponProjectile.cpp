@@ -1,6 +1,6 @@
 #include "demo_mapShanmenThrownWeaponProjectile.h"
 
-#include "Components/SphereComponent.h"
+#include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/HitResult.h"
 #include "Engine/World.h"
@@ -9,6 +9,10 @@
 
 namespace
 {
+	/** Engine Cube prototype dimensions in Unreal centimetres. */
+	const FVector ThrownWeaponPrototypeFullSize(30.0f, 4.5f, 1.2f);
+	constexpr float EngineCubeSideLength = 100.0f;
+
 	bool ActionsMatch(
 		const FShanmenCombatActionSnapshot& Left,
 		const FShanmenCombatActionSnapshot& Right)
@@ -136,10 +140,10 @@ Ademo_mapShanmenThrownWeaponProjectile()
 {
 	PrimaryActorTick.bCanEverTick = false;
 
-	Collision = CreateDefaultSubobject<USphereComponent>(
+	Collision = CreateDefaultSubobject<UBoxComponent>(
 		TEXT("ThrownWeaponCollision"));
 	SetRootComponent(Collision);
-	Collision->InitSphereRadius(12.0f);
+	Collision->InitBoxExtent(ThrownWeaponPrototypeFullSize * 0.5f);
 	Collision->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Collision->SetCollisionObjectType(ECC_WorldDynamic);
 	Collision->SetCollisionResponseToAllChannels(ECR_Ignore);
@@ -147,16 +151,14 @@ Ademo_mapShanmenThrownWeaponProjectile()
 	Collision->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
 	Collision->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
 	Collision->SetGenerateOverlapEvents(false);
-	Collision->SetNotifyRigidBodyCollision(true);
-	Collision->OnComponentHit.AddDynamic(
-		this, &Ademo_mapShanmenThrownWeaponProjectile::HandleHit);
 
 	Visual = CreateDefaultSubobject<UStaticMeshComponent>(
 		TEXT("ThrownWeaponVisual"));
 	Visual->SetupAttachment(Collision);
 	Visual->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Visual->SetGenerateOverlapEvents(false);
-	Visual->SetRelativeScale3D(FVector(0.30f, 0.045f, 0.012f));
+	Visual->SetRelativeScale3D(
+		ThrownWeaponPrototypeFullSize / EngineCubeSideLength);
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeMesh(
 		TEXT("/Engine/BasicShapes/Cube.Cube"));
 	if (CubeMesh.Succeeded())
@@ -173,6 +175,15 @@ Ademo_mapShanmenThrownWeaponProjectile()
 	Movement->bIsHomingProjectile = false;
 	Movement->bRotationFollowsVelocity = true;
 	Movement->bAutoActivate = false;
+}
+
+void Ademo_mapShanmenThrownWeaponProjectile::PostInitializeComponents()
+{
+	Super::PostInitializeComponents();
+	check(Movement);
+	Movement->OnProjectileStop.AddUniqueDynamic(
+		this,
+		&Ademo_mapShanmenThrownWeaponProjectile::HandleProjectileStop);
 }
 
 bool Ademo_mapShanmenThrownWeaponProjectile::IsPresentationVisible() const
@@ -350,13 +361,10 @@ void Ademo_mapShanmenThrownWeaponProjectile::LifeSpanExpired()
 	}
 }
 
-void Ademo_mapShanmenThrownWeaponProjectile::HandleHit(
-	UPrimitiveComponent*,
-	AActor* OtherActor,
-	UPrimitiveComponent*,
-	FVector,
+void Ademo_mapShanmenThrownWeaponProjectile::HandleProjectileStop(
 	const FHitResult& Hit)
 {
+	AActor* OtherActor = Hit.GetActor();
 	if (State != Edemo_mapShanmenThrownWeaponProjectileState::InFlight
 		|| !IsValid(OtherActor)
 		|| OtherActor == this

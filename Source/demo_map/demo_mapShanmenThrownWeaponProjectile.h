@@ -7,9 +7,8 @@
 
 #include "demo_mapShanmenThrownWeaponProjectile.generated.h"
 
-class UPrimitiveComponent;
 class UProjectileMovementComponent;
-class USphereComponent;
+class UBoxComponent;
 class UStaticMeshComponent;
 struct FHitResult;
 struct Fdemo_mapShanmenThrownWeaponWorldAdapter;
@@ -76,7 +75,7 @@ public:
 	{
 		return HitContext;
 	}
-	USphereComponent* GetCollisionComponent() const { return Collision; }
+	UBoxComponent* GetCollisionComponent() const { return Collision; }
 	UProjectileMovementComponent* GetMovementComponent() const
 	{
 		return Movement;
@@ -92,6 +91,7 @@ public:
 	}
 
 protected:
+	virtual void PostInitializeComponents() override;
 	virtual void LifeSpanExpired() override;
 
 private:
@@ -102,15 +102,10 @@ private:
 	bool MarkSpent();
 
 	UFUNCTION()
-	void HandleHit(
-		UPrimitiveComponent* HitComponent,
-		AActor* OtherActor,
-		UPrimitiveComponent* OtherComponent,
-		FVector NormalImpulse,
-		const FHitResult& Hit);
+	void HandleProjectileStop(const FHitResult& Hit);
 
 	UPROPERTY(VisibleAnywhere)
-	TObjectPtr<USphereComponent> Collision;
+	TObjectPtr<UBoxComponent> Collision;
 
 	UPROPERTY(VisibleAnywhere)
 	TObjectPtr<UProjectileMovementComponent> Movement;
