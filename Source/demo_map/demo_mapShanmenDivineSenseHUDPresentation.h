@@ -113,3 +113,41 @@ private:
 		Edemo_mapShanmenDivineSenseHUDFeedbackTone::Invalid;
 	FString DisplayText;
 };
+
+/**
+ * Pure tactical summary for one accepted Divine Sense scan receipt.
+ *
+ * The caller derives counts and nearest distance from the authoritative
+ * receipt. This projection only validates and formats those frozen values for
+ * the existing main HUD; it owns no scan, resource, World or timing state.
+ */
+class Fdemo_mapShanmenDivineSenseHUDTacticalSummary
+{
+public:
+	static bool TryProject(
+		int32 ContactCount,
+		int32 OccludedContactCount,
+		double NearestDistanceMeters,
+		float CurrentSpirit,
+		float MaximumSpirit,
+		Fdemo_mapShanmenDivineSenseHUDTacticalSummary& OutSummary);
+
+	bool IsValid() const;
+	bool Matches(
+		const Fdemo_mapShanmenDivineSenseHUDTacticalSummary& Other) const;
+	bool IsAreaClear() const { return IsValid() && ContactCount == 0; }
+	int32 GetContactCount() const { return ContactCount; }
+	int32 GetOccludedContactCount() const { return OccludedContactCount; }
+	double GetNearestDistanceMeters() const { return NearestDistanceMeters; }
+	const FString& GetPrimaryText() const { return PrimaryText; }
+	const FString& GetSecondaryText() const { return SecondaryText; }
+
+private:
+	int32 ContactCount = -1;
+	int32 OccludedContactCount = -1;
+	double NearestDistanceMeters = -1.0;
+	float CurrentSpirit = -1.0f;
+	float MaximumSpirit = -1.0f;
+	FString PrimaryText;
+	FString SecondaryText;
+};

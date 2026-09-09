@@ -12,6 +12,8 @@ namespace
 	using FPlan = Fdemo_mapShanmenDivineSenseHUDMarkerPlan;
 	using FFeedback =
 		Fdemo_mapShanmenDivineSenseHUDFeedbackPresentation;
+	using FTacticalSummary =
+		Fdemo_mapShanmenDivineSenseHUDTacticalSummary;
 
 	constexpr double MinimumCanvasWidth = 320.0;
 	constexpr double MinimumCanvasHeight = 240.0;
@@ -287,4 +289,97 @@ bool FFeedback::Matches(const FFeedback& Other) const
 		&& Reason == Other.Reason
 		&& Tone == Other.Tone
 		&& DisplayText == Other.DisplayText;
+}
+
+bool FTacticalSummary::TryProject(
+	const int32 InContactCount,
+	const int32 InOccludedContactCount,
+	const double InNearestDistanceMeters,
+	const float InCurrentSpirit,
+	const float InMaximumSpirit,
+	FTacticalSummary& OutSummary)
+{
+	OutSummary = FTacticalSummary();
+	if (InContactCount < 0
+		|| InOccludedContactCount < 0
+		|| InOccludedContactCount > InContactCount
+		|| !FMath::IsFinite(InNearestDistanceMeters)
+		|| InNearestDistanceMeters < 0.0
+		|| (InContactCount == 0
+			&& !FMath::IsNearlyZero(InNearestDistanceMeters))
+		|| !FMath::IsFinite(InCurrentSpirit)
+		|| !FMath::IsFinite(InMaximumSpirit)
+		|| InMaximumSpirit <= 0.0f
+		|| InCurrentSpirit < 0.0f
+		|| InCurrentSpirit > InMaximumSpirit)
+	{
+		return false;
+	}
+
+	FTacticalSummary Candidate;
+	Candidate.ContactCount = InContactCount;
+	Candidate.OccludedContactCount = InOccludedContactCount;
+	Candidate.NearestDistanceMeters = InNearestDistanceMeters;
+	Candidate.CurrentSpirit = InCurrentSpirit;
+	Candidate.MaximumSpirit = InMaximumSpirit;
+	if (InContactCount == 0)
+	{
+		Candidate.PrimaryText = TEXT("DIVINE SENSE · AREA CLEAR");
+		Candidate.SecondaryText = FString::Printf(
+			TEXT("SPIRIT %.0f / %.0f"),
+			InCurrentSpirit,
+			InMaximumSpirit);
+	}
+	else
+	{
+		Candidate.PrimaryText = InContactCount == 1
+			? FString::Printf(
+				TEXT("DIVINE SENSE · 1 CONTACT · %d OCCLUDED"),
+				InOccludedContactCount)
+			: FString::Printf(
+				TEXT("DIVINE SENSE · %d CONTACTS · %d OCCLUDED"),
+				InContactCount,
+				InOccludedContactCount);
+		Candidate.SecondaryText = FString::Printf(
+			TEXT("NEAREST %.1fm · SPIRIT %.0f / %.0f"),
+			InNearestDistanceMeters,
+			InCurrentSpirit,
+			InMaximumSpirit);
+	}
+
+	if (!Candidate.IsValid())
+	{
+		return false;
+	}
+	OutSummary = MoveTemp(Candidate);
+	return true;
+}
+
+bool FTacticalSummary::IsValid() const
+{
+	return ContactCount >= 0
+		&& OccludedContactCount >= 0
+		&& OccludedContactCount <= ContactCount
+		&& FMath::IsFinite(NearestDistanceMeters)
+		&& NearestDistanceMeters >= 0.0
+		&& (ContactCount > 0 || FMath::IsNearlyZero(NearestDistanceMeters))
+		&& FMath::IsFinite(CurrentSpirit)
+		&& FMath::IsFinite(MaximumSpirit)
+		&& MaximumSpirit > 0.0f
+		&& CurrentSpirit >= 0.0f
+		&& CurrentSpirit <= MaximumSpirit
+		&& !PrimaryText.IsEmpty()
+		&& !SecondaryText.IsEmpty();
+}
+
+bool FTacticalSummary::Matches(const FTacticalSummary& Other) const
+{
+	return IsValid() && Other.IsValid()
+		&& ContactCount == Other.ContactCount
+		&& OccludedContactCount == Other.OccludedContactCount
+		&& NearestDistanceMeters == Other.NearestDistanceMeters
+		&& CurrentSpirit == Other.CurrentSpirit
+		&& MaximumSpirit == Other.MaximumSpirit
+		&& PrimaryText == Other.PrimaryText
+		&& SecondaryText == Other.SecondaryText;
 }

@@ -327,23 +327,46 @@ namespace
 			return;
 		}
 
-		const FVector2D PanelPosition(Canvas->SizeX * 0.5f - 190.0f, 58.0f);
+		int32 OccludedContactCount = 0;
+		for (const FShanmenDivineSenseReveal& Reveal : Receipt.GetReveals())
+		{
+			OccludedContactCount += Reveal.WasOccluded() ? 1 : 0;
+		}
+		const double NearestDistanceMeters = Receipt.GetReveals().IsEmpty()
+			? 0.0
+			: FMath::Sqrt(Receipt.GetReveals()[0].GetDistanceSquared()) / 100.0;
+		Fdemo_mapShanmenDivineSenseHUDTacticalSummary TacticalSummary;
+		if (!Fdemo_mapShanmenDivineSenseHUDTacticalSummary::TryProject(
+				Receipt.NumReveals(),
+				OccludedContactCount,
+				NearestDistanceMeters,
+				GameMode->GetDivineSenseSpiritEnergy(),
+				GameMode->GetDivineSenseMaximumSpiritEnergy(),
+				TacticalSummary))
+		{
+			return;
+		}
+
+		const FVector2D PanelPosition(Canvas->SizeX * 0.5f - 260.0f, 58.0f);
 		DrawHUDPanel(
 			Canvas,
 			PanelPosition,
-			FVector2D(380.0f, 36.0f),
+			FVector2D(520.0f, 54.0f),
 			FLinearColor(0.02f, 0.13f, 0.17f, 0.92f));
 		DrawReadableText(
 			Canvas,
 			GEngine->GetSmallFont(),
-			FString::Printf(
-				TEXT("DIVINE SENSE · %d TARGETS · SPIRIT %.0f / %.0f"),
-				Receipt.NumReveals(),
-				GameMode->GetDivineSenseSpiritEnergy(),
-				GameMode->GetDivineSenseMaximumSpiritEnergy()),
-			PanelPosition + FVector2D(10.0f, 9.0f),
+			TacticalSummary.GetPrimaryText(),
+			PanelPosition + FVector2D(10.0f, 7.0f),
 			FLinearColor(0.25f, 0.94f, 1.0f),
 			0.86f);
+		DrawReadableText(
+			Canvas,
+			GEngine->GetSmallFont(),
+			TacticalSummary.GetSecondaryText(),
+			PanelPosition + FVector2D(10.0f, 29.0f),
+			FLinearColor(0.58f, 0.88f, 0.94f),
+			0.76f);
 	}
 
 	FLinearColor GetThrownWeaponCombatHintColor(

@@ -16,6 +16,8 @@ namespace
 	using FPlan = Fdemo_mapShanmenDivineSenseHUDMarkerPlan;
 	using FFeedback =
 		Fdemo_mapShanmenDivineSenseHUDFeedbackPresentation;
+	using FTacticalSummary =
+		Fdemo_mapShanmenDivineSenseHUDTacticalSummary;
 
 	constexpr EAutomationTestFlags PresentationFlags =
 		EAutomationTestFlags::EditorContext
@@ -190,6 +192,88 @@ bool Fdemo_mapDivineSenseHUDUnavailableFeedbackTest::RunTest(
 		FFeedback::TryProject(Invalid, TEXT("V"), Presentation));
 	TestFalse(TEXT("failed projection clears reusable output"),
 		Presentation.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapDivineSenseHUDTacticalContactsTest,
+	"Shanmen.0_0_10.Product.DivineSenseHUDPresentation.TacticalContacts",
+	PresentationFlags)
+
+bool Fdemo_mapDivineSenseHUDTacticalContactsTest::RunTest(const FString&)
+{
+	FTacticalSummary Summary;
+	FTacticalSummary Replay;
+	TestTrue(TEXT("accepted scan values produce a tactical contact summary"),
+		FTacticalSummary::TryProject(3, 2, 14.26, 70.0f, 100.0f, Summary)
+			&& FTacticalSummary::TryProject(
+				3, 2, 14.26, 70.0f, 100.0f, Replay));
+	TestTrue(TEXT("contact summary exposes hidden count nearest range and spirit"),
+		Summary.IsValid()
+			&& Summary.Matches(Replay)
+			&& !Summary.IsAreaClear()
+			&& Summary.GetContactCount() == 3
+			&& Summary.GetOccludedContactCount() == 2
+			&& FMath::IsNearlyEqual(
+				Summary.GetNearestDistanceMeters(), 14.26)
+			&& Summary.GetPrimaryText()
+				== TEXT("DIVINE SENSE · 3 CONTACTS · 2 OCCLUDED")
+			&& Summary.GetSecondaryText()
+				== TEXT("NEAREST 14.3m · SPIRIT 70 / 100"));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapDivineSenseHUDTacticalAreaClearTest,
+	"Shanmen.0_0_10.Product.DivineSenseHUDPresentation.TacticalAreaClear",
+	PresentationFlags)
+
+bool Fdemo_mapDivineSenseHUDTacticalAreaClearTest::RunTest(const FString&)
+{
+	FTacticalSummary Summary;
+	TestTrue(TEXT("an empty accepted scan explicitly reports a clear area"),
+		FTacticalSummary::TryProject(0, 0, 0.0, 90.0f, 100.0f, Summary));
+	TestTrue(TEXT("area-clear summary retains the authoritative spirit amount"),
+		Summary.IsAreaClear()
+			&& Summary.GetPrimaryText() == TEXT("DIVINE SENSE · AREA CLEAR")
+			&& Summary.GetSecondaryText() == TEXT("SPIRIT 90 / 100"));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapDivineSenseHUDTacticalSummaryFenceTest,
+	"Shanmen.0_0_10.Product.DivineSenseHUDPresentation.TacticalSummaryFences",
+	PresentationFlags)
+
+bool Fdemo_mapDivineSenseHUDTacticalSummaryFenceTest::RunTest(
+	const FString&)
+{
+	FTacticalSummary Reused;
+	check(FTacticalSummary::TryProject(
+		1, 0, 5.0, 90.0f, 100.0f, Reused));
+	TestFalse(TEXT("occluded count cannot exceed total contacts"),
+		FTacticalSummary::TryProject(
+			1, 2, 5.0, 90.0f, 100.0f, Reused));
+	TestFalse(TEXT("failed projection clears reusable tactical output"),
+		Reused.IsValid());
+	TestFalse(TEXT("negative contacts and non-finite range fail closed"),
+		FTacticalSummary::TryProject(
+			-1, 0, 0.0, 90.0f, 100.0f, Reused)
+			|| FTacticalSummary::TryProject(
+				1,
+				0,
+				std::numeric_limits<double>::quiet_NaN(),
+				90.0f,
+				100.0f,
+				Reused));
+	TestFalse(TEXT("an empty scan cannot claim a nearest contact distance"),
+		FTacticalSummary::TryProject(
+			0, 0, 1.0, 90.0f, 100.0f, Reused));
+	TestFalse(TEXT("invalid spirit snapshots fail closed"),
+		FTacticalSummary::TryProject(
+			1, 0, 5.0, 101.0f, 100.0f, Reused)
+			|| FTacticalSummary::TryProject(
+				1, 0, 5.0, 0.0f, 0.0f, Reused));
 	return true;
 }
 
