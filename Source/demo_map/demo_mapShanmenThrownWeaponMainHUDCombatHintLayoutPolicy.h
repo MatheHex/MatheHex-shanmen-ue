@@ -18,7 +18,7 @@ enum class Edemo_mapShanmenThrownWeaponMainHUDCombatHintLayoutMode : uint8
 class Fdemo_mapShanmenThrownWeaponMainHUDCombatHintLayoutPlan
 {
 public:
-	static constexpr int32 MaximumLineCount = 5;
+	static constexpr int32 MaximumLineCount = 6;
 
 	static bool TryPlan(
 		const FVector2D& CanvasSize,

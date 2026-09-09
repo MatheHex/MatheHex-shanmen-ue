@@ -190,6 +190,12 @@ try
     $ThrownWeaponMainHUDCombatHintStackPresentation = New-AutomationLogFixture `
         -Name 'thrown-weapon-main-hud-combat-hint-stack-presentation.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponMainHUDCombatHintStackPresentation'
+    $ThrownWeaponWorldDelivery = New-AutomationLogFixture `
+        -Name 'thrown-weapon-world-delivery.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponWorldDelivery'
+    $ThrownWeaponRunHost = New-AutomationLogFixture `
+        -Name 'thrown-weapon-run-host.log' `
+        -Group 'Shanmen.0_0_10.Product.ThrownWeaponRunHost'
     $ThrownWeaponMainHUDCombatHintLayoutPolicy = New-AutomationLogFixture `
         -Name 'thrown-weapon-main-hud-combat-hint-layout-policy.log' `
         -Group 'Shanmen.0_0_10.Product.ThrownWeaponMainHUDCombatHintLayoutPolicy'
@@ -2770,7 +2776,6 @@ try
 			'Source/demo_map/demo_mapHUD.h',
 			'Source/demo_map/demo_mapHUD.cpp') `
 		-Logs @(
-			$Full,
 			$ControlledWeaponThreatCue,
 			$ControlledWeaponThreatReadoutPresentation,
 			$ThrownWeaponMainHUDCombatHintLayoutPolicy,
@@ -2781,6 +2786,7 @@ try
 			$ThrownWeaponTrajectoryPresentation,
 			$ThrownWeaponArcEditingPresentation,
 			$ThrownWeaponArcEditingInputHintPresentation,
+			$ThrownWeaponInputChoiceInteractionPort,
 			$ThrownWeaponTrajectoryTogglePhysicalInput,
 			$ThrownWeaponArcEditingPhysicalInput,
 			$InputRestore,
@@ -2841,6 +2847,18 @@ try
 			$Ranged)
 
 	Invoke-ExpectedPass `
+		-Name 'thrown weapon terminal feedback maps authoritative delivery host HUD stack and compatibility evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponTerminalFeedbackPresentation.h',
+			'Source/demo_map/demo_mapShanmenThrownWeaponTerminalFeedbackPresentation.cpp') `
+		-Logs @(
+			$ThrownWeaponWorldDelivery,
+			$ThrownWeaponRunHost,
+			$ThrownWeaponMainHUDCombatHintStackPresentation,
+			$InputRestore,
+			$Ranged)
+
+	Invoke-ExpectedPass `
 		-Name 'thrown weapon MainHUD combat hint stack maps every source presentation and compatibility seam' `
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponMainHUDCombatHintStackPresentation.h',
@@ -2852,7 +2870,6 @@ try
 			$ThrownWeaponTrajectoryPresentation,
 			$ThrownWeaponArcEditingPresentation,
 			$ThrownWeaponArcEditingInputHintPresentation,
-			$Full,
 			$InputRestore,
 			$Ranged)
 
@@ -2865,7 +2882,6 @@ try
 		-Logs @(
 			$ThrownWeaponMainHUDCombatHintLayoutPolicy,
 			$ThrownWeaponMainHUDCombatHintStackPresentation,
-			$Full,
 			$InputRestore,
 			$Ranged)
 
@@ -5749,6 +5765,13 @@ try
 		-Paths @(
 			'Source/demo_map/demo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation.cpp') `
 		-Logs @($ThrownArcPreLaunchGestureFeedbackPresentation) `
+		-ExpectedText 'missing required groups'
+
+	Invoke-ExpectedFail `
+		-Name 'thrown weapon terminal feedback focus cannot replace delivery host HUD and compatibility evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenThrownWeaponTerminalFeedbackPresentation.cpp') `
+		-Logs @($ThrownWeaponWorldDelivery) `
 		-ExpectedText 'missing required groups'
 
 	Invoke-ExpectedFail `

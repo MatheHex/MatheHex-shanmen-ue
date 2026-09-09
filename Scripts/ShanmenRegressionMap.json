@@ -3267,7 +3267,6 @@
 		"Shanmen.0_0_10.Product.ThrownWeaponInputChoiceInteractionPort",
 		"Shanmen.0_0_10.Product.ThrownWeaponTrajectoryTogglePhysicalInput",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcEditingPhysicalInput",
-		"Shanmen.0_0_10",
 		"demo_map.InputRestore",
 		"demo_map.V2RangedCompatibility"
 	  ]
@@ -3338,6 +3337,17 @@
 	  ]
 	},
 	{
+	  "name": "ThrownWeaponTerminalFeedbackPresentation",
+	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponTerminalFeedbackPresentation(?:Tests)?\\.(?:h|cpp)$",
+	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponWorldDelivery",
+		"Shanmen.0_0_10.Product.ThrownWeaponRunHost",
+		"Shanmen.0_0_10.Product.ThrownWeaponMainHUDCombatHintStackPresentation",
+		"demo_map.InputRestore",
+		"demo_map.V2RangedCompatibility"
+	  ]
+	},
+	{
 	  "name": "ThrownWeaponMainHUDCombatHintStackPresentation",
 	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponMainHUDCombatHintStackPresentation(?:Tests)?\\.(?:h|cpp)$",
 	  "requiredGroups": [
@@ -3346,7 +3356,6 @@
 		"Shanmen.0_0_10.Product.ThrownWeaponTrajectoryPresentation",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcEditingPresentation",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcEditingInputHintPresentation",
-		"Shanmen.0_0_10",
 		"demo_map.InputRestore",
 		"demo_map.V2RangedCompatibility"
 	  ]
@@ -3357,7 +3366,6 @@
 	  "requiredGroups": [
 		"Shanmen.0_0_10.Product.ThrownWeaponMainHUDCombatHintLayoutPolicy",
 		"Shanmen.0_0_10.Product.ThrownWeaponMainHUDCombatHintStackPresentation",
-		"Shanmen.0_0_10",
 		"demo_map.InputRestore",
 		"demo_map.V2RangedCompatibility"
 	  ]

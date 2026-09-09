@@ -22,6 +22,7 @@
 #include "demo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation.h"
 #include "demo_mapShanmenThrownWeaponMainHUDCombatHintLayoutPolicy.h"
 #include "demo_mapShanmenThrownWeaponMainHUDCombatHintStackPresentation.h"
+#include "demo_mapShanmenThrownWeaponTerminalFeedbackPresentation.h"
 #include "demo_mapShanmenThrownWeaponTrajectoryPresentation.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
@@ -194,6 +195,18 @@ namespace
 			return FLinearColor(0.58f, 0.92f, 1.0f);
 		case ETone::ReadyToConfirm:
 			return FLinearColor(0.35f, 1.0f, 0.48f);
+		case ETone::Impact:
+			return FLinearColor(0.36f, 1.0f, 0.52f);
+		case ETone::Defeat:
+			return FLinearColor(1.0f, 0.50f, 0.12f);
+		case ETone::NoDamage:
+			return FLinearColor(0.72f, 0.76f, 0.82f);
+		case ETone::Blocked:
+			return FLinearColor(1.0f, 0.76f, 0.28f);
+		case ETone::Expired:
+			return FLinearColor(0.68f, 0.76f, 0.86f);
+		case ETone::Interrupted:
+			return FLinearColor(0.90f, 0.52f, 0.42f);
 		default:
 			return FLinearColor::White;
 		}
@@ -217,6 +230,13 @@ namespace
 		case ETone::TargetRequired:
 		case ETone::ReadyToConfirm:
 			return 0.76f;
+		case ETone::Impact:
+		case ETone::Defeat:
+		case ETone::NoDamage:
+		case ETone::Blocked:
+		case ETone::Expired:
+		case ETone::Interrupted:
+			return 0.82f;
 		default:
 			return 1.0f;
 		}
@@ -442,12 +462,22 @@ void Ademo_mapHUD::DrawHUD()
 		}
 		Fdemo_mapShanmenThrownWeaponMainHUDCombatHintStackPresentation Stack;
 		Fdemo_mapShanmenThrownWeaponMainHUDCombatHintLayoutPlan Layout;
+		Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation
+			TerminalFeedback;
+		if (ActiveMode)
+		{
+			Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation::TryProject(
+				ActiveMode->GetThrownWeaponProductLifecycle().
+					GetTerminalReceipt(),
+				TerminalFeedback);
+		}
 		if (Fdemo_mapShanmenThrownWeaponMainHUDCombatHintStackPresentation::
 			TryCompose(
 				Presentation,
 				ArcPresentation,
 				ArcInputHintPresentation,
 				Feedback,
+				TerminalFeedback,
 				Stack)
 			&& Fdemo_mapShanmenThrownWeaponMainHUDCombatHintLayoutPlan::TryPlan(
 				FVector2D(Canvas->SizeX, Canvas->SizeY),

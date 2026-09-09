@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS && !UE_BUILD_SHIPPING
 
 #include "demo_mapShanmenThrownWeaponRunCommandRouter.h"
+#include "demo_mapShanmenThrownWeaponTerminalFeedbackPresentation.h"
 
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
@@ -1045,6 +1046,15 @@ bool Fdemo_mapThrownWeaponArcRunHostLifecycleTest::RunTest(const FString&)
 				== EShanmenActionTerminalReason::Completed
 			&& Projectile->GetProjectileState()
 				== Edemo_mapShanmenThrownWeaponProjectileState::Spent);
+	Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation ExpiredFeedback;
+	TestTrue(TEXT("Arc flight-time expiry projects a distinct miss message"),
+		Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation::TryProject(
+			Host.GetTerminalReceipt(), ExpiredFeedback)
+			&& ExpiredFeedback.GetKind()
+				== Edemo_mapShanmenThrownWeaponTerminalFeedbackKind::
+					FlightTimeExpired
+			&& ExpiredFeedback.GetAppliedDamage() == 0.0f
+			&& ExpiredFeedback.GetDisplayText() == TEXT("飞刀 · 落空"));
 	TestFalse(TEXT("Terminal Arc expiry cannot execute twice"),
 		Host.TryExpireFlightTime());
 	return true;

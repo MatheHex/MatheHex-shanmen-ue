@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "demo_mapShanmenThrownWeaponArcEditingInputHintPresentation.h"
 #include "demo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation.h"
+#include "demo_mapShanmenThrownWeaponTerminalFeedbackPresentation.h"
 #include "demo_mapShanmenThrownWeaponTrajectoryPresentation.h"
 
 enum class Edemo_mapShanmenThrownWeaponMainHUDCombatHintStackMode : uint8
@@ -19,7 +20,8 @@ enum class Edemo_mapShanmenThrownWeaponMainHUDCombatHintKind : uint8
 	ArcApex,
 	ArcTarget,
 	ArcInput,
-	ArcPreLaunchGesture
+	ArcPreLaunchGesture,
+	TerminalFeedback
 };
 
 enum class Edemo_mapShanmenThrownWeaponMainHUDCombatHintTone : uint8
@@ -31,7 +33,13 @@ enum class Edemo_mapShanmenThrownWeaponMainHUDCombatHintTone : uint8
 	ArcTarget,
 	ArcInput,
 	TargetRequired,
-	ReadyToConfirm
+	ReadyToConfirm,
+	Impact,
+	Defeat,
+	NoDamage,
+	Blocked,
+	Expired,
+	Interrupted
 };
 
 /** One immutable, renderer-neutral line in the MainHUD combat hint stack. */
@@ -78,6 +86,15 @@ public:
 			ArcInput,
 		const Fdemo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation&
 			Gesture,
+		Fdemo_mapShanmenThrownWeaponMainHUDCombatHintStackPresentation& OutStack);
+	static bool TryCompose(
+		const Fdemo_mapShanmenThrownWeaponTrajectoryPresentation& Trajectory,
+		const Fdemo_mapShanmenThrownWeaponArcEditingPresentation& Arc,
+		const Fdemo_mapShanmenThrownWeaponArcEditingInputHintPresentation&
+			ArcInput,
+		const Fdemo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation&
+			Gesture,
+		const Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation& Terminal,
 		Fdemo_mapShanmenThrownWeaponMainHUDCombatHintStackPresentation& OutStack);
 
 	bool IsValid() const;

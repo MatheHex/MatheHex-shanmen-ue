@@ -85,6 +85,11 @@ public:
 	{
 		return Session.GetHostState();
 	}
+	/** Read-only terminal evidence retained after the transient carrier ends. */
+	const Fdemo_mapShanmenThrownWeaponTerminalReceipt& GetTerminalReceipt() const
+	{
+		return Session.GetTerminalReceipt();
+	}
 	const FGuid& GetOccupancyOwnerId() const
 	{
 		return Session.GetOccupancyOwnerId();

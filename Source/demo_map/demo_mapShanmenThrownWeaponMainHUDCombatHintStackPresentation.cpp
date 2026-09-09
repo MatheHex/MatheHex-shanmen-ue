@@ -27,6 +27,8 @@ namespace
 			return 3;
 		case EKind::ArcPreLaunchGesture:
 			return 4;
+		case EKind::TerminalFeedback:
+			return 5;
 		default:
 			return INDEX_NONE;
 		}
@@ -47,8 +49,43 @@ namespace
 		case EKind::ArcPreLaunchGesture:
 			return Tone == ETone::TargetRequired
 				|| Tone == ETone::ReadyToConfirm;
+		case EKind::TerminalFeedback:
+			return Tone == ETone::Impact
+				|| Tone == ETone::Defeat
+				|| Tone == ETone::NoDamage
+				|| Tone == ETone::Blocked
+				|| Tone == ETone::Expired
+				|| Tone == ETone::Interrupted;
 		default:
 			return false;
+		}
+	}
+
+	ETone ProjectTerminalTone(
+		const Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation& Terminal)
+	{
+		using ETerminal =
+			Edemo_mapShanmenThrownWeaponTerminalFeedbackKind;
+		if (!Terminal.IsValid())
+		{
+			return ETone::Invalid;
+		}
+		switch (Terminal.GetKind())
+		{
+		case ETerminal::Impact:
+			return Terminal.GetAppliedDamage() <= 0.0f
+				? ETone::NoDamage
+				: Terminal.DidDefeatTarget()
+					? ETone::Defeat : ETone::Impact;
+		case ETerminal::BlockingMiss:
+			return ETone::Blocked;
+		case ETerminal::RangeExpired:
+		case ETerminal::FlightTimeExpired:
+			return ETone::Expired;
+		case ETerminal::Interrupted:
+			return ETone::Interrupted;
+		default:
+			return ETone::Invalid;
 		}
 	}
 }
@@ -77,11 +114,30 @@ bool FStack::TryCompose(
 		Gesture,
 	FStack& OutStack)
 {
+	return TryCompose(
+		Trajectory,
+		Arc,
+		ArcInput,
+		Gesture,
+		Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation(),
+		OutStack);
+}
+
+bool FStack::TryCompose(
+	const Fdemo_mapShanmenThrownWeaponTrajectoryPresentation& Trajectory,
+	const Fdemo_mapShanmenThrownWeaponArcEditingPresentation& Arc,
+	const Fdemo_mapShanmenThrownWeaponArcEditingInputHintPresentation& ArcInput,
+	const Fdemo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation&
+		Gesture,
+	const Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation& Terminal,
+	FStack& OutStack)
+{
 	OutStack = FStack();
 	const bool bHasTrajectory = Trajectory.IsValid();
 	const bool bHasArc = Arc.IsValid();
 	const bool bHasArcInput = ArcInput.IsValid();
 	const bool bHasGesture = Gesture.IsValid();
+	const bool bHasTerminal = Terminal.IsValid();
 	if ((!bHasTrajectory && !bHasArc)
 		|| (bHasArcInput && !bHasArc)
 		|| (bHasGesture && !bHasArc))
@@ -101,8 +157,20 @@ bool FStack::TryCompose(
 				EKind::TrajectoryMode,
 				ETone::StraightMode,
 				Trajectory.GetDisplayText(),
-				Candidate)
-			|| !Candidate.IsValid())
+				Candidate))
+		{
+			return false;
+		}
+		if (bHasTerminal
+			&& !TryAppendLine(
+				EKind::TerminalFeedback,
+				ProjectTerminalTone(Terminal),
+				Terminal.GetDisplayText(),
+				Candidate))
+		{
+			return false;
+		}
+		if (!Candidate.IsValid())
 		{
 			return false;
 		}
@@ -175,6 +243,15 @@ bool FStack::TryCompose(
 			return false;
 		}
 	}
+	if (bHasTerminal
+		&& !TryAppendLine(
+			EKind::TerminalFeedback,
+			ProjectTerminalTone(Terminal),
+			Terminal.GetDisplayText(),
+			Candidate))
+	{
+		return false;
+	}
 	if (!Candidate.IsValid())
 	{
 		return false;
@@ -205,7 +282,7 @@ bool FStack::TryAppendLine(
 bool FStack::IsValid() const
 {
 	if ((Mode != EMode::Straight && Mode != EMode::BallisticArc)
-		|| Lines.IsEmpty() || Lines.Num() > 5)
+		|| Lines.IsEmpty() || Lines.Num() > 6)
 	{
 		return false;
 	}
@@ -215,6 +292,7 @@ bool FStack::IsValid() const
 	bool bHasTarget = false;
 	bool bHasInput = false;
 	bool bHasGesture = false;
+	bool bHasTerminal = false;
 	ETone TrajectoryTone = ETone::Invalid;
 	ETone GestureTone = ETone::Invalid;
 	int32 PreviousRank = INDEX_NONE;
@@ -249,6 +327,9 @@ bool FStack::IsValid() const
 			bHasGesture = true;
 			GestureTone = Line.GetTone();
 			break;
+		case EKind::TerminalFeedback:
+			bHasTerminal = true;
+			break;
 		default:
 			return false;
 		}
@@ -256,7 +337,7 @@ bool FStack::IsValid() const
 
 	if (Mode == EMode::Straight)
 	{
-		return Lines.Num() == 1
+		return Lines.Num() == (bHasTerminal ? 2 : 1)
 			&& bHasTrajectory
 			&& TrajectoryTone == ETone::StraightMode
 			&& !bHasArcPresentation

@@ -1,7 +1,9 @@
 #if WITH_DEV_AUTOMATION_TESTS && !UE_BUILD_SHIPPING
 
 #include "demo_mapShanmenThrownWeaponWorldAdapter.h"
+#include "demo_mapShanmenThrownWeaponMainHUDCombatHintStackPresentation.h"
 #include "demo_mapShanmenThrownWeaponRunHost.h"
+#include "demo_mapShanmenThrownWeaponTerminalFeedbackPresentation.h"
 
 #include "Components/BoxComponent.h"
 #include "Engine/Engine.h"
@@ -157,6 +159,107 @@ namespace
 		bool IsValid() const { return World && Source; }
 	};
 
+	struct FThrownLethalWorldFixture
+	{
+		UWorld* World = nullptr;
+		APawn* Pawn = nullptr;
+		Udemo_mapPlayerHealthComponent* PlayerHealth = nullptr;
+		Ademo_mapEnemyCharacter* Enemy = nullptr;
+		Udemo_mapM01EnemyIdentityComponent* EnemyIdentity = nullptr;
+		Fdemo_mapCombatRunCoordinator Coordinator;
+		FString Diagnostic;
+		bool bReady = false;
+
+		FThrownLethalWorldFixture()
+		{
+			const Fdemo_mapM01EnemyDefinition* Definition =
+				FindMeleeDefinition();
+			if (!GEngine || !Definition)
+			{
+				Diagnostic = TEXT("P22.2 lethal World fixture requires GEngine and the melee definition.");
+				return;
+			}
+			World = NewObject<UWorld>(
+				GetTransientPackage(), NAME_None, RF_Transient);
+			if (!World)
+			{
+				Diagnostic = TEXT("P22.2 lethal World fixture could not allocate its temporary World.");
+				return;
+			}
+			World->WorldType = EWorldType::GamePreview;
+			FWorldContext& Context =
+				GEngine->CreateNewWorldContext(EWorldType::GamePreview);
+			Context.SetCurrentWorld(World);
+			World->InitializeNewWorld(
+				UWorld::InitializationValues()
+					.InitializeScenes(false)
+					.AllowAudioPlayback(false)
+					.RequiresHitProxies(false)
+					.CreatePhysicsScene(false)
+					.CreateNavigation(false)
+					.CreateAISystem(false)
+					.ShouldSimulatePhysics(false)
+					.EnableTraceCollision(false)
+					.SetTransactional(false)
+					.CreateFXSystem(false));
+			Pawn = World->SpawnActor<APawn>();
+			PlayerHealth = Pawn
+				? NewObject<Udemo_mapPlayerHealthComponent>(
+					Pawn, TEXT("P222LethalPlayerHealth"))
+				: nullptr;
+			Enemy = World->SpawnActor<Ademo_mapEnemyCharacter>();
+			EnemyIdentity = Enemy
+				? NewObject<Udemo_mapM01EnemyIdentityComponent>(
+					Enemy, TEXT("P222LethalEnemyIdentity"))
+				: nullptr;
+			if (!Pawn || !PlayerHealth || !Enemy || !EnemyIdentity)
+			{
+				Diagnostic = TEXT("P22.2 lethal World fixture could not construct its combat hosts.");
+				return;
+			}
+			Pawn->AddInstanceComponent(PlayerHealth);
+			Enemy->AddInstanceComponent(EnemyIdentity);
+			if (!EnemyIdentity->Configure(*Definition))
+			{
+				Diagnostic = TEXT("P22.2 lethal World fixture could not configure enemy identity.");
+				return;
+			}
+			if (!Enemy->ConfigureEncounter(
+					MakeEncounterIdentity(*Definition),
+					Definition->Tuning,
+					Definition->IsElite()))
+			{
+				Diagnostic = TEXT("P22.2 lethal World fixture could not configure enemy vitality.");
+				return;
+			}
+			if (!Coordinator.TryBeginRun(
+					WorldRunId, Pawn, PlayerHealth, Diagnostic))
+			{
+				return;
+			}
+			bReady = Coordinator.TryRegisterM01Enemy(Enemy, Diagnostic);
+		}
+
+		~FThrownLethalWorldFixture()
+		{
+			if (World)
+			{
+				World->DestroyWorld(false);
+				if (GEngine)
+				{
+					GEngine->DestroyWorldContext(World);
+				}
+			}
+		}
+
+		UPrimitiveComponent* GetEnemyRoot() const
+		{
+			return Enemy
+				? Cast<UPrimitiveComponent>(Enemy->GetRootComponent())
+				: nullptr;
+		}
+	};
+
 	struct FThrownCollisionWorldFixture
 	{
 		UWorld* World = nullptr;
@@ -297,7 +400,8 @@ namespace
 
 	FShanmenThrownWeaponDefinition MakeDefinition(
 		FName ActionDefinitionId =
-			FShanmenThrownWeaponDefinition::StraightActionDefinitionId())
+			FShanmenThrownWeaponDefinition::StraightActionDefinitionId(),
+		const float BaseDamage = 0.5f)
 	{
 		FShanmenThrownWeaponDefinitionCapture Capture;
 		Capture.ActionDefinitionId = ActionDefinitionId;
@@ -305,7 +409,7 @@ namespace
 		Capture.FormulaId = TEXT("Formula.ThrownWeapon.P7.2.Product");
 		// Keep this transient Actor fixture alive; death behavior belongs to the
 		// coordinator suite and requires a registered World.
-		Capture.BaseDamage = 0.5f;
+		Capture.BaseDamage = BaseDamage;
 		Capture.TechniquePowerCoefficient = 0.01f;
 		Capture.LaunchSpeed = ActionDefinitionId
 			== FShanmenThrownWeaponDefinition::ArcActionDefinitionId()
@@ -326,7 +430,9 @@ namespace
 		FShanmenThrownWeaponExecution& OutExecution,
 		FShanmenCombatActionSnapshot& OutAction,
 		FName ActionDefinitionId =
-			FShanmenThrownWeaponDefinition::StraightActionDefinitionId())
+			FShanmenThrownWeaponDefinition::StraightActionDefinitionId(),
+		const float TechniquePower = 20.0f,
+		const float BaseDamage = 0.5f)
 	{
 		OutAction = MakeAction(Coordinator, ActionDefinitionId);
 		FShanmenActionTransitionReceipt Transition;
@@ -336,10 +442,10 @@ namespace
 			EShanmenCombatActionPhase::Startup, Transition));
 		FShanmenThrownWeaponOffenseSnapshot Offense;
 		check(FShanmenThrownWeaponOffenseSnapshot::TryCapture(
-			20.0f, Offense));
+			TechniquePower, Offense));
 		check(FShanmenThrownWeaponExecution::TryCreate(
 			OutAction,
-			MakeDefinition(ActionDefinitionId),
+			MakeDefinition(ActionDefinitionId, BaseDamage),
 			Offense,
 			OutExecution));
 	}
@@ -471,6 +577,19 @@ namespace
 		return Hit;
 	}
 
+	FHitResult MakeEnemyHit(const FThrownLethalWorldFixture& Fixture)
+	{
+		FHitResult Hit(
+			Fixture.Enemy,
+			Fixture.GetEnemyRoot(),
+			FVector(120.0, 10.0, 40.0),
+			FVector::BackwardVector);
+		Hit.ImpactPoint = FVector(120.0, 10.0, 40.0);
+		Hit.ImpactNormal = FVector::BackwardVector;
+		Hit.Item = 0;
+		return Hit;
+	}
+
 	bool StageAndPublish(
 		const FThrownWorldFixture& Fixture,
 		FShanmenActionOrchestrator& OutRuntime,
@@ -504,17 +623,41 @@ namespace
 				*OutProjectile);
 	}
 
-	bool StartHostedFlight(
-		FThrownWorldFixture& Fixture,
+	bool StartHostedFlightWithBindings(
+		Fdemo_mapCombatRunCoordinator& Coordinator,
+		APawn& Source,
 		Fdemo_mapShanmenThrownWeaponRunHost& OutHost,
-		Ademo_mapShanmenThrownWeaponProjectile*& OutProjectile)
+		Ademo_mapShanmenThrownWeaponProjectile*& OutProjectile,
+		const float TechniquePower = 20.0f,
+		UWorld* CarrierWorld = nullptr,
+		const float BaseDamage = 0.5f)
 	{
 		FShanmenActionOrchestrator Runtime;
 		FShanmenThrownWeaponExecution Execution;
 		FShanmenCombatActionSnapshot Action;
-		StartAction(Fixture.Coordinator, Runtime, Execution, Action);
-		OutProjectile = NewObject<Ademo_mapShanmenThrownWeaponProjectile>(
-			GetTransientPackage());
+		StartAction(
+			Coordinator,
+			Runtime,
+			Execution,
+			Action,
+			FShanmenThrownWeaponDefinition::StraightActionDefinitionId(),
+			TechniquePower,
+			BaseDamage);
+		if (CarrierWorld)
+		{
+			const Fdemo_mapShanmenThrownWeaponSpawnResult Spawn =
+				Fdemo_mapShanmenThrownWeaponRunHost::SpawnStagedCarrier(
+					CarrierWorld,
+					Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+					&Source,
+					FVector(10.0, 20.0, 30.0));
+			OutProjectile = Spawn.Projectile.Get();
+		}
+		else
+		{
+			OutProjectile = NewObject<Ademo_mapShanmenThrownWeaponProjectile>(
+				GetTransientPackage());
+		}
 		if (!OutProjectile)
 		{
 			return false;
@@ -526,7 +669,7 @@ namespace
 				Runtime,
 				Execution,
 				*OutProjectile,
-				Fixture.Pawn,
+				&Source,
 				FVector(10.0, 20.0, 30.0),
 				FVector::ForwardVector);
 		if (!Staged.IsStaged())
@@ -547,10 +690,61 @@ namespace
 				Execution,
 				Committed,
 				*OutProjectile,
-				Fixture.Coordinator,
-				Fixture.Pawn,
+				Coordinator,
+				&Source,
 				1200.0f,
 				false);
+	}
+
+	bool StartHostedFlight(
+		FThrownWorldFixture& Fixture,
+		Fdemo_mapShanmenThrownWeaponRunHost& OutHost,
+		Ademo_mapShanmenThrownWeaponProjectile*& OutProjectile,
+		const float TechniquePower = 20.0f,
+		const float BaseDamage = 0.5f)
+	{
+		return Fixture.Pawn
+			&& StartHostedFlightWithBindings(
+				Fixture.Coordinator,
+				*Fixture.Pawn,
+				OutHost,
+				OutProjectile,
+				TechniquePower,
+				nullptr,
+				BaseDamage);
+	}
+
+	bool StartHostedFlight(
+		FThrownLethalWorldFixture& Fixture,
+		Fdemo_mapShanmenThrownWeaponRunHost& OutHost,
+		Ademo_mapShanmenThrownWeaponProjectile*& OutProjectile,
+		const float TechniquePower,
+		const float BaseDamage = 0.5f)
+	{
+		return Fixture.Pawn
+			&& StartHostedFlightWithBindings(
+				Fixture.Coordinator,
+				*Fixture.Pawn,
+				OutHost,
+				OutProjectile,
+				TechniquePower,
+				Fixture.World,
+				BaseDamage);
+	}
+
+	Fdemo_mapShanmenThrownWeaponTrajectoryPresentation
+	MakeStraightTrajectoryPresentation()
+	{
+		const Fdemo_mapShanmenThrownWeaponInputChoiceState Choice =
+			Fdemo_mapShanmenThrownWeaponInputChoiceState::CreateInitial();
+		const auto Read =
+			Fdemo_mapShanmenThrownWeaponInputChoiceInteractionPort::Read(
+				[]() { return true; },
+				[&Choice]() { return Choice; });
+		Fdemo_mapShanmenThrownWeaponTrajectoryPresentation Presentation;
+		check(Fdemo_mapShanmenThrownWeaponTrajectoryPresentation::TryProject(
+			Read, TEXT("V"), Presentation));
+		return Presentation;
 	}
 }
 
@@ -1188,6 +1382,13 @@ bool Fdemo_mapThrownWeaponRunHostSpawnGateTest::RunTest(const FString&)
 				== EShanmenActionTerminalReason::Interrupted
 			&& Host.GetTerminalReceipt().Kind
 				== Edemo_mapShanmenThrownWeaponTerminalKind::Interrupted);
+	Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation Interrupted;
+	TestTrue(TEXT("Interruption projects an honest terminal HUD message"),
+		Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation::TryProject(
+			Host.GetTerminalReceipt(), Interrupted)
+			&& Interrupted.GetKind()
+				== Edemo_mapShanmenThrownWeaponTerminalFeedbackKind::Interrupted
+			&& Interrupted.GetDisplayText() == TEXT("飞刀 · 已中断"));
 	TestTrue(TEXT("A terminal host can release its transient binding"),
 		Host.Reset()
 			&& Host.GetState()
@@ -1255,6 +1456,40 @@ bool Fdemo_mapThrownWeaponRunHostContactTest::RunTest(const FString&)
 				== EShanmenActionTerminalReason::Completed
 			&& Projectile->GetProjectileState()
 				== Edemo_mapShanmenThrownWeaponProjectileState::Spent);
+	Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation ImpactFeedback;
+	Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation ImpactReplay;
+	TestTrue(TEXT("Committed impact projects exact applied damage once"),
+		Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation::TryProject(
+			Host.GetTerminalReceipt(), ImpactFeedback)
+			&& Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation::
+				TryProject(Host.GetTerminalReceipt(), ImpactReplay)
+			&& ImpactFeedback.Matches(ImpactReplay)
+			&& ImpactFeedback.GetKind()
+				== Edemo_mapShanmenThrownWeaponTerminalFeedbackKind::Impact
+			&& FMath::IsNearlyEqual(
+				ImpactFeedback.GetAppliedDamage(), 0.7f)
+			&& !ImpactFeedback.DidDefeatTarget()
+			&& ImpactFeedback.GetDisplayText()
+				== TEXT("飞刀 · 命中 · -0.7"));
+	Fdemo_mapShanmenThrownWeaponMainHUDCombatHintStackPresentation Stack;
+	TestTrue(TEXT("The existing combat hint stack appends terminal feedback"),
+		Fdemo_mapShanmenThrownWeaponMainHUDCombatHintStackPresentation::
+			TryCompose(
+				MakeStraightTrajectoryPresentation(),
+				Fdemo_mapShanmenThrownWeaponArcEditingPresentation(),
+				Fdemo_mapShanmenThrownWeaponArcEditingInputHintPresentation(),
+				Fdemo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation(),
+				ImpactFeedback,
+				Stack)
+			&& Stack.IsValid()
+			&& Stack.NumLines() == 2
+			&& Stack.GetLines()[1].GetKind()
+				== Edemo_mapShanmenThrownWeaponMainHUDCombatHintKind::
+					TerminalFeedback
+			&& Stack.GetLines()[1].GetTone()
+				== Edemo_mapShanmenThrownWeaponMainHUDCombatHintTone::Impact
+			&& Stack.GetLines()[1].GetDisplayText()
+				== ImpactFeedback.GetDisplayText());
 
 	Projectile->OnContact().Broadcast(*Projectile, MakeEnemyHit(Fixture));
 	FShanmenTargetVitalitySnapshot AfterReplay;
@@ -1263,6 +1498,62 @@ bool Fdemo_mapThrownWeaponRunHostContactTest::RunTest(const FString&)
 		AfterReplay.AuthorityRevision == After.AuthorityRevision
 			&& FMath::IsNearlyEqual(
 				AfterReplay.CurrentVitality, After.CurrentVitality));
+
+	FThrownLethalWorldFixture DefeatFixture;
+	Fdemo_mapShanmenThrownWeaponRunHost DefeatHost;
+	Ademo_mapShanmenThrownWeaponProjectile* DefeatProjectile = nullptr;
+	TestTrue(TEXT("Lethal feedback World fixture is ready"),
+		DefeatFixture.bReady);
+	if (!DefeatFixture.bReady)
+	{
+		AddError(DefeatFixture.Diagnostic);
+		return false;
+	}
+	const bool bDefeatFlightStarted = StartHostedFlight(
+		DefeatFixture, DefeatHost, DefeatProjectile, 1000.0f);
+	TestTrue(TEXT("Lethal feedback flight starts"), bDefeatFlightStarted);
+	if (!bDefeatFlightStarted)
+	{
+		return false;
+	}
+	DefeatProjectile->OnContact().Broadcast(
+		*DefeatProjectile, MakeEnemyHit(DefeatFixture));
+	Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation DefeatFeedback;
+	TestTrue(TEXT("Lethal committed impact is distinguished from a hit"),
+		Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation::TryProject(
+			DefeatHost.GetTerminalReceipt(), DefeatFeedback)
+			&& DefeatFeedback.DidDefeatTarget()
+			&& DefeatFeedback.GetAppliedDamage() > 0.0f
+			&& DefeatFeedback.GetDisplayText().Contains(TEXT("飞刀 · 击破 · -")));
+
+	FThrownWorldFixture ZeroDamageFixture;
+	Fdemo_mapShanmenThrownWeaponRunHost ZeroDamageHost;
+	Ademo_mapShanmenThrownWeaponProjectile* ZeroDamageProjectile = nullptr;
+	const bool bZeroDamageFlightStarted = ZeroDamageFixture.bReady
+		&& StartHostedFlight(
+			ZeroDamageFixture,
+			ZeroDamageHost,
+			ZeroDamageProjectile,
+			0.0f,
+			0.0f);
+	TestTrue(TEXT("Zero-damage feedback flight starts"),
+		bZeroDamageFlightStarted);
+	if (!bZeroDamageFlightStarted)
+	{
+		return false;
+	}
+	ZeroDamageProjectile->OnContact().Broadcast(
+		*ZeroDamageProjectile, MakeEnemyHit(ZeroDamageFixture));
+	Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation ZeroDamageFeedback;
+	TestTrue(TEXT("Committed zero damage remains distinct from a miss"),
+		Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation::TryProject(
+			ZeroDamageHost.GetTerminalReceipt(), ZeroDamageFeedback)
+			&& ZeroDamageFeedback.GetKind()
+				== Edemo_mapShanmenThrownWeaponTerminalFeedbackKind::Impact
+			&& ZeroDamageFeedback.GetAppliedDamage() == 0.0f
+			&& !ZeroDamageFeedback.DidDefeatTarget()
+			&& ZeroDamageFeedback.GetDisplayText()
+				== TEXT("飞刀 · 未造成伤害"));
 	return true;
 }
 
@@ -1304,6 +1595,14 @@ bool Fdemo_mapThrownWeaponRunHostMissTest::RunTest(const FString&)
 			&& ContactHost.GetExecution().NumAcceptedImpacts() == 0
 			&& ContactHost.GetActionRuntime().GetTerminalReason()
 				== EShanmenActionTerminalReason::Completed);
+	Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation BlockingFeedback;
+	TestTrue(TEXT("Blocking geometry is visible without fabricated damage"),
+		Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation::TryProject(
+			ContactHost.GetTerminalReceipt(), BlockingFeedback)
+			&& BlockingFeedback.GetKind()
+				== Edemo_mapShanmenThrownWeaponTerminalFeedbackKind::BlockingMiss
+			&& BlockingFeedback.GetAppliedDamage() == 0.0f
+			&& BlockingFeedback.GetDisplayText() == TEXT("飞刀 · 命中阻挡"));
 
 	Fdemo_mapShanmenThrownWeaponRunHost RangeHost;
 	Ademo_mapShanmenThrownWeaponProjectile* RangeProjectile = nullptr;
@@ -1319,6 +1618,13 @@ bool Fdemo_mapThrownWeaponRunHostMissTest::RunTest(const FString&)
 			&& RangeHost.GetExecution().NumAcceptedImpacts() == 0
 			&& RangeProjectile->GetProjectileState()
 				== Edemo_mapShanmenThrownWeaponProjectileState::Spent);
+	Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation RangeFeedback;
+	TestTrue(TEXT("Range expiry projects a distinct terminal message"),
+		Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation::TryProject(
+			RangeHost.GetTerminalReceipt(), RangeFeedback)
+			&& RangeFeedback.GetKind()
+				== Edemo_mapShanmenThrownWeaponTerminalFeedbackKind::RangeExpired
+			&& RangeFeedback.GetDisplayText() == TEXT("飞刀 · 超出射程"));
 	TestFalse(TEXT("A terminal range callback cannot run twice"),
 		RangeHost.TryExpireRange());
 	return true;
