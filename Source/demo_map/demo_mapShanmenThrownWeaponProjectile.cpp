@@ -2,6 +2,7 @@
 
 #include "Components/BoxComponent.h"
 #include "Components/PointLightComponent.h"
+#include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/HitResult.h"
 #include "Engine/World.h"
@@ -13,6 +14,10 @@ namespace
 {
 	/** Engine Cube prototype dimensions in Unreal centimetres. */
 	const FVector ThrownWeaponPrototypeFullSize(30.0f, 4.5f, 1.2f);
+	const FVector ThrownWeaponBladeFullSize(22.0f, 4.5f, 1.2f);
+	const FVector ThrownWeaponBladeOffset(4.0f, 0.0f, 0.0f);
+	const FVector ThrownWeaponGripFullSize(8.0f, 3.0f, 1.2f);
+	const FVector ThrownWeaponGripOffset(-11.0f, 0.0f, 0.0f);
 	constexpr float EngineCubeSideLength = 100.0f;
 	const FLinearColor StraightFlightCueColor(1.0f, 0.48f, 0.08f);
 	const FLinearColor ArcFlightCueColor(0.20f, 0.72f, 1.0f);
@@ -159,24 +164,39 @@ Ademo_mapShanmenThrownWeaponProjectile()
 	Collision->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
 	Collision->SetGenerateOverlapEvents(false);
 
+	PresentationPivot = CreateDefaultSubobject<USceneComponent>(
+		TEXT("ThrownWeaponPresentationPivot"));
+	PresentationPivot->SetupAttachment(Collision);
+
 	Visual = CreateDefaultSubobject<UStaticMeshComponent>(
 		TEXT("ThrownWeaponVisual"));
-	Visual->SetupAttachment(Collision);
+	Visual->SetupAttachment(PresentationPivot);
 	Visual->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Visual->SetGenerateOverlapEvents(false);
+	Visual->SetRelativeLocation(ThrownWeaponBladeOffset);
 	Visual->SetRelativeScale3D(
-		ThrownWeaponPrototypeFullSize / EngineCubeSideLength);
+		ThrownWeaponBladeFullSize / EngineCubeSideLength);
+
+	GripVisual = CreateDefaultSubobject<UStaticMeshComponent>(
+		TEXT("ThrownWeaponGripVisual"));
+	GripVisual->SetupAttachment(PresentationPivot);
+	GripVisual->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	GripVisual->SetGenerateOverlapEvents(false);
+	GripVisual->SetRelativeLocation(ThrownWeaponGripOffset);
+	GripVisual->SetRelativeScale3D(
+		ThrownWeaponGripFullSize / EngineCubeSideLength);
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeMesh(
 		TEXT("/Engine/BasicShapes/Cube.Cube"));
 	if (CubeMesh.Succeeded())
 	{
 		Visual->SetStaticMesh(CubeMesh.Object);
+		GripVisual->SetStaticMesh(CubeMesh.Object);
 	}
-	Visual->SetVisibility(false, true);
+	SetPresentationVisibility(false);
 
 	VisualRoll = CreateDefaultSubobject<URotatingMovementComponent>(
 		TEXT("ThrownWeaponVisualRoll"));
-	VisualRoll->SetUpdatedComponent(Visual);
+	VisualRoll->SetUpdatedComponent(PresentationPivot);
 	VisualRoll->RotationRate = FRotator(
 		0.0f, 0.0f, FlightRollDegreesPerSecond);
 	VisualRoll->PivotTranslation = FVector::ZeroVector;
@@ -213,24 +233,25 @@ void Ademo_mapShanmenThrownWeaponProjectile::PostInitializeComponents()
 
 bool Ademo_mapShanmenThrownWeaponProjectile::IsPresentationVisible() const
 {
-	return Visual
-		&& Visual->GetStaticMesh()
-		&& Visual->IsVisible();
+	return IsPresentationGeometryValid()
+		&& PresentationPivot->IsVisible()
+		&& Visual->IsVisible()
+		&& GripVisual->IsVisible();
 }
 
 FVector Ademo_mapShanmenThrownWeaponProjectile::
 GetPresentationForwardDirection() const
 {
-	return Visual
-		? Visual->GetForwardVector().GetSafeNormal()
+	return PresentationPivot
+		? PresentationPivot->GetForwardVector().GetSafeNormal()
 		: FVector::ZeroVector;
 }
 
 FVector Ademo_mapShanmenThrownWeaponProjectile::
 GetPresentationUpDirection() const
 {
-	return Visual
-		? Visual->GetUpVector().GetSafeNormal()
+	return PresentationPivot
+		? PresentationPivot->GetUpVector().GetSafeNormal()
 		: FVector::ZeroVector;
 }
 
@@ -251,6 +272,58 @@ GetFlightCueColor() const
 	return FlightCueLight
 		? FlightCueLight->GetLightColor()
 		: FLinearColor::Transparent;
+}
+
+bool Ademo_mapShanmenThrownWeaponProjectile::
+IsPresentationGeometryValid() const
+{
+	return PresentationPivot
+		&& Visual
+		&& GripVisual
+		&& PresentationPivot->GetAttachParent() == Collision
+		&& PresentationPivot->GetRelativeLocation().IsNearlyZero()
+		&& PresentationPivot->GetRelativeScale3D().Equals(
+			FVector::OneVector, KINDA_SMALL_NUMBER)
+		&& Visual->GetAttachParent() == PresentationPivot
+		&& GripVisual->GetAttachParent() == PresentationPivot
+		&& Visual->GetStaticMesh()
+		&& GripVisual->GetStaticMesh() == Visual->GetStaticMesh()
+		&& Visual->GetCollisionEnabled() == ECollisionEnabled::NoCollision
+		&& GripVisual->GetCollisionEnabled()
+			== ECollisionEnabled::NoCollision
+		&& !Visual->GetGenerateOverlapEvents()
+		&& !GripVisual->GetGenerateOverlapEvents()
+		&& Visual->GetRelativeLocation().Equals(
+			ThrownWeaponBladeOffset, KINDA_SMALL_NUMBER)
+		&& Visual->GetRelativeScale3D().Equals(
+			ThrownWeaponBladeFullSize / EngineCubeSideLength,
+			KINDA_SMALL_NUMBER)
+		&& Visual->GetRelativeRotation().Equals(
+			FRotator::ZeroRotator, KINDA_SMALL_NUMBER)
+		&& GripVisual->GetRelativeLocation().Equals(
+			ThrownWeaponGripOffset, KINDA_SMALL_NUMBER)
+		&& GripVisual->GetRelativeScale3D().Equals(
+			ThrownWeaponGripFullSize / EngineCubeSideLength,
+			KINDA_SMALL_NUMBER)
+		&& GripVisual->GetRelativeRotation().Equals(
+			FRotator::ZeroRotator, KINDA_SMALL_NUMBER);
+}
+
+void Ademo_mapShanmenThrownWeaponProjectile::
+SetPresentationVisibility(bool bVisible)
+{
+	if (PresentationPivot)
+	{
+		PresentationPivot->SetVisibility(bVisible, false);
+	}
+	if (Visual)
+	{
+		Visual->SetVisibility(bVisible, false);
+	}
+	if (GripVisual)
+	{
+		GripVisual->SetVisibility(bVisible, false);
+	}
 }
 
 void Ademo_mapShanmenThrownWeaponProjectile::RefreshFlightCue()
@@ -277,9 +350,9 @@ void Ademo_mapShanmenThrownWeaponProjectile::ResetPresentationRoll()
 	{
 		VisualRoll->Deactivate();
 	}
-	if (Visual)
+	if (PresentationPivot)
 	{
-		Visual->SetRelativeRotation(
+		PresentationPivot->SetRelativeRotation(
 			FRotator::ZeroRotator,
 			false,
 			nullptr,
@@ -308,10 +381,9 @@ bool Ademo_mapShanmenThrownWeaponProjectile::TryStageLaunch(
 			!= EShanmenHitDetectorKind::Projectile
 		|| InContext.GetHitOrdinal() != 0
 		|| !ActionsMatch(InLaunch.GetAction(), InContext.GetAction())
-		|| !Visual
-		|| !Visual->GetStaticMesh()
+		|| !IsPresentationGeometryValid()
 		|| !VisualRoll
-		|| VisualRoll->UpdatedComponent != Visual
+		|| VisualRoll->UpdatedComponent != PresentationPivot
 		|| !FlightCueLight
 		|| !TryBuildMotionConfig(*this, InLaunch, Motion))
 	{
@@ -328,7 +400,7 @@ bool Ademo_mapShanmenThrownWeaponProjectile::TryStageLaunch(
 	}
 	Collision->IgnoreActorWhenMoving(InSourceActor, true);
 	Collision->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	Visual->SetVisibility(false, true);
+	SetPresentationVisibility(false);
 	ResetPresentationRoll();
 	Movement->Deactivate();
 	Movement->StopMovementImmediately();
@@ -358,16 +430,17 @@ bool Ademo_mapShanmenThrownWeaponProjectile::IsStagedFor(
 		&& ContextsMatch(HitContext, InContext)
 		&& Collision
 		&& Movement
-		&& Visual
+		&& IsPresentationGeometryValid()
 		&& VisualRoll
 		&& FlightCueLight
-		&& Visual->GetStaticMesh()
-		&& VisualRoll->UpdatedComponent == Visual
+		&& VisualRoll->UpdatedComponent == PresentationPivot
 		&& FlightCueLight->GetAttachParent() == Collision
 		&& Collision->GetCollisionEnabled() == ECollisionEnabled::NoCollision
-		&& !IsPresentationVisible()
+		&& !PresentationPivot->IsVisible()
+		&& !Visual->IsVisible()
+		&& !GripVisual->IsVisible()
 		&& !IsPresentationRollActive()
-		&& Visual->GetRelativeRotation().Equals(
+		&& PresentationPivot->GetRelativeRotation().Equals(
 			FRotator::ZeroRotator, KINDA_SMALL_NUMBER)
 		&& !IsFlightCueVisible()
 		&& !Movement->IsActive()
@@ -385,10 +458,10 @@ bool Ademo_mapShanmenThrownWeaponProjectile::IsInFlightFor(
 		&& ContextsMatch(HitContext, InContext)
 		&& Collision
 		&& Movement
-		&& Visual
+		&& IsPresentationGeometryValid()
 		&& VisualRoll
 		&& FlightCueLight
-		&& VisualRoll->UpdatedComponent == Visual
+		&& VisualRoll->UpdatedComponent == PresentationPivot
 		&& Collision->GetCollisionEnabled() == ECollisionEnabled::QueryOnly
 		&& IsPresentationVisible()
 		&& IsPresentationRollActive()
@@ -409,7 +482,7 @@ void Ademo_mapShanmenThrownWeaponProjectile::ActivateCommittedLaunch()
 	Movement->ProjectileGravityScale = Motion.GravityScale;
 	Movement->Velocity = Motion.InitialVelocity;
 	Movement->Activate(true);
-	Visual->SetVisibility(true, true);
+	SetPresentationVisibility(true);
 	State = Edemo_mapShanmenThrownWeaponProjectileState::InFlight;
 	RefreshFlightCue();
 	VisualRoll->Activate(true);
@@ -422,7 +495,7 @@ bool Ademo_mapShanmenThrownWeaponProjectile::CancelStagedLaunch()
 		return false;
 	}
 	Collision->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	Visual->SetVisibility(false, true);
+	SetPresentationVisibility(false);
 	ResetPresentationRoll();
 	if (SourceActor)
 	{
@@ -450,7 +523,7 @@ bool Ademo_mapShanmenThrownWeaponProjectile::MarkSpent()
 		return false;
 	}
 	Collision->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	Visual->SetVisibility(false, true);
+	SetPresentationVisibility(false);
 	ResetPresentationRoll();
 	Movement->StopMovementImmediately();
 	Movement->Deactivate();

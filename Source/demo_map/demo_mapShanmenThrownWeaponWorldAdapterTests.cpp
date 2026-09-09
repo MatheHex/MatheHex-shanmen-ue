@@ -6,6 +6,8 @@
 #include "demo_mapShanmenThrownWeaponTerminalFeedbackPresentation.h"
 
 #include "Components/BoxComponent.h"
+#include "Components/SceneComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
 #include "Engine/HitResult.h"
@@ -778,10 +780,75 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 	URotatingMovementComponent* VisualRoll = Projectile
 		? Projectile->FindComponentByClass<URotatingMovementComponent>()
 		: nullptr;
-	if (!Spawned.IsSpawned() || !Projectile || !VisualRoll)
+	UStaticMeshComponent* BladeVisual = nullptr;
+	UStaticMeshComponent* GripVisual = nullptr;
+	int32 NumPresentationMeshes = 0;
+	if (Projectile)
+	{
+		TInlineComponentArray<UStaticMeshComponent*> MeshComponents;
+		Projectile->GetComponents(MeshComponents);
+		NumPresentationMeshes = MeshComponents.Num();
+		for (UStaticMeshComponent* MeshComponent : MeshComponents)
+		{
+			if (MeshComponent
+				&& MeshComponent->GetFName() == TEXT("ThrownWeaponVisual"))
+			{
+				BladeVisual = MeshComponent;
+			}
+			else if (MeshComponent
+				&& MeshComponent->GetFName()
+					== TEXT("ThrownWeaponGripVisual"))
+			{
+				GripVisual = MeshComponent;
+			}
+		}
+	}
+	USceneComponent* PresentationPivot = BladeVisual
+		? BladeVisual->GetAttachParent()
+		: nullptr;
+	if (!Spawned.IsSpawned()
+		|| !Projectile
+		|| !VisualRoll
+		|| !BladeVisual
+		|| !GripVisual
+		|| !PresentationPivot)
 	{
 		return false;
 	}
+	const FVector BladeFullSize =
+		BladeVisual->GetRelativeScale3D() * 100.0f;
+	const FVector GripFullSize =
+		GripVisual->GetRelativeScale3D() * 100.0f;
+	TestTrue(TEXT("Prototype silhouette is one blade and one narrower grip"),
+		NumPresentationMeshes == 2
+			&& BladeVisual->GetStaticMesh()
+			&& GripVisual->GetStaticMesh() == BladeVisual->GetStaticMesh()
+			&& BladeVisual->GetAttachParent() == PresentationPivot
+			&& GripVisual->GetAttachParent() == PresentationPivot
+			&& PresentationPivot->GetAttachParent()
+				== Projectile->GetCollisionComponent()
+			&& VisualRoll->UpdatedComponent == PresentationPivot
+			&& BladeVisual->GetCollisionEnabled()
+				== ECollisionEnabled::NoCollision
+			&& GripVisual->GetCollisionEnabled()
+				== ECollisionEnabled::NoCollision
+			&& BladeFullSize.Equals(
+				FVector(22.0f, 4.5f, 1.2f), KINDA_SMALL_NUMBER)
+			&& GripFullSize.Equals(
+				FVector(8.0f, 3.0f, 1.2f), KINDA_SMALL_NUMBER)
+			&& BladeVisual->GetRelativeLocation().Equals(
+				FVector(4.0f, 0.0f, 0.0f), KINDA_SMALL_NUMBER)
+			&& GripVisual->GetRelativeLocation().Equals(
+				FVector(-11.0f, 0.0f, 0.0f), KINDA_SMALL_NUMBER)
+			&& FMath::IsNearlyEqual(
+				BladeVisual->GetRelativeLocation().X - BladeFullSize.X * 0.5f,
+				GripVisual->GetRelativeLocation().X + GripFullSize.X * 0.5f)
+			&& FMath::IsNearlyEqual(
+				GripVisual->GetRelativeLocation().X - GripFullSize.X * 0.5f,
+				-Projectile->GetCollisionComponent()->GetUnscaledBoxExtent().X)
+			&& FMath::IsNearlyEqual(
+				BladeVisual->GetRelativeLocation().X + BladeFullSize.X * 0.5f,
+				Projectile->GetCollisionComponent()->GetUnscaledBoxExtent().X));
 	const Fdemo_mapShanmenThrownWeaponLaunchResult Staged =
 		Fdemo_mapShanmenThrownWeaponWorldAdapter::StagePreparedLaunch(
 			MakeCorrelation(),
@@ -801,6 +868,8 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 			&& !Execution.IsEmissionActive()
 			&& Projectile->GetCollisionComponent()->GetCollisionEnabled()
 				== ECollisionEnabled::NoCollision
+			&& !BladeVisual->IsVisible()
+			&& !GripVisual->IsVisible()
 			&& !Projectile->IsPresentationVisible()
 			&& !Projectile->IsPresentationRollActive()
 			&& !Projectile->IsFlightCueVisible()
@@ -826,6 +895,8 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 			&& Execution.GetState() == EShanmenThrownWeaponState::Ready
 			&& Projectile->GetProjectileState()
 				== Edemo_mapShanmenThrownWeaponProjectileState::Empty
+			&& !BladeVisual->IsVisible()
+			&& !GripVisual->IsVisible()
 			&& !Projectile->IsPresentationVisible()
 			&& !Projectile->IsPresentationRollActive()
 			&& !Projectile->IsFlightCueVisible());
@@ -858,6 +929,8 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 				== Edemo_mapShanmenThrownWeaponProjectileState::InFlight
 			&& Projectile->GetCollisionComponent()->GetCollisionEnabled()
 				== ECollisionEnabled::QueryOnly
+			&& BladeVisual->IsVisible()
+			&& GripVisual->IsVisible()
 			&& Projectile->IsPresentationVisible()
 			&& Projectile->IsPresentationRollActive()
 			&& Projectile->IsFlightCueVisible()
@@ -873,10 +946,18 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 		Projectile->GetCollisionComponent()->GetComponentQuat();
 	const FVector PresentationUpBeforeRoll =
 		Projectile->GetPresentationUpDirection();
+	const FVector BladeUpBeforeRoll = BladeVisual->GetUpVector();
+	const FVector GripUpBeforeRoll = GripVisual->GetUpVector();
 	VisualRoll->TickComponent(0.125f, LEVELTICK_All, nullptr);
 	TestTrue(TEXT("Flight roll moves only the collisionless blade presentation"),
 		!Projectile->GetPresentationUpDirection().Equals(
 			PresentationUpBeforeRoll, KINDA_SMALL_NUMBER)
+			&& !BladeVisual->GetUpVector().Equals(
+				BladeUpBeforeRoll, KINDA_SMALL_NUMBER)
+			&& !GripVisual->GetUpVector().Equals(
+				GripUpBeforeRoll, KINDA_SMALL_NUMBER)
+			&& BladeVisual->GetUpVector().Equals(
+				GripVisual->GetUpVector(), KINDA_SMALL_NUMBER)
 			&& Projectile->GetPresentationForwardDirection().Equals(
 				FVector::RightVector, KINDA_SMALL_NUMBER)
 			&& Projectile->GetActorQuat().Equals(

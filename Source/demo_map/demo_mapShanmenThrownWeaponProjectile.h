@@ -11,6 +11,7 @@ class UProjectileMovementComponent;
 class UBoxComponent;
 class UPointLightComponent;
 class URotatingMovementComponent;
+class USceneComponent;
 class UStaticMeshComponent;
 struct FHitResult;
 struct Fdemo_mapShanmenThrownWeaponWorldAdapter;
@@ -82,9 +83,9 @@ public:
 	{
 		return Movement;
 	}
-	/** The prototype carrier is visible only after durable launch publication. */
+	/** The prototype knife silhouette is visible only after durable publication. */
 	bool IsPresentationVisible() const;
-	/** World-space forward direction of the collisionless prototype mesh. */
+	/** World-space forward direction of the collisionless presentation pivot. */
 	FVector GetPresentationForwardDirection() const;
 	/** World-space blade-up direction used to prove presentation-only roll. */
 	FVector GetPresentationUpDirection() const;
@@ -110,6 +111,8 @@ private:
 	/** No-fail publication reserved for the durable product adapter. */
 	void ActivateCommittedLaunch();
 	bool MarkSpent();
+	bool IsPresentationGeometryValid() const;
+	void SetPresentationVisibility(bool bVisible);
 	void RefreshFlightCue();
 	void ResetPresentationRoll();
 
@@ -123,7 +126,13 @@ private:
 	TObjectPtr<UProjectileMovementComponent> Movement;
 
 	UPROPERTY(VisibleAnywhere)
+	TObjectPtr<USceneComponent> PresentationPivot;
+
+	UPROPERTY(VisibleAnywhere)
 	TObjectPtr<UStaticMeshComponent> Visual;
+
+	UPROPERTY(VisibleAnywhere)
+	TObjectPtr<UStaticMeshComponent> GripVisual;
 
 	UPROPERTY(VisibleAnywhere)
 	TObjectPtr<URotatingMovementComponent> VisualRoll;
