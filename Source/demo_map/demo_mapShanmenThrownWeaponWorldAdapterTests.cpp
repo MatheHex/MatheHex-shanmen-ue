@@ -1141,6 +1141,100 @@ bool Fdemo_mapThrownWeaponLaunchClearanceGateTest::RunTest(const FString&)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponLaunchCorridorGateTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponWorldDelivery.LaunchCorridorGate",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponLaunchCorridorGateTest::RunTest(const FString&)
+{
+	FThrownWorldFixture IdentityFixture;
+	FThrownCollisionWorldFixture WorldFixture;
+	if (!IdentityFixture.bReady || !WorldFixture.IsValid())
+	{
+		AddError(TEXT("Could not build the P22.10 launch-corridor fixture."));
+		return false;
+	}
+
+	const FVector SourceOrigin = WorldFixture.Source->GetActorLocation();
+	const FVector LaunchOrigin =
+		SourceOrigin + (FVector::ForwardVector * 200.0f);
+	WorldFixture.Blocker->SetActorLocation(
+		SourceOrigin + (FVector::ForwardVector * 100.0f),
+		false,
+		nullptr,
+		ETeleportType::TeleportPhysics);
+	WorldFixture.World->UpdateWorldComponents(true, false);
+	const Fdemo_mapShanmenThrownWeaponSpawnResult Spawned =
+		Fdemo_mapShanmenThrownWeaponRunHost::SpawnStagedCarrier(
+			WorldFixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			WorldFixture.Source,
+			LaunchOrigin);
+	Ademo_mapShanmenThrownWeaponProjectile* Projectile =
+		Spawned.Projectile.Get();
+	if (!Spawned.IsSpawned() || !Projectile)
+	{
+		AddError(TEXT("Could not spawn the P22.10 inert launch carrier."));
+		return false;
+	}
+
+	FShanmenActionOrchestrator Runtime;
+	FShanmenThrownWeaponExecution Execution;
+	FShanmenCombatActionSnapshot Action;
+	StartAction(IdentityFixture.Coordinator, Runtime, Execution, Action);
+	const Fdemo_mapShanmenThrownWeaponLaunchResult Blocked =
+		Fdemo_mapShanmenThrownWeaponWorldAdapter::StagePreparedLaunch(
+			MakeCorrelation(),
+			MakePrepared(Action),
+			Runtime,
+			Execution,
+			*Projectile,
+			WorldFixture.Source,
+			LaunchOrigin,
+			FVector::ForwardVector);
+	TestTrue(TEXT("A clear endpoint beyond a thin blocker is still rejected"),
+		!Blocked.IsStaged()
+			&& !Blocked.IsCommitted()
+			&& Blocked.Error
+				== Edemo_mapShanmenThrownWeaponLaunchError::ProjectileStageRejected);
+	TestTrue(TEXT("A blocked release corridor leaves the carrier inert"),
+		Projectile->GetProjectileState()
+				== Edemo_mapShanmenThrownWeaponProjectileState::Empty
+			&& !Projectile->GetLaunchReceipt().IsValid()
+			&& Projectile->GetCollisionComponent()->GetCollisionEnabled()
+				== ECollisionEnabled::NoCollision
+			&& !Projectile->GetMovementComponent()->IsActive()
+			&& !Projectile->IsPresentationVisible()
+			&& !Projectile->IsFlightCueVisible());
+
+	WorldFixture.Blocker->SetActorLocation(
+		FVector(1000.0f, 1000.0f, 100.0f),
+		false,
+		nullptr,
+		ETeleportType::TeleportPhysics);
+	WorldFixture.World->UpdateWorldComponents(true, false);
+	const Fdemo_mapShanmenThrownWeaponLaunchResult Clear =
+		Fdemo_mapShanmenThrownWeaponWorldAdapter::StagePreparedLaunch(
+			MakeCorrelation(),
+			MakePrepared(Action),
+			Runtime,
+			Execution,
+			*Projectile,
+			WorldFixture.Source,
+			LaunchOrigin,
+			FVector::ForwardVector);
+	TestTrue(TEXT("The same corridor stages after its blocker is removed"),
+		Clear.IsStaged()
+			&& !Clear.IsCommitted()
+			&& Projectile->IsStagedFor(Clear.Plan.Launch, Clear.Plan.Context));
+	TestTrue(TEXT("A clear corridor retry remains safely cancellable"),
+		Projectile->CancelStagedLaunch()
+			&& Projectile->GetProjectileState()
+				== Edemo_mapShanmenThrownWeaponProjectileState::Empty);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	Fdemo_mapThrownWeaponCollisionProfileSweepTest,
 	"Shanmen.0_0_10.Product.ThrownWeaponWorldDelivery.CollisionProfileSweep",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -1156,6 +1250,12 @@ bool Fdemo_mapThrownWeaponCollisionProfileSweepTest::RunTest(const FString&)
 	}
 
 	const FVector Origin(0.0f, 0.0f, 100.0f);
+	WorldFixture.Blocker->SetActorLocation(
+		FVector(1000.0f, 1000.0f, 100.0f),
+		false,
+		nullptr,
+		ETeleportType::TeleportPhysics);
+	WorldFixture.World->UpdateWorldComponents(true, false);
 	const Fdemo_mapShanmenThrownWeaponSpawnResult Spawned =
 		Fdemo_mapShanmenThrownWeaponRunHost::SpawnStagedCarrier(
 			WorldFixture.World,
@@ -1222,6 +1322,12 @@ bool Fdemo_mapThrownWeaponCollisionProfileSweepTest::RunTest(const FString&)
 		StopBindingObjects.Contains(Projectile));
 	TestTrue(TEXT("The test observer is bound to the native contact seam"),
 		Projectile->OnContact().IsBound());
+	WorldFixture.Blocker->SetActorLocation(
+		FVector(8.0f, 100.0f, 100.0f),
+		false,
+		nullptr,
+		ETeleportType::TeleportPhysics);
+	WorldFixture.World->UpdateWorldComponents(true, false);
 
 	FHitResult SideOffsetSweep;
 	Collision->MoveComponent(

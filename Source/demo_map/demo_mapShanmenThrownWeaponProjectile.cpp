@@ -152,7 +152,7 @@ namespace
 					Expected.InitialVelocity, KINDA_SMALL_NUMBER));
 	}
 
-	bool IsLaunchVolumeClear(
+	bool IsLaunchCorridorClear(
 		const Ademo_mapShanmenThrownWeaponProjectile& Projectile,
 		const FShanmenThrownWeaponLaunchReceipt& Launch,
 		const FThrownWeaponMotionConfig& Motion,
@@ -171,13 +171,32 @@ namespace
 		QueryParams.AddIgnoredActor(SourceActor);
 		const FCollisionResponseParams ResponseParams(
 			Collision->GetCollisionResponseToChannels());
-		return !World->OverlapBlockingTestByChannel(
-			Launch.GetOrigin(),
-			Motion.InitialVelocity.Rotation().Quaternion(),
+		const FVector LaunchOrigin = Launch.GetOrigin();
+		const FQuat LaunchRotation =
+			Motion.InitialVelocity.Rotation().Quaternion();
+		const FCollisionShape LaunchShape =
+			FCollisionShape::MakeBox(Collision->GetScaledBoxExtent());
+		if (World->OverlapBlockingTestByChannel(
+			LaunchOrigin,
+			LaunchRotation,
 			Collision->GetCollisionObjectType(),
-			FCollisionShape::MakeBox(Collision->GetScaledBoxExtent()),
+			LaunchShape,
 			QueryParams,
-			ResponseParams);
+			ResponseParams))
+		{
+			return false;
+		}
+
+		const FVector SourceOrigin = SourceActor->GetActorLocation();
+		return SourceOrigin.Equals(LaunchOrigin, KINDA_SMALL_NUMBER)
+			|| !World->SweepTestByChannel(
+				SourceOrigin,
+				LaunchOrigin,
+				LaunchRotation,
+				Collision->GetCollisionObjectType(),
+				LaunchShape,
+				QueryParams,
+				ResponseParams);
 	}
 }
 
@@ -499,7 +518,7 @@ bool Ademo_mapShanmenThrownWeaponProjectile::TryStageLaunch(
 	{
 		return false;
 	}
-	if (!IsLaunchVolumeClear(*this, InLaunch, Motion, InSourceActor))
+	if (!IsLaunchCorridorClear(*this, InLaunch, Motion, InSourceActor))
 	{
 		return false;
 	}
