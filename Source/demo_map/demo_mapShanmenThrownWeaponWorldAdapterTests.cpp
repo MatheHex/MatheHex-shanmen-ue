@@ -12,6 +12,7 @@
 #include "Engine/World.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/ProjectileMovementComponent.h"
+#include "GameFramework/RotatingMovementComponent.h"
 #include "Misc/AutomationTest.h"
 #include "ShanmenCombatTags.h"
 #include "demo_mapCombatVitalityHost.h"
@@ -774,7 +775,10 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 			FVector(10.0, 20.0, 30.0));
 	Ademo_mapShanmenThrownWeaponProjectile* Projectile =
 		Spawned.Projectile.Get();
-	if (!Spawned.IsSpawned() || !Projectile)
+	URotatingMovementComponent* VisualRoll = Projectile
+		? Projectile->FindComponentByClass<URotatingMovementComponent>()
+		: nullptr;
+	if (!Spawned.IsSpawned() || !Projectile || !VisualRoll)
 	{
 		return false;
 	}
@@ -798,6 +802,7 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 			&& Projectile->GetCollisionComponent()->GetCollisionEnabled()
 				== ECollisionEnabled::NoCollision
 			&& !Projectile->IsPresentationVisible()
+			&& !Projectile->IsPresentationRollActive()
 			&& !Projectile->IsFlightCueVisible()
 			&& !Projectile->GetMovementComponent()->IsActive());
 
@@ -822,6 +827,7 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 			&& Projectile->GetProjectileState()
 				== Edemo_mapShanmenThrownWeaponProjectileState::Empty
 			&& !Projectile->IsPresentationVisible()
+			&& !Projectile->IsPresentationRollActive()
 			&& !Projectile->IsFlightCueVisible());
 	GameInstance->Shutdown();
 	GameInstance->RemoveFromRoot();
@@ -853,6 +859,7 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 			&& Projectile->GetCollisionComponent()->GetCollisionEnabled()
 				== ECollisionEnabled::QueryOnly
 			&& Projectile->IsPresentationVisible()
+			&& Projectile->IsPresentationRollActive()
 			&& Projectile->IsFlightCueVisible()
 			&& Projectile->GetFlightCueColor().Equals(
 				FLinearColor(1.0f, 0.48f, 0.08f), 0.01f)
@@ -861,6 +868,21 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 			&& Projectile->GetMovementComponent()->IsActive()
 			&& Projectile->GetMovementComponent()->Velocity.Equals(
 				FVector::RightVector * 750.0f));
+	const FQuat ActorRotationBeforeRoll = Projectile->GetActorQuat();
+	const FQuat CollisionRotationBeforeRoll =
+		Projectile->GetCollisionComponent()->GetComponentQuat();
+	const FVector PresentationUpBeforeRoll =
+		Projectile->GetPresentationUpDirection();
+	VisualRoll->TickComponent(0.125f, LEVELTICK_All, nullptr);
+	TestTrue(TEXT("Flight roll moves only the collisionless blade presentation"),
+		!Projectile->GetPresentationUpDirection().Equals(
+			PresentationUpBeforeRoll, KINDA_SMALL_NUMBER)
+			&& Projectile->GetPresentationForwardDirection().Equals(
+				FVector::RightVector, KINDA_SMALL_NUMBER)
+			&& Projectile->GetActorQuat().Equals(
+				ActorRotationBeforeRoll, KINDA_SMALL_NUMBER)
+			&& Projectile->GetCollisionComponent()->GetComponentQuat().Equals(
+				CollisionRotationBeforeRoll, KINDA_SMALL_NUMBER));
 	TestTrue(TEXT("Physical contract has no gravity, bounce, or homing"),
 		Projectile->GetMovementComponent()->ProjectileGravityScale == 0.0f
 			&& !Projectile->GetMovementComponent()->bShouldBounce
@@ -1096,6 +1118,7 @@ bool Fdemo_mapThrownWeaponArcWorldMotionTest::RunTest(const FString&)
 				ArcPlan.GetInitialVelocity(), KINDA_SMALL_NUMBER)
 			&& Movement->MaxSpeed == 0.0f
 			&& !Projectile->IsPresentationVisible()
+			&& !Projectile->IsPresentationRollActive()
 			&& !Projectile->IsFlightCueVisible()
 			&& FMath::IsNearlyEqual(
 				Movement->ProjectileGravityScale,
@@ -1114,6 +1137,7 @@ bool Fdemo_mapThrownWeaponArcWorldMotionTest::RunTest(const FString&)
 			&& Projectile->GetProjectileState()
 				== Edemo_mapShanmenThrownWeaponProjectileState::InFlight
 			&& Projectile->IsPresentationVisible()
+			&& Projectile->IsPresentationRollActive()
 			&& Projectile->IsFlightCueVisible()
 			&& Projectile->GetFlightCueColor().Equals(
 				FLinearColor(0.20f, 0.72f, 1.0f), 0.01f)
@@ -1133,6 +1157,7 @@ bool Fdemo_mapThrownWeaponArcWorldMotionTest::RunTest(const FString&)
 			&& Projectile->GetProjectileState()
 				== Edemo_mapShanmenThrownWeaponProjectileState::Spent
 			&& !Projectile->IsPresentationVisible()
+			&& !Projectile->IsPresentationRollActive()
 			&& !Projectile->IsFlightCueVisible());
 	return true;
 }
@@ -1260,6 +1285,7 @@ bool Fdemo_mapThrownWeaponWorldDeliveryTest::RunTest(const FString&)
 			&& Projectile->GetCollisionComponent()->GetCollisionEnabled()
 				== ECollisionEnabled::NoCollision
 			&& !Projectile->IsPresentationVisible()
+			&& !Projectile->IsPresentationRollActive()
 			&& !Projectile->IsFlightCueVisible());
 
 	const Fdemo_mapShanmenThrownWeaponWorldDeliveryResult Replay =
@@ -1321,6 +1347,7 @@ bool Fdemo_mapThrownWeaponWorldMissTest::RunTest(const FString&)
 			&& Execution.NumAcceptedImpacts() == 0
 			&& Projectile->GetProjectileState()
 				== Edemo_mapShanmenThrownWeaponProjectileState::InFlight
+			&& Projectile->IsPresentationRollActive()
 			&& Projectile->IsFlightCueVisible());
 	TestTrue(TEXT("Range expiry has an explicit no-impact terminal path"),
 		Fdemo_mapShanmenThrownWeaponWorldAdapter::FinishFlightWithoutImpact(
@@ -1330,6 +1357,7 @@ bool Fdemo_mapThrownWeaponWorldMissTest::RunTest(const FString&)
 			&& Projectile->GetProjectileState()
 				== Edemo_mapShanmenThrownWeaponProjectileState::Spent
 			&& !Projectile->IsPresentationVisible()
+			&& !Projectile->IsPresentationRollActive()
 			&& !Projectile->IsFlightCueVisible());
 	return true;
 }

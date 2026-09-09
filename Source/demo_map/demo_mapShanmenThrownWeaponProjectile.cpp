@@ -6,6 +6,7 @@
 #include "Engine/HitResult.h"
 #include "Engine/World.h"
 #include "GameFramework/ProjectileMovementComponent.h"
+#include "GameFramework/RotatingMovementComponent.h"
 #include "UObject/ConstructorHelpers.h"
 
 namespace
@@ -17,6 +18,7 @@ namespace
 	const FLinearColor ArcFlightCueColor(0.20f, 0.72f, 1.0f);
 	constexpr float FlightCueIntensity = 1600.0f;
 	constexpr float FlightCueAttenuationRadius = 140.0f;
+	constexpr float FlightRollDegreesPerSecond = 720.0f;
 
 	bool ActionsMatch(
 		const FShanmenCombatActionSnapshot& Left,
@@ -172,6 +174,15 @@ Ademo_mapShanmenThrownWeaponProjectile()
 	}
 	Visual->SetVisibility(false, true);
 
+	VisualRoll = CreateDefaultSubobject<URotatingMovementComponent>(
+		TEXT("ThrownWeaponVisualRoll"));
+	VisualRoll->SetUpdatedComponent(Visual);
+	VisualRoll->RotationRate = FRotator(
+		0.0f, 0.0f, FlightRollDegreesPerSecond);
+	VisualRoll->PivotTranslation = FVector::ZeroVector;
+	VisualRoll->bRotationInLocalSpace = true;
+	VisualRoll->bAutoActivate = false;
+
 	FlightCueLight = CreateDefaultSubobject<UPointLightComponent>(
 		TEXT("ThrownWeaponFlightCueLight"));
 	FlightCueLight->SetupAttachment(Collision);
@@ -215,6 +226,20 @@ GetPresentationForwardDirection() const
 		: FVector::ZeroVector;
 }
 
+FVector Ademo_mapShanmenThrownWeaponProjectile::
+GetPresentationUpDirection() const
+{
+	return Visual
+		? Visual->GetUpVector().GetSafeNormal()
+		: FVector::ZeroVector;
+}
+
+bool Ademo_mapShanmenThrownWeaponProjectile::
+IsPresentationRollActive() const
+{
+	return VisualRoll && VisualRoll->IsActive();
+}
+
 bool Ademo_mapShanmenThrownWeaponProjectile::IsFlightCueVisible() const
 {
 	return FlightCueLight && FlightCueLight->IsVisible();
@@ -246,6 +271,22 @@ void Ademo_mapShanmenThrownWeaponProjectile::RefreshFlightCue()
 		State == Edemo_mapShanmenThrownWeaponProjectileState::InFlight);
 }
 
+void Ademo_mapShanmenThrownWeaponProjectile::ResetPresentationRoll()
+{
+	if (VisualRoll)
+	{
+		VisualRoll->Deactivate();
+	}
+	if (Visual)
+	{
+		Visual->SetRelativeRotation(
+			FRotator::ZeroRotator,
+			false,
+			nullptr,
+			ETeleportType::TeleportPhysics);
+	}
+}
+
 bool Ademo_mapShanmenThrownWeaponProjectile::TryStageLaunch(
 	const FShanmenThrownWeaponLaunchReceipt& InLaunch,
 	const FShanmenWorldHitContext& InContext,
@@ -269,6 +310,8 @@ bool Ademo_mapShanmenThrownWeaponProjectile::TryStageLaunch(
 		|| !ActionsMatch(InLaunch.GetAction(), InContext.GetAction())
 		|| !Visual
 		|| !Visual->GetStaticMesh()
+		|| !VisualRoll
+		|| VisualRoll->UpdatedComponent != Visual
 		|| !FlightCueLight
 		|| !TryBuildMotionConfig(*this, InLaunch, Motion))
 	{
@@ -286,6 +329,7 @@ bool Ademo_mapShanmenThrownWeaponProjectile::TryStageLaunch(
 	Collision->IgnoreActorWhenMoving(InSourceActor, true);
 	Collision->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Visual->SetVisibility(false, true);
+	ResetPresentationRoll();
 	Movement->Deactivate();
 	Movement->StopMovementImmediately();
 	Movement->InitialSpeed = Motion.InitialSpeed;
@@ -315,11 +359,16 @@ bool Ademo_mapShanmenThrownWeaponProjectile::IsStagedFor(
 		&& Collision
 		&& Movement
 		&& Visual
+		&& VisualRoll
 		&& FlightCueLight
 		&& Visual->GetStaticMesh()
+		&& VisualRoll->UpdatedComponent == Visual
 		&& FlightCueLight->GetAttachParent() == Collision
 		&& Collision->GetCollisionEnabled() == ECollisionEnabled::NoCollision
 		&& !IsPresentationVisible()
+		&& !IsPresentationRollActive()
+		&& Visual->GetRelativeRotation().Equals(
+			FRotator::ZeroRotator, KINDA_SMALL_NUMBER)
 		&& !IsFlightCueVisible()
 		&& !Movement->IsActive()
 		&& MotionMatches(*this, *Movement, InLaunch, true);
@@ -337,9 +386,12 @@ bool Ademo_mapShanmenThrownWeaponProjectile::IsInFlightFor(
 		&& Collision
 		&& Movement
 		&& Visual
+		&& VisualRoll
 		&& FlightCueLight
+		&& VisualRoll->UpdatedComponent == Visual
 		&& Collision->GetCollisionEnabled() == ECollisionEnabled::QueryOnly
 		&& IsPresentationVisible()
+		&& IsPresentationRollActive()
 		&& IsFlightCueVisible()
 		&& Movement->IsActive()
 		&& MotionMatches(*this, *Movement, InLaunch, false);
@@ -360,6 +412,7 @@ void Ademo_mapShanmenThrownWeaponProjectile::ActivateCommittedLaunch()
 	Visual->SetVisibility(true, true);
 	State = Edemo_mapShanmenThrownWeaponProjectileState::InFlight;
 	RefreshFlightCue();
+	VisualRoll->Activate(true);
 }
 
 bool Ademo_mapShanmenThrownWeaponProjectile::CancelStagedLaunch()
@@ -370,6 +423,7 @@ bool Ademo_mapShanmenThrownWeaponProjectile::CancelStagedLaunch()
 	}
 	Collision->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Visual->SetVisibility(false, true);
+	ResetPresentationRoll();
 	if (SourceActor)
 	{
 		Collision->IgnoreActorWhenMoving(SourceActor, false);
@@ -397,6 +451,7 @@ bool Ademo_mapShanmenThrownWeaponProjectile::MarkSpent()
 	}
 	Collision->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Visual->SetVisibility(false, true);
+	ResetPresentationRoll();
 	Movement->StopMovementImmediately();
 	Movement->Deactivate();
 	State = Edemo_mapShanmenThrownWeaponProjectileState::Spent;

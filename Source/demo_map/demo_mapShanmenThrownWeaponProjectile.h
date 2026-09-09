@@ -10,6 +10,7 @@
 class UProjectileMovementComponent;
 class UBoxComponent;
 class UPointLightComponent;
+class URotatingMovementComponent;
 class UStaticMeshComponent;
 struct FHitResult;
 struct Fdemo_mapShanmenThrownWeaponWorldAdapter;
@@ -85,6 +86,10 @@ public:
 	bool IsPresentationVisible() const;
 	/** World-space forward direction of the collisionless prototype mesh. */
 	FVector GetPresentationForwardDirection() const;
+	/** World-space blade-up direction used to prove presentation-only roll. */
+	FVector GetPresentationUpDirection() const;
+	/** Roll is active only while the durable projectile is in flight. */
+	bool IsPresentationRollActive() const;
 	/** Attached readability cue is active only during durable flight. */
 	bool IsFlightCueVisible() const;
 	/** Actual trajectory-coded color held by the attached flight cue. */
@@ -106,6 +111,7 @@ private:
 	void ActivateCommittedLaunch();
 	bool MarkSpent();
 	void RefreshFlightCue();
+	void ResetPresentationRoll();
 
 	UFUNCTION()
 	void HandleProjectileStop(const FHitResult& Hit);
@@ -118,6 +124,9 @@ private:
 
 	UPROPERTY(VisibleAnywhere)
 	TObjectPtr<UStaticMeshComponent> Visual;
+
+	UPROPERTY(VisibleAnywhere)
+	TObjectPtr<URotatingMovementComponent> VisualRoll;
 
 	UPROPERTY(VisibleAnywhere)
 	TObjectPtr<UPointLightComponent> FlightCueLight;
