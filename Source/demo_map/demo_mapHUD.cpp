@@ -17,6 +17,7 @@
 #include "demo_mapPlayerController.h"
 #include "demo_mapShanmenControlledWeaponActor.h"
 #include "demo_mapShanmenControlledWeaponThreatReadoutPresentation.h"
+#include "demo_mapShanmenDivineSenseHUDPresentation.h"
 #include "demo_mapShanmenThrownWeaponArcEditingInputHintPresentation.h"
 #include "demo_mapShanmenThrownWeaponArcEditingPresentation.h"
 #include "demo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation.h"
@@ -188,17 +189,38 @@ namespace
 		}
 		const FShanmenDivineSenseScanReceipt& Receipt =
 			GameMode->GetLatestDivineSenseReceipt();
+		FVector ViewLocation = FVector::ZeroVector;
+		FRotator ViewRotation = FRotator::ZeroRotator;
+		PlayerController->GetPlayerViewPoint(ViewLocation, ViewRotation);
+		const FVector CameraForward = ViewRotation.Vector();
+		const FVector CameraRight =
+			FRotationMatrix(ViewRotation).GetScaledAxis(EAxis::Y);
 		for (const FShanmenDivineSenseReveal& Reveal : Receipt.GetReveals())
 		{
-			FVector2D ScreenPosition;
-			if (!PlayerController->ProjectWorldLocationToScreen(
-					Reveal.GetObservation().GetWorldLocation()
-						+ FVector(0.0, 0.0, 90.0),
-					ScreenPosition,
-					false))
+			const FVector MarkerWorldLocation =
+				Reveal.GetObservation().GetWorldLocation()
+					+ FVector(0.0, 0.0, 90.0);
+			FVector2D ProjectedScreenPosition = FVector2D::ZeroVector;
+			const bool bWorldProjectionSucceeded =
+				PlayerController->ProjectWorldLocationToScreen(
+					MarkerWorldLocation,
+					ProjectedScreenPosition,
+					false);
+			const FVector ViewToSubject = MarkerWorldLocation - ViewLocation;
+			const FVector2D CameraRelativeBearing(
+				FVector::DotProduct(ViewToSubject, CameraRight),
+				-FVector::DotProduct(ViewToSubject, CameraForward));
+			Fdemo_mapShanmenDivineSenseHUDMarkerPlan MarkerPlan;
+			if (!Fdemo_mapShanmenDivineSenseHUDMarkerPlan::TryPlan(
+					FVector2D(Canvas->SizeX, Canvas->SizeY),
+					bWorldProjectionSucceeded,
+					ProjectedScreenPosition,
+					CameraRelativeBearing,
+					MarkerPlan))
 			{
 				continue;
 			}
+			const FVector2D ScreenPosition = MarkerPlan.GetScreenPosition();
 			const FLinearColor Color = Reveal.WasOccluded()
 				? FLinearColor(1.0f, 0.66f, 0.12f, 0.95f)
 				: FLinearColor(0.16f, 0.95f, 1.0f, 0.95f);
@@ -218,6 +240,30 @@ namespace
 				Line.LineThickness = Reveal.WasOccluded() ? 2.0f : 2.8f;
 				Canvas->DrawItem(Line);
 			}
+			if (MarkerPlan.IsAtScreenEdge())
+			{
+				const FVector2D Direction = MarkerPlan.GetEdgeDirection();
+				const FVector2D Tangent(-Direction.Y, Direction.X);
+				const FVector2D Tip = ScreenPosition + Direction * 13.0;
+				const FVector2D BaseCenter = ScreenPosition - Direction * 3.0;
+				for (const TPair<FVector2D, FVector2D>& Edge :
+					{ TPair<FVector2D, FVector2D>(
+						Tip, BaseCenter + Tangent * 5.0),
+						TPair<FVector2D, FVector2D>(
+							Tip, BaseCenter - Tangent * 5.0) })
+				{
+					FCanvasLineItem Line(Edge.Key, Edge.Value);
+					Line.SetColor(Color);
+					Line.LineThickness = 2.4f;
+					Canvas->DrawItem(Line);
+				}
+			}
+			const double TextOffsetX =
+				ScreenPosition.X > Canvas->SizeX - 165.0
+				? -118.0 : 13.0;
+			const double TextOffsetY =
+				ScreenPosition.Y > Canvas->SizeY - 44.0
+				? -25.0 : -9.0;
 			DrawReadableText(
 				Canvas,
 				GEngine->GetSmallFont(),
@@ -225,7 +271,7 @@ namespace
 					TEXT("%.1fm%s"),
 					FMath::Sqrt(Reveal.GetDistanceSquared()) / 100.0,
 					Reveal.WasOccluded() ? TEXT(" · OCCLUDED") : TEXT("")),
-				ScreenPosition + FVector2D(13.0f, -9.0f),
+				ScreenPosition + FVector2D(TextOffsetX, TextOffsetY),
 				Color,
 				0.76f);
 		}

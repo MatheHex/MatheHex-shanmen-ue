@@ -613,6 +613,9 @@ try
     $DivineSensePhysicalInput = New-AutomationLogFixture `
         -Name 'divine-sense-physical-input.log' `
         -Group 'Shanmen.0_0_10.Product.DivineSensePhysicalInput'
+    $DivineSenseHUDPresentation = New-AutomationLogFixture `
+        -Name 'divine-sense-hud-presentation.log' `
+        -Group 'Shanmen.0_0_10.Product.DivineSenseHUDPresentation'
     $SpiritShieldRuntime = New-AutomationLogFixture `
         -Name 'spirit-shield-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShield'
@@ -2796,6 +2799,7 @@ try
 		-Logs @(
 			$ControlledWeaponThreatCue,
 			$ControlledWeaponThreatReadoutPresentation,
+			$DivineSenseHUDPresentation,
 			$DivineSensePhysicalInput,
 			$ThrownWeaponMainHUDCombatHintLayoutPolicy,
 			$ThrownWeaponMainHUDCombatHintStackPresentation,
@@ -4072,6 +4076,18 @@ try
             $Ranged)
 
     Invoke-ExpectedPass `
+        -Name 'Divine Sense HUD presentation maps edge layout input runtime and legacy HUD evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenDivineSenseHUDPresentation.h',
+            'Source/demo_map/demo_mapShanmenDivineSenseHUDPresentation.cpp',
+            'Source/demo_map/demo_mapShanmenDivineSenseHUDPresentationTests.cpp') `
+        -Logs @(
+            $DivineSenseHUDPresentation,
+            $DivineSensePhysicalInput,
+            $DivineSenseRuntime,
+            $InputRestore)
+
+    Invoke-ExpectedPass `
         -Name 'legacy search-container fixture requires its exact suite' `
         -Paths @(
             'Source/demo_map/demo_mapSearchContainerTests.cpp') `
@@ -4333,6 +4349,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenDivineSenseWorldObservationAdapter.cpp') `
         -Logs @($DivineSenseWorldObservation) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'Divine Sense HUD focus cannot replace input runtime and legacy HUD evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenDivineSenseHUDPresentation.cpp') `
+        -Logs @($DivineSenseHUDPresentation) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
