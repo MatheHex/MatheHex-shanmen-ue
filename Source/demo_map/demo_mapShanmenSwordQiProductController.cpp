@@ -253,15 +253,26 @@ Fdemo_mapShanmenSwordQiProductController::TrySubmit(
 		return Result;
 	}
 
-	CapturedIntents.Add(Intent.GetIntentId(), MoveTemp(Captured));
-	return RouteCaptured(
+	// Keep the new intent private until its synchronous route has produced a
+	// receipt. Action authorization may project this controller's occupancy;
+	// publishing a half-routed intent would make that projection fail closed.
+	Fdemo_mapShanmenSwordQiControllerResult Result = RouteCaptured(
 		World,
 		ProjectileClass,
 		Coordinator,
 		SourceActor,
-		CapturedIntents.FindChecked(Intent.GetIntentId()),
+		Captured,
 		false,
 		AuthorizeAction);
+	CapturedIntents.Add(Intent.GetIntentId(), MoveTemp(Captured));
+	if (!IsValid())
+	{
+		Result.Status =
+			Edemo_mapShanmenSwordQiControllerStatus::ControllerInvalid;
+		Result.Diagnostic =
+			TEXT("Sword Qi controller failed committed-intent invariants.");
+	}
+	return Result;
 }
 
 Fdemo_mapShanmenSwordQiControllerResult

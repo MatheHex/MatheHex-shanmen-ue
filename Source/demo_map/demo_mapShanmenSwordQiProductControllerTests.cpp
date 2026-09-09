@@ -149,7 +149,12 @@ namespace
 				Coordinator,
 				Pawn,
 				RequestedIntent,
-				[this]() { return Authorize(); });
+				[this]()
+				{
+					Fdemo_mapShanmenPlayerActionOccupancySnapshot Occupancy;
+					Controller.TryAppendOccupancy(Occupancy);
+					return Authorize(Occupancy);
+				});
 		}
 	};
 

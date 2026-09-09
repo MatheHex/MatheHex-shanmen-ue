@@ -3,10 +3,15 @@
 #include "Misc/AutomationTest.h"
 
 #include "demo_mapGameMode.h"
+#include "demo_mapAttributeComponent.h"
+#include "demo_mapAttributeDefinitions.h"
 #include "demo_mapInputActionRegistry.h"
 #include "demo_mapInputBindingSettings.h"
+#include "demo_mapItemDefinitions.h"
+#include "demo_mapItemSubsystem.h"
 #include "demo_mapPlayerController.h"
 #include "demo_mapPlayerHealthComponent.h"
+#include "demo_mapShanmenSwordQiProjectile.h"
 #include "Engine/Engine.h"
 #include "Engine/EngineBaseTypes.h"
 #include "Engine/GameInstance.h"
@@ -21,7 +26,6 @@ namespace
 	constexpr EAutomationTestFlags SwordQiPhysicalInputFlags =
 		EAutomationTestFlags::EditorContext
 		| EAutomationTestFlags::EngineFilter;
-	const FGuid SwordQiPhysicalRun(0x24000001, 0, 0, 1);
 
 	struct FScopedSwordQiInputConfig
 	{
@@ -126,6 +130,10 @@ namespace
 				: nullptr;
 			if (Controller && Character)
 			{
+				// Preview worlds do not advance the normal Actor initialization
+				// pipeline, so make the explicitly spawned product controller
+				// discoverable through the same UWorld authority used in runtime.
+				World->AddController(Controller);
 				Controller->Possess(Character);
 				Controller->InitInputSystem();
 				Controller->SetAutomationAimDirection(FVector::ForwardVector);
@@ -162,6 +170,8 @@ namespace
 			return Controller && Character && Health
 				&& Controller->HasPlayerInputForAutomation()
 				&& Controller->HasInputComponentForAutomation()
+				&& (!bExpectGameMode
+					|| World->GetFirstPlayerController() == Controller)
 				&& (!bExpectGameMode || GameMode != nullptr);
 		}
 	};
@@ -188,31 +198,6 @@ namespace
 		return Text;
 	}
 
-	Fdemo_mapShanmenSwordQiInputResult MakeHostBusyInput(
-		const FGuid& EventId)
-	{
-		Fdemo_mapShanmenSwordQiInputSample Sample;
-		check(Fdemo_mapShanmenSwordQiInputSample::TryCapture(
-			FVector(10.0, 20.0, 50.0),
-			FVector::ForwardVector,
-			Sample));
-		Fdemo_mapShanmenSwordQiInputResult Input;
-		Input.Status = Edemo_mapShanmenSwordQiInputStatus::ProductRejected;
-		Input.bSpatialSampled = true;
-		Input.bProductRouteInvoked = true;
-		Input.InputEventId = EventId;
-		Input.RunId = SwordQiPhysicalRun;
-		Input.IntentId = Fdemo_mapShanmenSwordQiInputAdapter::MakeIntentId(
-			SwordQiPhysicalRun,
-			EventId);
-		Input.Sample = Sample;
-		Input.Product.Status =
-			Edemo_mapShanmenSwordQiControllerStatus::RouteRejected;
-		Input.Product.Route.Status =
-			Edemo_mapShanmenSwordQiProductRouteStatus::HostBusy;
-		Input.Diagnostic = TEXT("Synthetic active carrier fence.");
-		return Input;
-	}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -356,17 +341,72 @@ bool Fdemo_mapSwordQiPhysicalIssueRetryTest::RunTest(const FString&)
 	{
 		return false;
 	}
+	Udemo_mapItemSubsystem* Items = Fixture.GameInstance
+		? Fixture.GameInstance->GetSubsystem<Udemo_mapItemSubsystem>()
+		: nullptr;
+	Udemo_mapAttributeComponent* Attributes = Fixture.Character
+		? NewObject<Udemo_mapAttributeComponent>(
+			Fixture.Character,
+			TEXT("P241SwordQiProductAttributes"),
+			RF_Transient)
+		: nullptr;
+	if (Attributes && !Attributes->IsRegistered())
+	{
+		Attributes->RegisterComponent();
+	}
+	TArray<FGuid> AddedSwordIds;
+	TestTrue(TEXT("real Runtime and attribute authorities are available"),
+		Items && Attributes);
+	if (!Items || !Attributes)
+	{
+		return false;
+	}
+	Items->ResetForAutomation();
+	TestTrue(TEXT("real Runtime begins one active product Run"),
+		Items->BindPlayerPawn(Fixture.Character)
+			&& Fixture.Health->BindAttributeComponent(Attributes, true)
+			&& Items->BindAttributeComponent(Attributes)
+			&& Items->BindHealthComponent(Fixture.Health)
+			&& Attributes->SetBaseValue(
+				Fdemo_mapAttributeIds::Primary01,
+				6.0f)
+			&& Items->BeginRun().bSuccess
+			&& Items->AddDefinition(
+				Fdemo_mapItemIds::TrainingBlade,
+				1,
+				&AddedSwordIds).bSuccess
+			&& AddedSwordIds.Num() == 1
+			&& Items->Equip(
+				AddedSwordIds[0],
+				Fdemo_mapItemIds::WeaponSlot).bSuccess);
+	if (AddedSwordIds.Num() != 1 || !Items->GetActiveRunId().IsValid())
+	{
+		return false;
+	}
+	float EquippedAttackPower = 0.0f;
+	TestTrue(TEXT("equipped training sword contributes to final AttackPower"),
+		Attributes->GetFinalValue(
+			Fdemo_mapAttributeIds::AttackPower,
+			EquippedAttackPower)
+			&& FMath::IsNearlyEqual(EquippedAttackPower, 8.0f));
+	const FGuid ProductRunId = Items->GetActiveRunId();
+	Fixture.GameMode->PlayerItemSubsystem = Items;
+	Fixture.GameMode->PlayerAttributeComponent = Attributes;
 	FString Diagnostic;
-	TestTrue(TEXT("combat coordinator and command owner bind one fixture Run"),
+	TestTrue(TEXT("coordinator, product controller and command owner bind the Runtime Run"),
 		Fixture.GameMode->CombatRunCoordinator.TryBeginRun(
-			SwordQiPhysicalRun,
+			ProductRunId,
 			Fixture.Character,
 			Fixture.Health,
 			Diagnostic)
+			&& Fixture.GameMode->SwordQiProductController.TryBegin(
+				ProductRunId,
+				Diagnostic)
 			&& Fixture.GameMode->SwordQiCommandEventOwner.TryBegin(
-				SwordQiPhysicalRun,
+				ProductRunId,
 				Diagnostic));
 	if (!Fixture.GameMode->CombatRunCoordinator.IsReady()
+		|| !Fixture.GameMode->SwordQiProductController.IsActive()
 		|| !Fixture.GameMode->SwordQiCommandEventOwner.IsActive())
 	{
 		AddError(Diagnostic);
@@ -378,49 +418,113 @@ bool Fdemo_mapSwordQiPhysicalIssueRetryTest::RunTest(const FString&)
 	Fixture.Controller->DispatchAutomationKey(EKeys::B);
 	const Fdemo_mapShanmenSwordQiAvailabilityCommandResult Issue =
 		Fixture.Controller->GetLastSwordQiInputResultForAutomation();
-	TestTrue(TEXT("ready press dispatches Issue through P18.10"),
+	Ademo_mapShanmenSwordQiProjectile* FirstProjectile =
+		Fixture.GameMode->SwordQiProductController.GetSession()
+			.GetHost().GetProjectile();
+	const FVector FirstOrigin =
+		Fixture.Character->GetActorLocation() + FVector(0.0, 0.0, 50.0);
+	TestTrue(TEXT("physical Issue launches one authority-backed Sword Qi carrier"),
 		Issue.IsDispatched()
 			&& Issue.Kind
 				== Edemo_mapShanmenSwordQiAvailabilityCommandKind::Issue
 			&& Issue.Before.CanIssue()
 			&& Issue.After.CanIssue()
-			&& Issue.CommandEvent.Status
-				== Edemo_mapShanmenSwordQiCommandEventStatus::InputRejected
-			&& Issue.CommandEvent.Input.Status
-				== Edemo_mapShanmenSwordQiInputStatus::ProductRouteUnavailable
-			&& !Issue.CommandEvent.bEventCommitted);
+			&& Issue.CommandEvent.IsAccepted()
+			&& Issue.CommandEvent.bEventCommitted
+			&& Issue.CommandEvent.Input.IsAccepted()
+			&& Issue.CommandEvent.Input.Product.IsAccepted()
+			&& Issue.CommandEvent.Input.Product.Item.Authorization
+				.GetSourceItemInstanceId() == AddedSwordIds[0]
+			&& FMath::IsNearlyEqual(
+				Issue.CommandEvent.Input.Product.AttackPower,
+				EquippedAttackPower)
+			&& Issue.CommandEvent.Input.Sample.GetOrigin() == FirstOrigin
+			&& Issue.CommandEvent.Input.Sample.GetAimDirection().Equals(
+				FVector::ForwardVector)
+			&& ::IsValid(FirstProjectile)
+			&& FirstProjectile->GetProjectileState()
+				== Edemo_mapShanmenSwordQiProjectileState::InFlight
+			&& FirstProjectile->GetLaunchReceipt().IsValid()
+			&& FirstProjectile->GetLaunchReceipt().GetOrigin() == FirstOrigin
+			&& FirstProjectile->GetLaunchReceipt().GetDirection().Equals(
+				FVector::ForwardVector));
 
-	const Fdemo_mapShanmenSwordQiCommandEventResult Pending =
-		Fixture.GameMode->SwordQiCommandEventOwner.TryIssue(
-			[](const FGuid& EventId)
-			{
-				return MakeHostBusyInput(EventId);
-			});
-	TestTrue(TEXT("fixture retains one immutable HostBusy request"),
-		Pending.bPendingRetryStored
+	Fixture.Controller->DispatchAutomationKey(EKeys::B);
+	const Fdemo_mapShanmenSwordQiAvailabilityCommandResult Busy =
+		Fixture.Controller->GetLastSwordQiInputResultForAutomation();
+	TestTrue(TEXT("second physical Issue freezes one real HostBusy request"),
+		Busy.IsDispatched()
+			&& Busy.Kind
+				== Edemo_mapShanmenSwordQiAvailabilityCommandKind::Issue
+			&& Busy.CommandEvent.Status
+				== Edemo_mapShanmenSwordQiCommandEventStatus::InputRejected
+			&& Busy.CommandEvent.bEventCommitted
+			&& Busy.CommandEvent.Input.Product.Route.Status
+				== Edemo_mapShanmenSwordQiProductRouteStatus::HostBusy
+			&& Busy.CommandEvent.bPendingRetryStored
+			&& Busy.After.CanRetry()
 			&& Fixture.GameMode->SwordQiCommandEventOwner.HasPendingRetry());
+	const FGuid FrozenCommandId =
+		Busy.CommandEvent.Input.Product.Start.Command.GetCommandId();
+	const FVector FrozenOrigin = Busy.CommandEvent.Request.GetSample().GetOrigin();
+	const FVector FrozenDirection =
+		Busy.CommandEvent.Request.GetSample().GetAimDirection();
+
+	Fdemo_mapShanmenSwordQiTerminalReceipt FirstTerminal;
+	TestTrue(TEXT("first carrier retires before retry"),
+		Fixture.GameMode->SwordQiProductController.TryInterrupt()
+			&& Fixture.GameMode->SwordQiProductController.TryRetireTerminal(
+				FirstTerminal)
+			&& FirstTerminal.IsValid());
+	Fixture.Character->SetActorLocation(
+		FVector(400.0, 200.0, 0.0),
+		false,
+		nullptr,
+		ETeleportType::TeleportPhysics);
+	Fixture.Controller->SetAutomationAimDirection(FVector::RightVector);
+	TestTrue(TEXT("live attributes can move after the busy request freezes"),
+		Attributes->SetBaseValue(
+			Fdemo_mapAttributeIds::Primary01,
+			20.0f));
 	Fixture.Controller->DispatchAutomationKey(EKeys::B);
 	const Fdemo_mapShanmenSwordQiAvailabilityCommandResult Retry =
 		Fixture.Controller->GetLastSwordQiInputResultForAutomation();
-	TestTrue(TEXT("next press retries the frozen request without resampling"),
+	Ademo_mapShanmenSwordQiProjectile* RetryProjectile =
+		Fixture.GameMode->SwordQiProductController.GetSession()
+			.GetHost().GetProjectile();
+	TestTrue(TEXT("next press launches the frozen request without resampling authority"),
 		Retry.IsDispatched()
 			&& Retry.Kind
 				== Edemo_mapShanmenSwordQiAvailabilityCommandKind::Retry
+			&& Retry.CommandEvent.IsAccepted()
 			&& Retry.CommandEvent.bPendingRetryAttempt
-			&& Retry.CommandEvent.Request.Matches(Pending.Request)
-			&& Retry.CommandEvent.Input.Status
-				== Edemo_mapShanmenSwordQiInputStatus::ProductRouteUnavailable
-			&& Retry.CommandEvent.bPendingRetryStored
-			&& Retry.After.CanRetry()
-			&& Retry.Before.GetProjectionId()
-				== Retry.After.GetProjectionId()
-			&& Fixture.GameMode->SwordQiCommandEventOwner.HasPendingRetry());
+			&& !Retry.CommandEvent.bPendingRetryStored
+			&& Retry.CommandEvent.Request.Matches(Busy.CommandEvent.Request)
+			&& Retry.CommandEvent.Input.Product.bReusedIntent
+			&& !Retry.CommandEvent.Input.Product.Route.IsReplay()
+			&& Retry.CommandEvent.Input.Product.AttackPower
+				== EquippedAttackPower
+			&& Retry.CommandEvent.Input.Product.Start.Command.GetCommandId()
+				== FrozenCommandId
+			&& Retry.CommandEvent.Input.Sample.GetOrigin() == FrozenOrigin
+			&& Retry.CommandEvent.Input.Sample.GetAimDirection().Equals(
+				FrozenDirection)
+			&& Retry.After.CanIssue()
+			&& !Fixture.GameMode->SwordQiCommandEventOwner.HasPendingRetry()
+			&& ::IsValid(RetryProjectile)
+			&& RetryProjectile != FirstProjectile
+			&& RetryProjectile->GetProjectileState()
+				== Edemo_mapShanmenSwordQiProjectileState::InFlight
+			&& RetryProjectile->GetLaunchReceipt().GetOrigin() == FrozenOrigin
+			&& RetryProjectile->GetLaunchReceipt().GetDirection().Equals(
+				FrozenDirection));
 
-	Fdemo_mapShanmenSwordQiPendingRetryCancellation Cancellation;
-	TestTrue(TEXT("fixture returns to issue-ready through the existing cancel route"),
-		Fixture.GameMode->SwordQiCommandEventOwner.TryCancelPending(
-			Cancellation,
-			Diagnostic));
+	Fdemo_mapShanmenSwordQiTerminalReceipt RetryTerminal;
+	TestTrue(TEXT("retried carrier retires before the shared UI lock check"),
+		Fixture.GameMode->SwordQiProductController.TryInterrupt()
+			&& Fixture.GameMode->SwordQiProductController.TryRetireTerminal(
+				RetryTerminal)
+			&& RetryTerminal.IsValid());
 
 	Fixture.Controller->BeginSettlementInputLock(nullptr);
 	Fixture.Controller->DispatchAutomationKey(EKeys::B);
@@ -435,13 +539,35 @@ bool Fdemo_mapSwordQiPhysicalIssueRetryTest::RunTest(const FString&)
 			&& !Locked.CommandEvent.bEventCommitted
 			&& Locked.Before.GetProjectionId()
 				== Locked.After.GetProjectionId()
+			&& Fixture.GameMode->SwordQiCommandEventOwner
+				.GetNextEventSequence() == 3
 			&& Fixture.Controller
-				->GetSwordQiInputInvocationCountForAutomation() == Before + 3);
+				->GetSwordQiInputInvocationCountForAutomation() == Before + 4);
+	Fixture.Controller->EndSettlementInputLock();
 
-	Fixture.GameMode->SwordQiCommandEventOwner.Reset();
-	Fixture.GameMode->CombatRunCoordinator.TryEndRun(
-		SwordQiPhysicalRun,
-		Diagnostic);
+	Fdemo_mapShanmenSwordQiCommandEventEndSummary CommandSummary;
+	Fdemo_mapShanmenSwordQiControllerEndSummary ProductSummary;
+	Fdemo_mapSettlementSummary SettlementSummary;
+	TestTrue(TEXT("the complete physical product Run releases cleanly"),
+		Fixture.GameMode->SwordQiCommandEventOwner.TryEnd(
+			ProductRunId,
+			CommandSummary,
+			Diagnostic)
+			&& CommandSummary.IsValid()
+			&& CommandSummary.CommittedEventCount == 2
+			&& Fixture.GameMode->SwordQiProductController.TryEnd(
+				ProductRunId,
+				ProductSummary,
+				Diagnostic)
+			&& ProductSummary.IsValid()
+			&& ProductSummary.CapturedIntentCount == 2
+			&& ProductSummary.ProcessedCommandCount == 2
+			&& Fixture.GameMode->CombatRunCoordinator.TryEndRun(
+				ProductRunId,
+				Diagnostic)
+			&& Items->RequestSettlement(
+				Edemo_mapRunEndReason::Death,
+				SettlementSummary).bSuccess);
 	return true;
 }
 
