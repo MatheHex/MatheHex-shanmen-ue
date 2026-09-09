@@ -209,7 +209,7 @@ bool Fdemo_mapThrownWeaponTrajectoryToggleRegistryTest::RunTest(
 			Fdemo_mapInputActionIds::ThrownWeaponTrajectoryToggle);
 	TestTrue(TEXT("unified registry remains exact with trajectory toggle"),
 		Fdemo_mapInputActionRegistry::ValidateExactDefaults()
-			&& Fdemo_mapInputActionRegistry::GetExactDefaultActions().Num() == 30);
+			&& Fdemo_mapInputActionRegistry::GetExactDefaultActions().Num() == 31);
 	TestTrue(TEXT("trajectory toggle owns a conflict-free press-only default"),
 		Action
 			&& Action->DefaultKey == EKeys::T
@@ -287,7 +287,7 @@ bool Fdemo_mapThrownWeaponTrajectoryToggleMigrationTest::RunTest(
 		Fdemo_mapInputBindingSettings::Get().Load();
 	TestTrue(TEXT("missing toggle receives its conflict-free T default"),
 		Result.IsSuccess()
-			&& Fdemo_mapInputBindingSettings::Get().GetBindings().Num() == 30
+			&& Fdemo_mapInputBindingSettings::Get().GetBindings().Num() == 31
 			&& Fdemo_mapInputBindingSettings::Get().GetKey(
 				Fdemo_mapInputActionIds::ThrownWeaponTrajectoryToggle)
 				== EKeys::T);
@@ -429,7 +429,7 @@ bool Fdemo_mapThrownWeaponTrajectoryToggleRemapTest::RunTest(
 	FFileHelper::LoadFileToString(Persisted, *Config.Path);
 	TestTrue(TEXT("new C binding is persisted as version eight and active now"),
 		Remap.IsSuccess()
-			&& Persisted.Contains(TEXT("Version=8"))
+			&& Persisted.Contains(TEXT("Version=9"))
 			&& Fdemo_mapInputBindingSettings::Get().GetKey(
 				Fdemo_mapInputActionIds::ThrownWeaponTrajectoryToggle)
 				== EKeys::C

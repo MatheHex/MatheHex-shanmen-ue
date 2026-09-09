@@ -176,6 +176,79 @@ namespace
 			7.0f);
 	}
 
+	void DrawDivineSenseReveals(
+		UCanvas* Canvas,
+		APlayerController* PlayerController,
+		const Ademo_mapGameMode* GameMode)
+	{
+		if (!Canvas || !PlayerController || !GameMode
+			|| !GameMode->IsDivineSenseRevealActive())
+		{
+			return;
+		}
+		const FShanmenDivineSenseScanReceipt& Receipt =
+			GameMode->GetLatestDivineSenseReceipt();
+		for (const FShanmenDivineSenseReveal& Reveal : Receipt.GetReveals())
+		{
+			FVector2D ScreenPosition;
+			if (!PlayerController->ProjectWorldLocationToScreen(
+					Reveal.GetObservation().GetWorldLocation()
+						+ FVector(0.0, 0.0, 90.0),
+					ScreenPosition,
+					false))
+			{
+				continue;
+			}
+			const FLinearColor Color = Reveal.WasOccluded()
+				? FLinearColor(1.0f, 0.66f, 0.12f, 0.95f)
+				: FLinearColor(0.16f, 0.95f, 1.0f, 0.95f);
+			constexpr float Radius = 9.0f;
+			const FVector2D Top = ScreenPosition + FVector2D(0.0f, -Radius);
+			const FVector2D Right = ScreenPosition + FVector2D(Radius, 0.0f);
+			const FVector2D Bottom = ScreenPosition + FVector2D(0.0f, Radius);
+			const FVector2D Left = ScreenPosition + FVector2D(-Radius, 0.0f);
+			for (const TPair<FVector2D, FVector2D>& Edge :
+				{ TPair<FVector2D, FVector2D>(Top, Right),
+					TPair<FVector2D, FVector2D>(Right, Bottom),
+					TPair<FVector2D, FVector2D>(Bottom, Left),
+					TPair<FVector2D, FVector2D>(Left, Top) })
+			{
+				FCanvasLineItem Line(Edge.Key, Edge.Value);
+				Line.SetColor(Color);
+				Line.LineThickness = Reveal.WasOccluded() ? 2.0f : 2.8f;
+				Canvas->DrawItem(Line);
+			}
+			DrawReadableText(
+				Canvas,
+				GEngine->GetSmallFont(),
+				FString::Printf(
+					TEXT("%.1fm%s"),
+					FMath::Sqrt(Reveal.GetDistanceSquared()) / 100.0,
+					Reveal.WasOccluded() ? TEXT(" · OCCLUDED") : TEXT("")),
+				ScreenPosition + FVector2D(13.0f, -9.0f),
+				Color,
+				0.76f);
+		}
+
+		const FVector2D PanelPosition(Canvas->SizeX * 0.5f - 190.0f, 58.0f);
+		DrawHUDPanel(
+			Canvas,
+			PanelPosition,
+			FVector2D(380.0f, 36.0f),
+			FLinearColor(0.02f, 0.13f, 0.17f, 0.92f));
+		DrawReadableText(
+			Canvas,
+			GEngine->GetSmallFont(),
+			FString::Printf(
+				TEXT("DIVINE SENSE · %d TARGETS · SPIRIT %.0f / %.0f"),
+				Receipt.NumReveals(),
+				GameMode->GetDivineSenseSpiritEnergy(),
+				GameMode->GetDivineSenseMaximumSpiritEnergy()),
+			PanelPosition + FVector2D(10.0f, 9.0f),
+			FLinearColor(0.25f, 0.94f, 1.0f),
+			0.86f);
+	}
+
 	FLinearColor GetThrownWeaponCombatHintColor(
 		const Edemo_mapShanmenThrownWeaponMainHUDCombatHintTone Tone)
 	{
@@ -318,6 +391,7 @@ void Ademo_mapHUD::DrawHUD()
 		ActiveMode
 			? ActiveMode->GetControlledWeaponWorldLifecycle().GetWeaponActor()
 			: nullptr);
+	DrawDivineSenseReveals(Canvas, PlayerController, ActiveMode);
 	DrawHUDPanel(
 		Canvas,
 		FVector2D(18.0f, 14.0f),
@@ -334,7 +408,7 @@ void Ademo_mapHUD::DrawHUD()
 		Canvas,
 		GEngine->GetSmallFont(),
 		FString::Printf(
-			TEXT("%s/%s/%s/%s Move | %s Attack | %s/%s/%s Skills | %s Interact/Search | %s Inventory | %s Back | %s Restart"),
+			TEXT("%s/%s/%s/%s Move | %s Attack | %s/%s/%s Skills | %s Sense | %s Interact/Search | %s Inventory | %s Back | %s Restart"),
 			*InputSettings.GetKey(Fdemo_mapInputActionIds::MoveForward).GetDisplayName().ToString(),
 			*InputSettings.GetKey(Fdemo_mapInputActionIds::MoveLeft).GetDisplayName().ToString(),
 			*InputSettings.GetKey(Fdemo_mapInputActionIds::MoveBackward).GetDisplayName().ToString(),
@@ -343,6 +417,7 @@ void Ademo_mapHUD::DrawHUD()
 			*InputSettings.GetKey(Fdemo_mapInputActionIds::SkillGroundCircle).GetDisplayName().ToString(),
 			*InputSettings.GetKey(Fdemo_mapInputActionIds::SkillSelfSector).GetDisplayName().ToString(),
 			*InputSettings.GetKey(Fdemo_mapInputActionIds::SkillStraightProjectile).GetDisplayName().ToString(),
+			*InputSettings.GetKey(Fdemo_mapInputActionIds::DivineSense).GetDisplayName().ToString(),
 			*InputSettings.GetKey(Fdemo_mapInputActionIds::Interact).GetDisplayName().ToString(),
 			*InputSettings.GetKey(Fdemo_mapInputActionIds::Inventory).GetDisplayName().ToString(),
 			*InputSettings.GetKey(Fdemo_mapInputActionIds::Back).GetDisplayName().ToString(),

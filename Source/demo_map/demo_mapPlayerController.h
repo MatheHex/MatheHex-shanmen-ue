@@ -5,6 +5,7 @@
 #include "demo_mapCombatTypes.h"
 #include "demo_mapInputBindingSettings.h"
 #include "demo_mapShanmenControlledWeaponInputAdapter.h"
+#include "demo_mapShanmenDivineSenseLogicalInputAdapter.h"
 #include "demo_mapShanmenSpiritEvasionInputAdapter.h"
 #include "demo_mapShanmenThrownWeaponHotbarConfirmationAdapter.h"
 #include "demo_mapShanmenThrownWeaponArcLaunchInputAdapter.h"
@@ -106,6 +107,8 @@ public:
 	void RebuildProductInputBindings();
 	/** Adapts one future dedicated input without owning its physical key. */
 	Fdemo_mapShanmenSpiritEvasionInputResult RouteSpiritEvasionStartInput();
+	/** Routes one remappable physical pulse into the existing Divine Sense product chain. */
+	Fdemo_mapShanmenDivineSenseLogicalInputResult RouteDivineSenseInput();
 	/** Routes one canonical flying-sword Launch-or-Recall physical command. */
 	Fdemo_mapShanmenControlledWeaponInputResult
 	RouteControlledWeaponLaunchRecallInput();
@@ -194,6 +197,15 @@ public:
 	GetLastSpiritEvasionInputResultForAutomation() const
 	{
 		return LastSpiritEvasionInputResult;
+	}
+	uint64 GetDivineSenseInputInvocationCountForAutomation() const
+	{
+		return DivineSenseInputInvocationCount;
+	}
+	const Fdemo_mapShanmenDivineSenseLogicalInputResult&
+	GetLastDivineSenseInputResultForAutomation() const
+	{
+		return LastDivineSenseInputResult;
 	}
 	uint64 GetControlledWeaponInputInvocationCountForAutomation() const
 	{
@@ -341,6 +353,7 @@ protected:
 	void DecreaseThrownWeaponArcApex();
 	void ClearThrownWeaponArcTarget();
 	void StartSpiritEvasion();
+	void UseDivineSense();
 	void StartWeaponGuard();
 	void StopWeaponGuard();
 	void UseHotbarSlot(int32 SlotNumber);
@@ -368,6 +381,9 @@ protected:
 	uint64 SpiritEvasionInputInvocationCount = 0;
 	Fdemo_mapShanmenSpiritEvasionInputResult
 		LastSpiritEvasionInputResult;
+	uint64 DivineSenseInputInvocationCount = 0;
+	Fdemo_mapShanmenDivineSenseLogicalInputResult
+		LastDivineSenseInputResult;
 	uint64 ControlledWeaponInputInvocationCount = 0;
 	Fdemo_mapShanmenControlledWeaponInputResult
 		LastControlledWeaponInputResult;

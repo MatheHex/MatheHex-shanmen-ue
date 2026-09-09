@@ -1488,7 +1488,7 @@
     },
     {
       "name": "UnifiedInputRegistryAndBindings",
-      "pathRegex": "^Source/demo_map/(?:demo_mapInputActionRegistry|demo_mapInputBindingSettings|demo_mapShanmenControlledWeaponPhysicalInputTests|demo_mapShanmenSpiritEvasionPhysicalInputTests|demo_mapShanmenWeaponGuardPhysicalInputTests|demo_mapFullSystemLoopTests|demo_mapP7IntegrationTests)\\.(?:h|cpp)$",
+      "pathRegex": "^Source/demo_map/(?:demo_mapInputActionRegistry|demo_mapInputBindingSettings|demo_mapShanmenControlledWeaponPhysicalInputTests|demo_mapShanmenDivineSensePhysicalInputTests|demo_mapShanmenSpiritEvasionPhysicalInputTests|demo_mapShanmenWeaponGuardPhysicalInputTests|demo_mapFullSystemLoopTests|demo_mapP7IntegrationTests)\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10",
         "Shanmen.0_0_10.Product.MeridianShockTreatment",
@@ -1497,6 +1497,8 @@
 		"Shanmen.0_0_10.Product.ThrownWeaponTrajectoryTogglePhysicalInput",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcEditingPhysicalInput",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcEditingInputHintPresentation",
+        "Shanmen.0_0_10.Product.DivineSensePhysicalInput",
+        "Shanmen.0_0_10.Product.DivineSenseLogicalInputAdapter",
         "Shanmen.0_0_10.Product.SpiritEvasionPhysicalInput",
         "Shanmen.0_0_10.Product.SpiritEvasionInputAdapter",
         "Shanmen.0_0_10.Product.WeaponGuardPhysicalInput",
@@ -2387,6 +2389,10 @@
         "Shanmen.0_0_10",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreLaunchPreviewContext",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRuntimeBinding",
+        "Shanmen.0_0_10.Product.DivineSensePhysicalInput",
+        "Shanmen.0_0_10.Product.DivineSenseLogicalInputAdapter",
+        "Shanmen.0_0_10.Product.DivineSenseProductController",
+        "Shanmen.0_0_10.Product.DivineSenseWorldObservation",
         "Shanmen.0_0_10.Product.MeridianShockTreatment",
         "Shanmen.0_0_10.Product.CombatCondition.MeridianShock",
         "Shanmen.0_0_10.Product.SpiritEvasionProductRoute",
@@ -2451,6 +2457,8 @@
       "requiredGroups": [
         "Shanmen.0_0_10",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreLaunchPreviewContext",
+        "Shanmen.0_0_10.Product.DivineSensePhysicalInput",
+        "Shanmen.0_0_10.Product.DivineSenseLogicalInputAdapter",
         "Shanmen.0_0_10.Product.MeridianShockTreatment",
 		"Shanmen.0_0_10.Product.ControlledWeaponPhysicalInput",
 		"Shanmen.0_0_10.Product.ControlledWeaponInputAdapter",
@@ -3256,6 +3264,7 @@
 	  "requiredGroups": [
 		"Shanmen.0_0_10.Product.ControlledWeaponThreatCue",
 		"Shanmen.0_0_10.Product.ControlledWeaponThreatReadoutPresentation",
+		"Shanmen.0_0_10.Product.DivineSensePhysicalInput",
 		"Shanmen.0_0_10.Product.ThrownWeaponMainHUDCombatHintLayoutPolicy",
 		"Shanmen.0_0_10.Product.ThrownWeaponMainHUDCombatHintStackPresentation",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreLaunchGestureFeedbackPresentation",

@@ -35,6 +35,7 @@
 #include "demo_mapM01EnemyTypes.h"
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
 #include "demo_mapShanmenCombatConditionComponent.h"
+#include "demo_mapCombatVitalityHost.h"
 #include "demo_mapShanmenSpiritEvasionComponent.h"
 #include "demo_mapShanmenControlledWeaponActor.h"
 #include "demo_mapShanmenThrownWeaponProjectile.h"
@@ -68,6 +69,8 @@
 #include "Misc/Paths.h"
 #include "UnrealClient.h"
 #include "UObject/ConstructorHelpers.h"
+#include "ShanmenCombatRuntimeTags.h"
+#include "ShanmenCombatTags.h"
 
 #if !UE_BUILD_SHIPPING
 namespace
@@ -88,6 +91,62 @@ namespace
 	float GV2FinalMeasuredNavigationSeconds = 0.0f;
 }
 #endif
+
+namespace
+{
+	constexpr float DivineSensePrototypeOpeningSpiritEnergy = 100.0f;
+	constexpr double DivineSenseRevealDurationSeconds = 3.0;
+
+	class Fdemo_mapLiveDivineSenseEvidenceProvider final
+		: public Idemo_mapShanmenDivineSenseWorldEvidenceProvider
+	{
+	public:
+		virtual bool TryCaptureSubjectEvidence(
+			UWorld* World,
+			const FShanmenDivineSenseScanRequest&,
+			const AActor* SourceActor,
+			const AActor* SubjectActor,
+			const FGuid& SubjectEntityId,
+			const FVector& SourceLocation,
+			const FVector& SubjectLocation,
+			Fdemo_mapShanmenDivineSenseWorldSubjectEvidence& OutEvidence)
+			const override
+		{
+			OutEvidence =
+				Fdemo_mapShanmenDivineSenseWorldSubjectEvidence();
+			Idemo_mapCombatVitalityHost* VitalityHost = SubjectActor
+				? Cast<Idemo_mapCombatVitalityHost>(
+					const_cast<AActor*>(SubjectActor))
+				: nullptr;
+			FShanmenTargetVitalitySnapshot Vitality;
+			if (!::IsValid(World) || !::IsValid(SourceActor)
+				|| !::IsValid(SubjectActor) || !VitalityHost
+				|| !VitalityHost->IsCombatEntityBound()
+				|| VitalityHost->GetCombatEntityId() != SubjectEntityId
+				|| !VitalityHost->TryCaptureCombatVitalitySnapshot(Vitality)
+				|| !Vitality.IsValid() || Vitality.CurrentVitality <= 0.0f)
+			{
+				return false;
+			}
+
+			OutEvidence.SubjectTags.AddTag(
+				FShanmenCombatNativeTags::TargetLiving());
+			FCollisionQueryParams QueryParams(
+				SCENE_QUERY_STAT(ShanmenDivineSenseVisibility),
+				true);
+			QueryParams.AddIgnoredActor(SourceActor);
+			QueryParams.AddIgnoredActor(SubjectActor);
+			const FVector SightOffset(0.0, 0.0, 50.0);
+			OutEvidence.bHasLineOfSight = !World->LineTraceTestByChannel(
+				SourceLocation + SightOffset,
+				SubjectLocation + SightOffset,
+				ECC_Visibility,
+				QueryParams);
+			OutEvidence.AuthorityRevision = Vitality.AuthorityRevision;
+			return OutEvidence.IsValid();
+		}
+	};
+}
 
 Ademo_mapGameMode::Ademo_mapGameMode()
 {
@@ -1002,6 +1061,218 @@ Ademo_mapGameMode::RouteSpiritEvasionStartIntent(
 			EGuidFormats::DigitsWithHyphens),
 		static_cast<long long>(TimelineSample.GetCurrentTick()));
 	return Result;
+}
+
+Fdemo_mapShanmenDivineSenseLogicalInputResult
+Ademo_mapGameMode::RouteDivineSenseInput()
+{
+	const TCHAR* InactiveReason = nullptr;
+	if (!IsM01ExpeditionMap())
+	{
+		InactiveReason = TEXT("Divine Sense requires the authored M01 expedition map.");
+	}
+	else if (!bM01EnemyContentActive)
+	{
+		InactiveReason = TEXT("Divine Sense requires active M01 enemy content.");
+	}
+	else if (!CombatRunCoordinator.IsReady())
+	{
+		InactiveReason = TEXT("Divine Sense requires one ready combat Run.");
+	}
+	else if (!DivineSenseProductController.IsActive())
+	{
+		InactiveReason = TEXT("Divine Sense requires one active product Controller.");
+	}
+	else if (!DivineSenseLogicalInputAdapter.IsActive())
+	{
+		InactiveReason = TEXT("Divine Sense requires one active logical input adapter.");
+	}
+	if (InactiveReason)
+	{
+		Fdemo_mapShanmenDivineSenseLogicalInputResult Result;
+		Result.Status =
+			Edemo_mapShanmenDivineSenseLogicalInputStatus::AdapterInactive;
+		Result.Diagnostic = InactiveReason;
+		return Result;
+	}
+
+	APawn* SourcePawn = GetDemoPawn();
+	TArray<AActor*> LivingSubjects;
+	LivingSubjects.Reserve(M01EnemyActors.Num());
+	for (const TWeakObjectPtr<AActor>& Candidate : M01EnemyActors)
+	{
+		AActor* Subject = Candidate.Get();
+		Idemo_mapCombatVitalityHost* VitalityHost = Subject
+			? Cast<Idemo_mapCombatVitalityHost>(Subject)
+			: nullptr;
+		FShanmenTargetVitalitySnapshot Vitality;
+		if (::IsValid(Subject) && !Subject->IsActorBeingDestroyed()
+			&& VitalityHost && VitalityHost->IsCombatEntityBound()
+			&& VitalityHost->TryCaptureCombatVitalitySnapshot(Vitality)
+			&& Vitality.IsValid() && Vitality.CurrentVitality > 0.0f)
+		{
+			LivingSubjects.Add(Subject);
+		}
+	}
+
+	Fdemo_mapLiveDivineSenseEvidenceProvider EvidenceProvider;
+	Fdemo_mapShanmenDivineSenseLogicalInputResult Result =
+		DivineSenseLogicalInputAdapter.HasPendingRetry()
+			? DivineSenseLogicalInputAdapter.TryRetry(
+				DivineSenseProductController,
+				CombatRunCoordinator,
+				GetWorld(),
+				SourcePawn,
+				LivingSubjects,
+				EvidenceProvider)
+			: DivineSenseLogicalInputAdapter.TryUse(
+				DivineSenseProductController,
+				CombatRunCoordinator,
+				GetWorld(),
+				SourcePawn,
+				LivingSubjects,
+				EvidenceProvider);
+	if (Result.IsAccepted())
+	{
+		LatestDivineSenseReceipt =
+			Result.ProductRoute.ControllerResult.Route.Route.HostPulse.Pulse.
+				Receipt.GetWorldObservation().Receipt;
+		DivineSenseRevealExpiresAtSeconds = GetWorld()
+			? GetWorld()->GetTimeSeconds()
+				+ DivineSenseRevealDurationSeconds
+			: -1.0;
+		UE_LOG(
+			Logdemo_map,
+			Log,
+			TEXT("0_0_10_DIVINE_SENSE Event=PulseAccepted Reveals=%d SpiritEnergy=%.1f"),
+			LatestDivineSenseReceipt.NumReveals(),
+			GetDivineSenseSpiritEnergy());
+	}
+	else if (DivineSenseLogicalInputAdapter.HasPendingRetry()
+		&& Result.bRetryAttempt)
+	{
+		// One physical retry is bounded. A second press starts fresh rather
+		// than trapping gameplay behind a permanently stale World batch.
+		Fdemo_mapShanmenDivineSenseLogicalInputCancellation Cancellation;
+		FString CancellationDiagnostic;
+		DivineSenseLogicalInputAdapter.TryCancelPending(
+			Cancellation, CancellationDiagnostic);
+	}
+	return Result;
+}
+
+bool Ademo_mapGameMode::IsDivineSenseRevealActive() const
+{
+	return LatestDivineSenseReceipt.IsValid()
+		&& GetWorld()
+		&& GetWorld()->GetTimeSeconds()
+			<= DivineSenseRevealExpiresAtSeconds;
+}
+
+float Ademo_mapGameMode::GetDivineSenseSpiritEnergy() const
+{
+	Fdemo_mapShanmenDivineSenseProductAvailability Availability;
+	FString Diagnostic;
+	return DivineSenseProductController.TryCaptureAvailability(
+			CombatRunCoordinator, Availability, Diagnostic)
+		? Availability.GetSessionAvailability().GetResourceSnapshot().
+			GetAvailableAmount()
+		: 0.0f;
+}
+
+float Ademo_mapGameMode::GetDivineSenseMaximumSpiritEnergy() const
+{
+	Fdemo_mapShanmenDivineSenseProductAvailability Availability;
+	FString Diagnostic;
+	return DivineSenseProductController.TryCaptureAvailability(
+			CombatRunCoordinator, Availability, Diagnostic)
+		? Availability.GetSessionAvailability().GetResourceSnapshot().
+			GetMaximumAmount()
+		: 0.0f;
+}
+
+bool Ademo_mapGameMode::TryBeginDivineSenseProductRun(
+	FString& OutDiagnostic)
+{
+	OutDiagnostic.Reset();
+	FShanmenActionResourceAuthority OpeningAuthority;
+	FShanmenActionResourceSnapshot OpeningSnapshot;
+	return FShanmenActionResourceAuthority::TryCreate(
+			CombatRunCoordinator.GetPlayerEntityId(),
+			FShanmenCombatRuntimeNativeTags::ResourceSpiritEnergy(),
+			DivineSensePrototypeOpeningSpiritEnergy,
+			DivineSensePrototypeOpeningSpiritEnergy,
+			0,
+			OpeningAuthority)
+		&& OpeningAuthority.TryCaptureSnapshot(OpeningSnapshot)
+		&& Fdemo_mapShanmenDivineSenseProductRoute::TryBegin(
+			DivineSenseProductController,
+			CombatRunCoordinator,
+			OpeningSnapshot,
+			OutDiagnostic)
+		&& DivineSenseLogicalInputAdapter.TryBegin(
+			DivineSenseProductController,
+			CombatRunCoordinator,
+			OutDiagnostic);
+}
+
+bool Ademo_mapGameMode::ReleaseDivineSenseProductRun(
+	const TCHAR* Context,
+	int32& OutPulseCount)
+{
+	const TCHAR* SafeContext = Context ? Context : TEXT("Unknown");
+	OutPulseCount = DivineSenseProductController.IsActive()
+		? DivineSenseProductController.NumCapturedIntents()
+		: 0;
+	if (DivineSenseLogicalInputAdapter.IsActive())
+	{
+		Fdemo_mapShanmenDivineSenseLogicalInputEndSummary Summary;
+		FString Diagnostic;
+		if (!DivineSenseLogicalInputAdapter.TryEnd(
+				DivineSenseProductController,
+				CombatRunCoordinator,
+				Summary,
+				Diagnostic))
+		{
+			UE_LOG(
+				Logdemo_map,
+				Error,
+				TEXT("0_0_10_COMBAT_RUN Event=DivineSenseInputReleaseRejected Context=%s Diagnostic=%s"),
+				SafeContext,
+				*Diagnostic);
+			return false;
+		}
+	}
+	if (DivineSenseProductController.IsActive())
+	{
+		const Fdemo_mapShanmenDivineSenseProductControllerEndResult End =
+			Fdemo_mapShanmenDivineSenseProductRoute::TryEnd(
+				DivineSenseProductController,
+				CombatRunCoordinator);
+		if (!End.IsSuccess())
+		{
+			UE_LOG(
+				Logdemo_map,
+				Error,
+				TEXT("0_0_10_COMBAT_RUN Event=DivineSenseProductReleaseRejected Context=%s Diagnostic=%s"),
+				SafeContext,
+				*End.Diagnostic);
+			return false;
+		}
+	}
+	if (!DivineSenseLogicalInputAdapter.Reset()
+		|| !DivineSenseProductController.Reset())
+	{
+		UE_LOG(
+			Logdemo_map,
+			Error,
+			TEXT("0_0_10_COMBAT_RUN Event=DivineSenseResetRejected Context=%s"),
+			SafeContext);
+		return false;
+	}
+	LatestDivineSenseReceipt = FShanmenDivineSenseScanReceipt();
+	DivineSenseRevealExpiresAtSeconds = -1.0;
+	return true;
 }
 
 Fdemo_mapShanmenWeaponGuardSessionStartResult
@@ -2947,6 +3218,8 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 		|| !SwordRhythmPresentationRunController.IsEmpty()
 		|| !SwordQiProductController.IsEmpty()
 		|| !SwordQiCommandEventOwner.IsEmpty()
+		|| !DivineSenseProductController.IsEmpty()
+		|| !DivineSenseLogicalInputAdapter.IsEmpty()
 		|| (ExistingConditions && !ExistingConditions->IsEmpty())
 		|| (SpiritEvasion
 			&& SpiritEvasion->HasHost()
@@ -3279,8 +3552,23 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 			return false;
 		}
 	}
+	FString DivineSenseDiagnostic;
+	if (!TryBeginDivineSenseProductRun(DivineSenseDiagnostic))
+	{
+		const bool bReleased = ReleaseCombatProductRun(
+			TEXT("DivineSenseProductBindFailure"));
+		OutDiagnostic = DivineSenseDiagnostic.IsEmpty()
+			? TEXT("Divine Sense product binding failed closed.")
+			: DivineSenseDiagnostic;
+		if (!bReleased)
+		{
+			OutDiagnostic += TEXT(
+				" Existing combat products also rejected activation rollback.");
+		}
+		return false;
+	}
 	UE_LOG(Logdemo_map, Log,
-		TEXT("0_0_10_COMBAT_RUN Event=RunBound RunId=%s PlayerEntityId=%s M01Entities=%d M01VitalityHosts=%d ControlledWeaponWorldStatus=%d ControlledWeaponWorldActive=%d ControlledWeaponWorldThreatSampler=%d ControlledWeaponWorldThreatIntervalTicks=%lld ThrownWeaponLifecycle=%d ThrownWeaponTrajectory=%d ThrownWeaponChoiceStateId=%s ThrownWeaponChoiceRevision=%llu ThrownWeaponArcPreLaunchContext=%d TreatmentLifecycle=%d SwordQiController=%d SwordQiCommandOwner=%d RunTimelineId=%s RunTickRate=%lld ConditionDefinition=%s ConditionDurationTicks=%lld SwordRhythmConfigId=%s SwordRhythmWindow=[%lld,%lld)"),
+		TEXT("0_0_10_COMBAT_RUN Event=RunBound RunId=%s PlayerEntityId=%s M01Entities=%d M01VitalityHosts=%d ControlledWeaponWorldStatus=%d ControlledWeaponWorldActive=%d ControlledWeaponWorldThreatSampler=%d ControlledWeaponWorldThreatIntervalTicks=%lld ThrownWeaponLifecycle=%d ThrownWeaponTrajectory=%d ThrownWeaponChoiceStateId=%s ThrownWeaponChoiceRevision=%llu ThrownWeaponArcPreLaunchContext=%d TreatmentLifecycle=%d SwordQiController=%d SwordQiCommandOwner=%d DivineSenseController=%d DivineSenseInput=%d DivineSenseSpiritEnergy=%.1f RunTimelineId=%s RunTickRate=%lld ConditionDefinition=%s ConditionDurationTicks=%lld SwordRhythmConfigId=%s SwordRhythmWindow=[%lld,%lld)"),
 		*ActiveRunId.ToString(EGuidFormats::DigitsWithHyphens),
 		*CombatRunCoordinator.GetPlayerEntityId().ToString(
 			EGuidFormats::DigitsWithHyphens),
@@ -3303,6 +3591,9 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 		MeridianShockTreatmentProductLifecycle.IsActive() ? 1 : 0,
 		SwordQiProductController.IsActive() ? 1 : 0,
 		SwordQiCommandEventOwner.IsActive() ? 1 : 0,
+		DivineSenseProductController.IsActive() ? 1 : 0,
+		DivineSenseLogicalInputAdapter.IsActive() ? 1 : 0,
+		GetDivineSenseSpiritEnergy(),
 		*CombatRunFixedTimeline.GetTimelineId().ToString(
 			EGuidFormats::DigitsWithHyphens),
 		static_cast<long long>(
@@ -3328,6 +3619,13 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 	const TCHAR* Context)
 {
 	const TCHAR* SafeContext = Context ? Context : TEXT("Unknown");
+	int32 DivineSensePulseCount = 0;
+	if (!ReleaseDivineSenseProductRun(
+			SafeContext,
+			DivineSensePulseCount))
+	{
+		return false;
+	}
 	if (ThrownWeaponArcPreLaunchPreviewContext.IsActive()
 		&& (!ThrownWeaponArcPreLaunchPreviewContext.IsValid()
 			|| (CombatRunCoordinator.IsActive()
@@ -3604,7 +3902,9 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 			&& SwordRhythmProductSession.IsEmpty()
 			&& SwordRhythmPresentationRunController.IsEmpty()
 			&& SwordQiProductController.IsEmpty()
-			&& SwordQiCommandEventOwner.IsEmpty())
+			&& SwordQiCommandEventOwner.IsEmpty()
+			&& DivineSenseProductController.IsEmpty()
+			&& DivineSenseLogicalInputAdapter.IsEmpty())
 		{
 			return bSwordRhythmPresentationReleased;
 		}
@@ -3680,7 +3980,7 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 		ControlledWeaponRunCommandRouter.Reset();
 		ControlledWeaponThreatSampleRouter.Reset();
 		UE_LOG(Logdemo_map, Log,
-		TEXT("0_0_10_COMBAT_RUN Event=RunReleased RunId=%s Context=%s ControlledBound=%d ControlledInterrupted=%d RoutedIntents=%d ThreatSamples=%lld WorldThreatSamples=%lld ThrownSelections=%d TreatmentRequests=%d TreatmentPendingAtTeardown=%d SwordQiCommandEvents=%llu SwordQiPendingRetryAtTeardown=%d SwordQiIntents=%d SwordQiCommands=%d SwordQiInterrupted=%d ConditionApplications=%d ConditionRevision=%lld SwordRhythmObservations=%d SwordRhythmPresentationPublished=%d SwordRhythmPresentationQueuedAtTeardown=%d WeaponGuardInterrupted=%d"),
+		TEXT("0_0_10_COMBAT_RUN Event=RunReleased RunId=%s Context=%s ControlledBound=%d ControlledInterrupted=%d RoutedIntents=%d ThreatSamples=%lld WorldThreatSamples=%lld ThrownSelections=%d TreatmentRequests=%d TreatmentPendingAtTeardown=%d SwordQiCommandEvents=%llu SwordQiPendingRetryAtTeardown=%d SwordQiIntents=%d SwordQiCommands=%d SwordQiInterrupted=%d DivineSensePulses=%d ConditionApplications=%d ConditionRevision=%lld SwordRhythmObservations=%d SwordRhythmPresentationPublished=%d SwordRhythmPresentationQueuedAtTeardown=%d WeaponGuardInterrupted=%d"),
 			*Result.RunId.ToString(EGuidFormats::DigitsWithHyphens),
 			SafeContext,
 			Result.BoundItemCount,
@@ -3697,6 +3997,7 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 			SwordQiSummary.CapturedIntentCount,
 			SwordQiSummary.ProcessedCommandCount,
 			SwordQiSummary.bInterruptedFlight ? 1 : 0,
+			DivineSensePulseCount,
 			ConditionApplicationCount,
 			static_cast<long long>(ConditionRevision),
 			SwordRhythmObservationCount,

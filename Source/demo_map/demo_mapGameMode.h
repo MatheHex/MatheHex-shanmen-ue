@@ -28,6 +28,7 @@
 #include "demo_mapShanmenThrownWeaponInputChoiceSession.h"
 #include "demo_mapShanmenThrownWeaponProductLifecycle.h"
 #include "demo_mapShanmenRunCorrelation.h"
+#include "demo_mapShanmenDivineSenseLogicalInputAdapter.h"
 #include "demo_mapShanmenSpiritEvasionProductRoute.h"
 #include "demo_mapShanmenCombatRunFixedTimeline.h"
 #include "demo_mapShanmenCombatConditionStatus.h"
@@ -341,6 +342,15 @@ public:
 	/** Sole product start entry from a device-independent direction intent. */
 	Fdemo_mapShanmenSpiritEvasionProductRouteResult
 	RouteSpiritEvasionStartIntent(const FVector& CandidateDirection);
+	/** Routes one physical pulse through the existing P19 product authority. */
+	Fdemo_mapShanmenDivineSenseLogicalInputResult RouteDivineSenseInput();
+	bool IsDivineSenseRevealActive() const;
+	const FShanmenDivineSenseScanReceipt& GetLatestDivineSenseReceipt() const
+	{
+		return LatestDivineSenseReceipt;
+	}
+	float GetDivineSenseSpiritEnergy() const;
+	float GetDivineSenseMaximumSpiritEnergy() const;
 	/** Acquires the sole active weapon-guard Host from caller-owned time. */
 	Fdemo_mapShanmenWeaponGuardSessionStartResult
 	RouteWeaponGuardStartIntent(
@@ -495,6 +505,10 @@ private:
 	bool UsesPersistedEncounterMarkers() const;
 	bool InitializeV3Progression(APawn* PlayerPawn, Udemo_mapItemSubsystem* Items);
 	bool TryActivateCombatRun(APawn* PlayerPawn, FString& OutDiagnostic);
+	bool TryBeginDivineSenseProductRun(FString& OutDiagnostic);
+	bool ReleaseDivineSenseProductRun(
+		const TCHAR* Context,
+		int32& OutPulseCount);
 	bool ReleaseCombatProductRun(const TCHAR* Context);
 	Fdemo_mapShanmenPlayerActionOccupancySnapshot
 	CapturePlayerActionOccupancy() const;
@@ -688,6 +702,14 @@ private:
 	Fdemo_mapShanmenSwordQiProductController SwordQiProductController;
 	Fdemo_mapShanmenSwordQiCommandEventOwner SwordQiCommandEventOwner;
 	Fdemo_mapShanmenWeaponGuardProductSession WeaponGuardProductSession;
+	Fdemo_mapShanmenDivineSenseProductController DivineSenseProductController;
+	Fdemo_mapShanmenDivineSenseLogicalInputAdapter
+		DivineSenseLogicalInputAdapter;
+	FShanmenDivineSenseScanReceipt LatestDivineSenseReceipt;
+	double DivineSenseRevealExpiresAtSeconds = -1.0;
+#if WITH_DEV_AUTOMATION_TESTS
+	friend class Fdemo_mapDivineSenseGameModeLifecycleTest;
+#endif
 	TArray<TWeakObjectPtr<Ademo_mapM01ExtractionZone>> M01ExtractionZones;
 	TArray<TWeakObjectPtr<AActor>> M01EnemyActors;
 	TWeakObjectPtr<Ademo_mapM01BossCharacter> M01Boss;

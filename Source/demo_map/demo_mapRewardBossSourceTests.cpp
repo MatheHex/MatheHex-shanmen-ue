@@ -139,7 +139,9 @@ namespace
 				|| Definition->CategoryId
 					== Fdemo_mapItemIds::ArmorCategory
 				|| Definition->CategoryId
-					== Fdemo_mapItemIds::AccessoryCategory);
+					== Fdemo_mapItemIds::AccessoryCategory
+				|| Definition->CategoryId
+					== Fdemo_mapItemIds::SpatialRingCategory);
 	}
 
 	bool FindNaturalBossRun(

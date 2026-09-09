@@ -212,6 +212,7 @@ void Ademo_mapPlayerController::BindProductInputActions()
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::ThrownWeaponArcApexDecrease), IE_Pressed, this, &Ademo_mapPlayerController::DecreaseThrownWeaponArcApex);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::ThrownWeaponArcTargetClear), IE_Pressed, this, &Ademo_mapPlayerController::ClearThrownWeaponArcTarget);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::SpiritEvasion), IE_Pressed, this, &Ademo_mapPlayerController::StartSpiritEvasion);
+	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::DivineSense), IE_Pressed, this, &Ademo_mapPlayerController::UseDivineSense);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::WeaponGuard), IE_Pressed, this, &Ademo_mapPlayerController::StartWeaponGuard);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::WeaponGuard), IE_Released, this, &Ademo_mapPlayerController::StopWeaponGuard);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::Interact), IE_Pressed, this, &Ademo_mapPlayerController::BeginInteractV3);
@@ -1138,6 +1139,49 @@ Ademo_mapPlayerController::RouteSpiritEvasionStartInput()
 				? Mode->RouteSpiritEvasionStartIntent(Direction)
 				: Fdemo_mapShanmenSpiritEvasionProductRouteResult();
 		});
+}
+
+void Ademo_mapPlayerController::UseDivineSense()
+{
+	const Fdemo_mapShanmenDivineSenseLogicalInputResult Result =
+		RouteDivineSenseInput();
+#if !UE_BUILD_SHIPPING
+	++DivineSenseInputInvocationCount;
+	LastDivineSenseInputResult = Result;
+#endif
+	UE_LOG(
+		Logdemo_map,
+		Log,
+		TEXT("Divine Sense input %s: %s"),
+		Result.IsAccepted() ? TEXT("accepted") : TEXT("rejected"),
+		*Result.Diagnostic);
+}
+
+Fdemo_mapShanmenDivineSenseLogicalInputResult
+Ademo_mapPlayerController::RouteDivineSenseInput()
+{
+	if (!IsGameplayInputAllowed())
+	{
+		Fdemo_mapShanmenDivineSenseLogicalInputResult Result;
+		Result.Status =
+			Edemo_mapShanmenDivineSenseLogicalInputStatus::AdapterInactive;
+		Result.Diagnostic =
+			TEXT("Divine Sense physical input is blocked by the active UI surface.");
+		return Result;
+	}
+	Ademo_mapGameMode* Mode = GetWorld()
+		? Cast<Ademo_mapGameMode>(GetWorld()->GetAuthGameMode())
+		: nullptr;
+	if (!Mode)
+	{
+		Fdemo_mapShanmenDivineSenseLogicalInputResult Result;
+		Result.Status =
+			Edemo_mapShanmenDivineSenseLogicalInputStatus::AdapterInactive;
+		Result.Diagnostic =
+			TEXT("Divine Sense physical input requires the product GameMode.");
+		return Result;
+	}
+	return Mode->RouteDivineSenseInput();
 }
 
 Fdemo_mapShanmenThrownWeaponArcLaunchInputResult

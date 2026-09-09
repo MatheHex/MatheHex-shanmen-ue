@@ -610,6 +610,9 @@ try
     $DivineSenseLogicalInputAdapter = New-AutomationLogFixture `
         -Name 'divine-sense-logical-input-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.DivineSenseLogicalInputAdapter'
+    $DivineSensePhysicalInput = New-AutomationLogFixture `
+        -Name 'divine-sense-physical-input.log' `
+        -Group 'Shanmen.0_0_10.Product.DivineSensePhysicalInput'
     $SpiritShieldRuntime = New-AutomationLogFixture `
         -Name 'spirit-shield-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShield'
@@ -2358,6 +2361,7 @@ try
             'Source/demo_map/demo_mapInputBindingSettings.h',
             'Source/demo_map/demo_mapInputBindingSettings.cpp',
             'Source/demo_map/demo_mapShanmenControlledWeaponPhysicalInputTests.cpp',
+            'Source/demo_map/demo_mapShanmenDivineSensePhysicalInputTests.cpp',
             'Source/demo_map/demo_mapShanmenSpiritEvasionPhysicalInputTests.cpp',
             'Source/demo_map/demo_mapShanmenThrownWeaponTrajectoryTogglePhysicalInputTests.cpp',
             'Source/demo_map/demo_mapShanmenThrownWeaponArcEditingPhysicalInputTests.cpp',
@@ -2372,6 +2376,8 @@ try
             $ThrownWeaponTrajectoryTogglePhysicalInput,
             $ThrownWeaponArcEditingPhysicalInput,
             $ThrownWeaponArcEditingInputHintPresentation,
+            $DivineSensePhysicalInput,
+            $DivineSenseLogicalInputAdapter,
             $SpiritEvasionPhysicalInput,
             $SpiritEvasionInputAdapter,
             $FullSystemLoop,
@@ -2790,6 +2796,7 @@ try
 		-Logs @(
 			$ControlledWeaponThreatCue,
 			$ControlledWeaponThreatReadoutPresentation,
+			$DivineSensePhysicalInput,
 			$ThrownWeaponMainHUDCombatHintLayoutPolicy,
 			$ThrownWeaponMainHUDCombatHintStackPresentation,
 			$ThrownArcPreLaunchGestureFeedbackPresentation,
@@ -4301,6 +4308,19 @@ try
             $ActionResource,
             $ActionLifecycle,
             $WorldGameplay)
+
+    Invoke-ExpectedPass `
+        -Name 'Divine Sense physical input maps V registry lifecycle and legacy input evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenDivineSensePhysicalInputTests.cpp') `
+        -Logs @(
+            $Full,
+            $FullSystemRegistry,
+            $FullSystemRestore,
+            $P7Integration,
+            $P5RuntimeInterface,
+            $InputRestore,
+            $Ranged)
 
     Invoke-ExpectedFail `
         -Name 'missing mapped group fails closed' `
