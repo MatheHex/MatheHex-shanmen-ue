@@ -1,6 +1,7 @@
 #include "demo_mapShanmenThrownWeaponProjectile.h"
 
 #include "Components/BoxComponent.h"
+#include "Components/PointLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/HitResult.h"
 #include "Engine/World.h"
@@ -12,6 +13,10 @@ namespace
 	/** Engine Cube prototype dimensions in Unreal centimetres. */
 	const FVector ThrownWeaponPrototypeFullSize(30.0f, 4.5f, 1.2f);
 	constexpr float EngineCubeSideLength = 100.0f;
+	const FLinearColor StraightFlightCueColor(1.0f, 0.48f, 0.08f);
+	const FLinearColor ArcFlightCueColor(0.20f, 0.72f, 1.0f);
+	constexpr float FlightCueIntensity = 1600.0f;
+	constexpr float FlightCueAttenuationRadius = 140.0f;
 
 	bool ActionsMatch(
 		const FShanmenCombatActionSnapshot& Left,
@@ -167,6 +172,15 @@ Ademo_mapShanmenThrownWeaponProjectile()
 	}
 	Visual->SetVisibility(false, true);
 
+	FlightCueLight = CreateDefaultSubobject<UPointLightComponent>(
+		TEXT("ThrownWeaponFlightCueLight"));
+	FlightCueLight->SetupAttachment(Collision);
+	FlightCueLight->SetIntensity(FlightCueIntensity);
+	FlightCueLight->SetAttenuationRadius(FlightCueAttenuationRadius);
+	FlightCueLight->SetCastShadows(false);
+	FlightCueLight->SetLightColor(StraightFlightCueColor);
+	FlightCueLight->SetVisibility(false);
+
 	Movement = CreateDefaultSubobject<UProjectileMovementComponent>(
 		TEXT("ThrownWeaponMovement"));
 	Movement->UpdatedComponent = Collision;
@@ -201,6 +215,37 @@ GetPresentationForwardDirection() const
 		: FVector::ZeroVector;
 }
 
+bool Ademo_mapShanmenThrownWeaponProjectile::IsFlightCueVisible() const
+{
+	return FlightCueLight && FlightCueLight->IsVisible();
+}
+
+FLinearColor Ademo_mapShanmenThrownWeaponProjectile::
+GetFlightCueColor() const
+{
+	return FlightCueLight
+		? FlightCueLight->GetLightColor()
+		: FLinearColor::Transparent;
+}
+
+void Ademo_mapShanmenThrownWeaponProjectile::RefreshFlightCue()
+{
+	if (!FlightCueLight)
+	{
+		return;
+	}
+	if (LaunchReceipt.IsValid())
+	{
+		FlightCueLight->SetLightColor(
+			LaunchReceipt.GetTrajectoryKind()
+				== EShanmenThrownWeaponTrajectoryKind::BallisticArc
+				? ArcFlightCueColor
+				: StraightFlightCueColor);
+	}
+	FlightCueLight->SetVisibility(
+		State == Edemo_mapShanmenThrownWeaponProjectileState::InFlight);
+}
+
 bool Ademo_mapShanmenThrownWeaponProjectile::TryStageLaunch(
 	const FShanmenThrownWeaponLaunchReceipt& InLaunch,
 	const FShanmenWorldHitContext& InContext,
@@ -224,6 +269,7 @@ bool Ademo_mapShanmenThrownWeaponProjectile::TryStageLaunch(
 		|| !ActionsMatch(InLaunch.GetAction(), InContext.GetAction())
 		|| !Visual
 		|| !Visual->GetStaticMesh()
+		|| !FlightCueLight
 		|| !TryBuildMotionConfig(*this, InLaunch, Motion))
 	{
 		return false;
@@ -253,6 +299,7 @@ bool Ademo_mapShanmenThrownWeaponProjectile::TryStageLaunch(
 		nullptr,
 		ETeleportType::TeleportPhysics);
 	State = Edemo_mapShanmenThrownWeaponProjectileState::Staged;
+	RefreshFlightCue();
 	return IsStagedFor(InLaunch, InContext);
 }
 
@@ -268,9 +315,12 @@ bool Ademo_mapShanmenThrownWeaponProjectile::IsStagedFor(
 		&& Collision
 		&& Movement
 		&& Visual
+		&& FlightCueLight
 		&& Visual->GetStaticMesh()
+		&& FlightCueLight->GetAttachParent() == Collision
 		&& Collision->GetCollisionEnabled() == ECollisionEnabled::NoCollision
 		&& !IsPresentationVisible()
+		&& !IsFlightCueVisible()
 		&& !Movement->IsActive()
 		&& MotionMatches(*this, *Movement, InLaunch, true);
 }
@@ -287,8 +337,10 @@ bool Ademo_mapShanmenThrownWeaponProjectile::IsInFlightFor(
 		&& Collision
 		&& Movement
 		&& Visual
+		&& FlightCueLight
 		&& Collision->GetCollisionEnabled() == ECollisionEnabled::QueryOnly
 		&& IsPresentationVisible()
+		&& IsFlightCueVisible()
 		&& Movement->IsActive()
 		&& MotionMatches(*this, *Movement, InLaunch, false);
 }
@@ -307,6 +359,7 @@ void Ademo_mapShanmenThrownWeaponProjectile::ActivateCommittedLaunch()
 	Movement->Activate(true);
 	Visual->SetVisibility(true, true);
 	State = Edemo_mapShanmenThrownWeaponProjectileState::InFlight;
+	RefreshFlightCue();
 }
 
 bool Ademo_mapShanmenThrownWeaponProjectile::CancelStagedLaunch()
@@ -332,6 +385,7 @@ bool Ademo_mapShanmenThrownWeaponProjectile::CancelStagedLaunch()
 	LaunchReceipt = FShanmenThrownWeaponLaunchReceipt();
 	HitContext = FShanmenWorldHitContext();
 	State = Edemo_mapShanmenThrownWeaponProjectileState::Empty;
+	RefreshFlightCue();
 	return true;
 }
 
@@ -346,6 +400,7 @@ bool Ademo_mapShanmenThrownWeaponProjectile::MarkSpent()
 	Movement->StopMovementImmediately();
 	Movement->Deactivate();
 	State = Edemo_mapShanmenThrownWeaponProjectileState::Spent;
+	RefreshFlightCue();
 	return true;
 }
 

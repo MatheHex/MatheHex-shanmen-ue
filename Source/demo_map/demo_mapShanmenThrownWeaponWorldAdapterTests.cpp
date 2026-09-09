@@ -798,6 +798,7 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 			&& Projectile->GetCollisionComponent()->GetCollisionEnabled()
 				== ECollisionEnabled::NoCollision
 			&& !Projectile->IsPresentationVisible()
+			&& !Projectile->IsFlightCueVisible()
 			&& !Projectile->GetMovementComponent()->IsActive());
 
 	if (!GEngine)
@@ -820,7 +821,8 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 			&& Execution.GetState() == EShanmenThrownWeaponState::Ready
 			&& Projectile->GetProjectileState()
 				== Edemo_mapShanmenThrownWeaponProjectileState::Empty
-			&& !Projectile->IsPresentationVisible());
+			&& !Projectile->IsPresentationVisible()
+			&& !Projectile->IsFlightCueVisible());
 	GameInstance->Shutdown();
 	GameInstance->RemoveFromRoot();
 	GameInstance->MarkAsGarbage();
@@ -851,6 +853,9 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 			&& Projectile->GetCollisionComponent()->GetCollisionEnabled()
 				== ECollisionEnabled::QueryOnly
 			&& Projectile->IsPresentationVisible()
+			&& Projectile->IsFlightCueVisible()
+			&& Projectile->GetFlightCueColor().Equals(
+				FLinearColor(1.0f, 0.48f, 0.08f), 0.01f)
 			&& Projectile->GetPresentationForwardDirection().Equals(
 				FVector::RightVector, KINDA_SMALL_NUMBER)
 			&& Projectile->GetMovementComponent()->IsActive()
@@ -1091,6 +1096,7 @@ bool Fdemo_mapThrownWeaponArcWorldMotionTest::RunTest(const FString&)
 				ArcPlan.GetInitialVelocity(), KINDA_SMALL_NUMBER)
 			&& Movement->MaxSpeed == 0.0f
 			&& !Projectile->IsPresentationVisible()
+			&& !Projectile->IsFlightCueVisible()
 			&& FMath::IsNearlyEqual(
 				Movement->ProjectileGravityScale,
 				static_cast<float>(ExpectedGravityScale)));
@@ -1108,6 +1114,9 @@ bool Fdemo_mapThrownWeaponArcWorldMotionTest::RunTest(const FString&)
 			&& Projectile->GetProjectileState()
 				== Edemo_mapShanmenThrownWeaponProjectileState::InFlight
 			&& Projectile->IsPresentationVisible()
+			&& Projectile->IsFlightCueVisible()
+			&& Projectile->GetFlightCueColor().Equals(
+				FLinearColor(0.20f, 0.72f, 1.0f), 0.01f)
 			&& Projectile->GetPresentationForwardDirection().Equals(
 				ArcPlan.GetInitialVelocity().GetSafeNormal(),
 				KINDA_SMALL_NUMBER)
@@ -1123,7 +1132,8 @@ bool Fdemo_mapThrownWeaponArcWorldMotionTest::RunTest(const FString&)
 			&& Execution.GetState() == EShanmenThrownWeaponState::Spent
 			&& Projectile->GetProjectileState()
 				== Edemo_mapShanmenThrownWeaponProjectileState::Spent
-			&& !Projectile->IsPresentationVisible());
+			&& !Projectile->IsPresentationVisible()
+			&& !Projectile->IsFlightCueVisible());
 	return true;
 }
 
@@ -1248,7 +1258,9 @@ bool Fdemo_mapThrownWeaponWorldDeliveryTest::RunTest(const FString&)
 			&& Projectile->GetProjectileState()
 				== Edemo_mapShanmenThrownWeaponProjectileState::Spent
 			&& Projectile->GetCollisionComponent()->GetCollisionEnabled()
-				== ECollisionEnabled::NoCollision);
+				== ECollisionEnabled::NoCollision
+			&& !Projectile->IsPresentationVisible()
+			&& !Projectile->IsFlightCueVisible());
 
 	const Fdemo_mapShanmenThrownWeaponWorldDeliveryResult Replay =
 		Fdemo_mapShanmenThrownWeaponWorldAdapter::ResolveProjectileContact(
@@ -1308,14 +1320,17 @@ bool Fdemo_mapThrownWeaponWorldMissTest::RunTest(const FString&)
 			&& Execution.GetState() == EShanmenThrownWeaponState::InFlight
 			&& Execution.NumAcceptedImpacts() == 0
 			&& Projectile->GetProjectileState()
-				== Edemo_mapShanmenThrownWeaponProjectileState::InFlight);
+				== Edemo_mapShanmenThrownWeaponProjectileState::InFlight
+			&& Projectile->IsFlightCueVisible());
 	TestTrue(TEXT("Range expiry has an explicit no-impact terminal path"),
 		Fdemo_mapShanmenThrownWeaponWorldAdapter::FinishFlightWithoutImpact(
 			Runtime, Execution, *Projectile)
 			&& Execution.GetState() == EShanmenThrownWeaponState::Spent
 			&& Execution.NumAcceptedImpacts() == 0
 			&& Projectile->GetProjectileState()
-				== Edemo_mapShanmenThrownWeaponProjectileState::Spent);
+				== Edemo_mapShanmenThrownWeaponProjectileState::Spent
+			&& !Projectile->IsPresentationVisible()
+			&& !Projectile->IsFlightCueVisible());
 	return true;
 }
 

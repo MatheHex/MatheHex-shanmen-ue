@@ -9,6 +9,7 @@
 
 class UProjectileMovementComponent;
 class UBoxComponent;
+class UPointLightComponent;
 class UStaticMeshComponent;
 struct FHitResult;
 struct Fdemo_mapShanmenThrownWeaponWorldAdapter;
@@ -84,6 +85,10 @@ public:
 	bool IsPresentationVisible() const;
 	/** World-space forward direction of the collisionless prototype mesh. */
 	FVector GetPresentationForwardDirection() const;
+	/** Attached readability cue is active only during durable flight. */
+	bool IsFlightCueVisible() const;
+	/** Actual trajectory-coded color held by the attached flight cue. */
+	FLinearColor GetFlightCueColor() const;
 	Fdemo_mapShanmenThrownWeaponContact& OnContact() { return ContactEvent; }
 	Fdemo_mapShanmenThrownWeaponRangeExpired& OnRangeExpired()
 	{
@@ -100,6 +105,7 @@ private:
 	/** No-fail publication reserved for the durable product adapter. */
 	void ActivateCommittedLaunch();
 	bool MarkSpent();
+	void RefreshFlightCue();
 
 	UFUNCTION()
 	void HandleProjectileStop(const FHitResult& Hit);
@@ -112,6 +118,9 @@ private:
 
 	UPROPERTY(VisibleAnywhere)
 	TObjectPtr<UStaticMeshComponent> Visual;
+
+	UPROPERTY(VisibleAnywhere)
+	TObjectPtr<UPointLightComponent> FlightCueLight;
 
 	UPROPERTY()
 	TObjectPtr<AActor> SourceActor;
