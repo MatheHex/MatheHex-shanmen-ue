@@ -211,7 +211,7 @@ bool Fdemo_mapThrownWeaponArcEditingPhysicalRegistryTest::RunTest(
 		Fdemo_mapInputActionIds::ThrownWeaponArcTargetClear);
 	TestTrue(TEXT("Arc editing defaults are exact and conflict-free"),
 		Fdemo_mapInputActionRegistry::ValidateExactDefaults()
-			&& Fdemo_mapInputActionRegistry::GetExactDefaultActions().Num() == 31);
+			&& Fdemo_mapInputActionRegistry::GetExactDefaultActions().Num() == 32);
 	TestTrue(TEXT("pointer target is a remappable middle-button press"),
 		Target && Target->DefaultKey == EKeys::MiddleMouseButton
 			&& !Target->bRequiresReleasedEvent
@@ -243,7 +243,7 @@ bool Fdemo_mapThrownWeaponArcEditingPhysicalMigrationTest::RunTest(
 		Fdemo_mapInputBindingSettings::Get().Load();
 	TestTrue(TEXT("v5 receives all four free v6 Arc defaults"),
 		Result.IsSuccess()
-			&& Fdemo_mapInputBindingSettings::Get().GetBindings().Num() == 31
+			&& Fdemo_mapInputBindingSettings::Get().GetBindings().Num() == 32
 			&& Fdemo_mapInputBindingSettings::Get().GetKey(
 				Fdemo_mapInputActionIds::ThrownWeaponArcTargetSet)
 				== EKeys::MiddleMouseButton
@@ -476,7 +476,7 @@ bool Fdemo_mapThrownWeaponArcEditingPhysicalRemapTest::RunTest(
 			&& Fixture.Controller->
 				GetThrownWeaponArcEditingInputInvocationCountForAutomation()
 					== Before + 1
-			&& Persisted.Contains(TEXT("Version=9"))
+			&& Persisted.Contains(TEXT("Version=10"))
 			&& Fdemo_mapInputBindingSettings::Get().GetKey(
 				Fdemo_mapInputActionIds::ThrownWeaponArcTargetSet) == EKeys::H
 			&& State.GetRevision() == 2

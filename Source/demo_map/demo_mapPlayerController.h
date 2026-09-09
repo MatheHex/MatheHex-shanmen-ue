@@ -7,6 +7,7 @@
 #include "demo_mapShanmenControlledWeaponInputAdapter.h"
 #include "demo_mapShanmenDivineSenseLogicalInputAdapter.h"
 #include "demo_mapShanmenSpiritEvasionInputAdapter.h"
+#include "demo_mapShanmenSwordQiAvailabilityCommandRouter.h"
 #include "demo_mapShanmenThrownWeaponHotbarConfirmationAdapter.h"
 #include "demo_mapShanmenThrownWeaponArcLaunchInputAdapter.h"
 #include "demo_mapShanmenThrownWeaponInputChoiceControllerAdapter.h"
@@ -116,6 +117,15 @@ public:
 	{
 		return LastDivineSenseInputResult;
 	}
+	/** Routes one remappable pulse as Issue or frozen Retry through P18.10. */
+	Fdemo_mapShanmenSwordQiAvailabilityCommandResult RouteSwordQiInput();
+	/** True while the latest Sword Qi pulse should remain readable on the HUD. */
+	bool IsSwordQiInputFeedbackActive() const;
+	const Fdemo_mapShanmenSwordQiAvailabilityCommandResult&
+	GetLatestSwordQiInputResult() const
+	{
+		return LastSwordQiInputResult;
+	}
 	/** Routes one canonical flying-sword Launch-or-Recall physical command. */
 	Fdemo_mapShanmenControlledWeaponInputResult
 	RouteControlledWeaponLaunchRecallInput();
@@ -213,6 +223,15 @@ public:
 	GetLastDivineSenseInputResultForAutomation() const
 	{
 		return LastDivineSenseInputResult;
+	}
+	uint64 GetSwordQiInputInvocationCountForAutomation() const
+	{
+		return SwordQiInputInvocationCount;
+	}
+	const Fdemo_mapShanmenSwordQiAvailabilityCommandResult&
+	GetLastSwordQiInputResultForAutomation() const
+	{
+		return LastSwordQiInputResult;
 	}
 	uint64 GetControlledWeaponInputInvocationCountForAutomation() const
 	{
@@ -363,6 +382,9 @@ protected:
 	void UseDivineSense();
 	void CaptureDivineSenseInputFeedback(
 		const Fdemo_mapShanmenDivineSenseLogicalInputResult& Result);
+	void UseSwordQi();
+	void CaptureSwordQiInputFeedback(
+		const Fdemo_mapShanmenSwordQiAvailabilityCommandResult& Result);
 	void StartWeaponGuard();
 	void StopWeaponGuard();
 	void UseHotbarSlot(int32 SlotNumber);
@@ -386,6 +408,9 @@ protected:
 	Fdemo_mapShanmenDivineSenseLogicalInputResult
 		LastDivineSenseInputResult;
 	double DivineSenseInputFeedbackExpiresAtSeconds = -1.0;
+	Fdemo_mapShanmenSwordQiAvailabilityCommandResult LastSwordQiInputResult;
+	double SwordQiInputFeedbackExpiresAtSeconds = -1.0;
+	bool bHasSwordQiInputFeedback = false;
 
 #if !UE_BUILD_SHIPPING
 	void RecordInputRestoreTraceEvent(
@@ -395,6 +420,7 @@ protected:
 	Fdemo_mapShanmenSpiritEvasionInputResult
 		LastSpiritEvasionInputResult;
 	uint64 DivineSenseInputInvocationCount = 0;
+	uint64 SwordQiInputInvocationCount = 0;
 	uint64 ControlledWeaponInputInvocationCount = 0;
 	Fdemo_mapShanmenControlledWeaponInputResult
 		LastControlledWeaponInputResult;

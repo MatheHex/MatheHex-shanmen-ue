@@ -329,7 +329,7 @@ bool Fdemo_mapDivineSensePhysicalRegistryTest::RunTest(const FString&)
 	TestTrue(TEXT("registry is exact after adding physical Divine Sense"),
 		Fdemo_mapInputActionRegistry::ValidateExactDefaults()
 			&& Fdemo_mapInputActionRegistry::GetExactDefaultActions().Num()
-				== 31);
+				== 32);
 	TestTrue(TEXT("Divine Sense owns a conflict-free press-only V default"),
 		Action && Action->DefaultKey == EKeys::V
 			&& !Action->bRequiresReleasedEvent
@@ -353,7 +353,7 @@ bool Fdemo_mapDivineSensePhysicalMigrationTest::RunTest(const FString&)
 		Fdemo_mapInputBindingSettings::Get().Load();
 	TestTrue(TEXT("free V becomes the migrated Divine Sense binding"),
 		Free.IsSuccess()
-			&& Fdemo_mapInputBindingSettings::Get().GetBindings().Num() == 31
+			&& Fdemo_mapInputBindingSettings::Get().GetBindings().Num() == 32
 			&& Fdemo_mapInputBindingSettings::Get().GetKey(
 				Fdemo_mapInputActionIds::DivineSense) == EKeys::V);
 

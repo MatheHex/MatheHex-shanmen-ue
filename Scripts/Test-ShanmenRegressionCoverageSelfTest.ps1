@@ -325,6 +325,9 @@ try
     $SwordQiAvailabilityCommandRouter = New-AutomationLogFixture `
         -Name 'sword-qi-availability-command-router.log' `
         -Group 'Shanmen.0_0_10.Product.SwordQiAvailabilityCommandRouter'
+    $SwordQiPhysicalInput = New-AutomationLogFixture `
+        -Name 'sword-qi-physical-input.log' `
+        -Group 'Shanmen.0_0_10.Product.SwordQiPhysicalInput'
     $SwordQiRunHost = New-AutomationLogFixture `
         -Name 'sword-qi-run-host.log' `
         -Group 'Shanmen.0_0_10.Product.SwordQiRunHost'
@@ -2801,6 +2804,7 @@ try
 			$ControlledWeaponThreatReadoutPresentation,
 			$DivineSenseHUDPresentation,
 			$DivineSensePhysicalInput,
+			$SwordQiPhysicalInput,
 			$ThrownWeaponMainHUDCombatHintLayoutPolicy,
 			$ThrownWeaponMainHUDCombatHintStackPresentation,
 			$ThrownArcPreLaunchGestureFeedbackPresentation,

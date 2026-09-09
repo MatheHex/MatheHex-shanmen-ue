@@ -709,6 +709,7 @@ private:
 	double DivineSenseRevealExpiresAtSeconds = -1.0;
 #if WITH_DEV_AUTOMATION_TESTS
 	friend class Fdemo_mapDivineSenseGameModeLifecycleTest;
+	friend class Fdemo_mapSwordQiPhysicalIssueRetryTest;
 #endif
 	TArray<TWeakObjectPtr<Ademo_mapM01ExtractionZone>> M01ExtractionZones;
 	TArray<TWeakObjectPtr<AActor>> M01EnemyActors;

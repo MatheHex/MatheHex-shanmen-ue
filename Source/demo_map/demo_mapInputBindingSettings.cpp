@@ -80,7 +80,7 @@ bool Fdemo_mapInputBindingSettings::ValidateBindings(const TMap<FName, FKey>& Ca
 
 bool Fdemo_mapInputBindingSettings::Serialize(const TMap<FName, FKey>& Candidate, FString& OutText) const
 {
-	OutText = TEXT("[ShanmenInputBindings]\nVersion=9\n");
+	OutText = TEXT("[ShanmenInputBindings]\nVersion=10\n");
 	for (const Fdemo_mapInputActionDefinition& Action : Fdemo_mapInputActionRegistry::GetExactDefaultActions())
 	{
 		const FKey* Key = Candidate.Find(Action.ActionId);

@@ -173,7 +173,7 @@ bool Fdemo_mapControlledWeaponPhysicalRegistryTest::RunTest(const FString&)
 			Fdemo_mapInputActionIds::ControlledWeaponRedirect);
 	TestTrue(TEXT("registry is exact after adding flying-sword redirect"),
 		Fdemo_mapInputActionRegistry::ValidateExactDefaults()
-			&& Fdemo_mapInputActionRegistry::GetExactDefaultActions().Num() == 31);
+			&& Fdemo_mapInputActionRegistry::GetExactDefaultActions().Num() == 32);
 	TestTrue(TEXT("flying-sword command owns a conflict-free press-only X default"),
 		Action
 			&& Action->DefaultKey == EKeys::X
@@ -204,7 +204,7 @@ bool Fdemo_mapControlledWeaponPhysicalMigrationTest::RunTest(const FString&)
 		Fdemo_mapInputBindingSettings::Get().Load();
 	TestTrue(TEXT("version six receives both later flying-sword defaults"),
 		Result.IsSuccess()
-			&& Fdemo_mapInputBindingSettings::Get().GetBindings().Num() == 31
+			&& Fdemo_mapInputBindingSettings::Get().GetBindings().Num() == 32
 			&& Fdemo_mapInputBindingSettings::Get().GetKey(
 				Fdemo_mapInputActionIds::ControlledWeaponLaunchRecall)
 				== EKeys::X
@@ -263,7 +263,7 @@ bool Fdemo_mapControlledWeaponRedirectPhysicalMigrationTest::RunTest(
 		Fdemo_mapInputBindingSettings::Get().Load();
 	TestTrue(TEXT("missing redirect receives free C without moving old keys"),
 		Result.IsSuccess()
-			&& Fdemo_mapInputBindingSettings::Get().GetBindings().Num() == 31
+			&& Fdemo_mapInputBindingSettings::Get().GetBindings().Num() == 32
 			&& Fdemo_mapInputBindingSettings::Get().GetKey(
 				Fdemo_mapInputActionIds::ControlledWeaponLaunchRecall)
 				== EKeys::X

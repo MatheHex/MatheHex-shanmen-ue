@@ -53,6 +53,92 @@ namespace
 		Canvas->DrawItem(Tile);
 	}
 
+	bool TryBuildSwordQiFeedback(
+		const Fdemo_mapShanmenSwordQiAvailabilityCommandResult& Result,
+		const FString& KeyLabel,
+		FString& OutText,
+		FLinearColor& OutColor)
+	{
+		OutText.Reset();
+		OutColor = FLinearColor(1.0f, 0.72f, 0.18f);
+		if (Result.CommandEvent.IsAccepted())
+		{
+			OutText = TEXT("SWORD QI · RELEASED");
+			OutColor = FLinearColor(0.25f, 1.0f, 0.55f);
+			return true;
+		}
+		if (Result.CommandEvent.bPendingRetryStored
+			|| (Result.After.IsValid() && Result.After.CanRetry()))
+		{
+			OutText = FString::Printf(
+				TEXT("SWORD QI BUSY · %s RETRY"),
+				*KeyLabel);
+			return true;
+		}
+		if (Result.CommandEvent.Input.Status
+			== Edemo_mapShanmenSwordQiInputStatus::GameplayBlocked)
+		{
+			OutText = TEXT("SWORD QI · BLOCKED BY ACTIVE UI");
+			return true;
+		}
+		if (Result.CommandEvent.Input.Product.Status
+			== Edemo_mapShanmenSwordQiControllerStatus::ItemAuthorizationRejected)
+		{
+			OutText = TEXT("SWORD QI · EQUIP A VALID SWORD");
+			return true;
+		}
+		if (Result.CommandEvent.Input.Product.Status
+			== Edemo_mapShanmenSwordQiControllerStatus::AttackPowerUnavailable)
+		{
+			OutText = TEXT("SWORD QI · ATTACK POWER UNAVAILABLE");
+			return true;
+		}
+		if (!Result.Diagnostic.IsEmpty())
+		{
+			OutText = TEXT("SWORD QI · UNAVAILABLE");
+			return true;
+		}
+		return false;
+	}
+
+	void DrawSwordQiInputFeedback(
+		UCanvas* Canvas,
+		Ademo_mapPlayerController* Controller)
+	{
+		if (!Canvas || !Controller
+			|| !Controller->IsSwordQiInputFeedbackActive())
+		{
+			return;
+		}
+		const FString KeyLabel = Fdemo_mapInputBindingSettings::Get().GetKey(
+			Fdemo_mapInputActionIds::SwordQi).GetDisplayName().ToString();
+		FString Text;
+		FLinearColor TextColor;
+		if (!TryBuildSwordQiFeedback(
+				Controller->GetLatestSwordQiInputResult(),
+				KeyLabel,
+				Text,
+				TextColor))
+		{
+			return;
+		}
+		const FVector2D PanelPosition(
+			Canvas->SizeX * 0.5f - 250.0f,
+			112.0f);
+		DrawHUDPanel(
+			Canvas,
+			PanelPosition,
+			FVector2D(500.0f, 36.0f),
+			FLinearColor(0.10f, 0.055f, 0.015f, 0.94f));
+		DrawReadableText(
+			Canvas,
+			GEngine->GetSmallFont(),
+			Text,
+			PanelPosition + FVector2D(10.0f, 9.0f),
+			TextColor,
+			0.82f);
+	}
+
 	void DrawControlledWeaponReadout(
 		UCanvas* Canvas,
 		APlayerController* PlayerController,
@@ -523,6 +609,9 @@ void Ademo_mapHUD::DrawHUD()
 			? ActiveMode->GetControlledWeaponWorldLifecycle().GetWeaponActor()
 			: nullptr);
 	DrawDivineSenseReveals(Canvas, PlayerController, ActiveMode);
+	DrawSwordQiInputFeedback(
+		Canvas,
+		Cast<Ademo_mapPlayerController>(PlayerController));
 	DrawHUDPanel(
 		Canvas,
 		FVector2D(18.0f, 14.0f),
@@ -539,7 +628,7 @@ void Ademo_mapHUD::DrawHUD()
 		Canvas,
 		GEngine->GetSmallFont(),
 		FString::Printf(
-			TEXT("%s/%s/%s/%s Move | %s Attack | %s/%s/%s Skills | %s Sense | %s Interact/Search | %s Inventory | %s Back | %s Restart"),
+			TEXT("%s/%s/%s/%s Move | %s Attack | %s/%s/%s Skills | %s Sword Qi | %s Sense | %s Interact/Search | %s Inventory | %s Back | %s Restart"),
 			*InputSettings.GetKey(Fdemo_mapInputActionIds::MoveForward).GetDisplayName().ToString(),
 			*InputSettings.GetKey(Fdemo_mapInputActionIds::MoveLeft).GetDisplayName().ToString(),
 			*InputSettings.GetKey(Fdemo_mapInputActionIds::MoveBackward).GetDisplayName().ToString(),
@@ -548,6 +637,7 @@ void Ademo_mapHUD::DrawHUD()
 			*InputSettings.GetKey(Fdemo_mapInputActionIds::SkillGroundCircle).GetDisplayName().ToString(),
 			*InputSettings.GetKey(Fdemo_mapInputActionIds::SkillSelfSector).GetDisplayName().ToString(),
 			*InputSettings.GetKey(Fdemo_mapInputActionIds::SkillStraightProjectile).GetDisplayName().ToString(),
+			*InputSettings.GetKey(Fdemo_mapInputActionIds::SwordQi).GetDisplayName().ToString(),
 			*InputSettings.GetKey(Fdemo_mapInputActionIds::DivineSense).GetDisplayName().ToString(),
 			*InputSettings.GetKey(Fdemo_mapInputActionIds::Interact).GetDisplayName().ToString(),
 			*InputSettings.GetKey(Fdemo_mapInputActionIds::Inventory).GetDisplayName().ToString(),

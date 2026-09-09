@@ -39,6 +39,8 @@ namespace
 {
 	constexpr float PlayerCharacterMovementTickInterval = 0.001f;
 	constexpr double DivineSenseInputFeedbackDurationSeconds = 2.25;
+	constexpr double SwordQiInputFeedbackDurationSeconds = 2.25;
+	constexpr double SwordQiLaunchVerticalOffset = 50.0;
 	using FArcEditingInteractionReadResult =
 		Fdemo_mapShanmenThrownWeaponInputChoiceInteractionReadResult;
 	using FArcEditingInteractionRequest =
@@ -214,6 +216,7 @@ void Ademo_mapPlayerController::BindProductInputActions()
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::ThrownWeaponArcTargetClear), IE_Pressed, this, &Ademo_mapPlayerController::ClearThrownWeaponArcTarget);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::SpiritEvasion), IE_Pressed, this, &Ademo_mapPlayerController::StartSpiritEvasion);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::DivineSense), IE_Pressed, this, &Ademo_mapPlayerController::UseDivineSense);
+	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::SwordQi), IE_Pressed, this, &Ademo_mapPlayerController::UseSwordQi);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::WeaponGuard), IE_Pressed, this, &Ademo_mapPlayerController::StartWeaponGuard);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::WeaponGuard), IE_Released, this, &Ademo_mapPlayerController::StopWeaponGuard);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::Interact), IE_Pressed, this, &Ademo_mapPlayerController::BeginInteractV3);
@@ -1206,6 +1209,122 @@ Ademo_mapPlayerController::RouteDivineSenseInput()
 	Fdemo_mapShanmenDivineSenseLogicalInputResult Result =
 		Mode->RouteDivineSenseInput();
 	CaptureDivineSenseInputFeedback(Result);
+	return Result;
+}
+
+void Ademo_mapPlayerController::UseSwordQi()
+{
+	const Fdemo_mapShanmenSwordQiAvailabilityCommandResult Result =
+		RouteSwordQiInput();
+#if !UE_BUILD_SHIPPING
+	++SwordQiInputInvocationCount;
+#endif
+	UE_LOG(
+		Logdemo_map,
+		Log,
+		TEXT("Sword Qi physical input %s: %s"),
+		Result.CommandEvent.IsAccepted()
+			? TEXT("accepted")
+			: Result.CommandEvent.bPendingRetryStored
+				? TEXT("pending retry")
+				: TEXT("rejected"),
+		*Result.Diagnostic);
+}
+
+void Ademo_mapPlayerController::CaptureSwordQiInputFeedback(
+	const Fdemo_mapShanmenSwordQiAvailabilityCommandResult& Result)
+{
+	LastSwordQiInputResult = Result;
+	bHasSwordQiInputFeedback = true;
+	SwordQiInputFeedbackExpiresAtSeconds = GetWorld()
+		? GetWorld()->GetTimeSeconds() + SwordQiInputFeedbackDurationSeconds
+		: -1.0;
+}
+
+bool Ademo_mapPlayerController::IsSwordQiInputFeedbackActive() const
+{
+	return bHasSwordQiInputFeedback
+		&& GetWorld()
+		&& GetWorld()->GetTimeSeconds()
+			<= SwordQiInputFeedbackExpiresAtSeconds;
+}
+
+Fdemo_mapShanmenSwordQiAvailabilityCommandResult
+Ademo_mapPlayerController::RouteSwordQiInput()
+{
+	Fdemo_mapShanmenSwordQiAvailabilityCommandResult Result;
+	Ademo_mapGameMode* Mode = GetWorld()
+		? Cast<Ademo_mapGameMode>(GetWorld()->GetAuthGameMode())
+		: nullptr;
+	if (!Mode)
+	{
+		Result.Status = Edemo_mapShanmenSwordQiAvailabilityCommandStatus::
+			ProjectionUnavailable;
+		Result.Diagnostic =
+			TEXT("Sword Qi physical input requires the product GameMode.");
+		CaptureSwordQiInputFeedback(Result);
+		return Result;
+	}
+
+	Fdemo_mapShanmenSwordQiCommandAvailabilityProjection Projection;
+	if (!Mode->TryProjectSwordQiCommandAvailability(
+			Projection,
+			Result.Diagnostic))
+	{
+		Result.Status = Edemo_mapShanmenSwordQiAvailabilityCommandStatus::
+			ProjectionUnavailable;
+		CaptureSwordQiInputFeedback(Result);
+		return Result;
+	}
+
+	Edemo_mapShanmenSwordQiAvailabilityCommandKind Kind =
+		Edemo_mapShanmenSwordQiAvailabilityCommandKind::Issue;
+	if (Projection.CanRetry())
+	{
+		Kind = Edemo_mapShanmenSwordQiAvailabilityCommandKind::Retry;
+	}
+	else if (!Projection.CanIssue())
+	{
+		Result.Status = Edemo_mapShanmenSwordQiAvailabilityCommandStatus::
+			CommandUnavailable;
+		Result.Before = Projection;
+		Result.After = Projection;
+		Result.Diagnostic =
+			TEXT("Sword Qi is unavailable outside an active combat Run.");
+		CaptureSwordQiInputFeedback(Result);
+		return Result;
+	}
+
+	Fdemo_mapShanmenSwordQiAvailabilityCommand Command;
+	if (!Fdemo_mapShanmenSwordQiAvailabilityCommand::TryCapture(
+			Projection.GetProjectionId(),
+			Kind,
+			Command))
+	{
+		Result.Status = Edemo_mapShanmenSwordQiAvailabilityCommandStatus::
+			CommandInvalid;
+		Result.Kind = Kind;
+		Result.Before = Projection;
+		Result.After = Projection;
+		Result.Diagnostic =
+			TEXT("Sword Qi input could not capture current availability.");
+		CaptureSwordQiInputFeedback(Result);
+		return Result;
+	}
+
+	Result = Mode->RouteSwordQiAvailabilityCommand(
+		Command,
+		IsGameplayInputAllowed(),
+		[this]()
+		{
+			const APawn* ControlledPawn = GetPawn();
+			return ControlledPawn
+				? ControlledPawn->GetActorLocation()
+					+ FVector(0.0, 0.0, SwordQiLaunchVerticalOffset)
+				: FVector::ZeroVector;
+		},
+		[this]() { return GetLastValidAimDirection(); });
+	CaptureSwordQiInputFeedback(Result);
 	return Result;
 }
 
