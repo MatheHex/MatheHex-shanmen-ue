@@ -492,12 +492,24 @@ void Ademo_mapShanmenThrownWeaponProjectile::ResetPresentationRoll()
 bool Ademo_mapShanmenThrownWeaponProjectile::TryStageLaunch(
 	const FShanmenThrownWeaponLaunchReceipt& InLaunch,
 	const FShanmenWorldHitContext& InContext,
-	AActor* InSourceActor)
+	AActor* InSourceActor,
+	Edemo_mapShanmenThrownWeaponProjectileStageError* OutError)
 {
+	if (OutError)
+	{
+		*OutError =
+			Edemo_mapShanmenThrownWeaponProjectileStageError::ContractRejected;
+	}
 	if (State == Edemo_mapShanmenThrownWeaponProjectileState::Staged)
 	{
-		return SourceActor == InSourceActor
+		const bool bExactReplay = SourceActor == InSourceActor
 			&& IsStagedFor(InLaunch, InContext);
+		if (bExactReplay && OutError)
+		{
+			*OutError =
+				Edemo_mapShanmenThrownWeaponProjectileStageError::None;
+		}
+		return bExactReplay;
 	}
 	FThrownWeaponMotionConfig Motion;
 	if (State != Edemo_mapShanmenThrownWeaponProjectileState::Empty
@@ -520,6 +532,11 @@ bool Ademo_mapShanmenThrownWeaponProjectile::TryStageLaunch(
 	}
 	if (!IsLaunchCorridorClear(*this, InLaunch, Motion, InSourceActor))
 	{
+		if (OutError)
+		{
+			*OutError = Edemo_mapShanmenThrownWeaponProjectileStageError::
+				ReleasePathBlocked;
+		}
 		return false;
 	}
 
@@ -549,7 +566,12 @@ bool Ademo_mapShanmenThrownWeaponProjectile::TryStageLaunch(
 		ETeleportType::TeleportPhysics);
 	State = Edemo_mapShanmenThrownWeaponProjectileState::Staged;
 	RefreshFlightCue();
-	return IsStagedFor(InLaunch, InContext);
+	const bool bStaged = IsStagedFor(InLaunch, InContext);
+	if (bStaged && OutError)
+	{
+		*OutError = Edemo_mapShanmenThrownWeaponProjectileStageError::None;
+	}
+	return bStaged;
 }
 
 bool Ademo_mapShanmenThrownWeaponProjectile::IsStagedFor(

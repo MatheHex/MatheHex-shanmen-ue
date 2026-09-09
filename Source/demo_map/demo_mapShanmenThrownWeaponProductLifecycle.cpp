@@ -119,6 +119,7 @@ bool Fdemo_mapShanmenThrownWeaponProductLifecycle::TryBegin(
 	FString& OutDiagnostic)
 {
 	OutDiagnostic.Reset();
+	const bool bWasActive = Session.IsActive();
 	if (Session.IsActive()
 		&& BoundAuthority.Get() != &Authority)
 	{
@@ -164,11 +165,16 @@ bool Fdemo_mapShanmenThrownWeaponProductLifecycle::TryBegin(
 		return false;
 	}
 	BoundAuthority = &Authority;
+	if (!bWasActive)
+	{
+		LastHotbarRouteResult = Fdemo_mapShanmenThrownWeaponSessionResult();
+	}
 	if (!IsValid())
 	{
 		FString CleanupDiagnostic;
 		Session.TryEnd(CleanupDiagnostic);
 		BoundAuthority.Reset();
+		LastHotbarRouteResult = Fdemo_mapShanmenThrownWeaponSessionResult();
 		OutDiagnostic =
 			TEXT("Thrown-weapon lifecycle failed closed after product binding.");
 		return false;
@@ -185,31 +191,43 @@ Fdemo_mapShanmenThrownWeaponProductLifecycle::TrySubmitHotbar(
 	Fdemo_mapCombatRunCoordinator& Coordinator,
 	const Fdemo_mapShanmenThrownWeaponHotbarIntent& Intent)
 {
+	Fdemo_mapShanmenThrownWeaponSessionResult Result;
 	if (!IsValid() || !Session.IsActive() || !BoundAuthority.IsValid())
 	{
-		return RejectUnavailable(
+		Result = RejectUnavailable(
 			Intent,
 			TEXT("Thrown-weapon hotbar routing requires one valid product lifecycle."));
 	}
-	return Session.TrySubmitHotbar(
-		World,
-		ProjectileClass,
-		*BoundAuthority.Get(),
-		Coordinator,
-		Intent);
+	else
+	{
+		Result = Session.TrySubmitHotbar(
+			World,
+			ProjectileClass,
+			*BoundAuthority.Get(),
+			Coordinator,
+			Intent);
+	}
+	LastHotbarRouteResult = Result;
+	return Result;
 }
 
 Fdemo_mapShanmenThrownWeaponSessionResult
 Fdemo_mapShanmenThrownWeaponProductLifecycle::TryRecoverCancellation(
 	const Fdemo_mapShanmenThrownWeaponHotbarIntent& Intent)
 {
+	Fdemo_mapShanmenThrownWeaponSessionResult Result;
 	if (!IsValid() || !Session.IsActive() || !BoundAuthority.IsValid())
 	{
-		return RejectUnavailable(
+		Result = RejectUnavailable(
 			Intent,
 			TEXT("Thrown-weapon cancellation recovery requires one valid product lifecycle."));
 	}
-	return Session.TryRecoverCancellation(*BoundAuthority.Get(), Intent);
+	else
+	{
+		Result = Session.TryRecoverCancellation(*BoundAuthority.Get(), Intent);
+	}
+	LastHotbarRouteResult = Result;
+	return Result;
 }
 
 bool Fdemo_mapShanmenThrownWeaponProductLifecycle::TryInterruptFlight()
@@ -234,6 +252,7 @@ bool Fdemo_mapShanmenThrownWeaponProductLifecycle::TryEnd(
 				TEXT("Inactive thrown-weapon lifecycle retains inconsistent authority state.");
 			return false;
 		}
+		LastHotbarRouteResult = Fdemo_mapShanmenThrownWeaponSessionResult();
 		OutDiagnostic = TEXT("Thrown-weapon product lifecycle is already empty.");
 		return true;
 	}
@@ -256,6 +275,7 @@ bool Fdemo_mapShanmenThrownWeaponProductLifecycle::TryEnd(
 		return false;
 	}
 	BoundAuthority.Reset();
+	LastHotbarRouteResult = Fdemo_mapShanmenThrownWeaponSessionResult();
 	if (!IsValid())
 	{
 		OutDiagnostic =

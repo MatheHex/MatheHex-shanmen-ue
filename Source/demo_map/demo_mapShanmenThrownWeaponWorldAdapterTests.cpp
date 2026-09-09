@@ -1101,7 +1101,7 @@ bool Fdemo_mapThrownWeaponLaunchClearanceGateTest::RunTest(const FString&)
 		!Blocked.IsStaged()
 			&& !Blocked.IsCommitted()
 			&& Blocked.Error
-				== Edemo_mapShanmenThrownWeaponLaunchError::ProjectileStageRejected);
+				== Edemo_mapShanmenThrownWeaponLaunchError::ReleasePathBlocked);
 	TestTrue(TEXT("Blocked clearance leaves the physical carrier inert and empty"),
 		Projectile->GetProjectileState()
 				== Edemo_mapShanmenThrownWeaponProjectileState::Empty
@@ -1196,7 +1196,7 @@ bool Fdemo_mapThrownWeaponLaunchCorridorGateTest::RunTest(const FString&)
 		!Blocked.IsStaged()
 			&& !Blocked.IsCommitted()
 			&& Blocked.Error
-				== Edemo_mapShanmenThrownWeaponLaunchError::ProjectileStageRejected);
+				== Edemo_mapShanmenThrownWeaponLaunchError::ReleasePathBlocked);
 	TestTrue(TEXT("A blocked release corridor leaves the carrier inert"),
 		Projectile->GetProjectileState()
 				== Edemo_mapShanmenThrownWeaponProjectileState::Empty

@@ -159,11 +159,20 @@ namespace
 				ItemCommitRequestRejected;
 			return Result;
 		}
+		Edemo_mapShanmenThrownWeaponProjectileStageError StageError =
+			Edemo_mapShanmenThrownWeaponProjectileStageError::ContractRejected;
 		if (!Projectile.TryStageLaunch(
-			Result.Plan.Launch, Result.Plan.Context, SourceActor))
+			Result.Plan.Launch,
+			Result.Plan.Context,
+			SourceActor,
+			&StageError))
 		{
-			Result.Error = Edemo_mapShanmenThrownWeaponLaunchError::
-				ProjectileStageRejected;
+			Result.Error = StageError
+				== Edemo_mapShanmenThrownWeaponProjectileStageError::
+					ReleasePathBlocked
+				? Edemo_mapShanmenThrownWeaponLaunchError::ReleasePathBlocked
+				: Edemo_mapShanmenThrownWeaponLaunchError::
+					ProjectileStageRejected;
 			return Result;
 		}
 		Result.Error = Edemo_mapShanmenThrownWeaponLaunchError::None;

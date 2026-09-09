@@ -657,6 +657,11 @@ bool Fdemo_mapThrownWeaponProductLifecycleRoutingTest::RunTest(
 			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
 			Fixture.Coordinator,
 			Intent);
+	const bool bCapturedFirstRoute =
+		Fixture.Lifecycle.GetLastHotbarRouteResult().Status == First.Status
+		&& Fixture.Lifecycle.GetLastHotbarRouteResult().SelectionId
+			== First.SelectionId
+		&& Fixture.Lifecycle.GetLastHotbarRouteResult().RunId == First.RunId;
 	FShanmenItemAuthoritySnapshot After;
 	Fixture.Authority->TryCaptureSnapshot(After);
 	const Fdemo_mapShanmenThrownWeaponSessionResult Replay =
@@ -665,10 +670,17 @@ bool Fdemo_mapThrownWeaponProductLifecycleRoutingTest::RunTest(
 			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
 			Fixture.Coordinator,
 			Intent);
+	const bool bCapturedReplayRoute =
+		Fixture.Lifecycle.GetLastHotbarRouteResult().Status == Replay.Status
+		&& Fixture.Lifecycle.GetLastHotbarRouteResult().bReusedSelection
+			== Replay.bReusedSelection
+		&& Fixture.Lifecycle.GetLastHotbarRouteResult().SelectionId
+			== Replay.SelectionId;
 	FShanmenItemAuthoritySnapshot AfterReplay;
 	Fixture.Authority->TryCaptureSnapshot(AfterReplay);
 	TestTrue(TEXT("Device-independent hotbar intent launches the exact product item"),
 		First.IsAccepted()
+		&& bCapturedFirstRoute
 		&& First.ItemInstanceId == Fixture.ThrowingKnifeId
 		&& First.RunId == Fixture.Correlation.ActiveRunId
 		&& Fixture.Lifecycle.GetHostState()
@@ -676,6 +688,7 @@ bool Fdemo_mapThrownWeaponProductLifecycleRoutingTest::RunTest(
 		&& After.AuthorityRevision == Before.AuthorityRevision + 2);
 	TestTrue(TEXT("Exact SelectionId replay is idempotent and mutation-free"),
 		Replay.IsAccepted()
+		&& bCapturedReplayRoute
 		&& Replay.bReusedSelection
 		&& Replay.Product.Command.IsReplay()
 		&& AfterReplay == After
@@ -692,12 +705,19 @@ bool Fdemo_mapThrownWeaponProductLifecycleRoutingTest::RunTest(
 	TestTrue(TEXT("SelectionId payload conflict fails closed"),
 		ConflictResult.Status
 			== Edemo_mapShanmenThrownWeaponSessionStatus::SelectionIdConflict
+		&& Fixture.Lifecycle.GetLastHotbarRouteResult().Status
+			== ConflictResult.Status
+		&& Fixture.Lifecycle.GetLastHotbarRouteResult().SelectionId
+			== ConflictResult.SelectionId
 		&& Fixture.Lifecycle.NumCapturedSelections() == 1);
 
 	FString Diagnostic;
 	TestTrue(TEXT("Run owner interrupts flight before lifecycle teardown"),
 		Fixture.Lifecycle.TryEnd(Diagnostic)
 		&& Fixture.Lifecycle.IsEmpty()
+		&& Fixture.Lifecycle.GetLastHotbarRouteResult().Status
+			== Edemo_mapShanmenThrownWeaponSessionStatus::SessionInactive
+		&& !Fixture.Lifecycle.GetLastHotbarRouteResult().SelectionId.IsValid()
 		&& Fixture.Coordinator.IsReady());
 	TestTrue(TEXT("Empty lifecycle end replay is harmless"),
 		Fixture.Lifecycle.TryEnd(Diagnostic));

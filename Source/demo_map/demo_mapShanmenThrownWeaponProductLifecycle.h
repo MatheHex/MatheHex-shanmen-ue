@@ -90,6 +90,12 @@ public:
 	{
 		return Session.GetTerminalReceipt();
 	}
+	/** Latest immutable hotbar/recovery audit; never a second gameplay owner. */
+	const Fdemo_mapShanmenThrownWeaponSessionResult&
+	GetLastHotbarRouteResult() const
+	{
+		return LastHotbarRouteResult;
+	}
 	const FGuid& GetOccupancyOwnerId() const
 	{
 		return Session.GetOccupancyOwnerId();
@@ -112,4 +118,5 @@ private:
 
 	TWeakObjectPtr<Udemo_mapShanmenItemAuthoritySubsystem> BoundAuthority;
 	Fdemo_mapShanmenThrownWeaponProductSession Session;
+	Fdemo_mapShanmenThrownWeaponSessionResult LastHotbarRouteResult;
 };

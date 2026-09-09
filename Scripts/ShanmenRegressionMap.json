@@ -3348,6 +3348,15 @@
 	  ]
 	},
 	{
+	  "name": "ThrownWeaponLaunchRejectionPresentation",
+	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponLaunchRejectionPresentation(?:Tests)?\\.(?:h|cpp)$",
+	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ThrownWeaponLaunchRejectionPresentation",
+		"Shanmen.0_0_10.Product.ThrownWeaponWorldDelivery",
+		"Shanmen.0_0_10.Product.ThrownWeaponMainHUDCombatHintStackPresentation"
+	  ]
+	},
+	{
 	  "name": "ThrownWeaponMainHUDCombatHintStackPresentation",
 	  "pathRegex": "^Source/demo_map/demo_mapShanmenThrownWeaponMainHUDCombatHintStackPresentation(?:Tests)?\\.(?:h|cpp)$",
 	  "requiredGroups": [

@@ -21,6 +21,7 @@ enum class Edemo_mapShanmenThrownWeaponLaunchError : uint8
 	EmissionRejected,
 	ItemCommitRequestRejected,
 	ProjectileStageRejected,
+	ReleasePathBlocked,
 	AuthorityCommitRejected,
 	PublicationRejected
 };

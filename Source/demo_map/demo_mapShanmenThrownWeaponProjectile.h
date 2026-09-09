@@ -27,6 +27,14 @@ enum class Edemo_mapShanmenThrownWeaponProjectileState : uint8
 	Spent
 };
 
+/** Exact reason why an inert carrier refused one staging request. */
+enum class Edemo_mapShanmenThrownWeaponProjectileStageError : uint8
+{
+	None,
+	ContractRejected,
+	ReleasePathBlocked
+};
+
 class Ademo_mapShanmenThrownWeaponProjectile;
 
 /** Native contact seam consumed by the product host; the Actor never resolves damage. */
@@ -58,7 +66,8 @@ public:
 	bool TryStageLaunch(
 		const FShanmenThrownWeaponLaunchReceipt& InLaunch,
 		const FShanmenWorldHitContext& InContext,
-		AActor* InSourceActor);
+		AActor* InSourceActor,
+		Edemo_mapShanmenThrownWeaponProjectileStageError* OutError = nullptr);
 	bool IsStagedFor(
 		const FShanmenThrownWeaponLaunchReceipt& InLaunch,
 		const FShanmenWorldHitContext& InContext) const;

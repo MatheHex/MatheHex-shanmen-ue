@@ -22,6 +22,7 @@
 #include "demo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation.h"
 #include "demo_mapShanmenThrownWeaponMainHUDCombatHintLayoutPolicy.h"
 #include "demo_mapShanmenThrownWeaponMainHUDCombatHintStackPresentation.h"
+#include "demo_mapShanmenThrownWeaponLaunchRejectionPresentation.h"
 #include "demo_mapShanmenThrownWeaponTerminalFeedbackPresentation.h"
 #include "demo_mapShanmenThrownWeaponTrajectoryPresentation.h"
 #include "Engine/Canvas.h"
@@ -464,12 +465,22 @@ void Ademo_mapHUD::DrawHUD()
 		Fdemo_mapShanmenThrownWeaponMainHUDCombatHintLayoutPlan Layout;
 		Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation
 			TerminalFeedback;
+		Fdemo_mapShanmenThrownWeaponLaunchRejectionPresentation
+			LaunchRejection;
 		if (ActiveMode)
 		{
-			Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation::TryProject(
-				ActiveMode->GetThrownWeaponProductLifecycle().
-					GetTerminalReceipt(),
-				TerminalFeedback);
+			const auto& ProductLifecycle =
+				ActiveMode->GetThrownWeaponProductLifecycle();
+			Fdemo_mapShanmenThrownWeaponLaunchRejectionPresentation::TryProject(
+				ProductLifecycle.GetLastHotbarRouteResult(),
+				LaunchRejection);
+			if (!LaunchRejection.IsValid())
+			{
+				Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation::
+					TryProject(
+						ProductLifecycle.GetTerminalReceipt(),
+						TerminalFeedback);
+			}
 		}
 		if (Fdemo_mapShanmenThrownWeaponMainHUDCombatHintStackPresentation::
 			TryCompose(
@@ -478,6 +489,7 @@ void Ademo_mapHUD::DrawHUD()
 				ArcInputHintPresentation,
 				Feedback,
 				TerminalFeedback,
+				LaunchRejection,
 				Stack)
 			&& Fdemo_mapShanmenThrownWeaponMainHUDCombatHintLayoutPlan::TryPlan(
 				FVector2D(Canvas->SizeX, Canvas->SizeY),

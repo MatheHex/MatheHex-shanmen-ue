@@ -28,6 +28,7 @@ namespace
 		case EKind::ArcPreLaunchGesture:
 			return 4;
 		case EKind::TerminalFeedback:
+		case EKind::LaunchRejection:
 			return 5;
 		default:
 			return INDEX_NONE;
@@ -56,6 +57,8 @@ namespace
 				|| Tone == ETone::Blocked
 				|| Tone == ETone::Expired
 				|| Tone == ETone::Interrupted;
+		case EKind::LaunchRejection:
+			return Tone == ETone::Blocked;
 		default:
 			return false;
 		}
@@ -120,6 +123,7 @@ bool FStack::TryCompose(
 		ArcInput,
 		Gesture,
 		Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation(),
+		Fdemo_mapShanmenThrownWeaponLaunchRejectionPresentation(),
 		OutStack);
 }
 
@@ -132,15 +136,38 @@ bool FStack::TryCompose(
 	const Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation& Terminal,
 	FStack& OutStack)
 {
+	return TryCompose(
+		Trajectory,
+		Arc,
+		ArcInput,
+		Gesture,
+		Terminal,
+		Fdemo_mapShanmenThrownWeaponLaunchRejectionPresentation(),
+		OutStack);
+}
+
+bool FStack::TryCompose(
+	const Fdemo_mapShanmenThrownWeaponTrajectoryPresentation& Trajectory,
+	const Fdemo_mapShanmenThrownWeaponArcEditingPresentation& Arc,
+	const Fdemo_mapShanmenThrownWeaponArcEditingInputHintPresentation& ArcInput,
+	const Fdemo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation&
+		Gesture,
+	const Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation& Terminal,
+	const Fdemo_mapShanmenThrownWeaponLaunchRejectionPresentation&
+		LaunchRejection,
+	FStack& OutStack)
+{
 	OutStack = FStack();
 	const bool bHasTrajectory = Trajectory.IsValid();
 	const bool bHasArc = Arc.IsValid();
 	const bool bHasArcInput = ArcInput.IsValid();
 	const bool bHasGesture = Gesture.IsValid();
 	const bool bHasTerminal = Terminal.IsValid();
+	const bool bHasLaunchRejection = LaunchRejection.IsValid();
 	if ((!bHasTrajectory && !bHasArc)
 		|| (bHasArcInput && !bHasArc)
-		|| (bHasGesture && !bHasArc))
+		|| (bHasGesture && !bHasArc)
+		|| (bHasTerminal && bHasLaunchRejection))
 	{
 		return false;
 	}
@@ -166,6 +193,15 @@ bool FStack::TryCompose(
 				EKind::TerminalFeedback,
 				ProjectTerminalTone(Terminal),
 				Terminal.GetDisplayText(),
+				Candidate))
+		{
+			return false;
+		}
+		if (bHasLaunchRejection
+			&& !TryAppendLine(
+				EKind::LaunchRejection,
+				ETone::Blocked,
+				LaunchRejection.GetDisplayText(),
 				Candidate))
 		{
 			return false;
@@ -252,6 +288,15 @@ bool FStack::TryCompose(
 	{
 		return false;
 	}
+	if (bHasLaunchRejection
+		&& !TryAppendLine(
+			EKind::LaunchRejection,
+			ETone::Blocked,
+			LaunchRejection.GetDisplayText(),
+			Candidate))
+	{
+		return false;
+	}
 	if (!Candidate.IsValid())
 	{
 		return false;
@@ -293,6 +338,7 @@ bool FStack::IsValid() const
 	bool bHasInput = false;
 	bool bHasGesture = false;
 	bool bHasTerminal = false;
+	bool bHasLaunchRejection = false;
 	ETone TrajectoryTone = ETone::Invalid;
 	ETone GestureTone = ETone::Invalid;
 	int32 PreviousRank = INDEX_NONE;
@@ -330,14 +376,22 @@ bool FStack::IsValid() const
 		case EKind::TerminalFeedback:
 			bHasTerminal = true;
 			break;
+		case EKind::LaunchRejection:
+			bHasLaunchRejection = true;
+			break;
 		default:
 			return false;
 		}
 	}
 
+	if (bHasTerminal && bHasLaunchRejection)
+	{
+		return false;
+	}
+	const bool bHasOutcome = bHasTerminal || bHasLaunchRejection;
 	if (Mode == EMode::Straight)
 	{
-		return Lines.Num() == (bHasTerminal ? 2 : 1)
+		return Lines.Num() == (bHasOutcome ? 2 : 1)
 			&& bHasTrajectory
 			&& TrajectoryTone == ETone::StraightMode
 			&& !bHasArcPresentation

@@ -11,6 +11,7 @@ namespace
 		Edemo_mapShanmenThrownWeaponArcPreLaunchPressAction;
 	using EKind =
 		Edemo_mapShanmenThrownWeaponMainHUDCombatHintKind;
+	using ECommand = Edemo_mapShanmenThrownWeaponRunCommandStatus;
 	using EMode =
 		Edemo_mapShanmenThrownWeaponMainHUDCombatHintStackMode;
 	using ETone =
@@ -25,6 +26,8 @@ namespace
 		Fdemo_mapShanmenThrownWeaponInputChoiceState;
 	using FFeedback =
 		Fdemo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation;
+	using FLaunchRejection =
+		Fdemo_mapShanmenThrownWeaponLaunchRejectionPresentation;
 	using FStack =
 		Fdemo_mapShanmenThrownWeaponMainHUDCombatHintStackPresentation;
 	using FTrajectory =
@@ -132,6 +135,46 @@ namespace
 			Presentation));
 		return Presentation;
 	}
+
+	FLaunchRejection ProjectReleasePathBlocked()
+	{
+		const FGuid SelectionId(
+			0xF4650201, 0xF4650202, 0xF4650203, 0xF4650204);
+		const FGuid RunId(
+			0xF4650211, 0xF4650212, 0xF4650213, 0xF4650214);
+		const FGuid ItemId(
+			0xF4650221, 0xF4650222, 0xF4650223, 0xF4650224);
+		const FGuid ActivationId(
+			0xF4650231, 0xF4650232, 0xF4650233, 0xF4650234);
+
+		Fdemo_mapShanmenThrownWeaponSessionResult Result;
+		Result.Status =
+			Edemo_mapShanmenThrownWeaponSessionStatus::ProductRejected;
+		Result.SelectionId = SelectionId;
+		Result.RunId = RunId;
+		Result.HotbarSlotNumber = 2;
+		Result.ItemInstanceId = ItemId;
+		Result.Diagnostic = TEXT("Exact release path was blocked.");
+		Result.Product.Status =
+			Edemo_mapShanmenThrownWeaponProductStatus::RouterRejected;
+		Result.Product.SelectionId = SelectionId;
+		Result.Product.RunId = RunId;
+		Result.Product.SourceItemInstanceId = ItemId;
+		Result.Product.ActivationSequence = 11;
+		Result.Product.ActivationId = ActivationId;
+		Result.Product.Command.Status = ECommand::LaunchRejectedCancelled;
+		Result.Product.Command.IntentId = ActivationId;
+		Result.Product.Command.RunId = RunId;
+		Result.Product.Command.ItemInstanceId = ItemId;
+		Result.Product.Command.HostStart.Error =
+			Edemo_mapShanmenThrownWeaponHostStartError::LaunchRejected;
+		Result.Product.Command.HostStart.Launch.Error =
+			Edemo_mapShanmenThrownWeaponLaunchError::ReleasePathBlocked;
+
+		FLaunchRejection Presentation;
+		check(FLaunchRejection::TryProject(Result, Presentation));
+		return Presentation;
+	}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -160,6 +203,27 @@ bool Fdemo_mapThrownWeaponMainHUDCombatHintStackOrderTest::RunTest(
 				== EKind::TrajectoryMode
 			&& StraightStack.GetLines()[0].GetTone()
 				== ETone::StraightMode);
+
+	Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation NoTerminal;
+	const FLaunchRejection LaunchRejection = ProjectReleasePathBlocked();
+	FStack BlockedStack;
+	TestTrue(TEXT("a typed pre-launch block appends one authoritative outcome"),
+		FStack::TryCompose(
+			Straight,
+			NoArc,
+			NoInput,
+			NoFeedback,
+			NoTerminal,
+			LaunchRejection,
+			BlockedStack));
+	TestTrue(TEXT("release-path rejection is visible as one blocked HUD line"),
+		BlockedStack.IsValid()
+			&& BlockedStack.NumLines() == 2
+			&& BlockedStack.GetLines()[1].GetKind()
+				== EKind::LaunchRejection
+			&& BlockedStack.GetLines()[1].GetTone() == ETone::Blocked
+			&& BlockedStack.GetLines()[1].GetDisplayText()
+				== TEXT("飞刀 · 释放路径受阻"));
 
 	const FChoice ArcChoice = MakeChoice(ETrajectory::BallisticArc);
 	const FTrajectory ArcTrajectory = ProjectTrajectory(ArcChoice);

@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "demo_mapShanmenThrownWeaponArcEditingInputHintPresentation.h"
 #include "demo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation.h"
+#include "demo_mapShanmenThrownWeaponLaunchRejectionPresentation.h"
 #include "demo_mapShanmenThrownWeaponTerminalFeedbackPresentation.h"
 #include "demo_mapShanmenThrownWeaponTrajectoryPresentation.h"
 
@@ -21,7 +22,8 @@ enum class Edemo_mapShanmenThrownWeaponMainHUDCombatHintKind : uint8
 	ArcTarget,
 	ArcInput,
 	ArcPreLaunchGesture,
-	TerminalFeedback
+	TerminalFeedback,
+	LaunchRejection
 };
 
 enum class Edemo_mapShanmenThrownWeaponMainHUDCombatHintTone : uint8
@@ -72,7 +74,8 @@ private:
 /**
  * Immutable composition of existing thrown-weapon MainHUD projections.
  *
- * Lines are ordered bottom-to-top: trajectory, apex, target, input, gesture.
+ * Lines are ordered bottom-to-top: trajectory, apex, target, input, gesture,
+ * then at most one authoritative launch/terminal outcome.
  * The composition copies presentation text only. It owns no choice, context,
  * preview, input binding, renderer, World, Actor, widget or mutable UI state.
  */
@@ -95,6 +98,17 @@ public:
 		const Fdemo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation&
 			Gesture,
 		const Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation& Terminal,
+		Fdemo_mapShanmenThrownWeaponMainHUDCombatHintStackPresentation& OutStack);
+	static bool TryCompose(
+		const Fdemo_mapShanmenThrownWeaponTrajectoryPresentation& Trajectory,
+		const Fdemo_mapShanmenThrownWeaponArcEditingPresentation& Arc,
+		const Fdemo_mapShanmenThrownWeaponArcEditingInputHintPresentation&
+			ArcInput,
+		const Fdemo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation&
+			Gesture,
+		const Fdemo_mapShanmenThrownWeaponTerminalFeedbackPresentation& Terminal,
+		const Fdemo_mapShanmenThrownWeaponLaunchRejectionPresentation&
+			LaunchRejection,
 		Fdemo_mapShanmenThrownWeaponMainHUDCombatHintStackPresentation& OutStack);
 
 	bool IsValid() const;
