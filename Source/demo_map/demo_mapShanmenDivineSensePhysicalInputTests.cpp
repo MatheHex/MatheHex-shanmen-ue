@@ -12,6 +12,7 @@
 #include "demo_mapM01Marker.h"
 #include "demo_mapPlayerController.h"
 #include "demo_mapPlayerHealthComponent.h"
+#include "demo_mapShanmenDivineSenseHUDPresentation.h"
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
@@ -400,6 +401,15 @@ bool Fdemo_mapDivineSensePhysicalPressTest::RunTest(const FString&)
 				->GetLastDivineSenseInputResultForAutomation().Status
 					== Edemo_mapShanmenDivineSenseLogicalInputStatus::
 						AdapterInactive);
+	Fdemo_mapShanmenDivineSenseHUDFeedbackPresentation Feedback;
+	TestTrue(TEXT("a rejected physical press opens concise HUD feedback"),
+		Fixture.Controller->IsDivineSenseInputFeedbackActive()
+			&& Fdemo_mapShanmenDivineSenseHUDFeedbackPresentation::TryProject(
+				Fixture.Controller->GetLatestDivineSenseInputResult(),
+				TEXT("V"),
+				Feedback)
+			&& Feedback.GetReason()
+				== Edemo_mapShanmenDivineSenseHUDFeedbackReason::Unavailable);
 	Fixture.Controller->DispatchAutomationKeyReleased(EKeys::V);
 	TestEqual(TEXT("release owns no duplicate Divine Sense binding"),
 		Fixture.Controller->GetDivineSenseInputInvocationCountForAutomation(),
@@ -510,7 +520,7 @@ bool Fdemo_mapDivineSenseGameModeLifecycleTest::RunTest(const FString&)
 	}
 
 	const Fdemo_mapShanmenDivineSenseLogicalInputResult Pulse =
-		Fixture.GameMode->RouteDivineSenseInput();
+		Fixture.Controller->RouteDivineSenseInput();
 	const FShanmenDivineSenseScanReceipt& Receipt =
 		Fixture.GameMode->GetLatestDivineSenseReceipt();
 	TestTrue(*FString::Printf(
@@ -528,6 +538,39 @@ bool Fdemo_mapDivineSenseGameModeLifecycleTest::RunTest(const FString&)
 			&& FMath::IsNearlyEqual(
 				Fixture.GameMode->GetDivineSenseMaximumSpiritEnergy(), 100.0f)
 			&& Fixture.GameMode->IsDivineSenseRevealActive());
+	TestFalse(TEXT("accepted reveal needs no competing rejection banner"),
+		Fixture.Controller->IsDivineSenseInputFeedbackActive());
+
+	bool bRemainingPulsesAccepted = true;
+	for (int32 PulseIndex = 1; PulseIndex < 10; ++PulseIndex)
+	{
+		bRemainingPulsesAccepted = bRemainingPulsesAccepted
+			&& Fixture.Controller->RouteDivineSenseInput().IsAccepted();
+	}
+	TestTrue(TEXT("the remaining nine canonical pulses are accepted"),
+		bRemainingPulsesAccepted
+			&& FMath::IsNearlyZero(
+				Fixture.GameMode->GetDivineSenseSpiritEnergy()));
+	const Fdemo_mapShanmenDivineSenseLogicalInputResult Exhausted =
+		Fixture.Controller->RouteDivineSenseInput();
+	Fdemo_mapShanmenDivineSenseHUDFeedbackPresentation ExhaustedFeedback;
+	TestTrue(TEXT("an eleventh pulse explains the exact SpiritEnergy shortage"),
+		Exhausted.IsValid()
+			&& Exhausted.Status
+				== Edemo_mapShanmenDivineSenseLogicalInputStatus::
+					ProductUnavailable
+			&& Fixture.Controller->IsDivineSenseInputFeedbackActive()
+			&& Fdemo_mapShanmenDivineSenseHUDFeedbackPresentation::TryProject(
+				Exhausted,
+				TEXT("V"),
+				ExhaustedFeedback)
+			&& ExhaustedFeedback.GetReason()
+				== Edemo_mapShanmenDivineSenseHUDFeedbackReason::
+					InsufficientSpirit
+			&& ExhaustedFeedback.GetTone()
+				== Edemo_mapShanmenDivineSenseHUDFeedbackTone::Warning
+			&& ExhaustedFeedback.GetDisplayText().Contains(
+				TEXT("NEED 10 SPIRIT · 0 AVAILABLE")));
 
 	int32 PulseCount = 0;
 	const bool bDivineSenseReleased =
@@ -535,10 +578,10 @@ bool Fdemo_mapDivineSenseGameModeLifecycleTest::RunTest(const FString&)
 			TEXT("P23.0.Automation"), PulseCount);
 	const bool bRunReleased =
 		Fixture.GameMode->CombatRunCoordinator.TryEndRun(RunId, Diagnostic);
-	TestTrue(TEXT("teardown reports one pulse and clears product plus presentation state"),
+	TestTrue(TEXT("teardown reports ten pulses and clears product plus reveal state"),
 		bDivineSenseReleased
 			&& bRunReleased
-			&& PulseCount == 1
+			&& PulseCount == 10
 			&& Fixture.GameMode->DivineSenseProductController.IsEmpty()
 			&& Fixture.GameMode->DivineSenseLogicalInputAdapter.IsEmpty()
 			&& !Fixture.GameMode->GetLatestDivineSenseReceipt().IsValid()

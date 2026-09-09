@@ -4,7 +4,14 @@ namespace
 {
 	using EPlacement =
 		Edemo_mapShanmenDivineSenseMarkerPlacement;
+	using EFeedbackReason =
+		Edemo_mapShanmenDivineSenseHUDFeedbackReason;
+	using EFeedbackTone =
+		Edemo_mapShanmenDivineSenseHUDFeedbackTone;
+	using EInputStatus = Edemo_mapShanmenDivineSenseLogicalInputStatus;
 	using FPlan = Fdemo_mapShanmenDivineSenseHUDMarkerPlan;
+	using FFeedback =
+		Fdemo_mapShanmenDivineSenseHUDFeedbackPresentation;
 
 	constexpr double MinimumCanvasWidth = 320.0;
 	constexpr double MinimumCanvasHeight = 240.0;
@@ -174,4 +181,110 @@ bool FPlan::Matches(const FPlan& Other) const
 		&& CanvasSize == Other.CanvasSize
 		&& ScreenPosition == Other.ScreenPosition
 		&& EdgeDirection == Other.EdgeDirection;
+}
+
+bool FFeedback::TryProject(
+	const Fdemo_mapShanmenDivineSenseLogicalInputResult& Result,
+	const FString& UseKeyLabel,
+	FFeedback& OutPresentation)
+{
+	OutPresentation = FFeedback();
+	if (!Result.IsValid() || Result.IsAccepted())
+	{
+		return false;
+	}
+
+	FFeedback Candidate;
+	const FString ReadableKey = UseKeyLabel.TrimStartAndEnd();
+	switch (Result.Status)
+	{
+	case EInputStatus::ProductUnavailable:
+	{
+		const auto& Availability =
+			Result.AvailabilityBefore.GetProductAvailability();
+		if (!Availability.IsValid())
+		{
+			return false;
+		}
+		const auto& Resource =
+			Availability.GetSessionAvailability().GetResourceSnapshot();
+		const float RequiredSpirit = Availability.GetConfig().GetCost().GetAmount();
+		const float AvailableSpirit = Resource.GetAvailableAmount();
+		Candidate.Tone = EFeedbackTone::Warning;
+		if (RequiredSpirit > AvailableSpirit)
+		{
+			Candidate.Reason = EFeedbackReason::InsufficientSpirit;
+			Candidate.DisplayText = FString::Printf(
+				TEXT("DIVINE SENSE · NEED %.0f SPIRIT · %.0f AVAILABLE"),
+				RequiredSpirit,
+				AvailableSpirit);
+		}
+		else if (Availability.GetRemainingIntentCapacity() <= 0
+			|| !Availability.GetSessionAvailability().HasRouteCapacity())
+		{
+			Candidate.Reason = EFeedbackReason::PulseLimitReached;
+			Candidate.DisplayText =
+				TEXT("DIVINE SENSE · PULSE LIMIT REACHED");
+		}
+		else
+		{
+			Candidate.Reason = EFeedbackReason::Unavailable;
+			Candidate.DisplayText = TEXT("DIVINE SENSE · UNAVAILABLE");
+		}
+		break;
+	}
+	case EInputStatus::RetryRequired:
+		Candidate.Reason = EFeedbackReason::RetryRequired;
+		Candidate.Tone = EFeedbackTone::Warning;
+		Candidate.DisplayText = ReadableKey.IsEmpty()
+			? TEXT("DIVINE SENSE INTERRUPTED · TRY AGAIN")
+			: FString::Printf(
+				TEXT("DIVINE SENSE INTERRUPTED · PRESS [%s] TO %s"),
+				*ReadableKey,
+				Result.bRetryAttempt ? TEXT("TRY AGAIN") : TEXT("RETRY"));
+		break;
+	case EInputStatus::Busy:
+		Candidate.Reason = EFeedbackReason::Busy;
+		Candidate.Tone = EFeedbackTone::Warning;
+		Candidate.DisplayText = TEXT("DIVINE SENSE · STABILIZING");
+		break;
+	case EInputStatus::AdapterInactive:
+	case EInputStatus::RetryUnavailable:
+		Candidate.Reason = EFeedbackReason::Unavailable;
+		Candidate.Tone = EFeedbackTone::Warning;
+		Candidate.DisplayText = TEXT("DIVINE SENSE · UNAVAILABLE");
+		break;
+	case EInputStatus::AdapterInvalid:
+	case EInputStatus::BindingMismatch:
+	case EInputStatus::ProductRejected:
+	case EInputStatus::StateDesynchronized:
+		Candidate.Reason = EFeedbackReason::Failed;
+		Candidate.Tone = EFeedbackTone::Error;
+		Candidate.DisplayText = TEXT("DIVINE SENSE · PULSE FAILED · TRY AGAIN");
+		break;
+	default:
+		return false;
+	}
+
+	if (!Candidate.IsValid())
+	{
+		return false;
+	}
+	OutPresentation = MoveTemp(Candidate);
+	return true;
+}
+
+bool FFeedback::IsValid() const
+{
+	return Reason != EFeedbackReason::Invalid
+		&& Tone != EFeedbackTone::Invalid
+		&& !DisplayText.TrimStartAndEnd().IsEmpty();
+}
+
+bool FFeedback::Matches(const FFeedback& Other) const
+{
+	return IsValid() && Other.IsValid()
+		&& Reason == Other.Reason
+		&& Tone == Other.Tone
+		&& DisplayText == Other.DisplayText;
 }

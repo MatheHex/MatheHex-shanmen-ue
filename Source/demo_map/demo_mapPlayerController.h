@@ -109,6 +109,13 @@ public:
 	Fdemo_mapShanmenSpiritEvasionInputResult RouteSpiritEvasionStartInput();
 	/** Routes one remappable physical pulse into the existing Divine Sense product chain. */
 	Fdemo_mapShanmenDivineSenseLogicalInputResult RouteDivineSenseInput();
+	/** True while the latest rejected physical pulse should remain readable on the HUD. */
+	bool IsDivineSenseInputFeedbackActive() const;
+	const Fdemo_mapShanmenDivineSenseLogicalInputResult&
+	GetLatestDivineSenseInputResult() const
+	{
+		return LastDivineSenseInputResult;
+	}
 	/** Routes one canonical flying-sword Launch-or-Recall physical command. */
 	Fdemo_mapShanmenControlledWeaponInputResult
 	RouteControlledWeaponLaunchRecallInput();
@@ -354,6 +361,8 @@ protected:
 	void ClearThrownWeaponArcTarget();
 	void StartSpiritEvasion();
 	void UseDivineSense();
+	void CaptureDivineSenseInputFeedback(
+		const Fdemo_mapShanmenDivineSenseLogicalInputResult& Result);
 	void StartWeaponGuard();
 	void StopWeaponGuard();
 	void UseHotbarSlot(int32 SlotNumber);
@@ -374,6 +383,10 @@ protected:
 	void BindProductInputActions();
 	bool RemoveProductInputActions();
 
+	Fdemo_mapShanmenDivineSenseLogicalInputResult
+		LastDivineSenseInputResult;
+	double DivineSenseInputFeedbackExpiresAtSeconds = -1.0;
+
 #if !UE_BUILD_SHIPPING
 	void RecordInputRestoreTraceEvent(
 		Edemo_mapInputRestoreTraceEvent Event) const;
@@ -382,8 +395,6 @@ protected:
 	Fdemo_mapShanmenSpiritEvasionInputResult
 		LastSpiritEvasionInputResult;
 	uint64 DivineSenseInputInvocationCount = 0;
-	Fdemo_mapShanmenDivineSenseLogicalInputResult
-		LastDivineSenseInputResult;
 	uint64 ControlledWeaponInputInvocationCount = 0;
 	Fdemo_mapShanmenControlledWeaponInputResult
 		LastControlledWeaponInputResult;

@@ -9,7 +9,13 @@ namespace
 {
 	using EPlacement =
 		Edemo_mapShanmenDivineSenseMarkerPlacement;
+	using EFeedbackReason =
+		Edemo_mapShanmenDivineSenseHUDFeedbackReason;
+	using EFeedbackTone =
+		Edemo_mapShanmenDivineSenseHUDFeedbackTone;
 	using FPlan = Fdemo_mapShanmenDivineSenseHUDMarkerPlan;
+	using FFeedback =
+		Fdemo_mapShanmenDivineSenseHUDFeedbackPresentation;
 
 	constexpr EAutomationTestFlags PresentationFlags =
 		EAutomationTestFlags::EditorContext
@@ -149,6 +155,41 @@ bool Fdemo_mapDivineSenseHUDPresentationFenceTest::RunTest(
 					std::numeric_limits<double>::infinity(),
 					1.0),
 				Reused));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapDivineSenseHUDUnavailableFeedbackTest,
+	"Shanmen.0_0_10.Product.DivineSenseHUDPresentation.UnavailableFeedback",
+	PresentationFlags)
+
+bool Fdemo_mapDivineSenseHUDUnavailableFeedbackTest::RunTest(
+	const FString&)
+{
+	Fdemo_mapShanmenDivineSenseLogicalInputResult Unavailable;
+	Unavailable.Status =
+		Edemo_mapShanmenDivineSenseLogicalInputStatus::AdapterInactive;
+	Unavailable.Diagnostic =
+		TEXT("Divine Sense physical input requires the product GameMode.");
+	FFeedback Presentation;
+	FFeedback Replay;
+	TestTrue(TEXT("a structured inactive result becomes readable HUD feedback"),
+		Unavailable.IsValid()
+			&& FFeedback::TryProject(Unavailable, TEXT("V"), Presentation)
+			&& FFeedback::TryProject(Unavailable, TEXT("Z"), Replay));
+	TestTrue(TEXT("unavailable feedback is concise stable and warning-toned"),
+		Presentation.IsValid()
+			&& Presentation.Matches(Replay)
+			&& Presentation.GetReason() == EFeedbackReason::Unavailable
+			&& Presentation.GetTone() == EFeedbackTone::Warning
+			&& Presentation.GetDisplayText()
+				== TEXT("DIVINE SENSE · UNAVAILABLE"));
+
+	const Fdemo_mapShanmenDivineSenseLogicalInputResult Invalid;
+	TestFalse(TEXT("invalid evidence cannot reuse stale HUD feedback"),
+		FFeedback::TryProject(Invalid, TEXT("V"), Presentation));
+	TestFalse(TEXT("failed projection clears reusable output"),
+		Presentation.IsValid());
 	return true;
 }
 

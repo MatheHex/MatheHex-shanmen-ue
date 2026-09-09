@@ -38,6 +38,7 @@
 namespace
 {
 	constexpr float PlayerCharacterMovementTickInterval = 0.001f;
+	constexpr double DivineSenseInputFeedbackDurationSeconds = 2.25;
 	using FArcEditingInteractionReadResult =
 		Fdemo_mapShanmenThrownWeaponInputChoiceInteractionReadResult;
 	using FArcEditingInteractionRequest =
@@ -1147,7 +1148,6 @@ void Ademo_mapPlayerController::UseDivineSense()
 		RouteDivineSenseInput();
 #if !UE_BUILD_SHIPPING
 	++DivineSenseInputInvocationCount;
-	LastDivineSenseInputResult = Result;
 #endif
 	UE_LOG(
 		Logdemo_map,
@@ -1155,6 +1155,26 @@ void Ademo_mapPlayerController::UseDivineSense()
 		TEXT("Divine Sense input %s: %s"),
 		Result.IsAccepted() ? TEXT("accepted") : TEXT("rejected"),
 		*Result.Diagnostic);
+}
+
+void Ademo_mapPlayerController::CaptureDivineSenseInputFeedback(
+	const Fdemo_mapShanmenDivineSenseLogicalInputResult& Result)
+{
+	LastDivineSenseInputResult = Result;
+	DivineSenseInputFeedbackExpiresAtSeconds =
+		Result.IsValid() && !Result.IsAccepted() && GetWorld()
+			? GetWorld()->GetTimeSeconds()
+				+ DivineSenseInputFeedbackDurationSeconds
+			: -1.0;
+}
+
+bool Ademo_mapPlayerController::IsDivineSenseInputFeedbackActive() const
+{
+	return LastDivineSenseInputResult.IsValid()
+		&& !LastDivineSenseInputResult.IsAccepted()
+		&& GetWorld()
+		&& GetWorld()->GetTimeSeconds()
+			<= DivineSenseInputFeedbackExpiresAtSeconds;
 }
 
 Fdemo_mapShanmenDivineSenseLogicalInputResult
@@ -1167,6 +1187,7 @@ Ademo_mapPlayerController::RouteDivineSenseInput()
 			Edemo_mapShanmenDivineSenseLogicalInputStatus::AdapterInactive;
 		Result.Diagnostic =
 			TEXT("Divine Sense physical input is blocked by the active UI surface.");
+		CaptureDivineSenseInputFeedback(Result);
 		return Result;
 	}
 	Ademo_mapGameMode* Mode = GetWorld()
@@ -1179,9 +1200,13 @@ Ademo_mapPlayerController::RouteDivineSenseInput()
 			Edemo_mapShanmenDivineSenseLogicalInputStatus::AdapterInactive;
 		Result.Diagnostic =
 			TEXT("Divine Sense physical input requires the product GameMode.");
+		CaptureDivineSenseInputFeedback(Result);
 		return Result;
 	}
-	return Mode->RouteDivineSenseInput();
+	Fdemo_mapShanmenDivineSenseLogicalInputResult Result =
+		Mode->RouteDivineSenseInput();
+	CaptureDivineSenseInputFeedback(Result);
+	return Result;
 }
 
 Fdemo_mapShanmenThrownWeaponArcLaunchInputResult

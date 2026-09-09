@@ -182,98 +182,149 @@ namespace
 		APlayerController* PlayerController,
 		const Ademo_mapGameMode* GameMode)
 	{
-		if (!Canvas || !PlayerController || !GameMode
-			|| !GameMode->IsDivineSenseRevealActive())
+		if (!Canvas || !PlayerController || !GameMode)
 		{
 			return;
 		}
+
+		const bool bRevealActive = GameMode->IsDivineSenseRevealActive();
+		const Ademo_mapPlayerController* DemoController =
+			Cast<Ademo_mapPlayerController>(PlayerController);
+		Fdemo_mapShanmenDivineSenseHUDFeedbackPresentation Feedback;
+		const bool bFeedbackActive = DemoController
+			&& DemoController->IsDivineSenseInputFeedbackActive()
+			&& Fdemo_mapShanmenDivineSenseHUDFeedbackPresentation::TryProject(
+				DemoController->GetLatestDivineSenseInputResult(),
+				Fdemo_mapInputBindingSettings::Get().GetKey(
+					Fdemo_mapInputActionIds::DivineSense)
+					.GetDisplayName().ToString(),
+				Feedback);
+		if (!bRevealActive && !bFeedbackActive)
+		{
+			return;
+		}
+
 		const FShanmenDivineSenseScanReceipt& Receipt =
 			GameMode->GetLatestDivineSenseReceipt();
-		FVector ViewLocation = FVector::ZeroVector;
-		FRotator ViewRotation = FRotator::ZeroRotator;
-		PlayerController->GetPlayerViewPoint(ViewLocation, ViewRotation);
-		const FVector CameraForward = ViewRotation.Vector();
-		const FVector CameraRight =
-			FRotationMatrix(ViewRotation).GetScaledAxis(EAxis::Y);
-		for (const FShanmenDivineSenseReveal& Reveal : Receipt.GetReveals())
+		if (bRevealActive)
 		{
-			const FVector MarkerWorldLocation =
-				Reveal.GetObservation().GetWorldLocation()
-					+ FVector(0.0, 0.0, 90.0);
-			FVector2D ProjectedScreenPosition = FVector2D::ZeroVector;
-			const bool bWorldProjectionSucceeded =
-				PlayerController->ProjectWorldLocationToScreen(
-					MarkerWorldLocation,
-					ProjectedScreenPosition,
-					false);
-			const FVector ViewToSubject = MarkerWorldLocation - ViewLocation;
-			const FVector2D CameraRelativeBearing(
-				FVector::DotProduct(ViewToSubject, CameraRight),
-				-FVector::DotProduct(ViewToSubject, CameraForward));
-			Fdemo_mapShanmenDivineSenseHUDMarkerPlan MarkerPlan;
-			if (!Fdemo_mapShanmenDivineSenseHUDMarkerPlan::TryPlan(
-					FVector2D(Canvas->SizeX, Canvas->SizeY),
-					bWorldProjectionSucceeded,
-					ProjectedScreenPosition,
-					CameraRelativeBearing,
-					MarkerPlan))
+			FVector ViewLocation = FVector::ZeroVector;
+			FRotator ViewRotation = FRotator::ZeroRotator;
+			PlayerController->GetPlayerViewPoint(ViewLocation, ViewRotation);
+			const FVector CameraForward = ViewRotation.Vector();
+			const FVector CameraRight =
+				FRotationMatrix(ViewRotation).GetScaledAxis(EAxis::Y);
+			for (const FShanmenDivineSenseReveal& Reveal : Receipt.GetReveals())
 			{
-				continue;
-			}
-			const FVector2D ScreenPosition = MarkerPlan.GetScreenPosition();
-			const FLinearColor Color = Reveal.WasOccluded()
-				? FLinearColor(1.0f, 0.66f, 0.12f, 0.95f)
-				: FLinearColor(0.16f, 0.95f, 1.0f, 0.95f);
-			constexpr float Radius = 9.0f;
-			const FVector2D Top = ScreenPosition + FVector2D(0.0f, -Radius);
-			const FVector2D Right = ScreenPosition + FVector2D(Radius, 0.0f);
-			const FVector2D Bottom = ScreenPosition + FVector2D(0.0f, Radius);
-			const FVector2D Left = ScreenPosition + FVector2D(-Radius, 0.0f);
-			for (const TPair<FVector2D, FVector2D>& Edge :
-				{ TPair<FVector2D, FVector2D>(Top, Right),
-					TPair<FVector2D, FVector2D>(Right, Bottom),
-					TPair<FVector2D, FVector2D>(Bottom, Left),
-					TPair<FVector2D, FVector2D>(Left, Top) })
-			{
-				FCanvasLineItem Line(Edge.Key, Edge.Value);
-				Line.SetColor(Color);
-				Line.LineThickness = Reveal.WasOccluded() ? 2.0f : 2.8f;
-				Canvas->DrawItem(Line);
-			}
-			if (MarkerPlan.IsAtScreenEdge())
-			{
-				const FVector2D Direction = MarkerPlan.GetEdgeDirection();
-				const FVector2D Tangent(-Direction.Y, Direction.X);
-				const FVector2D Tip = ScreenPosition + Direction * 13.0;
-				const FVector2D BaseCenter = ScreenPosition - Direction * 3.0;
+				const FVector MarkerWorldLocation =
+					Reveal.GetObservation().GetWorldLocation()
+						+ FVector(0.0, 0.0, 90.0);
+				FVector2D ProjectedScreenPosition = FVector2D::ZeroVector;
+				const bool bWorldProjectionSucceeded =
+					PlayerController->ProjectWorldLocationToScreen(
+						MarkerWorldLocation,
+						ProjectedScreenPosition,
+						false);
+				const FVector ViewToSubject = MarkerWorldLocation - ViewLocation;
+				const FVector2D CameraRelativeBearing(
+					FVector::DotProduct(ViewToSubject, CameraRight),
+					-FVector::DotProduct(ViewToSubject, CameraForward));
+				Fdemo_mapShanmenDivineSenseHUDMarkerPlan MarkerPlan;
+				if (!Fdemo_mapShanmenDivineSenseHUDMarkerPlan::TryPlan(
+						FVector2D(Canvas->SizeX, Canvas->SizeY),
+						bWorldProjectionSucceeded,
+						ProjectedScreenPosition,
+						CameraRelativeBearing,
+						MarkerPlan))
+				{
+					continue;
+				}
+				const FVector2D ScreenPosition = MarkerPlan.GetScreenPosition();
+				const FLinearColor Color = Reveal.WasOccluded()
+					? FLinearColor(1.0f, 0.66f, 0.12f, 0.95f)
+					: FLinearColor(0.16f, 0.95f, 1.0f, 0.95f);
+				constexpr float Radius = 9.0f;
+				const FVector2D Top =
+					ScreenPosition + FVector2D(0.0f, -Radius);
+				const FVector2D Right =
+					ScreenPosition + FVector2D(Radius, 0.0f);
+				const FVector2D Bottom =
+					ScreenPosition + FVector2D(0.0f, Radius);
+				const FVector2D Left =
+					ScreenPosition + FVector2D(-Radius, 0.0f);
 				for (const TPair<FVector2D, FVector2D>& Edge :
-					{ TPair<FVector2D, FVector2D>(
-						Tip, BaseCenter + Tangent * 5.0),
-						TPair<FVector2D, FVector2D>(
-							Tip, BaseCenter - Tangent * 5.0) })
+					{ TPair<FVector2D, FVector2D>(Top, Right),
+						TPair<FVector2D, FVector2D>(Right, Bottom),
+						TPair<FVector2D, FVector2D>(Bottom, Left),
+						TPair<FVector2D, FVector2D>(Left, Top) })
 				{
 					FCanvasLineItem Line(Edge.Key, Edge.Value);
 					Line.SetColor(Color);
-					Line.LineThickness = 2.4f;
+					Line.LineThickness = Reveal.WasOccluded() ? 2.0f : 2.8f;
 					Canvas->DrawItem(Line);
 				}
+				if (MarkerPlan.IsAtScreenEdge())
+				{
+					const FVector2D Direction = MarkerPlan.GetEdgeDirection();
+					const FVector2D Tangent(-Direction.Y, Direction.X);
+					const FVector2D Tip = ScreenPosition + Direction * 13.0;
+					const FVector2D BaseCenter =
+						ScreenPosition - Direction * 3.0;
+					for (const TPair<FVector2D, FVector2D>& Edge :
+						{ TPair<FVector2D, FVector2D>(
+							Tip, BaseCenter + Tangent * 5.0),
+							TPair<FVector2D, FVector2D>(
+								Tip, BaseCenter - Tangent * 5.0) })
+					{
+						FCanvasLineItem Line(Edge.Key, Edge.Value);
+						Line.SetColor(Color);
+						Line.LineThickness = 2.4f;
+						Canvas->DrawItem(Line);
+					}
+				}
+				const double TextOffsetX =
+					ScreenPosition.X > Canvas->SizeX - 165.0
+						? -118.0 : 13.0;
+				const double TextOffsetY =
+					ScreenPosition.Y > Canvas->SizeY - 44.0
+						? -25.0 : -9.0;
+				DrawReadableText(
+					Canvas,
+					GEngine->GetSmallFont(),
+					FString::Printf(
+						TEXT("%.1fm%s"),
+						FMath::Sqrt(Reveal.GetDistanceSquared()) / 100.0,
+						Reveal.WasOccluded()
+							? TEXT(" · OCCLUDED") : TEXT("")),
+					ScreenPosition + FVector2D(TextOffsetX, TextOffsetY),
+					Color,
+					0.76f);
 			}
-			const double TextOffsetX =
-				ScreenPosition.X > Canvas->SizeX - 165.0
-				? -118.0 : 13.0;
-			const double TextOffsetY =
-				ScreenPosition.Y > Canvas->SizeY - 44.0
-				? -25.0 : -9.0;
+		}
+
+		if (bFeedbackActive)
+		{
+			const bool bError = Feedback.GetTone()
+				== Edemo_mapShanmenDivineSenseHUDFeedbackTone::Error;
+			const FVector2D PanelPosition(
+				Canvas->SizeX * 0.5f - 250.0f, 58.0f);
+			DrawHUDPanel(
+				Canvas,
+				PanelPosition,
+				FVector2D(500.0f, 36.0f),
+				bError
+					? FLinearColor(0.24f, 0.035f, 0.025f, 0.94f)
+					: FLinearColor(0.22f, 0.13f, 0.015f, 0.94f));
 			DrawReadableText(
 				Canvas,
 				GEngine->GetSmallFont(),
-				FString::Printf(
-					TEXT("%.1fm%s"),
-					FMath::Sqrt(Reveal.GetDistanceSquared()) / 100.0,
-					Reveal.WasOccluded() ? TEXT(" · OCCLUDED") : TEXT("")),
-				ScreenPosition + FVector2D(TextOffsetX, TextOffsetY),
-				Color,
-				0.76f);
+				Feedback.GetDisplayText(),
+				PanelPosition + FVector2D(10.0f, 9.0f),
+				bError
+					? FLinearColor(1.0f, 0.38f, 0.24f)
+					: FLinearColor(1.0f, 0.78f, 0.18f),
+				0.86f);
+			return;
 		}
 
 		const FVector2D PanelPosition(Canvas->SizeX * 0.5f - 190.0f, 58.0f);
