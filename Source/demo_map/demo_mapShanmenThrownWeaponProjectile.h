@@ -9,6 +9,7 @@
 
 class UProjectileMovementComponent;
 class UBoxComponent;
+class UMaterialInstanceDynamic;
 class UPointLightComponent;
 class URotatingMovementComponent;
 class USceneComponent;
@@ -85,6 +86,8 @@ public:
 	}
 	/** The prototype knife silhouette is visible only after durable publication. */
 	bool IsPresentationVisible() const;
+	/** Blade and grip retain two distinct, immutable prototype colors. */
+	bool HasPresentationMaterialContrast() const;
 	/** World-space forward direction of the collisionless presentation pivot. */
 	FVector GetPresentationForwardDirection() const;
 	/** World-space blade-up direction used to prove presentation-only roll. */
@@ -133,6 +136,12 @@ private:
 
 	UPROPERTY(VisibleAnywhere)
 	TObjectPtr<UStaticMeshComponent> GripVisual;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> BladeMaterial;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> GripMaterial;
 
 	UPROPERTY(VisibleAnywhere)
 	TObjectPtr<URotatingMovementComponent> VisualRoll;

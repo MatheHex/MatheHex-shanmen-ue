@@ -8,6 +8,7 @@
 #include "Engine/World.h"
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "GameFramework/RotatingMovementComponent.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "UObject/ConstructorHelpers.h"
 
 namespace
@@ -18,6 +19,8 @@ namespace
 	const FVector ThrownWeaponBladeOffset(4.0f, 0.0f, 0.0f);
 	const FVector ThrownWeaponGripFullSize(8.0f, 3.0f, 1.2f);
 	const FVector ThrownWeaponGripOffset(-11.0f, 0.0f, 0.0f);
+	const FLinearColor ThrownWeaponBladeColor(0.62f, 0.78f, 1.0f);
+	const FLinearColor ThrownWeaponGripColor(0.16f, 0.045f, 0.012f);
 	constexpr float EngineCubeSideLength = 100.0f;
 	const FLinearColor StraightFlightCueColor(1.0f, 0.48f, 0.08f);
 	const FLinearColor ArcFlightCueColor(0.20f, 0.72f, 1.0f);
@@ -192,6 +195,22 @@ Ademo_mapShanmenThrownWeaponProjectile()
 		Visual->SetStaticMesh(CubeMesh.Object);
 		GripVisual->SetStaticMesh(CubeMesh.Object);
 	}
+	BladeMaterial = Visual->CreateDynamicMaterialInstance(0);
+	GripMaterial = GripVisual->CreateDynamicMaterialInstance(0);
+	if (BladeMaterial)
+	{
+		BladeMaterial->SetVectorParameterValue(
+			TEXT("Color"), ThrownWeaponBladeColor);
+		BladeMaterial->SetVectorParameterValue(
+			TEXT("BaseColor"), ThrownWeaponBladeColor);
+	}
+	if (GripMaterial)
+	{
+		GripMaterial->SetVectorParameterValue(
+			TEXT("Color"), ThrownWeaponGripColor);
+		GripMaterial->SetVectorParameterValue(
+			TEXT("BaseColor"), ThrownWeaponGripColor);
+	}
 	SetPresentationVisibility(false);
 
 	VisualRoll = CreateDefaultSubobject<URotatingMovementComponent>(
@@ -237,6 +256,22 @@ bool Ademo_mapShanmenThrownWeaponProjectile::IsPresentationVisible() const
 		&& PresentationPivot->IsVisible()
 		&& Visual->IsVisible()
 		&& GripVisual->IsVisible();
+}
+
+bool Ademo_mapShanmenThrownWeaponProjectile::
+HasPresentationMaterialContrast() const
+{
+	return BladeMaterial
+		&& GripMaterial
+		&& BladeMaterial != GripMaterial
+		&& Visual
+		&& GripVisual
+		&& Visual->GetMaterial(0) == BladeMaterial
+		&& GripVisual->GetMaterial(0) == GripMaterial
+		&& BladeMaterial->K2_GetVectorParameterValue(TEXT("Color")).Equals(
+			ThrownWeaponBladeColor, KINDA_SMALL_NUMBER)
+		&& GripMaterial->K2_GetVectorParameterValue(TEXT("Color")).Equals(
+			ThrownWeaponGripColor, KINDA_SMALL_NUMBER);
 }
 
 FVector Ademo_mapShanmenThrownWeaponProjectile::
@@ -288,6 +323,7 @@ IsPresentationGeometryValid() const
 		&& GripVisual->GetAttachParent() == PresentationPivot
 		&& Visual->GetStaticMesh()
 		&& GripVisual->GetStaticMesh() == Visual->GetStaticMesh()
+		&& HasPresentationMaterialContrast()
 		&& Visual->GetCollisionEnabled() == ECollisionEnabled::NoCollision
 		&& GripVisual->GetCollisionEnabled()
 			== ECollisionEnabled::NoCollision

@@ -15,6 +15,7 @@
 #include "GameFramework/Pawn.h"
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "GameFramework/RotatingMovementComponent.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Misc/AutomationTest.h"
 #include "ShanmenCombatTags.h"
 #include "demo_mapCombatVitalityHost.h"
@@ -819,6 +820,10 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 		BladeVisual->GetRelativeScale3D() * 100.0f;
 	const FVector GripFullSize =
 		GripVisual->GetRelativeScale3D() * 100.0f;
+	UMaterialInstanceDynamic* BladeMaterial = Cast<UMaterialInstanceDynamic>(
+		BladeVisual->GetMaterial(0));
+	UMaterialInstanceDynamic* GripMaterial = Cast<UMaterialInstanceDynamic>(
+		GripVisual->GetMaterial(0));
 	TestTrue(TEXT("Prototype silhouette is one blade and one narrower grip"),
 		NumPresentationMeshes == 2
 			&& BladeVisual->GetStaticMesh()
@@ -849,6 +854,16 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 			&& FMath::IsNearlyEqual(
 				BladeVisual->GetRelativeLocation().X + BladeFullSize.X * 0.5f,
 				Projectile->GetCollisionComponent()->GetUnscaledBoxExtent().X));
+	TestTrue(TEXT("Blade and grip use distinct readable prototype colors"),
+		Projectile->HasPresentationMaterialContrast()
+			&& BladeMaterial
+			&& GripMaterial
+			&& BladeMaterial != GripMaterial
+			&& BladeMaterial->K2_GetVectorParameterValue(TEXT("Color")).Equals(
+				FLinearColor(0.62f, 0.78f, 1.0f), KINDA_SMALL_NUMBER)
+			&& GripMaterial->K2_GetVectorParameterValue(TEXT("Color")).Equals(
+				FLinearColor(0.16f, 0.045f, 0.012f),
+				KINDA_SMALL_NUMBER));
 	const Fdemo_mapShanmenThrownWeaponLaunchResult Staged =
 		Fdemo_mapShanmenThrownWeaponWorldAdapter::StagePreparedLaunch(
 			MakeCorrelation(),
@@ -958,6 +973,8 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 				GripUpBeforeRoll, KINDA_SMALL_NUMBER)
 			&& BladeVisual->GetUpVector().Equals(
 				GripVisual->GetUpVector(), KINDA_SMALL_NUMBER)
+			&& BladeVisual->GetMaterial(0) == BladeMaterial
+			&& GripVisual->GetMaterial(0) == GripMaterial
 			&& Projectile->GetPresentationForwardDirection().Equals(
 				FVector::RightVector, KINDA_SMALL_NUMBER)
 			&& Projectile->GetActorQuat().Equals(
