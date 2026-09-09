@@ -15,11 +15,14 @@ namespace
 {
 	/** Engine Cube prototype dimensions in Unreal centimetres. */
 	const FVector ThrownWeaponPrototypeFullSize(30.0f, 4.5f, 1.2f);
-	const FVector ThrownWeaponBladeFullSize(22.0f, 4.5f, 1.2f);
-	const FVector ThrownWeaponBladeOffset(4.0f, 0.0f, 0.0f);
+	const FVector ThrownWeaponBladeBodyFullSize(22.0f, 4.0f, 1.2f);
+	const FVector ThrownWeaponBladeBodyOffset(4.0f, 0.25f, 0.0f);
+	const FVector ThrownWeaponBladeEdgeFullSize(22.0f, 0.5f, 1.2f);
+	const FVector ThrownWeaponBladeEdgeOffset(4.0f, -2.0f, 0.0f);
 	const FVector ThrownWeaponGripFullSize(8.0f, 3.0f, 1.2f);
 	const FVector ThrownWeaponGripOffset(-11.0f, 0.0f, 0.0f);
 	const FLinearColor ThrownWeaponBladeColor(0.62f, 0.78f, 1.0f);
+	const FLinearColor ThrownWeaponBladeEdgeColor(0.92f, 0.97f, 1.0f);
 	const FLinearColor ThrownWeaponGripColor(0.16f, 0.045f, 0.012f);
 	constexpr float EngineCubeSideLength = 100.0f;
 	const FLinearColor StraightFlightCueColor(1.0f, 0.48f, 0.08f);
@@ -176,9 +179,18 @@ Ademo_mapShanmenThrownWeaponProjectile()
 	Visual->SetupAttachment(PresentationPivot);
 	Visual->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Visual->SetGenerateOverlapEvents(false);
-	Visual->SetRelativeLocation(ThrownWeaponBladeOffset);
+	Visual->SetRelativeLocation(ThrownWeaponBladeBodyOffset);
 	Visual->SetRelativeScale3D(
-		ThrownWeaponBladeFullSize / EngineCubeSideLength);
+		ThrownWeaponBladeBodyFullSize / EngineCubeSideLength);
+
+	BladeEdgeVisual = CreateDefaultSubobject<UStaticMeshComponent>(
+		TEXT("ThrownWeaponBladeEdgeVisual"));
+	BladeEdgeVisual->SetupAttachment(PresentationPivot);
+	BladeEdgeVisual->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	BladeEdgeVisual->SetGenerateOverlapEvents(false);
+	BladeEdgeVisual->SetRelativeLocation(ThrownWeaponBladeEdgeOffset);
+	BladeEdgeVisual->SetRelativeScale3D(
+		ThrownWeaponBladeEdgeFullSize / EngineCubeSideLength);
 
 	GripVisual = CreateDefaultSubobject<UStaticMeshComponent>(
 		TEXT("ThrownWeaponGripVisual"));
@@ -193,9 +205,11 @@ Ademo_mapShanmenThrownWeaponProjectile()
 	if (CubeMesh.Succeeded())
 	{
 		Visual->SetStaticMesh(CubeMesh.Object);
+		BladeEdgeVisual->SetStaticMesh(CubeMesh.Object);
 		GripVisual->SetStaticMesh(CubeMesh.Object);
 	}
 	BladeMaterial = Visual->CreateDynamicMaterialInstance(0);
+	BladeEdgeMaterial = BladeEdgeVisual->CreateDynamicMaterialInstance(0);
 	GripMaterial = GripVisual->CreateDynamicMaterialInstance(0);
 	if (BladeMaterial)
 	{
@@ -203,6 +217,13 @@ Ademo_mapShanmenThrownWeaponProjectile()
 			TEXT("Color"), ThrownWeaponBladeColor);
 		BladeMaterial->SetVectorParameterValue(
 			TEXT("BaseColor"), ThrownWeaponBladeColor);
+	}
+	if (BladeEdgeMaterial)
+	{
+		BladeEdgeMaterial->SetVectorParameterValue(
+			TEXT("Color"), ThrownWeaponBladeEdgeColor);
+		BladeEdgeMaterial->SetVectorParameterValue(
+			TEXT("BaseColor"), ThrownWeaponBladeEdgeColor);
 	}
 	if (GripMaterial)
 	{
@@ -255,6 +276,7 @@ bool Ademo_mapShanmenThrownWeaponProjectile::IsPresentationVisible() const
 	return IsPresentationGeometryValid()
 		&& PresentationPivot->IsVisible()
 		&& Visual->IsVisible()
+		&& BladeEdgeVisual->IsVisible()
 		&& GripVisual->IsVisible();
 }
 
@@ -262,14 +284,21 @@ bool Ademo_mapShanmenThrownWeaponProjectile::
 HasPresentationMaterialContrast() const
 {
 	return BladeMaterial
+		&& BladeEdgeMaterial
 		&& GripMaterial
+		&& BladeMaterial != BladeEdgeMaterial
 		&& BladeMaterial != GripMaterial
+		&& BladeEdgeMaterial != GripMaterial
 		&& Visual
+		&& BladeEdgeVisual
 		&& GripVisual
 		&& Visual->GetMaterial(0) == BladeMaterial
+		&& BladeEdgeVisual->GetMaterial(0) == BladeEdgeMaterial
 		&& GripVisual->GetMaterial(0) == GripMaterial
 		&& BladeMaterial->K2_GetVectorParameterValue(TEXT("Color")).Equals(
 			ThrownWeaponBladeColor, KINDA_SMALL_NUMBER)
+		&& BladeEdgeMaterial->K2_GetVectorParameterValue(TEXT("Color")).Equals(
+			ThrownWeaponBladeEdgeColor, KINDA_SMALL_NUMBER)
 		&& GripMaterial->K2_GetVectorParameterValue(TEXT("Color")).Equals(
 			ThrownWeaponGripColor, KINDA_SMALL_NUMBER);
 }
@@ -314,27 +343,40 @@ IsPresentationGeometryValid() const
 {
 	return PresentationPivot
 		&& Visual
+		&& BladeEdgeVisual
 		&& GripVisual
 		&& PresentationPivot->GetAttachParent() == Collision
 		&& PresentationPivot->GetRelativeLocation().IsNearlyZero()
 		&& PresentationPivot->GetRelativeScale3D().Equals(
 			FVector::OneVector, KINDA_SMALL_NUMBER)
 		&& Visual->GetAttachParent() == PresentationPivot
+		&& BladeEdgeVisual->GetAttachParent() == PresentationPivot
 		&& GripVisual->GetAttachParent() == PresentationPivot
 		&& Visual->GetStaticMesh()
+		&& BladeEdgeVisual->GetStaticMesh() == Visual->GetStaticMesh()
 		&& GripVisual->GetStaticMesh() == Visual->GetStaticMesh()
 		&& HasPresentationMaterialContrast()
 		&& Visual->GetCollisionEnabled() == ECollisionEnabled::NoCollision
+		&& BladeEdgeVisual->GetCollisionEnabled()
+			== ECollisionEnabled::NoCollision
 		&& GripVisual->GetCollisionEnabled()
 			== ECollisionEnabled::NoCollision
 		&& !Visual->GetGenerateOverlapEvents()
+		&& !BladeEdgeVisual->GetGenerateOverlapEvents()
 		&& !GripVisual->GetGenerateOverlapEvents()
 		&& Visual->GetRelativeLocation().Equals(
-			ThrownWeaponBladeOffset, KINDA_SMALL_NUMBER)
+			ThrownWeaponBladeBodyOffset, KINDA_SMALL_NUMBER)
 		&& Visual->GetRelativeScale3D().Equals(
-			ThrownWeaponBladeFullSize / EngineCubeSideLength,
+			ThrownWeaponBladeBodyFullSize / EngineCubeSideLength,
 			KINDA_SMALL_NUMBER)
 		&& Visual->GetRelativeRotation().Equals(
+			FRotator::ZeroRotator, KINDA_SMALL_NUMBER)
+		&& BladeEdgeVisual->GetRelativeLocation().Equals(
+			ThrownWeaponBladeEdgeOffset, KINDA_SMALL_NUMBER)
+		&& BladeEdgeVisual->GetRelativeScale3D().Equals(
+			ThrownWeaponBladeEdgeFullSize / EngineCubeSideLength,
+			KINDA_SMALL_NUMBER)
+		&& BladeEdgeVisual->GetRelativeRotation().Equals(
 			FRotator::ZeroRotator, KINDA_SMALL_NUMBER)
 		&& GripVisual->GetRelativeLocation().Equals(
 			ThrownWeaponGripOffset, KINDA_SMALL_NUMBER)
@@ -355,6 +397,10 @@ SetPresentationVisibility(bool bVisible)
 	if (Visual)
 	{
 		Visual->SetVisibility(bVisible, false);
+	}
+	if (BladeEdgeVisual)
+	{
+		BladeEdgeVisual->SetVisibility(bVisible, false);
 	}
 	if (GripVisual)
 	{
@@ -474,6 +520,7 @@ bool Ademo_mapShanmenThrownWeaponProjectile::IsStagedFor(
 		&& Collision->GetCollisionEnabled() == ECollisionEnabled::NoCollision
 		&& !PresentationPivot->IsVisible()
 		&& !Visual->IsVisible()
+		&& !BladeEdgeVisual->IsVisible()
 		&& !GripVisual->IsVisible()
 		&& !IsPresentationRollActive()
 		&& PresentationPivot->GetRelativeRotation().Equals(

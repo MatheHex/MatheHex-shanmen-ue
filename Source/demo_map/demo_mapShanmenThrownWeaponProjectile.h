@@ -86,7 +86,7 @@ public:
 	}
 	/** The prototype knife silhouette is visible only after durable publication. */
 	bool IsPresentationVisible() const;
-	/** Blade and grip retain two distinct, immutable prototype colors. */
+	/** Blade body, edge, and grip retain distinct prototype colors. */
 	bool HasPresentationMaterialContrast() const;
 	/** World-space forward direction of the collisionless presentation pivot. */
 	FVector GetPresentationForwardDirection() const;
@@ -135,10 +135,16 @@ private:
 	TObjectPtr<UStaticMeshComponent> Visual;
 
 	UPROPERTY(VisibleAnywhere)
+	TObjectPtr<UStaticMeshComponent> BladeEdgeVisual;
+
+	UPROPERTY(VisibleAnywhere)
 	TObjectPtr<UStaticMeshComponent> GripVisual;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> BladeMaterial;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> BladeEdgeMaterial;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> GripMaterial;

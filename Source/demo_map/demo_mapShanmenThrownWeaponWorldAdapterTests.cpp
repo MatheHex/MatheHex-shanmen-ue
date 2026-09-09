@@ -782,6 +782,7 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 		? Projectile->FindComponentByClass<URotatingMovementComponent>()
 		: nullptr;
 	UStaticMeshComponent* BladeVisual = nullptr;
+	UStaticMeshComponent* BladeEdgeVisual = nullptr;
 	UStaticMeshComponent* GripVisual = nullptr;
 	int32 NumPresentationMeshes = 0;
 	if (Projectile)
@@ -798,6 +799,12 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 			}
 			else if (MeshComponent
 				&& MeshComponent->GetFName()
+					== TEXT("ThrownWeaponBladeEdgeVisual"))
+			{
+				BladeEdgeVisual = MeshComponent;
+			}
+			else if (MeshComponent
+				&& MeshComponent->GetFName()
 					== TEXT("ThrownWeaponGripVisual"))
 			{
 				GripVisual = MeshComponent;
@@ -811,56 +818,101 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 		|| !Projectile
 		|| !VisualRoll
 		|| !BladeVisual
+		|| !BladeEdgeVisual
 		|| !GripVisual
 		|| !PresentationPivot)
 	{
 		return false;
 	}
-	const FVector BladeFullSize =
+	const FVector BladeBodyFullSize =
 		BladeVisual->GetRelativeScale3D() * 100.0f;
+	const FVector BladeEdgeFullSize =
+		BladeEdgeVisual->GetRelativeScale3D() * 100.0f;
 	const FVector GripFullSize =
 		GripVisual->GetRelativeScale3D() * 100.0f;
 	UMaterialInstanceDynamic* BladeMaterial = Cast<UMaterialInstanceDynamic>(
 		BladeVisual->GetMaterial(0));
+	UMaterialInstanceDynamic* BladeEdgeMaterial =
+		Cast<UMaterialInstanceDynamic>(BladeEdgeVisual->GetMaterial(0));
 	UMaterialInstanceDynamic* GripMaterial = Cast<UMaterialInstanceDynamic>(
 		GripVisual->GetMaterial(0));
-	TestTrue(TEXT("Prototype silhouette is one blade and one narrower grip"),
-		NumPresentationMeshes == 2
+	TestTrue(TEXT("Prototype silhouette is one blade body, edge, and grip"),
+		NumPresentationMeshes == 3
 			&& BladeVisual->GetStaticMesh()
+			&& BladeEdgeVisual->GetStaticMesh()
+				== BladeVisual->GetStaticMesh()
 			&& GripVisual->GetStaticMesh() == BladeVisual->GetStaticMesh()
 			&& BladeVisual->GetAttachParent() == PresentationPivot
+			&& BladeEdgeVisual->GetAttachParent() == PresentationPivot
 			&& GripVisual->GetAttachParent() == PresentationPivot
 			&& PresentationPivot->GetAttachParent()
 				== Projectile->GetCollisionComponent()
 			&& VisualRoll->UpdatedComponent == PresentationPivot
 			&& BladeVisual->GetCollisionEnabled()
 				== ECollisionEnabled::NoCollision
+			&& BladeEdgeVisual->GetCollisionEnabled()
+				== ECollisionEnabled::NoCollision
 			&& GripVisual->GetCollisionEnabled()
 				== ECollisionEnabled::NoCollision
-			&& BladeFullSize.Equals(
-				FVector(22.0f, 4.5f, 1.2f), KINDA_SMALL_NUMBER)
+			&& BladeBodyFullSize.Equals(
+				FVector(22.0f, 4.0f, 1.2f), KINDA_SMALL_NUMBER)
+			&& BladeEdgeFullSize.Equals(
+				FVector(22.0f, 0.5f, 1.2f), KINDA_SMALL_NUMBER)
 			&& GripFullSize.Equals(
 				FVector(8.0f, 3.0f, 1.2f), KINDA_SMALL_NUMBER)
 			&& BladeVisual->GetRelativeLocation().Equals(
-				FVector(4.0f, 0.0f, 0.0f), KINDA_SMALL_NUMBER)
+				FVector(4.0f, 0.25f, 0.0f), KINDA_SMALL_NUMBER)
+			&& BladeEdgeVisual->GetRelativeLocation().Equals(
+				FVector(4.0f, -2.0f, 0.0f), KINDA_SMALL_NUMBER)
 			&& GripVisual->GetRelativeLocation().Equals(
 				FVector(-11.0f, 0.0f, 0.0f), KINDA_SMALL_NUMBER)
 			&& FMath::IsNearlyEqual(
-				BladeVisual->GetRelativeLocation().X - BladeFullSize.X * 0.5f,
+				BladeVisual->GetRelativeLocation().X
+					- BladeBodyFullSize.X * 0.5f,
+				GripVisual->GetRelativeLocation().X + GripFullSize.X * 0.5f)
+			&& FMath::IsNearlyEqual(
+				BladeEdgeVisual->GetRelativeLocation().X
+					- BladeEdgeFullSize.X * 0.5f,
 				GripVisual->GetRelativeLocation().X + GripFullSize.X * 0.5f)
 			&& FMath::IsNearlyEqual(
 				GripVisual->GetRelativeLocation().X - GripFullSize.X * 0.5f,
 				-Projectile->GetCollisionComponent()->GetUnscaledBoxExtent().X)
 			&& FMath::IsNearlyEqual(
-				BladeVisual->GetRelativeLocation().X + BladeFullSize.X * 0.5f,
+				BladeVisual->GetRelativeLocation().X
+					+ BladeBodyFullSize.X * 0.5f,
+				Projectile->GetCollisionComponent()->GetUnscaledBoxExtent().X)
+			&& FMath::IsNearlyEqual(
+				BladeEdgeVisual->GetRelativeLocation().X
+					+ BladeEdgeFullSize.X * 0.5f,
 				Projectile->GetCollisionComponent()->GetUnscaledBoxExtent().X));
-	TestTrue(TEXT("Blade and grip use distinct readable prototype colors"),
+	TestTrue(TEXT("Asymmetric edge exactly tiles the existing blade width"),
+		FMath::IsNearlyEqual(
+			BladeEdgeVisual->GetRelativeLocation().Y
+				- BladeEdgeFullSize.Y * 0.5f,
+			-Projectile->GetCollisionComponent()->GetUnscaledBoxExtent().Y)
+			&& FMath::IsNearlyEqual(
+				BladeEdgeVisual->GetRelativeLocation().Y
+					+ BladeEdgeFullSize.Y * 0.5f,
+				BladeVisual->GetRelativeLocation().Y
+					- BladeBodyFullSize.Y * 0.5f)
+			&& FMath::IsNearlyEqual(
+				BladeVisual->GetRelativeLocation().Y
+					+ BladeBodyFullSize.Y * 0.5f,
+				Projectile->GetCollisionComponent()->GetUnscaledBoxExtent().Y));
+	TestTrue(TEXT("Blade body, edge, and grip use distinct prototype colors"),
 		Projectile->HasPresentationMaterialContrast()
 			&& BladeMaterial
+			&& BladeEdgeMaterial
 			&& GripMaterial
+			&& BladeMaterial != BladeEdgeMaterial
 			&& BladeMaterial != GripMaterial
+			&& BladeEdgeMaterial != GripMaterial
 			&& BladeMaterial->K2_GetVectorParameterValue(TEXT("Color")).Equals(
 				FLinearColor(0.62f, 0.78f, 1.0f), KINDA_SMALL_NUMBER)
+			&& BladeEdgeMaterial->K2_GetVectorParameterValue(
+				TEXT("Color")).Equals(
+					FLinearColor(0.92f, 0.97f, 1.0f),
+					KINDA_SMALL_NUMBER)
 			&& GripMaterial->K2_GetVectorParameterValue(TEXT("Color")).Equals(
 				FLinearColor(0.16f, 0.045f, 0.012f),
 				KINDA_SMALL_NUMBER));
@@ -884,6 +936,7 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 			&& Projectile->GetCollisionComponent()->GetCollisionEnabled()
 				== ECollisionEnabled::NoCollision
 			&& !BladeVisual->IsVisible()
+			&& !BladeEdgeVisual->IsVisible()
 			&& !GripVisual->IsVisible()
 			&& !Projectile->IsPresentationVisible()
 			&& !Projectile->IsPresentationRollActive()
@@ -911,6 +964,7 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 			&& Projectile->GetProjectileState()
 				== Edemo_mapShanmenThrownWeaponProjectileState::Empty
 			&& !BladeVisual->IsVisible()
+			&& !BladeEdgeVisual->IsVisible()
 			&& !GripVisual->IsVisible()
 			&& !Projectile->IsPresentationVisible()
 			&& !Projectile->IsPresentationRollActive()
@@ -945,6 +999,7 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 			&& Projectile->GetCollisionComponent()->GetCollisionEnabled()
 				== ECollisionEnabled::QueryOnly
 			&& BladeVisual->IsVisible()
+			&& BladeEdgeVisual->IsVisible()
 			&& GripVisual->IsVisible()
 			&& Projectile->IsPresentationVisible()
 			&& Projectile->IsPresentationRollActive()
@@ -962,6 +1017,9 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 	const FVector PresentationUpBeforeRoll =
 		Projectile->GetPresentationUpDirection();
 	const FVector BladeUpBeforeRoll = BladeVisual->GetUpVector();
+	const FVector BladeEdgeUpBeforeRoll = BladeEdgeVisual->GetUpVector();
+	const FVector BladeEdgeLocationBeforeRoll =
+		BladeEdgeVisual->GetComponentLocation();
 	const FVector GripUpBeforeRoll = GripVisual->GetUpVector();
 	VisualRoll->TickComponent(0.125f, LEVELTICK_All, nullptr);
 	TestTrue(TEXT("Flight roll moves only the collisionless blade presentation"),
@@ -969,11 +1027,18 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 			PresentationUpBeforeRoll, KINDA_SMALL_NUMBER)
 			&& !BladeVisual->GetUpVector().Equals(
 				BladeUpBeforeRoll, KINDA_SMALL_NUMBER)
+			&& !BladeEdgeVisual->GetUpVector().Equals(
+				BladeEdgeUpBeforeRoll, KINDA_SMALL_NUMBER)
+			&& !BladeEdgeVisual->GetComponentLocation().Equals(
+				BladeEdgeLocationBeforeRoll, KINDA_SMALL_NUMBER)
 			&& !GripVisual->GetUpVector().Equals(
 				GripUpBeforeRoll, KINDA_SMALL_NUMBER)
 			&& BladeVisual->GetUpVector().Equals(
 				GripVisual->GetUpVector(), KINDA_SMALL_NUMBER)
+			&& BladeEdgeVisual->GetUpVector().Equals(
+				GripVisual->GetUpVector(), KINDA_SMALL_NUMBER)
 			&& BladeVisual->GetMaterial(0) == BladeMaterial
+			&& BladeEdgeVisual->GetMaterial(0) == BladeEdgeMaterial
 			&& GripVisual->GetMaterial(0) == GripMaterial
 			&& Projectile->GetPresentationForwardDirection().Equals(
 				FVector::RightVector, KINDA_SMALL_NUMBER)
