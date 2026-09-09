@@ -151,6 +151,34 @@ namespace
 				|| Movement.Velocity.Equals(
 					Expected.InitialVelocity, KINDA_SMALL_NUMBER));
 	}
+
+	bool IsLaunchVolumeClear(
+		const Ademo_mapShanmenThrownWeaponProjectile& Projectile,
+		const FShanmenThrownWeaponLaunchReceipt& Launch,
+		const FThrownWeaponMotionConfig& Motion,
+		const AActor* SourceActor)
+	{
+		const UWorld* World = Projectile.GetWorld();
+		const UBoxComponent* Collision = Projectile.GetCollisionComponent();
+		if (!World || !Collision)
+		{
+			// Pure/headless contract tests intentionally have no physical scene.
+			return true;
+		}
+
+		FCollisionQueryParams QueryParams;
+		QueryParams.AddIgnoredActor(&Projectile);
+		QueryParams.AddIgnoredActor(SourceActor);
+		const FCollisionResponseParams ResponseParams(
+			Collision->GetCollisionResponseToChannels());
+		return !World->OverlapBlockingTestByChannel(
+			Launch.GetOrigin(),
+			Motion.InitialVelocity.Rotation().Quaternion(),
+			Collision->GetCollisionObjectType(),
+			FCollisionShape::MakeBox(Collision->GetScaledBoxExtent()),
+			QueryParams,
+			ResponseParams);
+	}
 }
 
 Ademo_mapShanmenThrownWeaponProjectile::
@@ -468,6 +496,10 @@ bool Ademo_mapShanmenThrownWeaponProjectile::TryStageLaunch(
 		|| VisualRoll->UpdatedComponent != PresentationPivot
 		|| !FlightCueLight
 		|| !TryBuildMotionConfig(*this, InLaunch, Motion))
+	{
+		return false;
+	}
+	if (!IsLaunchVolumeClear(*this, InLaunch, Motion, InSourceActor))
 	{
 		return false;
 	}

@@ -1054,6 +1054,93 @@ bool Fdemo_mapThrownWeaponWorldDurableGateTest::RunTest(const FString&)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapThrownWeaponLaunchClearanceGateTest,
+	"Shanmen.0_0_10.Product.ThrownWeaponWorldDelivery.LaunchClearanceGate",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapThrownWeaponLaunchClearanceGateTest::RunTest(const FString&)
+{
+	FThrownWorldFixture IdentityFixture;
+	FThrownCollisionWorldFixture WorldFixture;
+	if (!IdentityFixture.bReady || !WorldFixture.IsValid())
+	{
+		AddError(TEXT("Could not build the P22.9 launch-clearance fixture."));
+		return false;
+	}
+
+	const FVector Origin = WorldFixture.Blocker->GetActorLocation();
+	const Fdemo_mapShanmenThrownWeaponSpawnResult Spawned =
+		Fdemo_mapShanmenThrownWeaponRunHost::SpawnStagedCarrier(
+			WorldFixture.World,
+			Ademo_mapShanmenThrownWeaponProjectile::StaticClass(),
+			WorldFixture.Source,
+			Origin);
+	Ademo_mapShanmenThrownWeaponProjectile* Projectile =
+		Spawned.Projectile.Get();
+	if (!Spawned.IsSpawned() || !Projectile)
+	{
+		AddError(TEXT("Could not spawn the P22.9 inert launch carrier."));
+		return false;
+	}
+
+	FShanmenActionOrchestrator Runtime;
+	FShanmenThrownWeaponExecution Execution;
+	FShanmenCombatActionSnapshot Action;
+	StartAction(IdentityFixture.Coordinator, Runtime, Execution, Action);
+	const Fdemo_mapShanmenThrownWeaponLaunchResult Blocked =
+		Fdemo_mapShanmenThrownWeaponWorldAdapter::StagePreparedLaunch(
+			MakeCorrelation(),
+			MakePrepared(Action),
+			Runtime,
+			Execution,
+			*Projectile,
+			WorldFixture.Source,
+			Origin,
+			FVector::RightVector);
+	TestTrue(TEXT("A blocking overlap rejects launch before durable publication"),
+		!Blocked.IsStaged()
+			&& !Blocked.IsCommitted()
+			&& Blocked.Error
+				== Edemo_mapShanmenThrownWeaponLaunchError::ProjectileStageRejected);
+	TestTrue(TEXT("Blocked clearance leaves the physical carrier inert and empty"),
+		Projectile->GetProjectileState()
+				== Edemo_mapShanmenThrownWeaponProjectileState::Empty
+			&& !Projectile->GetLaunchReceipt().IsValid()
+			&& !Projectile->GetHitContext().IsValid()
+			&& Projectile->GetCollisionComponent()->GetCollisionEnabled()
+				== ECollisionEnabled::NoCollision
+			&& !Projectile->GetMovementComponent()->IsActive()
+			&& !Projectile->IsPresentationVisible()
+			&& !Projectile->IsFlightCueVisible());
+
+	WorldFixture.Blocker->SetActorLocation(
+		FVector(1000.0f, 1000.0f, 100.0f),
+		false,
+		nullptr,
+		ETeleportType::TeleportPhysics);
+	WorldFixture.World->UpdateWorldComponents(true, false);
+	const Fdemo_mapShanmenThrownWeaponLaunchResult Clear =
+		Fdemo_mapShanmenThrownWeaponWorldAdapter::StagePreparedLaunch(
+			MakeCorrelation(),
+			MakePrepared(Action),
+			Runtime,
+			Execution,
+			*Projectile,
+			WorldFixture.Source,
+			Origin,
+			FVector::RightVector);
+	TestTrue(TEXT("The unchanged launch stages once its exact volume is clear"),
+		Clear.IsStaged()
+			&& !Clear.IsCommitted()
+			&& Projectile->IsStagedFor(Clear.Plan.Launch, Clear.Plan.Context));
+	TestTrue(TEXT("A clear staged retry remains safely cancellable"),
+		Projectile->CancelStagedLaunch()
+			&& Projectile->GetProjectileState()
+				== Edemo_mapShanmenThrownWeaponProjectileState::Empty);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	Fdemo_mapThrownWeaponCollisionProfileSweepTest,
 	"Shanmen.0_0_10.Product.ThrownWeaponWorldDelivery.CollisionProfileSweep",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
