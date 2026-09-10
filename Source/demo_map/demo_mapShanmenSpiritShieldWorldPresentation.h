@@ -38,8 +38,13 @@ public:
 	static bool HasCanonicalMaterialColor(const AActor* Owner);
 	static bool HasStableAppearance(const AActor* Owner);
 	static bool HasLowCapacityAppearance(const AActor* Owner);
+	static bool HasCapacityScale(
+		const AActor* Owner,
+		float AvailableCapacity,
+		float MaximumCapacity);
 	static FLinearColor GetCueColor(const AActor* Owner);
 	static float GetCueIntensity(const AActor* Owner);
+	static FVector GetShellScale(const AActor* Owner);
 
 private:
 	static UStaticMeshComponent* FindShell(const AActor* Owner);
@@ -52,5 +57,6 @@ private:
 		AActor* Owner,
 		const FLinearColor& Color,
 		float CueIntensity);
+	static void SetShellScale(AActor* Owner, const FVector& Scale);
 	static void SetActive(AActor* Owner, bool bActive);
 };

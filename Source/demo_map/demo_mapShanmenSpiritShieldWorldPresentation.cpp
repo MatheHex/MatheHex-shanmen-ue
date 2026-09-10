@@ -13,7 +13,8 @@ namespace
 {
 	const FName SpiritShieldShellName(TEXT("SpiritShieldShellVisual"));
 	const FName SpiritShieldCueLightName(TEXT("SpiritShieldCueLight"));
-	const FVector SpiritShieldShellScale(1.35f, 1.35f, 2.10f);
+	const FVector SpiritShieldFullScale(1.35f, 1.35f, 2.10f);
+	const FVector SpiritShieldMinimumScale(1.20f, 1.20f, 1.90f);
 	const FLinearColor SpiritShieldStableColor(0.08f, 0.68f, 1.0f);
 	const FLinearColor SpiritShieldLowCapacityColor(1.0f, 0.46f, 0.05f);
 	constexpr float SpiritShieldShellOpacity = 0.16f;
@@ -21,6 +22,31 @@ namespace
 	constexpr float SpiritShieldLowCapacityCueIntensity = 2600.0f;
 	constexpr float SpiritShieldCueAttenuationRadius = 220.0f;
 	constexpr float SpiritShieldLowCapacityFraction = 0.25f;
+
+	FVector CalculateCapacityScale(
+		float AvailableCapacity,
+		float MaximumCapacity)
+	{
+		const float CapacityFraction = FMath::Clamp(
+			AvailableCapacity / MaximumCapacity, 0.0f, 1.0f);
+		return FMath::Lerp(
+			SpiritShieldMinimumScale,
+			SpiritShieldFullScale,
+			CapacityFraction);
+	}
+
+	bool IsBoundedShellScale(const FVector& Scale)
+	{
+		return FMath::IsFinite(Scale.X)
+			&& FMath::IsFinite(Scale.Y)
+			&& FMath::IsFinite(Scale.Z)
+			&& Scale.X >= SpiritShieldMinimumScale.X - KINDA_SMALL_NUMBER
+			&& Scale.Y >= SpiritShieldMinimumScale.Y - KINDA_SMALL_NUMBER
+			&& Scale.Z >= SpiritShieldMinimumScale.Z - KINDA_SMALL_NUMBER
+			&& Scale.X <= SpiritShieldFullScale.X + KINDA_SMALL_NUMBER
+			&& Scale.Y <= SpiritShieldFullScale.Y + KINDA_SMALL_NUMBER
+			&& Scale.Z <= SpiritShieldFullScale.Z + KINDA_SMALL_NUMBER;
+	}
 }
 
 bool Fdemo_mapShanmenSpiritShieldWorldPresentation::EnsureInstalled(
@@ -56,7 +82,7 @@ bool Fdemo_mapShanmenSpiritShieldWorldPresentation::EnsureInstalled(
 		Shell->SetupAttachment(Owner->GetRootComponent());
 		Shell->SetRelativeLocation(FVector::ZeroVector);
 		Shell->SetRelativeRotation(FRotator::ZeroRotator);
-		Shell->SetRelativeScale3D(SpiritShieldShellScale);
+		Shell->SetRelativeScale3D(SpiritShieldFullScale);
 		Shell->SetStaticMesh(ShellMesh);
 		Shell->SetMaterial(0, ShellMaterial);
 		Shell->SetCollisionEnabled(ECollisionEnabled::NoCollision);
@@ -106,24 +132,39 @@ bool Fdemo_mapShanmenSpiritShieldWorldPresentation::Synchronize(
 		SetActive(Owner, false);
 		return false;
 	}
+	const float AvailableCapacity = Session
+		? Session->GetAvailableCapacity()
+		: 0.0f;
 	const bool bShouldBeVisible = Session
 		&& Session->IsValid()
 		&& Session->IsActive()
-		&& Session->GetAvailableCapacity() > 0.0f;
+		&& AvailableCapacity > 0.0f;
 	bool bLowCapacity = false;
+	float MaximumCapacity = 0.0f;
 	if (bShouldBeVisible)
 	{
-		const float MaximumCapacity = Session->GetSession()
+		MaximumCapacity = Session->GetSession()
 			.GetCapacityAuthority().GetMaximumCapacity();
 		if (!FMath::IsFinite(MaximumCapacity) || MaximumCapacity <= 0.0f
-			|| Session->GetAvailableCapacity() > MaximumCapacity)
+			|| !FMath::IsFinite(AvailableCapacity)
+			|| AvailableCapacity > MaximumCapacity)
 		{
+			SetShellScale(Owner, SpiritShieldFullScale);
+			SetAppearance(
+				Owner,
+				SpiritShieldStableColor,
+				SpiritShieldStableCueIntensity);
 			SetActive(Owner, false);
 			return false;
 		}
-		bLowCapacity = Session->GetAvailableCapacity()
+		bLowCapacity = AvailableCapacity
 			<= MaximumCapacity * SpiritShieldLowCapacityFraction;
 	}
+	SetShellScale(
+		Owner,
+		bShouldBeVisible
+			? CalculateCapacityScale(AvailableCapacity, MaximumCapacity)
+			: SpiritShieldFullScale);
 	SetAppearance(
 		Owner,
 		bLowCapacity
@@ -135,9 +176,11 @@ bool Fdemo_mapShanmenSpiritShieldWorldPresentation::Synchronize(
 	SetActive(Owner, bShouldBeVisible);
 	return IsVisible(Owner) == bShouldBeVisible
 		&& (!bShouldBeVisible
-			|| (bLowCapacity
-				? HasLowCapacityAppearance(Owner)
-				: HasStableAppearance(Owner)));
+			|| ((bLowCapacity
+					? HasLowCapacityAppearance(Owner)
+					: HasStableAppearance(Owner))
+				&& HasCapacityScale(
+					Owner, AvailableCapacity, MaximumCapacity)));
 }
 
 bool Fdemo_mapShanmenSpiritShieldWorldPresentation::IsVisible(
@@ -167,8 +210,7 @@ bool Fdemo_mapShanmenSpiritShieldWorldPresentation::IsGeometryValid(
 		&& Shell->GetRelativeLocation().IsNearlyZero()
 		&& Shell->GetRelativeRotation().Equals(
 			FRotator::ZeroRotator, KINDA_SMALL_NUMBER)
-		&& Shell->GetRelativeScale3D().Equals(
-			SpiritShieldShellScale, KINDA_SMALL_NUMBER)
+		&& IsBoundedShellScale(Shell->GetRelativeScale3D())
 		&& Cast<UMaterialInstanceDynamic>(Shell->GetMaterial(0));
 }
 
@@ -200,6 +242,23 @@ bool Fdemo_mapShanmenSpiritShieldWorldPresentation::
 		SpiritShieldLowCapacityCueIntensity);
 }
 
+bool Fdemo_mapShanmenSpiritShieldWorldPresentation::HasCapacityScale(
+	const AActor* Owner,
+	float AvailableCapacity,
+	float MaximumCapacity)
+{
+	const UStaticMeshComponent* Shell = FindShell(Owner);
+	return Shell
+		&& FMath::IsFinite(AvailableCapacity)
+		&& FMath::IsFinite(MaximumCapacity)
+		&& AvailableCapacity > 0.0f
+		&& MaximumCapacity > 0.0f
+		&& AvailableCapacity <= MaximumCapacity
+		&& Shell->GetRelativeScale3D().Equals(
+			CalculateCapacityScale(AvailableCapacity, MaximumCapacity),
+			KINDA_SMALL_NUMBER);
+}
+
 FLinearColor Fdemo_mapShanmenSpiritShieldWorldPresentation::GetCueColor(
 	const AActor* Owner)
 {
@@ -214,6 +273,13 @@ float Fdemo_mapShanmenSpiritShieldWorldPresentation::GetCueIntensity(
 {
 	const UPointLightComponent* CueLight = FindCueLight(Owner);
 	return CueLight ? CueLight->Intensity : 0.0f;
+}
+
+FVector Fdemo_mapShanmenSpiritShieldWorldPresentation::GetShellScale(
+	const AActor* Owner)
+{
+	const UStaticMeshComponent* Shell = FindShell(Owner);
+	return Shell ? Shell->GetRelativeScale3D() : FVector::ZeroVector;
 }
 
 UStaticMeshComponent*
@@ -294,6 +360,16 @@ void Fdemo_mapShanmenSpiritShieldWorldPresentation::SetAppearance(
 	{
 		CueLight->SetLightColor(Color, false);
 		CueLight->SetIntensity(CueIntensity);
+	}
+}
+
+void Fdemo_mapShanmenSpiritShieldWorldPresentation::SetShellScale(
+	AActor* Owner,
+	const FVector& Scale)
+{
+	if (UStaticMeshComponent* Shell = FindShell(Owner))
+	{
+		Shell->SetRelativeScale3D(Scale);
 	}
 }
 

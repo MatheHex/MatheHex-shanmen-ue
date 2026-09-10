@@ -26,9 +26,9 @@ namespace
 		EAutomationTestFlags::EditorContext
 		| EAutomationTestFlags::EngineFilter;
 	const FGuid SpiritShieldWorldPresentationRun(
-		0x25700001, 0x25700002, 0x25700003, 0x25700004);
+		0x25800001, 0x25800002, 0x25800003, 0x25800004);
 	const FGuid SpiritShieldWorldPresentationAttackSource(
-		0x25710001, 0x25710002, 0x25710003, 0x25710004);
+		0x25810001, 0x25810002, 0x25810003, 0x25810004);
 
 	struct FSpiritShieldWorldFixture
 	{
@@ -125,7 +125,7 @@ namespace
 			Player = NewObject<APawn>(GetTransientPackage());
 			Health = Player
 				? NewObject<Udemo_mapPlayerHealthComponent>(
-					Player, TEXT("P256SpiritShieldHealth"))
+					Player, TEXT("P258SpiritShieldHealth"))
 				: nullptr;
 			if (!Player || !Health
 				|| !Coordinator.TryBeginRun(
@@ -195,9 +195,9 @@ namespace
 		Capture.OwnerId = SpiritShieldWorldPresentationAttackSource;
 		Capture.SourceEntityId = SpiritShieldWorldPresentationAttackSource;
 		Capture.ActionDefinitionId =
-			TEXT("Combat.Action.Test.P25_7ShieldPresentation");
-		Capture.Content.Version = TEXT("0.0.10.P25.7");
-		Capture.Content.Digest = TEXT("TEST-DIGEST-P25.7-SHIELD-PRESENTATION");
+			TEXT("Combat.Action.Test.P25_8ShieldPresentation");
+		Capture.Content.Version = TEXT("0.0.10.P25.8");
+		Capture.Content.Digest = TEXT("TEST-DIGEST-P25.8-SHIELD-PRESENTATION");
 		Capture.SourceTags.AddTag(FShanmenCombatNativeTags::SourcePlayer());
 		Capture.ActivationId = FShanmenCombatIdFactory::MakeActivationId(
 			Capture.RunId,
@@ -212,7 +212,7 @@ namespace
 		Identity.Candidate.SourceEntityId = Identity.Action.GetSourceEntityId();
 		Identity.Candidate.TargetEntityId = TargetEntityId;
 		Identity.Candidate.DetectorId =
-			TEXT("Detector.Test.P25_7ShieldPresentation");
+			TEXT("Detector.Test.P25_8ShieldPresentation");
 		Identity.Candidate.DetectorKind = EShanmenHitDetectorKind::Shape;
 		Identity.Candidate.HitNormal = FVector::BackwardVector;
 		Identity.Candidate.HitOrdinal = 0;
@@ -243,7 +243,7 @@ namespace
 		Request.Action = Identity.Action;
 		Request.Candidate = Identity.Candidate;
 		Request.Damage.FormulaId =
-			TEXT("Combat.Formula.Test.P25_7ShieldPresentation");
+			TEXT("Combat.Formula.Test.P25_8ShieldPresentation");
 		Request.Damage.RawDamage = RawDamage;
 		Request.Damage.DamageTags.AddTag(
 			FShanmenCombatNativeTags::DamagePhysicalSlash());
@@ -309,6 +309,11 @@ bool Fdemo_mapSpiritShieldWorldPresentationGeometryTest::RunTest(
 	TestTrue(TEXT("dynamic shell material receives the canonical energy color"),
 		Fdemo_mapShanmenSpiritShieldWorldPresentation::
 			HasCanonicalMaterialColor(World.Character));
+	TestTrue(TEXT("hidden shell resets to the full-capacity geometry"),
+		Fdemo_mapShanmenSpiritShieldWorldPresentation::
+			GetShellScale(World.Character).Equals(
+				FVector(1.35f, 1.35f, 2.10f),
+				KINDA_SMALL_NUMBER));
 	TestTrue(TEXT("cue light receives the exact linear energy color"),
 		Fdemo_mapShanmenSpiritShieldWorldPresentation::
 			GetCueColor(World.Character).Equals(
@@ -339,7 +344,9 @@ bool Fdemo_mapSpiritShieldWorldPresentationActivationReleaseTest::RunTest(
 			&& Fdemo_mapShanmenSpiritShieldWorldPresentation::
 				IsVisible(World.Character)
 			&& Fdemo_mapShanmenSpiritShieldWorldPresentation::
-				HasStableAppearance(World.Character));
+				HasStableAppearance(World.Character)
+			&& Fdemo_mapShanmenSpiritShieldWorldPresentation::
+				HasCapacityScale(World.Character, 30.0f, 30.0f));
 	TestTrue(TEXT("owner release clears the sole Session"),
 		Product.Session.TryReleaseOwner(Product.Diagnostic)
 			&& Product.Session.IsEmpty());
@@ -391,6 +398,52 @@ bool Fdemo_mapSpiritShieldWorldPresentationDeadlineTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapSpiritShieldWorldPresentationCapacityGeometryTest,
+	"Shanmen.0_0_10.Product.SpiritShieldWorldPresentation.CapacityGeometry",
+	SpiritShieldWorldPresentationFlags)
+
+bool Fdemo_mapSpiritShieldWorldPresentationCapacityGeometryTest::RunTest(
+	const FString&)
+{
+	FSpiritShieldWorldFixture World;
+	FSpiritShieldPresentationProductFixture Product;
+	if (!World.IsReady() || !Product.Start())
+	{
+		AddError(!World.IsReady() ? World.Diagnostic : Product.Diagnostic);
+		return false;
+	}
+
+	const FSpiritShieldPresentationImpactIdentity Identity =
+		MakeImpactIdentity(Product.Coordinator.GetPlayerEntityId());
+	const auto Defense = Product.Session.TryComposeImpactDefense(
+		Identity.ImpactId,
+		Product.CaptureTimeline(),
+		MakeBaseDefense());
+	const FShanmenImpactRequest Request = MakeImpactRequest(
+		Identity, Defense.Defense, 15.0f);
+	const FShanmenImpactResult Resolution =
+		FShanmenDefenseResolver::Resolve(Request);
+	const auto Committed = Product.Session.CommitImpact(
+		Defense, Request, Resolution, []() { return true; });
+	TestTrue(TEXT("half-capacity impact commits through the sole authority"),
+		Committed.DidConsumeCapacity()
+			&& FMath::IsNearlyEqual(Resolution.PreventedDamage, 15.0f)
+			&& FMath::IsNearlyEqual(
+				Product.Session.GetAvailableCapacity(), 15.0f));
+	TestTrue(TEXT("half capacity contracts the shell continuously"),
+		World.Synchronize(&Product.Session)
+			&& Fdemo_mapShanmenSpiritShieldWorldPresentation::
+				HasStableAppearance(World.Character)
+			&& Fdemo_mapShanmenSpiritShieldWorldPresentation::
+				HasCapacityScale(World.Character, 15.0f, 30.0f)
+			&& Fdemo_mapShanmenSpiritShieldWorldPresentation::
+				GetShellScale(World.Character).Equals(
+					FVector(1.275f, 1.275f, 2.0f),
+					KINDA_SMALL_NUMBER));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	Fdemo_mapSpiritShieldWorldPresentationCapacityToneTest,
 	"Shanmen.0_0_10.Product.SpiritShieldWorldPresentation.CapacityTone",
 	SpiritShieldWorldPresentationFlags)
@@ -433,6 +486,12 @@ bool Fdemo_mapSpiritShieldWorldPresentationCapacityToneTest::RunTest(
 				IsVisible(World.Character)
 			&& Fdemo_mapShanmenSpiritShieldWorldPresentation::
 				HasLowCapacityAppearance(World.Character)
+			&& Fdemo_mapShanmenSpiritShieldWorldPresentation::
+				HasCapacityScale(World.Character, 6.0f, 30.0f)
+			&& Fdemo_mapShanmenSpiritShieldWorldPresentation::
+				GetShellScale(World.Character).Equals(
+					FVector(1.23f, 1.23f, 1.94f),
+					KINDA_SMALL_NUMBER)
 			&& FMath::IsNearlyEqual(
 				Fdemo_mapShanmenSpiritShieldWorldPresentation::
 					GetCueIntensity(World.Character),
@@ -480,7 +539,11 @@ bool Fdemo_mapSpiritShieldWorldPresentationDepletionTest::RunTest(
 	TestTrue(TEXT("zero-capacity active Session hides both world cues"),
 		World.Synchronize(&Product.Session)
 			&& !Fdemo_mapShanmenSpiritShieldWorldPresentation::
-				IsVisible(World.Character));
+				IsVisible(World.Character)
+			&& Fdemo_mapShanmenSpiritShieldWorldPresentation::
+				GetShellScale(World.Character).Equals(
+					FVector(1.35f, 1.35f, 2.10f),
+					KINDA_SMALL_NUMBER));
 	return true;
 }
 
