@@ -68,6 +68,7 @@ bool Fdemo_mapPlayerActionArbitrationPolicyTest::RunTest(const FString&)
 		Edemo_mapShanmenPlayerActionKind::ThrownWeapon,
 		Edemo_mapShanmenPlayerActionKind::SwordQi,
 		Edemo_mapShanmenPlayerActionKind::SpiritEvasion,
+		Edemo_mapShanmenPlayerActionKind::SpiritShield,
 		Edemo_mapShanmenPlayerActionKind::WeaponGuard
 	};
 	uint64 Sequence = 1;

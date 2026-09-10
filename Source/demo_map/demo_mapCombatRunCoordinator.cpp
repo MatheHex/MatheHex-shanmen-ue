@@ -25,6 +25,7 @@
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
 #include "demo_mapShanmenRunLifecycleAdapter.h"
 #include "demo_mapShanmenDivineSenseProductAuthority.h"
+#include "demo_mapShanmenSpiritShieldProductSession.h"
 #include "demo_mapShanmenSwordQiProductAuthority.h"
 #include "demo_mapShanmenSpiritEvasionProductAuthority.h"
 #include "demo_mapShanmenWeaponGuardProductAuthority.h"
@@ -1066,6 +1067,7 @@ bool Fdemo_mapCombatRunCoordinator::TryEndRun(
 	NextPlayerSwordQiActivationSequence = 1;
 	NextPlayerSpiritEvasionActivationSequence = 1;
 	NextPlayerDivineSenseActivationSequence = 1;
+	NextPlayerSpiritShieldActivationSequence = 1;
 	NextPlayerWeaponGuardActivationSequence = 1;
 	NextPlayerActionArbitrationSequence = 1;
 	OutDiagnostic = TEXT("Combat Run identities released.");
@@ -1102,6 +1104,7 @@ void Fdemo_mapCombatRunCoordinator::Reset()
 	NextPlayerSwordQiActivationSequence = 1;
 	NextPlayerSpiritEvasionActivationSequence = 1;
 	NextPlayerDivineSenseActivationSequence = 1;
+	NextPlayerSpiritShieldActivationSequence = 1;
 	NextPlayerWeaponGuardActivationSequence = 1;
 	NextPlayerActionArbitrationSequence = 1;
 }
@@ -2904,6 +2907,61 @@ bool Fdemo_mapCombatRunCoordinator::TryReservePlayerDivineSenseAction(
 	return true;
 }
 
+bool Fdemo_mapCombatRunCoordinator::TryReservePlayerSpiritShieldAction(
+	Fdemo_mapPlayerSpiritShieldActionReservation& OutReservation,
+	FString& OutDiagnostic)
+{
+	OutReservation = Fdemo_mapPlayerSpiritShieldActionReservation();
+	OutDiagnostic.Reset();
+	if (!IsReady())
+	{
+		OutDiagnostic =
+			TEXT("Spirit Shield identity requires one ready combat Run.");
+		return false;
+	}
+	if (NextPlayerSpiritShieldActivationSequence == 0
+		|| NextPlayerSpiritShieldActivationSequence == MAX_uint64)
+	{
+		OutDiagnostic = TEXT("Spirit Shield activation sequence is exhausted.");
+		return false;
+	}
+
+	FShanmenCombatActionCapture Capture;
+	Capture.RunId = GetRunId();
+	Capture.OwnerId = PlayerEntityId;
+	Capture.SourceEntityId = PlayerEntityId;
+	Capture.ActionDefinitionId =
+		FShanmenSpiritShieldDefinition::CanonicalActionDefinitionId();
+	Capture.Content.Version =
+		Fdemo_mapShanmenSpiritShieldProductAuthority::
+			CanonicalContentVersion();
+	Capture.Content.Digest =
+		Fdemo_mapShanmenSpiritShieldProductAuthority::
+			CanonicalContentDigest();
+	Capture.SourceTags.AddTag(FShanmenCombatNativeTags::SourcePlayer());
+	Capture.ActivationId = FShanmenCombatIdFactory::MakeActivationId(
+		Capture.RunId,
+		Capture.SourceEntityId,
+		Capture.ActionDefinitionId,
+		NextPlayerSpiritShieldActivationSequence);
+
+	Fdemo_mapPlayerSpiritShieldActionReservation Candidate;
+	Candidate.ActivationSequence = NextPlayerSpiritShieldActivationSequence;
+	if (!FShanmenCombatActionSnapshot::TryCapture(Capture, Candidate.Action)
+		|| !Candidate.IsValid())
+	{
+		OutDiagnostic =
+			TEXT("Spirit Shield deterministic action identity failed closed.");
+		return false;
+	}
+
+	OutReservation = Candidate;
+	++NextPlayerSpiritShieldActivationSequence;
+	OutDiagnostic =
+		TEXT("Spirit Shield action identity reserved by the combat Run.");
+	return true;
+}
+
 bool Fdemo_mapCombatRunCoordinator::TryReservePlayerWeaponGuardAction(
 	const Fdemo_mapShanmenWeaponGuardProductConfig& Config,
 	const FGuid& SourceItemInstanceId,
@@ -2995,6 +3053,7 @@ Fdemo_mapCombatRunCoordinator::TryAuthorizePlayerAction(
 	case Edemo_mapShanmenPlayerActionKind::ThrownWeapon:
 	case Edemo_mapShanmenPlayerActionKind::SwordQi:
 	case Edemo_mapShanmenPlayerActionKind::SpiritEvasion:
+	case Edemo_mapShanmenPlayerActionKind::SpiritShield:
 	case Edemo_mapShanmenPlayerActionKind::WeaponGuard:
 		break;
 	default:

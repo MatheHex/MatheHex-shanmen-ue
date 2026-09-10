@@ -10,6 +10,7 @@ enum class Edemo_mapShanmenPlayerActionKind : uint8
 	ThrownWeapon,
 	SwordQi,
 	SpiritEvasion,
+	SpiritShield,
 	WeaponGuard
 };
 

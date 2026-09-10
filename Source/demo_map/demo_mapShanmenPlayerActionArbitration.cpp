@@ -12,6 +12,7 @@ namespace
 		case Edemo_mapShanmenPlayerActionKind::ThrownWeapon:
 		case Edemo_mapShanmenPlayerActionKind::SwordQi:
 		case Edemo_mapShanmenPlayerActionKind::SpiritEvasion:
+		case Edemo_mapShanmenPlayerActionKind::SpiritShield:
 		case Edemo_mapShanmenPlayerActionKind::WeaponGuard:
 			return true;
 		default:

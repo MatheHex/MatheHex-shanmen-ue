@@ -613,7 +613,8 @@ namespace
 		}
 		case 41:
 			return Check(Test, Fdemo_mapInputActionRegistry::ValidateExactDefaults()
-				&& Fdemo_mapInputActionRegistry::GetExactDefaultActions().Num() == 32
+				&& Fdemo_mapInputActionRegistry::GetExactDefaultActions().Num() == 33
+				&& Fdemo_mapInputActionRegistry::Find(Fdemo_mapInputActionIds::SpiritShield)->DefaultKey == EKeys::H
 				&& Fdemo_mapInputActionRegistry::Find(Fdemo_mapInputActionIds::ControlledWeaponLaunchRecall)
 				&& Fdemo_mapInputActionRegistry::Find(Fdemo_mapInputActionIds::ControlledWeaponLaunchRecall)->DefaultKey == EKeys::X
 				&& Fdemo_mapInputActionRegistry::Find(Fdemo_mapInputActionIds::ControlledWeaponRedirect)
@@ -636,8 +637,8 @@ namespace
 		{
 			Fdemo_mapInputBindingSettings& Settings = Fdemo_mapInputBindingSettings::Get();
 			Settings.RestoreDefaults();
-			const auto Applied = Settings.ApplyOverride(Fdemo_mapInputActionIds::Interact, EKeys::H);
-			const bool bGood = Applied.IsSuccess() && Settings.GetKey(Fdemo_mapInputActionIds::Interact) == EKeys::H;
+			const auto Applied = Settings.ApplyOverride(Fdemo_mapInputActionIds::Interact, EKeys::K);
+			const bool bGood = Applied.IsSuccess() && Settings.GetKey(Fdemo_mapInputActionIds::Interact) == EKeys::K;
 			Settings.RestoreDefaults();
 			return Check(Test, bGood, TEXT("Input remap did not apply immediately in memory."));
 		}
@@ -645,10 +646,10 @@ namespace
 		{
 			Fdemo_mapInputBindingSettings& Settings = Fdemo_mapInputBindingSettings::Get();
 			Settings.RestoreDefaults();
-			Settings.ApplyOverride(Fdemo_mapInputActionIds::Interact, EKeys::H);
+			Settings.ApplyOverride(Fdemo_mapInputActionIds::Interact, EKeys::K);
 			const auto* Interact = Fdemo_mapInputActionRegistry::Find(Fdemo_mapInputActionIds::Interact);
 			const bool bGood = Interact && Interact->bRequiresReleasedEvent
-				&& Settings.GetKey(Fdemo_mapInputActionIds::Interact) == EKeys::H;
+				&& Settings.GetKey(Fdemo_mapInputActionIds::Interact) == EKeys::K;
 			Settings.RestoreDefaults();
 			return Check(Test, bGood, TEXT("Remapped Interact lost Pressed/Released contract."));
 		}
@@ -665,19 +666,19 @@ namespace
 		{
 			Fdemo_mapInputBindingSettings& Settings = Fdemo_mapInputBindingSettings::Get();
 			Settings.RestoreDefaults();
-			Settings.ApplyOverride(Fdemo_mapInputActionIds::Interact, EKeys::H);
+			Settings.ApplyOverride(Fdemo_mapInputActionIds::Interact, EKeys::K);
 			const auto Reload = Settings.Load();
-			const bool bGood = Reload.IsSuccess() && Settings.GetKey(Fdemo_mapInputActionIds::Interact) == EKeys::H;
+			const bool bGood = Reload.IsSuccess() && Settings.GetKey(Fdemo_mapInputActionIds::Interact) == EKeys::K;
 			Settings.RestoreDefaults();
 			return Check(Test, bGood, TEXT("Input settings reload persistence failed."));
 		}
 		case 47:
 		{
 			Fdemo_mapInputBindingSettings& Settings = Fdemo_mapInputBindingSettings::Get();
-			Settings.ApplyOverride(Fdemo_mapInputActionIds::Interact, EKeys::H);
+			Settings.ApplyOverride(Fdemo_mapInputActionIds::Interact, EKeys::K);
 			const auto Restored = Settings.RestoreDefaults();
 			return Check(Test, Restored.IsSuccess() && Settings.GetKey(Fdemo_mapInputActionIds::Interact) == EKeys::G
-				&& Settings.GetBindings().Num() == 32, TEXT("Restore defaults was not exact."));
+				&& Settings.GetBindings().Num() == 33, TEXT("Restore defaults was not exact."));
 		}
 		case 48:
 		{

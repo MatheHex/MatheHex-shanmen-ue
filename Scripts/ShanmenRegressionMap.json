@@ -1488,7 +1488,7 @@
     },
     {
       "name": "UnifiedInputRegistryAndBindings",
-      "pathRegex": "^Source/demo_map/(?:demo_mapInputActionRegistry|demo_mapInputBindingSettings|demo_mapShanmenControlledWeaponPhysicalInputTests|demo_mapShanmenDivineSensePhysicalInputTests|demo_mapShanmenSpiritEvasionPhysicalInputTests|demo_mapShanmenSwordQiPhysicalInputTests|demo_mapShanmenWeaponGuardPhysicalInputTests|demo_mapFullSystemLoopTests|demo_mapP7IntegrationTests)\\.(?:h|cpp)$",
+      "pathRegex": "^Source/demo_map/(?:demo_mapInputActionRegistry|demo_mapInputBindingSettings|demo_mapShanmenControlledWeaponPhysicalInputTests|demo_mapShanmenDivineSensePhysicalInputTests|demo_mapShanmenSpiritEvasionPhysicalInputTests|demo_mapShanmenSpiritShieldPhysicalInputTests|demo_mapShanmenSwordQiPhysicalInputTests|demo_mapShanmenWeaponGuardPhysicalInputTests|demo_mapFullSystemLoopTests|demo_mapP7IntegrationTests)\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10",
         "Shanmen.0_0_10.Product.MeridianShockTreatment",
@@ -1502,6 +1502,8 @@
 		"Shanmen.0_0_10.Product.SwordQiPhysicalInput",
         "Shanmen.0_0_10.Product.SpiritEvasionPhysicalInput",
         "Shanmen.0_0_10.Product.SpiritEvasionInputAdapter",
+        "Shanmen.0_0_10.Product.SpiritShieldPhysicalInput",
+        "Shanmen.0_0_10.Product.SpiritShieldProductSession",
         "Shanmen.0_0_10.Product.WeaponGuardPhysicalInput",
         "Shanmen.0_0_10.Product.WeaponGuardInputAdapter",
         "demo_map.FullSystemLoop.41",
@@ -2278,6 +2280,20 @@
         "Shanmen.0_0_10.CombatRuntime.ActionResource",
         "Shanmen.0_0_10.CombatRuntime.ActionLifecycle",
         "Shanmen.0_0_10.WorldGameplay"
+      ]
+    },
+    {
+      "name": "SpiritShieldProductSession",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenSpiritShieldProductSession(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Product.SpiritShieldProductSession",
+        "Shanmen.0_0_10.Product.DivineSenseProductController",
+        "Shanmen.0_0_10.Product.CombatRunCoordinator",
+        "Shanmen.0_0_10.Product.PlayerActionArbitration",
+        "Shanmen.0_0_10.CombatRuntime.SpiritShieldSession",
+        "Shanmen.0_0_10.CombatRuntime.ActionResource",
+        "Shanmen.0_0_10.CombatRuntime.ActionLifecycle",
+        "Shanmen.0_0_10.CombatCore"
       ]
     },
     {

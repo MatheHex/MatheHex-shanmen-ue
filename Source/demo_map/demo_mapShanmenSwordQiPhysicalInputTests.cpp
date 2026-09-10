@@ -259,7 +259,7 @@ bool Fdemo_mapSwordQiPhysicalRegistryTest::RunTest(const FString&)
 	TestTrue(TEXT("registry is exact after adding physical Sword Qi"),
 		Fdemo_mapInputActionRegistry::ValidateExactDefaults()
 			&& Fdemo_mapInputActionRegistry::GetExactDefaultActions().Num()
-				== 32);
+				== 33);
 	TestTrue(TEXT("Sword Qi owns a conflict-free press-only B default"),
 		Action
 			&& Action->DefaultKey == EKeys::B
@@ -284,7 +284,7 @@ bool Fdemo_mapSwordQiPhysicalMigrationTest::RunTest(const FString&)
 		Fdemo_mapInputBindingSettings::Get().Load();
 	TestTrue(TEXT("free B becomes the migrated Sword Qi binding"),
 		Free.IsSuccess()
-			&& Fdemo_mapInputBindingSettings::Get().GetBindings().Num() == 32
+			&& Fdemo_mapInputBindingSettings::Get().GetBindings().Num() == 33
 			&& Fdemo_mapInputBindingSettings::Get().GetKey(
 				Fdemo_mapInputActionIds::SwordQi) == EKeys::B);
 

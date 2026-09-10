@@ -29,6 +29,7 @@
 #include "demo_mapShanmenThrownWeaponProductLifecycle.h"
 #include "demo_mapShanmenRunCorrelation.h"
 #include "demo_mapShanmenDivineSenseLogicalInputAdapter.h"
+#include "demo_mapShanmenSpiritShieldProductSession.h"
 #include "demo_mapShanmenSpiritEvasionProductRoute.h"
 #include "demo_mapShanmenCombatRunFixedTimeline.h"
 #include "demo_mapShanmenCombatConditionStatus.h"
@@ -351,6 +352,14 @@ public:
 	}
 	float GetDivineSenseSpiritEnergy() const;
 	float GetDivineSenseMaximumSpiritEnergy() const;
+	/** Activates one short shield against the shared Run SpiritEnergy ledger. */
+	Fdemo_mapShanmenSpiritShieldProductActivationResult
+	RouteSpiritShieldInput();
+	const Fdemo_mapShanmenSpiritShieldProductSession&
+	GetSpiritShieldProductSession() const
+	{
+		return SpiritShieldProductSession;
+	}
 	/** Acquires the sole active weapon-guard Host from caller-owned time. */
 	Fdemo_mapShanmenWeaponGuardSessionStartResult
 	RouteWeaponGuardStartIntent(
@@ -506,6 +515,7 @@ private:
 	bool InitializeV3Progression(APawn* PlayerPawn, Udemo_mapItemSubsystem* Items);
 	bool TryActivateCombatRun(APawn* PlayerPawn, FString& OutDiagnostic);
 	bool TryBeginDivineSenseProductRun(FString& OutDiagnostic);
+	bool ReleaseSpiritShieldProductRun(const TCHAR* Context);
 	bool ReleaseDivineSenseProductRun(
 		const TCHAR* Context,
 		int32& OutPulseCount);
@@ -703,6 +713,7 @@ private:
 	Fdemo_mapShanmenSwordQiProductController SwordQiProductController;
 	Fdemo_mapShanmenSwordQiCommandEventOwner SwordQiCommandEventOwner;
 	Fdemo_mapShanmenWeaponGuardProductSession WeaponGuardProductSession;
+	Fdemo_mapShanmenSpiritShieldProductSession SpiritShieldProductSession;
 	Fdemo_mapShanmenDivineSenseProductController DivineSenseProductController;
 	Fdemo_mapShanmenDivineSenseLogicalInputAdapter
 		DivineSenseLogicalInputAdapter;

@@ -215,6 +215,7 @@ void Ademo_mapPlayerController::BindProductInputActions()
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::ThrownWeaponArcApexDecrease), IE_Pressed, this, &Ademo_mapPlayerController::DecreaseThrownWeaponArcApex);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::ThrownWeaponArcTargetClear), IE_Pressed, this, &Ademo_mapPlayerController::ClearThrownWeaponArcTarget);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::SpiritEvasion), IE_Pressed, this, &Ademo_mapPlayerController::StartSpiritEvasion);
+	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::SpiritShield), IE_Pressed, this, &Ademo_mapPlayerController::UseSpiritShield);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::DivineSense), IE_Pressed, this, &Ademo_mapPlayerController::UseDivineSense);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::SwordQi), IE_Pressed, this, &Ademo_mapPlayerController::UseSwordQi);
 	InputComponent->BindKey(Settings.GetKey(Fdemo_mapInputActionIds::WeaponGuard), IE_Pressed, this, &Ademo_mapPlayerController::StartWeaponGuard);
@@ -1143,6 +1144,35 @@ Ademo_mapPlayerController::RouteSpiritEvasionStartInput()
 				? Mode->RouteSpiritEvasionStartIntent(Direction)
 				: Fdemo_mapShanmenSpiritEvasionProductRouteResult();
 		});
+}
+
+void Ademo_mapPlayerController::UseSpiritShield()
+{
+	const Fdemo_mapShanmenSpiritShieldProductActivationResult Result =
+		RouteSpiritShieldInput();
+#if !UE_BUILD_SHIPPING
+	++SpiritShieldInputInvocationCount;
+	LastSpiritShieldInputResult = Result;
+#else
+	(void)Result;
+#endif
+	UE_LOG(
+		Logdemo_map,
+		Log,
+		TEXT("Spirit Shield input %s: %s"),
+		Result.IsAccepted() ? TEXT("accepted") : TEXT("rejected"),
+		*Result.Diagnostic);
+}
+
+Fdemo_mapShanmenSpiritShieldProductActivationResult
+Ademo_mapPlayerController::RouteSpiritShieldInput()
+{
+	Ademo_mapGameMode* Mode = GetWorld()
+		? Cast<Ademo_mapGameMode>(GetWorld()->GetAuthGameMode())
+		: nullptr;
+	return IsGameplayInputAllowed() && Mode
+		? Mode->RouteSpiritShieldInput()
+		: Fdemo_mapShanmenSpiritShieldProductActivationResult();
 }
 
 void Ademo_mapPlayerController::UseDivineSense()

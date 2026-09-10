@@ -150,7 +150,7 @@ bool Fdemo_mapSpiritEvasionPhysicalRegistryTest::RunTest(
 		TEXT("registry remains exact after adding Spirit Evasion"),
 		Fdemo_mapInputActionRegistry::ValidateExactDefaults()
 			&& Fdemo_mapInputActionRegistry::
-				GetExactDefaultActions().Num() == 32);
+				GetExactDefaultActions().Num() == 33);
 	TestTrue(
 		TEXT("Spirit Evasion owns a conflict-free Press-only default"),
 		Action
@@ -180,7 +180,7 @@ bool Fdemo_mapSpiritEvasionPhysicalMigrationTest::RunTest(
 	TestTrue(
 		TEXT("missing Spirit Evasion receives its free default"),
 		Result.IsSuccess()
-			&& Fdemo_mapInputBindingSettings::Get().GetBindings().Num() == 32
+			&& Fdemo_mapInputBindingSettings::Get().GetBindings().Num() == 33
 			&& Fdemo_mapInputBindingSettings::Get().GetKey(
 				Fdemo_mapInputActionIds::SpiritEvasion) == EKeys::SpaceBar
 			&& Fdemo_mapInputBindingSettings::Get().GetKey(

@@ -6,6 +6,7 @@
 #include "demo_mapInputBindingSettings.h"
 #include "demo_mapShanmenControlledWeaponInputAdapter.h"
 #include "demo_mapShanmenDivineSenseLogicalInputAdapter.h"
+#include "demo_mapShanmenSpiritShieldProductSession.h"
 #include "demo_mapShanmenSpiritEvasionInputAdapter.h"
 #include "demo_mapShanmenSwordQiAvailabilityCommandRouter.h"
 #include "demo_mapShanmenThrownWeaponHotbarConfirmationAdapter.h"
@@ -110,6 +111,8 @@ public:
 	Fdemo_mapShanmenSpiritEvasionInputResult RouteSpiritEvasionStartInput();
 	/** Routes one remappable physical pulse into the existing Divine Sense product chain. */
 	Fdemo_mapShanmenDivineSenseLogicalInputResult RouteDivineSenseInput();
+	/** Routes one remappable pulse into the shared-energy Spirit Shield owner. */
+	Fdemo_mapShanmenSpiritShieldProductActivationResult RouteSpiritShieldInput();
 	/** True while the latest rejected physical pulse should remain readable on the HUD. */
 	bool IsDivineSenseInputFeedbackActive() const;
 	const Fdemo_mapShanmenDivineSenseLogicalInputResult&
@@ -231,6 +234,15 @@ public:
 	uint64 GetDivineSenseInputInvocationCountForAutomation() const
 	{
 		return DivineSenseInputInvocationCount;
+	}
+	uint64 GetSpiritShieldInputInvocationCountForAutomation() const
+	{
+		return SpiritShieldInputInvocationCount;
+	}
+	const Fdemo_mapShanmenSpiritShieldProductActivationResult&
+	GetLastSpiritShieldInputResultForAutomation() const
+	{
+		return LastSpiritShieldInputResult;
 	}
 	const Fdemo_mapShanmenDivineSenseLogicalInputResult&
 	GetLastDivineSenseInputResultForAutomation() const
@@ -392,6 +404,7 @@ protected:
 	void DecreaseThrownWeaponArcApex();
 	void ClearThrownWeaponArcTarget();
 	void StartSpiritEvasion();
+	void UseSpiritShield();
 	void UseDivineSense();
 	void CaptureDivineSenseInputFeedback(
 		const Fdemo_mapShanmenDivineSenseLogicalInputResult& Result);
@@ -436,6 +449,9 @@ protected:
 	uint64 SpiritEvasionInputInvocationCount = 0;
 	Fdemo_mapShanmenSpiritEvasionInputResult
 		LastSpiritEvasionInputResult;
+	uint64 SpiritShieldInputInvocationCount = 0;
+	Fdemo_mapShanmenSpiritShieldProductActivationResult
+		LastSpiritShieldInputResult;
 	uint64 DivineSenseInputInvocationCount = 0;
 	uint64 SwordQiInputInvocationCount = 0;
 	uint64 ControlledWeaponInputInvocationCount = 0;

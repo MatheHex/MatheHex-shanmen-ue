@@ -11,6 +11,7 @@
 class AActor;
 class APawn;
 class Fdemo_mapPlayerDivineSenseActionReservation;
+class Fdemo_mapPlayerSpiritShieldActionReservation;
 class Fdemo_mapPlayerSwordQiActionReservation;
 class Fdemo_mapPlayerSpiritEvasionActionReservation;
 class Fdemo_mapPlayerWeaponGuardActionReservation;
@@ -650,6 +651,10 @@ public:
 		const Fdemo_mapShanmenDivineSenseProductConfig& Config,
 		Fdemo_mapPlayerDivineSenseActionReservation& OutReservation,
 		FString& OutDiagnostic);
+	/** Reserves one canonical Spirit Shield identity from this Run. */
+	bool TryReservePlayerSpiritShieldAction(
+		Fdemo_mapPlayerSpiritShieldActionReservation& OutReservation,
+		FString& OutDiagnostic);
 	/**
 	 * Reserves one canonical item-backed weapon-guard identity from this Run's
 	 * monotonic sequence. Equipment authorization and timeline ownership remain
@@ -706,6 +711,10 @@ public:
 	{
 		return NextPlayerDivineSenseActivationSequence;
 	}
+	uint64 GetNextPlayerSpiritShieldActivationSequence() const
+	{
+		return NextPlayerSpiritShieldActivationSequence;
+	}
 	uint64 GetNextPlayerWeaponGuardActivationSequence() const
 	{
 		return NextPlayerWeaponGuardActivationSequence;
@@ -758,6 +767,7 @@ private:
 	uint64 NextPlayerSwordQiActivationSequence = 1;
 	uint64 NextPlayerSpiritEvasionActivationSequence = 1;
 	uint64 NextPlayerDivineSenseActivationSequence = 1;
+	uint64 NextPlayerSpiritShieldActivationSequence = 1;
 	uint64 NextPlayerWeaponGuardActivationSequence = 1;
 	uint64 NextPlayerActionArbitrationSequence = 1;
 };

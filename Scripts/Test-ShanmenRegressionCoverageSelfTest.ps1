@@ -622,6 +622,12 @@ try
     $SpiritShieldRuntime = New-AutomationLogFixture `
         -Name 'spirit-shield-runtime.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShield'
+    $SpiritShieldProductSession = New-AutomationLogFixture `
+        -Name 'spirit-shield-product-session.log' `
+        -Group 'Shanmen.0_0_10.Product.SpiritShieldProductSession'
+    $SpiritShieldPhysicalInput = New-AutomationLogFixture `
+        -Name 'spirit-shield-physical-input.log' `
+        -Group 'Shanmen.0_0_10.Product.SpiritShieldPhysicalInput'
     $SpiritShieldCapacity = New-AutomationLogFixture `
         -Name 'spirit-shield-capacity.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShieldCapacity'
@@ -4179,6 +4185,35 @@ try
         -Logs @($Full, $PlayerActionArbitration, $Coordinator)
 
     Invoke-ExpectedPass `
+        -Name 'Spirit Shield product Session maps shared energy Run action and runtime authorities' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSpiritShieldProductSession.h',
+            'Source/demo_map/demo_mapShanmenSpiritShieldProductSession.cpp',
+            'Source/demo_map/demo_mapShanmenSpiritShieldProductSessionTests.cpp') `
+        -Logs @(
+            $SpiritShieldProductSession,
+            $DivineSenseProductController,
+            $Coordinator,
+            $PlayerActionArbitration,
+            $SpiritShieldSession,
+            $ActionResource,
+            $ActionLifecycle,
+            $CombatCore)
+
+    Invoke-ExpectedPass `
+        -Name 'Spirit Shield physical input maps registry product and legacy input evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSpiritShieldPhysicalInputTests.cpp') `
+        -Logs @(
+            $Full,
+            $FullSystemRegistry,
+            $FullSystemRestore,
+            $P7Integration,
+            $P5RuntimeInterface,
+            $InputRestore,
+            $Ranged)
+
+    Invoke-ExpectedPass `
         -Name 'Divine Sense World observation maps product runtime and registry evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenDivineSenseWorldObservationAdapter.cpp',
@@ -4346,6 +4381,20 @@ try
         -Name 'missing mapped group fails closed' `
         -Paths @('Source/demo_map/demo_mapSkillComponent.cpp') `
         -Logs @($Full) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'Spirit Shield product Session focus cannot replace shared authority evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSpiritShieldProductSession.cpp') `
+        -Logs @($SpiritShieldProductSession) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'Spirit Shield physical input focus cannot replace registry and legacy input evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSpiritShieldPhysicalInputTests.cpp') `
+        -Logs @($SpiritShieldPhysicalInput) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

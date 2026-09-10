@@ -30,6 +30,7 @@ struct Fdemo_mapInputActionIds
 	static const FName ThrownWeaponArcApexDecrease;
 	static const FName ThrownWeaponArcTargetClear;
 	static const FName SpiritEvasion;
+	static const FName SpiritShield;
 	static const FName DivineSense;
 	static const FName SwordQi;
 	static const FName WeaponGuard;

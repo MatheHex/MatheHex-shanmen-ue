@@ -23,6 +23,7 @@ const FName Fdemo_mapInputActionIds::ThrownWeaponArcApexDecrease(
 const FName Fdemo_mapInputActionIds::ThrownWeaponArcTargetClear(
 	TEXT("ThrownWeaponArcTargetClear"));
 const FName Fdemo_mapInputActionIds::SpiritEvasion(TEXT("SpiritEvasion"));
+const FName Fdemo_mapInputActionIds::SpiritShield(TEXT("SpiritShield"));
 const FName Fdemo_mapInputActionIds::DivineSense(TEXT("DivineSense"));
 const FName Fdemo_mapInputActionIds::SwordQi(TEXT("SwordQi"));
 const FName Fdemo_mapInputActionIds::WeaponGuard(TEXT("WeaponGuard"));
@@ -59,6 +60,7 @@ const TArray<Fdemo_mapInputActionDefinition>& Fdemo_mapInputActionRegistry::GetE
 		{ Fdemo_mapInputActionIds::ThrownWeaponArcApexDecrease, EKeys::LeftBracket, false, TEXT("降低抛投弧顶"), TEXT("战斗") },
 		{ Fdemo_mapInputActionIds::ThrownWeaponArcTargetClear, EKeys::Delete, false, TEXT("清除抛投目标方向"), TEXT("战斗") },
 		{ Fdemo_mapInputActionIds::SpiritEvasion, EKeys::SpaceBar, false, TEXT("灵息闪避"), TEXT("战斗") },
+		{ Fdemo_mapInputActionIds::SpiritShield, EKeys::H, false, TEXT("灵力护盾"), TEXT("战斗") },
 		{ Fdemo_mapInputActionIds::DivineSense, EKeys::V, false, TEXT("神识探查"), TEXT("战斗") },
 		{ Fdemo_mapInputActionIds::SwordQi, EKeys::B, false, TEXT("剑气发射 / 重试"), TEXT("战斗") },
 		{ Fdemo_mapInputActionIds::WeaponGuard, EKeys::RightMouseButton, true, TEXT("武器格挡"), TEXT("战斗") },
@@ -109,9 +111,9 @@ FString Fdemo_mapInputActionRegistry::DisplayLabel(FName ActionId)
 bool Fdemo_mapInputActionRegistry::ValidateExactDefaults(FString* OutError)
 {
 	const TArray<Fdemo_mapInputActionDefinition>& Actions = GetExactDefaultActions();
-	if (Actions.Num() != 32)
+	if (Actions.Num() != 33)
 	{
-		if (OutError) *OutError = TEXT("Input registry must contain exactly 32 actions.");
+		if (OutError) *OutError = TEXT("Input registry must contain exactly 33 actions.");
 		return false;
 	}
 	TSet<FName> Ids;

@@ -1191,6 +1191,37 @@ float Ademo_mapGameMode::GetDivineSenseMaximumSpiritEnergy() const
 		: 0.0f;
 }
 
+Fdemo_mapShanmenSpiritShieldProductActivationResult
+Ademo_mapGameMode::RouteSpiritShieldInput()
+{
+	Fdemo_mapShanmenCombatRunTimelineSample TimelineSample;
+	CombatRunFixedTimeline.TryCapture(TimelineSample);
+	Fdemo_mapShanmenSpiritShieldProductActivationResult Result =
+		SpiritShieldProductSession.TryActivate(
+			CombatRunCoordinator,
+			DivineSenseProductController,
+			TimelineSample,
+			[this]()
+			{
+				return RoutePlayerActionGate(
+					Edemo_mapShanmenPlayerActionKind::SpiritShield);
+			});
+	UE_LOG(
+		Logdemo_map,
+		Log,
+		TEXT("0_0_10_SPIRIT_SHIELD Event=Activation Status=%d Error=%d ActivationId=%s Capacity=%.1f DeadlineTick=%lld SpiritEnergy=%.1f Diagnostic=%s"),
+		static_cast<int32>(Result.Status),
+		static_cast<int32>(Result.Error),
+		*Result.Reservation.GetActivationId().ToString(
+			EGuidFormats::DigitsWithHyphens),
+		SpiritShieldProductSession.GetAvailableCapacity(),
+		static_cast<long long>(
+			SpiritShieldProductSession.GetDeadlineTick()),
+		GetDivineSenseSpiritEnergy(),
+		*Result.Diagnostic);
+	return Result;
+}
+
 bool Ademo_mapGameMode::TryBeginDivineSenseProductRun(
 	FString& OutDiagnostic)
 {
@@ -1214,6 +1245,23 @@ bool Ademo_mapGameMode::TryBeginDivineSenseProductRun(
 			DivineSenseProductController,
 			CombatRunCoordinator,
 			OutDiagnostic);
+}
+
+bool Ademo_mapGameMode::ReleaseSpiritShieldProductRun(
+	const TCHAR* Context)
+{
+	FString Diagnostic;
+	if (!SpiritShieldProductSession.TryReleaseOwner(Diagnostic))
+	{
+		UE_LOG(
+			Logdemo_map,
+			Error,
+			TEXT("0_0_10_COMBAT_RUN Event=SpiritShieldReleaseRejected Context=%s Diagnostic=%s"),
+			Context ? Context : TEXT("Unknown"),
+			*Diagnostic);
+		return false;
+	}
+	return true;
 }
 
 bool Ademo_mapGameMode::ReleaseDivineSenseProductRun(
@@ -2733,6 +2781,24 @@ void Ademo_mapGameMode::Tick(float DeltaSeconds)
 			}
 			else
 			{
+				if (SpiritShieldProductSession.IsActive()
+					&& TimelineSample.GetCurrentTick()
+						>= SpiritShieldProductSession.GetDeadlineTick())
+				{
+					const Fdemo_mapShanmenSpiritShieldProductTimelineResult
+						ShieldTimeline =
+							SpiritShieldProductSession.ObserveTimeline(
+								TimelineSample);
+					UE_LOG(
+						Logdemo_map,
+						Log,
+						TEXT("0_0_10_SPIRIT_SHIELD Event=Deadline Status=%d Error=%d Tick=%lld Diagnostic=%s"),
+						static_cast<int32>(ShieldTimeline.Status),
+						static_cast<int32>(ShieldTimeline.Error),
+						static_cast<long long>(
+							TimelineSample.GetCurrentTick()),
+						*ShieldTimeline.Diagnostic);
+				}
 				const Fdemo_mapShanmenControlledWeaponReturnTimelineResult
 					VisibleReturn =
 						ControlledWeaponRunHost.
@@ -3667,6 +3733,10 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 	const TCHAR* Context)
 {
 	const TCHAR* SafeContext = Context ? Context : TEXT("Unknown");
+	if (!ReleaseSpiritShieldProductRun(SafeContext))
+	{
+		return false;
+	}
 	int32 DivineSensePulseCount = 0;
 	if (!ReleaseDivineSenseProductRun(
 			SafeContext,

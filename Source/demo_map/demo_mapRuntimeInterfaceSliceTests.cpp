@@ -254,7 +254,7 @@ bool FP5Runtime06::RunTest(const FString&)
 		TEXT("Thirty unified product actions"),
 		Fdemo_mapInputActionRegistry::ValidateExactDefaults()
 			&& Fdemo_mapInputActionRegistry::
-				GetExactDefaultActions().Num() == 32);
+				GetExactDefaultActions().Num() == 33);
 	const Fdemo_mapInputActionDefinition* Inventory =
 		Fdemo_mapInputActionRegistry::Find(
 			Fdemo_mapInputActionIds::Inventory);
