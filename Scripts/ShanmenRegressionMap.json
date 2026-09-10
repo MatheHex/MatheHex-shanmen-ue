@@ -3288,6 +3288,14 @@
 	  ]
 	},
 	{
+	  "name": "SpiritShieldHUDPresentation",
+	  "pathRegex": "^Source/demo_map/demo_mapShanmenSpiritShieldHUDPresentation(?:Tests)?\\.(?:h|cpp)$",
+	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.SpiritShieldHUDPresentation",
+		"Shanmen.0_0_10.Product.SpiritShieldProductSession"
+	  ]
+	},
+	{
 	  "name": "MainHUDTrajectoryPresentation",
 	  "pathRegex": "^Source/demo_map/demo_mapHUD\\.(?:h|cpp)$",
 	  "requiredGroups": [
@@ -3295,6 +3303,8 @@
 		"Shanmen.0_0_10.Product.ControlledWeaponThreatReadoutPresentation",
 		"Shanmen.0_0_10.Product.DivineSenseHUDPresentation",
 		"Shanmen.0_0_10.Product.DivineSensePhysicalInput",
+		"Shanmen.0_0_10.Product.SpiritShieldHUDPresentation",
+		"Shanmen.0_0_10.Product.SpiritShieldProductSession",
 		"Shanmen.0_0_10.Product.SwordQiPhysicalInput",
 		"Shanmen.0_0_10.Product.ThrownWeaponMainHUDCombatHintLayoutPolicy",
 		"Shanmen.0_0_10.Product.ThrownWeaponMainHUDCombatHintStackPresentation",

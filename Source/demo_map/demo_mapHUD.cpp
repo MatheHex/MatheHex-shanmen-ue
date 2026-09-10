@@ -18,6 +18,7 @@
 #include "demo_mapShanmenControlledWeaponActor.h"
 #include "demo_mapShanmenControlledWeaponThreatReadoutPresentation.h"
 #include "demo_mapShanmenDivineSenseHUDPresentation.h"
+#include "demo_mapShanmenSpiritShieldHUDPresentation.h"
 #include "demo_mapShanmenThrownWeaponArcEditingInputHintPresentation.h"
 #include "demo_mapShanmenThrownWeaponArcEditingPresentation.h"
 #include "demo_mapShanmenThrownWeaponArcPreLaunchGestureFeedbackPresentation.h"
@@ -111,6 +112,70 @@ namespace
 			PanelPosition + FVector2D(10.0f, 9.0f),
 			TextColor,
 			0.82f);
+	}
+
+	void DrawSpiritShieldStatus(
+		UCanvas* Canvas,
+		const Ademo_mapGameMode* ActiveMode,
+		const Fdemo_mapInputBindingSettings& InputSettings)
+	{
+		if (Canvas == nullptr || ActiveMode == nullptr)
+		{
+			return;
+		}
+
+		const Fdemo_mapShanmenSpiritShieldProductSession& ProductSession =
+			ActiveMode->GetSpiritShieldProductSession();
+		const Fdemo_mapShanmenCombatRunFixedTimeline& Timeline =
+			ActiveMode->GetCombatRunFixedTimeline();
+		const FShanmenSpiritShieldSession& RuntimeSession =
+			ProductSession.GetSession();
+		Fdemo_mapShanmenSpiritShieldHUDPresentation Presentation;
+		if (!Timeline.IsValid() || !RuntimeSession.IsValid()
+			|| !Fdemo_mapShanmenSpiritShieldHUDPresentation::TryProject(
+				ProductSession.IsActive(),
+				ProductSession.GetAvailableCapacity(),
+				RuntimeSession.GetCapacityAuthority().GetMaximumCapacity(),
+				Timeline.GetCurrentTick(),
+				ProductSession.GetDeadlineTick(),
+				Fdemo_mapShanmenCombatRunFixedTimeline::
+					CanonicalTicksPerSecond(),
+				InputSettings.GetKey(Fdemo_mapInputActionIds::SpiritShield)
+					.GetDisplayName()
+					.ToString(),
+				Presentation))
+		{
+			return;
+		}
+
+		FLinearColor TextColor(0.28f, 0.88f, 1.0f);
+		FLinearColor PanelColor(0.015f, 0.16f, 0.23f, 0.92f);
+		if (Presentation.GetTone()
+			== Edemo_mapShanmenSpiritShieldHUDTone::Low)
+		{
+			TextColor = FLinearColor(1.0f, 0.78f, 0.18f);
+			PanelColor = FLinearColor(0.20f, 0.10f, 0.01f, 0.92f);
+		}
+		else if (Presentation.GetTone()
+			== Edemo_mapShanmenSpiritShieldHUDTone::Depleted)
+		{
+			TextColor = FLinearColor(0.68f, 0.74f, 0.80f);
+			PanelColor = FLinearColor(0.07f, 0.08f, 0.10f, 0.92f);
+		}
+
+		const FVector2D PanelPosition(188.0f, 60.0f);
+		DrawHUDPanel(
+			Canvas,
+			PanelPosition,
+			FVector2D(252.0f, 24.0f),
+			PanelColor);
+		DrawReadableText(
+			Canvas,
+			GEngine->GetSmallFont(),
+			Presentation.GetDisplayText(),
+			PanelPosition + FVector2D(7.0f, 5.0f),
+			TextColor,
+			0.68f);
 	}
 
 	void DrawControlledWeaponReadout(
@@ -667,11 +732,12 @@ void Ademo_mapHUD::DrawHUD()
 		Canvas,
 		FVector2D(Canvas->SizeX - 350.0f, 14.0f),
 		FVector2D(332.0f, 235.0f));
+	DrawSpiritShieldStatus(Canvas, ActiveMode, InputSettings);
 	DrawReadableText(
 		Canvas,
 		GEngine->GetSmallFont(),
 		FString::Printf(
-			TEXT("%s/%s/%s/%s Move | %s Attack | %s/%s/%s Skills | %s Sword Qi | %s Sense | %s Interact/Search | %s Inventory | %s Back | %s Restart"),
+			TEXT("%s/%s/%s/%s Move | %s Attack | %s/%s/%s Skills | %s Sword Qi | %s Sense | %s Shield | %s Interact/Search | %s Inventory | %s Back | %s Restart"),
 			*InputSettings.GetKey(Fdemo_mapInputActionIds::MoveForward).GetDisplayName().ToString(),
 			*InputSettings.GetKey(Fdemo_mapInputActionIds::MoveLeft).GetDisplayName().ToString(),
 			*InputSettings.GetKey(Fdemo_mapInputActionIds::MoveBackward).GetDisplayName().ToString(),
@@ -682,6 +748,7 @@ void Ademo_mapHUD::DrawHUD()
 			*InputSettings.GetKey(Fdemo_mapInputActionIds::SkillStraightProjectile).GetDisplayName().ToString(),
 			*InputSettings.GetKey(Fdemo_mapInputActionIds::SwordQi).GetDisplayName().ToString(),
 			*InputSettings.GetKey(Fdemo_mapInputActionIds::DivineSense).GetDisplayName().ToString(),
+			*InputSettings.GetKey(Fdemo_mapInputActionIds::SpiritShield).GetDisplayName().ToString(),
 			*InputSettings.GetKey(Fdemo_mapInputActionIds::Interact).GetDisplayName().ToString(),
 			*InputSettings.GetKey(Fdemo_mapInputActionIds::Inventory).GetDisplayName().ToString(),
 			*InputSettings.GetKey(Fdemo_mapInputActionIds::Back).GetDisplayName().ToString(),

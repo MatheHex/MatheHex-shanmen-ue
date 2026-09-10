@@ -625,6 +625,9 @@ try
     $SpiritShieldProductSession = New-AutomationLogFixture `
         -Name 'spirit-shield-product-session.log' `
         -Group 'Shanmen.0_0_10.Product.SpiritShieldProductSession'
+    $SpiritShieldHUDPresentation = New-AutomationLogFixture `
+        -Name 'spirit-shield-hud-presentation.log' `
+        -Group 'Shanmen.0_0_10.Product.SpiritShieldHUDPresentation'
     $SpiritShieldPhysicalInput = New-AutomationLogFixture `
         -Name 'spirit-shield-physical-input.log' `
         -Group 'Shanmen.0_0_10.Product.SpiritShieldPhysicalInput'
@@ -2810,6 +2813,8 @@ try
 			$ControlledWeaponThreatReadoutPresentation,
 			$DivineSenseHUDPresentation,
 			$DivineSensePhysicalInput,
+			$SpiritShieldHUDPresentation,
+			$SpiritShieldProductSession,
 			$SwordQiPhysicalInput,
 			$ThrownWeaponMainHUDCombatHintLayoutPolicy,
 			$ThrownWeaponMainHUDCombatHintStackPresentation,
@@ -4201,6 +4206,16 @@ try
             $CombatCore)
 
     Invoke-ExpectedPass `
+        -Name 'Spirit Shield HUD presentation maps its projection and product source' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSpiritShieldHUDPresentation.h',
+            'Source/demo_map/demo_mapShanmenSpiritShieldHUDPresentation.cpp',
+            'Source/demo_map/demo_mapShanmenSpiritShieldHUDPresentationTests.cpp') `
+        -Logs @(
+            $SpiritShieldHUDPresentation,
+            $SpiritShieldProductSession)
+
+    Invoke-ExpectedPass `
         -Name 'Spirit Shield physical input maps registry product and legacy input evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenSpiritShieldPhysicalInputTests.cpp') `
@@ -4388,6 +4403,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenSpiritShieldProductSession.cpp') `
         -Logs @($SpiritShieldProductSession) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'Spirit Shield HUD focus cannot replace its product source evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSpiritShieldHUDPresentation.cpp') `
+        -Logs @($SpiritShieldHUDPresentation) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
