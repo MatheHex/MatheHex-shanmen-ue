@@ -536,7 +536,9 @@ bool Fdemo_mapSwordQiPhysicalIssueRetryTest::RunTest(const FString&)
 			&& FirstProjectile->GetLaunchReceipt().IsValid()
 			&& FirstProjectile->GetLaunchReceipt().GetOrigin() == FirstOrigin
 			&& FirstProjectile->GetLaunchReceipt().GetDirection().Equals(
-				FVector::ForwardVector));
+				FVector::ForwardVector)
+			&& FirstProjectile->IsPresentationVisible()
+			&& FirstProjectile->IsFlightCueVisible());
 	if (!::IsValid(FirstProjectile))
 	{
 		return false;
@@ -544,7 +546,9 @@ bool Fdemo_mapSwordQiPhysicalIssueRetryTest::RunTest(const FString&)
 	Fixture.GameMode->Tick(0.0f);
 	TestTrue(TEXT("frame owner preserves an in-flight Sword Qi"),
 		Fixture.GameMode->SwordQiProductController.GetSession().IsInFlight()
-			&& !Fixture.Controller->IsSwordQiTerminalFeedbackActive());
+			&& !Fixture.Controller->IsSwordQiTerminalFeedbackActive()
+			&& FirstProjectile->IsPresentationVisible()
+			&& FirstProjectile->IsFlightCueVisible());
 
 	Fixture.Controller->DispatchAutomationKey(EKeys::B);
 	const Fdemo_mapShanmenSwordQiAvailabilityCommandResult Busy =
@@ -653,7 +657,9 @@ bool Fdemo_mapSwordQiPhysicalIssueRetryTest::RunTest(const FString&)
 				== Edemo_mapShanmenSwordQiProjectileState::InFlight
 			&& RetryProjectile->GetLaunchReceipt().GetOrigin() == FrozenOrigin
 			&& RetryProjectile->GetLaunchReceipt().GetDirection().Equals(
-				FrozenDirection));
+				FrozenDirection)
+			&& RetryProjectile->IsPresentationVisible()
+			&& RetryProjectile->IsFlightCueVisible());
 
 	const bool bRetryInterrupted =
 		Fixture.GameMode->SwordQiProductController.TryInterrupt();
@@ -701,6 +707,8 @@ bool Fdemo_mapSwordQiPhysicalIssueRetryTest::RunTest(const FString&)
 			&& FreshIssue.CommandEvent.Input.Product.IsAccepted()
 			&& !FreshIssue.CommandEvent.Input.Product.bReusedIntent
 			&& ::IsValid(FreshProjectile)
+			&& FreshProjectile->IsPresentationVisible()
+			&& FreshProjectile->IsFlightCueVisible()
 			&& Fixture.Controller
 				->GetSwordQiInputInvocationCountForAutomation() == Before + 5);
 	const bool bFreshInterrupted =

@@ -1,12 +1,23 @@
 #include "demo_mapShanmenSwordQiProjectile.h"
 
+#include "Components/PointLightComponent.h"
 #include "Components/SphereComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Engine/HitResult.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/ProjectileMovementComponent.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "UObject/ConstructorHelpers.h"
 
 namespace
 {
+	/** Asset-free prototype dimensions in Unreal centimetres. */
+	const FVector SwordQiEnergyBladeFullSize(72.0f, 12.0f, 3.0f);
+	const FLinearColor SwordQiEnergyColor(0.22f, 0.82f, 1.0f);
+	constexpr float EngineCubeSideLength = 100.0f;
+	constexpr float SwordQiFlightCueIntensity = 2200.0f;
+	constexpr float SwordQiFlightCueAttenuationRadius = 170.0f;
+
 	bool ActionsMatch(
 		const FShanmenCombatActionSnapshot& Left,
 		const FShanmenCombatActionSnapshot& Right)
@@ -58,6 +69,39 @@ Ademo_mapShanmenSwordQiProjectile::Ademo_mapShanmenSwordQiProjectile()
 	Collision->OnComponentHit.AddDynamic(
 		this, &Ademo_mapShanmenSwordQiProjectile::HandleHit);
 
+	EnergyBladeVisual = CreateDefaultSubobject<UStaticMeshComponent>(
+		TEXT("SwordQiEnergyBladeVisual"));
+	EnergyBladeVisual->SetupAttachment(Collision);
+	EnergyBladeVisual->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	EnergyBladeVisual->SetGenerateOverlapEvents(false);
+	EnergyBladeVisual->SetRelativeScale3D(
+		SwordQiEnergyBladeFullSize / EngineCubeSideLength);
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeMesh(
+		TEXT("/Engine/BasicShapes/Cube.Cube"));
+	if (CubeMesh.Succeeded())
+	{
+		EnergyBladeVisual->SetStaticMesh(CubeMesh.Object);
+	}
+	EnergyBladeMaterial =
+		EnergyBladeVisual->CreateDynamicMaterialInstance(0);
+	if (EnergyBladeMaterial)
+	{
+		EnergyBladeMaterial->SetVectorParameterValue(
+			TEXT("Color"), SwordQiEnergyColor);
+		EnergyBladeMaterial->SetVectorParameterValue(
+			TEXT("BaseColor"), SwordQiEnergyColor);
+	}
+
+	FlightCueLight = CreateDefaultSubobject<UPointLightComponent>(
+		TEXT("SwordQiFlightCueLight"));
+	FlightCueLight->SetupAttachment(Collision);
+	FlightCueLight->SetIntensity(SwordQiFlightCueIntensity);
+	FlightCueLight->SetAttenuationRadius(
+		SwordQiFlightCueAttenuationRadius);
+	FlightCueLight->SetCastShadows(false);
+	FlightCueLight->SetLightColor(SwordQiEnergyColor);
+	SetPresentationActive(false);
+
 	Movement = CreateDefaultSubobject<UProjectileMovementComponent>(
 		TEXT("SwordQiMovement"));
 	Movement->UpdatedComponent = Collision;
@@ -66,6 +110,66 @@ Ademo_mapShanmenSwordQiProjectile::Ademo_mapShanmenSwordQiProjectile()
 	Movement->bIsHomingProjectile = false;
 	Movement->bRotationFollowsVelocity = true;
 	Movement->bAutoActivate = false;
+}
+
+bool Ademo_mapShanmenSwordQiProjectile::IsPresentationVisible() const
+{
+	return IsPresentationGeometryValid()
+		&& EnergyBladeVisual->IsVisible();
+}
+
+bool Ademo_mapShanmenSwordQiProjectile::
+HasPresentationMaterialColor() const
+{
+	return EnergyBladeMaterial
+		&& EnergyBladeVisual
+		&& EnergyBladeVisual->GetMaterial(0) == EnergyBladeMaterial
+		&& EnergyBladeMaterial->K2_GetVectorParameterValue(TEXT("Color"))
+			.Equals(SwordQiEnergyColor, KINDA_SMALL_NUMBER);
+}
+
+bool Ademo_mapShanmenSwordQiProjectile::IsFlightCueVisible() const
+{
+	return FlightCueLight && FlightCueLight->IsVisible();
+}
+
+FLinearColor Ademo_mapShanmenSwordQiProjectile::GetFlightCueColor() const
+{
+	return FlightCueLight
+		? FlightCueLight->GetLightColor()
+		: FLinearColor::Transparent;
+}
+
+bool Ademo_mapShanmenSwordQiProjectile::
+IsPresentationGeometryValid() const
+{
+	return Collision
+		&& EnergyBladeVisual
+		&& EnergyBladeVisual->GetAttachParent() == Collision
+		&& EnergyBladeVisual->GetStaticMesh()
+		&& EnergyBladeVisual->GetCollisionEnabled()
+			== ECollisionEnabled::NoCollision
+		&& !EnergyBladeVisual->GetGenerateOverlapEvents()
+		&& EnergyBladeVisual->GetRelativeLocation().IsNearlyZero()
+		&& EnergyBladeVisual->GetRelativeRotation().Equals(
+			FRotator::ZeroRotator, KINDA_SMALL_NUMBER)
+		&& EnergyBladeVisual->GetRelativeScale3D().Equals(
+			SwordQiEnergyBladeFullSize / EngineCubeSideLength,
+			KINDA_SMALL_NUMBER)
+		&& HasPresentationMaterialColor();
+}
+
+void Ademo_mapShanmenSwordQiProjectile::
+SetPresentationActive(bool bActive)
+{
+	if (EnergyBladeVisual)
+	{
+		EnergyBladeVisual->SetVisibility(bActive, false);
+	}
+	if (FlightCueLight)
+	{
+		FlightCueLight->SetVisibility(bActive);
+	}
 }
 
 bool Ademo_mapShanmenSwordQiProjectile::TryStageLaunch(
@@ -101,6 +205,7 @@ bool Ademo_mapShanmenSwordQiProjectile::TryStageLaunch(
 	}
 	Collision->IgnoreActorWhenMoving(InSourceActor, true);
 	Collision->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	SetPresentationActive(false);
 	Movement->Deactivate();
 	Movement->StopMovementImmediately();
 	Movement->InitialSpeed = InLaunch.GetSpeed();
@@ -155,6 +260,7 @@ void Ademo_mapShanmenSwordQiProjectile::ActivateStagedLaunch()
 		LaunchReceipt.GetDirection() * LaunchReceipt.GetSpeed();
 	Movement->Activate(true);
 	State = Edemo_mapShanmenSwordQiProjectileState::InFlight;
+	SetPresentationActive(true);
 }
 
 bool Ademo_mapShanmenSwordQiProjectile::CancelStagedLaunch()
@@ -170,6 +276,7 @@ bool Ademo_mapShanmenSwordQiProjectile::CancelStagedLaunch()
 	}
 	Movement->StopMovementImmediately();
 	Movement->Deactivate();
+	SetPresentationActive(false);
 	SetOwner(nullptr);
 	SetInstigator(nullptr);
 	SourceActor = nullptr;
@@ -188,6 +295,7 @@ bool Ademo_mapShanmenSwordQiProjectile::MarkDissipated()
 	Collision->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Movement->StopMovementImmediately();
 	Movement->Deactivate();
+	SetPresentationActive(false);
 	State = Edemo_mapShanmenSwordQiProjectileState::Dissipated;
 	return true;
 }

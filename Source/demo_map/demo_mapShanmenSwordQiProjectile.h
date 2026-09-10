@@ -9,7 +9,10 @@
 
 class UPrimitiveComponent;
 class UProjectileMovementComponent;
+class UMaterialInstanceDynamic;
+class UPointLightComponent;
 class USphereComponent;
+class UStaticMeshComponent;
 struct FHitResult;
 struct Fdemo_mapShanmenSwordQiWorldAdapter;
 
@@ -80,6 +83,14 @@ public:
 	{
 		return Movement;
 	}
+	/** Collisionless energy blade shown only during published flight. */
+	bool IsPresentationVisible() const;
+	/** Dynamic prototype material retains the authored sword-qi color. */
+	bool HasPresentationMaterialColor() const;
+	/** Attached readability light is active only during published flight. */
+	bool IsFlightCueVisible() const;
+	/** Actual color held by the attached sword-qi readability light. */
+	FLinearColor GetFlightCueColor() const;
 	Fdemo_mapShanmenSwordQiContact& OnContact() { return ContactEvent; }
 	Fdemo_mapShanmenSwordQiRangeExpired& OnRangeExpired()
 	{
@@ -95,6 +106,8 @@ private:
 	/** No-fail publication reserved for the copy-on-write world adapter. */
 	void ActivateStagedLaunch();
 	bool MarkDissipated();
+	bool IsPresentationGeometryValid() const;
+	void SetPresentationActive(bool bActive);
 
 	UFUNCTION()
 	void HandleHit(
@@ -109,6 +122,15 @@ private:
 
 	UPROPERTY(VisibleAnywhere)
 	TObjectPtr<UProjectileMovementComponent> Movement;
+
+	UPROPERTY(VisibleAnywhere)
+	TObjectPtr<UStaticMeshComponent> EnergyBladeVisual;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> EnergyBladeMaterial;
+
+	UPROPERTY(VisibleAnywhere)
+	TObjectPtr<UPointLightComponent> FlightCueLight;
 
 	UPROPERTY()
 	TObjectPtr<AActor> SourceActor;

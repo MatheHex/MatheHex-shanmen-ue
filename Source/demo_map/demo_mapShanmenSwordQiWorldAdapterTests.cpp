@@ -3,10 +3,13 @@
 #include "demo_mapShanmenSwordQiWorldAdapter.h"
 
 #include "Components/BoxComponent.h"
+#include "Components/PointLightComponent.h"
 #include "Components/SphereComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Engine/HitResult.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/ProjectileMovementComponent.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Misc/AutomationTest.h"
 #include "ShanmenCombatTags.h"
 #include "demo_mapCombatVitalityHost.h"
@@ -242,6 +245,56 @@ bool Fdemo_mapSwordQiWorldLaunchGateTest::RunTest(const FString&)
 	{
 		return false;
 	}
+	UStaticMeshComponent* EnergyBladeVisual = nullptr;
+	UPointLightComponent* FlightCueLight = nullptr;
+	{
+		TInlineComponentArray<UStaticMeshComponent*> MeshComponents;
+		Projectile->GetComponents(MeshComponents);
+		for (UStaticMeshComponent* MeshComponent : MeshComponents)
+		{
+			if (MeshComponent
+				&& MeshComponent->GetFName()
+					== TEXT("SwordQiEnergyBladeVisual"))
+			{
+				EnergyBladeVisual = MeshComponent;
+			}
+		}
+		TInlineComponentArray<UPointLightComponent*> LightComponents;
+		Projectile->GetComponents(LightComponents);
+		for (UPointLightComponent* LightComponent : LightComponents)
+		{
+			if (LightComponent
+				&& LightComponent->GetFName()
+					== TEXT("SwordQiFlightCueLight"))
+			{
+				FlightCueLight = LightComponent;
+			}
+		}
+	}
+	if (!EnergyBladeVisual || !FlightCueLight)
+	{
+		AddError(TEXT("Sword-qi presentation components are missing."));
+		return false;
+	}
+	UMaterialInstanceDynamic* EnergyBladeMaterial =
+		Cast<UMaterialInstanceDynamic>(EnergyBladeVisual->GetMaterial(0));
+	TestTrue(TEXT("Sword qi owns one collisionless authored energy blade"),
+		EnergyBladeVisual->GetAttachParent()
+			== Projectile->GetCollisionComponent()
+			&& EnergyBladeVisual->GetStaticMesh()
+			&& EnergyBladeVisual->GetCollisionEnabled()
+				== ECollisionEnabled::NoCollision
+			&& !EnergyBladeVisual->GetGenerateOverlapEvents()
+			&& EnergyBladeVisual->GetRelativeScale3D().Equals(
+				FVector(0.72f, 0.12f, 0.03f),
+				KINDA_SMALL_NUMBER)
+			&& EnergyBladeMaterial
+			&& Projectile->HasPresentationMaterialColor());
+	TestTrue(TEXT("Empty carrier keeps every sword-qi cue hidden"),
+		!EnergyBladeVisual->IsVisible()
+			&& !FlightCueLight->IsVisible()
+			&& !Projectile->IsPresentationVisible()
+			&& !Projectile->IsFlightCueVisible());
 
 	const Fdemo_mapShanmenSwordQiLaunchResult Rejected =
 		Fdemo_mapShanmenSwordQiWorldAdapter::StageLaunch(
@@ -257,7 +310,9 @@ bool Fdemo_mapSwordQiWorldLaunchGateTest::RunTest(const FString&)
 			== Edemo_mapShanmenSwordQiLaunchError::SourceNotRegistered
 			&& Execution.GetState() == EShanmenSwordQiState::Ready
 			&& Projectile->GetProjectileState()
-				== Edemo_mapShanmenSwordQiProjectileState::Empty);
+				== Edemo_mapShanmenSwordQiProjectileState::Empty
+			&& !Projectile->IsPresentationVisible()
+			&& !Projectile->IsFlightCueVisible());
 
 	const Fdemo_mapShanmenSwordQiLaunchResult Staged =
 		Fdemo_mapShanmenSwordQiWorldAdapter::StageLaunch(
@@ -277,7 +332,9 @@ bool Fdemo_mapSwordQiWorldLaunchGateTest::RunTest(const FString&)
 			&& !Execution.IsEmissionActive()
 			&& Projectile->GetCollisionComponent()->GetCollisionEnabled()
 				== ECollisionEnabled::NoCollision
-			&& !Projectile->GetMovementComponent()->IsActive());
+			&& !Projectile->GetMovementComponent()->IsActive()
+			&& !Projectile->IsPresentationVisible()
+			&& !Projectile->IsFlightCueVisible());
 
 	const bool bPublished = Staged.IsStaged()
 		&& Fdemo_mapShanmenSwordQiWorldAdapter::PublishStagedLaunch(
@@ -292,7 +349,11 @@ bool Fdemo_mapSwordQiWorldLaunchGateTest::RunTest(const FString&)
 				== ECollisionEnabled::QueryOnly
 			&& Projectile->GetMovementComponent()->IsActive()
 			&& Projectile->GetMovementComponent()->Velocity.Equals(
-				FVector::ForwardVector * 900.0f));
+				FVector::ForwardVector * 900.0f)
+			&& Projectile->IsPresentationVisible()
+			&& Projectile->IsFlightCueVisible()
+			&& Projectile->GetFlightCueColor().Equals(
+				FLinearColor(0.22f, 0.82f, 1.0f), 0.01f));
 	TestTrue(TEXT("Sword qi has authored speed without gravity, bounce, or homing"),
 		FMath::IsNearlyEqual(
 			Projectile->GetMovementComponent()->InitialSpeed, 900.0f)
@@ -301,6 +362,13 @@ bool Fdemo_mapSwordQiWorldLaunchGateTest::RunTest(const FString&)
 			&& Projectile->GetMovementComponent()->ProjectileGravityScale == 0.0f
 			&& !Projectile->GetMovementComponent()->bShouldBounce
 			&& !Projectile->GetMovementComponent()->bIsHomingProjectile);
+	TestTrue(TEXT("Dissipation removes sword-qi geometry and light together"),
+		Fdemo_mapShanmenSwordQiWorldAdapter::FinishFlight(
+			Runtime, Execution, *Projectile)
+			&& Projectile->GetProjectileState()
+				== Edemo_mapShanmenSwordQiProjectileState::Dissipated
+			&& !Projectile->IsPresentationVisible()
+			&& !Projectile->IsFlightCueVisible());
 	return true;
 }
 
@@ -378,7 +446,9 @@ bool Fdemo_mapSwordQiWorldContactTest::RunTest(const FString&)
 			&& !Execution.IsEmissionActive()
 			&& Execution.NumAcceptedImpacts() == 1
 			&& Projectile->GetProjectileState()
-				== Edemo_mapShanmenSwordQiProjectileState::Dissipated);
+				== Edemo_mapShanmenSwordQiProjectileState::Dissipated
+			&& !Projectile->IsPresentationVisible()
+			&& !Projectile->IsFlightCueVisible());
 	return true;
 }
 
@@ -430,14 +500,18 @@ bool Fdemo_mapSwordQiWorldFailClosedTest::RunTest(const FString&)
 			&& Execution.IsEmissionActive()
 			&& Execution.NumAcceptedImpacts() == 0
 			&& Projectile->GetProjectileState()
-				== Edemo_mapShanmenSwordQiProjectileState::InFlight);
+				== Edemo_mapShanmenSwordQiProjectileState::InFlight
+			&& Projectile->IsPresentationVisible()
+			&& Projectile->IsFlightCueVisible());
 	TestTrue(TEXT("Range expiry has an explicit no-impact terminal"),
 		Fdemo_mapShanmenSwordQiWorldAdapter::FinishFlight(
 			Runtime, Execution, *Projectile)
 			&& Execution.GetState() == EShanmenSwordQiState::Dissipated
 			&& Execution.NumAcceptedImpacts() == 0
 			&& Projectile->GetProjectileState()
-				== Edemo_mapShanmenSwordQiProjectileState::Dissipated);
+				== Edemo_mapShanmenSwordQiProjectileState::Dissipated
+			&& !Projectile->IsPresentationVisible()
+			&& !Projectile->IsFlightCueVisible());
 
 	FShanmenActionOrchestrator InterruptedRuntime;
 	FShanmenSwordQiExecution InterruptedExecution;
@@ -462,7 +536,9 @@ bool Fdemo_mapSwordQiWorldFailClosedTest::RunTest(const FString&)
 				== EShanmenSwordQiState::Dissipated
 			&& !InterruptedExecution.IsEmissionActive()
 			&& InterruptedProjectile->GetProjectileState()
-				== Edemo_mapShanmenSwordQiProjectileState::Dissipated);
+				== Edemo_mapShanmenSwordQiProjectileState::Dissipated
+			&& !InterruptedProjectile->IsPresentationVisible()
+			&& !InterruptedProjectile->IsFlightCueVisible());
 	TestFalse(TEXT("Terminal cleanup cannot publish twice"),
 		Fdemo_mapShanmenSwordQiWorldAdapter::EndForActionTermination(
 			InterruptedExecution, *InterruptedProjectile));
