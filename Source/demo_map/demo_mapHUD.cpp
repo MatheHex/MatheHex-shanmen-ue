@@ -53,54 +53,6 @@ namespace
 		Canvas->DrawItem(Tile);
 	}
 
-	bool TryBuildSwordQiFeedback(
-		const Fdemo_mapShanmenSwordQiAvailabilityCommandResult& Result,
-		const FString& KeyLabel,
-		FString& OutText,
-		FLinearColor& OutColor)
-	{
-		OutText.Reset();
-		OutColor = FLinearColor(1.0f, 0.72f, 0.18f);
-		if (Result.CommandEvent.IsAccepted())
-		{
-			OutText = TEXT("SWORD QI · RELEASED");
-			OutColor = FLinearColor(0.25f, 1.0f, 0.55f);
-			return true;
-		}
-		if (Result.CommandEvent.bPendingRetryStored
-			|| (Result.After.IsValid() && Result.After.CanRetry()))
-		{
-			OutText = FString::Printf(
-				TEXT("SWORD QI BUSY · %s RETRY"),
-				*KeyLabel);
-			return true;
-		}
-		if (Result.CommandEvent.Input.Status
-			== Edemo_mapShanmenSwordQiInputStatus::GameplayBlocked)
-		{
-			OutText = TEXT("SWORD QI · BLOCKED BY ACTIVE UI");
-			return true;
-		}
-		if (Result.CommandEvent.Input.Product.Status
-			== Edemo_mapShanmenSwordQiControllerStatus::ItemAuthorizationRejected)
-		{
-			OutText = TEXT("SWORD QI · EQUIP A VALID SWORD");
-			return true;
-		}
-		if (Result.CommandEvent.Input.Product.Status
-			== Edemo_mapShanmenSwordQiControllerStatus::AttackPowerUnavailable)
-		{
-			OutText = TEXT("SWORD QI · ATTACK POWER UNAVAILABLE");
-			return true;
-		}
-		if (!Result.Diagnostic.IsEmpty())
-		{
-			OutText = TEXT("SWORD QI · UNAVAILABLE");
-			return true;
-		}
-		return false;
-	}
-
 	void DrawSwordQiFeedback(
 		UCanvas* Canvas,
 		Ademo_mapPlayerController* Controller)
@@ -131,7 +83,7 @@ namespace
 					Fdemo_mapInputActionIds::SwordQi)
 					.GetDisplayName()
 					.ToString();
-			if (!TryBuildSwordQiFeedback(
+			if (!Ademo_mapHUD::TryBuildSwordQiFeedback(
 					Controller->GetLatestSwordQiInputResult(),
 					KeyLabel,
 					Text,
@@ -554,6 +506,75 @@ namespace
 			return 1.0f;
 		}
 	}
+}
+
+bool Ademo_mapHUD::TryBuildSwordQiFeedback(
+	const Fdemo_mapShanmenSwordQiAvailabilityCommandResult& Result,
+	const FString& KeyLabel,
+	FString& OutText,
+	FLinearColor& OutColor)
+{
+	OutText.Reset();
+	OutColor = FLinearColor(1.0f, 0.72f, 0.18f);
+	if (Result.CommandEvent.IsAccepted())
+	{
+		OutText = TEXT("SWORD QI · RELEASED");
+		OutColor = FLinearColor(0.25f, 1.0f, 0.55f);
+		return true;
+	}
+	if (Result.CommandEvent.bPendingRetryStored
+		|| (Result.After.IsValid() && Result.After.CanRetry()))
+	{
+		OutText = FString::Printf(
+			TEXT("SWORD QI BUSY · %s RETRY"),
+			*KeyLabel);
+		return true;
+	}
+	if (Result.CommandEvent.Input.Status
+		== Edemo_mapShanmenSwordQiInputStatus::GameplayBlocked)
+	{
+		OutText = TEXT("SWORD QI · BLOCKED BY ACTIVE UI");
+		return true;
+	}
+	if (Result.CommandEvent.Input.Product.Status
+		== Edemo_mapShanmenSwordQiControllerStatus::ItemAuthorizationRejected)
+	{
+		OutText = TEXT("SWORD QI · EQUIP A VALID SWORD");
+		return true;
+	}
+	if (Result.CommandEvent.Input.Product.Status
+		== Edemo_mapShanmenSwordQiControllerStatus::AttackPowerUnavailable)
+	{
+		OutText = TEXT("SWORD QI · ATTACK POWER UNAVAILABLE");
+		return true;
+	}
+	const Fdemo_mapShanmenSwordQiProductRouteResult& Route =
+		Result.CommandEvent.Input.Product.Route;
+	if (Result.Status
+			== Edemo_mapShanmenSwordQiAvailabilityCommandStatus::Dispatched
+		&& Result.CommandEvent.Status
+			== Edemo_mapShanmenSwordQiCommandEventStatus::InputRejected
+		&& Result.CommandEvent.Input.Status
+			== Edemo_mapShanmenSwordQiInputStatus::ProductRejected
+		&& Result.CommandEvent.Input.Product.Status
+			== Edemo_mapShanmenSwordQiControllerStatus::RouteRejected
+		&& Route.Status
+			== Edemo_mapShanmenSwordQiProductRouteStatus::LaunchRejectedInterrupted
+		&& Route.HostStart.Error
+			== Edemo_mapShanmenSwordQiHostStartError::LaunchRejected
+		&& Route.HostStart.Launch.Error
+			== Edemo_mapShanmenSwordQiLaunchError::LaunchPathBlocked
+		&& !Route.HostStart.IsStarted())
+	{
+		OutText = TEXT("SWORD QI · LAUNCH BLOCKED");
+		return true;
+	}
+	if (!Result.Diagnostic.IsEmpty())
+	{
+		OutText = TEXT("SWORD QI · UNAVAILABLE");
+		return true;
+	}
+	return false;
 }
 
 void Ademo_mapHUD::BeginPlay()

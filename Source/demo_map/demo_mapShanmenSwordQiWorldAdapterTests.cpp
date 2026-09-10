@@ -14,11 +14,13 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Misc/AutomationTest.h"
 #include "ShanmenCombatTags.h"
+#include "demo_mapHUD.h"
 #include "demo_mapCombatVitalityHost.h"
 #include "demo_mapEnemyCharacter.h"
 #include "demo_mapM01EnemyIdentityComponent.h"
 #include "demo_mapM01EnemyTypes.h"
 #include "demo_mapPlayerHealthComponent.h"
+#include "demo_mapShanmenSwordQiAvailabilityCommandRouter.h"
 
 namespace
 {
@@ -523,6 +525,43 @@ bool Fdemo_mapSwordQiLaunchCorridorGateTest::RunTest(const FString&)
 		!Occupied.IsStaged()
 			&& Occupied.Error
 				== Edemo_mapShanmenSwordQiLaunchError::LaunchPathBlocked);
+	Fdemo_mapShanmenSwordQiAvailabilityCommandResult FeedbackResult;
+	FeedbackResult.Status =
+		Edemo_mapShanmenSwordQiAvailabilityCommandStatus::Dispatched;
+	FeedbackResult.CommandEvent.Status =
+		Edemo_mapShanmenSwordQiCommandEventStatus::InputRejected;
+	FeedbackResult.CommandEvent.Input.Status =
+		Edemo_mapShanmenSwordQiInputStatus::ProductRejected;
+	FeedbackResult.CommandEvent.Input.Product.Status =
+		Edemo_mapShanmenSwordQiControllerStatus::RouteRejected;
+	FeedbackResult.CommandEvent.Input.Product.Route.Status =
+		Edemo_mapShanmenSwordQiProductRouteStatus::LaunchRejectedInterrupted;
+	FeedbackResult.CommandEvent.Input.Product.Route.HostStart.Error =
+		Edemo_mapShanmenSwordQiHostStartError::LaunchRejected;
+	FeedbackResult.CommandEvent.Input.Product.Route.HostStart.Launch = Occupied;
+	FeedbackResult.Diagnostic = TEXT("Sword Qi launch path is blocked.");
+	FString FeedbackText;
+	FLinearColor FeedbackColor;
+	TestTrue(TEXT("The exact launch-obstruction proof reaches the player HUD"),
+		Ademo_mapHUD::TryBuildSwordQiFeedback(
+			FeedbackResult,
+			TEXT("B"),
+			FeedbackText,
+			FeedbackColor)
+			&& FeedbackText == TEXT("SWORD QI · LAUNCH BLOCKED")
+			&& FeedbackColor.Equals(
+				FLinearColor(1.0f, 0.72f, 0.18f), 0.001f));
+	Fdemo_mapShanmenSwordQiAvailabilityCommandResult BrokenProof =
+		FeedbackResult;
+	BrokenProof.CommandEvent.Input.Product.Route.HostStart.Error =
+		Edemo_mapShanmenSwordQiHostStartError::AdoptionRejected;
+	TestTrue(TEXT("An incomplete launch-obstruction chain cannot claim a blocked path"),
+		Ademo_mapHUD::TryBuildSwordQiFeedback(
+			BrokenProof,
+			TEXT("B"),
+			FeedbackText,
+			FeedbackColor)
+			&& FeedbackText == TEXT("SWORD QI · UNAVAILABLE"));
 	TestTrue(TEXT("Blocked launch keeps execution and every carrier cue inert"),
 		Execution.GetState() == EShanmenSwordQiState::Ready
 			&& !Execution.IsEmissionActive()
