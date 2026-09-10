@@ -2,19 +2,25 @@
 
 #include "Misc/AutomationTest.h"
 
+#include "Components/PrimitiveComponent.h"
 #include "demo_mapGameMode.h"
 #include "demo_mapAttributeComponent.h"
 #include "demo_mapAttributeDefinitions.h"
+#include "demo_mapCombatVitalityHost.h"
+#include "demo_mapEnemyCharacter.h"
 #include "demo_mapInputActionRegistry.h"
 #include "demo_mapInputBindingSettings.h"
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapItemSubsystem.h"
+#include "demo_mapM01EnemyIdentityComponent.h"
+#include "demo_mapM01EnemyTypes.h"
 #include "demo_mapPlayerController.h"
 #include "demo_mapPlayerHealthComponent.h"
 #include "demo_mapShanmenSwordQiProjectile.h"
 #include "Engine/Engine.h"
 #include "Engine/EngineBaseTypes.h"
 #include "Engine/GameInstance.h"
+#include "Engine/HitResult.h"
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
 #include "HAL/FileManager.h"
@@ -26,6 +32,47 @@ namespace
 	constexpr EAutomationTestFlags SwordQiPhysicalInputFlags =
 		EAutomationTestFlags::EditorContext
 		| EAutomationTestFlags::EngineFilter;
+
+	const Fdemo_mapM01EnemyDefinition* FindSwordQiPhysicalTargetDefinition()
+	{
+		for (const Fdemo_mapM01EnemyDefinition& Definition :
+			Fdemo_mapM01EnemyConfig::GetDefinitions())
+		{
+			if (Definition.Archetype
+				== Edemo_mapM01EnemyArchetype::StandardSkirmisher)
+			{
+				return &Definition;
+			}
+		}
+		return nullptr;
+	}
+
+	Fdemo_mapEnemyEncounterIdentity MakeSwordQiPhysicalTargetIdentity(
+		const Fdemo_mapM01EnemyDefinition& Definition)
+	{
+		Fdemo_mapEnemyEncounterIdentity Identity;
+		Identity.EncounterId = Definition.EncounterId;
+		Identity.RouteId = Definition.RouteId;
+		Identity.SpawnMarkerId = Definition.SpawnMarkerId;
+		Identity.LootTableId = Definition.CorpseIdentity;
+		Identity.SkillProfileId = Definition.SkillProfileId;
+		return Identity;
+	}
+
+	FHitResult MakeSwordQiPhysicalEnemyHit(Ademo_mapEnemyCharacter& Enemy)
+	{
+		UPrimitiveComponent* TargetComponent =
+			Cast<UPrimitiveComponent>(Enemy.GetRootComponent());
+		FHitResult Hit(
+			&Enemy,
+			TargetComponent,
+			FVector(240.0, 15.0, 55.0),
+			FVector::BackwardVector);
+		Hit.ImpactPoint = FVector(240.0, 15.0, 55.0);
+		Hit.ImpactNormal = FVector::BackwardVector;
+		Hit.Item = 0;
+		return Hit;
+	}
 
 	struct FScopedSwordQiInputConfig
 	{
@@ -392,6 +439,45 @@ bool Fdemo_mapSwordQiPhysicalIssueRetryTest::RunTest(const FString&)
 	const FGuid ProductRunId = Items->GetActiveRunId();
 	Fixture.GameMode->PlayerItemSubsystem = Items;
 	Fixture.GameMode->PlayerAttributeComponent = Attributes;
+	const Fdemo_mapM01EnemyDefinition* TargetDefinition =
+		FindSwordQiPhysicalTargetDefinition();
+	FActorSpawnParameters EnemyParameters;
+	EnemyParameters.ObjectFlags |= RF_Transient;
+	EnemyParameters.SpawnCollisionHandlingOverride =
+		ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	Ademo_mapEnemyCharacter* TargetEnemy = TargetDefinition
+		? Fixture.World->SpawnActor<Ademo_mapEnemyCharacter>(
+			Ademo_mapEnemyCharacter::StaticClass(),
+			FTransform(FVector(240.0, 15.0, 0.0)),
+			EnemyParameters)
+		: nullptr;
+	Udemo_mapM01EnemyIdentityComponent* TargetIdentity = TargetEnemy
+		? NewObject<Udemo_mapM01EnemyIdentityComponent>(
+			TargetEnemy,
+			TEXT("P242SwordQiPhysicalEnemyIdentity"),
+			RF_Transient)
+		: nullptr;
+	TestTrue(TEXT("real M01 target authority is available"),
+		TargetDefinition && TargetEnemy && TargetIdentity
+			&& Cast<UPrimitiveComponent>(TargetEnemy->GetRootComponent()));
+	if (!TargetDefinition || !TargetEnemy || !TargetIdentity
+		|| !Cast<UPrimitiveComponent>(TargetEnemy->GetRootComponent()))
+	{
+		return false;
+	}
+	TargetEnemy->AddInstanceComponent(TargetIdentity);
+	const bool bTargetConfigured =
+		TargetIdentity->Configure(*TargetDefinition)
+		&& TargetEnemy->ConfigureEncounter(
+			MakeSwordQiPhysicalTargetIdentity(*TargetDefinition),
+			TargetDefinition->Tuning,
+			TargetDefinition->IsElite());
+	TestTrue(TEXT("real M01 target owns configured encounter identity"),
+		bTargetConfigured);
+	if (!bTargetConfigured)
+	{
+		return false;
+	}
 	FString Diagnostic;
 	TestTrue(TEXT("coordinator, product controller and command owner bind the Runtime Run"),
 		Fixture.GameMode->CombatRunCoordinator.TryBeginRun(
@@ -404,6 +490,9 @@ bool Fdemo_mapSwordQiPhysicalIssueRetryTest::RunTest(const FString&)
 				Diagnostic)
 			&& Fixture.GameMode->SwordQiCommandEventOwner.TryBegin(
 				ProductRunId,
+				Diagnostic)
+			&& Fixture.GameMode->CombatRunCoordinator.TryRegisterM01Enemy(
+				TargetEnemy,
 				Diagnostic));
 	if (!Fixture.GameMode->CombatRunCoordinator.IsReady()
 		|| !Fixture.GameMode->SwordQiProductController.IsActive()
@@ -448,6 +537,10 @@ bool Fdemo_mapSwordQiPhysicalIssueRetryTest::RunTest(const FString&)
 			&& FirstProjectile->GetLaunchReceipt().GetOrigin() == FirstOrigin
 			&& FirstProjectile->GetLaunchReceipt().GetDirection().Equals(
 				FVector::ForwardVector));
+	if (!::IsValid(FirstProjectile))
+	{
+		return false;
+	}
 
 	Fixture.Controller->DispatchAutomationKey(EKeys::B);
 	const Fdemo_mapShanmenSwordQiAvailabilityCommandResult Busy =
@@ -470,12 +563,42 @@ bool Fdemo_mapSwordQiPhysicalIssueRetryTest::RunTest(const FString&)
 	const FVector FrozenDirection =
 		Busy.CommandEvent.Request.GetSample().GetAimDirection();
 
+	Idemo_mapCombatVitalityHost* TargetVitalityHost =
+		Cast<Idemo_mapCombatVitalityHost>(TargetEnemy);
+	FShanmenTargetVitalitySnapshot TargetBefore;
+	const bool bTargetBeforeCaptured = TargetVitalityHost
+		&& TargetVitalityHost->TryCaptureCombatVitalitySnapshot(TargetBefore);
+	TestTrue(TEXT("registered M01 target exposes canonical vitality"),
+		bTargetBeforeCaptured);
+	if (!bTargetBeforeCaptured)
+	{
+		return false;
+	}
+	FirstProjectile->OnContact().Broadcast(
+		*FirstProjectile,
+		MakeSwordQiPhysicalEnemyHit(*TargetEnemy));
+	FShanmenTargetVitalitySnapshot TargetAfter;
+	const bool bTargetAfterCaptured =
+		TargetVitalityHost->TryCaptureCombatVitalitySnapshot(TargetAfter);
 	Fdemo_mapShanmenSwordQiTerminalReceipt FirstTerminal;
-	TestTrue(TEXT("first carrier retires before retry"),
-		Fixture.GameMode->SwordQiProductController.TryInterrupt()
-			&& Fixture.GameMode->SwordQiProductController.TryRetireTerminal(
-				FirstTerminal)
-			&& FirstTerminal.IsValid());
+	TestTrue(TEXT("physical B launch reaches M01 vitality and retires before retry"),
+		Fixture.GameMode->SwordQiProductController.TryRetireTerminal(
+			FirstTerminal)
+			&& FirstTerminal.IsValid()
+			&& FirstTerminal.Kind
+				== Edemo_mapShanmenSwordQiTerminalKind::Impact
+			&& FirstTerminal.Delivery.IsDelivered()
+			&& bTargetAfterCaptured
+			&& FMath::IsNearlyEqual(
+				FirstTerminal.Delivery.GetNewlyCommittedDamage(),
+				0.58f,
+				KINDA_SMALL_NUMBER)
+			&& FMath::IsNearlyEqual(
+				TargetBefore.CurrentVitality - TargetAfter.CurrentVitality,
+				0.58f,
+				KINDA_SMALL_NUMBER)
+			&& TargetAfter.AuthorityRevision
+				== TargetBefore.AuthorityRevision + 1);
 	Fixture.Character->SetActorLocation(
 		FVector(400.0, 200.0, 0.0),
 		false,
