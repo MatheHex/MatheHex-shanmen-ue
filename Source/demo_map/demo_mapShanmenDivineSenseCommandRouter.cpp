@@ -299,7 +299,8 @@ bool Fdemo_mapShanmenDivineSenseCommandRouter::TryCreate(
 	Fdemo_mapShanmenDivineSenseCommandRouter& OutRouter)
 {
 	OutRouter.Reset();
-	if (!Host.IsValid() || Host.NumProcessedPulses() != 0)
+	if (!Host.IsValid() || Host.NumProcessedPulses() != 0
+		|| Host.NumExternalSpiritEnergyTransactions() != 0)
 	{
 		return false;
 	}
@@ -671,6 +672,9 @@ Fdemo_mapShanmenDivineSenseCommandRouter::TryRoute(
 	Fdemo_mapShanmenDivineSenseCommandRouter RouterCandidate = *this;
 	FProcessedCommand Processed;
 	Processed.Sequence = RouterCandidate.ProcessedCommands.Num();
+	Processed.ResourceSequence =
+		RouterCandidate.ProcessedCommands.Num()
+		+ RouterCandidate.ExternalSpiritEnergyTransactions.Num();
 	Processed.Command = Command;
 	Processed.Result = Applied;
 	RouterCandidate.ProcessedCommands.Add(
@@ -690,6 +694,64 @@ Fdemo_mapShanmenDivineSenseCommandRouter::TryRoute(
 	Host = MoveTemp(HostCandidate);
 	*this = MoveTemp(RouterCandidate);
 	return Applied;
+}
+
+bool Fdemo_mapShanmenDivineSenseCommandRouter::
+	TryRecordSharedSpiritEnergyTransaction(
+		const Fdemo_mapShanmenDivineSenseProductHost& Host,
+		const Fdemo_mapShanmenSharedSpiritEnergyTransactionReceipt& Receipt)
+{
+	if (!IsValid() || !Host.IsValid() || !Receipt.IsValid()
+		|| Host.GetHostId() != HostId || Host.GetRunId() != RunId
+		|| Host.GetSourceEntityId() != SourceEntityId
+		|| Receipt.GetHostId() != HostId)
+	{
+		return false;
+	}
+
+	if (const FExternalSpiritEnergyTransaction* Existing =
+		ExternalSpiritEnergyTransactions.Find(Receipt.GetTransactionId()))
+	{
+		const Fdemo_mapShanmenSharedSpiritEnergyTransactionReceipt*
+			HostReceipt = Host.FindExternalSpiritEnergyTransaction(
+				Receipt.GetTransactionId());
+		return Existing->Receipt.Matches(Receipt)
+			&& HostReceipt && HostReceipt->Matches(Receipt)
+			&& IsConsistentWithHost(Host);
+	}
+
+	FShanmenActionResourceSnapshot HostSnapshot;
+	const Fdemo_mapShanmenSharedSpiritEnergyTransactionReceipt* HostReceipt =
+		Host.FindExternalSpiritEnergyTransaction(Receipt.GetTransactionId());
+	if (!HostReceipt || !HostReceipt->Matches(Receipt)
+		|| Host.NumProcessedPulses() != ProcessedCommands.Num()
+		|| Host.NumExternalSpiritEnergyTransactions()
+			!= ExternalSpiritEnergyTransactions.Num() + 1
+		|| Receipt.GetExternalOrdinal()
+			!= ExternalSpiritEnergyTransactions.Num()
+		|| Receipt.GetResourceBefore().GetSnapshotId()
+			!= CurrentResourceSnapshot.GetSnapshotId()
+		|| !Host.TryCaptureResourceSnapshot(HostSnapshot)
+		|| HostSnapshot.GetSnapshotId()
+			!= Receipt.GetResourceAfter().GetSnapshotId())
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenDivineSenseCommandRouter Candidate = *this;
+	FExternalSpiritEnergyTransaction Record;
+	Record.ResourceSequence = Candidate.ProcessedCommands.Num()
+		+ Candidate.ExternalSpiritEnergyTransactions.Num();
+	Record.Receipt = Receipt;
+	Candidate.ExternalSpiritEnergyTransactions.Add(
+		Receipt.GetTransactionId(), MoveTemp(Record));
+	Candidate.CurrentResourceSnapshot = Receipt.GetResourceAfter();
+	if (!Candidate.IsValid() || !Candidate.IsConsistentWithHost(Host))
+	{
+		return false;
+	}
+	*this = MoveTemp(Candidate);
+	return true;
 }
 
 bool Fdemo_mapShanmenDivineSenseCommandRouter::IsValid() const
@@ -712,7 +774,8 @@ bool Fdemo_mapShanmenDivineSenseCommandRouter::IsValid() const
 		return false;
 	}
 
-	const int64 ProcessedCount = ProcessedCommands.Num();
+	const int64 ProcessedCount = ProcessedCommands.Num()
+		+ ExternalSpiritEnergyTransactions.Num();
 	const int64 OpeningRevision =
 		OpeningResourceSnapshot.GetAuthorityRevision();
 	if (OpeningRevision > MAX_int64 - (ProcessedCount * 2)
@@ -722,14 +785,26 @@ bool Fdemo_mapShanmenDivineSenseCommandRouter::IsValid() const
 		return false;
 	}
 
-	TArray<const FProcessedCommand*> Ordered;
-	Ordered.SetNumZeroed(ProcessedCommands.Num());
+	struct FResourceTransition
+	{
+		const FShanmenActionResourceSnapshot* Before = nullptr;
+		const FShanmenActionResourceSnapshot* After = nullptr;
+	};
+	TArray<const FProcessedCommand*> OrderedCommands;
+	OrderedCommands.SetNumZeroed(ProcessedCommands.Num());
+	TArray<const FExternalSpiritEnergyTransaction*> OrderedExternal;
+	OrderedExternal.SetNumZeroed(ExternalSpiritEnergyTransactions.Num());
+	TArray<FResourceTransition> OrderedResources;
+	OrderedResources.SetNum(ProcessedCount);
 	for (const TPair<FGuid, FProcessedCommand>& Pair : ProcessedCommands)
 	{
 		const FProcessedCommand& Processed = Pair.Value;
 		if (Processed.Sequence < 0
-			|| Processed.Sequence >= Ordered.Num()
-			|| Ordered[Processed.Sequence] != nullptr
+			|| Processed.Sequence >= OrderedCommands.Num()
+			|| OrderedCommands[Processed.Sequence] != nullptr
+			|| Processed.ResourceSequence < 0
+			|| Processed.ResourceSequence >= OrderedResources.Num()
+			|| OrderedResources[Processed.ResourceSequence].Before != nullptr
 			|| Pair.Key != Processed.Command.GetRouteCommandId()
 			|| !Processed.Command.IsValid()
 			|| Processed.Command.GetExpectedRouterId() != RouterId
@@ -745,23 +820,78 @@ bool Fdemo_mapShanmenDivineSenseCommandRouter::IsValid() const
 		{
 			return false;
 		}
-		Ordered[Processed.Sequence] = &Processed;
+		OrderedCommands[Processed.Sequence] = &Processed;
+		OrderedResources[Processed.ResourceSequence].Before =
+			&Processed.Result.HostPulse.ResourceBefore;
+		OrderedResources[Processed.ResourceSequence].After =
+			&Processed.Result.HostPulse.ResourceAfter;
+	}
+	for (const TPair<FGuid, FExternalSpiritEnergyTransaction>& Pair
+		: ExternalSpiritEnergyTransactions)
+	{
+		const FExternalSpiritEnergyTransaction& External = Pair.Value;
+		const Fdemo_mapShanmenSharedSpiritEnergyTransactionReceipt& Receipt =
+			External.Receipt;
+		if (!Receipt.IsValid()
+			|| Pair.Key != Receipt.GetTransactionId()
+			|| Receipt.GetHostId() != HostId
+			|| Receipt.GetExternalOrdinal() < 0
+			|| Receipt.GetExternalOrdinal() >= OrderedExternal.Num()
+			|| OrderedExternal[Receipt.GetExternalOrdinal()] != nullptr
+			|| External.ResourceSequence < 0
+			|| External.ResourceSequence >= OrderedResources.Num()
+			|| OrderedResources[External.ResourceSequence].Before != nullptr)
+		{
+			return false;
+		}
+		OrderedExternal[Receipt.GetExternalOrdinal()] = &External;
+		OrderedResources[External.ResourceSequence].Before =
+			&Receipt.GetResourceBefore();
+		OrderedResources[External.ResourceSequence].After =
+			&Receipt.GetResourceAfter();
 	}
 
 	FGuid ExpectedSnapshotId =
 		OpeningResourceSnapshot.GetSnapshotId();
-	for (const FProcessedCommand* Processed : Ordered)
+	for (const FProcessedCommand* Processed : OrderedCommands)
 	{
 		if (!Processed
-			|| Processed->Command.GetExpectedResourceSnapshotId()
-				!= ExpectedSnapshotId
 			|| Processed->Result.HostPulse.ResourceBefore.GetSnapshotId()
-				!= ExpectedSnapshotId)
+				!= Processed->Command.GetExpectedResourceSnapshotId())
 		{
 			return false;
 		}
-		ExpectedSnapshotId =
-			Processed->Result.HostPulse.ResourceAfter.GetSnapshotId();
+	}
+	for (const FExternalSpiritEnergyTransaction* External : OrderedExternal)
+	{
+		if (!External)
+		{
+			return false;
+		}
+	}
+	for (int32 Sequence = 0; Sequence < OrderedResources.Num(); ++Sequence)
+	{
+		const FResourceTransition& Transition = OrderedResources[Sequence];
+		if (!Transition.Before || !Transition.After
+			|| Transition.Before->GetSnapshotId() != ExpectedSnapshotId
+			|| !SnapshotShapeMatches(
+				OpeningResourceSnapshot, *Transition.Before)
+			|| !SnapshotShapeMatches(
+				OpeningResourceSnapshot, *Transition.After)
+			|| Transition.Before->GetAuthorityRevision()
+				!= OpeningRevision + (static_cast<int64>(Sequence) * 2)
+			|| Transition.After->GetAuthorityRevision()
+				!= Transition.Before->GetAuthorityRevision() + 2
+			|| FloatBits(Transition.Before->GetReservedAmount())
+				!= FloatBits(0.0f)
+			|| FloatBits(Transition.After->GetReservedAmount())
+				!= FloatBits(0.0f)
+			|| Transition.After->GetCurrentAmount()
+				> Transition.Before->GetCurrentAmount())
+		{
+			return false;
+		}
+		ExpectedSnapshotId = Transition.After->GetSnapshotId();
 	}
 	return ExpectedSnapshotId == CurrentResourceSnapshot.GetSnapshotId();
 }
@@ -776,10 +906,28 @@ bool Fdemo_mapShanmenDivineSenseCommandRouter::IsConsistentWithHost(
 		&& Host.GetSourceEntityId() == SourceEntityId
 		&& Host.GetProcessedPulseCapacity() == ProcessedCommandCapacity
 		&& Host.NumProcessedPulses() == ProcessedCommands.Num()
+		&& Host.NumExternalSpiritEnergyTransactions()
+			== ExternalSpiritEnergyTransactions.Num()
 		&& SnapshotsMatch(
 			Host.GetOpeningResourceSnapshot(), OpeningResourceSnapshot)
 		&& Host.TryCaptureResourceSnapshot(HostSnapshot)
-		&& SnapshotsMatch(HostSnapshot, CurrentResourceSnapshot);
+		&& SnapshotsMatch(HostSnapshot, CurrentResourceSnapshot)
+		&& [&]()
+		{
+			for (const TPair<FGuid, FExternalSpiritEnergyTransaction>& Pair
+				: ExternalSpiritEnergyTransactions)
+			{
+				const Fdemo_mapShanmenSharedSpiritEnergyTransactionReceipt*
+					HostReceipt =
+						Host.FindExternalSpiritEnergyTransaction(Pair.Key);
+				if (!HostReceipt
+					|| !HostReceipt->Matches(Pair.Value.Receipt))
+				{
+					return false;
+				}
+			}
+			return true;
+		}();
 }
 
 void Fdemo_mapShanmenDivineSenseCommandRouter::Reset()

@@ -5,6 +5,7 @@
 
 class AActor;
 class Fdemo_mapCombatRunCoordinator;
+class Fdemo_mapShanmenDivineSenseProductController;
 class UWorld;
 
 enum class Edemo_mapShanmenDivineSenseProductSessionState : uint8
@@ -276,6 +277,8 @@ public:
 	}
 
 private:
+	friend class Fdemo_mapShanmenDivineSenseProductController;
+
 	bool TryBuildAvailability(
 		Fdemo_mapShanmenDivineSenseAvailabilityProjection& OutProjection) const;
 

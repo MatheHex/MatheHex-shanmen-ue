@@ -10,6 +10,7 @@
 #include "ShanmenCombatResolver.h"
 #include "ShanmenCombatRuntimeTags.h"
 #include "ShanmenCombatTags.h"
+#include "ShanmenSpiritShieldSession.h"
 #include "demo_mapCombatRunCoordinator.h"
 #include "demo_mapPlayerHealthComponent.h"
 #include "UObject/UObjectGlobals.h"
@@ -20,6 +21,12 @@ namespace
 	const FGuid OtherControllerRunId(0xD5600002, 0, 0, 1);
 	const FGuid FirstIntentId(0xD5600010, 0, 0, 1);
 	const FGuid SecondIntentId(0xD5600011, 0, 0, 1);
+	const FGuid SharedShieldTransactionId(0xD5600020, 0, 0, 1);
+	const FGuid SharedShieldCommandId(0xD5600021, 0, 0, 1);
+	const FGuid ConflictingShieldCommandId(0xD5600022, 0, 0, 1);
+	const FGuid SharedShieldTimelineId(0xD5600023, 0, 0, 1);
+	const FGuid PartialShieldTransactionId(0xD5600024, 0, 0, 1);
+	const FGuid PartialShieldCommandId(0xD5600025, 0, 0, 1);
 
 	struct FDivineSenseControllerFixture
 	{
@@ -217,6 +224,55 @@ namespace
 			SubjectActorBudget,
 			Intent));
 		return Intent;
+	}
+
+	FShanmenCombatActionSnapshot MakeShieldAction(
+		const Fdemo_mapCombatRunCoordinator& Coordinator,
+		int32 ActivationSequence)
+	{
+		FShanmenCombatActionCapture Capture;
+		Capture.RunId = Coordinator.GetRunId();
+		Capture.OwnerId = Coordinator.GetPlayerEntityId();
+		Capture.SourceEntityId = Coordinator.GetPlayerEntityId();
+		Capture.ActionDefinitionId =
+			FShanmenSpiritShieldDefinition::CanonicalActionDefinitionId();
+		Capture.Content.Version = TEXT("0.0.10.P25.0");
+		Capture.Content.Digest =
+			TEXT("TEST-DIGEST-P25.0-SHARED-SPIRIT-ENERGY");
+		Capture.SourceTags.AddTag(FShanmenCombatNativeTags::SourcePlayer());
+		Capture.ActivationId = FShanmenCombatIdFactory::MakeActivationId(
+			Capture.RunId,
+			Capture.SourceEntityId,
+			Capture.ActionDefinitionId,
+			ActivationSequence);
+		FShanmenCombatActionSnapshot Action;
+		check(FShanmenCombatActionSnapshot::TryCapture(Capture, Action));
+		return Action;
+	}
+
+	FShanmenSpiritShieldDefinition MakeShieldDefinition()
+	{
+		FShanmenSpiritShieldDefinitionCapture Capture;
+		Capture.ActionDefinitionId =
+			FShanmenSpiritShieldDefinition::CanonicalActionDefinitionId();
+		Capture.RuleId = TEXT("Defense.Spell.SpiritShield.P25_0");
+		Capture.MaximumCapacity = 30.0f;
+		Capture.RequiredDamageTags.AddTag(
+			FShanmenCombatNativeTags::DamagePhysical());
+		Capture.RequiredTargetTags.AddTag(
+			FShanmenCombatNativeTags::TargetLiving());
+		FShanmenSpiritShieldDefinition Definition;
+		check(FShanmenSpiritShieldDefinition::TryCapture(
+			Capture, Definition));
+		return Definition;
+	}
+
+	FShanmenSpiritShieldSchedule MakeShieldSchedule()
+	{
+		FShanmenSpiritShieldSchedule Schedule;
+		check(FShanmenSpiritShieldSchedule::TryCapture(
+			SharedShieldTimelineId, 100, 160, Schedule));
+		return Schedule;
 	}
 
 	bool BeginController(
@@ -642,6 +698,196 @@ bool Fdemo_mapDivineSenseProductControllerCapacityTeardownTest::RunTest(
 	TestTrue(TEXT("Combat Run ends after Controller teardown"),
 		Fixture.Coordinator.TryEndRun(
 			ControllerRunId, Fixture.Diagnostic));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapDivineSenseProductControllerSharedSpiritEnergyLedgerTest,
+	"Shanmen.0_0_10.Product.DivineSenseProductController.SharedSpiritEnergyLedger",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapDivineSenseProductControllerSharedSpiritEnergyLedgerTest::
+	RunTest(const FString&)
+{
+	FDivineSenseControllerFixture Fixture;
+	if (!Fixture.Start(ControllerRunId))
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenDivineSenseProductController Controller;
+	check(BeginController(Fixture, Controller, MakeConfig(3)));
+	FControllerEvidenceProvider Provider;
+	Provider.bAvailable = false;
+	const Fdemo_mapShanmenDivineSenseProductIntent StaleIntent =
+		MakeIntent(Fixture.Coordinator, FirstIntentId, 1);
+	const auto InitialProviderReject = Controller.TrySubmit(
+		Fixture.Coordinator,
+		Fixture.World,
+		Fixture.Player,
+		StaleIntent,
+		{ Fixture.Player },
+		Provider);
+	TestTrue(TEXT("Failed live evidence retains one immutable pre-shield command"),
+		InitialProviderReject.IsValid()
+			&& !InitialProviderReject.IsAccepted()
+			&& Controller.NumCapturedIntents() == 1);
+
+	FShanmenSpiritShieldSession ShieldSession;
+	int32 MutationCalls = 0;
+	const FShanmenCombatActionSnapshot ShieldAction =
+		MakeShieldAction(Fixture.Coordinator, 25);
+	const FShanmenSpiritShieldDefinition ShieldDefinition =
+		MakeShieldDefinition();
+	const FShanmenActionResourceCost ShieldCost = MakeCost(
+		20.0f,
+		FShanmenCombatRuntimeNativeTags::ResourceSpiritEnergy(),
+		TEXT("Cost.Spell.SpiritShield.P25_0"));
+	const FShanmenSpiritShieldSchedule ShieldSchedule =
+		MakeShieldSchedule();
+	const auto PartialMutation =
+		Controller.ApplySharedSpiritEnergyTransaction(
+			Fixture.Coordinator,
+			PartialShieldTransactionId,
+			PartialShieldCommandId,
+			[&](FShanmenActionResourceAuthority& Authority)
+			{
+				++MutationCalls;
+				FShanmenSpiritShieldSession PartialShield;
+				return FShanmenSpiritShieldSession::Begin(
+					ShieldAction,
+					ShieldDefinition,
+					ShieldCost,
+					ShieldSchedule,
+					Authority,
+					PartialShield).IsSuccess();
+			});
+	TestTrue(TEXT("Unfinalized external reservation rolls back atomically"),
+		PartialMutation.IsValid() && !PartialMutation.IsSuccess()
+			&& PartialMutation.Error
+				== Edemo_mapShanmenSharedSpiritEnergyTransactionError::
+					MutationRejected
+			&& MutationCalls == 1
+			&& Controller.IsValid()
+			&& Controller.GetSession().GetHost().GetCurrentSpiritEnergy()
+				== 100.0f
+			&& Controller.GetSession().GetHost()
+				.NumExternalSpiritEnergyTransactions() == 0
+			&& Controller.GetSession().GetRouter()
+				.NumExternalSpiritEnergyTransactions() == 0);
+
+	const auto Applied = Controller.ApplySharedSpiritEnergyTransaction(
+		Fixture.Coordinator,
+		SharedShieldTransactionId,
+		SharedShieldCommandId,
+		[&](FShanmenActionResourceAuthority& Authority)
+		{
+			++MutationCalls;
+			FShanmenSpiritShieldSession CandidateShield;
+			const FShanmenSpiritShieldActionResult Begun =
+				FShanmenSpiritShieldSession::Begin(
+					ShieldAction,
+					ShieldDefinition,
+					ShieldCost,
+					ShieldSchedule,
+					Authority,
+					CandidateShield);
+			if (!Begun.IsSuccess()
+				|| !CandidateShield.Commit(Authority).IsSuccess())
+			{
+				return false;
+			}
+			ShieldSession = MoveTemp(CandidateShield);
+			return true;
+		});
+	TestTrue(TEXT("Shield activation commits through the sole Run SpiritEnergy owner"),
+		Applied.IsSuccess() && !Applied.IsReplay()
+			&& MutationCalls == 2
+			&& ShieldSession.IsValid()
+			&& Controller.IsValid()
+			&& Controller.GetSession().GetHost().GetCurrentSpiritEnergy()
+				== 80.0f
+			&& Controller.GetSession().GetHost()
+				.NumExternalSpiritEnergyTransactions() == 1
+			&& Controller.GetSession().GetRouter()
+				.NumExternalSpiritEnergyTransactions() == 1
+			&& Controller.GetSession().GetRouter().NumProcessedCommands()
+				== 0);
+
+	const auto Replay = Controller.ApplySharedSpiritEnergyTransaction(
+		Fixture.Coordinator,
+		SharedShieldTransactionId,
+		SharedShieldCommandId,
+		[&](FShanmenActionResourceAuthority&)
+		{
+			++MutationCalls;
+			return false;
+		});
+	TestTrue(TEXT("Exact shared transaction replay bypasses resource mutation"),
+		Replay.IsSuccess() && Replay.IsReplay()
+			&& MutationCalls == 2
+			&& Replay.Receipt.GetReceiptId()
+				== Applied.Receipt.GetReceiptId()
+			&& Controller.GetSession().GetHost().GetCurrentSpiritEnergy()
+				== 80.0f);
+
+	const auto Conflict = Controller.ApplySharedSpiritEnergyTransaction(
+		Fixture.Coordinator,
+		SharedShieldTransactionId,
+		ConflictingShieldCommandId,
+		[&](FShanmenActionResourceAuthority&)
+		{
+			++MutationCalls;
+			return true;
+		});
+	TestTrue(TEXT("Transaction identity conflict fails before mutation"),
+		Conflict.IsValid() && !Conflict.IsSuccess()
+			&& Conflict.Error
+				== Edemo_mapShanmenSharedSpiritEnergyTransactionError::
+					TransactionConflict
+			&& MutationCalls == 2
+			&& Controller.GetSession().GetHost().GetCurrentSpiritEnergy()
+				== 80.0f);
+
+	Provider.bAvailable = true;
+	const int32 CallsBeforeStaleRetry = Provider.CallCount;
+	const auto StaleRetry = Controller.TrySubmit(
+		Fixture.Coordinator,
+		Fixture.World,
+		Fixture.Player,
+		StaleIntent,
+		{ Fixture.Player },
+		Provider);
+	TestTrue(TEXT("A pre-transaction optimistic command fails closed as stale"),
+		StaleRetry.IsValid() && !StaleRetry.IsAccepted()
+			&& StaleRetry.Route.Route.Status
+				== Edemo_mapShanmenDivineSenseCommandRouteStatus::
+					ResourceProjectionStale
+			&& Provider.CallCount == CallsBeforeStaleRetry
+			&& Controller.GetSession().GetHost().GetCurrentSpiritEnergy()
+				== 80.0f);
+
+	const auto FreshPulse = Controller.TrySubmit(
+		Fixture.Coordinator,
+		Fixture.World,
+		Fixture.Player,
+		MakeIntent(Fixture.Coordinator, SecondIntentId, 2),
+		{ Fixture.Player },
+		Provider);
+	Fdemo_mapShanmenDivineSenseProductAvailability Availability;
+	TestTrue(TEXT("A fresh Divine Sense pulse continues from the shared balance"),
+		FreshPulse.IsAccepted() && !FreshPulse.IsReplay()
+			&& Controller.IsValid()
+			&& Controller.GetSession().GetHost().GetCurrentSpiritEnergy()
+				== 70.0f
+			&& Controller.GetSession().GetRouter().NumProcessedCommands()
+				== 1
+			&& Controller.GetSession().GetRouter()
+				.NumExternalSpiritEnergyTransactions() == 1
+			&& Controller.TryCaptureAvailability(
+				Fixture.Coordinator, Availability, Fixture.Diagnostic)
+			&& Availability.GetSessionAvailability()
+				.GetResourceSnapshot().GetCurrentAmount() == 70.0f);
 	return true;
 }
 

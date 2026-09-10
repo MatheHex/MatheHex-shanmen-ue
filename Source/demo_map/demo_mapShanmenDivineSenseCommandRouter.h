@@ -125,6 +125,11 @@ public:
 		const Idemo_mapShanmenDivineSenseWorldEvidenceProvider&
 			EvidenceProvider);
 
+	/** Records one Host-approved non-Divine-Sense resource transition in order. */
+	bool TryRecordSharedSpiritEnergyTransaction(
+		const Fdemo_mapShanmenDivineSenseProductHost& Host,
+		const Fdemo_mapShanmenSharedSpiritEnergyTransactionReceipt& Receipt);
+
 	bool IsValid() const;
 	bool IsConsistentWithHost(
 		const Fdemo_mapShanmenDivineSenseProductHost& Host) const;
@@ -135,6 +140,10 @@ public:
 	const FGuid& GetRunId() const { return RunId; }
 	const FGuid& GetSourceEntityId() const { return SourceEntityId; }
 	int32 NumProcessedCommands() const { return ProcessedCommands.Num(); }
+	int32 NumExternalSpiritEnergyTransactions() const
+	{
+		return ExternalSpiritEnergyTransactions.Num();
+	}
 	int32 GetProcessedCommandCapacity() const
 	{
 		return ProcessedCommandCapacity;
@@ -148,8 +157,15 @@ private:
 	struct FProcessedCommand
 	{
 		int32 Sequence = INDEX_NONE;
+		int32 ResourceSequence = INDEX_NONE;
 		Fdemo_mapShanmenDivineSenseRouteCommand Command;
 		Fdemo_mapShanmenDivineSenseCommandRouteResult Result;
+	};
+
+	struct FExternalSpiritEnergyTransaction
+	{
+		int32 ResourceSequence = INDEX_NONE;
+		Fdemo_mapShanmenSharedSpiritEnergyTransactionReceipt Receipt;
 	};
 
 	FGuid RouterId;
@@ -161,4 +177,6 @@ private:
 	int32 ProcessedCommandCapacity = 0;
 	bool bInitialized = false;
 	TMap<FGuid, FProcessedCommand> ProcessedCommands;
+	TMap<FGuid, FExternalSpiritEnergyTransaction>
+		ExternalSpiritEnergyTransactions;
 };

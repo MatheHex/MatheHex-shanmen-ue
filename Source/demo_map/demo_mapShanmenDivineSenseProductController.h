@@ -249,6 +249,18 @@ public:
 		const Idemo_mapShanmenDivineSenseWorldEvidenceProvider&
 			EvidenceProvider);
 
+	/**
+	 * Routes exactly one external action through the Controller-owned Run
+	 * SpiritEnergy authority and appends the same transition to Router history.
+	 */
+	Fdemo_mapShanmenSharedSpiritEnergyTransactionResult
+	ApplySharedSpiritEnergyTransaction(
+		const Fdemo_mapCombatRunCoordinator& Coordinator,
+		const FGuid& TransactionId,
+		const FGuid& CommandId,
+		TFunctionRef<bool(FShanmenActionResourceAuthority&)>
+			ApplyTransaction);
+
 	Fdemo_mapShanmenDivineSenseProductControllerEndResult TryEnd(
 		const Fdemo_mapCombatRunCoordinator& Coordinator,
 		const FGuid& ExpectedControllerId);

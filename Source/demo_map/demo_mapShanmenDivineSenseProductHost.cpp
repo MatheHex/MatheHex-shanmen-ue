@@ -119,6 +119,56 @@ namespace
 			&& Left.GetSnapshotId() == Right.GetSnapshotId();
 	}
 
+	bool SnapshotShapeMatches(
+		const FShanmenActionResourceSnapshot& Left,
+		const FShanmenActionResourceSnapshot& Right)
+	{
+		return Left.IsValid() && Right.IsValid()
+			&& Left.GetOwnerEntityId() == Right.GetOwnerEntityId()
+			&& Left.GetResourceChannel() == Right.GetResourceChannel()
+			&& FloatsMatchExactly(
+				Left.GetMaximumAmount(), Right.GetMaximumAmount());
+	}
+
+	FGuid MakeSharedSpiritEnergyReceiptId(
+		const FGuid& HostId,
+		const FGuid& TransactionId,
+		const FGuid& CommandId,
+		int32 ExternalOrdinal,
+		const FShanmenActionResourceSnapshot& Before,
+		const FShanmenActionResourceSnapshot& After)
+	{
+		if (!HostId.IsValid() || !TransactionId.IsValid()
+			|| !CommandId.IsValid() || ExternalOrdinal < 0
+			|| !Before.IsValid() || !After.IsValid())
+		{
+			return FGuid();
+		}
+		return FShanmenDeterministicId::FromCanonicalParts(
+			TEXT("demo_map.SpiritEnergy.SharedTransactionReceipt.r1"),
+			{
+				GuidDigits(HostId),
+				GuidDigits(TransactionId),
+				GuidDigits(CommandId),
+				FString::FromInt(ExternalOrdinal),
+				GuidDigits(Before.GetSnapshotId()),
+				GuidDigits(After.GetSnapshotId())
+			});
+	}
+
+	Fdemo_mapShanmenSharedSpiritEnergyTransactionResult
+	RejectSharedSpiritEnergyTransaction(
+		Edemo_mapShanmenSharedSpiritEnergyTransactionError Error,
+		const TCHAR* Diagnostic)
+	{
+		Fdemo_mapShanmenSharedSpiritEnergyTransactionResult Result;
+		Result.Status =
+			Edemo_mapShanmenSharedSpiritEnergyTransactionStatus::Rejected;
+		Result.Error = Error;
+		Result.Diagnostic = Diagnostic;
+		return Result;
+	}
+
 	bool CommandMatchesReceipt(
 		const Fdemo_mapShanmenDivineSensePulseCommand& Command,
 		const Fdemo_mapShanmenDivineSensePulseReceipt& Receipt)
@@ -171,6 +221,68 @@ namespace
 		}
 		return Result;
 	}
+}
+
+bool Fdemo_mapShanmenSharedSpiritEnergyTransactionReceipt::IsValid() const
+{
+	return ReceiptId.IsValid() && HostId.IsValid()
+		&& TransactionId.IsValid() && CommandId.IsValid()
+		&& ExternalOrdinal >= 0
+		&& ResourceBefore.IsValid() && ResourceAfter.IsValid()
+		&& SnapshotShapeMatches(ResourceBefore, ResourceAfter)
+		&& FloatsMatchExactly(ResourceBefore.GetReservedAmount(), 0.0f)
+		&& FloatsMatchExactly(ResourceAfter.GetReservedAmount(), 0.0f)
+		&& ResourceBefore.GetAuthorityRevision() <= MAX_int64 - 2
+		&& ResourceAfter.GetAuthorityRevision()
+			== ResourceBefore.GetAuthorityRevision() + 2
+		&& ResourceAfter.GetCurrentAmount()
+			<= ResourceBefore.GetCurrentAmount()
+		&& ReceiptId == MakeSharedSpiritEnergyReceiptId(
+			HostId,
+			TransactionId,
+			CommandId,
+			ExternalOrdinal,
+			ResourceBefore,
+			ResourceAfter);
+}
+
+bool Fdemo_mapShanmenSharedSpiritEnergyTransactionReceipt::Matches(
+	const Fdemo_mapShanmenSharedSpiritEnergyTransactionReceipt& Other) const
+{
+	return IsValid() && Other.IsValid()
+		&& ReceiptId == Other.ReceiptId;
+}
+
+bool Fdemo_mapShanmenSharedSpiritEnergyTransactionResult::IsValid() const
+{
+	if (Status == Edemo_mapShanmenSharedSpiritEnergyTransactionStatus::Invalid
+		|| Diagnostic.IsEmpty())
+	{
+		return false;
+	}
+	if (Status == Edemo_mapShanmenSharedSpiritEnergyTransactionStatus::Applied
+		|| Status
+			== Edemo_mapShanmenSharedSpiritEnergyTransactionStatus::
+				AlreadyApplied)
+	{
+		return Error
+				== Edemo_mapShanmenSharedSpiritEnergyTransactionError::None
+			&& Receipt.IsValid();
+	}
+	return Status
+			== Edemo_mapShanmenSharedSpiritEnergyTransactionStatus::Rejected
+		&& Error != Edemo_mapShanmenSharedSpiritEnergyTransactionError::None
+		&& !Receipt.IsValid();
+}
+
+bool Fdemo_mapShanmenSharedSpiritEnergyTransactionResult::IsSuccess() const
+{
+	return IsValid()
+		&& (Status
+				== Edemo_mapShanmenSharedSpiritEnergyTransactionStatus::Applied
+			|| Status
+				== Edemo_mapShanmenSharedSpiritEnergyTransactionStatus::
+					AlreadyApplied);
 }
 
 bool Fdemo_mapShanmenDivineSensePulseCommand::TryCapture(
@@ -517,6 +629,136 @@ Fdemo_mapShanmenDivineSenseProductHost::ExecutePulse(
 	return Result;
 }
 
+Fdemo_mapShanmenSharedSpiritEnergyTransactionResult
+Fdemo_mapShanmenDivineSenseProductHost::ApplySharedSpiritEnergyTransaction(
+	const FGuid& TransactionId,
+	const FGuid& CommandId,
+	TFunctionRef<bool(FShanmenActionResourceAuthority&)>
+		ApplyTransaction)
+{
+	if (!IsValid())
+	{
+		return RejectSharedSpiritEnergyTransaction(
+			Edemo_mapShanmenSharedSpiritEnergyTransactionError::HostNotReady,
+			TEXT("Shared SpiritEnergy transaction requires a valid active Host."));
+	}
+	if (!TransactionId.IsValid() || !CommandId.IsValid())
+	{
+		return RejectSharedSpiritEnergyTransaction(
+			Edemo_mapShanmenSharedSpiritEnergyTransactionError::
+				InvalidIdentity,
+			TEXT("Shared SpiritEnergy transaction requires stable transaction and command identities."));
+	}
+
+	if (const Fdemo_mapShanmenSharedSpiritEnergyTransactionReceipt* Existing =
+		ExternalSpiritEnergyTransactions.Find(TransactionId))
+	{
+		if (Existing->GetCommandId() != CommandId)
+		{
+			return RejectSharedSpiritEnergyTransaction(
+				Edemo_mapShanmenSharedSpiritEnergyTransactionError::
+					TransactionConflict,
+				TEXT("Shared SpiritEnergy TransactionId was reused with another command."));
+		}
+		Fdemo_mapShanmenSharedSpiritEnergyTransactionResult Replay;
+		Replay.Status =
+			Edemo_mapShanmenSharedSpiritEnergyTransactionStatus::
+				AlreadyApplied;
+		Replay.Error =
+			Edemo_mapShanmenSharedSpiritEnergyTransactionError::None;
+		Replay.Diagnostic =
+			TEXT("Exact shared SpiritEnergy transaction replay returned retained proof without invoking the mutation.");
+		Replay.Receipt = *Existing;
+		return Replay;
+	}
+
+	FShanmenActionResourceSnapshot Before;
+	if (!ResourceAuthority.TryCaptureSnapshot(Before))
+	{
+		return RejectSharedSpiritEnergyTransaction(
+			Edemo_mapShanmenSharedSpiritEnergyTransactionError::
+				StateDesynchronized,
+			TEXT("Shared SpiritEnergy Host could not capture its opening resource projection."));
+	}
+
+	Fdemo_mapShanmenDivineSenseProductHost Candidate = *this;
+	const int32 TransactionsBefore =
+		Candidate.ResourceAuthority.NumTransactions();
+	if (!ApplyTransaction(Candidate.ResourceAuthority))
+	{
+		return RejectSharedSpiritEnergyTransaction(
+			Edemo_mapShanmenSharedSpiritEnergyTransactionError::
+				MutationRejected,
+			TEXT("Shared SpiritEnergy transaction callback rejected; no Host state was published."));
+	}
+
+	FShanmenActionResourceSnapshot After;
+	if (!Candidate.ResourceAuthority.TryCaptureSnapshot(After)
+		|| Candidate.ResourceAuthority.NumTransactions()
+			!= TransactionsBefore + 1
+		|| Candidate.ResourceAuthority.NumPendingReservations() != 0
+		|| !SnapshotShapeMatches(Before, After)
+		|| Before.GetAuthorityRevision() > MAX_int64 - 2
+		|| After.GetAuthorityRevision()
+			!= Before.GetAuthorityRevision() + 2
+		|| After.GetCurrentAmount() > Before.GetCurrentAmount())
+	{
+		return RejectSharedSpiritEnergyTransaction(
+			Edemo_mapShanmenSharedSpiritEnergyTransactionError::
+				MutationRejected,
+			TEXT("Shared SpiritEnergy mutation must finalize exactly one non-increasing resource transaction."));
+	}
+
+	Fdemo_mapShanmenSharedSpiritEnergyTransactionReceipt Receipt;
+	Receipt.HostId = HostId;
+	Receipt.TransactionId = TransactionId;
+	Receipt.CommandId = CommandId;
+	Receipt.ExternalOrdinal =
+		Candidate.ExternalSpiritEnergyTransactions.Num();
+	Receipt.ResourceBefore = Before;
+	Receipt.ResourceAfter = After;
+	Receipt.ReceiptId = MakeSharedSpiritEnergyReceiptId(
+		Receipt.HostId,
+		Receipt.TransactionId,
+		Receipt.CommandId,
+		Receipt.ExternalOrdinal,
+		Receipt.ResourceBefore,
+		Receipt.ResourceAfter);
+	if (!Receipt.IsValid())
+	{
+		return RejectSharedSpiritEnergyTransaction(
+			Edemo_mapShanmenSharedSpiritEnergyTransactionError::
+				StateDesynchronized,
+			TEXT("Shared SpiritEnergy mutation could not produce valid immutable proof."));
+	}
+	Candidate.ExternalSpiritEnergyTransactions.Add(TransactionId, Receipt);
+	if (!Candidate.IsValid())
+	{
+		return RejectSharedSpiritEnergyTransaction(
+			Edemo_mapShanmenSharedSpiritEnergyTransactionError::
+				StateDesynchronized,
+			TEXT("Shared SpiritEnergy transaction could not publish a valid Host state."));
+	}
+
+	Fdemo_mapShanmenSharedSpiritEnergyTransactionResult Result;
+	Result.Status =
+		Edemo_mapShanmenSharedSpiritEnergyTransactionStatus::Applied;
+	Result.Error = Edemo_mapShanmenSharedSpiritEnergyTransactionError::None;
+	Result.Diagnostic =
+		TEXT("Shared SpiritEnergy transaction atomically published one finalized resource change.");
+	Result.Receipt = Receipt;
+	if (!Result.IsValid())
+	{
+		return RejectSharedSpiritEnergyTransaction(
+			Edemo_mapShanmenSharedSpiritEnergyTransactionError::
+				StateDesynchronized,
+			TEXT("Shared SpiritEnergy transaction produced invalid result evidence."));
+	}
+
+	*this = MoveTemp(Candidate);
+	return Result;
+}
+
 bool Fdemo_mapShanmenDivineSenseProductHost::IsValid() const
 {
 	if (!bInitialized || !HostId.IsValid()
@@ -537,17 +779,65 @@ bool Fdemo_mapShanmenDivineSenseProductHost::IsValid() const
 		|| ResourceAuthority.NumPendingReservations() != 0
 		|| ResourceAuthority.NumTransactions()
 			!= Coordinator.NumProcessedPulses()
+				+ ExternalSpiritEnergyTransactions.Num()
 		|| HostId != MakeHostId(Coordinator, OpeningResourceSnapshot))
 		{
 		return false;
 	}
 
-	const int64 Processed = Coordinator.NumProcessedPulses();
+	TArray<const Fdemo_mapShanmenSharedSpiritEnergyTransactionReceipt*>
+		OrderedExternal;
+	OrderedExternal.SetNumZeroed(ExternalSpiritEnergyTransactions.Num());
+	for (const TPair<
+		FGuid,
+		Fdemo_mapShanmenSharedSpiritEnergyTransactionReceipt>& Pair
+		: ExternalSpiritEnergyTransactions)
+	{
+		const Fdemo_mapShanmenSharedSpiritEnergyTransactionReceipt& Receipt =
+			Pair.Value;
+		if (Pair.Key != Receipt.GetTransactionId()
+			|| !Receipt.IsValid()
+			|| Receipt.GetHostId() != HostId
+			|| Receipt.GetResourceBefore().GetOwnerEntityId()
+				!= ResourceAuthority.GetOwnerEntityId()
+			|| Receipt.GetResourceBefore().GetResourceChannel()
+				!= ResourceAuthority.GetResourceChannel()
+			|| !FloatsMatchExactly(
+				Receipt.GetResourceBefore().GetMaximumAmount(),
+				ResourceAuthority.GetMaximumAmount())
+			|| Receipt.GetExternalOrdinal() < 0
+			|| Receipt.GetExternalOrdinal() >= OrderedExternal.Num()
+			|| OrderedExternal[Receipt.GetExternalOrdinal()] != nullptr)
+		{
+			return false;
+		}
+		OrderedExternal[Receipt.GetExternalOrdinal()] = &Receipt;
+	}
+	for (const Fdemo_mapShanmenSharedSpiritEnergyTransactionReceipt* Receipt
+		: OrderedExternal)
+	{
+		if (!Receipt)
+		{
+			return false;
+		}
+	}
+
+	const int64 Processed = Coordinator.NumProcessedPulses()
+		+ ExternalSpiritEnergyTransactions.Num();
 	const int64 OpeningRevision =
 		OpeningResourceSnapshot.GetAuthorityRevision();
 	return OpeningRevision <= MAX_int64 - (Processed * 2)
 		&& ResourceAuthority.GetAuthorityRevision()
 			== OpeningRevision + (Processed * 2);
+}
+
+const Fdemo_mapShanmenSharedSpiritEnergyTransactionReceipt*
+Fdemo_mapShanmenDivineSenseProductHost::
+	FindExternalSpiritEnergyTransaction(const FGuid& TransactionId) const
+{
+	const Fdemo_mapShanmenSharedSpiritEnergyTransactionReceipt* Receipt =
+		ExternalSpiritEnergyTransactions.Find(TransactionId);
+	return Receipt && IsValid() ? Receipt : nullptr;
 }
 
 void Fdemo_mapShanmenDivineSenseProductHost::Reset()

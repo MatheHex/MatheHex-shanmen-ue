@@ -175,6 +175,19 @@ namespace
 			: TEXT("Divine Sense product Controller rejected teardown.");
 		return Result;
 	}
+
+	Fdemo_mapShanmenSharedSpiritEnergyTransactionResult
+	RejectSharedSpiritEnergyTransaction(
+		Edemo_mapShanmenSharedSpiritEnergyTransactionError Error,
+		const TCHAR* Diagnostic)
+	{
+		Fdemo_mapShanmenSharedSpiritEnergyTransactionResult Result;
+		Result.Status =
+			Edemo_mapShanmenSharedSpiritEnergyTransactionStatus::Rejected;
+		Result.Error = Error;
+		Result.Diagnostic = Diagnostic;
+		return Result;
+	}
 }
 
 bool Fdemo_mapShanmenDivineSenseProductConfig::TryCapture(
@@ -801,6 +814,46 @@ Fdemo_mapShanmenDivineSenseProductController::RouteCaptured(
 	Result.Status = Captured.LastRoute.IsReplay()
 		? Edemo_mapShanmenDivineSenseProductControllerStatus::AlreadyApplied
 		: Edemo_mapShanmenDivineSenseProductControllerStatus::Applied;
+	return Result;
+}
+
+Fdemo_mapShanmenSharedSpiritEnergyTransactionResult
+Fdemo_mapShanmenDivineSenseProductController::
+	ApplySharedSpiritEnergyTransaction(
+		const Fdemo_mapCombatRunCoordinator& Coordinator,
+		const FGuid& TransactionId,
+		const FGuid& CommandId,
+		TFunctionRef<bool(FShanmenActionResourceAuthority&)>
+			ApplyTransaction)
+{
+	if (!IsActive() || !IsValid()
+		|| !Session.IsConsistentWithCoordinator(Coordinator))
+	{
+		return RejectSharedSpiritEnergyTransaction(
+			Edemo_mapShanmenSharedSpiritEnergyTransactionError::HostNotReady,
+			TEXT("Shared SpiritEnergy transaction requires the active Controller Run."));
+	}
+
+	Fdemo_mapShanmenDivineSenseProductController Candidate = *this;
+	Fdemo_mapShanmenSharedSpiritEnergyTransactionResult Result =
+		Candidate.Session.Host.ApplySharedSpiritEnergyTransaction(
+			TransactionId, CommandId, ApplyTransaction);
+	if (!Result.IsSuccess())
+	{
+		return Result;
+	}
+	if (!Candidate.Session.Router.TryRecordSharedSpiritEnergyTransaction(
+			Candidate.Session.Host, Result.Receipt)
+		|| !Candidate.Session.IsValid()
+		|| !Candidate.IsValid())
+	{
+		return RejectSharedSpiritEnergyTransaction(
+			Edemo_mapShanmenSharedSpiritEnergyTransactionError::
+				StateDesynchronized,
+			TEXT("Shared SpiritEnergy Host proof could not be published into the ordered Router ledger."));
+	}
+
+	*this = MoveTemp(Candidate);
 	return Result;
 }
 
