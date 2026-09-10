@@ -39,6 +39,7 @@ namespace
 {
 	constexpr float PlayerCharacterMovementTickInterval = 0.001f;
 	constexpr double SpiritShieldInputFeedbackDurationSeconds = 2.25;
+	constexpr double SpiritShieldImpactFeedbackDurationSeconds = 1.25;
 	constexpr double DivineSenseInputFeedbackDurationSeconds = 2.25;
 	constexpr double SwordQiInputFeedbackDurationSeconds = 2.25;
 	constexpr double SwordQiLaunchVerticalOffset = 50.0;
@@ -1211,6 +1212,28 @@ bool Ademo_mapPlayerController::IsSpiritShieldInputFeedbackActive() const
 		&& GetWorld()
 		&& GetWorld()->GetTimeSeconds()
 			<= SpiritShieldInputFeedbackExpiresAtSeconds;
+}
+
+bool Ademo_mapPlayerController::TryPresentSpiritShieldImpactFeedback(
+	const Fdemo_mapShanmenSpiritShieldImpactCommitResult& Result)
+{
+	if (!Result.DidConsumeCapacity() || !GetWorld())
+	{
+		return false;
+	}
+	LastSpiritShieldImpactCommitResult = Result;
+	SpiritShieldImpactFeedbackExpiresAtSeconds =
+		GetWorld()->GetTimeSeconds()
+		+ SpiritShieldImpactFeedbackDurationSeconds;
+	return true;
+}
+
+bool Ademo_mapPlayerController::IsSpiritShieldImpactFeedbackActive() const
+{
+	return LastSpiritShieldImpactCommitResult.DidConsumeCapacity()
+		&& GetWorld()
+		&& GetWorld()->GetTimeSeconds()
+			<= SpiritShieldImpactFeedbackExpiresAtSeconds;
 }
 
 void Ademo_mapPlayerController::UseDivineSense()

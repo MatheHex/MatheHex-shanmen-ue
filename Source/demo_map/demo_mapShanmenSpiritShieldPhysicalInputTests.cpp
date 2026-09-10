@@ -203,6 +203,12 @@ bool Fdemo_mapSpiritShieldPhysicalPressTest::RunTest(const FString&)
 	{
 		return false;
 	}
+	const Fdemo_mapShanmenSpiritShieldImpactCommitResult InvalidImpact;
+	TestFalse(TEXT("invalid impact proof cannot open a HUD feedback window"),
+		Fixture.Controller->TryPresentSpiritShieldImpactFeedback(
+			InvalidImpact));
+	TestFalse(TEXT("rejected impact presentation remains inactive"),
+		Fixture.Controller->IsSpiritShieldImpactFeedbackActive());
 	const uint64 Before =
 		Fixture.Controller->GetSpiritShieldInputInvocationCountForAutomation();
 	TestTrue(TEXT("H press dispatches through PlayerInput"),

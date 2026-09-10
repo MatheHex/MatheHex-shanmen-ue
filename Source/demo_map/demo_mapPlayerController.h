@@ -120,6 +120,15 @@ public:
 	{
 		return LastSpiritShieldInputResult;
 	}
+	/** Presents only the first authoritative capacity mutation for one hit. */
+	bool TryPresentSpiritShieldImpactFeedback(
+		const Fdemo_mapShanmenSpiritShieldImpactCommitResult& Result);
+	bool IsSpiritShieldImpactFeedbackActive() const;
+	const Fdemo_mapShanmenSpiritShieldImpactCommitResult&
+	GetLatestSpiritShieldImpactCommitResult() const
+	{
+		return LastSpiritShieldImpactCommitResult;
+	}
 	/** True while the latest rejected physical pulse should remain readable on the HUD. */
 	bool IsDivineSenseInputFeedbackActive() const;
 	const Fdemo_mapShanmenDivineSenseLogicalInputResult&
@@ -443,6 +452,9 @@ protected:
 	Fdemo_mapShanmenSpiritShieldProductActivationResult
 		LastSpiritShieldInputResult;
 	double SpiritShieldInputFeedbackExpiresAtSeconds = -1.0;
+	Fdemo_mapShanmenSpiritShieldImpactCommitResult
+		LastSpiritShieldImpactCommitResult;
+	double SpiritShieldImpactFeedbackExpiresAtSeconds = -1.0;
 	Fdemo_mapShanmenDivineSenseLogicalInputResult
 		LastDivineSenseInputResult;
 	double DivineSenseInputFeedbackExpiresAtSeconds = -1.0;

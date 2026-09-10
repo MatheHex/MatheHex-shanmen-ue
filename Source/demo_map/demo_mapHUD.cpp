@@ -231,6 +231,50 @@ namespace
 			0.84f);
 	}
 
+	void DrawSpiritShieldImpactFeedback(
+		UCanvas* Canvas,
+		const Ademo_mapPlayerController* Controller)
+	{
+		if (Canvas == nullptr || Controller == nullptr
+			|| !Controller->IsSpiritShieldImpactFeedbackActive())
+		{
+			return;
+		}
+
+		Fdemo_mapShanmenSpiritShieldImpactFeedbackPresentation Presentation;
+		if (!Fdemo_mapShanmenSpiritShieldImpactFeedbackPresentation::TryProject(
+				Controller->GetLatestSpiritShieldImpactCommitResult(),
+				Presentation))
+		{
+			return;
+		}
+
+		FLinearColor PanelColor(0.01f, 0.18f, 0.27f, 0.96f);
+		FLinearColor TextColor(0.48f, 0.96f, 1.0f);
+		if (Presentation.GetKind()
+			== Edemo_mapShanmenSpiritShieldImpactFeedbackKind::Depleted)
+		{
+			PanelColor = FLinearColor(0.24f, 0.09f, 0.015f, 0.96f);
+			TextColor = FLinearColor(1.0f, 0.64f, 0.16f);
+		}
+
+		const FVector2D PanelPosition(
+			Canvas->SizeX * 0.5f - 250.0f,
+			206.0f);
+		DrawHUDPanel(
+			Canvas,
+			PanelPosition,
+			FVector2D(500.0f, 36.0f),
+			PanelColor);
+		DrawReadableText(
+			Canvas,
+			GEngine->GetSmallFont(),
+			Presentation.GetDisplayText(),
+			PanelPosition + FVector2D(10.0f, 9.0f),
+			TextColor,
+			0.84f);
+	}
+
 	void DrawControlledWeaponReadout(
 		UCanvas* Canvas,
 		APlayerController* PlayerController,
@@ -787,6 +831,7 @@ void Ademo_mapHUD::DrawHUD()
 		FVector2D(332.0f, 235.0f));
 	DrawSpiritShieldStatus(Canvas, ActiveMode, InputSettings);
 	DrawSpiritShieldInputFeedback(Canvas, HUDController, InputSettings);
+	DrawSpiritShieldImpactFeedback(Canvas, HUDController);
 	DrawReadableText(
 		Canvas,
 		GEngine->GetSmallFont(),

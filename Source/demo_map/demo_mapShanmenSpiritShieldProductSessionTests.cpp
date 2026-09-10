@@ -436,6 +436,16 @@ bool Fdemo_mapSpiritShieldProductImpactCommitTest::RunTest(const FString&)
 			&& Session.GetSession().GetCapacityAuthority().
 				NumCommittedImpacts() == 1
 			&& DeliveryCount == 1);
+	Fdemo_mapShanmenSpiritShieldImpactFeedbackPresentation Feedback;
+	TestTrue(TEXT("the first capacity commit projects exact impact feedback"),
+		Fdemo_mapShanmenSpiritShieldImpactFeedbackPresentation::TryProject(
+			Committed, Feedback)
+			&& Feedback.GetKind()
+				== Edemo_mapShanmenSpiritShieldImpactFeedbackKind::Absorbed
+			&& FMath::IsNearlyEqual(Feedback.GetAbsorbedCapacity(), 12.0f)
+			&& FMath::IsNearlyEqual(Feedback.GetRemainingCapacity(), 18.0f)
+			&& Feedback.GetDisplayText()
+				== TEXT("SPIRIT SHIELD · ABSORBED 12 · 18 LEFT"));
 
 	const auto Replay = Session.CommitImpact(
 		Defense,
@@ -455,6 +465,61 @@ bool Fdemo_mapSpiritShieldProductImpactCommitTest::RunTest(const FString&)
 			&& Session.GetSession().GetCapacityAuthority().
 				NumCommittedImpacts() == 1
 			&& DeliveryCount == 2);
+	TestFalse(TEXT("an idempotent replay cannot repeat player feedback"),
+		Fdemo_mapShanmenSpiritShieldImpactFeedbackPresentation::TryProject(
+			Replay, Feedback));
+	TestFalse(TEXT("a rejected replay projection clears reusable output"),
+		Feedback.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapSpiritShieldProductImpactDepletionFeedbackTest,
+	"Shanmen.0_0_10.Product.SpiritShieldProductSession.ImpactDepletionFeedback",
+	SpiritShieldProductFlags)
+
+bool Fdemo_mapSpiritShieldProductImpactDepletionFeedbackTest::RunTest(
+	const FString&)
+{
+	FSpiritShieldProductFixture Fixture;
+	if (!Fixture.Start())
+	{
+		AddError(Fixture.Diagnostic);
+		return false;
+	}
+	Fdemo_mapShanmenSpiritShieldProductSession Session;
+	check(Session.TryActivate(
+		Fixture.Coordinator,
+		Fixture.SpiritEnergy,
+		Fixture.CaptureTimeline(),
+		[&Fixture]() { return Fixture.AuthorizeShield(); }).IsAccepted());
+
+	const FSpiritShieldProductImpactIdentity Identity = MakeImpactIdentity(
+		Fixture.Coordinator.GetPlayerEntityId(), 5);
+	const auto Defense = Session.TryComposeImpactDefense(
+		Identity.ImpactId, Fixture.CaptureTimeline(), MakeBaseDefense());
+	const FShanmenImpactRequest Request = MakeImpactRequest(
+		Identity, Defense.Defense, 40.0f);
+	const FShanmenImpactResult Resolution =
+		FShanmenDefenseResolver::Resolve(Request);
+	const auto Committed = Session.CommitImpact(
+		Defense, Request, Resolution, []() { return true; });
+
+	Fdemo_mapShanmenSpiritShieldImpactFeedbackPresentation Feedback;
+	TestTrue(TEXT("a capacity-ending hit remains an executed product impact"),
+		Committed.DidConsumeCapacity()
+			&& FMath::IsNearlyEqual(Resolution.PreventedDamage, 30.0f)
+			&& FMath::IsNearlyEqual(Resolution.FinalDamage, 10.0f)
+			&& FMath::IsNearlyEqual(Session.GetAvailableCapacity(), 0.0f));
+	TestTrue(TEXT("depletion feedback reports exact absorption and terminal state"),
+		Fdemo_mapShanmenSpiritShieldImpactFeedbackPresentation::TryProject(
+			Committed, Feedback)
+			&& Feedback.GetKind()
+				== Edemo_mapShanmenSpiritShieldImpactFeedbackKind::Depleted
+			&& FMath::IsNearlyEqual(Feedback.GetAbsorbedCapacity(), 30.0f)
+			&& FMath::IsNearlyEqual(Feedback.GetRemainingCapacity(), 0.0f)
+			&& Feedback.GetDisplayText()
+				== TEXT("SPIRIT SHIELD · ABSORBED 30 · DEPLETED"));
 	return true;
 }
 
@@ -496,6 +561,10 @@ bool Fdemo_mapSpiritShieldProductImpactAtomicFailureTest::RunTest(
 			&& FMath::IsNearlyEqual(Session.GetAvailableCapacity(), 30.0f)
 			&& Session.GetSession().GetCapacityAuthority().
 				NumCommittedImpacts() == 0);
+	Fdemo_mapShanmenSpiritShieldImpactFeedbackPresentation Feedback;
+	TestFalse(TEXT("rejected atomic delivery cannot produce HUD feedback"),
+		Fdemo_mapShanmenSpiritShieldImpactFeedbackPresentation::TryProject(
+			Rejected, Feedback));
 	const auto Retry = Session.CommitImpact(
 		Defense, Request, Resolution, []() { return true; });
 	TestTrue(TEXT("same proof can commit after downstream recovery"),
@@ -545,6 +614,10 @@ bool Fdemo_mapSpiritShieldProductImpactOrderingTest::RunTest(const FString&)
 			&& Resolution.TriggeredLayers[0].Operation
 				== EShanmenDefenseOperation::PreventAll
 			&& FMath::IsNearlyEqual(Session.GetAvailableCapacity(), 30.0f));
+	Fdemo_mapShanmenSpiritShieldImpactFeedbackPresentation Feedback;
+	TestFalse(TEXT("earlier defense cannot imply a shield-capacity event"),
+		Fdemo_mapShanmenSpiritShieldImpactFeedbackPresentation::TryProject(
+			NotTriggered, Feedback));
 
 	Fdemo_mapShanmenCombatRunTimelineSample Foreign;
 	check(Fdemo_mapShanmenCombatRunTimelineSample::TryCapture(

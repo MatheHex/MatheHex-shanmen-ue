@@ -106,3 +106,44 @@ private:
 		Edemo_mapShanmenSpiritShieldInputFeedbackTone::Invalid;
 	FString DisplayText;
 };
+
+enum class Edemo_mapShanmenSpiritShieldImpactFeedbackKind : uint8
+{
+	Invalid,
+	Absorbed,
+	Depleted
+};
+
+/**
+ * Pure player-facing projection of one newly committed shield-capacity receipt.
+ *
+ * Exact replays, earlier-defense outcomes and rejected commits deliberately
+ * produce no feedback, so presentation can never imply a second mutation.
+ */
+class Fdemo_mapShanmenSpiritShieldImpactFeedbackPresentation
+{
+public:
+	static bool TryProject(
+		const Fdemo_mapShanmenSpiritShieldImpactCommitResult& Result,
+		Fdemo_mapShanmenSpiritShieldImpactFeedbackPresentation&
+			OutPresentation);
+
+	bool IsValid() const;
+	bool Matches(
+		const Fdemo_mapShanmenSpiritShieldImpactFeedbackPresentation& Other)
+		const;
+	Edemo_mapShanmenSpiritShieldImpactFeedbackKind GetKind() const
+	{
+		return Kind;
+	}
+	float GetAbsorbedCapacity() const { return AbsorbedCapacity; }
+	float GetRemainingCapacity() const { return RemainingCapacity; }
+	const FString& GetDisplayText() const { return DisplayText; }
+
+private:
+	Edemo_mapShanmenSpiritShieldImpactFeedbackKind Kind =
+		Edemo_mapShanmenSpiritShieldImpactFeedbackKind::Invalid;
+	float AbsorbedCapacity = -1.0f;
+	float RemainingCapacity = -1.0f;
+	FString DisplayText;
+};

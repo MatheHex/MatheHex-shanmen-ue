@@ -10,6 +10,10 @@ namespace
 	using EFeedbackTone = Edemo_mapShanmenSpiritShieldInputFeedbackTone;
 	using FFeedback =
 		Fdemo_mapShanmenSpiritShieldInputFeedbackPresentation;
+	using EImpactFeedbackKind =
+		Edemo_mapShanmenSpiritShieldImpactFeedbackKind;
+	using FImpactFeedback =
+		Fdemo_mapShanmenSpiritShieldImpactFeedbackPresentation;
 
 	constexpr float LowCapacityFraction = 0.25f;
 	constexpr double ValueTolerance = 1.0e-4;
@@ -258,5 +262,69 @@ bool FFeedback::Matches(const FFeedback& Other) const
 	return IsValid() && Other.IsValid()
 		&& Reason == Other.Reason
 		&& Tone == Other.Tone
+		&& DisplayText == Other.DisplayText;
+}
+
+bool FImpactFeedback::TryProject(
+	const Fdemo_mapShanmenSpiritShieldImpactCommitResult& Result,
+	FImpactFeedback& OutPresentation)
+{
+	OutPresentation = FImpactFeedback();
+	if (!Result.DidConsumeCapacity())
+	{
+		return false;
+	}
+
+	const FShanmenSpiritShieldCapacityCommitReceipt& Receipt =
+		Result.Capacity.Receipt;
+	if (!Receipt.IsValid())
+	{
+		return false;
+	}
+
+	FImpactFeedback Candidate;
+	Candidate.AbsorbedCapacity = Receipt.GetCommittedCapacity();
+	Candidate.RemainingCapacity = Receipt.GetCapacityAfter();
+	Candidate.Kind = Receipt.IsDepleted()
+		? EImpactFeedbackKind::Depleted
+		: EImpactFeedbackKind::Absorbed;
+	Candidate.DisplayText = Receipt.IsDepleted()
+		? FString::Printf(
+			TEXT("SPIRIT SHIELD · ABSORBED %s · DEPLETED"),
+			*FormatCapacity(Candidate.AbsorbedCapacity))
+		: FString::Printf(
+			TEXT("SPIRIT SHIELD · ABSORBED %s · %s LEFT"),
+			*FormatCapacity(Candidate.AbsorbedCapacity),
+			*FormatCapacity(Candidate.RemainingCapacity));
+	if (!Candidate.IsValid())
+	{
+		return false;
+	}
+
+	OutPresentation = MoveTemp(Candidate);
+	return true;
+}
+
+bool FImpactFeedback::IsValid() const
+{
+	if (Kind == EImpactFeedbackKind::Invalid
+		|| !FMath::IsFinite(AbsorbedCapacity)
+		|| !FMath::IsFinite(RemainingCapacity)
+		|| AbsorbedCapacity <= 0.0f || RemainingCapacity < 0.0f
+		|| DisplayText.TrimStartAndEnd().IsEmpty())
+	{
+		return false;
+	}
+	return Kind == (RemainingCapacity == 0.0f
+		? EImpactFeedbackKind::Depleted
+		: EImpactFeedbackKind::Absorbed);
+}
+
+bool FImpactFeedback::Matches(const FImpactFeedback& Other) const
+{
+	return IsValid() && Other.IsValid()
+		&& Kind == Other.Kind
+		&& AbsorbedCapacity == Other.AbsorbedCapacity
+		&& RemainingCapacity == Other.RemainingCapacity
 		&& DisplayText == Other.DisplayText;
 }
