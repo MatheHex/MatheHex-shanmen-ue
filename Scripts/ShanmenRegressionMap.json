@@ -3299,6 +3299,7 @@
 	  "requiredGroups": [
 		"Shanmen.0_0_10.Product.SpiritShieldWorldPresentation",
 		"Shanmen.0_0_10.Product.SpiritShieldProductSession",
+		"Shanmen.0_0_10.Product.CombatRunFixedTimeline",
 		"demo_map.V2RangedCompatibility"
 	  ]
 	},

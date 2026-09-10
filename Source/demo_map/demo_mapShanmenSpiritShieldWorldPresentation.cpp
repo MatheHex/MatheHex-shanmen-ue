@@ -1,5 +1,6 @@
 #include "demo_mapShanmenSpiritShieldWorldPresentation.h"
 
+#include "demo_mapShanmenCombatRunFixedTimeline.h"
 #include "demo_mapShanmenSpiritShieldProductSession.h"
 
 #include "Components/PointLightComponent.h"
@@ -20,7 +21,8 @@ namespace
 	constexpr float SpiritShieldShellOpacity = 0.16f;
 	constexpr float SpiritShieldStableCueIntensity = 1800.0f;
 	constexpr float SpiritShieldLowCapacityCueIntensity = 2600.0f;
-	constexpr float SpiritShieldCueAttenuationRadius = 220.0f;
+	constexpr float SpiritShieldFullLifetimeCueRadius = 220.0f;
+	constexpr float SpiritShieldMinimumLifetimeCueRadius = 120.0f;
 	constexpr float SpiritShieldLowCapacityFraction = 0.25f;
 
 	FVector CalculateCapacityScale(
@@ -33,6 +35,23 @@ namespace
 			SpiritShieldMinimumScale,
 			SpiritShieldFullScale,
 			CapacityFraction);
+	}
+
+	float CalculateLifetimeRadius(
+		int64 CurrentTick,
+		int64 StartTick,
+		int64 DeadlineTick)
+	{
+		const double DurationTicks = static_cast<double>(
+			DeadlineTick - StartTick);
+		const double RemainingTicks = static_cast<double>(
+			DeadlineTick - CurrentTick);
+		const float RemainingFraction = static_cast<float>(FMath::Clamp(
+			RemainingTicks / DurationTicks, 0.0, 1.0));
+		return FMath::Lerp(
+			SpiritShieldMinimumLifetimeCueRadius,
+			SpiritShieldFullLifetimeCueRadius,
+			RemainingFraction);
 	}
 
 	bool IsBoundedShellScale(const FVector& Scale)
@@ -112,7 +131,7 @@ bool Fdemo_mapShanmenSpiritShieldWorldPresentation::EnsureInstalled(
 		CueLight->SetLightColor(SpiritShieldStableColor, false);
 		CueLight->SetIntensity(SpiritShieldStableCueIntensity);
 		CueLight->SetAttenuationRadius(
-			SpiritShieldCueAttenuationRadius);
+			SpiritShieldFullLifetimeCueRadius);
 		CueLight->SetCastShadows(false);
 		CueLight->RegisterComponent();
 		SetActive(Owner, false);
@@ -124,6 +143,7 @@ bool Fdemo_mapShanmenSpiritShieldWorldPresentation::EnsureInstalled(
 bool Fdemo_mapShanmenSpiritShieldWorldPresentation::Synchronize(
 	AActor* Owner,
 	const Fdemo_mapShanmenSpiritShieldProductSession* Session,
+	const Fdemo_mapShanmenCombatRunTimelineSample* TimelineSample,
 	UStaticMesh* ShellMesh,
 	UMaterialInterface* ShellMaterial)
 {
@@ -132,15 +152,41 @@ bool Fdemo_mapShanmenSpiritShieldWorldPresentation::Synchronize(
 		SetActive(Owner, false);
 		return false;
 	}
-	const float AvailableCapacity = Session
+	const bool bHasActiveSession = Session
+		&& Session->IsValid()
+		&& Session->IsActive();
+	const FShanmenSpiritShieldSchedule* Schedule = bHasActiveSession
+		? &Session->GetSession().GetSchedule()
+		: nullptr;
+	if (bHasActiveSession
+		&& (!TimelineSample
+			|| !TimelineSample->IsValid()
+			|| !Schedule
+			|| !Schedule->IsValid()
+			|| TimelineSample->GetTimelineId()
+				!= Schedule->GetTimelineId()
+			|| TimelineSample->GetCurrentTick()
+				< Schedule->GetStartTick()))
+	{
+		SetShellScale(Owner, SpiritShieldFullScale);
+		SetCueAttenuationRadius(Owner, SpiritShieldFullLifetimeCueRadius);
+		SetAppearance(
+			Owner,
+			SpiritShieldStableColor,
+			SpiritShieldStableCueIntensity);
+		SetActive(Owner, false);
+		return false;
+	}
+	const float AvailableCapacity = bHasActiveSession
 		? Session->GetAvailableCapacity()
 		: 0.0f;
-	const bool bShouldBeVisible = Session
-		&& Session->IsValid()
-		&& Session->IsActive()
+	const bool bInsideActiveWindow = bHasActiveSession
+		&& TimelineSample->GetCurrentTick() < Schedule->GetDeadlineTick();
+	const bool bShouldBeVisible = bInsideActiveWindow
 		&& AvailableCapacity > 0.0f;
 	bool bLowCapacity = false;
 	float MaximumCapacity = 0.0f;
+	float CueRadius = SpiritShieldFullLifetimeCueRadius;
 	if (bShouldBeVisible)
 	{
 		MaximumCapacity = Session->GetSession()
@@ -154,11 +200,17 @@ bool Fdemo_mapShanmenSpiritShieldWorldPresentation::Synchronize(
 				Owner,
 				SpiritShieldStableColor,
 				SpiritShieldStableCueIntensity);
+			SetCueAttenuationRadius(
+				Owner, SpiritShieldFullLifetimeCueRadius);
 			SetActive(Owner, false);
 			return false;
 		}
 		bLowCapacity = AvailableCapacity
 			<= MaximumCapacity * SpiritShieldLowCapacityFraction;
+		CueRadius = CalculateLifetimeRadius(
+			TimelineSample->GetCurrentTick(),
+			Schedule->GetStartTick(),
+			Schedule->GetDeadlineTick());
 	}
 	SetShellScale(
 		Owner,
@@ -173,6 +225,7 @@ bool Fdemo_mapShanmenSpiritShieldWorldPresentation::Synchronize(
 		bLowCapacity
 			? SpiritShieldLowCapacityCueIntensity
 			: SpiritShieldStableCueIntensity);
+	SetCueAttenuationRadius(Owner, CueRadius);
 	SetActive(Owner, bShouldBeVisible);
 	return IsVisible(Owner) == bShouldBeVisible
 		&& (!bShouldBeVisible
@@ -180,7 +233,12 @@ bool Fdemo_mapShanmenSpiritShieldWorldPresentation::Synchronize(
 					? HasLowCapacityAppearance(Owner)
 					: HasStableAppearance(Owner))
 				&& HasCapacityScale(
-					Owner, AvailableCapacity, MaximumCapacity)));
+					Owner, AvailableCapacity, MaximumCapacity)
+				&& HasLifetimeRadius(
+					Owner,
+					TimelineSample->GetCurrentTick(),
+					Schedule->GetStartTick(),
+					Schedule->GetDeadlineTick())));
 }
 
 bool Fdemo_mapShanmenSpiritShieldWorldPresentation::IsVisible(
@@ -259,6 +317,22 @@ bool Fdemo_mapShanmenSpiritShieldWorldPresentation::HasCapacityScale(
 			KINDA_SMALL_NUMBER);
 }
 
+bool Fdemo_mapShanmenSpiritShieldWorldPresentation::HasLifetimeRadius(
+	const AActor* Owner,
+	int64 CurrentTick,
+	int64 StartTick,
+	int64 DeadlineTick)
+{
+	const UPointLightComponent* CueLight = FindCueLight(Owner);
+	return CueLight
+		&& StartTick >= 0
+		&& CurrentTick >= StartTick
+		&& CurrentTick < DeadlineTick
+		&& FMath::IsNearlyEqual(
+			CueLight->AttenuationRadius,
+			CalculateLifetimeRadius(CurrentTick, StartTick, DeadlineTick));
+}
+
 FLinearColor Fdemo_mapShanmenSpiritShieldWorldPresentation::GetCueColor(
 	const AActor* Owner)
 {
@@ -273,6 +347,13 @@ float Fdemo_mapShanmenSpiritShieldWorldPresentation::GetCueIntensity(
 {
 	const UPointLightComponent* CueLight = FindCueLight(Owner);
 	return CueLight ? CueLight->Intensity : 0.0f;
+}
+
+float Fdemo_mapShanmenSpiritShieldWorldPresentation::
+	GetCueAttenuationRadius(const AActor* Owner)
+{
+	const UPointLightComponent* CueLight = FindCueLight(Owner);
+	return CueLight ? CueLight->AttenuationRadius : 0.0f;
 }
 
 FVector Fdemo_mapShanmenSpiritShieldWorldPresentation::GetShellScale(
@@ -360,6 +441,15 @@ void Fdemo_mapShanmenSpiritShieldWorldPresentation::SetAppearance(
 	{
 		CueLight->SetLightColor(Color, false);
 		CueLight->SetIntensity(CueIntensity);
+	}
+}
+
+void Fdemo_mapShanmenSpiritShieldWorldPresentation::
+	SetCueAttenuationRadius(AActor* Owner, float Radius)
+{
+	if (UPointLightComponent* CueLight = FindCueLight(Owner))
+	{
+		CueLight->SetAttenuationRadius(Radius);
 	}
 }
 

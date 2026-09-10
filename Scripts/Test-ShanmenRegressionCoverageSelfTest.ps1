@@ -4220,15 +4220,16 @@ try
             $SpiritShieldProductSession)
 
     Invoke-ExpectedPass `
-        -Name 'Spirit Shield world presentation maps player visual product and compatibility evidence' `
+        -Name 'Spirit Shield world presentation maps player visual timeline product and compatibility evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenSpiritShieldWorldPresentation.h',
             'Source/demo_map/demo_mapShanmenSpiritShieldWorldPresentation.cpp',
             'Source/demo_map/demo_mapShanmenSpiritShieldWorldPresentationTests.cpp') `
-        -Logs @(
-            $SpiritShieldWorldPresentation,
-            $SpiritShieldProductSession,
-            $Ranged)
+		-Logs @(
+			$SpiritShieldWorldPresentation,
+			$SpiritShieldProductSession,
+			$CombatRunFixedTimeline,
+			$Ranged)
 
     Invoke-ExpectedPass `
         -Name 'Spirit Shield controller overlap preserves all controller and world presentation evidence' `
@@ -4439,7 +4440,7 @@ try
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
-        -Name 'Spirit Shield world focus cannot replace product and compatibility evidence' `
+        -Name 'Spirit Shield world focus cannot replace timeline product and compatibility evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenSpiritShieldWorldPresentation.cpp') `
         -Logs @($SpiritShieldWorldPresentation) `

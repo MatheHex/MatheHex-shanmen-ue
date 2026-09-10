@@ -7,6 +7,7 @@ class UMaterialInterface;
 class UPointLightComponent;
 class UStaticMesh;
 class UStaticMeshComponent;
+struct Fdemo_mapShanmenCombatRunTimelineSample;
 class Fdemo_mapShanmenSpiritShieldProductSession;
 
 /**
@@ -24,12 +25,14 @@ public:
 		UMaterialInterface* ShellMaterial);
 
 	/**
-	 * Projects current authority into visibility. Null, invalid, closed,
-	 * released, or depleted Sessions fail closed.
+	 * Projects current authority and one frozen Run-timeline sample. Null,
+	 * mismatched, pre-start, expired, closed, released, or depleted inputs fail
+	 * closed; expiry never waits for a later Session mutation.
 	 */
 	static bool Synchronize(
 		AActor* Owner,
 		const Fdemo_mapShanmenSpiritShieldProductSession* Session,
+		const Fdemo_mapShanmenCombatRunTimelineSample* TimelineSample,
 		UStaticMesh* ShellMesh,
 		UMaterialInterface* ShellMaterial);
 
@@ -42,8 +45,14 @@ public:
 		const AActor* Owner,
 		float AvailableCapacity,
 		float MaximumCapacity);
+	static bool HasLifetimeRadius(
+		const AActor* Owner,
+		int64 CurrentTick,
+		int64 StartTick,
+		int64 DeadlineTick);
 	static FLinearColor GetCueColor(const AActor* Owner);
 	static float GetCueIntensity(const AActor* Owner);
+	static float GetCueAttenuationRadius(const AActor* Owner);
 	static FVector GetShellScale(const AActor* Owner);
 
 private:
@@ -57,6 +66,7 @@ private:
 		AActor* Owner,
 		const FLinearColor& Color,
 		float CueIntensity);
+	static void SetCueAttenuationRadius(AActor* Owner, float Radius);
 	static void SetShellScale(AActor* Owner, const FVector& Scale);
 	static void SetActive(AActor* Owner, bool bActive);
 };

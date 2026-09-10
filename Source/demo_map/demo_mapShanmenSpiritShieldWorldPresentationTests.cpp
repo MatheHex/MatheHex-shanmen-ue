@@ -103,10 +103,15 @@ namespace
 		}
 
 		bool Synchronize(
-			const Fdemo_mapShanmenSpiritShieldProductSession* Session) const
+			const Fdemo_mapShanmenSpiritShieldProductSession* Session,
+			const Fdemo_mapShanmenCombatRunTimelineSample* TimelineSample) const
 		{
 			return Fdemo_mapShanmenSpiritShieldWorldPresentation::Synchronize(
-				Character, Session, ShellMesh, ShellMaterial);
+				Character,
+				Session,
+				TimelineSample,
+				ShellMesh,
+				ShellMaterial);
 		}
 	};
 
@@ -125,7 +130,7 @@ namespace
 			Player = NewObject<APawn>(GetTransientPackage());
 			Health = Player
 				? NewObject<Udemo_mapPlayerHealthComponent>(
-					Player, TEXT("P258SpiritShieldHealth"))
+					Player, TEXT("P259SpiritShieldHealth"))
 				: nullptr;
 			if (!Player || !Health
 				|| !Coordinator.TryBeginRun(
@@ -195,9 +200,9 @@ namespace
 		Capture.OwnerId = SpiritShieldWorldPresentationAttackSource;
 		Capture.SourceEntityId = SpiritShieldWorldPresentationAttackSource;
 		Capture.ActionDefinitionId =
-			TEXT("Combat.Action.Test.P25_8ShieldPresentation");
-		Capture.Content.Version = TEXT("0.0.10.P25.8");
-		Capture.Content.Digest = TEXT("TEST-DIGEST-P25.8-SHIELD-PRESENTATION");
+			TEXT("Combat.Action.Test.P25_9ShieldPresentation");
+		Capture.Content.Version = TEXT("0.0.10.P25.9");
+		Capture.Content.Digest = TEXT("TEST-DIGEST-P25.9-SHIELD-PRESENTATION");
 		Capture.SourceTags.AddTag(FShanmenCombatNativeTags::SourcePlayer());
 		Capture.ActivationId = FShanmenCombatIdFactory::MakeActivationId(
 			Capture.RunId,
@@ -212,7 +217,7 @@ namespace
 		Identity.Candidate.SourceEntityId = Identity.Action.GetSourceEntityId();
 		Identity.Candidate.TargetEntityId = TargetEntityId;
 		Identity.Candidate.DetectorId =
-			TEXT("Detector.Test.P25_8ShieldPresentation");
+			TEXT("Detector.Test.P25_9ShieldPresentation");
 		Identity.Candidate.DetectorKind = EShanmenHitDetectorKind::Shape;
 		Identity.Candidate.HitNormal = FVector::BackwardVector;
 		Identity.Candidate.HitOrdinal = 0;
@@ -243,7 +248,7 @@ namespace
 		Request.Action = Identity.Action;
 		Request.Candidate = Identity.Candidate;
 		Request.Damage.FormulaId =
-			TEXT("Combat.Formula.Test.P25_8ShieldPresentation");
+			TEXT("Combat.Formula.Test.P25_9ShieldPresentation");
 		Request.Damage.RawDamage = RawDamage;
 		Request.Damage.DamageTags.AddTag(
 			FShanmenCombatNativeTags::DamagePhysicalSlash());
@@ -272,7 +277,7 @@ bool Fdemo_mapSpiritShieldWorldPresentationGeometryTest::RunTest(
 	}
 
 	TestTrue(TEXT("empty authority installs hidden collisionless cues"),
-		World.Synchronize(nullptr)
+		World.Synchronize(nullptr, nullptr)
 			&& Fdemo_mapShanmenSpiritShieldWorldPresentation::
 				IsGeometryValid(World.Character)
 			&& !Fdemo_mapShanmenSpiritShieldWorldPresentation::
@@ -338,9 +343,11 @@ bool Fdemo_mapSpiritShieldWorldPresentationActivationReleaseTest::RunTest(
 		AddError(!World.IsReady() ? World.Diagnostic : Product.Diagnostic);
 		return false;
 	}
+	const Fdemo_mapShanmenCombatRunTimelineSample ActiveSample =
+		Product.CaptureTimeline();
 
 	TestTrue(TEXT("accepted active Session reveals both player shield cues"),
-		World.Synchronize(&Product.Session)
+		World.Synchronize(&Product.Session, &ActiveSample)
 			&& Fdemo_mapShanmenSpiritShieldWorldPresentation::
 				IsVisible(World.Character)
 			&& Fdemo_mapShanmenSpiritShieldWorldPresentation::
@@ -351,7 +358,7 @@ bool Fdemo_mapSpiritShieldWorldPresentationActivationReleaseTest::RunTest(
 		Product.Session.TryReleaseOwner(Product.Diagnostic)
 			&& Product.Session.IsEmpty());
 	TestTrue(TEXT("released Session hides both world cues"),
-		World.Synchronize(&Product.Session)
+		World.Synchronize(&Product.Session, &ActiveSample)
 			&& !Fdemo_mapShanmenSpiritShieldWorldPresentation::
 				IsVisible(World.Character));
 	return true;
@@ -372,7 +379,9 @@ bool Fdemo_mapSpiritShieldWorldPresentationDeadlineTest::RunTest(
 		AddError(!World.IsReady() ? World.Diagnostic : Product.Diagnostic);
 		return false;
 	}
-	if (!World.Synchronize(&Product.Session))
+	const Fdemo_mapShanmenCombatRunTimelineSample OpeningSample =
+		Product.CaptureTimeline();
+	if (!World.Synchronize(&Product.Session, &OpeningSample))
 	{
 		AddError(TEXT("Active Session failed initial world synchronization."));
 		return false;
@@ -383,17 +392,110 @@ bool Fdemo_mapSpiritShieldWorldPresentationDeadlineTest::RunTest(
 		Product.Timeline.TryAdvance(
 			3.0, AdvancedTicks, Product.Diagnostic)
 			&& AdvancedTicks == 90);
-	const auto Closed =
-		Product.Session.ObserveTimeline(Product.CaptureTimeline());
+	const Fdemo_mapShanmenCombatRunTimelineSample DeadlineSample =
+		Product.CaptureTimeline();
+	const auto Closed = Product.Session.ObserveTimeline(DeadlineSample);
 	TestTrue(TEXT("deadline observation closes authoritative shield state"),
 		Closed.IsSuccess()
 			&& Closed.Status
 				== Edemo_mapShanmenSpiritShieldProductTimelineStatus::Closed
 			&& Product.Session.IsClosed());
 	TestTrue(TEXT("deadline-closed Session hides both world cues"),
-		World.Synchronize(&Product.Session)
+		World.Synchronize(&Product.Session, &DeadlineSample)
 			&& !Fdemo_mapShanmenSpiritShieldWorldPresentation::
 				IsVisible(World.Character));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapSpiritShieldWorldPresentationLifetimeRadiusTest,
+	"Shanmen.0_0_10.Product.SpiritShieldWorldPresentation.LifetimeRadius",
+	SpiritShieldWorldPresentationFlags)
+
+bool Fdemo_mapSpiritShieldWorldPresentationLifetimeRadiusTest::RunTest(
+	const FString&)
+{
+	FSpiritShieldWorldFixture World;
+	FSpiritShieldPresentationProductFixture Product;
+	if (!World.IsReady() || !Product.Start())
+	{
+		AddError(!World.IsReady() ? World.Diagnostic : Product.Diagnostic);
+		return false;
+	}
+
+	const FShanmenSpiritShieldSchedule& Schedule =
+		Product.Session.GetSession().GetSchedule();
+	const Fdemo_mapShanmenCombatRunTimelineSample OpeningSample =
+		Product.CaptureTimeline();
+	TestTrue(TEXT("fresh shield exposes its full-lifetime light radius"),
+		World.Synchronize(&Product.Session, &OpeningSample)
+			&& Fdemo_mapShanmenSpiritShieldWorldPresentation::
+				HasLifetimeRadius(
+					World.Character,
+					OpeningSample.GetCurrentTick(),
+					Schedule.GetStartTick(),
+					Schedule.GetDeadlineTick())
+			&& FMath::IsNearlyEqual(
+				Fdemo_mapShanmenSpiritShieldWorldPresentation::
+					GetCueAttenuationRadius(World.Character),
+				220.0f));
+
+	int64 AdvancedTicks = 0;
+	TestTrue(TEXT("fixed Run timeline advances to shield midpoint"),
+		Product.Timeline.TryAdvance(
+			1.5, AdvancedTicks, Product.Diagnostic)
+			&& AdvancedTicks == 45);
+	const Fdemo_mapShanmenCombatRunTimelineSample MidpointSample =
+		Product.CaptureTimeline();
+	TestTrue(TEXT("half lifetime contracts only the cue light radius"),
+		World.Synchronize(&Product.Session, &MidpointSample)
+			&& Fdemo_mapShanmenSpiritShieldWorldPresentation::
+				HasLifetimeRadius(
+					World.Character,
+					MidpointSample.GetCurrentTick(),
+					Schedule.GetStartTick(),
+					Schedule.GetDeadlineTick())
+			&& FMath::IsNearlyEqual(
+				Fdemo_mapShanmenSpiritShieldWorldPresentation::
+					GetCueAttenuationRadius(World.Character),
+				170.0f)
+			&& Fdemo_mapShanmenSpiritShieldWorldPresentation::
+				GetShellScale(World.Character).Equals(
+					FVector(1.35f, 1.35f, 2.10f),
+					KINDA_SMALL_NUMBER));
+
+	Fdemo_mapShanmenCombatRunTimelineSample ForeignSample;
+	TestTrue(TEXT("foreign valid timeline sample can be constructed"),
+		Fdemo_mapShanmenCombatRunTimelineSample::TryCapture(
+			FGuid(0x25990001, 0x25990002, 0x25990003, 0x25990004),
+			MidpointSample.GetCurrentTick(),
+			ForeignSample));
+	TestTrue(TEXT("foreign timeline fails closed without changing authority"),
+		!World.Synchronize(&Product.Session, &ForeignSample)
+			&& !Fdemo_mapShanmenSpiritShieldWorldPresentation::
+				IsVisible(World.Character)
+			&& Product.Session.IsActive());
+
+	TestTrue(TEXT("authoritative sample restores the midpoint projection"),
+		World.Synchronize(&Product.Session, &MidpointSample)
+			&& Fdemo_mapShanmenSpiritShieldWorldPresentation::
+				IsVisible(World.Character));
+	TestTrue(TEXT("fixed Run timeline reaches the deadline"),
+		Product.Timeline.TryAdvance(
+			1.5, AdvancedTicks, Product.Diagnostic)
+			&& AdvancedTicks == 45);
+	const Fdemo_mapShanmenCombatRunTimelineSample DeadlineSample =
+		Product.CaptureTimeline();
+	TestTrue(TEXT("deadline sample hides stale visual before Session closure"),
+		Product.Session.IsActive()
+			&& World.Synchronize(&Product.Session, &DeadlineSample)
+			&& !Fdemo_mapShanmenSpiritShieldWorldPresentation::
+				IsVisible(World.Character)
+			&& Product.Session.IsActive()
+			&& FMath::IsNearlyEqual(
+				Fdemo_mapShanmenSpiritShieldWorldPresentation::
+					GetCueAttenuationRadius(World.Character),
+				220.0f));
 	return true;
 }
 
@@ -413,11 +515,13 @@ bool Fdemo_mapSpiritShieldWorldPresentationCapacityGeometryTest::RunTest(
 		return false;
 	}
 
+	const Fdemo_mapShanmenCombatRunTimelineSample TimelineSample =
+		Product.CaptureTimeline();
 	const FSpiritShieldPresentationImpactIdentity Identity =
 		MakeImpactIdentity(Product.Coordinator.GetPlayerEntityId());
 	const auto Defense = Product.Session.TryComposeImpactDefense(
 		Identity.ImpactId,
-		Product.CaptureTimeline(),
+		TimelineSample,
 		MakeBaseDefense());
 	const FShanmenImpactRequest Request = MakeImpactRequest(
 		Identity, Defense.Defense, 15.0f);
@@ -431,7 +535,7 @@ bool Fdemo_mapSpiritShieldWorldPresentationCapacityGeometryTest::RunTest(
 			&& FMath::IsNearlyEqual(
 				Product.Session.GetAvailableCapacity(), 15.0f));
 	TestTrue(TEXT("half capacity contracts the shell continuously"),
-		World.Synchronize(&Product.Session)
+		World.Synchronize(&Product.Session, &TimelineSample)
 			&& Fdemo_mapShanmenSpiritShieldWorldPresentation::
 				HasStableAppearance(World.Character)
 			&& Fdemo_mapShanmenSpiritShieldWorldPresentation::
@@ -458,8 +562,10 @@ bool Fdemo_mapSpiritShieldWorldPresentationCapacityToneTest::RunTest(
 		AddError(!World.IsReady() ? World.Diagnostic : Product.Diagnostic);
 		return false;
 	}
+	const Fdemo_mapShanmenCombatRunTimelineSample TimelineSample =
+		Product.CaptureTimeline();
 	TestTrue(TEXT("full-capacity shield starts with stable cyan appearance"),
-		World.Synchronize(&Product.Session)
+		World.Synchronize(&Product.Session, &TimelineSample)
 			&& Fdemo_mapShanmenSpiritShieldWorldPresentation::
 				HasStableAppearance(World.Character));
 
@@ -467,7 +573,7 @@ bool Fdemo_mapSpiritShieldWorldPresentationCapacityToneTest::RunTest(
 		MakeImpactIdentity(Product.Coordinator.GetPlayerEntityId());
 	const auto Defense = Product.Session.TryComposeImpactDefense(
 		Identity.ImpactId,
-		Product.CaptureTimeline(),
+		TimelineSample,
 		MakeBaseDefense());
 	const FShanmenImpactRequest Request = MakeImpactRequest(
 		Identity, Defense.Defense, 24.0f);
@@ -481,7 +587,7 @@ bool Fdemo_mapSpiritShieldWorldPresentationCapacityToneTest::RunTest(
 			&& FMath::IsNearlyEqual(
 				Product.Session.GetAvailableCapacity(), 6.0f));
 	TestTrue(TEXT("low active capacity changes the world cue to amber"),
-		World.Synchronize(&Product.Session)
+		World.Synchronize(&Product.Session, &TimelineSample)
 			&& Fdemo_mapShanmenSpiritShieldWorldPresentation::
 				IsVisible(World.Character)
 			&& Fdemo_mapShanmenSpiritShieldWorldPresentation::
@@ -514,7 +620,9 @@ bool Fdemo_mapSpiritShieldWorldPresentationDepletionTest::RunTest(
 		AddError(!World.IsReady() ? World.Diagnostic : Product.Diagnostic);
 		return false;
 	}
-	if (!World.Synchronize(&Product.Session))
+	const Fdemo_mapShanmenCombatRunTimelineSample TimelineSample =
+		Product.CaptureTimeline();
+	if (!World.Synchronize(&Product.Session, &TimelineSample))
 	{
 		AddError(TEXT("Active Session failed initial world synchronization."));
 		return false;
@@ -524,7 +632,7 @@ bool Fdemo_mapSpiritShieldWorldPresentationDepletionTest::RunTest(
 		MakeImpactIdentity(Product.Coordinator.GetPlayerEntityId());
 	const auto Defense = Product.Session.TryComposeImpactDefense(
 		Identity.ImpactId,
-		Product.CaptureTimeline(),
+		TimelineSample,
 		MakeBaseDefense());
 	const FShanmenImpactRequest Request = MakeImpactRequest(
 		Identity, Defense.Defense, 40.0f);
@@ -537,7 +645,7 @@ bool Fdemo_mapSpiritShieldWorldPresentationDepletionTest::RunTest(
 			&& FMath::IsNearlyEqual(Resolution.PreventedDamage, 30.0f)
 			&& FMath::IsNearlyEqual(Product.Session.GetAvailableCapacity(), 0.0f));
 	TestTrue(TEXT("zero-capacity active Session hides both world cues"),
-		World.Synchronize(&Product.Session)
+		World.Synchronize(&Product.Session, &TimelineSample)
 			&& !Fdemo_mapShanmenSpiritShieldWorldPresentation::
 				IsVisible(World.Character)
 			&& Fdemo_mapShanmenSpiritShieldWorldPresentation::

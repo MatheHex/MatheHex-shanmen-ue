@@ -17,6 +17,7 @@
 #include "demo_mapProfileSessionSubsystem.h"
 #include "demo_mapProfilePreparationWidget.h"
 #include "demo_mapShanmenThrownWeaponArcEditingInteractionComposition.h"
+#include "demo_mapShanmenCombatRunFixedTimeline.h"
 #include "demo_mapShanmenSpiritShieldWorldPresentation.h"
 #include "CollisionQueryParams.h"
 #include "GameFramework/Character.h"
@@ -382,9 +383,17 @@ void Ademo_mapPlayerController::PlayerTick(float DeltaTime)
 	const Ademo_mapGameMode* Mode = GetWorld()
 		? Cast<Ademo_mapGameMode>(GetWorld()->GetAuthGameMode())
 		: nullptr;
+	Fdemo_mapShanmenCombatRunTimelineSample SpiritShieldTimelineSample;
+	const Fdemo_mapShanmenCombatRunTimelineSample*
+		SpiritShieldTimelineSamplePtr = Mode
+			&& Mode->GetCombatRunFixedTimeline().TryCapture(
+				SpiritShieldTimelineSample)
+			? &SpiritShieldTimelineSample
+			: nullptr;
 	Fdemo_mapShanmenSpiritShieldWorldPresentation::Synchronize(
 		GetPawn(),
 		Mode ? &Mode->GetSpiritShieldProductSession() : nullptr,
+		SpiritShieldTimelineSamplePtr,
 		SpiritShieldShellMeshAsset,
 		SpiritShieldShellMaterialAsset);
 	if (!IsGameplayInputAllowed())
@@ -441,6 +450,7 @@ void Ademo_mapPlayerController::OnUnPossess()
 {
 	Fdemo_mapShanmenSpiritShieldWorldPresentation::Synchronize(
 		GetPawn(),
+		nullptr,
 		nullptr,
 		SpiritShieldShellMeshAsset,
 		SpiritShieldShellMaterialAsset);
