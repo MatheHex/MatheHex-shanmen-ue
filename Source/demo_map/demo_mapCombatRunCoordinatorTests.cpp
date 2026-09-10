@@ -4,6 +4,7 @@
 #include "ShanmenActionOrchestrator.h"
 #include "ShanmenBasicSwordExecution.h"
 #include "ShanmenCombatTags.h"
+#include "ShanmenCombatRuntimeTags.h"
 #include "ShanmenWorldHitAdapter.h"
 #include "Components/BoxComponent.h"
 #include "Components/PrimitiveComponent.h"
@@ -38,6 +39,7 @@
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
 #include "demo_mapShanmenItemCutover.h"
 #include "demo_mapShanmenFormationInfluenceConsumerWorldResolution.h"
+#include "demo_mapShanmenDivineSenseProductAuthority.h"
 #include "demo_mapShanmenRunLifecycleAdapter.h"
 
 #include <limits>
@@ -1587,6 +1589,110 @@ bool FShanmenCombatRunCoordinatorM01EnemyBasicMeleeProductTest::RunTest(
 			&& Fixture.Health->NumCommittedCombatImpacts() == 1
 			&& Fixture.Health
 				->GetPositiveDamageBroadcastCountForAutomation() == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenCombatRunCoordinatorM01EnemySpiritShieldProductTest,
+	"Shanmen.0_0_10.Product.CombatRunCoordinator.M01EnemySpiritShieldProduct",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenCombatRunCoordinatorM01EnemySpiritShieldProductTest::RunTest(
+	const FString&)
+{
+	FCombatRunCoordinatorFixture Fixture;
+	FM01MeleeEnemyFixture EnemyFixture;
+	Fdemo_mapShanmenCombatRunFixedTimeline Timeline;
+	Fdemo_mapShanmenDivineSenseProductController SpiritEnergy;
+	Fdemo_mapShanmenSpiritShieldProductSession SpiritShield;
+	Fdemo_mapShanmenCombatRunTimelineSample ActivationSample;
+	FShanmenActionResourceAuthority OpeningAuthority;
+	FShanmenActionResourceSnapshot OpeningSnapshot;
+	Fdemo_mapShanmenDivineSenseProductConfig SpiritEnergyConfig;
+	const bool bPrepared = Fixture.bReady
+		&& EnemyFixture.bReady
+		&& Fixture.Coordinator.TryRegisterM01Enemy(
+			EnemyFixture.Enemy,
+			Fixture.Diagnostic)
+		&& Timeline.TryBegin(CoordinatorRunA, Fixture.Diagnostic)
+		&& Timeline.TryCapture(ActivationSample)
+		&& FShanmenActionResourceAuthority::TryCreate(
+			Fixture.Coordinator.GetPlayerEntityId(),
+			FShanmenCombatRuntimeNativeTags::ResourceSpiritEnergy(),
+			100.0f,
+			100.0f,
+			0,
+			OpeningAuthority)
+		&& OpeningAuthority.TryCaptureSnapshot(OpeningSnapshot)
+		&& Fdemo_mapShanmenDivineSenseProductAuthority::
+			TryCreateCanonicalConfig(SpiritEnergyConfig)
+		&& SpiritEnergy.TryBegin(
+			Fixture.Coordinator,
+			OpeningSnapshot,
+			SpiritEnergyConfig,
+			Fixture.Diagnostic);
+	TestTrue(TEXT("Spirit Shield enemy-impact fixture initializes"), bPrepared);
+	if (!bPrepared)
+	{
+		AddError(Fixture.Diagnostic);
+		return false;
+	}
+
+	const auto Activated = SpiritShield.TryActivate(
+		Fixture.Coordinator,
+		SpiritEnergy,
+		ActivationSample,
+		[&Fixture]()
+		{
+			return Fdemo_mapShanmenPlayerActionGateResult::FromArbitration(
+				Fixture.Coordinator.TryAuthorizePlayerAction(
+					Edemo_mapShanmenPlayerActionKind::SpiritShield,
+					Fdemo_mapShanmenPlayerActionOccupancySnapshot()));
+		});
+	Fdemo_mapM01EnemyAttackSpiritShieldContext ShieldContext;
+	ShieldContext.Session = &SpiritShield;
+	ShieldContext.TimelineSample = ActivationSample;
+	TestTrue(TEXT("Spirit Shield activates from the shared Run resource"),
+		Activated.IsAccepted()
+			&& ShieldContext.IsValid()
+			&& FMath::IsNearlyEqual(
+				SpiritShield.GetAvailableCapacity(),
+				30.0f));
+
+	const Fdemo_mapM01EnemyAttackExecutionResult Attack =
+		Fixture.Coordinator.ExecuteM01EnemyBasicMeleeStrike(
+			EnemyFixture.Enemy,
+			Fixture.Pawn,
+			3.0f,
+			nullptr,
+			&ShieldContext);
+	const FShanmenImpactResult& Resolution = Attack.Impact.GetResult();
+	TestTrue(TEXT("Canonical enemy contact executes"), Attack.IsExecuted());
+	TestTrue(TEXT("Coordinator records the exact shield proofs"),
+		Attack.bSpiritShieldInspected
+			&& Attack.SpiritShieldDefense.IsSuccess()
+			&& Attack.SpiritShieldCommit.IsSuccess()
+			&& Attack.SpiritShieldCommit.DidConsumeCapacity());
+	TestTrue(TEXT("Shield is the sole triggered mitigation layer"),
+		Resolution.Outcome == EShanmenDefenseOutcome::FullyPrevented
+			&& FMath::IsNearlyEqual(Resolution.RawDamage, 3.0f)
+			&& FMath::IsNearlyEqual(Resolution.PreventedDamage, 3.0f)
+			&& FMath::IsNearlyZero(Resolution.FinalDamage)
+			&& Resolution.TriggeredLayers.Num() == 1
+			&& Resolution.TriggeredLayers[0].LayerId
+				== Attack.SpiritShieldDefense.Projection.GetLayer().LayerId);
+	TestTrue(TEXT("Shield capacity commits the exact prevented damage"),
+		FMath::IsNearlyEqual(
+			SpiritShield.GetAvailableCapacity(),
+			27.0f));
+	TestTrue(TEXT("Fully shielded contact commits zero player damage once"),
+		FMath::IsNearlyEqual(
+			Fixture.Health->GetCurrentVitality(),
+			5.0f)
+			&& Fixture.Health->GetCombatAuthorityRevision() == 1
+			&& Fixture.Health->NumCommittedCombatImpacts() == 1
+			&& Fixture.Health
+				->GetPositiveDamageBroadcastCountForAutomation() == 0);
 	return true;
 }
 

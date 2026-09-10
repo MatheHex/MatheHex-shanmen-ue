@@ -6,6 +6,7 @@
 #include "ShanmenWorldEntityRegistry.h"
 #include "demo_mapCombatVitalityHost.h"
 #include "demo_mapShanmenPlayerActionArbitration.h"
+#include "demo_mapShanmenSpiritShieldProductSession.h"
 #include "demo_mapShanmenWeaponGuardProductSession.h"
 
 class AActor;
@@ -94,6 +95,23 @@ struct Fdemo_mapM01EnemyAttackWeaponGuardContext
 	}
 };
 
+/** Borrowed active-shield context captured once at hostile-contact time. */
+struct Fdemo_mapM01EnemyAttackSpiritShieldContext
+{
+	Fdemo_mapShanmenSpiritShieldProductSession* Session = nullptr;
+	Fdemo_mapShanmenCombatRunTimelineSample TimelineSample;
+
+	bool IsEnabled() const { return Session != nullptr; }
+	bool IsValid() const
+	{
+		return Session != nullptr
+			&& Session->IsValid()
+			&& Session->IsActive()
+			&& Session->GetAvailableCapacity() > 0.0f
+			&& TimelineSample.IsValid();
+	}
+};
+
 /** Frozen pure-kernel receipt for one authored M01 enemy attack contact. */
 struct Fdemo_mapM01EnemyAttackImpactReceipt
 {
@@ -129,7 +147,9 @@ enum class Edemo_mapM01EnemyAttackExecutionError : uint8
 	DefenseSnapshotFailed,
 	ResourceDefensePreparationFailed,
 	WeaponGuardDefensePreparationFailed,
+	SpiritShieldDefensePreparationFailed,
 	ImpactResolutionFailed,
+	SpiritShieldImpactCommitFailed,
 	DeliveryRejected,
 	RuntimeCompletionFailed
 };
@@ -144,6 +164,9 @@ struct Fdemo_mapM01EnemyAttackExecutionResult
 	Fdemo_mapCombatImpactDeliveryResult Delivery;
 	bool bWeaponGuardInspected = false;
 	Fdemo_mapShanmenWeaponGuardSessionDefenseResult WeaponGuardDefense;
+	bool bSpiritShieldInspected = false;
+	Fdemo_mapShanmenSpiritShieldImpactDefenseResult SpiritShieldDefense;
+	Fdemo_mapShanmenSpiritShieldImpactCommitResult SpiritShieldCommit;
 
 	bool IsExecuted() const
 	{
@@ -152,7 +175,10 @@ struct Fdemo_mapM01EnemyAttackExecutionResult
 			&& Impact.IsValid()
 			&& Delivery.IsSuccess()
 			&& (!bWeaponGuardInspected
-				|| WeaponGuardDefense.IsSuccess());
+				|| WeaponGuardDefense.IsSuccess())
+			&& (!bSpiritShieldInspected
+				|| (SpiritShieldDefense.IsSuccess()
+					&& SpiritShieldCommit.IsSuccess()));
 	}
 
 	/** Positive only for the first mutation; replay and prevention return zero. */
@@ -522,7 +548,9 @@ public:
 		APawn* TargetPlayer,
 		float RawDamage,
 		const Fdemo_mapM01EnemyAttackWeaponGuardContext*
-			WeaponGuardContext = nullptr);
+			WeaponGuardContext = nullptr,
+		const Fdemo_mapM01EnemyAttackSpiritShieldContext*
+			SpiritShieldContext = nullptr);
 	/**
 	 * Resolves one legal contact from an already-running authored melee dash.
 	 * The skill runtime's Run-reset ActivationSerial is the stable action
@@ -536,7 +564,9 @@ public:
 		uint32 ActivationSerial,
 		float RawDamage,
 		const Fdemo_mapM01EnemyAttackWeaponGuardContext*
-			WeaponGuardContext = nullptr);
+			WeaponGuardContext = nullptr,
+		const Fdemo_mapM01EnemyAttackSpiritShieldContext*
+			SpiritShieldContext = nullptr);
 	/**
 	 * Resolves one hostile contact from an authored M01 ranged projectile.
 	 * ProjectileSequence is reserved before flight and reset only with the Run;
@@ -552,7 +582,9 @@ public:
 		const FVector& ImpactLocation,
 		const FVector& ImpactNormal,
 		const Fdemo_mapM01EnemyAttackWeaponGuardContext*
-			WeaponGuardContext = nullptr);
+			WeaponGuardContext = nullptr,
+		const Fdemo_mapM01EnemyAttackSpiritShieldContext*
+			SpiritShieldContext = nullptr);
 	/**
 	 * Resolves one authorized M01 heavy-sector contact. AttackSequence is
 	 * reserved when the windup begins and therefore survives delayed resolve
@@ -565,7 +597,9 @@ public:
 		uint64 AttackSequence,
 		float RawDamage,
 		const Fdemo_mapM01EnemyAttackWeaponGuardContext*
-			WeaponGuardContext = nullptr);
+			WeaponGuardContext = nullptr,
+		const Fdemo_mapM01EnemyAttackSpiritShieldContext*
+			SpiritShieldContext = nullptr);
 	/** Resolves one legal sweep or charge contact from the authored M01 Boss. */
 	Fdemo_mapM01EnemyAttackExecutionResult ExecuteM01BossShapeAttack(
 		AActor* SourceBoss,
@@ -574,7 +608,9 @@ public:
 		uint64 AttackSequence,
 		float RawDamage,
 		const Fdemo_mapM01EnemyAttackWeaponGuardContext*
-			WeaponGuardContext = nullptr);
+			WeaponGuardContext = nullptr,
+		const Fdemo_mapM01EnemyAttackSpiritShieldContext*
+			SpiritShieldContext = nullptr);
 	/**
 	 * Resolves one projectile in an authored three-shot Boss volley. All three
 	 * contacts share AttackSequence and differ only by ProjectileOrdinal 0..2.
@@ -588,7 +624,9 @@ public:
 		const FVector& ImpactLocation,
 		const FVector& ImpactNormal,
 		const Fdemo_mapM01EnemyAttackWeaponGuardContext*
-			WeaponGuardContext = nullptr);
+			WeaponGuardContext = nullptr,
+		const Fdemo_mapM01EnemyAttackSpiritShieldContext*
+			SpiritShieldContext = nullptr);
 	/**
 	 * Executes one complete player BasicSword action from an already sampled UE
 	 * trajectory. Every accepted contact resolves through this Run's Registry;
@@ -743,7 +781,14 @@ private:
 		const FVector& RequestedHitLocation,
 		const FVector& RequestedHitNormal,
 		const Fdemo_mapM01EnemyAttackWeaponGuardContext*
-			WeaponGuardContext);
+			WeaponGuardContext,
+		const Fdemo_mapM01EnemyAttackSpiritShieldContext*
+			SpiritShieldContext);
+	Fdemo_mapCombatImpactDeliveryResult
+	DeliverM01EnemyAttackImpactToPlayerInternal(
+		const Fdemo_mapM01EnemyAttackImpactReceipt& Impact,
+		AActor* SourceEnemy,
+		const TSet<FGuid>* ExternallyCoordinatedLayerIds);
 	Fdemo_mapCombatImpactDeliveryResult
 	DeliverResolvedPlayerImpactToM01Enemy(
 		bool bImpactValid,

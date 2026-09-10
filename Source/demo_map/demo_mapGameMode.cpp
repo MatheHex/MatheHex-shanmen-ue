@@ -2290,6 +2290,43 @@ Ademo_mapGameMode::CaptureM01EnemyAttackWeaponGuardContext()
 	return Context;
 }
 
+Fdemo_mapM01EnemyAttackSpiritShieldContext
+Ademo_mapGameMode::CaptureM01EnemyAttackSpiritShieldContext()
+{
+	Fdemo_mapM01EnemyAttackSpiritShieldContext Context;
+	if (SpiritShieldProductSession.IsEmpty()
+		|| SpiritShieldProductSession.IsClosed()
+		|| (SpiritShieldProductSession.IsActive()
+			&& SpiritShieldProductSession.GetAvailableCapacity() <= 0.0f))
+	{
+		return Context;
+	}
+
+	// A non-empty invalid state is carried as an enabled invalid context so the
+	// Coordinator fails closed instead of silently bypassing the shield owner.
+	Context.Session = &SpiritShieldProductSession;
+	if (!SpiritShieldProductSession.IsValid()
+		|| !SpiritShieldProductSession.IsActive()
+		|| !CombatRunFixedTimeline.TryCapture(Context.TimelineSample))
+	{
+		return Context;
+	}
+	if (Context.TimelineSample.GetCurrentTick()
+		< SpiritShieldProductSession.GetDeadlineTick())
+	{
+		return Context;
+	}
+
+	const Fdemo_mapShanmenSpiritShieldProductTimelineResult Closed =
+		SpiritShieldProductSession.ObserveTimeline(Context.TimelineSample);
+	if (Closed.IsSuccess() && SpiritShieldProductSession.IsClosed())
+	{
+		return Fdemo_mapM01EnemyAttackSpiritShieldContext();
+	}
+	Context.TimelineSample = Fdemo_mapShanmenCombatRunTimelineSample();
+	return Context;
+}
+
 void Ademo_mapGameMode::ObserveSwordRhythmWeaponGuardContribution(
 	const Fdemo_mapM01EnemyAttackExecutionResult& AttackResult)
 {
@@ -2350,11 +2387,14 @@ Ademo_mapGameMode::ExecuteM01EnemyBasicMeleeStrike(
 	}
 	Fdemo_mapM01EnemyAttackWeaponGuardContext GuardContext =
 		CaptureM01EnemyAttackWeaponGuardContext();
+	Fdemo_mapM01EnemyAttackSpiritShieldContext ShieldContext =
+		CaptureM01EnemyAttackSpiritShieldContext();
 	Result = CombatRunCoordinator.ExecuteM01EnemyBasicMeleeStrike(
 		SourceEnemy,
 		TargetPlayer,
 		RawDamage,
-		GuardContext.IsEnabled() ? &GuardContext : nullptr);
+		GuardContext.IsEnabled() ? &GuardContext : nullptr,
+		ShieldContext.IsEnabled() ? &ShieldContext : nullptr);
 	ObserveSwordRhythmWeaponGuardContribution(Result);
 	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
 	UE_LOG(
@@ -2387,13 +2427,16 @@ Ademo_mapGameMode::ExecuteM01EnemyMeleeDashContact(
 	}
 	Fdemo_mapM01EnemyAttackWeaponGuardContext GuardContext =
 		CaptureM01EnemyAttackWeaponGuardContext();
+	Fdemo_mapM01EnemyAttackSpiritShieldContext ShieldContext =
+		CaptureM01EnemyAttackSpiritShieldContext();
 	Result = CombatRunCoordinator.ExecuteM01EnemyMeleeDashContact(
 		SourceEnemy,
 		TargetPlayer,
 		SkillProfileId,
 		ActivationSerial,
 		RawDamage,
-		GuardContext.IsEnabled() ? &GuardContext : nullptr);
+		GuardContext.IsEnabled() ? &GuardContext : nullptr,
+		ShieldContext.IsEnabled() ? &ShieldContext : nullptr);
 	ObserveSwordRhythmWeaponGuardContribution(Result);
 	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
 	UE_LOG(
@@ -2429,6 +2472,8 @@ Ademo_mapGameMode::ExecuteM01EnemyRangedProjectileImpact(
 	}
 	Fdemo_mapM01EnemyAttackWeaponGuardContext GuardContext =
 		CaptureM01EnemyAttackWeaponGuardContext();
+	Fdemo_mapM01EnemyAttackSpiritShieldContext ShieldContext =
+		CaptureM01EnemyAttackSpiritShieldContext();
 	Result = CombatRunCoordinator.ExecuteM01EnemyRangedProjectileImpact(
 		SourceEnemy,
 		TargetPlayer,
@@ -2437,7 +2482,8 @@ Ademo_mapGameMode::ExecuteM01EnemyRangedProjectileImpact(
 		RawDamage,
 		ImpactLocation,
 		ImpactNormal,
-		GuardContext.IsEnabled() ? &GuardContext : nullptr);
+		GuardContext.IsEnabled() ? &GuardContext : nullptr,
+		ShieldContext.IsEnabled() ? &ShieldContext : nullptr);
 	ObserveSwordRhythmWeaponGuardContribution(Result);
 	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
 	UE_LOG(
@@ -2471,12 +2517,15 @@ Ademo_mapGameMode::ExecuteM01EnemyHeavySectorAttack(
 	}
 	Fdemo_mapM01EnemyAttackWeaponGuardContext GuardContext =
 		CaptureM01EnemyAttackWeaponGuardContext();
+	Fdemo_mapM01EnemyAttackSpiritShieldContext ShieldContext =
+		CaptureM01EnemyAttackSpiritShieldContext();
 	Result = CombatRunCoordinator.ExecuteM01EnemyHeavySectorAttack(
 		SourceEnemy,
 		TargetPlayer,
 		AttackSequence,
 		RawDamage,
-		GuardContext.IsEnabled() ? &GuardContext : nullptr);
+		GuardContext.IsEnabled() ? &GuardContext : nullptr,
+		ShieldContext.IsEnabled() ? &ShieldContext : nullptr);
 	ObserveSwordRhythmWeaponGuardContribution(Result);
 	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
 	UE_LOG(
@@ -2511,13 +2560,16 @@ Ademo_mapGameMode::ExecuteM01BossShapeAttack(
 	}
 	Fdemo_mapM01EnemyAttackWeaponGuardContext GuardContext =
 		CaptureM01EnemyAttackWeaponGuardContext();
+	Fdemo_mapM01EnemyAttackSpiritShieldContext ShieldContext =
+		CaptureM01EnemyAttackSpiritShieldContext();
 	Result = CombatRunCoordinator.ExecuteM01BossShapeAttack(
 		SourceBoss,
 		TargetPlayer,
 		Attack,
 		AttackSequence,
 		RawDamage,
-		GuardContext.IsEnabled() ? &GuardContext : nullptr);
+		GuardContext.IsEnabled() ? &GuardContext : nullptr,
+		ShieldContext.IsEnabled() ? &ShieldContext : nullptr);
 	ObserveSwordRhythmWeaponGuardContribution(Result);
 	if (Result.IsExecuted()
 		&& Result.Impact.GetFamily()
@@ -2607,6 +2659,8 @@ Ademo_mapGameMode::ExecuteM01BossVolleyProjectileImpact(
 	}
 	Fdemo_mapM01EnemyAttackWeaponGuardContext GuardContext =
 		CaptureM01EnemyAttackWeaponGuardContext();
+	Fdemo_mapM01EnemyAttackSpiritShieldContext ShieldContext =
+		CaptureM01EnemyAttackSpiritShieldContext();
 	Result = CombatRunCoordinator.ExecuteM01BossVolleyProjectileImpact(
 		SourceBoss,
 		TargetPlayer,
@@ -2615,7 +2669,8 @@ Ademo_mapGameMode::ExecuteM01BossVolleyProjectileImpact(
 		RawDamage,
 		ImpactLocation,
 		ImpactNormal,
-		GuardContext.IsEnabled() ? &GuardContext : nullptr);
+		GuardContext.IsEnabled() ? &GuardContext : nullptr,
+		ShieldContext.IsEnabled() ? &ShieldContext : nullptr);
 	ObserveSwordRhythmWeaponGuardContribution(Result);
 	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
 	UE_LOG(

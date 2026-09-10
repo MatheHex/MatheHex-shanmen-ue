@@ -101,6 +101,80 @@ enum class Edemo_mapShanmenSpiritShieldProductTimelineError : uint8
 	StateDesynchronized
 };
 
+enum class Edemo_mapShanmenSpiritShieldImpactDefenseStatus : uint8
+{
+	Rejected,
+	Composed
+};
+
+enum class Edemo_mapShanmenSpiritShieldImpactDefenseError : uint8
+{
+	None,
+	SessionNotActive,
+	InvalidImpact,
+	InvalidTimelineSample,
+	TimelineMismatch,
+	OutsideActiveWindow,
+	BaseDefenseInvalid,
+	ProjectionRejected,
+	LayerConflict,
+	SnapshotCompositionRejected
+};
+
+/** Append-only proof that the active shield projected into one Impact. */
+struct Fdemo_mapShanmenSpiritShieldImpactDefenseResult
+{
+	Edemo_mapShanmenSpiritShieldImpactDefenseStatus Status =
+		Edemo_mapShanmenSpiritShieldImpactDefenseStatus::Rejected;
+	Edemo_mapShanmenSpiritShieldImpactDefenseError Error =
+		Edemo_mapShanmenSpiritShieldImpactDefenseError::SessionNotActive;
+	FString Diagnostic;
+	FGuid ImpactId;
+	Fdemo_mapShanmenCombatRunTimelineSample TimelineSample;
+	FShanmenSpiritShieldProjectionReceipt Projection;
+	FShanmenDefenseSnapshot Defense;
+
+	bool IsValid() const;
+	bool IsSuccess() const;
+};
+
+enum class Edemo_mapShanmenSpiritShieldImpactCommitStatus : uint8
+{
+	Rejected,
+	NotTriggered,
+	Committed,
+	AlreadyCommitted
+};
+
+enum class Edemo_mapShanmenSpiritShieldImpactCommitError : uint8
+{
+	None,
+	SessionNotActive,
+	InvalidDefenseProof,
+	ImpactMismatch,
+	ResolutionRejected,
+	CapacityRejected,
+	DeliveryRejected,
+	StateDesynchronized
+};
+
+/** Atomic product proof for shield capacity and the caller's Impact delivery. */
+struct Fdemo_mapShanmenSpiritShieldImpactCommitResult
+{
+	Edemo_mapShanmenSpiritShieldImpactCommitStatus Status =
+		Edemo_mapShanmenSpiritShieldImpactCommitStatus::Rejected;
+	Edemo_mapShanmenSpiritShieldImpactCommitError Error =
+		Edemo_mapShanmenSpiritShieldImpactCommitError::SessionNotActive;
+	FString Diagnostic;
+	Fdemo_mapShanmenSpiritShieldImpactDefenseResult Defense;
+	FShanmenSpiritShieldCapacityCommitResult Capacity;
+	bool bDeliveryCommitted = false;
+
+	bool IsValid() const;
+	bool IsSuccess() const;
+	bool DidConsumeCapacity() const;
+};
+
 /** Product interpretation of one fixed-Run-timeline sample. */
 struct Fdemo_mapShanmenSpiritShieldProductTimelineResult
 {
@@ -136,6 +210,19 @@ public:
 
 	Fdemo_mapShanmenSpiritShieldProductTimelineResult ObserveTimeline(
 		const Fdemo_mapShanmenCombatRunTimelineSample& TimelineSample);
+	Fdemo_mapShanmenSpiritShieldImpactDefenseResult TryComposeImpactDefense(
+		const FGuid& ImpactId,
+		const Fdemo_mapShanmenCombatRunTimelineSample& TimelineSample,
+		const FShanmenDefenseSnapshot& BaseDefense) const;
+	/**
+	 * Commits capacity on a candidate Session, invokes the caller-owned delivery,
+	 * and publishes the candidate only after both operations succeed.
+	 */
+	Fdemo_mapShanmenSpiritShieldImpactCommitResult CommitImpact(
+		const Fdemo_mapShanmenSpiritShieldImpactDefenseResult& Defense,
+		const FShanmenImpactRequest& Request,
+		const FShanmenImpactResult& Result,
+		TFunctionRef<bool()> CommitDelivery);
 	bool TryReleaseOwner(FString& OutDiagnostic);
 	bool Reset();
 
@@ -148,7 +235,6 @@ public:
 		return Reservation;
 	}
 	const FShanmenSpiritShieldSession& GetSession() const { return Session; }
-	FShanmenSpiritShieldSession& GetSession() { return Session; }
 	const Fdemo_mapShanmenSharedSpiritEnergyTransactionReceipt&
 	GetSharedResourceReceipt() const
 	{

@@ -532,6 +532,8 @@ private:
 	void PublishCurrentSwordRhythmPresentation(const FGuid& ActivationId);
 	Fdemo_mapM01EnemyAttackWeaponGuardContext
 	CaptureM01EnemyAttackWeaponGuardContext();
+	Fdemo_mapM01EnemyAttackSpiritShieldContext
+	CaptureM01EnemyAttackSpiritShieldContext();
 	void PrepareV2CNavigation();
 	void SpawnExit(APawn* PlayerPawn, const FVector& Forward);
 	void SpawnEnemy(APawn* PlayerPawn, const FVector& Forward, const FVector& Right);

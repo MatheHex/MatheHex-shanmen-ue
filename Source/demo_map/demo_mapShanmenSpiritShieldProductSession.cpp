@@ -4,6 +4,7 @@
 #include "ShanmenCombatRuntimeTags.h"
 #include "ShanmenCombatTags.h"
 #include "ShanmenDeterministicId.h"
+#include "ShanmenVitalityAuthority.h"
 #include "demo_mapCombatRunCoordinator.h"
 
 namespace
@@ -33,6 +34,96 @@ namespace
 		Fdemo_mapShanmenSpiritShieldProductTimelineResult Result;
 		Result.Error = Error;
 		Result.Diagnostic = Diagnostic ? Diagnostic : TEXT("Rejected");
+		return Result;
+	}
+
+	bool DefenseLayersMatch(
+		const FShanmenDefenseLayer& Left,
+		const FShanmenDefenseLayer& Right)
+	{
+		return Left.LayerId == Right.LayerId
+			&& Left.RuleId == Right.RuleId
+			&& Left.SourceInstanceId == Right.SourceInstanceId
+			&& Left.Operation == Right.Operation
+			&& Left.Order == Right.Order
+			&& Left.Magnitude == Right.Magnitude
+			&& Left.bRequiresCommitOnTrigger
+				== Right.bRequiresCommitOnTrigger
+			&& Left.LayerTags == Right.LayerTags
+			&& Left.RequiredDamageTags == Right.RequiredDamageTags
+			&& Left.BlockedDamageTags == Right.BlockedDamageTags
+			&& Left.RequiredSourceTags == Right.RequiredSourceTags
+			&& Left.BlockedSourceTags == Right.BlockedSourceTags
+			&& Left.RequiredTargetTags == Right.RequiredTargetTags
+			&& Left.BlockedTargetTags == Right.BlockedTargetTags;
+	}
+
+	bool ContainsExactProjectionLayer(
+		const FShanmenDefenseSnapshot& Defense,
+		const FShanmenSpiritShieldProjectionReceipt& Projection)
+	{
+		if (!Projection.IsValid())
+		{
+			return false;
+		}
+		const FShanmenDefenseLayer& Expected = Projection.GetLayer();
+		int32 SourceCount = 0;
+		int32 ExactCount = 0;
+		for (const FShanmenDefenseLayer& Layer : Defense.Layers)
+		{
+			if (Layer.SourceInstanceId == Expected.SourceInstanceId)
+			{
+				++SourceCount;
+				if (DefenseLayersMatch(Layer, Expected))
+				{
+					++ExactCount;
+				}
+			}
+		}
+		return SourceCount == 1 && ExactCount == 1;
+	}
+
+	bool HasTriggeredProjectionLayer(
+		const FShanmenImpactResult& Result,
+		const FShanmenSpiritShieldProjectionReceipt& Projection)
+	{
+		const FShanmenDefenseLayer& Expected = Projection.GetLayer();
+		return Result.TriggeredLayers.ContainsByPredicate(
+			[&Expected](const FShanmenDefenseLayerResult& Layer)
+			{
+				return Layer.LayerId == Expected.LayerId
+					|| Layer.SourceInstanceId == Expected.SourceInstanceId;
+			});
+	}
+
+	Fdemo_mapShanmenSpiritShieldImpactDefenseResult RejectImpactDefense(
+		Edemo_mapShanmenSpiritShieldImpactDefenseError Error,
+		const TCHAR* Diagnostic,
+		const FGuid& ImpactId = FGuid(),
+		const Fdemo_mapShanmenCombatRunTimelineSample& TimelineSample =
+			Fdemo_mapShanmenCombatRunTimelineSample())
+	{
+		Fdemo_mapShanmenSpiritShieldImpactDefenseResult Result;
+		Result.Error = Error;
+		Result.Diagnostic = Diagnostic ? Diagnostic : TEXT("Rejected");
+		Result.ImpactId = ImpactId;
+		Result.TimelineSample = TimelineSample;
+		return Result;
+	}
+
+	Fdemo_mapShanmenSpiritShieldImpactCommitResult RejectImpactCommit(
+		Edemo_mapShanmenSpiritShieldImpactCommitError Error,
+		const TCHAR* Diagnostic,
+		const Fdemo_mapShanmenSpiritShieldImpactDefenseResult& Defense =
+			Fdemo_mapShanmenSpiritShieldImpactDefenseResult(),
+		const FShanmenSpiritShieldCapacityCommitResult& Capacity =
+			FShanmenSpiritShieldCapacityCommitResult())
+	{
+		Fdemo_mapShanmenSpiritShieldImpactCommitResult Result;
+		Result.Error = Error;
+		Result.Diagnostic = Diagnostic ? Diagnostic : TEXT("Rejected");
+		Result.Defense = Defense;
+		Result.Capacity = Capacity;
 		return Result;
 	}
 }
@@ -205,6 +296,76 @@ bool Fdemo_mapShanmenSpiritShieldProductTimelineResult::IsSuccess() const
 	return IsValid()
 		&& Status
 			!= Edemo_mapShanmenSpiritShieldProductTimelineStatus::Rejected;
+}
+
+bool Fdemo_mapShanmenSpiritShieldImpactDefenseResult::IsValid() const
+{
+	if (Diagnostic.IsEmpty())
+	{
+		return false;
+	}
+	if (Status == Edemo_mapShanmenSpiritShieldImpactDefenseStatus::Rejected)
+	{
+		return Error != Edemo_mapShanmenSpiritShieldImpactDefenseError::None;
+	}
+	return Status == Edemo_mapShanmenSpiritShieldImpactDefenseStatus::Composed
+		&& Error == Edemo_mapShanmenSpiritShieldImpactDefenseError::None
+		&& ImpactId.IsValid()
+		&& TimelineSample.IsValid()
+		&& Projection.IsValid()
+		&& Defense.IsValid()
+		&& ContainsExactProjectionLayer(Defense, Projection);
+}
+
+bool Fdemo_mapShanmenSpiritShieldImpactDefenseResult::IsSuccess() const
+{
+	return IsValid()
+		&& Status == Edemo_mapShanmenSpiritShieldImpactDefenseStatus::Composed;
+}
+
+bool Fdemo_mapShanmenSpiritShieldImpactCommitResult::IsValid() const
+{
+	if (Diagnostic.IsEmpty())
+	{
+		return false;
+	}
+	if (Status == Edemo_mapShanmenSpiritShieldImpactCommitStatus::Rejected)
+	{
+		return Error != Edemo_mapShanmenSpiritShieldImpactCommitError::None
+			&& !bDeliveryCommitted;
+	}
+	if (Error != Edemo_mapShanmenSpiritShieldImpactCommitError::None
+		|| !Defense.IsSuccess() || !bDeliveryCommitted)
+	{
+		return false;
+	}
+	switch (Status)
+	{
+	case Edemo_mapShanmenSpiritShieldImpactCommitStatus::NotTriggered:
+		return !Capacity.IsValid();
+	case Edemo_mapShanmenSpiritShieldImpactCommitStatus::Committed:
+		return Capacity.IsSuccess()
+			&& Capacity.Status
+				== EShanmenSpiritShieldCapacityCommitStatus::Committed;
+	case Edemo_mapShanmenSpiritShieldImpactCommitStatus::AlreadyCommitted:
+		return Capacity.IsSuccess()
+			&& Capacity.Status
+				== EShanmenSpiritShieldCapacityCommitStatus::AlreadyCommitted;
+	default:
+		return false;
+	}
+}
+
+bool Fdemo_mapShanmenSpiritShieldImpactCommitResult::IsSuccess() const
+{
+	return IsValid()
+		&& Status != Edemo_mapShanmenSpiritShieldImpactCommitStatus::Rejected;
+}
+
+bool Fdemo_mapShanmenSpiritShieldImpactCommitResult::DidConsumeCapacity() const
+{
+	return IsSuccess()
+		&& Status == Edemo_mapShanmenSpiritShieldImpactCommitStatus::Committed;
 }
 
 Fdemo_mapShanmenSpiritShieldProductActivationResult
@@ -452,6 +613,226 @@ Fdemo_mapShanmenSpiritShieldProductSession::ObserveTimeline(
 				StateDesynchronized,
 			TEXT("Spirit Shield deadline closed nested state inconsistently."));
 	}
+	return Result;
+}
+
+Fdemo_mapShanmenSpiritShieldImpactDefenseResult
+Fdemo_mapShanmenSpiritShieldProductSession::TryComposeImpactDefense(
+	const FGuid& ImpactId,
+	const Fdemo_mapShanmenCombatRunTimelineSample& TimelineSample,
+	const FShanmenDefenseSnapshot& BaseDefense) const
+{
+	if (!IsValid() || !IsActive() || GetAvailableCapacity() <= 0.0f)
+	{
+		return RejectImpactDefense(
+			Edemo_mapShanmenSpiritShieldImpactDefenseError::SessionNotActive,
+			TEXT("Spirit Shield impact defense requires active capacity."),
+			ImpactId,
+			TimelineSample);
+	}
+	if (!ImpactId.IsValid())
+	{
+		return RejectImpactDefense(
+			Edemo_mapShanmenSpiritShieldImpactDefenseError::InvalidImpact,
+			TEXT("Spirit Shield impact defense requires one stable Impact id."),
+			ImpactId,
+			TimelineSample);
+	}
+	if (!TimelineSample.IsValid())
+	{
+		return RejectImpactDefense(
+			Edemo_mapShanmenSpiritShieldImpactDefenseError::
+				InvalidTimelineSample,
+			TEXT("Spirit Shield impact defense requires a valid Run timeline sample."),
+			ImpactId,
+			TimelineSample);
+	}
+	if (TimelineSample.GetTimelineId()
+		!= Session.GetSchedule().GetTimelineId())
+	{
+		return RejectImpactDefense(
+			Edemo_mapShanmenSpiritShieldImpactDefenseError::TimelineMismatch,
+			TEXT("Spirit Shield impact defense rejected a foreign Run timeline."),
+			ImpactId,
+			TimelineSample);
+	}
+	if (TimelineSample.GetCurrentTick()
+			< Session.GetSchedule().GetStartTick()
+		|| TimelineSample.GetCurrentTick() >= GetDeadlineTick())
+	{
+		return RejectImpactDefense(
+			Edemo_mapShanmenSpiritShieldImpactDefenseError::OutsideActiveWindow,
+			TEXT("Spirit Shield impact defense is outside its fixed active window."),
+			ImpactId,
+			TimelineSample);
+	}
+	if (!BaseDefense.IsValid())
+	{
+		return RejectImpactDefense(
+			Edemo_mapShanmenSpiritShieldImpactDefenseError::BaseDefenseInvalid,
+			TEXT("Spirit Shield cannot extend an invalid base defense snapshot."),
+			ImpactId,
+			TimelineSample);
+	}
+
+	FShanmenSpiritShieldSession SessionCandidate = Session;
+	FShanmenSpiritShieldProjectionReceipt Projection;
+	if (!SessionCandidate.TryProjectDefenseLayer(Projection)
+		|| !Projection.IsValid())
+	{
+		return RejectImpactDefense(
+			Edemo_mapShanmenSpiritShieldImpactDefenseError::ProjectionRejected,
+			TEXT("Active Spirit Shield rejected capacity projection."),
+			ImpactId,
+			TimelineSample);
+	}
+	const FShanmenDefenseLayer& Layer = Projection.GetLayer();
+	if (BaseDefense.Layers.ContainsByPredicate(
+			[&Layer](const FShanmenDefenseLayer& Existing)
+			{
+				return Existing.LayerId == Layer.LayerId
+					|| Existing.SourceInstanceId == Layer.SourceInstanceId;
+			}))
+	{
+		return RejectImpactDefense(
+			Edemo_mapShanmenSpiritShieldImpactDefenseError::LayerConflict,
+			TEXT("Base defense already contains the active Spirit Shield identity."),
+			ImpactId,
+			TimelineSample);
+	}
+
+	FShanmenDefenseSnapshot Defense = BaseDefense;
+	Defense.Layers.Add(Layer);
+	if (!Defense.IsValid() || !ContainsExactProjectionLayer(Defense, Projection))
+	{
+		return RejectImpactDefense(
+			Edemo_mapShanmenSpiritShieldImpactDefenseError::
+				SnapshotCompositionRejected,
+			TEXT("Spirit Shield projection produced an invalid defense snapshot."),
+			ImpactId,
+			TimelineSample);
+	}
+
+	Fdemo_mapShanmenSpiritShieldImpactDefenseResult Result;
+	Result.Status = Edemo_mapShanmenSpiritShieldImpactDefenseStatus::Composed;
+	Result.Error = Edemo_mapShanmenSpiritShieldImpactDefenseError::None;
+	Result.Diagnostic =
+		TEXT("Active Spirit Shield appended one capacity-backed defense layer.");
+	Result.ImpactId = ImpactId;
+	Result.TimelineSample = TimelineSample;
+	Result.Projection = Projection;
+	Result.Defense = MoveTemp(Defense);
+	return Result;
+}
+
+Fdemo_mapShanmenSpiritShieldImpactCommitResult
+Fdemo_mapShanmenSpiritShieldProductSession::CommitImpact(
+	const Fdemo_mapShanmenSpiritShieldImpactDefenseResult& Defense,
+	const FShanmenImpactRequest& Request,
+	const FShanmenImpactResult& Resolution,
+	TFunctionRef<bool()> CommitDelivery)
+{
+	if (!IsValid() || !IsActive())
+	{
+		return RejectImpactCommit(
+			Edemo_mapShanmenSpiritShieldImpactCommitError::SessionNotActive,
+			TEXT("Spirit Shield impact commit requires an active Session."),
+			Defense);
+	}
+	if (!Defense.IsSuccess())
+	{
+		return RejectImpactCommit(
+			Edemo_mapShanmenSpiritShieldImpactCommitError::InvalidDefenseProof,
+			TEXT("Spirit Shield impact commit requires its exact composition proof."),
+			Defense);
+	}
+	if (Defense.ImpactId != Request.ImpactId
+		|| !Request.IsValid()
+		|| !ContainsExactProjectionLayer(Request.Defense, Defense.Projection))
+	{
+		return RejectImpactCommit(
+			Edemo_mapShanmenSpiritShieldImpactCommitError::ImpactMismatch,
+			TEXT("Spirit Shield defense proof does not match the resolved Impact."),
+			Defense);
+	}
+
+	FShanmenSpiritShieldCapacityCommitCommand Command;
+	if (!FShanmenSpiritShieldCapacityCommitCommand::TryCreate(
+			Defense.Projection, Request, Resolution, Command))
+	{
+		FShanmenVitalityCommitCommand VitalityCommand;
+		const bool bCanonicalUntriggered =
+			FShanmenVitalityCommitCommand::TryCreate(
+				Request, Resolution, VitalityCommand)
+			&& !HasTriggeredProjectionLayer(Resolution, Defense.Projection);
+		if (!bCanonicalUntriggered)
+		{
+			return RejectImpactCommit(
+				Edemo_mapShanmenSpiritShieldImpactCommitError::ResolutionRejected,
+				TEXT("Resolved Impact does not carry an exact Spirit Shield capacity proof."),
+				Defense);
+		}
+		if (!CommitDelivery())
+		{
+			return RejectImpactCommit(
+				Edemo_mapShanmenSpiritShieldImpactCommitError::DeliveryRejected,
+				TEXT("Untriggered Spirit Shield Impact delivery was rejected."),
+				Defense);
+		}
+
+		Fdemo_mapShanmenSpiritShieldImpactCommitResult Result;
+		Result.Status =
+			Edemo_mapShanmenSpiritShieldImpactCommitStatus::NotTriggered;
+		Result.Error = Edemo_mapShanmenSpiritShieldImpactCommitError::None;
+		Result.Diagnostic =
+			TEXT("Earlier defense prevented the Impact without consuming shield capacity.");
+		Result.Defense = Defense;
+		Result.bDeliveryCommitted = true;
+		return Result;
+	}
+
+	Fdemo_mapShanmenSpiritShieldProductSession Candidate = *this;
+	const FShanmenSpiritShieldCapacityCommitResult Capacity =
+		Candidate.Session.CommitCapacity(Command);
+	if (!Capacity.IsSuccess())
+	{
+		return RejectImpactCommit(
+			Edemo_mapShanmenSpiritShieldImpactCommitError::CapacityRejected,
+			TEXT("Spirit Shield capacity authority rejected the resolved Impact."),
+			Defense,
+			Capacity);
+	}
+	if (!Candidate.IsValid())
+	{
+		return RejectImpactCommit(
+			Edemo_mapShanmenSpiritShieldImpactCommitError::StateDesynchronized,
+			TEXT("Spirit Shield candidate state desynchronized after capacity commit."),
+			Defense,
+			Capacity);
+	}
+	if (!CommitDelivery())
+	{
+		return RejectImpactCommit(
+			Edemo_mapShanmenSpiritShieldImpactCommitError::DeliveryRejected,
+			TEXT("Impact delivery failed; staged shield capacity was discarded."),
+			Defense,
+			Capacity);
+	}
+
+	*this = MoveTemp(Candidate);
+	Fdemo_mapShanmenSpiritShieldImpactCommitResult Result;
+	Result.Status = Capacity.Status
+			== EShanmenSpiritShieldCapacityCommitStatus::Committed
+		? Edemo_mapShanmenSpiritShieldImpactCommitStatus::Committed
+		: Edemo_mapShanmenSpiritShieldImpactCommitStatus::AlreadyCommitted;
+	Result.Error = Edemo_mapShanmenSpiritShieldImpactCommitError::None;
+	Result.Diagnostic = Capacity.Status
+			== EShanmenSpiritShieldCapacityCommitStatus::Committed
+		? TEXT("Spirit Shield capacity and Impact delivery committed atomically.")
+		: TEXT("Spirit Shield capacity and Impact delivery replayed idempotently.");
+	Result.Defense = Defense;
+	Result.Capacity = Capacity;
+	Result.bDeliveryCommitted = true;
 	return Result;
 }
 

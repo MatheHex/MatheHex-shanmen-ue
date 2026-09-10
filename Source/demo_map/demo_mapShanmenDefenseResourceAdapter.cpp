@@ -100,12 +100,24 @@ namespace
 			|| ItemInstanceId == Correlation.BackpackItemInstanceId;
 	}
 
-	bool HasResourceBackedDefense(const FShanmenImpactRequest& Request)
+	bool IsExternallyCoordinated(
+		const FGuid& LayerId,
+		const TSet<FGuid>* ExternallyCoordinatedLayerIds)
+	{
+		return ExternallyCoordinatedLayerIds
+			&& ExternallyCoordinatedLayerIds->Contains(LayerId);
+	}
+
+	bool HasResourceBackedDefense(
+		const FShanmenImpactRequest& Request,
+		const TSet<FGuid>* ExternallyCoordinatedLayerIds)
 	{
 		return Request.Defense.Layers.ContainsByPredicate(
-			[](const FShanmenDefenseLayer& Layer)
+			[ExternallyCoordinatedLayerIds](const FShanmenDefenseLayer& Layer)
 			{
-				return Layer.bRequiresCommitOnTrigger;
+				return Layer.bRequiresCommitOnTrigger
+					&& !IsExternallyCoordinated(
+						Layer.LayerId, ExternallyCoordinatedLayerIds);
 			});
 	}
 
@@ -956,7 +968,8 @@ bool Fdemo_mapShanmenDefenseResourceAdapter::BuildIntentRequest(
 	const FShanmenContentStamp& Content,
 	FShanmenItemRunResourceIntentRequest& OutRequest,
 	FShanmenVitalityCommitCommand& OutVitalityCommand,
-	FString& OutDiagnostic)
+	FString& OutDiagnostic,
+	const TSet<FGuid>* ExternallyCoordinatedLayerIds)
 {
 	OutRequest = FShanmenItemRunResourceIntentRequest();
 	OutVitalityCommand = FShanmenVitalityCommitCommand();
@@ -977,9 +990,32 @@ bool Fdemo_mapShanmenDefenseResourceAdapter::BuildIntentRequest(
 	}
 
 	TMap<FGuid, const FShanmenDefenseLayer*> ResourceInputs;
+	if (ExternallyCoordinatedLayerIds)
+	{
+		for (const FGuid& LayerId : *ExternallyCoordinatedLayerIds)
+		{
+			const FShanmenDefenseLayer* External =
+				Request.Defense.Layers.FindByPredicate(
+					[&LayerId](const FShanmenDefenseLayer& Layer)
+					{
+						return Layer.LayerId == LayerId;
+					});
+			if (!LayerId.IsValid() || !External
+				|| !External->bRequiresCommitOnTrigger
+				|| IsPreparedEquipment(
+					Correlation, External->SourceInstanceId))
+			{
+				OutDiagnostic =
+					TEXT("An external defense exclusion is not a valid non-item authority layer.");
+				return false;
+			}
+		}
+	}
 	for (const FShanmenDefenseLayer& Layer : Request.Defense.Layers)
 	{
-		if (!Layer.bRequiresCommitOnTrigger)
+		if (!Layer.bRequiresCommitOnTrigger
+			|| IsExternallyCoordinated(
+				Layer.LayerId, ExternallyCoordinatedLayerIds))
 		{
 			continue;
 		}
@@ -1003,7 +1039,9 @@ bool Fdemo_mapShanmenDefenseResourceAdapter::BuildIntentRequest(
 	TSet<FGuid> TriggeredIds;
 	for (const FShanmenDefenseLayerResult& Layer : Impact.TriggeredLayers)
 	{
-		if (!Layer.bRequiresCommit)
+		if (!Layer.bRequiresCommit
+			|| IsExternallyCoordinated(
+				Layer.LayerId, ExternallyCoordinatedLayerIds))
 		{
 			continue;
 		}
@@ -1026,6 +1064,8 @@ bool Fdemo_mapShanmenDefenseResourceAdapter::BuildIntentRequest(
 	for (const FShanmenDefenseLayer& Layer : Request.Defense.Layers)
 	{
 		if (!Layer.bRequiresCommitOnTrigger
+			|| IsExternallyCoordinated(
+				Layer.LayerId, ExternallyCoordinatedLayerIds)
 			|| TriggeredIds.Contains(Layer.LayerId))
 		{
 			continue;
@@ -1110,7 +1150,8 @@ Fdemo_mapShanmenDefenseResourceAdapter::CoordinateImpact(
 	Udemo_mapShanmenItemAuthoritySubsystem& Authority,
 	Udemo_mapPlayerHealthComponent& VitalityHost,
 	const FShanmenImpactRequest& Request,
-	const FShanmenImpactResult& Impact)
+	const FShanmenImpactResult& Impact,
+	const TSet<FGuid>* ExternallyCoordinatedLayerIds)
 {
 	Fdemo_mapShanmenDefenseResourceCoordinationResult Result;
 	auto Reject = [&Result](
@@ -1121,7 +1162,7 @@ Fdemo_mapShanmenDefenseResourceAdapter::CoordinateImpact(
 		Result.Diagnostic = Diagnostic;
 		return Result;
 	};
-	if (!HasResourceBackedDefense(Request))
+	if (!HasResourceBackedDefense(Request, ExternallyCoordinatedLayerIds))
 	{
 		Result.Status =
 			Edemo_mapShanmenDefenseResourceCoordinationStatus::NoResourceIntent;
@@ -1163,7 +1204,8 @@ Fdemo_mapShanmenDefenseResourceAdapter::CoordinateImpact(
 	if (!Authority.TryCaptureSnapshot(Snapshot)
 		|| !BuildIntentRequest(
 			Request, Impact, Correlation, Snapshot.Content,
-			Result.PrepareRequest, VitalityCommand, Result.Diagnostic))
+			Result.PrepareRequest, VitalityCommand, Result.Diagnostic,
+			ExternallyCoordinatedLayerIds))
 	{
 		Result.Status =
 			Edemo_mapShanmenDefenseResourceCoordinationStatus::RequestInvalid;

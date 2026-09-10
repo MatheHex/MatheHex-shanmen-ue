@@ -145,7 +145,8 @@ struct Fdemo_mapShanmenDefenseResourceAdapter
 		const FShanmenContentStamp& Content,
 		FShanmenItemRunResourceIntentRequest& OutRequest,
 		FShanmenVitalityCommitCommand& OutVitalityCommand,
-		FString& OutDiagnostic);
+		FString& OutDiagnostic,
+		const TSet<FGuid>* ExternallyCoordinatedLayerIds = nullptr);
 
 	static bool BuildFinalizeRequest(
 		const FShanmenItemRunResourceIntentRequest& PrepareRequest,
@@ -164,7 +165,8 @@ struct Fdemo_mapShanmenDefenseResourceAdapter
 		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
 		Udemo_mapPlayerHealthComponent& VitalityHost,
 		const FShanmenImpactRequest& Request,
-		const FShanmenImpactResult& Impact);
+		const FShanmenImpactResult& Impact,
+		const TSet<FGuid>* ExternallyCoordinatedLayerIds = nullptr);
 
 	/** Completes the unique pending intent reconstructed from durable Items state. */
 	static Fdemo_mapShanmenDefenseResourceCoordinationResult RecoverPendingIntent(

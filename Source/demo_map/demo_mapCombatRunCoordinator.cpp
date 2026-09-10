@@ -1423,6 +1423,16 @@ Fdemo_mapCombatRunCoordinator::DeliverM01EnemyAttackImpactToPlayer(
 	const Fdemo_mapM01EnemyAttackImpactReceipt& Impact,
 	AActor* SourceEnemy)
 {
+	return DeliverM01EnemyAttackImpactToPlayerInternal(
+		Impact, SourceEnemy, nullptr);
+}
+
+Fdemo_mapCombatImpactDeliveryResult
+Fdemo_mapCombatRunCoordinator::DeliverM01EnemyAttackImpactToPlayerInternal(
+	const Fdemo_mapM01EnemyAttackImpactReceipt& Impact,
+	AActor* SourceEnemy,
+	const TSet<FGuid>* ExternallyCoordinatedLayerIds)
+{
 	Fdemo_mapCombatImpactDeliveryResult Delivery;
 	if (!IsReady())
 	{
@@ -1483,9 +1493,13 @@ Fdemo_mapCombatRunCoordinator::DeliverM01EnemyAttackImpactToPlayer(
 	const FShanmenImpactResult& ImpactResult = Impact.GetResult();
 	const bool bRequiresResourceCoordination =
 		Request.Defense.Layers.ContainsByPredicate(
-			[](const FShanmenDefenseLayer& Layer)
+			[ExternallyCoordinatedLayerIds](
+				const FShanmenDefenseLayer& Layer)
 			{
-				return Layer.bRequiresCommitOnTrigger;
+				return Layer.bRequiresCommitOnTrigger
+					&& (!ExternallyCoordinatedLayerIds
+						|| !ExternallyCoordinatedLayerIds->Contains(
+							Layer.LayerId));
 			});
 	if (bRequiresResourceCoordination)
 	{
@@ -1505,7 +1519,8 @@ Fdemo_mapCombatRunCoordinator::DeliverM01EnemyAttackImpactToPlayer(
 				*Authority,
 				*BoundPlayerHealth,
 				Request,
-				ImpactResult);
+				ImpactResult,
+				ExternallyCoordinatedLayerIds);
 		Delivery.CommitResult = Coordination.VitalityCommand;
 		Delivery.Error = Coordination.IsSuccess()
 			? Edemo_mapCombatImpactDeliveryError::None
@@ -1535,7 +1550,8 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyBasicMeleeStrike(
 	AActor* SourceEnemy,
 	APawn* TargetPlayer,
 	float RawDamage,
-	const Fdemo_mapM01EnemyAttackWeaponGuardContext* WeaponGuardContext)
+	const Fdemo_mapM01EnemyAttackWeaponGuardContext* WeaponGuardContext,
+	const Fdemo_mapM01EnemyAttackSpiritShieldContext* SpiritShieldContext)
 {
 	return ExecuteM01EnemyAttack(
 		SourceEnemy,
@@ -1546,7 +1562,8 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyBasicMeleeStrike(
 		0,
 		FVector::ZeroVector,
 		FVector::ZeroVector,
-		WeaponGuardContext);
+		WeaponGuardContext,
+		SpiritShieldContext);
 }
 
 Fdemo_mapM01EnemyAttackExecutionResult
@@ -1556,7 +1573,8 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyMeleeDashContact(
 	FName SkillProfileId,
 	uint32 ActivationSerial,
 	float RawDamage,
-	const Fdemo_mapM01EnemyAttackWeaponGuardContext* WeaponGuardContext)
+	const Fdemo_mapM01EnemyAttackWeaponGuardContext* WeaponGuardContext,
+	const Fdemo_mapM01EnemyAttackSpiritShieldContext* SpiritShieldContext)
 {
 	Fdemo_mapM01EnemyAttackExecutionResult ProductResult;
 	Edemo_mapM01EnemyAttackFamily Family =
@@ -1582,7 +1600,8 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyMeleeDashContact(
 		0,
 		FVector::ZeroVector,
 		FVector::ZeroVector,
-		WeaponGuardContext);
+		WeaponGuardContext,
+		SpiritShieldContext);
 }
 
 Fdemo_mapM01EnemyAttackExecutionResult
@@ -1594,7 +1613,8 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyRangedProjectileImpact(
 	float RawDamage,
 	const FVector& ImpactLocation,
 	const FVector& ImpactNormal,
-	const Fdemo_mapM01EnemyAttackWeaponGuardContext* WeaponGuardContext)
+	const Fdemo_mapM01EnemyAttackWeaponGuardContext* WeaponGuardContext,
+	const Fdemo_mapM01EnemyAttackSpiritShieldContext* SpiritShieldContext)
 {
 	Fdemo_mapM01EnemyAttackExecutionResult ProductResult;
 	Edemo_mapM01EnemyAttackFamily Family =
@@ -1626,7 +1646,8 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyRangedProjectileImpact(
 		0,
 		ImpactLocation,
 		ImpactNormal,
-		WeaponGuardContext);
+		WeaponGuardContext,
+		SpiritShieldContext);
 }
 
 Fdemo_mapM01EnemyAttackExecutionResult
@@ -1635,7 +1656,8 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyHeavySectorAttack(
 	APawn* TargetPlayer,
 	uint64 AttackSequence,
 	float RawDamage,
-	const Fdemo_mapM01EnemyAttackWeaponGuardContext* WeaponGuardContext)
+	const Fdemo_mapM01EnemyAttackWeaponGuardContext* WeaponGuardContext,
+	const Fdemo_mapM01EnemyAttackSpiritShieldContext* SpiritShieldContext)
 {
 	Fdemo_mapM01EnemyAttackExecutionResult ProductResult;
 	if (AttackSequence == 0)
@@ -1659,7 +1681,8 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyHeavySectorAttack(
 		0,
 		FVector::ZeroVector,
 		FVector::ZeroVector,
-		WeaponGuardContext);
+		WeaponGuardContext,
+		SpiritShieldContext);
 }
 
 Fdemo_mapM01EnemyAttackExecutionResult
@@ -1669,7 +1692,8 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01BossShapeAttack(
 	Edemo_mapM01BossAttack Attack,
 	uint64 AttackSequence,
 	float RawDamage,
-	const Fdemo_mapM01EnemyAttackWeaponGuardContext* WeaponGuardContext)
+	const Fdemo_mapM01EnemyAttackWeaponGuardContext* WeaponGuardContext,
+	const Fdemo_mapM01EnemyAttackSpiritShieldContext* SpiritShieldContext)
 {
 	Fdemo_mapM01EnemyAttackExecutionResult ProductResult;
 	if (AttackSequence == 0)
@@ -1711,7 +1735,8 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01BossShapeAttack(
 		0,
 		FVector::ZeroVector,
 		FVector::ZeroVector,
-		WeaponGuardContext);
+		WeaponGuardContext,
+		SpiritShieldContext);
 }
 
 Fdemo_mapM01EnemyAttackExecutionResult
@@ -1723,7 +1748,8 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01BossVolleyProjectileImpact(
 	float RawDamage,
 	const FVector& ImpactLocation,
 	const FVector& ImpactNormal,
-	const Fdemo_mapM01EnemyAttackWeaponGuardContext* WeaponGuardContext)
+	const Fdemo_mapM01EnemyAttackWeaponGuardContext* WeaponGuardContext,
+	const Fdemo_mapM01EnemyAttackSpiritShieldContext* SpiritShieldContext)
 {
 	Fdemo_mapM01EnemyAttackExecutionResult ProductResult;
 	if (AttackSequence == 0)
@@ -1760,7 +1786,8 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01BossVolleyProjectileImpact(
 		ProjectileOrdinal,
 		ImpactLocation,
 		ImpactNormal,
-		WeaponGuardContext);
+		WeaponGuardContext,
+		SpiritShieldContext);
 }
 
 Fdemo_mapM01EnemyAttackExecutionResult
@@ -1773,7 +1800,8 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyAttack(
 	int32 RequestedHitOrdinal,
 	const FVector& RequestedHitLocation,
 	const FVector& RequestedHitNormal,
-	const Fdemo_mapM01EnemyAttackWeaponGuardContext* WeaponGuardContext)
+	const Fdemo_mapM01EnemyAttackWeaponGuardContext* WeaponGuardContext,
+	const Fdemo_mapM01EnemyAttackSpiritShieldContext* SpiritShieldContext)
 {
 	Fdemo_mapM01EnemyAttackExecutionResult ProductResult;
 	FM01EnemyAttackSpec Spec;
@@ -1789,6 +1817,14 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyAttack(
 		ProductResult.Error =
 			Edemo_mapM01EnemyAttackExecutionError::
 				WeaponGuardDefensePreparationFailed;
+		return ProductResult;
+	}
+	if (SpiritShieldContext && !SpiritShieldContext->IsValid())
+	{
+		ProductResult.bSpiritShieldInspected = true;
+		ProductResult.Error =
+			Edemo_mapM01EnemyAttackExecutionError::
+				SpiritShieldDefensePreparationFailed;
 		return ProductResult;
 	}
 	if (RequestedHitOrdinal < 0
@@ -2078,6 +2114,29 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyAttack(
 		Defense = ProductResult.WeaponGuardDefense.Defense
 			.Composition.Defense;
 	}
+	if (SpiritShieldContext)
+	{
+		ProductResult.bSpiritShieldInspected = true;
+		ProductResult.SpiritShieldDefense =
+			SpiritShieldContext->Session->TryComposeImpactDefense(
+				ImpactId,
+				SpiritShieldContext->TimelineSample,
+				Defense);
+		if (!ProductResult.SpiritShieldDefense.IsSuccess())
+		{
+			const bool bCancelled = CancelPreDeliveryResource();
+			ActionRuntime.TryInterrupt(
+				EShanmenCombatActionPhase::Active,
+				Transition);
+			ProductResult.Error = bCancelled
+				? Edemo_mapM01EnemyAttackExecutionError::
+					SpiritShieldDefensePreparationFailed
+				: Edemo_mapM01EnemyAttackExecutionError::
+					ResourceDefensePreparationFailed;
+			return ProductResult;
+		}
+		Defense = ProductResult.SpiritShieldDefense.Defense;
+	}
 
 	// Resource recovery may have committed an earlier vitality intent. Sample
 	// the target only after preparation so this request cannot carry stale CAS.
@@ -2123,9 +2182,50 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyAttack(
 		return ProductResult;
 	}
 
-	ProductResult.Delivery = DeliverM01EnemyAttackImpactToPlayer(
-		ProductResult.Impact,
-		SourceEnemy);
+	if (SpiritShieldContext)
+	{
+		TSet<FGuid> ExternallyCoordinatedLayerIds;
+		ExternallyCoordinatedLayerIds.Add(
+			ProductResult.SpiritShieldDefense.Projection.GetLayer().LayerId);
+		ProductResult.SpiritShieldCommit =
+			SpiritShieldContext->Session->CommitImpact(
+				ProductResult.SpiritShieldDefense,
+				ProductResult.Impact.GetRequest(),
+				ProductResult.Impact.GetResult(),
+				[&]()
+				{
+					ProductResult.Delivery =
+						DeliverM01EnemyAttackImpactToPlayerInternal(
+							ProductResult.Impact,
+							SourceEnemy,
+							&ExternallyCoordinatedLayerIds);
+					return ProductResult.Delivery.IsSuccess();
+				});
+		if (!ProductResult.SpiritShieldCommit.IsSuccess())
+		{
+			const bool bCanCancelPreparedResources =
+				ProductResult.SpiritShieldCommit.Error
+					!= Edemo_mapShanmenSpiritShieldImpactCommitError::
+						DeliveryRejected;
+			const bool bCancelled = !bCanCancelPreparedResources
+				|| CancelPreDeliveryResource();
+			ActionRuntime.TryInterrupt(
+				EShanmenCombatActionPhase::Active,
+				Transition);
+			ProductResult.Error = bCancelled
+				? Edemo_mapM01EnemyAttackExecutionError::
+					SpiritShieldImpactCommitFailed
+				: Edemo_mapM01EnemyAttackExecutionError::
+					ResourceDefensePreparationFailed;
+			return ProductResult;
+		}
+	}
+	else
+	{
+		ProductResult.Delivery = DeliverM01EnemyAttackImpactToPlayer(
+			ProductResult.Impact,
+			SourceEnemy);
+	}
 	if (!ProductResult.Delivery.IsSuccess())
 	{
 		ActionRuntime.TryInterrupt(
