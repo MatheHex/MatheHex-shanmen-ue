@@ -515,6 +515,7 @@ private:
 	Fdemo_mapShanmenPlayerActionGateResult RoutePlayerActionGate(
 		Edemo_mapShanmenPlayerActionKind RequestedAction);
 	bool ReconcileWeaponGuardAuthorization(const TCHAR* Context);
+	bool RetireSwordQiTerminalForPlayerFeedback();
 	bool ReleasePlayerSpiritEvasion(const TCHAR* Context);
 	void ObserveSwordRhythmWeaponGuardContribution(
 		const Fdemo_mapM01EnemyAttackExecutionResult& AttackResult);

@@ -541,6 +541,10 @@ bool Fdemo_mapSwordQiPhysicalIssueRetryTest::RunTest(const FString&)
 	{
 		return false;
 	}
+	Fixture.GameMode->Tick(0.0f);
+	TestTrue(TEXT("frame owner preserves an in-flight Sword Qi"),
+		Fixture.GameMode->SwordQiProductController.GetSession().IsInFlight()
+			&& !Fixture.Controller->IsSwordQiTerminalFeedbackActive());
 
 	Fixture.Controller->DispatchAutomationKey(EKeys::B);
 	const Fdemo_mapShanmenSwordQiAvailabilityCommandResult Busy =
@@ -580,14 +584,22 @@ bool Fdemo_mapSwordQiPhysicalIssueRetryTest::RunTest(const FString&)
 	FShanmenTargetVitalitySnapshot TargetAfter;
 	const bool bTargetAfterCaptured =
 		TargetVitalityHost->TryCaptureCombatVitalitySnapshot(TargetAfter);
-	Fdemo_mapShanmenSwordQiTerminalReceipt FirstTerminal;
-	TestTrue(TEXT("physical B launch reaches M01 vitality and retires before retry"),
-		Fixture.GameMode->SwordQiProductController.TryRetireTerminal(
-			FirstTerminal)
+	Fixture.GameMode->Tick(0.0f);
+	const bool bFirstTerminalRetired =
+		Fixture.GameMode->SwordQiProductController.GetSession().IsEmpty();
+	const Fdemo_mapShanmenSwordQiTerminalReceipt FirstTerminal =
+		Fixture.Controller->GetLatestSwordQiTerminalReceipt();
+	TestTrue(TEXT("physical B impact retires automatically and reaches the HUD"),
+		bFirstTerminalRetired
 			&& FirstTerminal.IsValid()
 			&& FirstTerminal.Kind
 				== Edemo_mapShanmenSwordQiTerminalKind::Impact
 			&& FirstTerminal.Delivery.IsDelivered()
+			&& Fixture.GameMode->SwordQiProductController.GetSession().IsEmpty()
+			&& Fixture.Controller->IsSwordQiTerminalFeedbackActive()
+			&& Fixture.Controller->GetLatestSwordQiTerminalFeedbackText()
+				== TEXT("SWORD QI · HIT · -0.58")
+			&& !Fixture.Controller->IsSwordQiInputFeedbackActive()
 			&& bTargetAfterCaptured
 			&& FMath::IsNearlyEqual(
 				FirstTerminal.Delivery.GetNewlyCommittedDamage(),
@@ -634,6 +646,7 @@ bool Fdemo_mapSwordQiPhysicalIssueRetryTest::RunTest(const FString&)
 				FrozenDirection)
 			&& Retry.After.CanIssue()
 			&& !Fixture.GameMode->SwordQiCommandEventOwner.HasPendingRetry()
+			&& !Fixture.Controller->IsSwordQiTerminalFeedbackActive()
 			&& ::IsValid(RetryProjectile)
 			&& RetryProjectile != FirstProjectile
 			&& RetryProjectile->GetProjectileState()
@@ -642,12 +655,17 @@ bool Fdemo_mapSwordQiPhysicalIssueRetryTest::RunTest(const FString&)
 			&& RetryProjectile->GetLaunchReceipt().GetDirection().Equals(
 				FrozenDirection));
 
-	Fdemo_mapShanmenSwordQiTerminalReceipt RetryTerminal;
-	TestTrue(TEXT("retried carrier retires before the shared UI lock check"),
-		Fixture.GameMode->SwordQiProductController.TryInterrupt()
-			&& Fixture.GameMode->SwordQiProductController.TryRetireTerminal(
-				RetryTerminal)
-			&& RetryTerminal.IsValid());
+	const bool bRetryInterrupted =
+		Fixture.GameMode->SwordQiProductController.TryInterrupt();
+	Fixture.GameMode->Tick(0.0f);
+	TestTrue(TEXT("retried carrier interruption reaches terminal presentation"),
+		bRetryInterrupted
+			&& Fixture.Controller->GetLatestSwordQiTerminalReceipt().IsValid()
+			&& Fixture.Controller->GetLatestSwordQiTerminalReceipt().Kind
+				== Edemo_mapShanmenSwordQiTerminalKind::Interrupted
+			&& Fixture.Controller->GetLatestSwordQiTerminalFeedbackText()
+				== TEXT("SWORD QI · INTERRUPTED")
+			&& Fixture.GameMode->SwordQiProductController.GetSession().IsEmpty());
 
 	Fixture.Controller->BeginSettlementInputLock(nullptr);
 	Fixture.Controller->DispatchAutomationKey(EKeys::B);
@@ -667,6 +685,32 @@ bool Fdemo_mapSwordQiPhysicalIssueRetryTest::RunTest(const FString&)
 			&& Fixture.Controller
 				->GetSwordQiInputInvocationCountForAutomation() == Before + 4);
 	Fixture.Controller->EndSettlementInputLock();
+	Fixture.Controller->DispatchAutomationKey(EKeys::B);
+	const Fdemo_mapShanmenSwordQiAvailabilityCommandResult FreshIssue =
+		Fixture.Controller->GetLastSwordQiInputResultForAutomation();
+	Ademo_mapShanmenSwordQiProjectile* FreshProjectile =
+		Fixture.GameMode->SwordQiProductController.GetSession()
+			.GetHost().GetProjectile();
+	TestTrue(TEXT("retired terminal reopens a fresh physical Issue"),
+		FreshIssue.IsDispatched()
+			&& FreshIssue.Kind
+				== Edemo_mapShanmenSwordQiAvailabilityCommandKind::Issue
+			&& FreshIssue.CommandEvent.IsAccepted()
+			&& FreshIssue.CommandEvent.bNewEvent
+			&& FreshIssue.CommandEvent.bEventCommitted
+			&& FreshIssue.CommandEvent.Input.Product.IsAccepted()
+			&& !FreshIssue.CommandEvent.Input.Product.bReusedIntent
+			&& ::IsValid(FreshProjectile)
+			&& Fixture.Controller
+				->GetSwordQiInputInvocationCountForAutomation() == Before + 5);
+	const bool bFreshInterrupted =
+		Fixture.GameMode->SwordQiProductController.TryInterrupt();
+	Fixture.GameMode->Tick(0.0f);
+	TestTrue(TEXT("fresh Issue can retire without manual terminal access"),
+		bFreshInterrupted
+			&& Fixture.Controller->GetLatestSwordQiTerminalFeedbackText()
+				== TEXT("SWORD QI · INTERRUPTED")
+			&& Fixture.GameMode->SwordQiProductController.GetSession().IsEmpty());
 
 	Fdemo_mapShanmenSwordQiCommandEventEndSummary CommandSummary;
 	Fdemo_mapShanmenSwordQiControllerEndSummary ProductSummary;
@@ -677,14 +721,14 @@ bool Fdemo_mapSwordQiPhysicalIssueRetryTest::RunTest(const FString&)
 			CommandSummary,
 			Diagnostic)
 			&& CommandSummary.IsValid()
-			&& CommandSummary.CommittedEventCount == 2
+			&& CommandSummary.CommittedEventCount == 3
 			&& Fixture.GameMode->SwordQiProductController.TryEnd(
 				ProductRunId,
 				ProductSummary,
 				Diagnostic)
 			&& ProductSummary.IsValid()
-			&& ProductSummary.CapturedIntentCount == 2
-			&& ProductSummary.ProcessedCommandCount == 2
+			&& ProductSummary.CapturedIntentCount == 3
+			&& ProductSummary.ProcessedCommandCount == 3
 			&& Fixture.GameMode->CombatRunCoordinator.TryEndRun(
 				ProductRunId,
 				Diagnostic)

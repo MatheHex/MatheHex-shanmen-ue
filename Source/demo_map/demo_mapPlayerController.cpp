@@ -1239,6 +1239,10 @@ void Ademo_mapPlayerController::CaptureSwordQiInputFeedback(
 	SwordQiInputFeedbackExpiresAtSeconds = GetWorld()
 		? GetWorld()->GetTimeSeconds() + SwordQiInputFeedbackDurationSeconds
 		: -1.0;
+	LastSwordQiTerminalReceipt = Fdemo_mapShanmenSwordQiTerminalReceipt();
+	LastSwordQiTerminalFeedbackText.Reset();
+	SwordQiTerminalFeedbackExpiresAtSeconds = -1.0;
+	bHasSwordQiTerminalFeedback = false;
 }
 
 bool Ademo_mapPlayerController::IsSwordQiInputFeedbackActive() const
@@ -1247,6 +1251,83 @@ bool Ademo_mapPlayerController::IsSwordQiInputFeedbackActive() const
 		&& GetWorld()
 		&& GetWorld()->GetTimeSeconds()
 			<= SwordQiInputFeedbackExpiresAtSeconds;
+}
+
+bool Ademo_mapPlayerController::TryPresentSwordQiTerminalFeedback(
+	const Fdemo_mapShanmenSwordQiTerminalReceipt& Receipt)
+{
+	if (!Receipt.IsValid() || !GetWorld())
+	{
+		return false;
+	}
+
+	FString FeedbackText;
+	switch (Receipt.Kind)
+	{
+	case Edemo_mapShanmenSwordQiTerminalKind::Impact:
+	{
+		const FShanmenVitalityCommitResult& Commit =
+			Receipt.Delivery.Delivery.CommitResult;
+		if (Commit.Status != EShanmenVitalityCommitStatus::Committed
+			|| !Commit.Receipt.IsValid())
+		{
+			return false;
+		}
+		const float AppliedDamage = Commit.Receipt.GetAppliedDamage();
+		if (!FMath::IsFinite(AppliedDamage) || AppliedDamage < 0.0f)
+		{
+			return false;
+		}
+		if (AppliedDamage <= KINDA_SMALL_NUMBER)
+		{
+			FeedbackText = TEXT("SWORD QI · NO DAMAGE");
+		}
+		else
+		{
+			FeedbackText = FString::Printf(
+				TEXT("SWORD QI · %s · -%.2f"),
+				Commit.Receipt.GetVitalityAfter() <= 0.0f
+					? TEXT("TARGET DOWN")
+					: TEXT("HIT"),
+				static_cast<double>(AppliedDamage));
+		}
+		break;
+	}
+	case Edemo_mapShanmenSwordQiTerminalKind::BlockingMiss:
+		FeedbackText = TEXT("SWORD QI · BLOCKED");
+		break;
+	case Edemo_mapShanmenSwordQiTerminalKind::RangeExpired:
+		FeedbackText = TEXT("SWORD QI · OUT OF RANGE");
+		break;
+	case Edemo_mapShanmenSwordQiTerminalKind::Interrupted:
+		FeedbackText = TEXT("SWORD QI · INTERRUPTED");
+		break;
+	default:
+		return false;
+	}
+	if (FeedbackText.IsEmpty())
+	{
+		return false;
+	}
+
+	LastSwordQiTerminalReceipt = Receipt;
+	LastSwordQiTerminalFeedbackText = MoveTemp(FeedbackText);
+	SwordQiTerminalFeedbackExpiresAtSeconds =
+		GetWorld()->GetTimeSeconds() + SwordQiInputFeedbackDurationSeconds;
+	bHasSwordQiTerminalFeedback = true;
+	bHasSwordQiInputFeedback = false;
+	SwordQiInputFeedbackExpiresAtSeconds = -1.0;
+	return true;
+}
+
+bool Ademo_mapPlayerController::IsSwordQiTerminalFeedbackActive() const
+{
+	return bHasSwordQiTerminalFeedback
+		&& LastSwordQiTerminalReceipt.IsValid()
+		&& !LastSwordQiTerminalFeedbackText.IsEmpty()
+		&& GetWorld()
+		&& GetWorld()->GetTimeSeconds()
+			<= SwordQiTerminalFeedbackExpiresAtSeconds;
 }
 
 Fdemo_mapShanmenSwordQiAvailabilityCommandResult

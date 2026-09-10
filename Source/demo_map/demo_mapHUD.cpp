@@ -101,24 +101,46 @@ namespace
 		return false;
 	}
 
-	void DrawSwordQiInputFeedback(
+	void DrawSwordQiFeedback(
 		UCanvas* Canvas,
 		Ademo_mapPlayerController* Controller)
 	{
-		if (!Canvas || !Controller
-			|| !Controller->IsSwordQiInputFeedbackActive())
+		if (!Canvas || !Controller)
 		{
 			return;
 		}
-		const FString KeyLabel = Fdemo_mapInputBindingSettings::Get().GetKey(
-			Fdemo_mapInputActionIds::SwordQi).GetDisplayName().ToString();
 		FString Text;
-		FLinearColor TextColor;
-		if (!TryBuildSwordQiFeedback(
-				Controller->GetLatestSwordQiInputResult(),
-				KeyLabel,
-				Text,
-				TextColor))
+		FLinearColor TextColor(1.0f, 0.72f, 0.18f);
+		if (Controller->IsSwordQiTerminalFeedbackActive())
+		{
+			const Fdemo_mapShanmenSwordQiTerminalReceipt& Terminal =
+				Controller->GetLatestSwordQiTerminalReceipt();
+			Text = Controller->GetLatestSwordQiTerminalFeedbackText();
+			TextColor = Terminal.Kind
+				== Edemo_mapShanmenSwordQiTerminalKind::Impact
+					? FLinearColor(0.25f, 1.0f, 0.55f)
+					: Terminal.Kind
+						== Edemo_mapShanmenSwordQiTerminalKind::Interrupted
+							? FLinearColor(0.72f, 0.78f, 0.84f)
+							: FLinearColor(1.0f, 0.72f, 0.18f);
+		}
+		else if (Controller->IsSwordQiInputFeedbackActive())
+		{
+			const FString KeyLabel =
+				Fdemo_mapInputBindingSettings::Get().GetKey(
+					Fdemo_mapInputActionIds::SwordQi)
+					.GetDisplayName()
+					.ToString();
+			if (!TryBuildSwordQiFeedback(
+					Controller->GetLatestSwordQiInputResult(),
+					KeyLabel,
+					Text,
+					TextColor))
+			{
+				return;
+			}
+		}
+		else
 		{
 			return;
 		}
@@ -609,7 +631,7 @@ void Ademo_mapHUD::DrawHUD()
 			? ActiveMode->GetControlledWeaponWorldLifecycle().GetWeaponActor()
 			: nullptr);
 	DrawDivineSenseReveals(Canvas, PlayerController, ActiveMode);
-	DrawSwordQiInputFeedback(
+	DrawSwordQiFeedback(
 		Canvas,
 		Cast<Ademo_mapPlayerController>(PlayerController));
 	DrawHUDPanel(

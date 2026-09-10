@@ -126,6 +126,19 @@ public:
 	{
 		return LastSwordQiInputResult;
 	}
+	/** Publishes one retired authoritative Sword Qi terminal to the HUD. */
+	bool TryPresentSwordQiTerminalFeedback(
+		const Fdemo_mapShanmenSwordQiTerminalReceipt& Receipt);
+	bool IsSwordQiTerminalFeedbackActive() const;
+	const Fdemo_mapShanmenSwordQiTerminalReceipt&
+	GetLatestSwordQiTerminalReceipt() const
+	{
+		return LastSwordQiTerminalReceipt;
+	}
+	const FString& GetLatestSwordQiTerminalFeedbackText() const
+	{
+		return LastSwordQiTerminalFeedbackText;
+	}
 	/** Routes one canonical flying-sword Launch-or-Recall physical command. */
 	Fdemo_mapShanmenControlledWeaponInputResult
 	RouteControlledWeaponLaunchRecallInput();
@@ -411,6 +424,10 @@ protected:
 	Fdemo_mapShanmenSwordQiAvailabilityCommandResult LastSwordQiInputResult;
 	double SwordQiInputFeedbackExpiresAtSeconds = -1.0;
 	bool bHasSwordQiInputFeedback = false;
+	Fdemo_mapShanmenSwordQiTerminalReceipt LastSwordQiTerminalReceipt;
+	FString LastSwordQiTerminalFeedbackText;
+	double SwordQiTerminalFeedbackExpiresAtSeconds = -1.0;
+	bool bHasSwordQiTerminalFeedback = false;
 
 #if !UE_BUILD_SHIPPING
 	void RecordInputRestoreTraceEvent(

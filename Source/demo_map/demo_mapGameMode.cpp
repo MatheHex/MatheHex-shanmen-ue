@@ -2157,6 +2157,53 @@ bool Ademo_mapGameMode::RetireSwordQiTerminal(
 	return SwordQiProductController.TryRetireTerminal(OutReceipt);
 }
 
+bool Ademo_mapGameMode::RetireSwordQiTerminalForPlayerFeedback()
+{
+	if (!SwordQiProductController.IsActive()
+		|| !SwordQiProductController.IsValid()
+		|| !SwordQiProductController.GetSession().IsTerminal())
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenSwordQiTerminalReceipt Receipt;
+	if (!SwordQiProductController.TryRetireTerminal(Receipt))
+	{
+		UE_LOG(
+			Logdemo_map,
+			Error,
+			TEXT("0_0_10_SWORD_QI Event=TerminalRetirementRejected RunId=%s"),
+			*SwordQiProductController.GetRunId().ToString(
+				EGuidFormats::DigitsWithHyphens));
+		return false;
+	}
+
+	Ademo_mapPlayerController* Controller = GetDemoPlayerController();
+	const bool bPresented = Controller
+		&& Controller->TryPresentSwordQiTerminalFeedback(Receipt);
+	if (!bPresented)
+	{
+		UE_LOG(
+			Logdemo_map,
+			Warning,
+			TEXT("0_0_10_SWORD_QI Event=TerminalRetiredWithoutHUD LaunchId=%s Kind=%d Damage=%.3f"),
+			*Receipt.LaunchId.ToString(EGuidFormats::DigitsWithHyphens),
+			static_cast<int32>(Receipt.Kind),
+			Receipt.Delivery.GetNewlyCommittedDamage());
+	}
+	else
+	{
+		UE_LOG(
+			Logdemo_map,
+			Log,
+			TEXT("0_0_10_SWORD_QI Event=TerminalPresented LaunchId=%s Kind=%d Damage=%.3f"),
+			*Receipt.LaunchId.ToString(EGuidFormats::DigitsWithHyphens),
+			static_cast<int32>(Receipt.Kind),
+			Receipt.Delivery.GetNewlyCommittedDamage());
+	}
+	return true;
+}
+
 bool Ademo_mapGameMode::ShouldUseM01EnemyAttackProductPath() const
 {
 	// M01 owns this routing decision even while the Run is still preparing:
@@ -2654,6 +2701,7 @@ void Ademo_mapGameMode::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 	ReconcileWeaponGuardAuthorization(TEXT("GameModeTick"));
+	RetireSwordQiTerminalForPlayerFeedback();
 	bool bControlledWeaponRedeployedThisFrame = false;
 	if (!CombatRunFixedTimeline.IsEmpty())
 	{
