@@ -19,6 +19,7 @@ enum class Edemo_mapShanmenSwordQiLaunchError : uint8
 	LaunchRejected,
 	EmissionRejected,
 	ProjectileStageRejected,
+	LaunchPathBlocked,
 	PublicationRejected
 };
 

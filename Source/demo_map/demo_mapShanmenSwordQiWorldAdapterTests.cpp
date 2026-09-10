@@ -6,7 +6,9 @@
 #include "Components/PointLightComponent.h"
 #include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Engine/Engine.h"
 #include "Engine/HitResult.h"
+#include "Engine/World.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -105,6 +107,101 @@ namespace
 			return Enemy
 				? Cast<UPrimitiveComponent>(Enemy->GetRootComponent())
 				: nullptr;
+		}
+	};
+
+	struct FSwordQiCollisionWorldFixture
+	{
+		UWorld* World = nullptr;
+		APawn* Source = nullptr;
+		Udemo_mapPlayerHealthComponent* PlayerHealth = nullptr;
+		AActor* Blocker = nullptr;
+		UBoxComponent* BlockerRoot = nullptr;
+		Fdemo_mapCombatRunCoordinator Coordinator;
+		FString Diagnostic;
+
+		FSwordQiCollisionWorldFixture()
+		{
+			if (!GEngine)
+			{
+				return;
+			}
+			World = NewObject<UWorld>(
+				GetTransientPackage(), NAME_None, RF_Transient);
+			if (!World)
+			{
+				return;
+			}
+			World->WorldType = EWorldType::GamePreview;
+			FWorldContext& Context =
+				GEngine->CreateNewWorldContext(EWorldType::GamePreview);
+			Context.SetCurrentWorld(World);
+			World->InitializeNewWorld(
+				UWorld::InitializationValues()
+					.InitializeScenes(true)
+					.AllowAudioPlayback(false)
+					.RequiresHitProxies(false)
+					.CreatePhysicsScene(true)
+					.CreateNavigation(false)
+					.CreateAISystem(false)
+					.ShouldSimulatePhysics(false)
+					.EnableTraceCollision(true)
+					.SetTransactional(false)
+					.CreateFXSystem(false));
+
+			FActorSpawnParameters Parameters;
+			Parameters.ObjectFlags |= RF_Transient;
+			Parameters.SpawnCollisionHandlingOverride =
+				ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			Source = World->SpawnActor<APawn>(
+				APawn::StaticClass(),
+				FTransform(FVector(-1000.0f, 0.0f, 100.0f)),
+				Parameters);
+			PlayerHealth = Source
+				? NewObject<Udemo_mapPlayerHealthComponent>(
+					Source, TEXT("P245WorldPlayerHealth"), RF_Transient)
+				: nullptr;
+			Blocker = World->SpawnActor<AActor>(
+				AActor::StaticClass(),
+				FTransform(FVector(1000.0f, 1000.0f, 100.0f)),
+				Parameters);
+			BlockerRoot = Blocker
+				? NewObject<UBoxComponent>(
+					Blocker, TEXT("P245SwordQiBlocker"), RF_Transient)
+				: nullptr;
+			if (!Source || !PlayerHealth || !Blocker || !BlockerRoot)
+			{
+				return;
+			}
+			Blocker->SetRootComponent(BlockerRoot);
+			Blocker->AddInstanceComponent(BlockerRoot);
+			BlockerRoot->InitBoxExtent(FVector(1.0f, 24.0f, 24.0f));
+			BlockerRoot->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+			BlockerRoot->SetCollisionObjectType(ECC_WorldStatic);
+			BlockerRoot->SetCollisionResponseToAllChannels(ECR_Block);
+			BlockerRoot->RegisterComponent();
+			World->UpdateWorldComponents(true, false);
+			World->InitializeActorsForPlay(FURL());
+			Coordinator.TryBeginRun(
+				SwordQiWorldRunId, Source, PlayerHealth, Diagnostic);
+		}
+
+		~FSwordQiCollisionWorldFixture()
+		{
+			if (World)
+			{
+				World->DestroyWorld(false);
+				if (GEngine)
+				{
+					GEngine->DestroyWorldContext(World);
+				}
+			}
+		}
+
+		bool IsValid() const
+		{
+			return World && Source && PlayerHealth && Blocker && BlockerRoot
+				&& Coordinator.IsReady();
 		}
 	};
 
@@ -369,6 +466,120 @@ bool Fdemo_mapSwordQiWorldLaunchGateTest::RunTest(const FString&)
 				== Edemo_mapShanmenSwordQiProjectileState::Dissipated
 			&& !Projectile->IsPresentationVisible()
 			&& !Projectile->IsFlightCueVisible());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapSwordQiLaunchCorridorGateTest,
+	"Shanmen.0_0_10.Product.SwordQiWorldDelivery.LaunchCorridorGate",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapSwordQiLaunchCorridorGateTest::RunTest(const FString&)
+{
+	FSwordQiCollisionWorldFixture Fixture;
+	if (!Fixture.IsValid())
+	{
+		AddError(TEXT("Could not build the P24.5 launch-corridor fixture."));
+		return false;
+	}
+
+	const FVector SourceOrigin = Fixture.Source->GetActorLocation();
+	const FVector LaunchOrigin =
+		SourceOrigin + (FVector::ForwardVector * 200.0f);
+	FActorSpawnParameters Parameters;
+	Parameters.ObjectFlags |= RF_Transient;
+	Parameters.SpawnCollisionHandlingOverride =
+		ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	Ademo_mapShanmenSwordQiProjectile* Projectile =
+		Fixture.World->SpawnActor<Ademo_mapShanmenSwordQiProjectile>(
+			Ademo_mapShanmenSwordQiProjectile::StaticClass(),
+			FTransform(LaunchOrigin),
+			Parameters);
+	if (!Projectile)
+	{
+		AddError(TEXT("Could not spawn the P24.5 inert sword-qi carrier."));
+		return false;
+	}
+
+	FShanmenActionOrchestrator Runtime;
+	FShanmenSwordQiExecution Execution;
+	StartSwordQiWorldAction(Fixture.Coordinator, Runtime, Execution, 11);
+	Fixture.Blocker->SetActorLocation(
+		LaunchOrigin,
+		false,
+		nullptr,
+		ETeleportType::TeleportPhysics);
+	Fixture.World->UpdateWorldComponents(true, false);
+	const Fdemo_mapShanmenSwordQiLaunchResult Occupied =
+		Fdemo_mapShanmenSwordQiWorldAdapter::StageLaunch(
+			Runtime,
+			Execution,
+			*Projectile,
+			Fixture.Coordinator,
+			Fixture.Source,
+			LaunchOrigin,
+			FVector::ForwardVector);
+	TestTrue(TEXT("A blocking launch volume rejects sword qi before publication"),
+		!Occupied.IsStaged()
+			&& Occupied.Error
+				== Edemo_mapShanmenSwordQiLaunchError::LaunchPathBlocked);
+	TestTrue(TEXT("Blocked launch keeps execution and every carrier cue inert"),
+		Execution.GetState() == EShanmenSwordQiState::Ready
+			&& !Execution.IsEmissionActive()
+			&& Projectile->GetProjectileState()
+				== Edemo_mapShanmenSwordQiProjectileState::Empty
+			&& !Projectile->GetLaunchReceipt().IsValid()
+			&& !Projectile->GetHitContext().IsValid()
+			&& Projectile->GetCollisionComponent()->GetCollisionEnabled()
+				== ECollisionEnabled::NoCollision
+			&& !Projectile->GetMovementComponent()->IsActive()
+			&& !Projectile->IsPresentationVisible()
+			&& !Projectile->IsFlightCueVisible());
+
+	Fixture.Blocker->SetActorLocation(
+		SourceOrigin + (FVector::ForwardVector * 100.0f),
+		false,
+		nullptr,
+		ETeleportType::TeleportPhysics);
+	Fixture.World->UpdateWorldComponents(true, false);
+	const Fdemo_mapShanmenSwordQiLaunchResult CorridorBlocked =
+		Fdemo_mapShanmenSwordQiWorldAdapter::StageLaunch(
+			Runtime,
+			Execution,
+			*Projectile,
+			Fixture.Coordinator,
+			Fixture.Source,
+			LaunchOrigin,
+			FVector::ForwardVector);
+	TestTrue(TEXT("A clear endpoint beyond a thin wall still rejects sword qi"),
+		!CorridorBlocked.IsStaged()
+			&& CorridorBlocked.Error
+				== Edemo_mapShanmenSwordQiLaunchError::LaunchPathBlocked
+			&& Projectile->GetProjectileState()
+				== Edemo_mapShanmenSwordQiProjectileState::Empty);
+
+	Fixture.Blocker->SetActorLocation(
+		FVector(1000.0f, 1000.0f, 100.0f),
+		false,
+		nullptr,
+		ETeleportType::TeleportPhysics);
+	Fixture.World->UpdateWorldComponents(true, false);
+	const Fdemo_mapShanmenSwordQiLaunchResult Clear =
+		Fdemo_mapShanmenSwordQiWorldAdapter::StageLaunch(
+			Runtime,
+			Execution,
+			*Projectile,
+			Fixture.Coordinator,
+			Fixture.Source,
+			LaunchOrigin,
+			FVector::ForwardVector);
+	TestTrue(TEXT("The unchanged sword-qi launch stages after its path clears"),
+		Clear.IsStaged()
+			&& Projectile->IsStagedFor(Clear.Plan.Launch, Clear.Plan.Context));
+	TestTrue(TEXT("A clear staged retry remains safely cancellable"),
+		Projectile->CancelStagedLaunch()
+			&& Projectile->GetProjectileState()
+				== Edemo_mapShanmenSwordQiProjectileState::Empty);
 	return true;
 }
 

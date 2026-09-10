@@ -26,6 +26,14 @@ enum class Edemo_mapShanmenSwordQiProjectileState : uint8
 	Dissipated
 };
 
+/** Exact reason why an inert sword-qi carrier refused one staging request. */
+enum class Edemo_mapShanmenSwordQiProjectileStageError : uint8
+{
+	None,
+	ContractRejected,
+	LaunchPathBlocked
+};
+
 class Ademo_mapShanmenSwordQiProjectile;
 
 /** Native contact seam; the carrier never chooses targets or applies damage. */
@@ -44,7 +52,7 @@ DECLARE_MULTICAST_DELEGATE_OneParam(
  *
  * Staging is collision-inert so a rejected world binding cannot leave a live
  * projectile behind. Contacts are forwarded as geometry only; this Actor does
- * not own action phases, damage, vitality, item authority, or presentation.
+ * not own action phases, damage, vitality, item authority, or gameplay outcome.
  */
 UCLASS()
 class Ademo_mapShanmenSwordQiProjectile : public AActor
@@ -57,7 +65,8 @@ public:
 	bool TryStageLaunch(
 		const FShanmenSwordQiLaunchReceipt& InLaunch,
 		const FShanmenWorldHitContext& InContext,
-		AActor* InSourceActor);
+		AActor* InSourceActor,
+		Edemo_mapShanmenSwordQiProjectileStageError* OutError = nullptr);
 	bool IsStagedFor(
 		const FShanmenSwordQiLaunchReceipt& InLaunch,
 		const FShanmenWorldHitContext& InContext) const;

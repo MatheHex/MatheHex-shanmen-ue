@@ -4,6 +4,7 @@
 #include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/HitResult.h"
+#include "Engine/World.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -47,6 +48,52 @@ namespace
 			&& Left.GetDetectorId() == Right.GetDetectorId()
 			&& Left.GetDetectorKind() == Right.GetDetectorKind()
 			&& Left.GetHitOrdinal() == Right.GetHitOrdinal();
+	}
+
+	bool IsLaunchCorridorClear(
+		const Ademo_mapShanmenSwordQiProjectile& Projectile,
+		const FShanmenSwordQiLaunchReceipt& Launch,
+		const AActor* SourceActor)
+	{
+		const UWorld* World = Projectile.GetWorld();
+		const USphereComponent* Collision = Projectile.GetCollisionComponent();
+		if (!World || !Collision)
+		{
+			// Pure/headless contract tests intentionally have no physical scene.
+			return true;
+		}
+
+		FCollisionQueryParams QueryParams;
+		QueryParams.AddIgnoredActor(&Projectile);
+		QueryParams.AddIgnoredActor(SourceActor);
+		const FCollisionResponseParams ResponseParams(
+			Collision->GetCollisionResponseToChannels());
+		const FVector LaunchOrigin = Launch.GetOrigin();
+		const FQuat LaunchRotation =
+			Launch.GetDirection().Rotation().Quaternion();
+		const FCollisionShape LaunchShape = FCollisionShape::MakeSphere(
+			Collision->GetScaledSphereRadius());
+		if (World->OverlapBlockingTestByChannel(
+			LaunchOrigin,
+			LaunchRotation,
+			Collision->GetCollisionObjectType(),
+			LaunchShape,
+			QueryParams,
+			ResponseParams))
+		{
+			return false;
+		}
+
+		const FVector SourceOrigin = SourceActor->GetActorLocation();
+		return SourceOrigin.Equals(LaunchOrigin, KINDA_SMALL_NUMBER)
+			|| !World->SweepTestByChannel(
+				SourceOrigin,
+				LaunchOrigin,
+				LaunchRotation,
+				Collision->GetCollisionObjectType(),
+				LaunchShape,
+				QueryParams,
+				ResponseParams);
 	}
 }
 
@@ -175,23 +222,44 @@ SetPresentationActive(bool bActive)
 bool Ademo_mapShanmenSwordQiProjectile::TryStageLaunch(
 	const FShanmenSwordQiLaunchReceipt& InLaunch,
 	const FShanmenWorldHitContext& InContext,
-	AActor* InSourceActor)
+	AActor* InSourceActor,
+	Edemo_mapShanmenSwordQiProjectileStageError* OutError)
 {
+	if (OutError)
+	{
+		*OutError =
+			Edemo_mapShanmenSwordQiProjectileStageError::ContractRejected;
+	}
 	if (State == Edemo_mapShanmenSwordQiProjectileState::Staged)
 	{
-		return SourceActor == InSourceActor
+		const bool bExactReplay = SourceActor == InSourceActor
 			&& IsStagedFor(InLaunch, InContext);
+		if (bExactReplay && OutError)
+		{
+			*OutError = Edemo_mapShanmenSwordQiProjectileStageError::None;
+		}
+		return bExactReplay;
 	}
 	if (State != Edemo_mapShanmenSwordQiProjectileState::Empty
 		|| !InLaunch.IsValid()
 		|| !InContext.IsValid()
 		|| !::IsValid(InSourceActor)
 		|| InSourceActor == this
+		|| InSourceActor->GetWorld() != GetWorld()
 		|| InContext.GetDetectorKind()
 			!= EShanmenHitDetectorKind::Projectile
 		|| InContext.GetHitOrdinal() != 0
 		|| !ActionsMatch(InLaunch.GetAction(), InContext.GetAction()))
 	{
+		return false;
+	}
+	if (!IsLaunchCorridorClear(*this, InLaunch, InSourceActor))
+	{
+		if (OutError)
+		{
+			*OutError = Edemo_mapShanmenSwordQiProjectileStageError::
+				LaunchPathBlocked;
+		}
 		return false;
 	}
 
@@ -218,7 +286,12 @@ bool Ademo_mapShanmenSwordQiProjectile::TryStageLaunch(
 		nullptr,
 		ETeleportType::TeleportPhysics);
 	State = Edemo_mapShanmenSwordQiProjectileState::Staged;
-	return IsStagedFor(InLaunch, InContext);
+	const bool bStaged = IsStagedFor(InLaunch, InContext);
+	if (bStaged && OutError)
+	{
+		*OutError = Edemo_mapShanmenSwordQiProjectileStageError::None;
+	}
+	return bStaged;
 }
 
 bool Ademo_mapShanmenSwordQiProjectile::IsStagedFor(

@@ -175,11 +175,18 @@ Fdemo_mapShanmenSwordQiWorldAdapter::StageLaunch(
 		Result.Error = Edemo_mapShanmenSwordQiLaunchError::EmissionRejected;
 		return Result;
 	}
+	Edemo_mapShanmenSwordQiProjectileStageError StageError =
+		Edemo_mapShanmenSwordQiProjectileStageError::ContractRejected;
 	if (!Projectile.TryStageLaunch(
-		Result.Plan.Launch, Result.Plan.Context, SourceActor))
+		Result.Plan.Launch,
+		Result.Plan.Context,
+		SourceActor,
+		&StageError))
 	{
-		Result.Error =
-			Edemo_mapShanmenSwordQiLaunchError::ProjectileStageRejected;
+		Result.Error = StageError
+			== Edemo_mapShanmenSwordQiProjectileStageError::LaunchPathBlocked
+			? Edemo_mapShanmenSwordQiLaunchError::LaunchPathBlocked
+			: Edemo_mapShanmenSwordQiLaunchError::ProjectileStageRejected;
 		return Result;
 	}
 	Result.Error = Edemo_mapShanmenSwordQiLaunchError::None;
