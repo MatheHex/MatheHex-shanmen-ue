@@ -10,6 +10,7 @@
 #include "demo_mapCombatRunCoordinator.h"
 #include "demo_mapPlayerHealthComponent.h"
 #include "demo_mapShanmenDivineSenseProductAuthority.h"
+#include "demo_mapShanmenSpiritShieldHUDPresentation.h"
 
 namespace
 {
@@ -243,6 +244,16 @@ bool Fdemo_mapSpiritShieldProductActivationTest::RunTest(const FString&)
 				GetCurrentAmount() == 100.0f
 			&& Activated.SharedResource.Receipt.GetResourceAfter().
 				GetCurrentAmount() == 80.0f);
+	Fdemo_mapShanmenSpiritShieldInputFeedbackPresentation Feedback;
+	TestTrue(TEXT("accepted activation projects immediate player feedback"),
+		Fdemo_mapShanmenSpiritShieldInputFeedbackPresentation::TryProject(
+			Activated, TEXT("H"), Feedback)
+			&& Feedback.GetReason()
+				== Edemo_mapShanmenSpiritShieldInputFeedbackReason::Activated
+			&& Feedback.GetTone()
+				== Edemo_mapShanmenSpiritShieldInputFeedbackTone::Success
+			&& Feedback.GetDisplayText()
+				== TEXT("SPIRIT SHIELD · ACTIVE"));
 
 	const auto Duplicate = Session.TryActivate(
 		Fixture.Coordinator,

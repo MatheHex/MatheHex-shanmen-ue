@@ -113,6 +113,13 @@ public:
 	Fdemo_mapShanmenDivineSenseLogicalInputResult RouteDivineSenseInput();
 	/** Routes one remappable pulse into the shared-energy Spirit Shield owner. */
 	Fdemo_mapShanmenSpiritShieldProductActivationResult RouteSpiritShieldInput();
+	/** True while the latest shield activation outcome should remain readable. */
+	bool IsSpiritShieldInputFeedbackActive() const;
+	const Fdemo_mapShanmenSpiritShieldProductActivationResult&
+	GetLatestSpiritShieldInputResult() const
+	{
+		return LastSpiritShieldInputResult;
+	}
 	/** True while the latest rejected physical pulse should remain readable on the HUD. */
 	bool IsDivineSenseInputFeedbackActive() const;
 	const Fdemo_mapShanmenDivineSenseLogicalInputResult&
@@ -405,6 +412,8 @@ protected:
 	void ClearThrownWeaponArcTarget();
 	void StartSpiritEvasion();
 	void UseSpiritShield();
+	void CaptureSpiritShieldInputFeedback(
+		const Fdemo_mapShanmenSpiritShieldProductActivationResult& Result);
 	void UseDivineSense();
 	void CaptureDivineSenseInputFeedback(
 		const Fdemo_mapShanmenDivineSenseLogicalInputResult& Result);
@@ -431,6 +440,9 @@ protected:
 	void BindProductInputActions();
 	bool RemoveProductInputActions();
 
+	Fdemo_mapShanmenSpiritShieldProductActivationResult
+		LastSpiritShieldInputResult;
+	double SpiritShieldInputFeedbackExpiresAtSeconds = -1.0;
 	Fdemo_mapShanmenDivineSenseLogicalInputResult
 		LastDivineSenseInputResult;
 	double DivineSenseInputFeedbackExpiresAtSeconds = -1.0;
@@ -450,8 +462,6 @@ protected:
 	Fdemo_mapShanmenSpiritEvasionInputResult
 		LastSpiritEvasionInputResult;
 	uint64 SpiritShieldInputInvocationCount = 0;
-	Fdemo_mapShanmenSpiritShieldProductActivationResult
-		LastSpiritShieldInputResult;
 	uint64 DivineSenseInputInvocationCount = 0;
 	uint64 SwordQiInputInvocationCount = 0;
 	uint64 ControlledWeaponInputInvocationCount = 0;

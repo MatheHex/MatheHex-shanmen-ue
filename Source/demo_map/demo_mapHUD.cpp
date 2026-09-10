@@ -178,6 +178,59 @@ namespace
 			0.68f);
 	}
 
+	void DrawSpiritShieldInputFeedback(
+		UCanvas* Canvas,
+		const Ademo_mapPlayerController* Controller,
+		const Fdemo_mapInputBindingSettings& InputSettings)
+	{
+		if (Canvas == nullptr || Controller == nullptr
+			|| !Controller->IsSpiritShieldInputFeedbackActive())
+		{
+			return;
+		}
+
+		Fdemo_mapShanmenSpiritShieldInputFeedbackPresentation Presentation;
+		if (!Fdemo_mapShanmenSpiritShieldInputFeedbackPresentation::TryProject(
+				Controller->GetLatestSpiritShieldInputResult(),
+				InputSettings.GetKey(Fdemo_mapInputActionIds::SpiritShield)
+					.GetDisplayName().ToString(),
+				Presentation))
+		{
+			return;
+		}
+
+		FLinearColor PanelColor(0.015f, 0.16f, 0.23f, 0.94f);
+		FLinearColor TextColor(0.28f, 0.95f, 1.0f);
+		if (Presentation.GetTone()
+			== Edemo_mapShanmenSpiritShieldInputFeedbackTone::Warning)
+		{
+			PanelColor = FLinearColor(0.22f, 0.13f, 0.015f, 0.94f);
+			TextColor = FLinearColor(1.0f, 0.78f, 0.18f);
+		}
+		else if (Presentation.GetTone()
+			== Edemo_mapShanmenSpiritShieldInputFeedbackTone::Error)
+		{
+			PanelColor = FLinearColor(0.24f, 0.035f, 0.025f, 0.94f);
+			TextColor = FLinearColor(1.0f, 0.38f, 0.24f);
+		}
+
+		const FVector2D PanelPosition(
+			Canvas->SizeX * 0.5f - 250.0f,
+			166.0f);
+		DrawHUDPanel(
+			Canvas,
+			PanelPosition,
+			FVector2D(500.0f, 36.0f),
+			PanelColor);
+		DrawReadableText(
+			Canvas,
+			GEngine->GetSmallFont(),
+			Presentation.GetDisplayText(),
+			PanelPosition + FVector2D(10.0f, 9.0f),
+			TextColor,
+			0.84f);
+	}
+
 	void DrawControlledWeaponReadout(
 		UCanvas* Canvas,
 		APlayerController* PlayerController,
@@ -717,9 +770,9 @@ void Ademo_mapHUD::DrawHUD()
 			? ActiveMode->GetControlledWeaponWorldLifecycle().GetWeaponActor()
 			: nullptr);
 	DrawDivineSenseReveals(Canvas, PlayerController, ActiveMode);
-	DrawSwordQiFeedback(
-		Canvas,
-		Cast<Ademo_mapPlayerController>(PlayerController));
+	Ademo_mapPlayerController* HUDController =
+		Cast<Ademo_mapPlayerController>(PlayerController);
+	DrawSwordQiFeedback(Canvas, HUDController);
 	DrawHUDPanel(
 		Canvas,
 		FVector2D(18.0f, 14.0f),
@@ -733,6 +786,7 @@ void Ademo_mapHUD::DrawHUD()
 		FVector2D(Canvas->SizeX - 350.0f, 14.0f),
 		FVector2D(332.0f, 235.0f));
 	DrawSpiritShieldStatus(Canvas, ActiveMode, InputSettings);
+	DrawSpiritShieldInputFeedback(Canvas, HUDController, InputSettings);
 	DrawReadableText(
 		Canvas,
 		GEngine->GetSmallFont(),

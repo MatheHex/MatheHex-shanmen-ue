@@ -10,10 +10,26 @@ namespace
 	using EShieldTone = Edemo_mapShanmenSpiritShieldHUDTone;
 	using FShieldPresentation =
 		Fdemo_mapShanmenSpiritShieldHUDPresentation;
+	using EFeedbackReason =
+		Edemo_mapShanmenSpiritShieldInputFeedbackReason;
+	using EFeedbackTone = Edemo_mapShanmenSpiritShieldInputFeedbackTone;
+	using FFeedback =
+		Fdemo_mapShanmenSpiritShieldInputFeedbackPresentation;
 
 	constexpr EAutomationTestFlags PresentationFlags =
 		EAutomationTestFlags::EditorContext
 		| EAutomationTestFlags::EngineFilter;
+
+	Fdemo_mapShanmenSpiritShieldProductActivationResult MakeRejected(
+		const Edemo_mapShanmenSpiritShieldProductActivationError Error)
+	{
+		Fdemo_mapShanmenSpiritShieldProductActivationResult Result;
+		Result.Status =
+			Edemo_mapShanmenSpiritShieldProductActivationStatus::Rejected;
+		Result.Error = Error;
+		Result.Diagnostic = TEXT("Typed test rejection.");
+		return Result;
+	}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -117,6 +133,106 @@ bool Fdemo_mapSpiritShieldHUDFencesTest::RunTest(const FString&)
 				Reused)
 			|| FShieldPresentation::TryProject(
 				true, 15.0f, 30.0f, 100, 190, 30, TEXT("  "), Reused));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapSpiritShieldHUDAlreadyActiveFeedbackTest,
+	"Shanmen.0_0_10.Product.SpiritShieldHUDPresentation.AlreadyActiveFeedback",
+	PresentationFlags)
+
+bool Fdemo_mapSpiritShieldHUDAlreadyActiveFeedbackTest::RunTest(
+	const FString&)
+{
+	const auto Result = MakeRejected(
+		Edemo_mapShanmenSpiritShieldProductActivationError::AlreadyActive);
+	FFeedback Feedback;
+	FFeedback Replay;
+	TestTrue(TEXT("an active-session rejection projects from typed evidence"),
+		FFeedback::TryProject(Result, TEXT("H"), Feedback)
+			&& FFeedback::TryProject(Result, TEXT("G"), Replay));
+	TestTrue(TEXT("already-active copy is deterministic and diagnostic-free"),
+		Feedback.IsValid()
+			&& Feedback.Matches(Replay)
+			&& Feedback.GetReason() == EFeedbackReason::AlreadyActive
+			&& Feedback.GetTone() == EFeedbackTone::Warning
+			&& Feedback.GetDisplayText()
+				== TEXT("SPIRIT SHIELD · ALREADY ACTIVE"));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapSpiritShieldHUDInsufficientFeedbackTest,
+	"Shanmen.0_0_10.Product.SpiritShieldHUDPresentation.InsufficientFeedback",
+	PresentationFlags)
+
+bool Fdemo_mapSpiritShieldHUDInsufficientFeedbackTest::RunTest(
+	const FString&)
+{
+	auto Result = MakeRejected(
+		Edemo_mapShanmenSpiritShieldProductActivationError::SessionRejected);
+	Result.Begin.Status = EShanmenSpiritShieldActionStatus::Rejected;
+	Result.Begin.Error =
+		EShanmenSpiritShieldActionError::ResourceReservationRejected;
+	Result.Begin.ResourceError =
+		EShanmenActionResourceTransactionError::InsufficientAvailable;
+	FFeedback Feedback;
+	TestTrue(TEXT("typed insufficient-resource proof becomes readable"),
+		Result.Begin.IsValid()
+			&& FFeedback::TryProject(Result, TEXT("H"), Feedback));
+	TestTrue(TEXT("feedback states the canonical Spirit cost"),
+		Feedback.GetReason() == EFeedbackReason::InsufficientSpirit
+			&& Feedback.GetTone() == EFeedbackTone::Warning
+			&& Feedback.GetDisplayText()
+				== TEXT("SPIRIT SHIELD · NEED 20 SPIRIT"));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapSpiritShieldHUDActionBusyFeedbackTest,
+	"Shanmen.0_0_10.Product.SpiritShieldHUDPresentation.ActionBusyFeedback",
+	PresentationFlags)
+
+bool Fdemo_mapSpiritShieldHUDActionBusyFeedbackTest::RunTest(const FString&)
+{
+	const auto Result = MakeRejected(
+		Edemo_mapShanmenSpiritShieldProductActivationError::ActionConflict);
+	FFeedback Feedback;
+	TestTrue(TEXT("action-lane rejection retains the current remapped key"),
+		FFeedback::TryProject(Result, TEXT(" G "), Feedback));
+	TestTrue(TEXT("busy feedback tells the player how to retry"),
+		Feedback.GetReason() == EFeedbackReason::ActionBusy
+			&& Feedback.GetTone() == EFeedbackTone::Warning
+			&& Feedback.GetDisplayText()
+				== TEXT("SPIRIT SHIELD · ACTION BUSY · TRY [G] AGAIN"));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapSpiritShieldHUDInputFeedbackFencesTest,
+	"Shanmen.0_0_10.Product.SpiritShieldHUDPresentation.InputFeedbackFences",
+	PresentationFlags)
+
+bool Fdemo_mapSpiritShieldHUDInputFeedbackFencesTest::RunTest(const FString&)
+{
+	const auto Technical = MakeRejected(
+		Edemo_mapShanmenSpiritShieldProductActivationError::
+			StateDesynchronized);
+	FFeedback Reused;
+	TestTrue(TEXT("technical typed rejection uses error feedback"),
+		FFeedback::TryProject(Technical, TEXT("H"), Reused)
+			&& Reused.GetReason() == EFeedbackReason::Failed
+			&& Reused.GetTone() == EFeedbackTone::Error
+			&& Reused.GetDisplayText()
+				== TEXT("SPIRIT SHIELD · ACTIVATION FAILED"));
+
+	const Fdemo_mapShanmenSpiritShieldProductActivationResult Invalid;
+	TestFalse(TEXT("invalid product evidence fails closed"),
+		FFeedback::TryProject(Invalid, TEXT("H"), Reused));
+	TestFalse(TEXT("a failed projection clears reusable output"),
+		Reused.IsValid());
+	TestFalse(TEXT("blank remapped keys cannot produce misleading copy"),
+		FFeedback::TryProject(Technical, TEXT("  "), Reused));
 	return true;
 }
 

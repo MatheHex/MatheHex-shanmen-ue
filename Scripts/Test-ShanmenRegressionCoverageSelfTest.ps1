@@ -2814,6 +2814,7 @@ try
 			$DivineSenseHUDPresentation,
 			$DivineSensePhysicalInput,
 			$SpiritShieldHUDPresentation,
+			$SpiritShieldPhysicalInput,
 			$SpiritShieldProductSession,
 			$SwordQiPhysicalInput,
 			$ThrownWeaponMainHUDCombatHintLayoutPolicy,

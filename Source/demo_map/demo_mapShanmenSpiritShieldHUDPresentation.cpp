@@ -5,6 +5,11 @@ namespace
 	using EShieldTone = Edemo_mapShanmenSpiritShieldHUDTone;
 	using FShieldPresentation =
 		Fdemo_mapShanmenSpiritShieldHUDPresentation;
+	using EFeedbackReason =
+		Edemo_mapShanmenSpiritShieldInputFeedbackReason;
+	using EFeedbackTone = Edemo_mapShanmenSpiritShieldInputFeedbackTone;
+	using FFeedback =
+		Fdemo_mapShanmenSpiritShieldInputFeedbackPresentation;
 
 	constexpr float LowCapacityFraction = 0.25f;
 	constexpr double ValueTolerance = 1.0e-4;
@@ -131,5 +136,127 @@ bool FShieldPresentation::Matches(
 		&& MaximumCapacity == Other.MaximumCapacity
 		&& RemainingTicks == Other.RemainingTicks
 		&& RemainingSeconds == Other.RemainingSeconds
+		&& DisplayText == Other.DisplayText;
+}
+
+bool FFeedback::TryProject(
+	const Fdemo_mapShanmenSpiritShieldProductActivationResult& Result,
+	const FString& ActivationKeyLabel,
+	FFeedback& OutPresentation)
+{
+	OutPresentation = FFeedback();
+	const FString KeyLabel = ActivationKeyLabel.TrimStartAndEnd();
+	if (!Result.IsValid() || KeyLabel.IsEmpty())
+	{
+		return false;
+	}
+
+	FFeedback Candidate;
+	if (Result.IsAccepted())
+	{
+		Candidate.Reason = EFeedbackReason::Activated;
+		Candidate.Tone = EFeedbackTone::Success;
+		Candidate.DisplayText = TEXT("SPIRIT SHIELD · ACTIVE");
+	}
+	else
+	{
+		switch (Result.Error)
+		{
+		case Edemo_mapShanmenSpiritShieldProductActivationError::AlreadyActive:
+			Candidate.Reason = EFeedbackReason::AlreadyActive;
+			Candidate.Tone = EFeedbackTone::Warning;
+			Candidate.DisplayText =
+				TEXT("SPIRIT SHIELD · ALREADY ACTIVE");
+			break;
+		case Edemo_mapShanmenSpiritShieldProductActivationError::ActionConflict:
+			Candidate.Reason = EFeedbackReason::ActionBusy;
+			Candidate.Tone = EFeedbackTone::Warning;
+			Candidate.DisplayText = FString::Printf(
+				TEXT("SPIRIT SHIELD · ACTION BUSY · TRY [%s] AGAIN"),
+				*KeyLabel);
+			break;
+		case Edemo_mapShanmenSpiritShieldProductActivationError::
+				CoordinatorNotReady:
+		case Edemo_mapShanmenSpiritShieldProductActivationError::
+				TimelineUnavailable:
+			Candidate.Reason = EFeedbackReason::Unavailable;
+			Candidate.Tone = EFeedbackTone::Warning;
+			Candidate.DisplayText = TEXT("SPIRIT SHIELD · UNAVAILABLE");
+			break;
+		case Edemo_mapShanmenSpiritShieldProductActivationError::SessionRejected:
+			if (Result.Begin.IsValid()
+				&& Result.Begin.Status
+					== EShanmenSpiritShieldActionStatus::Rejected
+				&& Result.Begin.ResourceError
+					== EShanmenActionResourceTransactionError::
+						InsufficientAvailable)
+			{
+				Candidate.Reason = EFeedbackReason::InsufficientSpirit;
+				Candidate.Tone = EFeedbackTone::Warning;
+				Candidate.DisplayText = FString::Printf(
+					TEXT("SPIRIT SHIELD · NEED %.0f SPIRIT"),
+					Fdemo_mapShanmenSpiritShieldProductAuthority::
+						CanonicalSpiritEnergyCost());
+			}
+			else
+			{
+				Candidate.Reason = EFeedbackReason::Failed;
+				Candidate.Tone = EFeedbackTone::Error;
+				Candidate.DisplayText =
+					TEXT("SPIRIT SHIELD · ACTIVATION FAILED");
+			}
+			break;
+		case Edemo_mapShanmenSpiritShieldProductActivationError::
+				ReservationRejected:
+		case Edemo_mapShanmenSpiritShieldProductActivationError::
+				PolicyConstructionFailed:
+		case Edemo_mapShanmenSpiritShieldProductActivationError::
+				ScheduleRejected:
+		case Edemo_mapShanmenSpiritShieldProductActivationError::
+				SharedResourceRejected:
+		case Edemo_mapShanmenSpiritShieldProductActivationError::
+				StateDesynchronized:
+			Candidate.Reason = EFeedbackReason::Failed;
+			Candidate.Tone = EFeedbackTone::Error;
+			Candidate.DisplayText =
+				TEXT("SPIRIT SHIELD · ACTIVATION FAILED");
+			break;
+		default:
+			return false;
+		}
+	}
+
+	if (!Candidate.IsValid())
+	{
+		return false;
+	}
+	OutPresentation = MoveTemp(Candidate);
+	return true;
+}
+
+bool FFeedback::IsValid() const
+{
+	if (Reason == EFeedbackReason::Invalid
+		|| Tone == EFeedbackTone::Invalid
+		|| DisplayText.TrimStartAndEnd().IsEmpty())
+	{
+		return false;
+	}
+	if (Reason == EFeedbackReason::Activated)
+	{
+		return Tone == EFeedbackTone::Success;
+	}
+	if (Reason == EFeedbackReason::Failed)
+	{
+		return Tone == EFeedbackTone::Error;
+	}
+	return Tone == EFeedbackTone::Warning;
+}
+
+bool FFeedback::Matches(const FFeedback& Other) const
+{
+	return IsValid() && Other.IsValid()
+		&& Reason == Other.Reason
+		&& Tone == Other.Tone
 		&& DisplayText == Other.DisplayText;
 }

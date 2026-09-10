@@ -210,9 +210,17 @@ bool Fdemo_mapSpiritShieldPhysicalPressTest::RunTest(const FString&)
 	TestEqual(TEXT("physical press invokes exactly one shield route"),
 		Fixture.Controller->GetSpiritShieldInputInvocationCountForAutomation(),
 		Before + 1);
-	TestFalse(TEXT("fixture without authoritative GameMode cannot activate"),
-		Fixture.Controller->GetLastSpiritShieldInputResultForAutomation().
-			IsAccepted());
+	const Fdemo_mapShanmenSpiritShieldProductActivationResult& Result =
+		Fixture.Controller->GetLastSpiritShieldInputResultForAutomation();
+	TestTrue(TEXT("missing GameMode produces a typed readable rejection"),
+		Result.IsValid() && !Result.IsAccepted()
+			&& Result.Error
+				== Edemo_mapShanmenSpiritShieldProductActivationError::
+					CoordinatorNotReady);
+	TestTrue(TEXT("the latest physical outcome opens the HUD feedback window"),
+		Fixture.Controller->IsSpiritShieldInputFeedbackActive()
+			&& Fixture.Controller->GetLatestSpiritShieldInputResult().
+				Diagnostic == Result.Diagnostic);
 	return true;
 }
 

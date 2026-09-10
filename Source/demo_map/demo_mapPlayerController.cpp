@@ -38,6 +38,7 @@
 namespace
 {
 	constexpr float PlayerCharacterMovementTickInterval = 0.001f;
+	constexpr double SpiritShieldInputFeedbackDurationSeconds = 2.25;
 	constexpr double DivineSenseInputFeedbackDurationSeconds = 2.25;
 	constexpr double SwordQiInputFeedbackDurationSeconds = 2.25;
 	constexpr double SwordQiLaunchVerticalOffset = 50.0;
@@ -1152,9 +1153,6 @@ void Ademo_mapPlayerController::UseSpiritShield()
 		RouteSpiritShieldInput();
 #if !UE_BUILD_SHIPPING
 	++SpiritShieldInputInvocationCount;
-	LastSpiritShieldInputResult = Result;
-#else
-	(void)Result;
 #endif
 	UE_LOG(
 		Logdemo_map,
@@ -1167,12 +1165,52 @@ void Ademo_mapPlayerController::UseSpiritShield()
 Fdemo_mapShanmenSpiritShieldProductActivationResult
 Ademo_mapPlayerController::RouteSpiritShieldInput()
 {
+	Fdemo_mapShanmenSpiritShieldProductActivationResult Result;
+	if (!IsGameplayInputAllowed())
+	{
+		Result.Error =
+			Edemo_mapShanmenSpiritShieldProductActivationError::ActionConflict;
+		Result.Diagnostic =
+			TEXT("Spirit Shield physical input is blocked by the active UI surface.");
+		CaptureSpiritShieldInputFeedback(Result);
+		return Result;
+	}
+
 	Ademo_mapGameMode* Mode = GetWorld()
 		? Cast<Ademo_mapGameMode>(GetWorld()->GetAuthGameMode())
 		: nullptr;
-	return IsGameplayInputAllowed() && Mode
-		? Mode->RouteSpiritShieldInput()
-		: Fdemo_mapShanmenSpiritShieldProductActivationResult();
+	if (!Mode)
+	{
+		Result.Error = Edemo_mapShanmenSpiritShieldProductActivationError::
+			CoordinatorNotReady;
+		Result.Diagnostic =
+			TEXT("Spirit Shield physical input requires the product GameMode.");
+		CaptureSpiritShieldInputFeedback(Result);
+		return Result;
+	}
+
+	Result = Mode->RouteSpiritShieldInput();
+	CaptureSpiritShieldInputFeedback(Result);
+	return Result;
+}
+
+void Ademo_mapPlayerController::CaptureSpiritShieldInputFeedback(
+	const Fdemo_mapShanmenSpiritShieldProductActivationResult& Result)
+{
+	LastSpiritShieldInputResult = Result;
+	SpiritShieldInputFeedbackExpiresAtSeconds =
+		Result.IsValid() && GetWorld()
+			? GetWorld()->GetTimeSeconds()
+				+ SpiritShieldInputFeedbackDurationSeconds
+			: -1.0;
+}
+
+bool Ademo_mapPlayerController::IsSpiritShieldInputFeedbackActive() const
+{
+	return LastSpiritShieldInputResult.IsValid()
+		&& GetWorld()
+		&& GetWorld()->GetTimeSeconds()
+			<= SpiritShieldInputFeedbackExpiresAtSeconds;
 }
 
 void Ademo_mapPlayerController::UseDivineSense()
