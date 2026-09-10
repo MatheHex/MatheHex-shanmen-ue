@@ -14,12 +14,13 @@ namespace
 	const FName SpiritShieldShellName(TEXT("SpiritShieldShellVisual"));
 	const FName SpiritShieldCueLightName(TEXT("SpiritShieldCueLight"));
 	const FVector SpiritShieldShellScale(1.35f, 1.35f, 2.10f);
-	const FLinearColor SpiritShieldEnergyColor(0.08f, 0.68f, 1.0f);
-	const FLinearColor SpiritShieldQuantizedCueColor(
-		SpiritShieldEnergyColor.ToFColor(false));
+	const FLinearColor SpiritShieldStableColor(0.08f, 0.68f, 1.0f);
+	const FLinearColor SpiritShieldLowCapacityColor(1.0f, 0.46f, 0.05f);
 	constexpr float SpiritShieldShellOpacity = 0.16f;
-	constexpr float SpiritShieldCueIntensity = 1800.0f;
+	constexpr float SpiritShieldStableCueIntensity = 1800.0f;
+	constexpr float SpiritShieldLowCapacityCueIntensity = 2600.0f;
 	constexpr float SpiritShieldCueAttenuationRadius = 220.0f;
+	constexpr float SpiritShieldLowCapacityFraction = 0.25f;
 }
 
 bool Fdemo_mapShanmenSpiritShieldWorldPresentation::EnsureInstalled(
@@ -70,11 +71,11 @@ bool Fdemo_mapShanmenSpiritShieldWorldPresentation::EnsureInstalled(
 		if (DynamicMaterial)
 		{
 			DynamicMaterial->SetVectorParameterValue(
-				TEXT("Color"), SpiritShieldEnergyColor);
+				TEXT("Color"), SpiritShieldStableColor);
 			DynamicMaterial->SetVectorParameterValue(
-				TEXT("BaseColor"), SpiritShieldEnergyColor);
+				TEXT("BaseColor"), SpiritShieldStableColor);
 			DynamicMaterial->SetVectorParameterValue(
-				TEXT("Emissive"), SpiritShieldEnergyColor);
+				TEXT("Emissive"), SpiritShieldStableColor);
 			DynamicMaterial->SetScalarParameterValue(
 				TEXT("Opacity"), SpiritShieldShellOpacity);
 		}
@@ -82,8 +83,8 @@ bool Fdemo_mapShanmenSpiritShieldWorldPresentation::EnsureInstalled(
 		Owner->AddInstanceComponent(CueLight);
 		CueLight->SetupAttachment(Owner->GetRootComponent());
 		CueLight->SetRelativeLocation(FVector::ZeroVector);
-		CueLight->SetLightColor(SpiritShieldEnergyColor, false);
-		CueLight->SetIntensity(SpiritShieldCueIntensity);
+		CueLight->SetLightColor(SpiritShieldStableColor, false);
+		CueLight->SetIntensity(SpiritShieldStableCueIntensity);
 		CueLight->SetAttenuationRadius(
 			SpiritShieldCueAttenuationRadius);
 		CueLight->SetCastShadows(false);
@@ -109,8 +110,34 @@ bool Fdemo_mapShanmenSpiritShieldWorldPresentation::Synchronize(
 		&& Session->IsValid()
 		&& Session->IsActive()
 		&& Session->GetAvailableCapacity() > 0.0f;
+	bool bLowCapacity = false;
+	if (bShouldBeVisible)
+	{
+		const float MaximumCapacity = Session->GetSession()
+			.GetCapacityAuthority().GetMaximumCapacity();
+		if (!FMath::IsFinite(MaximumCapacity) || MaximumCapacity <= 0.0f
+			|| Session->GetAvailableCapacity() > MaximumCapacity)
+		{
+			SetActive(Owner, false);
+			return false;
+		}
+		bLowCapacity = Session->GetAvailableCapacity()
+			<= MaximumCapacity * SpiritShieldLowCapacityFraction;
+	}
+	SetAppearance(
+		Owner,
+		bLowCapacity
+			? SpiritShieldLowCapacityColor
+			: SpiritShieldStableColor,
+		bLowCapacity
+			? SpiritShieldLowCapacityCueIntensity
+			: SpiritShieldStableCueIntensity);
 	SetActive(Owner, bShouldBeVisible);
-	return IsVisible(Owner) == bShouldBeVisible;
+	return IsVisible(Owner) == bShouldBeVisible
+		&& (!bShouldBeVisible
+			|| (bLowCapacity
+				? HasLowCapacityAppearance(Owner)
+				: HasStableAppearance(Owner)));
 }
 
 bool Fdemo_mapShanmenSpiritShieldWorldPresentation::IsVisible(
@@ -142,9 +169,7 @@ bool Fdemo_mapShanmenSpiritShieldWorldPresentation::IsGeometryValid(
 			FRotator::ZeroRotator, KINDA_SMALL_NUMBER)
 		&& Shell->GetRelativeScale3D().Equals(
 			SpiritShieldShellScale, KINDA_SMALL_NUMBER)
-		&& HasCanonicalMaterialColor(Owner)
-		&& CueLight->GetLightColor().Equals(
-			SpiritShieldQuantizedCueColor, KINDA_SMALL_NUMBER);
+		&& Cast<UMaterialInstanceDynamic>(Shell->GetMaterial(0));
 }
 
 bool Fdemo_mapShanmenSpiritShieldWorldPresentation::
@@ -156,7 +181,23 @@ bool Fdemo_mapShanmenSpiritShieldWorldPresentation::
 		: nullptr;
 	return DynamicMaterial
 		&& DynamicMaterial->K2_GetVectorParameterValue(TEXT("Color"))
-			.Equals(SpiritShieldEnergyColor, KINDA_SMALL_NUMBER);
+			.Equals(SpiritShieldStableColor, KINDA_SMALL_NUMBER);
+}
+
+bool Fdemo_mapShanmenSpiritShieldWorldPresentation::HasStableAppearance(
+	const AActor* Owner)
+{
+	return HasAppearance(
+		Owner, SpiritShieldStableColor, SpiritShieldStableCueIntensity);
+}
+
+bool Fdemo_mapShanmenSpiritShieldWorldPresentation::
+	HasLowCapacityAppearance(const AActor* Owner)
+{
+	return HasAppearance(
+		Owner,
+		SpiritShieldLowCapacityColor,
+		SpiritShieldLowCapacityCueIntensity);
 }
 
 FLinearColor Fdemo_mapShanmenSpiritShieldWorldPresentation::GetCueColor(
@@ -166,6 +207,13 @@ FLinearColor Fdemo_mapShanmenSpiritShieldWorldPresentation::GetCueColor(
 	return CueLight
 		? CueLight->GetLightColor()
 		: FLinearColor::Transparent;
+}
+
+float Fdemo_mapShanmenSpiritShieldWorldPresentation::GetCueIntensity(
+	const AActor* Owner)
+{
+	const UPointLightComponent* CueLight = FindCueLight(Owner);
+	return CueLight ? CueLight->Intensity : 0.0f;
 }
 
 UStaticMeshComponent*
@@ -206,6 +254,47 @@ Fdemo_mapShanmenSpiritShieldWorldPresentation::FindCueLight(
 		}
 	}
 	return nullptr;
+}
+
+bool Fdemo_mapShanmenSpiritShieldWorldPresentation::HasAppearance(
+	const AActor* Owner,
+	const FLinearColor& Color,
+	float CueIntensity)
+{
+	const UStaticMeshComponent* Shell = FindShell(Owner);
+	UMaterialInstanceDynamic* DynamicMaterial = Shell
+		? Cast<UMaterialInstanceDynamic>(Shell->GetMaterial(0))
+		: nullptr;
+	const UPointLightComponent* CueLight = FindCueLight(Owner);
+	const FLinearColor QuantizedCueColor(Color.ToFColor(false));
+	return DynamicMaterial && CueLight
+		&& DynamicMaterial->K2_GetVectorParameterValue(TEXT("Color"))
+			.Equals(Color, KINDA_SMALL_NUMBER)
+		&& CueLight->GetLightColor().Equals(
+			QuantizedCueColor, KINDA_SMALL_NUMBER)
+		&& FMath::IsNearlyEqual(CueLight->Intensity, CueIntensity);
+}
+
+void Fdemo_mapShanmenSpiritShieldWorldPresentation::SetAppearance(
+	AActor* Owner,
+	const FLinearColor& Color,
+	float CueIntensity)
+{
+	if (UStaticMeshComponent* Shell = FindShell(Owner))
+	{
+		if (UMaterialInstanceDynamic* DynamicMaterial =
+			Cast<UMaterialInstanceDynamic>(Shell->GetMaterial(0)))
+		{
+			DynamicMaterial->SetVectorParameterValue(TEXT("Color"), Color);
+			DynamicMaterial->SetVectorParameterValue(TEXT("BaseColor"), Color);
+			DynamicMaterial->SetVectorParameterValue(TEXT("Emissive"), Color);
+		}
+	}
+	if (UPointLightComponent* CueLight = FindCueLight(Owner))
+	{
+		CueLight->SetLightColor(Color, false);
+		CueLight->SetIntensity(CueIntensity);
+	}
 }
 
 void Fdemo_mapShanmenSpiritShieldWorldPresentation::SetActive(

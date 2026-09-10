@@ -36,10 +36,21 @@ public:
 	static bool IsVisible(const AActor* Owner);
 	static bool IsGeometryValid(const AActor* Owner);
 	static bool HasCanonicalMaterialColor(const AActor* Owner);
+	static bool HasStableAppearance(const AActor* Owner);
+	static bool HasLowCapacityAppearance(const AActor* Owner);
 	static FLinearColor GetCueColor(const AActor* Owner);
+	static float GetCueIntensity(const AActor* Owner);
 
 private:
 	static UStaticMeshComponent* FindShell(const AActor* Owner);
 	static UPointLightComponent* FindCueLight(const AActor* Owner);
+	static bool HasAppearance(
+		const AActor* Owner,
+		const FLinearColor& Color,
+		float CueIntensity);
+	static void SetAppearance(
+		AActor* Owner,
+		const FLinearColor& Color,
+		float CueIntensity);
 	static void SetActive(AActor* Owner, bool bActive);
 };

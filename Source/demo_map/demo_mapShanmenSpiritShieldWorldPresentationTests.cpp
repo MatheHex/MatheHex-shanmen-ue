@@ -26,9 +26,9 @@ namespace
 		EAutomationTestFlags::EditorContext
 		| EAutomationTestFlags::EngineFilter;
 	const FGuid SpiritShieldWorldPresentationRun(
-		0x25600001, 0x25600002, 0x25600003, 0x25600004);
+		0x25700001, 0x25700002, 0x25700003, 0x25700004);
 	const FGuid SpiritShieldWorldPresentationAttackSource(
-		0x25610001, 0x25610002, 0x25610003, 0x25610004);
+		0x25710001, 0x25710002, 0x25710003, 0x25710004);
 
 	struct FSpiritShieldWorldFixture
 	{
@@ -195,9 +195,9 @@ namespace
 		Capture.OwnerId = SpiritShieldWorldPresentationAttackSource;
 		Capture.SourceEntityId = SpiritShieldWorldPresentationAttackSource;
 		Capture.ActionDefinitionId =
-			TEXT("Combat.Action.Test.P25_6ShieldPresentation");
-		Capture.Content.Version = TEXT("0.0.10.P25.6");
-		Capture.Content.Digest = TEXT("TEST-DIGEST-P25.6-SHIELD-PRESENTATION");
+			TEXT("Combat.Action.Test.P25_7ShieldPresentation");
+		Capture.Content.Version = TEXT("0.0.10.P25.7");
+		Capture.Content.Digest = TEXT("TEST-DIGEST-P25.7-SHIELD-PRESENTATION");
 		Capture.SourceTags.AddTag(FShanmenCombatNativeTags::SourcePlayer());
 		Capture.ActivationId = FShanmenCombatIdFactory::MakeActivationId(
 			Capture.RunId,
@@ -212,7 +212,7 @@ namespace
 		Identity.Candidate.SourceEntityId = Identity.Action.GetSourceEntityId();
 		Identity.Candidate.TargetEntityId = TargetEntityId;
 		Identity.Candidate.DetectorId =
-			TEXT("Detector.Test.P25_6ShieldPresentation");
+			TEXT("Detector.Test.P25_7ShieldPresentation");
 		Identity.Candidate.DetectorKind = EShanmenHitDetectorKind::Shape;
 		Identity.Candidate.HitNormal = FVector::BackwardVector;
 		Identity.Candidate.HitOrdinal = 0;
@@ -233,17 +233,18 @@ namespace
 		return Defense;
 	}
 
-	FShanmenImpactRequest MakeDepletingImpactRequest(
+	FShanmenImpactRequest MakeImpactRequest(
 		const FSpiritShieldPresentationImpactIdentity& Identity,
-		const FShanmenDefenseSnapshot& Defense)
+		const FShanmenDefenseSnapshot& Defense,
+		float RawDamage)
 	{
 		FShanmenImpactRequest Request;
 		Request.ImpactId = Identity.ImpactId;
 		Request.Action = Identity.Action;
 		Request.Candidate = Identity.Candidate;
 		Request.Damage.FormulaId =
-			TEXT("Combat.Formula.Test.P25_6ShieldPresentation");
-		Request.Damage.RawDamage = 40.0f;
+			TEXT("Combat.Formula.Test.P25_7ShieldPresentation");
+		Request.Damage.RawDamage = RawDamage;
 		Request.Damage.DamageTags.AddTag(
 			FShanmenCombatNativeTags::DamagePhysicalSlash());
 		Request.TargetVitality.CurrentVitality = 100.0f;
@@ -338,11 +339,7 @@ bool Fdemo_mapSpiritShieldWorldPresentationActivationReleaseTest::RunTest(
 			&& Fdemo_mapShanmenSpiritShieldWorldPresentation::
 				IsVisible(World.Character)
 			&& Fdemo_mapShanmenSpiritShieldWorldPresentation::
-				GetCueColor(World.Character).Equals(
-					FLinearColor(
-						FLinearColor(0.08f, 0.68f, 1.0f)
-							.ToFColor(false)),
-					KINDA_SMALL_NUMBER));
+				HasStableAppearance(World.Character));
 	TestTrue(TEXT("owner release clears the sole Session"),
 		Product.Session.TryReleaseOwner(Product.Diagnostic)
 			&& Product.Session.IsEmpty());
@@ -394,6 +391,56 @@ bool Fdemo_mapSpiritShieldWorldPresentationDeadlineTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapSpiritShieldWorldPresentationCapacityToneTest,
+	"Shanmen.0_0_10.Product.SpiritShieldWorldPresentation.CapacityTone",
+	SpiritShieldWorldPresentationFlags)
+
+bool Fdemo_mapSpiritShieldWorldPresentationCapacityToneTest::RunTest(
+	const FString&)
+{
+	FSpiritShieldWorldFixture World;
+	FSpiritShieldPresentationProductFixture Product;
+	if (!World.IsReady() || !Product.Start())
+	{
+		AddError(!World.IsReady() ? World.Diagnostic : Product.Diagnostic);
+		return false;
+	}
+	TestTrue(TEXT("full-capacity shield starts with stable cyan appearance"),
+		World.Synchronize(&Product.Session)
+			&& Fdemo_mapShanmenSpiritShieldWorldPresentation::
+				HasStableAppearance(World.Character));
+
+	const FSpiritShieldPresentationImpactIdentity Identity =
+		MakeImpactIdentity(Product.Coordinator.GetPlayerEntityId());
+	const auto Defense = Product.Session.TryComposeImpactDefense(
+		Identity.ImpactId,
+		Product.CaptureTimeline(),
+		MakeBaseDefense());
+	const FShanmenImpactRequest Request = MakeImpactRequest(
+		Identity, Defense.Defense, 24.0f);
+	const FShanmenImpactResult Resolution =
+		FShanmenDefenseResolver::Resolve(Request);
+	const auto Committed = Product.Session.CommitImpact(
+		Defense, Request, Resolution, []() { return true; });
+	TestTrue(TEXT("partial impact leaves exact low nonzero capacity"),
+		Committed.DidConsumeCapacity()
+			&& FMath::IsNearlyEqual(Resolution.PreventedDamage, 24.0f)
+			&& FMath::IsNearlyEqual(
+				Product.Session.GetAvailableCapacity(), 6.0f));
+	TestTrue(TEXT("low active capacity changes the world cue to amber"),
+		World.Synchronize(&Product.Session)
+			&& Fdemo_mapShanmenSpiritShieldWorldPresentation::
+				IsVisible(World.Character)
+			&& Fdemo_mapShanmenSpiritShieldWorldPresentation::
+				HasLowCapacityAppearance(World.Character)
+			&& FMath::IsNearlyEqual(
+				Fdemo_mapShanmenSpiritShieldWorldPresentation::
+					GetCueIntensity(World.Character),
+				2600.0f));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	Fdemo_mapSpiritShieldWorldPresentationDepletionTest,
 	"Shanmen.0_0_10.Product.SpiritShieldWorldPresentation.CapacityDepletion",
 	SpiritShieldWorldPresentationFlags)
@@ -420,8 +467,8 @@ bool Fdemo_mapSpiritShieldWorldPresentationDepletionTest::RunTest(
 		Identity.ImpactId,
 		Product.CaptureTimeline(),
 		MakeBaseDefense());
-	const FShanmenImpactRequest Request = MakeDepletingImpactRequest(
-		Identity, Defense.Defense);
+	const FShanmenImpactRequest Request = MakeImpactRequest(
+		Identity, Defense.Defense, 40.0f);
 	const FShanmenImpactResult Resolution =
 		FShanmenDefenseResolver::Resolve(Request);
 	const auto Committed = Product.Session.CommitImpact(
