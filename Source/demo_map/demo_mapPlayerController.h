@@ -20,6 +20,8 @@
 
 class Udemo_mapSkillComponent;
 class UCharacterMovementComponent;
+class UMaterialInterface;
+class UStaticMesh;
 class UUserWidget;
 class ACharacter;
 #if !UE_BUILD_SHIPPING
@@ -93,6 +95,13 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, Category="Combat")
 	Fdemo_mapCommonSkillParams BasicAttackParams;
+
+	/** Hard references keep the code-authored shield shell available to builds. */
+	UPROPERTY()
+	TObjectPtr<UStaticMesh> SpiritShieldShellMeshAsset;
+
+	UPROPERTY()
+	TObjectPtr<UMaterialInterface> SpiritShieldShellMaterialAsset;
 
 public:
 

@@ -3294,6 +3294,15 @@
 	  ]
 	},
 	{
+	  "name": "SpiritShieldWorldPresentation",
+	  "pathRegex": "^Source/demo_map/(?:demo_mapPlayerController|demo_mapShanmenSpiritShieldWorldPresentation(?:Tests)?)\\.(?:h|cpp)$",
+	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.SpiritShieldWorldPresentation",
+		"Shanmen.0_0_10.Product.SpiritShieldProductSession",
+		"demo_map.V2RangedCompatibility"
+	  ]
+	},
+	{
 	  "name": "MainHUDTrajectoryPresentation",
 	  "pathRegex": "^Source/demo_map/demo_mapHUD\\.(?:h|cpp)$",
 	  "requiredGroups": [

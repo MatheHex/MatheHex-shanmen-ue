@@ -628,6 +628,9 @@ try
     $SpiritShieldHUDPresentation = New-AutomationLogFixture `
         -Name 'spirit-shield-hud-presentation.log' `
         -Group 'Shanmen.0_0_10.Product.SpiritShieldHUDPresentation'
+    $SpiritShieldWorldPresentation = New-AutomationLogFixture `
+        -Name 'spirit-shield-world-presentation.log' `
+        -Group 'Shanmen.0_0_10.Product.SpiritShieldWorldPresentation'
     $SpiritShieldPhysicalInput = New-AutomationLogFixture `
         -Name 'spirit-shield-physical-input.log' `
         -Group 'Shanmen.0_0_10.Product.SpiritShieldPhysicalInput'
@@ -4217,6 +4220,28 @@ try
             $SpiritShieldProductSession)
 
     Invoke-ExpectedPass `
+        -Name 'Spirit Shield world presentation maps player visual product and compatibility evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSpiritShieldWorldPresentation.h',
+            'Source/demo_map/demo_mapShanmenSpiritShieldWorldPresentation.cpp',
+            'Source/demo_map/demo_mapShanmenSpiritShieldWorldPresentationTests.cpp') `
+        -Logs @(
+            $SpiritShieldWorldPresentation,
+            $SpiritShieldProductSession,
+            $Ranged)
+
+    Invoke-ExpectedPass `
+        -Name 'Spirit Shield controller overlap preserves all controller and world presentation evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapPlayerController.h',
+            'Source/demo_map/demo_mapPlayerController.cpp') `
+        -Logs @(
+            $Full,
+            $InputRestore,
+            $Ranged,
+            $SpiritShieldWorldPresentation)
+
+    Invoke-ExpectedPass `
         -Name 'Spirit Shield physical input maps registry product and legacy input evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenSpiritShieldPhysicalInputTests.cpp') `
@@ -4411,6 +4436,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenSpiritShieldHUDPresentation.cpp') `
         -Logs @($SpiritShieldHUDPresentation) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'Spirit Shield world focus cannot replace product and compatibility evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenSpiritShieldWorldPresentation.cpp') `
+        -Logs @($SpiritShieldWorldPresentation) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

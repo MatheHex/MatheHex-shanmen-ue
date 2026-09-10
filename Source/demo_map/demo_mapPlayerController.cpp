@@ -17,6 +17,7 @@
 #include "demo_mapProfileSessionSubsystem.h"
 #include "demo_mapProfilePreparationWidget.h"
 #include "demo_mapShanmenThrownWeaponArcEditingInteractionComposition.h"
+#include "demo_mapShanmenSpiritShieldWorldPresentation.h"
 #include "CollisionQueryParams.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -34,6 +35,7 @@
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "Misc/DateTime.h"
+#include "UObject/ConstructorHelpers.h"
 
 namespace
 {
@@ -99,6 +101,19 @@ Ademo_mapPlayerController::Ademo_mapPlayerController()
 	DefaultMouseCursor = EMouseCursor::Default;
 	BasicAttackParams.Cooldown = BasicAttackCooldown;
 	BasicAttackParams.VerticalTolerance = BasicAttackVerticalOffset * 2.0f;
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> ShieldShellMesh(
+		TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+	if (ShieldShellMesh.Succeeded())
+	{
+		SpiritShieldShellMeshAsset = ShieldShellMesh.Object;
+	}
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface>
+		ShieldShellMaterial(
+			TEXT("/Game/LevelPrototyping/Interactable/JumpPad/Assets/Materials/M_SimpleGlow.M_SimpleGlow"));
+	if (ShieldShellMaterial.Succeeded())
+	{
+		SpiritShieldShellMaterialAsset = ShieldShellMaterial.Object;
+	}
 }
 
 #if !UE_BUILD_SHIPPING
@@ -364,6 +379,14 @@ void Ademo_mapPlayerController::PlayerTick(float DeltaTime)
 		this,
 		DeltaTime);
 #endif
+	const Ademo_mapGameMode* Mode = GetWorld()
+		? Cast<Ademo_mapGameMode>(GetWorld()->GetAuthGameMode())
+		: nullptr;
+	Fdemo_mapShanmenSpiritShieldWorldPresentation::Synchronize(
+		GetPawn(),
+		Mode ? &Mode->GetSpiritShieldProductSession() : nullptr,
+		SpiritShieldShellMeshAsset,
+		SpiritShieldShellMaterialAsset);
 	if (!IsGameplayInputAllowed())
 	{
 		bMoveForwardPressed = false;
@@ -416,6 +439,11 @@ void Ademo_mapPlayerController::OnPossess(APawn* InPawn)
 
 void Ademo_mapPlayerController::OnUnPossess()
 {
+	Fdemo_mapShanmenSpiritShieldWorldPresentation::Synchronize(
+		GetPawn(),
+		nullptr,
+		SpiritShieldShellMeshAsset,
+		SpiritShieldShellMaterialAsset);
 	if (Ademo_mapGameMode* Mode = GetWorld()
 		? Cast<Ademo_mapGameMode>(GetWorld()->GetAuthGameMode())
 		: nullptr)
