@@ -2741,6 +2741,17 @@
       ]
     },
     {
+      "name": "ArmorResistanceItemAdapter",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenArmorResistanceItemAdapter(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Product.ArmorResistanceItemAdapter",
+        "Shanmen.0_0_10.Product.ArmorResistanceProjection",
+        "Shanmen.0_0_10.Items",
+        "Shanmen.0_0_10.CombatCore",
+        "demo_map.ItemUseAndArmor"
+      ]
+    },
+    {
       "name": "ControlledWeaponProductAdapter",
       "pathRegex": "^Source/demo_map/demo_mapShanmenControlledWeaponAdapter(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [
