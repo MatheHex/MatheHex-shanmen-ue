@@ -640,6 +640,9 @@ try
     $SpiritShieldDeadline = New-AutomationLogFixture `
         -Name 'spirit-shield-deadline.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.SpiritShieldDeadline'
+    $ArmorResistanceProjection = New-AutomationLogFixture `
+        -Name 'armor-resistance-projection.log' `
+        -Group 'Shanmen.0_0_10.Product.ArmorResistanceProjection'
     $FormationAdapter = New-AutomationLogFixture `
         -Name 'formation-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.FormationMaterialAdapter'
@@ -4210,6 +4213,18 @@ try
             $CombatCore)
 
     Invoke-ExpectedPass `
+        -Name 'armor resistance projection maps item authority core resolver and legacy armor evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenArmorResistanceProjection.h',
+            'Source/demo_map/demo_mapShanmenArmorResistanceProjection.cpp',
+            'Source/demo_map/demo_mapShanmenArmorResistanceProjectionTests.cpp') `
+        -Logs @(
+            $ArmorResistanceProjection,
+            $Full,
+            $CombatCore,
+            $ItemUseAndArmor)
+
+    Invoke-ExpectedPass `
         -Name 'Spirit Shield HUD presentation maps its projection and product source' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenSpiritShieldHUDPresentation.h',
@@ -4430,6 +4445,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenSpiritShieldProductSession.cpp') `
         -Logs @($SpiritShieldProductSession) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'armor resistance focus cannot replace item core and legacy armor evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenArmorResistanceProjection.cpp') `
+        -Logs @($ArmorResistanceProjection) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

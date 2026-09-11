@@ -1,5 +1,17 @@
 #include "demo_mapItemTypes.h"
+#include "ShanmenCombatTags.h"
 #include "demo_mapItemDefinitions.h"
+
+bool Fdemo_mapItemDamageResistance::IsValid() const
+{
+	const FGameplayTag DamageRoot = FShanmenCombatNativeTags::Damage();
+	return DamageTag.IsValid()
+		&& DamageTag != DamageRoot
+		&& DamageTag.MatchesTag(DamageRoot)
+		&& FMath::IsFinite(ResistanceFraction)
+		&& ResistanceFraction > 0.0f
+		&& ResistanceFraction < 1.0f;
+}
 
 Fdemo_mapGridContainerSnapshot Fdemo_mapItemViewRules::BuildGridFromOccupiedOrder(
 	const TArray<FGuid>& OrderedOccupiedItemIds,

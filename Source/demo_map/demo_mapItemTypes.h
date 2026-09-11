@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GameplayTagContainer.h"
 #include "demo_mapRewardAffixTypes.h"
 #include "demo_mapAttributeTypes.h"
 #include "demo_mapRewardEventTypes.h"
@@ -150,6 +151,22 @@ struct Fdemo_mapItemEffectParameter
 };
 
 /**
+ * One tag-scoped armor resistance authored on an item definition.
+ * The tag must be a strict child of Shanmen.Damage and the fraction remains
+ * below full prevention so passive armor cannot replace active defense.
+ */
+USTRUCT()
+struct Fdemo_mapItemDamageResistance
+{
+	GENERATED_BODY()
+
+	FGameplayTag DamageTag;
+	float ResistanceFraction = 0.0f;
+
+	bool IsValid() const;
+};
+
+/**
  * Stable product semantics that may project into the 0.0.10 item authority.
  * This is an extensible typed set rather than a collection of independent
  * booleans; category, display name, and DefinitionId never grant gameplay
@@ -168,7 +185,9 @@ enum class Edemo_mapItemGameplaySemantic : uint8
 	/** May be the exact equipped source item for the canonical Sword Qi action. */
 	SwordQiSource,
 	/** May be deployed as the exact source item for controlled-weapon actions. */
-	FlyingSword
+	FlyingSword,
+	/** Explicitly authorizes tag-scoped passive damage-resistance projection. */
+	DamageResistance
 };
 
 USTRUCT()
@@ -192,6 +211,8 @@ struct Fdemo_mapItemDefinition
 	TArray<FName> CompatibleSlotIds;
 	TArray<Fdemo_mapModifierSpec> Modifiers;
 	TArray<Fdemo_mapItemEffectParameter> EffectParameters;
+	/** Optional typed resistance metadata; empty until formal armor tuning is approved. */
+	TArray<Fdemo_mapItemDamageResistance> DamageResistances;
 	/** Immutable product semantics consumed only by explicit authority adapters. */
 	TArray<Edemo_mapItemGameplaySemantic> GameplaySemantics;
 	bool bPurchasable = false;

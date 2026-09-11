@@ -901,6 +901,38 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 			Edemo_mapItemGameplaySemantic::LethalInterception);
 		const bool bFlyingSword = Definition.HasGameplaySemantic(
 			Edemo_mapItemGameplaySemantic::FlyingSword);
+		const bool bDamageResistance = Definition.HasGameplaySemantic(
+			Edemo_mapItemGameplaySemantic::DamageResistance);
+		bool bDamageResistanceMetadataValid = true;
+		for (int32 ResistanceIndex = 0;
+			ResistanceIndex < Definition.DamageResistances.Num();
+			++ResistanceIndex)
+		{
+			const Fdemo_mapItemDamageResistance& Resistance =
+				Definition.DamageResistances[ResistanceIndex];
+			if (!Resistance.IsValid())
+			{
+				bDamageResistanceMetadataValid = false;
+				break;
+			}
+			for (int32 PriorIndex = 0;
+				PriorIndex < ResistanceIndex;
+				++PriorIndex)
+			{
+				const FGameplayTag PriorTag =
+					Definition.DamageResistances[PriorIndex].DamageTag;
+				if (Resistance.DamageTag.MatchesTag(PriorTag)
+					|| PriorTag.MatchesTag(Resistance.DamageTag))
+				{
+					bDamageResistanceMetadataValid = false;
+					break;
+				}
+			}
+			if (!bDamageResistanceMetadataValid)
+			{
+				break;
+			}
+		}
 		if (bThrownWeapon)
 		{
 			++ThrownWeaponDefinitionCount;
@@ -949,6 +981,16 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 			|| !IsCurrentContentIdentity(
 				Definition.ContentVersionId,
 				Definition.ContentDigest)
+			|| !bDamageResistanceMetadataValid
+			|| (bDamageResistance
+				!= !Definition.DamageResistances.IsEmpty())
+			|| (bDamageResistance
+				&& (Definition.CategoryId != Fdemo_mapItemIds::ArmorCategory
+					|| Definition.MaxStackSize != 1
+					|| Definition.EquipmentSlotId
+						!= Fdemo_mapItemIds::ArmorSlot
+					|| !Definition.CompatibleSlotIds.Contains(
+						Fdemo_mapItemIds::ArmorSlot)))
 			|| (Definition.bHotbarEligible
 				!= (Definition.CategoryId == Fdemo_mapItemIds::ConsumableCategory))
 			|| (bThrownWeapon
