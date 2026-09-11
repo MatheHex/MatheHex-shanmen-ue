@@ -2,6 +2,7 @@
 
 #include "demo_map.h"
 #include "demo_mapItemDefinitions.h"
+#include "ShanmenCombatTags.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
 #include "Components/Button.h"
@@ -41,6 +42,63 @@ namespace
 				Effect.Value);
 		}
 		return Result.IsEmpty() ? TEXT("—") : Result;
+	}
+
+	FString ResistanceChannelLabel(const FGameplayTag& DamageTag)
+	{
+		if (DamageTag == FShanmenCombatNativeTags::DamagePhysical())
+		{
+			return TEXT("物理抗性");
+		}
+		if (DamageTag == FShanmenCombatNativeTags::DamagePhysicalSlash())
+		{
+			return TEXT("斩击抗性");
+		}
+		if (DamageTag == FShanmenCombatNativeTags::DamageSpirit())
+		{
+			return TEXT("灵力抗性");
+		}
+		if (DamageTag == FShanmenCombatNativeTags::DamageMental())
+		{
+			return TEXT("精神抗性");
+		}
+		return FString::Printf(TEXT("%s 抗性"), *DamageTag.ToString());
+	}
+
+	FString ResistancePercent(const float Fraction)
+	{
+		const float Percent = Fraction * 100.0f;
+		const int32 RoundedPercent = FMath::RoundToInt(Percent);
+		return FMath::IsNearlyEqual(
+			Percent,
+			static_cast<float>(RoundedPercent),
+			KINDA_SMALL_NUMBER)
+			? FString::Printf(TEXT("%d%%"), RoundedPercent)
+			: FString::Printf(TEXT("%.1f%%"), Percent);
+	}
+
+	FString BuildBaseAttributeSummary(const Fdemo_mapItemDefinition& Definition)
+	{
+		TArray<FString> Entries;
+		if (!Definition.Modifiers.IsEmpty())
+		{
+			Entries.Add(FString::Printf(
+				TEXT("%d 项基础属性修正"),
+				Definition.Modifiers.Num()));
+		}
+		for (const Fdemo_mapItemDamageResistance& Resistance :
+			Definition.DamageResistances)
+		{
+			if (!Resistance.IsValid())
+			{
+				continue;
+			}
+			Entries.Add(FString::Printf(
+				TEXT("%s %s"),
+				*ResistanceChannelLabel(Resistance.DamageTag),
+				*ResistancePercent(Resistance.ResistanceFraction)));
+		}
+		return Entries.IsEmpty() ? TEXT("—") : FString::Join(Entries, TEXT("；"));
 	}
 
 	/**
@@ -206,11 +264,7 @@ Fdemo_mapUnifiedItemDetailView Fdemo_mapItemPresentation::BuildDetail(
 			: TEXT("带随机词条"))
 		: Row.RareRewardTierId.ToString();
 	Detail.Description = TEXT("暂无独立描述数据");
-	Detail.BaseAttributes = Definition->Modifiers.IsEmpty()
-		? TEXT("—")
-		: FString::Printf(
-			TEXT("%d 项基础属性修正"),
-			Definition->Modifiers.Num());
+	Detail.BaseAttributes = BuildBaseAttributeSummary(*Definition);
 	Detail.RandomAffixes = Row.AffixSet.Affixes.IsEmpty()
 		? TEXT("—")
 		: FString::Printf(

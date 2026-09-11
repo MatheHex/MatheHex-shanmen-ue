@@ -6,6 +6,7 @@
 #include "demo_mapAttributeDefinitions.h"
 #include "demo_mapItemAuthority.h"
 #include "demo_mapItemDefinitions.h"
+#include "demo_mapItemPresentation.h"
 #include "demo_mapItemSubsystem.h"
 #include "Engine/GameInstance.h"
 
@@ -145,6 +146,55 @@ bool Fdemo_mapItemDefinitionsTest::RunTest(const FString&)
 	TestTrue(TEXT("Meridian pill owns only the exact condition treatment semantic"), MeridianPill->CategoryId == Fdemo_mapItemIds::ConsumableCategory && MeridianPill->MaxStackSize == 20 && MeridianPill->bHotbarEligible && MeridianPill->HasGameplaySemantic(Edemo_mapItemGameplaySemantic::MeridianShockTreatment) && !MeridianPill->HasGameplaySemantic(Edemo_mapItemGameplaySemantic::ThrownWeapon) && !MeridianPill->HasGameplaySemantic(Edemo_mapItemGameplaySemantic::WeaponGuard) && !MeridianPill->HasGameplaySemantic(Edemo_mapItemGameplaySemantic::SwordQiSource) && MeridianPill->GameplaySemantics.Num() == 1 && MeridianPill->CompatibleSlotIds.IsEmpty());
 	TestTrue(TEXT("Display name is not a key"), Fdemo_mapItemDefinitions::Find(FName(*Weapon->DisplayName.ToString())) == nullptr);
 	TestTrue(TEXT("Deterministic registry order"), Fdemo_mapItemDefinitions::GetAll()[0].DefinitionId == Fdemo_mapItemIds::TrainingBlade && Fdemo_mapItemDefinitions::GetAll()[3].DefinitionId == Fdemo_mapItemIds::SpiritDust && Fdemo_mapItemDefinitions::GetAll()[7].DefinitionId == Fdemo_mapItemIds::HeartProtectingMirror && Fdemo_mapItemDefinitions::GetAll()[9].DefinitionId == Fdemo_mapItemIds::AncientToken);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapArmorResistanceItemDetailTest,
+	"Shanmen.0_0_10.Product.ArmorResistanceItemDetail.CanonicalAndControl",
+	EAutomationTestFlags::EditorContext
+		| EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapArmorResistanceItemDetailTest::RunTest(const FString&)
+{
+	Fdemo_mapProfilePreparationStashRow Robe;
+	Robe.ItemInstanceId = FGuid::NewGuid();
+	Robe.ItemDefinitionId = Fdemo_mapItemIds::ArmorRobeLevel1;
+	Robe.StackCount = 1;
+	Robe.bSafeInPermanentStash = true;
+	const Fdemo_mapUnifiedItemDetailView PreparationDetail =
+		Fdemo_mapItemPresentation::BuildDetail(Robe);
+	TestTrue(
+		TEXT("Preparation detail exposes the authored physical resistance"),
+		PreparationDetail.bValid
+			&& PreparationDetail.BaseAttributes
+		== TEXT("物理抗性 10%"));
+
+	Fdemo_mapProfilePreparationStashRow TrainingVest = Robe;
+	TrainingVest.ItemInstanceId = FGuid::NewGuid();
+	TrainingVest.ItemDefinitionId = Fdemo_mapItemIds::TrainingVest;
+	const Fdemo_mapUnifiedItemDetailView ControlDetail =
+		Fdemo_mapItemPresentation::BuildDetail(TrainingVest);
+	TestTrue(
+		TEXT("Unconfigured training armor does not advertise resistance"),
+		ControlDetail.bValid
+			&& !ControlDetail.BaseAttributes.Contains(TEXT("抗性")));
+
+	Fdemo_mapItemAuthority Authority;
+	const FGuid RuntimeRobeId = AddOne(
+		*this,
+		Authority,
+		Fdemo_mapItemIds::ArmorRobeLevel1);
+	const Fdemo_mapItemInstance* RuntimeRobe =
+		Authority.FindInstance(RuntimeRobeId);
+	const Fdemo_mapUnifiedItemDetailView RuntimeDetail = RuntimeRobe
+		? Fdemo_mapItemPresentation::BuildDetail(*RuntimeRobe)
+		: Fdemo_mapUnifiedItemDetailView();
+	TestTrue(
+		TEXT("Runtime inventory detail shares the canonical resistance summary"),
+		RuntimeRobe && RuntimeDetail.bValid
+			&& RuntimeDetail.BaseAttributes
+				== PreparationDetail.BaseAttributes);
 	return true;
 }
 
