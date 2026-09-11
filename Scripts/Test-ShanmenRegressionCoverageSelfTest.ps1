@@ -655,6 +655,9 @@ try
     $FormationProductAuthority = New-AutomationLogFixture `
         -Name 'formation-product-authority.log' `
         -Group 'Shanmen.0_0_10.Product.FormationProductAuthority'
+    $FormationProductController = New-AutomationLogFixture `
+        -Name 'formation-product-controller.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationProductController'
     $FormationSession = New-AutomationLogFixture `
         -Name 'formation-session.log' `
         -Group 'Shanmen.0_0_10.Product.FormationSession'
@@ -2428,6 +2431,12 @@ try
         -Name 'formation product authority is covered by broad full evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationProductAuthority.cpp') `
+        -Logs @($Full)
+
+    Invoke-ExpectedPass `
+        -Name 'formation product controller is covered by broad full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationProductController.cpp') `
         -Logs @($Full)
 
     Invoke-ExpectedPass `
@@ -5549,6 +5558,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationProductAuthority.cpp') `
         -Logs @($FormationProductAuthority) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'formation product controller focus cannot replace owned authority evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationProductController.cpp') `
+        -Logs @($FormationProductController) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

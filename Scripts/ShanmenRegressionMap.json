@@ -1545,6 +1545,22 @@
       ]
     },
     {
+      "name": "FormationProductController",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenFormationProductController(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.FormationProductController",
+        "Shanmen.0_0_10.Product.FormationProductAuthority",
+        "Shanmen.0_0_10.Product.CombatRunCoordinator",
+        "Shanmen.0_0_10.Product.FormationProductHost",
+        "Shanmen.0_0_10.Product.FormationSession",
+        "Shanmen.0_0_10.Product.FormationMaterialAdapter",
+        "Shanmen.0_0_10.Items",
+        "Shanmen.0_0_10.CombatRuntime.FormationDeployment",
+        "Shanmen.0_0_10.CombatCore"
+      ]
+    },
+    {
       "name": "FormationProductSession",
       "pathRegex": "^Source/demo_map/demo_mapShanmenFormationProductSession(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [

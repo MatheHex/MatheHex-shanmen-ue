@@ -2,6 +2,7 @@
 
 #include "demo_mapShanmenFormationProductHost.h"
 #include "demo_mapShanmenFormationProductAuthority.h"
+#include "demo_mapShanmenFormationProductController.h"
 #include "demo_mapShanmenFormationInfluenceExecutorAdapter.h"
 #include "demo_mapShanmenFormationInfluenceLeaseExecutor.h"
 #include "demo_mapShanmenFormationInfluenceProductRuntime.h"
@@ -439,6 +440,70 @@ namespace
 		~FFormationHostFixture()
 		{
 			Stop();
+		}
+	};
+
+	struct FFormationControllerFixture
+	{
+		FFormationHostFixture Product;
+		APawn* Player = nullptr;
+		Udemo_mapPlayerHealthComponent* PlayerHealth = nullptr;
+		Fdemo_mapCombatRunCoordinator CombatRun;
+		Fdemo_mapShanmenFormationProductController Controller;
+		FString Diagnostic;
+
+		bool Start(FAutomationTestBase& Test, const TCHAR* Label)
+		{
+			if (!Product.Start(Test, Label))
+			{
+				return false;
+			}
+			FActorSpawnParameters Parameters;
+			Parameters.ObjectFlags |= RF_Transient;
+			Parameters.SpawnCollisionHandlingOverride =
+				ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			Player = Product.World->SpawnActor<APawn>(
+				APawn::StaticClass(), FTransform::Identity, Parameters);
+			UBoxComponent* PlayerRoot = Player
+				? NewObject<UBoxComponent>(
+					Player, TEXT("P271PlayerRoot"), RF_Transient)
+				: nullptr;
+			PlayerHealth = Player
+				? NewObject<Udemo_mapPlayerHealthComponent>(
+					Player, TEXT("P271PlayerHealth"), RF_Transient)
+				: nullptr;
+			if (!Player || !PlayerRoot || !PlayerHealth)
+			{
+				return false;
+			}
+			Player->SetRootComponent(PlayerRoot);
+			Player->AddInstanceComponent(PlayerRoot);
+			Player->AddInstanceComponent(PlayerHealth);
+			return CombatRun.TryBeginRun(
+					Product.Correlation.ActiveRunId,
+					Player,
+					PlayerHealth,
+					Diagnostic)
+				&& Controller.TryBegin(
+					Product.Correlation.ActiveRunId,
+					Diagnostic);
+		}
+
+		Fdemo_mapShanmenFormationIntent MakeIntent(
+			const FGuid& IntentId,
+			const FGuid& RequestedRunId,
+			const FVector& Origin,
+			const FVector& Forward = FVector::ForwardVector) const
+		{
+			Fdemo_mapShanmenFormationIntent Intent;
+			check(Fdemo_mapShanmenFormationIntent::TryCapture(
+				IntentId,
+				RequestedRunId,
+				MakeHostDiagram(),
+				Origin,
+				Forward,
+				Intent));
+			return Intent;
 		}
 	};
 
@@ -4977,6 +5042,195 @@ bool Fdemo_mapFormationProductAuthorityRunIdentityTest::RunTest(
 	TestTrue(TEXT("Combat Run still closes through its existing boundary"),
 		CombatRun.TryEndRun(RunId, Diagnostic)
 			&& CombatRun.GetNextPlayerFormationActivationSequence() == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationProductControllerFrozenReplayTest,
+	"Shanmen.0_0_10.Product.FormationProductController.FrozenReplayAndEnd",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationProductControllerFrozenReplayTest::RunTest(
+	const FString&)
+{
+	FFormationControllerFixture Fixture;
+	if (!Fixture.Start(*this, TEXT("ProductControllerReplay")))
+	{
+		AddError(FString::Printf(
+			TEXT("P27.1 controller fixture failed: %s"),
+			*Fixture.Diagnostic));
+		return false;
+	}
+
+	const FGuid IntentId(0xF8710001, 0, 0, 1);
+	const FGuid RunId = Fixture.Product.Correlation.ActiveRunId;
+	const FVector Origin(60.0, -20.0, 15.0);
+	const Fdemo_mapShanmenFormationIntent Intent = Fixture.MakeIntent(
+		IntentId,
+		RunId,
+		Origin,
+		FVector(10.0, 0.0, 7.0));
+	FShanmenItemAuthoritySnapshot Before;
+	if (!Fixture.Product.CaptureSnapshot(Before))
+	{
+		return false;
+	}
+	const uint64 SequenceBefore =
+		Fixture.CombatRun.GetNextPlayerFormationActivationSequence();
+	const auto First = Fixture.Controller.TrySubmit(
+		*Fixture.Product.Authority,
+		Fixture.CombatRun,
+		Intent);
+	const Fdemo_mapShanmenFormationDeploymentCommand* Frozen =
+		Fixture.Controller.FindCapturedCommand(IntentId);
+	const Fdemo_mapShanmenFormationProductHost* Host =
+		Fixture.Controller.GetProductHost();
+	TestTrue(TEXT("First intent owns one authoritative formation ProductHost"),
+		First.IsAccepted()
+			&& !First.bReusedIntent
+			&& Frozen
+			&& Host
+			&& Host->IsValid()
+			&& Frozen->GetOrigin() == Origin
+			&& Frozen->GetForward() == FVector::ForwardVector
+			&& Host->GetSession().GetActionRuntime().GetAction().
+				GetActivationId() == Frozen->GetCommandId()
+			&& Fixture.Controller.NumCapturedIntents() == 1
+			&& Fixture.CombatRun.
+				GetNextPlayerFormationActivationSequence()
+					== SequenceBefore + 1);
+
+	const FGuid FrozenCommandId = Frozen ? Frozen->GetCommandId() : FGuid();
+	const FGuid FrozenBeginId = First.Begin.GetReceiptId();
+	const auto Replay = Fixture.Controller.TrySubmit(
+		*Fixture.Product.Authority,
+		Fixture.CombatRun,
+		Intent);
+	TestTrue(TEXT("Exact retry replays frozen evidence without another sequence"),
+		Replay.IsAccepted()
+			&& Replay.bReusedIntent
+			&& Replay.Preparation.Command.GetCommandId() == FrozenCommandId
+			&& Replay.Begin.GetReceiptId() == FrozenBeginId
+			&& Fixture.Controller.GetProductHost() == Host
+			&& Fixture.CombatRun.
+				GetNextPlayerFormationActivationSequence()
+					== SequenceBefore + 1);
+
+	FShanmenItemAuthoritySnapshot AfterReplay;
+	TestTrue(TEXT("Start and replay remain read-only for item authority"),
+		Fixture.Product.CaptureSnapshot(AfterReplay)
+			&& AfterReplay == Before);
+
+	Fdemo_mapShanmenFormationControllerEndSummary Summary;
+	TestTrue(TEXT("Run teardown cancels and clears the sole owned Host"),
+		Fixture.Controller.TryCancelAndEnd(
+			*Fixture.Product.Authority,
+			Fixture.Product.World,
+			RunId,
+			Summary,
+			Fixture.Diagnostic)
+			&& Summary.IsValid()
+			&& Summary.CapturedIntentCount == 1
+			&& Summary.bHadProductHost
+			&& !Summary.bDiscardedUnstartedCommand
+			&& Summary.Terminal.World.TeardownReceipt.IsValid()
+			&& Fixture.Controller.IsEmpty()
+			&& Fixture.Controller.IsValid());
+	TestTrue(TEXT("Formation owner releases before shared combat Run"),
+		Fixture.CombatRun.TryEndRun(RunId, Fixture.Diagnostic));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationProductControllerFencesTest,
+	"Shanmen.0_0_10.Product.FormationProductController.Fences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationProductControllerFencesTest::RunTest(const FString&)
+{
+	FFormationControllerFixture Fixture;
+	if (!Fixture.Start(*this, TEXT("ProductControllerFences")))
+	{
+		AddError(FString::Printf(
+			TEXT("P27.1 fence fixture failed: %s"),
+			*Fixture.Diagnostic));
+		return false;
+	}
+
+	const FGuid RunId = Fixture.Product.Correlation.ActiveRunId;
+	const FGuid OtherRunId(0xF8710010, 0, 0, 1);
+	const FGuid IntentId(0xF8710011, 0, 0, 1);
+	const FGuid OtherIntentId(0xF8710012, 0, 0, 1);
+	const uint64 SequenceBefore =
+		Fixture.CombatRun.GetNextPlayerFormationActivationSequence();
+	Fdemo_mapShanmenFormationIntent Vertical;
+	const bool bCapturedVertical =
+		Fdemo_mapShanmenFormationIntent::TryCapture(
+			IntentId,
+			RunId,
+			MakeHostDiagram(),
+			FVector::ZeroVector,
+			FVector::UpVector,
+			Vertical);
+	TestTrue(TEXT("Vertical-only direction fails before authority sampling"),
+		!bCapturedVertical && !Vertical.IsValid()
+			&& Fixture.CombatRun.
+				GetNextPlayerFormationActivationSequence() == SequenceBefore);
+
+	const auto WrongRun = Fixture.Controller.TrySubmit(
+		*Fixture.Product.Authority,
+		Fixture.CombatRun,
+		Fixture.MakeIntent(
+			IntentId, OtherRunId, FVector::ZeroVector));
+	TestTrue(TEXT("Foreign Run fails before formation sequence reservation"),
+		WrongRun.Status
+			== Edemo_mapShanmenFormationControllerStatus::RunMismatch
+			&& Fixture.CombatRun.
+				GetNextPlayerFormationActivationSequence() == SequenceBefore);
+
+	const Fdemo_mapShanmenFormationIntent FirstIntent = Fixture.MakeIntent(
+		IntentId, RunId, FVector::ZeroVector);
+	const auto First = Fixture.Controller.TrySubmit(
+		*Fixture.Product.Authority,
+		Fixture.CombatRun,
+		FirstIntent);
+	const auto Conflict = Fixture.Controller.TrySubmit(
+		*Fixture.Product.Authority,
+		Fixture.CombatRun,
+		Fixture.MakeIntent(
+			IntentId, RunId, FVector(1.0, 0.0, 0.0)));
+	const auto Busy = Fixture.Controller.TrySubmit(
+		*Fixture.Product.Authority,
+		Fixture.CombatRun,
+		Fixture.MakeIntent(
+			OtherIntentId, RunId, FVector(2.0, 0.0, 0.0)));
+	TestTrue(TEXT("One IntentId cannot alias another formation payload"),
+		First.IsAccepted()
+			&& Conflict.Status
+				== Edemo_mapShanmenFormationControllerStatus::IntentIdConflict
+			&& !Conflict.IsAccepted());
+	TestTrue(TEXT("Second formation is rejected before a sequence is consumed"),
+		Busy.Status == Edemo_mapShanmenFormationControllerStatus::HostBusy
+			&& !Busy.IsAccepted()
+			&& Fixture.Controller.NumCapturedIntents() == 1
+			&& Fixture.CombatRun.
+				GetNextPlayerFormationActivationSequence()
+					== SequenceBefore + 1);
+	TestTrue(TEXT("Active controller cannot be rebound to another Run"),
+		!Fixture.Controller.TryBegin(OtherRunId, Fixture.Diagnostic)
+			&& Fixture.Controller.GetRunId() == RunId);
+
+	Fdemo_mapShanmenFormationControllerEndSummary Summary;
+	TestTrue(TEXT("Fenced controller still tears down without hidden work"),
+		Fixture.Controller.TryCancelAndEnd(
+			*Fixture.Product.Authority,
+			Fixture.Product.World,
+			RunId,
+			Summary,
+			Fixture.Diagnostic)
+			&& Summary.IsValid()
+			&& Fixture.CombatRun.TryEndRun(
+				RunId, Fixture.Diagnostic));
 	return true;
 }
 
