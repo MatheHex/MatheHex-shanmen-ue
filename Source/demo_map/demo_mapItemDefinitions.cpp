@@ -1,4 +1,5 @@
 #include "demo_mapItemDefinitions.h"
+#include "ShanmenCombatTags.h"
 #include "demo_mapAttributeDefinitions.h"
 #include "demo_mapEnemyEncounterConfig.h"
 #include "demo_mapFixedLootTableRegistry.h"
@@ -110,6 +111,16 @@ namespace
 		return Effect;
 	}
 
+	Fdemo_mapItemDamageResistance MakeResistance(
+		const FGameplayTag& DamageTag,
+		float ResistanceFraction)
+	{
+		Fdemo_mapItemDamageResistance Resistance;
+		Resistance.DamageTag = DamageTag;
+		Resistance.ResistanceFraction = ResistanceFraction;
+		return Resistance;
+	}
+
 	Fdemo_mapItemDefinition MakeDefinition(
 		FName Id,
 		const TCHAR* DisplayName,
@@ -128,7 +139,8 @@ namespace
 		int32 PrototypeValue,
 		int32 MaxDurability = 0,
 		int32 MaxCharges = 0,
-		TArray<Edemo_mapItemGameplaySemantic> GameplaySemantics = {})
+		TArray<Edemo_mapItemGameplaySemantic> GameplaySemantics = {},
+		TArray<Fdemo_mapItemDamageResistance> DamageResistances = {})
 	{
 		Fdemo_mapItemDefinition Definition;
 		Definition.DefinitionId = Id;
@@ -144,6 +156,7 @@ namespace
 		Definition.Modifiers = MoveTemp(Modifiers);
 		Definition.EffectParameters = MoveTemp(Effects);
 		Definition.GameplaySemantics = MoveTemp(GameplaySemantics);
+		Definition.DamageResistances = MoveTemp(DamageResistances);
 		Definition.bPurchasable = bPurchasable;
 		Definition.bSellable = bSellable;
 		Definition.BuyPrice = BuyPrice;
@@ -361,14 +374,16 @@ bool Fdemo_mapRewardDistributionProfile::IsValid() const
 
 FName Fdemo_mapItemDefinitions::GetContentVersionId()
 {
-	return FName(TEXT("CodeB.Content.0.0.10.P21.0"));
+	return FName(TEXT("CodeB.Content.0.0.10.P26.3"));
 }
 
 const FString& Fdemo_mapItemDefinitions::GetContentDigest()
 {
+	// Canonical UTF-8 input (without a trailing newline):
+	// CodeB.Content.0.0.10.P26.3|Parent=A52AA4EEE9DBF314C017205BFC6E417B8C9A108D37471C7DDE088013B85FC685|Modify=Prototype.Item.Armor.Robe.Level1|Semantic=DamageResistance|DamageTag=Shanmen.Damage.Physical|Fraction=0.10
 	// This is a content-contract digest, not a save migration key. Existing
-	// persisted items keep their DefinitionId and are never remapped by P73.
-	static const FString Digest(TEXT("A52AA4EEE9DBF314C017205BFC6E417B8C9A108D37471C7DDE088013B85FC685"));
+	// persisted items keep their DefinitionId and are never remapped.
+	static const FString Digest(TEXT("FB773D9692445401D0C97772498A85F591B735D36E7F2309789ED1EC47EADE74"));
 	return Digest;
 }
 
@@ -385,6 +400,8 @@ bool Fdemo_mapItemDefinitions::IsKnownContentIdentity(
 	const FString& ContentDigest)
 {
 	return IsCurrentContentIdentity(ContentVersionId, ContentDigest)
+		|| (ContentVersionId == FName(TEXT("CodeB.Content.0.0.10.P21.0"))
+			&& ContentDigest == TEXT("A52AA4EEE9DBF314C017205BFC6E417B8C9A108D37471C7DDE088013B85FC685"))
 		|| (ContentVersionId == FName(TEXT("CodeB.Content.0.0.10.P18.4"))
 			&& ContentDigest == TEXT("D6EF276B3BB268D33A9E1242DC3620A7F33F2B4B966503E1056BA3E381C7B043"))
 		|| (ContentVersionId == FName(TEXT("CodeB.Content.0.0.10.P17.0"))
@@ -424,7 +441,7 @@ const TArray<Fdemo_mapItemDefinition>& Fdemo_mapItemDefinitions::GetAll()
 		MakeDefinition(Fdemo_mapItemIds::WeaponLevel3, TEXT("三阶兵器"), TEXT("TIER 3 WEAPON"), Fdemo_mapItemIds::WeaponCategory, 3, 1, Fdemo_mapItemIds::WeaponSlot, { Fdemo_mapItemIds::WeaponSlot }, {}, { MakeEffect(Fdemo_mapItemEffectIds::AttackBonus, 3.0) }, true, true, 400, 200, 200, 0, 0, { Edemo_mapItemGameplaySemantic::WeaponGuard, Edemo_mapItemGameplaySemantic::SwordQiSource }),
 		MakeDefinition(Fdemo_mapItemIds::WeaponLevel4, TEXT("四阶兵器"), TEXT("TIER 4 WEAPON"), Fdemo_mapItemIds::WeaponCategory, 4, 1, Fdemo_mapItemIds::WeaponSlot, { Fdemo_mapItemIds::WeaponSlot }, {}, { MakeEffect(Fdemo_mapItemEffectIds::AttackBonus, 4.0) }, true, true, 800, 400, 400, 0, 0, { Edemo_mapItemGameplaySemantic::WeaponGuard, Edemo_mapItemGameplaySemantic::SwordQiSource }),
 
-		MakeDefinition(Fdemo_mapItemIds::ArmorRobeLevel1, TEXT("一阶道袍"), TEXT("TIER 1 DAO ROBE"), Fdemo_mapItemIds::ArmorCategory, 1, 1, Fdemo_mapItemIds::ArmorSlot, { Fdemo_mapItemIds::ArmorSlot }, {}, { MakeEffect(Fdemo_mapItemEffectIds::MaxHealthBonus, 2.0), MakeEffect(Fdemo_mapItemEffectIds::FlatDamageReduction, 1.0) }, true, true, 100, 50, 50),
+		MakeDefinition(Fdemo_mapItemIds::ArmorRobeLevel1, TEXT("一阶道袍"), TEXT("TIER 1 DAO ROBE"), Fdemo_mapItemIds::ArmorCategory, 1, 1, Fdemo_mapItemIds::ArmorSlot, { Fdemo_mapItemIds::ArmorSlot }, {}, { MakeEffect(Fdemo_mapItemEffectIds::MaxHealthBonus, 2.0), MakeEffect(Fdemo_mapItemEffectIds::FlatDamageReduction, 1.0) }, true, true, 100, 50, 50, 0, 0, { Edemo_mapItemGameplaySemantic::DamageResistance }, { MakeResistance(FShanmenCombatNativeTags::DamagePhysical(), 0.10f) }),
 		MakeDefinition(Fdemo_mapItemIds::ArmorRobeLevel2, TEXT("二阶道袍"), TEXT("TIER 2 DAO ROBE"), Fdemo_mapItemIds::ArmorCategory, 2, 1, Fdemo_mapItemIds::ArmorSlot, { Fdemo_mapItemIds::ArmorSlot }, {}, { MakeEffect(Fdemo_mapItemEffectIds::MaxHealthBonus, 4.0), MakeEffect(Fdemo_mapItemEffectIds::FlatDamageReduction, 2.0) }, true, true, 200, 100, 100),
 		MakeDefinition(Fdemo_mapItemIds::ArmorRobeLevel3, TEXT("三阶道袍"), TEXT("TIER 3 DAO ROBE"), Fdemo_mapItemIds::ArmorCategory, 3, 1, Fdemo_mapItemIds::ArmorSlot, { Fdemo_mapItemIds::ArmorSlot }, {}, { MakeEffect(Fdemo_mapItemEffectIds::MaxHealthBonus, 6.0), MakeEffect(Fdemo_mapItemEffectIds::FlatDamageReduction, 3.0) }, true, true, 400, 200, 200),
 		MakeDefinition(Fdemo_mapItemIds::ArmorRobeLevel4, TEXT("四阶道袍"), TEXT("TIER 4 DAO ROBE"), Fdemo_mapItemIds::ArmorCategory, 4, 1, Fdemo_mapItemIds::ArmorSlot, { Fdemo_mapItemIds::ArmorSlot }, {}, { MakeEffect(Fdemo_mapItemEffectIds::MaxHealthBonus, 8.0), MakeEffect(Fdemo_mapItemEffectIds::FlatDamageReduction, 4.0) }, true, true, 800, 400, 400),
@@ -867,6 +884,7 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 	int32 FlyingSwordDefinitionCount = 0;
 	int32 MeridianShockTreatmentDefinitionCount = 0;
 	int32 LethalInterceptionDefinitionCount = 0;
+	int32 DamageResistanceDefinitionCount = 0;
 	for (FName SlotId : GetEquipmentSlotIds())
 	{
 		if (SlotId.IsNone() || SlotIds.Contains(SlotId))
@@ -952,6 +970,10 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 		if (bLethalInterception)
 		{
 			++LethalInterceptionDefinitionCount;
+		}
+		if (bDamageResistance)
+		{
+			++DamageResistanceDefinitionCount;
 		}
 		if (bFlyingSword)
 		{
@@ -1129,6 +1151,11 @@ bool Fdemo_mapItemDefinitions::Validate(FString* OutError)
 	if (LethalInterceptionDefinitionCount != 1)
 	{
 		if (OutError) *OutError = TEXT("P17.0 requires exactly one canonical lethal-interception artifact definition.");
+		return false;
+	}
+	if (DamageResistanceDefinitionCount != 1)
+	{
+		if (OutError) *OutError = TEXT("P26.3 requires exactly one canonical damage-resistance armor definition.");
 		return false;
 	}
 	if (FlyingSwordDefinitionCount != 1)

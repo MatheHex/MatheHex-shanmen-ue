@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "ShanmenCombatTags.h"
 #include "demo_mapAttributeComponent.h"
 #include "demo_mapAttributeDefinitions.h"
 #include "demo_mapItemAuthority.h"
@@ -61,13 +62,14 @@ bool Fdemo_mapItemDefinitionsTest::RunTest(const FString&)
 	const Fdemo_mapItemDefinition* ReinforcedArmor = Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::ReinforcedVest);
 	const Fdemo_mapItemDefinition* Iron = Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::IronShard);
 	const Fdemo_mapItemDefinition* Token = Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::AncientToken);
+	const Fdemo_mapItemDefinition* Tier1Robe = Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::ArmorRobeLevel1);
 	const Fdemo_mapItemDefinition* SpiritGuard = Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::SpiritGuardRobe);
 	const Fdemo_mapItemDefinition* HeartMirror = Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::HeartProtectingMirror);
 	const Fdemo_mapItemDefinition* ThrowingKnife = Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::TrainingThrowingKnife);
 	const Fdemo_mapItemDefinition* FlyingSword = Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::TrainingFlyingSword);
 	const Fdemo_mapItemDefinition* MeridianPill = Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::MeridianStabilizingPillLevel1);
-	TestTrue(TEXT("Required definitions exist"), Weapon && Armor && Accessory && SpatialRing && Material && HeavyWeapon && ReinforcedArmor && Iron && Token && SpiritGuard && HeartMirror && ThrowingKnife && FlyingSword && MeridianPill);
-	if (!Weapon || !Armor || !Accessory || !SpatialRing || !Material || !HeavyWeapon || !ReinforcedArmor || !Iron || !Token || !SpiritGuard || !HeartMirror || !ThrowingKnife || !FlyingSword || !MeridianPill) return false;
+	TestTrue(TEXT("Required definitions exist"), Weapon && Armor && Accessory && SpatialRing && Material && HeavyWeapon && ReinforcedArmor && Iron && Token && Tier1Robe && SpiritGuard && HeartMirror && ThrowingKnife && FlyingSword && MeridianPill);
+	if (!Weapon || !Armor || !Accessory || !SpatialRing || !Material || !HeavyWeapon || !ReinforcedArmor || !Iron || !Token || !Tier1Robe || !SpiritGuard || !HeartMirror || !ThrowingKnife || !FlyingSword || !MeridianPill) return false;
 	TestTrue(TEXT("Weapon compatibility"), Weapon->CompatibleSlotIds == TArray<FName>{ Fdemo_mapItemIds::WeaponSlot });
 	TestTrue(TEXT("Weapons own explicit guard and Sword Qi source semantics"),
 		Weapon->HasGameplaySemantic(
@@ -79,6 +81,30 @@ bool Fdemo_mapItemDefinitionsTest::RunTest(const FString&)
 		&& HeavyWeapon->HasGameplaySemantic(
 			Edemo_mapItemGameplaySemantic::SwordQiSource));
 	TestTrue(TEXT("Armor compatibility"), Armor->CompatibleSlotIds == TArray<FName>{ Fdemo_mapItemIds::ArmorSlot });
+	TestTrue(TEXT("Training armor remains the explicit unconfigured resistance control"),
+		Armor->DamageResistances.IsEmpty()
+		&& !Armor->HasGameplaySemantic(
+			Edemo_mapItemGameplaySemantic::DamageResistance));
+	TestTrue(TEXT("Tier-one robe owns the only first-pass physical resistance"),
+		Tier1Robe->CategoryId == Fdemo_mapItemIds::ArmorCategory
+		&& Tier1Robe->CompatibleSlotIds
+			== TArray<FName>{ Fdemo_mapItemIds::ArmorSlot }
+		&& Tier1Robe->GameplaySemantics.Num() == 1
+		&& Tier1Robe->HasGameplaySemantic(
+			Edemo_mapItemGameplaySemantic::DamageResistance)
+		&& Tier1Robe->DamageResistances.Num() == 1
+		&& Tier1Robe->DamageResistances[0].DamageTag
+			== FShanmenCombatNativeTags::DamagePhysical()
+		&& FMath::IsNearlyEqual(
+			Tier1Robe->DamageResistances[0].ResistanceFraction, 0.10f));
+	TestTrue(TEXT("P26.3 catalog identity is current and the P21 parent remains known"),
+		Fdemo_mapItemDefinitions::GetContentVersionId()
+			== FName(TEXT("CodeB.Content.0.0.10.P26.3"))
+		&& Fdemo_mapItemDefinitions::GetContentDigest()
+			== TEXT("FB773D9692445401D0C97772498A85F591B735D36E7F2309789ED1EC47EADE74")
+		&& Fdemo_mapItemDefinitions::IsKnownContentIdentity(
+			FName(TEXT("CodeB.Content.0.0.10.P21.0")),
+			TEXT("A52AA4EEE9DBF314C017205BFC6E417B8C9A108D37471C7DDE088013B85FC685")));
 	TestTrue(TEXT("Accessory compatibility"), Accessory->CompatibleSlotIds == TArray<FName>{ Fdemo_mapItemIds::AccessorySlot });
 	TestTrue(TEXT("Spatial ring compatibility"), SpatialRing->CompatibleSlotIds == TArray<FName>{ Fdemo_mapItemIds::SpatialRingSlot });
 	TestTrue(TEXT("Material is not equipable"), Material->CompatibleSlotIds.IsEmpty() && Material->Modifiers.IsEmpty());

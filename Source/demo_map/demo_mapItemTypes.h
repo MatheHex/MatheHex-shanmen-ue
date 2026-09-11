@@ -211,7 +211,7 @@ struct Fdemo_mapItemDefinition
 	TArray<FName> CompatibleSlotIds;
 	TArray<Fdemo_mapModifierSpec> Modifiers;
 	TArray<Fdemo_mapItemEffectParameter> EffectParameters;
-	/** Optional typed resistance metadata; empty until formal armor tuning is approved. */
+	/** Typed resistance metadata; present only with DamageResistance semantics. */
 	TArray<Fdemo_mapItemDamageResistance> DamageResistances;
 	/** Immutable product semantics consumed only by explicit authority adapters. */
 	TArray<Edemo_mapItemGameplaySemantic> GameplaySemantics;

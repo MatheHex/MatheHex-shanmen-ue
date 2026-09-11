@@ -119,31 +119,78 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool Fdemo_mapArmorResistanceProjectionCatalogTest::RunTest(const FString&)
 {
 	FString RegistryError;
-	TestTrue(TEXT("Existing canonical item catalog remains valid"),
+	TestTrue(TEXT("P26.3 canonical item catalog remains valid"),
 		Fdemo_mapItemDefinitions::Validate(&RegistryError));
-	const Fdemo_mapItemDefinition* Existing =
+	const Fdemo_mapItemDefinition* Unconfigured =
+		Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::TrainingVest);
+	const Fdemo_mapItemDefinition* Tuned =
 		Fdemo_mapItemDefinitions::Find(Fdemo_mapItemIds::ArmorRobeLevel1);
-	if (!TestNotNull(TEXT("Existing armor definition exists"), Existing))
+	if (!TestNotNull(TEXT("Unconfigured armor definition exists"), Unconfigured)
+		|| !TestNotNull(TEXT("Tuned armor definition exists"), Tuned))
 	{
 		return false;
 	}
-	TestTrue(TEXT("Formal resistance tuning remains unassigned"),
-		Existing->DamageResistances.IsEmpty()
-			&& !Existing->HasGameplaySemantic(
+	TestTrue(TEXT("Training armor remains explicitly unconfigured"),
+		Unconfigured->DamageResistances.IsEmpty()
+			&& !Unconfigured->HasGameplaySemantic(
 				Edemo_mapItemGameplaySemantic::DamageResistance));
 
 	const FShanmenDefenseSnapshot Base = MakeBaseDefense(true);
-	const Fdemo_mapShanmenArmorResistanceProjectionResult Result =
+	const Fdemo_mapShanmenArmorResistanceProjectionResult NoOp =
 		Fdemo_mapShanmenArmorResistanceProjection::TryProject(
-			*Existing, ArmorItemId(), TargetEntityId(), Base);
+			*Unconfigured, ArmorItemId(), TargetEntityId(), Base);
 	TestTrue(TEXT("Unassigned armor is an explicit successful no-op"),
-		Result.IsSuccess()
-			&& Result.Status
+		NoOp.IsSuccess()
+			&& NoOp.Status
 				== Edemo_mapShanmenArmorResistanceProjectionStatus::NotApplicable);
 	TestTrue(TEXT("No-op preserves the exact caller defense"),
-		Result.Defense.Layers.Num() == Base.Layers.Num()
-			&& Result.Defense.Layers[0].LayerId == Base.Layers[0].LayerId
-			&& Result.ProjectedLayerIds.IsEmpty());
+		NoOp.Defense.Layers.Num() == Base.Layers.Num()
+			&& NoOp.Defense.Layers[0].LayerId == Base.Layers[0].LayerId
+			&& NoOp.ProjectedLayerIds.IsEmpty());
+
+	const Fdemo_mapShanmenArmorResistanceProjectionResult Projection =
+		Fdemo_mapShanmenArmorResistanceProjection::TryProject(
+			*Tuned, ArmorItemId(), TargetEntityId(), MakeBaseDefense());
+	if (!TestTrue(TEXT("Tier-one robe projects one canonical armor layer"),
+		Projection.IsSuccess()
+			&& Projection.HasProjection()
+			&& Projection.Defense.Layers.Num() == 1
+			&& Projection.ProjectedLayerIds.Num() == 1))
+	{
+		return false;
+	}
+	const FShanmenDefenseLayer& Layer = Projection.Defense.Layers[0];
+	TestTrue(TEXT("Canonical layer is sourced by the exact robe and physical tag"),
+		Layer.LayerId == Projection.ProjectedLayerIds[0]
+			&& Layer.SourceInstanceId == ArmorItemId()
+			&& Layer.Operation == EShanmenDefenseOperation::ReduceFraction
+			&& FMath::IsNearlyEqual(Layer.Magnitude, 0.10f)
+			&& Layer.LayerTags.HasTagExact(
+				FShanmenCombatNativeTags::DefenseArmor())
+			&& Layer.RequiredDamageTags.HasTagExact(
+				FShanmenCombatNativeTags::DamagePhysical()));
+
+	const FShanmenImpactResult Physical = FShanmenDefenseResolver::Resolve(
+		MakeImpactRequest(
+			Projection.Defense,
+			FShanmenCombatNativeTags::DamagePhysicalSlash()));
+	const FShanmenImpactResult Mental = FShanmenDefenseResolver::Resolve(
+		MakeImpactRequest(
+			Projection.Defense,
+			FShanmenCombatNativeTags::DamageMental()));
+	TestTrue(TEXT("Physical child damage receives ten-percent canonical resistance"),
+		Physical.TriggeredLayers.Num() == 1
+			&& Physical.TriggeredLayers[0].LayerId == Layer.LayerId
+			&& FMath::IsNearlyEqual(Physical.RawDamage, 100.0f)
+			&& FMath::IsNearlyEqual(Physical.PreventedDamage, 10.0f)
+			&& FMath::IsNearlyEqual(Physical.FinalDamage, 90.0f)
+			&& Physical.IsConserved());
+	TestTrue(TEXT("Non-matching mental damage bypasses the canonical robe"),
+		Mental.TriggeredLayers.IsEmpty()
+			&& FMath::IsNearlyEqual(Mental.RawDamage, 100.0f)
+			&& FMath::IsNearlyZero(Mental.PreventedDamage)
+			&& FMath::IsNearlyEqual(Mental.FinalDamage, 100.0f)
+			&& Mental.IsConserved());
 	return true;
 }
 

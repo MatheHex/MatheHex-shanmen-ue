@@ -272,6 +272,8 @@ namespace
 		Fdemo_mapPersistentProfile SeedProfile;
 		FGuid ArmorId;
 		FGuid HeartMirrorId;
+		FName ArmorDefinitionId = Fdemo_mapItemIds::TrainingVest;
+		bool bIncludeHeartMirror = true;
 		UGameInstance* GameInstance = nullptr;
 		Udemo_mapShanmenItemAuthoritySubsystem* Authority = nullptr;
 		Udemo_mapProfileSessionSubsystem* ProfileSession = nullptr;
@@ -324,21 +326,25 @@ namespace
 			SeedProfile = Repository.CreateFreshProfile();
 			Fdemo_mapPersistentItemRecord Armor;
 			ArmorId = Armor.ItemInstanceId = FGuid::NewGuid();
-			Armor.ItemDefinitionId = Fdemo_mapItemIds::TrainingVest;
+			Armor.ItemDefinitionId = ArmorDefinitionId;
 			Armor.StackCount = 1;
 			Armor.PersistentDomain =
 				Edemo_mapPersistentDomain::PermanentStash;
-			Fdemo_mapPersistentItemRecord HeartMirror;
-			HeartMirrorId = HeartMirror.ItemInstanceId = FGuid::NewGuid();
-			HeartMirror.ItemDefinitionId =
-				Fdemo_mapItemIds::HeartProtectingMirror;
-			HeartMirror.StackCount = 1;
-			HeartMirror.PersistentDomain =
-				Edemo_mapPersistentDomain::PermanentStash;
 			SeedProfile.PermanentStash.Add(Armor);
-			SeedProfile.PermanentStash.Add(HeartMirror);
 			SeedProfile.PreparationLayout.ArmorItemInstanceId = ArmorId;
-			SeedProfile.PreparationLayout.AccessoryItemInstanceId = HeartMirrorId;
+			if (bIncludeHeartMirror)
+			{
+				Fdemo_mapPersistentItemRecord HeartMirror;
+				HeartMirrorId = HeartMirror.ItemInstanceId = FGuid::NewGuid();
+				HeartMirror.ItemDefinitionId =
+					Fdemo_mapItemIds::HeartProtectingMirror;
+				HeartMirror.StackCount = 1;
+				HeartMirror.PersistentDomain =
+					Edemo_mapPersistentDomain::PermanentStash;
+				SeedProfile.PermanentStash.Add(HeartMirror);
+				SeedProfile.PreparationLayout.AccessoryItemInstanceId =
+					HeartMirrorId;
+			}
 
 			const Fdemo_mapProfileSaveResult Saved =
 				Repository.SaveProfile(SeedProfile, Storage);
@@ -1891,6 +1897,120 @@ bool FShanmenCombatRunCoordinatorHeartMirrorProductLifecycleTest::RunTest(
 			&& DurableMirror->State == EShanmenItemInstanceState::Deployed
 			&& DurableMirror->Charges == 0
 			&& Restarted == AfterSecond);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenCombatRunCoordinatorCanonicalArmorResistanceTest,
+	"Shanmen.0_0_10.Product.CombatRunCoordinator.CanonicalArmorResistance",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenCombatRunCoordinatorCanonicalArmorResistanceTest::RunTest(
+	const FString&)
+{
+	FHeartMirrorCombatRunFixture Fixture;
+	Fixture.ArmorDefinitionId = Fdemo_mapItemIds::ArmorRobeLevel1;
+	Fixture.bIncludeHeartMirror = false;
+	if (!Fixture.Start(*this))
+	{
+		return false;
+	}
+
+	FShanmenItemAuthoritySnapshot Before;
+	const FShanmenItemInstance* PreparedArmor =
+		Fixture.Authority->TryCaptureSnapshot(Before)
+			? FindP171AuthorityItem(Before, Fixture.ArmorId)
+			: nullptr;
+	if (!TestTrue(TEXT("Prepared Run deploys the exact canonical tier-one robe"),
+		PreparedArmor
+			&& PreparedArmor->DefinitionId
+				== Fdemo_mapItemIds::ArmorRobeLevel1
+			&& PreparedArmor->State == EShanmenItemInstanceState::Deployed
+			&& !Fixture.HeartMirrorId.IsValid()
+			&& !Fixture.Started.RunCorrelation.AccessoryItemInstanceId.IsValid()))
+	{
+		return false;
+	}
+
+	const Fdemo_mapM01EnemyAttackExecutionResult Attack =
+		Fixture.Coordinator.ExecuteM01EnemyBasicMeleeStrike(
+			Fixture.Enemy,
+			Fixture.Player,
+			1.0f);
+	const FShanmenImpactRequest& Request = Attack.Impact.GetRequest();
+	const FShanmenImpactResult& Resolution = Attack.Impact.GetResult();
+	const FShanmenDefenseLayer* ArmorLayer =
+		Request.Defense.Layers.FindByPredicate(
+			[&Fixture](const FShanmenDefenseLayer& Layer)
+			{
+				return Layer.SourceInstanceId == Fixture.ArmorId;
+			});
+	FShanmenItemAuthoritySnapshot After;
+	const FShanmenItemInstance* AfterArmor =
+		Fixture.Authority->TryCaptureSnapshot(After)
+			? FindP171AuthorityItem(After, Fixture.ArmorId)
+			: nullptr;
+
+	TestTrue(TEXT("Coordinator records exact active-Run armor and current catalog evidence"),
+		Attack.IsExecuted()
+			&& Attack.bArmorResistanceInspected
+			&& Attack.ArmorResistance.Status
+				== Edemo_mapShanmenArmorResistanceItemStatus::Projected
+			&& Attack.ArmorResistance.HasProjection()
+			&& Attack.ArmorResistance.Evidence.ArmorItemInstanceId
+				== Fixture.ArmorId
+			&& Attack.ArmorResistance.Evidence.ArmorDefinitionId
+				== Fdemo_mapItemIds::ArmorRobeLevel1
+			&& Attack.ArmorResistance.Evidence.ActiveRunId
+				== Fixture.Started.RunCorrelation.ActiveRunId
+			&& Attack.ArmorResistance.Evidence.CatalogContentVersionId
+				== Fdemo_mapItemDefinitions::GetContentVersionId()
+			&& Attack.ArmorResistance.Evidence.CatalogContentDigest
+				== Fdemo_mapItemDefinitions::GetContentDigest());
+	TestTrue(TEXT("M01 physical damage triggers only the robe's ten-percent layer"),
+		Request.Damage.DamageTags.HasTagExact(
+			FShanmenCombatNativeTags::DamagePhysical())
+			&& Request.Defense.Layers.Num() == 1
+			&& ArmorLayer
+			&& ArmorLayer->Operation
+				== EShanmenDefenseOperation::ReduceFraction
+			&& ArmorLayer->RequiredDamageTags.HasTagExact(
+				FShanmenCombatNativeTags::DamagePhysical())
+			&& FMath::IsNearlyEqual(ArmorLayer->Magnitude, 0.10f)
+			&& Resolution.Outcome == EShanmenDefenseOutcome::Mitigated
+			&& Resolution.TriggeredLayers.Num() == 1
+			&& Resolution.TriggeredLayers[0].LayerId == ArmorLayer->LayerId
+			&& FMath::IsNearlyEqual(Resolution.RawDamage, 1.0f)
+			&& FMath::IsNearlyEqual(Resolution.PreventedDamage, 0.10f)
+			&& FMath::IsNearlyEqual(Resolution.FinalDamage, 0.90f)
+			&& Resolution.IsConserved());
+	TestTrue(TEXT("Resolved damage commits once while passive armor remains read-only"),
+		Attack.Delivery.CommitResult.Status
+			== EShanmenVitalityCommitStatus::Committed
+			&& FMath::IsNearlyEqual(
+				Attack.Delivery.CommitResult.Receipt.GetAppliedDamage(), 0.90f)
+			&& FMath::IsNearlyEqual(
+				Fixture.PlayerHealth->GetCurrentVitality(), 2.10f)
+			&& Fixture.PlayerHealth->GetCombatAuthorityRevision() == 1
+			&& Fixture.PlayerHealth->NumCommittedCombatImpacts() == 1
+			&& AfterArmor && *AfterArmor == *PreparedArmor
+			&& After == Before);
+
+	const Fdemo_mapCombatImpactDeliveryResult Replay =
+		Fixture.Coordinator.DeliverM01EnemyAttackImpactToPlayer(
+			Attack.Impact,
+			Fixture.Enemy);
+	FShanmenItemAuthoritySnapshot AfterReplay;
+	TestTrue(TEXT("Exact delivery replay cannot damage or mutate the robe twice"),
+		Fixture.Authority->TryCaptureSnapshot(AfterReplay)
+			&& Replay.IsSuccess()
+			&& Replay.CommitResult.Status
+				== EShanmenVitalityCommitStatus::AlreadyCommitted
+			&& FMath::IsNearlyEqual(
+				Fixture.PlayerHealth->GetCurrentVitality(), 2.10f)
+			&& Fixture.PlayerHealth->GetCombatAuthorityRevision() == 1
+			&& Fixture.PlayerHealth->NumCommittedCombatImpacts() == 1
+			&& AfterReplay == After);
 	return true;
 }
 
