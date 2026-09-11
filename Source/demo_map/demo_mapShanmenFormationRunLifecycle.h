@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "demo_mapShanmenFormationProductController.h"
 
+class AActor;
 class Fdemo_mapCombatRunCoordinator;
 class UWorld;
 class Udemo_mapShanmenItemAuthoritySubsystem;
@@ -58,6 +59,12 @@ public:
 		const Udemo_mapShanmenItemAuthoritySubsystem& Authority,
 		Fdemo_mapCombatRunCoordinator& Coordinator,
 		const Fdemo_mapShanmenFormationIntent& Intent);
+	Fdemo_mapShanmenFormationAnchorOperationResult TryExecuteAnchorOperation(
+		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+		Fdemo_mapCombatRunCoordinator& Coordinator,
+		UWorld* World,
+		TSubclassOf<AActor> ActorClass,
+		const Fdemo_mapShanmenFormationAnchorOperation& Operation);
 
 	Fdemo_mapShanmenFormationRunLifecycleEndResult TryEndRun(
 		Udemo_mapShanmenItemAuthoritySubsystem& Authority,

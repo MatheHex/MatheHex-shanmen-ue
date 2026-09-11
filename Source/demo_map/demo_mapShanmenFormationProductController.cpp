@@ -3,6 +3,9 @@
 #include "demo_mapCombatRunCoordinator.h"
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
 
+#include "Engine/World.h"
+#include "GameFramework/Actor.h"
+
 namespace
 {
 	bool IsFiniteVector(const FVector& Value)
@@ -81,6 +84,37 @@ namespace
 		Result.Diagnostic = MoveTemp(Diagnostic);
 		return Result;
 	}
+
+	Fdemo_mapShanmenFormationAnchorOperationResult RejectAnchorOperation(
+		const Edemo_mapShanmenFormationAnchorOperationStatus Status,
+		const Fdemo_mapShanmenFormationAnchorOperation& Operation,
+		FString Diagnostic)
+	{
+		Fdemo_mapShanmenFormationAnchorOperationResult Result;
+		Result.Status = Status;
+		Result.Operation = Operation;
+		Result.Diagnostic = MoveTemp(Diagnostic);
+		return Result;
+	}
+
+	bool IsConcreteWorldBinding(
+		UWorld* World,
+		const TSubclassOf<AActor> ActorClass,
+		FString& OutActorClassPath)
+	{
+		OutActorClassPath.Reset();
+		UClass* RawClass = ActorClass.Get();
+		if (!::IsValid(World)
+			|| World->bIsTearingDown
+			|| !RawClass
+			|| RawClass->HasAnyClassFlags(
+				CLASS_Abstract | CLASS_Deprecated | CLASS_NewerVersionExists))
+		{
+			return false;
+		}
+		OutActorClassPath = RawClass->GetPathName();
+		return !OutActorClassPath.IsEmpty();
+	}
 }
 
 bool Fdemo_mapShanmenFormationIntent::TryCapture(
@@ -158,26 +192,84 @@ bool Fdemo_mapShanmenFormationControllerResult::IsAccepted() const
 		&& Begin.GetDeploymentId().IsValid();
 }
 
+bool Fdemo_mapShanmenFormationAnchorOperation::TryCapture(
+	const FGuid& RequestedRunId,
+	const FName RequestedAnchorDefinitionId,
+	const FGuid& RequestedAttemptId,
+	Fdemo_mapShanmenFormationAnchorOperation& OutOperation)
+{
+	OutOperation = Fdemo_mapShanmenFormationAnchorOperation();
+	if (!RequestedRunId.IsValid()
+		|| RequestedAnchorDefinitionId.IsNone()
+		|| !RequestedAttemptId.IsValid())
+	{
+		return false;
+	}
+	OutOperation.RunId = RequestedRunId;
+	OutOperation.AnchorDefinitionId = RequestedAnchorDefinitionId;
+	OutOperation.AttemptId = RequestedAttemptId;
+	return OutOperation.IsValid();
+}
+
+bool Fdemo_mapShanmenFormationAnchorOperation::IsValid() const
+{
+	return RunId.IsValid()
+		&& !AnchorDefinitionId.IsNone()
+		&& AttemptId.IsValid();
+}
+
+bool Fdemo_mapShanmenFormationAnchorOperationResult::IsSuccess() const
+{
+	if ((Status != Edemo_mapShanmenFormationAnchorOperationStatus::Placed
+			&& Status
+				!= Edemo_mapShanmenFormationAnchorOperationStatus::Replayed)
+		|| !Operation.IsValid()
+		|| ActorClassPath.IsEmpty()
+		|| (!bResumedCommittedPlacement && !Prepared.IsSuccess())
+		|| !Committed.IsSuccess()
+		|| !Placement.IsSuccess()
+		|| !Placement.PlacementIntent.IsValid()
+		|| !Placement.World.IsPlacementSuccess()
+		|| !Placement.World.PlacementReceipt.IsValid())
+	{
+		return false;
+	}
+	return Placement.PlacementIntent.RunId == Operation.GetRunId()
+		&& Placement.PlacementIntent.AnchorDefinitionId
+			== Operation.GetAnchorDefinitionId()
+		&& Placement.PlacementIntent.AttemptId == Operation.GetAttemptId()
+		&& Placement.World.PlacementReceipt.ActorClassPath == ActorClassPath;
+}
+
 bool Fdemo_mapShanmenFormationControllerEndSummary::IsValid() const
 {
 	if (!RunId.IsValid()
 		|| CapturedIntentCount < 0
 		|| CapturedIntentCount > 1
-		|| (bHadProductHost && bDiscardedUnstartedCommand))
+		|| (bHadProductHost && bDiscardedUnstartedCommand)
+		|| (bEndedCompletedFormation && !bHadProductHost))
 	{
 		return false;
 	}
 	if (CapturedIntentCount == 0)
 	{
-		return !bHadProductHost && !bDiscardedUnstartedCommand;
+		return !bHadProductHost
+			&& !bEndedCompletedFormation
+			&& !bDiscardedUnstartedCommand;
 	}
 	if (bHadProductHost)
 	{
 		return Terminal.IsSuccess()
 			&& Terminal.World.IsTeardownSuccess()
-			&& Terminal.World.TeardownReceipt.IsValid();
+			&& Terminal.World.TeardownReceipt.IsValid()
+			&& Terminal.Session.Status
+				== (bEndedCompletedFormation
+					? Edemo_mapShanmenFormationSessionStatus::Ended
+					: Edemo_mapShanmenFormationSessionStatus::Cancelled);
 	}
-	return bDiscardedUnstartedCommand && !Terminal.IsSuccess();
+	return !bEndedCompletedFormation
+		&& bDiscardedUnstartedCommand
+		&& !Terminal.IsSuccess();
 }
 
 bool Fdemo_mapShanmenFormationProductController::TryBegin(
@@ -363,7 +455,150 @@ Fdemo_mapShanmenFormationProductController::StartCaptured(
 	return Result;
 }
 
-bool Fdemo_mapShanmenFormationProductController::TryCancelAndEnd(
+Fdemo_mapShanmenFormationAnchorOperationResult
+Fdemo_mapShanmenFormationProductController::TryExecuteAnchorOperation(
+	Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+	Fdemo_mapCombatRunCoordinator& Coordinator,
+	UWorld* World,
+	const TSubclassOf<AActor> ActorClass,
+	const Fdemo_mapShanmenFormationAnchorOperation& Operation)
+{
+	if (!IsActive())
+	{
+		return RejectAnchorOperation(
+			Edemo_mapShanmenFormationAnchorOperationStatus::ControllerInactive,
+			Operation,
+			TEXT("Formation anchor operation requires one active controller."));
+	}
+	if (!IsValid())
+	{
+		return RejectAnchorOperation(
+			Edemo_mapShanmenFormationAnchorOperationStatus::ControllerInvalid,
+			Operation,
+			TEXT("Formation controller invariants are invalid."));
+	}
+	if (!Operation.IsValid())
+	{
+		return RejectAnchorOperation(
+			Edemo_mapShanmenFormationAnchorOperationStatus::OperationInvalid,
+			Operation,
+			TEXT("Formation anchor operation requires immutable Run, anchor and attempt identities."));
+	}
+	if (Operation.GetRunId() != RunId || Coordinator.GetRunId() != RunId)
+	{
+		return RejectAnchorOperation(
+			Edemo_mapShanmenFormationAnchorOperationStatus::RunMismatch,
+			Operation,
+			TEXT("Anchor operation, controller and Coordinator must name one Run."));
+	}
+	if (!Coordinator.IsReady())
+	{
+		return RejectAnchorOperation(
+			Edemo_mapShanmenFormationAnchorOperationStatus::CoordinatorNotReady,
+			Operation,
+			TEXT("Formation anchor operation requires its ready Combat Run."));
+	}
+	if (!bHasProductHost || !CapturedIntent.IsSet())
+	{
+		return RejectAnchorOperation(
+			Edemo_mapShanmenFormationAnchorOperationStatus::ProductHostMissing,
+			Operation,
+			TEXT("Formation anchor operation requires the controller's sole ProductHost."));
+	}
+
+	FString ActorClassPath;
+	if (!IsConcreteWorldBinding(World, ActorClass, ActorClassPath))
+	{
+		return RejectAnchorOperation(
+			Edemo_mapShanmenFormationAnchorOperationStatus::WorldBindingInvalid,
+			Operation,
+			TEXT("World and concrete Actor class must pass before durable anchor authority is accessed."));
+	}
+
+	Fdemo_mapShanmenFormationAnchorOperationResult Result;
+	Result.Operation = Operation;
+	Result.ActorClassPath = MoveTemp(ActorClassPath);
+	const FName AnchorDefinitionId = Operation.GetAnchorDefinitionId();
+	const FGuid& AttemptId = Operation.GetAttemptId();
+	const Fdemo_mapShanmenRunCorrelation& Correlation =
+		CapturedIntent->Preparation.Command.GetCorrelation();
+	if (const Fdemo_mapShanmenFormationAnchorPlacementIntent* Pending =
+		ProductHost.GetPendingPlacement())
+	{
+		if (Pending->RunId != RunId
+			|| Pending->AnchorDefinitionId != AnchorDefinitionId
+			|| Pending->AttemptId != AttemptId)
+		{
+			Result.Status =
+				Edemo_mapShanmenFormationAnchorOperationStatus::
+					PendingPlacementConflict;
+			Result.Committed.PlacementIntent = *Pending;
+			Result.Diagnostic =
+				TEXT("A different committed placement must recover before this anchor operation.");
+			return Result;
+		}
+		Result.bResumedCommittedPlacement = true;
+	}
+	else
+	{
+		Result.Prepared = ProductHost.TryPrepareAnchor(
+			Authority, Correlation, AnchorDefinitionId, AttemptId);
+		if (!Result.Prepared.IsSuccess())
+		{
+			Result.Status =
+				Edemo_mapShanmenFormationAnchorOperationStatus::
+					PreparationRejected;
+			Result.Diagnostic = Result.Prepared.Diagnostic;
+			return Result;
+		}
+	}
+
+	Result.Committed = ProductHost.TryCommitPreparedAnchor(
+		Authority, Correlation, AnchorDefinitionId, AttemptId);
+	if (!Result.Committed.IsSuccess())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationAnchorOperationStatus::CommitRejected;
+		Result.Diagnostic = Result.Committed.Diagnostic;
+		return Result;
+	}
+	Result.Placement = ProductHost.TryPlaceCommittedAnchor(
+		World, ActorClass, Correlation, AnchorDefinitionId, AttemptId);
+	if (!Result.Placement.IsSuccess())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationAnchorOperationStatus::PlacementRejected;
+		Result.Diagnostic = Result.Placement.Diagnostic;
+		return Result;
+	}
+	if (!IsValid())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationAnchorOperationStatus::ControllerInvalid;
+		Result.Diagnostic =
+			TEXT("Formation controller failed invariants after anchor placement.");
+		return Result;
+	}
+
+	Result.Status = Result.Placement.Status
+		== Edemo_mapShanmenFormationHostStatus::Placed
+		? Edemo_mapShanmenFormationAnchorOperationStatus::Placed
+		: Edemo_mapShanmenFormationAnchorOperationStatus::Replayed;
+	Result.Diagnostic = Result.Status
+		== Edemo_mapShanmenFormationAnchorOperationStatus::Placed
+		? TEXT("The explicit anchor operation committed once and entered the World.")
+		: TEXT("The exact anchor operation replayed existing durable and World evidence.");
+	if (!Result.IsSuccess())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationAnchorOperationStatus::ControllerInvalid;
+		Result.Diagnostic =
+			TEXT("Formation anchor gateway produced invalid composite evidence.");
+	}
+	return Result;
+}
+
+bool Fdemo_mapShanmenFormationProductController::TryTerminateAndEnd(
 	Udemo_mapShanmenItemAuthoritySubsystem& Authority,
 	UWorld* World,
 	const FGuid& ExpectedRunId,
@@ -386,10 +621,17 @@ bool Fdemo_mapShanmenFormationProductController::TryCancelAndEnd(
 		CapturedIntent.IsSet() && !bHasProductHost;
 	if (bHasProductHost)
 	{
-		OutSummary.Terminal = ProductHost.TryCancelAndTeardown(
-			Authority,
-			World,
-			CapturedIntent->Preparation.Command.GetCorrelation());
+		const Edemo_mapShanmenFormationSessionState SessionState =
+			ProductHost.GetSession().GetState();
+		OutSummary.bEndedCompletedFormation =
+			SessionState == Edemo_mapShanmenFormationSessionState::Active
+			|| SessionState == Edemo_mapShanmenFormationSessionState::Ended;
+		const Fdemo_mapShanmenRunCorrelation& Correlation =
+			CapturedIntent->Preparation.Command.GetCorrelation();
+		OutSummary.Terminal = OutSummary.bEndedCompletedFormation
+			? ProductHost.TryEndAndTeardown(World, Correlation)
+			: ProductHost.TryCancelAndTeardown(
+				Authority, World, Correlation);
 		if (!OutSummary.Terminal.IsSuccess())
 		{
 			OutDiagnostic = OutSummary.Terminal.Diagnostic;

@@ -566,6 +566,19 @@ namespace
 				Intent));
 			return Intent;
 		}
+
+		Fdemo_mapShanmenFormationAnchorOperation MakeAnchorOperation(
+			const FName AnchorDefinitionId,
+			const FGuid& AttemptId) const
+		{
+			Fdemo_mapShanmenFormationAnchorOperation Operation;
+			check(Fdemo_mapShanmenFormationAnchorOperation::TryCapture(
+				Product.Correlation.ActiveRunId,
+				AnchorDefinitionId,
+				AttemptId,
+				Operation));
+			return Operation;
+		}
 	};
 
 	Fdemo_mapShanmenFormationInfluencePolicy MakeHostInfluencePolicy(
@@ -5184,7 +5197,7 @@ bool Fdemo_mapFormationProductControllerFrozenReplayTest::RunTest(
 
 	Fdemo_mapShanmenFormationControllerEndSummary Summary;
 	TestTrue(TEXT("Run teardown cancels and clears the sole owned Host"),
-		Fixture.Controller.TryCancelAndEnd(
+		Fixture.Controller.TryTerminateAndEnd(
 			*Fixture.Product.Authority,
 			Fixture.Product.World,
 			RunId,
@@ -5283,7 +5296,7 @@ bool Fdemo_mapFormationProductControllerFencesTest::RunTest(const FString&)
 
 	Fdemo_mapShanmenFormationControllerEndSummary Summary;
 	TestTrue(TEXT("Fenced controller still tears down without hidden work"),
-		Fixture.Controller.TryCancelAndEnd(
+		Fixture.Controller.TryTerminateAndEnd(
 			*Fixture.Product.Authority,
 			Fixture.Product.World,
 			RunId,
@@ -5465,6 +5478,294 @@ bool Fdemo_mapFormationRunLifecycleCoordinatorRecoveryTest::RunTest(
 			&& AfterRetry == AfterProductTeardown
 			&& Fixture.Lifecycle.IsEmpty()
 			&& !Fixture.CombatRun.IsActive());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationRunLifecycleAnchorOperationTest,
+	"Shanmen.0_0_10.Product.FormationRunLifecycle.AnchorOperation.OrderedReplayAndActiveEnd",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationRunLifecycleAnchorOperationTest::RunTest(
+	const FString&)
+{
+	FFormationRunLifecycleFixture Fixture;
+	if (!Fixture.Start(*this, TEXT("FormationRunLifecycleAnchorOperation")))
+	{
+		AddError(FString::Printf(
+			TEXT("P27.3 lifecycle fixture failed: %s"),
+			*Fixture.Diagnostic));
+		return false;
+	}
+	const auto Started = Fixture.Lifecycle.TrySubmit(
+		*Fixture.Product.Authority,
+		Fixture.CombatRun,
+		Fixture.MakeIntent(FGuid(0xF8730001, 0, 0, 1)));
+	if (!Started.IsAccepted())
+	{
+		AddError(FString::Printf(
+			TEXT("P27.3 formation start failed: %s"),
+			*Started.Diagnostic));
+		return false;
+	}
+
+	const auto FirstOperation = Fixture.MakeAnchorOperation(
+		HostAnchorA, FGuid(0xF8730010, 0, 0, 1));
+	const auto First = Fixture.Lifecycle.TryExecuteAnchorOperation(
+		*Fixture.Product.Authority,
+		Fixture.CombatRun,
+		Fixture.Product.World,
+		ACharacter::StaticClass(),
+		FirstOperation);
+	FShanmenItemAuthoritySnapshot AfterFirst;
+	if (!Fixture.Product.CaptureSnapshot(AfterFirst))
+	{
+		AddError(TEXT("Could not capture P27.3 first placement snapshot."));
+		return false;
+	}
+	const auto Replay = Fixture.Lifecycle.TryExecuteAnchorOperation(
+		*Fixture.Product.Authority,
+		Fixture.CombatRun,
+		Fixture.Product.World,
+		ACharacter::StaticClass(),
+		FirstOperation);
+	const auto ClassDrift = Fixture.Lifecycle.TryExecuteAnchorOperation(
+		*Fixture.Product.Authority,
+		Fixture.CombatRun,
+		Fixture.Product.World,
+		APawn::StaticClass(),
+		FirstOperation);
+	FShanmenItemAuthoritySnapshot AfterReplays;
+	if (!Fixture.Product.CaptureSnapshot(AfterReplays))
+	{
+		AddError(TEXT("Could not capture P27.3 replay snapshot."));
+		return false;
+	}
+	TestTrue(TEXT("One explicit operation owns prepare commit and placement"),
+		First.Status
+			== Edemo_mapShanmenFormationAnchorOperationStatus::Placed
+			&& First.IsSuccess()
+			&& !First.bResumedCommittedPlacement
+			&& First.Prepared.IsSuccess()
+			&& First.Committed.IsSuccess()
+			&& First.Placement.World.PlacementReceipt.IsValid());
+	TestTrue(TEXT("Exact operation replays without durable mutation"),
+		Replay.Status
+			== Edemo_mapShanmenFormationAnchorOperationStatus::Replayed
+			&& Replay.IsSuccess()
+			&& Replay.Placement.World.PlacementReceipt.ReceiptId
+				== First.Placement.World.PlacementReceipt.ReceiptId
+			&& AfterReplays == AfterFirst);
+	TestTrue(TEXT("A placed operation cannot drift Actor class"),
+		ClassDrift.Status
+			== Edemo_mapShanmenFormationAnchorOperationStatus::
+				PlacementRejected
+			&& ClassDrift.Placement.Status
+				== Edemo_mapShanmenFormationHostStatus::
+					PlacementBindingConflict
+			&& AfterReplays == AfterFirst);
+
+	const auto Second = Fixture.Lifecycle.TryExecuteAnchorOperation(
+		*Fixture.Product.Authority,
+		Fixture.CombatRun,
+		Fixture.Product.World,
+		ACharacter::StaticClass(),
+		Fixture.MakeAnchorOperation(
+			HostAnchorB, FGuid(0xF8730011, 0, 0, 1)));
+	const Fdemo_mapShanmenFormationProductHost* Host =
+		Fixture.Lifecycle.GetController().GetProductHost();
+	const FName DeploymentTag =
+		Fdemo_mapShanmenFormationWorldAdapter::MakeDeploymentTag(
+			First.Placement.PlacementIntent.DeploymentId);
+	TestTrue(TEXT("Second explicit operation activates the authored diagram"),
+		Second.IsSuccess()
+			&& Host
+			&& Host->GetSession().GetState()
+				== Edemo_mapShanmenFormationSessionState::Active
+			&& Host->GetWorldAdapter().GetPlacementCount() == 2
+			&& CountTaggedActors(Fixture.Product.World, DeploymentTag) == 2);
+
+	const Fdemo_mapShanmenFormationRunLifecycleEndResult Ended =
+		Fixture.Lifecycle.TryEndRun(
+			*Fixture.Product.Authority,
+			Fixture.Product.World,
+			Fixture.CombatRun);
+	TestTrue(TEXT("An active formation uses normal end before Run release"),
+		Ended.IsEnded()
+			&& Ended.ProductTeardown.bEndedCompletedFormation
+			&& Ended.ProductTeardown.Terminal.Session.Status
+				== Edemo_mapShanmenFormationSessionStatus::Ended
+			&& Ended.ProductTeardown.Terminal.World.
+				TeardownReceipt.CommittedAnchorCount == 2
+			&& Ended.ProductTeardown.Terminal.World.
+				TeardownReceipt.RemovedActorCount == 2
+			&& CountTaggedActors(Fixture.Product.World, DeploymentTag) == 0
+			&& !Fixture.CombatRun.IsActive()
+			&& Fixture.Lifecycle.IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationRunLifecycleAnchorOperationFencesTest,
+	"Shanmen.0_0_10.Product.FormationRunLifecycle.AnchorOperation.PreflightAndTeardownFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationRunLifecycleAnchorOperationFencesTest::RunTest(
+	const FString&)
+{
+	FFormationRunLifecycleFixture Fixture;
+	if (!Fixture.Start(*this, TEXT("FormationRunLifecycleAnchorFences")))
+	{
+		AddError(FString::Printf(
+			TEXT("P27.3 lifecycle fixture failed: %s"),
+			*Fixture.Diagnostic));
+		return false;
+	}
+	const auto Started = Fixture.Lifecycle.TrySubmit(
+		*Fixture.Product.Authority,
+		Fixture.CombatRun,
+		Fixture.MakeIntent(FGuid(0xF8730020, 0, 0, 1)));
+	if (!Started.IsAccepted())
+	{
+		AddError(FString::Printf(
+			TEXT("P27.3 formation start failed: %s"),
+			*Started.Diagnostic));
+		return false;
+	}
+
+	const auto Operation = Fixture.MakeAnchorOperation(
+		HostAnchorA, FGuid(0xF8730021, 0, 0, 1));
+	Fdemo_mapShanmenFormationAnchorOperation InvalidOperation;
+	Fdemo_mapShanmenFormationAnchorOperation ForeignOperation;
+	check(Fdemo_mapShanmenFormationAnchorOperation::TryCapture(
+		FGuid(0xF87300FF, 0, 0, 1),
+		HostAnchorA,
+		FGuid(0xF8730021, 0, 0, 1),
+		ForeignOperation));
+	FShanmenItemAuthoritySnapshot BeforeFences;
+	if (!Fixture.Product.CaptureSnapshot(BeforeFences))
+	{
+		return false;
+	}
+	const auto Invalid = Fixture.Lifecycle.TryExecuteAnchorOperation(
+		*Fixture.Product.Authority,
+		Fixture.CombatRun,
+		Fixture.Product.World,
+		ACharacter::StaticClass(),
+		InvalidOperation);
+	const auto Foreign = Fixture.Lifecycle.TryExecuteAnchorOperation(
+		*Fixture.Product.Authority,
+		Fixture.CombatRun,
+		Fixture.Product.World,
+		ACharacter::StaticClass(),
+		ForeignOperation);
+	const auto NoWorld = Fixture.Lifecycle.TryExecuteAnchorOperation(
+		*Fixture.Product.Authority,
+		Fixture.CombatRun,
+		nullptr,
+		ACharacter::StaticClass(),
+		Operation);
+	const auto NoClass = Fixture.Lifecycle.TryExecuteAnchorOperation(
+		*Fixture.Product.Authority,
+		Fixture.CombatRun,
+		Fixture.Product.World,
+		TSubclassOf<AActor>(),
+		Operation);
+	FShanmenItemAuthoritySnapshot AfterFences;
+	const Fdemo_mapShanmenFormationProductHost* BeforeHost =
+		Fixture.Lifecycle.GetController().GetProductHost();
+	TestTrue(TEXT("Invalid boundaries fail before durable authority"),
+		Invalid.Status
+			== Edemo_mapShanmenFormationAnchorOperationStatus::OperationInvalid
+			&& Foreign.Status
+				== Edemo_mapShanmenFormationAnchorOperationStatus::RunMismatch
+			&& NoWorld.Status
+				== Edemo_mapShanmenFormationAnchorOperationStatus::
+					WorldBindingInvalid
+			&& NoClass.Status
+				== Edemo_mapShanmenFormationAnchorOperationStatus::
+					WorldBindingInvalid
+			&& Fixture.Product.CaptureSnapshot(AfterFences)
+			&& AfterFences == BeforeFences
+			&& BeforeHost
+			&& !BeforeHost->HasPendingPlacement()
+			&& BeforeHost->GetSession().GetAnchorAudits().IsEmpty());
+
+	const auto Placed = Fixture.Lifecycle.TryExecuteAnchorOperation(
+		*Fixture.Product.Authority,
+		Fixture.CombatRun,
+		Fixture.Product.World,
+		ACharacter::StaticClass(),
+		Operation);
+	if (!Placed.IsSuccess())
+	{
+		AddError(FString::Printf(
+			TEXT("P27.3 valid placement failed: %s"),
+			*Placed.Diagnostic));
+		return false;
+	}
+	const FGuid ExpectedPlayerEntityId =
+		Fixture.CombatRun.GetPlayerEntityId();
+	const FGuid WrongPlayerEntityId(0xF87300EE, 0, 0, 1);
+	if (!Fixture.PlayerHealth->TryEndCombatEntityBinding(
+			ExpectedPlayerEntityId)
+		|| !Fixture.PlayerHealth->TryBindCombatEntity(
+			WrongPlayerEntityId))
+	{
+		AddError(TEXT("Could not inject P27.3 Coordinator rejection."));
+		return false;
+	}
+	const Fdemo_mapShanmenFormationRunLifecycleEndResult Rejected =
+		Fixture.Lifecycle.TryEndRun(
+			*Fixture.Product.Authority,
+			Fixture.Product.World,
+			Fixture.CombatRun);
+	FShanmenItemAuthoritySnapshot AfterTeardown;
+	if (!Fixture.Product.CaptureSnapshot(AfterTeardown))
+	{
+		return false;
+	}
+	const uint64 SequenceAfterTeardown =
+		Fixture.CombatRun.GetNextPlayerFormationActivationSequence();
+	const auto LateOperation = Fixture.Lifecycle.TryExecuteAnchorOperation(
+		*Fixture.Product.Authority,
+		Fixture.CombatRun,
+		Fixture.Product.World,
+		ACharacter::StaticClass(),
+		Fixture.MakeAnchorOperation(
+			HostAnchorB, FGuid(0xF8730022, 0, 0, 1)));
+	FShanmenItemAuthoritySnapshot AfterLateOperation;
+	TestTrue(TEXT("A teardown checkpoint rejects every new World operation"),
+		Rejected.Status
+			== Edemo_mapShanmenFormationRunLifecycleEndStatus::
+				CoordinatorEndRejected
+			&& LateOperation.Status
+				== Edemo_mapShanmenFormationAnchorOperationStatus::
+					TeardownPending
+			&& Fixture.Product.CaptureSnapshot(AfterLateOperation)
+			&& AfterLateOperation == AfterTeardown
+			&& Fixture.CombatRun.
+				GetNextPlayerFormationActivationSequence()
+					== SequenceAfterTeardown);
+
+	TestTrue(TEXT("Exact Coordinator repair still releases the checkpoint"),
+		Fixture.PlayerHealth->TryEndCombatEntityBinding(WrongPlayerEntityId)
+			&& Fixture.PlayerHealth->TryBindCombatEntity(
+				ExpectedPlayerEntityId));
+	const Fdemo_mapShanmenFormationRunLifecycleEndResult Retried =
+		Fixture.Lifecycle.TryEndRun(
+			*Fixture.Product.Authority,
+			Fixture.Product.World,
+			Fixture.CombatRun);
+	TestTrue(TEXT("Release retry reuses the one cancelled deployment proof"),
+		Retried.IsEnded()
+			&& Retried.bReusedProductTeardown
+			&& !Retried.ProductTeardown.bEndedCompletedFormation
+			&& Retried.ProductTeardown.Terminal.World.
+				TeardownReceipt.ReceiptId
+				== Rejected.ProductTeardown.Terminal.World.
+					TeardownReceipt.ReceiptId
+			&& Fixture.Lifecycle.IsEmpty());
 	return true;
 }
 

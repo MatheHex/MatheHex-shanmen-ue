@@ -4,7 +4,9 @@
 #include "demo_mapShanmenFormationProductAuthority.h"
 #include "demo_mapShanmenFormationProductHost.h"
 
+class AActor;
 class Fdemo_mapCombatRunCoordinator;
+class Fdemo_mapShanmenFormationRunLifecycle;
 class UWorld;
 class Udemo_mapShanmenItemAuthoritySubsystem;
 
@@ -69,12 +71,70 @@ struct Fdemo_mapShanmenFormationControllerResult
 	bool IsAccepted() const;
 };
 
+/** Device-independent identity for one explicit anchor operation. */
+class Fdemo_mapShanmenFormationAnchorOperation
+{
+public:
+	static bool TryCapture(
+		const FGuid& RequestedRunId,
+		FName RequestedAnchorDefinitionId,
+		const FGuid& RequestedAttemptId,
+		Fdemo_mapShanmenFormationAnchorOperation& OutOperation);
+
+	bool IsValid() const;
+	const FGuid& GetRunId() const { return RunId; }
+	FName GetAnchorDefinitionId() const { return AnchorDefinitionId; }
+	const FGuid& GetAttemptId() const { return AttemptId; }
+
+private:
+	FGuid RunId;
+	FName AnchorDefinitionId = NAME_None;
+	FGuid AttemptId;
+};
+
+enum class Edemo_mapShanmenFormationAnchorOperationStatus : uint8
+{
+	Placed,
+	Replayed,
+	LifecycleInactive,
+	LifecycleInvalid,
+	TeardownPending,
+	ControllerInactive,
+	ControllerInvalid,
+	OperationInvalid,
+	RunMismatch,
+	CoordinatorNotReady,
+	ProductHostMissing,
+	WorldBindingInvalid,
+	PendingPlacementConflict,
+	PreparationRejected,
+	CommitRejected,
+	PlacementRejected
+};
+
+/** Full proof for one explicit prepare -> commit -> World placement gateway. */
+struct Fdemo_mapShanmenFormationAnchorOperationResult
+{
+	Edemo_mapShanmenFormationAnchorOperationStatus Status =
+		Edemo_mapShanmenFormationAnchorOperationStatus::LifecycleInactive;
+	bool bResumedCommittedPlacement = false;
+	FString ActorClassPath;
+	Fdemo_mapShanmenFormationAnchorOperation Operation;
+	Fdemo_mapShanmenFormationHostResult Prepared;
+	Fdemo_mapShanmenFormationHostResult Committed;
+	Fdemo_mapShanmenFormationHostResult Placement;
+	FString Diagnostic;
+
+	bool IsSuccess() const;
+};
+
 /** Audit retained while one Run-scoped controller closes its owned Host. */
 struct Fdemo_mapShanmenFormationControllerEndSummary
 {
 	FGuid RunId;
 	int32 CapturedIntentCount = 0;
 	bool bHadProductHost = false;
+	bool bEndedCompletedFormation = false;
 	bool bDiscardedUnstartedCommand = false;
 	Fdemo_mapShanmenFormationHostResult Terminal;
 
@@ -87,8 +147,8 @@ struct Fdemo_mapShanmenFormationControllerEndSummary
  * The first valid IntentId freezes durable item authority and one combat Run
  * sequence, then starts the existing ProductHost. Exact replay returns the
  * same start proof without another sequence; a changed or second intent fails
- * before authority is sampled. World placement and anchor cadence remain
- * explicit later controller operations rather than hidden polling.
+ * before authority is sampled. World placement enters only through the
+ * explicit RunLifecycle anchor gateway rather than hidden polling.
  */
 class Fdemo_mapShanmenFormationProductController
 {
@@ -100,7 +160,7 @@ public:
 		Fdemo_mapCombatRunCoordinator& Coordinator,
 		const Fdemo_mapShanmenFormationIntent& Intent);
 
-	bool TryCancelAndEnd(
+	bool TryTerminateAndEnd(
 		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
 		UWorld* World,
 		const FGuid& ExpectedRunId,
@@ -121,6 +181,8 @@ public:
 		const FGuid& IntentId) const;
 
 private:
+	friend class Fdemo_mapShanmenFormationRunLifecycle;
+
 	struct FCapturedIntent
 	{
 		Fdemo_mapShanmenFormationIntent Intent;
@@ -131,6 +193,12 @@ private:
 	Fdemo_mapShanmenFormationControllerResult StartCaptured(
 		FCapturedIntent& Captured,
 		bool bReusedIntent);
+	Fdemo_mapShanmenFormationAnchorOperationResult TryExecuteAnchorOperation(
+		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+		Fdemo_mapCombatRunCoordinator& Coordinator,
+		UWorld* World,
+		TSubclassOf<AActor> ActorClass,
+		const Fdemo_mapShanmenFormationAnchorOperation& Operation);
 	void Clear();
 
 	FGuid RunId;

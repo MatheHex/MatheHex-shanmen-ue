@@ -18,6 +18,18 @@ namespace
 		Result.Diagnostic = MoveTemp(Diagnostic);
 		return Result;
 	}
+
+	Fdemo_mapShanmenFormationAnchorOperationResult RejectAnchorOperation(
+		const Edemo_mapShanmenFormationAnchorOperationStatus Status,
+		const Fdemo_mapShanmenFormationAnchorOperation& Operation,
+		FString Diagnostic)
+	{
+		Fdemo_mapShanmenFormationAnchorOperationResult Result;
+		Result.Status = Status;
+		Result.Operation = Operation;
+		Result.Diagnostic = MoveTemp(Diagnostic);
+		return Result;
+	}
 }
 
 bool Fdemo_mapShanmenFormationRunLifecycle::TryBegin(
@@ -113,6 +125,70 @@ Fdemo_mapShanmenFormationRunLifecycle::TrySubmit(
 	return Result;
 }
 
+Fdemo_mapShanmenFormationAnchorOperationResult
+Fdemo_mapShanmenFormationRunLifecycle::TryExecuteAnchorOperation(
+	Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+	Fdemo_mapCombatRunCoordinator& Coordinator,
+	UWorld* World,
+	const TSubclassOf<AActor> ActorClass,
+	const Fdemo_mapShanmenFormationAnchorOperation& Operation)
+{
+	if (!IsActive())
+	{
+		return RejectAnchorOperation(
+			Edemo_mapShanmenFormationAnchorOperationStatus::LifecycleInactive,
+			Operation,
+			TEXT("Anchor operation requires one active formation lifecycle."));
+	}
+	if (!IsValid())
+	{
+		return RejectAnchorOperation(
+			Edemo_mapShanmenFormationAnchorOperationStatus::LifecycleInvalid,
+			Operation,
+			TEXT("Formation Run lifecycle invariants are invalid."));
+	}
+	if (ProductTeardownCheckpoint.IsSet())
+	{
+		return RejectAnchorOperation(
+			Edemo_mapShanmenFormationAnchorOperationStatus::TeardownPending,
+			Operation,
+			TEXT("Product teardown is complete; only exact Combat Run release may retry."));
+	}
+	if (!Operation.IsValid())
+	{
+		return RejectAnchorOperation(
+			Edemo_mapShanmenFormationAnchorOperationStatus::OperationInvalid,
+			Operation,
+			TEXT("Anchor operation requires immutable Run, anchor and attempt identities."));
+	}
+	if (Operation.GetRunId() != RunId || Coordinator.GetRunId() != RunId)
+	{
+		return RejectAnchorOperation(
+			Edemo_mapShanmenFormationAnchorOperationStatus::RunMismatch,
+			Operation,
+			TEXT("Anchor operation, lifecycle and Coordinator must name one Run."));
+	}
+	if (!Coordinator.IsReady())
+	{
+		return RejectAnchorOperation(
+			Edemo_mapShanmenFormationAnchorOperationStatus::CoordinatorNotReady,
+			Operation,
+			TEXT("Anchor operation requires its ready Combat Run Coordinator."));
+	}
+
+	Fdemo_mapShanmenFormationAnchorOperationResult Result =
+		Controller.TryExecuteAnchorOperation(
+			Authority, Coordinator, World, ActorClass, Operation);
+	if (!IsValid())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationAnchorOperationStatus::LifecycleInvalid;
+		Result.Diagnostic =
+			TEXT("Formation lifecycle failed invariants after anchor operation.");
+	}
+	return Result;
+}
+
 Fdemo_mapShanmenFormationRunLifecycleEndResult
 Fdemo_mapShanmenFormationRunLifecycle::TryEndRun(
 	Udemo_mapShanmenItemAuthoritySubsystem& Authority,
@@ -157,7 +233,7 @@ Fdemo_mapShanmenFormationRunLifecycle::TryEndRun(
 	{
 		Fdemo_mapShanmenFormationControllerEndSummary ProductTeardown;
 		FString ProductDiagnostic;
-		if (!Controller.TryCancelAndEnd(
+		if (!Controller.TryTerminateAndEnd(
 				Authority,
 				World,
 				RunId,
