@@ -3,6 +3,7 @@
 #include "demo_mapShanmenFormationProductHost.h"
 #include "demo_mapShanmenFormationProductAuthority.h"
 #include "demo_mapShanmenFormationProductController.h"
+#include "demo_mapShanmenFormationRunLifecycle.h"
 #include "demo_mapShanmenFormationInfluenceExecutorAdapter.h"
 #include "demo_mapShanmenFormationInfluenceLeaseExecutor.h"
 #include "demo_mapShanmenFormationInfluenceProductRuntime.h"
@@ -502,6 +503,66 @@ namespace
 				MakeHostDiagram(),
 				Origin,
 				Forward,
+				Intent));
+			return Intent;
+		}
+	};
+
+	struct FFormationRunLifecycleFixture
+	{
+		FFormationHostFixture Product;
+		APawn* Player = nullptr;
+		Udemo_mapPlayerHealthComponent* PlayerHealth = nullptr;
+		Fdemo_mapCombatRunCoordinator CombatRun;
+		Fdemo_mapShanmenFormationRunLifecycle Lifecycle;
+		FString Diagnostic;
+
+		bool Start(FAutomationTestBase& Test, const TCHAR* Label)
+		{
+			if (!Product.Start(Test, Label))
+			{
+				return false;
+			}
+			FActorSpawnParameters Parameters;
+			Parameters.ObjectFlags |= RF_Transient;
+			Parameters.SpawnCollisionHandlingOverride =
+				ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			Player = Product.World->SpawnActor<APawn>(
+				APawn::StaticClass(), FTransform::Identity, Parameters);
+			UBoxComponent* PlayerRoot = Player
+				? NewObject<UBoxComponent>(
+					Player, TEXT("P272PlayerRoot"), RF_Transient)
+				: nullptr;
+			PlayerHealth = Player
+				? NewObject<Udemo_mapPlayerHealthComponent>(
+					Player, TEXT("P272PlayerHealth"), RF_Transient)
+				: nullptr;
+			if (!Player || !PlayerRoot || !PlayerHealth)
+			{
+				return false;
+			}
+			Player->SetRootComponent(PlayerRoot);
+			Player->AddInstanceComponent(PlayerRoot);
+			Player->AddInstanceComponent(PlayerHealth);
+			return CombatRun.TryBeginRun(
+					Product.Correlation.ActiveRunId,
+					Player,
+					PlayerHealth,
+					Diagnostic)
+				&& Lifecycle.TryBegin(CombatRun, Diagnostic);
+		}
+
+		Fdemo_mapShanmenFormationIntent MakeIntent(
+			const FGuid& IntentId,
+			const FVector& Origin = FVector::ZeroVector) const
+		{
+			Fdemo_mapShanmenFormationIntent Intent;
+			check(Fdemo_mapShanmenFormationIntent::TryCapture(
+				IntentId,
+				Product.Correlation.ActiveRunId,
+				MakeHostDiagram(),
+				Origin,
+				FVector::ForwardVector,
 				Intent));
 			return Intent;
 		}
@@ -5231,6 +5292,179 @@ bool Fdemo_mapFormationProductControllerFencesTest::RunTest(const FString&)
 			&& Summary.IsValid()
 			&& Fixture.CombatRun.TryEndRun(
 				RunId, Fixture.Diagnostic));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationRunLifecycleOrderedEndTest,
+	"Shanmen.0_0_10.Product.FormationRunLifecycle.OrderedEnd",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationRunLifecycleOrderedEndTest::RunTest(const FString&)
+{
+	FFormationRunLifecycleFixture Fixture;
+	if (!Fixture.Start(*this, TEXT("FormationRunLifecycleOrderedEnd")))
+	{
+		AddError(FString::Printf(
+			TEXT("P27.2 lifecycle fixture failed: %s"),
+			*Fixture.Diagnostic));
+		return false;
+	}
+
+	const FGuid RunId = Fixture.Product.Correlation.ActiveRunId;
+	const FGuid IntentId(0xF8720001, 0, 0, 1);
+	const auto Started = Fixture.Lifecycle.TrySubmit(
+		*Fixture.Product.Authority,
+		Fixture.CombatRun,
+		Fixture.MakeIntent(IntentId, FVector(25.0, -10.0, 5.0)));
+	TestTrue(TEXT("Lifecycle owns the sole started formation controller"),
+		Started.IsAccepted()
+			&& Fixture.Lifecycle.IsValid()
+			&& Fixture.Lifecycle.IsActive()
+			&& Fixture.Lifecycle.GetController().HasProductHost());
+	TestTrue(TEXT("Exact begin is idempotent for the same ready Run"),
+		Fixture.Lifecycle.TryBegin(
+			Fixture.CombatRun, Fixture.Diagnostic));
+
+	const Fdemo_mapShanmenFormationRunLifecycleEndResult Ended =
+		Fixture.Lifecycle.TryEndRun(
+			*Fixture.Product.Authority,
+			Fixture.Product.World,
+			Fixture.CombatRun);
+	TestTrue(TEXT("Product teardown precedes shared Combat Run release"),
+		Ended.IsEnded()
+			&& Ended.RunId == RunId
+			&& !Ended.bReusedProductTeardown
+			&& Ended.ProductTeardown.bHadProductHost
+			&& Ended.ProductTeardown.Terminal.World.
+				TeardownReceipt.IsValid()
+			&& Fixture.Lifecycle.IsValid()
+			&& Fixture.Lifecycle.IsEmpty()
+			&& !Fixture.CombatRun.IsActive()
+			&& !Fixture.PlayerHealth->IsCombatEntityBound());
+
+	const Fdemo_mapShanmenFormationRunLifecycleEndResult Replay =
+		Fixture.Lifecycle.TryEndRun(
+			*Fixture.Product.Authority,
+			Fixture.Product.World,
+			Fixture.CombatRun);
+	TestTrue(TEXT("Released lifecycle cannot be ended twice"),
+		Replay.Status
+			== Edemo_mapShanmenFormationRunLifecycleEndStatus::
+				LifecycleInactive
+			&& Fixture.Lifecycle.IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationRunLifecycleCoordinatorRecoveryTest,
+	"Shanmen.0_0_10.Product.FormationRunLifecycle.CoordinatorRecovery",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationRunLifecycleCoordinatorRecoveryTest::RunTest(
+	const FString&)
+{
+	FFormationRunLifecycleFixture Fixture;
+	if (!Fixture.Start(*this, TEXT("FormationRunLifecycleRecovery")))
+	{
+		AddError(FString::Printf(
+			TEXT("P27.2 recovery fixture failed: %s"),
+			*Fixture.Diagnostic));
+		return false;
+	}
+
+	const FGuid IntentId(0xF8720010, 0, 0, 1);
+	const auto Started = Fixture.Lifecycle.TrySubmit(
+		*Fixture.Product.Authority,
+		Fixture.CombatRun,
+		Fixture.MakeIntent(IntentId));
+	if (!Started.IsAccepted())
+	{
+		AddError(FString::Printf(
+			TEXT("P27.2 formation start failed: %s"),
+			*Started.Diagnostic));
+		return false;
+	}
+
+	const FGuid ExpectedPlayerEntityId =
+		Fixture.CombatRun.GetPlayerEntityId();
+	const FGuid WrongPlayerEntityId(0xF87200FF, 0, 0, 1);
+	if (!Fixture.PlayerHealth->TryEndCombatEntityBinding(
+			ExpectedPlayerEntityId)
+		|| !Fixture.PlayerHealth->TryBindCombatEntity(
+			WrongPlayerEntityId))
+	{
+		AddError(TEXT("Could not inject P27.2 Coordinator rejection."));
+		return false;
+	}
+
+	const Fdemo_mapShanmenFormationRunLifecycleEndResult Rejected =
+		Fixture.Lifecycle.TryEndRun(
+			*Fixture.Product.Authority,
+			Fixture.Product.World,
+			Fixture.CombatRun);
+	const auto* Checkpoint =
+		Fixture.Lifecycle.GetProductTeardownCheckpoint();
+	TestTrue(TEXT("Coordinator rejection retains one product checkpoint"),
+		Rejected.Status
+			== Edemo_mapShanmenFormationRunLifecycleEndStatus::
+				CoordinatorEndRejected
+			&& !Rejected.bReusedProductTeardown
+			&& Rejected.ProductTeardown.IsValid()
+			&& Checkpoint
+			&& Checkpoint->IsValid()
+			&& Checkpoint->Terminal.World.TeardownReceipt.ReceiptId
+				== Rejected.ProductTeardown.Terminal.World.
+					TeardownReceipt.ReceiptId
+			&& Fixture.Lifecycle.IsValid()
+			&& Fixture.Lifecycle.IsActive()
+			&& Fixture.Lifecycle.GetController().IsEmpty()
+			&& Fixture.CombatRun.IsActive());
+
+	FShanmenItemAuthoritySnapshot AfterProductTeardown;
+	if (!Fixture.Product.CaptureSnapshot(AfterProductTeardown))
+	{
+		AddError(TEXT("Could not capture P27.2 teardown checkpoint state."));
+		return false;
+	}
+	const uint64 SequenceAfterTeardown =
+		Fixture.CombatRun.GetNextPlayerFormationActivationSequence();
+	const auto LateSubmission = Fixture.Lifecycle.TrySubmit(
+		*Fixture.Product.Authority,
+		Fixture.CombatRun,
+		Fixture.MakeIntent(FGuid(0xF8720011, 0, 0, 1)));
+	TestTrue(TEXT("Checkpointed Run rejects new product work"),
+		LateSubmission.Status
+			== Edemo_mapShanmenFormationControllerStatus::ControllerInactive
+			&& Fixture.CombatRun.
+				GetNextPlayerFormationActivationSequence()
+					== SequenceAfterTeardown);
+	TestTrue(TEXT("Exact begin replays pending release instead of restarting"),
+		Fixture.Lifecycle.TryBegin(
+			Fixture.CombatRun, Fixture.Diagnostic)
+			&& Fixture.Lifecycle.HasProductTeardownCheckpoint());
+
+	TestTrue(TEXT("Coordinator identity can be repaired for exact retry"),
+		Fixture.PlayerHealth->TryEndCombatEntityBinding(WrongPlayerEntityId)
+			&& Fixture.PlayerHealth->TryBindCombatEntity(
+				ExpectedPlayerEntityId));
+	const Fdemo_mapShanmenFormationRunLifecycleEndResult Retried =
+		Fixture.Lifecycle.TryEndRun(
+			*Fixture.Product.Authority,
+			Fixture.Product.World,
+			Fixture.CombatRun);
+	FShanmenItemAuthoritySnapshot AfterRetry;
+	TestTrue(TEXT("Retry reuses product proof and releases only Coordinator"),
+		Retried.IsEnded()
+			&& Retried.bReusedProductTeardown
+			&& Retried.ProductTeardown.Terminal.World.
+				TeardownReceipt.ReceiptId
+				== Rejected.ProductTeardown.Terminal.World.
+					TeardownReceipt.ReceiptId
+			&& Fixture.Product.CaptureSnapshot(AfterRetry)
+			&& AfterRetry == AfterProductTeardown
+			&& Fixture.Lifecycle.IsEmpty()
+			&& !Fixture.CombatRun.IsActive());
 	return true;
 }
 

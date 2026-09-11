@@ -658,6 +658,9 @@ try
     $FormationProductController = New-AutomationLogFixture `
         -Name 'formation-product-controller.log' `
         -Group 'Shanmen.0_0_10.Product.FormationProductController'
+    $FormationRunLifecycle = New-AutomationLogFixture `
+        -Name 'formation-run-lifecycle.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationRunLifecycle'
     $FormationSession = New-AutomationLogFixture `
         -Name 'formation-session.log' `
         -Group 'Shanmen.0_0_10.Product.FormationSession'
@@ -2437,6 +2440,12 @@ try
         -Name 'formation product controller is covered by broad full evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationProductController.cpp') `
+        -Logs @($Full)
+
+    Invoke-ExpectedPass `
+        -Name 'formation Run lifecycle is covered by broad full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationRunLifecycle.cpp') `
         -Logs @($Full)
 
     Invoke-ExpectedPass `
@@ -5565,6 +5574,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationProductController.cpp') `
         -Logs @($FormationProductController) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'formation Run lifecycle focus cannot replace owned controller evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationRunLifecycle.cpp') `
+        -Logs @($FormationRunLifecycle) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
