@@ -21,6 +21,7 @@
 #include "ShanmenCombatTags.h"
 #include "demo_mapAttributeComponent.h"
 #include "demo_map0909BSectWarehouseService.h"
+#include "demo_mapGameMode.h"
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapProfileRepository.h"
 #include "demo_mapProfileSessionSubsystem.h"
@@ -5390,6 +5391,212 @@ bool Fdemo_mapFormationRunLifecycleOrderedEndTest::RunTest(const FString&)
 			== Edemo_mapShanmenFormationRunLifecycleEndStatus::
 				LifecycleInactive
 			&& Fixture.Lifecycle.IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationRunLifecycleExternalCompositionTest,
+	"Shanmen.0_0_10.Product.FormationRunLifecycle.ExternalCoordinatorComposition",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationRunLifecycleExternalCompositionTest::RunTest(
+	const FString&)
+{
+	FFormationRunLifecycleFixture Fixture;
+	if (!Fixture.Start(*this, TEXT("FormationRunLifecycleComposition")))
+	{
+		AddError(FString::Printf(
+			TEXT("P27.5 lifecycle fixture failed: %s"),
+			*Fixture.Diagnostic));
+		return false;
+	}
+
+	const FGuid RunId = Fixture.Product.Correlation.ActiveRunId;
+	const auto Started = Fixture.Lifecycle.TrySubmit(
+		*Fixture.Product.Authority,
+		Fixture.CombatRun,
+		Fixture.MakeIntent(FGuid(0xF8750001, 0, 0, 1)));
+	const auto Placed = Fixture.Lifecycle.TryExecuteAnchorOperation(
+		*Fixture.Product.Authority,
+		Fixture.CombatRun,
+		Fixture.Product.World,
+		ACharacter::StaticClass(),
+		Fixture.MakeAnchorOperation(
+			HostAnchorA, FGuid(0xF8750010, 0, 0, 1)));
+	if (!Started.IsAccepted() || !Placed.IsSuccess())
+	{
+		AddError(FString::Printf(
+			TEXT("P27.5 formation setup failed: %s / %s"),
+			*Started.Diagnostic,
+			*Placed.Diagnostic));
+		return false;
+	}
+	const FName DeploymentTag =
+		Fdemo_mapShanmenFormationWorldAdapter::MakeDeploymentTag(
+			Placed.Placement.PlacementIntent.DeploymentId);
+	TestEqual(TEXT("one formation actor exists before composition teardown"),
+		CountTaggedActors(Fixture.Product.World, DeploymentTag), 1);
+
+	const auto ProductTeardown = Fixture.Lifecycle.TryTeardownProduct(
+		*Fixture.Product.Authority,
+		Fixture.Product.World,
+		Fixture.CombatRun);
+	FShanmenItemAuthoritySnapshot AfterProductTeardown;
+	if (!Fixture.Product.CaptureSnapshot(AfterProductTeardown))
+	{
+		AddError(TEXT("Could not capture P27.5 product teardown state."));
+		return false;
+	}
+	TestTrue(TEXT("product teardown checkpoints without releasing shared identities"),
+		ProductTeardown.IsProductTeardownComplete()
+			&& !ProductTeardown.bReusedProductTeardown
+			&& ProductTeardown.ProductTeardown.bHadProductHost
+			&& !ProductTeardown.ProductTeardown.bEndedCompletedFormation
+			&& ProductTeardown.ProductTeardown.Terminal.World.
+				TeardownReceipt.RemovedActorCount == 1
+			&& Fixture.Lifecycle.HasProductTeardownCheckpoint()
+			&& Fixture.Lifecycle.GetController().IsEmpty()
+			&& Fixture.CombatRun.IsActive()
+			&& Fixture.PlayerHealth->IsCombatEntityBound()
+			&& CountTaggedActors(Fixture.Product.World, DeploymentTag) == 0);
+
+	const auto TeardownReplay = Fixture.Lifecycle.TryTeardownProduct(
+		*Fixture.Product.Authority,
+		Fixture.Product.World,
+		Fixture.CombatRun);
+	FShanmenItemAuthoritySnapshot AfterReplay;
+	TestTrue(TEXT("exact product teardown retry reuses proof without mutation"),
+		TeardownReplay.IsProductTeardownComplete()
+			&& TeardownReplay.bReusedProductTeardown
+			&& TeardownReplay.ProductTeardown.Terminal.World.
+				TeardownReceipt.ReceiptId
+					== ProductTeardown.ProductTeardown.Terminal.World.
+						TeardownReceipt.ReceiptId
+			&& Fixture.Product.CaptureSnapshot(AfterReplay)
+			&& AfterReplay == AfterProductTeardown);
+
+	FString AcknowledgeDiagnostic;
+	TestFalse(TEXT("active shared identities cannot be acknowledged as released"),
+		Fixture.Lifecycle.TryAcknowledgeCoordinatorEnded(
+			RunId, Fixture.CombatRun, AcknowledgeDiagnostic));
+	TestTrue(TEXT("outer composition owner releases the exact shared Run"),
+		Fixture.CombatRun.TryEndRun(RunId, Fixture.Diagnostic));
+	TestFalse(TEXT("foreign release acknowledgement preserves the checkpoint"),
+		Fixture.Lifecycle.TryAcknowledgeCoordinatorEnded(
+			FGuid(0xF87500FF, 0, 0, 1),
+			Fixture.CombatRun,
+			AcknowledgeDiagnostic));
+	TestTrue(TEXT("exact external release acknowledgement clears lifecycle"),
+		Fixture.Lifecycle.TryAcknowledgeCoordinatorEnded(
+			RunId, Fixture.CombatRun, AcknowledgeDiagnostic)
+			&& Fixture.Lifecycle.IsValid()
+			&& Fixture.Lifecycle.IsEmpty()
+			&& !Fixture.PlayerHealth->IsCombatEntityBound());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationGameModeRunCompositionTest,
+	"Shanmen.0_0_10.Product.FormationRunLifecycle.GameModeComposition",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationGameModeRunCompositionTest::RunTest(const FString&)
+{
+	FFormationHostFixture Product;
+	if (!Product.Start(*this, TEXT("FormationGameModeComposition")))
+	{
+		return false;
+	}
+	Product.World->SetGameInstance(Product.GameInstance);
+	FActorSpawnParameters Parameters;
+	Parameters.ObjectFlags |= RF_Transient;
+	Parameters.SpawnCollisionHandlingOverride =
+		ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	Ademo_mapGameMode* GameMode = Product.World->SpawnActor<Ademo_mapGameMode>(
+		Ademo_mapGameMode::StaticClass(), FTransform::Identity, Parameters);
+	APawn* Player = Product.World->SpawnActor<APawn>(
+		APawn::StaticClass(), FTransform::Identity, Parameters);
+	UBoxComponent* PlayerRoot = Player
+		? NewObject<UBoxComponent>(
+			Player, TEXT("P275PlayerRoot"), RF_Transient)
+		: nullptr;
+	Udemo_mapPlayerHealthComponent* PlayerHealth = Player
+		? NewObject<Udemo_mapPlayerHealthComponent>(
+			Player, TEXT("P275PlayerHealth"), RF_Transient)
+		: nullptr;
+	if (!GameMode || !Player || !PlayerRoot || !PlayerHealth)
+	{
+		AddError(TEXT("P27.5 GameMode composition fixture failed."));
+		return false;
+	}
+	Player->SetRootComponent(PlayerRoot);
+	Player->AddInstanceComponent(PlayerRoot);
+	Player->AddInstanceComponent(PlayerHealth);
+
+	FString Diagnostic;
+	const FGuid RunId = Product.Correlation.ActiveRunId;
+	const bool bBound = GameMode->CombatRunCoordinator.TryBeginRun(
+			RunId, Player, PlayerHealth, Diagnostic)
+		&& GameMode->CombatRunFixedTimeline.TryBegin(RunId, Diagnostic)
+		&& GameMode->FormationRunLifecycle.TryBegin(
+			GameMode->CombatRunCoordinator, Diagnostic);
+	TestTrue(TEXT("GameMode composition binds one shared Run and formation lifecycle"),
+		bBound);
+	if (!bBound)
+	{
+		AddError(Diagnostic);
+		return false;
+	}
+
+	Fdemo_mapShanmenFormationIntent Intent;
+	check(Fdemo_mapShanmenFormationIntent::TryCapture(
+		FGuid(0xF8750101, 0, 0, 1),
+		RunId,
+		MakeHostDiagram(),
+		FVector::ZeroVector,
+		FVector::ForwardVector,
+		Intent));
+	const auto Started = GameMode->FormationRunLifecycle.TrySubmit(
+		*Product.Authority,
+		GameMode->CombatRunCoordinator,
+		Intent);
+	Fdemo_mapShanmenFormationAnchorOperation AnchorOperation;
+	check(Fdemo_mapShanmenFormationAnchorOperation::TryCapture(
+		RunId,
+		HostAnchorA,
+		FGuid(0xF8750110, 0, 0, 1),
+		AnchorOperation));
+	const auto Placed = GameMode->FormationRunLifecycle.
+		TryExecuteAnchorOperation(
+			*Product.Authority,
+			GameMode->CombatRunCoordinator,
+			Product.World,
+			ACharacter::StaticClass(),
+			AnchorOperation);
+	if (!Started.IsAccepted() || !Placed.IsSuccess())
+	{
+		AddError(FString::Printf(
+			TEXT("P27.5 GameMode formation setup failed: %s / %s"),
+			*Started.Diagnostic,
+			*Placed.Diagnostic));
+		return false;
+	}
+	const FName DeploymentTag =
+		Fdemo_mapShanmenFormationWorldAdapter::MakeDeploymentTag(
+			Placed.Placement.PlacementIntent.DeploymentId);
+	TestEqual(TEXT("GameMode-owned formation projects one anchor actor"),
+		CountTaggedActors(Product.World, DeploymentTag), 1);
+
+	const bool bReleased = GameMode->ReleaseCombatProductRun(
+		TEXT("P27.5.GameModeComposition"));
+	TestTrue(TEXT("GameMode tears formation down before its existing final owner releases Run"),
+		bReleased
+			&& GameMode->FormationRunLifecycle.IsValid()
+			&& GameMode->FormationRunLifecycle.IsEmpty()
+			&& !GameMode->CombatRunCoordinator.IsActive()
+			&& GameMode->CombatRunFixedTimeline.IsEmpty()
+			&& !PlayerHealth->IsCombatEntityBound()
+			&& CountTaggedActors(Product.World, DeploymentTag) == 0);
 	return true;
 }
 

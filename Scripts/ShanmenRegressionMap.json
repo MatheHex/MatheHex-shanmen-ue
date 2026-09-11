@@ -2493,6 +2493,7 @@
         "Shanmen.0_0_10.CombatRuntime.SpiritEvasion",
         "Shanmen.0_0_10.CombatRuntime.ActionLifecycle",
         "Shanmen.0_0_10.Product.CombatRunCoordinator",
+        "Shanmen.0_0_10.Product.FormationRunLifecycle",
 		"Shanmen.0_0_10.Product.ArmorResistanceImpactFeedback",
         "Shanmen.0_0_10.Product.WeaponGuardProductSession",
         "Shanmen.0_0_10.Product.WeaponGuardImpactRoute",

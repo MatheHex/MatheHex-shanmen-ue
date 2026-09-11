@@ -29,6 +29,7 @@
 #include "demo_mapShanmenThrownWeaponProductLifecycle.h"
 #include "demo_mapShanmenRunCorrelation.h"
 #include "demo_mapShanmenDivineSenseLogicalInputAdapter.h"
+#include "demo_mapShanmenFormationRunLifecycle.h"
 #include "demo_mapShanmenSpiritShieldProductSession.h"
 #include "demo_mapShanmenSpiritEvasionProductRoute.h"
 #include "demo_mapShanmenCombatRunFixedTimeline.h"
@@ -688,6 +689,7 @@ private:
 	TWeakObjectPtr<Ademo_map0909BFrameworkHost> Framework0909BHost;
 	TOptional<Fdemo_mapShanmenRunCorrelation> Prepared0909BRunCorrelation;
 	Fdemo_mapCombatRunCoordinator CombatRunCoordinator;
+	Fdemo_mapShanmenFormationRunLifecycle FormationRunLifecycle;
 	Fdemo_mapShanmenControlledWeaponRunHost ControlledWeaponRunHost;
 	Fdemo_mapShanmenControlledWeaponWorldLifecycle
 		ControlledWeaponWorldLifecycle;
@@ -729,6 +731,7 @@ private:
 	double DivineSenseRevealExpiresAtSeconds = -1.0;
 #if WITH_DEV_AUTOMATION_TESTS
 	friend class Fdemo_mapDivineSenseGameModeLifecycleTest;
+	friend class Fdemo_mapFormationGameModeRunCompositionTest;
 	friend class Fdemo_mapSwordQiPhysicalIssueRetryTest;
 #endif
 	TArray<TWeakObjectPtr<Ademo_mapM01ExtractionZone>> M01ExtractionZones;

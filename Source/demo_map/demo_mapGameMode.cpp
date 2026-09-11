@@ -3426,6 +3426,7 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 				Udemo_mapShanmenCombatConditionComponent>()
 			: nullptr;
 	if (!ControlledWeaponRunHost.IsEmpty()
+		|| !FormationRunLifecycle.IsEmpty()
 		|| !ControlledWeaponWorldLifecycle.IsEmpty()
 		|| !ControlledWeaponRunCommandRouter.IsEmpty()
 		|| !ControlledWeaponThreatSampleRouter.IsEmpty()
@@ -3788,13 +3789,30 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 		}
 		return false;
 	}
+	FString FormationDiagnostic;
+	if (!FormationRunLifecycle.TryBegin(
+			CombatRunCoordinator, FormationDiagnostic))
+	{
+		const bool bReleased = ReleaseCombatProductRun(
+			TEXT("FormationProductBindFailure"));
+		OutDiagnostic = FormationDiagnostic.IsEmpty()
+			? TEXT("Formation product binding failed closed.")
+			: FormationDiagnostic;
+		if (!bReleased)
+		{
+			OutDiagnostic += TEXT(
+				" Existing combat products also rejected activation rollback.");
+		}
+		return false;
+	}
 	UE_LOG(Logdemo_map, Log,
-		TEXT("0_0_10_COMBAT_RUN Event=RunBound RunId=%s PlayerEntityId=%s M01Entities=%d M01VitalityHosts=%d ControlledWeaponWorldStatus=%d ControlledWeaponWorldActive=%d ControlledWeaponWorldThreatSampler=%d ControlledWeaponWorldThreatIntervalTicks=%lld ThrownWeaponLifecycle=%d ThrownWeaponTrajectory=%d ThrownWeaponChoiceStateId=%s ThrownWeaponChoiceRevision=%llu ThrownWeaponArcPreLaunchContext=%d TreatmentLifecycle=%d SwordQiController=%d SwordQiCommandOwner=%d DivineSenseController=%d DivineSenseInput=%d DivineSenseSpiritEnergy=%.1f RunTimelineId=%s RunTickRate=%lld ConditionDefinition=%s ConditionDurationTicks=%lld SwordRhythmConfigId=%s SwordRhythmWindow=[%lld,%lld)"),
+		TEXT("0_0_10_COMBAT_RUN Event=RunBound RunId=%s PlayerEntityId=%s M01Entities=%d M01VitalityHosts=%d FormationLifecycle=%d ControlledWeaponWorldStatus=%d ControlledWeaponWorldActive=%d ControlledWeaponWorldThreatSampler=%d ControlledWeaponWorldThreatIntervalTicks=%lld ThrownWeaponLifecycle=%d ThrownWeaponTrajectory=%d ThrownWeaponChoiceStateId=%s ThrownWeaponChoiceRevision=%llu ThrownWeaponArcPreLaunchContext=%d TreatmentLifecycle=%d SwordQiController=%d SwordQiCommandOwner=%d DivineSenseController=%d DivineSenseInput=%d DivineSenseSpiritEnergy=%.1f RunTimelineId=%s RunTickRate=%lld ConditionDefinition=%s ConditionDurationTicks=%lld SwordRhythmConfigId=%s SwordRhythmWindow=[%lld,%lld)"),
 		*ActiveRunId.ToString(EGuidFormats::DigitsWithHyphens),
 		*CombatRunCoordinator.GetPlayerEntityId().ToString(
 			EGuidFormats::DigitsWithHyphens),
 		CombatRunCoordinator.NumRegisteredM01Enemies(),
 		CombatRunCoordinator.NumVitalityBoundM01Enemies(),
+		FormationRunLifecycle.IsActive() ? 1 : 0,
 		static_cast<int32>(ControlledWeaponWorldStart.Status),
 		ControlledWeaponWorldLifecycle.IsActive() ? 1 : 0,
 		ControlledWeaponWorldThreatSampler.IsActiveForRun(ActiveRunId) ? 1 : 0,
@@ -4113,9 +4131,80 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 			return false;
 		}
 	}
+	Fdemo_mapShanmenFormationRunLifecycleEndResult FormationTeardown;
+	if (!FormationRunLifecycle.IsEmpty()
+		&& !FormationRunLifecycle.IsActive())
+	{
+		UE_LOG(
+			Logdemo_map,
+			Error,
+			TEXT("0_0_10_COMBAT_RUN Event=FormationRunReleaseRejected Context=%s Diagnostic=InactiveNonEmptyLifecycle"),
+			SafeContext);
+		return false;
+	}
+	if (FormationRunLifecycle.IsActive())
+	{
+		if (!CombatRunCoordinator.IsActive())
+		{
+			FString FormationAcknowledgeDiagnostic;
+			if (!FormationRunLifecycle.HasProductTeardownCheckpoint()
+				|| !FormationRunLifecycle.TryAcknowledgeCoordinatorEnded(
+					FormationRunLifecycle.GetRunId(),
+					CombatRunCoordinator,
+					FormationAcknowledgeDiagnostic))
+			{
+				UE_LOG(
+					Logdemo_map,
+					Error,
+					TEXT("0_0_10_COMBAT_RUN Event=FormationRunReleaseRejected Context=%s RunId=%s Diagnostic=%s"),
+					SafeContext,
+					*FormationRunLifecycle.GetRunId().ToString(
+						EGuidFormats::DigitsWithHyphens),
+					*FormationAcknowledgeDiagnostic);
+				return false;
+			}
+		}
+		else
+		{
+			Udemo_mapShanmenItemAuthoritySubsystem* FormationAuthority =
+				GetGameInstance()
+					? GetGameInstance()->GetSubsystem<
+						Udemo_mapShanmenItemAuthoritySubsystem>()
+					: nullptr;
+			if (!FormationAuthority)
+			{
+				UE_LOG(
+					Logdemo_map,
+					Error,
+					TEXT("0_0_10_COMBAT_RUN Event=FormationRunReleaseRejected Context=%s RunId=%s Diagnostic=ItemAuthorityUnavailable"),
+					SafeContext,
+					*FormationRunLifecycle.GetRunId().ToString(
+						EGuidFormats::DigitsWithHyphens));
+				return false;
+			}
+			FormationTeardown = FormationRunLifecycle.TryTeardownProduct(
+				*FormationAuthority,
+				GetWorld(),
+				CombatRunCoordinator);
+			if (!FormationTeardown.IsProductTeardownComplete())
+			{
+				UE_LOG(
+					Logdemo_map,
+					Error,
+					TEXT("0_0_10_COMBAT_RUN Event=FormationRunReleaseRejected Context=%s RunId=%s Status=%d Diagnostic=%s"),
+					SafeContext,
+					*FormationTeardown.RunId.ToString(
+						EGuidFormats::DigitsWithHyphens),
+					static_cast<int32>(FormationTeardown.Status),
+					*FormationTeardown.Diagnostic);
+				return false;
+			}
+		}
+	}
 	if (!CombatRunCoordinator.IsActive())
 	{
 		if (ControlledWeaponRunHost.IsEmpty()
+			&& FormationRunLifecycle.IsEmpty()
 			&& ControlledWeaponWorldLifecycle.IsEmpty()
 			&& ControlledWeaponRunCommandRouter.IsEmpty()
 			&& ControlledWeaponThreatSampleRouter.IsEmpty()
@@ -4165,6 +4254,23 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 			CombatRunCoordinator);
 	if (Result.IsEnded())
 	{
+		FString FormationAcknowledgeDiagnostic;
+		const bool bFormationReleased = FormationRunLifecycle.IsEmpty()
+			|| FormationRunLifecycle.TryAcknowledgeCoordinatorEnded(
+				Result.RunId,
+				CombatRunCoordinator,
+				FormationAcknowledgeDiagnostic);
+		if (!bFormationReleased)
+		{
+			UE_LOG(
+				Logdemo_map,
+				Error,
+				TEXT("0_0_10_COMBAT_RUN Event=FormationRunAcknowledgeRejected RunId=%s Context=%s Diagnostic=%s"),
+				*Result.RunId.ToString(EGuidFormats::DigitsWithHyphens),
+				SafeContext,
+				*FormationAcknowledgeDiagnostic);
+			return false;
+		}
 		const int64 WorldThreatSampleCount =
 			ControlledWeaponWorldThreatSampler.NumCommittedSamples();
 		FString ControlledWeaponWorldDiagnostic;
@@ -4205,9 +4311,12 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 		ControlledWeaponRunCommandRouter.Reset();
 		ControlledWeaponThreatSampleRouter.Reset();
 		UE_LOG(Logdemo_map, Log,
-		TEXT("0_0_10_COMBAT_RUN Event=RunReleased RunId=%s Context=%s ControlledBound=%d ControlledInterrupted=%d RoutedIntents=%d ThreatSamples=%lld WorldThreatSamples=%lld ThrownSelections=%d TreatmentRequests=%d TreatmentPendingAtTeardown=%d SwordQiCommandEvents=%llu SwordQiPendingRetryAtTeardown=%d SwordQiIntents=%d SwordQiCommands=%d SwordQiInterrupted=%d DivineSensePulses=%d ConditionApplications=%d ConditionRevision=%lld SwordRhythmObservations=%d SwordRhythmPresentationPublished=%d SwordRhythmPresentationQueuedAtTeardown=%d WeaponGuardInterrupted=%d"),
+		TEXT("0_0_10_COMBAT_RUN Event=RunReleased RunId=%s Context=%s FormationHadProduct=%d FormationCompleted=%d FormationTeardownReused=%d ControlledBound=%d ControlledInterrupted=%d RoutedIntents=%d ThreatSamples=%lld WorldThreatSamples=%lld ThrownSelections=%d TreatmentRequests=%d TreatmentPendingAtTeardown=%d SwordQiCommandEvents=%llu SwordQiPendingRetryAtTeardown=%d SwordQiIntents=%d SwordQiCommands=%d SwordQiInterrupted=%d DivineSensePulses=%d ConditionApplications=%d ConditionRevision=%lld SwordRhythmObservations=%d SwordRhythmPresentationPublished=%d SwordRhythmPresentationQueuedAtTeardown=%d WeaponGuardInterrupted=%d"),
 			*Result.RunId.ToString(EGuidFormats::DigitsWithHyphens),
 			SafeContext,
+			FormationTeardown.ProductTeardown.bHadProductHost ? 1 : 0,
+			FormationTeardown.ProductTeardown.bEndedCompletedFormation ? 1 : 0,
+			FormationTeardown.bReusedProductTeardown ? 1 : 0,
 			Result.BoundItemCount,
 			Result.InterruptedItemCount,
 			RoutedIntentCount,
@@ -4233,7 +4342,8 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 				? 1
 				: 0);
 		return bSwordRhythmPresentationReleased
-			&& bControlledWeaponWorldReleased;
+			&& bControlledWeaponWorldReleased
+			&& bFormationReleased;
 	}
 
 	UE_LOG(Logdemo_map, Error,

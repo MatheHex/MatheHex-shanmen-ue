@@ -12,6 +12,7 @@ class Udemo_mapShanmenItemAuthoritySubsystem;
 enum class Edemo_mapShanmenFormationRunLifecycleEndStatus : uint8
 {
 	Ended,
+	ProductTeardownComplete,
 	LifecycleInactive,
 	LifecycleInvalid,
 	CoordinatorNotActive,
@@ -34,6 +35,15 @@ struct Fdemo_mapShanmenFormationRunLifecycleEndResult
 	{
 		return Status
 			== Edemo_mapShanmenFormationRunLifecycleEndStatus::Ended
+			&& RunId.IsValid()
+			&& ProductTeardown.IsValid();
+	}
+
+	bool IsProductTeardownComplete() const
+	{
+		return Status
+			== Edemo_mapShanmenFormationRunLifecycleEndStatus::
+				ProductTeardownComplete
 			&& RunId.IsValid()
 			&& ProductTeardown.IsValid();
 	}
@@ -70,6 +80,22 @@ public:
 		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
 		UWorld* World,
 		Fdemo_mapCombatRunCoordinator& Coordinator);
+	/**
+	 * Completes formation-owned material and World cleanup without releasing
+	 * shared Combat Run identities. The durable result is reused on retries.
+	 */
+	Fdemo_mapShanmenFormationRunLifecycleEndResult TryTeardownProduct(
+		Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+		UWorld* World,
+		Fdemo_mapCombatRunCoordinator& Coordinator);
+	/**
+	 * Clears the checkpointed lifecycle only after the outer composition owner
+	 * has released the exact shared Combat Run.
+	 */
+	bool TryAcknowledgeCoordinatorEnded(
+		const FGuid& ExpectedRunId,
+		const Fdemo_mapCombatRunCoordinator& Coordinator,
+		FString& OutDiagnostic);
 
 	bool IsValid() const;
 	bool IsActive() const { return RunId.IsValid(); }

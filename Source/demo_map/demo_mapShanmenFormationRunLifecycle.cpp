@@ -190,7 +190,7 @@ Fdemo_mapShanmenFormationRunLifecycle::TryExecuteAnchorOperation(
 }
 
 Fdemo_mapShanmenFormationRunLifecycleEndResult
-Fdemo_mapShanmenFormationRunLifecycle::TryEndRun(
+Fdemo_mapShanmenFormationRunLifecycle::TryTeardownProduct(
 	Udemo_mapShanmenItemAuthoritySubsystem& Authority,
 	UWorld* World,
 	Fdemo_mapCombatRunCoordinator& Coordinator)
@@ -265,6 +265,65 @@ Fdemo_mapShanmenFormationRunLifecycle::TryEndRun(
 		ProductTeardownCheckpoint = MoveTemp(ProductTeardown);
 	}
 	Result.ProductTeardown = ProductTeardownCheckpoint.GetValue();
+	Result.Status =
+		Edemo_mapShanmenFormationRunLifecycleEndStatus::
+			ProductTeardownComplete;
+	Result.Diagnostic = Result.bReusedProductTeardown
+		? TEXT("Formation product teardown reused its durable checkpoint; shared Combat Run release remains external.")
+		: TEXT("Formation product teardown completed before shared Combat Run release.");
+	return Result;
+}
+
+bool Fdemo_mapShanmenFormationRunLifecycle::
+TryAcknowledgeCoordinatorEnded(
+	const FGuid& ExpectedRunId,
+	const Fdemo_mapCombatRunCoordinator& Coordinator,
+	FString& OutDiagnostic)
+{
+	OutDiagnostic.Reset();
+	if (!IsActive())
+	{
+		OutDiagnostic =
+			TEXT("Formation Run release acknowledgement requires one active lifecycle.");
+		return false;
+	}
+	if (!IsValid() || !ProductTeardownCheckpoint.IsSet())
+	{
+		OutDiagnostic =
+			TEXT("Formation Run release acknowledgement requires one valid product teardown checkpoint.");
+		return false;
+	}
+	if (!ExpectedRunId.IsValid() || ExpectedRunId != RunId)
+	{
+		OutDiagnostic =
+			TEXT("Formation Run release acknowledgement rejected a mismatched Run identity.");
+		return false;
+	}
+	if (Coordinator.IsActive())
+	{
+		OutDiagnostic =
+			TEXT("Formation Run release acknowledgement requires shared Combat Run identities to be released first.");
+		return false;
+	}
+
+	Clear();
+	OutDiagnostic =
+		TEXT("Formation lifecycle acknowledged the externally released Combat Run.");
+	return IsValid() && IsEmpty();
+}
+
+Fdemo_mapShanmenFormationRunLifecycleEndResult
+Fdemo_mapShanmenFormationRunLifecycle::TryEndRun(
+	Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+	UWorld* World,
+	Fdemo_mapCombatRunCoordinator& Coordinator)
+{
+	Fdemo_mapShanmenFormationRunLifecycleEndResult Result =
+		TryTeardownProduct(Authority, World, Coordinator);
+	if (!Result.IsProductTeardownComplete())
+	{
+		return Result;
+	}
 
 	FString CoordinatorDiagnostic;
 	if (!Coordinator.TryEndRun(RunId, CoordinatorDiagnostic))
@@ -278,11 +337,22 @@ Fdemo_mapShanmenFormationRunLifecycle::TryEndRun(
 		return Result;
 	}
 
+	FString AcknowledgeDiagnostic;
+	if (!TryAcknowledgeCoordinatorEnded(
+			Result.RunId, Coordinator, AcknowledgeDiagnostic))
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationRunLifecycleEndStatus::LifecycleInvalid;
+		Result.Diagnostic = AcknowledgeDiagnostic.IsEmpty()
+			? TEXT("Formation lifecycle rejected the completed Combat Run release acknowledgement.")
+			: MoveTemp(AcknowledgeDiagnostic);
+		return Result;
+	}
+
 	Result.Status = Edemo_mapShanmenFormationRunLifecycleEndStatus::Ended;
 	Result.Diagnostic = Result.bReusedProductTeardown
 		? TEXT("Combat Run release reused the durable formation teardown checkpoint.")
 		: TEXT("Formation product ended before shared Combat Run identities were released.");
-	Clear();
 	return Result;
 }
 
