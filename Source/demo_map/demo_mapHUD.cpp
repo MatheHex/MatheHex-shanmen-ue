@@ -18,6 +18,7 @@
 #include "demo_mapShanmenControlledWeaponActor.h"
 #include "demo_mapShanmenControlledWeaponThreatReadoutPresentation.h"
 #include "demo_mapShanmenDivineSenseHUDPresentation.h"
+#include "demo_mapShanmenArmorResistanceImpactFeedback.h"
 #include "demo_mapShanmenSpiritShieldHUDPresentation.h"
 #include "demo_mapShanmenThrownWeaponArcEditingInputHintPresentation.h"
 #include "demo_mapShanmenThrownWeaponArcEditingPresentation.h"
@@ -272,6 +273,43 @@ namespace
 			Presentation.GetDisplayText(),
 			PanelPosition + FVector2D(10.0f, 9.0f),
 			TextColor,
+			0.84f);
+	}
+
+	void DrawArmorResistanceImpactFeedback(
+		UCanvas* Canvas,
+		const Ademo_mapPlayerController* Controller)
+	{
+		if (Canvas == nullptr || Controller == nullptr
+			|| !Controller->IsArmorResistanceImpactFeedbackActive())
+		{
+			return;
+		}
+
+		const Fdemo_mapShanmenArmorResistanceImpactFeedbackPresentation&
+			Presentation =
+				Controller->GetLatestArmorResistanceImpactFeedback();
+		if (!Presentation.IsValid())
+		{
+			return;
+		}
+
+		const float PanelY = Controller->IsSpiritShieldImpactFeedbackActive()
+			? 248.0f : 206.0f;
+		const FVector2D PanelPosition(
+			Canvas->SizeX * 0.5f - 250.0f,
+			PanelY);
+		DrawHUDPanel(
+			Canvas,
+			PanelPosition,
+			FVector2D(500.0f, 36.0f),
+			FLinearColor(0.20f, 0.13f, 0.025f, 0.96f));
+		DrawReadableText(
+			Canvas,
+			GEngine->GetSmallFont(),
+			Presentation.GetDisplayText(),
+			PanelPosition + FVector2D(10.0f, 9.0f),
+			FLinearColor(1.0f, 0.82f, 0.34f),
 			0.84f);
 	}
 
@@ -832,6 +870,7 @@ void Ademo_mapHUD::DrawHUD()
 	DrawSpiritShieldStatus(Canvas, ActiveMode, InputSettings);
 	DrawSpiritShieldInputFeedback(Canvas, HUDController, InputSettings);
 	DrawSpiritShieldImpactFeedback(Canvas, HUDController);
+	DrawArmorResistanceImpactFeedback(Canvas, HUDController);
 	DrawReadableText(
 		Canvas,
 		GEngine->GetSmallFont(),

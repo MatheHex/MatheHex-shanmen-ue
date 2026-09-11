@@ -646,6 +646,9 @@ try
     $ArmorResistanceItemAdapter = New-AutomationLogFixture `
         -Name 'armor-resistance-item-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.ArmorResistanceItemAdapter'
+	$ArmorResistanceImpactFeedback = New-AutomationLogFixture `
+		-Name 'armor-resistance-impact-feedback.log' `
+		-Group 'Shanmen.0_0_10.Product.ArmorResistanceImpactFeedback'
     $FormationAdapter = New-AutomationLogFixture `
         -Name 'formation-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.FormationMaterialAdapter'
@@ -2818,6 +2821,7 @@ try
 			'Source/demo_map/demo_mapHUD.h',
 			'Source/demo_map/demo_mapHUD.cpp') `
 		-Logs @(
+			$Full,
 			$ControlledWeaponThreatCue,
 			$ControlledWeaponThreatReadoutPresentation,
 			$DivineSenseHUDPresentation,
@@ -4240,6 +4244,16 @@ try
             $CombatCore,
             $ItemUseAndArmor)
 
+	Invoke-ExpectedPass `
+		-Name 'armor resistance Impact feedback maps authoritative commit item projection and legacy armor evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenArmorResistanceImpactFeedback.h',
+			'Source/demo_map/demo_mapShanmenArmorResistanceImpactFeedback.cpp') `
+		-Logs @(
+			$ArmorResistanceImpactFeedback,
+			$Full,
+			$ItemUseAndArmor)
+
     Invoke-ExpectedPass `
         -Name 'Spirit Shield HUD presentation maps its projection and product source' `
         -Paths @(
@@ -4476,6 +4490,13 @@ try
             'Source/demo_map/demo_mapShanmenArmorResistanceItemAdapter.cpp') `
         -Logs @($ArmorResistanceItemAdapter) `
         -ExpectedText 'missing required groups'
+
+	Invoke-ExpectedFail `
+		-Name 'armor resistance Impact feedback focus cannot replace commit item core and legacy evidence' `
+		-Paths @(
+			'Source/demo_map/demo_mapShanmenArmorResistanceImpactFeedback.cpp') `
+		-Logs @($ArmorResistanceImpactFeedback) `
+		-ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
         -Name 'Spirit Shield HUD focus cannot replace its product source evidence' `

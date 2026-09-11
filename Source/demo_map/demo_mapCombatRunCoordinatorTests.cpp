@@ -33,10 +33,12 @@
 #include "demo_mapM01EnemyIdentityComponent.h"
 #include "demo_mapM01EnemyTypes.h"
 #include "demo_mapPlayerHealthComponent.h"
+#include "demo_mapPlayerController.h"
 #include "demo_mapProfileRepository.h"
 #include "demo_mapProfileSessionSubsystem.h"
 #include "demo_mapRangedEnemyCharacter.h"
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
+#include "demo_mapShanmenArmorResistanceImpactFeedback.h"
 #include "demo_mapShanmenItemCutover.h"
 #include "demo_mapShanmenFormationInfluenceConsumerWorldResolution.h"
 #include "demo_mapShanmenDivineSenseProductAuthority.h"
@@ -2011,6 +2013,125 @@ bool FShanmenCombatRunCoordinatorCanonicalArmorResistanceTest::RunTest(
 			&& Fixture.PlayerHealth->GetCombatAuthorityRevision() == 1
 			&& Fixture.PlayerHealth->NumCommittedCombatImpacts() == 1
 			&& AfterReplay == After);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenArmorResistanceImpactFeedbackCanonicalCommitTest,
+	"Shanmen.0_0_10.Product.ArmorResistanceImpactFeedback.CanonicalCommitAndReplayFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenArmorResistanceImpactFeedbackCanonicalCommitTest::RunTest(
+	const FString&)
+{
+	FHeartMirrorCombatRunFixture Fixture;
+	Fixture.ArmorDefinitionId = Fdemo_mapItemIds::ArmorRobeLevel1;
+	Fixture.bIncludeHeartMirror = false;
+	if (!Fixture.Start(*this))
+	{
+		return false;
+	}
+
+	const Fdemo_mapM01EnemyAttackExecutionResult Attack =
+		Fixture.Coordinator.ExecuteM01EnemyBasicMeleeStrike(
+			Fixture.Enemy,
+			Fixture.Player,
+			1.0f);
+	Fdemo_mapShanmenArmorResistanceImpactFeedbackPresentation Feedback;
+	Fdemo_mapShanmenArmorResistanceImpactFeedbackPresentation Deterministic;
+	TestTrue(TEXT("a newly committed canonical resistance layer becomes feedback"),
+		Fdemo_mapShanmenArmorResistanceImpactFeedbackPresentation::TryProject(
+			Attack, Feedback)
+			&& Fdemo_mapShanmenArmorResistanceImpactFeedbackPresentation::
+				TryProject(Attack, Deterministic));
+	TestTrue(TEXT("feedback preserves exact item, Impact and committed values"),
+		Feedback.IsValid()
+			&& Feedback.Matches(Deterministic)
+			&& Feedback.GetKind()
+				== Edemo_mapShanmenArmorResistanceImpactFeedbackKind::Reduced
+			&& Feedback.GetImpactId()
+				== Attack.Impact.GetResult().ImpactId
+			&& Feedback.GetArmorItemInstanceId() == Fixture.ArmorId
+			&& Feedback.GetArmorDefinitionId()
+				== Fdemo_mapItemIds::ArmorRobeLevel1
+			&& Feedback.GetArmorDisplayName() == TEXT("一阶道袍")
+			&& FMath::IsNearlyEqual(Feedback.GetRawDamage(), 1.0f)
+			&& FMath::IsNearlyEqual(
+				Feedback.GetArmorPreventedDamage(), 0.10f)
+			&& FMath::IsNearlyEqual(Feedback.GetFinalDamage(), 0.90f)
+			&& FMath::IsNearlyEqual(Feedback.GetAppliedDamage(), 0.90f)
+			&& Feedback.GetDisplayText()
+				== TEXT("一阶道袍 · 抵消 0.1"));
+
+	Fdemo_mapM01EnemyAttackExecutionResult Replay = Attack;
+	Replay.Delivery.CommitResult.Status =
+		EShanmenVitalityCommitStatus::AlreadyCommitted;
+	Fdemo_mapShanmenArmorResistanceImpactFeedbackPresentation Reused = Feedback;
+	TestFalse(TEXT("an AlreadyCommitted replay cannot produce a second pulse"),
+		Fdemo_mapShanmenArmorResistanceImpactFeedbackPresentation::TryProject(
+			Replay, Reused));
+	TestFalse(TEXT("rejected projection clears reusable presentation output"),
+		Reused.IsValid());
+
+	FActorSpawnParameters Parameters;
+	Parameters.ObjectFlags |= RF_Transient;
+	Parameters.SpawnCollisionHandlingOverride =
+		ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	Ademo_mapPlayerController* Controller =
+		Fixture.World->SpawnActor<Ademo_mapPlayerController>(
+			Ademo_mapPlayerController::StaticClass(),
+			FTransform::Identity,
+			Parameters);
+	if (Controller)
+	{
+		Controller->Possess(Fixture.Player);
+	}
+	TestTrue(TEXT("the product controller accepts one valid HUD pulse"),
+		Controller
+			&& Controller->TryPresentArmorResistanceImpactFeedback(Feedback)
+			&& Controller->IsArmorResistanceImpactFeedbackActive()
+			&& Controller->GetLatestArmorResistanceImpactFeedback().Matches(
+				Feedback));
+	TestFalse(TEXT("the same Impact cannot reopen its HUD pulse"),
+		Controller
+			&& Controller->TryPresentArmorResistanceImpactFeedback(Feedback));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenArmorResistanceImpactFeedbackNoOpTest,
+	"Shanmen.0_0_10.Product.ArmorResistanceImpactFeedback.NoOpArmorFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenArmorResistanceImpactFeedbackNoOpTest::RunTest(
+	const FString&)
+{
+	FHeartMirrorCombatRunFixture Fixture;
+	Fixture.bIncludeHeartMirror = false;
+	if (!Fixture.Start(*this))
+	{
+		return false;
+	}
+
+	const Fdemo_mapM01EnemyAttackExecutionResult Attack =
+		Fixture.Coordinator.ExecuteM01EnemyBasicMeleeStrike(
+			Fixture.Enemy,
+			Fixture.Player,
+			1.0f);
+	Fdemo_mapShanmenArmorResistanceImpactFeedbackPresentation Reused;
+	TestTrue(TEXT("the training vest remains a successful no-op inspection"),
+		Attack.IsExecuted()
+			&& Attack.bArmorResistanceInspected
+			&& Attack.ArmorResistance.Status
+				== Edemo_mapShanmenArmorResistanceItemStatus::NotApplicable
+			&& !Attack.ArmorResistance.HasProjection()
+			&& Attack.Delivery.CommitResult.Status
+				== EShanmenVitalityCommitStatus::Committed);
+	TestFalse(TEXT("an untriggered no-op armor cannot claim visible resistance"),
+		Fdemo_mapShanmenArmorResistanceImpactFeedbackPresentation::TryProject(
+			Attack, Reused));
+	TestFalse(TEXT("the rejected no-op leaves no readable presentation"),
+		Reused.IsValid());
 	return true;
 }
 

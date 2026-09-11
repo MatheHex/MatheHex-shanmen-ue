@@ -6,6 +6,7 @@
 #include "demo_mapInputBindingSettings.h"
 #include "demo_mapShanmenControlledWeaponInputAdapter.h"
 #include "demo_mapShanmenDivineSenseLogicalInputAdapter.h"
+#include "demo_mapShanmenArmorResistanceImpactFeedback.h"
 #include "demo_mapShanmenSpiritShieldProductSession.h"
 #include "demo_mapShanmenSpiritEvasionInputAdapter.h"
 #include "demo_mapShanmenSwordQiAvailabilityCommandRouter.h"
@@ -137,6 +138,16 @@ public:
 	GetLatestSpiritShieldImpactCommitResult() const
 	{
 		return LastSpiritShieldImpactCommitResult;
+	}
+	/** Presents one newly committed passive armor-resistance receipt. */
+	bool TryPresentArmorResistanceImpactFeedback(
+		const Fdemo_mapShanmenArmorResistanceImpactFeedbackPresentation&
+			Presentation);
+	bool IsArmorResistanceImpactFeedbackActive() const;
+	const Fdemo_mapShanmenArmorResistanceImpactFeedbackPresentation&
+	GetLatestArmorResistanceImpactFeedback() const
+	{
+		return LastArmorResistanceImpactFeedback;
 	}
 	/** True while the latest rejected physical pulse should remain readable on the HUD. */
 	bool IsDivineSenseInputFeedbackActive() const;
@@ -464,6 +475,9 @@ protected:
 	Fdemo_mapShanmenSpiritShieldImpactCommitResult
 		LastSpiritShieldImpactCommitResult;
 	double SpiritShieldImpactFeedbackExpiresAtSeconds = -1.0;
+	Fdemo_mapShanmenArmorResistanceImpactFeedbackPresentation
+		LastArmorResistanceImpactFeedback;
+	double ArmorResistanceImpactFeedbackExpiresAtSeconds = -1.0;
 	Fdemo_mapShanmenDivineSenseLogicalInputResult
 		LastDivineSenseInputResult;
 	double DivineSenseInputFeedbackExpiresAtSeconds = -1.0;

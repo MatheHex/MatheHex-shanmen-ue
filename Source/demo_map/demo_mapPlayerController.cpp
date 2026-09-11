@@ -43,6 +43,7 @@ namespace
 	constexpr float PlayerCharacterMovementTickInterval = 0.001f;
 	constexpr double SpiritShieldInputFeedbackDurationSeconds = 2.25;
 	constexpr double SpiritShieldImpactFeedbackDurationSeconds = 1.25;
+	constexpr double ArmorResistanceImpactFeedbackDurationSeconds = 1.25;
 	constexpr double DivineSenseInputFeedbackDurationSeconds = 2.25;
 	constexpr double SwordQiInputFeedbackDurationSeconds = 2.25;
 	constexpr double SwordQiLaunchVerticalOffset = 50.0;
@@ -1272,6 +1273,33 @@ bool Ademo_mapPlayerController::IsSpiritShieldImpactFeedbackActive() const
 		&& GetWorld()
 		&& GetWorld()->GetTimeSeconds()
 			<= SpiritShieldImpactFeedbackExpiresAtSeconds;
+}
+
+bool Ademo_mapPlayerController::TryPresentArmorResistanceImpactFeedback(
+	const Fdemo_mapShanmenArmorResistanceImpactFeedbackPresentation&
+		Presentation)
+{
+	if (!Presentation.IsValid() || !GetWorld()
+		|| (LastArmorResistanceImpactFeedback.IsValid()
+			&& LastArmorResistanceImpactFeedback.GetImpactId()
+				== Presentation.GetImpactId()))
+	{
+		return false;
+	}
+	LastArmorResistanceImpactFeedback = Presentation;
+	ArmorResistanceImpactFeedbackExpiresAtSeconds =
+		GetWorld()->GetTimeSeconds()
+		+ ArmorResistanceImpactFeedbackDurationSeconds;
+	return true;
+}
+
+bool Ademo_mapPlayerController::
+	IsArmorResistanceImpactFeedbackActive() const
+{
+	return LastArmorResistanceImpactFeedback.IsValid()
+		&& GetWorld()
+		&& GetWorld()->GetTimeSeconds()
+			<= ArmorResistanceImpactFeedbackExpiresAtSeconds;
 }
 
 void Ademo_mapPlayerController::UseDivineSense()

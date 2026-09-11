@@ -34,6 +34,7 @@
 #include "demo_mapM01EnemyIdentityComponent.h"
 #include "demo_mapM01EnemyTypes.h"
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
+#include "demo_mapShanmenArmorResistanceImpactFeedback.h"
 #include "demo_mapShanmenCombatConditionComponent.h"
 #include "demo_mapCombatVitalityHost.h"
 #include "demo_mapShanmenSpiritEvasionComponent.h"
@@ -2374,6 +2375,27 @@ void Ademo_mapGameMode::ObserveSwordRhythmWeaponGuardContribution(
 		static_cast<long long>(Contribution.GetObservedTick()));
 }
 
+void Ademo_mapGameMode::PublishArmorResistanceImpactFeedback(
+	APawn* TargetPlayer,
+	const Fdemo_mapM01EnemyAttackExecutionResult& AttackResult)
+{
+	if (!TargetPlayer || !AttackResult.IsExecuted())
+	{
+		return;
+	}
+	Fdemo_mapShanmenArmorResistanceImpactFeedbackPresentation Presentation;
+	if (!Fdemo_mapShanmenArmorResistanceImpactFeedbackPresentation::
+			TryProject(AttackResult, Presentation))
+	{
+		return;
+	}
+	if (Ademo_mapPlayerController* Controller =
+		Cast<Ademo_mapPlayerController>(TargetPlayer->GetController()))
+	{
+		Controller->TryPresentArmorResistanceImpactFeedback(Presentation);
+	}
+}
+
 void Ademo_mapGameMode::PublishSpiritShieldImpactFeedback(
 	APawn* TargetPlayer,
 	const Fdemo_mapM01EnemyAttackExecutionResult& AttackResult)
@@ -2414,6 +2436,7 @@ Ademo_mapGameMode::ExecuteM01EnemyBasicMeleeStrike(
 		GuardContext.IsEnabled() ? &GuardContext : nullptr,
 		ShieldContext.IsEnabled() ? &ShieldContext : nullptr);
 	ObserveSwordRhythmWeaponGuardContribution(Result);
+	PublishArmorResistanceImpactFeedback(TargetPlayer, Result);
 	PublishSpiritShieldImpactFeedback(TargetPlayer, Result);
 	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
 	UE_LOG(
@@ -2457,6 +2480,7 @@ Ademo_mapGameMode::ExecuteM01EnemyMeleeDashContact(
 		GuardContext.IsEnabled() ? &GuardContext : nullptr,
 		ShieldContext.IsEnabled() ? &ShieldContext : nullptr);
 	ObserveSwordRhythmWeaponGuardContribution(Result);
+	PublishArmorResistanceImpactFeedback(TargetPlayer, Result);
 	PublishSpiritShieldImpactFeedback(TargetPlayer, Result);
 	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
 	UE_LOG(
@@ -2505,6 +2529,7 @@ Ademo_mapGameMode::ExecuteM01EnemyRangedProjectileImpact(
 		GuardContext.IsEnabled() ? &GuardContext : nullptr,
 		ShieldContext.IsEnabled() ? &ShieldContext : nullptr);
 	ObserveSwordRhythmWeaponGuardContribution(Result);
+	PublishArmorResistanceImpactFeedback(TargetPlayer, Result);
 	PublishSpiritShieldImpactFeedback(TargetPlayer, Result);
 	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
 	UE_LOG(
@@ -2548,6 +2573,7 @@ Ademo_mapGameMode::ExecuteM01EnemyHeavySectorAttack(
 		GuardContext.IsEnabled() ? &GuardContext : nullptr,
 		ShieldContext.IsEnabled() ? &ShieldContext : nullptr);
 	ObserveSwordRhythmWeaponGuardContribution(Result);
+	PublishArmorResistanceImpactFeedback(TargetPlayer, Result);
 	PublishSpiritShieldImpactFeedback(TargetPlayer, Result);
 	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
 	UE_LOG(
@@ -2593,6 +2619,7 @@ Ademo_mapGameMode::ExecuteM01BossShapeAttack(
 		GuardContext.IsEnabled() ? &GuardContext : nullptr,
 		ShieldContext.IsEnabled() ? &ShieldContext : nullptr);
 	ObserveSwordRhythmWeaponGuardContribution(Result);
+	PublishArmorResistanceImpactFeedback(TargetPlayer, Result);
 	PublishSpiritShieldImpactFeedback(TargetPlayer, Result);
 	if (Result.IsExecuted()
 		&& Result.Impact.GetFamily()
@@ -2695,6 +2722,7 @@ Ademo_mapGameMode::ExecuteM01BossVolleyProjectileImpact(
 		GuardContext.IsEnabled() ? &GuardContext : nullptr,
 		ShieldContext.IsEnabled() ? &ShieldContext : nullptr);
 	ObserveSwordRhythmWeaponGuardContribution(Result);
+	PublishArmorResistanceImpactFeedback(TargetPlayer, Result);
 	PublishSpiritShieldImpactFeedback(TargetPlayer, Result);
 	const FShanmenImpactResult& Resolution = Result.Impact.GetResult();
 	UE_LOG(

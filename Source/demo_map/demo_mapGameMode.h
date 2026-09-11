@@ -529,6 +529,9 @@ private:
 	bool ReleasePlayerSpiritEvasion(const TCHAR* Context);
 	void ObserveSwordRhythmWeaponGuardContribution(
 		const Fdemo_mapM01EnemyAttackExecutionResult& AttackResult);
+	void PublishArmorResistanceImpactFeedback(
+		APawn* TargetPlayer,
+		const Fdemo_mapM01EnemyAttackExecutionResult& AttackResult);
 	void PublishSpiritShieldImpactFeedback(
 		APawn* TargetPlayer,
 		const Fdemo_mapM01EnemyAttackExecutionResult& AttackResult);

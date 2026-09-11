@@ -2373,6 +2373,7 @@
       "pathRegex": "^Source/demo_map/demo_mapCombatRunCoordinator(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10.Product.CombatRunCoordinator",
+		"Shanmen.0_0_10.Product.ArmorResistanceImpactFeedback",
         "Shanmen.0_0_10.Product.ArmorResistanceItemAdapter",
         "Shanmen.0_0_10.Product.ArmorResistanceProjection",
         "Shanmen.0_0_10.Product.SwordRhythmProductHost",
@@ -2424,6 +2425,7 @@
         "Shanmen.0_0_10.CombatRuntime.SpiritEvasion",
         "Shanmen.0_0_10.CombatRuntime.ActionLifecycle",
         "Shanmen.0_0_10.Product.CombatRunCoordinator",
+		"Shanmen.0_0_10.Product.ArmorResistanceImpactFeedback",
         "Shanmen.0_0_10.Product.WeaponGuardProductSession",
         "Shanmen.0_0_10.Product.WeaponGuardImpactRoute",
         "Shanmen.0_0_10.Product.CombatRunFixedTimeline",
@@ -2483,6 +2485,7 @@
 		"Shanmen.0_0_10.Product.SpiritEvasionPhysicalInput",
 		"Shanmen.0_0_10.Product.SpiritEvasionInputAdapter",
 		"Shanmen.0_0_10.Product.SpiritShieldPhysicalInput",
+		"Shanmen.0_0_10.Product.ArmorResistanceImpactFeedback",
 		"Shanmen.0_0_10.Product.WeaponGuardPhysicalInput",
 		"Shanmen.0_0_10.Product.CombatRunFixedTimeline",
 		"Shanmen.0_0_10.Product.WeaponGuardInputAdapter",
@@ -3317,6 +3320,20 @@
 	  ]
 	},
 	{
+	  "name": "ArmorResistanceImpactFeedback",
+	  "pathRegex": "^Source/demo_map/demo_mapShanmenArmorResistanceImpactFeedback(?:Tests)?\\.(?:h|cpp)$",
+	  "requiredGroups": [
+		"Shanmen.0_0_10.Product.ArmorResistanceImpactFeedback",
+		"Shanmen.0_0_10.Product.CombatRunCoordinator",
+		"Shanmen.0_0_10.Product.ArmorResistanceItemAdapter",
+		"Shanmen.0_0_10.Product.ArmorResistanceProjection",
+		"Shanmen.0_0_10.CombatCore",
+		"Shanmen.0_0_10.Items",
+		"Shanmen.0_0_10",
+		"demo_map.ItemUseAndArmor"
+	  ]
+	},
+	{
 	  "name": "SpiritShieldWorldPresentation",
 	  "pathRegex": "^Source/demo_map/(?:demo_mapPlayerController|demo_mapShanmenSpiritShieldWorldPresentation(?:Tests)?)\\.(?:h|cpp)$",
 	  "requiredGroups": [
@@ -3337,6 +3354,7 @@
 		"Shanmen.0_0_10.Product.SpiritShieldHUDPresentation",
 		"Shanmen.0_0_10.Product.SpiritShieldPhysicalInput",
 		"Shanmen.0_0_10.Product.SpiritShieldProductSession",
+		"Shanmen.0_0_10.Product.ArmorResistanceImpactFeedback",
 		"Shanmen.0_0_10.Product.SwordQiPhysicalInput",
 		"Shanmen.0_0_10.Product.ThrownWeaponMainHUDCombatHintLayoutPolicy",
 		"Shanmen.0_0_10.Product.ThrownWeaponMainHUDCombatHintStackPresentation",
