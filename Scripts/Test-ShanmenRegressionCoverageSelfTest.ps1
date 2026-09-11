@@ -661,6 +661,9 @@ try
     $FormationRunLifecycle = New-AutomationLogFixture `
         -Name 'formation-run-lifecycle.log' `
         -Group 'Shanmen.0_0_10.Product.FormationRunLifecycle'
+    $FormationInputAdapter = New-AutomationLogFixture `
+        -Name 'formation-input-adapter.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationInputAdapter'
     $FormationSession = New-AutomationLogFixture `
         -Name 'formation-session.log' `
         -Group 'Shanmen.0_0_10.Product.FormationSession'
@@ -2447,6 +2450,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationRunLifecycle.cpp') `
         -Logs @($Full)
+
+    Invoke-ExpectedPass `
+        -Name 'formation input adapter maps lifecycle controller authority and World evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInputAdapter.h',
+            'Source/demo_map/demo_mapShanmenFormationInputAdapter.cpp') `
+        -Logs @($Full, $FormationInputAdapter)
 
     Invoke-ExpectedPass `
         -Name 'formation product session is covered by broad full evidence' `
@@ -5581,6 +5591,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationRunLifecycle.cpp') `
         -Logs @($FormationRunLifecycle) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'formation input adapter focus cannot replace lifecycle and owned authority evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationInputAdapter.cpp') `
+        -Logs @($FormationInputAdapter) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

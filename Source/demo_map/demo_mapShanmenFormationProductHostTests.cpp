@@ -3,6 +3,7 @@
 #include "demo_mapShanmenFormationProductHost.h"
 #include "demo_mapShanmenFormationProductAuthority.h"
 #include "demo_mapShanmenFormationProductController.h"
+#include "demo_mapShanmenFormationInputAdapter.h"
 #include "demo_mapShanmenFormationRunLifecycle.h"
 #include "demo_mapShanmenFormationInfluenceExecutorAdapter.h"
 #include "demo_mapShanmenFormationInfluenceLeaseExecutor.h"
@@ -57,6 +58,10 @@ namespace
 	const FName HostAnchorB(TEXT("Formation.Anchor.ProductHost.B"));
 	const FName HostAnchorC(TEXT("Formation.Anchor.ProductHost.C"));
 	const FName HostAnchorD(TEXT("Formation.Anchor.ProductHost.D"));
+	const FGuid FormationStartInputEventA(0xF8740001, 0, 0, 1);
+	const FGuid FormationStartInputEventB(0xF8740002, 0, 0, 1);
+	const FGuid FormationAnchorInputEventA(0xF8740010, 0, 0, 1);
+	const FGuid FormationAnchorInputEventB(0xF8740011, 0, 0, 1);
 
 	FString NewFormationHostRoot(const TCHAR* Label)
 	{
@@ -97,6 +102,25 @@ namespace
 		check(FShanmenFormationDiagramDefinition::TryCapture(
 			Capture, Diagram));
 		return Diagram;
+	}
+
+	Fdemo_mapShanmenFormationStartInputSample MakeFormationStartInputSample(
+		const FVector& Origin = FVector::ZeroVector,
+		const FVector& Forward = FVector::ForwardVector)
+	{
+		Fdemo_mapShanmenFormationStartInputSample Sample;
+		check(Fdemo_mapShanmenFormationStartInputSample::TryCapture(
+			MakeHostDiagram(), Origin, Forward, Sample));
+		return Sample;
+	}
+
+	Fdemo_mapShanmenFormationAnchorInputSample MakeFormationAnchorInputSample(
+		const FName AnchorDefinitionId)
+	{
+		Fdemo_mapShanmenFormationAnchorInputSample Sample;
+		check(Fdemo_mapShanmenFormationAnchorInputSample::TryCapture(
+			AnchorDefinitionId, Sample));
+		return Sample;
 	}
 
 	FShanmenFormationDiagramDefinition MakeHostCoverageDiagram()
@@ -5766,6 +5790,366 @@ bool Fdemo_mapFormationRunLifecycleAnchorOperationFencesTest::RunTest(
 				== Rejected.ProductTeardown.Terminal.World.
 					TeardownReceipt.ReceiptId
 			&& Fixture.Lifecycle.IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInputAdapterDeterminismTest,
+	"Shanmen.0_0_10.Product.FormationInputAdapter.DeterministicIdentityAndPreflight",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInputAdapterDeterminismTest::RunTest(const FString&)
+{
+	const FGuid RunId(0xF8740100, 0, 0, 1);
+	const FGuid StartIntentId =
+		Fdemo_mapShanmenFormationInputAdapter::MakeIntentId(
+			RunId, FormationStartInputEventA);
+	const FGuid AnchorAttemptId =
+		Fdemo_mapShanmenFormationInputAdapter::MakeAnchorAttemptId(
+			RunId, FormationStartInputEventA);
+	TestTrue(TEXT("Input identities are deterministic and namespace separated"),
+		StartIntentId.IsValid()
+			&& StartIntentId
+				== Fdemo_mapShanmenFormationInputAdapter::MakeIntentId(
+					RunId, FormationStartInputEventA)
+			&& StartIntentId
+				!= Fdemo_mapShanmenFormationInputAdapter::MakeIntentId(
+					RunId, FormationStartInputEventB)
+			&& StartIntentId != AnchorAttemptId
+			&& !Fdemo_mapShanmenFormationInputAdapter::MakeIntentId(
+				FGuid(), FormationStartInputEventA).IsValid()
+			&& !Fdemo_mapShanmenFormationInputAdapter::MakeAnchorAttemptId(
+				RunId, FGuid()).IsValid());
+
+	int32 StartSampleCalls = 0;
+	int32 StartRouteCalls = 0;
+	const auto SampleStart = [&StartSampleCalls]()
+	{
+		++StartSampleCalls;
+		return MakeFormationStartInputSample();
+	};
+	const auto RejectStart = [&StartRouteCalls](
+		const Fdemo_mapShanmenFormationIntent&)
+	{
+		++StartRouteCalls;
+		Fdemo_mapShanmenFormationControllerResult Result;
+		Result.Diagnostic = TEXT("Deliberate lifecycle rejection.");
+		return Result;
+	};
+	const auto StartBlocked =
+		Fdemo_mapShanmenFormationInputAdapter::RouteStartInput(
+			false, true, RunId, FormationStartInputEventA,
+			SampleStart, RejectStart);
+	const auto StartUnavailable =
+		Fdemo_mapShanmenFormationInputAdapter::RouteStartInput(
+			true, false, RunId, FormationStartInputEventA,
+			SampleStart, RejectStart);
+	const auto StartNoRun =
+		Fdemo_mapShanmenFormationInputAdapter::RouteStartInput(
+			true, true, FGuid(), FormationStartInputEventA,
+			SampleStart, RejectStart);
+	const auto StartNoEvent =
+		Fdemo_mapShanmenFormationInputAdapter::RouteStartInput(
+			true, true, RunId, FGuid(), SampleStart, RejectStart);
+	const auto StartInvalidSample =
+		Fdemo_mapShanmenFormationInputAdapter::RouteStartInput(
+			true, true, RunId, FormationStartInputEventA,
+			[&StartSampleCalls]()
+			{
+				++StartSampleCalls;
+				return Fdemo_mapShanmenFormationStartInputSample();
+			},
+			RejectStart);
+	const auto StartRejected =
+		Fdemo_mapShanmenFormationInputAdapter::RouteStartInput(
+			true, true, RunId, FormationStartInputEventA,
+			SampleStart, RejectStart);
+	TestTrue(TEXT("Start preflight samples and routes only after every fence"),
+		StartBlocked.Status
+			== Edemo_mapShanmenFormationStartInputStatus::GameplayBlocked
+			&& StartUnavailable.Status
+				== Edemo_mapShanmenFormationStartInputStatus::
+					LifecycleUnavailable
+			&& StartNoRun.Status
+				== Edemo_mapShanmenFormationStartInputStatus::RunUnavailable
+			&& StartNoEvent.Status
+				== Edemo_mapShanmenFormationStartInputStatus::
+					EventIdentityInvalid
+			&& StartInvalidSample.Status
+				== Edemo_mapShanmenFormationStartInputStatus::SampleRejected
+			&& StartRejected.Status
+				== Edemo_mapShanmenFormationStartInputStatus::LifecycleRejected
+			&& StartBlocked.IsValid() && StartUnavailable.IsValid()
+			&& StartNoRun.IsValid() && StartNoEvent.IsValid()
+			&& StartInvalidSample.IsValid() && StartRejected.IsValid()
+			&& StartSampleCalls == 2 && StartRouteCalls == 1);
+
+	int32 AnchorSampleCalls = 0;
+	int32 AnchorRouteCalls = 0;
+	const auto SampleAnchor = [&AnchorSampleCalls]()
+	{
+		++AnchorSampleCalls;
+		return MakeFormationAnchorInputSample(HostAnchorA);
+	};
+	const auto RejectAnchor = [&AnchorRouteCalls](
+		const Fdemo_mapShanmenFormationAnchorOperation&)
+	{
+		++AnchorRouteCalls;
+		Fdemo_mapShanmenFormationAnchorOperationResult Result;
+		Result.Diagnostic = TEXT("Deliberate lifecycle rejection.");
+		return Result;
+	};
+	const auto AnchorBlocked =
+		Fdemo_mapShanmenFormationInputAdapter::RouteAnchorInput(
+			false, true, RunId, FormationAnchorInputEventA,
+			SampleAnchor, RejectAnchor);
+	const auto AnchorUnavailable =
+		Fdemo_mapShanmenFormationInputAdapter::RouteAnchorInput(
+			true, false, RunId, FormationAnchorInputEventA,
+			SampleAnchor, RejectAnchor);
+	const auto AnchorNoRun =
+		Fdemo_mapShanmenFormationInputAdapter::RouteAnchorInput(
+			true, true, FGuid(), FormationAnchorInputEventA,
+			SampleAnchor, RejectAnchor);
+	const auto AnchorNoEvent =
+		Fdemo_mapShanmenFormationInputAdapter::RouteAnchorInput(
+			true, true, RunId, FGuid(), SampleAnchor, RejectAnchor);
+	const auto AnchorInvalidSample =
+		Fdemo_mapShanmenFormationInputAdapter::RouteAnchorInput(
+			true, true, RunId, FormationAnchorInputEventA,
+			[&AnchorSampleCalls]()
+			{
+				++AnchorSampleCalls;
+				return Fdemo_mapShanmenFormationAnchorInputSample();
+			},
+			RejectAnchor);
+	const auto AnchorRejected =
+		Fdemo_mapShanmenFormationInputAdapter::RouteAnchorInput(
+			true, true, RunId, FormationAnchorInputEventA,
+			SampleAnchor, RejectAnchor);
+	TestTrue(TEXT("Anchor preflight samples and routes only after every fence"),
+		AnchorBlocked.Status
+			== Edemo_mapShanmenFormationAnchorInputStatus::GameplayBlocked
+			&& AnchorUnavailable.Status
+				== Edemo_mapShanmenFormationAnchorInputStatus::
+					LifecycleUnavailable
+			&& AnchorNoRun.Status
+				== Edemo_mapShanmenFormationAnchorInputStatus::RunUnavailable
+			&& AnchorNoEvent.Status
+				== Edemo_mapShanmenFormationAnchorInputStatus::
+					EventIdentityInvalid
+			&& AnchorInvalidSample.Status
+				== Edemo_mapShanmenFormationAnchorInputStatus::SampleRejected
+			&& AnchorRejected.Status
+				== Edemo_mapShanmenFormationAnchorInputStatus::
+					LifecycleRejected
+			&& AnchorBlocked.IsValid() && AnchorUnavailable.IsValid()
+			&& AnchorNoRun.IsValid() && AnchorNoEvent.IsValid()
+			&& AnchorInvalidSample.IsValid() && AnchorRejected.IsValid()
+			&& AnchorSampleCalls == 2 && AnchorRouteCalls == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInputAdapterStartReplayTest,
+	"Shanmen.0_0_10.Product.FormationInputAdapter.StartReplayAndConflict",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInputAdapterStartReplayTest::RunTest(const FString&)
+{
+	FFormationRunLifecycleFixture Fixture;
+	if (!Fixture.Start(*this, TEXT("FormationInputAdapterStartReplay")))
+	{
+		AddError(FString::Printf(
+			TEXT("P27.4 lifecycle fixture failed: %s"),
+			*Fixture.Diagnostic));
+		return false;
+	}
+	const FGuid RunId = Fixture.Product.Correlation.ActiveRunId;
+	const uint64 SequenceBefore =
+		Fixture.CombatRun.GetNextPlayerFormationActivationSequence();
+	const auto RouteLifecycle = [&Fixture](
+		const Fdemo_mapShanmenFormationIntent& Intent)
+	{
+		return Fixture.Lifecycle.TrySubmit(
+			*Fixture.Product.Authority, Fixture.CombatRun, Intent);
+	};
+	const auto First =
+		Fdemo_mapShanmenFormationInputAdapter::RouteStartInput(
+			true, true, RunId, FormationStartInputEventA,
+			[]()
+			{
+				return MakeFormationStartInputSample(
+					FVector(25.0, -10.0, 5.0), FVector(2.0, 0.0, 1.0));
+			},
+			RouteLifecycle);
+	const auto Replay =
+		Fdemo_mapShanmenFormationInputAdapter::RouteStartInput(
+			true, true, RunId, FormationStartInputEventA,
+			[]()
+			{
+				return MakeFormationStartInputSample(
+					FVector(25.0, -10.0, 5.0), FVector(2.0, 0.0, 1.0));
+			},
+			RouteLifecycle);
+	const auto Conflict =
+		Fdemo_mapShanmenFormationInputAdapter::RouteStartInput(
+			true, true, RunId, FormationStartInputEventA,
+			[]()
+			{
+				return MakeFormationStartInputSample(
+					FVector(26.0, -10.0, 5.0), FVector::ForwardVector);
+			},
+			RouteLifecycle);
+
+	TestTrue(TEXT("One input event derives one accepted immutable intent"),
+		First.IsAccepted()
+			&& First.IntentId
+				== Fdemo_mapShanmenFormationInputAdapter::MakeIntentId(
+					RunId, FormationStartInputEventA)
+			&& First.SampleCount == 1
+			&& First.LifecycleInvocationCount == 1);
+	TestTrue(TEXT("Exact event replay reuses authority without another sequence"),
+		Replay.IsAccepted() && Replay.Lifecycle.bReusedIntent
+			&& Replay.IntentId == First.IntentId
+			&& Fixture.CombatRun.
+				GetNextPlayerFormationActivationSequence()
+					== SequenceBefore + 1);
+	TestTrue(TEXT("Changed payload under one event identity fails closed"),
+		Conflict.Status
+			== Edemo_mapShanmenFormationStartInputStatus::LifecycleRejected
+			&& Conflict.IsValid() && !Conflict.IsAccepted()
+			&& Conflict.Lifecycle.Status
+				== Edemo_mapShanmenFormationControllerStatus::IntentIdConflict
+			&& Fixture.CombatRun.
+				GetNextPlayerFormationActivationSequence()
+					== SequenceBefore + 1);
+
+	const auto Ended = Fixture.Lifecycle.TryEndRun(
+		*Fixture.Product.Authority,
+		Fixture.Product.World,
+		Fixture.CombatRun);
+	TestTrue(TEXT("Unfinished input-owned formation cancels before Run release"),
+		Ended.IsEnded() && !Ended.ProductTeardown.bEndedCompletedFormation
+			&& Fixture.Lifecycle.IsEmpty()
+			&& !Fixture.CombatRun.IsActive());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationInputAdapterAnchorReplayTest,
+	"Shanmen.0_0_10.Product.FormationInputAdapter.AnchorReplayAndLifecycleFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationInputAdapterAnchorReplayTest::RunTest(const FString&)
+{
+	FFormationRunLifecycleFixture Fixture;
+	if (!Fixture.Start(*this, TEXT("FormationInputAdapterAnchorReplay")))
+	{
+		AddError(FString::Printf(
+			TEXT("P27.4 lifecycle fixture failed: %s"),
+			*Fixture.Diagnostic));
+		return false;
+	}
+	const FGuid RunId = Fixture.Product.Correlation.ActiveRunId;
+	const auto Started =
+		Fdemo_mapShanmenFormationInputAdapter::RouteStartInput(
+			true, true, RunId, FormationStartInputEventB,
+			[]() { return MakeFormationStartInputSample(); },
+			[&Fixture](const Fdemo_mapShanmenFormationIntent& Intent)
+			{
+				return Fixture.Lifecycle.TrySubmit(
+					*Fixture.Product.Authority,
+					Fixture.CombatRun,
+					Intent);
+			});
+	if (!Started.IsAccepted())
+	{
+		AddError(FString::Printf(
+			TEXT("P27.4 formation start failed: %s"),
+			*Started.Diagnostic));
+		return false;
+	}
+	const auto RouteAnchor = [&Fixture](
+		const Fdemo_mapShanmenFormationAnchorOperation& Operation)
+	{
+		return Fixture.Lifecycle.TryExecuteAnchorOperation(
+			*Fixture.Product.Authority,
+			Fixture.CombatRun,
+			Fixture.Product.World,
+			ACharacter::StaticClass(),
+			Operation);
+	};
+	const auto First =
+		Fdemo_mapShanmenFormationInputAdapter::RouteAnchorInput(
+			true, true, RunId, FormationAnchorInputEventA,
+			[]() { return MakeFormationAnchorInputSample(HostAnchorA); },
+			RouteAnchor);
+	FShanmenItemAuthoritySnapshot AfterFirst;
+	if (!First.IsAccepted()
+		|| !Fixture.Product.CaptureSnapshot(AfterFirst))
+	{
+		AddError(FString::Printf(
+			TEXT("P27.4 first anchor failed: %s"),
+			*First.Diagnostic));
+		return false;
+	}
+	const auto Replay =
+		Fdemo_mapShanmenFormationInputAdapter::RouteAnchorInput(
+			true, true, RunId, FormationAnchorInputEventA,
+			[]() { return MakeFormationAnchorInputSample(HostAnchorA); },
+			RouteAnchor);
+	FShanmenItemAuthoritySnapshot AfterReplay;
+	TestTrue(TEXT("Exact anchor event replays one placement receipt"),
+		Replay.IsAccepted()
+			&& Replay.Lifecycle.Status
+				== Edemo_mapShanmenFormationAnchorOperationStatus::Replayed
+			&& Replay.AttemptId == First.AttemptId
+			&& Replay.Lifecycle.Placement.World.PlacementReceipt.ReceiptId
+				== First.Lifecycle.Placement.World.PlacementReceipt.ReceiptId
+			&& Fixture.Product.CaptureSnapshot(AfterReplay)
+			&& AfterReplay == AfterFirst);
+
+	const auto Second =
+		Fdemo_mapShanmenFormationInputAdapter::RouteAnchorInput(
+			true, true, RunId, FormationAnchorInputEventB,
+			[]() { return MakeFormationAnchorInputSample(HostAnchorB); },
+			RouteAnchor);
+	const Fdemo_mapShanmenFormationProductHost* Host =
+		Fixture.Lifecycle.GetController().GetProductHost();
+	const FName DeploymentTag =
+		Fdemo_mapShanmenFormationWorldAdapter::MakeDeploymentTag(
+			First.Lifecycle.Placement.PlacementIntent.DeploymentId);
+	TestTrue(TEXT("A second event advances the lifecycle to active formation"),
+		Second.IsAccepted()
+			&& Second.AttemptId != First.AttemptId
+			&& Host
+			&& Host->GetSession().GetState()
+				== Edemo_mapShanmenFormationSessionState::Active
+			&& Host->GetWorldAdapter().GetPlacementCount() == 2
+			&& CountTaggedActors(Fixture.Product.World, DeploymentTag) == 2);
+
+	const auto Ended = Fixture.Lifecycle.TryEndRun(
+		*Fixture.Product.Authority,
+		Fixture.Product.World,
+		Fixture.CombatRun);
+	const auto Late =
+		Fdemo_mapShanmenFormationInputAdapter::RouteAnchorInput(
+			true, true, RunId, FGuid(0xF8740012, 0, 0, 1),
+			[]() { return MakeFormationAnchorInputSample(HostAnchorA); },
+			RouteAnchor);
+	TestTrue(TEXT("Lifecycle remains final authority after input sampling"),
+		Ended.IsEnded()
+			&& Ended.ProductTeardown.bEndedCompletedFormation
+			&& CountTaggedActors(Fixture.Product.World, DeploymentTag) == 0
+			&& Late.Status
+				== Edemo_mapShanmenFormationAnchorInputStatus::LifecycleRejected
+			&& Late.IsValid() && !Late.IsAccepted()
+			&& Late.SampleCount == 1
+			&& Late.LifecycleInvocationCount == 1
+			&& Late.Lifecycle.Status
+				== Edemo_mapShanmenFormationAnchorOperationStatus::
+					LifecycleInactive);
 	return true;
 }
 
