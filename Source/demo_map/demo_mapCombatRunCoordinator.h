@@ -13,6 +13,7 @@
 class AActor;
 class APawn;
 class Fdemo_mapPlayerDivineSenseActionReservation;
+class Fdemo_mapPlayerFormationActionReservation;
 class Fdemo_mapPlayerSpiritShieldActionReservation;
 class Fdemo_mapPlayerSwordQiActionReservation;
 class Fdemo_mapPlayerSpiritEvasionActionReservation;
@@ -25,6 +26,7 @@ class UPrimitiveComponent;
 class UObject;
 class Udemo_mapPlayerHealthComponent;
 struct Fdemo_mapM01EnemyDefinition;
+struct Fdemo_mapShanmenRunCorrelation;
 struct FShanmenControlledWeaponImpactReceipt;
 struct FShanmenSwordQiImpactReceipt;
 struct FShanmenThrownWeaponImpactReceipt;
@@ -700,6 +702,16 @@ public:
 		Fdemo_mapPlayerSpiritShieldActionReservation& OutReservation,
 		FString& OutDiagnostic);
 	/**
+	 * Reserves one formation identity from the exact durable item ActiveRun.
+	 * The item owner and content stamp remain frozen in the action while the
+	 * combat Run supplies the source entity and monotonic activation sequence.
+	 */
+	bool TryReservePlayerFormationAction(
+		const Fdemo_mapShanmenRunCorrelation& Correlation,
+		const FShanmenContentStamp& Content,
+		Fdemo_mapPlayerFormationActionReservation& OutReservation,
+		FString& OutDiagnostic);
+	/**
 	 * Reserves one canonical item-backed weapon-guard identity from this Run's
 	 * monotonic sequence. Equipment authorization and timeline ownership remain
 	 * outside the Run coordinator.
@@ -758,6 +770,10 @@ public:
 	uint64 GetNextPlayerSpiritShieldActivationSequence() const
 	{
 		return NextPlayerSpiritShieldActivationSequence;
+	}
+	uint64 GetNextPlayerFormationActivationSequence() const
+	{
+		return NextPlayerFormationActivationSequence;
 	}
 	uint64 GetNextPlayerWeaponGuardActivationSequence() const
 	{
@@ -819,6 +835,7 @@ private:
 	uint64 NextPlayerSpiritEvasionActivationSequence = 1;
 	uint64 NextPlayerDivineSenseActivationSequence = 1;
 	uint64 NextPlayerSpiritShieldActivationSequence = 1;
+	uint64 NextPlayerFormationActivationSequence = 1;
 	uint64 NextPlayerWeaponGuardActivationSequence = 1;
 	uint64 NextPlayerActionArbitrationSequence = 1;
 };

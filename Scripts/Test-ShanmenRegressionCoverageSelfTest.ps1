@@ -652,6 +652,9 @@ try
     $FormationAdapter = New-AutomationLogFixture `
         -Name 'formation-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.FormationMaterialAdapter'
+    $FormationProductAuthority = New-AutomationLogFixture `
+        -Name 'formation-product-authority.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationProductAuthority'
     $FormationSession = New-AutomationLogFixture `
         -Name 'formation-session.log' `
         -Group 'Shanmen.0_0_10.Product.FormationSession'
@@ -2419,6 +2422,12 @@ try
         -Name 'formation material adapter is covered by broad full evidence' `
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationMaterialAdapter.cpp') `
+        -Logs @($Full)
+
+    Invoke-ExpectedPass `
+        -Name 'formation product authority is covered by broad full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationProductAuthority.cpp') `
         -Logs @($Full)
 
     Invoke-ExpectedPass `
@@ -5533,6 +5542,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationMaterialAdapter.cpp') `
         -Logs @($FormationAdapter) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'formation product authority focus cannot replace Run item and host evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationProductAuthority.cpp') `
+        -Logs @($FormationProductAuthority) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

@@ -26,6 +26,7 @@
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
 #include "demo_mapShanmenRunLifecycleAdapter.h"
 #include "demo_mapShanmenDivineSenseProductAuthority.h"
+#include "demo_mapShanmenFormationProductAuthority.h"
 #include "demo_mapShanmenSpiritShieldProductSession.h"
 #include "demo_mapShanmenSwordQiProductAuthority.h"
 #include "demo_mapShanmenSpiritEvasionProductAuthority.h"
@@ -1069,6 +1070,7 @@ bool Fdemo_mapCombatRunCoordinator::TryEndRun(
 	NextPlayerSpiritEvasionActivationSequence = 1;
 	NextPlayerDivineSenseActivationSequence = 1;
 	NextPlayerSpiritShieldActivationSequence = 1;
+	NextPlayerFormationActivationSequence = 1;
 	NextPlayerWeaponGuardActivationSequence = 1;
 	NextPlayerActionArbitrationSequence = 1;
 	OutDiagnostic = TEXT("Combat Run identities released.");
@@ -1106,6 +1108,7 @@ void Fdemo_mapCombatRunCoordinator::Reset()
 	NextPlayerSpiritEvasionActivationSequence = 1;
 	NextPlayerDivineSenseActivationSequence = 1;
 	NextPlayerSpiritShieldActivationSequence = 1;
+	NextPlayerFormationActivationSequence = 1;
 	NextPlayerWeaponGuardActivationSequence = 1;
 	NextPlayerActionArbitrationSequence = 1;
 }
@@ -3078,6 +3081,71 @@ bool Fdemo_mapCombatRunCoordinator::TryReservePlayerSpiritShieldAction(
 	++NextPlayerSpiritShieldActivationSequence;
 	OutDiagnostic =
 		TEXT("Spirit Shield action identity reserved by the combat Run.");
+	return true;
+}
+
+bool Fdemo_mapCombatRunCoordinator::TryReservePlayerFormationAction(
+	const Fdemo_mapShanmenRunCorrelation& Correlation,
+	const FShanmenContentStamp& Content,
+	Fdemo_mapPlayerFormationActionReservation& OutReservation,
+	FString& OutDiagnostic)
+{
+	OutReservation = Fdemo_mapPlayerFormationActionReservation();
+	OutDiagnostic.Reset();
+	if (!IsReady())
+	{
+		OutDiagnostic =
+			TEXT("Formation identity requires one ready combat Run.");
+		return false;
+	}
+	if (!Correlation.IsValid()
+		|| Correlation.ActiveRunId != GetRunId())
+	{
+		OutDiagnostic =
+			TEXT("Formation identity requires the exact durable item ActiveRun correlation.");
+		return false;
+	}
+	if (!Content.IsValid())
+	{
+		OutDiagnostic =
+			TEXT("Formation identity requires one valid item-authority content stamp.");
+		return false;
+	}
+	if (NextPlayerFormationActivationSequence == 0
+		|| NextPlayerFormationActivationSequence == MAX_uint64)
+	{
+		OutDiagnostic = TEXT("Formation activation sequence is exhausted.");
+		return false;
+	}
+
+	FShanmenCombatActionCapture Capture;
+	Capture.RunId = GetRunId();
+	Capture.OwnerId = Correlation.OwnerId;
+	Capture.SourceEntityId = PlayerEntityId;
+	Capture.ActionDefinitionId =
+		FShanmenFormationDiagramDefinition::CanonicalActionDefinitionId();
+	Capture.Content = Content;
+	Capture.SourceTags.AddTag(FShanmenCombatNativeTags::SourcePlayer());
+	Capture.ActivationId = FShanmenCombatIdFactory::MakeActivationId(
+		Capture.RunId,
+		Capture.SourceEntityId,
+		Capture.ActionDefinitionId,
+		NextPlayerFormationActivationSequence);
+
+	Fdemo_mapPlayerFormationActionReservation Candidate;
+	Candidate.ActivationSequence = NextPlayerFormationActivationSequence;
+	if (!FShanmenCombatActionSnapshot::TryCapture(Capture, Candidate.Action)
+		|| !Candidate.IsValid())
+	{
+		OutDiagnostic =
+			TEXT("Formation deterministic action identity failed closed.");
+		return false;
+	}
+
+	OutReservation = Candidate;
+	++NextPlayerFormationActivationSequence;
+	OutDiagnostic =
+		TEXT("Formation action identity reserved by the exact combat and item Run.");
 	return true;
 }
 

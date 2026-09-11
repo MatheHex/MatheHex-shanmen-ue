@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS && !UE_BUILD_SHIPPING
 
 #include "demo_mapShanmenFormationProductHost.h"
+#include "demo_mapShanmenFormationProductAuthority.h"
 #include "demo_mapShanmenFormationInfluenceExecutorAdapter.h"
 #include "demo_mapShanmenFormationInfluenceLeaseExecutor.h"
 #include "demo_mapShanmenFormationInfluenceProductRuntime.h"
@@ -4790,6 +4791,192 @@ bool Fdemo_mapFormationInfluenceEvaluationBindingTamperTest::RunTest(
 			&& !FailedOutput.HasReceipt()
 			&& EmptyEvaluation.IsSuccess()
 			&& EmptyEvaluation.Receipt.Decisions.IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationProductAuthorityRunIdentityTest,
+	"Shanmen.0_0_10.Product.FormationProductAuthority.AuthorityRunAndHostStart",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationProductAuthorityRunIdentityTest::RunTest(
+	const FString&)
+{
+	FFormationHostFixture Fixture;
+	if (!Fixture.Start(*this, TEXT("ProductAuthority")))
+	{
+		return false;
+	}
+
+	FActorSpawnParameters Parameters;
+	Parameters.ObjectFlags |= RF_Transient;
+	Parameters.SpawnCollisionHandlingOverride =
+		ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	APawn* Player = Fixture.World->SpawnActor<APawn>(
+		APawn::StaticClass(), FTransform::Identity, Parameters);
+	UBoxComponent* PlayerRoot = Player
+		? NewObject<UBoxComponent>(
+			Player, TEXT("P270PlayerRoot"), RF_Transient)
+		: nullptr;
+	Udemo_mapPlayerHealthComponent* PlayerHealth = Player
+		? NewObject<Udemo_mapPlayerHealthComponent>(
+			Player, TEXT("P270PlayerHealth"), RF_Transient)
+		: nullptr;
+	if (!Player || !PlayerRoot || !PlayerHealth)
+	{
+		return false;
+	}
+	Player->SetRootComponent(PlayerRoot);
+	Player->AddInstanceComponent(PlayerRoot);
+	Player->AddInstanceComponent(PlayerHealth);
+
+	Fdemo_mapCombatRunCoordinator CombatRun;
+	FString Diagnostic;
+	if (!CombatRun.TryBeginRun(
+			Fixture.Correlation.ActiveRunId,
+			Player,
+			PlayerHealth,
+			Diagnostic))
+	{
+		AddError(FString::Printf(
+			TEXT("P27.0 CombatRun setup failed: %s"), *Diagnostic));
+		return false;
+	}
+
+	FShanmenItemAuthoritySnapshot SnapshotBefore;
+	if (!Fixture.CaptureSnapshot(SnapshotBefore))
+	{
+		return false;
+	}
+	const FShanmenFormationDiagramDefinition Diagram = MakeHostDiagram();
+	const uint64 SequenceBefore =
+		CombatRun.GetNextPlayerFormationActivationSequence();
+
+	FShanmenFormationDiagramDefinition InvalidDiagram;
+	const auto DiagramRejected =
+		Fdemo_mapShanmenFormationProductAuthority::PrepareDeployment(
+			CombatRun,
+			*Fixture.Authority,
+			InvalidDiagram,
+			FVector::ZeroVector,
+			FVector::ForwardVector);
+	const auto DirectionRejected =
+		Fdemo_mapShanmenFormationProductAuthority::PrepareDeployment(
+			CombatRun,
+			*Fixture.Authority,
+			Diagram,
+			FVector::ZeroVector,
+			FVector::ZeroVector);
+	Fdemo_mapCombatRunCoordinator InactiveCombatRun;
+	const auto CoordinatorRejected =
+		Fdemo_mapShanmenFormationProductAuthority::PrepareDeployment(
+			InactiveCombatRun,
+			*Fixture.Authority,
+			Diagram,
+			FVector::ZeroVector,
+			FVector::ForwardVector);
+
+	TestTrue(TEXT("Invalid authored diagram fails before Run identity use"),
+		DiagramRejected.Status
+			== Edemo_mapShanmenFormationProductPreparationStatus::InvalidDiagram
+			&& !DiagramRejected.IsReady());
+	TestTrue(TEXT("Zero sampled forward fails before Run identity use"),
+		DirectionRejected.Status
+			== Edemo_mapShanmenFormationProductPreparationStatus::InvalidDirection
+			&& !DirectionRejected.IsReady());
+	TestTrue(TEXT("Inactive combat Run cannot borrow the durable item Run"),
+		CoordinatorRejected.Status
+			== Edemo_mapShanmenFormationProductPreparationStatus::
+				CoordinatorNotReady
+			&& !CoordinatorRejected.IsReady()
+			&& InactiveCombatRun.GetNextPlayerFormationActivationSequence()
+				== 1);
+	TestTrue(TEXT("All preflight failures leave the active sequence untouched"),
+		CombatRun.GetNextPlayerFormationActivationSequence()
+			== SequenceBefore);
+
+	const FVector FirstOrigin(25.0, -40.0, 10.0);
+	const auto First =
+		Fdemo_mapShanmenFormationProductAuthority::PrepareDeployment(
+			CombatRun,
+			*Fixture.Authority,
+			Diagram,
+			FirstOrigin,
+			FVector(10.0, 0.0, 0.0));
+	if (!First.IsReady())
+	{
+		AddError(FString::Printf(
+			TEXT("P27.0 first preparation failed: %s"),
+			*First.Diagnostic));
+		return false;
+	}
+
+	const FShanmenCombatActionSnapshot& FirstAction = First.Command.GetAction();
+	TestTrue(TEXT("Durable owner and combat source coexist in one action"),
+		FirstAction.GetRunId() == Fixture.Correlation.ActiveRunId
+			&& FirstAction.GetOwnerId() == Fixture.Correlation.OwnerId
+			&& FirstAction.GetSourceEntityId()
+				== CombatRun.GetPlayerEntityId()
+			&& !FirstAction.GetSourceItemInstanceId().IsValid());
+	TestTrue(TEXT("Current authority content is frozen before sequence commit"),
+		First.AuthorityRevision == SnapshotBefore.AuthorityRevision
+			&& FirstAction.GetContent().Version
+				== SnapshotBefore.Content.Version
+			&& FirstAction.GetContent().Digest
+				== SnapshotBefore.Content.Digest
+			&& First.Reservation.GetActivationSequence() == SequenceBefore
+			&& CombatRun.GetNextPlayerFormationActivationSequence()
+				== SequenceBefore + 1);
+	TestTrue(TEXT("Sampled direction is normalized in the immutable command"),
+		First.Command.GetOrigin() == FirstOrigin
+			&& First.Command.GetForward() == FVector::ForwardVector);
+
+	Fdemo_mapShanmenFormationProductHost RoutedHost;
+	FShanmenActionTransitionReceipt Startup;
+	FShanmenActionTransitionReceipt Active;
+	FShanmenFormationDeploymentReceipt Begin;
+	const bool bStarted = Fdemo_mapShanmenFormationProductHost::TryStart(
+		First.Command.GetCorrelation(),
+		First.Command.GetAction(),
+		First.Command.GetDiagram(),
+		First.Command.GetOrigin(),
+		First.Command.GetForward(),
+		RoutedHost,
+		Startup,
+		Active,
+		Begin);
+	TestTrue(TEXT("Prepared command starts the existing formation ProductHost"),
+		bStarted && RoutedHost.IsValid()
+			&& RoutedHost.GetSession().GetCorrelation()
+				== Fixture.Correlation
+			&& RoutedHost.GetSession().GetActionRuntime().GetAction().
+				GetActivationId() == First.Command.GetCommandId());
+
+	const auto Second =
+		Fdemo_mapShanmenFormationProductAuthority::PrepareDeployment(
+			CombatRun,
+			*Fixture.Authority,
+			Diagram,
+			FVector(100.0, 50.0, 10.0),
+			FVector::RightVector);
+	TestTrue(TEXT("Each accepted formation receives the next deterministic id"),
+		Second.IsReady()
+			&& Second.Reservation.GetActivationSequence()
+				== SequenceBefore + 1
+			&& Second.Command.GetCommandId()
+				!= First.Command.GetCommandId()
+			&& !Second.Command.Matches(First.Command)
+			&& CombatRun.GetNextPlayerFormationActivationSequence()
+				== SequenceBefore + 2);
+
+	FShanmenItemAuthoritySnapshot SnapshotAfter;
+	const FGuid RunId = CombatRun.GetRunId();
+	TestTrue(TEXT("Formation preparation is read-only for item authority"),
+		Fixture.CaptureSnapshot(SnapshotAfter)
+			&& SnapshotAfter == SnapshotBefore);
+	TestTrue(TEXT("Combat Run still closes through its existing boundary"),
+		CombatRun.TryEndRun(RunId, Diagnostic)
+			&& CombatRun.GetNextPlayerFormationActivationSequence() == 1);
 	return true;
 }
 
