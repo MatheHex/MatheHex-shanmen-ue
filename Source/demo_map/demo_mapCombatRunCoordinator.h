@@ -5,6 +5,7 @@
 #include "ShanmenVitalityAuthority.h"
 #include "ShanmenWorldEntityRegistry.h"
 #include "demo_mapCombatVitalityHost.h"
+#include "demo_mapShanmenArmorResistanceItemAdapter.h"
 #include "demo_mapShanmenPlayerActionArbitration.h"
 #include "demo_mapShanmenSpiritShieldProductSession.h"
 #include "demo_mapShanmenWeaponGuardProductSession.h"
@@ -145,6 +146,7 @@ enum class Edemo_mapM01EnemyAttackExecutionError : uint8
 	RuntimeStartFailed,
 	VitalitySnapshotFailed,
 	DefenseSnapshotFailed,
+	ArmorResistancePreparationFailed,
 	ResourceDefensePreparationFailed,
 	WeaponGuardDefensePreparationFailed,
 	SpiritShieldDefensePreparationFailed,
@@ -162,6 +164,8 @@ struct Fdemo_mapM01EnemyAttackExecutionResult
 	FGuid ActivationId;
 	Fdemo_mapM01EnemyAttackImpactReceipt Impact;
 	Fdemo_mapCombatImpactDeliveryResult Delivery;
+	bool bArmorResistanceInspected = false;
+	Fdemo_mapShanmenArmorResistanceItemResult ArmorResistance;
 	bool bWeaponGuardInspected = false;
 	Fdemo_mapShanmenWeaponGuardSessionDefenseResult WeaponGuardDefense;
 	bool bSpiritShieldInspected = false;
@@ -174,6 +178,8 @@ struct Fdemo_mapM01EnemyAttackExecutionResult
 			&& ActivationId.IsValid()
 			&& Impact.IsValid()
 			&& Delivery.IsSuccess()
+			&& (!bArmorResistanceInspected
+				|| ArmorResistance.IsSuccess())
 			&& (!bWeaponGuardInspected
 				|| WeaponGuardDefense.IsSuccess())
 			&& (!bSpiritShieldInspected

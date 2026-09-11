@@ -270,6 +270,7 @@ namespace
 		FString Root;
 		Fdemo_mapProfileStorageContext Storage;
 		Fdemo_mapPersistentProfile SeedProfile;
+		FGuid ArmorId;
 		FGuid HeartMirrorId;
 		UGameInstance* GameInstance = nullptr;
 		Udemo_mapShanmenItemAuthoritySubsystem* Authority = nullptr;
@@ -321,6 +322,12 @@ namespace
 			Storage = Fdemo_mapProfileStorageContext::ForRoot(Root);
 			Fdemo_mapProfileRepository Repository;
 			SeedProfile = Repository.CreateFreshProfile();
+			Fdemo_mapPersistentItemRecord Armor;
+			ArmorId = Armor.ItemInstanceId = FGuid::NewGuid();
+			Armor.ItemDefinitionId = Fdemo_mapItemIds::TrainingVest;
+			Armor.StackCount = 1;
+			Armor.PersistentDomain =
+				Edemo_mapPersistentDomain::PermanentStash;
 			Fdemo_mapPersistentItemRecord HeartMirror;
 			HeartMirrorId = HeartMirror.ItemInstanceId = FGuid::NewGuid();
 			HeartMirror.ItemDefinitionId =
@@ -328,7 +335,9 @@ namespace
 			HeartMirror.StackCount = 1;
 			HeartMirror.PersistentDomain =
 				Edemo_mapPersistentDomain::PermanentStash;
+			SeedProfile.PermanentStash.Add(Armor);
 			SeedProfile.PermanentStash.Add(HeartMirror);
+			SeedProfile.PreparationLayout.ArmorItemInstanceId = ArmorId;
 			SeedProfile.PreparationLayout.AccessoryItemInstanceId = HeartMirrorId;
 
 			const Fdemo_mapProfileSaveResult Saved =
@@ -376,6 +385,7 @@ namespace
 				*Authority,
 				*Runtime);
 			if (!Started.IsStarted()
+				|| Started.RunCorrelation.ArmorItemInstanceId != ArmorId
 				|| Started.RunCorrelation.AccessoryItemInstanceId != HeartMirrorId)
 			{
 				Test.AddError(FString::Printf(
@@ -1711,12 +1721,19 @@ bool FShanmenCombatRunCoordinatorHeartMirrorProductLifecycleTest::RunTest(
 	}
 
 	FShanmenItemAuthoritySnapshot Before;
-	const FShanmenItemInstance* PreparedMirror =
+	const FShanmenItemInstance* PreparedArmor =
 		Fixture.Authority->TryCaptureSnapshot(Before)
+			? FindP171AuthorityItem(Before, Fixture.ArmorId)
+			: nullptr;
+	const FShanmenItemInstance* PreparedMirror =
+		PreparedArmor
 			? FindP171AuthorityItem(Before, Fixture.HeartMirrorId)
 			: nullptr;
-	TestTrue(TEXT("Profile cutover deploys one charged mirror into the real Run"),
-		PreparedMirror
+	TestTrue(TEXT("Profile cutover deploys armor and one charged mirror into the real Run"),
+		PreparedArmor
+			&& PreparedArmor->DefinitionId == Fdemo_mapItemIds::TrainingVest
+			&& PreparedArmor->State == EShanmenItemInstanceState::Deployed
+			&& PreparedMirror
 			&& PreparedMirror->DefinitionId
 				== Fdemo_mapItemIds::HeartProtectingMirror
 			&& PreparedMirror->State == EShanmenItemInstanceState::Deployed
@@ -1752,6 +1769,17 @@ bool FShanmenCombatRunCoordinatorHeartMirrorProductLifecycleTest::RunTest(
 					return Reservation.ReservationId == FirstMirrorLayer->LayerId;
 				})
 			: nullptr;
+	TestTrue(TEXT("Incoming impact inspects exact armor without changing unconfigured behavior"),
+		First.bArmorResistanceInspected
+			&& First.ArmorResistance.IsSuccess()
+			&& First.ArmorResistance.Status
+				== Edemo_mapShanmenArmorResistanceItemStatus::NotApplicable
+			&& First.ArmorResistance.HasArmorEvidence()
+			&& !First.ArmorResistance.HasProjection()
+			&& First.ArmorResistance.Evidence.ArmorItemInstanceId
+				== Fixture.ArmorId
+			&& First.ArmorResistance.Evidence.ActiveRunId
+				== Fixture.Started.RunCorrelation.ActiveRunId);
 	TestTrue(TEXT("First lethal M01 strike atomically spends the mirror and leaves one vitality"),
 		First.IsExecuted()
 			&& First.Delivery.CommitResult.Status
@@ -1822,6 +1850,12 @@ bool FShanmenCombatRunCoordinatorHeartMirrorProductLifecycleTest::RunTest(
 			: nullptr;
 	TestTrue(TEXT("Next distinct strike sees charge depletion and defeats the player normally"),
 		Second.IsExecuted()
+			&& Second.bArmorResistanceInspected
+			&& Second.ArmorResistance.IsSuccess()
+			&& Second.ArmorResistance.Status
+				== Edemo_mapShanmenArmorResistanceItemStatus::NotApplicable
+			&& Second.ArmorResistance.Evidence.ArmorItemInstanceId
+				== Fixture.ArmorId
 			&& Second.ActivationId != First.ActivationId
 			&& SecondRequest.ImpactId != FirstRequest.ImpactId
 			&& !bSecondContainsMirror
@@ -1857,6 +1891,77 @@ bool FShanmenCombatRunCoordinatorHeartMirrorProductLifecycleTest::RunTest(
 			&& DurableMirror->State == EShanmenItemInstanceState::Deployed
 			&& DurableMirror->Charges == 0
 			&& Restarted == AfterSecond);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenCombatRunCoordinatorArmorResistanceRunFenceTest,
+	"Shanmen.0_0_10.Product.CombatRunCoordinator.ArmorResistanceRunFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenCombatRunCoordinatorArmorResistanceRunFenceTest::RunTest(
+	const FString&)
+{
+	FHeartMirrorCombatRunFixture Fixture;
+	if (!Fixture.Start(*this))
+	{
+		return false;
+	}
+
+	FShanmenItemAuthoritySnapshot Before;
+	if (!Fixture.Authority->TryCaptureSnapshot(Before))
+	{
+		AddError(TEXT("Could not capture the P26.2 pre-impact authority."));
+		return false;
+	}
+	const FGuid AuthorityRunId =
+		Fixture.Started.RunCorrelation.ActiveRunId;
+	const bool bReboundToDifferentCombatRun =
+		Fixture.Coordinator.TryEndRun(AuthorityRunId, Fixture.Diagnostic)
+		&& Fixture.Coordinator.TryBeginRun(
+			CoordinatorRunB,
+			Fixture.Player,
+			Fixture.PlayerHealth,
+			Fixture.Diagnostic)
+		&& Fixture.Coordinator.TryRegisterM01Enemy(
+			Fixture.Enemy,
+			Fixture.Diagnostic);
+	if (!TestTrue(
+		TEXT("Fixture isolates a combat/item active-Run mismatch"),
+		bReboundToDifferentCombatRun
+			&& Fixture.Coordinator.GetRunId() == CoordinatorRunB
+			&& AuthorityRunId != CoordinatorRunB))
+	{
+		return false;
+	}
+
+	const float VitalityBefore = Fixture.PlayerHealth->GetCurrentVitality();
+	const int32 VitalityRevisionBefore =
+		Fixture.PlayerHealth->GetCombatAuthorityRevision();
+	const Fdemo_mapM01EnemyAttackExecutionResult Rejected =
+		Fixture.Coordinator.ExecuteM01EnemyBasicMeleeStrike(
+			Fixture.Enemy,
+			Fixture.Player,
+			5.0f);
+	FShanmenItemAuthoritySnapshot After;
+	TestTrue(TEXT("Run-mismatched passive armor fails before resource preparation"),
+		Fixture.Authority->TryCaptureSnapshot(After)
+			&& Rejected.Error
+				== Edemo_mapM01EnemyAttackExecutionError::
+					ArmorResistancePreparationFailed
+			&& Rejected.bArmorResistanceInspected
+			&& Rejected.ArmorResistance.Status
+				== Edemo_mapShanmenArmorResistanceItemStatus::RunMismatch
+			&& !Rejected.ArmorResistance.IsSuccess()
+			&& !Rejected.Impact.IsValid()
+			&& !Rejected.Delivery.IsSuccess());
+	TestTrue(TEXT("Rejected armor evidence cannot mutate vitality or item authority"),
+		FMath::IsNearlyEqual(
+			Fixture.PlayerHealth->GetCurrentVitality(), VitalityBefore)
+			&& Fixture.PlayerHealth->GetCombatAuthorityRevision()
+				== VitalityRevisionBefore
+			&& Fixture.PlayerHealth->NumCommittedCombatImpacts() == 0
+			&& After == Before);
 	return true;
 }
 

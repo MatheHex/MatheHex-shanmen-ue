@@ -153,6 +153,7 @@ bool Fdemo_mapShanmenArmorResistanceItemResult::HasProjection() const
 Fdemo_mapShanmenArmorResistanceItemResult
 Fdemo_mapShanmenArmorResistanceItemAdapter::ProjectActiveRun(
 	const Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+	const FGuid& ExpectedActiveRunId,
 	const FGuid& TargetEntityId,
 	const FShanmenDefenseSnapshot& BaseDefense)
 {
@@ -186,17 +187,23 @@ Fdemo_mapShanmenArmorResistanceItemAdapter::ProjectActiveRun(
 			TEXT("The ready item authority could not provide a read-only snapshot."));
 	}
 	return ProjectFromEvidence(
-		Snapshot, Correlation, TargetEntityId, BaseDefense);
+		Snapshot,
+		Correlation,
+		ExpectedActiveRunId,
+		TargetEntityId,
+		BaseDefense);
 }
 
 Fdemo_mapShanmenArmorResistanceItemResult
 Fdemo_mapShanmenArmorResistanceItemAdapter::ProjectFromEvidence(
 	const FShanmenItemAuthoritySnapshot& Snapshot,
 	const Fdemo_mapShanmenRunCorrelation& Correlation,
+	const FGuid& ExpectedActiveRunId,
 	const FGuid& TargetEntityId,
 	const FShanmenDefenseSnapshot& BaseDefense)
 {
-	if (!TargetEntityId.IsValid()
+	if (!ExpectedActiveRunId.IsValid()
+		|| !TargetEntityId.IsValid()
 		|| !BaseDefense.IsValid()
 		|| !BaseDefense.TargetTags.HasTagExact(
 			FShanmenCombatNativeTags::TargetLiving()))
@@ -210,6 +217,12 @@ Fdemo_mapShanmenArmorResistanceItemAdapter::ProjectFromEvidence(
 		return Reject(
 			Edemo_mapShanmenArmorResistanceItemStatus::RunCorrelationInvalid,
 			TEXT("Armor resistance requires one valid immutable Run correlation."));
+	}
+	if (Correlation.ActiveRunId != ExpectedActiveRunId)
+	{
+		return Reject(
+			Edemo_mapShanmenArmorResistanceItemStatus::RunMismatch,
+			TEXT("Armor resistance authority belongs to a different active Run."));
 	}
 	const FShanmenContentStamp ExpectedAuthorityContent =
 		Udemo_mapShanmenItemAuthoritySubsystem::ProductContentStamp();

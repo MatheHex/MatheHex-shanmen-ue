@@ -247,6 +247,7 @@ bool Fdemo_mapArmorResistanceItemAuthoritySelectionTest::RunTest(
 		Fdemo_mapShanmenArmorResistanceItemAdapter::ProjectFromEvidence(
 			Fixture.Snapshot,
 			Fixture.Correlation,
+			Fixture.Correlation.ActiveRunId,
 			TargetEntityId,
 			Base);
 
@@ -285,10 +286,18 @@ bool Fdemo_mapArmorResistanceItemNoArmorReplayTest::RunTest(const FString&)
 	const FShanmenDefenseSnapshot Base = MakeBaseDefense();
 	const Fdemo_mapShanmenArmorResistanceItemResult First =
 		Fdemo_mapShanmenArmorResistanceItemAdapter::ProjectFromEvidence(
-			Fixture.Snapshot, Fixture.Correlation, TargetEntityId, Base);
+			Fixture.Snapshot,
+			Fixture.Correlation,
+			Fixture.Correlation.ActiveRunId,
+			TargetEntityId,
+			Base);
 	const Fdemo_mapShanmenArmorResistanceItemResult Replay =
 		Fdemo_mapShanmenArmorResistanceItemAdapter::ProjectFromEvidence(
-			Fixture.Snapshot, Fixture.Correlation, TargetEntityId, Base);
+			Fixture.Snapshot,
+			Fixture.Correlation,
+			Fixture.Correlation.ActiveRunId,
+			TargetEntityId,
+			Base);
 	TestTrue(TEXT("An empty ArmorSlot is a deterministic successful no-op"),
 		First.IsSuccess() && Replay.IsSuccess()
 		&& First.Status
@@ -303,6 +312,7 @@ bool Fdemo_mapArmorResistanceItemNoArmorReplayTest::RunTest(const FString&)
 		Fdemo_mapShanmenArmorResistanceItemAdapter::ProjectFromEvidence(
 			Fixture.Snapshot,
 			Fixture.Correlation,
+			Fixture.Correlation.ActiveRunId,
 			TargetEntityId,
 			InvalidDefense),
 		Edemo_mapShanmenArmorResistanceItemStatus::InputInvalid);
@@ -323,12 +333,24 @@ bool Fdemo_mapArmorResistanceItemIdentityFencesTest::RunTest(const FString&)
 		return false;
 	}
 	const FShanmenDefenseSnapshot Base = MakeBaseDefense();
+	TestRejected(*this, TEXT("Armor from another active Run is rejected"),
+		Fdemo_mapShanmenArmorResistanceItemAdapter::ProjectFromEvidence(
+			Fixture.Snapshot,
+			Fixture.Correlation,
+			FGuid(0xD3620011, 0, 0, 1),
+			TargetEntityId,
+			Base),
+		Edemo_mapShanmenArmorResistanceItemStatus::RunMismatch);
 
 	FShanmenItemAuthoritySnapshot Missing = Fixture.Snapshot;
 	Missing.Items.Reset();
 	TestRejected(*this, TEXT("A missing prepared armor item is rejected"),
 		Fdemo_mapShanmenArmorResistanceItemAdapter::ProjectFromEvidence(
-			Missing, Fixture.Correlation, TargetEntityId, Base),
+			Missing,
+			Fixture.Correlation,
+			Fixture.Correlation.ActiveRunId,
+			TargetEntityId,
+			Base),
 		Edemo_mapShanmenArmorResistanceItemStatus::ItemNotFound);
 
 	FShanmenItemAuthoritySnapshot Stored = Fixture.Snapshot;
@@ -341,7 +363,11 @@ bool Fdemo_mapArmorResistanceItemIdentityFencesTest::RunTest(const FString&)
 	StoredItem->State = EShanmenItemInstanceState::Stored;
 	TestRejected(*this, TEXT("A stored armor item cannot project Run defense"),
 		Fdemo_mapShanmenArmorResistanceItemAdapter::ProjectFromEvidence(
-			Stored, Fixture.Correlation, TargetEntityId, Base),
+			Stored,
+			Fixture.Correlation,
+			Fixture.Correlation.ActiveRunId,
+			TargetEntityId,
+			Base),
 		Edemo_mapShanmenArmorResistanceItemStatus::ItemNotDeployed);
 
 	FShanmenItemAuthoritySnapshot Unknown = Fixture.Snapshot;
@@ -354,7 +380,11 @@ bool Fdemo_mapArmorResistanceItemIdentityFencesTest::RunTest(const FString&)
 	UnknownItem->DefinitionId = TEXT("Item.Unknown.P26.1");
 	TestRejected(*this, TEXT("Unknown catalog identity is rejected"),
 		Fdemo_mapShanmenArmorResistanceItemAdapter::ProjectFromEvidence(
-			Unknown, Fixture.Correlation, TargetEntityId, Base),
+			Unknown,
+			Fixture.Correlation,
+			Fixture.Correlation.ActiveRunId,
+			TargetEntityId,
+			Base),
 		Edemo_mapShanmenArmorResistanceItemStatus::DefinitionUnavailable);
 
 	const Fdemo_mapItemDefinition* WeaponDefinition =
@@ -381,7 +411,11 @@ bool Fdemo_mapArmorResistanceItemIdentityFencesTest::RunTest(const FString&)
 	TestRejected(*this,
 		TEXT("A weapon definition cannot borrow the ArmorSlot identity"),
 		Fdemo_mapShanmenArmorResistanceItemAdapter::ProjectFromEvidence(
-			WrongSlot, Fixture.Correlation, TargetEntityId, Base),
+			WrongSlot,
+			Fixture.Correlation,
+			Fixture.Correlation.ActiveRunId,
+			TargetEntityId,
+			Base),
 		Edemo_mapShanmenArmorResistanceItemStatus::DefinitionMismatch);
 	return true;
 }
@@ -406,14 +440,22 @@ bool Fdemo_mapArmorResistanceItemEvidenceFencesTest::RunTest(const FString&)
 		Fixture.Correlation.LifecycleAuthorityRevision - 1;
 	TestRejected(*this, TEXT("Pre-lifecycle item evidence is rejected"),
 		Fdemo_mapShanmenArmorResistanceItemAdapter::ProjectFromEvidence(
-			Stale, Fixture.Correlation, TargetEntityId, Base),
+			Stale,
+			Fixture.Correlation,
+			Fixture.Correlation.ActiveRunId,
+			TargetEntityId,
+			Base),
 		Edemo_mapShanmenArmorResistanceItemStatus::SnapshotStale);
 
 	FShanmenItemAuthoritySnapshot WrongContent = Fixture.Snapshot;
 	WrongContent.Content.Digest += TEXT(".Drift");
 	TestRejected(*this, TEXT("A different product content stamp is rejected"),
 		Fdemo_mapShanmenArmorResistanceItemAdapter::ProjectFromEvidence(
-			WrongContent, Fixture.Correlation, TargetEntityId, Base),
+			WrongContent,
+			Fixture.Correlation,
+			Fixture.Correlation.ActiveRunId,
+			TargetEntityId,
+			Base),
 		Edemo_mapShanmenArmorResistanceItemStatus::SnapshotStale);
 
 	FShanmenItemAuthoritySnapshot Pending = Fixture.Snapshot;
@@ -428,7 +470,11 @@ bool Fdemo_mapArmorResistanceItemEvidenceFencesTest::RunTest(const FString&)
 	TestRejected(*this,
 		TEXT("A pending DeploymentLock cannot authorize passive defense"),
 		Fdemo_mapShanmenArmorResistanceItemAdapter::ProjectFromEvidence(
-			Pending, Fixture.Correlation, TargetEntityId, Base),
+			Pending,
+			Fixture.Correlation,
+			Fixture.Correlation.ActiveRunId,
+			TargetEntityId,
+			Base),
 		Edemo_mapShanmenArmorResistanceItemStatus::DeploymentEvidenceInvalid);
 
 	FShanmenItemAuthoritySnapshot Unadvanced = Fixture.Snapshot;
@@ -448,7 +494,11 @@ bool Fdemo_mapArmorResistanceItemEvidenceFencesTest::RunTest(const FString&)
 	TestRejected(*this,
 		TEXT("Deployment must advance the exact armor item revision"),
 		Fdemo_mapShanmenArmorResistanceItemAdapter::ProjectFromEvidence(
-			Unadvanced, Fixture.Correlation, TargetEntityId, Base),
+			Unadvanced,
+			Fixture.Correlation,
+			Fixture.Correlation.ActiveRunId,
+			TargetEntityId,
+			Base),
 		Edemo_mapShanmenArmorResistanceItemStatus::DeploymentEvidenceInvalid);
 
 	FShanmenItemAuthoritySnapshot Drifted = Fixture.Snapshot;
@@ -463,7 +513,11 @@ bool Fdemo_mapArmorResistanceItemEvidenceFencesTest::RunTest(const FString&)
 	TestRejected(*this,
 		TEXT("Authority and canonical armor resource shapes cannot drift"),
 		Fdemo_mapShanmenArmorResistanceItemAdapter::ProjectFromEvidence(
-			Drifted, Fixture.Correlation, TargetEntityId, Base),
+			Drifted,
+			Fixture.Correlation,
+			Fixture.Correlation.ActiveRunId,
+			TargetEntityId,
+			Base),
 		Edemo_mapShanmenArmorResistanceItemStatus::DefinitionMismatch);
 	return true;
 }
@@ -502,7 +556,10 @@ bool Fdemo_mapArmorResistanceItemFacadeBoundaryTest::RunTest(const FString&)
 	TestRejected(*this,
 		TEXT("Product facade cannot bypass an unbound authority"),
 		Fdemo_mapShanmenArmorResistanceItemAdapter::ProjectActiveRun(
-			*Authority, TargetEntityId, MakeBaseDefense()),
+			*Authority,
+			ScopeId,
+			TargetEntityId,
+			MakeBaseDefense()),
 		Edemo_mapShanmenArmorResistanceItemStatus::AuthorityNotReady);
 	GameInstance->Shutdown();
 	GameInstance->RemoveFromRoot();

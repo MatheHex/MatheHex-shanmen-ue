@@ -14,6 +14,7 @@ enum class Edemo_mapShanmenArmorResistanceItemStatus : uint8
 	NoArmorEquipped,
 	AuthorityNotReady,
 	RunCorrelationInvalid,
+	RunMismatch,
 	SnapshotUnavailable,
 	SnapshotStale,
 	InputInvalid,
@@ -70,6 +71,7 @@ struct Fdemo_mapShanmenArmorResistanceItemAdapter
 	/** Product facade: captures the current durable Run and item snapshot. */
 	static Fdemo_mapShanmenArmorResistanceItemResult ProjectActiveRun(
 		const Udemo_mapShanmenItemAuthoritySubsystem& Authority,
+		const FGuid& ExpectedActiveRunId,
 		const FGuid& TargetEntityId,
 		const FShanmenDefenseSnapshot& BaseDefense);
 
@@ -77,6 +79,7 @@ struct Fdemo_mapShanmenArmorResistanceItemAdapter
 	static Fdemo_mapShanmenArmorResistanceItemResult ProjectFromEvidence(
 		const FShanmenItemAuthoritySnapshot& Snapshot,
 		const Fdemo_mapShanmenRunCorrelation& Correlation,
+		const FGuid& ExpectedActiveRunId,
 		const FGuid& TargetEntityId,
 		const FShanmenDefenseSnapshot& BaseDefense);
 };

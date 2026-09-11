@@ -21,6 +21,7 @@
 #include "demo_mapM01EnemyTypes.h"
 #include "demo_mapPlayerHealthComponent.h"
 #include "demo_mapRangedEnemyCharacter.h"
+#include "demo_mapShanmenArmorResistanceItemAdapter.h"
 #include "demo_mapShanmenDefenseResourceAdapter.h"
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
 #include "demo_mapShanmenRunLifecycleAdapter.h"
@@ -2027,6 +2028,24 @@ Fdemo_mapCombatRunCoordinator::ExecuteM01EnemyAttack(
 				== Edemo_mapShanmenItemAuthorityLifecycleState::Ready)
 		{
 			bResourceAuthorityInspected = true;
+			ProductResult.bArmorResistanceInspected = true;
+			ProductResult.ArmorResistance =
+				Fdemo_mapShanmenArmorResistanceItemAdapter::ProjectActiveRun(
+					*Authority,
+					GetRunId(),
+					PlayerEntityId,
+					Defense);
+			if (!ProductResult.ArmorResistance.IsSuccess())
+			{
+				ActionRuntime.TryInterrupt(
+					EShanmenCombatActionPhase::Active,
+					Transition);
+				ProductResult.Error =
+					Edemo_mapM01EnemyAttackExecutionError::
+						ArmorResistancePreparationFailed;
+				return ProductResult;
+			}
+			Defense = ProductResult.ArmorResistance.Projection.Defense;
 			ResourcePreparation =
 				Fdemo_mapShanmenDefenseResourceAdapter::PrepareImpactDefense(
 					*Authority, *BoundPlayerHealth, ImpactId, Defense);

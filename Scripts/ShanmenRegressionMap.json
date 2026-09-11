@@ -2373,6 +2373,8 @@
       "pathRegex": "^Source/demo_map/demo_mapCombatRunCoordinator(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [
         "Shanmen.0_0_10.Product.CombatRunCoordinator",
+        "Shanmen.0_0_10.Product.ArmorResistanceItemAdapter",
+        "Shanmen.0_0_10.Product.ArmorResistanceProjection",
         "Shanmen.0_0_10.Product.SwordRhythmProductHost",
         "Shanmen.0_0_10.Product.WeaponGuardImpactRoute",
         "Shanmen.0_0_10.Product.WeaponGuardProductSession",
