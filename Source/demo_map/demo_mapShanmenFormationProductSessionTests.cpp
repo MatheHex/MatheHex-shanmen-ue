@@ -305,6 +305,9 @@ bool Fdemo_mapFormationSessionCommitTest::RunTest(const FString&)
 	const Fdemo_mapShanmenFormationSessionResult Conflict =
 		Fixture.Session.TryCommitPreparedAnchor(
 			*Fixture.Authority, Fixture.Correlation, AnchorA, AttemptOther);
+	const Fdemo_mapShanmenFormationSessionResult CrossAnchorAttemptConflict =
+		Fixture.Session.TryPrepareAnchor(
+			*Fixture.Authority, Fixture.Correlation, AnchorB, AttemptA);
 	TestTrue(TEXT("First anchor couples durable material and deployment receipts"),
 		First.Status == Edemo_mapShanmenFormationSessionStatus::Committed
 			&& First.Material.IsCommitted()
@@ -317,7 +320,11 @@ bool Fdemo_mapFormationSessionCommitTest::RunTest(const FString&)
 			&& Replay.DeploymentReceipt.GetReceiptId()
 				== First.DeploymentReceipt.GetReceiptId()
 			&& Conflict.Status
-				== Edemo_mapShanmenFormationSessionStatus::AttemptConflict);
+				== Edemo_mapShanmenFormationSessionStatus::AttemptConflict
+			&& CrossAnchorAttemptConflict.Status
+				== Edemo_mapShanmenFormationSessionStatus::AttemptConflict
+			&& !Fixture.Session.HasPendingMaterial()
+			&& Fixture.Session.IsValid());
 
 	check(Fixture.Session.TryPrepareAnchor(
 		*Fixture.Authority, Fixture.Correlation,

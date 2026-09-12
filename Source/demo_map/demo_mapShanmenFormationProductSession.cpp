@@ -207,6 +207,18 @@ Fdemo_mapShanmenFormationProductSession::TryPrepareAnchor(
 			TEXT("The exact committed anchor replayed its immutable audit.");
 		return Result;
 	}
+	if (AnchorAudits.ContainsByPredicate(
+		[AttemptId](const Fdemo_mapShanmenFormationAnchorAudit& Audit)
+		{
+			return Audit.AttemptId == AttemptId;
+		}))
+	{
+		return Reject(
+			Edemo_mapShanmenFormationSessionStatus::AttemptConflict,
+			AnchorDefinitionId,
+			AttemptId,
+			TEXT("A committed material attempt cannot be rebound to another anchor."));
+	}
 	if (State != Edemo_mapShanmenFormationSessionState::Deploying)
 	{
 		return Reject(

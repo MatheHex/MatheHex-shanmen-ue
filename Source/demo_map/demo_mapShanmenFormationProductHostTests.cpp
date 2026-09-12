@@ -3,6 +3,7 @@
 #include "demo_mapShanmenFormationProductHost.h"
 #include "demo_mapShanmenFormationProductAuthority.h"
 #include "demo_mapShanmenFormationProductController.h"
+#include "demo_mapShanmenFormationAnchorProductRoute.h"
 #include "demo_mapShanmenFormationDiagramStartInputComposition.h"
 #include "demo_mapShanmenFormationDiagramStartProductRoute.h"
 #include "demo_mapShanmenFormationInputAdapter.h"
@@ -732,6 +733,65 @@ namespace
 			return Operation;
 		}
 	};
+
+	bool StartFormationThroughConcreteRoute(
+		FFormationRunLifecycleFixture& Fixture,
+		const FGuid& InputEventId,
+		Fdemo_mapShanmenFormationDiagramStartProductRouteResult& OutResult)
+	{
+		Fdemo_mapShanmenFormationDiagramCatalogCapture CatalogCapture;
+		CatalogCapture.Content.Version = TEXT("0.0.10.P27.13.Test");
+		CatalogCapture.Content.Digest =
+			TEXT("FormationAnchorProductRouteStartFixture");
+		CatalogCapture.Diagrams.Add(MakeHostDiagramCapture());
+		Fdemo_mapShanmenFormationDiagramCatalog Catalog;
+		if (!Fdemo_mapShanmenFormationDiagramCatalog::TryCapture(
+			CatalogCapture, Catalog, Fixture.Diagnostic))
+		{
+			return false;
+		}
+
+		const FGuid KnowledgeOwnerId =
+			Fixture.CombatRun.GetPlayerEntityId();
+		const FName DiagramId = MakeHostDiagram().GetDiagramDefinitionId();
+		int32 AuthorityReads = 0;
+		auto ReadAuthority = [&AuthorityReads, &Catalog, KnowledgeOwnerId,
+			DiagramId](
+			const FGuid& RequestedOwnerId,
+			Fdemo_mapShanmenFormationKnowledgeAuthorityCapture& OutCapture,
+			FString& OutDiagnostic)
+		{
+			++AuthorityReads;
+			if (RequestedOwnerId != KnowledgeOwnerId)
+			{
+				OutDiagnostic =
+					TEXT("P27.13 rejected a foreign knowledge owner.");
+				return false;
+			}
+			OutCapture.OwnerId = KnowledgeOwnerId;
+			OutCapture.AuthorityRevision = 2713;
+			OutCapture.CatalogId = Catalog.GetCatalogId();
+			OutCapture.Content = Catalog.GetContent();
+			OutCapture.KnownDiagramDefinitionIds = { DiagramId };
+			OutDiagnostic = TEXT("P27.13 knowledge read completed.");
+			return true;
+		};
+
+		OutResult =
+			Fdemo_mapShanmenFormationDiagramStartProductRoute::RouteStart(
+				true,
+				*Fixture.Product.Authority,
+				Fixture.CombatRun,
+				Fixture.Lifecycle,
+				Fixture.SpiritEnergyController,
+				InputEventId,
+				Catalog,
+				DiagramId,
+				FVector::ZeroVector,
+				FVector::ForwardVector,
+				ReadAuthority);
+		return OutResult.IsAccepted() && AuthorityReads == 1;
+	}
 
 	Fdemo_mapShanmenFormationInfluencePolicy MakeHostInfluencePolicy(
 		const Fdemo_mapShanmenFormationProductHost& Host,
@@ -7260,6 +7320,338 @@ bool Fdemo_mapFormationDiagramStartProductRouteReplayTest::RunTest(
 	TestTrue(TEXT("Concrete product route remains owned by sole lifecycle"),
 		Ended.IsEnded()
 			&& !Ended.ProductTeardown.bEndedCompletedFormation
+			&& Fixture.Lifecycle.IsEmpty()
+			&& !Fixture.CombatRun.IsActive());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationAnchorProductRouteDependencyTest,
+	"Shanmen.0_0_10.Product.FormationAnchorProductRoute.GameplayAndDependencyFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationAnchorProductRouteDependencyTest::RunTest(
+	const FString&)
+{
+	FFormationRunLifecycleFixture Fixture;
+	FFormationRunLifecycleFixture Other;
+	if (!Fixture.Start(*this, TEXT("FormationAnchorProductRouteDependencies"))
+		|| !Other.Start(
+			*this, TEXT("FormationAnchorProductRouteOtherRun")))
+	{
+		AddError(FString::Printf(
+			TEXT("P27.13 lifecycle fixture failed: %s / %s"),
+			*Fixture.Diagnostic,
+			*Other.Diagnostic));
+		return false;
+	}
+
+	FShanmenItemAuthoritySnapshot Before;
+	if (!Fixture.Product.CaptureSnapshot(Before))
+	{
+		AddError(TEXT("P27.13 could not capture the opening item authority."));
+		return false;
+	}
+	Fdemo_mapCombatRunCoordinator MissingCoordinator;
+	Fdemo_mapShanmenFormationRunLifecycle MissingLifecycle;
+
+	const auto GameplayBlocked =
+		Fdemo_mapShanmenFormationAnchorProductRoute::RouteAnchor(
+			false,
+			*Fixture.Product.Authority,
+			MissingCoordinator,
+			MissingLifecycle,
+			nullptr,
+			TSubclassOf<AActor>(),
+			FGuid(),
+			NAME_None);
+	const auto CoordinatorUnavailable =
+		Fdemo_mapShanmenFormationAnchorProductRoute::RouteAnchor(
+			true,
+			*Fixture.Product.Authority,
+			MissingCoordinator,
+			Fixture.Lifecycle,
+			Fixture.Product.World,
+			ACharacter::StaticClass(),
+			FormationAnchorInputEventA,
+			HostAnchorA);
+	const auto LifecycleUnavailable =
+		Fdemo_mapShanmenFormationAnchorProductRoute::RouteAnchor(
+			true,
+			*Fixture.Product.Authority,
+			Fixture.CombatRun,
+			MissingLifecycle,
+			Fixture.Product.World,
+			ACharacter::StaticClass(),
+			FormationAnchorInputEventA,
+			HostAnchorA);
+	const auto LifecycleRunMismatch =
+		Fdemo_mapShanmenFormationAnchorProductRoute::RouteAnchor(
+			true,
+			*Fixture.Product.Authority,
+			Fixture.CombatRun,
+			Other.Lifecycle,
+			Fixture.Product.World,
+			ACharacter::StaticClass(),
+			FormationAnchorInputEventA,
+			HostAnchorA);
+	const auto WorldUnavailable =
+		Fdemo_mapShanmenFormationAnchorProductRoute::RouteAnchor(
+			true,
+			*Fixture.Product.Authority,
+			Fixture.CombatRun,
+			Fixture.Lifecycle,
+			nullptr,
+			ACharacter::StaticClass(),
+			FormationAnchorInputEventA,
+			HostAnchorA);
+	const auto ActorClassUnavailable =
+		Fdemo_mapShanmenFormationAnchorProductRoute::RouteAnchor(
+			true,
+			*Fixture.Product.Authority,
+			Fixture.CombatRun,
+			Fixture.Lifecycle,
+			Fixture.Product.World,
+			TSubclassOf<AActor>(),
+			FormationAnchorInputEventA,
+			HostAnchorA);
+
+	TestTrue(TEXT("Gameplay gate completes before dependency inspection"),
+		GameplayBlocked.IsValid()
+			&& !GameplayBlocked.IsAccepted()
+			&& GameplayBlocked.GetStatus()
+				== Edemo_mapShanmenFormationAnchorProductRouteStatus::
+					GameplayBlocked
+			&& GameplayBlocked.GetDependencyValidationCount() == 0
+			&& GameplayBlocked.GetInput().SampleCount == 0);
+	TestTrue(TEXT("Missing coordinator fails before anchor sampling"),
+		CoordinatorUnavailable.IsValid()
+			&& CoordinatorUnavailable.GetStatus()
+				== Edemo_mapShanmenFormationAnchorProductRouteStatus::
+					CoordinatorUnavailable);
+	TestTrue(TEXT("Missing lifecycle fails before anchor sampling"),
+		LifecycleUnavailable.IsValid()
+			&& LifecycleUnavailable.GetStatus()
+				== Edemo_mapShanmenFormationAnchorProductRouteStatus::
+					LifecycleUnavailable);
+	TestTrue(TEXT("Foreign lifecycle Run is rejected before sampling"),
+		LifecycleRunMismatch.IsValid()
+			&& LifecycleRunMismatch.GetStatus()
+				== Edemo_mapShanmenFormationAnchorProductRouteStatus::
+					LifecycleRunMismatch
+			&& LifecycleRunMismatch.GetLifecycleRunId()
+				!= LifecycleRunMismatch.GetRunId());
+	TestTrue(TEXT("Missing World is rejected before sampling"),
+		WorldUnavailable.IsValid()
+			&& WorldUnavailable.GetStatus()
+				== Edemo_mapShanmenFormationAnchorProductRouteStatus::
+					WorldUnavailable);
+	TestTrue(TEXT("Missing Actor class is rejected before sampling"),
+		ActorClassUnavailable.IsValid()
+			&& ActorClassUnavailable.GetStatus()
+				== Edemo_mapShanmenFormationAnchorProductRouteStatus::
+					ActorClassUnavailable);
+	TestTrue(TEXT("Every dependency rejection remains side-effect free"),
+		CoordinatorUnavailable.GetInput().SampleCount == 0
+			&& LifecycleUnavailable.GetInput().SampleCount == 0
+			&& LifecycleRunMismatch.GetInput().SampleCount == 0
+			&& WorldUnavailable.GetInput().SampleCount == 0
+			&& ActorClassUnavailable.GetInput().SampleCount == 0
+			&& CoordinatorUnavailable.GetInput().LifecycleInvocationCount == 0
+			&& LifecycleUnavailable.GetInput().LifecycleInvocationCount == 0
+			&& LifecycleRunMismatch.GetInput().LifecycleInvocationCount == 0
+			&& WorldUnavailable.GetInput().LifecycleInvocationCount == 0
+			&& ActorClassUnavailable.GetInput().LifecycleInvocationCount == 0
+			&& Fixture.Lifecycle.GetController().GetProductHost() == nullptr);
+	FShanmenItemAuthoritySnapshot After;
+	TestTrue(TEXT("Dependency rejection cannot mutate item authority"),
+		Fixture.Product.CaptureSnapshot(After) && After == Before);
+
+	const auto OtherEnded = Other.Lifecycle.TryEndRun(
+		*Other.Product.Authority,
+		Other.Product.World,
+		Other.CombatRun);
+	const auto FixtureEnded = Fixture.Lifecycle.TryEndRun(
+		*Fixture.Product.Authority,
+		Fixture.Product.World,
+		Fixture.CombatRun);
+	TestTrue(TEXT("Dependency fixtures preserve normal lifecycle teardown"),
+		OtherEnded.IsEnded() && FixtureEnded.IsEnded());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationAnchorProductRouteReplayTest,
+	"Shanmen.0_0_10.Product.FormationAnchorProductRoute.ReplayConflictAndCompletion",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationAnchorProductRouteReplayTest::RunTest(
+	const FString&)
+{
+	FFormationRunLifecycleFixture Fixture;
+	if (!Fixture.Start(*this, TEXT("FormationAnchorProductRouteReplay")))
+	{
+		AddError(FString::Printf(
+			TEXT("P27.13 lifecycle fixture failed: %s"),
+			*Fixture.Diagnostic));
+		return false;
+	}
+	Fdemo_mapShanmenFormationDiagramStartProductRouteResult Started;
+	if (!StartFormationThroughConcreteRoute(
+		Fixture, FormationStartInputEventA, Started))
+	{
+		AddError(FString::Printf(
+			TEXT("P27.13 formation start failed: %s"),
+			*Started.GetDiagnostic()));
+		return false;
+	}
+
+	FShanmenItemAuthoritySnapshot Before;
+	if (!Fixture.Product.CaptureSnapshot(Before))
+	{
+		AddError(TEXT("P27.13 could not capture item authority."));
+		return false;
+	}
+	const auto InvalidSample =
+		Fdemo_mapShanmenFormationAnchorProductRoute::RouteAnchor(
+			true,
+			*Fixture.Product.Authority,
+			Fixture.CombatRun,
+			Fixture.Lifecycle,
+			Fixture.Product.World,
+			ACharacter::StaticClass(),
+			FormationAnchorInputEventA,
+			NAME_None);
+	FShanmenItemAuthoritySnapshot AfterInvalidSample;
+	TestTrue(TEXT("Invalid anchor sample cannot enter lifecycle authority"),
+		InvalidSample.IsValid()
+			&& !InvalidSample.IsAccepted()
+			&& InvalidSample.GetStatus()
+				== Edemo_mapShanmenFormationAnchorProductRouteStatus::Routed
+			&& InvalidSample.GetInput().Status
+				== Edemo_mapShanmenFormationAnchorInputStatus::SampleRejected
+			&& InvalidSample.GetInput().SampleCount == 1
+			&& InvalidSample.GetInput().LifecycleInvocationCount == 0
+			&& Fixture.Product.CaptureSnapshot(AfterInvalidSample)
+			&& AfterInvalidSample == Before);
+
+	const auto First =
+		Fdemo_mapShanmenFormationAnchorProductRoute::RouteAnchor(
+			true,
+			*Fixture.Product.Authority,
+			Fixture.CombatRun,
+			Fixture.Lifecycle,
+			Fixture.Product.World,
+			ACharacter::StaticClass(),
+			FormationAnchorInputEventA,
+			HostAnchorA);
+	FShanmenItemAuthoritySnapshot AfterFirst;
+	if (!First.IsAccepted()
+		|| !Fixture.Product.CaptureSnapshot(AfterFirst))
+	{
+		AddError(FString::Printf(
+			TEXT("P27.13 first anchor failed: %s"),
+			*First.GetDiagnostic()));
+		return false;
+	}
+	const auto Replay =
+		Fdemo_mapShanmenFormationAnchorProductRoute::RouteAnchor(
+			true,
+			*Fixture.Product.Authority,
+			Fixture.CombatRun,
+			Fixture.Lifecycle,
+			Fixture.Product.World,
+			ACharacter::StaticClass(),
+			FormationAnchorInputEventA,
+			HostAnchorA);
+	const auto ActorClassDrift =
+		Fdemo_mapShanmenFormationAnchorProductRoute::RouteAnchor(
+			true,
+			*Fixture.Product.Authority,
+			Fixture.CombatRun,
+			Fixture.Lifecycle,
+			Fixture.Product.World,
+			AActor::StaticClass(),
+			FormationAnchorInputEventA,
+			HostAnchorA);
+	const auto CrossAnchorAttemptConflict =
+		Fdemo_mapShanmenFormationAnchorProductRoute::RouteAnchor(
+			true,
+			*Fixture.Product.Authority,
+			Fixture.CombatRun,
+			Fixture.Lifecycle,
+			Fixture.Product.World,
+			ACharacter::StaticClass(),
+			FormationAnchorInputEventA,
+			HostAnchorB);
+	FShanmenItemAuthoritySnapshot AfterConflict;
+
+	const auto& FirstLifecycle = First.GetInput().Lifecycle;
+	const auto& ReplayLifecycle = Replay.GetInput().Lifecycle;
+	TestTrue(TEXT("Exact product anchor event replays one placement"),
+		Replay.IsAccepted()
+			&& ReplayLifecycle.Status
+				== Edemo_mapShanmenFormationAnchorOperationStatus::Replayed
+			&& Replay.GetInput().AttemptId == First.GetInput().AttemptId
+			&& ReplayLifecycle.Placement.World.PlacementReceipt.ReceiptId
+				== FirstLifecycle.Placement.World.PlacementReceipt.ReceiptId
+			&& Replay.GetActorClassPath()
+				== ACharacter::StaticClass()->GetPathName());
+	TestTrue(TEXT("Exact replay rejects an Actor class binding drift"),
+		ActorClassDrift.IsValid()
+			&& !ActorClassDrift.IsAccepted()
+			&& ActorClassDrift.GetInput().Status
+				== Edemo_mapShanmenFormationAnchorInputStatus::LifecycleRejected
+			&& ActorClassDrift.GetInput().Lifecycle.Status
+				== Edemo_mapShanmenFormationAnchorOperationStatus::
+					PlacementRejected);
+	TestTrue(TEXT("One input event cannot be rebound to another anchor"),
+		CrossAnchorAttemptConflict.IsValid()
+			&& !CrossAnchorAttemptConflict.IsAccepted()
+			&& CrossAnchorAttemptConflict.GetInput().Status
+				== Edemo_mapShanmenFormationAnchorInputStatus::LifecycleRejected
+			&& CrossAnchorAttemptConflict.GetInput().Lifecycle.Status
+				== Edemo_mapShanmenFormationAnchorOperationStatus::
+					PreparationRejected
+			&& CrossAnchorAttemptConflict.GetInput().Lifecycle.Prepared.Session.
+				Status
+				== Edemo_mapShanmenFormationSessionStatus::AttemptConflict
+			&& Fixture.Product.CaptureSnapshot(AfterConflict)
+			&& AfterConflict == AfterFirst
+			&& Fixture.Lifecycle.IsValid());
+
+	const auto Second =
+		Fdemo_mapShanmenFormationAnchorProductRoute::RouteAnchor(
+			true,
+			*Fixture.Product.Authority,
+			Fixture.CombatRun,
+			Fixture.Lifecycle,
+			Fixture.Product.World,
+			ACharacter::StaticClass(),
+			FormationAnchorInputEventB,
+			HostAnchorB);
+	const Fdemo_mapShanmenFormationProductHost* Host =
+		Fixture.Lifecycle.GetController().GetProductHost();
+	const FName DeploymentTag =
+		Fdemo_mapShanmenFormationWorldAdapter::MakeDeploymentTag(
+			FirstLifecycle.Placement.PlacementIntent.DeploymentId);
+	TestTrue(TEXT("A distinct event completes the concrete formation"),
+		Second.IsAccepted()
+			&& Second.GetInput().AttemptId != First.GetInput().AttemptId
+			&& Host
+			&& Host->GetSession().GetState()
+				== Edemo_mapShanmenFormationSessionState::Active
+			&& Host->GetWorldAdapter().GetPlacementCount() == 2
+			&& CountTaggedActors(Fixture.Product.World, DeploymentTag) == 2);
+
+	const auto Ended = Fixture.Lifecycle.TryEndRun(
+		*Fixture.Product.Authority,
+		Fixture.Product.World,
+		Fixture.CombatRun);
+	TestTrue(TEXT("Concrete anchor route remains owned by sole lifecycle"),
+		Ended.IsEnded()
+			&& Ended.ProductTeardown.bEndedCompletedFormation
+			&& CountTaggedActors(Fixture.Product.World, DeploymentTag) == 0
 			&& Fixture.Lifecycle.IsEmpty()
 			&& !Fixture.CombatRun.IsActive());
 	return true;

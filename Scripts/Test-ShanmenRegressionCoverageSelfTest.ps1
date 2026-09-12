@@ -679,6 +679,9 @@ try
     $FormationDiagramStartProductRoute = New-AutomationLogFixture `
         -Name 'formation-diagram-start-product-route.log' `
         -Group 'Shanmen.0_0_10.Product.FormationDiagramStartProductRoute'
+    $FormationAnchorProductRoute = New-AutomationLogFixture `
+        -Name 'formation-anchor-product-route.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationAnchorProductRoute'
     $FormationInputAdapter = New-AutomationLogFixture `
         -Name 'formation-input-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.FormationInputAdapter'
@@ -2518,6 +2521,13 @@ try
             'Source/demo_map/demo_mapShanmenFormationDiagramStartProductRoute.h',
             'Source/demo_map/demo_mapShanmenFormationDiagramStartProductRoute.cpp') `
         -Logs @($Full, $FormationDiagramStartProductRoute)
+
+    Invoke-ExpectedPass `
+        -Name 'formation anchor product route maps concrete Run lifecycle item and World contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationAnchorProductRoute.h',
+            'Source/demo_map/demo_mapShanmenFormationAnchorProductRoute.cpp') `
+        -Logs @($Full, $FormationAnchorProductRoute)
 
     Invoke-ExpectedPass `
         -Name 'formation input adapter maps lifecycle controller authority and World evidence' `
@@ -5701,6 +5711,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationDiagramStartProductRoute.cpp') `
         -Logs @($FormationDiagramStartProductRoute) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'formation anchor product focus cannot replace lifecycle material and World evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationAnchorProductRoute.cpp') `
+        -Logs @($FormationAnchorProductRoute) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
