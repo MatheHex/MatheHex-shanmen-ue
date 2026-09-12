@@ -676,6 +676,9 @@ try
     $FormationDiagramStartInputComposition = New-AutomationLogFixture `
         -Name 'formation-diagram-start-input-composition.log' `
         -Group 'Shanmen.0_0_10.Product.FormationDiagramStartInputComposition'
+    $FormationDiagramStartProductRoute = New-AutomationLogFixture `
+        -Name 'formation-diagram-start-product-route.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationDiagramStartProductRoute'
     $FormationInputAdapter = New-AutomationLogFixture `
         -Name 'formation-input-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.FormationInputAdapter'
@@ -2508,6 +2511,13 @@ try
             'Source/demo_map/demo_mapShanmenFormationDiagramStartInputComposition.cpp',
             'Source/demo_map/demo_mapShanmenFormationDiagramStartInputCompositionTests.cpp') `
         -Logs @($Full, $FormationDiagramStartInputComposition)
+
+    Invoke-ExpectedPass `
+        -Name 'formation diagram start product route maps concrete Run lifecycle and shared energy contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationDiagramStartProductRoute.h',
+            'Source/demo_map/demo_mapShanmenFormationDiagramStartProductRoute.cpp') `
+        -Logs @($Full, $FormationDiagramStartProductRoute)
 
     Invoke-ExpectedPass `
         -Name 'formation input adapter maps lifecycle controller authority and World evidence' `
@@ -5684,6 +5694,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationDiagramStartInputComposition.cpp') `
         -Logs @($FormationDiagramStartInputComposition) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'formation diagram start product focus cannot replace composition lifecycle and shared energy evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationDiagramStartProductRoute.cpp') `
+        -Logs @($FormationDiagramStartProductRoute) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

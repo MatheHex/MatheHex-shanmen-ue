@@ -4,6 +4,7 @@
 #include "demo_mapShanmenFormationProductAuthority.h"
 #include "demo_mapShanmenFormationProductController.h"
 #include "demo_mapShanmenFormationDiagramStartInputComposition.h"
+#include "demo_mapShanmenFormationDiagramStartProductRoute.h"
 #include "demo_mapShanmenFormationInputAdapter.h"
 #include "demo_mapShanmenFormationRunLifecycle.h"
 #include "demo_mapShanmenFormationInfluenceExecutorAdapter.h"
@@ -6829,6 +6830,434 @@ bool Fdemo_mapFormationDiagramStartInputSharedEnergyIntegrationTest::RunTest(
 		Fixture.Product.World,
 		Fixture.CombatRun);
 	TestTrue(TEXT("Composed unplaced formation still ends through sole lifecycle"),
+		Ended.IsEnded()
+			&& !Ended.ProductTeardown.bEndedCompletedFormation
+			&& Fixture.Lifecycle.IsEmpty()
+			&& !Fixture.CombatRun.IsActive());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationDiagramStartProductRouteDependencyTest,
+	"Shanmen.0_0_10.Product.FormationDiagramStartProductRoute.GameplayAndDependencyFences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationDiagramStartProductRouteDependencyTest::RunTest(
+	const FString&)
+{
+	FFormationRunLifecycleFixture Fixture;
+	FFormationRunLifecycleFixture Other;
+	if (!Fixture.Start(*this, TEXT("FormationDiagramProductRouteDependencies"))
+		|| !Other.Start(*this, TEXT("FormationDiagramProductRouteOtherRun")))
+	{
+		AddError(FString::Printf(
+			TEXT("P27.12 lifecycle fixture failed: %s / %s"),
+			*Fixture.Diagnostic,
+			*Other.Diagnostic));
+		return false;
+	}
+
+	Fdemo_mapShanmenFormationDiagramCatalog EmptyCatalog;
+	int32 AuthorityReads = 0;
+	auto ReadAuthority = [&AuthorityReads](
+		const FGuid&,
+		Fdemo_mapShanmenFormationKnowledgeAuthorityCapture&,
+		FString& OutDiagnostic)
+	{
+		++AuthorityReads;
+		OutDiagnostic = TEXT("P27.12 dependency test must not read knowledge.");
+		return false;
+	};
+	Fdemo_mapCombatRunCoordinator MissingCoordinator;
+	Fdemo_mapShanmenFormationRunLifecycle MissingLifecycle;
+	Fdemo_mapShanmenDivineSenseProductController MissingSpiritEnergy;
+
+	const auto GameplayBlocked =
+		Fdemo_mapShanmenFormationDiagramStartProductRoute::RouteStart(
+			false,
+			*Fixture.Product.Authority,
+			MissingCoordinator,
+			MissingLifecycle,
+			MissingSpiritEnergy,
+			FGuid(),
+			EmptyCatalog,
+			NAME_None,
+			FVector::ZeroVector,
+			FVector::ZeroVector,
+			ReadAuthority);
+	const auto CoordinatorUnavailable =
+		Fdemo_mapShanmenFormationDiagramStartProductRoute::RouteStart(
+			true,
+			*Fixture.Product.Authority,
+			MissingCoordinator,
+			Fixture.Lifecycle,
+			Fixture.SpiritEnergyController,
+			FormationStartInputEventA,
+			EmptyCatalog,
+			NAME_None,
+			FVector::ZeroVector,
+			FVector::ForwardVector,
+			ReadAuthority);
+	const auto LifecycleUnavailable =
+		Fdemo_mapShanmenFormationDiagramStartProductRoute::RouteStart(
+			true,
+			*Fixture.Product.Authority,
+			Fixture.CombatRun,
+			MissingLifecycle,
+			Fixture.SpiritEnergyController,
+			FormationStartInputEventA,
+			EmptyCatalog,
+			NAME_None,
+			FVector::ZeroVector,
+			FVector::ForwardVector,
+			ReadAuthority);
+	const auto LifecycleRunMismatch =
+		Fdemo_mapShanmenFormationDiagramStartProductRoute::RouteStart(
+			true,
+			*Fixture.Product.Authority,
+			Fixture.CombatRun,
+			Other.Lifecycle,
+			Fixture.SpiritEnergyController,
+			FormationStartInputEventA,
+			EmptyCatalog,
+			NAME_None,
+			FVector::ZeroVector,
+			FVector::ForwardVector,
+			ReadAuthority);
+	const auto SpiritEnergyUnavailable =
+		Fdemo_mapShanmenFormationDiagramStartProductRoute::RouteStart(
+			true,
+			*Fixture.Product.Authority,
+			Fixture.CombatRun,
+			Fixture.Lifecycle,
+			MissingSpiritEnergy,
+			FormationStartInputEventA,
+			EmptyCatalog,
+			NAME_None,
+			FVector::ZeroVector,
+			FVector::ForwardVector,
+			ReadAuthority);
+	const auto SpiritEnergyRunMismatch =
+		Fdemo_mapShanmenFormationDiagramStartProductRoute::RouteStart(
+			true,
+			*Fixture.Product.Authority,
+			Fixture.CombatRun,
+			Fixture.Lifecycle,
+			Other.SpiritEnergyController,
+			FormationStartInputEventA,
+			EmptyCatalog,
+			NAME_None,
+			FVector::ZeroVector,
+			FVector::ForwardVector,
+			ReadAuthority);
+
+	TestTrue(TEXT("Gameplay gate completes before dependency inspection"),
+		GameplayBlocked.IsValid()
+			&& !GameplayBlocked.IsAccepted()
+			&& GameplayBlocked.GetStatus()
+				== Edemo_mapShanmenFormationDiagramStartProductRouteStatus::
+					GameplayBlocked
+			&& GameplayBlocked.GetDependencyValidationCount() == 0
+			&& GameplayBlocked.GetComposition().GetInput().Status
+				== Edemo_mapShanmenFormationStartInputStatus::GameplayBlocked);
+	TestTrue(TEXT("Missing coordinator fails before personal knowledge"),
+		CoordinatorUnavailable.IsValid()
+			&& CoordinatorUnavailable.GetStatus()
+				== Edemo_mapShanmenFormationDiagramStartProductRouteStatus::
+					CoordinatorUnavailable);
+	TestTrue(TEXT("Missing lifecycle fails before personal knowledge"),
+		LifecycleUnavailable.IsValid()
+			&& LifecycleUnavailable.GetStatus()
+				== Edemo_mapShanmenFormationDiagramStartProductRouteStatus::
+					LifecycleUnavailable);
+	TestTrue(TEXT("Foreign lifecycle Run is rejected"),
+		LifecycleRunMismatch.IsValid()
+			&& LifecycleRunMismatch.GetStatus()
+				== Edemo_mapShanmenFormationDiagramStartProductRouteStatus::
+					LifecycleRunMismatch
+			&& LifecycleRunMismatch.GetLifecycleRunId()
+				!= LifecycleRunMismatch.GetRunId());
+	TestTrue(TEXT("Missing shared SpiritEnergy fails before personal knowledge"),
+		SpiritEnergyUnavailable.IsValid()
+			&& SpiritEnergyUnavailable.GetStatus()
+				== Edemo_mapShanmenFormationDiagramStartProductRouteStatus::
+					SpiritEnergyUnavailable);
+	TestTrue(TEXT("Foreign shared SpiritEnergy Run is rejected"),
+		SpiritEnergyRunMismatch.IsValid()
+			&& SpiritEnergyRunMismatch.GetStatus()
+				== Edemo_mapShanmenFormationDiagramStartProductRouteStatus::
+					SpiritEnergyRunMismatch
+			&& SpiritEnergyRunMismatch.GetSpiritEnergyRunId()
+				!= SpiritEnergyRunMismatch.GetRunId());
+	TestEqual(TEXT("Every dependency rejection preserves lazy authority access"),
+		AuthorityReads,
+		0);
+	TestEqual(TEXT("Dependency rejection consumes no formation sequence"),
+		Fixture.CombatRun.GetNextPlayerFormationActivationSequence(),
+		static_cast<uint64>(1));
+	TestEqual(TEXT("Dependency rejection consumes no shared energy"),
+		Fixture.SpiritEnergyController.GetSession().GetHost().
+			NumExternalSpiritEnergyTransactions(),
+		0);
+
+	const auto OtherEnded = Other.Lifecycle.TryEndRun(
+		*Other.Product.Authority,
+		Other.Product.World,
+		Other.CombatRun);
+	const auto FixtureEnded = Fixture.Lifecycle.TryEndRun(
+		*Fixture.Product.Authority,
+		Fixture.Product.World,
+		Fixture.CombatRun);
+	TestTrue(TEXT("Dependency fixtures preserve normal lifecycle teardown"),
+		OtherEnded.IsEnded() && FixtureEnded.IsEnded());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationDiagramStartProductRouteAccessTest,
+	"Shanmen.0_0_10.Product.FormationDiagramStartProductRoute.PersonalKnowledgeFence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationDiagramStartProductRouteAccessTest::RunTest(
+	const FString&)
+{
+	FFormationRunLifecycleFixture Fixture;
+	if (!Fixture.Start(*this, TEXT("FormationDiagramProductRouteAccess")))
+	{
+		AddError(FString::Printf(
+			TEXT("P27.12 lifecycle fixture failed: %s"),
+			*Fixture.Diagnostic));
+		return false;
+	}
+
+	Fdemo_mapShanmenFormationDiagramCatalogCapture CatalogCapture;
+	CatalogCapture.Content.Version = TEXT("0.0.10.P27.12.Access");
+	CatalogCapture.Content.Digest =
+		TEXT("FormationDiagramStartProductRoutePersonalKnowledgeFence");
+	CatalogCapture.Diagrams.Add(MakeHostDiagramCapture());
+	Fdemo_mapShanmenFormationDiagramCatalog Catalog;
+	if (!Fdemo_mapShanmenFormationDiagramCatalog::TryCapture(
+		CatalogCapture,
+		Catalog,
+		Fixture.Diagnostic))
+	{
+		AddError(Fixture.Diagnostic);
+		return false;
+	}
+
+	const FGuid OwnerId = Fixture.CombatRun.GetPlayerEntityId();
+	const FName DiagramId = MakeHostDiagram().GetDiagramDefinitionId();
+	int32 AuthorityReads = 0;
+	auto ReadAuthority = [&AuthorityReads, &Catalog, OwnerId](
+		const FGuid& RequestedOwnerId,
+		Fdemo_mapShanmenFormationKnowledgeAuthorityCapture& OutCapture,
+		FString& OutDiagnostic)
+	{
+		++AuthorityReads;
+		OutCapture.OwnerId = RequestedOwnerId;
+		OutCapture.AuthorityRevision = 2712;
+		OutCapture.CatalogId = Catalog.GetCatalogId();
+		OutCapture.Content = Catalog.GetContent();
+		OutCapture.KnownDiagramDefinitionIds.Reset();
+		OutDiagnostic = RequestedOwnerId == OwnerId
+			? TEXT("P27.12 returned the owner's empty known-diagram set.")
+			: TEXT("P27.12 rejected a foreign knowledge owner.");
+		return RequestedOwnerId == OwnerId;
+	};
+
+	const uint64 SequenceBefore =
+		Fixture.CombatRun.GetNextPlayerFormationActivationSequence();
+	const float EnergyBefore = Fixture.SpiritEnergyController.
+		GetSession().GetHost().GetCurrentSpiritEnergy();
+	const auto Result =
+		Fdemo_mapShanmenFormationDiagramStartProductRoute::RouteStart(
+			true,
+			*Fixture.Product.Authority,
+			Fixture.CombatRun,
+			Fixture.Lifecycle,
+			Fixture.SpiritEnergyController,
+			FormationStartInputEventA,
+			Catalog,
+			DiagramId,
+			FVector::ZeroVector,
+			FVector::ForwardVector,
+			ReadAuthority);
+
+	TestTrue(TEXT("Unknown personal diagram rejects before lifecycle"),
+		Result.IsValid()
+			&& !Result.IsAccepted()
+			&& Result.GetStatus()
+				== Edemo_mapShanmenFormationDiagramStartProductRouteStatus::Routed
+			&& Result.GetComposition().GetStatus()
+				== Edemo_mapShanmenFormationDiagramStartInputCompositionStatus::
+					DiagramAccessRejected
+			&& Result.GetComposition().GetInput().LifecycleInvocationCount == 0
+			&& AuthorityReads == 1
+			&& Fixture.CombatRun.GetNextPlayerFormationActivationSequence()
+				== SequenceBefore
+			&& Fixture.SpiritEnergyController.GetSession().GetHost().
+				GetCurrentSpiritEnergy() == EnergyBefore
+			&& Fixture.SpiritEnergyController.GetSession().GetHost().
+				NumExternalSpiritEnergyTransactions() == 0
+			&& Fixture.Lifecycle.GetController().GetProductHost() == nullptr);
+
+	const auto Ended = Fixture.Lifecycle.TryEndRun(
+		*Fixture.Product.Authority,
+		Fixture.Product.World,
+		Fixture.CombatRun);
+	TestTrue(TEXT("Access rejection preserves normal lifecycle teardown"),
+		Ended.IsEnded());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationDiagramStartProductRouteReplayTest,
+	"Shanmen.0_0_10.Product.FormationDiagramStartProductRoute.SharedEnergyReplayAndConflict",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationDiagramStartProductRouteReplayTest::RunTest(
+	const FString&)
+{
+	FFormationRunLifecycleFixture Fixture;
+	if (!Fixture.Start(*this, TEXT("FormationDiagramProductRouteReplay")))
+	{
+		AddError(FString::Printf(
+			TEXT("P27.12 lifecycle fixture failed: %s"),
+			*Fixture.Diagnostic));
+		return false;
+	}
+
+	Fdemo_mapShanmenFormationDiagramCatalogCapture CatalogCapture;
+	CatalogCapture.Content.Version = TEXT("0.0.10.P27.12.Replay");
+	CatalogCapture.Content.Digest =
+		TEXT("FormationDiagramStartProductRouteSharedEnergyReplayAndConflict");
+	CatalogCapture.Diagrams.Add(MakeHostDiagramCapture());
+	Fdemo_mapShanmenFormationDiagramCatalog Catalog;
+	if (!Fdemo_mapShanmenFormationDiagramCatalog::TryCapture(
+		CatalogCapture,
+		Catalog,
+		Fixture.Diagnostic))
+	{
+		AddError(Fixture.Diagnostic);
+		return false;
+	}
+
+	const FGuid OwnerId = Fixture.CombatRun.GetPlayerEntityId();
+	const FName DiagramId = MakeHostDiagram().GetDiagramDefinitionId();
+	int32 AuthorityReads = 0;
+	auto ReadAuthority = [&AuthorityReads, &Catalog, OwnerId, DiagramId](
+		const FGuid& RequestedOwnerId,
+		Fdemo_mapShanmenFormationKnowledgeAuthorityCapture& OutCapture,
+		FString& OutDiagnostic)
+	{
+		++AuthorityReads;
+		if (RequestedOwnerId != OwnerId)
+		{
+			OutDiagnostic = TEXT("P27.12 rejected a foreign knowledge owner.");
+			return false;
+		}
+		OutCapture.OwnerId = OwnerId;
+		OutCapture.AuthorityRevision = 2712;
+		OutCapture.CatalogId = Catalog.GetCatalogId();
+		OutCapture.Content = Catalog.GetContent();
+		OutCapture.KnownDiagramDefinitionIds = { DiagramId };
+		OutDiagnostic = TEXT("P27.12 knowledge read completed.");
+		return true;
+	};
+
+	const uint64 SequenceBefore =
+		Fixture.CombatRun.GetNextPlayerFormationActivationSequence();
+	const float EnergyBefore = Fixture.SpiritEnergyController.
+		GetSession().GetHost().GetCurrentSpiritEnergy();
+	const FVector Origin(25.0, -10.0, 5.0);
+	const FVector Forward(2.0, 0.0, 1.0);
+	const auto First =
+		Fdemo_mapShanmenFormationDiagramStartProductRoute::RouteStart(
+			true,
+			*Fixture.Product.Authority,
+			Fixture.CombatRun,
+			Fixture.Lifecycle,
+			Fixture.SpiritEnergyController,
+			FormationStartInputEventA,
+			Catalog,
+			DiagramId,
+			Origin,
+			Forward,
+			ReadAuthority);
+	const float EnergyAfterFirst = Fixture.SpiritEnergyController.
+		GetSession().GetHost().GetCurrentSpiritEnergy();
+	const auto Replay =
+		Fdemo_mapShanmenFormationDiagramStartProductRoute::RouteStart(
+			true,
+			*Fixture.Product.Authority,
+			Fixture.CombatRun,
+			Fixture.Lifecycle,
+			Fixture.SpiritEnergyController,
+			FormationStartInputEventA,
+			Catalog,
+			DiagramId,
+			Origin,
+			Forward,
+			ReadAuthority);
+	const auto Conflict =
+		Fdemo_mapShanmenFormationDiagramStartProductRoute::RouteStart(
+			true,
+			*Fixture.Product.Authority,
+			Fixture.CombatRun,
+			Fixture.Lifecycle,
+			Fixture.SpiritEnergyController,
+			FormationStartInputEventA,
+			Catalog,
+			DiagramId,
+			Origin + FVector(100.0, 0.0, 0.0),
+			Forward,
+			ReadAuthority);
+
+	const auto& FirstInput = First.GetComposition().GetInput();
+	const auto& ReplayInput = Replay.GetComposition().GetInput();
+	const auto& ConflictInput = Conflict.GetComposition().GetInput();
+	TestTrue(TEXT("Concrete product route spends shared energy once"),
+		First.IsAccepted()
+			&& First.GetStatus()
+				== Edemo_mapShanmenFormationDiagramStartProductRouteStatus::Routed
+			&& First.GetRunId() == Fixture.CombatRun.GetRunId()
+			&& First.GetOwnerId() == Fixture.CombatRun.GetPlayerEntityId()
+			&& FirstInput.Lifecycle.SharedResource.IsSuccess()
+			&& EnergyBefore == 100.0f
+			&& EnergyAfterFirst
+				== EnergyBefore
+					- MakeHostDiagram().GetActivationEnergyCost().GetAmount());
+	TestTrue(TEXT("Exact product event replays frozen product proof"),
+		Replay.IsAccepted()
+			&& ReplayInput.Lifecycle.bReusedIntent
+			&& Replay.GetComposition().GetAccess().Selection.Selection.
+				GetSelectionId()
+				== First.GetComposition().GetAccess().Selection.Selection.
+					GetSelectionId()
+			&& ReplayInput.IntentId == FirstInput.IntentId
+			&& ReplayInput.Lifecycle.SharedResource.Receipt.GetReceiptId()
+				== FirstInput.Lifecycle.SharedResource.Receipt.GetReceiptId());
+	TestTrue(TEXT("Changed payload under one event fails closed"),
+		Conflict.IsValid()
+			&& !Conflict.IsAccepted()
+			&& ConflictInput.Status
+				== Edemo_mapShanmenFormationStartInputStatus::LifecycleRejected
+			&& ConflictInput.Lifecycle.Status
+				== Edemo_mapShanmenFormationControllerStatus::IntentIdConflict);
+	TestTrue(TEXT("Replay and conflict cannot double-spend or advance identity"),
+		Fixture.SpiritEnergyController.GetSession().GetHost().
+			GetCurrentSpiritEnergy() == EnergyAfterFirst
+			&& Fixture.SpiritEnergyController.GetSession().GetHost().
+				NumExternalSpiritEnergyTransactions() == 1
+			&& Fixture.CombatRun.GetNextPlayerFormationActivationSequence()
+				== SequenceBefore + 1
+			&& AuthorityReads == 3);
+
+	const auto Ended = Fixture.Lifecycle.TryEndRun(
+		*Fixture.Product.Authority,
+		Fixture.Product.World,
+		Fixture.CombatRun);
+	TestTrue(TEXT("Concrete product route remains owned by sole lifecycle"),
 		Ended.IsEnded()
 			&& !Ended.ProductTeardown.bEndedCompletedFormation
 			&& Fixture.Lifecycle.IsEmpty()
