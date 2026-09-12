@@ -50,6 +50,7 @@ namespace
 		OutParts.Append({
 			CanonicalName(Diagram.GetActionDefinitionId()),
 			CanonicalName(Diagram.GetDiagramDefinitionId()),
+			GuidDigits(Diagram.GetActivationEnergyCost().GetCostId()),
 			FString::FromInt(Diagram.GetAnchors().Num())
 		});
 		for (const FShanmenFormationAnchorDefinition& Anchor :
@@ -208,7 +209,7 @@ FGuid Fdemo_mapShanmenFormationDiagramCatalog::BuildCatalogId(
 		AppendDiagramParts(Diagram, Parts);
 	}
 	return FShanmenDeterministicId::FromCanonicalParts(
-		TEXT("demo_map.Formation.DiagramCatalog.r1"), Parts);
+		TEXT("demo_map.Formation.DiagramCatalog.r2"), Parts);
 }
 
 bool Fdemo_mapShanmenFormationDiagramKnowledgeSnapshot::TryCapture(

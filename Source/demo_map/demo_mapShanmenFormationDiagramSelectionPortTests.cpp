@@ -23,12 +23,19 @@ namespace
 	FShanmenFormationDiagramCapture MakeDiagramCapture(
 		const FName DiagramId,
 		const double OffsetX,
-		const int32 Quantity = 1)
+		const int32 Quantity = 1,
+		const float EnergyAmount = 10.0f)
 	{
 		FShanmenFormationDiagramCapture Capture;
 		Capture.ActionDefinitionId =
 			FShanmenFormationDiagramDefinition::CanonicalActionDefinitionId();
 		Capture.DiagramDefinitionId = DiagramId;
+		Capture.ActivationEnergyCost.RuleId =
+			TEXT("Formation.ActivationEnergy.P27.9.Test");
+		Capture.ActivationEnergyCost.ResourceChannel =
+			FShanmenFormationDiagramDefinition::
+				CanonicalActivationEnergyChannel();
+		Capture.ActivationEnergyCost.Amount = EnergyAmount;
 		FShanmenFormationAnchorCapture& Anchor =
 			Capture.Anchors.AddDefaulted_GetRef();
 		Anchor.Order = 0;
@@ -97,16 +104,23 @@ bool Fdemo_mapFormationDiagramCatalogIdentityTest::RunTest(const FString&)
 	};
 	const bool bGeometry = TryMakeCatalog(
 		Content, GeometryCaptures, GeometryDrift, Diagnostic);
+	Fdemo_mapShanmenFormationDiagramCatalog EnergyDrift;
+	const TArray<FShanmenFormationDiagramCapture> EnergyCaptures = {
+		MakeDiagramCapture(DiagramA, 100.0, 1, 11.0f), Captures[1]
+	};
+	const bool bEnergy = TryMakeCatalog(
+		Content, EnergyCaptures, EnergyDrift, Diagnostic);
 	Fdemo_mapShanmenFormationDiagramCatalog ContentDrift;
 	const bool bContent = TryMakeCatalog(
 		MakeContent(TEXT("catalog-b")),
 		Captures,
 		ContentDrift,
 		Diagnostic);
-	TestTrue(TEXT("Content geometry and authored order are identity-bound"),
-		bReordered && bGeometry && bContent
+	TestTrue(TEXT("Content energy geometry and authored order are identity-bound"),
+		bReordered && bGeometry && bEnergy && bContent
 			&& Reordered.GetCatalogId() != First.GetCatalogId()
 			&& GeometryDrift.GetCatalogId() != First.GetCatalogId()
+			&& EnergyDrift.GetCatalogId() != First.GetCatalogId()
 			&& ContentDrift.GetCatalogId() != First.GetCatalogId());
 
 	Fdemo_mapShanmenFormationDiagramCatalog Duplicate;
@@ -120,11 +134,17 @@ bool Fdemo_mapFormationDiagramCatalogIdentityTest::RunTest(const FString&)
 	Fdemo_mapShanmenFormationDiagramCatalog Invalid;
 	const bool bInvalid = TryMakeCatalog(
 		Content, { InvalidDiagram }, Invalid, Diagnostic);
+	FShanmenFormationDiagramCapture MissingEnergy = Captures[0];
+	MissingEnergy.ActivationEnergyCost = FShanmenActionResourceCostCapture();
+	Fdemo_mapShanmenFormationDiagramCatalog MissingEnergyCatalog;
+	const bool bMissingEnergy = TryMakeCatalog(
+		Content, { MissingEnergy }, MissingEnergyCatalog, Diagnostic);
 	Fdemo_mapShanmenFormationDiagramCatalog Empty;
 	const bool bEmpty = TryMakeCatalog(Content, {}, Empty, Diagnostic);
-	TestTrue(TEXT("Duplicate invalid and empty authored catalogs fail closed"),
+	TestTrue(TEXT("Duplicate incomplete invalid and empty catalogs fail closed"),
 		!bDuplicate && !Duplicate.IsValid()
 			&& !bInvalid && !Invalid.IsValid()
+			&& !bMissingEnergy && !MissingEnergyCatalog.IsValid()
 			&& !bEmpty && !Empty.IsValid()
 			&& !Diagnostic.IsEmpty());
 	return true;

@@ -1517,7 +1517,10 @@
       "name": "FormationDeploymentCore",
       "pathRegex": "^Source/ShanmenCombatRuntime/(?:Public/ShanmenFormationDeployment\\.h|Private/(?:ShanmenFormationDeployment\\.cpp|Tests/ShanmenFormationDeploymentTests\\.cpp))$",
       "requiredGroups": [
-        "Shanmen.0_0_10.CombatRuntime.FormationDeployment"
+        "Shanmen.0_0_10",
+        "Shanmen.0_0_10.CombatRuntime.FormationDeployment",
+        "Shanmen.0_0_10.CombatRuntime.ActionResource",
+        "Shanmen.0_0_10.Product.FormationDiagramSelection"
       ]
     },
     {

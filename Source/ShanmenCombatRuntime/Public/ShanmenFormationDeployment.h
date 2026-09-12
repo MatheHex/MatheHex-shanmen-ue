@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "ShanmenActionResourceAuthority.h"
 #include "ShanmenActionOrchestrator.h"
 
 #include "ShanmenFormationDeployment.generated.h"
@@ -73,6 +74,13 @@ struct SHANMENCOMBATRUNTIME_API FShanmenFormationDiagramCapture
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Combat|Formation")
 	FName DiagramDefinitionId = NAME_None;
 
+	/**
+	 * Authored activation demand on the existing shared SpiritEnergy channel.
+	 * The amount and rule identity remain content-owned.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Combat|Formation")
+	FShanmenActionResourceCostCapture ActivationEnergyCost;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Combat|Formation")
 	TArray<FShanmenFormationAnchorCapture> Anchors;
 };
@@ -142,6 +150,7 @@ struct SHANMENCOMBATRUNTIME_API FShanmenFormationDiagramDefinition
 
 public:
 	static FName CanonicalActionDefinitionId();
+	static FGameplayTag CanonicalActivationEnergyChannel();
 	static bool TryCapture(
 		const FShanmenFormationDiagramCapture& Capture,
 		FShanmenFormationDiagramDefinition& OutDefinition);
@@ -149,6 +158,10 @@ public:
 	bool IsValid() const;
 	FName GetActionDefinitionId() const { return ActionDefinitionId; }
 	FName GetDiagramDefinitionId() const { return DiagramDefinitionId; }
+	const FShanmenActionResourceCost& GetActivationEnergyCost() const
+	{
+		return ActivationEnergyCost;
+	}
 	const TArray<FShanmenFormationAnchorDefinition>& GetAnchors() const
 	{
 		return Anchors;
@@ -162,6 +175,9 @@ private:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Shanmen|Combat|Formation", meta = (AllowPrivateAccess = "true"))
 	FName DiagramDefinitionId = NAME_None;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Shanmen|Combat|Formation", meta = (AllowPrivateAccess = "true"))
+	FShanmenActionResourceCost ActivationEnergyCost;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Shanmen|Combat|Formation", meta = (AllowPrivateAccess = "true"))
 	TArray<FShanmenFormationAnchorDefinition> Anchors;

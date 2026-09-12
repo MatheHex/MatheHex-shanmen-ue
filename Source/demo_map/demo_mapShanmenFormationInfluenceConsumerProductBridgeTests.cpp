@@ -86,6 +86,12 @@ namespace
 			DiagramCapture.DiagramDefinitionId = FName(*FString::Printf(
 				TEXT("Formation.Diagram.ConsumerProductBridge.%d"),
 				EffectiveDiagramVariant));
+			DiagramCapture.ActivationEnergyCost.RuleId =
+				TEXT("Formation.ActivationEnergy.ConsumerProductBridge");
+			DiagramCapture.ActivationEnergyCost.ResourceChannel =
+				FShanmenFormationDiagramDefinition::
+					CanonicalActivationEnergyChannel();
+			DiagramCapture.ActivationEnergyCost.Amount = 10.0f;
 			auto& Anchor = DiagramCapture.Anchors.AddDefaulted_GetRef();
 			Anchor.Order = 0;
 			Anchor.AnchorDefinitionId = FName(*FString::Printf(

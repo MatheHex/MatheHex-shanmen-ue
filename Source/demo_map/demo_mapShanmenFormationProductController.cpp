@@ -57,6 +57,8 @@ namespace
 		if (!Left.IsValid() || !Right.IsValid()
 			|| Left.GetActionDefinitionId() != Right.GetActionDefinitionId()
 			|| Left.GetDiagramDefinitionId() != Right.GetDiagramDefinitionId()
+			|| Left.GetActivationEnergyCost().GetCostId()
+				!= Right.GetActivationEnergyCost().GetCostId()
 			|| Left.GetAnchors().Num() != Right.GetAnchors().Num())
 		{
 			return false;
@@ -675,8 +677,8 @@ bool Fdemo_mapShanmenFormationProductController::IsValid() const
 		|| Captured.Intent.GetRunId() != RunId
 		|| !Captured.Preparation.IsReady()
 		|| Command.GetCorrelation().ActiveRunId != RunId
-		|| Command.GetDiagram().GetDiagramDefinitionId()
-			!= Captured.Intent.GetDiagram().GetDiagramDefinitionId()
+		|| !DiagramsMatch(
+			Command.GetDiagram(), Captured.Intent.GetDiagram())
 		|| Command.GetOrigin() != Captured.Intent.GetOrigin()
 		|| Command.GetForward() != Captured.Intent.GetForward()
 		|| Captured.LastResult.IntentId != Captured.Intent.GetIntentId()
@@ -700,8 +702,8 @@ bool Fdemo_mapShanmenFormationProductController::IsValid() const
 	return Session.GetCorrelation() == Command.GetCorrelation()
 		&& Session.GetActionRuntime().GetAction().GetActivationId()
 			== Command.GetCommandId()
-		&& Session.GetDeployment().GetDiagram().GetDiagramDefinitionId()
-			== Command.GetDiagram().GetDiagramDefinitionId()
+		&& DiagramsMatch(
+			Session.GetDeployment().GetDiagram(), Command.GetDiagram())
 		&& Session.GetDeployment().GetOrigin() == Command.GetOrigin()
 		&& Session.GetDeployment().GetForward() == Command.GetForward();
 }

@@ -1,5 +1,6 @@
 #include "ShanmenFormationDeployment.h"
 
+#include "ShanmenCombatRuntimeTags.h"
 #include "ShanmenDeterministicId.h"
 
 namespace
@@ -96,6 +97,8 @@ namespace
 				Action.GetContent().Version.ToString(),
 				Action.GetContent().Digest,
 				Diagram.GetDiagramDefinitionId().ToString(),
+				GuidDigits(
+					Diagram.GetActivationEnergyCost().GetCostId()),
 				DoubleBits(Origin.X),
 				DoubleBits(Origin.Y),
 				DoubleBits(Origin.Z),
@@ -126,7 +129,7 @@ namespace
 			}
 		}
 		return FShanmenDeterministicId::FromCanonicalParts(
-			TEXT("Shanmen.Formation.Deployment.r1"), Parts);
+			TEXT("Shanmen.Formation.Deployment.r2"), Parts);
 	}
 
 	FGuid MakeAnchorInstanceId(
@@ -271,6 +274,12 @@ FName FShanmenFormationDiagramDefinition::CanonicalActionDefinitionId()
 	return TEXT("Combat.Action.Formation.Deploy");
 }
 
+FGameplayTag
+FShanmenFormationDiagramDefinition::CanonicalActivationEnergyChannel()
+{
+	return FShanmenCombatRuntimeNativeTags::ResourceSpiritEnergy();
+}
+
 bool FShanmenFormationDiagramDefinition::TryCapture(
 	const FShanmenFormationDiagramCapture& Capture,
 	FShanmenFormationDiagramDefinition& OutDefinition)
@@ -298,6 +307,15 @@ bool FShanmenFormationDiagramDefinition::TryCapture(
 
 	OutDefinition.ActionDefinitionId = Capture.ActionDefinitionId;
 	OutDefinition.DiagramDefinitionId = Capture.DiagramDefinitionId;
+	if (!FShanmenActionResourceCost::TryCapture(
+			Capture.ActivationEnergyCost,
+			OutDefinition.ActivationEnergyCost)
+		|| OutDefinition.ActivationEnergyCost.GetResourceChannel()
+			!= CanonicalActivationEnergyChannel())
+	{
+		OutDefinition = FShanmenFormationDiagramDefinition();
+		return false;
+	}
 	TSet<FName> AnchorIds;
 	for (int32 AnchorIndex = 0;
 		AnchorIndex < OrderedAnchors.Num();
@@ -376,7 +394,11 @@ bool FShanmenFormationDiagramDefinition::TryCapture(
 bool FShanmenFormationDiagramDefinition::IsValid() const
 {
 	if (ActionDefinitionId != CanonicalActionDefinitionId()
-		|| DiagramDefinitionId.IsNone() || Anchors.IsEmpty())
+		|| DiagramDefinitionId.IsNone()
+		|| !ActivationEnergyCost.IsValid()
+		|| ActivationEnergyCost.GetResourceChannel()
+			!= CanonicalActivationEnergyChannel()
+		|| Anchors.IsEmpty())
 	{
 		return false;
 	}

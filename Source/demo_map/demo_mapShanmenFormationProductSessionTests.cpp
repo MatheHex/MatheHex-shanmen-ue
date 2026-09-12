@@ -43,6 +43,12 @@ namespace
 			FShanmenFormationDiagramDefinition::CanonicalActionDefinitionId();
 		Capture.DiagramDefinitionId =
 			TEXT("Formation.Diagram.ProductSession.P8.2");
+		Capture.ActivationEnergyCost.RuleId =
+			TEXT("Formation.ActivationEnergy.ProductSession.P8.2");
+		Capture.ActivationEnergyCost.ResourceChannel =
+			FShanmenFormationDiagramDefinition::
+				CanonicalActivationEnergyChannel();
+		Capture.ActivationEnergyCost.Amount = 10.0f;
 		FShanmenFormationAnchorCapture& First =
 			Capture.Anchors.AddDefaulted_GetRef();
 		First.Order = 0;

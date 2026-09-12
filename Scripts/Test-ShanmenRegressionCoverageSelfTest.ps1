@@ -4849,6 +4849,13 @@ try
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
+        -Name 'formation deployment focus cannot replace energy catalog and full evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Private/ShanmenFormationDeployment.cpp') `
+        -Logs @($FormationDeployment) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
         -Name 'sword rhythm focus cannot replace BasicSword lifecycle and broad runtime evidence' `
         -Paths @(
             'Source/ShanmenCombatRuntime/Private/ShanmenSwordRhythm.cpp') `

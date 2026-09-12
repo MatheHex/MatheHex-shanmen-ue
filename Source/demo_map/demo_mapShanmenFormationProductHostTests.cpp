@@ -80,6 +80,12 @@ namespace
 			FShanmenFormationDiagramDefinition::CanonicalActionDefinitionId();
 		Capture.DiagramDefinitionId =
 			TEXT("Formation.Diagram.ProductHost.P8.4");
+		Capture.ActivationEnergyCost.RuleId =
+			TEXT("Formation.ActivationEnergy.ProductHost.P8.4");
+		Capture.ActivationEnergyCost.ResourceChannel =
+			FShanmenFormationDiagramDefinition::
+				CanonicalActivationEnergyChannel();
+		Capture.ActivationEnergyCost.Amount = 10.0f;
 		FShanmenFormationAnchorCapture& First =
 			Capture.Anchors.AddDefaulted_GetRef();
 		First.Order = 0;
@@ -168,6 +174,12 @@ namespace
 			FShanmenFormationDiagramDefinition::CanonicalActionDefinitionId();
 		Capture.DiagramDefinitionId =
 			TEXT("Formation.Diagram.ProductHost.P8.10");
+		Capture.ActivationEnergyCost.RuleId =
+			TEXT("Formation.ActivationEnergy.ProductHost.P8.10");
+		Capture.ActivationEnergyCost.ResourceChannel =
+			FShanmenFormationDiagramDefinition::
+				CanonicalActivationEnergyChannel();
+		Capture.ActivationEnergyCost.Amount = 10.0f;
 		const TArray<FName> AnchorIds = {
 			HostAnchorA, HostAnchorB, HostAnchorC, HostAnchorD
 		};

@@ -82,6 +82,8 @@ namespace
 		if (!Left.IsValid() || !Right.IsValid()
 			|| Left.GetActionDefinitionId() != Right.GetActionDefinitionId()
 			|| Left.GetDiagramDefinitionId() != Right.GetDiagramDefinitionId()
+			|| Left.GetActivationEnergyCost().GetCostId()
+				!= Right.GetActivationEnergyCost().GetCostId()
 			|| Left.GetAnchors().Num() != Right.GetAnchors().Num())
 		{
 			return false;

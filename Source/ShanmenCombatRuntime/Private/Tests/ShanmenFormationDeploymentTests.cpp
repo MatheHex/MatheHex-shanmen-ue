@@ -3,6 +3,7 @@
 #include "Algo/Reverse.h"
 #include "Misc/AutomationTest.h"
 #include "ShanmenCombatResolver.h"
+#include "ShanmenCombatTags.h"
 #include "ShanmenFormationDeployment.h"
 
 namespace
@@ -72,6 +73,12 @@ namespace
 		Capture.ActionDefinitionId =
 			FShanmenFormationDiagramDefinition::CanonicalActionDefinitionId();
 		Capture.DiagramDefinitionId = TEXT("Formation.Diagram.FoundationTest.r1");
+		Capture.ActivationEnergyCost.RuleId =
+			TEXT("Formation.ActivationEnergy.FoundationTest.r1");
+		Capture.ActivationEnergyCost.ResourceChannel =
+			FShanmenFormationDiagramDefinition::
+				CanonicalActivationEnergyChannel();
+		Capture.ActivationEnergyCost.Amount = 12.0f;
 		Capture.Anchors.Add(MakeAnchor(
 			1,
 			AnchorNorthId,
@@ -195,8 +202,15 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FShanmenFormationDiagramContractTest::RunTest(const FString&)
 {
 	const FShanmenFormationDiagramDefinition Diagram = MakeDiagram();
-	TestTrue(TEXT("Diagram capture canonicalizes explicit anchor and material order"),
+	TestTrue(TEXT("Diagram capture freezes energy, anchor and material requirements"),
 		Diagram.IsValid()
+		&& Diagram.GetActivationEnergyCost().IsValid()
+		&& Diagram.GetActivationEnergyCost().GetRuleId()
+			== FName(TEXT("Formation.ActivationEnergy.FoundationTest.r1"))
+		&& Diagram.GetActivationEnergyCost().GetResourceChannel()
+			== FShanmenFormationDiagramDefinition::
+				CanonicalActivationEnergyChannel()
+		&& Diagram.GetActivationEnergyCost().GetAmount() == 12.0f
 		&& Diagram.GetAnchors().Num() == 2
 		&& Diagram.GetAnchors()[0].GetAnchorDefinitionId() == AnchorEastId
 		&& Diagram.GetAnchors()[0].GetRequirements()[0]
@@ -214,6 +228,22 @@ bool FShanmenFormationDiagramContractTest::RunTest(const FString&)
 	Invalid.Anchors[1].Requirements[0].MaterialDefinitionId =
 		FormationWoodId;
 	TestFalse(TEXT("Duplicate requirement identity in one anchor fails closed"),
+		FShanmenFormationDiagramDefinition::TryCapture(
+			Invalid, Rejected));
+	Invalid = MakeDiagramCapture();
+	Invalid.ActivationEnergyCost = FShanmenActionResourceCostCapture();
+	TestFalse(TEXT("A diagram without an activation energy requirement fails closed"),
+		FShanmenFormationDiagramDefinition::TryCapture(
+			Invalid, Rejected));
+	Invalid = MakeDiagramCapture();
+	Invalid.ActivationEnergyCost.ResourceChannel =
+		FShanmenCombatNativeTags::SourcePlayer();
+	TestFalse(TEXT("A non-SpiritEnergy activation channel fails closed"),
+		FShanmenFormationDiagramDefinition::TryCapture(
+			Invalid, Rejected));
+	Invalid = MakeDiagramCapture();
+	Invalid.ActivationEnergyCost.Amount = 0.0f;
+	TestFalse(TEXT("A non-positive activation energy amount fails closed"),
 		FShanmenFormationDiagramDefinition::TryCapture(
 			Invalid, Rejected));
 
@@ -264,6 +294,21 @@ bool FShanmenFormationDiagramContractTest::RunTest(const FString&)
 			FVector::ForwardVector,
 			ChangedGeometry)
 		&& ChangedGeometry.GetDeploymentId() != First.GetDeploymentId());
+	FShanmenFormationDiagramCapture ChangedEnergyCapture =
+		MakeDiagramCapture();
+	ChangedEnergyCapture.ActivationEnergyCost.Amount = 13.0f;
+	FShanmenFormationDiagramDefinition ChangedEnergyDiagram;
+	check(FShanmenFormationDiagramDefinition::TryCapture(
+		ChangedEnergyCapture, ChangedEnergyDiagram));
+	FShanmenFormationDeployment ChangedEnergy;
+	TestTrue(TEXT("Activation energy participates directly in deployment identity"),
+		FShanmenFormationDeployment::TryCreate(
+			Action,
+			ChangedEnergyDiagram,
+			FVector(10.0, 20.0, 30.0),
+			FVector::ForwardVector,
+			ChangedEnergy)
+		&& ChangedEnergy.GetDeploymentId() != First.GetDeploymentId());
 	return true;
 }
 

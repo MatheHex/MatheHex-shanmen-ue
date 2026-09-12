@@ -31,6 +31,12 @@ namespace
 		Capture.ActionDefinitionId =
 			FShanmenFormationDiagramDefinition::CanonicalActionDefinitionId();
 		Capture.DiagramDefinitionId = DiagramId;
+		Capture.ActivationEnergyCost.RuleId =
+			TEXT("Formation.ActivationEnergy.P27.7.Test");
+		Capture.ActivationEnergyCost.ResourceChannel =
+			FShanmenFormationDiagramDefinition::
+				CanonicalActivationEnergyChannel();
+		Capture.ActivationEnergyCost.Amount = 10.0f;
 		FShanmenFormationAnchorCapture& Anchor =
 			Capture.Anchors.AddDefaulted_GetRef();
 		Anchor.Order = 0;
