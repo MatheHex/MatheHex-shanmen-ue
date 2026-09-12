@@ -1621,6 +1621,34 @@
       ]
     },
     {
+      "name": "FormationDiagramStartInputComposition",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenFormationDiagramStartInputComposition(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.FormationDiagramStartInputComposition",
+        "Shanmen.0_0_10.Product.FormationDiagramAccessAdapter",
+        "Shanmen.0_0_10.Product.FormationKnowledgeAuthorityAdapter",
+        "Shanmen.0_0_10.Product.FormationDiagramSelection",
+        "Shanmen.0_0_10.Product.FormationInputAdapter",
+        "Shanmen.0_0_10.Product.FormationRunLifecycle",
+        "Shanmen.0_0_10.Product.FormationProductController",
+        "Shanmen.0_0_10.Product.FormationProductAuthority",
+        "Shanmen.0_0_10.Product.CombatRunCoordinator",
+        "Shanmen.0_0_10.Product.FormationProductHost",
+        "Shanmen.0_0_10.Product.FormationSession",
+        "Shanmen.0_0_10.Product.FormationMaterialAdapter",
+        "Shanmen.0_0_10.Items",
+        "Shanmen.0_0_10.WorldGameplay",
+        "Shanmen.0_0_10.CombatRuntime.FormationDeployment",
+        "Shanmen.0_0_10.CombatRuntime.ActionResource",
+        "Shanmen.0_0_10.Product.DivineSenseProductController",
+        "Shanmen.0_0_10.Product.DivineSenseProductHost",
+        "Shanmen.0_0_10.Product.DivineSenseCommandRouter",
+        "Shanmen.0_0_10.Product.SpiritShieldProductSession",
+        "Shanmen.0_0_10.CombatCore"
+      ]
+    },
+    {
       "name": "FormationInputAdapter",
       "pathRegex": "^Source/demo_map/demo_mapShanmenFormationInputAdapter(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [

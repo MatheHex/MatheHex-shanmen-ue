@@ -673,6 +673,9 @@ try
     $FormationDiagramAccessAdapter = New-AutomationLogFixture `
         -Name 'formation-diagram-access-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.FormationDiagramAccessAdapter'
+    $FormationDiagramStartInputComposition = New-AutomationLogFixture `
+        -Name 'formation-diagram-start-input-composition.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationDiagramStartInputComposition'
     $FormationInputAdapter = New-AutomationLogFixture `
         -Name 'formation-input-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.FormationInputAdapter'
@@ -2497,6 +2500,14 @@ try
             $FormationDiagramAccessAdapter,
             $FormationKnowledgeAuthorityAdapter,
             $FormationDiagramSelection)
+
+    Invoke-ExpectedPass `
+        -Name 'formation diagram start input composition maps access input lifecycle and shared energy contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationDiagramStartInputComposition.h',
+            'Source/demo_map/demo_mapShanmenFormationDiagramStartInputComposition.cpp',
+            'Source/demo_map/demo_mapShanmenFormationDiagramStartInputCompositionTests.cpp') `
+        -Logs @($Full, $FormationDiagramStartInputComposition)
 
     Invoke-ExpectedPass `
         -Name 'formation input adapter maps lifecycle controller authority and World evidence' `
@@ -5666,6 +5677,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationDiagramAccessAdapter.cpp') `
         -Logs @($FormationDiagramAccessAdapter) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'formation diagram start input focus cannot replace access lifecycle and shared energy evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationDiagramStartInputComposition.cpp') `
+        -Logs @($FormationDiagramStartInputComposition) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
