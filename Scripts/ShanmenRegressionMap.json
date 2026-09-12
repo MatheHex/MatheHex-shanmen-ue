@@ -1589,6 +1589,15 @@
       ]
     },
     {
+      "name": "FormationKnowledgeAuthorityAdapter",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenFormationKnowledgeAuthorityAdapter(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.FormationKnowledgeAuthorityAdapter",
+        "Shanmen.0_0_10.Product.FormationDiagramSelection"
+      ]
+    },
+    {
       "name": "FormationInputAdapter",
       "pathRegex": "^Source/demo_map/demo_mapShanmenFormationInputAdapter(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [

@@ -667,6 +667,9 @@ try
     $FormationDiagramSelection = New-AutomationLogFixture `
         -Name 'formation-diagram-selection.log' `
         -Group 'Shanmen.0_0_10.Product.FormationDiagramSelection'
+    $FormationKnowledgeAuthorityAdapter = New-AutomationLogFixture `
+        -Name 'formation-knowledge-authority-adapter.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationKnowledgeAuthorityAdapter'
     $FormationInputAdapter = New-AutomationLogFixture `
         -Name 'formation-input-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.FormationInputAdapter'
@@ -2468,6 +2471,17 @@ try
             $FormationDiagramSelection,
             $FormationInputAdapter,
             $FormationDeployment)
+
+    Invoke-ExpectedPass `
+        -Name 'formation knowledge authority adapter maps read and selection contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationKnowledgeAuthorityAdapter.h',
+            'Source/demo_map/demo_mapShanmenFormationKnowledgeAuthorityAdapter.cpp',
+            'Source/demo_map/demo_mapShanmenFormationKnowledgeAuthorityAdapterTests.cpp') `
+        -Logs @(
+            $Full,
+            $FormationKnowledgeAuthorityAdapter,
+            $FormationDiagramSelection)
 
     Invoke-ExpectedPass `
         -Name 'formation input adapter maps lifecycle controller authority and World evidence' `
@@ -5616,6 +5630,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationDiagramSelectionPort.cpp') `
         -Logs @($FormationDiagramSelection) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'formation knowledge adapter focus cannot replace selection evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationKnowledgeAuthorityAdapter.cpp') `
+        -Logs @($FormationKnowledgeAuthorityAdapter) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
