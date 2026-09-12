@@ -655,6 +655,9 @@ try
     $FormationMastery = New-AutomationLogFixture `
         -Name 'formation-mastery.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.FormationMastery'
+    $FormationMasteryAuthorityAdapter = New-AutomationLogFixture `
+        -Name 'formation-mastery-authority-adapter.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationMasteryAuthorityAdapter'
     $FormationAdapter = New-AutomationLogFixture `
         -Name 'formation-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.FormationMaterialAdapter'
@@ -884,6 +887,18 @@ try
             $FormationDeployment,
             $CombatCore,
             $CombatRuntime,
+            $Full)
+
+    Invoke-ExpectedPass `
+        -Name 'formation mastery authority adapter requires policy core and full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationMasteryAuthorityAdapter.h',
+            'Source/demo_map/demo_mapShanmenFormationMasteryAuthorityAdapter.cpp',
+            'Source/demo_map/demo_mapShanmenFormationMasteryAuthorityAdapterTests.cpp') `
+        -Logs @(
+            $FormationMasteryAuthorityAdapter,
+            $FormationMastery,
+            $CombatCore,
             $Full)
 
     Invoke-ExpectedPass `
@@ -4907,6 +4922,13 @@ try
         -Paths @(
             'Source/ShanmenCombatRuntime/Private/ShanmenFormationMastery.cpp') `
         -Logs @($FormationMastery) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'formation mastery authority focus cannot replace policy core and full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationMasteryAuthorityAdapter.cpp') `
+        -Logs @($FormationMasteryAuthorityAdapter) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

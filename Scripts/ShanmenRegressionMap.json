@@ -1534,6 +1534,16 @@
       ]
     },
     {
+      "name": "FormationMasteryAuthorityAdapter",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenFormationMasteryAuthorityAdapter(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.FormationMasteryAuthorityAdapter",
+        "Shanmen.0_0_10.CombatRuntime.FormationMastery",
+        "Shanmen.0_0_10.CombatCore"
+      ]
+    },
+    {
       "name": "FormationMaterialAdapter",
       "pathRegex": "^Source/demo_map/demo_mapShanmenFormationMaterialAdapter(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [
