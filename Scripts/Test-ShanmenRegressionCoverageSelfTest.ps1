@@ -646,9 +646,12 @@ try
     $ArmorResistanceItemAdapter = New-AutomationLogFixture `
         -Name 'armor-resistance-item-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.ArmorResistanceItemAdapter'
-	$ArmorResistanceImpactFeedback = New-AutomationLogFixture `
-		-Name 'armor-resistance-impact-feedback.log' `
-		-Group 'Shanmen.0_0_10.Product.ArmorResistanceImpactFeedback'
+    $ArmorResistanceImpactFeedback = New-AutomationLogFixture `
+        -Name 'armor-resistance-impact-feedback.log' `
+        -Group 'Shanmen.0_0_10.Product.ArmorResistanceImpactFeedback'
+    $FormationDeployment = New-AutomationLogFixture `
+        -Name 'formation-deployment.log' `
+        -Group 'Shanmen.0_0_10.CombatRuntime.FormationDeployment'
     $FormationAdapter = New-AutomationLogFixture `
         -Name 'formation-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.FormationMaterialAdapter'
@@ -661,6 +664,9 @@ try
     $FormationRunLifecycle = New-AutomationLogFixture `
         -Name 'formation-run-lifecycle.log' `
         -Group 'Shanmen.0_0_10.Product.FormationRunLifecycle'
+    $FormationDiagramSelection = New-AutomationLogFixture `
+        -Name 'formation-diagram-selection.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationDiagramSelection'
     $FormationInputAdapter = New-AutomationLogFixture `
         -Name 'formation-input-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.FormationInputAdapter'
@@ -2450,6 +2456,18 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationRunLifecycle.cpp') `
         -Logs @($Full)
+
+    Invoke-ExpectedPass `
+        -Name 'formation diagram selection maps knowledge input and deployment contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationDiagramSelectionPort.h',
+            'Source/demo_map/demo_mapShanmenFormationDiagramSelectionPort.cpp',
+            'Source/demo_map/demo_mapShanmenFormationDiagramSelectionPortTests.cpp') `
+        -Logs @(
+            $Full,
+            $FormationDiagramSelection,
+            $FormationInputAdapter,
+            $FormationDeployment)
 
     Invoke-ExpectedPass `
         -Name 'formation input adapter maps lifecycle controller authority and World evidence' `
@@ -5591,6 +5609,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationRunLifecycle.cpp') `
         -Logs @($FormationRunLifecycle) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'formation diagram selection focus cannot replace input and deployment evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationDiagramSelectionPort.cpp') `
+        -Logs @($FormationDiagramSelection) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

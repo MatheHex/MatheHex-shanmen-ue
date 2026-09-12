@@ -1,28 +1,33 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "demo_mapShanmenFormationDiagramSelectionPort.h"
 #include "demo_mapShanmenFormationRunLifecycle.h"
 
-/** One immutable diagram/origin/facing sample from a caller-owned input surface. */
+/** One immutable known-diagram/origin/facing sample from an input surface. */
 class Fdemo_mapShanmenFormationStartInputSample
 {
 public:
 	static bool TryCapture(
-		const FShanmenFormationDiagramDefinition& RequestedDiagram,
+		const Fdemo_mapShanmenFormationDiagramSelection& RequestedSelection,
 		const FVector& RequestedOrigin,
 		const FVector& RequestedForward,
 		Fdemo_mapShanmenFormationStartInputSample& OutSample);
 
 	bool IsValid() const;
+	const Fdemo_mapShanmenFormationDiagramSelection& GetSelection() const
+	{
+		return Selection;
+	}
 	const FShanmenFormationDiagramDefinition& GetDiagram() const
 	{
-		return Diagram;
+		return Selection.GetDiagram();
 	}
 	const FVector& GetOrigin() const { return Origin; }
 	const FVector& GetForward() const { return Forward; }
 
 private:
-	FShanmenFormationDiagramDefinition Diagram;
+	Fdemo_mapShanmenFormationDiagramSelection Selection;
 	FVector Origin = FVector::ZeroVector;
 	FVector Forward = FVector::ZeroVector;
 };
@@ -49,8 +54,10 @@ enum class Edemo_mapShanmenFormationStartInputStatus : uint8
 	GameplayBlocked,
 	LifecycleUnavailable,
 	RunUnavailable,
+	OwnerUnavailable,
 	EventIdentityInvalid,
 	SampleRejected,
+	SelectionOwnerMismatch,
 	IntentCaptureRejected,
 	LifecycleRejected
 };
@@ -64,6 +71,7 @@ struct Fdemo_mapShanmenFormationStartInputResult
 	int32 LifecycleInvocationCount = 0;
 	FGuid InputEventId;
 	FGuid RunId;
+	FGuid OwnerId;
 	FGuid IntentId;
 	Fdemo_mapShanmenFormationStartInputSample Sample;
 	Fdemo_mapShanmenFormationIntent Intent;
@@ -138,6 +146,7 @@ struct Fdemo_mapShanmenFormationInputAdapter
 		bool bGameplayInputAllowed,
 		bool bLifecycleAvailable,
 		const FGuid& RunId,
+		const FGuid& OwnerId,
 		const FGuid& InputEventId,
 		FSampleStart SampleStart,
 		FRouteStart RouteLifecycle);

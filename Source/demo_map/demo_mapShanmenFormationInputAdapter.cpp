@@ -32,8 +32,11 @@ namespace
 		const Fdemo_mapShanmenFormationStartInputResult& Result)
 	{
 		if (!Result.RunId.IsValid()
+			|| !Result.OwnerId.IsValid()
 			|| !Result.InputEventId.IsValid()
 			|| !Result.Sample.IsValid()
+			|| Result.Sample.GetSelection().GetOwnerId()
+				!= Result.OwnerId
 			|| !Result.Intent.IsValid()
 			|| Result.IntentId
 				!= Fdemo_mapShanmenFormationInputAdapter::MakeIntentId(
@@ -83,7 +86,7 @@ namespace
 }
 
 bool Fdemo_mapShanmenFormationStartInputSample::TryCapture(
-	const FShanmenFormationDiagramDefinition& RequestedDiagram,
+	const Fdemo_mapShanmenFormationDiagramSelection& RequestedSelection,
 	const FVector& RequestedOrigin,
 	const FVector& RequestedForward,
 	Fdemo_mapShanmenFormationStartInputSample& OutSample)
@@ -93,7 +96,7 @@ bool Fdemo_mapShanmenFormationStartInputSample::TryCapture(
 		RequestedForward.X,
 		RequestedForward.Y,
 		0.0);
-	if (!RequestedDiagram.IsValid()
+	if (!RequestedSelection.IsValid()
 		|| !IsFiniteVector(RequestedOrigin)
 		|| !IsFiniteVector(RequestedForward)
 		|| PlanarForward.IsNearlyZero())
@@ -101,7 +104,7 @@ bool Fdemo_mapShanmenFormationStartInputSample::TryCapture(
 		return false;
 	}
 
-	OutSample.Diagram = RequestedDiagram;
+	OutSample.Selection = RequestedSelection;
 	OutSample.Origin = RequestedOrigin;
 	OutSample.Forward = PlanarForward.GetSafeNormal();
 	if (!OutSample.IsValid())
@@ -114,7 +117,7 @@ bool Fdemo_mapShanmenFormationStartInputSample::TryCapture(
 
 bool Fdemo_mapShanmenFormationStartInputSample::IsValid() const
 {
-	return Diagram.IsValid()
+	return Selection.IsValid()
 		&& IsFiniteVector(Origin)
 		&& IsFiniteVector(Forward)
 		&& Forward.Z == 0.0
@@ -159,8 +162,16 @@ bool Fdemo_mapShanmenFormationStartInputResult::IsValid() const
 			&& LifecycleInvocationCount == 0
 			&& HasNoStartEvidence(*this);
 
+	case EStartStatus::OwnerUnavailable:
+		return RunId.IsValid()
+			&& !OwnerId.IsValid()
+			&& SampleCount == 0
+			&& LifecycleInvocationCount == 0
+			&& HasNoStartEvidence(*this);
+
 	case EStartStatus::EventIdentityInvalid:
 		return RunId.IsValid()
+			&& OwnerId.IsValid()
 			&& !InputEventId.IsValid()
 			&& SampleCount == 0
 			&& LifecycleInvocationCount == 0
@@ -168,13 +179,27 @@ bool Fdemo_mapShanmenFormationStartInputResult::IsValid() const
 
 	case EStartStatus::SampleRejected:
 		return RunId.IsValid()
+			&& OwnerId.IsValid()
 			&& InputEventId.IsValid()
 			&& SampleCount == 1
 			&& LifecycleInvocationCount == 0
 			&& HasNoStartEvidence(*this);
 
+	case EStartStatus::SelectionOwnerMismatch:
+		return RunId.IsValid()
+			&& OwnerId.IsValid()
+			&& InputEventId.IsValid()
+			&& SampleCount == 1
+			&& LifecycleInvocationCount == 0
+			&& Sample.IsValid()
+			&& Sample.GetSelection().GetOwnerId() != OwnerId
+			&& !IntentId.IsValid()
+			&& !Intent.IsValid()
+			&& !Lifecycle.IsAccepted();
+
 	case EStartStatus::IntentCaptureRejected:
 		return RunId.IsValid()
+			&& OwnerId.IsValid()
 			&& InputEventId.IsValid()
 			&& SampleCount == 1
 			&& LifecycleInvocationCount == 0
@@ -320,12 +345,14 @@ Fdemo_mapShanmenFormationInputAdapter::RouteStartInput(
 	const bool bGameplayInputAllowed,
 	const bool bLifecycleAvailable,
 	const FGuid& RunId,
+	const FGuid& OwnerId,
 	const FGuid& InputEventId,
 	FSampleStart SampleStart,
 	FRouteStart RouteLifecycle)
 {
 	Fdemo_mapShanmenFormationStartInputResult Result;
 	Result.RunId = RunId;
+	Result.OwnerId = OwnerId;
 	Result.InputEventId = InputEventId;
 	if (!bGameplayInputAllowed)
 	{
@@ -348,6 +375,13 @@ Fdemo_mapShanmenFormationInputAdapter::RouteStartInput(
 			TEXT("Formation start requires one valid Combat Run identity.");
 		return Result;
 	}
+	if (!OwnerId.IsValid())
+	{
+		Result.Status = EStartStatus::OwnerUnavailable;
+		Result.Diagnostic =
+			TEXT("Formation start requires one valid knowledge owner identity.");
+		return Result;
+	}
 	if (!InputEventId.IsValid())
 	{
 		Result.Status = EStartStatus::EventIdentityInvalid;
@@ -363,6 +397,13 @@ Fdemo_mapShanmenFormationInputAdapter::RouteStartInput(
 		Result.Status = EStartStatus::SampleRejected;
 		Result.Diagnostic =
 			TEXT("Formation start received an invalid diagram or spatial sample.");
+		return Result;
+	}
+	if (Result.Sample.GetSelection().GetOwnerId() != OwnerId)
+	{
+		Result.Status = EStartStatus::SelectionOwnerMismatch;
+		Result.Diagnostic =
+			TEXT("Formation start selected diagram belongs to another owner.");
 		return Result;
 	}
 	Result.IntentId = MakeIntentId(RunId, InputEventId);

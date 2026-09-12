@@ -1579,6 +1579,16 @@
       ]
     },
     {
+      "name": "FormationDiagramSelectionPort",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenFormationDiagramSelectionPort(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.FormationDiagramSelection",
+        "Shanmen.0_0_10.Product.FormationInputAdapter",
+        "Shanmen.0_0_10.CombatRuntime.FormationDeployment"
+      ]
+    },
+    {
       "name": "FormationInputAdapter",
       "pathRegex": "^Source/demo_map/demo_mapShanmenFormationInputAdapter(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [

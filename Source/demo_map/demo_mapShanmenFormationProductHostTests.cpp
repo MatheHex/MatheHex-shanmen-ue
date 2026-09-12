@@ -63,6 +63,7 @@ namespace
 	const FGuid FormationStartInputEventB(0xF8740002, 0, 0, 1);
 	const FGuid FormationAnchorInputEventA(0xF8740010, 0, 0, 1);
 	const FGuid FormationAnchorInputEventB(0xF8740011, 0, 0, 1);
+	const FGuid HostFormationKnowledgeOwnerId(0xF8740020, 0, 0, 1);
 
 	FString NewFormationHostRoot(const TCHAR* Label)
 	{
@@ -72,7 +73,7 @@ namespace
 			FGuid::NewGuid().ToString(EGuidFormats::Digits));
 	}
 
-	FShanmenFormationDiagramDefinition MakeHostDiagram()
+	FShanmenFormationDiagramCapture MakeHostDiagramCapture()
 	{
 		FShanmenFormationDiagramCapture Capture;
 		Capture.ActionDefinitionId =
@@ -99,19 +100,55 @@ namespace
 		SecondWood.Order = 0;
 		SecondWood.MaterialDefinitionId = Fdemo_mapItemIds::SpiritWoodLevel1;
 		SecondWood.Quantity = 2;
+		return Capture;
+	}
+
+	FShanmenFormationDiagramDefinition MakeHostDiagram()
+	{
 		FShanmenFormationDiagramDefinition Diagram;
 		check(FShanmenFormationDiagramDefinition::TryCapture(
-			Capture, Diagram));
+			MakeHostDiagramCapture(), Diagram));
 		return Diagram;
 	}
 
+	Fdemo_mapShanmenFormationDiagramSelection MakeHostDiagramSelection(
+		const FGuid& OwnerId)
+	{
+		Fdemo_mapShanmenFormationDiagramCatalogCapture CatalogCapture;
+		CatalogCapture.Content.Version = TEXT("0.0.10.P27.6.Test");
+		CatalogCapture.Content.Digest =
+			TEXT("FormationProductHostInputFixture");
+		CatalogCapture.Diagrams.Add(MakeHostDiagramCapture());
+		Fdemo_mapShanmenFormationDiagramCatalog Catalog;
+		FString Diagnostic;
+		check(Fdemo_mapShanmenFormationDiagramCatalog::TryCapture(
+			CatalogCapture, Catalog, Diagnostic));
+
+		Fdemo_mapShanmenFormationDiagramKnowledgeSnapshot Knowledge;
+		check(Fdemo_mapShanmenFormationDiagramKnowledgeSnapshot::TryCapture(
+			Catalog,
+			OwnerId,
+			0,
+			{ MakeHostDiagram().GetDiagramDefinitionId() },
+			Knowledge,
+			Diagnostic));
+		const Fdemo_mapShanmenFormationDiagramSelectionResult Selected =
+			Fdemo_mapShanmenFormationDiagramSelectionPort::Select(
+				Catalog,
+				Knowledge,
+				MakeHostDiagram().GetDiagramDefinitionId());
+		check(Selected.IsSelected());
+		return Selected.Selection;
+	}
+
 	Fdemo_mapShanmenFormationStartInputSample MakeFormationStartInputSample(
+		const FGuid& OwnerId,
 		const FVector& Origin = FVector::ZeroVector,
 		const FVector& Forward = FVector::ForwardVector)
 	{
 		Fdemo_mapShanmenFormationStartInputSample Sample;
 		check(Fdemo_mapShanmenFormationStartInputSample::TryCapture(
-			MakeHostDiagram(), Origin, Forward, Sample));
+			MakeHostDiagramSelection(OwnerId), Origin, Forward, Sample));
 		return Sample;
 	}
 
@@ -6008,6 +6045,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool Fdemo_mapFormationInputAdapterDeterminismTest::RunTest(const FString&)
 {
 	const FGuid RunId(0xF8740100, 0, 0, 1);
+	const FGuid OwnerId = HostFormationKnowledgeOwnerId;
 	const FGuid StartIntentId =
 		Fdemo_mapShanmenFormationInputAdapter::MakeIntentId(
 			RunId, FormationStartInputEventA);
@@ -6030,10 +6068,10 @@ bool Fdemo_mapFormationInputAdapterDeterminismTest::RunTest(const FString&)
 
 	int32 StartSampleCalls = 0;
 	int32 StartRouteCalls = 0;
-	const auto SampleStart = [&StartSampleCalls]()
+	const auto SampleStart = [&StartSampleCalls, OwnerId]()
 	{
 		++StartSampleCalls;
-		return MakeFormationStartInputSample();
+		return MakeFormationStartInputSample(OwnerId);
 	};
 	const auto RejectStart = [&StartRouteCalls](
 		const Fdemo_mapShanmenFormationIntent&)
@@ -6045,31 +6083,45 @@ bool Fdemo_mapFormationInputAdapterDeterminismTest::RunTest(const FString&)
 	};
 	const auto StartBlocked =
 		Fdemo_mapShanmenFormationInputAdapter::RouteStartInput(
-			false, true, RunId, FormationStartInputEventA,
+			false, true, RunId, OwnerId, FormationStartInputEventA,
 			SampleStart, RejectStart);
 	const auto StartUnavailable =
 		Fdemo_mapShanmenFormationInputAdapter::RouteStartInput(
-			true, false, RunId, FormationStartInputEventA,
+			true, false, RunId, OwnerId, FormationStartInputEventA,
 			SampleStart, RejectStart);
 	const auto StartNoRun =
 		Fdemo_mapShanmenFormationInputAdapter::RouteStartInput(
-			true, true, FGuid(), FormationStartInputEventA,
+			true, true, FGuid(), OwnerId, FormationStartInputEventA,
+			SampleStart, RejectStart);
+	const auto StartNoOwner =
+		Fdemo_mapShanmenFormationInputAdapter::RouteStartInput(
+			true, true, RunId, FGuid(), FormationStartInputEventA,
 			SampleStart, RejectStart);
 	const auto StartNoEvent =
 		Fdemo_mapShanmenFormationInputAdapter::RouteStartInput(
-			true, true, RunId, FGuid(), SampleStart, RejectStart);
+			true, true, RunId, OwnerId, FGuid(), SampleStart, RejectStart);
 	const auto StartInvalidSample =
 		Fdemo_mapShanmenFormationInputAdapter::RouteStartInput(
-			true, true, RunId, FormationStartInputEventA,
+			true, true, RunId, OwnerId, FormationStartInputEventA,
 			[&StartSampleCalls]()
 			{
 				++StartSampleCalls;
 				return Fdemo_mapShanmenFormationStartInputSample();
 			},
 			RejectStart);
+	const auto StartForeignOwner =
+		Fdemo_mapShanmenFormationInputAdapter::RouteStartInput(
+			true, true, RunId, OwnerId, FormationStartInputEventA,
+			[&StartSampleCalls]()
+			{
+				++StartSampleCalls;
+				return MakeFormationStartInputSample(
+					FGuid(0xF8740021, 0, 0, 1));
+			},
+			RejectStart);
 	const auto StartRejected =
 		Fdemo_mapShanmenFormationInputAdapter::RouteStartInput(
-			true, true, RunId, FormationStartInputEventA,
+			true, true, RunId, OwnerId, FormationStartInputEventA,
 			SampleStart, RejectStart);
 	TestTrue(TEXT("Start preflight samples and routes only after every fence"),
 		StartBlocked.Status
@@ -6079,17 +6131,23 @@ bool Fdemo_mapFormationInputAdapterDeterminismTest::RunTest(const FString&)
 					LifecycleUnavailable
 			&& StartNoRun.Status
 				== Edemo_mapShanmenFormationStartInputStatus::RunUnavailable
+			&& StartNoOwner.Status
+				== Edemo_mapShanmenFormationStartInputStatus::OwnerUnavailable
 			&& StartNoEvent.Status
 				== Edemo_mapShanmenFormationStartInputStatus::
 					EventIdentityInvalid
 			&& StartInvalidSample.Status
 				== Edemo_mapShanmenFormationStartInputStatus::SampleRejected
+			&& StartForeignOwner.Status
+				== Edemo_mapShanmenFormationStartInputStatus::
+					SelectionOwnerMismatch
 			&& StartRejected.Status
 				== Edemo_mapShanmenFormationStartInputStatus::LifecycleRejected
 			&& StartBlocked.IsValid() && StartUnavailable.IsValid()
-			&& StartNoRun.IsValid() && StartNoEvent.IsValid()
-			&& StartInvalidSample.IsValid() && StartRejected.IsValid()
-			&& StartSampleCalls == 2 && StartRouteCalls == 1);
+			&& StartNoRun.IsValid() && StartNoOwner.IsValid()
+			&& StartNoEvent.IsValid() && StartInvalidSample.IsValid()
+			&& StartForeignOwner.IsValid() && StartRejected.IsValid()
+			&& StartSampleCalls == 3 && StartRouteCalls == 1);
 
 	int32 AnchorSampleCalls = 0;
 	int32 AnchorRouteCalls = 0;
@@ -6173,6 +6231,7 @@ bool Fdemo_mapFormationInputAdapterStartReplayTest::RunTest(const FString&)
 		return false;
 	}
 	const FGuid RunId = Fixture.Product.Correlation.ActiveRunId;
+	const FGuid OwnerId = Fixture.Product.Correlation.OwnerId;
 	const uint64 SequenceBefore =
 		Fixture.CombatRun.GetNextPlayerFormationActivationSequence();
 	const auto RouteLifecycle = [&Fixture](
@@ -6183,29 +6242,35 @@ bool Fdemo_mapFormationInputAdapterStartReplayTest::RunTest(const FString&)
 	};
 	const auto First =
 		Fdemo_mapShanmenFormationInputAdapter::RouteStartInput(
-			true, true, RunId, FormationStartInputEventA,
-			[]()
+			true, true, RunId, OwnerId, FormationStartInputEventA,
+			[OwnerId]()
 			{
 				return MakeFormationStartInputSample(
-					FVector(25.0, -10.0, 5.0), FVector(2.0, 0.0, 1.0));
+					OwnerId,
+					FVector(25.0, -10.0, 5.0),
+					FVector(2.0, 0.0, 1.0));
 			},
 			RouteLifecycle);
 	const auto Replay =
 		Fdemo_mapShanmenFormationInputAdapter::RouteStartInput(
-			true, true, RunId, FormationStartInputEventA,
-			[]()
+			true, true, RunId, OwnerId, FormationStartInputEventA,
+			[OwnerId]()
 			{
 				return MakeFormationStartInputSample(
-					FVector(25.0, -10.0, 5.0), FVector(2.0, 0.0, 1.0));
+					OwnerId,
+					FVector(25.0, -10.0, 5.0),
+					FVector(2.0, 0.0, 1.0));
 			},
 			RouteLifecycle);
 	const auto Conflict =
 		Fdemo_mapShanmenFormationInputAdapter::RouteStartInput(
-			true, true, RunId, FormationStartInputEventA,
-			[]()
+			true, true, RunId, OwnerId, FormationStartInputEventA,
+			[OwnerId]()
 			{
 				return MakeFormationStartInputSample(
-					FVector(26.0, -10.0, 5.0), FVector::ForwardVector);
+					OwnerId,
+					FVector(26.0, -10.0, 5.0),
+					FVector::ForwardVector);
 			},
 			RouteLifecycle);
 
@@ -6259,10 +6324,14 @@ bool Fdemo_mapFormationInputAdapterAnchorReplayTest::RunTest(const FString&)
 		return false;
 	}
 	const FGuid RunId = Fixture.Product.Correlation.ActiveRunId;
+	const FGuid OwnerId = Fixture.Product.Correlation.OwnerId;
 	const auto Started =
 		Fdemo_mapShanmenFormationInputAdapter::RouteStartInput(
-			true, true, RunId, FormationStartInputEventB,
-			[]() { return MakeFormationStartInputSample(); },
+			true, true, RunId, OwnerId, FormationStartInputEventB,
+			[OwnerId]()
+			{
+				return MakeFormationStartInputSample(OwnerId);
+			},
 			[&Fixture](const Fdemo_mapShanmenFormationIntent& Intent)
 			{
 				return Fixture.Lifecycle.TrySubmit(
