@@ -652,6 +652,9 @@ try
     $FormationDeployment = New-AutomationLogFixture `
         -Name 'formation-deployment.log' `
         -Group 'Shanmen.0_0_10.CombatRuntime.FormationDeployment'
+    $FormationMastery = New-AutomationLogFixture `
+        -Name 'formation-mastery.log' `
+        -Group 'Shanmen.0_0_10.CombatRuntime.FormationMastery'
     $FormationAdapter = New-AutomationLogFixture `
         -Name 'formation-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.FormationMaterialAdapter'
@@ -869,6 +872,19 @@ try
         -Paths @(
             'Source/ShanmenCombatRuntime/Private/ShanmenFormationDeployment.cpp') `
         -Logs @($Full)
+
+    Invoke-ExpectedPass `
+        -Name 'formation mastery requires focused deployment core broad runtime and full evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Public/ShanmenFormationMastery.h',
+            'Source/ShanmenCombatRuntime/Private/ShanmenFormationMastery.cpp',
+            'Source/ShanmenCombatRuntime/Private/Tests/ShanmenFormationMasteryTests.cpp') `
+        -Logs @(
+            $FormationMastery,
+            $FormationDeployment,
+            $CombatCore,
+            $CombatRuntime,
+            $Full)
 
     Invoke-ExpectedPass `
         -Name 'thrown weapon arc planner requires focused arc straight-flight core and broad runtime evidence' `
@@ -4884,6 +4900,13 @@ try
         -Paths @(
             'Source/ShanmenCombatRuntime/Private/ShanmenFormationDeployment.cpp') `
         -Logs @($FormationDeployment) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'formation mastery focus cannot replace deployment core combat core broad runtime and full evidence' `
+        -Paths @(
+            'Source/ShanmenCombatRuntime/Private/ShanmenFormationMastery.cpp') `
+        -Logs @($FormationMastery) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
