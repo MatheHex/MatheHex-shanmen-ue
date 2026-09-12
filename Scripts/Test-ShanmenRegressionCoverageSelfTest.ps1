@@ -670,6 +670,9 @@ try
     $FormationKnowledgeAuthorityAdapter = New-AutomationLogFixture `
         -Name 'formation-knowledge-authority-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.FormationKnowledgeAuthorityAdapter'
+    $FormationDiagramAccessAdapter = New-AutomationLogFixture `
+        -Name 'formation-diagram-access-adapter.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationDiagramAccessAdapter'
     $FormationInputAdapter = New-AutomationLogFixture `
         -Name 'formation-input-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.FormationInputAdapter'
@@ -2480,6 +2483,18 @@ try
             'Source/demo_map/demo_mapShanmenFormationKnowledgeAuthorityAdapterTests.cpp') `
         -Logs @(
             $Full,
+            $FormationKnowledgeAuthorityAdapter,
+            $FormationDiagramSelection)
+
+    Invoke-ExpectedPass `
+        -Name 'formation diagram access adapter maps atomic knowledge and selection contracts' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationDiagramAccessAdapter.h',
+            'Source/demo_map/demo_mapShanmenFormationDiagramAccessAdapter.cpp',
+            'Source/demo_map/demo_mapShanmenFormationDiagramAccessAdapterTests.cpp') `
+        -Logs @(
+            $Full,
+            $FormationDiagramAccessAdapter,
             $FormationKnowledgeAuthorityAdapter,
             $FormationDiagramSelection)
 
@@ -5637,6 +5652,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationKnowledgeAuthorityAdapter.cpp') `
         -Logs @($FormationKnowledgeAuthorityAdapter) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'formation diagram access focus cannot replace knowledge and selection evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationDiagramAccessAdapter.cpp') `
+        -Logs @($FormationDiagramAccessAdapter) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
