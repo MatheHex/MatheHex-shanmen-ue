@@ -1,12 +1,18 @@
 #include "demo_mapShanmenFormationProductAuthority.h"
 
 #include "ShanmenCombatTags.h"
+#include "ShanmenDeterministicId.h"
 #include "demo_mapCombatRunCoordinator.h"
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
 #include "demo_mapShanmenRunLifecycleAdapter.h"
 
 namespace
 {
+	FString GuidDigits(const FGuid& Value)
+	{
+		return Value.ToString(EGuidFormats::Digits);
+	}
+
 	bool IsFiniteVector(const FVector& Value)
 	{
 		return FMath::IsFinite(Value.X)
@@ -98,6 +104,36 @@ namespace
 		}
 		return true;
 	}
+}
+
+FGuid Fdemo_mapShanmenFormationProductAuthority::
+MakeActivationEnergyTransactionId(
+	const Fdemo_mapShanmenFormationDeploymentCommand& Command)
+{
+	return Command.IsValid()
+		? FShanmenDeterministicId::FromCanonicalParts(
+			TEXT("demo_map.Formation.SharedSpiritEnergyTransaction.r1"),
+			{
+				GuidDigits(Command.GetCommandId()),
+				GuidDigits(
+					Command.GetDiagram().GetActivationEnergyCost().GetCostId())
+			})
+		: FGuid();
+}
+
+FGuid Fdemo_mapShanmenFormationProductAuthority::
+MakeActivationEnergyCommandId(
+	const Fdemo_mapShanmenFormationDeploymentCommand& Command)
+{
+	return Command.IsValid()
+		? FShanmenDeterministicId::FromCanonicalParts(
+			TEXT("demo_map.Formation.ActivationEnergyCommand.r1"),
+			{
+				GuidDigits(Command.GetCommandId()),
+				GuidDigits(
+					Command.GetDiagram().GetActivationEnergyCost().GetCostId())
+			})
+		: FGuid();
 }
 
 bool Fdemo_mapPlayerFormationActionReservation::IsValid() const

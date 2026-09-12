@@ -110,6 +110,11 @@ struct Fdemo_mapShanmenFormationProductPreparationResult
  */
 struct Fdemo_mapShanmenFormationProductAuthority
 {
+	static FGuid MakeActivationEnergyTransactionId(
+		const Fdemo_mapShanmenFormationDeploymentCommand& Command);
+	static FGuid MakeActivationEnergyCommandId(
+		const Fdemo_mapShanmenFormationDeploymentCommand& Command);
+
 	static Fdemo_mapShanmenFormationProductPreparationResult PrepareDeployment(
 		Fdemo_mapCombatRunCoordinator& Coordinator,
 		const Udemo_mapShanmenItemAuthoritySubsystem& Authority,

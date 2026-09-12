@@ -68,6 +68,8 @@ public:
 	Fdemo_mapShanmenFormationControllerResult TrySubmit(
 		const Udemo_mapShanmenItemAuthoritySubsystem& Authority,
 		Fdemo_mapCombatRunCoordinator& Coordinator,
+		Fdemo_mapShanmenDivineSenseProductController&
+			SpiritEnergyController,
 		const Fdemo_mapShanmenFormationIntent& Intent);
 	Fdemo_mapShanmenFormationAnchorOperationResult TryExecuteAnchorOperation(
 		Udemo_mapShanmenItemAuthoritySubsystem& Authority,

@@ -8,6 +8,18 @@
 
 namespace
 {
+	FString FloatBits(const float Value)
+	{
+		uint32 Bits = 0;
+		FPlatformMemory::Memcpy(&Bits, &Value, sizeof(Bits));
+		return FString::Printf(TEXT("%08X"), Bits);
+	}
+
+	bool FloatsMatchExactly(const float Left, const float Right)
+	{
+		return FloatBits(Left) == FloatBits(Right);
+	}
+
 	bool IsFiniteVector(const FVector& Value)
 	{
 		return FMath::IsFinite(Value.X)
@@ -183,15 +195,77 @@ bool Fdemo_mapShanmenFormationControllerResult::IsAccepted() const
 		|| !Preparation.IsReady()
 		|| !Startup.IsValid()
 		|| !Active.IsValid()
-		|| !Begin.IsValid())
+		|| !Begin.IsValid()
+		|| !ResourceReserve.IsValid()
+		|| ResourceReserve.Status
+			!= EShanmenActionResourceTransactionStatus::Reserved
+		|| !ResourceCommit.IsValid()
+		|| ResourceCommit.Status
+			!= EShanmenActionResourceTransactionStatus::Committed
+		|| !SharedResource.IsSuccess())
 	{
 		return false;
 	}
 	const FGuid& CommandId = Preparation.Command.GetCommandId();
+	const FShanmenActionResourceCost& Cost =
+		Preparation.Command.GetDiagram().GetActivationEnergyCost();
+	const FShanmenActionResourceReservationReceipt& Reservation =
+		ResourceReserve.Reservation;
+	const FShanmenActionResourceFinalizationReceipt& Commit =
+		ResourceCommit.Finalization;
+	const Fdemo_mapShanmenSharedSpiritEnergyTransactionReceipt& Shared =
+		SharedResource.Receipt;
+	const FShanmenActionResourceSnapshot& Before =
+		Shared.GetResourceBefore();
+	const FShanmenActionResourceSnapshot& After =
+		Shared.GetResourceAfter();
 	return Preparation.Command.GetCorrelation().ActiveRunId == RunId
 		&& Startup.GetActivationId() == CommandId
 		&& Active.GetActivationId() == CommandId
-		&& Begin.GetDeploymentId().IsValid();
+		&& Startup.GetFromPhase() == EShanmenCombatActionPhase::Idle
+		&& Startup.GetToPhase() == EShanmenCombatActionPhase::Startup
+		&& Active.GetFromPhase() == EShanmenCombatActionPhase::Startup
+		&& Active.GetToPhase() == EShanmenCombatActionPhase::Active
+		&& Active.CrossedCommitPointNow()
+		&& Begin.GetDeploymentId().IsValid()
+		&& Reservation.GetRequest().GetAction().GetActivationId()
+			== CommandId
+		&& Reservation.GetRequest().GetStartupReceipt().GetActivationId()
+			== Startup.GetActivationId()
+		&& Reservation.GetRequest().GetStartupReceipt().GetSequence()
+			== Startup.GetSequence()
+		&& Reservation.GetRequest().GetCost().GetCostId()
+			== Cost.GetCostId()
+		&& Commit.GetRequest().GetReservation().GetReceiptId()
+			== Reservation.GetReceiptId()
+		&& Commit.GetRequest().GetTransition().GetActivationId()
+			== Active.GetActivationId()
+		&& Commit.GetRequest().GetTransition().GetSequence()
+			== Active.GetSequence()
+		&& Commit.GetRequest().GetDisposition()
+			== EShanmenActionResourceDisposition::Commit
+		&& Shared.GetTransactionId()
+			== Fdemo_mapShanmenFormationProductAuthority::
+				MakeActivationEnergyTransactionId(Preparation.Command)
+		&& Shared.GetCommandId()
+			== Fdemo_mapShanmenFormationProductAuthority::
+				MakeActivationEnergyCommandId(Preparation.Command)
+		&& Before.GetSnapshotId()
+			== Reservation.GetRequest().GetResourceSnapshot().GetSnapshotId()
+		&& Before.GetOwnerEntityId()
+			== Preparation.Command.GetAction().GetSourceEntityId()
+		&& Before.GetResourceChannel() == Cost.GetResourceChannel()
+		&& After.GetResourceChannel() == Cost.GetResourceChannel()
+		&& Commit.GetAuthorityRevisionAfter()
+			== After.GetAuthorityRevision()
+		&& FloatsMatchExactly(
+			Before.GetCurrentAmount() - Cost.GetAmount(),
+			After.GetCurrentAmount())
+		&& FloatsMatchExactly(
+			Commit.GetCurrentAfter(), After.GetCurrentAmount())
+		&& FloatsMatchExactly(
+			Commit.GetReservedAfter(), After.GetReservedAmount())
+		&& FloatsMatchExactly(After.GetReservedAmount(), 0.0f);
 }
 
 bool Fdemo_mapShanmenFormationAnchorOperation::TryCapture(
@@ -314,6 +388,7 @@ Fdemo_mapShanmenFormationControllerResult
 Fdemo_mapShanmenFormationProductController::TrySubmit(
 	const Udemo_mapShanmenItemAuthoritySubsystem& Authority,
 	Fdemo_mapCombatRunCoordinator& Coordinator,
+	Fdemo_mapShanmenDivineSenseProductController& SpiritEnergyController,
 	const Fdemo_mapShanmenFormationIntent& Intent)
 {
 	if (!IsActive())
@@ -363,7 +438,11 @@ Fdemo_mapShanmenFormationProductController::TrySubmit(
 					RunId,
 					TEXT("Formation IntentId was reused with another payload."));
 			}
-			return StartCaptured(*CapturedIntent, true);
+			return StartCaptured(
+				*CapturedIntent,
+				Coordinator,
+				SpiritEnergyController,
+				true);
 		}
 		return Reject(
 			Edemo_mapShanmenFormationControllerStatus::HostBusy,
@@ -394,7 +473,11 @@ Fdemo_mapShanmenFormationProductController::TrySubmit(
 
 	CapturedIntent = MoveTemp(Captured);
 	Fdemo_mapShanmenFormationControllerResult Result =
-		StartCaptured(*CapturedIntent, false);
+		StartCaptured(
+			*CapturedIntent,
+			Coordinator,
+			SpiritEnergyController,
+			false);
 	if (!IsValid())
 	{
 		Result.Status =
@@ -408,6 +491,8 @@ Fdemo_mapShanmenFormationProductController::TrySubmit(
 Fdemo_mapShanmenFormationControllerResult
 Fdemo_mapShanmenFormationProductController::StartCaptured(
 	FCapturedIntent& Captured,
+	Fdemo_mapCombatRunCoordinator& Coordinator,
+	Fdemo_mapShanmenDivineSenseProductController& SpiritEnergyController,
 	const bool bReusedIntent)
 {
 	if (bHasProductHost)
@@ -447,12 +532,86 @@ Fdemo_mapShanmenFormationProductController::StartCaptured(
 		return Result;
 	}
 
-	ProductHost = MoveTemp(CandidateHost);
-	bHasProductHost = true;
+	Fdemo_mapShanmenDivineSenseProductController EnergyCandidate =
+		SpiritEnergyController;
+	const FGuid TransactionId =
+		Fdemo_mapShanmenFormationProductAuthority::
+			MakeActivationEnergyTransactionId(Command);
+	const FGuid EnergyCommandId =
+		Fdemo_mapShanmenFormationProductAuthority::
+			MakeActivationEnergyCommandId(Command);
+	Result.SharedResource = EnergyCandidate.ApplySharedSpiritEnergyTransaction(
+		Coordinator,
+		TransactionId,
+		EnergyCommandId,
+		[&](FShanmenActionResourceAuthority& ResourceAuthority)
+		{
+			FShanmenActionResourceSnapshot ResourceBefore;
+			FShanmenActionResourceReservationRequest ReservationRequest;
+			if (!ResourceAuthority.TryCaptureSnapshot(ResourceBefore)
+				|| !FShanmenActionResourceReservationRequest::TryCreate(
+					Command.GetAction(),
+					Result.Startup,
+					Command.GetDiagram().GetActivationEnergyCost(),
+					ResourceBefore,
+					ReservationRequest))
+			{
+				return false;
+			}
+
+			Result.ResourceReserve =
+				ResourceAuthority.Reserve(ReservationRequest);
+			if (!Result.ResourceReserve.IsSuccess()
+				|| Result.ResourceReserve.Status
+					!= EShanmenActionResourceTransactionStatus::Reserved)
+			{
+				return false;
+			}
+
+			FShanmenActionResourceFinalizationRequest CommitRequest;
+			if (!FShanmenActionResourceFinalizationRequest::TryCreate(
+					Result.ResourceReserve.Reservation,
+					Result.Active,
+					CommitRequest))
+			{
+				return false;
+			}
+			Result.ResourceCommit = ResourceAuthority.Finalize(CommitRequest);
+			return Result.ResourceCommit.IsSuccess()
+				&& Result.ResourceCommit.Status
+					== EShanmenActionResourceTransactionStatus::Committed
+				&& ResourceAuthority.NumPendingReservations() == 0;
+		});
+	if (!Result.SharedResource.IsSuccess())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationControllerStatus::SharedResourceRejected;
+		Result.Diagnostic = Result.SharedResource.Diagnostic.IsEmpty()
+			? TEXT("Formation activation energy transaction rejected; exact retry remains available without another sequence.")
+			: Result.SharedResource.Diagnostic;
+		Captured.LastResult = Result;
+		return Result;
+	}
+
 	Result.Status = Edemo_mapShanmenFormationControllerStatus::Started;
 	Result.Diagnostic = bReusedIntent
-		? TEXT("The exact formation intent recovered ProductHost from its frozen command.")
-		: TEXT("Formation authority started the Run-scoped ProductHost.");
+		? TEXT("The exact formation intent recovered ProductHost and committed its authored activation cost once.")
+		: TEXT("Formation authority atomically started ProductHost and committed its authored shared SpiritEnergy cost.");
+	if (!Result.IsAccepted()
+		|| !CandidateHost.IsValid()
+		|| !EnergyCandidate.IsValid())
+	{
+		Result.Status =
+			Edemo_mapShanmenFormationControllerStatus::StateDesynchronized;
+		Result.Diagnostic =
+			TEXT("Formation ProductHost and shared SpiritEnergy proofs did not agree; no candidate state was published.");
+		Captured.LastResult = Result;
+		return Result;
+	}
+
+	SpiritEnergyController = MoveTemp(EnergyCandidate);
+	ProductHost = MoveTemp(CandidateHost);
+	bHasProductHost = true;
 	Captured.LastResult = Result;
 	return Result;
 }
@@ -688,8 +847,16 @@ bool Fdemo_mapShanmenFormationProductController::IsValid() const
 	}
 	if (!bHasProductHost)
 	{
-		return Captured.LastResult.Status
+		const bool bRetryableFailure =
+			Captured.LastResult.Status
 				== Edemo_mapShanmenFormationControllerStatus::HostStartRejected
+			|| Captured.LastResult.Status
+				== Edemo_mapShanmenFormationControllerStatus::
+					SharedResourceRejected
+			|| Captured.LastResult.Status
+				== Edemo_mapShanmenFormationControllerStatus::
+					StateDesynchronized;
+		return bRetryableFailure
 			&& !Captured.LastResult.IsAccepted();
 	}
 	if (!Captured.LastResult.IsAccepted() || !ProductHost.IsValid())

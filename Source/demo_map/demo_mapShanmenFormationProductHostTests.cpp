@@ -18,6 +18,7 @@
 #include "demo_mapShanmenFormationInfluenceConsumerProjection.h"
 
 #include "ShanmenCombatResolver.h"
+#include "ShanmenCombatRuntimeTags.h"
 #include "ShanmenCombatTags.h"
 #include "demo_mapAttributeComponent.h"
 #include "demo_map0909BSectWarehouseService.h"
@@ -206,6 +207,67 @@ namespace
 		check(FShanmenFormationDiagramDefinition::TryCapture(
 			Capture, Diagram));
 		return Diagram;
+	}
+
+	Fdemo_mapShanmenDivineSenseProductConfig
+	MakeFormationSharedEnergyConfig()
+	{
+		FShanmenDivineSenseDefinitionCapture DefinitionCapture;
+		DefinitionCapture.ActionDefinitionId =
+			FShanmenDivineSenseDefinition::CanonicalActionDefinitionId();
+		DefinitionCapture.ScanRuleId =
+			TEXT("Spell.DivineSense.FormationSharedEnergyFixture");
+		DefinitionCapture.Radius = 100.0;
+		DefinitionCapture.MaximumResults = 1;
+		DefinitionCapture.OcclusionPolicy =
+			EShanmenDivineSenseOcclusionPolicy::VisibleOnly;
+		DefinitionCapture.RequiredSubjectTags.AddTag(
+			FShanmenCombatNativeTags::TargetLiving());
+		DefinitionCapture.BlockedSubjectTags.AddTag(
+			FShanmenCombatNativeTags::SourcePlayer());
+		DefinitionCapture.bRejectSelf = true;
+		FShanmenDivineSenseDefinition Definition;
+		check(FShanmenDivineSenseDefinition::TryCapture(
+			DefinitionCapture, Definition));
+
+		FShanmenActionResourceCostCapture CostCapture;
+		CostCapture.RuleId =
+			TEXT("Spell.DivineSense.FormationSharedEnergyFixture");
+		CostCapture.ResourceChannel =
+			FShanmenCombatRuntimeNativeTags::ResourceSpiritEnergy();
+		CostCapture.Amount = 1.0f;
+		FShanmenActionResourceCost Cost;
+		check(FShanmenActionResourceCost::TryCapture(CostCapture, Cost));
+
+		Fdemo_mapShanmenDivineSenseProductConfig Config;
+		check(Fdemo_mapShanmenDivineSenseProductConfig::TryCapture(
+			Definition, Cost, 8, Config));
+		return Config;
+	}
+
+	bool BeginFormationSharedEnergyController(
+		const Fdemo_mapCombatRunCoordinator& Coordinator,
+		Fdemo_mapShanmenDivineSenseProductController& Controller,
+		FString& OutDiagnostic,
+		const float CurrentAmount = 100.0f,
+		const float MaximumAmount = 100.0f,
+		const int64 AuthorityRevision = 0)
+	{
+		FShanmenActionResourceAuthority Authority;
+		FShanmenActionResourceSnapshot Opening;
+		return FShanmenActionResourceAuthority::TryCreate(
+				Coordinator.GetPlayerEntityId(),
+				FShanmenCombatRuntimeNativeTags::ResourceSpiritEnergy(),
+				CurrentAmount,
+				MaximumAmount,
+				AuthorityRevision,
+				Authority)
+			&& Authority.TryCaptureSnapshot(Opening)
+			&& Controller.TryBegin(
+				Coordinator,
+				Opening,
+				MakeFormationSharedEnergyConfig(),
+				OutDiagnostic);
 	}
 
 	int32 CountTaggedActors(UWorld* World, const FName Tag)
@@ -524,10 +586,15 @@ namespace
 		APawn* Player = nullptr;
 		Udemo_mapPlayerHealthComponent* PlayerHealth = nullptr;
 		Fdemo_mapCombatRunCoordinator CombatRun;
+		Fdemo_mapShanmenDivineSenseProductController SpiritEnergyController;
 		Fdemo_mapShanmenFormationProductController Controller;
 		FString Diagnostic;
 
-		bool Start(FAutomationTestBase& Test, const TCHAR* Label)
+		bool Start(
+			FAutomationTestBase& Test,
+			const TCHAR* Label,
+			const float CurrentSpiritEnergy = 100.0f,
+			const float MaximumSpiritEnergy = 100.0f)
 		{
 			if (!Product.Start(Test, Label))
 			{
@@ -559,6 +626,12 @@ namespace
 					Player,
 					PlayerHealth,
 					Diagnostic)
+				&& BeginFormationSharedEnergyController(
+					CombatRun,
+					SpiritEnergyController,
+					Diagnostic,
+					CurrentSpiritEnergy,
+					MaximumSpiritEnergy)
 				&& Controller.TryBegin(
 					Product.Correlation.ActiveRunId,
 					Diagnostic);
@@ -588,6 +661,7 @@ namespace
 		APawn* Player = nullptr;
 		Udemo_mapPlayerHealthComponent* PlayerHealth = nullptr;
 		Fdemo_mapCombatRunCoordinator CombatRun;
+		Fdemo_mapShanmenDivineSenseProductController SpiritEnergyController;
 		Fdemo_mapShanmenFormationRunLifecycle Lifecycle;
 		FString Diagnostic;
 
@@ -623,6 +697,8 @@ namespace
 					Player,
 					PlayerHealth,
 					Diagnostic)
+				&& BeginFormationSharedEnergyController(
+					CombatRun, SpiritEnergyController, Diagnostic)
 				&& Lifecycle.TryBegin(CombatRun, Diagnostic);
 		}
 
@@ -5225,9 +5301,12 @@ bool Fdemo_mapFormationProductControllerFrozenReplayTest::RunTest(
 	}
 	const uint64 SequenceBefore =
 		Fixture.CombatRun.GetNextPlayerFormationActivationSequence();
+	const float EnergyBefore = Fixture.SpiritEnergyController.
+		GetSession().GetHost().GetCurrentSpiritEnergy();
 	const auto First = Fixture.Controller.TrySubmit(
 		*Fixture.Product.Authority,
 		Fixture.CombatRun,
+		Fixture.SpiritEnergyController,
 		Intent);
 	const Fdemo_mapShanmenFormationDeploymentCommand* Frozen =
 		Fixture.Controller.FindCapturedCommand(IntentId);
@@ -5244,22 +5323,53 @@ bool Fdemo_mapFormationProductControllerFrozenReplayTest::RunTest(
 			&& Host->GetSession().GetActionRuntime().GetAction().
 				GetActivationId() == Frozen->GetCommandId()
 			&& Fixture.Controller.NumCapturedIntents() == 1
+			&& First.ResourceReserve.Status
+				== EShanmenActionResourceTransactionStatus::Reserved
+			&& First.ResourceCommit.Status
+				== EShanmenActionResourceTransactionStatus::Committed
+			&& First.SharedResource.IsSuccess()
+			&& !First.SharedResource.IsReplay()
+			&& First.SharedResource.Receipt.GetTransactionId()
+				== Fdemo_mapShanmenFormationProductAuthority::
+					MakeActivationEnergyTransactionId(
+						First.Preparation.Command)
+			&& First.SharedResource.Receipt.GetCommandId()
+				== Fdemo_mapShanmenFormationProductAuthority::
+					MakeActivationEnergyCommandId(
+						First.Preparation.Command)
+			&& Fixture.SpiritEnergyController.GetSession().GetHost().
+				NumExternalSpiritEnergyTransactions() == 1
+			&& Fixture.SpiritEnergyController.GetSession().GetHost().
+				GetCurrentSpiritEnergy()
+					== EnergyBefore - MakeHostDiagram().
+						GetActivationEnergyCost().GetAmount()
 			&& Fixture.CombatRun.
 				GetNextPlayerFormationActivationSequence()
 					== SequenceBefore + 1);
 
 	const FGuid FrozenCommandId = Frozen ? Frozen->GetCommandId() : FGuid();
 	const FGuid FrozenBeginId = First.Begin.GetReceiptId();
+	const FGuid FrozenEnergyReceiptId =
+		First.SharedResource.Receipt.GetReceiptId();
+	const float EnergyAfterFirst = Fixture.SpiritEnergyController.
+		GetSession().GetHost().GetCurrentSpiritEnergy();
 	const auto Replay = Fixture.Controller.TrySubmit(
 		*Fixture.Product.Authority,
 		Fixture.CombatRun,
+		Fixture.SpiritEnergyController,
 		Intent);
 	TestTrue(TEXT("Exact retry replays frozen evidence without another sequence"),
 		Replay.IsAccepted()
 			&& Replay.bReusedIntent
 			&& Replay.Preparation.Command.GetCommandId() == FrozenCommandId
 			&& Replay.Begin.GetReceiptId() == FrozenBeginId
+			&& Replay.SharedResource.Receipt.GetReceiptId()
+				== FrozenEnergyReceiptId
 			&& Fixture.Controller.GetProductHost() == Host
+			&& Fixture.SpiritEnergyController.GetSession().GetHost().
+				GetCurrentSpiritEnergy() == EnergyAfterFirst
+			&& Fixture.SpiritEnergyController.GetSession().GetHost().
+				NumExternalSpiritEnergyTransactions() == 1
 			&& Fixture.CombatRun.
 				GetNextPlayerFormationActivationSequence()
 					== SequenceBefore + 1);
@@ -5286,6 +5396,124 @@ bool Fdemo_mapFormationProductControllerFrozenReplayTest::RunTest(
 			&& Fixture.Controller.IsValid());
 	TestTrue(TEXT("Formation owner releases before shared combat Run"),
 		Fixture.CombatRun.TryEndRun(RunId, Fixture.Diagnostic));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationProductControllerEnergyRecoveryTest,
+	"Shanmen.0_0_10.Product.FormationProductController.EnergyAtomicFailureRecovery",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapFormationProductControllerEnergyRecoveryTest::RunTest(
+	const FString&)
+{
+	FFormationControllerFixture Fixture;
+	if (!Fixture.Start(
+			*this,
+			TEXT("ProductControllerEnergyRecovery"),
+			5.0f,
+			100.0f))
+	{
+		AddError(FString::Printf(
+			TEXT("P27.10 energy fixture failed: %s"),
+			*Fixture.Diagnostic));
+		return false;
+	}
+
+	const FGuid RunId = Fixture.Product.Correlation.ActiveRunId;
+	const FGuid IntentId(0xF8710100, 0, 0, 1);
+	const Fdemo_mapShanmenFormationIntent Intent = Fixture.MakeIntent(
+		IntentId, RunId, FVector::ZeroVector);
+	const uint64 SequenceBefore =
+		Fixture.CombatRun.GetNextPlayerFormationActivationSequence();
+	const auto Insufficient = Fixture.Controller.TrySubmit(
+		*Fixture.Product.Authority,
+		Fixture.CombatRun,
+		Fixture.SpiritEnergyController,
+		Intent);
+	TestTrue(TEXT("Insufficient energy publishes neither Host nor ledger mutation"),
+		Insufficient.Status
+			== Edemo_mapShanmenFormationControllerStatus::
+				SharedResourceRejected
+			&& !Insufficient.IsAccepted()
+			&& Insufficient.ResourceReserve.Status
+				== EShanmenActionResourceTransactionStatus::Rejected
+			&& Insufficient.ResourceReserve.Error
+				== EShanmenActionResourceTransactionError::
+					InsufficientAvailable
+			&& !Fixture.Controller.HasProductHost()
+			&& Fixture.Controller.IsValid()
+			&& Fixture.Controller.NumCapturedIntents() == 1
+			&& Fixture.SpiritEnergyController.GetSession().GetHost().
+				GetCurrentSpiritEnergy() == 5.0f
+			&& Fixture.SpiritEnergyController.GetSession().GetHost().
+				NumExternalSpiritEnergyTransactions() == 0
+			&& Fixture.CombatRun.
+				GetNextPlayerFormationActivationSequence()
+					== SequenceBefore + 1);
+
+	const FGuid LowEnergyControllerId =
+		Fixture.SpiritEnergyController.GetControllerId();
+	const auto ClosedLowEnergy = Fixture.SpiritEnergyController.TryEnd(
+		Fixture.CombatRun, LowEnergyControllerId);
+	TestTrue(TEXT("Test fixture can replace only the failed shared ledger binding"),
+		ClosedLowEnergy.IsSuccess()
+			&& Fixture.SpiritEnergyController.Reset()
+			&& BeginFormationSharedEnergyController(
+				Fixture.CombatRun,
+				Fixture.SpiritEnergyController,
+				Fixture.Diagnostic));
+
+	const auto Recovered = Fixture.Controller.TrySubmit(
+		*Fixture.Product.Authority,
+		Fixture.CombatRun,
+		Fixture.SpiritEnergyController,
+		Intent);
+	const uint64 SequenceAfterRecovery =
+		Fixture.CombatRun.GetNextPlayerFormationActivationSequence();
+	const float EnergyAfterRecovery = Fixture.SpiritEnergyController.
+		GetSession().GetHost().GetCurrentSpiritEnergy();
+	TestTrue(TEXT("Exact retry commits frozen cost once without another sequence"),
+		Recovered.IsAccepted()
+			&& Recovered.bReusedIntent
+			&& Fixture.Controller.HasProductHost()
+			&& SequenceAfterRecovery == SequenceBefore + 1
+			&& EnergyAfterRecovery == 90.0f
+			&& Fixture.SpiritEnergyController.GetSession().GetHost().
+				NumExternalSpiritEnergyTransactions() == 1);
+
+	const auto Replay = Fixture.Controller.TrySubmit(
+		*Fixture.Product.Authority,
+		Fixture.CombatRun,
+		Fixture.SpiritEnergyController,
+		Intent);
+	TestTrue(TEXT("Accepted intent replay cannot spend shared energy twice"),
+		Replay.IsAccepted()
+			&& Replay.bReusedIntent
+			&& Replay.SharedResource.Receipt.GetReceiptId()
+				== Recovered.SharedResource.Receipt.GetReceiptId()
+			&& Fixture.SpiritEnergyController.GetSession().GetHost().
+				GetCurrentSpiritEnergy() == EnergyAfterRecovery
+			&& Fixture.SpiritEnergyController.GetSession().GetHost().
+				NumExternalSpiritEnergyTransactions() == 1
+			&& Fixture.CombatRun.
+				GetNextPlayerFormationActivationSequence()
+					== SequenceAfterRecovery);
+
+	Fdemo_mapShanmenFormationControllerEndSummary Summary;
+	const FGuid EnergyControllerId =
+		Fixture.SpiritEnergyController.GetControllerId();
+	TestTrue(TEXT("Recovered formation and shared ledger close in owner order"),
+		Fixture.Controller.TryTerminateAndEnd(
+			*Fixture.Product.Authority,
+			Fixture.Product.World,
+			RunId,
+			Summary,
+			Fixture.Diagnostic)
+			&& Fixture.SpiritEnergyController.TryEnd(
+				Fixture.CombatRun, EnergyControllerId).IsSuccess()
+			&& Fixture.CombatRun.TryEndRun(
+				RunId, Fixture.Diagnostic));
 	return true;
 }
 
@@ -5328,6 +5556,7 @@ bool Fdemo_mapFormationProductControllerFencesTest::RunTest(const FString&)
 	const auto WrongRun = Fixture.Controller.TrySubmit(
 		*Fixture.Product.Authority,
 		Fixture.CombatRun,
+		Fixture.SpiritEnergyController,
 		Fixture.MakeIntent(
 			IntentId, OtherRunId, FVector::ZeroVector));
 	TestTrue(TEXT("Foreign Run fails before formation sequence reservation"),
@@ -5341,15 +5570,18 @@ bool Fdemo_mapFormationProductControllerFencesTest::RunTest(const FString&)
 	const auto First = Fixture.Controller.TrySubmit(
 		*Fixture.Product.Authority,
 		Fixture.CombatRun,
+		Fixture.SpiritEnergyController,
 		FirstIntent);
 	const auto Conflict = Fixture.Controller.TrySubmit(
 		*Fixture.Product.Authority,
 		Fixture.CombatRun,
+		Fixture.SpiritEnergyController,
 		Fixture.MakeIntent(
 			IntentId, RunId, FVector(1.0, 0.0, 0.0)));
 	const auto Busy = Fixture.Controller.TrySubmit(
 		*Fixture.Product.Authority,
 		Fixture.CombatRun,
+		Fixture.SpiritEnergyController,
 		Fixture.MakeIntent(
 			OtherIntentId, RunId, FVector(2.0, 0.0, 0.0)));
 	TestTrue(TEXT("One IntentId cannot alias another formation payload"),
@@ -5403,6 +5635,7 @@ bool Fdemo_mapFormationRunLifecycleOrderedEndTest::RunTest(const FString&)
 	const auto Started = Fixture.Lifecycle.TrySubmit(
 		*Fixture.Product.Authority,
 		Fixture.CombatRun,
+		Fixture.SpiritEnergyController,
 		Fixture.MakeIntent(IntentId, FVector(25.0, -10.0, 5.0)));
 	TestTrue(TEXT("Lifecycle owns the sole started formation controller"),
 		Started.IsAccepted()
@@ -5464,6 +5697,7 @@ bool Fdemo_mapFormationRunLifecycleExternalCompositionTest::RunTest(
 	const auto Started = Fixture.Lifecycle.TrySubmit(
 		*Fixture.Product.Authority,
 		Fixture.CombatRun,
+		Fixture.SpiritEnergyController,
 		Fixture.MakeIntent(FGuid(0xF8750001, 0, 0, 1)));
 	const auto Placed = Fixture.Lifecycle.TryExecuteAnchorOperation(
 		*Fixture.Product.Authority,
@@ -5587,6 +5821,10 @@ bool Fdemo_mapFormationGameModeRunCompositionTest::RunTest(const FString&)
 	const bool bBound = GameMode->CombatRunCoordinator.TryBeginRun(
 			RunId, Player, PlayerHealth, Diagnostic)
 		&& GameMode->CombatRunFixedTimeline.TryBegin(RunId, Diagnostic)
+		&& BeginFormationSharedEnergyController(
+			GameMode->CombatRunCoordinator,
+			GameMode->DivineSenseProductController,
+			Diagnostic)
 		&& GameMode->FormationRunLifecycle.TryBegin(
 			GameMode->CombatRunCoordinator, Diagnostic);
 	TestTrue(TEXT("GameMode composition binds one shared Run and formation lifecycle"),
@@ -5608,6 +5846,7 @@ bool Fdemo_mapFormationGameModeRunCompositionTest::RunTest(const FString&)
 	const auto Started = GameMode->FormationRunLifecycle.TrySubmit(
 		*Product.Authority,
 		GameMode->CombatRunCoordinator,
+		GameMode->DivineSenseProductController,
 		Intent);
 	Fdemo_mapShanmenFormationAnchorOperation AnchorOperation;
 	check(Fdemo_mapShanmenFormationAnchorOperation::TryCapture(
@@ -5670,6 +5909,7 @@ bool Fdemo_mapFormationRunLifecycleCoordinatorRecoveryTest::RunTest(
 	const auto Started = Fixture.Lifecycle.TrySubmit(
 		*Fixture.Product.Authority,
 		Fixture.CombatRun,
+		Fixture.SpiritEnergyController,
 		Fixture.MakeIntent(IntentId));
 	if (!Started.IsAccepted())
 	{
@@ -5725,6 +5965,7 @@ bool Fdemo_mapFormationRunLifecycleCoordinatorRecoveryTest::RunTest(
 	const auto LateSubmission = Fixture.Lifecycle.TrySubmit(
 		*Fixture.Product.Authority,
 		Fixture.CombatRun,
+		Fixture.SpiritEnergyController,
 		Fixture.MakeIntent(FGuid(0xF8720011, 0, 0, 1)));
 	TestTrue(TEXT("Checkpointed Run rejects new product work"),
 		LateSubmission.Status
@@ -5780,6 +6021,7 @@ bool Fdemo_mapFormationRunLifecycleAnchorOperationTest::RunTest(
 	const auto Started = Fixture.Lifecycle.TrySubmit(
 		*Fixture.Product.Authority,
 		Fixture.CombatRun,
+		Fixture.SpiritEnergyController,
 		Fixture.MakeIntent(FGuid(0xF8730001, 0, 0, 1)));
 	if (!Started.IsAccepted())
 	{
@@ -5904,6 +6146,7 @@ bool Fdemo_mapFormationRunLifecycleAnchorOperationFencesTest::RunTest(
 	const auto Started = Fixture.Lifecycle.TrySubmit(
 		*Fixture.Product.Authority,
 		Fixture.CombatRun,
+		Fixture.SpiritEnergyController,
 		Fixture.MakeIntent(FGuid(0xF8730020, 0, 0, 1)));
 	if (!Started.IsAccepted())
 	{
@@ -6250,7 +6493,10 @@ bool Fdemo_mapFormationInputAdapterStartReplayTest::RunTest(const FString&)
 		const Fdemo_mapShanmenFormationIntent& Intent)
 	{
 		return Fixture.Lifecycle.TrySubmit(
-			*Fixture.Product.Authority, Fixture.CombatRun, Intent);
+			*Fixture.Product.Authority,
+			Fixture.CombatRun,
+			Fixture.SpiritEnergyController,
+			Intent);
 	};
 	const auto First =
 		Fdemo_mapShanmenFormationInputAdapter::RouteStartInput(
@@ -6349,6 +6595,7 @@ bool Fdemo_mapFormationInputAdapterAnchorReplayTest::RunTest(const FString&)
 				return Fixture.Lifecycle.TrySubmit(
 					*Fixture.Product.Authority,
 					Fixture.CombatRun,
+					Fixture.SpiritEnergyController,
 					Intent);
 			});
 	if (!Started.IsAccepted())

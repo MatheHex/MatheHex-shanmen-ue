@@ -78,6 +78,7 @@ Fdemo_mapShanmenFormationControllerResult
 Fdemo_mapShanmenFormationRunLifecycle::TrySubmit(
 	const Udemo_mapShanmenItemAuthoritySubsystem& Authority,
 	Fdemo_mapCombatRunCoordinator& Coordinator,
+	Fdemo_mapShanmenDivineSenseProductController& SpiritEnergyController,
 	const Fdemo_mapShanmenFormationIntent& Intent)
 {
 	if (!IsActive())
@@ -114,7 +115,8 @@ Fdemo_mapShanmenFormationRunLifecycle::TrySubmit(
 	}
 
 	Fdemo_mapShanmenFormationControllerResult Result =
-		Controller.TrySubmit(Authority, Coordinator, Intent);
+		Controller.TrySubmit(
+			Authority, Coordinator, SpiritEnergyController, Intent);
 	if (!IsValid())
 	{
 		Result.Status =

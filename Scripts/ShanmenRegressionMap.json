@@ -1560,6 +1560,11 @@
         "Shanmen.0_0_10.Product.FormationMaterialAdapter",
         "Shanmen.0_0_10.Items",
         "Shanmen.0_0_10.CombatRuntime.FormationDeployment",
+        "Shanmen.0_0_10.CombatRuntime.ActionResource",
+        "Shanmen.0_0_10.Product.DivineSenseProductController",
+        "Shanmen.0_0_10.Product.DivineSenseProductHost",
+        "Shanmen.0_0_10.Product.DivineSenseCommandRouter",
+        "Shanmen.0_0_10.Product.SpiritShieldProductSession",
         "Shanmen.0_0_10.CombatCore"
       ]
     },
@@ -1578,6 +1583,11 @@
         "Shanmen.0_0_10.Items",
         "Shanmen.0_0_10.WorldGameplay",
         "Shanmen.0_0_10.CombatRuntime.FormationDeployment",
+        "Shanmen.0_0_10.CombatRuntime.ActionResource",
+        "Shanmen.0_0_10.Product.DivineSenseProductController",
+        "Shanmen.0_0_10.Product.DivineSenseProductHost",
+        "Shanmen.0_0_10.Product.DivineSenseCommandRouter",
+        "Shanmen.0_0_10.Product.SpiritShieldProductSession",
         "Shanmen.0_0_10.CombatCore"
       ]
     },

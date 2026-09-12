@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "demo_mapShanmenDivineSenseProductController.h"
 #include "demo_mapShanmenFormationProductAuthority.h"
 #include "demo_mapShanmenFormationProductHost.h"
 
@@ -51,7 +52,9 @@ enum class Edemo_mapShanmenFormationControllerStatus : uint8
 	IntentIdConflict,
 	HostBusy,
 	PreparationRejected,
-	HostStartRejected
+	HostStartRejected,
+	SharedResourceRejected,
+	StateDesynchronized
 };
 
 /** Frozen proof from durable item Run through formation ProductHost start. */
@@ -66,6 +69,9 @@ struct Fdemo_mapShanmenFormationControllerResult
 	FShanmenActionTransitionReceipt Startup;
 	FShanmenActionTransitionReceipt Active;
 	FShanmenFormationDeploymentReceipt Begin;
+	FShanmenActionResourceTransactionResult ResourceReserve;
+	FShanmenActionResourceTransactionResult ResourceCommit;
+	Fdemo_mapShanmenSharedSpiritEnergyTransactionResult SharedResource;
 	FString Diagnostic;
 
 	bool IsAccepted() const;
@@ -145,10 +151,12 @@ struct Fdemo_mapShanmenFormationControllerEndSummary
  * Sole Run-scoped owner for one player formation product.
  *
  * The first valid IntentId freezes durable item authority and one combat Run
- * sequence, then starts the existing ProductHost. Exact replay returns the
- * same start proof without another sequence; a changed or second intent fails
- * before authority is sampled. World placement enters only through the
- * explicit RunLifecycle anchor gateway rather than hidden polling.
+ * sequence, then atomically starts the existing ProductHost and commits the
+ * diagram's authored cost through the Run's shared SpiritEnergy authority.
+ * Exact replay returns the same product/resource proof without another
+ * sequence or spend; a changed or second intent fails before authority is
+ * sampled. World placement enters only through the explicit RunLifecycle
+ * anchor gateway rather than hidden polling.
  */
 class Fdemo_mapShanmenFormationProductController
 {
@@ -158,6 +166,8 @@ public:
 	Fdemo_mapShanmenFormationControllerResult TrySubmit(
 		const Udemo_mapShanmenItemAuthoritySubsystem& Authority,
 		Fdemo_mapCombatRunCoordinator& Coordinator,
+		Fdemo_mapShanmenDivineSenseProductController&
+			SpiritEnergyController,
 		const Fdemo_mapShanmenFormationIntent& Intent);
 
 	bool TryTerminateAndEnd(
@@ -192,6 +202,9 @@ private:
 
 	Fdemo_mapShanmenFormationControllerResult StartCaptured(
 		FCapturedIntent& Captured,
+		Fdemo_mapCombatRunCoordinator& Coordinator,
+		Fdemo_mapShanmenDivineSenseProductController&
+			SpiritEnergyController,
 		bool bReusedIntent);
 	Fdemo_mapShanmenFormationAnchorOperationResult TryExecuteAnchorOperation(
 		Udemo_mapShanmenItemAuthoritySubsystem& Authority,

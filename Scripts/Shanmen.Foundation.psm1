@@ -256,13 +256,13 @@ function Invoke-ShanmenBuild {
     )
     if (-not $UseUba) { $buildArguments += '-NoUBA' }
 
-    $commandTokens = @('call', (ConvertTo-WindowsCommandLineArgument $Project.BuildBat)) +
-        @($buildArguments | ForEach-Object { ConvertTo-WindowsCommandLineArgument $_ })
-    $command = $commandTokens -join ' '
+    # Start the batch entrypoint directly. Wrapping an already quoted command in
+    # cmd.exe /s /c causes Start-Process to quote the complete command again,
+    # leaving cmd.exe to look for a literal path that begins with a quote.
     $processParameters = @{
-        FilePath = $env:ComSpec
-        ArgumentList = @('/d', '/s', '/c', $command)
-        WorkingDirectory = $Project.ProjectRoot
+        FilePath = $Project.BuildBat
+        ArgumentList = $buildArguments
+        WorkingDirectory = Split-Path -Parent $Project.BuildBat
         Evidence = $Evidence
         Wait = $true
         Hidden = $true
