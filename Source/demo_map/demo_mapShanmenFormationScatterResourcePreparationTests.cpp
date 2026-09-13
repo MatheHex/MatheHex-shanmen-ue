@@ -6,6 +6,7 @@
 #include "demo_mapShanmenFormationScatterWorldPlacementHandoff.h"
 #include "demo_mapShanmenFormationScatterWorldPublication.h"
 #include "demo_mapShanmenFormationScatterWorldPublicationCommandHost.h"
+#include "demo_mapShanmenFormationScatterWorldPublicationRunRoute.h"
 #include "demo_mapShanmenFormationScatterWorldPublicationSession.h"
 
 #include "Engine/Engine.h"
@@ -45,6 +46,10 @@ namespace
 		Edemo_mapShanmenFormationScatterWorldPublicationCommandOperation;
 	using EWorldPublicationCommandStatus =
 		Edemo_mapShanmenFormationScatterWorldPublicationCommandStatus;
+	using EWorldPublicationRunEvent =
+		Edemo_mapShanmenFormationScatterWorldPublicationRunEvent;
+	using EWorldPublicationRunRouteStatus =
+		Edemo_mapShanmenFormationScatterWorldPublicationRunRouteStatus;
 
 	constexpr EAutomationTestFlags PreparationFlags =
 		EAutomationTestFlags::EditorContext
@@ -2548,6 +2553,279 @@ bool Fdemo_mapFormationScatterWorldPublicationCommandHostConflictTest::RunTest(
 			&& TerminalConflict.IsValid() && !TerminalConflict.IsSuccess()
 			&& Host.GetRecordCount() == 2
 			&& Host.GetSession().GetState()
+				== EWorldPublicationSessionState::Ended);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterWorldPublicationRunRouteReplayTest,
+	"Shanmen.0_0_10.Product.FormationScatterWorldPublicationRunRoute.PublishReplayAndRunBinding",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterWorldPublicationRunRouteReplayTest::RunTest(
+	const FString&)
+{
+	FPreparationFixture Fixture;
+	Fdemo_mapShanmenFormationScatterWorldPlacementHandoffEvidence Handoff;
+	FScopedScatterPublicationWorld ScopedWorld;
+	if (!Fixture.Build(TEXT("WorldPublicationRunRouteReplay"))
+		|| !BuildWorldHandoffEvidence(Fixture, Handoff)
+		|| !ScopedWorld.Start())
+	{
+		AddError(TEXT("Could not build the P27.26 replay fixture."));
+		return false;
+	}
+	FShanmenItemAuthoritySnapshot Before;
+	Fixture.Capture(Before);
+	const FGuid RunId = Handoff.GetDeploymentEvidence()
+		.GetResourceEvidence().GetPlan().GetActiveRunId();
+	Fdemo_mapShanmenFormationScatterWorldPublicationRunRoute Route;
+	if (!Fdemo_mapShanmenFormationScatterWorldPublicationRunRoute::TryOpen(
+			RunId, Handoff, ACharacter::StaticClass(), Route))
+	{
+		AddError(TEXT("Could not open the P27.26 Run route."));
+		return false;
+	}
+
+	const auto Applied = Route.TryPublish(RunId, ScopedWorld.World);
+	const auto Completion =
+		Route.GetHost().GetSession().GetCompletionEvidence();
+	const auto Replayed = Route.TryPublish(RunId, nullptr);
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Capture(After);
+	const FName DeploymentTag =
+		Fdemo_mapShanmenFormationWorldAdapter::MakeDeploymentTag(
+			Route.GetHost().GetBinding().GetDeploymentId());
+	TestTrue(TEXT("One Run route derives one replayable Publish command"),
+		Route.IsValid() && Route.GetRunId() == RunId
+			&& Applied.Status == EWorldPublicationRunRouteStatus::Applied
+			&& Applied.IsValid() && Applied.IsSuccess()
+			&& Applied.Event == EWorldPublicationRunEvent::Publish
+			&& Applied.Command.Status
+				== EWorldPublicationCommandStatus::Applied
+			&& Replayed.Status == EWorldPublicationRunRouteStatus::Replayed
+			&& Replayed.IsValid() && Replayed.IsSuccess()
+			&& Replayed.Command.Status
+				== EWorldPublicationCommandStatus::Replayed
+			&& Replayed.Command.bReplay
+			&& Applied.RouteId == Replayed.RouteId
+			&& Applied.CommandId == Replayed.CommandId
+			&& Route.GetHost().GetRecordCount() == 1
+			&& Route.GetHost().GetSession().GetCompletionEvidence()
+				== Completion
+			&& CountPublicationActors(ScopedWorld.World, DeploymentTag) == 2
+			&& After == Before);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterWorldPublicationRunRouteTakeoverTest,
+	"Shanmen.0_0_10.Product.FormationScatterWorldPublicationRunRoute.TakeoverPreservesOwnerAndEndRoute",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterWorldPublicationRunRouteTakeoverTest::RunTest(
+	const FString&)
+{
+	FPreparationFixture Fixture;
+	Fdemo_mapShanmenFormationScatterWorldPlacementHandoffEvidence Handoff;
+	FScopedScatterPublicationWorld ScopedWorld;
+	if (!Fixture.Build(TEXT("WorldPublicationRunRouteTakeover"))
+		|| !BuildWorldHandoffEvidence(Fixture, Handoff)
+		|| !ScopedWorld.Start())
+	{
+		AddError(TEXT("Could not build the P27.26 takeover fixture."));
+		return false;
+	}
+	const FGuid RunId = Handoff.GetDeploymentEvidence()
+		.GetResourceEvidence().GetPlan().GetActiveRunId();
+	Fdemo_mapShanmenFormationScatterWorldPublicationRunRoute Previous;
+	if (!Fdemo_mapShanmenFormationScatterWorldPublicationRunRoute::TryOpen(
+			RunId, Handoff, ACharacter::StaticClass(), Previous))
+	{
+		AddError(TEXT("Could not open the original P27.26 route."));
+		return false;
+	}
+	const auto Published = Previous.TryPublish(RunId, ScopedWorld.World);
+	const FGuid RouteId = Previous.GetRouteId();
+	const FGuid HostId = Previous.GetHost().GetBinding().GetHostId();
+	Fdemo_mapShanmenFormationScatterWorldPublicationRunRoute Active;
+	if (!Published.IsSuccess()
+		|| !Fdemo_mapShanmenFormationScatterWorldPublicationRunRoute::
+			TryTakeover(Previous, Active))
+	{
+		AddError(TEXT("Could not transfer the P27.26 route owner."));
+		return false;
+	}
+
+	const auto PublishReplay = Active.TryPublish(RunId, nullptr);
+	const auto Ended = Active.TryEnd(RunId, ScopedWorld.World);
+	const auto EndReplay = Active.TryEnd(RunId, nullptr);
+	const FName DeploymentTag =
+		Fdemo_mapShanmenFormationWorldAdapter::MakeDeploymentTag(
+			Active.GetHost().GetBinding().GetDeploymentId());
+	TestTrue(TEXT("Takeover invalidates only the old composition owner"),
+		Previous.IsEmpty() && !Previous.IsValid()
+			&& Active.IsValid() && Active.GetRouteId() == RouteId
+			&& Active.GetHost().GetBinding().GetHostId() == HostId
+			&& PublishReplay.Status
+				== EWorldPublicationRunRouteStatus::Replayed
+			&& PublishReplay.CommandId == Published.CommandId
+			&& Ended.Status == EWorldPublicationRunRouteStatus::Applied
+			&& Ended.IsValid() && Ended.IsSuccess()
+			&& Ended.Event == EWorldPublicationRunEvent::End
+			&& EndReplay.Status == EWorldPublicationRunRouteStatus::Replayed
+			&& EndReplay.IsValid() && EndReplay.IsSuccess()
+			&& EndReplay.CommandId == Ended.CommandId
+			&& Active.GetHost().GetRecordCount() == 2
+			&& Active.GetHost().GetSession().GetState()
+				== EWorldPublicationSessionState::Ended
+			&& CountPublicationActors(ScopedWorld.World, DeploymentTag) == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterWorldPublicationRunRouteReconstructionTest,
+	"Shanmen.0_0_10.Product.FormationScatterWorldPublicationRunRoute.ReconstructionAdoptsAndCancelsBatch",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterWorldPublicationRunRouteReconstructionTest::
+RunTest(const FString&)
+{
+	FPreparationFixture Fixture;
+	Fdemo_mapShanmenFormationScatterWorldPlacementHandoffEvidence Handoff;
+	FScopedScatterPublicationWorld ScopedWorld;
+	if (!Fixture.Build(TEXT("WorldPublicationRunRouteReconstruction"))
+		|| !BuildWorldHandoffEvidence(Fixture, Handoff)
+		|| !ScopedWorld.Start())
+	{
+		AddError(TEXT("Could not build the P27.26 reconstruction fixture."));
+		return false;
+	}
+	const FGuid RunId = Handoff.GetDeploymentEvidence()
+		.GetResourceEvidence().GetPlan().GetActiveRunId();
+	FGuid OriginalRouteId;
+	FGuid OriginalPublishId;
+	TSet<AActor*> OriginalActors;
+	FName DeploymentTag;
+	{
+		Fdemo_mapShanmenFormationScatterWorldPublicationRunRoute Original;
+		if (!Fdemo_mapShanmenFormationScatterWorldPublicationRunRoute::TryOpen(
+				RunId, Handoff, ACharacter::StaticClass(), Original))
+		{
+			AddError(TEXT("Could not open the original P27.26 route."));
+			return false;
+		}
+		const auto Published = Original.TryPublish(RunId, ScopedWorld.World);
+		if (!Published.IsSuccess())
+		{
+			AddError(TEXT("Could not seed the P27.26 reconstruction World."));
+			return false;
+		}
+		OriginalRouteId = Original.GetRouteId();
+		OriginalPublishId = Published.CommandId;
+		DeploymentTag =
+			Fdemo_mapShanmenFormationWorldAdapter::MakeDeploymentTag(
+				Original.GetHost().GetBinding().GetDeploymentId());
+		OriginalActors = CollectPublicationActors(
+			ScopedWorld.World, DeploymentTag);
+	}
+
+	Fdemo_mapShanmenFormationScatterWorldPublicationRunRoute Reconstructed;
+	if (!Fdemo_mapShanmenFormationScatterWorldPublicationRunRoute::TryOpen(
+			RunId, Handoff, ACharacter::StaticClass(), Reconstructed))
+	{
+		AddError(TEXT("Could not reconstruct the P27.26 route."));
+		return false;
+	}
+	const auto Adopted = Reconstructed.TryPublish(RunId, ScopedWorld.World);
+	const TSet<AActor*> AdoptedActors =
+		CollectPublicationActors(ScopedWorld.World, DeploymentTag);
+	const auto Cancelled = Reconstructed.TryCancel(RunId, ScopedWorld.World);
+	TestTrue(TEXT("Reconstruction derives the same route and adopts the batch"),
+		Reconstructed.IsValid()
+			&& Reconstructed.GetRouteId() == OriginalRouteId
+			&& Adopted.Status == EWorldPublicationRunRouteStatus::Applied
+			&& Adopted.IsValid() && Adopted.IsSuccess()
+			&& Adopted.CommandId == OriginalPublishId
+			&& Adopted.Command.Session.Status
+				== EWorldPublicationSessionStatus::Published
+			&& PublicationActorSetsMatch(OriginalActors, AdoptedActors)
+			&& AdoptedActors.Num() == 2
+			&& Cancelled.Status == EWorldPublicationRunRouteStatus::Applied
+			&& Cancelled.IsValid() && Cancelled.IsSuccess()
+			&& Cancelled.Event == EWorldPublicationRunEvent::Cancel
+			&& Reconstructed.GetHost().GetSession().GetState()
+				== EWorldPublicationSessionState::Cancelled
+			&& CountPublicationActors(ScopedWorld.World, DeploymentTag) == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterWorldPublicationRunRouteConflictTest,
+	"Shanmen.0_0_10.Product.FormationScatterWorldPublicationRunRoute.RunWorldAndTerminalConflicts",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterWorldPublicationRunRouteConflictTest::RunTest(
+	const FString&)
+{
+	FPreparationFixture Fixture;
+	Fdemo_mapShanmenFormationScatterWorldPlacementHandoffEvidence Handoff;
+	FScopedScatterPublicationWorld FirstWorld;
+	FScopedScatterPublicationWorld SecondWorld;
+	if (!Fixture.Build(TEXT("WorldPublicationRunRouteConflict"))
+		|| !BuildWorldHandoffEvidence(Fixture, Handoff)
+		|| !FirstWorld.Start() || !SecondWorld.Start())
+	{
+		AddError(TEXT("Could not build the P27.26 conflict fixture."));
+		return false;
+	}
+	const FGuid RunId = Handoff.GetDeploymentEvidence()
+		.GetResourceEvidence().GetPlan().GetActiveRunId();
+	const FGuid ForeignRunId(0xF8F26001, 0, 0, 1);
+	Fdemo_mapShanmenFormationScatterWorldPublicationRunRoute InvalidBinding;
+	Fdemo_mapShanmenFormationScatterWorldPublicationRunRoute Route;
+	TestTrue(TEXT("A route cannot bind the Handoff to a foreign Run"),
+		!Fdemo_mapShanmenFormationScatterWorldPublicationRunRoute::TryOpen(
+			ForeignRunId, Handoff, ACharacter::StaticClass(), InvalidBinding)
+			&& InvalidBinding.IsEmpty()
+			&& Fdemo_mapShanmenFormationScatterWorldPublicationRunRoute::TryOpen(
+				RunId, Handoff, ACharacter::StaticClass(), Route));
+	if (!Route.IsValid())
+	{
+		AddError(TEXT("Could not open the valid P27.26 control route."));
+		return false;
+	}
+
+	const auto Foreign = Route.TryPublish(ForeignRunId, FirstWorld.World);
+	const auto Invalid = Route.TryRoute(
+		RunId, FirstWorld.World, EWorldPublicationRunEvent::Invalid);
+	const auto Published = Route.TryPublish(RunId, FirstWorld.World);
+	const auto WrongWorld = Route.TryEnd(RunId, SecondWorld.World);
+	const auto Ended = Route.TryEnd(RunId, FirstWorld.World);
+	const auto TerminalConflict = Route.TryCancel(RunId, FirstWorld.World);
+	TestTrue(TEXT("Foreign Run and invalid events fail before Host mutation"),
+		Foreign.Status == EWorldPublicationRunRouteStatus::RunMismatch
+			&& Foreign.IsValid() && !Foreign.IsSuccess()
+			&& Invalid.Status == EWorldPublicationRunRouteStatus::EventInvalid
+			&& Invalid.IsValid() && !Invalid.IsSuccess()
+			&& Published.IsSuccess());
+	TestTrue(TEXT("World rejection is retryable and terminal reason is frozen"),
+		WrongWorld.Status == EWorldPublicationRunRouteStatus::HostRejected
+			&& WrongWorld.IsValid() && !WrongWorld.IsSuccess()
+			&& WrongWorld.Command.Status
+				== EWorldPublicationCommandStatus::SessionRejected
+			&& WrongWorld.Command.Session.Status
+				== EWorldPublicationSessionStatus::WorldConflict
+			&& !WrongWorld.Command.bHostStateCommitted
+			&& Ended.Status == EWorldPublicationRunRouteStatus::Applied
+			&& Ended.IsValid() && Ended.IsSuccess()
+			&& TerminalConflict.Status
+				== EWorldPublicationRunRouteStatus::HostRejected
+			&& TerminalConflict.IsValid() && !TerminalConflict.IsSuccess()
+			&& TerminalConflict.Command.Status
+				== EWorldPublicationCommandStatus::OperationIdentityConflict
+			&& Route.GetHost().GetRecordCount() == 2
+			&& Route.GetHost().GetSession().GetState()
 				== EWorldPublicationSessionState::Ended);
 	return true;
 }
