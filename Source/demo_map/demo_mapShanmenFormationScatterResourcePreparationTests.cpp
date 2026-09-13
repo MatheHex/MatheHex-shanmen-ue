@@ -4,15 +4,23 @@
 #include "demo_mapShanmenFormationScatterResourceCommit.h"
 #include "demo_mapShanmenFormationScatterResourcePreparation.h"
 #include "demo_mapShanmenFormationScatterWorldPlacementHandoff.h"
+#include "demo_mapShanmenFormationScatterWorldPublication.h"
 
+#include "Engine/Engine.h"
+#include "Engine/World.h"
+#include "EngineUtils.h"
+#include "GameFramework/Actor.h"
+#include "GameFramework/Character.h"
 #include "HAL/FileManager.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/Paths.h"
 #include "ShanmenActionOrchestrator.h"
 #include "ShanmenCombatResolver.h"
+#include "ShanmenDeterministicId.h"
 #include "ShanmenItemRepository.h"
 #include "ShanmenItemTags.h"
 #include "demo_mapPersistentProfileTypes.h"
+#include "UObject/UObjectGlobals.h"
 
 namespace
 {
@@ -24,6 +32,8 @@ namespace
 		Edemo_mapShanmenFormationScatterDeploymentCommitStatus;
 	using EWorldHandoffStatus =
 		Edemo_mapShanmenFormationScatterWorldPlacementHandoffStatus;
+	using EWorldPublicationStatus =
+		Edemo_mapShanmenFormationScatterWorldPublicationStatus;
 
 	constexpr EAutomationTestFlags PreparationFlags =
 		EAutomationTestFlags::EditorContext
@@ -573,6 +583,187 @@ namespace
 			Storage,
 			FShanmenItemMigrationAuthorization::Explicit(MigrationId),
 			Snapshot, MakeMigrationEvidence(Snapshot)).IsReady();
+	}
+
+	FString PublicationGuidDigits(const FGuid& Value)
+	{
+		return Value.ToString(EGuidFormats::Digits);
+	}
+
+	Fdemo_mapShanmenFormationAnchorPlacementReceipt
+	MakePublicationReceipt(
+		const Fdemo_mapShanmenFormationAnchorPlacementIntent& Intent,
+		const FString& ActorClassPath)
+	{
+		Fdemo_mapShanmenFormationAnchorPlacementReceipt Receipt;
+		Receipt.Intent = Intent;
+		Receipt.ActorClassPath = ActorClassPath;
+		Receipt.PlacementTag =
+			Fdemo_mapShanmenFormationWorldAdapter::MakePlacementTag(
+				Intent.PlacementId);
+		Receipt.DeploymentTag =
+			Fdemo_mapShanmenFormationWorldAdapter::MakeDeploymentTag(
+				Intent.DeploymentId);
+		Receipt.ReceiptId = FShanmenDeterministicId::FromCanonicalParts(
+			TEXT("Shanmen.Formation.WorldPlacementReceipt.r1"),
+			{ PublicationGuidDigits(Intent.PlacementId), ActorClassPath });
+		return Receipt;
+	}
+
+	bool BuildWorldHandoffEvidence(
+		FPreparationFixture& Fixture,
+		Fdemo_mapShanmenFormationScatterWorldPlacementHandoffEvidence&
+			OutEvidence)
+	{
+		OutEvidence =
+			Fdemo_mapShanmenFormationScatterWorldPlacementHandoffEvidence();
+		const auto Resources = Fixture.ExecuteCommit();
+		const auto Deployment =
+			Fdemo_mapShanmenFormationScatterDeploymentCommitter::Commit(
+				Fixture.Runtime, Fixture.Deployment, Resources.Evidence);
+		if (!Resources.IsCommitted() || !Deployment.IsCommitted())
+		{
+			return false;
+		}
+		const auto Handoff =
+			Fdemo_mapShanmenFormationScatterWorldPlacementHandoffBuilder::
+				Build(Deployment.Evidence);
+		if (!Handoff.IsReady())
+		{
+			return false;
+		}
+		OutEvidence = Handoff.Evidence;
+		return OutEvidence.IsValid();
+	}
+
+	class FFakeScatterWorldPlacementPort final
+		: public Idemo_mapShanmenFormationScatterWorldPlacementPort
+	{
+	public:
+		explicit FFakeScatterWorldPlacementPort(
+			FString InActorClassPath =
+				TEXT("/Script/demo_map.P27_23FakeAnchor"))
+			: ActorClassPath(MoveTemp(InActorClassPath))
+		{
+		}
+
+		virtual FString GetActorClassPath() const override
+		{
+			return ActorClassPath;
+		}
+
+		virtual Fdemo_mapShanmenFormationWorldResult Publish(
+			const Fdemo_mapShanmenFormationAnchorPlacementIntent& Intent)
+			override
+		{
+			const int32 ThisCall = PublishCallCount++;
+			if (RejectOnceAtCall == ThisCall)
+			{
+				RejectOnceAtCall = INDEX_NONE;
+				Fdemo_mapShanmenFormationWorldResult Rejected;
+				Rejected.Status =
+					Edemo_mapShanmenFormationWorldStatus::SpawnRejected;
+				Rejected.Diagnostic = TEXT("Injected bounded World rejection.");
+				Rejected.Intent = Intent;
+				return Rejected;
+			}
+
+			const FString ReceiptClassPath = bReturnForeignClassReceipt
+				? TEXT("/Script/demo_map.P27_23ForeignAnchor")
+				: ActorClassPath;
+			const bool bReplay = Receipts.Contains(Intent.PlacementId);
+			Fdemo_mapShanmenFormationAnchorPlacementReceipt& Receipt =
+				Receipts.FindOrAdd(Intent.PlacementId);
+			if (!bReplay)
+			{
+				Receipt = MakePublicationReceipt(Intent, ReceiptClassPath);
+			}
+			Fdemo_mapShanmenFormationWorldResult Result;
+			Result.Status = bReplay
+				? Edemo_mapShanmenFormationWorldStatus::Replayed
+				: Edemo_mapShanmenFormationWorldStatus::Placed;
+			Result.Diagnostic = bReplay
+				? TEXT("Fake World replayed the exact placement.")
+				: TEXT("Fake World accepted the exact placement.");
+			Result.Intent = Intent;
+			Result.PlacementReceipt = Receipt;
+			return Result;
+		}
+
+		FString ActorClassPath;
+		int32 RejectOnceAtCall = INDEX_NONE;
+		int32 PublishCallCount = 0;
+		bool bReturnForeignClassReceipt = false;
+		TMap<FGuid, Fdemo_mapShanmenFormationAnchorPlacementReceipt> Receipts;
+	};
+
+	struct FScopedScatterPublicationWorld
+	{
+		UWorld* World = nullptr;
+
+		bool Start()
+		{
+			if (!GEngine)
+			{
+				return false;
+			}
+			World = NewObject<UWorld>(
+				GetTransientPackage(), NAME_None, RF_Transient);
+			if (!World)
+			{
+				return false;
+			}
+			World->WorldType = EWorldType::GamePreview;
+			FWorldContext& Context =
+				GEngine->CreateNewWorldContext(EWorldType::GamePreview);
+			Context.SetCurrentWorld(World);
+			World->InitializeNewWorld(
+				UWorld::InitializationValues()
+					.InitializeScenes(false)
+					.AllowAudioPlayback(false)
+					.RequiresHitProxies(false)
+					.CreatePhysicsScene(false)
+					.CreateNavigation(false)
+					.CreateAISystem(false)
+					.ShouldSimulatePhysics(false)
+					.EnableTraceCollision(false)
+					.SetTransactional(false)
+					.CreateFXSystem(false));
+			return true;
+		}
+
+		~FScopedScatterPublicationWorld()
+		{
+			if (World)
+			{
+				World->DestroyWorld(false);
+				if (GEngine)
+				{
+					GEngine->DestroyWorldContext(World);
+				}
+				World = nullptr;
+				CollectGarbage(RF_NoFlags);
+			}
+		}
+	};
+
+	int32 CountPublicationActors(UWorld* World, const FName DeploymentTag)
+	{
+		int32 Count = 0;
+		if (!World || DeploymentTag.IsNone())
+		{
+			return Count;
+		}
+		for (TActorIterator<AActor> It(World); It; ++It)
+		{
+			AActor* Actor = *It;
+			if (::IsValid(Actor) && !Actor->IsActorBeingDestroyed()
+				&& Actor->ActorHasTag(DeploymentTag))
+			{
+				++Count;
+			}
+		}
+		return Count;
 	}
 }
 
@@ -1465,6 +1656,237 @@ bool Fdemo_mapFormationScatterWorldPlacementHandoffInvalidTest::RunTest(
 		Result.Status == EWorldHandoffStatus::DeploymentEvidenceInvalid
 			&& Result.IsValid() && !Result.IsReady()
 			&& !Result.Evidence.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterWorldPublicationWholeBatchTest,
+	"Shanmen.0_0_10.Product.FormationScatterWorldPublication.ConcreteWholeBatchAndReplay",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterWorldPublicationWholeBatchTest::RunTest(
+	const FString&)
+{
+	FPreparationFixture Fixture;
+	Fdemo_mapShanmenFormationScatterWorldPlacementHandoffEvidence Handoff;
+	FScopedScatterPublicationWorld ScopedWorld;
+	if (!Fixture.Build(TEXT("WorldPublicationWholeBatch"))
+		|| !BuildWorldHandoffEvidence(Fixture, Handoff)
+		|| !ScopedWorld.Start())
+	{
+		AddError(TEXT("Could not build the P27.23 concrete World fixture."));
+		return false;
+	}
+	FShanmenItemAuthoritySnapshot Before;
+	Fixture.Capture(Before);
+	const int32 DeploymentReceiptCount =
+		Fixture.Deployment.GetReceipts().Num();
+
+	Fdemo_mapShanmenFormationWorldAdapter Adapter;
+	Fdemo_mapShanmenFormationScatterWorldAdapterPublicationPort Port(
+		ScopedWorld.World, ACharacter::StaticClass(), Adapter);
+	Fdemo_mapShanmenFormationScatterWorldPublicationLedger Ledger;
+	const auto First =
+		Fdemo_mapShanmenFormationScatterWorldPublisher::Publish(
+			Handoff, Port, Ledger);
+	const auto FirstEvidence = First.Evidence;
+	const FName DeploymentTag =
+		Fdemo_mapShanmenFormationWorldAdapter::MakeDeploymentTag(
+			Handoff.GetDeploymentEvidence()
+				.GetDeployment().GetDeploymentId());
+	TestTrue(TEXT("The concrete port publishes the complete canonical batch"),
+		First.Status == EWorldPublicationStatus::Published
+			&& First.IsValid() && First.IsSuccess()
+			&& First.InitialPublishedCount == 0
+			&& First.FinalPublishedCount == 2
+			&& First.NewRecords.Num() == 2
+			&& First.Evidence.IsValid()
+			&& Ledger.GetPublishedCount() == 2
+			&& Adapter.IsValid() && Adapter.GetPlacementCount() == 2
+			&& CountPublicationActors(ScopedWorld.World, DeploymentTag) == 2);
+
+	const auto Replay =
+		Fdemo_mapShanmenFormationScatterWorldPublisher::Publish(
+			Handoff, Port, Ledger);
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Capture(After);
+	TestTrue(TEXT("Exact replay proves the World prefix without growth"),
+		Replay.Status == EWorldPublicationStatus::Replayed
+			&& Replay.IsValid() && Replay.IsSuccess()
+			&& Replay.InitialPublishedCount == 2
+			&& Replay.FinalPublishedCount == 2
+			&& Replay.NewRecords.IsEmpty()
+			&& Replay.Evidence == FirstEvidence
+			&& Ledger.GetPublishedCount() == 2
+			&& Adapter.GetPlacementCount() == 2
+			&& CountPublicationActors(ScopedWorld.World, DeploymentTag) == 2);
+	TestTrue(TEXT("World publication cannot reconsume or rewrite source facts"),
+		After == Before
+			&& Fixture.Deployment.GetState()
+				== EShanmenFormationDeploymentState::Active
+			&& Fixture.Deployment.GetReceipts().Num()
+				== DeploymentReceiptCount);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterWorldPublicationRecoveryTest,
+	"Shanmen.0_0_10.Product.FormationScatterWorldPublication.PartialFailureRecoversPrefix",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterWorldPublicationRecoveryTest::RunTest(
+	const FString&)
+{
+	FPreparationFixture Fixture;
+	Fdemo_mapShanmenFormationScatterWorldPlacementHandoffEvidence Handoff;
+	if (!Fixture.Build(TEXT("WorldPublicationRecovery"))
+		|| !BuildWorldHandoffEvidence(Fixture, Handoff))
+	{
+		AddError(TEXT("Could not build the P27.23 recovery fixture."));
+		return false;
+	}
+
+	FFakeScatterWorldPlacementPort Port;
+	Port.RejectOnceAtCall = 1;
+	Fdemo_mapShanmenFormationScatterWorldPublicationLedger Ledger;
+	const auto Partial =
+		Fdemo_mapShanmenFormationScatterWorldPublisher::Publish(
+			Handoff, Port, Ledger);
+	const bool bPartialRetained =
+		Partial.Status == EWorldPublicationStatus::PublicationRejected
+			&& Partial.IsValid() && !Partial.IsSuccess()
+			&& Partial.InitialPublishedCount == 0
+			&& Partial.FinalPublishedCount == 1
+			&& Partial.FailedAnchorOrder == 1
+			&& Partial.NewRecords.Num() == 1
+			&& Ledger.IsValid() && Ledger.GetPublishedCount() == 1;
+	TestTrue(TEXT("A middle rejection retains only the proven prefix"),
+		bPartialRetained);
+	if (!bPartialRetained)
+	{
+		return false;
+	}
+
+	const FGuid FirstRecordId = Ledger.GetRecords()[0].GetRecordId();
+	const auto Recovered =
+		Fdemo_mapShanmenFormationScatterWorldPublisher::Publish(
+			Handoff, Port, Ledger);
+	TestTrue(TEXT("Retry verifies the prefix then publishes only the suffix"),
+		Recovered.Status == EWorldPublicationStatus::Recovered
+			&& Recovered.IsValid() && Recovered.IsSuccess()
+			&& Recovered.InitialPublishedCount == 1
+			&& Recovered.FinalPublishedCount == 2
+			&& Recovered.NewRecords.Num() == 1
+			&& Ledger.GetRecords()[0].GetRecordId() == FirstRecordId
+			&& Port.Receipts.Num() == 2
+			&& Recovered.Evidence.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterWorldPublicationConflictTest,
+	"Shanmen.0_0_10.Product.FormationScatterWorldPublication.ForeignLedgerAndActorClassRejected",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterWorldPublicationConflictTest::RunTest(
+	const FString&)
+{
+	FPreparationFixture Fixture;
+	Fdemo_mapShanmenFormationScatterWorldPlacementHandoffEvidence Handoff;
+	if (!Fixture.Build(TEXT("WorldPublicationConflict"))
+		|| !BuildWorldHandoffEvidence(Fixture, Handoff))
+	{
+		AddError(TEXT("Could not build the P27.23 conflict fixture."));
+		return false;
+	}
+	FFakeScatterWorldPlacementPort Port;
+	Fdemo_mapShanmenFormationScatterWorldPublicationLedger Ledger;
+	const auto Published =
+		Fdemo_mapShanmenFormationScatterWorldPublisher::Publish(
+			Handoff, Port, Ledger);
+	if (!Published.IsSuccess())
+	{
+		AddError(TEXT("Could not seed the P27.23 complete ledger."));
+		return false;
+	}
+
+	FPreparationFixture ForeignFixture;
+	ForeignFixture.Content.Digest = TEXT("foreign-publication-source");
+	Fdemo_mapShanmenFormationScatterWorldPlacementHandoffEvidence
+		ForeignHandoff;
+	if (!ForeignFixture.Build(TEXT("WorldPublicationForeign"))
+		|| !BuildWorldHandoffEvidence(ForeignFixture, ForeignHandoff))
+	{
+		AddError(TEXT("Could not build the foreign P27.23 evidence."));
+		return false;
+	}
+	const int32 CallsBeforeConflict = Port.PublishCallCount;
+	const auto ForeignRejected =
+		Fdemo_mapShanmenFormationScatterWorldPublisher::Publish(
+			ForeignHandoff, Port, Ledger);
+	FFakeScatterWorldPlacementPort ForeignClassPort(
+		TEXT("/Script/demo_map.P27_23OtherAnchor"));
+	const auto ClassRejected =
+		Fdemo_mapShanmenFormationScatterWorldPublisher::Publish(
+			Handoff, ForeignClassPort, Ledger);
+	TestTrue(TEXT("A ledger cannot cross evidence or Actor-class ownership"),
+		ForeignRejected.Status == EWorldPublicationStatus::LedgerConflict
+			&& ForeignRejected.IsValid() && !ForeignRejected.IsSuccess()
+			&& ClassRejected.Status
+				== EWorldPublicationStatus::LedgerConflict
+			&& ClassRejected.IsValid() && !ClassRejected.IsSuccess()
+			&& Port.PublishCallCount == CallsBeforeConflict
+			&& ForeignClassPort.PublishCallCount == 0
+			&& Ledger.GetPublishedCount() == 2);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterWorldPublicationInvalidTest,
+	"Shanmen.0_0_10.Product.FormationScatterWorldPublication.InvalidSourcePortAndReceiptRejected",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterWorldPublicationInvalidTest::RunTest(
+	const FString&)
+{
+	FFakeScatterWorldPlacementPort Port;
+	Fdemo_mapShanmenFormationScatterWorldPublicationLedger EmptyLedger;
+	const auto InvalidSource =
+		Fdemo_mapShanmenFormationScatterWorldPublisher::Publish(
+			Fdemo_mapShanmenFormationScatterWorldPlacementHandoffEvidence(),
+			Port, EmptyLedger);
+	TestTrue(TEXT("Missing P27.22 evidence is rejected before publication"),
+		InvalidSource.Status
+				== EWorldPublicationStatus::HandoffEvidenceInvalid
+			&& InvalidSource.IsValid() && !InvalidSource.IsSuccess()
+			&& Port.PublishCallCount == 0 && EmptyLedger.IsEmpty());
+
+	FPreparationFixture Fixture;
+	Fdemo_mapShanmenFormationScatterWorldPlacementHandoffEvidence Handoff;
+	if (!Fixture.Build(TEXT("WorldPublicationInvalid"))
+		|| !BuildWorldHandoffEvidence(Fixture, Handoff))
+	{
+		AddError(TEXT("Could not build the P27.23 invalid-input fixture."));
+		return false;
+	}
+	FFakeScatterWorldPlacementPort EmptyPathPort{ FString() };
+	const auto InvalidPort =
+		Fdemo_mapShanmenFormationScatterWorldPublisher::Publish(
+			Handoff, EmptyPathPort, EmptyLedger);
+	FFakeScatterWorldPlacementPort ForgedReceiptPort;
+	ForgedReceiptPort.bReturnForeignClassReceipt = true;
+	const auto ForgedReceipt =
+		Fdemo_mapShanmenFormationScatterWorldPublisher::Publish(
+			Handoff, ForgedReceiptPort, EmptyLedger);
+	TestTrue(TEXT("Invalid ports and self-valid foreign receipts fail closed"),
+		InvalidPort.Status == EWorldPublicationStatus::PortInvalid
+			&& InvalidPort.IsValid() && !InvalidPort.IsSuccess()
+			&& EmptyPathPort.PublishCallCount == 0
+			&& ForgedReceipt.Status
+				== EWorldPublicationStatus::ReceiptInvalid
+			&& ForgedReceipt.IsValid() && !ForgedReceipt.IsSuccess()
+			&& ForgedReceipt.FailedAnchorOrder == 0
+			&& EmptyLedger.IsEmpty());
 	return true;
 }
 

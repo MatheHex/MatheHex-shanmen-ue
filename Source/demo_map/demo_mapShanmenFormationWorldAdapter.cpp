@@ -446,6 +446,21 @@ Fdemo_mapShanmenFormationWorldAdapter::TryPlaceCommittedAnchor(
 			Edemo_mapShanmenFormationWorldStatus::IntentInvalid,
 			TEXT("Committed anchor evidence could not produce a canonical placement intent."));
 	}
+	return TryPlaceIntent(World, ActorClass, Intent);
+}
+
+Fdemo_mapShanmenFormationWorldResult
+Fdemo_mapShanmenFormationWorldAdapter::TryPlaceIntent(
+	UWorld* World,
+	TSubclassOf<AActor> ActorClass,
+	const Fdemo_mapShanmenFormationAnchorPlacementIntent& Intent)
+{
+	if (!Intent.IsValid())
+	{
+		return Reject(
+			Edemo_mapShanmenFormationWorldStatus::IntentInvalid,
+			TEXT("World placement requires one valid immutable placement intent."));
+	}
 	if (!::IsValid(World))
 	{
 		return Reject(

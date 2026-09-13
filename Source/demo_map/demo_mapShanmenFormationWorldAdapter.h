@@ -116,6 +116,15 @@ public:
 	static FName MakePlacementTag(const FGuid& PlacementId);
 	static FName MakeDeploymentTag(const FGuid& DeploymentId);
 
+	/**
+	 * Publish one already validated immutable placement intent. This is the
+	 * narrow World port used by batch handoff coordinators; session ownership
+	 * remains the responsibility of the caller that produced the intent.
+	 */
+	Fdemo_mapShanmenFormationWorldResult TryPlaceIntent(
+		UWorld* World,
+		TSubclassOf<AActor> ActorClass,
+		const Fdemo_mapShanmenFormationAnchorPlacementIntent& Intent);
 	Fdemo_mapShanmenFormationWorldResult TryPlaceCommittedAnchor(
 		UWorld* World,
 		TSubclassOf<AActor> ActorClass,
