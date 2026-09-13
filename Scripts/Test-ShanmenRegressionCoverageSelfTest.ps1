@@ -658,6 +658,9 @@ try
     $FormationMasteryAuthorityAdapter = New-AutomationLogFixture `
         -Name 'formation-mastery-authority-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.FormationMasteryAuthorityAdapter'
+    $FormationMasteryOperationAuthorization = New-AutomationLogFixture `
+        -Name 'formation-mastery-operation-authorization.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationMasteryOperationAuthorization'
     $FormationAdapter = New-AutomationLogFixture `
         -Name 'formation-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.FormationMaterialAdapter'
@@ -898,6 +901,20 @@ try
         -Logs @(
             $FormationMasteryAuthorityAdapter,
             $FormationMastery,
+            $CombatCore,
+            $Full)
+
+    Invoke-ExpectedPass `
+        -Name 'formation mastery operation authorization requires authority policy deployment core and full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationMasteryOperationAuthorization.h',
+            'Source/demo_map/demo_mapShanmenFormationMasteryOperationAuthorization.cpp',
+            'Source/demo_map/demo_mapShanmenFormationMasteryOperationAuthorizationTests.cpp') `
+        -Logs @(
+            $FormationMasteryOperationAuthorization,
+            $FormationMasteryAuthorityAdapter,
+            $FormationMastery,
+            $FormationDeployment,
             $CombatCore,
             $Full)
 
@@ -4929,6 +4946,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationMasteryAuthorityAdapter.cpp') `
         -Logs @($FormationMasteryAuthorityAdapter) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'formation mastery operation authorization focus cannot replace authority policy deployment core and full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationMasteryOperationAuthorization.cpp') `
+        -Logs @($FormationMasteryOperationAuthorization) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

@@ -1544,6 +1544,18 @@
       ]
     },
     {
+      "name": "FormationMasteryOperationAuthorization",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenFormationMasteryOperationAuthorization(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.FormationMasteryOperationAuthorization",
+        "Shanmen.0_0_10.Product.FormationMasteryAuthorityAdapter",
+        "Shanmen.0_0_10.CombatRuntime.FormationMastery",
+        "Shanmen.0_0_10.CombatRuntime.FormationDeployment",
+        "Shanmen.0_0_10.CombatCore"
+      ]
+    },
+    {
       "name": "FormationMaterialAdapter",
       "pathRegex": "^Source/demo_map/demo_mapShanmenFormationMaterialAdapter(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [
