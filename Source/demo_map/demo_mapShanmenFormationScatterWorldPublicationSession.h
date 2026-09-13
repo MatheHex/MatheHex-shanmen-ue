@@ -74,6 +74,11 @@ public:
 	bool IsValid() const;
 	bool IsTerminal() const;
 	const FGuid& GetSessionId() const { return SessionId; }
+	FString GetActorClassPath() const
+	{
+		const UClass* RawClass = ActorClass.Get();
+		return RawClass ? RawClass->GetPathName() : FString();
+	}
 	Edemo_mapShanmenFormationScatterWorldPublicationSessionState GetState()
 		const
 	{
