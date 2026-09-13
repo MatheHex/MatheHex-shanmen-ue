@@ -661,6 +661,9 @@ try
     $FormationMasteryOperationAuthorization = New-AutomationLogFixture `
         -Name 'formation-mastery-operation-authorization.log' `
         -Group 'Shanmen.0_0_10.Product.FormationMasteryOperationAuthorization'
+    $FormationScatterBatchIntent = New-AutomationLogFixture `
+        -Name 'formation-scatter-batch-intent.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationScatterBatchIntent'
     $FormationAdapter = New-AutomationLogFixture `
         -Name 'formation-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.FormationMaterialAdapter'
@@ -911,6 +914,21 @@ try
             'Source/demo_map/demo_mapShanmenFormationMasteryOperationAuthorization.cpp',
             'Source/demo_map/demo_mapShanmenFormationMasteryOperationAuthorizationTests.cpp') `
         -Logs @(
+            $FormationMasteryOperationAuthorization,
+            $FormationMasteryAuthorityAdapter,
+            $FormationMastery,
+            $FormationDeployment,
+            $CombatCore,
+            $Full)
+
+    Invoke-ExpectedPass `
+        -Name 'formation scatter batch intent requires authorization authority policy deployment core and full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationScatterBatchIntent.h',
+            'Source/demo_map/demo_mapShanmenFormationScatterBatchIntent.cpp',
+            'Source/demo_map/demo_mapShanmenFormationScatterBatchIntentTests.cpp') `
+        -Logs @(
+            $FormationScatterBatchIntent,
             $FormationMasteryOperationAuthorization,
             $FormationMasteryAuthorityAdapter,
             $FormationMastery,
@@ -4953,6 +4971,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationMasteryOperationAuthorization.cpp') `
         -Logs @($FormationMasteryOperationAuthorization) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'formation scatter batch focus cannot replace authorization authority policy deployment core and full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationScatterBatchIntent.cpp') `
+        -Logs @($FormationScatterBatchIntent) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

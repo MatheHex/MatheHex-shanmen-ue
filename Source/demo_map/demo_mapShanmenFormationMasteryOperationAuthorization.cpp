@@ -62,11 +62,12 @@ FGuid Fdemo_mapShanmenFormationMasteryOperationAuthorization::
 		const Fdemo_mapShanmenFormationMasteryOperationAuthorization&
 			Authorization)
 {
+	FShanmenFormationMasteryPolicy MasteryPolicy;
 	if (!Authorization.OperationId.IsValid()
 		|| !Authorization.MasteryReadId.IsValid()
 		|| Authorization.MasteryAuthorityRevision < 0
-		|| !FShanmenFormationMasteryPolicy::IsTierValid(
-			Authorization.MasteryTier)
+		|| !FShanmenFormationMasteryPolicy::TryCreate(
+			Authorization.MasteryTier, MasteryPolicy)
 		|| !Authorization.RunId.IsValid()
 		|| !Authorization.OwnerId.IsValid()
 		|| !Authorization.ActivationId.IsValid()
@@ -75,6 +76,7 @@ FGuid Fdemo_mapShanmenFormationMasteryOperationAuthorization::
 		|| !Authorization.Content.IsValid()
 		|| !FShanmenFormationMasteryPolicy::IsDeliveryModeValid(
 			Authorization.DeliveryMode)
+		|| !MasteryPolicy.CanUseDeliveryMode(Authorization.DeliveryMode)
 		|| Authorization.DeploymentState
 			!= EShanmenFormationDeploymentState::Deploying
 		|| Authorization.DeploymentReceiptCount <= 0
