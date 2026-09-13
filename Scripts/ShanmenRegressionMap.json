@@ -1585,6 +1585,23 @@
       ]
     },
     {
+      "name": "FormationScatterResourcePreparation",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenFormationScatterResourcePreparation(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10",
+        "Shanmen.0_0_10.Product.FormationScatterResourcePreparation",
+        "Shanmen.0_0_10.Product.FormationScatterResourcePlan",
+        "Shanmen.0_0_10.Product.FormationScatterBatchIntent",
+        "Shanmen.0_0_10.Product.FormationMasteryOperationAuthorization",
+        "Shanmen.0_0_10.Product.FormationMasteryAuthorityAdapter",
+        "Shanmen.0_0_10.Product.FormationMaterialAdapter",
+        "Shanmen.0_0_10.Items",
+        "Shanmen.0_0_10.CombatRuntime.FormationMastery",
+        "Shanmen.0_0_10.CombatRuntime.FormationDeployment",
+        "Shanmen.0_0_10.CombatCore"
+      ]
+    },
+    {
       "name": "FormationMaterialAdapter",
       "pathRegex": "^Source/demo_map/demo_mapShanmenFormationMaterialAdapter(?:Tests)?\\.(?:h|cpp)$",
       "requiredGroups": [

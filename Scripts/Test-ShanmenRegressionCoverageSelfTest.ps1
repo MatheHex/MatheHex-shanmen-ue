@@ -667,6 +667,9 @@ try
     $FormationScatterResourcePlan = New-AutomationLogFixture `
         -Name 'formation-scatter-resource-plan.log' `
         -Group 'Shanmen.0_0_10.Product.FormationScatterResourcePlan'
+    $FormationScatterResourcePreparation = New-AutomationLogFixture `
+        -Name 'formation-scatter-resource-preparation.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationScatterResourcePreparation'
     $FormationAdapter = New-AutomationLogFixture `
         -Name 'formation-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.FormationMaterialAdapter'
@@ -946,6 +949,24 @@ try
             'Source/demo_map/demo_mapShanmenFormationScatterResourcePlan.cpp',
             'Source/demo_map/demo_mapShanmenFormationScatterResourcePlanTests.cpp') `
         -Logs @(
+            $FormationScatterResourcePlan,
+            $FormationScatterBatchIntent,
+            $FormationMasteryOperationAuthorization,
+            $FormationMasteryAuthorityAdapter,
+            $FormationAdapter,
+            $FormationMastery,
+            $FormationDeployment,
+            $CombatCore,
+            $Full)
+
+    Invoke-ExpectedPass `
+        -Name 'formation scatter resource preparation requires plan batch item allocation deployment core and full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationScatterResourcePreparation.h',
+            'Source/demo_map/demo_mapShanmenFormationScatterResourcePreparation.cpp',
+            'Source/demo_map/demo_mapShanmenFormationScatterResourcePreparationTests.cpp') `
+        -Logs @(
+            $FormationScatterResourcePreparation,
             $FormationScatterResourcePlan,
             $FormationScatterBatchIntent,
             $FormationMasteryOperationAuthorization,
@@ -5005,6 +5026,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationScatterResourcePlan.cpp') `
         -Logs @($FormationScatterResourcePlan) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'formation scatter resource preparation focus cannot replace plan batch item deployment and full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationScatterResourcePreparation.cpp') `
+        -Logs @($FormationScatterResourcePreparation) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
