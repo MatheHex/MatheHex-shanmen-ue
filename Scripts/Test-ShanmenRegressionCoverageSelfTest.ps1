@@ -676,6 +676,12 @@ try
     $FormationScatterDeploymentCommit = New-AutomationLogFixture `
         -Name 'formation-scatter-deployment-commit.log' `
         -Group 'Shanmen.0_0_10.Product.FormationScatterDeploymentCommit'
+    $FormationScatterWorldPlacementHandoff = New-AutomationLogFixture `
+        -Name 'formation-scatter-world-placement-handoff.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationScatterWorldPlacementHandoff'
+    $Items = New-AutomationLogFixture `
+        -Name 'shanmen-items.log' `
+        -Group 'Shanmen.0_0_10.Items'
     $FormationAdapter = New-AutomationLogFixture `
         -Name 'formation-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.FormationMaterialAdapter'
@@ -1015,6 +1021,30 @@ try
             $FormationMasteryOperationAuthorization,
             $FormationMasteryAuthorityAdapter,
             $FormationAdapter,
+            $FormationMastery,
+            $FormationDeployment,
+            $CombatCore,
+            $Full)
+
+    Invoke-ExpectedPass `
+        -Name 'formation scatter world handoff requires placement deployment resource item and full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationScatterWorldPlacementHandoff.h',
+            'Source/demo_map/demo_mapShanmenFormationScatterWorldPlacementHandoff.cpp') `
+        -Logs @(
+            $FormationScatterWorldPlacementHandoff,
+            $FormationWorld,
+            $FormationScatterDeploymentCommit,
+            $FormationScatterResourceCommit,
+            $FormationScatterResourcePreparation,
+            $FormationScatterResourcePlan,
+            $FormationScatterBatchIntent,
+            $FormationMasteryOperationAuthorization,
+            $FormationMasteryAuthorityAdapter,
+            $FormationAdapter,
+            $FormationSession,
+            $Items,
+            $WorldGameplay,
             $FormationMastery,
             $FormationDeployment,
             $CombatCore,
@@ -5090,6 +5120,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationScatterDeploymentCommit.cpp') `
         -Logs @($FormationScatterDeploymentCommit) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'formation scatter world handoff focus cannot replace placement deployment resource item and full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationScatterWorldPlacementHandoff.cpp') `
+        -Logs @($FormationScatterWorldPlacementHandoff) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

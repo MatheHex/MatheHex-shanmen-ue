@@ -108,6 +108,58 @@ namespace
 			&& Left.Content.Digest == Right.Content.Digest;
 	}
 
+	bool FulfillmentsMatch(
+		const FShanmenFormationAnchorFulfillmentEvidence& Left,
+		const FShanmenFormationAnchorFulfillmentEvidence& Right)
+	{
+		if (!Left.IsValid() || !Right.IsValid()
+			|| Left.FulfillmentId != Right.FulfillmentId
+			|| Left.RunId != Right.RunId
+			|| Left.OwnerId != Right.OwnerId
+			|| Left.DeploymentId != Right.DeploymentId
+			|| Left.AnchorDefinitionId != Right.AnchorDefinitionId
+			|| Left.Content.Version != Right.Content.Version
+			|| Left.Content.Digest != Right.Content.Digest
+			|| Left.AuthorityRevision != Right.AuthorityRevision
+			|| Left.Lines.Num() != Right.Lines.Num())
+		{
+			return false;
+		}
+		for (int32 Index = 0; Index < Left.Lines.Num(); ++Index)
+		{
+			const auto& LeftLine = Left.Lines[Index];
+			const auto& RightLine = Right.Lines[Index];
+			if (LeftLine.ItemInstanceId != RightLine.ItemInstanceId
+				|| LeftLine.MaterialDefinitionId
+					!= RightLine.MaterialDefinitionId
+				|| LeftLine.Quantity != RightLine.Quantity)
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
+	bool DeploymentReceiptsMatch(
+		const FShanmenFormationDeploymentReceipt& Left,
+		const FShanmenFormationDeploymentReceipt& Right)
+	{
+		return Left.IsValid() && Right.IsValid()
+			&& Left.GetReceiptId() == Right.GetReceiptId()
+			&& Left.GetDeploymentId() == Right.GetDeploymentId()
+			&& Left.GetSequence() == Right.GetSequence()
+			&& Left.GetEventKind() == Right.GetEventKind()
+			&& Left.GetStateBefore() == Right.GetStateBefore()
+			&& Left.GetStateAfter() == Right.GetStateAfter()
+			&& Left.GetAnchorDefinitionId()
+				== Right.GetAnchorDefinitionId()
+			&& Left.GetFulfillmentId() == Right.GetFulfillmentId()
+			&& Left.GetAuthorityRevision()
+				== Right.GetAuthorityRevision()
+			&& Left.GetCommittedAnchorCount()
+				== Right.GetCommittedAnchorCount();
+	}
+
 	Fdemo_mapShanmenFormationAnchorPlacementReceipt MakePlacementReceipt(
 		const Fdemo_mapShanmenFormationAnchorPlacementIntent& Intent,
 		const FString& ActorClassPath)
@@ -220,6 +272,81 @@ bool Fdemo_mapShanmenFormationWorldResult::IsTeardownSuccess() const
 }
 
 bool Fdemo_mapShanmenFormationWorldAdapter::BuildPlacementIntent(
+	const FShanmenFormationDeployment& Deployment,
+	const FGuid& AttemptId,
+	const FShanmenFormationAnchorFulfillmentEvidence& Fulfillment,
+	const FShanmenFormationDeploymentReceipt& DeploymentReceipt,
+	Fdemo_mapShanmenFormationAnchorPlacementIntent& OutIntent)
+{
+	OutIntent = Fdemo_mapShanmenFormationAnchorPlacementIntent();
+	if (!Deployment.IsValid() || !AttemptId.IsValid()
+		|| !Fulfillment.IsValid() || !DeploymentReceipt.IsValid()
+		|| DeploymentReceipt.GetEventKind()
+			!= EShanmenFormationDeploymentEventKind::CommitAnchor
+		|| Fulfillment.RunId != Deployment.GetAction().GetRunId()
+		|| Fulfillment.OwnerId != Deployment.GetAction().GetOwnerId()
+		|| Fulfillment.DeploymentId != Deployment.GetDeploymentId()
+		|| Fulfillment.Content.Version
+			!= Deployment.GetAction().GetContent().Version
+		|| Fulfillment.Content.Digest
+			!= Deployment.GetAction().GetContent().Digest
+		|| DeploymentReceipt.GetDeploymentId()
+			!= Deployment.GetDeploymentId()
+		|| DeploymentReceipt.GetAnchorDefinitionId()
+			!= Fulfillment.AnchorDefinitionId
+		|| DeploymentReceipt.GetFulfillmentId()
+			!= Fulfillment.FulfillmentId
+		|| DeploymentReceipt.GetAuthorityRevision()
+			!= Fulfillment.AuthorityRevision)
+	{
+		return false;
+	}
+
+	const FShanmenFormationAnchorProgress* Progress =
+		Deployment.GetAnchors().FindByPredicate(
+			[&Fulfillment](
+				const FShanmenFormationAnchorProgress& Candidate)
+			{
+				return Candidate.GetAnchorDefinitionId()
+					== Fulfillment.AnchorDefinitionId;
+			});
+	const FShanmenFormationDeploymentReceipt* RecordedReceipt =
+		Deployment.GetReceipts().FindByPredicate(
+			[&DeploymentReceipt](
+				const FShanmenFormationDeploymentReceipt& Candidate)
+			{
+				return Candidate.GetReceiptId()
+					== DeploymentReceipt.GetReceiptId();
+			});
+	if (!Progress || !Progress->IsCommitted()
+		|| !FulfillmentsMatch(Progress->GetFulfillment(), Fulfillment)
+		|| !RecordedReceipt
+		|| !DeploymentReceiptsMatch(*RecordedReceipt, DeploymentReceipt))
+	{
+		return false;
+	}
+
+	OutIntent.RunId = Fulfillment.RunId;
+	OutIntent.OwnerId = Fulfillment.OwnerId;
+	OutIntent.DeploymentId = Fulfillment.DeploymentId;
+	OutIntent.AnchorDefinitionId = Fulfillment.AnchorDefinitionId;
+	OutIntent.AnchorInstanceId = Progress->GetAnchorInstanceId();
+	OutIntent.WorldLocation = Progress->GetWorldLocation();
+	OutIntent.AttemptId = AttemptId;
+	OutIntent.FulfillmentId = Fulfillment.FulfillmentId;
+	OutIntent.DeploymentReceiptId = DeploymentReceipt.GetReceiptId();
+	OutIntent.AuthorityRevision = Fulfillment.AuthorityRevision;
+	OutIntent.Content = Fulfillment.Content;
+	OutIntent.PlacementId = MakePlacementId(OutIntent);
+	if (!OutIntent.IsValid())
+	{
+		OutIntent = Fdemo_mapShanmenFormationAnchorPlacementIntent();
+		return false;
+	}
+	return true;
+}
+
+bool Fdemo_mapShanmenFormationWorldAdapter::BuildPlacementIntent(
 	const Fdemo_mapShanmenFormationProductSession& Session,
 	const FName AnchorDefinitionId,
 	Fdemo_mapShanmenFormationAnchorPlacementIntent& OutIntent)
@@ -250,24 +377,9 @@ bool Fdemo_mapShanmenFormationWorldAdapter::BuildPlacementIntent(
 		return false;
 	}
 
-	OutIntent.RunId = Session.GetCorrelation().ActiveRunId;
-	OutIntent.OwnerId = Session.GetCorrelation().OwnerId;
-	OutIntent.DeploymentId = Session.GetDeployment().GetDeploymentId();
-	OutIntent.AnchorDefinitionId = AnchorDefinitionId;
-	OutIntent.AnchorInstanceId = Progress->GetAnchorInstanceId();
-	OutIntent.WorldLocation = Progress->GetWorldLocation();
-	OutIntent.AttemptId = Audit->AttemptId;
-	OutIntent.FulfillmentId = Audit->Material.Evidence.FulfillmentId;
-	OutIntent.DeploymentReceiptId = Audit->DeploymentReceipt.GetReceiptId();
-	OutIntent.AuthorityRevision = Audit->Material.Evidence.AuthorityRevision;
-	OutIntent.Content = Audit->Material.Evidence.Content;
-	OutIntent.PlacementId = MakePlacementId(OutIntent);
-	if (!OutIntent.IsValid())
-	{
-		OutIntent = Fdemo_mapShanmenFormationAnchorPlacementIntent();
-		return false;
-	}
-	return true;
+	return BuildPlacementIntent(
+		Session.GetDeployment(), Audit->AttemptId,
+		Audit->Material.Evidence, Audit->DeploymentReceipt, OutIntent);
 }
 
 FName Fdemo_mapShanmenFormationWorldAdapter::MakePlacementTag(

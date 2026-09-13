@@ -3,6 +3,7 @@
 #include "demo_mapShanmenFormationScatterDeploymentCommit.h"
 #include "demo_mapShanmenFormationScatterResourceCommit.h"
 #include "demo_mapShanmenFormationScatterResourcePreparation.h"
+#include "demo_mapShanmenFormationScatterWorldPlacementHandoff.h"
 
 #include "HAL/FileManager.h"
 #include "Misc/AutomationTest.h"
@@ -21,6 +22,8 @@ namespace
 		Edemo_mapShanmenFormationScatterResourceCommitStatus;
 	using EDeploymentCommitStatus =
 		Edemo_mapShanmenFormationScatterDeploymentCommitStatus;
+	using EWorldHandoffStatus =
+		Edemo_mapShanmenFormationScatterWorldPlacementHandoffStatus;
 
 	constexpr EAutomationTestFlags PreparationFlags =
 		EAutomationTestFlags::EditorContext
@@ -1274,6 +1277,194 @@ bool Fdemo_mapFormationScatterDeploymentCommitInvalidEvidenceTest::RunTest(
 				== EShanmenFormationDeploymentState::Deploying
 			&& Fixture.Deployment.GetCommittedAnchorCount() == 0
 			&& Fixture.Deployment.GetReceipts().Num() == ReceiptCount);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterWorldPlacementHandoffWholeBatchTest,
+	"Shanmen.0_0_10.Product.FormationScatterWorldPlacementHandoff.WholeBatchIntent",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterWorldPlacementHandoffWholeBatchTest::RunTest(
+	const FString&)
+{
+	FPreparationFixture Fixture;
+	if (!Fixture.Build(TEXT("WorldHandoffWholeBatch")))
+	{
+		AddError(TEXT("Could not build the P27.22 whole-batch fixture."));
+		return false;
+	}
+	const auto Resources = Fixture.ExecuteCommit();
+	const auto Deployment =
+		Fdemo_mapShanmenFormationScatterDeploymentCommitter::Commit(
+			Fixture.Runtime, Fixture.Deployment, Resources.Evidence);
+	if (!Resources.IsCommitted() || !Deployment.IsCommitted())
+	{
+		AddError(TEXT("Could not build complete P27.21 deployment evidence."));
+		return false;
+	}
+
+	const auto Result =
+		Fdemo_mapShanmenFormationScatterWorldPlacementHandoffBuilder::Build(
+			Deployment.Evidence);
+	TestTrue(TEXT("Every committed scatter anchor becomes one canonical intent"),
+		Result.Status == EWorldHandoffStatus::Ready
+			&& Result.IsValid() && Result.IsReady()
+			&& Result.Evidence.GetHandoffs().Num() == 2
+			&& Result.Evidence.GetTotalCommittedQuantity() == 6);
+
+	bool bExactChain = Result.IsReady();
+	TSet<FGuid> PlacementIds;
+	for (int32 Index = 0;
+		bExactChain && Index < Result.Evidence.GetHandoffs().Num(); ++Index)
+	{
+		const auto& Handoff = Result.Evidence.GetHandoffs()[Index];
+		const auto& Source = Deployment.Evidence.GetHandoffs()[Index];
+		const auto& Progress = Fixture.Deployment.GetAnchors()[Index];
+		const auto& Intent = Handoff.GetPlacementIntent();
+		bExactChain = Handoff.IsValid()
+			&& Handoff.GetAnchorOrder() == Index
+			&& Handoff.GetDeploymentCommitEvidenceId()
+				== Deployment.Evidence.GetEvidenceId()
+			&& Handoff.GetDeploymentHandoffId() == Source.GetHandoffId()
+			&& Intent.AttemptId == Source.GetHandoffId()
+			&& Intent.RunId == Fixture.Correlation.ActiveRunId
+			&& Intent.OwnerId == OwnerId
+			&& Intent.DeploymentId == Fixture.Deployment.GetDeploymentId()
+			&& Intent.AnchorDefinitionId
+				== Progress.GetAnchorDefinitionId()
+			&& Intent.AnchorInstanceId == Progress.GetAnchorInstanceId()
+			&& Intent.WorldLocation.Equals(
+				Progress.GetWorldLocation(), KINDA_SMALL_NUMBER)
+			&& Intent.FulfillmentId
+				== Source.GetDeploymentEvidence().FulfillmentId
+			&& Intent.DeploymentReceiptId
+				== Source.GetDeploymentReceipt().GetReceiptId()
+			&& !PlacementIds.Contains(Intent.PlacementId);
+		PlacementIds.Add(Intent.PlacementId);
+	}
+	TestTrue(TEXT("The handoff preserves the exact deployment-to-placement chain"),
+		bExactChain && PlacementIds.Num() == 2);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterWorldPlacementHandoffReplayTest,
+	"Shanmen.0_0_10.Product.FormationScatterWorldPlacementHandoff.DeterministicReplayIsReadOnly",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterWorldPlacementHandoffReplayTest::RunTest(
+	const FString&)
+{
+	FPreparationFixture Fixture;
+	if (!Fixture.Build(TEXT("WorldHandoffReplay")))
+	{
+		AddError(TEXT("Could not build the P27.22 replay fixture."));
+		return false;
+	}
+	const auto Resources = Fixture.ExecuteCommit();
+	const auto Deployment =
+		Fdemo_mapShanmenFormationScatterDeploymentCommitter::Commit(
+			Fixture.Runtime, Fixture.Deployment, Resources.Evidence);
+	FShanmenItemAuthoritySnapshot Before;
+	if (!Resources.IsCommitted() || !Deployment.IsCommitted()
+		|| !Fixture.Capture(Before))
+	{
+		AddError(TEXT("Could not capture the committed P27.21 baseline."));
+		return false;
+	}
+	const int32 ReceiptCount = Fixture.Deployment.GetReceipts().Num();
+	const int32 CommittedCount = Fixture.Deployment.GetCommittedAnchorCount();
+
+	const auto First =
+		Fdemo_mapShanmenFormationScatterWorldPlacementHandoffBuilder::Build(
+			Deployment.Evidence);
+	const auto Replay =
+		Fdemo_mapShanmenFormationScatterWorldPlacementHandoffBuilder::Build(
+			Deployment.Evidence);
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Capture(After);
+	TestTrue(TEXT("Exact replay reconstructs byte-stable logical evidence"),
+		First.IsReady() && Replay.IsReady()
+			&& Replay.Evidence == First.Evidence);
+	TestTrue(TEXT("Planning cannot reconsume resources or mutate deployment"),
+		After == Before
+			&& Fixture.Deployment.GetState()
+				== EShanmenFormationDeploymentState::Active
+			&& Fixture.Deployment.GetCommittedAnchorCount() == CommittedCount
+			&& Fixture.Deployment.GetReceipts().Num() == ReceiptCount);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterWorldPlacementHandoffMismatchTest,
+	"Shanmen.0_0_10.Product.FormationScatterWorldPlacementHandoff.ForeignEvidenceRejected",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterWorldPlacementHandoffMismatchTest::RunTest(
+	const FString&)
+{
+	FPreparationFixture Fixture;
+	if (!Fixture.Build(TEXT("WorldHandoffMismatch")))
+	{
+		AddError(TEXT("Could not build the P27.22 mismatch fixture."));
+		return false;
+	}
+	const auto Resources = Fixture.ExecuteCommit();
+	const auto Deployment =
+		Fdemo_mapShanmenFormationScatterDeploymentCommitter::Commit(
+			Fixture.Runtime, Fixture.Deployment, Resources.Evidence);
+	if (!Resources.IsCommitted() || !Deployment.IsCommitted())
+	{
+		AddError(TEXT("Could not build complete P27.21 mismatch evidence."));
+		return false;
+	}
+
+	const auto& Source = Deployment.Evidence.GetHandoffs()[0];
+	FShanmenFormationAnchorFulfillmentEvidence Foreign =
+		Source.GetDeploymentEvidence();
+	Foreign.FulfillmentId = FGuid(0xF8F19F22, 0, 0, 1);
+	Fdemo_mapShanmenFormationAnchorPlacementIntent Intent;
+	const bool bForeignAccepted =
+		Fdemo_mapShanmenFormationWorldAdapter::BuildPlacementIntent(
+			Deployment.Evidence.GetDeployment(), Source.GetHandoffId(),
+			Foreign, Source.GetDeploymentReceipt(), Intent);
+	const bool bMissingAttemptAccepted =
+		Fdemo_mapShanmenFormationWorldAdapter::BuildPlacementIntent(
+			Deployment.Evidence.GetDeployment(), FGuid(),
+			Source.GetDeploymentEvidence(), Source.GetDeploymentReceipt(),
+			Intent);
+	TestTrue(TEXT("Foreign fulfillment and missing handoff identity fail closed"),
+		Foreign.IsValid() && !bForeignAccepted
+			&& !bMissingAttemptAccepted && !Intent.IsValid());
+
+	Fdemo_mapShanmenFormationScatterAnchorWorldPlacementHandoff First;
+	Fdemo_mapShanmenFormationScatterAnchorWorldPlacementHandoff Missing;
+	TestTrue(TEXT("Only an in-range canonical P27.21 anchor can be bridged"),
+		Fdemo_mapShanmenFormationScatterWorldPlacementHandoffBuilder::
+			BuildAnchorHandoff(Deployment.Evidence, 0, First)
+			&& First.IsValid()
+			&& !Fdemo_mapShanmenFormationScatterWorldPlacementHandoffBuilder::
+				BuildAnchorHandoff(Deployment.Evidence, 2, Missing)
+			&& !Missing.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterWorldPlacementHandoffInvalidTest,
+	"Shanmen.0_0_10.Product.FormationScatterWorldPlacementHandoff.InvalidCompletionRejected",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterWorldPlacementHandoffInvalidTest::RunTest(
+	const FString&)
+{
+	const auto Result =
+		Fdemo_mapShanmenFormationScatterWorldPlacementHandoffBuilder::Build(
+			Fdemo_mapShanmenFormationScatterDeploymentCommitEvidence());
+	TestTrue(TEXT("Missing P27.21 completion evidence is rejected"),
+		Result.Status == EWorldHandoffStatus::DeploymentEvidenceInvalid
+			&& Result.IsValid() && !Result.IsReady()
+			&& !Result.Evidence.IsValid());
 	return true;
 }
 

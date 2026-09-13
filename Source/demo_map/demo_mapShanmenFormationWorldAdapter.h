@@ -98,6 +98,17 @@ struct Fdemo_mapShanmenFormationWorldResult
 class Fdemo_mapShanmenFormationWorldAdapter
 {
 public:
+	/**
+	 * Build the existing world intent contract from one exact committed
+	 * deployment anchor. This overload performs no World or Actor work and is
+	 * shared by product sessions and later deterministic handoff planners.
+	 */
+	static bool BuildPlacementIntent(
+		const FShanmenFormationDeployment& Deployment,
+		const FGuid& AttemptId,
+		const FShanmenFormationAnchorFulfillmentEvidence& Fulfillment,
+		const FShanmenFormationDeploymentReceipt& DeploymentReceipt,
+		Fdemo_mapShanmenFormationAnchorPlacementIntent& OutIntent);
 	static bool BuildPlacementIntent(
 		const Fdemo_mapShanmenFormationProductSession& Session,
 		FName AnchorDefinitionId,
