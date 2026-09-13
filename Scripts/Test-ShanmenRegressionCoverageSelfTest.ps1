@@ -673,6 +673,9 @@ try
     $FormationScatterResourceCommit = New-AutomationLogFixture `
         -Name 'formation-scatter-resource-commit.log' `
         -Group 'Shanmen.0_0_10.Product.FormationScatterResourceCommit'
+    $FormationScatterDeploymentCommit = New-AutomationLogFixture `
+        -Name 'formation-scatter-deployment-commit.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationScatterDeploymentCommit'
     $FormationAdapter = New-AutomationLogFixture `
         -Name 'formation-adapter.log' `
         -Group 'Shanmen.0_0_10.Product.FormationMaterialAdapter'
@@ -986,6 +989,25 @@ try
             'Source/demo_map/demo_mapShanmenFormationScatterResourceCommit.h',
             'Source/demo_map/demo_mapShanmenFormationScatterResourceCommit.cpp') `
         -Logs @(
+            $FormationScatterResourceCommit,
+            $FormationScatterResourcePreparation,
+            $FormationScatterResourcePlan,
+            $FormationScatterBatchIntent,
+            $FormationMasteryOperationAuthorization,
+            $FormationMasteryAuthorityAdapter,
+            $FormationAdapter,
+            $FormationMastery,
+            $FormationDeployment,
+            $CombatCore,
+            $Full)
+
+    Invoke-ExpectedPass `
+        -Name 'formation scatter deployment commit requires resource chain item deployment core and full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationScatterDeploymentCommit.h',
+            'Source/demo_map/demo_mapShanmenFormationScatterDeploymentCommit.cpp') `
+        -Logs @(
+            $FormationScatterDeploymentCommit,
             $FormationScatterResourceCommit,
             $FormationScatterResourcePreparation,
             $FormationScatterResourcePlan,
@@ -5061,6 +5083,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationScatterResourceCommit.cpp') `
         -Logs @($FormationScatterResourceCommit) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'formation scatter deployment commit focus cannot replace resource chain item deployment and full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationScatterDeploymentCommit.cpp') `
+        -Logs @($FormationScatterDeploymentCommit) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `

@@ -1,5 +1,6 @@
 #if WITH_DEV_AUTOMATION_TESTS && !UE_BUILD_SHIPPING
 
+#include "demo_mapShanmenFormationScatterDeploymentCommit.h"
 #include "demo_mapShanmenFormationScatterResourceCommit.h"
 #include "demo_mapShanmenFormationScatterResourcePreparation.h"
 
@@ -18,6 +19,8 @@ namespace
 		Edemo_mapShanmenFormationScatterResourcePreparationStatus;
 	using ECommitStatus =
 		Edemo_mapShanmenFormationScatterResourceCommitStatus;
+	using EDeploymentCommitStatus =
+		Edemo_mapShanmenFormationScatterDeploymentCommitStatus;
 
 	constexpr EAutomationTestFlags PreparationFlags =
 		EAutomationTestFlags::EditorContext
@@ -1045,6 +1048,232 @@ bool Fdemo_mapFormationScatterResourceCommitCancellationTest::RunTest(
 			&& CountPlanCommits(Terminal, Fixture.Plan) == 0
 			&& CountPendingPlanPrepares(Terminal, Fixture.Plan) == 0
 			&& SamePhysicalQuantities(Before, Terminal));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterDeploymentCommitWholeBatchTest,
+	"Shanmen.0_0_10.Product.FormationScatterDeploymentCommit.WholeBatchCommitAndReplay",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterDeploymentCommitWholeBatchTest::RunTest(
+	const FString&)
+{
+	FPreparationFixture Fixture;
+	if (!Fixture.Build(TEXT("DeploymentWholeBatch")))
+	{
+		AddError(TEXT("Could not build the P27.21 whole-batch fixture."));
+		return false;
+	}
+	const auto Resources = Fixture.ExecuteCommit();
+	if (!Resources.IsCommitted())
+	{
+		AddError(TEXT("Could not commit P27.20 resource evidence."));
+		return false;
+	}
+
+	const int32 ReceiptCountBefore = Fixture.Deployment.GetReceipts().Num();
+	const auto First =
+		Fdemo_mapShanmenFormationScatterDeploymentCommitter::Commit(
+			Fixture.Runtime, Fixture.Deployment, Resources.Evidence);
+	TestTrue(TEXT("Every resource-backed anchor commits in canonical order"),
+		First.Status == EDeploymentCommitStatus::Committed
+			&& First.IsValid() && First.IsCommitted()
+			&& First.InitialCommittedAnchorCount == 0
+			&& First.NewCommitReceipts.Num() == 2
+			&& Fixture.Deployment.GetState()
+				== EShanmenFormationDeploymentState::Active
+			&& Fixture.Deployment.GetCommittedAnchorCount() == 2
+			&& Fixture.Deployment.GetReceipts().Num()
+				== ReceiptCountBefore + 2);
+	TestTrue(TEXT("Completion evidence preserves all resource attribution"),
+		First.Evidence.IsValid()
+			&& First.Evidence.GetResourceEvidence() == Resources.Evidence
+			&& First.Evidence.GetHandoffs().Num() == 2
+			&& First.Evidence.GetTotalCommittedQuantity() == 6
+			&& First.Evidence.GetHandoffs()[0].GetResourceFulfillment().
+				GetAnchorDefinitionId() == EastAnchor
+			&& First.Evidence.GetHandoffs()[1].GetResourceFulfillment().
+				GetAnchorDefinitionId() == NorthAnchor);
+
+	const int32 ReceiptCountCommitted = Fixture.Deployment.GetReceipts().Num();
+	const auto Replay =
+		Fdemo_mapShanmenFormationScatterDeploymentCommitter::Commit(
+			Fixture.Runtime, Fixture.Deployment, Resources.Evidence);
+	TestTrue(TEXT("A complete deployment replays without another commit"),
+		Replay.Status == EDeploymentCommitStatus::Replayed
+			&& Replay.IsValid() && Replay.IsCommitted()
+			&& Replay.InitialCommittedAnchorCount == 2
+			&& Replay.NewCommitReceipts.IsEmpty()
+			&& Replay.Evidence == First.Evidence
+			&& Fixture.Deployment.GetReceipts().Num()
+				== ReceiptCountCommitted);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterDeploymentCommitPrefixRecoveryTest,
+	"Shanmen.0_0_10.Product.FormationScatterDeploymentCommit.CompatiblePrefixRecovery",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterDeploymentCommitPrefixRecoveryTest::RunTest(
+	const FString&)
+{
+	FPreparationFixture Fixture;
+	if (!Fixture.Build(TEXT("DeploymentPrefixRecovery")))
+	{
+		AddError(TEXT("Could not build the P27.21 prefix fixture."));
+		return false;
+	}
+	const auto Resources = Fixture.ExecuteCommit();
+	FShanmenFormationAnchorFulfillmentEvidence FirstEvidence;
+	FShanmenFormationDeploymentReceipt FirstReceipt;
+	if (!Resources.IsCommitted()
+		|| !Fdemo_mapShanmenFormationScatterDeploymentCommitter::
+			BuildAnchorEvidence(Resources.Evidence, 0, FirstEvidence)
+		|| !Fixture.Deployment.TryCommitAnchor(
+			Fixture.Runtime, FirstEvidence, FirstReceipt))
+	{
+		AddError(TEXT("Could not seed the compatible committed prefix."));
+		return false;
+	}
+
+	const auto Recovered =
+		Fdemo_mapShanmenFormationScatterDeploymentCommitter::Commit(
+			Fixture.Runtime, Fixture.Deployment, Resources.Evidence);
+	TestTrue(TEXT("A compatible prefix advances only its missing suffix"),
+		Recovered.Status == EDeploymentCommitStatus::Committed
+			&& Recovered.IsValid() && Recovered.IsCommitted()
+			&& Recovered.InitialCommittedAnchorCount == 1
+			&& Recovered.NewCommitReceipts.Num() == 1
+			&& Recovered.NewCommitReceipts[0].GetAnchorDefinitionId()
+				== NorthAnchor
+			&& Fixture.Deployment.GetState()
+				== EShanmenFormationDeploymentState::Active);
+	TestTrue(TEXT("The recovered proof adopts the exact existing prefix"),
+		Recovered.Evidence.GetHandoffs()[0].GetDeploymentReceipt().
+			GetReceiptId() == FirstReceipt.GetReceiptId()
+			&& Recovered.Evidence.GetHandoffs()[0].
+				GetDeploymentEvidence().FulfillmentId
+				== FirstEvidence.FulfillmentId);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterDeploymentCommitConflictTest,
+	"Shanmen.0_0_10.Product.FormationScatterDeploymentCommit.ConflictingPrefixRejected",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterDeploymentCommitConflictTest::RunTest(
+	const FString&)
+{
+	FPreparationFixture Fixture;
+	if (!Fixture.Build(TEXT("DeploymentConflict")))
+	{
+		AddError(TEXT("Could not build the P27.21 conflict fixture."));
+		return false;
+	}
+	const auto Resources = Fixture.ExecuteCommit();
+	FShanmenFormationAnchorFulfillmentEvidence Foreign;
+	FShanmenFormationDeploymentReceipt ForeignReceipt;
+	if (!Resources.IsCommitted()
+		|| !Fdemo_mapShanmenFormationScatterDeploymentCommitter::
+			BuildAnchorEvidence(Resources.Evidence, 0, Foreign))
+	{
+		AddError(TEXT("Could not build the expected first-anchor evidence."));
+		return false;
+	}
+	Foreign.FulfillmentId = FGuid(0xF8F19F01, 0, 0, 1);
+	if (!Foreign.IsValid()
+		|| !Fixture.Deployment.TryCommitAnchor(
+			Fixture.Runtime, Foreign, ForeignReceipt))
+	{
+		AddError(TEXT("Could not seed the conflicting committed prefix."));
+		return false;
+	}
+
+	const int32 ReceiptCount = Fixture.Deployment.GetReceipts().Num();
+	const auto Rejected =
+		Fdemo_mapShanmenFormationScatterDeploymentCommitter::Commit(
+			Fixture.Runtime, Fixture.Deployment, Resources.Evidence);
+	TestTrue(TEXT("A foreign committed prefix fails closed"),
+		Rejected.Status == EDeploymentCommitStatus::ExistingAnchorConflict
+			&& Rejected.IsValid() && !Rejected.IsCommitted()
+			&& Rejected.NewCommitReceipts.IsEmpty()
+			&& Fixture.Deployment.GetCommittedAnchorCount() == 1
+			&& Fixture.Deployment.GetReceipts().Num() == ReceiptCount
+			&& !Fixture.Deployment.GetAnchors()[1].IsCommitted());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterDeploymentCommitTerminalTest,
+	"Shanmen.0_0_10.Product.FormationScatterDeploymentCommit.TerminalDeploymentRejected",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterDeploymentCommitTerminalTest::RunTest(
+	const FString&)
+{
+	FPreparationFixture Fixture;
+	if (!Fixture.Build(TEXT("DeploymentTerminal")))
+	{
+		AddError(TEXT("Could not build the P27.21 terminal fixture."));
+		return false;
+	}
+	const auto Resources = Fixture.ExecuteCommit();
+	FShanmenFormationDeploymentReceipt CancelReceipt;
+	if (!Resources.IsCommitted()
+		|| !Fixture.Deployment.TryCancel(Fixture.Runtime, CancelReceipt))
+	{
+		AddError(TEXT("Could not seed the cancelled deployment."));
+		return false;
+	}
+
+	const int32 ReceiptCount = Fixture.Deployment.GetReceipts().Num();
+	const auto Rejected =
+		Fdemo_mapShanmenFormationScatterDeploymentCommitter::Commit(
+			Fixture.Runtime, Fixture.Deployment, Resources.Evidence);
+	TestTrue(TEXT("Committed resources cannot revive a terminal deployment"),
+		Rejected.Status == EDeploymentCommitStatus::DeploymentTerminal
+			&& Rejected.IsValid() && !Rejected.IsCommitted()
+			&& Rejected.NewCommitReceipts.IsEmpty()
+			&& Fixture.Deployment.GetState()
+				== EShanmenFormationDeploymentState::Cancelled
+			&& Fixture.Deployment.GetCommittedAnchorCount() == 0
+			&& Fixture.Deployment.GetReceipts().Num() == ReceiptCount);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterDeploymentCommitInvalidEvidenceTest,
+	"Shanmen.0_0_10.Product.FormationScatterDeploymentCommit.InvalidResourceEvidenceRejected",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterDeploymentCommitInvalidEvidenceTest::RunTest(
+	const FString&)
+{
+	FPreparationFixture Fixture;
+	if (!Fixture.Build(TEXT("DeploymentInvalidEvidence")))
+	{
+		AddError(TEXT("Could not build the P27.21 invalid-evidence fixture."));
+		return false;
+	}
+	const int32 ReceiptCount = Fixture.Deployment.GetReceipts().Num();
+	const auto Rejected =
+		Fdemo_mapShanmenFormationScatterDeploymentCommitter::Commit(
+			Fixture.Runtime,
+			Fixture.Deployment,
+			Fdemo_mapShanmenFormationScatterResourceCommitEvidence());
+	TestTrue(TEXT("Invalid resource evidence is rejected before mutation"),
+		Rejected.Status
+			== EDeploymentCommitStatus::ResourceEvidenceInvalid
+			&& Rejected.IsValid() && !Rejected.IsCommitted()
+			&& Rejected.InitialCommittedAnchorCount == INDEX_NONE
+			&& Rejected.NewCommitReceipts.IsEmpty()
+			&& Fixture.Deployment.GetState()
+				== EShanmenFormationDeploymentState::Deploying
+			&& Fixture.Deployment.GetCommittedAnchorCount() == 0
+			&& Fixture.Deployment.GetReceipts().Num() == ReceiptCount);
 	return true;
 }
 
