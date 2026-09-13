@@ -246,6 +246,14 @@ bool Fdemo_mapShanmenFormationAnchorPlacementReceipt::IsValid() const
 			== MakePlacementReceiptId(Intent.PlacementId, ActorClassPath);
 }
 
+bool Fdemo_mapShanmenFormationWorldTeardownRequest::IsValid() const
+{
+	return DeploymentId.IsValid()
+		&& (TerminalState == Edemo_mapShanmenFormationSessionState::Cancelled
+			|| TerminalState == Edemo_mapShanmenFormationSessionState::Ended)
+		&& CommittedAnchorCount >= 0;
+}
+
 bool Fdemo_mapShanmenFormationWorldTeardownReceipt::IsValid() const
 {
 	return ReceiptId.IsValid() && DeploymentId.IsValid()
@@ -643,17 +651,39 @@ Fdemo_mapShanmenFormationWorldAdapter::TryTeardownTerminal(
 			Edemo_mapShanmenFormationWorldStatus::TerminalRequired,
 			TEXT("Formation Actors remain live until the product session is terminal."));
 	}
+	Fdemo_mapShanmenFormationWorldTeardownRequest Request;
+	Request.DeploymentId = Session.GetDeployment().GetDeploymentId();
+	Request.TerminalState = Session.GetState();
+	Request.CommittedAnchorCount = Session.GetAnchorAudits().Num();
+	return TryTeardownDeployment(World, Request);
+}
+
+Fdemo_mapShanmenFormationWorldResult
+Fdemo_mapShanmenFormationWorldAdapter::TryTeardownDeployment(
+	UWorld* World,
+	const Fdemo_mapShanmenFormationWorldTeardownRequest& Request)
+{
+	if (!Request.IsValid())
+	{
+		return Reject(
+			Edemo_mapShanmenFormationWorldStatus::TeardownRequestInvalid,
+			TEXT("World teardown requires one valid immutable terminal request."));
+	}
 	if (!::IsValid(World))
 	{
 		return Reject(
 			Edemo_mapShanmenFormationWorldStatus::WorldInvalid,
 			TEXT("Formation teardown requires the owning live World."));
 	}
-	const FGuid DeploymentId = Session.GetDeployment().GetDeploymentId();
+	const FGuid DeploymentId = Request.DeploymentId;
 	if (!IsValid()
 		|| (BoundDeploymentId.IsValid()
 			&& BoundDeploymentId != DeploymentId)
-		|| (BoundWorld.IsValid() && BoundWorld.Get() != World))
+		|| (BoundWorld.IsValid() && BoundWorld.Get() != World)
+		|| (bTeardownComplete
+			&& (TeardownReceipt.TerminalState != Request.TerminalState
+				|| TeardownReceipt.CommittedAnchorCount
+					!= Request.CommittedAnchorCount)))
 	{
 		return Reject(
 			Edemo_mapShanmenFormationWorldStatus::AdapterConflict,
@@ -728,9 +758,8 @@ Fdemo_mapShanmenFormationWorldAdapter::TryTeardownTerminal(
 		Record.bRemoved = true;
 	}
 	TeardownReceipt.DeploymentId = DeploymentId;
-	TeardownReceipt.TerminalState = Session.GetState();
-	TeardownReceipt.CommittedAnchorCount =
-		Session.GetAnchorAudits().Num();
+	TeardownReceipt.TerminalState = Request.TerminalState;
+	TeardownReceipt.CommittedAnchorCount = Request.CommittedAnchorCount;
 	TeardownReceipt.RemovedActorCount = TeardownRemovedActorCount;
 	TeardownReceipt.ReceiptId = MakeTeardownReceiptId(
 		DeploymentId,

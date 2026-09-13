@@ -18,6 +18,7 @@ enum class Edemo_mapShanmenFormationWorldStatus : uint8
 	AnchorNotCommitted,
 	IntentInvalid,
 	WorldInvalid,
+	TeardownRequestInvalid,
 	AdapterConflict,
 	ActorClassInvalid,
 	ActorClassConflict,
@@ -56,6 +57,17 @@ struct Fdemo_mapShanmenFormationAnchorPlacementReceipt
 	FString ActorClassPath;
 	FName PlacementTag = NAME_None;
 	FName DeploymentTag = NAME_None;
+
+	bool IsValid() const;
+};
+
+/** Exact product-owned terminal request shared by legacy and batch hosts. */
+struct Fdemo_mapShanmenFormationWorldTeardownRequest
+{
+	FGuid DeploymentId;
+	Edemo_mapShanmenFormationSessionState TerminalState =
+		Edemo_mapShanmenFormationSessionState::Empty;
+	int32 CommittedAnchorCount = 0;
 
 	bool IsValid() const;
 };
@@ -130,6 +142,9 @@ public:
 		TSubclassOf<AActor> ActorClass,
 		const Fdemo_mapShanmenFormationProductSession& Session,
 		FName AnchorDefinitionId);
+	Fdemo_mapShanmenFormationWorldResult TryTeardownDeployment(
+		UWorld* World,
+		const Fdemo_mapShanmenFormationWorldTeardownRequest& Request);
 	Fdemo_mapShanmenFormationWorldResult TryTeardownTerminal(
 		UWorld* World,
 		const Fdemo_mapShanmenFormationProductSession& Session);

@@ -5,6 +5,7 @@
 #include "demo_mapShanmenFormationScatterResourcePreparation.h"
 #include "demo_mapShanmenFormationScatterWorldPlacementHandoff.h"
 #include "demo_mapShanmenFormationScatterWorldPublication.h"
+#include "demo_mapShanmenFormationScatterWorldPublicationSession.h"
 
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -34,6 +35,10 @@ namespace
 		Edemo_mapShanmenFormationScatterWorldPlacementHandoffStatus;
 	using EWorldPublicationStatus =
 		Edemo_mapShanmenFormationScatterWorldPublicationStatus;
+	using EWorldPublicationSessionState =
+		Edemo_mapShanmenFormationScatterWorldPublicationSessionState;
+	using EWorldPublicationSessionStatus =
+		Edemo_mapShanmenFormationScatterWorldPublicationSessionStatus;
 
 	constexpr EAutomationTestFlags PreparationFlags =
 		EAutomationTestFlags::EditorContext
@@ -764,6 +769,45 @@ namespace
 			}
 		}
 		return Count;
+	}
+
+	TSet<AActor*> CollectPublicationActors(
+		UWorld* World,
+		const FName DeploymentTag)
+	{
+		TSet<AActor*> Actors;
+		if (!World || DeploymentTag.IsNone())
+		{
+			return Actors;
+		}
+		for (TActorIterator<AActor> It(World); It; ++It)
+		{
+			AActor* Actor = *It;
+			if (::IsValid(Actor) && !Actor->IsActorBeingDestroyed()
+				&& Actor->ActorHasTag(DeploymentTag))
+			{
+				Actors.Add(Actor);
+			}
+		}
+		return Actors;
+	}
+
+	bool PublicationActorSetsMatch(
+		const TSet<AActor*>& Left,
+		const TSet<AActor*>& Right)
+	{
+		if (Left.Num() != Right.Num())
+		{
+			return false;
+		}
+		for (AActor* Actor : Left)
+		{
+			if (!Right.Contains(Actor))
+			{
+				return false;
+			}
+		}
+		return true;
 	}
 }
 
@@ -1887,6 +1931,291 @@ bool Fdemo_mapFormationScatterWorldPublicationInvalidTest::RunTest(
 			&& ForgedReceipt.IsValid() && !ForgedReceipt.IsSuccess()
 			&& ForgedReceipt.FailedAnchorOrder == 0
 			&& EmptyLedger.IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterWorldPublicationSessionLifecycleTest,
+	"Shanmen.0_0_10.Product.FormationScatterWorldPublicationSession.PublishReplayAndTerminalTeardown",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterWorldPublicationSessionLifecycleTest::RunTest(
+	const FString&)
+{
+	FPreparationFixture Fixture;
+	Fdemo_mapShanmenFormationScatterWorldPlacementHandoffEvidence Handoff;
+	FScopedScatterPublicationWorld ScopedWorld;
+	if (!Fixture.Build(TEXT("WorldPublicationSessionLifecycle"))
+		|| !BuildWorldHandoffEvidence(Fixture, Handoff)
+		|| !ScopedWorld.Start())
+	{
+		AddError(TEXT("Could not build the P27.24 lifecycle fixture."));
+		return false;
+	}
+	FShanmenItemAuthoritySnapshot Before;
+	Fixture.Capture(Before);
+	const int32 DeploymentReceiptCount =
+		Fixture.Deployment.GetReceipts().Num();
+
+	Fdemo_mapShanmenFormationScatterWorldPublicationSession Session;
+	if (!Fdemo_mapShanmenFormationScatterWorldPublicationSession::TryStart(
+			Handoff, ACharacter::StaticClass(), Session))
+	{
+		AddError(TEXT("Could not start the P27.24 publication session."));
+		return false;
+	}
+	const FName DeploymentTag =
+		Fdemo_mapShanmenFormationWorldAdapter::MakeDeploymentTag(
+			Handoff.GetDeploymentEvidence()
+				.GetDeployment().GetDeploymentId());
+	const auto Published = Session.TryPublish(ScopedWorld.World);
+	TestTrue(TEXT("The session owns one complete World publication"),
+		Published.Status == EWorldPublicationSessionStatus::Published
+			&& Published.IsValid() && Published.IsPublicationSuccess()
+			&& Session.IsValid()
+			&& Session.GetState()
+				== EWorldPublicationSessionState::Published
+			&& Session.IsBoundToWorld(ScopedWorld.World)
+			&& Session.GetLedger().GetPublishedCount() == 2
+			&& Session.GetCompletionEvidence().IsValid()
+			&& Session.GetWorldAdapter().GetPlacementCount() == 2
+			&& CountPublicationActors(
+				ScopedWorld.World, DeploymentTag) == 2);
+
+	const auto Completion = Session.GetCompletionEvidence();
+	const auto Replayed = Session.TryPublish(ScopedWorld.World);
+	TestTrue(TEXT("Exact publication replay preserves every owned fact"),
+		Replayed.Status == EWorldPublicationSessionStatus::Replayed
+			&& Replayed.IsValid() && Replayed.IsPublicationSuccess()
+			&& Session.GetCompletionEvidence() == Completion
+			&& Session.GetLedger().GetPublishedCount() == 2
+			&& Session.GetWorldAdapter().GetPlacementCount() == 2
+			&& CountPublicationActors(
+				ScopedWorld.World, DeploymentTag) == 2);
+
+	const auto Ended = Session.TryTeardown(
+		ScopedWorld.World,
+		Edemo_mapShanmenFormationSessionState::Ended);
+	TestTrue(TEXT("An explicit terminal command removes the owned batch"),
+		Ended.Status == EWorldPublicationSessionStatus::TeardownComplete
+			&& Ended.IsValid() && Ended.IsTeardownSuccess()
+			&& Session.IsValid() && Session.IsTerminal()
+			&& Session.GetState() == EWorldPublicationSessionState::Ended
+			&& Session.GetTeardownReceipt().IsValid()
+			&& Session.GetTeardownReceipt().CommittedAnchorCount == 2
+			&& Session.GetTeardownReceipt().RemovedActorCount == 2
+			&& CountPublicationActors(
+				ScopedWorld.World, DeploymentTag) == 0);
+
+	const auto TeardownReceipt = Session.GetTeardownReceipt();
+	const auto EndReplay = Session.TryTeardown(
+		ScopedWorld.World,
+		Edemo_mapShanmenFormationSessionState::Ended);
+	FShanmenItemAuthoritySnapshot After;
+	Fixture.Capture(After);
+	TestTrue(TEXT("Terminal replay is stable and source facts stay immutable"),
+		EndReplay.Status
+				== EWorldPublicationSessionStatus::TeardownReplayed
+			&& EndReplay.IsValid() && EndReplay.IsTeardownSuccess()
+			&& Session.GetTeardownReceipt().ReceiptId
+				== TeardownReceipt.ReceiptId
+			&& Session.GetTeardownReceipt().RemovedActorCount == 2
+			&& After == Before
+			&& Fixture.Deployment.GetState()
+				== EShanmenFormationDeploymentState::Active
+			&& Fixture.Deployment.GetReceipts().Num()
+				== DeploymentReceiptCount);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterWorldPublicationSessionRecoveryTest,
+	"Shanmen.0_0_10.Product.FormationScatterWorldPublicationSession.ReconstructionAdoptionAndDirectTeardown",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterWorldPublicationSessionRecoveryTest::RunTest(
+	const FString&)
+{
+	FPreparationFixture Fixture;
+	Fdemo_mapShanmenFormationScatterWorldPlacementHandoffEvidence Handoff;
+	FScopedScatterPublicationWorld ScopedWorld;
+	if (!Fixture.Build(TEXT("WorldPublicationSessionRecovery"))
+		|| !BuildWorldHandoffEvidence(Fixture, Handoff)
+		|| !ScopedWorld.Start())
+	{
+		AddError(TEXT("Could not build the P27.24 recovery fixture."));
+		return false;
+	}
+	const FName DeploymentTag =
+		Fdemo_mapShanmenFormationWorldAdapter::MakeDeploymentTag(
+			Handoff.GetDeploymentEvidence()
+				.GetDeployment().GetDeploymentId());
+
+	Fdemo_mapShanmenFormationScatterWorldPublicationSession Original;
+	if (!Fdemo_mapShanmenFormationScatterWorldPublicationSession::TryStart(
+			Handoff, ACharacter::StaticClass(), Original)
+		|| !Original.TryPublish(ScopedWorld.World).IsPublicationSuccess())
+	{
+		AddError(TEXT("Could not seed the P27.24 World publication."));
+		return false;
+	}
+	const TSet<AActor*> OriginalActors = CollectPublicationActors(
+		ScopedWorld.World, DeploymentTag);
+
+	Fdemo_mapShanmenFormationScatterWorldPublicationSession Reconstructed;
+	if (!Fdemo_mapShanmenFormationScatterWorldPublicationSession::TryStart(
+			Handoff, ACharacter::StaticClass(), Reconstructed))
+	{
+		AddError(TEXT("Could not reconstruct the P27.24 publication session."));
+		return false;
+	}
+	const auto Adopted = Reconstructed.TryPublish(ScopedWorld.World);
+	const TSet<AActor*> AdoptedActors = CollectPublicationActors(
+		ScopedWorld.World, DeploymentTag);
+	TestTrue(TEXT("A reconstructed owner adopts the exact tagged Actors"),
+		Adopted.Status == EWorldPublicationSessionStatus::Published
+			&& Adopted.IsValid() && Adopted.IsPublicationSuccess()
+			&& Reconstructed.GetSessionId() == Original.GetSessionId()
+			&& Reconstructed.GetLedger().GetPublishedCount() == 2
+			&& Reconstructed.GetWorldAdapter().GetPlacementCount() == 2
+			&& PublicationActorSetsMatch(OriginalActors, AdoptedActors));
+
+	Fdemo_mapShanmenFormationScatterWorldPublicationSession CleanupOwner;
+	if (!Fdemo_mapShanmenFormationScatterWorldPublicationSession::TryStart(
+			Handoff, ACharacter::StaticClass(), CleanupOwner))
+	{
+		AddError(TEXT("Could not start the P27.24 cleanup recovery owner."));
+		return false;
+	}
+	const auto Cancelled = CleanupOwner.TryTeardown(
+		ScopedWorld.World,
+		Edemo_mapShanmenFormationSessionState::Cancelled);
+	TestTrue(TEXT("A fresh owner can recover terminal cleanup from World tags"),
+		Cancelled.Status
+				== EWorldPublicationSessionStatus::TeardownComplete
+			&& Cancelled.IsValid() && Cancelled.IsTeardownSuccess()
+			&& CleanupOwner.IsValid() && CleanupOwner.IsTerminal()
+			&& CleanupOwner.GetLedger().IsEmpty()
+			&& CleanupOwner.GetTeardownReceipt().RemovedActorCount == 2
+			&& CountPublicationActors(
+				ScopedWorld.World, DeploymentTag) == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterWorldPublicationSessionConflictTest,
+	"Shanmen.0_0_10.Product.FormationScatterWorldPublicationSession.WorldAndTerminalConflicts",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterWorldPublicationSessionConflictTest::RunTest(
+	const FString&)
+{
+	FPreparationFixture Fixture;
+	Fdemo_mapShanmenFormationScatterWorldPlacementHandoffEvidence Handoff;
+	FScopedScatterPublicationWorld FirstWorld;
+	FScopedScatterPublicationWorld SecondWorld;
+	if (!Fixture.Build(TEXT("WorldPublicationSessionConflict"))
+		|| !BuildWorldHandoffEvidence(Fixture, Handoff)
+		|| !FirstWorld.Start() || !SecondWorld.Start())
+	{
+		AddError(TEXT("Could not build the P27.24 conflict fixture."));
+		return false;
+	}
+
+	Fdemo_mapShanmenFormationScatterWorldPublicationSession Session;
+	if (!Fdemo_mapShanmenFormationScatterWorldPublicationSession::TryStart(
+			Handoff, ACharacter::StaticClass(), Session)
+		|| !Session.TryPublish(FirstWorld.World).IsPublicationSuccess())
+	{
+		AddError(TEXT("Could not seed the P27.24 conflict session."));
+		return false;
+	}
+	const auto ForeignPublish = Session.TryPublish(SecondWorld.World);
+	const auto ForeignTeardown = Session.TryTeardown(
+		SecondWorld.World,
+		Edemo_mapShanmenFormationSessionState::Ended);
+	TestTrue(TEXT("A session cannot publish or teardown across Worlds"),
+		ForeignPublish.Status == EWorldPublicationSessionStatus::WorldConflict
+			&& ForeignPublish.IsValid()
+			&& ForeignTeardown.Status
+				== EWorldPublicationSessionStatus::WorldConflict
+			&& ForeignTeardown.IsValid()
+			&& Session.IsBoundToWorld(FirstWorld.World)
+			&& Session.GetLedger().GetPublishedCount() == 2);
+
+	const auto Ended = Session.TryTeardown(
+		FirstWorld.World,
+		Edemo_mapShanmenFormationSessionState::Ended);
+	const FGuid ReceiptId = Session.GetTeardownReceipt().ReceiptId;
+	const auto TerminalConflict = Session.TryTeardown(
+		FirstWorld.World,
+		Edemo_mapShanmenFormationSessionState::Cancelled);
+	const auto PublishAfterTerminal = Session.TryPublish(FirstWorld.World);
+	TestTrue(TEXT("A terminal session cannot change reason or publish again"),
+		Ended.IsTeardownSuccess()
+			&& TerminalConflict.Status
+				== EWorldPublicationSessionStatus::TerminalConflict
+			&& TerminalConflict.IsValid()
+			&& PublishAfterTerminal.Status
+				== EWorldPublicationSessionStatus::SessionTerminal
+			&& PublishAfterTerminal.IsValid()
+			&& Session.GetTeardownReceipt().ReceiptId == ReceiptId
+			&& Session.GetState() == EWorldPublicationSessionState::Ended);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterWorldPublicationSessionInvalidTest,
+	"Shanmen.0_0_10.Product.FormationScatterWorldPublicationSession.InvalidStartWorldAndTerminalState",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterWorldPublicationSessionInvalidTest::RunTest(
+	const FString&)
+{
+	Fdemo_mapShanmenFormationScatterWorldPublicationSession InvalidSession;
+	Fdemo_mapShanmenFormationScatterWorldPublicationSession OutSession;
+	TestTrue(TEXT("Missing evidence cannot start a product owner"),
+		!Fdemo_mapShanmenFormationScatterWorldPublicationSession::TryStart(
+			Fdemo_mapShanmenFormationScatterWorldPlacementHandoffEvidence(),
+			ACharacter::StaticClass(), OutSession)
+			&& !OutSession.IsValid()
+			&& InvalidSession.TryPublish(nullptr).Status
+				== EWorldPublicationSessionStatus::SessionInvalid);
+
+	FPreparationFixture Fixture;
+	Fdemo_mapShanmenFormationScatterWorldPlacementHandoffEvidence Handoff;
+	FScopedScatterPublicationWorld ScopedWorld;
+	if (!Fixture.Build(TEXT("WorldPublicationSessionInvalid"))
+		|| !BuildWorldHandoffEvidence(Fixture, Handoff)
+		|| !ScopedWorld.Start())
+	{
+		AddError(TEXT("Could not build the P27.24 invalid fixture."));
+		return false;
+	}
+	TestTrue(TEXT("A missing Actor class cannot start a product owner"),
+		!Fdemo_mapShanmenFormationScatterWorldPublicationSession::TryStart(
+			Handoff, TSubclassOf<AActor>(), OutSession)
+			&& !OutSession.IsValid());
+	if (!Fdemo_mapShanmenFormationScatterWorldPublicationSession::TryStart(
+			Handoff, ACharacter::StaticClass(), OutSession))
+	{
+		AddError(TEXT("Could not start the valid P27.24 control session."));
+		return false;
+	}
+	const auto InvalidWorld = OutSession.TryPublish(nullptr);
+	const auto InvalidTerminal = OutSession.TryTeardown(
+		ScopedWorld.World,
+		Edemo_mapShanmenFormationSessionState::Active);
+	TestTrue(TEXT("Invalid World and nonterminal cleanup fail without binding"),
+		InvalidWorld.Status == EWorldPublicationSessionStatus::WorldInvalid
+			&& InvalidWorld.IsValid()
+			&& InvalidTerminal.Status
+				== EWorldPublicationSessionStatus::TerminalStateInvalid
+			&& InvalidTerminal.IsValid()
+			&& OutSession.IsValid()
+			&& OutSession.GetState() == EWorldPublicationSessionState::Ready
+			&& !OutSession.IsBoundToWorld(ScopedWorld.World)
+			&& OutSession.GetLedger().IsEmpty());
 	return true;
 }
 

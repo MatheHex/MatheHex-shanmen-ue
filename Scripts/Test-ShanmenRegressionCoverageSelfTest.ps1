@@ -682,6 +682,9 @@ try
     $FormationScatterWorldPublication = New-AutomationLogFixture `
         -Name 'formation-scatter-world-publication.log' `
         -Group 'Shanmen.0_0_10.Product.FormationScatterWorldPublication'
+    $FormationScatterWorldPublicationSession = New-AutomationLogFixture `
+        -Name 'formation-scatter-world-publication-session.log' `
+        -Group 'Shanmen.0_0_10.Product.FormationScatterWorldPublicationSession'
     $Items = New-AutomationLogFixture `
         -Name 'shanmen-items.log' `
         -Group 'Shanmen.0_0_10.Items'
@@ -1059,6 +1062,32 @@ try
             'Source/demo_map/demo_mapShanmenFormationScatterWorldPublication.h',
             'Source/demo_map/demo_mapShanmenFormationScatterWorldPublication.cpp') `
         -Logs @(
+            $FormationScatterWorldPublication,
+            $FormationScatterWorldPlacementHandoff,
+            $FormationWorld,
+            $FormationScatterDeploymentCommit,
+            $FormationScatterResourceCommit,
+            $FormationScatterResourcePreparation,
+            $FormationScatterResourcePlan,
+            $FormationScatterBatchIntent,
+            $FormationMasteryOperationAuthorization,
+            $FormationMasteryAuthorityAdapter,
+            $FormationAdapter,
+            $FormationSession,
+            $Items,
+            $WorldGameplay,
+            $FormationMastery,
+            $FormationDeployment,
+            $CombatCore,
+            $Full)
+
+    Invoke-ExpectedPass `
+        -Name 'formation scatter world publication session requires publication handoff deployment resource item and full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationScatterWorldPublicationSession.h',
+            'Source/demo_map/demo_mapShanmenFormationScatterWorldPublicationSession.cpp') `
+        -Logs @(
+            $FormationScatterWorldPublicationSession,
             $FormationScatterWorldPublication,
             $FormationScatterWorldPlacementHandoff,
             $FormationWorld,
@@ -5162,6 +5191,13 @@ try
         -Paths @(
             'Source/demo_map/demo_mapShanmenFormationScatterWorldPublication.cpp') `
         -Logs @($FormationScatterWorldPublication) `
+        -ExpectedText 'missing required groups'
+
+    Invoke-ExpectedFail `
+        -Name 'formation scatter world publication session focus cannot replace publication handoff deployment resource item and full evidence' `
+        -Paths @(
+            'Source/demo_map/demo_mapShanmenFormationScatterWorldPublicationSession.cpp') `
+        -Logs @($FormationScatterWorldPublicationSession) `
         -ExpectedText 'missing required groups'
 
     Invoke-ExpectedFail `
