@@ -92,8 +92,9 @@ struct Fdemo_mapShanmenFormationScatterResourcePreparation
 		const Fdemo_mapShanmenFormationScatterResourcePlan& Plan);
 
 	/**
-	 * Deterministic terminal identity shared by future commit and current
-	 * rollback. The first durable terminal choice therefore wins forever.
+	 * Deterministic rollback-compatible terminal identity. P27.20 commits use
+	 * pass-scoped identities so a persisted rejection can be retried; the item
+	 * authority itself still makes the first successful terminal irreversible.
 	 */
 	static bool BuildFinalizeRequest(
 		const Fdemo_mapShanmenFormationScatterResourcePlan& Plan,

@@ -1,5 +1,6 @@
 #if WITH_DEV_AUTOMATION_TESTS && !UE_BUILD_SHIPPING
 
+#include "demo_mapShanmenFormationScatterResourceCommit.h"
 #include "demo_mapShanmenFormationScatterResourcePreparation.h"
 
 #include "HAL/FileManager.h"
@@ -15,6 +16,8 @@ namespace
 {
 	using EPreparationStatus =
 		Edemo_mapShanmenFormationScatterResourcePreparationStatus;
+	using ECommitStatus =
+		Edemo_mapShanmenFormationScatterResourceCommitStatus;
 
 	constexpr EAutomationTestFlags PreparationFlags =
 		EAutomationTestFlags::EditorContext
@@ -179,6 +182,9 @@ namespace
 		int32 InjectFinalizeFailureAt = INDEX_NONE;
 		int32 PrepareCalls = 0;
 		int32 FinalizeCalls = 0;
+		bool bPersistRejectFirstCommit = false;
+		bool bDidPersistRejectFirstCommit = false;
+		FGuid FirstRejectedCommitRequestId;
 
 		virtual bool IsReady() const override
 		{
@@ -218,8 +224,17 @@ namespace
 				Service.SetInjectedFailureForTests(
 					EShanmenItemStoreFailureStage::WriteTemp);
 			}
+			FShanmenItemRunQuantityIntentFinalizeRequest Dispatched =
+				Request;
+			if (bPersistRejectFirstCommit && Request.bCommit
+				&& !bDidPersistRejectFirstCommit)
+			{
+				bDidPersistRejectFirstCommit = true;
+				FirstRejectedCommitRequestId = Request.Context.RequestId;
+				Dispatched.Context.Content.Digest += TEXT(".mismatch");
+			}
 			FShanmenItemDurableCommandResult Result =
-				Service.FinalizePreparedRunQuantityIntentDurable(Request);
+				Service.FinalizePreparedRunQuantityIntentDurable(Dispatched);
 			Service.SetInjectedFailureForTests(
 				EShanmenItemStoreFailureStage::None);
 			return Result;
@@ -277,6 +292,33 @@ namespace
 		return Pending;
 	}
 
+	int32 CountPlanCommits(
+		const FShanmenItemAuthoritySnapshot& Snapshot,
+		const Fdemo_mapShanmenFormationScatterResourcePlan& Plan)
+	{
+		int32 Committed = 0;
+		for (const auto& Reservation : Plan.GetReservations())
+		{
+			const FGuid PrepareId =
+				Reservation.GetPrepareRequest().Context.RequestId;
+			Committed += Snapshot.ProcessedRequests.ContainsByPredicate(
+				[&PrepareId](
+					const FShanmenItemProcessedRequestSnapshot& Processed)
+				{
+					return Processed.Receipt.IsSuccess()
+						&& Processed.Receipt.Operation
+							== EShanmenItemTransactionOperation::
+								FinalizePreparedRunQuantityIntent
+						&& Processed.Receipt.Phase
+							== EShanmenItemTransactionPhase::Committed
+						&& Processed.Receipt.ReservationIds.Num() == 2
+						&& Processed.Receipt.ReservationIds[1]
+							== PrepareId;
+				}) ? 1 : 0;
+		}
+		return Committed;
+	}
+
 	bool SamePhysicalQuantities(
 		const FShanmenItemAuthoritySnapshot& Left,
 		const FShanmenItemAuthoritySnapshot& Right)
@@ -294,6 +336,20 @@ namespace
 			}
 		}
 		return true;
+	}
+
+	const FShanmenItemTransactionReceipt* FindCommitReceiptForItem(
+		const Fdemo_mapShanmenFormationScatterResourceCommitResult& Result,
+		const FGuid& ItemId)
+	{
+		return Result.CommitReceipts.FindByPredicate(
+			[&ItemId](const FShanmenItemTransactionReceipt& Receipt)
+			{
+				return Receipt.IsSuccess()
+					&& Receipt.ItemInstanceId == ItemId
+					&& Receipt.Phase
+						== EShanmenItemTransactionPhase::Committed;
+			});
 	}
 
 	struct FPreparationFixture
@@ -327,6 +383,13 @@ namespace
 		{
 			return Fdemo_mapShanmenFormationScatterResourcePreparation::
 				PrepareWithAuthority(
+					Authority, Projection, Deployment, Correlation, Plan);
+		}
+
+		Fdemo_mapShanmenFormationScatterResourceCommitResult ExecuteCommit()
+		{
+			return Fdemo_mapShanmenFormationScatterResourceCommitter::
+				CommitWithAuthority(
 					Authority, Projection, Deployment, Correlation, Plan);
 		}
 
@@ -731,6 +794,257 @@ bool Fdemo_mapFormationScatterResourcePreparationCancellationTest::RunTest(
 			&& Replay.PrepareCommands.IsEmpty()
 			&& Replay.RollbackCommands.IsEmpty()
 			&& AfterReplay == Terminal);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterResourceCommitDurableReplayTest,
+	"Shanmen.0_0_10.Product.FormationScatterResourceCommit.DurableWholeBatchCommitAndReplay",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterResourceCommitDurableReplayTest::RunTest(
+	const FString&)
+{
+	FPreparationFixture Fixture;
+	if (!Fixture.Build(TEXT("CommitDurableReplay")))
+	{
+		AddError(TEXT("Could not build the P27.20 durable commit fixture."));
+		return false;
+	}
+	FShanmenItemAuthoritySnapshot Before;
+	Fixture.Capture(Before);
+	const auto First = Fixture.ExecuteCommit();
+	FShanmenItemAuthoritySnapshot Committed;
+	Fixture.Capture(Committed);
+	const FShanmenItemTransactionReceipt* WoodA =
+		FindCommitReceiptForItem(First, WoodAId);
+	const FShanmenItemTransactionReceipt* Stone =
+		FindCommitReceiptForItem(First, StoneId);
+	const FShanmenItemTransactionReceipt* WoodB =
+		FindCommitReceiptForItem(First, WoodBId);
+	TestTrue(TEXT("Every prepared stack reaches one durable commit"),
+		First.Status == ECommitStatus::Committed
+			&& First.IsValid() && First.IsCommitted()
+			&& First.Preparation.IsPrepared()
+			&& First.CommitCommands.Num() == 3
+			&& CountPendingPlanPrepares(Committed, Fixture.Plan) == 0
+			&& CountPlanCommits(Committed, Fixture.Plan) == 3);
+	TestTrue(TEXT("Committed active-Run balances match the cumulative plan"),
+		WoodA && Stone && WoodB
+			&& WoodA->ResourceBefore == 4 && WoodA->Amount == 4
+			&& WoodA->ResourceAfter == 0
+			&& Stone->ResourceBefore == 1 && Stone->Amount == 1
+			&& Stone->ResourceAfter == 0
+			&& WoodB->ResourceBefore == 2 && WoodB->Amount == 1
+			&& WoodB->ResourceAfter == 1
+			&& SamePhysicalQuantities(Before, Committed));
+
+	int32 FulfillmentLineCount = 0;
+	bool bEastUsesWoodA = false;
+	bool bNorthUsesWoodA = false;
+	FGuid EastWoodReceipt;
+	FGuid NorthWoodReceipt;
+	for (const auto& Fulfillment :
+		First.Evidence.GetAnchorFulfillments())
+	{
+		FulfillmentLineCount += Fulfillment.GetLines().Num();
+		for (const auto& Line : Fulfillment.GetLines())
+		{
+			if (Line.GetItemInstanceId() != WoodAId)
+			{
+				continue;
+			}
+			if (Fulfillment.GetAnchorDefinitionId() == EastAnchor)
+			{
+				bEastUsesWoodA = true;
+				EastWoodReceipt = Line.GetCommitReceiptId();
+			}
+			if (Fulfillment.GetAnchorDefinitionId() == NorthAnchor)
+			{
+				bNorthUsesWoodA = true;
+				NorthWoodReceipt = Line.GetCommitReceiptId();
+			}
+		}
+	}
+	TestTrue(TEXT("Evidence attributes every allocation slice once"),
+		First.Evidence.IsValid()
+			&& First.Evidence.GetAnchorFulfillments().Num() == 2
+			&& First.Evidence.GetRequirementCount() == 3
+			&& First.Evidence.GetTotalCommittedQuantity() == 6
+			&& FulfillmentLineCount == 4
+			&& bEastUsesWoodA && bNorthUsesWoodA
+			&& EastWoodReceipt.IsValid()
+			&& EastWoodReceipt == NorthWoodReceipt);
+
+	const auto Replay = Fixture.ExecuteCommit();
+	FShanmenItemAuthoritySnapshot AfterReplay;
+	Fixture.Capture(AfterReplay);
+	TestTrue(TEXT("A complete terminal set replays without another command"),
+		Replay.Status == ECommitStatus::Replayed
+			&& Replay.IsValid() && Replay.IsCommitted()
+			&& Replay.CommitCommands.IsEmpty()
+			&& Replay.Evidence == First.Evidence
+			&& AfterReplay == Committed);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterResourceCommitMiddleFailureTest,
+	"Shanmen.0_0_10.Product.FormationScatterResourceCommit.MiddleFailureRequiresForwardRecovery",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterResourceCommitMiddleFailureTest::RunTest(
+	const FString&)
+{
+	FPreparationFixture Fixture;
+	if (!Fixture.Build(TEXT("CommitMiddleFailure")))
+	{
+		AddError(TEXT("Could not build the P27.20 middle-failure fixture."));
+		return false;
+	}
+	Fixture.Authority.InjectFinalizeFailureAt = 2;
+	const auto Failed = Fixture.ExecuteCommit();
+	FShanmenItemAuthoritySnapshot Partial;
+	Fixture.Capture(Partial);
+	TestTrue(TEXT("A durable prefix makes a later failure forward-only"),
+		Failed.Status == ECommitStatus::ForwardRecoveryRequired
+			&& Failed.IsValid() && Failed.RequiresRecovery()
+			&& Failed.CommitCommands.Num() == 2
+			&& Failed.CommitCommands[0].IsCommandSuccess()
+			&& Failed.CommitCommands[1].Status
+				== EShanmenItemDurableCommandStatus::
+					PersistenceFailedRolledBack
+			&& CountPlanCommits(Partial, Fixture.Plan) == 1
+			&& CountPendingPlanPrepares(Partial, Fixture.Plan) == 2);
+
+	Fixture.Authority.InjectFinalizeFailureAt = INDEX_NONE;
+	const auto Recovered = Fixture.ExecuteCommit();
+	FShanmenItemAuthoritySnapshot Complete;
+	Fixture.Capture(Complete);
+	TestTrue(TEXT("The next pass preserves the prefix and commits only the suffix"),
+		Recovered.Status == ECommitStatus::Committed
+			&& Recovered.IsValid() && Recovered.IsCommitted()
+			&& Recovered.CommitCommands.Num() == 2
+			&& CountPlanCommits(Complete, Fixture.Plan) == 3
+			&& CountPendingPlanPrepares(Complete, Fixture.Plan) == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterResourceCommitFirstFailureTest,
+	"Shanmen.0_0_10.Product.FormationScatterResourceCommit.FirstFailureRetriesWithoutConsumption",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterResourceCommitFirstFailureTest::RunTest(
+	const FString&)
+{
+	FPreparationFixture Fixture;
+	if (!Fixture.Build(TEXT("CommitFirstFailure")))
+	{
+		AddError(TEXT("Could not build the P27.20 first-failure fixture."));
+		return false;
+	}
+	FShanmenItemAuthoritySnapshot Before;
+	Fixture.Capture(Before);
+	Fixture.Authority.InjectFinalizeFailureAt = 1;
+	const auto Failed = Fixture.ExecuteCommit();
+	FShanmenItemAuthoritySnapshot Pending;
+	Fixture.Capture(Pending);
+	TestTrue(TEXT("A first-line save failure leaves the whole batch retryable"),
+		Failed.Status == ECommitStatus::CommitRetryRequired
+			&& Failed.IsValid() && Failed.RequiresRecovery()
+			&& Failed.CommitCommands.Num() == 1
+			&& CountPlanCommits(Pending, Fixture.Plan) == 0
+			&& CountPendingPlanPrepares(Pending, Fixture.Plan) == 3
+			&& SamePhysicalQuantities(Before, Pending));
+
+	Fixture.Authority.InjectFinalizeFailureAt = INDEX_NONE;
+	const auto Retried = Fixture.ExecuteCommit();
+	TestTrue(TEXT("An unchanged durable state retries the exact pass safely"),
+		Retried.Status == ECommitStatus::Committed
+			&& Retried.IsValid() && Retried.IsCommitted()
+			&& Retried.CommitCommands.Num() == 3);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterResourceCommitPersistedRejectionTest,
+	"Shanmen.0_0_10.Product.FormationScatterResourceCommit.PersistedRejectionRotatesCommitPass",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterResourceCommitPersistedRejectionTest::RunTest(
+	const FString&)
+{
+	FPreparationFixture Fixture;
+	if (!Fixture.Build(TEXT("CommitPersistedRejection")))
+	{
+		AddError(TEXT("Could not build the P27.20 persisted-rejection fixture."));
+		return false;
+	}
+	Fixture.Authority.bPersistRejectFirstCommit = true;
+	const auto Rejected = Fixture.ExecuteCommit();
+	FShanmenItemAuthoritySnapshot AfterRejected;
+	Fixture.Capture(AfterRejected);
+	TestTrue(TEXT("A valid mismatched command is rejected and recorded"),
+		Rejected.Status == ECommitStatus::CommitRetryRequired
+			&& Rejected.IsValid() && Rejected.RequiresRecovery()
+			&& Rejected.CommitCommands.Num() == 1
+			&& Rejected.CommitCommands[0].Status
+				== EShanmenItemDurableCommandStatus::RejectedAndPersisted
+			&& Rejected.CommitCommands[0].Receipt.Error
+				== EShanmenItemTransactionError::ContentMismatch
+			&& Fixture.Authority.FirstRejectedCommitRequestId.IsValid()
+			&& CountPlanCommits(AfterRejected, Fixture.Plan) == 0
+			&& CountPendingPlanPrepares(AfterRejected, Fixture.Plan) == 3);
+
+	const auto Recovered = Fixture.ExecuteCommit();
+	TestTrue(TEXT("Authority revision rotates the pass identity after rejection"),
+		Recovered.Status == ECommitStatus::Committed
+			&& Recovered.IsValid() && Recovered.IsCommitted()
+			&& Recovered.CommitCommands.Num() == 3
+			&& Recovered.CommitCommands[0].Receipt.RequestId
+				!= Fixture.Authority.FirstRejectedCommitRequestId);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterResourceCommitCancellationTest,
+	"Shanmen.0_0_10.Product.FormationScatterResourceCommit.CancellationPreventsCommit",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterResourceCommitCancellationTest::RunTest(
+	const FString&)
+{
+	FPreparationFixture Fixture;
+	if (!Fixture.Build(TEXT("CommitCancellation")))
+	{
+		AddError(TEXT("Could not build the P27.20 cancellation fixture."));
+		return false;
+	}
+	FShanmenItemAuthoritySnapshot Before;
+	Fixture.Capture(Before);
+	const auto Prepared = Fixture.Execute();
+	FShanmenItemRunQuantityIntentFinalizeRequest Cancel;
+	if (!Prepared.IsPrepared()
+		|| !Fdemo_mapShanmenFormationScatterResourcePreparation::
+			BuildFinalizeRequest(Fixture.Plan, 0, false, Cancel)
+		|| !Fixture.Service.FinalizePreparedRunQuantityIntentDurable(Cancel)
+			.IsCommandSuccess())
+	{
+		AddError(TEXT("Could not seed the P27.20 cancelled attempt."));
+		return false;
+	}
+
+	const auto Result = Fixture.ExecuteCommit();
+	FShanmenItemAuthoritySnapshot Terminal;
+	Fixture.Capture(Terminal);
+	TestTrue(TEXT("One cancellation terminates the attempt before commit"),
+		Result.Status == ECommitStatus::AttemptCancelled
+			&& Result.IsValid()
+			&& Result.CommitCommands.IsEmpty()
+			&& CountPlanCommits(Terminal, Fixture.Plan) == 0
+			&& CountPendingPlanPrepares(Terminal, Fixture.Plan) == 0
+			&& SamePhysicalQuantities(Before, Terminal));
 	return true;
 }
 
