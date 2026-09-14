@@ -946,6 +946,106 @@ Ademo_mapGameMode::ExecuteM01PlayerStraightProjectileImpact(
 	return Result;
 }
 
+Fdemo_mapShanmenFormationScatterWorldPublicationRunRouteResult
+Ademo_mapGameMode::PublishFormationScatterForActiveCombatRun(
+	const Fdemo_mapShanmenFormationScatterWorldPlacementHandoffEvidence&
+		HandoffEvidence,
+	const TSubclassOf<AActor> ActorClass)
+{
+	using ERouteStatus =
+		Edemo_mapShanmenFormationScatterWorldPublicationRunRouteStatus;
+	using ERunEvent =
+		Edemo_mapShanmenFormationScatterWorldPublicationRunEvent;
+
+	auto Reject = [this](
+		const ERouteStatus Status,
+		const FGuid& RunId,
+		FString Diagnostic)
+	{
+		Fdemo_mapShanmenFormationScatterWorldPublicationRunRouteResult
+			Result;
+		Result.Status = Status;
+		Result.Diagnostic = MoveTemp(Diagnostic);
+		Result.RunId = RunId;
+		Result.Event = ERunEvent::Publish;
+		if (const auto* Route = FormationRunLifecycle.
+			GetScatterPublicationRoute())
+		{
+			Result.RouteId = Route->GetRouteId();
+		}
+		return Result;
+	};
+
+	const FGuid CoordinatorRunId = CombatRunCoordinator.IsActive()
+		? CombatRunCoordinator.GetRunId()
+		: FGuid();
+	if (!CombatRunCoordinator.IsActive()
+		|| !FormationRunLifecycle.IsActive())
+	{
+		return Reject(
+			ERouteStatus::RouteInvalid,
+			CoordinatorRunId,
+			TEXT("Formation scatter publication requires the active GameMode-owned Combat Run and lifecycle."));
+	}
+	if (!FormationRunLifecycle.IsValid())
+	{
+		return Reject(
+			ERouteStatus::StateInvalid,
+			CoordinatorRunId,
+			TEXT("GameMode formation lifecycle invariants are invalid before scatter publication."));
+	}
+	if (!CoordinatorRunId.IsValid()
+		|| FormationRunLifecycle.GetRunId() != CoordinatorRunId)
+	{
+		return Reject(
+			ERouteStatus::RunMismatch,
+			CoordinatorRunId,
+			TEXT("GameMode Coordinator and formation lifecycle do not own the same Run."));
+	}
+	if (!HandoffEvidence.IsValid())
+	{
+		return Reject(
+			ERouteStatus::RouteInvalid,
+			CoordinatorRunId,
+			TEXT("Formation scatter publication requires one committed Handoff."));
+	}
+	const FGuid HandoffRunId = HandoffEvidence.GetDeploymentEvidence()
+		.GetResourceEvidence().GetPlan().GetActiveRunId();
+	if (HandoffRunId != CoordinatorRunId)
+	{
+		return Reject(
+			ERouteStatus::RunMismatch,
+			CoordinatorRunId,
+			TEXT("Committed scatter Handoff belongs to a different Combat Run."));
+	}
+	UWorld* const World = GetWorld();
+	if (!::IsValid(World))
+	{
+		return Reject(
+			ERouteStatus::RouteInvalid,
+			CoordinatorRunId,
+			TEXT("GameMode scatter publication requires its live owned World."));
+	}
+
+	FString Diagnostic;
+	if (!FormationRunLifecycle.TryOpenScatterPublicationRoute(
+			HandoffEvidence,
+			ActorClass,
+			Diagnostic))
+	{
+		if (Diagnostic.IsEmpty())
+		{
+			Diagnostic = TEXT(
+				"GameMode formation lifecycle rejected scatter route binding.");
+		}
+		return Reject(
+			ERouteStatus::RouteInvalid,
+			CoordinatorRunId,
+			MoveTemp(Diagnostic));
+	}
+	return FormationRunLifecycle.TryPublishScatterPublication(World);
+}
+
 Fdemo_mapShanmenControlledWeaponActiveRunResult
 Ademo_mapGameMode::StartControlledWeaponForActiveCombatRun(
 	const Fdemo_mapShanmenControlledWeaponActiveRunIntent& Intent,
@@ -4311,12 +4411,16 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 		ControlledWeaponRunCommandRouter.Reset();
 		ControlledWeaponThreatSampleRouter.Reset();
 		UE_LOG(Logdemo_map, Log,
-		TEXT("0_0_10_COMBAT_RUN Event=RunReleased RunId=%s Context=%s FormationHadProduct=%d FormationCompleted=%d FormationTeardownReused=%d ControlledBound=%d ControlledInterrupted=%d RoutedIntents=%d ThreatSamples=%lld WorldThreatSamples=%lld ThrownSelections=%d TreatmentRequests=%d TreatmentPendingAtTeardown=%d SwordQiCommandEvents=%llu SwordQiPendingRetryAtTeardown=%d SwordQiIntents=%d SwordQiCommands=%d SwordQiInterrupted=%d DivineSensePulses=%d ConditionApplications=%d ConditionRevision=%lld SwordRhythmObservations=%d SwordRhythmPresentationPublished=%d SwordRhythmPresentationQueuedAtTeardown=%d WeaponGuardInterrupted=%d"),
+		TEXT("0_0_10_COMBAT_RUN Event=RunReleased RunId=%s Context=%s FormationHadProduct=%d FormationCompleted=%d FormationTeardownReused=%d FormationHadScatter=%d FormationScatterTeardownReused=%d FormationScatterTeardownStatus=%d ControlledBound=%d ControlledInterrupted=%d RoutedIntents=%d ThreatSamples=%lld WorldThreatSamples=%lld ThrownSelections=%d TreatmentRequests=%d TreatmentPendingAtTeardown=%d SwordQiCommandEvents=%llu SwordQiPendingRetryAtTeardown=%d SwordQiIntents=%d SwordQiCommands=%d SwordQiInterrupted=%d DivineSensePulses=%d ConditionApplications=%d ConditionRevision=%lld SwordRhythmObservations=%d SwordRhythmPresentationPublished=%d SwordRhythmPresentationQueuedAtTeardown=%d WeaponGuardInterrupted=%d"),
 			*Result.RunId.ToString(EGuidFormats::DigitsWithHyphens),
 			SafeContext,
 			FormationTeardown.ProductTeardown.bHadProductHost ? 1 : 0,
 			FormationTeardown.ProductTeardown.bEndedCompletedFormation ? 1 : 0,
 			FormationTeardown.bReusedProductTeardown ? 1 : 0,
+			FormationTeardown.bHadScatterPublicationRoute ? 1 : 0,
+			FormationTeardown.bReusedScatterPublicationTeardown ? 1 : 0,
+			static_cast<int32>(
+				FormationTeardown.ScatterPublicationTeardown.Status),
 			Result.BoundItemCount,
 			Result.InterruptedItemCount,
 			RoutedIntentCount,
@@ -4351,21 +4455,6 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 		SafeContext,
 		static_cast<int32>(Result.Status),
 		*Result.Diagnostic);
-	ControlledWeaponRunCommandRouter.Reset();
-	ControlledWeaponThreatSampleRouter.Reset();
-	ControlledWeaponWorldThreatSampler.Reset();
-	ControlledWeaponRunHost.Reset();
-	ControlledWeaponWorldLifecycle.Reset();
-	if (PlayerCombatConditionComponent.IsValid())
-	{
-		PlayerCombatConditionComponent->Reset();
-	}
-	CombatRunFixedTimeline.Reset();
-	SwordRhythmProductSession.Reset();
-	SwordRhythmPresentationRunController.Reset();
-	SwordQiCommandEventOwner.Reset();
-	SwordQiProductController.Reset();
-	CombatRunCoordinator.Reset();
 	return false;
 }
 

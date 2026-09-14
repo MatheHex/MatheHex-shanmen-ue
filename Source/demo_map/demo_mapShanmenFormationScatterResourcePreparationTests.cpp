@@ -9,6 +9,7 @@
 #include "demo_mapShanmenFormationScatterWorldPublicationRunRoute.h"
 #include "demo_mapShanmenFormationScatterWorldPublicationSession.h"
 #include "demo_mapShanmenFormationRunLifecycle.h"
+#include "demo_mapGameMode.h"
 
 #include "Components/BoxComponent.h"
 #include "Engine/Engine.h"
@@ -840,7 +841,9 @@ namespace
 		Fdemo_mapShanmenFormationRunLifecycle Lifecycle;
 		FString Diagnostic;
 
-		bool Start(FAutomationTestBase& Test, const TCHAR* Label)
+		bool StartEnvironment(
+			FAutomationTestBase& Test,
+			const TCHAR* Label)
 		{
 			if (!Preparation.Build(Label)
 				|| !BuildWorldHandoffEvidence(Preparation, Handoff)
@@ -884,6 +887,15 @@ namespace
 			Player->SetRootComponent(PlayerRoot);
 			Player->AddInstanceComponent(PlayerRoot);
 			Player->AddInstanceComponent(PlayerHealth);
+			return true;
+		}
+
+		bool Start(FAutomationTestBase& Test, const TCHAR* Label)
+		{
+			if (!StartEnvironment(Test, Label))
+			{
+				return false;
+			}
 
 			const FGuid RunId = Handoff.GetDeploymentEvidence()
 				.GetResourceEvidence().GetPlan().GetActiveRunId();
@@ -932,7 +944,87 @@ namespace
 			Stop();
 		}
 	};
+
+	Ademo_mapGameMode* SpawnScatterGameMode(
+		FScatterPublicationRunLifecycleFixture& Fixture)
+	{
+		if (!Fixture.ScopedWorld.World)
+		{
+			return nullptr;
+		}
+		FActorSpawnParameters Parameters;
+		Parameters.ObjectFlags |= RF_Transient;
+		Parameters.SpawnCollisionHandlingOverride =
+			ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		return Fixture.ScopedWorld.World->SpawnActor<Ademo_mapGameMode>(
+			Ademo_mapGameMode::StaticClass(),
+			FTransform::Identity,
+			Parameters);
+	}
 }
+
+struct Fdemo_mapFormationScatterGameModeTestAccess
+{
+	static bool TryBegin(
+		Ademo_mapGameMode& GameMode,
+		FScatterPublicationRunLifecycleFixture& Fixture,
+		const FGuid& RunId,
+		const bool bWithTimeline,
+		FString& OutDiagnostic)
+	{
+		return GameMode.CombatRunCoordinator.TryBeginRun(
+				RunId,
+				Fixture.Player,
+				Fixture.PlayerHealth,
+				OutDiagnostic)
+			&& (!bWithTimeline
+				|| GameMode.CombatRunFixedTimeline.TryBegin(
+					RunId,
+					OutDiagnostic))
+			&& GameMode.FormationRunLifecycle.TryBegin(
+				GameMode.CombatRunCoordinator,
+				OutDiagnostic);
+	}
+
+	static bool TryEndFormationDirect(
+		Ademo_mapGameMode& GameMode,
+		FScatterPublicationRunLifecycleFixture& Fixture)
+	{
+		if (!Fixture.ItemAuthority)
+		{
+			return false;
+		}
+		return GameMode.FormationRunLifecycle.TryEndRun(
+				*Fixture.ItemAuthority,
+				Fixture.ScopedWorld.World,
+				GameMode.CombatRunCoordinator).IsEnded();
+	}
+
+	static bool Release(
+		Ademo_mapGameMode& GameMode,
+		const TCHAR* Context)
+	{
+		return GameMode.ReleaseCombatProductRun(Context);
+	}
+
+	static Fdemo_mapCombatRunCoordinator& Coordinator(
+		Ademo_mapGameMode& GameMode)
+	{
+		return GameMode.CombatRunCoordinator;
+	}
+
+	static Fdemo_mapShanmenFormationRunLifecycle& Lifecycle(
+		Ademo_mapGameMode& GameMode)
+	{
+		return GameMode.FormationRunLifecycle;
+	}
+
+	static Fdemo_mapShanmenCombatRunFixedTimeline& Timeline(
+		Ademo_mapGameMode& GameMode)
+	{
+		return GameMode.CombatRunFixedTimeline;
+	}
+};
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	Fdemo_mapFormationScatterResourcePreparationDurableReplayTest,
@@ -3189,6 +3281,285 @@ bool Fdemo_mapFormationScatterPublicationLifecycleTakeoverTest::RunTest(
 			&& Ended.ScatterPublicationTeardown.RouteId == RouteId
 			&& Active.IsEmpty() && Active.IsValid()
 			&& !Fixture.CombatRun.IsActive()
+			&& CountPublicationActors(
+				Fixture.ScopedWorld.World,
+				Fixture.GetDeploymentTag()) == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterGameModePublishReplayAndReleaseTest,
+	"Shanmen.0_0_10.Product.FormationRunLifecycle.GameModeScatterPublication.PublishReplayAndRelease",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterGameModePublishReplayAndReleaseTest::RunTest(
+	const FString&)
+{
+	FScatterPublicationRunLifecycleFixture Fixture;
+	if (!Fixture.StartEnvironment(
+			*this, TEXT("GameModeScatterPublishReplay")))
+	{
+		return false;
+	}
+	Ademo_mapGameMode* const GameMode = SpawnScatterGameMode(Fixture);
+	FString Diagnostic;
+	const FGuid RunId = Fixture.GetRunId();
+	if (!GameMode
+		|| !Fdemo_mapFormationScatterGameModeTestAccess::TryBegin(
+			*GameMode, Fixture, RunId, true, Diagnostic))
+	{
+		AddError(FString::Printf(
+			TEXT("Could not bind the P27.28 GameMode fixture: %s"),
+			*Diagnostic));
+		return false;
+	}
+
+	const auto Published =
+		GameMode->PublishFormationScatterForActiveCombatRun(
+			Fixture.Handoff, ACharacter::StaticClass());
+	const auto Replayed =
+		GameMode->PublishFormationScatterForActiveCombatRun(
+			Fixture.Handoff, ACharacter::StaticClass());
+	TestTrue(TEXT("GameMode publishes once and exactly replays the route"),
+		Published.Status == EWorldPublicationRunRouteStatus::Applied
+			&& Published.IsSuccess()
+			&& Replayed.Status
+				== EWorldPublicationRunRouteStatus::Replayed
+			&& Replayed.IsSuccess()
+			&& Published.RunId == RunId
+			&& Published.RouteId == Replayed.RouteId
+			&& Published.CommandId == Replayed.CommandId
+			&& Fdemo_mapFormationScatterGameModeTestAccess::Lifecycle(
+					*GameMode).HasScatterPublicationRoute()
+			&& CountPublicationActors(
+				Fixture.ScopedWorld.World,
+				Fixture.GetDeploymentTag()) == 2);
+
+	const bool bReleased =
+		Fdemo_mapFormationScatterGameModeTestAccess::Release(
+			*GameMode, TEXT("P27.28PublishReplay"));
+	TestTrue(TEXT("GameMode release closes World, formation, timeline and Run"),
+		bReleased
+			&& Fdemo_mapFormationScatterGameModeTestAccess::Lifecycle(
+					*GameMode).IsEmpty()
+			&& Fdemo_mapFormationScatterGameModeTestAccess::Lifecycle(
+					*GameMode).IsValid()
+			&& !Fdemo_mapFormationScatterGameModeTestAccess::Coordinator(
+					*GameMode).IsActive()
+			&& Fdemo_mapFormationScatterGameModeTestAccess::Timeline(
+					*GameMode).IsEmpty()
+			&& CountPublicationActors(
+				Fixture.ScopedWorld.World,
+				Fixture.GetDeploymentTag()) == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterGameModePreflightAndRebindTest,
+	"Shanmen.0_0_10.Product.FormationRunLifecycle.GameModeScatterPublication.PreflightAndRebindFences",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterGameModePreflightAndRebindTest::RunTest(
+	const FString&)
+{
+	FScatterPublicationRunLifecycleFixture Fixture;
+	if (!Fixture.StartEnvironment(
+			*this, TEXT("GameModeScatterPreflight")))
+	{
+		return false;
+	}
+	Ademo_mapGameMode* const GameMode = SpawnScatterGameMode(Fixture);
+	if (!GameMode)
+	{
+		AddError(TEXT("Could not spawn the P27.28 GameMode fixture."));
+		return false;
+	}
+
+	const auto Inactive =
+		GameMode->PublishFormationScatterForActiveCombatRun(
+			Fixture.Handoff, ACharacter::StaticClass());
+	TestTrue(TEXT("Inactive GameMode rejects before occupying the route slot"),
+		Inactive.Status == EWorldPublicationRunRouteStatus::RouteInvalid
+			&& Inactive.IsValid() && !Inactive.IsSuccess()
+			&& Fdemo_mapFormationScatterGameModeTestAccess::Lifecycle(
+					*GameMode).IsEmpty()
+			&& CountPublicationActors(
+				Fixture.ScopedWorld.World,
+				Fixture.GetDeploymentTag()) == 0);
+
+	const FGuid ForeignRunId(0xF8F28001, 0, 0, 1);
+	FString Diagnostic;
+	if (!Fdemo_mapFormationScatterGameModeTestAccess::TryBegin(
+			*GameMode, Fixture, ForeignRunId, false, Diagnostic))
+	{
+		AddError(FString::Printf(
+			TEXT("Could not bind the foreign P27.28 Run: %s"),
+			*Diagnostic));
+		return false;
+	}
+	const auto Foreign =
+		GameMode->PublishFormationScatterForActiveCombatRun(
+			Fixture.Handoff, ACharacter::StaticClass());
+	TestTrue(TEXT("A foreign Handoff fails before slot mutation"),
+		Foreign.Status == EWorldPublicationRunRouteStatus::RunMismatch
+			&& Foreign.IsValid() && !Foreign.IsSuccess()
+			&& !Fdemo_mapFormationScatterGameModeTestAccess::Lifecycle(
+					*GameMode).HasScatterPublicationRoute()
+			&& CountPublicationActors(
+				Fixture.ScopedWorld.World,
+				Fixture.GetDeploymentTag()) == 0);
+	if (!Fdemo_mapFormationScatterGameModeTestAccess::TryEndFormationDirect(
+			*GameMode, Fixture))
+	{
+		AddError(TEXT("Could not retire the foreign P27.28 Run."));
+		return false;
+	}
+
+	if (!Fdemo_mapFormationScatterGameModeTestAccess::TryBegin(
+			*GameMode, Fixture, Fixture.GetRunId(), false, Diagnostic))
+	{
+		AddError(FString::Printf(
+			TEXT("Could not bind the exact P27.28 Run: %s"),
+			*Diagnostic));
+		return false;
+	}
+	const auto InvalidClass =
+		GameMode->PublishFormationScatterForActiveCombatRun(
+			Fixture.Handoff, TSubclassOf<AActor>());
+	TestTrue(TEXT("Invalid Actor class fails without occupying the route slot"),
+		InvalidClass.Status
+				== EWorldPublicationRunRouteStatus::RouteInvalid
+			&& InvalidClass.IsValid() && !InvalidClass.IsSuccess()
+			&& !Fdemo_mapFormationScatterGameModeTestAccess::Lifecycle(
+					*GameMode).HasScatterPublicationRoute());
+
+	const auto Published =
+		GameMode->PublishFormationScatterForActiveCombatRun(
+			Fixture.Handoff, ACharacter::StaticClass());
+	const auto ClassDrift =
+		GameMode->PublishFormationScatterForActiveCombatRun(
+			Fixture.Handoff, APawn::StaticClass());
+	const auto ExactReplay =
+		GameMode->PublishFormationScatterForActiveCombatRun(
+			Fixture.Handoff, ACharacter::StaticClass());
+	TestTrue(TEXT("The sole GameMode route rejects drift and preserves replay"),
+		Published.Status == EWorldPublicationRunRouteStatus::Applied
+			&& Published.IsSuccess()
+			&& ClassDrift.Status
+				== EWorldPublicationRunRouteStatus::RouteInvalid
+			&& ClassDrift.IsValid() && !ClassDrift.IsSuccess()
+			&& ClassDrift.RouteId == Published.RouteId
+			&& ExactReplay.Status
+				== EWorldPublicationRunRouteStatus::Replayed
+			&& ExactReplay.IsSuccess()
+			&& ExactReplay.RouteId == Published.RouteId
+			&& ExactReplay.CommandId == Published.CommandId
+			&& CountPublicationActors(
+				Fixture.ScopedWorld.World,
+				Fixture.GetDeploymentTag()) == 2);
+	TestTrue(TEXT("Direct exact-Run teardown leaves no publication owner"),
+		Fdemo_mapFormationScatterGameModeTestAccess::TryEndFormationDirect(
+			*GameMode, Fixture)
+			&& Fdemo_mapFormationScatterGameModeTestAccess::Lifecycle(
+					*GameMode).IsEmpty()
+			&& !Fdemo_mapFormationScatterGameModeTestAccess::Coordinator(
+					*GameMode).IsActive()
+			&& CountPublicationActors(
+				Fixture.ScopedWorld.World,
+				Fixture.GetDeploymentTag()) == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterGameModeCoordinatorRecoveryTest,
+	"Shanmen.0_0_10.Product.FormationRunLifecycle.GameModeScatterPublication.CoordinatorRecoveryPreservesOwners",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterGameModeCoordinatorRecoveryTest::RunTest(
+	const FString&)
+{
+	FScatterPublicationRunLifecycleFixture Fixture;
+	if (!Fixture.StartEnvironment(
+			*this, TEXT("GameModeScatterRecovery")))
+	{
+		return false;
+	}
+	Ademo_mapGameMode* const GameMode = SpawnScatterGameMode(Fixture);
+	FString Diagnostic;
+	const FGuid RunId = Fixture.GetRunId();
+	if (!GameMode
+		|| !Fdemo_mapFormationScatterGameModeTestAccess::TryBegin(
+			*GameMode, Fixture, RunId, true, Diagnostic)
+		|| !GameMode->PublishFormationScatterForActiveCombatRun(
+			Fixture.Handoff, ACharacter::StaticClass()).IsSuccess())
+	{
+		AddError(FString::Printf(
+			TEXT("Could not publish the P27.28 recovery fixture: %s"),
+			*Diagnostic));
+		return false;
+	}
+
+	const FGuid ExpectedPlayerId =
+		Fdemo_mapFormationScatterGameModeTestAccess::Coordinator(
+			*GameMode).GetPlayerEntityId();
+	const FGuid WrongPlayerId(0xF8F28002, 0, 0, 2);
+	if (!Fixture.PlayerHealth->TryEndCombatEntityBinding(ExpectedPlayerId)
+		|| !Fixture.PlayerHealth->TryBindCombatEntity(WrongPlayerId))
+	{
+		AddError(TEXT("Could not inject the P27.28 Coordinator rejection."));
+		return false;
+	}
+
+	AddExpectedError(
+		TEXT("0_0_10_COMBAT_RUN Event=RunReleaseRejected Context=P27.28CoordinatorReject"),
+		EAutomationExpectedErrorFlags::Contains,
+		1);
+	const bool bRejected =
+		Fdemo_mapFormationScatterGameModeTestAccess::Release(
+			*GameMode, TEXT("P27.28CoordinatorReject"));
+	const auto& RetainedLifecycle =
+		Fdemo_mapFormationScatterGameModeTestAccess::Lifecycle(*GameMode);
+	const auto LatePublish =
+		GameMode->PublishFormationScatterForActiveCombatRun(
+			Fixture.Handoff, ACharacter::StaticClass());
+	TestTrue(TEXT("Coordinator rejection preserves every retry owner"),
+		!bRejected
+			&& RetainedLifecycle.IsActive()
+			&& RetainedLifecycle.IsValid()
+			&& RetainedLifecycle.HasScatterPublicationRoute()
+			&& RetainedLifecycle.
+				HasScatterPublicationTeardownCheckpoint()
+			&& RetainedLifecycle.HasProductTeardownCheckpoint()
+			&& Fdemo_mapFormationScatterGameModeTestAccess::Coordinator(
+					*GameMode).IsActive()
+			&& Fdemo_mapFormationScatterGameModeTestAccess::Timeline(
+					*GameMode).IsActiveForRun(RunId)
+			&& LatePublish.Status
+				== EWorldPublicationRunRouteStatus::RouteInvalid
+			&& LatePublish.IsValid() && !LatePublish.IsSuccess()
+			&& CountPublicationActors(
+				Fixture.ScopedWorld.World,
+				Fixture.GetDeploymentTag()) == 0);
+
+	if (!Fixture.PlayerHealth->TryEndCombatEntityBinding(WrongPlayerId)
+		|| !Fixture.PlayerHealth->TryBindCombatEntity(ExpectedPlayerId))
+	{
+		AddError(TEXT("Could not repair the P27.28 Coordinator identity."));
+		return false;
+	}
+	const bool bRetried =
+		Fdemo_mapFormationScatterGameModeTestAccess::Release(
+			*GameMode, TEXT("P27.28CoordinatorRetry"));
+	TestTrue(TEXT("Exact GameMode retry consumes checkpoints and closes all"),
+		bRetried
+			&& Fdemo_mapFormationScatterGameModeTestAccess::Lifecycle(
+					*GameMode).IsEmpty()
+			&& Fdemo_mapFormationScatterGameModeTestAccess::Lifecycle(
+					*GameMode).IsValid()
+			&& !Fdemo_mapFormationScatterGameModeTestAccess::Coordinator(
+					*GameMode).IsActive()
+			&& Fdemo_mapFormationScatterGameModeTestAccess::Timeline(
+					*GameMode).IsEmpty()
 			&& CountPublicationActors(
 				Fixture.ScopedWorld.World,
 				Fixture.GetDeploymentTag()) == 0);

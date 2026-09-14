@@ -140,6 +140,12 @@ public:
 		float RawDamage,
 		const FVector& ImpactLocation,
 		const FVector& ImpactNormal);
+	/** Publishes one committed scatter Handoff through the owned formation Run. */
+	Fdemo_mapShanmenFormationScatterWorldPublicationRunRouteResult
+	PublishFormationScatterForActiveCombatRun(
+		const Fdemo_mapShanmenFormationScatterWorldPlacementHandoffEvidence&
+			HandoffEvidence,
+		TSubclassOf<AActor> ActorClass);
 	/** Prepares and attaches one exact deployed item through the canonical P6 route. */
 	Fdemo_mapShanmenControlledWeaponActiveRunResult
 	StartControlledWeaponForActiveCombatRun(
@@ -732,6 +738,7 @@ private:
 #if WITH_DEV_AUTOMATION_TESTS
 	friend class Fdemo_mapDivineSenseGameModeLifecycleTest;
 	friend class Fdemo_mapFormationGameModeRunCompositionTest;
+	friend struct Fdemo_mapFormationScatterGameModeTestAccess;
 	friend class Fdemo_mapSwordQiPhysicalIssueRetryTest;
 #endif
 	TArray<TWeakObjectPtr<Ademo_mapM01ExtractionZone>> M01ExtractionZones;
