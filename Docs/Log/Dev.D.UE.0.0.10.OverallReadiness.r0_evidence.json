@@ -1,0 +1,258 @@
+{
+  "observed_utc": "2026-09-14T21:47:49.0428352Z",
+  "source_commit": "831c6b1efb4e154347f389d424d82fb3f4ba93af",
+  "branch": "agent/0.0.10-p27-28-formation-scatter-gamemode-composition",
+  "origin": "https://github.com/MatheHex/MatheHex-shanmen-ue.git",
+  "tracked_changes": 0,
+  "untracked_files": 103,
+  "modules": [
+    {
+      "module": "demo_map",
+      "files": 952,
+      "production_lines": 270732,
+      "test_files": 214,
+      "test_lines": 143498
+    },
+    {
+      "module": "ShanmenCombatCore",
+      "files": 9,
+      "production_lines": 877,
+      "test_files": 1,
+      "test_lines": 317
+    },
+    {
+      "module": "ShanmenCombatRuntime",
+      "files": 90,
+      "production_lines": 19607,
+      "test_files": 27,
+      "test_lines": 12059
+    },
+    {
+      "module": "ShanmenCore",
+      "files": 6,
+      "production_lines": 142,
+      "test_files": 0,
+      "test_lines": 0
+    },
+    {
+      "module": "ShanmenItems",
+      "files": 16,
+      "production_lines": 8753,
+      "test_files": 3,
+      "test_lines": 3606
+    },
+    {
+      "module": "ShanmenWorldGameplay",
+      "files": 11,
+      "production_lines": 863,
+      "test_files": 2,
+      "test_lines": 527
+    }
+  ],
+  "report_count": 394,
+  "state_copy_sites": 26,
+  "logs": [
+    {
+      "file": "Saved\\Automation\\P27.28\\P27.28_shanmen_full.log",
+      "bytes": 2130095,
+      "sha256": "75DEE689E683210ACE250292D8086DFC24D8663F6E148BB3513AE4421E42D930",
+      "success": 1415,
+      "fail": 0
+    },
+    {
+      "file": "Saved\\Automation\\P27.28\\P27.28_formation_run_lifecycle.log",
+      "bytes": 286597,
+      "sha256": "9E9DA2FBD2C91EFF9DC5D95F20613E8D51487452B3DEE8F188894BE8B1D60D6A",
+      "success": 13,
+      "fail": 0
+    },
+    {
+      "file": "Saved\\Automation\\P27.28\\P27.28_gamemode_scatter_focused.log",
+      "bytes": 269493,
+      "sha256": "3E71A18821EBADBB880C209C7DF4A06372C795CF0C9054E753472EA56D10E537",
+      "success": 3,
+      "fail": 0
+    },
+    {
+      "file": "Saved\\Automation\\P27.28\\P27.28_gamemode_scatter_focused_first_failure.log",
+      "bytes": 269173,
+      "sha256": "3C0C7EE3044361215ECAB8EAE1B48886A52BDA7D813271DBFE90E106ECE0AF7C",
+      "success": 2,
+      "fail": 1
+    },
+    {
+      "file": "Saved\\Automation\\P27.28\\P27.28_legacy_enemy_skill.log",
+      "bytes": 305924,
+      "sha256": "AC82A823BF35DE6409024ACA04AAD06800C2AF59F9C05D07676B1F84C4D2060C",
+      "success": 44,
+      "fail": 0
+    },
+    {
+      "file": "Saved\\Automation\\P27.28\\P27.28_legacy_item_armor.log",
+      "bytes": 310545,
+      "sha256": "0A07EAD6E15955D56F545C26DECF7F8E9173E2BC85C71AD9F65B5FA5B66C8470",
+      "success": 46,
+      "fail": 0
+    },
+    {
+      "file": "Saved\\Automation\\P27.28\\P27.28_legacy_v2_ranged.log",
+      "bytes": 285284,
+      "sha256": "FE4420EB68F832868995A508D1FEF09D1A977DBC9416CD4A2D9BC267DDDCB68B",
+      "success": 22,
+      "fail": 0
+    },
+    {
+      "file": "Saved\\Automation\\P27.28\\P27.28_legacy_v3_attributes.log",
+      "bytes": 264953,
+      "sha256": "E0164BC50FFF5FE2450F12D57F5E0A14BD82AE8CAA7059812589C1FB90E4DD08",
+      "success": 4,
+      "fail": 0
+    },
+    {
+      "file": "Saved\\Automation\\P27.28\\P27.28_regression_coverage.log",
+      "bytes": 10405,
+      "sha256": "459B17137B6CA4E6EB29083659B1274095637ACC400227F0752F6D96F3ADA1AE",
+      "success": 0,
+      "fail": 0
+    },
+    {
+      "file": "Saved\\Automation\\P27.28\\P27.28_regression_selftest.log",
+      "bytes": 50334,
+      "sha256": "507E91DE5C42AAE263707B06CFCD250EC66AAA7DACAE7F9A5E04DD7F85B1C5D9",
+      "success": 0,
+      "fail": 0
+    },
+    {
+      "file": "Saved\\Automation\\P27.28\\P27.28_editor_build_final.log",
+      "bytes": 1043,
+      "sha256": "05D12AB89F626C2C0769C5E65185F4CECF22887F006413A8990B3E2F883FAC3B",
+      "success": 0,
+      "fail": 0
+    },
+    {
+      "file": "Saved\\Automation\\P27.28\\P27.28_game_build_final.log",
+      "bytes": 4110,
+      "sha256": "FDAF3E509DE00B7DAB6C405844DFD86A429C9854F7ABB744B93E61F1456AB250",
+      "success": 0,
+      "fail": 0
+    }
+  ],
+  "methodology": {
+    "kind": "read_only_repository_audit",
+    "code_or_asset_changes": false,
+    "test_rerun": false,
+    "code_statistics": "Git-tracked .h/.cpp/.cs inside the six Source module directories; line counts include blanks/comments; tests classified by /(Test|Tests)\\.(cpp|h)$/; top-level Target.cs excluded.",
+    "test_counter_semantics": "success/fail are counts of literal Result={Success}/Result={Fail} records, not test coverage or build status. For build/coverage/selftest logs these counters are not applicable.",
+    "stage_reports_are_historical": true,
+    "artifact_baseline": "All source assertions are against source_commit; proposal/budget sections are not measured implementation results."
+  },
+  "startup_memory_observation": {
+    "log": "Saved/Automation/P27.28/P27.28_shanmen_full.log",
+    "line": 851,
+    "utc": "2026-09-14T03:08:30.367Z",
+    "process_physical_mb": 628.29,
+    "process_virtual_mb": 648.35,
+    "system_physical_used_mb": 22012.75,
+    "system_physical_total_mb": 32502.4,
+    "system_virtual_used_mb": 50906.7,
+    "system_virtual_total_mb": 106230.4,
+    "test_begin_utc": "2026-09-14T03:08:43.986Z",
+    "test_end_utc": "2026-09-14T04:34:09.166Z",
+    "limitations": "Startup sample in NullRHI/NoSound run; no live rendered-game memory, full-run peak, VRAM, frame time, or leak measurement."
+  },
+  "other_log_results": {
+    "regression_coverage": "PASS Changed=6 Rules=7 Required=83 Logs=7",
+    "regression_map_selftest": "PASS 504/504",
+    "editor_final": "Succeeded; NATIVE_EXIT_CODE=0; 1.77s, up to date",
+    "game_final": "Succeeded; NATIVE_EXIT_CODE=0; 45.56s; 34 actions"
+  },
+  "source_anchors": [
+    {
+      "file": "demo_map.uproject",
+      "topic": "Engine 5.8 and six runtime modules"
+    },
+    {
+      "file": "Source/ShanmenCombatCore/Private/ShanmenCombatResolver.cpp",
+      "line": 163,
+      "topic": "Impact request identity validation, conserved result, ordered/tagged defense and vitality"
+    },
+    {
+      "file": "Source/ShanmenItems/Private/ShanmenItemRepository.cpp",
+      "line": 1225,
+      "topic": "Full snapshot copy and sort"
+    },
+    {
+      "file": "Source/ShanmenItems/Private/ShanmenItemRepository.cpp",
+      "line": 1674,
+      "topic": "Processed request history insertion"
+    },
+    {
+      "file": "Source/ShanmenItems/Private/ShanmenItemRepository.cpp",
+      "line": 816,
+      "topic": "Per-intent historical event scans"
+    },
+    {
+      "file": "Source/ShanmenItems/Private/ShanmenItemAuthorityService.cpp",
+      "line": 402,
+      "topic": "Synchronous locked before-document/before/after capture and save"
+    },
+    {
+      "file": "Source/ShanmenItems/Private/ShanmenItemPersistence.cpp",
+      "line": 628,
+      "topic": "Serialization, temp flush/readback/backup/replace"
+    },
+    {
+      "file": "Source/demo_map/demo_mapShanmenItemAuthoritySubsystem.h",
+      "line": 12,
+      "topic": "GameInstance-owned sole item authority lifecycle"
+    },
+    {
+      "file": "Source/demo_map/demo_mapGameMode.cpp",
+      "line": 950,
+      "topic": "Formation scatter product publication root"
+    },
+    {
+      "file": "Source/demo_map/demo_mapGameMode.cpp",
+      "line": 3957,
+      "topic": "Run release and retained recovery state"
+    },
+    {
+      "file": "Source/demo_map/demo_mapShanmenCombatRunFixedTimeline.h",
+      "line": 26,
+      "topic": "Run fixed timeline, not render framerate"
+    },
+    {
+      "file": "Source/ShanmenCombatRuntime/Public/ShanmenFormationMastery.h",
+      "line": 7,
+      "topic": "Formation tier policy and material delivery modes"
+    },
+    {
+      "file": "Source/ShanmenCombatRuntime/Public/ShanmenThrownWeaponArcPlanner.h",
+      "line": 8,
+      "topic": "Thrown technique tier and arc gate"
+    },
+    {
+      "file": "Source/demo_map/demo_mapShanmenFormationMasteryAuthorityAdapter.h",
+      "topic": "Read-only progression authority seam; does not implement progression"
+    },
+    {
+      "file": "Source/demo_map/demo_mapShanmenThrownWeaponArcPreviewPresentationOwnerSurfaceHandoffRecoveryJournal.h",
+      "line": 174,
+      "topic": "16-record bounded journal"
+    },
+    {
+      "file": "Source/demo_map/demo_mapShanmenSwordRhythmEffectCueExecutionProductRetryStepCommandJournalCheckpointEnvelopeManifestCodec.h",
+      "line": 31,
+      "topic": "48-byte manifest, not full recovery payload"
+    },
+    {
+      "file": "Source/demo_map/demo_mapProfileRepository.cpp",
+      "line": 922,
+      "topic": "Supported legacy schema is 1 <= value < current"
+    },
+    {
+      "file": "Scripts/ShanmenRegressionMap.json",
+      "topic": "Changed-path to test-group mapping"
+    }
+  ]
+}
