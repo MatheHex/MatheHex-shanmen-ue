@@ -8,8 +8,11 @@
 #include "demo_mapShanmenFormationScatterWorldPublicationCommandHost.h"
 #include "demo_mapShanmenFormationScatterWorldPublicationRunRoute.h"
 #include "demo_mapShanmenFormationScatterWorldPublicationSession.h"
+#include "demo_mapShanmenFormationRunLifecycle.h"
 
+#include "Components/BoxComponent.h"
 #include "Engine/Engine.h"
+#include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/Actor.h"
@@ -24,6 +27,9 @@
 #include "ShanmenItemRepository.h"
 #include "ShanmenItemTags.h"
 #include "demo_mapPersistentProfileTypes.h"
+#include "demo_mapCombatRunCoordinator.h"
+#include "demo_mapPlayerHealthComponent.h"
+#include "demo_mapShanmenItemAuthoritySubsystem.h"
 #include "UObject/UObjectGlobals.h"
 
 namespace
@@ -820,6 +826,112 @@ namespace
 		}
 		return true;
 	}
+
+	struct FScatterPublicationRunLifecycleFixture
+	{
+		FPreparationFixture Preparation;
+		FScopedScatterPublicationWorld ScopedWorld;
+		Fdemo_mapShanmenFormationScatterWorldPlacementHandoffEvidence Handoff;
+		UGameInstance* GameInstance = nullptr;
+		Udemo_mapShanmenItemAuthoritySubsystem* ItemAuthority = nullptr;
+		APawn* Player = nullptr;
+		Udemo_mapPlayerHealthComponent* PlayerHealth = nullptr;
+		Fdemo_mapCombatRunCoordinator CombatRun;
+		Fdemo_mapShanmenFormationRunLifecycle Lifecycle;
+		FString Diagnostic;
+
+		bool Start(FAutomationTestBase& Test, const TCHAR* Label)
+		{
+			if (!Preparation.Build(Label)
+				|| !BuildWorldHandoffEvidence(Preparation, Handoff)
+				|| !ScopedWorld.Start() || !GEngine)
+			{
+				Test.AddError(TEXT(
+					"Could not build P27.27 committed Handoff and World."));
+				return false;
+			}
+
+			GameInstance = NewObject<UGameInstance>(
+				GEngine, NAME_None, RF_Transient);
+			if (!GameInstance)
+			{
+				return false;
+			}
+			GameInstance->AddToRoot();
+			GameInstance->Init();
+			ScopedWorld.World->SetGameInstance(GameInstance);
+			ItemAuthority = GameInstance->GetSubsystem<
+				Udemo_mapShanmenItemAuthoritySubsystem>();
+
+			FActorSpawnParameters Parameters;
+			Parameters.ObjectFlags |= RF_Transient;
+			Parameters.SpawnCollisionHandlingOverride =
+				ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			Player = ScopedWorld.World->SpawnActor<APawn>(
+				APawn::StaticClass(), FTransform::Identity, Parameters);
+			UBoxComponent* PlayerRoot = Player
+				? NewObject<UBoxComponent>(
+					Player, TEXT("P2727PlayerRoot"), RF_Transient)
+				: nullptr;
+			PlayerHealth = Player
+				? NewObject<Udemo_mapPlayerHealthComponent>(
+					Player, TEXT("P2727PlayerHealth"), RF_Transient)
+				: nullptr;
+			if (!ItemAuthority || !Player || !PlayerRoot || !PlayerHealth)
+			{
+				return false;
+			}
+			Player->SetRootComponent(PlayerRoot);
+			Player->AddInstanceComponent(PlayerRoot);
+			Player->AddInstanceComponent(PlayerHealth);
+
+			const FGuid RunId = Handoff.GetDeploymentEvidence()
+				.GetResourceEvidence().GetPlan().GetActiveRunId();
+			if (!CombatRun.TryBeginRun(
+					RunId, Player, PlayerHealth, Diagnostic)
+				|| !Lifecycle.TryBegin(CombatRun, Diagnostic))
+			{
+				Test.AddError(FString::Printf(
+					TEXT("P27.27 lifecycle binding failed: %s"),
+					*Diagnostic));
+				return false;
+			}
+			return true;
+		}
+
+		FGuid GetRunId() const
+		{
+			return Handoff.GetDeploymentEvidence()
+				.GetResourceEvidence().GetPlan().GetActiveRunId();
+		}
+
+		FName GetDeploymentTag() const
+		{
+			return Fdemo_mapShanmenFormationWorldAdapter::MakeDeploymentTag(
+				Handoff.GetHandoffs()[0].GetPlacementIntent().DeploymentId);
+		}
+
+		void Stop()
+		{
+			if (ScopedWorld.World)
+			{
+				ScopedWorld.World->SetGameInstance(nullptr);
+			}
+			if (GameInstance)
+			{
+				GameInstance->Shutdown();
+				ItemAuthority = nullptr;
+				GameInstance->RemoveFromRoot();
+				GameInstance->MarkAsGarbage();
+				GameInstance = nullptr;
+			}
+		}
+
+		~FScatterPublicationRunLifecycleFixture()
+		{
+			Stop();
+		}
+	};
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -2827,6 +2939,259 @@ bool Fdemo_mapFormationScatterWorldPublicationRunRouteConflictTest::RunTest(
 			&& Route.GetHost().GetRecordCount() == 2
 			&& Route.GetHost().GetSession().GetState()
 				== EWorldPublicationSessionState::Ended);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterPublicationLifecycleSlotTest,
+	"Shanmen.0_0_10.Product.FormationRunLifecycle.ScatterPublication.SoleSlotPublishReplay",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterPublicationLifecycleSlotTest::RunTest(
+	const FString&)
+{
+	FScatterPublicationRunLifecycleFixture Fixture;
+	if (!Fixture.Start(*this, TEXT("ScatterPublicationLifecycleSlot")))
+	{
+		return false;
+	}
+	const FGuid RunId = Fixture.GetRunId();
+	TestFalse(TEXT("Publish is fenced before the sole route is bound"),
+		Fixture.Lifecycle.TryPublishScatterPublication(
+			Fixture.ScopedWorld.World).IsSuccess());
+	TestTrue(TEXT("Committed Handoff opens the sole lifecycle route"),
+		Fixture.Lifecycle.TryOpenScatterPublicationRoute(
+			Fixture.Handoff,
+			ACharacter::StaticClass(),
+			Fixture.Diagnostic));
+	const FGuid RouteId = Fixture.Lifecycle.GetScatterPublicationRoute()
+		? Fixture.Lifecycle.GetScatterPublicationRoute()->GetRouteId()
+		: FGuid();
+	TestTrue(TEXT("Exact open is idempotent without replacing the owner"),
+		Fixture.Lifecycle.TryOpenScatterPublicationRoute(
+			Fixture.Handoff,
+			ACharacter::StaticClass(),
+			Fixture.Diagnostic)
+			&& Fixture.Lifecycle.GetScatterPublicationRoute()
+			&& Fixture.Lifecycle.GetScatterPublicationRoute()->GetRouteId()
+				== RouteId);
+	TestFalse(TEXT("The sole route slot rejects Actor-class drift"),
+		Fixture.Lifecycle.TryOpenScatterPublicationRoute(
+			Fixture.Handoff,
+			APawn::StaticClass(),
+			Fixture.Diagnostic));
+
+	const auto Published = Fixture.Lifecycle.TryPublishScatterPublication(
+		Fixture.ScopedWorld.World);
+	const auto Replayed = Fixture.Lifecycle.TryPublishScatterPublication(
+		nullptr);
+	TestTrue(TEXT("Explicit lifecycle Publish owns one replayable batch"),
+		Published.Status == EWorldPublicationRunRouteStatus::Applied
+			&& Published.IsSuccess()
+			&& Replayed.Status
+				== EWorldPublicationRunRouteStatus::Replayed
+			&& Replayed.IsSuccess()
+			&& Published.RouteId == RouteId
+			&& Published.CommandId == Replayed.CommandId
+			&& Fixture.Lifecycle.IsValid()
+			&& Fixture.Lifecycle.HasScatterPublicationRoute()
+			&& CountPublicationActors(
+				Fixture.ScopedWorld.World,
+				Fixture.GetDeploymentTag()) == 2);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterPublicationLifecycleTeardownFenceTest,
+	"Shanmen.0_0_10.Product.FormationRunLifecycle.ScatterPublication.WorldFailureFencesProductTeardown",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterPublicationLifecycleTeardownFenceTest::RunTest(
+	const FString&)
+{
+	FScatterPublicationRunLifecycleFixture Fixture;
+	FScopedScatterPublicationWorld WrongWorld;
+	if (!Fixture.Start(*this, TEXT("ScatterPublicationLifecycleFence"))
+		|| !WrongWorld.Start()
+		|| !Fixture.Lifecycle.TryOpenScatterPublicationRoute(
+			Fixture.Handoff,
+			ACharacter::StaticClass(),
+			Fixture.Diagnostic)
+		|| !Fixture.Lifecycle.TryPublishScatterPublication(
+			Fixture.ScopedWorld.World).IsSuccess())
+	{
+		AddError(TEXT("Could not publish the P27.27 fence fixture."));
+		return false;
+	}
+
+	const auto Rejected = Fixture.Lifecycle.TryTeardownProduct(
+		*Fixture.ItemAuthority,
+		WrongWorld.World,
+		Fixture.CombatRun);
+	TestTrue(TEXT("Wrong World fails before product teardown starts"),
+		Rejected.Status
+			== Edemo_mapShanmenFormationRunLifecycleEndStatus::
+				ScatterPublicationTeardownRejected
+			&& Rejected.bHadScatterPublicationRoute
+			&& !Rejected.bReusedScatterPublicationTeardown
+			&& !Fixture.Lifecycle.
+				HasScatterPublicationTeardownCheckpoint()
+			&& !Fixture.Lifecycle.HasProductTeardownCheckpoint()
+			&& Fixture.Lifecycle.GetController().IsActive()
+			&& Fixture.CombatRun.IsActive()
+			&& CountPublicationActors(
+				Fixture.ScopedWorld.World,
+				Fixture.GetDeploymentTag()) == 2);
+
+	const auto Retried = Fixture.Lifecycle.TryTeardownProduct(
+		*Fixture.ItemAuthority,
+		Fixture.ScopedWorld.World,
+		Fixture.CombatRun);
+	TestTrue(TEXT("Exact retry checkpoints scatter before product teardown"),
+		Retried.IsProductTeardownComplete()
+			&& Retried.bHadScatterPublicationRoute
+			&& !Retried.bReusedScatterPublicationTeardown
+			&& !Retried.bReusedProductTeardown
+			&& Retried.ScatterPublicationTeardown.Event
+				== EWorldPublicationRunEvent::End
+			&& Fixture.Lifecycle.
+				HasScatterPublicationTeardownCheckpoint()
+			&& Fixture.Lifecycle.HasProductTeardownCheckpoint()
+			&& Fixture.Lifecycle.GetController().IsEmpty()
+			&& Fixture.CombatRun.IsActive()
+			&& CountPublicationActors(
+				Fixture.ScopedWorld.World,
+				Fixture.GetDeploymentTag()) == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterPublicationLifecycleReleaseRecoveryTest,
+	"Shanmen.0_0_10.Product.FormationRunLifecycle.ScatterPublication.CheckpointedCoordinatorRecovery",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterPublicationLifecycleReleaseRecoveryTest::
+RunTest(const FString&)
+{
+	FScatterPublicationRunLifecycleFixture Fixture;
+	if (!Fixture.Start(*this, TEXT("ScatterPublicationLifecycleRecovery"))
+		|| !Fixture.Lifecycle.TryOpenScatterPublicationRoute(
+			Fixture.Handoff,
+			ACharacter::StaticClass(),
+			Fixture.Diagnostic)
+		|| !Fixture.Lifecycle.TryPublishScatterPublication(
+			Fixture.ScopedWorld.World).IsSuccess())
+	{
+		AddError(TEXT("Could not publish the P27.27 recovery fixture."));
+		return false;
+	}
+	const FGuid RunId = Fixture.GetRunId();
+	const FGuid ExpectedPlayerId = Fixture.CombatRun.GetPlayerEntityId();
+	const FGuid WrongPlayerId(0xF8F27001, 0, 0, 1);
+	if (!Fixture.PlayerHealth->TryEndCombatEntityBinding(ExpectedPlayerId)
+		|| !Fixture.PlayerHealth->TryBindCombatEntity(WrongPlayerId))
+	{
+		AddError(TEXT("Could not inject the P27.27 Coordinator rejection."));
+		return false;
+	}
+
+	const auto Rejected = Fixture.Lifecycle.TryEndRun(
+		*Fixture.ItemAuthority,
+		Fixture.ScopedWorld.World,
+		Fixture.CombatRun);
+	const auto* ScatterCheckpoint = Fixture.Lifecycle.
+		GetScatterPublicationTeardownCheckpoint();
+	TestTrue(TEXT("Coordinator rejection retains both ordered checkpoints"),
+		Rejected.Status
+			== Edemo_mapShanmenFormationRunLifecycleEndStatus::
+				CoordinatorEndRejected
+			&& !Rejected.bReusedScatterPublicationTeardown
+			&& !Rejected.bReusedProductTeardown
+			&& ScatterCheckpoint && ScatterCheckpoint->IsSuccess()
+			&& ScatterCheckpoint->CommandId
+				== Rejected.ScatterPublicationTeardown.CommandId
+			&& Fixture.Lifecycle.HasProductTeardownCheckpoint()
+			&& Fixture.Lifecycle.IsActive()
+			&& Fixture.Lifecycle.IsValid()
+			&& Fixture.CombatRun.IsActive());
+	TestFalse(TEXT("Checkpointed teardown fences late publication"),
+		Fixture.Lifecycle.TryPublishScatterPublication(nullptr).IsSuccess());
+
+	if (!Fixture.PlayerHealth->TryEndCombatEntityBinding(WrongPlayerId)
+		|| !Fixture.PlayerHealth->TryBindCombatEntity(ExpectedPlayerId))
+	{
+		AddError(TEXT("Could not repair the P27.27 Coordinator identity."));
+		return false;
+	}
+	const auto Retried = Fixture.Lifecycle.TryEndRun(
+		*Fixture.ItemAuthority,
+		nullptr,
+		Fixture.CombatRun);
+	TestTrue(TEXT("Release retry uses both proofs without World re-entry"),
+		Retried.IsEnded()
+			&& Retried.RunId == RunId
+			&& Retried.bReusedScatterPublicationTeardown
+			&& Retried.bReusedProductTeardown
+			&& Retried.ScatterPublicationTeardown.CommandId
+				== Rejected.ScatterPublicationTeardown.CommandId
+			&& Fixture.Lifecycle.IsEmpty()
+			&& Fixture.Lifecycle.IsValid()
+			&& !Fixture.CombatRun.IsActive());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapFormationScatterPublicationLifecycleTakeoverTest,
+	"Shanmen.0_0_10.Product.FormationRunLifecycle.ScatterPublication.TakeoverMovesSoleOwner",
+	PreparationFlags)
+
+bool Fdemo_mapFormationScatterPublicationLifecycleTakeoverTest::RunTest(
+	const FString&)
+{
+	FScatterPublicationRunLifecycleFixture Fixture;
+	if (!Fixture.Start(*this, TEXT("ScatterPublicationLifecycleTakeover"))
+		|| !Fixture.Lifecycle.TryOpenScatterPublicationRoute(
+			Fixture.Handoff,
+			ACharacter::StaticClass(),
+			Fixture.Diagnostic))
+	{
+		AddError(TEXT("Could not open the P27.27 takeover fixture."));
+		return false;
+	}
+	const auto Published = Fixture.Lifecycle.TryPublishScatterPublication(
+		Fixture.ScopedWorld.World);
+	const FGuid RouteId = Published.RouteId;
+	Fdemo_mapShanmenFormationRunLifecycle Active;
+	if (!Published.IsSuccess()
+		|| !Fdemo_mapShanmenFormationRunLifecycle::TryTakeover(
+			Fixture.Lifecycle, Active))
+	{
+		AddError(TEXT("Could not transfer the P27.27 lifecycle owner."));
+		return false;
+	}
+
+	const auto OldOwnerPublish =
+		Fixture.Lifecycle.TryPublishScatterPublication(nullptr);
+	const auto NewOwnerReplay = Active.TryPublishScatterPublication(nullptr);
+	const auto Ended = Active.TryEndRun(
+		*Fixture.ItemAuthority,
+		Fixture.ScopedWorld.World,
+		Fixture.CombatRun);
+	TestTrue(TEXT("Only the moved lifecycle can replay and close the Run"),
+		Fixture.Lifecycle.IsEmpty()
+			&& Fixture.Lifecycle.IsValid()
+			&& !OldOwnerPublish.IsSuccess()
+			&& NewOwnerReplay.Status
+				== EWorldPublicationRunRouteStatus::Replayed
+			&& NewOwnerReplay.IsSuccess()
+			&& NewOwnerReplay.RouteId == RouteId
+			&& Ended.IsEnded()
+			&& Ended.ScatterPublicationTeardown.RouteId == RouteId
+			&& Active.IsEmpty() && Active.IsValid()
+			&& !Fixture.CombatRun.IsActive()
+			&& CountPublicationActors(
+				Fixture.ScopedWorld.World,
+				Fixture.GetDeploymentTag()) == 0);
 	return true;
 }
 

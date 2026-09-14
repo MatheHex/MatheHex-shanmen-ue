@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "demo_mapShanmenFormationProductController.h"
+#include "demo_mapShanmenFormationScatterWorldPublicationRunRoute.h"
 
 class AActor;
 class Fdemo_mapCombatRunCoordinator;
@@ -17,6 +18,7 @@ enum class Edemo_mapShanmenFormationRunLifecycleEndStatus : uint8
 	LifecycleInvalid,
 	CoordinatorNotActive,
 	RunMismatch,
+	ScatterPublicationTeardownRejected,
 	ProductTeardownRejected,
 	CoordinatorEndRejected
 };
@@ -27,15 +29,29 @@ struct Fdemo_mapShanmenFormationRunLifecycleEndResult
 	Edemo_mapShanmenFormationRunLifecycleEndStatus Status =
 		Edemo_mapShanmenFormationRunLifecycleEndStatus::LifecycleInactive;
 	FGuid RunId;
+	bool bHadScatterPublicationRoute = false;
+	bool bReusedScatterPublicationTeardown = false;
+	Fdemo_mapShanmenFormationScatterWorldPublicationRunRouteResult
+		ScatterPublicationTeardown;
 	bool bReusedProductTeardown = false;
 	Fdemo_mapShanmenFormationControllerEndSummary ProductTeardown;
 	FString Diagnostic;
+
+	bool HasValidScatterPublicationTeardown() const
+	{
+		return !bHadScatterPublicationRoute
+			|| (ScatterPublicationTeardown.IsSuccess()
+				&& ScatterPublicationTeardown.RunId == RunId
+				&& ScatterPublicationTeardown.Event
+					== Edemo_mapShanmenFormationScatterWorldPublicationRunEvent::End);
+	}
 
 	bool IsEnded() const
 	{
 		return Status
 			== Edemo_mapShanmenFormationRunLifecycleEndStatus::Ended
 			&& RunId.IsValid()
+			&& HasValidScatterPublicationTeardown()
 			&& ProductTeardown.IsValid();
 	}
 
@@ -45,25 +61,41 @@ struct Fdemo_mapShanmenFormationRunLifecycleEndResult
 			== Edemo_mapShanmenFormationRunLifecycleEndStatus::
 				ProductTeardownComplete
 			&& RunId.IsValid()
+			&& HasValidScatterPublicationTeardown()
 			&& ProductTeardown.IsValid();
 	}
 };
 
 /**
- * Sole composition owner for one formation controller and its Combat Run end.
+ * Sole composition owner for one formation controller, optional scatter
+ * publication route and its Combat Run end.
  *
- * Product teardown always completes before shared combat identities are
- * released. Because cancellation can mutate durable material authority and
- * remove World actors, successful product teardown is checkpointed. If the
- * Coordinator rejects its release, an exact retry reuses that checkpoint and
- * never cancels the product twice.
+ * Scatter publication ends before formation product teardown, which completes
+ * before shared combat identities are released. Because either teardown can
+ * remove World actors or mutate durable material authority, each successful
+ * step is checkpointed independently. Exact retries reuse those checkpoints
+ * and never re-enter World or cancel the product twice.
  */
 class Fdemo_mapShanmenFormationRunLifecycle
 {
 public:
+	/** Move the complete live lifecycle; the previous owner becomes empty. */
+	static bool TryTakeover(
+		Fdemo_mapShanmenFormationRunLifecycle& Previous,
+		Fdemo_mapShanmenFormationRunLifecycle& OutLifecycle);
+
 	bool TryBegin(
 		Fdemo_mapCombatRunCoordinator& Coordinator,
 		FString& OutDiagnostic);
+	/** Opens or exactly replays the sole scatter-publication route slot. */
+	bool TryOpenScatterPublicationRoute(
+		const Fdemo_mapShanmenFormationScatterWorldPlacementHandoffEvidence&
+			HandoffEvidence,
+		TSubclassOf<AActor> ActorClass,
+		FString& OutDiagnostic);
+	/** Routes the explicit product Publish event through the sole route slot. */
+	Fdemo_mapShanmenFormationScatterWorldPublicationRunRouteResult
+	TryPublishScatterPublication(UWorld* World);
 
 	Fdemo_mapShanmenFormationControllerResult TrySubmit(
 		const Udemo_mapShanmenItemAuthoritySubsystem& Authority,
@@ -106,6 +138,14 @@ public:
 	{
 		return ProductTeardownCheckpoint.IsSet();
 	}
+	bool HasScatterPublicationRoute() const
+	{
+		return ScatterPublicationRoute.IsSet();
+	}
+	bool HasScatterPublicationTeardownCheckpoint() const
+	{
+		return ScatterPublicationTeardownCheckpoint.IsSet();
+	}
 	const FGuid& GetRunId() const { return RunId; }
 	const Fdemo_mapShanmenFormationProductController& GetController() const
 	{
@@ -118,12 +158,31 @@ public:
 			? &ProductTeardownCheckpoint.GetValue()
 			: nullptr;
 	}
+	const Fdemo_mapShanmenFormationScatterWorldPublicationRunRoute*
+	GetScatterPublicationRoute() const
+	{
+		return ScatterPublicationRoute.IsSet()
+			? &ScatterPublicationRoute.GetValue()
+			: nullptr;
+	}
+	const Fdemo_mapShanmenFormationScatterWorldPublicationRunRouteResult*
+	GetScatterPublicationTeardownCheckpoint() const
+	{
+		return ScatterPublicationTeardownCheckpoint.IsSet()
+			? &ScatterPublicationTeardownCheckpoint.GetValue()
+			: nullptr;
+	}
 
 private:
 	void Clear();
 
 	FGuid RunId;
 	Fdemo_mapShanmenFormationProductController Controller;
+	TOptional<Fdemo_mapShanmenFormationScatterWorldPublicationRunRoute>
+		ScatterPublicationRoute;
+	TOptional<
+		Fdemo_mapShanmenFormationScatterWorldPublicationRunRouteResult>
+		ScatterPublicationTeardownCheckpoint;
 	TOptional<Fdemo_mapShanmenFormationControllerEndSummary>
 		ProductTeardownCheckpoint;
 };

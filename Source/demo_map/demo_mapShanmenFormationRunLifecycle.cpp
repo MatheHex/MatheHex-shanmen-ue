@@ -5,6 +5,11 @@
 
 namespace
 {
+	using EScatterRunEvent =
+		Edemo_mapShanmenFormationScatterWorldPublicationRunEvent;
+	using EScatterRouteStatus =
+		Edemo_mapShanmenFormationScatterWorldPublicationRunRouteStatus;
+
 	Fdemo_mapShanmenFormationControllerResult RejectSubmission(
 		const Edemo_mapShanmenFormationControllerStatus Status,
 		const FGuid& RunId,
@@ -30,6 +35,77 @@ namespace
 		Result.Diagnostic = MoveTemp(Diagnostic);
 		return Result;
 	}
+
+	Fdemo_mapShanmenFormationScatterWorldPublicationRunRouteResult
+	RejectScatterPublication(
+		const EScatterRouteStatus Status,
+		const FGuid& RunId,
+		const Fdemo_mapShanmenFormationScatterWorldPublicationRunRoute*
+			Route,
+		FString Diagnostic)
+	{
+		Fdemo_mapShanmenFormationScatterWorldPublicationRunRouteResult Result;
+		Result.Status = Status;
+		Result.RunId = RunId;
+		Result.RouteId = Route ? Route->GetRouteId() : FGuid();
+		Result.Event = EScatterRunEvent::Publish;
+		Result.Diagnostic = MoveTemp(Diagnostic);
+		return Result;
+	}
+}
+
+bool Fdemo_mapShanmenFormationRunLifecycle::TryTakeover(
+	Fdemo_mapShanmenFormationRunLifecycle& Previous,
+	Fdemo_mapShanmenFormationRunLifecycle& OutLifecycle)
+{
+	if (&Previous == &OutLifecycle || !Previous.IsValid()
+		|| !Previous.IsActive() || !OutLifecycle.IsEmpty())
+	{
+		return false;
+	}
+
+	Fdemo_mapShanmenFormationRunLifecycle Candidate;
+	if (Previous.ScatterPublicationRoute.IsSet())
+	{
+		Candidate.ScatterPublicationRoute.Emplace();
+		if (!Fdemo_mapShanmenFormationScatterWorldPublicationRunRoute::
+			TryTakeover(
+				Previous.ScatterPublicationRoute.GetValue(),
+				Candidate.ScatterPublicationRoute.GetValue()))
+		{
+			return false;
+		}
+		Previous.ScatterPublicationRoute.Reset();
+	}
+
+	Candidate.RunId = Previous.RunId;
+	Candidate.Controller = MoveTemp(Previous.Controller);
+	Candidate.ScatterPublicationTeardownCheckpoint =
+		MoveTemp(Previous.ScatterPublicationTeardownCheckpoint);
+	Candidate.ProductTeardownCheckpoint =
+		MoveTemp(Previous.ProductTeardownCheckpoint);
+	if (!Candidate.IsValid())
+	{
+		Previous.RunId = Candidate.RunId;
+		Previous.Controller = MoveTemp(Candidate.Controller);
+		Previous.ScatterPublicationTeardownCheckpoint =
+			MoveTemp(Candidate.ScatterPublicationTeardownCheckpoint);
+		Previous.ProductTeardownCheckpoint =
+			MoveTemp(Candidate.ProductTeardownCheckpoint);
+		if (Candidate.ScatterPublicationRoute.IsSet())
+		{
+			Previous.ScatterPublicationRoute.Emplace();
+			Fdemo_mapShanmenFormationScatterWorldPublicationRunRoute::
+				TryTakeover(
+					Candidate.ScatterPublicationRoute.GetValue(),
+					Previous.ScatterPublicationRoute.GetValue());
+		}
+		return false;
+	}
+
+	Previous.Clear();
+	OutLifecycle = MoveTemp(Candidate);
+	return Previous.IsEmpty() && OutLifecycle.IsValid();
 }
 
 bool Fdemo_mapShanmenFormationRunLifecycle::TryBegin(
@@ -44,6 +120,8 @@ bool Fdemo_mapShanmenFormationRunLifecycle::TryBegin(
 		{
 			OutDiagnostic = ProductTeardownCheckpoint.IsSet()
 				? TEXT("Formation lifecycle is waiting to retry the exact Combat Run release.")
+				: ScatterPublicationTeardownCheckpoint.IsSet()
+					? TEXT("Formation lifecycle is waiting to retry product teardown after scatter publication ended.")
 				: TEXT("Formation lifecycle is already bound to this exact Combat Run.");
 			return true;
 		}
@@ -74,6 +152,115 @@ bool Fdemo_mapShanmenFormationRunLifecycle::TryBegin(
 	return true;
 }
 
+bool Fdemo_mapShanmenFormationRunLifecycle::
+TryOpenScatterPublicationRoute(
+	const Fdemo_mapShanmenFormationScatterWorldPlacementHandoffEvidence&
+		HandoffEvidence,
+	const TSubclassOf<AActor> ActorClass,
+	FString& OutDiagnostic)
+{
+	OutDiagnostic.Reset();
+	if (!IsActive())
+	{
+		OutDiagnostic =
+			TEXT("Scatter publication route requires one active formation lifecycle.");
+		return false;
+	}
+	if (!IsValid())
+	{
+		OutDiagnostic =
+			TEXT("Formation lifecycle invariants are invalid before route binding.");
+		return false;
+	}
+	if (ScatterPublicationTeardownCheckpoint.IsSet()
+		|| ProductTeardownCheckpoint.IsSet())
+	{
+		OutDiagnostic =
+			TEXT("A teardown checkpoint forbids opening or replacing publication routes.");
+		return false;
+	}
+
+	Fdemo_mapShanmenFormationScatterWorldPublicationRunRoute Candidate;
+	if (!Fdemo_mapShanmenFormationScatterWorldPublicationRunRoute::TryOpen(
+			RunId, HandoffEvidence, ActorClass, Candidate))
+	{
+		OutDiagnostic =
+			TEXT("Scatter publication route rejected the committed Handoff or Actor class.");
+		return false;
+	}
+	if (ScatterPublicationRoute.IsSet())
+	{
+		if (ScatterPublicationRoute->IsValid()
+			&& ScatterPublicationRoute->GetRunId() == RunId
+			&& ScatterPublicationRoute->GetRouteId()
+				== Candidate.GetRouteId())
+		{
+			OutDiagnostic =
+				TEXT("The exact scatter publication route is already bound.");
+			return true;
+		}
+		OutDiagnostic =
+			TEXT("The sole scatter publication route slot cannot be rebound.");
+		return false;
+	}
+
+	ScatterPublicationRoute = MoveTemp(Candidate);
+	if (!IsValid())
+	{
+		ScatterPublicationRoute.Reset();
+		OutDiagnostic =
+			TEXT("Formation lifecycle failed closed after publication route binding.");
+		return false;
+	}
+	OutDiagnostic =
+		TEXT("Formation lifecycle bound its sole scatter publication route.");
+	return true;
+}
+
+Fdemo_mapShanmenFormationScatterWorldPublicationRunRouteResult
+Fdemo_mapShanmenFormationRunLifecycle::TryPublishScatterPublication(
+	UWorld* World)
+{
+	const auto* Route = ScatterPublicationRoute.IsSet()
+		? &ScatterPublicationRoute.GetValue()
+		: nullptr;
+	if (!IsActive())
+	{
+		return RejectScatterPublication(
+			EScatterRouteStatus::RouteInvalid, RunId, Route,
+			TEXT("Scatter publication requires one active formation lifecycle."));
+	}
+	if (!IsValid())
+	{
+		return RejectScatterPublication(
+			EScatterRouteStatus::StateInvalid, RunId, Route,
+			TEXT("Formation lifecycle invariants are invalid before publication."));
+	}
+	if (ScatterPublicationTeardownCheckpoint.IsSet()
+		|| ProductTeardownCheckpoint.IsSet())
+	{
+		return RejectScatterPublication(
+			EScatterRouteStatus::RouteInvalid, RunId, Route,
+			TEXT("Scatter publication is closed after teardown begins."));
+	}
+	if (!Route)
+	{
+		return RejectScatterPublication(
+			EScatterRouteStatus::RouteInvalid, RunId, nullptr,
+			TEXT("Scatter publication requires the sole route slot."));
+	}
+
+	Fdemo_mapShanmenFormationScatterWorldPublicationRunRouteResult Result =
+		ScatterPublicationRoute->TryPublish(RunId, World);
+	if (!Result.IsValid() || !IsValid())
+	{
+		Result.Status = EScatterRouteStatus::StateInvalid;
+		Result.Diagnostic =
+			TEXT("Formation lifecycle detected inconsistent publication evidence.");
+	}
+	return Result;
+}
+
 Fdemo_mapShanmenFormationControllerResult
 Fdemo_mapShanmenFormationRunLifecycle::TrySubmit(
 	const Udemo_mapShanmenItemAuthoritySubsystem& Authority,
@@ -97,13 +284,14 @@ Fdemo_mapShanmenFormationRunLifecycle::TrySubmit(
 			Intent,
 			TEXT("Formation Run lifecycle invariants are invalid."));
 	}
-	if (ProductTeardownCheckpoint.IsSet())
+	if (ScatterPublicationTeardownCheckpoint.IsSet()
+		|| ProductTeardownCheckpoint.IsSet())
 	{
 		return RejectSubmission(
 			Edemo_mapShanmenFormationControllerStatus::ControllerInactive,
 			RunId,
 			Intent,
-			TEXT("Formation product teardown is complete; only exact Combat Run release may retry."));
+			TEXT("Formation teardown has begun; only the exact remaining teardown and Combat Run release may retry."));
 	}
 	if (!Coordinator.IsReady() || Coordinator.GetRunId() != RunId)
 	{
@@ -149,12 +337,13 @@ Fdemo_mapShanmenFormationRunLifecycle::TryExecuteAnchorOperation(
 			Operation,
 			TEXT("Formation Run lifecycle invariants are invalid."));
 	}
-	if (ProductTeardownCheckpoint.IsSet())
+	if (ScatterPublicationTeardownCheckpoint.IsSet()
+		|| ProductTeardownCheckpoint.IsSet())
 	{
 		return RejectAnchorOperation(
 			Edemo_mapShanmenFormationAnchorOperationStatus::TeardownPending,
 			Operation,
-			TEXT("Product teardown is complete; only exact Combat Run release may retry."));
+			TEXT("Formation teardown has begun; only the exact remaining teardown and Combat Run release may retry."));
 	}
 	if (!Operation.IsValid())
 	{
@@ -230,6 +419,38 @@ Fdemo_mapShanmenFormationRunLifecycle::TryTeardownProduct(
 		return Result;
 	}
 
+	Result.bHadScatterPublicationRoute =
+		ScatterPublicationRoute.IsSet();
+	Result.bReusedScatterPublicationTeardown =
+		ScatterPublicationTeardownCheckpoint.IsSet();
+	if (ScatterPublicationRoute.IsSet()
+		&& !ScatterPublicationTeardownCheckpoint.IsSet())
+	{
+		Fdemo_mapShanmenFormationScatterWorldPublicationRunRouteResult
+			ScatterTeardown =
+				ScatterPublicationRoute->TryEnd(RunId, World);
+		if (!ScatterTeardown.IsSuccess())
+		{
+			Result.Status =
+				Edemo_mapShanmenFormationRunLifecycleEndStatus::
+					ScatterPublicationTeardownRejected;
+			Result.ScatterPublicationTeardown =
+				MoveTemp(ScatterTeardown);
+			Result.Diagnostic =
+				Result.ScatterPublicationTeardown.Diagnostic.IsEmpty()
+					? TEXT("Scatter publication route rejected teardown.")
+					: Result.ScatterPublicationTeardown.Diagnostic;
+			return Result;
+		}
+		ScatterPublicationTeardownCheckpoint =
+			MoveTemp(ScatterTeardown);
+	}
+	if (ScatterPublicationTeardownCheckpoint.IsSet())
+	{
+		Result.ScatterPublicationTeardown =
+			ScatterPublicationTeardownCheckpoint.GetValue();
+	}
+
 	Result.bReusedProductTeardown = ProductTeardownCheckpoint.IsSet();
 	if (!ProductTeardownCheckpoint.IsSet())
 	{
@@ -271,8 +492,12 @@ Fdemo_mapShanmenFormationRunLifecycle::TryTeardownProduct(
 		Edemo_mapShanmenFormationRunLifecycleEndStatus::
 			ProductTeardownComplete;
 	Result.Diagnostic = Result.bReusedProductTeardown
-		? TEXT("Formation product teardown reused its durable checkpoint; shared Combat Run release remains external.")
-		: TEXT("Formation product teardown completed before shared Combat Run release.");
+		? Result.bHadScatterPublicationRoute
+			? TEXT("Formation teardown reused durable publication and product checkpoints; shared Combat Run release remains external.")
+			: TEXT("Formation teardown reused its durable product checkpoint; shared Combat Run release remains external.")
+		: Result.bHadScatterPublicationRoute
+			? TEXT("Scatter publication and formation product teardown completed before shared Combat Run release.")
+			: TEXT("Formation product teardown completed before shared Combat Run release.");
 	return Result;
 }
 
@@ -289,7 +514,9 @@ TryAcknowledgeCoordinatorEnded(
 			TEXT("Formation Run release acknowledgement requires one active lifecycle.");
 		return false;
 	}
-	if (!IsValid() || !ProductTeardownCheckpoint.IsSet())
+	if (!IsValid() || !ProductTeardownCheckpoint.IsSet()
+		|| (ScatterPublicationRoute.IsSet()
+			&& !ScatterPublicationTeardownCheckpoint.IsSet()))
 	{
 		OutDiagnostic =
 			TEXT("Formation Run release acknowledgement requires one valid product teardown checkpoint.");
@@ -353,8 +580,11 @@ Fdemo_mapShanmenFormationRunLifecycle::TryEndRun(
 
 	Result.Status = Edemo_mapShanmenFormationRunLifecycleEndStatus::Ended;
 	Result.Diagnostic = Result.bReusedProductTeardown
-		? TEXT("Combat Run release reused the durable formation teardown checkpoint.")
-		: TEXT("Formation product ended before shared Combat Run identities were released.");
+		|| Result.bReusedScatterPublicationTeardown
+		? TEXT("Combat Run release reused durable formation teardown checkpoints.")
+		: Result.bHadScatterPublicationRoute
+			? TEXT("Scatter publication and formation product ended before shared Combat Run identities were released.")
+			: TEXT("Formation product ended before shared Combat Run identities were released.");
 	return Result;
 }
 
@@ -364,9 +594,25 @@ bool Fdemo_mapShanmenFormationRunLifecycle::IsValid() const
 	{
 		return Controller.IsValid()
 			&& Controller.IsEmpty()
+			&& !ScatterPublicationRoute.IsSet()
+			&& !ScatterPublicationTeardownCheckpoint.IsSet()
 			&& !ProductTeardownCheckpoint.IsSet();
 	}
-	if (!Controller.IsValid())
+	if (!Controller.IsValid()
+		|| (ScatterPublicationRoute.IsSet()
+			&& (!ScatterPublicationRoute->IsValid()
+				|| ScatterPublicationRoute->GetRunId() != RunId))
+		|| (ScatterPublicationTeardownCheckpoint.IsSet()
+			&& (!ScatterPublicationRoute.IsSet()
+				|| !ScatterPublicationTeardownCheckpoint->IsSuccess()
+				|| ScatterPublicationTeardownCheckpoint->RunId != RunId
+				|| ScatterPublicationTeardownCheckpoint->RouteId
+					!= ScatterPublicationRoute->GetRouteId()
+				|| ScatterPublicationTeardownCheckpoint->Event
+					!= EScatterRunEvent::End))
+		|| (ProductTeardownCheckpoint.IsSet()
+			&& ScatterPublicationRoute.IsSet()
+			&& !ScatterPublicationTeardownCheckpoint.IsSet()))
 	{
 		return false;
 	}
@@ -384,6 +630,8 @@ bool Fdemo_mapShanmenFormationRunLifecycle::IsEmpty() const
 {
 	return !RunId.IsValid()
 		&& Controller.IsEmpty()
+		&& !ScatterPublicationRoute.IsSet()
+		&& !ScatterPublicationTeardownCheckpoint.IsSet()
 		&& !ProductTeardownCheckpoint.IsSet();
 }
 
@@ -391,5 +639,7 @@ void Fdemo_mapShanmenFormationRunLifecycle::Clear()
 {
 	RunId.Invalidate();
 	Controller = Fdemo_mapShanmenFormationProductController();
+	ScatterPublicationRoute.Reset();
+	ScatterPublicationTeardownCheckpoint.Reset();
 	ProductTeardownCheckpoint.Reset();
 }
