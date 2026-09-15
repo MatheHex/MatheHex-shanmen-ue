@@ -143,3 +143,35 @@ P27.28 早期 Reset 的历史措辞也应以实际差异为准：不要推导成
 - 本次将 Report 中“P27.29 尚未完成”的当前状态措辞更正为“局部修复完成，整体未冻结”，并添加已提交基线与未提交工作分界。其余系统矩阵、源码规模、内存估算和测量建议保留原始口径。
 - 本次交接仅此 Log 与总体 Report；未开发 UI、实际游戏性、资产或产品代码，未启动新的 UE 构建、测试或实际产品。
 - 文档检查通过：39 个本地相对链接目标存在，文档差异卫生检查通过；5 个既有修改文件的原字节 SHA-256 均保持一致，未跟踪文件仍为 103，检查期间实现 HEAD 未变化。提交精确限定这两份文档。
+
+## 11. P27.30 总体报告更新审计（2026-09-15 UTC）
+
+### 范围
+
+- 本次请求是面向后续 UI 与实际 UE 开发的总体报告，不是继续新增玩法或执行最终框架冻结。
+- 入场 HEAD：`225762c1c4cc23e17df0bddd6c03e8101119bec9`；分支不变，tracked 与 index 均干净，既有未跟踪文件 103 个。
+- P27.28 至当前 HEAD 的源码差异仅涉及 GameMode、御器 World 生命周期及相关测试。复核 CombatCore/Items 依赖、物品全量快照/锁内保存/读回、30Hz Run 时间线与阵法分级；没有把历史未修项机械沿用为最新故障。
+- 更新当前状态、生命周期矩阵、待办和来源链接；补充 UI 字段表与工作依赖顺序。原工程规模、原证据 JSON、第 7/8 节历史样本不伪装成新采样。
+
+### 原始证据复核
+
+重新计算以下原文件 SHA-256，与 P27.30 Report 对照；逐项读取 Result 和实际队列结束计数，而非只搜索启动参数中的 Queue Empty 字样：
+
+| 原日志组 | Success / Fail | 原字节 SHA-256 |
+|---|---|---|
+| FullRoot | 1418 / 0 | `F402AF7DE96A5AFE92464D571E1426DBBD22C46E06FE667658E2E3E69F9C724C` |
+| WorldRetirementFocused | 3 / 0 | `EAC0FE6A414E04E5F21521037BD431146CEE9A7EE4FD4FEF5F107E0181C5C926` |
+| LegacyAttributes | 4 / 0 | `26DE3E38906FC2F508637B3055D28DF321B7E8AB179068FC05A8FBB7D794C028` |
+| LegacyEnemySkill | 44 / 0 | `BE0949DC222E1164EFEE37F1A351EC26AE0787308533CC15B2A4F5A23C018480` |
+| LegacyV2Ranged | 22 / 0 | `46404EBF6FE6A14E96B19882D54D994D9498621DA2BFE19A48C763120F0120D7` |
+| LegacyItemArmor | 46 / 0 | `5E1196988919FB6E7BC75F9D750FB4B25C2A4A8AF52023F4A4868A0BF75BECE4` |
+| LegacyHotbar | 7 / 0 | `DD34A53BBE298F8B4254CF866A79E7241F37DDAFE1D3BB6D774EFB8EC82FE858` |
+| RedProof（保留失败，不计通过） | 0 / 2 | `7B5C24326F6794F00028E4144890EA9C10A48122AF2549FC1119B88010B7F175` |
+
+各路径完整列于 [P27.30 Development Log 第 5 节](Dev.D.UE.0.0.10.P27.30.r0_log.md#5-原始日志索引)，Saved 原文件留在本地，未复制原日志目录到 GitHub。
+
+- Editor/Game run-state 均为 SUCCEEDED、exit_code=0；stdout SHA 分别为 `5BC9382A911FC01ED745222F3A0173BD65CC28C7AB35A832E5E56A8B43B010B5` 与 `FAC9FD874ADD58ECACFBB8F7B2C5F924397AFBB13B50A328A161089CBA749C58`。
+- 已有映射日志：`PASS Changed=7 Rules=3 Required=88 Logs=6`；已有映射自检 `PASS 504/504`。不是本次文档修改需要再跑的产品验证。
+- 本轮没有重新启动 UE、运行构建/测试、采样 RAM/VRAM 或修改自动化。没有宣布完整旧根、实际输入、正式地图、UI 或性能已验收。
+- 交接只包含总体 Report 与本 Log；不包含源码、资产、历史私有材料或未跟踪用户文件。
+- 文档核验：41 个本地链接目标存在；原证据 JSON 可解析；差异卫生检查通过；修改路径恰为这两份文档，既有未跟踪文件仍为 103。发布前远端与本地实现基线均为 `225762c1c4cc23e17df0bddd6c03e8101119bec9`。
