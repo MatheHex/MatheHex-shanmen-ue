@@ -129,3 +129,17 @@ P27.28 早期 Reset 的历史措辞也应以实际差异为准：不要推导成
 - 证据 JSON 的当前本地 LF 字节 SHA-256：`449299B5BADEBB6AF79B9FC888227AC0DCB4E25173EDA3055DB6F83602022A2F`。
 - 上述文档哈希采用 LF；其他工作区若检出 CRLF，应先按 LF 规范化后比较。原始自动化日志哈希按其文件原始字节，不做换行变换。
 - 实现代码的测试/构建结果仍只使用第 6 节的历史证据，不把文档检查表述为新一轮 UE 验收。
+
+## 10. 最新状态增补审计（2026-09-15 UTC）
+
+本节是后续只读复核记录，不改写前九节的历史基线与当时文档哈希。由于 Report 新增最新状态说明，第 9 节的 Report 哈希只适用于原始报告版本；原证据 JSON 未改动。
+
+- 入场实现 HEAD 与远端分支均为 `58e696483119137cd4ed3b267b615af812cc7f39`，最新完成阶段 P27.29。工作区另有 5 个未提交实现/映射文件，103 个既有未跟踪文件；本次不纳入交接、不修改。
+- 完整读取既有总体报告/证据、P27.29 Report/Log；复核六个模块 Build.cs，以及物品 Snapshot、RecordProcessed、ExecuteCommandLocked 和 CommitDocument 关键代码。
+- 重新计算原证据 JSON 所列 12 份 P27.28 日志 SHA-256，全部匹配。旧启动采样 628.29 MB 仍只是 NullRHI 无头进程启动时的 Physical Memory，不是游戏运行峰值或显存。
+- 重新读取 P27.29 全根原日志：1,416 Success、0 Fail，`Automation Test Queue Empty 1416 tests performed`；SHA-256 为 `87CB5E8499AFF448ACB38C296AFC54341A200311B21BC8623845A0CAE486B9F5`，同目录 run-state 原生退出 0。
+- 独立读取 P27.29 四个旧组：Attributes 4、EnemySkillFramework 44、V2RangedCompatibility 22、ItemUseAndArmor 46，全部 Fail=0；四份 SHA-256 均与 P27.29 文档一致。
+- P27.29 最终 Editor/Game run-state 均为 SUCCEEDED、原生退出 0。所有路径沿用 P27.29 Development Log 第 5/6 节，不声称本轮重跑这些任务。
+- 本次将 Report 中“P27.29 尚未完成”的当前状态措辞更正为“局部修复完成，整体未冻结”，并添加已提交基线与未提交工作分界。其余系统矩阵、源码规模、内存估算和测量建议保留原始口径。
+- 本次交接仅此 Log 与总体 Report；未开发 UI、实际游戏性、资产或产品代码，未启动新的 UE 构建、测试或实际产品。
+- 文档检查通过：39 个本地相对链接目标存在，文档差异卫生检查通过；5 个既有修改文件的原字节 SHA-256 均保持一致，未跟踪文件仍为 103，检查期间实现 HEAD 未变化。提交精确限定这两份文档。
