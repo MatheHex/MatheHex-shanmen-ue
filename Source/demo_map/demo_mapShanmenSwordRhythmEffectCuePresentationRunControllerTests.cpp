@@ -5,6 +5,7 @@
 #include "Components/BoxComponent.h"
 #include "GameFramework/Pawn.h"
 #include "demo_mapCombatRunCoordinator.h"
+#include "demo_mapGameMode.h"
 #include "demo_mapPlayerHealthComponent.h"
 #include "demo_mapShanmenSwordRhythmEffectCuePresentationRunController.h"
 
@@ -394,6 +395,132 @@ bool Fdemo_mapSwordRhythmCuePresentationRunTeardownTest::RunTest(
 		Controller.TryBegin(ForeignRun, Diagnostic)
 			&& Controller.GetRunId() == ForeignRun
 			&& Controller.GetLastCapturedRevision() == 0);
+	return true;
+}
+
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapSwordRhythmGameModeReleaseRecoveryTest,
+	"Shanmen.0_0_10.Product.SwordRhythmEffectCuePresentationRunController.GameModeReleaseRecovery",
+	SwordRhythmCuePresentationRunFlags)
+
+bool Fdemo_mapSwordRhythmGameModeReleaseRecoveryTest::RunTest(
+	const FString&)
+{
+	// Both cases start with real, nonzero rhythm observations, two pending
+	// channels and a queued revision. Empty defaults cannot prove preservation.
+	for (const bool bForeignPresentation : { true, false })
+	{
+		FSwordRhythmCuePresentationRunFixture Current(
+			ControllerRun, ControllerWeapon);
+		FSwordRhythmCuePresentationRunFixture Foreign(
+			ForeignRun, ForeignWeapon);
+		FController CurrentPresentation;
+		FController ForeignPresentation;
+		FString Diagnostic;
+		int32 CurrentFirst = 0;
+		int32 CurrentLast = 0;
+		int32 ForeignFirst = 0;
+		int32 ForeignLast = 0;
+		if (!TestTrue(TEXT("two identity-distinct nonempty histories are ready"),
+			Current.bReady && Foreign.bReady
+				&& CurrentPresentation.TryBegin(ControllerRun, Diagnostic)
+				&& ForeignPresentation.TryBegin(ForeignRun, Diagnostic)
+				&& Current.TryReachFirstCue(CurrentPresentation, CurrentFirst)
+				&& Current.TryQueueNextRevision(CurrentPresentation, CurrentLast)
+				&& Foreign.TryReachFirstCue(ForeignPresentation, ForeignFirst)
+				&& Foreign.TryQueueNextRevision(ForeignPresentation, ForeignLast)
+				&& CurrentLast > CurrentFirst && CurrentFirst > 0
+				&& ForeignLast > ForeignFirst && ForeignFirst > 0))
+		{
+			return false;
+		}
+
+		Ademo_mapGameMode* GameMode =
+			NewObject<Ademo_mapGameMode>(GetTransientPackage());
+		if (!TestNotNull(TEXT("transient GameMode composition exists"), GameMode))
+		{
+			return false;
+		}
+		// No World/input/asset startup is needed to prove this composition fence.
+		GameMode->CombatRunCoordinator = MoveTemp(Current.Coordinator);
+		GameMode->CombatRunFixedTimeline = MoveTemp(Current.Timeline);
+		GameMode->SwordRhythmProductSession =
+			bForeignPresentation ? Current.Session : Foreign.Session;
+		GameMode->SwordRhythmPresentationRunController =
+			bForeignPresentation ? ForeignPresentation : CurrentPresentation;
+		const FGuid ExpectedSessionRun =
+			bForeignPresentation ? ControllerRun : ForeignRun;
+		const int32 ExpectedObservations =
+			GameMode->SwordRhythmProductSession.NumRecordedObservations();
+		const auto ExpectedReceipt =
+			GameMode->SwordRhythmProductSession.GetLastReceipt();
+		const int32 ExpectedCaptured =
+			GameMode->SwordRhythmPresentationRunController.GetLastCapturedRevision();
+		const int32 ExpectedQueued =
+			GameMode->SwordRhythmPresentationRunController.GetQueuedDispatchCount();
+		Fdemo_mapShanmenSwordRhythmEffectCuePresentationHandoff ExpectedVisual;
+		Fdemo_mapShanmenSwordRhythmEffectCuePresentationHandoff ExpectedAudio;
+		if (!TestTrue(TEXT("the tested state has exact pending channel identities"),
+			ExpectedObservations > 0 && ExpectedQueued > 0
+				&& GameMode->SwordRhythmPresentationRunController
+					.TryGetPendingVisualHandoff(ExpectedVisual)
+				&& GameMode->SwordRhythmPresentationRunController
+					.TryGetPendingAudioHandoff(ExpectedAudio)))
+		{
+			return false;
+		}
+
+		AddExpectedError(
+			bForeignPresentation
+				? TEXT("Event=SwordRhythmPresentationReleaseRejected")
+				: TEXT("Event=SwordRhythmRunMismatchOnRelease"),
+			EAutomationExpectedErrorFlags::Contains, 2);
+		for (int32 Attempt = 0; Attempt < 2; ++Attempt)
+		{
+			TestFalse(TEXT("a cross-Run owner rejects every release attempt"),
+				GameMode->ReleaseCombatProductRun(TEXT("P27.29.IdentityFence")));
+			Fdemo_mapShanmenSwordRhythmEffectCuePresentationHandoff Visual;
+			Fdemo_mapShanmenSwordRhythmEffectCuePresentationHandoff Audio;
+			TestTrue(TEXT("rejection retains the exact nonzero product receipt"),
+				GameMode->SwordRhythmProductSession.IsValid()
+					&& GameMode->SwordRhythmProductSession.GetRunId()
+						== ExpectedSessionRun
+					&& GameMode->SwordRhythmProductSession.NumRecordedObservations()
+						== ExpectedObservations
+					&& GameMode->SwordRhythmProductSession.GetLastReceipt()
+						.GetReceiptId() == ExpectedReceipt.GetReceiptId());
+			TestTrue(TEXT("rejection retains queued and pending presentation identities"),
+				GameMode->SwordRhythmPresentationRunController.IsValid()
+					&& GameMode->SwordRhythmPresentationRunController
+						.GetLastCapturedRevision() == ExpectedCaptured
+					&& GameMode->SwordRhythmPresentationRunController
+						.GetQueuedDispatchCount() == ExpectedQueued
+					&& GameMode->SwordRhythmPresentationRunController
+						.TryGetPendingVisualHandoff(Visual)
+					&& GameMode->SwordRhythmPresentationRunController
+						.TryGetPendingAudioHandoff(Audio)
+					&& Visual.GetHandoffId() == ExpectedVisual.GetHandoffId()
+					&& Audio.GetHandoffId() == ExpectedAudio.GetHandoffId());
+			TestTrue(TEXT("rejection does not release the shared Run and timeline"),
+				GameMode->CombatRunCoordinator.IsActive()
+					&& GameMode->CombatRunCoordinator.GetRunId() == ControllerRun
+					&& GameMode->CombatRunFixedTimeline.IsActiveForRun(ControllerRun));
+		}
+
+		// Restore the known exact owner, not a newly generated Run or empty
+		// substitute. The same GameMode must then finish its normal release path.
+		GameMode->SwordRhythmProductSession = Current.Session;
+		GameMode->SwordRhythmPresentationRunController = CurrentPresentation;
+		TestTrue(TEXT("restoring exact owners permits the same Run to finish"),
+			GameMode->ReleaseCombatProductRun(TEXT("P27.29.IdentityRecovered")));
+		TestTrue(TEXT("successful release clears all tested owners and replays safely"),
+			!GameMode->CombatRunCoordinator.IsActive()
+				&& GameMode->CombatRunFixedTimeline.IsEmpty()
+				&& GameMode->SwordRhythmProductSession.IsEmpty()
+				&& GameMode->SwordRhythmPresentationRunController.IsEmpty()
+				&& GameMode->ReleaseCombatProductRun(TEXT("P27.29.ReleaseReplay")));
+	}
 	return true;
 }
 

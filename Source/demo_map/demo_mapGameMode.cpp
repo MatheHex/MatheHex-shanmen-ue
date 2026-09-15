@@ -4119,6 +4119,28 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 	{
 		return false;
 	}
+	// Validate the logical owner before consuming presentation teardown. A
+	// foreign/invalid owner is evidence to recover, not permission to reset.
+	if (!SwordRhythmProductSession.IsValid())
+	{
+		UE_LOG(Logdemo_map, Error,
+			TEXT("0_0_10_COMBAT_RUN Event=SwordRhythmInvalidOnRelease Context=%s"),
+			SafeContext);
+		return false;
+	}
+	const int32 SwordRhythmObservationCount =
+		SwordRhythmProductSession.NumRecordedObservations();
+	if (!SwordRhythmProductSession.IsEmpty()
+		&& (!CombatRunCoordinator.IsActive()
+			|| SwordRhythmProductSession.GetRunId()
+				!= CombatRunCoordinator.GetRunId()))
+	{
+		UE_LOG(Logdemo_map, Error,
+			TEXT("0_0_10_COMBAT_RUN Event=SwordRhythmRunMismatchOnRelease Context=%s Observations=%d"),
+			SafeContext,
+			SwordRhythmObservationCount);
+		return false;
+	}
 	Fdemo_mapShanmenSwordRhythmEffectCuePresentationRunEndSummary
 		SwordRhythmPresentationSummary;
 	bool bSwordRhythmPresentationReleased = true;
@@ -4147,32 +4169,13 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 				SwordRhythmPresentationSummary.bVisualPending ? 1 : 0,
 				SwordRhythmPresentationSummary.bAudioPending ? 1 : 0,
 				*PresentationDiagnostic);
-			SwordRhythmPresentationRunController.Reset();
-		}
-	}
-	if (!SwordRhythmProductSession.IsValid())
-	{
-		UE_LOG(Logdemo_map, Error,
-			TEXT("0_0_10_COMBAT_RUN Event=SwordRhythmInvalidOnRelease Context=%s"),
-			SafeContext);
-		SwordRhythmProductSession.Reset();
-		return false;
-	}
-	const int32 SwordRhythmObservationCount =
-		SwordRhythmProductSession.NumRecordedObservations();
-	if (!SwordRhythmProductSession.IsEmpty())
-	{
-		if (!CombatRunCoordinator.IsActive()
-			|| SwordRhythmProductSession.GetRunId()
-				!= CombatRunCoordinator.GetRunId())
-		{
-			UE_LOG(Logdemo_map, Error,
-				TEXT("0_0_10_COMBAT_RUN Event=SwordRhythmRunMismatchOnRelease Context=%s Observations=%d"),
-				SafeContext,
-				SwordRhythmObservationCount);
-			SwordRhythmProductSession.Reset();
+			// Keep the failed owner and do not dismantle the shared Run behind
+			// it. Exact retry must still be able to inspect the same handoffs.
 			return false;
 		}
+	}
+	if (!SwordRhythmProductSession.IsEmpty())
+	{
 		FString SwordRhythmDiagnostic;
 		if (!SwordRhythmProductSession.TryEnd(
 				CombatRunCoordinator.GetRunId(),

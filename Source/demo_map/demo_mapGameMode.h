@@ -739,6 +739,7 @@ private:
 	friend class Fdemo_mapDivineSenseGameModeLifecycleTest;
 	friend class Fdemo_mapFormationGameModeRunCompositionTest;
 	friend struct Fdemo_mapFormationScatterGameModeTestAccess;
+	friend class Fdemo_mapSwordRhythmGameModeReleaseRecoveryTest;
 	friend class Fdemo_mapSwordQiPhysicalIssueRetryTest;
 #endif
 	TArray<TWeakObjectPtr<Ademo_mapM01ExtractionZone>> M01ExtractionZones;
