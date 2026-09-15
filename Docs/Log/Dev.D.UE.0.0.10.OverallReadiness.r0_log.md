@@ -175,3 +175,45 @@ P27.28 早期 Reset 的历史措辞也应以实际差异为准：不要推导成
 - 本轮没有重新启动 UE、运行构建/测试、采样 RAM/VRAM 或修改自动化。没有宣布完整旧根、实际输入、正式地图、UI 或性能已验收。
 - 交接只包含总体 Report 与本 Log；不包含源码、资产、历史私有材料或未跟踪用户文件。
 - 文档核验：41 个本地链接目标存在；原证据 JSON 可解析；差异卫生检查通过；修改路径恰为这两份文档，既有未跟踪文件仍为 103。发布前远端与本地实现基线均为 `225762c1c4cc23e17df0bddd6c03e8101119bec9`。
+
+## 12. 总体报告当前工作区审计（2026-09-15 UTC）
+
+### 范围与版本
+
+- 本轮继续响应总体报告请求：系统与分级、信息交互分区、计算/内存风险、完成度，以及 UI 和实际 UE 开发的准备条件；不是 heartbeat，也不是继续产品修复。
+- 入场 HEAD 与远端分支均为 `e9bcf4f849353aafaea3af1ebb587149af26932c`；最新已交付实现 P27.30。分支为 `agent/0.0.10-p27-28-formation-scatter-gamemode-composition`。
+- 四个既有源码/测试文件已修改但未暂存，103 个既有未跟踪文件；本轮只更新总体 Report 与本 Log。保留原证据 JSON 的 P27.28 历史口径，不把旧规模/内存采样伪装为新测量。
+- 未启动新的构建、UE 自动化、实际游戏、UI 或资产工作；入场时已有的 P27.31 编译不属于本轮报告验证，也不纳入已完成验收。
+
+### 只读证据复核
+
+- 重新读取六模块 Build.cs、uproject 的 UE 5.8 与模块声明、物品 AuthoritySubsystem 生命周期、Repository 全量快照/历史、锁内 BeforeDocument/Before/After/SaveAuthority、30 Hz Run 时间线，以及阵法/暗器分级定义。
+- 抽查护心镜、御器、神识 HUD、护盾、物品详情、阵法组合阶段 Report 的完成声明和 P/F 限制。没有把局部表现代码等同于真实玩家交互验收。
+- 对第 11 节所列八份 P27.30 原测试日志及两个最终构建状态重新读取并计算 SHA-256，全部与该节匹配。完整新根 1,418/0、五个旧组 123/0、专项 3/0；各实际队列终止数一致。失败复现 0/2 仍作为失败保留；构建原生 0/0。
+- 既有规模统计是 1,084 个模块代码文件、300,974 非测试行和 160,007 测试行，不代表内存/覆盖率。物品快照复制、历史增长与同步保存的风险仍由当前源码支持；未得到真实 RAM/VRAM 峰值或帧耗时。
+
+### P27.31 未交付项
+
+只读检查现有差异与失败日志，确认终局重放原来仅按 Run 查成功记录；本地修复改为规范化请求后比较已有请求身份和持久指纹。此处描述修改意图，不提前宣布正确性或回归通过。
+
+- 测试：`Shanmen.0_0_10.Items.RunLifecycle.TerminalReplayIdentity`。
+- 原始日志：`Saved/FoundationRuns/Dev.D.UE.0.0.10.P27.31.r0/RedProof/20260915T041521007Z-9be2e054/UnrealEditor.log`。
+- 原字节 SHA-256：`7356B1D24714C5328583B56B5ABEFF75D56AD4FFB443B2629186A9F0086C12AB`。
+- 结果：0 Success / 1 Fail；`Automation Test Queue Empty 1 tests performed`。同目录 run-state 的原生退出为 0，但测试明确失败，不能写成通过。
+- 原日志明确出现结局改变、剩余数量改变、获取奖励元数据改变却仍被当成重放的失败断言。本报告不将这些失败等同于已发生真实玩家损失。
+- 修复后的专项、完整受影响回归与最终双目标结果尚未完成交接；因此仍列为冻结前待验证项，不列入 P27.30 的已验证能力。
+
+本轮不修改、不暂存以下文件，原字节保留基线为：
+
+| 既有文件 | SHA-256 |
+|---|---|
+| Source/ShanmenItems/Private/ShanmenItemRepository.cpp | `AC884CB4091A27A0A804534C9670940B1755F205FDA7EC12B608F36A49136EBD` |
+| Source/ShanmenItems/Public/ShanmenItemRepository.h | `92C6160A5D6A1E4E613AD98B5AD1FC38A36C3B5023073AAB9278DC870895893A` |
+| Source/demo_map/demo_mapShanmenPreparationAdapterTests.cpp | `2CDA373D90953F3CBE9C35C2B201FA6189D157CA198AB55005833ECB5FE5314A` |
+| Source/demo_map/demo_mapShanmenRunLifecycleAdapter.cpp | `FCEA358C58EB7991F4CD3244365296C1F525A418737E35EE5C4455AFFD21FCC1` |
+
+### 交付结论
+
+总体报告新增“已交付基线与当前工作区”的明确分界，修正 Run 完成度/优先级，并补充首轮 UI 接入责任表。结论是可以准备 UI 信息架构和字段/命令契约；终局重放缺口仍待验证，整体框架、真实可玩和性能均不得提前宣称冻结或达标。仅这两份 Markdown 文档属于本次交接。
+
+发布前文档检查通过：42 个本地相对链接目标存在，原证据 JSON 可解析，文档差异卫生检查通过；四个既有源码/测试文件的原字节哈希未变，既有未跟踪文件仍为 103，入场至核验时 HEAD 未变、index 为空。精确提交仅总体 Report 与本 Log，不包含正在验证的产品实现。
