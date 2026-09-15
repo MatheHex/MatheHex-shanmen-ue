@@ -12,6 +12,7 @@
 #include "demo_mapAttributeComponent.h"
 #include "demo_mapCombatRunCoordinator.h"
 #include "demo_mapEnemyCharacter.h"
+#include "demo_mapGameMode.h"
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapItemSubsystem.h"
 #include "demo_mapM01EnemyIdentityComponent.h"
@@ -2757,6 +2758,182 @@ bool FShanmenControlledWeaponThreatCueTest::RunTest(const FString&)
 		&& Weapon->GetLastThreatPresenceCueSampleSequence() == 1
 		&& Enemy->GetCurrentVitality() == VitalityBefore
 		&& Enemy->NumCommittedCombatImpacts() == ImpactsBefore);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapCombatRunRetirementRecoveryTest,
+	"Shanmen.0_0_10.Product.ControlledWeaponWorldLifecycle.GameModeRetirementRecovery",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapCombatRunRetirementRecoveryTest::RunTest(const FString&)
+{
+	for (const bool bDestroyRefusal : { true, false })
+	{
+		FPreparationAdapterFixture Fixture;
+		if (!Fixture.StartAndCutover(*this, bDestroyRefusal
+			? TEXT("P2730DestroyRefusal") : TEXT("P2730TimelineMismatch")))
+		{
+			return false;
+		}
+		const auto Selected = Fixture.Session->SetPreparationEquipment(
+			Fdemo_mapItemIds::WeaponSlot, Fixture.FlyingSwordId);
+		Udemo_mapItemSubsystem* Runtime =
+			Fixture.GameInstance->GetSubsystem<Udemo_mapItemSubsystem>();
+		if (!TestTrue(TEXT("canonical prepared weapon is available"),
+			Selected.IsAccepted() && Runtime)) return false;
+		Runtime->ResetForAutomation();
+		const auto Started = Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
+			*Fixture.Authority, *Runtime);
+		FControlledWeaponWorldFixture WorldFixture;
+		if (!TestTrue(TEXT("exact durable Run and transient World start"),
+			Started.IsStarted() && WorldFixture.Start(
+				*this, Fixture.GameInstance, Started.ActiveRunId))) return false;
+		const auto Began = WorldFixture.Lifecycle.TryBegin(
+			WorldFixture.World, Fixture.Authority, Runtime,
+			WorldFixture.Coordinator, WorldFixture.Host, WorldFixture.Player, 1);
+		Ademo_mapShanmenControlledWeaponActor* Weapon = Began.WeaponActor.Get();
+		FShanmenControlledWeaponCommandReceipt Launch;
+		int64 Advanced = 0;
+		if (!TestTrue(TEXT("nonempty active weapon and nonzero timeline"),
+			Began.IsStarted() && Weapon && WorldFixture.World->IsGameWorld()
+				&& WorldFixture.Host.TryLaunch(Fixture.FlyingSwordId, 0,
+					FVector::ForwardVector, Launch)
+				&& WorldFixture.Timeline.TryAdvance(0.1, Advanced,
+					WorldFixture.Diagnostic) && Advanced > 0)) return false;
+		const auto* Controller = WorldFixture.Host.FindController(Fixture.FlyingSwordId);
+		Fdemo_mapShanmenControlledWeaponFlightReadModel ExpectedPresentation;
+		if (!TestTrue(TEXT("nonempty presentation is captured"),
+			Controller && Controller->TryCaptureFlightReadModel(false, ExpectedPresentation)
+				&& Weapon->TryPresentFlightReadModel(ExpectedPresentation))) return false;
+		FShanmenItemAuthoritySnapshot AuthorityBefore;
+		if (!TestTrue(TEXT("durable evidence captured before release"),
+			Fixture.Authority->TryCaptureSnapshot(AuthorityBefore))) return false;
+
+		Ademo_mapGameMode* GameMode = NewObject<Ademo_mapGameMode>(GetTransientPackage());
+		GameMode->CombatRunCoordinator = MoveTemp(WorldFixture.Coordinator);
+		GameMode->ControlledWeaponRunHost = MoveTemp(WorldFixture.Host);
+		GameMode->ControlledWeaponWorldLifecycle = MoveTemp(WorldFixture.Lifecycle);
+		GameMode->CombatRunFixedTimeline = MoveTemp(WorldFixture.Timeline);
+		const auto OriginalTimeline = GameMode->CombatRunFixedTimeline;
+		const ENetRole OriginalRole = Weapon->GetLocalRole();
+		FString Diagnostic;
+		if (bDestroyRefusal)
+		{
+			// UE's real GameWorld destruction rule rejects a simulated proxy.
+			// This is transient test state, not a network/product feature.
+			Weapon->SetRole(ROLE_SimulatedProxy);
+		}
+		else
+		{
+			GameMode->CombatRunFixedTimeline.Reset();
+			TestTrue(TEXT("foreign nonzero timeline injected"),
+				GameMode->CombatRunFixedTimeline.TryBegin(
+					FGuid(0x27300001, 0x27300002, 0x27300003, 0x27300004), Diagnostic)
+				&& GameMode->CombatRunFixedTimeline.TryAdvance(0.2, Advanced, Diagnostic));
+		}
+		const FGuid ExpectedTimelineId = GameMode->CombatRunFixedTimeline.GetTimelineId();
+		const int64 ExpectedTick = GameMode->CombatRunFixedTimeline.GetCurrentTick();
+		AddExpectedError(bDestroyRefusal
+			? TEXT("Event=ControlledWeaponWorldReleaseRejected")
+			: TEXT("Event=RunTimelineReleaseRejected"),
+			EAutomationExpectedErrorFlags::Contains, 2);
+		for (int32 Attempt = 0; Attempt < 2; ++Attempt)
+		{
+			TestFalse(TEXT("same fault keeps rejecting without losing evidence"),
+				GameMode->ReleaseCombatProductRun(TEXT("P27.30.Rejected")));
+			TestTrue(TEXT("the original physical owner and presentation survive rejection"),
+				GameMode->ControlledWeaponWorldLifecycle.IsActive()
+					&& GameMode->ControlledWeaponWorldLifecycle.GetWeaponActor() == Weapon
+					&& GameMode->ControlledWeaponWorldLifecycle.GetRunId() == Started.ActiveRunId
+					&& WorldFixture.CountControlledWeaponActors() == 1
+					&& Weapon->GetFlightPresentationReadModel().Matches(ExpectedPresentation));
+			TestTrue(TEXT("exact nonzero timeline is retained"),
+				GameMode->CombatRunFixedTimeline.GetTimelineId() == ExpectedTimelineId
+					&& GameMode->CombatRunFixedTimeline.GetCurrentTick() == ExpectedTick);
+			if (bDestroyRefusal)
+			{
+				TestTrue(TEXT("logical end is preserved as one completed prefix"),
+					!GameMode->CombatRunCoordinator.IsActive()
+						&& GameMode->ControlledWeaponRunHost.IsEmpty()
+						&& GameMode->PendingCombatRunRetirement.IsSet()
+						&& GameMode->PendingCombatRunRetirement->IsEnded()
+						&& GameMode->PendingCombatRunRetirement->RunId == Started.ActiveRunId
+						&& GameMode->PendingCombatRunRetirement->BoundItemCount == 1
+						&& GameMode->PendingCombatRunRetirement->InterruptedItemCount == 1);
+			}
+			else
+			{
+				TestTrue(TEXT("bad timeline cannot consume logical end or physical cleanup"),
+					GameMode->CombatRunCoordinator.IsActive()
+						&& GameMode->ControlledWeaponRunHost.NumActive() == 1
+						&& !GameMode->PendingCombatRunRetirement.IsSet());
+			}
+			TestFalse(TEXT("new Run activation is fenced while retirement is incomplete"),
+				GameMode->TryActivateCombatRun(WorldFixture.Player, Diagnostic));
+		}
+
+		Weapon->SetRole(OriginalRole);
+		GameMode->CombatRunFixedTimeline = OriginalTimeline;
+		int32 DestroyCallbacks = 0;
+		bool bReentrantReleaseAccepted = false;
+		const FDelegateHandle DestroyObserver = WorldFixture.World->AddOnActorDestroyedHandler(
+			FOnActorDestroyed::FDelegate::CreateLambda([&](AActor* Destroyed)
+			{
+				if (Destroyed == Weapon)
+				{
+					++DestroyCallbacks;
+					bReentrantReleaseAccepted = GameMode->ReleaseCombatProductRun(
+						TEXT("P27.30.ReentrantDestroy"));
+				}
+			}));
+		TestTrue(TEXT("same Run finishes after the real fault is corrected"),
+			GameMode->ReleaseCombatProductRun(TEXT("P27.30.Recovered")));
+		WorldFixture.World->RemoveOnActorDestroyedHandler(DestroyObserver);
+		TestTrue(TEXT("one destroy, no reentrant completion, no remaining owners"),
+			DestroyCallbacks == 1 && !bReentrantReleaseAccepted
+				&& !GameMode->PendingCombatRunRetirement.IsSet()
+				&& !GameMode->CombatRunCoordinator.IsActive()
+				&& GameMode->ControlledWeaponRunHost.IsEmpty()
+				&& GameMode->ControlledWeaponWorldLifecycle.IsEmpty()
+				&& GameMode->CombatRunFixedTimeline.IsEmpty()
+				&& WorldFixture.CountControlledWeaponActors() == 0
+				&& GameMode->ReleaseCombatProductRun(TEXT("P27.30.ExactEndReplay")));
+		FShanmenItemAuthoritySnapshot AuthorityAfter;
+		TestTrue(TEXT("failure, retry and cleanup never rewrite item authority"),
+			Fixture.Authority->TryCaptureSnapshot(AuthorityAfter)
+				&& AuthorityAfter == AuthorityBefore);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapCombatRunOrphanRetentionTest,
+	"Shanmen.0_0_10.Product.ControlledWeaponWorldLifecycle.GameModeOrphanRetention",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapCombatRunOrphanRetentionTest::RunTest(const FString&)
+{
+	Ademo_mapGameMode* GameMode = NewObject<Ademo_mapGameMode>(GetTransientPackage());
+	FString Diagnostic;
+	int64 Advanced = 0;
+	TestTrue(TEXT("orphan has a real identity and nonzero time"),
+		GameMode->CombatRunFixedTimeline.TryBegin(
+			FGuid(0x27301001, 0x27301002, 0x27301003, 0x27301004), Diagnostic)
+			&& GameMode->CombatRunFixedTimeline.TryAdvance(0.25, Advanced, Diagnostic)
+			&& Advanced > 0);
+	const auto Expected = GameMode->CombatRunFixedTimeline;
+	AddExpectedError(TEXT("Event=OrphanedControlledWeaponState"),
+		EAutomationExpectedErrorFlags::Contains, 2);
+	for (int32 Attempt = 0; Attempt < 2; ++Attempt)
+	{
+		TestFalse(TEXT("orphan does not become success after one destructive retry"),
+			GameMode->ReleaseCombatProductRun(TEXT("P27.30.Orphan")));
+		TestTrue(TEXT("no manufactured completion proof and no lost orphan identity"),
+			!GameMode->PendingCombatRunRetirement.IsSet()
+				&& GameMode->CombatRunFixedTimeline.GetTimelineId() == Expected.GetTimelineId()
+				&& GameMode->CombatRunFixedTimeline.GetCurrentTick() == Expected.GetCurrentTick());
+	}
 	return true;
 }
 

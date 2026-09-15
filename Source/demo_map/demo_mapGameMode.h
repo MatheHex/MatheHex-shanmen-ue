@@ -527,6 +527,7 @@ private:
 		const TCHAR* Context,
 		int32& OutPulseCount);
 	bool ReleaseCombatProductRun(const TCHAR* Context);
+	bool TryFinishCombatRunRetirement(const TCHAR* Context);
 	Fdemo_mapShanmenPlayerActionOccupancySnapshot
 	CapturePlayerActionOccupancy() const;
 	Fdemo_mapShanmenPlayerActionGateResult RoutePlayerActionGate(
@@ -695,6 +696,10 @@ private:
 	TWeakObjectPtr<Ademo_map0909BFrameworkHost> Framework0909BHost;
 	TOptional<Fdemo_mapShanmenRunCorrelation> Prepared0909BRunCorrelation;
 	Fdemo_mapCombatRunCoordinator CombatRunCoordinator;
+	// Exact successful logical prefix, retained only until World/timeline retire.
+	TOptional<Fdemo_mapShanmenControlledWeaponRunEndResult>
+		PendingCombatRunRetirement;
+	bool bCombatRunRetirementInProgress = false;
 	Fdemo_mapShanmenFormationRunLifecycle FormationRunLifecycle;
 	Fdemo_mapShanmenControlledWeaponRunHost ControlledWeaponRunHost;
 	Fdemo_mapShanmenControlledWeaponWorldLifecycle
@@ -740,6 +745,8 @@ private:
 	friend class Fdemo_mapFormationGameModeRunCompositionTest;
 	friend struct Fdemo_mapFormationScatterGameModeTestAccess;
 	friend class Fdemo_mapSwordRhythmGameModeReleaseRecoveryTest;
+	friend class Fdemo_mapCombatRunRetirementRecoveryTest;
+	friend class Fdemo_mapCombatRunOrphanRetentionTest;
 	friend class Fdemo_mapSwordQiPhysicalIssueRetryTest;
 #endif
 	TArray<TWeakObjectPtr<Ademo_mapM01ExtractionZone>> M01ExtractionZones;

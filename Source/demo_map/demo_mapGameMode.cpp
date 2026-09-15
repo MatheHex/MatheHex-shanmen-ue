@@ -2958,7 +2958,8 @@ void Ademo_mapGameMode::Tick(float DeltaSeconds)
 	ReconcileWeaponGuardAuthorization(TEXT("GameModeTick"));
 	RetireSwordQiTerminalForPlayerFeedback();
 	bool bControlledWeaponRedeployedThisFrame = false;
-	if (!CombatRunFixedTimeline.IsEmpty())
+	if (!PendingCombatRunRetirement.IsSet()
+		&& !CombatRunFixedTimeline.IsEmpty())
 	{
 		int64 AdvancedTicks = 0;
 		FString TimelineDiagnostic;
@@ -3352,7 +3353,8 @@ void Ademo_mapGameMode::Tick(float DeltaSeconds)
 			}
 		}
 	}
-	if (ControlledWeaponWorldLifecycle.IsActive())
+	if (!PendingCombatRunRetirement.IsSet()
+		&& ControlledWeaponWorldLifecycle.IsActive())
 	{
 		Ademo_mapShanmenControlledWeaponActor* WeaponActor =
 			ControlledWeaponWorldLifecycle.GetWeaponActor();
@@ -3525,7 +3527,9 @@ bool Ademo_mapGameMode::TryActivateCombatRun(
 			? PlayerPawn->FindComponentByClass<
 				Udemo_mapShanmenCombatConditionComponent>()
 			: nullptr;
-	if (!ControlledWeaponRunHost.IsEmpty()
+	if (PendingCombatRunRetirement.IsSet()
+		|| bCombatRunRetirementInProgress
+		|| !ControlledWeaponRunHost.IsEmpty()
 		|| !FormationRunLifecycle.IsEmpty()
 		|| !ControlledWeaponWorldLifecycle.IsEmpty()
 		|| !ControlledWeaponRunCommandRouter.IsEmpty()
@@ -3958,6 +3962,30 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 	const TCHAR* Context)
 {
 	const TCHAR* SafeContext = Context ? Context : TEXT("Unknown");
+	if (PendingCombatRunRetirement.IsSet())
+	{
+		return TryFinishCombatRunRetirement(SafeContext);
+	}
+	// Reject a foreign clock before consuming any successful teardown prefix.
+	if (CombatRunCoordinator.IsActive()
+		&& !CombatRunFixedTimeline.IsEmpty()
+		&& !CombatRunFixedTimeline.IsActiveForRun(CombatRunCoordinator.GetRunId()))
+	{
+		UE_LOG(Logdemo_map, Error,
+			TEXT("0_0_10_COMBAT_RUN Event=RunTimelineReleaseRejected Context=%s Diagnostic=TimelinePreflightMismatch"),
+			SafeContext);
+		return false;
+	}
+	if (CombatRunCoordinator.IsActive()
+		&& !ControlledWeaponWorldLifecycle.IsEmpty()
+		&& (!ControlledWeaponWorldLifecycle.IsValid()
+			|| ControlledWeaponWorldLifecycle.GetRunId() != CombatRunCoordinator.GetRunId()))
+	{
+		UE_LOG(Logdemo_map, Error,
+			TEXT("0_0_10_COMBAT_RUN Event=ControlledWeaponWorldReleaseRejected Context=%s Diagnostic=WorldOwnerPreflightMismatch"),
+			SafeContext);
+		return false;
+	}
 	if (!ReleaseSpiritShieldProductRun(SafeContext))
 	{
 		return false;
@@ -4334,20 +4362,8 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 				ControlledWeaponThreatSampleRouter.NumAcceptedSamples()),
 			static_cast<long long>(
 				ControlledWeaponWorldThreatSampler.NumCommittedSamples()));
-		ControlledWeaponRunHost.Reset();
-		ControlledWeaponWorldLifecycle.Reset();
-		ControlledWeaponRunCommandRouter.Reset();
-		ControlledWeaponThreatSampleRouter.Reset();
-		ControlledWeaponWorldThreatSampler.Reset();
-		if (PlayerCombatConditionComponent.IsValid())
-		{
-			PlayerCombatConditionComponent->Reset();
-		}
-		CombatRunFixedTimeline.Reset();
-		SwordRhythmProductSession.Reset();
-		SwordRhythmPresentationRunController.Reset();
-		SwordQiCommandEventOwner.Reset();
-		SwordQiProductController.Reset();
+		// No successful logical-end receipt exists for this orphan. Preserve
+		// its identities instead of manufacturing an empty/successful retry.
 		return false;
 	}
 
@@ -4357,62 +4373,19 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 			CombatRunCoordinator);
 	if (Result.IsEnded())
 	{
-		FString FormationAcknowledgeDiagnostic;
-		const bool bFormationReleased = FormationRunLifecycle.IsEmpty()
-			|| FormationRunLifecycle.TryAcknowledgeCoordinatorEnded(
-				Result.RunId,
-				CombatRunCoordinator,
-				FormationAcknowledgeDiagnostic);
-		if (!bFormationReleased)
-		{
-			UE_LOG(
-				Logdemo_map,
-				Error,
-				TEXT("0_0_10_COMBAT_RUN Event=FormationRunAcknowledgeRejected RunId=%s Context=%s Diagnostic=%s"),
-				*Result.RunId.ToString(EGuidFormats::DigitsWithHyphens),
-				SafeContext,
-				*FormationAcknowledgeDiagnostic);
-			return false;
-		}
 		const int64 WorldThreatSampleCount =
 			ControlledWeaponWorldThreatSampler.NumCommittedSamples();
-		FString ControlledWeaponWorldDiagnostic;
-		const bool bControlledWeaponWorldReleased =
-			ControlledWeaponWorldLifecycle.TryEndAfterRun(
-				Result.RunId,
-				ControlledWeaponRunHost,
-				ControlledWeaponWorldDiagnostic);
-		if (!bControlledWeaponWorldReleased)
-		{
-			UE_LOG(
-				Logdemo_map,
-				Error,
-				TEXT("0_0_10_COMBAT_RUN Event=ControlledWeaponWorldReleaseRejected RunId=%s Context=%s Diagnostic=%s"),
-				*Result.RunId.ToString(EGuidFormats::DigitsWithHyphens),
-				SafeContext,
-				*ControlledWeaponWorldDiagnostic);
-			ControlledWeaponWorldLifecycle.Reset();
-		}
-		ControlledWeaponWorldThreatSampler.Reset();
-		FString TimelineDiagnostic;
-		if (!CombatRunFixedTimeline.TryEnd(
-				Result.RunId,
-				TimelineDiagnostic))
-		{
-			UE_LOG(Logdemo_map, Error,
-				TEXT("0_0_10_COMBAT_RUN Event=RunTimelineReleaseRejected RunId=%s Context=%s Diagnostic=%s"),
-				*Result.RunId.ToString(EGuidFormats::DigitsWithHyphens),
-				SafeContext,
-				*TimelineDiagnostic);
-			CombatRunFixedTimeline.Reset();
-			return false;
-		}
 		const int32 RoutedIntentCount =
 			ControlledWeaponRunCommandRouter.NumProcessedIntents();
 		const int64 ThreatSampleCount =
 			ControlledWeaponThreatSampleRouter.NumAcceptedSamples();
-		ControlledWeaponRunCommandRouter.Reset();
-		ControlledWeaponThreatSampleRouter.Reset();
+		// Keep the exact committed prefix before touching World. Retry must
+		// never attempt a second logical end against an inactive Coordinator.
+		PendingCombatRunRetirement = Result;
+		if (!TryFinishCombatRunRetirement(SafeContext))
+		{
+			return false;
+		}
 		UE_LOG(Logdemo_map, Log,
 		TEXT("0_0_10_COMBAT_RUN Event=RunReleased RunId=%s Context=%s FormationHadProduct=%d FormationCompleted=%d FormationTeardownReused=%d FormationHadScatter=%d FormationScatterTeardownReused=%d FormationScatterTeardownStatus=%d ControlledBound=%d ControlledInterrupted=%d RoutedIntents=%d ThreatSamples=%lld WorldThreatSamples=%lld ThrownSelections=%d TreatmentRequests=%d TreatmentPendingAtTeardown=%d SwordQiCommandEvents=%llu SwordQiPendingRetryAtTeardown=%d SwordQiIntents=%d SwordQiCommands=%d SwordQiInterrupted=%d DivineSensePulses=%d ConditionApplications=%d ConditionRevision=%lld SwordRhythmObservations=%d SwordRhythmPresentationPublished=%d SwordRhythmPresentationQueuedAtTeardown=%d WeaponGuardInterrupted=%d"),
 			*Result.RunId.ToString(EGuidFormats::DigitsWithHyphens),
@@ -4448,9 +4421,7 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 				== Edemo_mapShanmenWeaponGuardSessionTransitionStatus::Interrupted
 				? 1
 				: 0);
-		return bSwordRhythmPresentationReleased
-			&& bControlledWeaponWorldReleased
-			&& bFormationReleased;
+		return bSwordRhythmPresentationReleased;
 	}
 
 	UE_LOG(Logdemo_map, Error,
@@ -4459,6 +4430,68 @@ bool Ademo_mapGameMode::ReleaseCombatProductRun(
 		static_cast<int32>(Result.Status),
 		*Result.Diagnostic);
 	return false;
+}
+
+bool Ademo_mapGameMode::TryFinishCombatRunRetirement(const TCHAR* Context)
+{
+	// Actor destruction can synchronously call back into this GameMode.
+	if (!PendingCombatRunRetirement.IsSet() || bCombatRunRetirementInProgress)
+	{
+		return false;
+	}
+	TGuardValue<bool> Retiring(bCombatRunRetirementInProgress, true);
+	const auto& Result = PendingCombatRunRetirement.GetValue();
+	if (!Result.IsEnded() || CombatRunCoordinator.IsActive()
+		|| !ControlledWeaponRunHost.IsEmpty())
+	{
+		UE_LOG(Logdemo_map, Error,
+			TEXT("0_0_10_COMBAT_RUN Event=RunRetirementRejected Context=%s Diagnostic=LogicalEndCheckpointMismatch"),
+			Context);
+		return false;
+	}
+	if (!CombatRunFixedTimeline.IsValid()
+		|| (!CombatRunFixedTimeline.IsEmpty()
+			&& !CombatRunFixedTimeline.IsActiveForRun(Result.RunId)))
+	{
+		UE_LOG(Logdemo_map, Error,
+			TEXT("0_0_10_COMBAT_RUN Event=RunTimelineReleaseRejected Context=%s Diagnostic=RetainedTimelineMismatch"),
+			Context);
+		return false;
+	}
+	FString Diagnostic;
+	if (!FormationRunLifecycle.IsEmpty()
+		&& !FormationRunLifecycle.TryAcknowledgeCoordinatorEnded(
+			Result.RunId, CombatRunCoordinator, Diagnostic))
+	{
+		UE_LOG(Logdemo_map, Error,
+			TEXT("0_0_10_COMBAT_RUN Event=FormationRunAcknowledgeRejected Context=%s Diagnostic=%s"),
+			Context, *Diagnostic);
+		return false;
+	}
+	if (!ControlledWeaponWorldLifecycle.TryEndAfterRun(
+			Result.RunId, ControlledWeaponRunHost, Diagnostic))
+	{
+		UE_LOG(Logdemo_map, Error,
+			TEXT("0_0_10_COMBAT_RUN Event=ControlledWeaponWorldReleaseRejected RunId=%s Context=%s Diagnostic=%s"),
+			*Result.RunId.ToString(EGuidFormats::DigitsWithHyphens), Context, *Diagnostic);
+		return false;
+	}
+	if (!CombatRunFixedTimeline.TryEnd(Result.RunId, Diagnostic))
+	{
+		UE_LOG(Logdemo_map, Error,
+			TEXT("0_0_10_COMBAT_RUN Event=RunTimelineReleaseRejected RunId=%s Context=%s Diagnostic=%s"),
+			*Result.RunId.ToString(EGuidFormats::DigitsWithHyphens), Context, *Diagnostic);
+		return false;
+	}
+	ControlledWeaponWorldThreatSampler.Reset();
+	ControlledWeaponRunCommandRouter.Reset();
+	ControlledWeaponThreatSampleRouter.Reset();
+	UE_LOG(Logdemo_map, Log,
+		TEXT("0_0_10_COMBAT_RUN Event=RunRetirementCompleted RunId=%s Context=%s ControlledBound=%d ControlledInterrupted=%d"),
+		*Result.RunId.ToString(EGuidFormats::DigitsWithHyphens), Context,
+		Result.BoundItemCount, Result.InterruptedItemCount);
+	PendingCombatRunRetirement.Reset();
+	return true;
 }
 
 bool Ademo_mapGameMode::ReconcileWeaponGuardAuthorization(

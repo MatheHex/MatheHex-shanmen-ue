@@ -2845,6 +2845,7 @@
       "name": "M01GameMode",
       "pathRegex": "^Source/demo_map/demo_mapGameMode\\.(?:h|cpp)$",
       "requiredGroups": [
+        "Shanmen.0_0_10.Product.ControlledWeaponWorldLifecycle",
         "Shanmen.0_0_10.Product.SwordRhythmEffectCuePresentationRunController",
         "Shanmen.0_0_10.Product.ThrownWeaponArcPreLaunchPreviewContext",
 		"Shanmen.0_0_10.Product.ThrownWeaponArcPreviewMainHUDRuntimeBinding",

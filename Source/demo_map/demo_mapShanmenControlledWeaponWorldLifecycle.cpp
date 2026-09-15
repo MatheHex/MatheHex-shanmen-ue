@@ -444,13 +444,15 @@ bool Fdemo_mapShanmenControlledWeaponWorldLifecycle::TryEndAfterRun(
 			TEXT("Owned flying-sword Actor disappeared before lifecycle retirement.");
 		return false;
 	}
-	Actor->DeactivateProductCollision();
 	if (!Actor->Destroy())
 	{
 		OutDiagnostic =
 			TEXT("World rejected physical flying-sword Actor retirement.");
 		return false;
 	}
+	// A rejected World operation must leave collision/presentation and the
+	// retained owner valid for the same exact retry. Destroy accepted above.
+	Actor->DeactivateProductCollision();
 	Clear();
 	OutDiagnostic =
 		TEXT("Physical flying-sword carrier retired after logical Run teardown.");
