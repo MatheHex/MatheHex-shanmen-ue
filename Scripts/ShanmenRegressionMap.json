@@ -13,6 +13,7 @@
     "^Scripts/",
     "^\\.github/",
     "^README(?:\\.|$)",
+    "^PROJECT(?:_INFO_CARD)?\\.md$",
     "^\\.gitignore$",
     "^\\.gitattributes$"
   ],

@@ -1,4 +1,19 @@
-# Shanmen Unreal 0.0.9B
+# Shanmen Unreal 0.0.10 — 当前项目入口
+
+更新：2026-09-16，P28.0 冻结前索引整理；最近产品实现为 P27.31 / `0b6af9c`。物理目录仍为 `Dev.D.UE.0.0.9B`，本轮不移动项目、不改变存档或引擎身份。
+
+- 当前目标：仅闭合已批准的 0.0.10 底层契约；未宣布整体冻结，不开始实际游戏性开发。
+- 当前阶段约束：[0.0.10 P 阶段基线](Docs/Process/P_STAGE_BASELINE_0_0_10.md)。允许无头契约自动化及 Editor/Game 编译；真实输入、UI/地图/内容实装、产品运行及打包不在当前范围。
+- 契约与入口：[底层闭合索引](Docs/Architecture/Dev.D.UE.0.0.10_FoundationClosure_Index.md)。本索引不代替全部契约的最终验收。
+- 最新实现证据：[P27.31 Report](Docs/Report/Dev.D.UE.0.0.10.P27.31.r0_report.md)；系统/UI/内存现状：[总体报告](Docs/Report/Dev.D.UE.0.0.10.OverallReadiness.r0_report.md)。
+- 本次整理：[P28.0 Report](Docs/Report/Dev.D.UE.0.0.10.P28.0.r0_report.md)、[Development Log](Docs/Log/Dev.D.UE.0.0.10.P28.0.r0_log.md)。后续阶段以 Git 中最新已完成 Report/Log 和用户授权范围恢复，不以旧 TaskId 启动。
+- UE 构建统一入口：`Scripts/Invoke-Shanmen.ps1`；改动驱动回归：`Scripts/Test-ShanmenRegressionCoverage.ps1` 与 `Scripts/ShanmenRegressionMap.json`。
+- 交接为精确范围的 Report/Development Log GitHub 提交及链接；0.0.10 不使用旧 CSEMI 信封、附件上传或“等待下一 Prompt 已下载”作为阶段完成条件。
+- 不修改既有无关用户文件；不强推、不混入未审核的无关代码；冻结前最终验证完成后才暂停监控。
+
+## 0.0.9B 历史记录（以下直到文末均非当前指令）
+
+以下保留原 `Shanmen Unreal 0.0.9B` 记录。旧 `current_task`、状态、附件交接、P/F 限制与运行入口仅代表历史版本，不覆盖上方 0.0.10 基线；不据这些文字恢复旧浏览器交接或启动产品。
 
 ```text
 project_id = Dev.D.UE.0.0.9B

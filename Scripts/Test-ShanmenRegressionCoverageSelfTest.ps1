@@ -6926,6 +6926,20 @@ try
         -Logs @($Full) `
         -ExpectedText 'missing required groups'
 
+    Invoke-ExpectedPass -Name 'root project Markdown needs no UE evidence' `
+        -Paths @('PROJECT.md')
+    Invoke-ExpectedPass -Name 'root project information card needs no UE evidence' `
+        -Paths @('PROJECT_INFO_CARD.md')
+    foreach ($SimilarPath in @(
+            'PROJECT.cpp',
+            'PROJECT_INFO_CARD.md.cpp',
+            'PROJECT_NOTES.md',
+            'Source/demo_map/PROJECT.md'))
+    {
+        Invoke-ExpectedFail -Name "root documentation exception cannot hide $SimilarPath" `
+            -Paths @($SimilarPath) -ExpectedText 'unmapped changed paths'
+    }
+
     Write-Output (
         'SELF_TEST: PASS {0}/{0}' -f $script:SelfTestPassCount)
 }

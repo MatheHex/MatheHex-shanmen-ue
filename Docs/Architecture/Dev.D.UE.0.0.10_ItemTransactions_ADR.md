@@ -10,7 +10,7 @@
 2. 跨模块只提交值类型 Request，并接收不可变 Receipt；技能、Actor、GAS、战斗 Resolver 和 UI 不获得 Repository 内部可写引用。
 3. 消费与部署统一执行 `Validate -> Reserve -> Commit Point -> Commit/Cancel -> Receipt`。
 4. 同一 `RequestId + canonical payload` 必须重放完全相同的 Receipt；同一 RequestId 携带不同 payload 时返回 `RequestIdConflict`，不得覆盖原结果。
-5. 成功和失败 Receipt 都进入持久幂等 ledger。AuthorityRevision 覆盖物品图、预留与 ledger 的全部变化，避免同 revision 对应不同可重放状态。
+5. 对有效新请求形成的可记录成功或业务拒绝 Receipt，按命令契约加入幂等 ledger；不能据此要求每次拒绝都写盘。无效身份、既有 RequestId 的载荷冲突、P27.31 终局冲突探针可只读拒绝，不能覆盖原结果或追加重复拒绝流水。AuthorityRevision 覆盖物品图、预留与 ledger 的实际变化，避免同 revision 对应不同可重放状态。
 6. Snapshot 必须同时保存 Definition、Container、ItemInstance、Reservation 和 ProcessedRequest；加载前验证完整闭包，失败不能部分替换当前权威。
 
 ## 资源通道
@@ -32,6 +32,8 @@ P1.0 中 Quantity 是实例的排他资源形态，不能与 DeploymentLock、Du
 
 ## 未包含
 
+以下是 P1.0 当时的范围，不是当前实现缺失清单。后续持久服务已有磁盘发布与恢复；查询当前边界使用 [底层闭合索引](Dev.D.UE.0.0.10_FoundationClosure_Index.md)。
+
 - 本 ADR 不定义伤害、技能、阵法效果或 GAS 编排。
 - 不包含真实磁盘／云存档 I/O、Code A／Code B 迁移器、装备移动、UI 或网络复制。
-- ProcessedRequest 的结算期裁剪策略留到持久化实现阶段，但在 Run 活动期间不得丢弃仍需重放的记录。
+- ProcessedRequest 的结算期裁剪仍是未实现的容量债务，不因已有持久化就视为完成；活动 Run、未决意图和终局重放依赖的证据不得直接删除。

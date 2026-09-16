@@ -1,4 +1,18 @@
-# Shanmen Unreal 0.0.9B 项目信息卡
+# Shanmen Unreal 0.0.10 项目信息卡
+
+## 当前信息（2026-09-16）
+
+- 当前范围：P 阶段底层框架闭合，尚未整体冻结；不进行实际游戏性开发。
+- 物理工程仍为 `C:\AIDev\shanmen-ue\Dev.D.UE.0.0.9B\demo_map.uproject`，声明 UE 5.8；不改名或迁移目录。
+- 最近产品基线：P27.31 / `0b6af9c`；本次文档/映射整理：P28.0。
+- [统一当前入口](PROJECT.md)、[P 阶段基线](Docs/Process/P_STAGE_BASELINE_0_0_10.md)、[契约与生命周期索引](Docs/Architecture/Dev.D.UE.0.0.10_FoundationClosure_Index.md)。
+- [总体就绪度与 UI 准备](Docs/Report/Dev.D.UE.0.0.10.OverallReadiness.r0_report.md)、[本次 Report](Docs/Report/Dev.D.UE.0.0.10.P28.0.r0_report.md)、[本次 Log](Docs/Log/Dev.D.UE.0.0.10.P28.0.r0_log.md)。
+- P 可运行无头契约测试和双目标构建，不启动 Editor UI、PIE、Standalone、游戏程序或 Package；工具具备启动功能不代表本阶段获准使用。
+- 交接仅为本阶段精确 Git 提交中的 Report/Log 和链接，不要求浏览器附件、技术信封或等待下一份 Prompt 才能完成。
+
+## 0.0.9B 历史信息卡（以下直到文末均非当前指令）
+
+原身份、P23 任务、Code A/B 描述、阶段规则、附件交接和“当前入口”全部保留作历史记录。它们不是 0.0.10 当前行为或权限；发生冲突时使用上方当前基线。
 
 ## 项目身份
 

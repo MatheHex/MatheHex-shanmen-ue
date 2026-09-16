@@ -30,9 +30,15 @@
 - 两个来源一致时才能原子导入；身份、数量、容器闭包或 revision 冲突时失败关闭，禁止静默合并或按“较新一边”覆盖。
 - 导入成功后写入单一 0.0.10 文档与迁移 receipt；之后旧模型只读保留，不能继续接收业务写入。
 
-## 前置缺陷
+## 前置缺陷的历史与当前状态
 
-`demo_mapProfileRepository.cpp` 中 `IsExactLegacySourceFor` 仍把 legacy schema 限制为 `1..5`，无法正确承接当前 Schema 6 到 7 的 N-1 迁移。该缺陷必须在首次 0.0.10 持久数据导入和端到端运行验证之前修复并补回归测试；它不应通过放宽迁移校验或绕过 provenance 来规避。
+P1 启动时存在的 `1..5` 固定范围缺陷已在 P1.1 修复，当前 `demo_mapProfileRepository.cpp` 的 `IsSupportedLegacySchema` 使用 `1 <= SchemaVersion < CurrentSchemaVersion`，`IsExactLegacySourceFor` 复用该条件。不得继续将其列为当前未修缺陷，也不得放宽来源校验或绕过 provenance。
+
+当前已有 `demo_map.ItemEconomySchema.22.SchemaFourMigration` 与 `.23.SchemaFiveAndSixTownMigration`，以非零 TownLevel/资源作基准。P27.31 完整旧根 1330/0 覆盖这些测试；这是合成旧档测试证据，不是所有真实玩家旧档已验收。历史阶段范围见 [迁移 ADR](Dev.D.UE.0.0.10_ItemMigration_ADR.md)，最新验证见 [P27.31 Report](../Report/Dev.D.UE.0.0.10.P27.31.r0_report.md)。
+
+## 产品路由解释（P28.0 索引补充）
+
+唯一物品权威约束不意味着旧 Code A/B 类已经被删除。P1.14 的产品 Start/terminal 已切换至 Shanmen durable correlation，V3 observer 以 `UsesShanmenItemLifecycle()` 阻止旧写入；历史非 cutover 路径仍存在。新接线不得借兼容路径形成第二份在线物品真值。全入口的 cutover 条件与 Run 投影所有权需在 [底层闭合索引](Dev.D.UE.0.0.10_FoundationClosure_Index.md) 中追溯，不能以本 ADR 的声明替代调用图审计。
 
 ## 结果
 
