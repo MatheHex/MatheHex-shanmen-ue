@@ -327,3 +327,43 @@ P27.28 早期 Reset 的历史措辞也应以实际差异为准：不要推导成
 继续用同一总体报告承载六模块分层、五区数据所有权、七类 UI 分区、系统成熟度矩阵、内存事实/假设和分步准入。只提交 Report/Development Log；原 Saved 日志与私人文件不上传。当前结论是可开始 UI 信息架构与接线设计，底层尚未最终冻结，真实游戏性/性能/发行验收未完成。
 
 发布前检查：两份文档的 53 个本地相对链接目标存在，历史 evidence.json 可解析，`git diff --check` 通过。当前两文档映射为 `REGRESSION_COVERAGE: PASS Changed=2 Rules=0 Required=0 Logs=0`；0 个 UE 必跑组只表示此次为纯文档变更，不是新的产品验证结论。103 个既有未跟踪文件与 1,577 个产品输入的路径集合及 SHA-256 均与入场完全一致，HEAD 未变化；精确暂存这两份 Markdown，普通推送，不强推。
+
+## 16. P28.1 总体报告现状复核（2026-09-16 UTC）
+
+### 范围与当前基线
+
+- 用户要求系统与分级、信息交互分区、计算/内存和完成度总体报告，为 UI 与实际 UE 开发做准备。本轮仅更新现有总体 Report/Log，不继续 heartbeat 开发，不执行新的产品修复、UI/玩法或最终冻结。
+- 入场 HEAD 与远端分支均为 `6b4876710d92a8d894312cee2b538e1fc9481fa3`，即 P28.1；分支 `agent/0.0.10-p27-28-formation-scatter-gamemode-composition`。
+- tracked/index 入场干净；保存 1,577 个 Source/Config/Content/Plugins/uproject 输入及 103 个既有未跟踪用户文件的原路径/原字节 SHA-256，供发布前保持核验。不提交 Saved 或私人文件。
+- 未修改产品、资产、配置、存档、ADR 或监控；未运行新的 UE 构建/测试、内存采样、实际输入、Editor UI、PIE、Standalone、游戏 exe、Cook 或 Package。
+
+### 原证据复核，不是重跑
+
+读取 P28.1 四组原始 UnrealEditor.log 与各自 run-state；读取 P27.31 最终完整新根及状态。按实际 Test Completed、精确队列结束与原生退出联合判断，重新计算字节哈希：
+
+| 阶段/组 | Success / Fail | 队列完成 | 原生码 | 原日志 SHA-256 |
+|---|---|---:|---:|---|
+| P28.1 RedProof | 0 / 1 | 1 | 0 | `BE570297C6BD2C61FCAFD4C5CBDC7DF18E716ABCAF9CCC67C85B7744DDF4D536` |
+| P28.1 ProductFlowFocused | 4 / 0 | 4 | 0 | `5A64E0078015D607F7084794762280862A33B8326DC052CBF63837F97E4B3E67` |
+| P28.1 ItemsFullRoot | 80 / 0 | 80 | 0 | `FA06D567A191576E59931A05B02BC57FEF7867653CD2096D90E08C29B0933559` |
+| P28.1 LegacyFullRoot | 1330 / 0 | 1330 | 0 | `6C83F335D64673CA6B405EB61DDDC37F395F18ACC9A5211E6C3A048AC57D7A40` |
+| P27.31 FullRootResumed | 1419 / 0 | 1419 | 0 | `90A03871AFF2B16FB8E6994D87C94311239BF414D62DF301ABB2E690727C9F6A` |
+
+路径分别见 [P28.1 Log 第 4 节](Dev.D.UE.0.0.10.P28.1.r0_log.md#4-自动化原日志) 和 [P27.31 Log 第 5 节](Dev.D.UE.0.0.10.P27.31.r0_log.md#5-测试日志索引)。五组各有既有 13 条 Condition failed；Fatal error / Ensure condition failed / Unhandled Exception 匹配为 0。RedProof 虽 native 0 仍是失败，不改写原件。ProductFlow 四项包含在 Items 八十项；P27.31 新根不能当成 P28.1 修复后的完整新根。
+
+最新 P28.1 Fixed Editor / Game 原 run-state 均 SUCCEEDED/native 0；重新计算 stdout SHA-256 分别为 `60C5238AB258D99E8395DFF1E74E93A4A81D1E902ABDF3945658E5329D48580A`、`E44CD3B9520BB98986D1DA99743B4FC02AD897D9A5EFE26EB91D7F0B22C5097E`，与阶段 Log 一致。本轮不把构建输出当产品运行或完整冻结验收。
+
+### 代码与报告变化
+
+1. 重新读取 uproject 与六个 Build.cs：UE 5.8，CombatCore/Items 无 Engine 模块依赖，GAS 在 CombatRuntime 编排层。重新统计六模块内跟踪 .h/.cpp/.cs：1,084 个文件、301,110 非测试行、247 个测试文件、160,580 测试行；其中 demo_map 非测试 270,852 行、测试 144,071 行。共 461,690 行，测试约 34.8%、demo_map 约占非测试行 90.0%；400 份 0.0.10 Report，不把行数/报告数当完成百分比。
+2. 直接读取当前 Flow 的 UsesShanmenItemLifecycle 与 ready-only FindBoundShanmenAuthority；将总体报告第 9.1 节过时的“候选待复现”改为 P28.1 已复现并修复。更新最新验证表、系统矩阵与冻结边界，不修改产品实现。
+3. 读取 Runtime 的 TransferContainerItemToInventory、PickupWorldItem、RequestSettlement，以及 RunLifecycleAdapter 的 SecuredOriginals/AcquiredItems 校验和规范化终局请求。报告增加“局内拾取成功不等于永久入库”的 UI 边界；不以静态方法存在断言玩家损失，也不擅改 ADR 将 Runtime 可变模型认定为全入口合法投影。FZ-1 仍需有限调用图审计。
+4. 重新读取 Repository 五类快照导出/排序、RecordProcessed、26 处 Candidate 拷贝位置；AuthorityService 保留 BeforeDocument/Before/After 并保存，产品 Subsystem 要求 Game Thread 且同步调用。报告继续区分历史增长、临时副本与主线程等待风险，未测得泄漏、峰值或卡顿。
+5. 重新读取 P27.28 原日志的 NullRHI/NoSound 参数及 628.29 MB Physical / 648.35 MB Virtual 启动采样；它们不代表真实地图、显存、长时或运行峰值。原 evidence.json 保持明确的 P27.28 历史口径。
+6. 读取阵法分级、暗器弧线权限与 Run 固定时间线：保留操作权限等级与 D0–D4 成熟度、30 Hz 逻辑 tick 与渲染 FPS 的区别。保留六模块、五类数据所有权、七类 UI 分区和四份准备清单，不新增同内容平行文档或业务服务。
+
+### 当前结论
+
+可以准备 UI 信息架构、字段/命令表、UE 类与资产接线清单及性能采样方案；不能宣布所有物品入口已统一、框架整体冻结、真实可玩或性能达标。仅提交本总体 Report 与 Development Log；未开始实际游戏性开发。
+
+发布前检查：两文档 56 个本地相对链接目标存在，历史 evidence.json 可解析；`git diff --check` 通过；改动映射为 `REGRESSION_COVERAGE: PASS Changed=2 Rules=0 Required=0 Logs=0`，这表示纯文档无 UE 必跑组，不表示新产品测试通过。1,577 个产品输入和 103 个既有未跟踪用户文件的路径/原字节 SHA-256 与入场一致，HEAD 未变化。精确暂存两份 Markdown 后提交及普通推送，不强推、不混入用户文件或 Saved 原始证据。
