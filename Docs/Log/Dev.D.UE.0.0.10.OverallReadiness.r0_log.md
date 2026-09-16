@@ -217,3 +217,60 @@ P27.28 早期 Reset 的历史措辞也应以实际差异为准：不要推导成
 总体报告新增“已交付基线与当前工作区”的明确分界，修正 Run 完成度/优先级，并补充首轮 UI 接入责任表。结论是可以准备 UI 信息架构和字段/命令契约；终局重放缺口仍待验证，整体框架、真实可玩和性能均不得提前宣称冻结或达标。仅这两份 Markdown 文档属于本次交接。
 
 发布前文档检查通过：42 个本地相对链接目标存在，原证据 JSON 可解析，文档差异卫生检查通过；四个既有源码/测试文件的原字节哈希未变，既有未跟踪文件仍为 103，入场至核验时 HEAD 未变、index 为空。精确提交仅总体 Report 与本 Log，不包含正在验证的产品实现。
+
+## 13. P27.31 总体报告更新审计（2026-09-16 UTC）
+
+### 范围与版本
+
+- 继续响应总体报告请求：系统与分级、信息交互分区、计算/内存占用、完成度，以及 UI 和实际 UE 开发准备；本轮不是 heartbeat，也不执行新的产品阶段或冻结审计。
+- 入场本地 HEAD 与远端分支均为 `0b6af9c52efde41c1508b4b7a540bb8198a103a3`，最新已完成实现 P27.31。分支仍为 `agent/0.0.10-p27-28-formation-scatter-gamemode-composition`。
+- 入场 tracked 工作区与 index 均干净；103 个既有未跟踪用户文件单独保存原路径/原字节 SHA-256 供结束核验，不纳入交接。
+- 仅修改总体 Report 与本 Log。未改产品代码、资产、存档、配置、自动化或历史 ADR；未运行新的构建、UE 测试、实际游戏、UI 或性能采样。
+- 原证据 JSON 保留 P27.28 历史基线，前十二节保留当时的判断。当前 Report 的“P27.31 尚未交付”更新为“已提交并完成阶段验证”，不把旧状态继续呈现为当前故障。
+
+### 独立证据复核
+
+完整读取 P27.31 Report/Development Log；重新读取下列原始日志，按实际 Result、精确队列结束及同目录 run-state 联合核验，并计算原字节 SHA-256：
+
+| 原日志组 | Success / Fail | 队列结束数 | 原字节 SHA-256 |
+|---|---|---:|---|
+| RedProof（原缺陷失败复现） | 0 / 1 | 1 | `7356B1D24714C5328583B56B5ABEFF75D56AD4FFB443B2629186A9F0086C12AB` |
+| RunLifecycleFocused | 6 / 0 | 6 | `042307C034766DEF1B8974ECE4BCD74B44799ED10EB9200A958123C1B46B70B0` |
+| LegacyFullRoot：demo_map | 1330 / 0 | 1330 | `0966DDC34F0B225CDA740BB7CB8A2EC807F9E7CB211E9091817EDF9896CB7DFE` |
+| FullRootResumed：Shanmen.0_0_10 | 1419 / 0 | 1419 | `90A03871AFF2B16FB8E6994D87C94311239BF414D62DF301ABB2E690727C9F6A` |
+
+四组原生退出均为 0；RedProof 的实际 Fail 仍为失败。各日志中匹配到的 Fatal error、Ensure condition failed、Unhandled Exception 为 0，同时各有 13 条既有 Condition failed 文本，不将后者隐去或描述为日志零错误。专项六项包含在新根，不重复累计。
+
+原路径沿用 [P27.31 Log 第 5 节](Dev.D.UE.0.0.10.P27.31.r0_log.md#5-测试日志索引)。完整新根来自一次完整重跑；本轮未把中断日志计数拼接进结果，也未重跑产品测试。
+
+- 最终 Editor / Game run-state：SUCCEEDED / SUCCEEDED，原生 0 / 0。stdout SHA-256 分别为 `B9F35894FFBDFFA79CACDC603DB36D2462D459DF57D93C8C4F88D05DAE641392`、`518B8B4FA26268D986AE7EE04CD450E5577872455962C2ED3FF987D57F225BDE`，均重新计算匹配。
+- 原映射六文件记录 SHA-256：`9A2BCB572508D2A8FABD3278F032BDCB032EBAD7B1F5CB50ED520F20196DB611`；原映射自检 504/504，SHA-256：`507E91DE5C42AAE263707B06CFCD250EC66AAA7DACAE7F9A5E04DD7F85B1C5D9`。这些是实现阶段的验证，不是本次 Markdown 修改新增的测试执行。
+- 更新 Run 系统完成度及优先级，明确测试重开物品服务不等于整个游戏的跨地图/进程重启；不将终局重放修复扩张为 World 原子事务或历史裁剪方案。
+
+### 当前静态统计与接口核对
+
+沿用原始统计方法，对当前六模块 Git 跟踪的 .h/.cpp/.cs 重新计数（包含空行和注释；文件名 Test/Tests.cpp 或 .h 归为测试）：
+
+| 模块 | 文件 | 非测试行 | 测试文件 | 测试行 |
+|---|---:|---:|---:|---:|
+| demo_map | 952 | 270830 | 214 | 143916 |
+| ShanmenCombatCore | 9 | 877 | 1 | 317 |
+| ShanmenCombatRuntime | 90 | 19607 | 27 | 12059 |
+| ShanmenCore | 6 | 142 | 0 | 0 |
+| ShanmenItems | 16 | 8769 | 3 | 3606 |
+| ShanmenWorldGameplay | 11 | 863 | 2 | 527 |
+| 合计 | 1084 | 301088 | 247 | 160425 |
+
+- 总计 461513 行，测试行约 34.8%，demo_map 占非测试行约 90.0%。Git 跟踪的 0.0.10 Report 为 398 份，包含总体报告。不是覆盖率、包体、运行内存或游戏完成百分比。
+- 再次完整读取 uproject 与六个 Build.cs：声明 UE 5.8；CombatCore/Items 无 Engine 模块依赖，CombatRuntime 依赖 GameplayAbilities/GameplayTasks，demo_map 为产品组合层。
+- 定点读取 Repository CaptureSnapshot、RecordProcessed、IsExactFinalizedRunReplay，AuthorityService ExecuteCommandLocked，Persistence CommitDocument；26 个全状态候选复制位置及五类映射导出/排序仍存在，锁内持久化与历史增长的静态风险不变。当前审计路径未发现 ProcessedRequests 运行时裁剪或容量上限，不据此断言已发生泄漏。
+- 重新读取 GameInstance 物品 authority 生命周期、Run 30Hz 时间线、阵法/暗器分级定义和 P1.14 产品切换报告；核对 V3 observer 的 UsesShanmenItemLifecycle / PostActivationNoLegacyWrite / PostTerminalNoLegacyWrite 分支。报告明确“唯一权威”是领域约束与已有路由证据，不假称已证明全部历史入口不可达。
+- 核对局部 Journal 16 条上限与 manifest 48 bytes 定义：不概括为所有队列无限，也不把 manifest 当完整 checkpoint。
+- 重新读取 P27.28 启动采样原行：进程 Physical 628.29 MB、Virtual 648.35 MB，仍是 NullRHI/NoSound 的历史启动样本。本轮没有获得实际游戏 RAM/VRAM 峰值或线程耗时。
+- 保持七类 UI 分区、五类数据所有权、操作等级与成熟度等级的区别；后续页面契约、灰盒接线、性能采样均是准备要求，不声称已实现或已经授权本轮执行。
+
+### 交接范围
+
+仅更新总体 Report 与本 Log，沿用现有 GitHub 文档交接，不发送技术信封、不上传 Saved 原日志目录、私有草稿、无关用户文件或产品代码。未开始 UI/游戏性实现，未改变监控，也未宣布底层整体冻结。
+
+发布前检查：45 个本地相对链接目标全部存在，原证据 JSON 可解析，`git diff --check` 通过；差异精确为这两份 Markdown。103 个既有未跟踪用户文件的路径集合和原字节 SHA-256 全部保持；检查时 HEAD 与入场一致，index 为空，没有产品代码差异。换行策略的 LF/CRLF 提示不作为产品故障。
