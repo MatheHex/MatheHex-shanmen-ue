@@ -367,3 +367,28 @@ P27.28 早期 Reset 的历史措辞也应以实际差异为准：不要推导成
 可以准备 UI 信息架构、字段/命令表、UE 类与资产接线清单及性能采样方案；不能宣布所有物品入口已统一、框架整体冻结、真实可玩或性能达标。仅提交本总体 Report 与 Development Log；未开始实际游戏性开发。
 
 发布前检查：两文档 56 个本地相对链接目标存在，历史 evidence.json 可解析；`git diff --check` 通过；改动映射为 `REGRESSION_COVERAGE: PASS Changed=2 Rules=0 Required=0 Logs=0`，这表示纯文档无 UE 必跑组，不表示新产品测试通过。1,577 个产品输入和 103 个既有未跟踪用户文件的路径/原字节 SHA-256 与入场一致，HEAD 未变化。精确暂存两份 Markdown 后提交及普通推送，不强推、不混入用户文件或 Saved 原始证据。
+
+## 17. 总体报告交付核对与未提交开发隔离（2026-09-16 UTC）
+
+### 范围
+
+用户当前要求总体报告，涵盖系统与分级、信息分区、计算和内存、完成度，为 UI 与 UE 实装准备。本轮不按历史 heartbeat 继续开发；复用并校正既有总体 Report，避免另起重复报告或新增产品功能。
+
+入场本地 HEAD 与远端分支均为 `f89605577b6e07e30c3e87fd949b89144297bf57`，最新已提交产品为 P28.1。Index 无暂存内容；工作区已有四个 P28.2 源码修改和一个冻结索引修改，另有 105 个未跟踪文件（103 个既有用户文件及两份 P28.2 阶段草稿）。记录 1,723 个产品/脚本输入、未跟踪文件及修改中索引的原字节哈希作为保持基准。仅允许本总体 Report/Log 进入这次文档提交。
+
+### 本轮核验
+
+- 完整读取总体 Report，读取最新冻结索引、P28.1/P28.2 阶段材料；重新读取 uproject 与五个新模块 Build.cs，确认六模块及 Engine/GAS 依赖分区未改变。
+- 直接核对 Repository.CaptureSnapshot 五类全量数组导出与排序、RecordProcessed 历史追加、26 个 FState Candidate 拷贝位置；核对 ExecuteCommandLocked 的 BeforeDocument/Before/After 和同步 SaveAuthority，及 Subsystem 的 Game Thread 前置条件。维持“有增长/复制/同步等待风险，尚未测得实际泄漏或卡顿”的结论。
+- 重新读取 P27.28 原日志，确认 628.29 MB Physical / 648.35 MB Virtual 为 NullRHI/NoSound 下的启动采样，不是实际游戏 RAM/VRAM 峰值。
+- 读取 P28.1 Items/旧根的原始日志及 run-state，Success/Fail 为 80/0 与 1330/0，native 均为 0；原 SHA-256 与第 16 节相同。读取 P28.1 Editor/Game run-state，均为 SUCCEEDED/native 0。本轮不重跑 UE。
+- 本地 P28.2 原始 Items/旧根分别为 84/0、1330/0，native 0；SHA-256 分别为 `898B2FDD2D2174BF0299E5695358DE571434FCAE48433B474953FBC74490C921`、`8A5A38D68075D55FF8F49E4898A14872D5B5201628BEA593A7B42F95596E9D8B`。路径为 `Saved/FoundationRuns/Dev.D.UE.0.0.10.P28.2.r0/ItemsFullRoot/20260916T205309354Z-783a8928/UnrealEditor.log` 与 `Saved/FoundationRuns/Dev.D.UE.0.0.10.P28.2.r0/LegacyFullRoot/20260916T205334895Z-03207bde/UnrealEditor.log`。
+- P28.2 Game 的 `Saved/FoundationRuns/Dev.D.UE.0.0.10.P28.2.r0.Validation/BuildGame/20260916T205430917Z-fbf9f625/run-state.json` 已记录 SUCCEEDED/native 0，完成于 20:58:42.0048041Z。但阶段 Report/Log 仍为待完善草稿，源码未提交；总体报告只列本地进展，不代替该阶段发布审核或最终冻结证据。
+
+### 交付结论
+
+总体 Report 保留六模块职责、五类信息所有权、七类 UI 分区、D0–D4 完成度、操作熟练度分级、内存事实与情景估算、UI/UE 准备清单。修正开头工作区快照，分清已提交 P28.1 和未提交 P28.2；不把四份不同基线的测试结果拼成当前全量通过。
+
+本轮未改动产品代码、配置、资产、存档、监控或 P28.2 阶段文件；未启动新的构建/UE 测试、Editor UI、PIE、Standalone、Cook/Package。后续准入仍是先闭合有限框架审计，并准备字段/命令、页面状态和 UE 接线清单；未自动开始实际游戏性开发。
+
+发布前检查：总体 Report/Log 的 55 个本地相对链接目标均存在，历史 evidence.json 可解析，`git diff --check` 通过。精确两文档映射结果为 `REGRESSION_COVERAGE: PASS Changed=2 Rules=0 Required=0 Logs=0`；这是纯文档检查，不是新 UE 回归证据。1,723 个受保护路径集合与原字节 SHA-256 均保持，入场 HEAD 未变、index 无旧暂存；仅暂存总体 Report/Log 并普通推送，未将 P28.2 源码或草稿一并发布。
