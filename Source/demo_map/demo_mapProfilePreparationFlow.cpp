@@ -450,9 +450,17 @@ Fdemo_mapProfileSessionBeginResult Fdemo_mapProfilePreparationFlow::StartPrepare
 		return Result;
 	}
 
-	if (Udemo_mapShanmenItemAuthoritySubsystem* Authority =
-		FindBoundShanmenAuthority())
+	if (UsesShanmenItemLifecycle())
 	{
+		Udemo_mapShanmenItemAuthoritySubsystem* Authority = FindBoundShanmenAuthority();
+		if (!Authority)
+		{
+			Phase = Edemo_mapProfilePreparationFlowPhase::RecoveryRequired;
+			Result.Status = Edemo_mapProfileSessionBeginStatus::SessionNotReady;
+			Result.Diagnostic = TEXT("Shanmen Start requires recovery of its bound authority; legacy fallback is forbidden.");
+			Result.Snapshot = Session->GetSnapshot();
+			return Result;
+		}
 		const Fdemo_mapShanmenRunStartResult Start =
 			Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
 				*Authority, *Runtime);
@@ -660,6 +668,11 @@ Fdemo_mapProfileSessionSettlementResult Fdemo_mapProfilePreparationFlow::CancelA
 	}
 	if (bShanmenRunMaterialized && UsesShanmenItemLifecycle())
 	{
+		if (!FindBoundShanmenAuthority())
+		{
+			Phase = Edemo_mapProfilePreparationFlowPhase::RecoveryRequired;
+			return RejectSettlement(TEXT("Shanmen activation rollback requires its ready bound authority; Runtime is retained for recovery."));
+		}
 		Fdemo_mapSettlementSummary Summary;
 		const Fdemo_mapItemOperationResult RuntimeResult =
 			Runtime->RequestSettlement(
@@ -735,7 +748,16 @@ Fdemo_mapProfilePreparationFlow::FindBoundShanmenAuthority() const
 
 bool Fdemo_mapProfilePreparationFlow::UsesShanmenItemLifecycle() const
 {
-	return FindBoundShanmenAuthority() != nullptr;
+	// Lifecycle ownership cannot disappear with temporary readiness. Retain an
+	// already materialized/pending Run even if its weak authority is unavailable;
+	// individual commands still require FindBoundShanmenAuthority() to be ready.
+	if (bShanmenRunMaterialized || PendingShanmenSettlement.IsSet()) return true;
+	const Udemo_mapShanmenItemAuthoritySubsystem* Authority = ShanmenAuthority.Get();
+	return Authority
+		&& Authority->GetBoundOwnerId() == ProfileId
+		&& Authority->GetBoundStorageRoot().Equals(StorageRoot, ESearchCase::IgnoreCase)
+		&& (Authority->GetLifecycleState() == Edemo_mapShanmenItemAuthorityLifecycleState::Ready
+			|| Authority->GetLifecycleState() == Edemo_mapShanmenItemAuthorityLifecycleState::RecoveryRequired);
 }
 
 FGuid Fdemo_mapProfilePreparationFlow::GetRecoverableShanmenRunId() const

@@ -6940,6 +6940,22 @@ try
             -Paths @($SimilarPath) -ExpectedText 'unmapped changed paths'
     }
 
+    $ProfileFlowLegacy = New-AutomationLogFixture -Name 'profile-flow-legacy-root.log' -Group 'demo_map'
+    $ProfileFlowNew = New-AutomationLogFixture -Name 'profile-flow-new.log' -Group 'Shanmen.0_0_10.Items.ProductFlow'
+    foreach ($FlowPath in @(
+            'Source/demo_map/demo_mapProfilePreparationFlow.cpp',
+            'Source/demo_map/demo_mapProfilePreparationFlow.h',
+            'Source/demo_map/demo_mapProfilePreparationFlowTests.cpp'))
+    {
+        Invoke-ExpectedFail -Name "product Flow rejects legacy-only evidence: $FlowPath" `
+            -Paths @($FlowPath) -Logs @($ProfileFlowLegacy) -ExpectedText 'missing required groups'
+        Invoke-ExpectedPass -Name "product Flow includes both authority generations: $FlowPath" `
+            -Paths @($FlowPath) -Logs @($ProfileFlowLegacy, $ProfileFlowNew)
+    }
+    Invoke-ExpectedFail -Name 'product Flow cannot discard legacy Profile regression' `
+        -Paths @('Source/demo_map/demo_mapProfilePreparationFlow.cpp') `
+        -Logs @($ProfileFlowNew) -ExpectedText 'missing required groups'
+
     Write-Output (
         'SELF_TEST: PASS {0}/{0}' -f $script:SelfTestPassCount)
 }

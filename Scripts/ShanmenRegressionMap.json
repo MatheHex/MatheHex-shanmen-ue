@@ -3119,6 +3119,13 @@
       ]
     },
     {
+      "name": "ProfilePreparationProductFlow",
+      "pathRegex": "^Source/demo_map/demo_mapProfilePreparationFlow(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Items.ProductFlow"
+      ]
+    },
+    {
       "name": "P1R6SpatialRingSchemaMigration",
       "pathRegex": "^Source/demo_map/demo_mapP1R6SpatialRingTests\\.cpp$",
       "requiredGroups": [

@@ -87,7 +87,7 @@ public:
 	int32 GetSettlementRetryCount() const { return SettlementRetryCount; }
 	/** Compatibility presentation only; item authority remains ShanmenItems. */
 	Fdemo_mapProfileSessionSnapshot GetPresentationSnapshot() const;
-	/** True only for the ready authority bound to this exact root and owner. */
+	/** Lifecycle ownership survives RecoveryRequired; commands separately require readiness. */
 	bool UsesShanmenItemLifecycle() const;
 	/** Read-only UI recovery identity; no Runtime or durable mutation occurs. */
 	FGuid GetRecoverableShanmenRunId() const;

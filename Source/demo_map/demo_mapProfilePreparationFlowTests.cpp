@@ -2,8 +2,10 @@
 
 #include "Misc/AutomationTest.h"
 #include "demo_map0909BSectWarehouseService.h"
+#include "demo_mapAttributeComponent.h"
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapItemSubsystem.h"
+#include "demo_mapPlayerHealthComponent.h"
 #include "demo_mapProfilePreparationFlow.h"
 #include "demo_mapProfilePreparationWidget.h"
 #include "demo_mapProfileRepository.h"
@@ -771,6 +773,159 @@ bool FShanmenProductFlowRuntimeRecoveryTest::RunTest(const FString&)
 	Fdemo_mapShanmenRunCorrelation TerminalCorrelation;
 	TestFalse(TEXT("Finalized Run has no active authority correlation"),
 		Flow.TryGetActiveShanmenRunCorrelation(TerminalCorrelation));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenProductFlowAuthorityRecoveryRoutingTest,
+	"Shanmen.0_0_10.Items.ProductFlow.AuthorityRecoveryRouting",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenProductFlowAuthorityRecoveryRoutingTest::RunTest(const FString&)
+{
+	const FProductionSnapshot Production;
+	const FString Root = NewFlowRoot();
+	const Fdemo_mapProfileStorageContext ProfileStorage =
+		Fdemo_mapProfileStorageContext::ForRoot(Root);
+	Fdemo_mapProfileRepository Repository;
+	Fdemo_mapPersistentProfile Seed = Repository.CreateFreshProfile();
+	Fdemo_mapPersistentItemRecord Pill;
+	Pill.ItemInstanceId = FGuid::NewGuid();
+	Pill.ItemDefinitionId = Fdemo_mapItemIds::HealingPillLevel1;
+	Pill.StackCount = 3;
+	Pill.PersistentDomain = Edemo_mapPersistentDomain::PermanentStash;
+	Seed.PermanentStash.Add(Pill);
+	if (!TestTrue(TEXT("Isolated nonzero Profile is saved"),
+			Repository.SaveProfile(Seed, ProfileStorage).IsSuccess()))
+	{
+		return false;
+	}
+	FFlowFixture Fixture;
+	Fdemo_mapProfilePreparationFlow Flow;
+	Udemo_mapShanmenItemAuthoritySubsystem* Authority = nullptr;
+	Fdemo_map0909BSectWarehouseService Warehouse;
+	if (!InitializeCutoverFlow(
+			*this, Fixture, Flow, Root, Authority, Warehouse))
+	{
+		return false;
+	}
+	const FGuid Blade = FindDefinition(
+		Fixture.Session->GetSnapshot(), Fdemo_mapItemIds::TrainingBlade);
+	if (!TestTrue(TEXT("Real blade and pill stack are prepared"),
+			Fixture.Session->SetPreparationEquipment(
+				Fdemo_mapItemIds::WeaponSlot, Blade).IsAccepted()
+			&& Fixture.Session->SetPreparationMaterial(
+				Pill.ItemInstanceId, true).IsAccepted()))
+	{
+		return false;
+	}
+	Fixture.Runtime->ResetForAutomation();
+	Udemo_mapAttributeComponent* Attributes =
+		NewObject<Udemo_mapAttributeComponent>(GetTransientPackage());
+	Udemo_mapPlayerHealthComponent* Health =
+		NewObject<Udemo_mapPlayerHealthComponent>(GetTransientPackage());
+	if (!Health->BindAttributeComponent(Attributes, true)) return false;
+	Fixture.Runtime->BindAttributeComponent(Attributes);
+	Fixture.Runtime->BindHealthComponent(Health);
+	const Fdemo_mapProfileSessionBeginResult Started = Flow.StartPreparedRunDirect();
+	const FGuid RunId = Flow.GetStartedRunId();
+	Health->SetCurrentHealthForAutomation(1);
+	const Fdemo_mapItemInstance* InitialPill =
+		Fixture.Runtime->GetAuthority().FindInstance(Pill.ItemInstanceId);
+	if (!TestTrue(TEXT("Durable Run materializes three pills and damaged health"),
+			Started.IsRunActive() && RunId.IsValid()
+			&& Flow.UsesShanmenItemLifecycle()
+			&& InitialPill && InitialPill->Quantity == 3
+			&& Health->GetCurrentHealth() == 1))
+	{
+		return false;
+	}
+	TArray<uint8> ProfileBefore;
+	if (!ReadFlowBytes(ProfileStorage.PrimaryPath(), ProfileBefore)) return false;
+	const FShanmenItemStorageContext ItemStorage =
+		FShanmenItemStorageContext::ForRoot(Root, Flow.GetProfileId());
+	// Only this unique, validated automation root is faulted. A failed write
+	// cannot reconcile either disk copy, so the real service enters recovery.
+	if (!TestTrue(TEXT("Isolated authority copies are faulted"),
+			FFileHelper::SaveStringToFile(TEXT("P28.1 invalid primary"), *ItemStorage.PrimaryPath())
+			&& FFileHelper::SaveStringToFile(TEXT("P28.1 invalid backup"), *ItemStorage.BackupPath())))
+	{
+		return false;
+	}
+	Authority->SetInjectedFailureForAutomation(EShanmenItemStoreFailureStage::WriteTemp);
+	TestFalse(TEXT("Uncertain durable consume cannot apply Runtime effect"),
+		Flow.UseActiveRunInventoryItem(Pill.ItemInstanceId, true).IsSuccess());
+	if (!TestTrue(TEXT("Real persistence failure enters RecoveryRequired"),
+			Authority->GetLifecycleState()
+				== Edemo_mapShanmenItemAuthorityLifecycleState::RecoveryRequired))
+	{
+		return false;
+	}
+	TestTrue(TEXT("Recovery cannot switch a cutover Run to legacy routing"),
+		Flow.UsesShanmenItemLifecycle());
+	TestFalse(TEXT("Repeated inventory command remains rejected"),
+		Flow.UseActiveRunInventoryItem(Pill.ItemInstanceId, true).IsSuccess());
+	TestFalse(TEXT("Hotbar command also remains rejected"),
+		Flow.UseActiveRunHotbarSlot(1, true));
+	const Fdemo_mapProfileSessionSettlementResult Rollback =
+		Flow.CancelActiveRunForActivationFailure();
+	TestTrue(TEXT("Recovery rollback retains Runtime and exact Run rather than clearing it"),
+		!Rollback.IsDurablySettled()
+		&& Flow.GetPhase() == Edemo_mapProfilePreparationFlowPhase::RecoveryRequired
+		&& Flow.GetStartedRunId() == RunId
+		&& Fixture.Runtime->GetRunState() == Edemo_mapRunState::Active
+		&& Fixture.Runtime->GetActiveRunId() == RunId);
+	const Fdemo_mapItemInstance* RetainedPill =
+		Fixture.Runtime->GetAuthority().FindInstance(Pill.ItemInstanceId);
+	TArray<uint8> ProfileAfter;
+	TestTrue(TEXT("Nonzero Runtime and retired Profile are preserved"),
+		RetainedPill && RetainedPill->Quantity == 3
+		&& Health->GetCurrentHealth() == 1
+		&& ReadFlowBytes(ProfileStorage.PrimaryPath(), ProfileAfter)
+		&& ProfileAfter == ProfileBefore);
+	Flow.Unbind();
+	TestFalse(TEXT("Explicit unbind releases lifecycle routing"), Flow.UsesShanmenItemLifecycle());
+	TestTrue(TEXT("Production Profile remains untouched"), Production.IsUnchanged());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenProductFlowRecoveryBeforeStartTest,
+	"Shanmen.0_0_10.Items.ProductFlow.AuthorityRecoveryBeforeStart",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenProductFlowRecoveryBeforeStartTest::RunTest(const FString&)
+{
+	const FString Root = NewFlowRoot();
+	FFlowFixture Fixture;
+	Fdemo_mapProfilePreparationFlow Flow;
+	Udemo_mapShanmenItemAuthoritySubsystem* Authority = nullptr;
+	Fdemo_map0909BSectWarehouseService Warehouse;
+	if (!InitializeCutoverFlow(*this, Fixture, Flow, Root, Authority, Warehouse)) return false;
+	const FGuid Blade = FindDefinition(
+		Fixture.Session->GetSnapshot(), Fdemo_mapItemIds::TrainingBlade);
+	if (!TestTrue(TEXT("Preparation retains a real migrated blade"), Blade.IsValid())) return false;
+	TArray<uint8> ProfileBefore;
+	const Fdemo_mapProfileStorageContext ProfileStorage = Fdemo_mapProfileStorageContext::ForRoot(Root);
+	if (!ReadFlowBytes(ProfileStorage.PrimaryPath(), ProfileBefore)) return false;
+	const FShanmenItemStorageContext ItemStorage = FShanmenItemStorageContext::ForRoot(Root, Flow.GetProfileId());
+	if (!FFileHelper::SaveStringToFile(TEXT("P28.1 invalid primary"), *ItemStorage.PrimaryPath())
+		|| !FFileHelper::SaveStringToFile(TEXT("P28.1 invalid backup"), *ItemStorage.BackupPath())) return false;
+	Authority->SetInjectedFailureForAutomation(EShanmenItemStoreFailureStage::WriteTemp);
+	Fixture.Session->SetPreparationEquipment(Fdemo_mapItemIds::WeaponSlot, Blade);
+	if (!TestTrue(TEXT("Preparation persistence failure enters actual recovery"),
+		Authority->GetLifecycleState() == Edemo_mapShanmenItemAuthorityLifecycleState::RecoveryRequired)) return false;
+	TestTrue(TEXT("Cutover ownership survives before any Run materializes"), Flow.UsesShanmenItemLifecycle());
+	const Fdemo_mapProfileSessionBeginResult Started = Flow.StartPreparedRunDirect();
+	TestTrue(TEXT("Start explicitly fails closed without entering legacy start"),
+		Started.Status == Edemo_mapProfileSessionBeginStatus::SessionNotReady
+		&& Started.Diagnostic.Contains(TEXT("legacy fallback is forbidden"))
+		&& Flow.GetPhase() == Edemo_mapProfilePreparationFlowPhase::RecoveryRequired
+		&& !Flow.GetStartedRunId().IsValid()
+		&& Fixture.Runtime->GetRunState() == Edemo_mapRunState::Inactive);
+	TArray<uint8> ProfileAfter;
+	TestTrue(TEXT("Recovery start does not rewrite the retired Profile"),
+		ReadFlowBytes(ProfileStorage.PrimaryPath(), ProfileAfter) && ProfileAfter == ProfileBefore);
 	return true;
 }
 
