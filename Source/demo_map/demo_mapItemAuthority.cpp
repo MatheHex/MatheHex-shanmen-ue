@@ -488,7 +488,15 @@ Fdemo_mapItemOperationResult Fdemo_mapItemAuthority::CommitOrRollback(const Fdem
 	return Fdemo_mapItemOperationResult::Success(InstanceId, DefinitionId, SlotId);
 }
 
-Fdemo_mapItemOperationResult Fdemo_mapItemAuthority::AddDefinition(FName DefinitionId, int32 Quantity, TArray<FGuid>* OutAffectedInstances)
+bool Fdemo_mapItemAuthority::CanMergeInstanceIdentities(
+	FGuid SourceId, FGuid TargetId, const TSet<FGuid>* PreparedItemIds)
+{
+	return !PreparedItemIds
+		|| (!PreparedItemIds->Contains(SourceId) && !PreparedItemIds->Contains(TargetId));
+}
+
+Fdemo_mapItemOperationResult Fdemo_mapItemAuthority::AddDefinition(FName DefinitionId, int32 Quantity,
+	TArray<FGuid>* OutAffectedInstances, const TSet<FGuid>* PreparedItemIds)
 {
 	if (OutAffectedInstances) OutAffectedInstances->Reset();
 	const Fdemo_mapItemDefinition* Definition = Fdemo_mapItemDefinitions::Find(DefinitionId);
@@ -503,6 +511,7 @@ Fdemo_mapItemOperationResult Fdemo_mapItemAuthority::AddDefinition(FName Definit
 			const Fdemo_mapItemInstance* Instance = Instances.Find(SlotId);
 			if (Instance != nullptr
 				&& Instance->OwnershipState == Edemo_mapItemOwnershipState::Inventory
+				&& CanMergeInstanceIdentities(FGuid(), Instance->InstanceId, PreparedItemIds)
 				&& Fdemo_mapRewardEventRules::AreStackCompatible(
 					Instance->DefinitionId,
 					Instance->RewardEventKind,
@@ -531,6 +540,7 @@ Fdemo_mapItemOperationResult Fdemo_mapItemAuthority::AddDefinition(FName Definit
 			Fdemo_mapItemInstance* Instance = Instances.Find(SlotId);
 			if (Instance == nullptr
 				|| Instance->Quantity >= Definition->MaxStackSize
+				|| !CanMergeInstanceIdentities(FGuid(), Instance->InstanceId, PreparedItemIds)
 				|| !Fdemo_mapRewardEventRules::AreStackCompatible(
 					Instance->DefinitionId,
 					Instance->RewardEventKind,
@@ -601,7 +611,8 @@ Fdemo_mapItemOperationResult Fdemo_mapItemAuthority::CreateWorldDefinition(FName
 	return Result;
 }
 
-Fdemo_mapItemOperationResult Fdemo_mapItemAuthority::PickupWorld(FGuid InstanceId, TArray<FGuid>* OutAffectedInstances)
+Fdemo_mapItemOperationResult Fdemo_mapItemAuthority::PickupWorld(FGuid InstanceId,
+	TArray<FGuid>* OutAffectedInstances, const TSet<FGuid>* PreparedItemIds)
 {
 	if (OutAffectedInstances) OutAffectedInstances->Reset();
 	Fdemo_mapItemInstance* WorldInstance = Instances.Find(InstanceId);
@@ -615,6 +626,7 @@ Fdemo_mapItemOperationResult Fdemo_mapItemAuthority::PickupWorld(FGuid InstanceI
 	{
 		const Fdemo_mapItemInstance* Existing = Instances.Find(SlotId);
 		if (Existing != nullptr
+			&& CanMergeInstanceIdentities(InstanceId, Existing->InstanceId, PreparedItemIds)
 			&& Fdemo_mapRewardEventRules::AreStackCompatible(
 				Existing->DefinitionId,
 				Existing->RewardEventKind,
@@ -649,6 +661,7 @@ Fdemo_mapItemOperationResult Fdemo_mapItemAuthority::PickupWorld(FGuid InstanceI
 			Fdemo_mapItemInstance* Existing = Instances.Find(SlotId);
 			if (Existing == nullptr
 				|| Existing->Quantity >= Definition->MaxStackSize
+				|| !CanMergeInstanceIdentities(InstanceId, Existing->InstanceId, PreparedItemIds)
 				|| !Fdemo_mapRewardEventRules::AreStackCompatible(
 					Existing->DefinitionId,
 					Existing->RewardEventKind,
@@ -1065,7 +1078,8 @@ Fdemo_mapItemOperationResult Fdemo_mapItemAuthority::MoveInventorySlot(
 }
 
 Fdemo_mapPlayerItemDropResult Fdemo_mapItemAuthority::ExecutePlayerItemDrop(
-	const Fdemo_mapPlayerItemDropIntent& Intent)
+	const Fdemo_mapPlayerItemDropIntent& Intent,
+	const TSet<FGuid>* PreparedItemIds)
 {
 	Fdemo_mapPlayerItemDropResult Result;
 	Result.SourceItemInstanceId = Intent.ExpectedSourceItemInstanceId;
@@ -1205,7 +1219,8 @@ Fdemo_mapPlayerItemDropResult Fdemo_mapItemAuthority::ExecutePlayerItemDrop(
 	if (!Source || !Target || !Definition)
 		return Reject(Edemo_mapItemResultCode::InvariantViolation, TEXT("拖拽物品记录或定义缺失。"));
 	const bool bCompatibleStacks =
-		Source->AffixSet == Target->AffixSet
+		CanMergeInstanceIdentities(SourceId, TargetId, PreparedItemIds)
+		&& Source->AffixSet == Target->AffixSet
 		&& Fdemo_mapRewardEventRules::AreStackCompatible(
 			Source->DefinitionId, Source->RewardEventKind, Source->RewardEventId,
 			Source->RewardValueMultiplierBps, Source->RewardSourceRoleId,

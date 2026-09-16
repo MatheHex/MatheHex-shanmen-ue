@@ -1,6 +1,6 @@
 # 0.0.10 底层契约、权威与生命周期索引
 
-状态：`FREEZE_AUDIT_IN_PROGRESS`，不是整体冻结或 F 阶段验收。初版 P28.0，2026-09-16；最近完整全产品根验证基线为 [P27.31 / 0b6af9c](https://github.com/MatheHex/MatheHex-shanmen-ue/commit/0b6af9c52efde41c1508b4b7a540bb8198a103a3)，后续 P28.1 路由修补与受影响回归见第 4 节。后续审计更新本文的有限清单，不因“继续”无限追加系统。
+状态：`FREEZE_AUDIT_IN_PROGRESS`，不是整体冻结或 F 阶段验收。初版 P28.0，2026-09-16；最近完整全产品根验证基线为 [P27.31 / 0b6af9c](https://github.com/MatheHex/MatheHex-shanmen-ue/commit/0b6af9c52efde41c1508b4b7a540bb8198a103a3)，后续 P28.1 路由修补、P28.2 携入身份保护与受影响回归见第 4 节。后续审计更新本文的有限清单，不因“继续”无限追加系统。
 
 ## 1. 范围来源与非目标
 
@@ -45,13 +45,17 @@
 
 | 编号 | 状态 | 关闭条件 |
 |---|---|---|
-| FZ-1 全入口权威路由 | P28.1 已复现并修复 Ready/归属混用；全部入口审计仍待完成 | 覆盖产品整备/拾取/快捷使用/库存使用/终局，标注 Shanmen cutover 及旧兼容分支；说明 Code A Runtime 可变投影如何受 durable 结果约束。不能以一个 Flow 修复代替全部调用图证明 |
+| FZ-1 全入口权威路由 | P28.1 修复 Ready/归属混用；P28.2 修复携入堆叠被新获物合并的身份缺口，阶段验证见对应 Report；全部入口审计仍待完成 | 覆盖产品整备/拾取/快捷使用/库存使用/终局，标注 Shanmen cutover 及旧兼容分支；说明 Code A Runtime 可变投影如何受 durable 结果约束。不能以局部修复代替全部调用图证明 |
 | FZ-2 Run 激活失败及最终释放 | 待完成可达性/保持核对，非已复现数据丢失 | 将 TryActivateCombatRun 的早期回滚与统一 Release 的适用范围说明清楚；对可达失败证明 owner 保留或安全回滚，对前置约束已排除的分支记录推理；EndPlay 不可当已成功清理的证据 |
 | FZ-3 最终冻结证据 | 等 FZ-1/2 关闭后执行 | 产品输入固定，完整新旧根、Editor/Game、改动映射和文档检查完成；保留失败/中断原件，发布最终 Report/Log/Git 基线后暂停监控 |
 
 P28.0 已深读 FZ-2 的部分源码：激活入口先排斥残留 session/condition；Condition TryBegin 建立无活动 modifier 状态；剑法 Session/Presentation TryBegin 以有效 Run 构造候选。早期回滚仍有 TryEnd 失败后 Reset 的分支，但仅看到这些代码不足以证明正常入口能制造该失败。没有因此修改源码或新增故障注入接口。
 
 P28.1 的隔离存盘故障证明：已切换的 Flow 曾随 Authority 进入 RecoveryRequired 而丢失新流程归属，技术回滚也未保持原 Runtime。现在归属与 Ready 分开，启动/消费/回滚仍要求 ready authority，恢复状态不回到旧路径。两个新增非零测试覆盖启动前与活动 Run；正常旧流程继续回归。Manager 库存/快捷路由及两处 Code B observer 通过同一谓词受约束，未另建路由或模拟物理输入。具体完成证据见 [P28.1 Report](../Report/Dev.D.UE.0.0.10.P28.1.r0_report.md) / [Log](../Log/Dev.D.UE.0.0.10.P28.1.r0_log.md)。这不是全部旧 writer 已不可达或整个 World 恢复已完成的证明。
+
+P28.2 沿实际 Runtime 获物→消费→终局路径复现：三颗携入丹被一颗新获同类丹合并，导致原实例数量/来源改变，持久消费和原样撤离交接均被拒绝。修复复用 Runtime 已有 DeployedItemIds：自动入包/World 拾取的容量预检与合并、玩家拖拽和容器双向合并都不吸收或消灭携入身份；重新拾取携入物不将其标成新获物。没有新增持久 schema 或第二份权威，也不放宽既有数量/终局校验。阶段与验证见 [P28.2 Report](../Report/Dev.D.UE.0.0.10.P28.2.r0_report.md) / [Log](../Log/Dev.D.UE.0.0.10.P28.2.r0_log.md)。
+
+剩余 FZ-1 需要继续区分既有规则与可达故障：持久测试明确要求撤离不能默默丢失 DeploymentLock 装备，因此本轮没有改成“缺少即销毁”；丢弃/存入容器与该终局规则的整体边界仍待闭合。新获但未整备消耗品的使用入口也需核对当前 ItemNotPrepared 限制，不能以恢复旧 Runtime 消费旁路解决。上述项不因本轮堆叠保护成功而视为全部完成。
 
 ## 5. 与冻结分开的债务
 
@@ -64,6 +68,7 @@ P28.1 的隔离存盘故障证明：已切换的 Flow 曾随 Authority 进入 Re
 ## 6. 证据与文档入口
 
 - 最近完整产品验证：[P27.31 Report](../Report/Dev.D.UE.0.0.10.P27.31.r0_report.md)、[Log](../Log/Dev.D.UE.0.0.10.P27.31.r0_log.md)：新根 1419/0、旧根 1330/0、双构建原生 0/0；原日志路径与 SHA-256 在 Log。
+- 最新携入身份保护：[P28.2 Report](../Report/Dev.D.UE.0.0.10.P28.2.r0_report.md)、[Log](../Log/Dev.D.UE.0.0.10.P28.2.r0_log.md)：Items 84/0、旧根 1330/0、双构建原生 0/0；专项 10 项包含在 Items 内，不当作最终 Shanmen 全根验证。
 - 本次索引与文档分类：[P28.0 Report](../Report/Dev.D.UE.0.0.10.P28.0.r0_report.md)、[Log](../Log/Dev.D.UE.0.0.10.P28.0.r0_log.md)。其验证不冒充新一轮完整产品根。
 - [项目入口](../../PROJECT.md)、[信息卡](../../PROJECT_INFO_CARD.md) 顶部为当前说明，下部是明确标注的 0.0.9B 历史；[旧 I 门禁](../Process/I_STAGE_FOUNDATION_GATE.md) 仅作历史。
 - 本索引状态仍为 FREEZE_AUDIT_IN_PROGRESS；没有宣布所有已批准契约全部闭合，也没有暂停监控或进入 F。

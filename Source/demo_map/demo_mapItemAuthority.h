@@ -39,12 +39,15 @@ public:
 	Fdemo_mapItemAuthority();
 	void Reset();
 
-	Fdemo_mapItemOperationResult AddDefinition(FName DefinitionId, int32 Quantity, TArray<FGuid>* OutAffectedInstances = nullptr);
+	/** Borrow the current Run's prepared IDs; never merge resources into or out of those identities. */
+	Fdemo_mapItemOperationResult AddDefinition(FName DefinitionId, int32 Quantity, TArray<FGuid>* OutAffectedInstances = nullptr,
+		const TSet<FGuid>* PreparedItemIds = nullptr);
 	Fdemo_mapItemOperationResult Equip(FGuid InstanceId, FName SlotId);
 	Fdemo_mapItemOperationResult Unequip(FName SlotId);
 	Fdemo_mapItemOperationResult Destroy(FGuid InstanceId);
 	Fdemo_mapItemOperationResult CreateWorldDefinition(FName DefinitionId, int32 Quantity, FGuid& OutInstanceId);
-	Fdemo_mapItemOperationResult PickupWorld(FGuid InstanceId, TArray<FGuid>* OutAffectedInstances = nullptr);
+	Fdemo_mapItemOperationResult PickupWorld(FGuid InstanceId, TArray<FGuid>* OutAffectedInstances = nullptr,
+		const TSet<FGuid>* PreparedItemIds = nullptr);
 	Fdemo_mapItemOperationResult CreateContainerDefinition(
 		FName DefinitionId,
 		int32 Quantity,
@@ -83,7 +86,8 @@ public:
 	 * whole Move/Swap/Merge/Equip/Unequip transaction or rejects unchanged.
 	 */
 	Fdemo_mapPlayerItemDropResult ExecutePlayerItemDrop(
-		const Fdemo_mapPlayerItemDropIntent& Intent);
+		const Fdemo_mapPlayerItemDropIntent& Intent,
+		const TSet<FGuid>* PreparedItemIds = nullptr);
 	Fdemo_mapItemOperationResult DestroyContainer(
 		FGuid InstanceId,
 		FGuid ExpectedContainerId);
@@ -150,6 +154,7 @@ public:
 
 private:
 	friend class Udemo_mapItemSubsystem;
+	static bool CanMergeInstanceIdentities(FGuid SourceId, FGuid TargetId, const TSet<FGuid>* PreparedItemIds);
 	void RestoreState(const Fdemo_mapItemAuthorityState& State);
 	FGuid GenerateUniqueInstanceId() const;
 	int32 FindFirstEmptyInventorySlot() const;

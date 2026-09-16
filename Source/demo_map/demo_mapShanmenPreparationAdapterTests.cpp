@@ -5,6 +5,7 @@
 #include "Components/BoxComponent.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/PlayerController.h"
 #include "ShanmenCombatTags.h"
 #include "ShanmenItemRepository.h"
 #include "ShanmenItemTags.h"
@@ -21,6 +22,8 @@
 #include "demo_mapProfileSessionSubsystem.h"
 #include "demo_mapPlayerHealthComponent.h"
 #include "demo_mapRewardAffix.h"
+#include "demo_mapRuntimeContainer.h"
+#include "demo_mapWorldItem.h"
 #include "demo_mapShanmenControlledWeaponActiveRunRoute.h"
 #include "demo_mapShanmenControlledWeaponActor.h"
 #include "demo_mapShanmenControlledWeaponRunLifecycle.h"
@@ -1092,6 +1095,293 @@ bool FShanmenPreparationPlainPurposeCompatibilityTest::RunTest(const FString&)
 		&& ReplayedDustLine->PurposeId == PlainPurpose
 		&& !ReplayedDustLine->SourceContainerId.IsValid()
 		&& ReplayedDustLine->SourceSlotIndex == INDEX_NONE);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenPreparedRunAcquiredStackIdentityTest,
+	"Shanmen.0_0_10.Items.RunLifecycle.AcquiredStackIdentity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenPreparedRunAcquiredStackIdentityTest::RunTest(const FString&)
+{
+	FPreparationAdapterFixture Fixture;
+	if (!Fixture.StartAndCutover(*this, TEXT("AcquiredStackIdentity"))
+		|| !Fixture.Session->SetPreparationMaterial(Fixture.PillOneId, true).IsAccepted())
+	{
+		return false;
+	}
+	Udemo_mapItemSubsystem* Runtime = Fixture.GameInstance->GetSubsystem<Udemo_mapItemSubsystem>();
+	Udemo_mapAttributeComponent* Attributes = NewObject<Udemo_mapAttributeComponent>(GetTransientPackage());
+	Udemo_mapPlayerHealthComponent* Health = NewObject<Udemo_mapPlayerHealthComponent>(GetTransientPackage());
+	if (!Runtime || !Attributes || !Health || !Health->BindAttributeComponent(Attributes, true)) return false;
+	Runtime->BindAttributeComponent(Attributes);
+	Runtime->BindHealthComponent(Health);
+	const auto Started = Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(*Fixture.Authority, *Runtime);
+	const auto* Initial = Runtime->GetAuthority().FindInstance(Fixture.PillOneId);
+	if (!TestTrue(TEXT("Three prepared pills start with original identity and no acquisition provenance"),
+		Started.IsStarted() && Initial && Initial->Quantity == 3 && !Initial->OriginRunId.IsValid())) return false;
+	TArray<uint8> ProfileBefore;
+	if (!ReadBytes(Fixture.Storage.PrimaryPath(), ProfileBefore)) return false;
+
+	TArray<FGuid> AcquiredIds;
+	const auto Acquired = Runtime->AddDefinition(Fdemo_mapItemIds::HealingPillLevel1, 1, &AcquiredIds);
+	const auto* Original = Runtime->GetAuthority().FindInstance(Fixture.PillOneId);
+	const FGuid LootId = AcquiredIds.Num() == 1 ? AcquiredIds[0] : FGuid();
+	const auto* Loot = Runtime->GetAuthority().FindInstance(LootId);
+	TestTrue(TEXT("New same-definition loot never changes the reserved original quantity or provenance"),
+		Acquired.bSuccess && Original && Original->Quantity == 3 && !Original->OriginRunId.IsValid()
+		&& LootId.IsValid() && LootId != Fixture.PillOneId && Loot && Loot->Quantity == 1
+		&& Loot->OriginRunId == Started.ActiveRunId);
+
+	Health->SetCurrentHealthForAutomation(1);
+	const auto Used = Fdemo_mapShanmenRunLifecycleAdapter::UsePreparedRunInventoryItem(
+		*Fixture.Authority, *Runtime, Fixture.PillOneId, true);
+	Original = Runtime->GetAuthority().FindInstance(Fixture.PillOneId);
+	TestTrue(TEXT("Acquisition does not block one durable use of the prepared stack"),
+		Used.IsSuccess() && Original && Original->Quantity == 2 && Health->GetCurrentHealth() == 2);
+
+	Fdemo_mapSettlementSummary Summary;
+	if (!TestTrue(TEXT("Runtime creates an unedited extraction handoff"),
+		Runtime->RequestSettlement(Edemo_mapRunEndReason::Extraction, Summary).bSuccess && Summary.bValid)) return false;
+	const auto Finalized = Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(*Fixture.Authority, Summary);
+	FShanmenItemAuthoritySnapshot Terminal;
+	if (!TestTrue(TEXT("Extraction accepts original remainder and acquired stack as separate identities"),
+		Finalized.IsFinalized() && Fixture.Authority->TryCaptureSnapshot(Terminal))) return false;
+	const auto* StoredOriginal = Terminal.Items.FindByPredicate([&Fixture](const FShanmenItemInstance& Item)
+		{ return Item.ItemInstanceId == Fixture.PillOneId; });
+	const auto* StoredLoot = Terminal.Items.FindByPredicate([LootId](const FShanmenItemInstance& Item)
+		{ return Item.ItemInstanceId == LootId; });
+	TestTrue(TEXT("The durable result retains two original pills and one separately acquired pill"),
+		StoredOriginal && StoredOriginal->Quantity == 2 && StoredOriginal->State == EShanmenItemInstanceState::Stored
+		&& StoredLoot && StoredLoot->Quantity == 1 && StoredLoot->State == EShanmenItemInstanceState::Stored);
+	FShanmenItemAuthorityDocument BeforeReplay;
+	FShanmenItemAuthorityDocument AfterReplay;
+	TestTrue(TEXT("Exact terminal replay does not persist a second acquisition"),
+		Fixture.Authority->TryGetDocument(BeforeReplay)
+		&& Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(*Fixture.Authority, Summary).IsFinalized()
+		&& Fixture.Authority->TryGetDocument(AfterReplay) && AfterReplay == BeforeReplay);
+	TArray<uint8> ProfileAfter;
+	TestTrue(TEXT("Retired Profile bytes remain untouched"),
+		ReadBytes(Fixture.Storage.PrimaryPath(), ProfileAfter) && ProfileBefore == ProfileAfter);
+	if (!Fixture.RestartAndBind(*this)) return false;
+	FShanmenItemAuthoritySnapshot Restarted;
+	TestTrue(TEXT("Reopening durable authority preserves both exact item identities"),
+		Fixture.Authority->TryCaptureSnapshot(Restarted) && Restarted == Terminal);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenPreparedStackMergeGuardsTest,
+	"Shanmen.0_0_10.Items.RunLifecycle.PreparedStackMergeGuards",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenPreparedStackMergeGuardsTest::RunTest(const FString&)
+{
+	Fdemo_mapItemAuthority Authority;
+	const FGuid OriginalA(0x28200001, 1, 1, 1);
+	const FGuid OriginalB(0x28200001, 1, 1, 2);
+	const TSet<FGuid> PreparedIds { OriginalA, OriginalB };
+	if (!TestTrue(TEXT("Two independent reserved identities materialize"),
+		Authority.MaterializeDeployedInstance(OriginalA, Fdemo_mapItemIds::HealingPillLevel1, 3, NAME_None).bSuccess
+		&& Authority.MaterializeDeployedInstance(OriginalB, Fdemo_mapItemIds::HealingPillLevel1, 2, NAME_None).bSuccess)) return false;
+	TArray<FGuid> LootIds;
+	if (!TestTrue(TEXT("Acquired stacks still merge with other acquired stacks"),
+		Authority.AddDefinition(Fdemo_mapItemIds::HealingPillLevel1, 1, &LootIds, &PreparedIds).bSuccess
+		&& LootIds.Num() == 1 && !PreparedIds.Contains(LootIds[0]))) return false;
+	const FGuid LootId = LootIds[0];
+	TestTrue(TEXT("Second acquisition uses available non-prepared stack space"),
+		Authority.AddDefinition(Fdemo_mapItemIds::HealingPillLevel1, 1, &LootIds, &PreparedIds).bSuccess
+		&& LootIds.Num() == 1 && LootIds[0] == LootId && Authority.FindInstance(LootId)->Quantity == 2);
+	for (const FGuid SourceId : { OriginalA, LootId, OriginalB })
+	{
+		Fdemo_mapPlayerItemDropIntent Intent;
+		Intent.ExpectedAuthorityRevision = Authority.GetAuthorityRevision();
+		Intent.ExpectedSourceItemInstanceId = SourceId;
+		Intent.SourceArea = Intent.TargetArea = Edemo_mapPlayerItemArea::BaseQuickItems;
+		Intent.SourceSlotIndex = Authority.FindInventorySlot(SourceId);
+		Intent.TargetSlotIndex = Authority.FindInventorySlot(SourceId == OriginalA ? LootId : OriginalA);
+		const auto Dropped = Authority.ExecutePlayerItemDrop(Intent, &PreparedIds);
+		TestTrue(TEXT("Player rearrangement swaps whole prepared identities instead of merging either direction"),
+			Dropped.IsSuccess() && Dropped.Kind == Edemo_mapPlayerItemDropKind::Swap
+			&& Authority.FindInstance(OriginalA)->Quantity == 3 && Authority.FindInstance(OriginalB)->Quantity == 2
+			&& Authority.FindInstance(LootId)->Quantity == 2);
+	}
+	TArray<FGuid> Fillers;
+	if (!Authority.Destroy(LootId).bSuccess
+		|| !Authority.AddDefinition(Fdemo_mapItemIds::TrainingBlade, Authority.GetFreeInventorySlots(), &Fillers, &PreparedIds).bSuccess
+		|| Fillers.IsEmpty()) return false;
+	const int32 FullRevision = Authority.GetAuthorityRevision();
+	const auto FullGrant = Authority.AddDefinition(Fdemo_mapItemIds::HealingPillLevel1, 1, &LootIds, &PreparedIds);
+	TestTrue(TEXT("Capacity preflight excludes free units inside prepared stacks"),
+		!FullGrant.bSuccess && FullGrant.Code == Edemo_mapItemResultCode::InventoryFull
+		&& LootIds.IsEmpty() && Authority.GetAuthorityRevision() == FullRevision
+		&& Authority.FindInstance(OriginalA)->Quantity == 3 && Authority.FindInstance(OriginalB)->Quantity == 2);
+	FGuid WorldId;
+	if (!Authority.CreateWorldDefinition(Fdemo_mapItemIds::HealingPillLevel1, 1, WorldId).bSuccess) return false;
+	const int32 BeforePickup = Authority.GetAuthorityRevision();
+	const auto FullPickup = Authority.PickupWorld(WorldId, &LootIds, &PreparedIds);
+	TestTrue(TEXT("Full pickup rejects unchanged rather than hiding units in a prepared identity"),
+		!FullPickup.bSuccess && FullPickup.Code == Edemo_mapItemResultCode::InventoryFull
+		&& Authority.GetAuthorityRevision() == BeforePickup && LootIds.IsEmpty()
+		&& Authority.FindInstance(WorldId)->OwnershipState == Edemo_mapItemOwnershipState::World);
+	TestTrue(TEXT("Once a whole cell is free the acquired world identity survives pickup"),
+		Authority.Destroy(Fillers[0]).bSuccess && Authority.PickupWorld(WorldId, &LootIds, &PreparedIds).bSuccess
+		&& LootIds.Num() == 1 && LootIds[0] == WorldId && Authority.FindInstance(WorldId)->Quantity == 1
+		&& Authority.FindInstance(OriginalA)->Quantity == 3 && Authority.FindInstance(OriginalB)->Quantity == 2
+		&& Authority.ValidateInvariants());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenPreparedWorldPickupIdentityTest,
+	"Shanmen.0_0_10.Items.RunLifecycle.PreparedWorldPickupIdentity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenPreparedWorldPickupIdentityTest::RunTest(const FString&)
+{
+	FPreparationAdapterFixture Fixture;
+	if (!Fixture.StartAndCutover(*this, TEXT("PreparedWorldPickupIdentity"))
+		|| !Fixture.Session->SetPreparationMaterial(Fixture.DustId, true).IsAccepted()) return false;
+	Udemo_mapItemSubsystem* Runtime = Fixture.GameInstance->GetSubsystem<Udemo_mapItemSubsystem>();
+	if (!Runtime) return false;
+	const auto Started = Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(*Fixture.Authority, *Runtime);
+	FControlledWeaponWorldFixture Scene;
+	if (!Started.IsStarted() || !Scene.Start(*this, Fixture.GameInstance, Started.ActiveRunId)) return false;
+	FActorSpawnParameters Spawn;
+	Spawn.ObjectFlags |= RF_Transient;
+	Spawn.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	AActor* Floor = Scene.World->SpawnActor<AActor>(AActor::StaticClass(), FTransform::Identity, Spawn);
+	UBoxComponent* FloorBox = Floor ? NewObject<UBoxComponent>(Floor, NAME_None, RF_Transient) : nullptr;
+	APlayerController* Controller = Scene.World->SpawnActor<APlayerController>(
+		APlayerController::StaticClass(), FTransform::Identity, Spawn);
+	if (!FloorBox || !Controller) return false;
+	Floor->SetRootComponent(FloorBox);
+	Floor->AddInstanceComponent(FloorBox);
+	FloorBox->SetBoxExtent(FVector(1000.0f, 1000.0f, 10.0f));
+	FloorBox->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	FloorBox->SetCollisionObjectType(ECC_WorldStatic);
+	FloorBox->SetCollisionResponseToAllChannels(ECR_Block);
+	FloorBox->RegisterComponent();
+	Floor->SetActorLocation(FVector(0.0f, 0.0f, -10.0f));
+	Scene.Player->SetActorLocation(FVector(0.0f, 0.0f, 80.0f));
+	Controller->Possess(Scene.Player);
+	Scene.World->UpdateWorldComponents(true, false);
+	Ademo_mapWorldItem* LootActor = nullptr;
+	const auto Created = Runtime->CreateWorldItem(Scene.World, Fdemo_mapItemIds::SpiritDust, 1,
+		FVector(100.0f, 0.0f, 0.0f), LootActor);
+	if (!TestTrue(TEXT("Transient physics scene creates one real bound World item"),
+		Created.bSuccess && LootActor && Controller->GetPawn() == Scene.Player)) return false;
+	const FGuid LootId = LootActor->GetInstanceId();
+	const auto Picked = Runtime->PickupWorldItem(LootActor, Controller);
+	const auto* Original = Runtime->GetAuthority().FindInstance(Fixture.DustId);
+	const auto* Loot = Runtime->GetAuthority().FindInstance(LootId);
+	if (!TestTrue(TEXT("Real World pickup keeps acquired and prepared stacks separate"),
+		Picked.bSuccess && Original && Original->Quantity == 3 && !Original->OriginRunId.IsValid()
+		&& Loot && Loot->Quantity == 1 && Loot->OriginRunId == Started.ActiveRunId)) return false;
+	Ademo_mapWorldItem* DroppedActor = nullptr;
+	if (!TestTrue(TEXT("Prepared stack can travel through the existing World drop and pickup ports"),
+		Runtime->DropInventoryItem(Fixture.DustId, Scene.Player, DroppedActor).bSuccess
+		&& DroppedActor && Runtime->PickupWorldItem(DroppedActor, Controller).bSuccess)) return false;
+	Original = Runtime->GetAuthority().FindInstance(Fixture.DustId);
+	Loot = Runtime->GetAuthority().FindInstance(LootId);
+	TestTrue(TEXT("Re-pickup neither merges the original into loot nor retags its provenance"),
+		Original && Original->Quantity == 3 && !Original->OriginRunId.IsValid()
+		&& Loot && Loot->Quantity == 1 && Loot->OriginRunId == Started.ActiveRunId
+		&& Runtime->GetDeployedItemIds().Contains(Fixture.DustId));
+	Fdemo_mapSettlementSummary Summary;
+	TestTrue(TEXT("Unedited World-path extraction reaches durable finalization"),
+		Runtime->RequestSettlement(Edemo_mapRunEndReason::Extraction, Summary).bSuccess
+		&& Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(*Fixture.Authority, Summary).IsFinalized());
+	Runtime->TeardownWorld(Scene.World);
+	Scene.Stop();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenPreparedContainerMergeIdentityTest,
+	"Shanmen.0_0_10.Items.RunLifecycle.PreparedContainerMergeIdentity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenPreparedContainerMergeIdentityTest::RunTest(const FString&)
+{
+	FPreparationAdapterFixture Fixture;
+	if (!Fixture.StartAndCutover(*this, TEXT("PreparedContainerMergeIdentity"))
+		|| !Fixture.Session->SetPreparationMaterial(Fixture.PillOneId, true).IsAccepted()) return false;
+	Udemo_mapItemSubsystem* Runtime = Fixture.GameInstance->GetSubsystem<Udemo_mapItemSubsystem>();
+	if (!Runtime) return false;
+	const auto Started = Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(*Fixture.Authority, *Runtime);
+	const FGuid ContainerId = FGuid::NewGuid();
+	FGuid LootId;
+	if (!Started.IsStarted() || !Runtime->CreateContainerItem(
+		ContainerId, Fdemo_mapItemIds::HealingPillLevel1, 1, LootId).bSuccess) return false;
+	Fdemo_mapRuntimeContainerAuthority Container;
+	Fdemo_mapRuntimeContainerResolvedSeedEntry Seed;
+	Seed.Section = Edemo_mapRuntimeContainerSection::Chest;
+	Seed.SlotIndex = 0;
+	Seed.ItemInstanceId = LootId;
+	Seed.DefinitionId = Fdemo_mapItemIds::HealingPillLevel1;
+	Seed.StackCount = 1;
+	Seed.SearchDurationSeconds = Fdemo_mapSearchContainerPrototypeConfig::ChestEntrySearchSeconds;
+	FString Diagnostic;
+	if (!Container.Initialize(ContainerId, Started.ActiveRunId, Edemo_mapRuntimeContainerKind::Chest,
+		{ Seed }, Diagnostic, true)) return false;
+	FGuid EntryId;
+	for (const auto Action : { Edemo_mapRuntimeContainerActionKind::BeginOpen, Edemo_mapRuntimeContainerActionKind::BeginSearch })
+	{
+		Fdemo_mapRuntimeContainerIntent Intent;
+		Intent.ExpectedRunId = Started.ActiveRunId;
+		Intent.ContainerId = ContainerId;
+		Intent.ExpectedRevision = Container.GetRevision();
+		Intent.EntryId = EntryId;
+		Intent.Action = Action;
+		if (!Container.SubmitIntent(Intent, true, true, [](FGuid Id)
+			{ return Fdemo_mapItemOperationResult::Success(Id); }).bSuccess
+			|| !Container.CompleteActiveAction().bSuccess) return false;
+		EntryId = Container.GetEntriesForAudit()[0].EntryId;
+	}
+	for (const bool bSourceIsContainer : { true, false })
+	{
+		const int32 BeforeRevision = Runtime->GetAuthority().GetAuthorityRevision();
+		const int32 BeforeContainerRevision = Container.GetRevision();
+		Fdemo_mapSearchContainerDropIntent Intent;
+		Intent.ExpectedRunId = Started.ActiveRunId;
+		Intent.ContainerId = ContainerId;
+		Intent.ExpectedContainerRevision = BeforeContainerRevision;
+		Intent.ExpectedAuthorityRevision = BeforeRevision;
+		Intent.bSourceIsContainer = bSourceIsContainer;
+		Intent.SourceEntryId = EntryId;
+		Intent.ExpectedSourceItemInstanceId = bSourceIsContainer ? LootId : Fixture.PillOneId;
+		Intent.SourcePlayerArea = Intent.TargetPlayerArea = Edemo_mapPlayerItemArea::BaseQuickItems;
+		Intent.SourcePlayerSlotIndex = Intent.TargetPlayerSlotIndex = Runtime->GetAuthority().FindInventorySlot(Fixture.PillOneId);
+		Intent.TargetSection = Edemo_mapRuntimeContainerSection::Chest;
+		Intent.TargetContainerSlotIndex = 0;
+		const auto Result = Runtime->ExecuteSearchContainerDrop(Intent, Container);
+		const auto* Original = Runtime->GetAuthority().FindInstance(Fixture.PillOneId);
+		const auto* Loot = Runtime->GetAuthority().FindInstance(LootId);
+		TestTrue(TEXT("Neither container direction may consume the prepared identity into a merge"),
+			!Result.IsSuccess() && Runtime->GetAuthority().GetAuthorityRevision() == BeforeRevision
+			&& Container.GetRevision() == BeforeContainerRevision
+			&& Original && Original->Quantity == 3 && !Original->OriginRunId.IsValid()
+			&& Loot && Loot->Quantity == 1 && Loot->OwnershipState == Edemo_mapItemOwnershipState::Container);
+	}
+	Fdemo_mapSearchContainerDropIntent Take;
+	Take.ExpectedRunId = Started.ActiveRunId;
+	Take.ContainerId = ContainerId;
+	Take.ExpectedContainerRevision = Container.GetRevision();
+	Take.ExpectedAuthorityRevision = Runtime->GetAuthority().GetAuthorityRevision();
+	Take.bSourceIsContainer = true;
+	Take.SourceEntryId = EntryId;
+	Take.ExpectedSourceItemInstanceId = LootId;
+	Take.TargetPlayerArea = Edemo_mapPlayerItemArea::BaseQuickItems;
+	Take.TargetPlayerSlotIndex = Runtime->GetAuthority().GetInventorySlotSnapshot().IndexOfByKey(FGuid());
+	TestTrue(TEXT("Container loot can still move as a whole identity into an empty cell"),
+		Runtime->ExecuteSearchContainerDrop(Take, Container).IsSuccess()
+		&& Runtime->GetAuthority().FindInstance(LootId)->Quantity == 1);
+	Fdemo_mapSettlementSummary Summary;
+	TestTrue(TEXT("Container-path originals and acquired items finalize without editing the handoff"),
+		Runtime->RequestSettlement(Edemo_mapRunEndReason::Extraction, Summary).bSuccess
+		&& Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(*Fixture.Authority, Summary).IsFinalized());
 	return true;
 }
 

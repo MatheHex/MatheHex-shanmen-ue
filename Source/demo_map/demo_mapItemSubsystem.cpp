@@ -118,7 +118,7 @@ Fdemo_mapItemOperationResult Udemo_mapItemSubsystem::AddDefinition(FName Definit
 {
 	const Fdemo_mapItemAuthorityState Before = Authority.CaptureState();
 	TArray<FGuid> Affected;
-	Fdemo_mapItemOperationResult Result = Authority.AddDefinition(DefinitionId, Quantity, &Affected);
+	Fdemo_mapItemOperationResult Result = Authority.AddDefinition(DefinitionId, Quantity, &Affected, &DeployedItemIds);
 	Result = TagAffectedForActiveRun(Before, Result, Affected);
 	if (OutAffectedInstances) *OutAffectedInstances = Result.bSuccess ? Affected : TArray<FGuid>();
 	return Result;
@@ -267,7 +267,7 @@ Fdemo_mapPlayerItemDropResult Udemo_mapItemSubsystem::ExecutePlayerItemDrop(
 	const Fdemo_mapPlayerItemDropIntent& Intent)
 {
 	const Fdemo_mapPlayerItemDropResult Result =
-		Authority.ExecutePlayerItemDrop(Intent);
+		Authority.ExecutePlayerItemDrop(Intent, &DeployedItemIds);
 	if (Result.IsSuccess())
 	{
 		// Leaving Base Quick Items (or consuming a merged source) may make a
@@ -369,10 +369,11 @@ Udemo_mapItemSubsystem::ExecuteSearchContainerDrop(
 			VisualSlot,
 			OutInventorySlot);
 	};
-	auto IsCompatibleStack = [](const Fdemo_mapItemInstance& A,
+	auto IsCompatibleStack = [this](const Fdemo_mapItemInstance& A,
 		const Fdemo_mapItemInstance& B) -> bool
 	{
-		return A.AffixSet == B.AffixSet
+		return Fdemo_mapItemAuthority::CanMergeInstanceIdentities(A.InstanceId, B.InstanceId, &DeployedItemIds)
+			&& A.AffixSet == B.AffixSet
 			&& Fdemo_mapRewardEventRules::AreStackCompatible(
 				A.DefinitionId, A.RewardEventKind, A.RewardEventId,
 				A.RewardValueMultiplierBps, A.RewardSourceRoleId,
@@ -1295,7 +1296,11 @@ Fdemo_mapItemUseResult Udemo_mapItemSubsystem::UseInventoryItem(
 Fdemo_mapItemOperationResult Udemo_mapItemSubsystem::TagAffectedForActiveRun(const Fdemo_mapItemAuthorityState& Before, const Fdemo_mapItemOperationResult& Result, const TArray<FGuid>& Affected)
 {
 	if (!Result.bSuccess || RunState != Edemo_mapRunState::Active) return Result;
-	const Fdemo_mapItemOperationResult TagResult = Authority.TagInstancesForRun(Affected, ActiveRunId);
+	// Picking up a carried original must not reclassify it as newly acquired loot.
+	const TArray<FGuid> Acquired = Affected.FilterByPredicate([this](const FGuid& Id)
+		{ return !DeployedItemIds.Contains(Id); });
+	if (Acquired.IsEmpty()) return Result;
+	const Fdemo_mapItemOperationResult TagResult = Authority.TagInstancesForRun(Acquired, ActiveRunId);
 	if (TagResult.bSuccess) return Result;
 	Authority.RestoreState(Before);
 	return TagResult;
@@ -2214,7 +2219,7 @@ Fdemo_mapItemOperationResult Udemo_mapItemSubsystem::PickupWorldItem(Ademo_mapWo
 	}
 	const Fdemo_mapItemAuthorityState Before = Authority.CaptureState();
 	TArray<FGuid> Affected;
-	Fdemo_mapItemOperationResult Result = Authority.PickupWorld(InstanceId, &Affected);
+	Fdemo_mapItemOperationResult Result = Authority.PickupWorld(InstanceId, &Affected, &DeployedItemIds);
 	if (!Result.bSuccess) return Result;
 	Result = TagAffectedForActiveRun(Before, Result, Affected);
 	if (!Result.bSuccess) return Result;
