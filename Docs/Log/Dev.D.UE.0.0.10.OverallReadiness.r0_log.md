@@ -301,3 +301,29 @@ P27.28 早期 Reset 的历史措辞也应以实际差异为准：不要推导成
 - 114 个入场既有修改/未跟踪文件的路径与原字节 SHA-256 均保持；另外 1,577 个跟踪的 Source/Config/Content/Plugins/uproject 输入与先前保存基线相同。没有混入产品或 P28.0 文件。
 - 重新读取历史无头日志中的 628.29 MB Physical、648.35 MB Virtual 启动采样及 NullRHI/NoSound 参数。报告继续明确这不是实际游戏峰值或显存。
 - 检查时 HEAD 仍与入场一致；使用精确两文件暂存和普通非强制推送。未上传原始 Saved 日志、个人文档或私有路径清单；未改变监控状态，也未宣布框架最终冻结。
+
+## 15. P28.0 已交付后的总体报告与接线准备（2026-09-16 UTC）
+
+### 本轮范围
+
+- 用户要求游戏开发总体报告：系统与分级、信息交互分区、数据计算/内存、各系统完成度，为 UI 与实际 UE 开发准备。本轮是文档交付，不执行 heartbeat 中的“继续开发”，不修改玩法或框架代码。
+- 入场 HEAD 与远端分支均为 `867a33794bfbd966f952bc888a6d422eeb1d7ae4`；P28.0 已提交。最新产品实现仍为 P27.31 / `0b6af9c52efde41c1508b4b7a540bb8198a103a3`，两提交之间 Source/Config/Content/Plugins/uproject 差异为空。
+- tracked 工作区与 index 入场干净，103 个既有未跟踪用户文件及 1,577 个产品输入保存原字节 SHA-256 基线。只编辑现有总体 Report/Log，不添加另一份同内容报告。
+- 未改监控、资产、配置、存档或代码；未新跑 UE 测试、构建、内存采样、Editor UI、PIE、Standalone、游戏 exe、实际输入、Cook 或 Package。
+
+### 本次核验
+
+1. 读取总体报告、P27.31 Log、P28.0 Report/Log、共享 P 基线和冻结索引。纠正旧报告中 P28.0 仍为未提交草稿的状态，保持 FZ-1/2/3 未关闭的真实界限。
+2. 读取 uproject 与六个模块 Build.cs；再次按模块内 Git 跟踪 .h/.cpp/.cs 统计，六模块仍为 1,084 文件、301,088 非测试行、160,425 测试行。Source 根目录的两个 Target.cs 不属于六模块表，不混入原口径。当前 0.0.10 Report 数为 399，包含 P28.0；不是完成度或覆盖率。
+3. 重新读取 P27.31 两个最终根原日志及同目录 run-state，匹配实际 Result、精确队列结束数、原生状态并重新计算 SHA-256：新根 1,419 Success / 0 Fail、原生 0；旧根 1,330 / 0、原生 0。SHA 与第 13 节相同，分别为 `90A03871AFF2B16FB8E6994D87C94311239BF414D62DF301ABB2E690727C9F6A`、`0966DDC34F0B225CDA740BB7CB8A2EC807F9E7CB211E9091817EDF9896CB7DFE`。这是复核既有验证，不是本轮重跑；不累计重叠专项，不将日志里的命令行文字当队列完成。
+4. 读取最近 P28.0 Editor/Game 原 run-state，均 SUCCEEDED/native 0。stdout SHA 分别为 `46899DC8FF264B7C385BDB9CA03B1BA30C948C2D582016C8766883EF9D7F095B`、`BCDF7D0DD1B6BEC7EAC4F836832F447D4CA253A3BF3A828AB719071CD7B117AA`，与 P28.0 Log 匹配；未再次编译。
+5. 定点读取 Repository 的五类快照导出/排序、RecordProcessed 和 26 个 Candidate 复制位置；AuthorityService 的 BeforeDocument、Before/After 与锁内 SaveAuthority；Subsystem 的 Game Thread 前置要求及直接同步调用。将“如果在主线程”收紧为这条产品路径确实同步在 Game Thread 执行，但不声称已测得帧卡顿或泄漏。
+6. 读取阵法 Mastery 与暗器 ArcPlanner 的等级/权限定义和 Run 固定时间线 30 Hz 声明。保持操作等级与 D0–D4 成熟度、逻辑 tick 与渲染 FPS 的区别。重新定位并读取 `Saved/Automation/P27.28/P27.28_shanmen_full.log` 的 628.29 MB / 648.35 MB 启动采样及 NullRHI/NoSound 参数；原证据 JSON 保留历史基线。
+7. 静态发现待核验路由：PreparationFlow 的 UsesShanmenItemLifecycle 依赖绑定 Authority 为 Ready；V3 RequestUseInventoryItem 否则调用旧 Runtime 使用方法；durable Subsystem 可能进入 RecoveryRequired。本轮没有故障注入、没有 Manager 入口复现，不认定实际重复消费、坏档或玩家损失；在 Report 第 9.1 节归入既有 FZ-1，不实施修复。
+8. 新增首轮接线验收卡，要求真实非零状态、同一物品/请求身份、权威副作用、页面重绑和故障状态分别可证。它是未来准备要求，不是本轮已执行或新玩法授权。
+
+### 交付边界
+
+继续用同一总体报告承载六模块分层、五区数据所有权、七类 UI 分区、系统成熟度矩阵、内存事实/假设和分步准入。只提交 Report/Development Log；原 Saved 日志与私人文件不上传。当前结论是可开始 UI 信息架构与接线设计，底层尚未最终冻结，真实游戏性/性能/发行验收未完成。
+
+发布前检查：两份文档的 53 个本地相对链接目标存在，历史 evidence.json 可解析，`git diff --check` 通过。当前两文档映射为 `REGRESSION_COVERAGE: PASS Changed=2 Rules=0 Required=0 Logs=0`；0 个 UE 必跑组只表示此次为纯文档变更，不是新的产品验证结论。103 个既有未跟踪文件与 1,577 个产品输入的路径集合及 SHA-256 均与入场完全一致，HEAD 未变化；精确暂存这两份 Markdown，普通推送，不强推。
