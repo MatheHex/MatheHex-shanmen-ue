@@ -3721,6 +3721,18 @@ FShanmenItemRepository::FinalizePreparedRunResourceIntent(
 	return Receipt;
 }
 
+bool FShanmenItemRepository::IsExactFinalizedRunReplay(
+	const FShanmenItemRunFinalizeRequest& Request,
+	const FShanmenItemProcessedRequestSnapshot& Processed)
+{
+	return Request.IsValid() && Processed.IsValid()
+		&& Processed.Receipt.IsSuccess()
+		&& Processed.Receipt.Operation == EShanmenItemTransactionOperation::FinalizePreparedRun
+		&& Processed.Receipt.ReservationId == Request.ActiveRunId
+		&& Processed.RequestId == Request.Context.RequestId
+		&& Processed.Fingerprint == Fingerprint(Request);
+}
+
 FShanmenItemTransactionReceipt FShanmenItemRepository::FinalizePreparedRun(
 	const FShanmenItemRunFinalizeRequest& Request)
 {

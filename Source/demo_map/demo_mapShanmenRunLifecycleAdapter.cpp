@@ -1,6 +1,7 @@
 #include "demo_mapShanmenRunLifecycleAdapter.h"
 
 #include "ShanmenDeterministicId.h"
+#include "ShanmenItemRepository.h"
 #include "ShanmenItemTags.h"
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapItemSubsystem.h"
@@ -37,19 +38,6 @@ namespace
 			Parts.Add(FString::FromInt(Affix.ResolvedMagnitudeScaled));
 			Parts.Add(FString::Printf(TEXT("%lld"), Affix.ResolvedValue));
 		}
-	}
-
-	FShanmenOperationContext MakeContext(
-		const FShanmenItemAuthoritySnapshot& Snapshot,
-		const Fdemo_mapShanmenPreparedLoadoutReceipt& Prepared,
-		const FGuid& RequestId)
-	{
-		FShanmenOperationContext Context;
-		Context.RunId = Prepared.ScopeId;
-		Context.OwnerId = Prepared.OwnerId;
-		Context.RequestId = RequestId;
-		Context.Content = Snapshot.Content;
-		return Context;
 	}
 
 	FName EquipmentSlotFor(
@@ -188,8 +176,58 @@ namespace
 		return true;
 	}
 
+	// Only the immutable identity and original lines needed to normalize a
+	// terminal command. This is not an active/deployable loadout receipt.
+	struct FFinalizeLoadoutSource
+	{
+		FGuid OwnerId;
+		FGuid ScopeId;
+		FGuid BatchRequestId;
+		TArray<Fdemo_mapShanmenPreparedLoadoutLine> OrderedLines;
+	};
+
+	bool RebuildFinalizedSource(
+		const FShanmenItemAuthoritySnapshot& Snapshot,
+		const FShanmenItemTransactionReceipt& Terminal,
+		const FGuid& ExpectedOwnerId,
+		FFinalizeLoadoutSource& OutSource)
+	{
+		OutSource = FFinalizeLoadoutSource();
+		OutSource.BatchRequestId = Terminal.ItemInstanceId;
+		TSet<FGuid> OriginalIds;
+		for (const FGuid& ReservationId : Terminal.ReservationIds)
+		{
+			const auto* Reservation = Snapshot.Reservations.FindByPredicate(
+				[&](const FShanmenItemReservationSnapshot& Candidate)
+				{ return Candidate.ReservationId == ReservationId; });
+			const auto* Item = Reservation ? Snapshot.Items.FindByPredicate(
+				[&](const FShanmenItemInstance& Candidate)
+				{ return Candidate.ItemInstanceId == Reservation->ItemInstanceId; }) : nullptr;
+			if (!Reservation || !Item
+				|| Reservation->State != EShanmenItemReservationState::Released
+				|| Reservation->OwnerId != ExpectedOwnerId
+				|| Item->OwnerId != ExpectedOwnerId
+				|| OriginalIds.Contains(Item->ItemInstanceId))
+			{
+				return false;
+			}
+			if (OutSource.OrderedLines.IsEmpty())
+			{
+				OutSource.OwnerId = Reservation->OwnerId;
+				OutSource.ScopeId = Reservation->RunId;
+			}
+			if (Reservation->RunId != OutSource.ScopeId) return false;
+			OriginalIds.Add(Item->ItemInstanceId);
+			auto& Line = OutSource.OrderedLines.AddDefaulted_GetRef();
+			Line.ItemInstanceId = Item->ItemInstanceId;
+			Line.ItemDefinitionId = Item->DefinitionId;
+		}
+		return OutSource.OwnerId.IsValid() && OutSource.ScopeId.IsValid()
+			&& OutSource.BatchRequestId.IsValid() && !OutSource.OrderedLines.IsEmpty();
+	}
+
 	FGuid MakeFinalizeRequestId(
-		const Fdemo_mapShanmenPreparedLoadoutReceipt& Prepared,
+		const FFinalizeLoadoutSource& Prepared,
 		const FGuid& ActiveRunId,
 		EShanmenItemRunTerminalReason TerminalReason,
 		const TArray<FShanmenItemRunSecuredOriginal>& Originals,
@@ -779,29 +817,30 @@ Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
 						== EShanmenItemTransactionOperation::FinalizePreparedRun
 					&& Processed.Receipt.ReservationId == Summary.RunId;
 			});
+	FFinalizeLoadoutSource PreparedSource;
 	if (ExistingFinalize)
 	{
-		Result.Status = Edemo_mapShanmenRunLifecycleStatus::NoChange;
-		Result.Diagnostic =
-			TEXT("The exact ActiveRunId already has a durable terminal marker.");
-		Result.ActiveRunId = Summary.RunId;
-		Result.FinalizeCommand.Status =
-			EShanmenItemDurableCommandStatus::Replayed;
-		Result.FinalizeCommand.Receipt = ExistingFinalize->Receipt;
-		return Result;
+		if (!RebuildFinalizedSource(Snapshot, ExistingFinalize->Receipt,
+			Authority.GetBoundOwnerId(), PreparedSource))
+		{
+			return Reject(Edemo_mapShanmenRunLifecycleStatus::FinalizeRejected,
+				TEXT("Terminal replay has no complete retained original-source evidence."));
+		}
 	}
-
-	const Fdemo_mapShanmenPreparedLoadoutResult Prepared =
-		Fdemo_mapShanmenPreparationAdapter::StartPreparedLoadout(Authority);
-	if (!Prepared.IsCommitted())
+	else
 	{
-		return Reject(
-			Edemo_mapShanmenRunLifecycleStatus::PreparedLoadoutRejected,
-			Prepared.Diagnostic);
+		const auto Prepared = Fdemo_mapShanmenPreparationAdapter::StartPreparedLoadout(Authority);
+		if (!Prepared.IsCommitted())
+		{
+			return Reject(Edemo_mapShanmenRunLifecycleStatus::PreparedLoadoutRejected,
+				Prepared.Diagnostic);
+		}
+		PreparedSource = { Prepared.Receipt.OwnerId, Prepared.Receipt.ScopeId,
+			Prepared.Receipt.BatchRequestId, Prepared.Receipt.OrderedLines };
 	}
 	TMap<FGuid, const Fdemo_mapShanmenPreparedLoadoutLine*> PreparedById;
 	for (const Fdemo_mapShanmenPreparedLoadoutLine& Line :
-		Prepared.Receipt.OrderedLines)
+		PreparedSource.OrderedLines)
 	{
 		if (PreparedById.Contains(Line.ItemInstanceId))
 		{
@@ -880,7 +919,7 @@ Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
 	if (TerminalReason == EShanmenItemRunTerminalReason::Extraction)
 	{
 		for (const Fdemo_mapShanmenPreparedLoadoutLine& Line :
-			Prepared.Receipt.OrderedLines)
+			PreparedSource.OrderedLines)
 		{
 			const int32 Remaining = SecuredById.FindRef(Line.ItemInstanceId);
 			if (Remaining <= 0)
@@ -894,23 +933,36 @@ Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
 		}
 	}
 
-	if (!Authority.TryCaptureSnapshot(Snapshot))
+	if (!ExistingFinalize && !Authority.TryCaptureSnapshot(Snapshot))
 	{
 		return Reject(
 			Edemo_mapShanmenRunLifecycleStatus::AuthorityNotReady,
 			TEXT("Authority disappeared before terminal reconciliation."));
 	}
 	FShanmenItemRunFinalizeRequest Request;
-	Request.Context = MakeContext(
-		Snapshot, Prepared.Receipt,
-		MakeFinalizeRequestId(
-			Prepared.Receipt, Summary.RunId, TerminalReason,
-			Originals, AcquiredItems));
+	Request.Context.RunId = PreparedSource.ScopeId;
+	Request.Context.OwnerId = PreparedSource.OwnerId;
+	Request.Context.Content = Snapshot.Content;
+	Request.Context.RequestId = MakeFinalizeRequestId(
+		PreparedSource, Summary.RunId, TerminalReason, Originals, AcquiredItems);
 	Request.ActiveRunId = Summary.RunId;
 	Request.TerminalReason = TerminalReason;
 	Request.SecuredOriginals = Originals;
 	Request.AcquiredItems = AcquiredItems;
 	Result.ActiveRunId = Summary.RunId;
+	if (ExistingFinalize)
+	{
+		if (!FShanmenItemRepository::IsExactFinalizedRunReplay(Request, *ExistingFinalize))
+		{
+			return Reject(Edemo_mapShanmenRunLifecycleStatus::FinalizeRejected,
+				TEXT("Terminal replay conflicts with the persisted request identity or payload."));
+		}
+		Result.Status = Edemo_mapShanmenRunLifecycleStatus::NoChange;
+		Result.Diagnostic = TEXT("The exact terminal request replays its existing durable receipt.");
+		Result.FinalizeCommand.Status = EShanmenItemDurableCommandStatus::Replayed;
+		Result.FinalizeCommand.Receipt = ExistingFinalize->Receipt;
+		return Result;
+	}
 	Result.FinalizeCommand = Authority.FinalizePreparedRunDurable(Request);
 	if (!Result.FinalizeCommand.IsCommandSuccess())
 	{

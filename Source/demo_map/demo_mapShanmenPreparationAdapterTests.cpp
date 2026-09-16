@@ -1381,6 +1381,120 @@ bool FShanmenPreparedRunLifecycleRestartTest::RunTest(const FString&)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenPreparedRunTerminalReplayIdentityTest,
+	"Shanmen.0_0_10.Items.RunLifecycle.TerminalReplayIdentity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenPreparedRunTerminalReplayIdentityTest::RunTest(const FString&)
+{
+	for (const Edemo_mapRunEndReason Reason : {
+		Edemo_mapRunEndReason::Extraction,
+		Edemo_mapRunEndReason::Death,
+		Edemo_mapRunEndReason::Abandon })
+	{
+		FPreparationAdapterFixture Fixture;
+		if (!Fixture.StartAndCutover(*this, TEXT("TerminalReplayIdentity")))
+		{
+			return false;
+		}
+		if (!TestTrue(TEXT("Nonzero original stack is selected"),
+			Fixture.Session->SetPreparationMaterial(
+				Fixture.PillOneId, true).IsAccepted()))
+		{
+			return false;
+		}
+		Udemo_mapItemSubsystem* Runtime =
+			Fixture.GameInstance->GetSubsystem<Udemo_mapItemSubsystem>();
+		if (!Runtime) return false;
+		Runtime->ResetForAutomation();
+		const auto Started = Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(
+			*Fixture.Authority, *Runtime);
+		TArray<FGuid> LootIds;
+		if (!TestTrue(TEXT("Run starts and acquires one separate loot identity"),
+			Started.IsStarted()
+			&& Runtime->AddDefinition(Fdemo_mapItemIds::TrainingBlade, 1, &LootIds).bSuccess
+			&& LootIds.Num() == 1)) return false;
+		Fdemo_mapSettlementSummary Summary;
+		if (!TestTrue(TEXT("Runtime creates a genuine terminal summary"),
+			Runtime->RequestSettlement(Reason, Summary).bSuccess)) return false;
+		const auto Finalized = Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
+			*Fixture.Authority, Summary);
+		if (!TestTrue(TEXT("First terminal succeeds"), Finalized.IsFinalized())) return false;
+		FShanmenItemAuthorityDocument Terminal;
+		if (!Fixture.Authority->TryGetDocument(Terminal)) return false;
+		Fdemo_mapSettlementSummary Reordered = Summary;
+		if (Reordered.RuntimeSnapshot.OrderedSecuredItems.Num() > 1)
+		{
+			Reordered.RuntimeSnapshot.OrderedSecuredItems.Swap(
+				0, Reordered.RuntimeSnapshot.OrderedSecuredItems.Num() - 1);
+		}
+		const auto ImmediateReplay = Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
+			*Fixture.Authority, Reordered);
+		FShanmenItemAuthorityDocument AfterImmediateReplay;
+		TestTrue(TEXT("Equivalent secured ordering replays the exact receipt without writing"),
+			ImmediateReplay.Status == Edemo_mapShanmenRunLifecycleStatus::NoChange
+			&& ImmediateReplay.FinalizeCommand.IsCommandSuccess()
+			&& ImmediateReplay.FinalizeCommand.Receipt == Finalized.FinalizeCommand.Receipt
+			&& Fixture.Authority->TryGetDocument(AfterImmediateReplay)
+			&& AfterImmediateReplay == Terminal);
+		auto CheckRejected = [&](const TCHAR* Label, const Fdemo_mapSettlementSummary& Conflict)
+		{
+			for (int32 Attempt = 0; Attempt < 2; ++Attempt)
+			{
+				const auto Rejected = Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
+					*Fixture.Authority, Conflict);
+				FShanmenItemAuthorityDocument After;
+				TestFalse(Label, Rejected.IsFinalized());
+				TestFalse(TEXT("Conflict must not carry a successful durable result"),
+					Rejected.FinalizeCommand.IsCommandSuccess());
+				TestTrue(TEXT("Conflict preserves full document including generation and ledger"),
+					Fixture.Authority->TryGetDocument(After) && After == Terminal);
+			}
+		};
+		Fdemo_mapSettlementSummary ChangedReason = Summary;
+		ChangedReason.Reason = Reason == Edemo_mapRunEndReason::Death
+			? Edemo_mapRunEndReason::Abandon : Edemo_mapRunEndReason::Death;
+		ChangedReason.RuntimeSnapshot.CommittedEndReason = ChangedReason.Reason;
+		ChangedReason.RuntimeSnapshot.OrderedSecuredItems.Reset();
+		CheckRejected(TEXT("Same Run with another terminal reason is not replay"), ChangedReason);
+		if (Reason == Edemo_mapRunEndReason::Extraction)
+		{
+			Fdemo_mapSettlementSummary ChangedQuantity = Summary;
+			auto* Pill = ChangedQuantity.RuntimeSnapshot.OrderedSecuredItems.FindByPredicate(
+				[&](const Fdemo_mapRuntimeSettlementItem& Item)
+				{ return Item.ItemInstanceId == Fixture.PillOneId; });
+			if (!TestTrue(TEXT("Original nonzero quantity is available"), Pill && Pill->StackCount == 3)) return false;
+			Pill->StackCount = 2;
+			CheckRejected(TEXT("Different surviving quantity is not replay"), ChangedQuantity);
+			Fdemo_mapSettlementSummary ChangedMetadata = Summary;
+			auto* Loot = ChangedMetadata.RuntimeSnapshot.OrderedSecuredItems.FindByPredicate(
+				[&](const Fdemo_mapRuntimeSettlementItem& Item)
+				{ return Item.ItemInstanceId == LootIds[0]; });
+			if (!Loot) return false;
+			Loot->RewardEventKind = Edemo_mapRewardEventKind::Jackpot;
+			Loot->RewardEventId = FGuid(0x73100001, 0, 0, 1);
+			Loot->RewardValueMultiplierBps = Fdemo_mapRewardEventRules::JackpotMultiplierBps;
+			Loot->RewardSourceRoleId = TEXT("Test.TerminalReplay");
+			CheckRejected(TEXT("Changed acquired reward metadata is not replay"), ChangedMetadata);
+			Fdemo_mapSettlementSummary Duplicate = Summary;
+			Duplicate.RuntimeSnapshot.OrderedSecuredItems.Add(
+				Summary.RuntimeSnapshot.OrderedSecuredItems[0]);
+			CheckRejected(TEXT("Duplicate secured identity is rejected after finalization"), Duplicate);
+		}
+		if (!Fixture.RestartAndBind(*this)) return false;
+		const auto Replayed = Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(
+			*Fixture.Authority, Summary);
+		FShanmenItemAuthorityDocument Restarted;
+		TestTrue(TEXT("Exact terminal replays the original receipt after restart without writing"),
+			Replayed.Status == Edemo_mapShanmenRunLifecycleStatus::NoChange
+			&& Replayed.FinalizeCommand.Receipt == Finalized.FinalizeCommand.Receipt
+			&& Fixture.Authority->TryGetDocument(Restarted) && Restarted == Terminal);
+		CheckRejected(TEXT("Conflicting reason remains rejected after restart"), ChangedReason);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FShanmenPreparedRunItemUseTest,
 	"Shanmen.0_0_10.Items.RunLifecycle.DurableHotbarUse",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

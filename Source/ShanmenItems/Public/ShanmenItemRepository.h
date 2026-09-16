@@ -39,6 +39,10 @@ public:
 		const FShanmenItemRunResourceIntentFinalizeRequest& Request);
 	FShanmenItemTransactionReceipt FinalizePreparedRun(
 		const FShanmenItemRunFinalizeRequest& Request);
+	/** Pure replay verification; never inserts a rejection into the ledger. */
+	static bool IsExactFinalizedRunReplay(
+		const FShanmenItemRunFinalizeRequest& Request,
+		const FShanmenItemProcessedRequestSnapshot& Processed);
 
 	FShanmenItemAuthoritySnapshot CaptureSnapshot() const;
 	bool ValidateInvariants(EShanmenItemTransactionError* OutError = nullptr) const;
