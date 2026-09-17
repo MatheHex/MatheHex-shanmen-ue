@@ -433,3 +433,51 @@ Fixed Editor/Game run-state 均 SUCCEEDED/native 0。P27.31 新根重新读取�
 继续使用同一总体 Report，更新 P28.2 已交付状态并移除开头失效的在制描述；不创建平行报告或重复交接协议。只精确交付两份 Markdown，Saved 原证据和既有开发改动均不上传。
 
 发布前核验：59 个本地相对链接目标全部存在，历史 evidence.json 可解析；两文档 `git diff --check` 通过。精确路径回归映射为 `REGRESSION_COVERAGE: PASS Changed=2 Rules=0 Required=0 Logs=0`，表示纯文档变更没有新增 UE 必跑组，不代表新的产品测试。1,720 个受保护路径和 SHA-256、103 个未跟踪用户文件集合及入场 HEAD 均保持；仅暂存本总体 Report/Log，正常非强制推送。
+
+## 19. UI / UE 总体准备报告的最新工作区证据复核（2026-09-17 UTC）
+
+### 范围与基线
+
+- 本轮用户要求总体报告，不是 heartbeat 开发续作；只更新现有总体 Report/Log，不修改或提交 P28.3 产品改动、冻结索引及阶段草稿。
+- 入场本地/远端均为 `175a651991b93aabaf2b9c19cd23bb9ab4ba9bef`，产品已交付基线仍为 P28.2 / `f4e34d277163eb3e6644df9a9fc8907ff05724e9`。
+- 入场三个修改源码为 GameMode.cpp/.h、ShanmenPreparationAdapterTests.cpp；105 个未跟踪文件为 103 个既有用户文件及两份 P28.3 草稿。索引为空；1,617 个产品/脚本输入加 105 个未跟踪文件，共 1,722 个路径保存原字节哈希以核验保持。
+- 本轮未新启动 UE 构建、测试、内存采样、Editor UI、PIE、Standalone、游戏 exe、Cook/Package；未修改监控或开始游戏性/视觉实装。
+
+### P28.3 本地进展：原件读取，不是本轮执行或产品发布
+
+重新读取四组 UnrealEditor.log、同目录 run-state，按实际 Test Completed、精确队列结束和原生退出联合判断，重新计算 SHA-256：
+
+| 证据 | Success / Fail | 队列数 | 原生码 | SHA-256 |
+|---|---|---:|---:|---|
+| RedProof | 0 / 1 | 1 | 0 | `E438E13C83C166C34A0126DB0C74A097CEC86025D97E07545F2F33C467A0EBCE` |
+| WorldLifecycleFocused | 4 / 0 | 4 | 0 | `016A109CBC9E63D41ED53582A5A95A515B81E8E39C720E8BB3A79DE7111376A5` |
+| LegacyFullRoot | 1330 / 0 | 1330 | 0 | `8BB7255B51FC48108B96DCCE2719DFAF37D89F4A7E99886B13345D04374C9BBF` |
+| ShanmenFullRoot | 1426 / 0 | 1426 | 0 | `C8E1C1FAEEF54A5D243FB9CBE297FD555AAC922DCC23FAD4083D163ECC8292A7` |
+
+路径以仓库根目录为基准，均为本地原件，未上传 Saved 目录：
+
+- `Saved/FoundationRuns/Dev.D.UE.0.0.10.P28.3.r0/RedProof/20260916T230120434Z-c67c4f8b/UnrealEditor.log`
+- `Saved/FoundationRuns/Dev.D.UE.0.0.10.P28.3.r0/WorldLifecycleFocused/20260916T230342693Z-65c6f145/UnrealEditor.log`
+- `Saved/FoundationRuns/Dev.D.UE.0.0.10.P28.3.r0/LegacyFullRoot/20260916T230746889Z-ac92d5ce/UnrealEditor.log`
+- `Saved/FoundationRuns/Dev.D.UE.0.0.10.P28.3.r0/ShanmenFullRoot/20260916T230842671Z-1c64f004/UnrealEditor.log`
+
+新根完成于 `2026-09-17T00:13:03.8829772Z`，不是仍在运行。四组 Fatal error / Ensure condition failed / Unhandled Exception 匹配均为 0；不宣称没有其他 Error/Warning。RedProof 原生 0 不改变其失败事实。专项 4 项属于完整新根子集，不重复累计。
+
+Final Fixed Editor 和 Game 原 run-state 均 SUCCEEDED/native 0；stdout 字节哈希分别为：
+
+- Editor：`E44F9A1C8CA1A722EFB7106EBF5C1D7D0C0F023B3BFA25158E15AE5A34AC4D1F`，路径 `Saved/FoundationRuns/Dev.D.UE.0.0.10.P28.3.r0.FixedFinal/BuildEditor/20260916T230257305Z-ad08cedb/stdout.log`。
+- Game：`D6636C54D98E778750EC2414829592E1C669B55CE6ABE7E0D834723FDB9918F2`，路径 `Saved/FoundationRuns/Dev.D.UE.0.0.10.P28.3.r0.Validation/BuildGame/20260916T230450204Z-e1c51c04/stdout.log`。
+
+复核既有 `Saved/Automation/P28.3/validation-inputs.json` 中 1,617 个输入和 103 个原用户文件，原字节哈希差异为 0。这支持将上述结果描述为当前本地 P28.3 输入的验证，但不替代该阶段尚未完成的提交交付，也不关闭 FZ-1/2/3。
+
+### 总体报告的有效结论
+
+1. 重读六模块 Build.cs 与 uproject：分层和 UE 5.8 声明不变；CombatCore/Items 不依赖 Engine 模块，GAS 位于 CombatRuntime 编排层。已交付规模表仍使用 P28.2 HEAD 口径，不把本地新增测试行混入。
+2. 保留六模块职责、D0–D4 成熟度、五类数据权威与七类 UI 分区。给下一阶段的四类产物是页面/状态图、字段与命令表、UE 接线清单、验证及性能采样表，不再增设报告传输协议。
+3. 直接重读 Repository 五类快照导出/排序、RecordProcessed、26 处候选拷贝位置，以及 AuthorityService 的 BeforeDocument/Before/After 和同步保存；Subsystem 命令要求 Game Thread。结论是历史增长、峰值副本和同步等待风险，尚未量到实际泄漏或帧卡顿。
+4. 重读 P27.28 原启动日志的 628.29 MB Physical / 648.35 MB Virtual 与 NullRHI/NoSound 参数。报告继续明确其不是实际游戏 RAM/VRAM 峰值；原 evidence.json 保留历史样本，不伪造当前采样。
+5. 核对 P28.3 三源码差异与新测试：GameMode 拒绝释放后保持任务上下文的保护已在本地实现，不能继续描述为“仅测试修改”。Manager 外层清理/TeardownWorld 未随之更改，仍是 FZ-2 剩余核对边界；本次不把局部测试冒充完整调用链的验收。
+
+本轮仅交付总体文档更新。已提交产品与未提交产品证据分开；仍可开展 UI 信息架构、字段/命令、状态模型与接线设计准备，不能宣布正式可玩、性能达标或框架整体冻结。
+
+发布前核验：59 个本地相对链接目标存在，历史 evidence.json 可解析；两文档 `git diff --check` 通过，精确改动映射为 `REGRESSION_COVERAGE: PASS Changed=2 Rules=0 Required=0 Logs=0`，仅表示纯文档无新增 UE 必跑组。1,722 个受保护路径/原字节、105 个未跟踪文件集合、入场 HEAD 均保持不变。仅精确暂存总体 Report/Log，普通提交推送；不纳入三个 P28.3 源码修改、两份阶段草稿、Saved 原件或个人文件。
