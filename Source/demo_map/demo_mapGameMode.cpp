@@ -4646,6 +4646,8 @@ bool Ademo_mapGameMode::ActivateV3MissionContentForRun()
 				TEXT("0_0_10_COMBAT_RUN Event=RunBindingRejected Diagnostic=%s"),
 				*CombatDiagnostic);
 			DeactivateV3MissionContentForPreparation();
+			// Retained mission objects do not turn a failed Run binding into success.
+			return false;
 		}
 		return bV3MissionContentActive;
 	}
@@ -4690,7 +4692,11 @@ void Ademo_mapGameMode::BindV3EnemyProjections(
 
 void Ademo_mapGameMode::DeactivateV3MissionContentForPreparation()
 {
-	ReleaseCombatProductRun(TEXT("PreparationDeactivation"));
+	// Retained Run owners still depend on this mission until release succeeds.
+	if (!ReleaseCombatProductRun(TEXT("PreparationDeactivation")))
+	{
+		return;
+	}
 	DestroyM01EnemyContent();
 	DestroyM01ExtractionFoundation();
 	if (IsM01ExpeditionMap())

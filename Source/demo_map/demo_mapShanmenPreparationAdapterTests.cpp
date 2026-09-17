@@ -3341,4 +3341,79 @@ bool Fdemo_mapCombatRunOrphanRetentionTest::RunTest(const FString&)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapPreparationDeactivationRetentionTest,
+	"Shanmen.0_0_10.Product.ControlledWeaponWorldLifecycle.PreparationDeactivationRetention",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapPreparationDeactivationRetentionTest::RunTest(const FString&)
+{
+	FPreparationAdapterFixture Fixture;
+	if (!Fixture.StartAndCutover(*this, TEXT("P283PreparationDeactivation"))
+		|| !Fixture.Session->SetPreparationEquipment(
+			Fdemo_mapItemIds::WeaponSlot, Fixture.FlyingSwordId).IsAccepted()) return false;
+	Udemo_mapItemSubsystem* Runtime = Fixture.GameInstance->GetSubsystem<Udemo_mapItemSubsystem>();
+	if (!Runtime) return false;
+	const auto Started = Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(*Fixture.Authority, *Runtime);
+	FControlledWeaponWorldFixture Scene;
+	if (!Started.IsStarted() || !Scene.Start(*this, Fixture.GameInstance, Started.ActiveRunId)) return false;
+	const auto Began = Scene.Lifecycle.TryBegin(Scene.World, Fixture.Authority, Runtime,
+		Scene.Coordinator, Scene.Host, Scene.Player, 1);
+	Ademo_mapShanmenControlledWeaponActor* Weapon = Began.WeaponActor.Get();
+	Ademo_mapEnemyCharacter* Enemy = Began.IsStarted()
+		? Scene.SpawnRegisteredEnemy(*this, FVector(900.0f, 0.0f, 0.0f)) : nullptr;
+	FShanmenControlledWeaponCommandReceipt Launch;
+	int64 Advanced = 0;
+	if (!Weapon || !Enemy || !Scene.Host.TryLaunch(Fixture.FlyingSwordId, 0, FVector::ForwardVector, Launch)
+		|| !Scene.Timeline.TryAdvance(0.1, Advanced, Scene.Diagnostic) || Advanced <= 0) return false;
+	FShanmenItemAuthoritySnapshot Before;
+	if (!Fixture.Authority->TryCaptureSnapshot(Before)) return false;
+	Ademo_mapGameMode* Mode = NewObject<Ademo_mapGameMode>(GetTransientPackage());
+	Mode->CombatRunCoordinator = MoveTemp(Scene.Coordinator);
+	Mode->ControlledWeaponRunHost = MoveTemp(Scene.Host);
+	Mode->ControlledWeaponWorldLifecycle = MoveTemp(Scene.Lifecycle);
+	Mode->CombatRunFixedTimeline = MoveTemp(Scene.Timeline);
+	Mode->M01EnemyActors.Add(Enemy);
+	Mode->Enemy = Enemy;
+	Mode->bM01EnemyContentActive = true;
+	Mode->bM01ExtractionFoundationActive = true;
+	Mode->bV3MissionContentActive = true;
+	const ENetRole OriginalRole = Weapon->GetLocalRole();
+	// The engine's real destruction refusal is used only in this transient fixture.
+	Weapon->SetRole(ROLE_SimulatedProxy);
+	AddExpectedError(TEXT("Event=ControlledWeaponWorldReleaseRejected"), EAutomationExpectedErrorFlags::Contains, 2);
+	for (int32 Attempt = 0; Attempt < 2; ++Attempt)
+	{
+		Mode->DeactivateV3MissionContentForPreparation();
+		TestTrue(TEXT("Rejected Run release retains its mission actors and active flags"),
+			IsValid(Enemy) && !Enemy->IsActorBeingDestroyed()
+			&& Mode->M01EnemyActors.Num() == 1 && Mode->M01EnemyActors[0].Get() == Enemy
+			&& Mode->Enemy.Get() == Enemy && Mode->bM01EnemyContentActive
+			&& Mode->bM01ExtractionFoundationActive && Mode->bV3MissionContentActive);
+		TestTrue(TEXT("Prepared deactivation preserves the original completed prefix and physical owner"),
+			Mode->PendingCombatRunRetirement.IsSet()
+			&& Mode->PendingCombatRunRetirement->RunId == Started.ActiveRunId
+			&& Mode->PendingCombatRunRetirement->InterruptedItemCount == 1
+			&& Mode->ControlledWeaponWorldLifecycle.GetWeaponActor() == Weapon
+			&& Mode->CombatRunFixedTimeline.GetCurrentTick() == Advanced);
+	}
+	Weapon->SetRole(OriginalRole);
+	int32 DestroyedEnemies = 0;
+	const auto Observer = Scene.World->AddOnActorDestroyedHandler(FOnActorDestroyed::FDelegate::CreateLambda(
+		[&](AActor* Actor) { if (Actor == Enemy) ++DestroyedEnemies; }));
+	Mode->DeactivateV3MissionContentForPreparation();
+	Mode->DeactivateV3MissionContentForPreparation();
+	Scene.World->RemoveOnActorDestroyedHandler(Observer);
+	TestTrue(TEXT("Same owner retry completes once, then empty deactivation is idempotent"),
+		DestroyedEnemies == 1 && Mode->M01EnemyActors.IsEmpty() && !Mode->Enemy.IsValid()
+		&& !Mode->bM01EnemyContentActive && !Mode->bM01ExtractionFoundationActive
+		&& !Mode->bV3MissionContentActive && !Mode->PendingCombatRunRetirement.IsSet()
+		&& Mode->ControlledWeaponWorldLifecycle.IsEmpty() && Mode->CombatRunFixedTimeline.IsEmpty());
+	FShanmenItemAuthoritySnapshot After;
+	TestTrue(TEXT("Mission deactivation never finalizes or rewrites the durable item Run"),
+		Fixture.Authority->TryCaptureSnapshot(After) && Before == After
+		&& Runtime->GetActiveRunId() == Started.ActiveRunId);
+	return true;
+}
+
 #endif

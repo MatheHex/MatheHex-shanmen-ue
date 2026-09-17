@@ -747,6 +747,7 @@ private:
 	friend class Fdemo_mapSwordRhythmGameModeReleaseRecoveryTest;
 	friend class Fdemo_mapCombatRunRetirementRecoveryTest;
 	friend class Fdemo_mapCombatRunOrphanRetentionTest;
+	friend class Fdemo_mapPreparationDeactivationRetentionTest;
 	friend class Fdemo_mapSwordQiPhysicalIssueRetryTest;
 #endif
 	TArray<TWeakObjectPtr<Ademo_mapM01ExtractionZone>> M01ExtractionZones;

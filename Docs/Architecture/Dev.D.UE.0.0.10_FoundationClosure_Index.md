@@ -1,6 +1,6 @@
 # 0.0.10 底层契约、权威与生命周期索引
 
-状态：`FREEZE_AUDIT_IN_PROGRESS`，不是整体冻结或 F 阶段验收。初版 P28.0，2026-09-16；最近完整全产品根验证基线为 [P27.31 / 0b6af9c](https://github.com/MatheHex/MatheHex-shanmen-ue/commit/0b6af9c52efde41c1508b4b7a540bb8198a103a3)，后续 P28.1 路由修补、P28.2 携入身份保护与受影响回归见第 4 节。后续审计更新本文的有限清单，不因“继续”无限追加系统。
+状态：`FREEZE_AUDIT_IN_PROGRESS`，不是整体冻结或 F 阶段验收。初版 P28.0，2026-09-16；最近完整产品根验证为 [P28.3](../Report/Dev.D.UE.0.0.10.P28.3.r0_report.md)，于 2026-09-17 完成新根 1426/0、旧根 1330/0 及双构建核验。P28.1 路由修补、P28.2 携入身份保护、P28.3 GameMode 清理保持见第 4 节。后续审计更新本文的有限清单，不因“继续”无限追加系统。
 
 ## 1. 范围来源与非目标
 
@@ -20,7 +20,7 @@
 | 唯一持久物品权威 | [GameInstance Subsystem](../../Source/demo_map/demo_mapShanmenItemAuthoritySubsystem.h) 持有服务；[Persistence](../../Source/ShanmenItems/Private/ShanmenItemPersistence.cpp) | 存储绑定与 Profile owner 一致；临时写/校验/备份/替换；不确定结果恢复前不接受新命令 | P1.2 以后；[权威 ADR](Dev.D.UE.0.0.10_ItemAuthority_ADR.md) |
 | 旧档迁移与 cutover | [ProfileRepository](../../Source/demo_map/demo_mapProfileRepository.cpp)；[RunLifecycleAdapter](../../Source/demo_map/demo_mapShanmenRunLifecycleAdapter.cpp) | 旧来源一致且无活动 Run 才迁移；1≤legacy<current；旧 writer 不与新产品权威并行 | [迁移 ADR](Dev.D.UE.0.0.10_ItemMigration_ADR.md)、P1.14；ItemEconomySchema.22/.23 |
 | 整备、Run 启动和终局 | [RunLifecycleAdapter](../../Source/demo_map/demo_mapShanmenRunLifecycleAdapter.cpp)；[GameMode](../../Source/demo_map/demo_mapGameMode.cpp) | StartPreparedRun 持久身份贯穿 Runtime；终局仅精确规范化内容重放，不重发奖励 | P1.14、P27.31；Items.ProductFlow/RunLifecycle |
-| Run 组合、结束和续清理 | GameMode 的 TryActivateCombatRun / ReleaseCombatProductRun / TryFinishCombatRunRetirement | 错误 owner 不释放；同进程已成功前缀不重做；Pending retirement 阻止重启和相关运行 | P27.29/30；FormationRunLifecycle.GameModeScatterPublication |
+| Run 组合、结束和续清理 | GameMode 的 TryActivateCombatRun / ReleaseCombatProductRun / TryFinishCombatRunRetirement / DeactivateV3MissionContentForPreparation | 错误 owner 不释放；同进程已成功前缀不重做；Pending retirement 阻止重启和相关运行；GameMode 返回整备在释放拒绝时保留任务对象 | P27.29/30、P28.3；FormationRunLifecycle.GameModeScatterPublication / ControlledWeaponWorldLifecycle |
 | 剑法/剑气/动作互斥 | [CombatRuntime](../../Source/ShanmenCombatRuntime)；[SwordRhythm Session](../../Source/demo_map/demo_mapShanmenSwordRhythmProductSession.cpp) 与 GameMode | 动作生命周期和权限先于执行；Run 固定时间线不是渲染 FPS；过期可用性不能直接消费 | P3、P10/11/12、P18/24；对应阶段完整新根 |
 | 御器真实物品与 World | [ControlledWeapon RunLifecycle](../../Source/demo_map/demo_mapShanmenControlledWeaponRunLifecycle.cpp)；GameMode 持有各 host/world owner | 部署关联真实 ItemInstance；逻辑结束与 World 释放区分；销毁失败保留待清理 owner | P6、P21、P27.30 |
 | 暗器、阵法资源与操作权限 | [ThrownWeapon Lifecycle](../../Source/demo_map/demo_mapShanmenThrownWeaponProductLifecycle.cpp)；[Formation Lifecycle](../../Source/demo_map/demo_mapShanmenFormationRunLifecycle.cpp) | 预览不消费；执行到提交点才消费；散布由 GameMode 唯一发布；熟练度权限不是经验系统 | P7/8、P20/22/27；P27.28 组合入口 |
@@ -46,7 +46,7 @@
 | 编号 | 状态 | 关闭条件 |
 |---|---|---|
 | FZ-1 全入口权威路由 | P28.1 修复 Ready/归属混用；P28.2 修复携入堆叠被新获物合并的身份缺口，阶段验证见对应 Report；全部入口审计仍待完成 | 覆盖产品整备/拾取/快捷使用/库存使用/终局，标注 Shanmen cutover 及旧兼容分支；说明 Code A Runtime 可变投影如何受 durable 结果约束。不能以局部修复代替全部调用图证明 |
-| FZ-2 Run 激活失败及最终释放 | 待完成可达性/保持核对，非已复现数据丢失 | 将 TryActivateCombatRun 的早期回滚与统一 Release 的适用范围说明清楚；对可达失败证明 owner 保留或安全回滚，对前置约束已排除的分支记录推理；EndPlay 不可当已成功清理的证据 |
+| FZ-2 Run 激活失败及最终释放 | P28.3 已复现并修复 GameMode 忽略释放拒绝后清理任务对象；Manager 外层及激活失败传播仍待核对 | 将 TryActivateCombatRun 的早期回滚与统一 Release 的适用范围说明清楚；对可达失败证明 owner 保留或安全回滚，对前置约束已排除的分支记录推理；EndPlay 不可当已成功清理的证据 |
 | FZ-3 最终冻结证据 | 等 FZ-1/2 关闭后执行 | 产品输入固定，完整新旧根、Editor/Game、改动映射和文档检查完成；保留失败/中断原件，发布最终 Report/Log/Git 基线后暂停监控 |
 
 P28.0 已深读 FZ-2 的部分源码：激活入口先排斥残留 session/condition；Condition TryBegin 建立无活动 modifier 状态；剑法 Session/Presentation TryBegin 以有效 Run 构造候选。早期回滚仍有 TryEnd 失败后 Reset 的分支，但仅看到这些代码不足以证明正常入口能制造该失败。没有因此修改源码或新增故障注入接口。
@@ -56,6 +56,10 @@ P28.1 的隔离存盘故障证明：已切换的 Flow 曾随 Authority 进入 Re
 P28.2 沿实际 Runtime 获物→消费→终局路径复现：三颗携入丹被一颗新获同类丹合并，导致原实例数量/来源改变，持久消费和原样撤离交接均被拒绝。修复复用 Runtime 已有 DeployedItemIds：自动入包/World 拾取的容量预检与合并、玩家拖拽和容器双向合并都不吸收或消灭携入身份；重新拾取携入物不将其标成新获物。没有新增持久 schema 或第二份权威，也不放宽既有数量/终局校验。阶段与验证见 [P28.2 Report](../Report/Dev.D.UE.0.0.10.P28.2.r0_report.md) / [Log](../Log/Dev.D.UE.0.0.10.P28.2.r0_log.md)。
 
 剩余 FZ-1 需要继续区分既有规则与可达故障：持久测试明确要求撤离不能默默丢失 DeploymentLock 装备，因此本轮没有改成“缺少即销毁”；丢弃/存入容器与该终局规则的整体边界仍待闭合。新获但未整备消耗品的使用入口也需核对当前 ItemNotPrepared 限制，不能以恢复旧 Runtime 消费旁路解决。上述项不因本轮堆叠保护成功而视为全部完成。
+
+P28.3 通过实际飞剑 World 销毁拒绝复现：下层 Release 已保留原 Run/owner，但返回整备调用方仍销毁敌人、清除活动标志。现在该 GameMode 入口对拒绝立即返回；相同 owner 可续清理，原已结束前缀不重做，M01 激活绑定失败明确返回 false。新增非零时间线/真实物品实例用例由 0/1 变为成功，完整专项 4/0、双根与双构建通过；见 [P28.3 Report](../Report/Dev.D.UE.0.0.10.P28.3.r0_report.md) / [Log](../Log/Dev.D.UE.0.0.10.P28.3.r0_log.md)。
+
+剩余 FZ-2 明确限定为外层与可达性：Manager.DeactivateProfileWorld 仍先清理其拾取物/容器，再调用 GameMode，最后 TeardownWorld；技术回滚、激活失败、终局及强制 EndPlay 的次序与结果传播尚未全部取证。P28.3 只证明 GameMode 所有对象的保持，不证明整个 World 原子恢复，也不以测试夹具替代正式 M01 激活链。后续先核对现有调用条件，再决定最小修复；不得据本段直接扩充通用恢复系统。
 
 ## 5. 与冻结分开的债务
 
@@ -67,7 +71,7 @@ P28.2 沿实际 Runtime 获物→消费→终局路径复现：三颗携入丹�
 
 ## 6. 证据与文档入口
 
-- 最近完整产品验证：[P27.31 Report](../Report/Dev.D.UE.0.0.10.P27.31.r0_report.md)、[Log](../Log/Dev.D.UE.0.0.10.P27.31.r0_log.md)：新根 1419/0、旧根 1330/0、双构建原生 0/0；原日志路径与 SHA-256 在 Log。
+- 最近完整产品验证：[P28.3 Report](../Report/Dev.D.UE.0.0.10.P28.3.r0_report.md)、[Log](../Log/Dev.D.UE.0.0.10.P28.3.r0_log.md)：新根 1426/0、旧根 1330/0、双构建原生 0/0，精确六路径映射覆盖 81 个必跑组；不是 FZ-1/2 关闭后的最终冻结验证。此前 [P27.31](../Report/Dev.D.UE.0.0.10.P27.31.r0_report.md) 的结算重放证据保留。
 - 最新携入身份保护：[P28.2 Report](../Report/Dev.D.UE.0.0.10.P28.2.r0_report.md)、[Log](../Log/Dev.D.UE.0.0.10.P28.2.r0_log.md)：Items 84/0、旧根 1330/0、双构建原生 0/0；专项 10 项包含在 Items 内，不当作最终 Shanmen 全根验证。
 - 本次索引与文档分类：[P28.0 Report](../Report/Dev.D.UE.0.0.10.P28.0.r0_report.md)、[Log](../Log/Dev.D.UE.0.0.10.P28.0.r0_log.md)。其验证不冒充新一轮完整产品根。
 - [项目入口](../../PROJECT.md)、[信息卡](../../PROJECT_INFO_CARD.md) 顶部为当前说明，下部是明确标注的 0.0.9B 历史；[旧 I 门禁](../Process/I_STAGE_FOUNDATION_GATE.md) 仅作历史。
