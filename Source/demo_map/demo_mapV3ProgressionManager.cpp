@@ -3933,8 +3933,6 @@ bool Ademo_mapV3ProgressionManager::RollbackPreparedProfileRunFor0909B(
 	}
 	const Fdemo_mapProfileSessionSettlementResult Rollback =
 		ProfilePreparationFlow->CancelActiveRunForActivationFailure();
-	DeactivateProfileWorld();
-	bSettlementPending = false;
 	const Fdemo_mapProfileSessionSnapshot Snapshot =
 		ProfilePreparationFlow->GetPresentationSnapshot();
 	const bool bTechnicalRuntimeRollback =
@@ -3950,6 +3948,9 @@ bool Ademo_mapV3ProgressionManager::RollbackPreparedProfileRunFor0909B(
 		*Rollback.Diagnostic);
 	if (bAtSectReady)
 	{
+		// A rejected lower rollback still owns its Runtime and World context.
+		DeactivateProfileWorld();
+		bSettlementPending = false;
 		UE_LOG(Logdemo_map, Log,
 			TEXT("I1_RUN_COORDINATOR Event=TechnicalRollback OwnerId=%s RunId=%s %s"),
 			*Snapshot.ProfileId.ToString(EGuidFormats::DigitsWithHyphens),

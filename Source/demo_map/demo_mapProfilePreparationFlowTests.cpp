@@ -13,11 +13,16 @@
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
 #include "demo_mapShanmenItemCutover.h"
 #include "demo_mapShanmenRunLifecycleAdapter.h"
+#include "demo_mapV3ProgressionManager.h"
+#include "demo_mapWorldItem.h"
+#include "Components/BoxComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
+#include "Engine/World.h"
 #include "HAL/FileManager.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/ScopeExit.h"
 #include "UObject/UObjectGlobals.h"
 
 namespace
@@ -926,6 +931,168 @@ bool FShanmenProductFlowRecoveryBeforeStartTest::RunTest(const FString&)
 	TArray<uint8> ProfileAfter;
 	TestTrue(TEXT("Recovery start does not rewrite the retired Profile"),
 		ReadFlowBytes(ProfileStorage.PrimaryPath(), ProfileAfter) && ProfileAfter == ProfileBefore);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenProductFlowManagerRollbackRetentionTest,
+	"Shanmen.0_0_10.Items.ProductFlow.ManagerRollbackRetention",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FShanmenProductFlowManagerRollbackRetentionTest::RunTest(const FString&)
+{
+	const FProductionSnapshot Production;
+	for (const bool bFaultAuthority : { false, true })
+	{
+		const FString Root = NewFlowRoot();
+		const Fdemo_mapProfileStorageContext ProfileStorage =
+			Fdemo_mapProfileStorageContext::ForRoot(Root);
+		Fdemo_mapProfileRepository Repository;
+		Fdemo_mapPersistentProfile Seed = Repository.CreateFreshProfile();
+		Fdemo_mapPersistentItemRecord Pill;
+		Pill.ItemInstanceId = FGuid::NewGuid();
+		Pill.ItemDefinitionId = Fdemo_mapItemIds::HealingPillLevel1;
+		Pill.StackCount = 3;
+		Pill.PersistentDomain = Edemo_mapPersistentDomain::PermanentStash;
+		Seed.PermanentStash.Add(Pill);
+		if (!TestTrue(TEXT("Manager fixture saves a nonzero isolated Profile"),
+				Repository.SaveProfile(Seed, ProfileStorage).IsSuccess())) return false;
+		FFlowFixture Fixture;
+		auto Flow = MakeUnique<Fdemo_mapProfilePreparationFlow>();
+		Udemo_mapShanmenItemAuthoritySubsystem* Authority = nullptr;
+		Fdemo_map0909BSectWarehouseService Warehouse;
+		if (!InitializeCutoverFlow(
+				*this, Fixture, *Flow, Root, Authority, Warehouse)) return false;
+		const FGuid Blade = FindDefinition(
+			Fixture.Session->GetSnapshot(), Fdemo_mapItemIds::TrainingBlade);
+		if (!TestTrue(TEXT("Manager fixture prepares real blade and three pills"),
+				Fixture.Session->SetPreparationEquipment(
+					Fdemo_mapItemIds::WeaponSlot, Blade).IsAccepted()
+				&& Fixture.Session->SetPreparationMaterial(
+					Pill.ItemInstanceId, true).IsAccepted())) return false;
+		Fixture.Runtime->ResetForAutomation();
+		auto* Attributes = NewObject<Udemo_mapAttributeComponent>(GetTransientPackage());
+		auto* Health = NewObject<Udemo_mapPlayerHealthComponent>(GetTransientPackage());
+		if (!Health->BindAttributeComponent(Attributes, true)) return false;
+		Fixture.Runtime->BindAttributeComponent(Attributes);
+		Fixture.Runtime->BindHealthComponent(Health);
+		if (!TestTrue(TEXT("Manager fixture materializes a durable Run"),
+				Flow->StartPreparedRunDirect().IsRunActive())) return false;
+		const FGuid RunId = Flow->GetStartedRunId();
+		Health->SetCurrentHealthForAutomation(1);
+
+		UWorld* World = NewObject<UWorld>(GetTransientPackage(), NAME_None, RF_Transient);
+		if (!World) return false;
+		World->WorldType = EWorldType::GamePreview;
+		FWorldContext& Context = GEngine->CreateNewWorldContext(EWorldType::GamePreview);
+		Context.OwningGameInstance = Fixture.GameInstance;
+		Context.SetCurrentWorld(World);
+		World->SetGameInstance(Fixture.GameInstance);
+		ON_SCOPE_EXIT
+		{
+			Fixture.Runtime->TeardownWorld(World);
+			World->DestroyWorld(false);
+			GEngine->DestroyWorldContext(World);
+		};
+		World->InitializeNewWorld(UWorld::InitializationValues()
+			.InitializeScenes(true).AllowAudioPlayback(false).RequiresHitProxies(false)
+			.CreatePhysicsScene(true).CreateNavigation(false).CreateAISystem(false)
+			.ShouldSimulatePhysics(false).EnableTraceCollision(true)
+			.SetTransactional(false).CreateFXSystem(false));
+		FActorSpawnParameters Spawn;
+		Spawn.ObjectFlags |= RF_Transient;
+		Spawn.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		auto* Manager = World->SpawnActor<Ademo_mapV3ProgressionManager>(
+			Ademo_mapV3ProgressionManager::StaticClass(), FTransform::Identity, Spawn);
+		AActor* Floor = World->SpawnActor<AActor>(AActor::StaticClass(), FTransform::Identity, Spawn);
+		auto* FloorBox = Floor ? NewObject<UBoxComponent>(Floor, NAME_None, RF_Transient) : nullptr;
+		if (!Manager || !FloorBox) return false;
+		Floor->SetRootComponent(FloorBox);
+		Floor->AddInstanceComponent(FloorBox);
+		FloorBox->SetBoxExtent(FVector(1000.0f, 1000.0f, 10.0f));
+		FloorBox->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+		FloorBox->SetCollisionObjectType(ECC_WorldStatic);
+		FloorBox->SetCollisionResponseToAllChannels(ECR_Block);
+		FloorBox->RegisterComponent();
+		Floor->SetActorLocation(FVector(0.0f, 0.0f, -10.0f));
+		World->UpdateWorldComponents(true, false);
+		Ademo_mapWorldItem* LootActor = nullptr;
+		if (!TestTrue(TEXT("Manager fixture creates a real two-unit World item"),
+				Fixture.Runtime->CreateWorldItem(World, Fdemo_mapItemIds::SpiritDust, 2,
+					FVector(100.0f, 0.0f, 0.0f), LootActor).bSuccess && LootActor)) return false;
+		const FGuid LootId = LootActor->GetInstanceId();
+		const TWeakObjectPtr<Ademo_mapWorldItem> LootOwner = LootActor;
+		// Bind only the existing Manager ownership fields; no BeginPlay, UI,
+		// physical input or formal M01 initialization is part of this test.
+		Manager->Items = Fixture.Runtime;
+		Manager->ProfilePreparationFlow = MoveTemp(Flow);
+		Manager->InitialWorldItems.Add(LootActor);
+		Manager->bProfileWorldActive = true;
+		Manager->bSettlementPending = true;
+		TArray<uint8> ProfileBefore;
+		if (!ReadFlowBytes(ProfileStorage.PrimaryPath(), ProfileBefore)) return false;
+		FShanmenItemAuthorityDocument BeforeDocument;
+		if (!Authority->TryGetDocument(BeforeDocument)) return false;
+		const FShanmenItemStorageContext ItemStorage =
+			FShanmenItemStorageContext::ForRoot(Root, Manager->ProfilePreparationFlow->GetProfileId());
+		if (bFaultAuthority)
+		{
+			// The unique validated test root is the only storage faulted here.
+			if (!FFileHelper::SaveStringToFile(TEXT("P28.4 invalid primary"), *ItemStorage.PrimaryPath())
+				|| !FFileHelper::SaveStringToFile(TEXT("P28.4 invalid backup"), *ItemStorage.BackupPath())) return false;
+			Authority->SetInjectedFailureForAutomation(EShanmenItemStoreFailureStage::WriteTemp);
+			TestFalse(TEXT("Durable failure rejects the effect before technical rollback"),
+				Manager->ProfilePreparationFlow->UseActiveRunInventoryItem(Pill.ItemInstanceId, true).IsSuccess());
+			if (!TestTrue(TEXT("Real service is in recovery, with the Runtime Run retained"),
+					Authority->GetLifecycleState() == Edemo_mapShanmenItemAuthorityLifecycleState::RecoveryRequired
+					&& Fixture.Runtime->GetActiveRunId() == RunId)) return false;
+			AddExpectedError(TEXT("I1_RUN_COORDINATOR Event=TechnicalRollback"),
+				EAutomationExpectedErrorFlags::Contains, 2);
+		}
+		TArray<uint8> AuthorityBytesBefore;
+		if (!ReadFlowBytes(ItemStorage.PrimaryPath(), AuthorityBytesBefore)) return false;
+		for (int32 Attempt = 0; Attempt < (bFaultAuthority ? 2 : 1); ++Attempt)
+		{
+			FString Diagnostic;
+			const bool bRolledBack = Manager->RollbackPreparedProfileRunFor0909B(Diagnostic);
+			if (bFaultAuthority)
+			{
+				TestFalse(TEXT("Manager propagates technical rollback rejection"), bRolledBack);
+				TestTrue(TEXT("Rejected rollback retains Manager world context and pending state"),
+					Manager->IsProfileWorldActive() && Manager->IsSettlementPending()
+					&& Manager->InitialWorldItems.Contains(LootOwner));
+				const auto* Loot = Fixture.Runtime->GetAuthority().FindInstance(LootId);
+				TestTrue(TEXT("Rejected rollback retains actual World owner, binding and nonzero item"),
+					LootOwner.IsValid() && !LootOwner->IsActorBeingDestroyed()
+					&& Fixture.Runtime->GetWorldActor(LootId) == LootOwner.Get()
+					&& Loot && Loot->Quantity == 2);
+				const auto* RetainedPill = Fixture.Runtime->GetAuthority().FindInstance(Pill.ItemInstanceId);
+				TestTrue(TEXT("Rejected rollback preserves exact active Run, recovery and unapplied effect"),
+					Manager->ProfilePreparationFlow->GetPhase() == Edemo_mapProfilePreparationFlowPhase::RecoveryRequired
+					&& Manager->ProfilePreparationFlow->GetStartedRunId() == RunId
+					&& Fixture.Runtime->GetRunState() == Edemo_mapRunState::Active
+					&& Fixture.Runtime->GetActiveRunId() == RunId
+					&& RetainedPill && RetainedPill->Quantity == 3 && Health->GetCurrentHealth() == 1);
+			}
+			else
+			{
+				FShanmenItemAuthorityDocument AfterDocument;
+				TestTrue(TEXT("Successful rollback still clears transient context, not durable recovery evidence"),
+					bRolledBack && !Manager->IsProfileWorldActive() && !Manager->IsSettlementPending()
+					&& Manager->InitialWorldItems.IsEmpty()
+					&& Fixture.Runtime->GetRunState() == Edemo_mapRunState::Inactive
+					&& Fixture.Runtime->GetWorldActorCount() == 0
+					&& !Fixture.Runtime->GetAuthority().FindInstance(LootId)
+					&& Authority->TryGetDocument(AfterDocument) && AfterDocument == BeforeDocument
+					&& Manager->ProfilePreparationFlow->GetRecoverableShanmenRunId() == RunId);
+			}
+		}
+		TArray<uint8> ProfileAfter, AuthorityBytesAfter;
+		TestTrue(TEXT("Manager rollback does not rewrite retired Profile or durable authority bytes"),
+			ReadFlowBytes(ProfileStorage.PrimaryPath(), ProfileAfter) && ProfileAfter == ProfileBefore
+			&& ReadFlowBytes(ItemStorage.PrimaryPath(), AuthorityBytesAfter) && AuthorityBytesAfter == AuthorityBytesBefore);
+	}
+	TestTrue(TEXT("Manager rollback test never changes production Profile"), Production.IsUnchanged());
 	return true;
 }
 

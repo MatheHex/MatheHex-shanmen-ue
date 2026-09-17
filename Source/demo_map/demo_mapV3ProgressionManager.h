@@ -297,6 +297,9 @@ public:
 #endif
 
 private:
+#if WITH_DEV_AUTOMATION_TESTS
+	friend class FShanmenProductFlowManagerRollbackRetentionTest;
+#endif
 	/** P7 input edge: reads an exact P6 active session and opens the shared P3/P4 host. */
 	bool OpenCodeBActiveRunInventory(FString& OutFeedback);
 	/** P14 Code A adapter: resolves a safe floor transform, then calls the sole P6 writer. */
