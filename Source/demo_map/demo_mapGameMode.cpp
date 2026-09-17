@@ -4690,19 +4690,19 @@ void Ademo_mapGameMode::BindV3EnemyProjections(
 	HeavyEnemy = InHeavy;
 }
 
-void Ademo_mapGameMode::DeactivateV3MissionContentForPreparation()
+bool Ademo_mapGameMode::DeactivateV3MissionContentForPreparation()
 {
 	// Retained Run owners still depend on this mission until release succeeds.
 	if (!ReleaseCombatProductRun(TEXT("PreparationDeactivation")))
 	{
-		return;
+		return false;
 	}
 	DestroyM01EnemyContent();
 	DestroyM01ExtractionFoundation();
 	if (IsM01ExpeditionMap())
 	{
 		bV3MissionContentActive = false;
-		return;
+		return true;
 	}
 	auto DestroyActor = [](TWeakObjectPtr<AActor>& Actor)
 	{
@@ -4731,6 +4731,7 @@ void Ademo_mapGameMode::DeactivateV3MissionContentForPreparation()
 	HeavyEnemy.Reset();
 	FriendlyUnit.Reset();
 	bV3MissionContentActive = false;
+	return true;
 }
 
 bool Ademo_mapGameMode::InitializeM01EnemyContent(APawn* PlayerPawn)

@@ -6950,6 +6950,14 @@ void Ademo_mapV3ProgressionManager::HideProfilePreparation()
 
 void Ademo_mapV3ProgressionManager::DeactivateProfileWorld()
 {
+	// A retained combat owner must not lose the Manager projections beneath it.
+	if (Ademo_mapGameMode* Mode = GetWorld() ? Cast<Ademo_mapGameMode>(GetWorld()->GetAuthGameMode()) : nullptr)
+	{
+		if (!Mode->DeactivateV3MissionContentForPreparation())
+		{
+			return;
+		}
+	}
 	SetFocusedActor(nullptr);
 	if (SpiritStonePickup.IsValid())
 	{
@@ -6967,10 +6975,6 @@ void Ademo_mapV3ProgressionManager::DeactivateProfileWorld()
 	M01SpiritStoneSpawnSourceIds.Reset();
 	DestroyRuntimeContainers(TEXT("ProfileWorldDeactivated"));
 	InitialWorldItems.Reset();
-	if (Ademo_mapGameMode* Mode = GetWorld() ? Cast<Ademo_mapGameMode>(GetWorld()->GetAuthGameMode()) : nullptr)
-	{
-		Mode->DeactivateV3MissionContentForPreparation();
-	}
 	if (Items.IsValid())
 	{
 		Items->TeardownWorld(GetWorld());

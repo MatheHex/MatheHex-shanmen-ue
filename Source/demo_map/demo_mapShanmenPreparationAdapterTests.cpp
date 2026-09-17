@@ -24,6 +24,7 @@
 #include "demo_mapRewardAffix.h"
 #include "demo_mapRuntimeContainer.h"
 #include "demo_mapWorldItem.h"
+#include "demo_mapV3ProgressionManager.h"
 #include "demo_mapShanmenControlledWeaponActiveRunRoute.h"
 #include "demo_mapShanmenControlledWeaponActor.h"
 #include "demo_mapShanmenControlledWeaponRunLifecycle.h"
@@ -3384,7 +3385,8 @@ bool Fdemo_mapPreparationDeactivationRetentionTest::RunTest(const FString&)
 	AddExpectedError(TEXT("Event=ControlledWeaponWorldReleaseRejected"), EAutomationExpectedErrorFlags::Contains, 2);
 	for (int32 Attempt = 0; Attempt < 2; ++Attempt)
 	{
-		Mode->DeactivateV3MissionContentForPreparation();
+		TestFalse(TEXT("Mission deactivation reports release refusal to its caller"),
+			Mode->DeactivateV3MissionContentForPreparation());
 		TestTrue(TEXT("Rejected Run release retains its mission actors and active flags"),
 			IsValid(Enemy) && !Enemy->IsActorBeingDestroyed()
 			&& Mode->M01EnemyActors.Num() == 1 && Mode->M01EnemyActors[0].Get() == Enemy
@@ -3401,8 +3403,8 @@ bool Fdemo_mapPreparationDeactivationRetentionTest::RunTest(const FString&)
 	int32 DestroyedEnemies = 0;
 	const auto Observer = Scene.World->AddOnActorDestroyedHandler(FOnActorDestroyed::FDelegate::CreateLambda(
 		[&](AActor* Actor) { if (Actor == Enemy) ++DestroyedEnemies; }));
-	Mode->DeactivateV3MissionContentForPreparation();
-	Mode->DeactivateV3MissionContentForPreparation();
+	TestTrue(TEXT("Recovered mission deactivation reports success"), Mode->DeactivateV3MissionContentForPreparation());
+	TestTrue(TEXT("Empty mission deactivation reports success"), Mode->DeactivateV3MissionContentForPreparation());
 	Scene.World->RemoveOnActorDestroyedHandler(Observer);
 	TestTrue(TEXT("Same owner retry completes once, then empty deactivation is idempotent"),
 		DestroyedEnemies == 1 && Mode->M01EnemyActors.IsEmpty() && !Mode->Enemy.IsValid()
@@ -3411,6 +3413,125 @@ bool Fdemo_mapPreparationDeactivationRetentionTest::RunTest(const FString&)
 		&& Mode->ControlledWeaponWorldLifecycle.IsEmpty() && Mode->CombatRunFixedTimeline.IsEmpty());
 	FShanmenItemAuthoritySnapshot After;
 	TestTrue(TEXT("Mission deactivation never finalizes or rewrites the durable item Run"),
+		Fixture.Authority->TryCaptureSnapshot(After) && Before == After
+		&& Runtime->GetActiveRunId() == Started.ActiveRunId);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	Fdemo_mapManagerWorldDeactivationRetentionTest,
+	"Shanmen.0_0_10.Product.ControlledWeaponWorldLifecycle.ManagerDeactivationRetention",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool Fdemo_mapManagerWorldDeactivationRetentionTest::RunTest(const FString&)
+{
+	FPreparationAdapterFixture Fixture;
+	if (!Fixture.StartAndCutover(*this, TEXT("P285ManagerDeactivation"))
+		|| !Fixture.Session->SetPreparationEquipment(
+			Fdemo_mapItemIds::WeaponSlot, Fixture.FlyingSwordId).IsAccepted()) return false;
+	Udemo_mapItemSubsystem* Runtime = Fixture.GameInstance->GetSubsystem<Udemo_mapItemSubsystem>();
+	if (!Runtime) return false;
+	const auto Started = Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(*Fixture.Authority, *Runtime);
+	FControlledWeaponWorldFixture Scene;
+	if (!Started.IsStarted() || !Scene.Start(*this, Fixture.GameInstance, Started.ActiveRunId)) return false;
+	const auto Began = Scene.Lifecycle.TryBegin(Scene.World, Fixture.Authority, Runtime,
+		Scene.Coordinator, Scene.Host, Scene.Player, 1);
+	Ademo_mapShanmenControlledWeaponActor* Weapon = Began.WeaponActor.Get();
+	Ademo_mapEnemyCharacter* Enemy = Began.IsStarted()
+		? Scene.SpawnRegisteredEnemy(*this, FVector(900.0f, 0.0f, 0.0f)) : nullptr;
+	FShanmenControlledWeaponCommandReceipt Launch;
+	int64 Advanced = 0;
+	if (!Weapon || !Enemy || !Scene.Host.TryLaunch(Fixture.FlyingSwordId, 0, FVector::ForwardVector, Launch)
+		|| !Scene.Timeline.TryAdvance(0.1, Advanced, Scene.Diagnostic) || Advanced <= 0) return false;
+	// Actual AuthGameMode lookup, but no BeginPlay, formal map or input binding.
+	if (!Scene.World->SetGameMode(FURL())) return false;
+	auto* Mode = Cast<Ademo_mapGameMode>(Scene.World->GetAuthGameMode());
+	FActorSpawnParameters Spawn;
+	Spawn.ObjectFlags |= RF_Transient;
+	Spawn.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	auto* Manager = Scene.World->SpawnActor<Ademo_mapV3ProgressionManager>(
+		Ademo_mapV3ProgressionManager::StaticClass(), FTransform::Identity, Spawn);
+	AActor* Floor = Scene.World->SpawnActor<AActor>(AActor::StaticClass(), FTransform::Identity, Spawn);
+	auto* FloorBox = Floor ? NewObject<UBoxComponent>(Floor, NAME_None, RF_Transient) : nullptr;
+	if (!Mode || !Manager || !FloorBox) return false;
+	Floor->SetRootComponent(FloorBox);
+	Floor->AddInstanceComponent(FloorBox);
+	FloorBox->SetBoxExtent(FVector(1000.0f, 1000.0f, 10.0f));
+	FloorBox->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	FloorBox->SetCollisionObjectType(ECC_WorldStatic);
+	FloorBox->SetCollisionResponseToAllChannels(ECR_Block);
+	FloorBox->RegisterComponent();
+	Floor->SetActorLocation(FVector(0.0f, 0.0f, -10.0f));
+	Scene.World->UpdateWorldComponents(true, false);
+	Ademo_mapWorldItem* LootActor = nullptr;
+	if (!TestTrue(TEXT("Manager deactivation fixture creates a real nonzero World item"),
+		Runtime->CreateWorldItem(Scene.World, Fdemo_mapItemIds::SpiritDust, 2,
+			FVector(100.0f, 0.0f, 0.0f), LootActor).bSuccess && LootActor)) return false;
+	const FGuid LootId = LootActor->GetInstanceId();
+	const TWeakObjectPtr<Ademo_mapWorldItem> LootOwner = LootActor;
+	Mode->CombatRunCoordinator = MoveTemp(Scene.Coordinator);
+	Mode->ControlledWeaponRunHost = MoveTemp(Scene.Host);
+	Mode->ControlledWeaponWorldLifecycle = MoveTemp(Scene.Lifecycle);
+	Mode->CombatRunFixedTimeline = MoveTemp(Scene.Timeline);
+	Mode->M01EnemyActors.Add(Enemy);
+	Mode->Enemy = Enemy;
+	Mode->bM01EnemyContentActive = true;
+	Mode->bM01ExtractionFoundationActive = true;
+	Mode->bV3MissionContentActive = true;
+	Manager->Items = Runtime;
+	Manager->InitialWorldItems.Add(LootActor);
+	Manager->bProfileWorldActive = true;
+	Manager->bSettlementPending = true;
+	FShanmenItemAuthoritySnapshot Before;
+	if (!Fixture.Authority->TryCaptureSnapshot(Before)) return false;
+	const ENetRole OriginalRole = Weapon->GetLocalRole();
+	Weapon->SetRole(ROLE_SimulatedProxy);
+	AddExpectedError(TEXT("Event=ControlledWeaponWorldReleaseRejected"), EAutomationExpectedErrorFlags::Contains, 2);
+	for (int32 Attempt = 0; Attempt < 2; ++Attempt)
+	{
+		Manager->DeactivateProfileWorld();
+		const auto* Loot = Runtime->GetAuthority().FindInstance(LootId);
+		TestTrue(TEXT("Manager retains its original World projection when GameMode release rejects"),
+			Manager->IsProfileWorldActive() && Manager->IsSettlementPending()
+			&& Manager->InitialWorldItems.Contains(LootOwner)
+			&& LootOwner.IsValid() && !LootOwner->IsActorBeingDestroyed()
+			&& Runtime->GetWorldActor(LootId) == LootOwner.Get() && Loot && Loot->Quantity == 2
+			&& Loot->OwnershipState == Edemo_mapItemOwnershipState::World);
+		TestTrue(TEXT("Manager preserves GameMode's completed prefix, mission and exact owner"),
+			Mode->PendingCombatRunRetirement.IsSet()
+			&& Mode->PendingCombatRunRetirement->RunId == Started.ActiveRunId
+			&& Mode->PendingCombatRunRetirement->InterruptedItemCount == 1
+			&& Mode->ControlledWeaponWorldLifecycle.GetWeaponActor() == Weapon
+			&& Mode->CombatRunFixedTimeline.GetCurrentTick() == Advanced
+			&& IsValid(Enemy) && !Enemy->IsActorBeingDestroyed() && Mode->bV3MissionContentActive);
+	}
+	Weapon->SetRole(OriginalRole);
+	int32 DestroyedLoot = 0, DestroyedEnemies = 0;
+	const auto Observer = Scene.World->AddOnActorDestroyedHandler(FOnActorDestroyed::FDelegate::CreateLambda(
+		[&](AActor* Actor) { if (Actor == LootActor) ++DestroyedLoot; if (Actor == Enemy) ++DestroyedEnemies; }));
+	Manager->DeactivateProfileWorld();
+	Manager->DeactivateProfileWorld();
+	Scene.World->RemoveOnActorDestroyedHandler(Observer);
+	TestEqual(TEXT("Recovered deactivation destroys the retained loot exactly once"), DestroyedLoot, 1);
+	TestEqual(TEXT("Recovered deactivation destroys the retained enemy exactly once"), DestroyedEnemies, 1);
+	TestFalse(TEXT("Recovered deactivation clears Manager active flag"), Manager->IsProfileWorldActive());
+	TestTrue(TEXT("Recovered deactivation clears Manager item references"), Manager->InitialWorldItems.IsEmpty());
+	TestEqual(TEXT("Recovered deactivation removes World bindings"), Runtime->GetWorldActorCount(), 0);
+	// DestroyWorld retains a tombstone until Run compaction; it does not erase identity.
+	const auto* RetiredLoot = Runtime->GetAuthority().FindInstance(LootId);
+	TestTrue(TEXT("Recovered deactivation retains the destroyed item without an active owner"),
+		RetiredLoot && RetiredLoot->OwnershipState == Edemo_mapItemOwnershipState::Destroyed
+		&& RetiredLoot->Quantity == 2 && RetiredLoot->OwnerId.IsNone()
+		&& RetiredLoot->ContainerId.IsNone() && RetiredLoot->EquippedSlotId.IsNone());
+	TestFalse(TEXT("Retired loot is absent from World inventory"),
+		Runtime->GetAuthority().FindWorldInstances().Contains(LootId));
+	TestTrue(TEXT("Recovered cleanup preserves Runtime authority invariants"),
+		Runtime->GetAuthority().ValidateInvariants());
+	TestFalse(TEXT("Recovered deactivation clears mission active flag"), Mode->bV3MissionContentActive);
+	TestFalse(TEXT("Recovered deactivation consumes the retained prefix"), Mode->PendingCombatRunRetirement.IsSet());
+	TestTrue(TEXT("Recovered deactivation clears the World owner"), Mode->ControlledWeaponWorldLifecycle.IsEmpty());
+	FShanmenItemAuthoritySnapshot After;
+	TestTrue(TEXT("World deactivation does not settle or replace the durable Run"),
 		Fixture.Authority->TryCaptureSnapshot(After) && Before == After
 		&& Runtime->GetActiveRunId() == Started.ActiveRunId);
 	return true;

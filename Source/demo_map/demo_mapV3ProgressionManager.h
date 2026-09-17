@@ -299,6 +299,7 @@ public:
 private:
 #if WITH_DEV_AUTOMATION_TESTS
 	friend class FShanmenProductFlowManagerRollbackRetentionTest;
+	friend class Fdemo_mapManagerWorldDeactivationRetentionTest;
 #endif
 	/** P7 input edge: reads an exact P6 active session and opens the shared P3/P4 host. */
 	bool OpenCodeBActiveRunInventory(FString& OutFeedback);

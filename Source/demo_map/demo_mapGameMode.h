@@ -491,7 +491,8 @@ public:
 	bool HasV3ProgressionFeature() const;
 	bool IsM01ExpeditionMap() const;
 	bool ActivateV3MissionContentForRun();
-	void DeactivateV3MissionContentForPreparation();
+	/** False retains mission ownership when combat Run release is rejected. */
+	bool DeactivateV3MissionContentForPreparation();
 	bool IsV3MissionContentActive() const { return bV3MissionContentActive; }
 	void BindV3EnemyProjections(
 		Ademo_mapEnemyCharacter* InMelee,
@@ -748,6 +749,7 @@ private:
 	friend class Fdemo_mapCombatRunRetirementRecoveryTest;
 	friend class Fdemo_mapCombatRunOrphanRetentionTest;
 	friend class Fdemo_mapPreparationDeactivationRetentionTest;
+	friend class Fdemo_mapManagerWorldDeactivationRetentionTest;
 	friend class Fdemo_mapSwordQiPhysicalIssueRetryTest;
 #endif
 	TArray<TWeakObjectPtr<Ademo_mapM01ExtractionZone>> M01ExtractionZones;
