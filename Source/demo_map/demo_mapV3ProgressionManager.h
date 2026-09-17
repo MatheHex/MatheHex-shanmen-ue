@@ -249,6 +249,7 @@ public:
 	void ReturnToSectAfterSettlement(const TCHAR* Reason);
 	bool IsProfilePreparationFlowActive() const { return Fdemo_mapProfileStartupModeSelector::UsesProfilePreparation(ProfileStartupMode); }
 	bool IsProfileWorldActive() const { return bProfileWorldActive; }
+	bool HasPendingProfileWorldRollback() const { return PendingProfileWorldRollback.IsSet(); }
 	Edemo_mapProfileStartupMode GetProfileStartupMode() const { return ProfileStartupMode; }
 	const Fdemo_mapProfilePreparationFlow* GetProfilePreparationFlow() const { return ProfilePreparationFlow.Get(); }
 	Udemo_mapProfilePreparationWidget* GetProfilePreparationWidget() const { return ProfilePreparationWidget.Get(); }
@@ -300,6 +301,7 @@ private:
 #if WITH_DEV_AUTOMATION_TESTS
 	friend class FShanmenProductFlowManagerRollbackRetentionTest;
 	friend class Fdemo_mapManagerWorldDeactivationRetentionTest;
+	friend class Fdemo_mapManagerRollbackContinuationTest;
 #endif
 	/** P7 input edge: reads an exact P6 active session and opens the shared P3/P4 host. */
 	bool OpenCodeBActiveRunInventory(FString& OutFeedback);
@@ -438,7 +440,7 @@ private:
 	void ShowProfilePreparation();
 	void ShowSectNavigation();
 	void HideProfilePreparation();
-	void DeactivateProfileWorld();
+	bool DeactivateProfileWorld();
 	void DestroyRuntimeContainers(const FString& Reason);
 	/** The sole post-activation Code B observer.  It never feeds back into Code A. */
 	void ObserveCodeBRunAfterActivation(const Fdemo_mapProfileSessionSnapshot& Snapshot);
@@ -561,6 +563,20 @@ private:
 	bool bRewardFullMapDistributionAutomation = false;
 	bool bInputRestoreDiagnostics = false;
 	TUniquePtr<Fdemo_mapProfilePreparationFlow> ProfilePreparationFlow;
+	/** Accepted Runtime rollback prefix, owned by this Manager only until World release acknowledges it. */
+	struct FPendingProfileWorldRollback
+	{
+		const Fdemo_mapProfilePreparationFlow* Flow = nullptr;
+		TWeakObjectPtr<Udemo_mapItemSubsystem> Runtime;
+		TWeakObjectPtr<Udemo_mapProfileSessionSubsystem> Session;
+		TWeakObjectPtr<UWorld> World;
+		TWeakObjectPtr<AActor> WorldMode;
+		FString StorageRoot;
+		FGuid OwnerId;
+		FGuid RunId;
+		int32 SettlementSubmitCount = 0;
+	};
+	TOptional<FPendingProfileWorldRollback> PendingProfileWorldRollback;
 	TUniquePtr<demo_map_code_b::FCodeBRepository> CodeBOutOfRaidRepository;
 	TUniquePtr<FCodeBOutOfRaidProfileStore> CodeBOutOfRaidProfileStore;
 	/** When the I1 host opens P5, the host (not the retired sect page) regains focus on close. */

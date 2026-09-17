@@ -117,6 +117,13 @@ bool Fdemo_map0909BRunStartCoordinator::StartM01Run(
 	}
 	if (State != Edemo_map0909BTopState::AtSect)
 	{
+		if (State == Edemo_map0909BTopState::TechnicalStartFailure)
+		{
+			// Retry only cleanup for the original attempt. A subsequent request may
+			// deploy after AtSect is acknowledged; this call never restores input.
+			return ReturnToSectAfterTechnicalFailure(
+				LastDiagnostic.FailureClass, LastDiagnostic.Detail, OutPlayerFeedback);
+		}
 		OutPlayerFeedback = TEXT("当前部署尚未结束，不能重复启动 M01。 ");
 		return false;
 	}

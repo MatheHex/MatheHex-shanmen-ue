@@ -24,6 +24,9 @@ public:
 	const Fdemo_map0909BStartDiagnostic& GetLastDiagnostic() const { return LastDiagnostic; }
 
 private:
+#if WITH_DEV_AUTOMATION_TESTS
+	friend class Fdemo_mapManagerRollbackContinuationTest;
+#endif
 	void BeginAttempt();
 	void Transition(Edemo_map0909BTopState NewState, const FString& SequenceStep);
 	void RecordRuntimeReceipt(const Fdemo_map0909BM01RuntimeReceipt& Receipt);

@@ -43,6 +43,9 @@ public:
 	bool IsAttemptPending(const FGuid& StartAttemptId) const;
 
 private:
+#if WITH_DEV_AUTOMATION_TESTS
+	friend class Fdemo_mapManagerRollbackContinuationTest;
+#endif
 	bool CollectWorldFacts(
 		const FGuid& StartAttemptId,
 		const FGuid& ExpectedOwnerId,

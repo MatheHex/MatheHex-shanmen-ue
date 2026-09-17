@@ -3847,6 +3847,13 @@ void Ademo_mapV3ProgressionManager::RunFullSystemLoopAutomation()
 Fdemo_mapProfileSessionBeginResult
 Ademo_mapV3ProgressionManager::BeginPreparedProfileRunFor0909B()
 {
+	if (PendingProfileWorldRollback.IsSet())
+	{
+		Fdemo_mapProfileSessionBeginResult Rejected;
+		Rejected.Status = Edemo_mapProfileSessionBeginStatus::SessionNotReady;
+		Rejected.Diagnostic = TEXT("Finish the original world rollback before preparing another Run.");
+		return Rejected;
+	}
 	DismissSettlementPresentation(TEXT("0909BPrepareStart"));
 	Fdemo_mapProfileSessionBeginResult Result;
 	if (!bInitialized
@@ -3884,6 +3891,11 @@ bool Ademo_mapV3ProgressionManager::ActivatePreparedProfileWorldFor0909B(
 	FString& OutDiagnostic)
 {
 	OutDiagnostic.Reset();
+	if (PendingProfileWorldRollback.IsSet())
+	{
+		OutDiagnostic = TEXT("The original world rollback is not complete; activation is rejected.");
+		return false;
+	}
 	if (bProfileWorldActive)
 	{
 		OutDiagnostic = TEXT("M01 world is already active for the current prepared Run.");
@@ -3931,41 +3943,76 @@ bool Ademo_mapV3ProgressionManager::RollbackPreparedProfileRunFor0909B(
 		OutDiagnostic = TEXT("No Profile lifecycle exists for technical-start rollback.");
 		return false;
 	}
-	const Fdemo_mapProfileSessionSettlementResult Rollback =
-		ProfilePreparationFlow->CancelActiveRunForActivationFailure();
-	const Fdemo_mapProfileSessionSnapshot Snapshot =
-		ProfilePreparationFlow->GetPresentationSnapshot();
-	const bool bTechnicalRuntimeRollback =
-		Rollback.Status
-			== Edemo_mapProfileSessionSettlementStatus::RuntimeRollbackReady;
-	const bool bAtSectReady =
-		(Rollback.IsDurablySettled() || bTechnicalRuntimeRollback)
-		&& Snapshot.SessionState == Edemo_mapProfileSessionState::ReadyForPreparation
-		&& !Snapshot.ActiveRunId.IsValid();
-	OutDiagnostic = FString::Printf(
-		TEXT("Activation rollback status=%d ready=%d diagnostic=%s"),
-		static_cast<int32>(Rollback.Status), bAtSectReady ? 1 : 0,
-		*Rollback.Diagnostic);
-	if (bAtSectReady)
+	const auto Reject = [&OutDiagnostic](const FString& Diagnostic)
 	{
-		// A rejected lower rollback still owns its Runtime and World context.
-		DeactivateProfileWorld();
-		bSettlementPending = false;
-		UE_LOG(Logdemo_map, Log,
-			TEXT("I1_RUN_COORDINATOR Event=TechnicalRollback OwnerId=%s RunId=%s %s"),
-			*Snapshot.ProfileId.ToString(EGuidFormats::DigitsWithHyphens),
-			*Snapshot.ActiveRunId.ToString(EGuidFormats::DigitsWithHyphens),
-			*OutDiagnostic);
-	}
-	else
+		OutDiagnostic = Diagnostic;
+		UE_LOG(Logdemo_map, Error, TEXT("I1_RUN_COORDINATOR Event=TechnicalRollback %s"), *OutDiagnostic);
+		return false;
+	};
+	if (!PendingProfileWorldRollback.IsSet())
 	{
-		UE_LOG(Logdemo_map, Error,
-			TEXT("I1_RUN_COORDINATOR Event=TechnicalRollback OwnerId=%s RunId=%s %s"),
-			*Snapshot.ProfileId.ToString(EGuidFormats::DigitsWithHyphens),
-			*Snapshot.ActiveRunId.ToString(EGuidFormats::DigitsWithHyphens),
-			*OutDiagnostic);
+		FPendingProfileWorldRollback Prefix;
+		Prefix.Flow = ProfilePreparationFlow.Get();
+		Prefix.Runtime = ProfilePreparationFlow->GetRuntime();
+		Prefix.Session = ProfilePreparationFlow->GetSession();
+		Prefix.World = GetWorld();
+		Prefix.WorldMode = GetWorld() ? GetWorld()->GetAuthGameMode() : nullptr;
+		Prefix.StorageRoot = ProfilePreparationFlow->GetStorageRoot();
+		Prefix.OwnerId = ProfilePreparationFlow->GetProfileId();
+		Prefix.RunId = ProfilePreparationFlow->GetStartedRunId();
+		if (!Prefix.OwnerId.IsValid() || !Prefix.RunId.IsValid()
+			|| !Prefix.Runtime.IsValid() || Prefix.Runtime.Get() != Items.Get()
+			|| !Prefix.Session.IsValid() || !Prefix.World.IsValid())
+		{
+			return Reject(TEXT("Activation rollback requires the original bound owner, Run, Runtime and World."));
+		}
+		const auto Rollback = ProfilePreparationFlow->CancelActiveRunForActivationFailure();
+		const auto Snapshot = ProfilePreparationFlow->GetPresentationSnapshot();
+		const bool bRuntimeReady = (Rollback.IsDurablySettled()
+			|| Rollback.Status == Edemo_mapProfileSessionSettlementStatus::RuntimeRollbackReady)
+			&& Snapshot.SessionState == Edemo_mapProfileSessionState::ReadyForPreparation
+			&& !Snapshot.ActiveRunId.IsValid();
+		if (!bRuntimeReady)
+		{
+			return Reject(FString::Printf(TEXT("Activation rollback status=%d ready=0 diagnostic=%s"),
+				static_cast<int32>(Rollback.Status), *Rollback.Diagnostic));
+		}
+		Prefix.SettlementSubmitCount = ProfilePreparationFlow->GetSettlementSubmitCount();
+		PendingProfileWorldRollback = MoveTemp(Prefix);
 	}
-	return bAtSectReady;
+
+	// Never repeat the accepted lower mutation, nor let a new binding consume its prefix.
+	const FPendingProfileWorldRollback& Prefix = PendingProfileWorldRollback.GetValue();
+	const auto Snapshot = ProfilePreparationFlow->GetPresentationSnapshot();
+	if (Prefix.Flow != ProfilePreparationFlow.Get()
+		|| !Prefix.Runtime.IsValid() || Prefix.Runtime.Get() != Items.Get()
+		|| Prefix.Runtime.Get() != ProfilePreparationFlow->GetRuntime()
+		|| !Prefix.Session.IsValid() || Prefix.Session.Get() != ProfilePreparationFlow->GetSession()
+		|| !Prefix.World.IsValid() || Prefix.World.Get() != GetWorld()
+		|| Prefix.WorldMode.IsStale()
+		|| Prefix.WorldMode.Get() != GetWorld()->GetAuthGameMode()
+		|| Prefix.OwnerId != ProfilePreparationFlow->GetProfileId() || Prefix.OwnerId != Snapshot.ProfileId
+		|| Prefix.RunId != ProfilePreparationFlow->GetStartedRunId()
+		|| !Prefix.StorageRoot.Equals(ProfilePreparationFlow->GetStorageRoot(), ESearchCase::IgnoreCase)
+		|| Prefix.SettlementSubmitCount != ProfilePreparationFlow->GetSettlementSubmitCount()
+		|| ProfilePreparationFlow->GetPhase() != Edemo_mapProfilePreparationFlowPhase::Preparation
+		|| Snapshot.SessionState != Edemo_mapProfileSessionState::ReadyForPreparation
+		|| Snapshot.ActiveRunId.IsValid() || Prefix.Runtime->GetRunState() != Edemo_mapRunState::Inactive
+		|| Prefix.Runtime->GetActiveRunId().IsValid())
+	{
+		return Reject(TEXT("Activation rollback continuation no longer matches its accepted owner/Run binding; original prefix retained."));
+	}
+	if (!DeactivateProfileWorld())
+	{
+		return Reject(TEXT("Runtime rollback accepted; original World release remains pending."));
+	}
+	OutDiagnostic = FString::Printf(TEXT("Activation rollback complete OwnerId=%s RunId=%s; Runtime prefix applied once and World released."),
+		*Prefix.OwnerId.ToString(EGuidFormats::DigitsWithHyphens),
+		*Prefix.RunId.ToString(EGuidFormats::DigitsWithHyphens));
+	PendingProfileWorldRollback.Reset();
+	bSettlementPending = false;
+	UE_LOG(Logdemo_map, Log, TEXT("I1_RUN_COORDINATOR Event=TechnicalRollback %s"), *OutDiagnostic);
+	return true;
 }
 
 void Ademo_mapV3ProgressionManager::ObserveCodeBRunAfter0909BActivation(
@@ -3982,6 +4029,13 @@ void Ademo_mapV3ProgressionManager::Set0909BOutOfRaidCloseCallback(
 
 Fdemo_mapProfileSessionBeginResult Ademo_mapV3ProgressionManager::StartPreparedProfileRun()
 {
+	if (PendingProfileWorldRollback.IsSet())
+	{
+		Fdemo_mapProfileSessionBeginResult Rejected;
+		Rejected.Status = Edemo_mapProfileSessionBeginStatus::SessionNotReady;
+		Rejected.Diagnostic = TEXT("Finish the original world rollback before starting another Run.");
+		return Rejected;
+	}
 	// Start Run is a hard presentation boundary. This also releases a stale
 	// settlement focus/input lock before any new Runtime authority is committed.
 	DismissSettlementPresentation(TEXT("StartPreparedProfileRun"));
@@ -4182,6 +4236,7 @@ Fdemo_mapProfileSessionSettlementResult Ademo_mapV3ProgressionManager::RetryPend
 
 bool Ademo_mapV3ProgressionManager::ActivatePreparedProfileWorld()
 {
+	if (PendingProfileWorldRollback.IsSet()) return false;
 	if (bProfileWorldActive)
 	{
 		return true;
@@ -6948,14 +7003,14 @@ void Ademo_mapV3ProgressionManager::HideProfilePreparation()
 	}
 }
 
-void Ademo_mapV3ProgressionManager::DeactivateProfileWorld()
+bool Ademo_mapV3ProgressionManager::DeactivateProfileWorld()
 {
 	// A retained combat owner must not lose the Manager projections beneath it.
 	if (Ademo_mapGameMode* Mode = GetWorld() ? Cast<Ademo_mapGameMode>(GetWorld()->GetAuthGameMode()) : nullptr)
 	{
 		if (!Mode->DeactivateV3MissionContentForPreparation())
 		{
-			return;
+			return false;
 		}
 	}
 	SetFocusedActor(nullptr);
@@ -6980,6 +7035,7 @@ void Ademo_mapV3ProgressionManager::DeactivateProfileWorld()
 		Items->TeardownWorld(GetWorld());
 	}
 	bProfileWorldActive = false;
+	return true;
 }
 
 void Ademo_mapV3ProgressionManager::DestroyRuntimeContainers(const FString& Reason)

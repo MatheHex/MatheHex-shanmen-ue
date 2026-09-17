@@ -6956,6 +6956,21 @@ try
         -Paths @('Source/demo_map/demo_mapProfilePreparationFlow.cpp') `
         -Logs @($ProfileFlowNew) -ExpectedText 'missing required groups'
 
+    $PreparedRunNewRoot = New-AutomationLogFixture -Name 'prepared-run-new-root.log' -Group 'Shanmen.0_0_10'
+    foreach ($PreparedRunPath in @(
+            'Source/demo_map/demo_map0909BRunStartCoordinator.cpp',
+            'Source/demo_map/demo_map0909BRunStartCoordinator.h',
+            'Source/demo_map/demo_map0909BM01RuntimeAdapter.cpp',
+            'Source/demo_map/demo_map0909BM01RuntimeAdapter.h'))
+    {
+        Invoke-ExpectedFail -Name "prepared Run composition rejects legacy-only evidence: $PreparedRunPath" `
+            -Paths @($PreparedRunPath) -Logs @($ProfileFlowLegacy) -ExpectedText 'missing required groups'
+        Invoke-ExpectedFail -Name "prepared Run composition rejects new-only evidence: $PreparedRunPath" `
+            -Paths @($PreparedRunPath) -Logs @($PreparedRunNewRoot) -ExpectedText 'missing required groups'
+        Invoke-ExpectedPass -Name "prepared Run composition requires both roots: $PreparedRunPath" `
+            -Paths @($PreparedRunPath) -Logs @($ProfileFlowLegacy, $PreparedRunNewRoot)
+    }
+
     Write-Output (
         'SELF_TEST: PASS {0}/{0}' -f $script:SelfTestPassCount)
 }

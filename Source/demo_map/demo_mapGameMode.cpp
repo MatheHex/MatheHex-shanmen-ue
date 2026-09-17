@@ -216,6 +216,11 @@ bool Ademo_mapGameMode::Prepare0909BRun(
 	Fdemo_map0909BRunStartResult& OutResult)
 {
 	OutResult = Fdemo_map0909BRunStartResult();
+	if (V3ProgressionManager.IsValid() && V3ProgressionManager->HasPendingProfileWorldRollback())
+	{
+		OutResult.Diagnostic = TEXT("The original world rollback must complete before preparing another Run.");
+		return false;
+	}
 	Prepared0909BRunCorrelation.Reset();
 	if (!Is0909BRuntimeReady())
 	{

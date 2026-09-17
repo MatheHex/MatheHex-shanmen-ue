@@ -2843,6 +2843,14 @@
       ]
     },
     {
+      "name": "PreparedRunStartComposition",
+      "pathRegex": "^Source/demo_map/demo_map0909B(?:RunStartCoordinator|M01RuntimeAdapter)\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "demo_map",
+        "Shanmen.0_0_10"
+      ]
+    },
+    {
       "name": "M01GameMode",
       "pathRegex": "^Source/demo_map/demo_mapGameMode\\.(?:h|cpp)$",
       "requiredGroups": [
