@@ -481,3 +481,39 @@ Final Fixed Editor 和 Game 原 run-state 均 SUCCEEDED/native 0；stdout 字节
 本轮仅交付总体文档更新。已提交产品与未提交产品证据分开；仍可开展 UI 信息架构、字段/命令、状态模型与接线设计准备，不能宣布正式可玩、性能达标或框架整体冻结。
 
 发布前核验：59 个本地相对链接目标存在，历史 evidence.json 可解析；两文档 `git diff --check` 通过，精确改动映射为 `REGRESSION_COVERAGE: PASS Changed=2 Rules=0 Required=0 Logs=0`，仅表示纯文档无新增 UE 必跑组。1,722 个受保护路径/原字节、105 个未跟踪文件集合、入场 HEAD 均保持不变。仅精确暂存总体 Report/Log，普通提交推送；不纳入三个 P28.3 源码修改、两份阶段草稿、Saved 原件或个人文件。
+
+## 20. P28.3 已交付后的游戏开发总体报告（2026-09-17 UTC）
+
+### 本轮范围与基线
+
+用户当前要求的是系统/分级、信息交互分区、数据计算内存占用与各系统完成度，为 UI 和实际 UE 开发做准备。本轮只做总体报告，不沿前一轮候选问题继续开发，不创建 P28.4 修复、测试、UI 或玩法。
+
+入场 HEAD 为 `79443f0e02743903cec0a27861c06ba8c1ea2809`，分支 `agent/0.0.10-p27-28-formation-scatter-gamemode-composition`；`git ls-remote` 核对 GitHub 同名分支一致。跟踪文件与暂存区干净，103 个原用户文件未跟踪，无运行中的 UE/UBT。此前第 19 节的“P28.3 本地未提交”是当时事实；现在该阶段已经交付，本报告全篇改为当前状态，历史 Log 不回写。
+
+### 原始验证复核，不是重跑
+
+- P28.3 RedProof：0 Success / 1 Fail，队列 1、native 0，哈希 `E438E13C83C166C34A0126DB0C74A097CEC86025D97E07545F2F33C467A0EBCE`。保留首次失败语义，不以退出 0 判成功。
+- P28.3 WorldLifecycleFocused：4/0，队列 4、native 0，哈希 `016A109CBC9E63D41ED53582A5A95A515B81E8E39C720E8BB3A79DE7111376A5`。
+- P28.3 LegacyFullRoot：1330/0，队列 1330、native 0，哈希 `8BB7255B51FC48108B96DCCE2719DFAF37D89F4A7E99886B13345D04374C9BBF`。
+- P28.3 ShanmenFullRoot：1426/0，队列 1426、native 0，哈希 `C8E1C1FAEEF54A5D243FB9CBE297FD555AAC922DCC23FAD4083D163ECC8292A7`；run-state 已 SUCCEEDED，完成于 `2026-09-17T00:13:03.8829772Z`。专项是子集，不重复累计。
+- 上述四组 Fatal error / Ensure condition failed / Unhandled Exception 匹配均为 0，不声称所有 Error/Warning 为零。完整原路径保持在 P28.3 Log 第 3 节，没有上传 Saved 原件。
+- Final Fixed Editor / Game run-state 均 SUCCEEDED、native 0；stdout SHA 分别为 `E44F9A1C8CA1A722EFB7106EBF5C1D7D0C0F023B3BFA25158E15AE5A34AC4D1F` / `D6636C54D98E778750EC2414829592E1C669B55CE6ABE7E0D834723FDB9918F2`，与阶段 Log 一致。
+- 原阶段回归映射 PASS Changed=6 / Rules=2 / Required=81 / Logs=2，自检 517/517。原件哈希分别为 `D458573EEBEAA8D9D5BF1226661AE35D36F6B7A96E7A6762622189074ECB744F` / `96B77D69044EEA0655A097D38D0629A20A894FF21CE4352562003F17ABCE6A5F`；本轮只读复核，没有重跑该自检或产品测试。
+- 读取 `Saved/Automation/P28.3/validation-inputs.json`，1617 个产品/脚本输入、103 个用户文件与当前字节哈希无差异。当前源码与上述验证输入一致。
+
+### 总体报告更新与静态结论
+
+1. 重读六个 Build.cs 与 uproject，仍为六个 Runtime 模块、UE 5.8 声明；CombatCore/Items 不依赖 Engine 模块，GAS 在 CombatRuntime 编排层。保留“UI/输入 → 产品组合 → 领域权威 → 纯计算”的边界，不因编译依赖存在就认定已经整合出成品游戏。
+2. 按六模块内 Git 跟踪的 .h/.cpp/.cs 重新统计：1084 文件、非测试 301142 行、测试 160945 行/247 文件。demo_map 非测试 270884 行、测试 144436 行；两个 Source 根 Target.cs 不计入模块合计。Manager 19516 行、GameMode 8784 行；0.0.10 Report 402 份。代码/报告数量不换算为完成百分比。
+3. 保留 D0–D4 工程成熟度与单独的操作权限分级：阵法 Beginner/Intermediate/Master 对应贴近填料/远程投料/散布；不把权限枚举冒充经验获取、升级保存或完整成长树。五大战斗体系和每系统缺项继续在第 4/5 节分别列示。
+4. 信息交互明确五类数据所有权和七类 UI 分区；数量、预览、消耗、持久提交与 World 清理各有成功标准。准备项为页面/状态图、字段与命令表、UE 接线表、验证与性能采样表；不是新授权的 UI 实现任务。
+5. 重读物品 Repository 全量快照的五类数组/排序、26 个候选状态拷贝位置、AuthorityService BeforeDocument/Before/After 与同步存盘，以及 Subsystem 的 Game Thread 条件。结论仍是历史增长、临时副本峰值、同步等待风险；没有证据宣称实际泄漏、游戏峰值或帧卡顿已经量出。
+6. 重读 P27.28 原启动日志第 851/852 行：628.29 MB Physical / 648.35 MB Virtual。继续标明只是旧无头启动样本，不是当前游戏 RAM/VRAM 或性能验收；历史 evidence.json 保持原基线。
+7. P28.3 GameMode 拒绝释放即返回现已在 HEAD 中。Manager.RollbackPreparedProfileRunFor0909B 在下层取消后仍先 DeactivateProfileWorld，再检查是否成功回到整备；外层清理次序是静态待验证点。本轮不将其称为已复现故障，不实现修复。FZ-1/2/3 未整体关闭，D2 不升级为 D3/D4。
+
+### 文件保持与发布检查
+
+- 本轮受保护基线记录在忽略目录 `Saved/Automation/OverallReadiness/20260917-P28.3-baseline.json`；除本 Report/Log 外 2726 个跟踪/未跟踪文件的路径及原字节哈希保持，103 个用户路径集合无差异，暂存区入场为空。
+- 两份文档的本地相对链接 62 个目标存在；`git diff --check` 通过。当前精确文档路径映射 PASS Changed=2 / Rules=0 / Required=0 / Logs=0，仅表示没有新增 UE 必跑组，不表示执行了产品验证。
+- 第一次文档检查包装命令在映射已输出 PASS 后，误把未由该 PowerShell 脚本设置的 `$LASTEXITCODE` 当作失败；改用脚本调用结果检查后通过。没有改动映射或检查器，也没有把此包装错误计为产品失败。
+- 仅更新并精确暂存总体 Report / 审计 Log，使用普通非强制推送；产品源码、资产、用户文件、Saved 原件与历史 evidence.json 均不纳入本次提交。未启动 Editor UI、无头测试、Game、PIE、Standalone、Smoke、Cook 或 Package。
