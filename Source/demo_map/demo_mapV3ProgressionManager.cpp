@@ -4034,6 +4034,18 @@ Fdemo_mapProfileSessionBeginResult Ademo_mapV3ProgressionManager::StartPreparedP
 		Fdemo_mapProfileSessionBeginResult Rejected;
 		Rejected.Status = Edemo_mapProfileSessionBeginStatus::SessionNotReady;
 		Rejected.Diagnostic = TEXT("Finish the original world rollback before starting another Run.");
+		// Framework attempts belong to their coordinator/adapter. Only the ordinary
+		// route may resume its own accepted Runtime prefix through this entry.
+		if (!bUse0909BFrameworkHost)
+		{
+			const bool bRollbackComplete = RollbackPreparedProfileRunFor0909B(Rejected.Diagnostic);
+			if (ProfilePreparationFlow)
+			{
+				Rejected.Snapshot = ProfilePreparationFlow->GetPresentationSnapshot();
+			}
+			if (bRollbackComplete) ShowSectNavigation();
+		}
+		// Completion is cleanup-only: a new Run always requires a later request.
 		return Rejected;
 	}
 	// Start Run is a hard presentation boundary. This also releases a stale

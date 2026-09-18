@@ -3550,158 +3550,207 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool Fdemo_mapManagerRollbackContinuationTest::RunTest(const FString&)
 {
-	FPreparationAdapterFixture Fixture;
-	auto Flow = MakeUnique<Fdemo_mapProfilePreparationFlow>();
-	if (!Fixture.StartAndCutover(*this, TEXT("P286ManagerRollback"), Flow.Get())
-		|| !Fixture.Session->SetPreparationEquipment(
-			Fdemo_mapItemIds::WeaponSlot, Fixture.FlyingSwordId).IsAccepted()) return false;
-	Udemo_mapItemSubsystem* Runtime = Fixture.GameInstance->GetSubsystem<Udemo_mapItemSubsystem>();
-	const auto Started = Flow->StartPreparedRunDirect();
-	const FGuid RunId = Started.Snapshot.ActiveRunId;
-	FControlledWeaponWorldFixture Scene;
-	if (!Runtime || !Started.IsRunActive() || !Scene.Start(*this, Fixture.GameInstance, RunId)) return false;
-	const auto Began = Scene.Lifecycle.TryBegin(Scene.World, Fixture.Authority, Runtime,
-		Scene.Coordinator, Scene.Host, Scene.Player, 1);
-	Ademo_mapShanmenControlledWeaponActor* Weapon = Began.WeaponActor.Get();
-	Ademo_mapEnemyCharacter* Enemy = Began.IsStarted()
-		? Scene.SpawnRegisteredEnemy(*this, FVector(900.0f, 0.0f, 0.0f)) : nullptr;
-	FShanmenControlledWeaponCommandReceipt Launch;
-	int64 Advanced = 0;
-	if (!Weapon || !Enemy || !Scene.Host.TryLaunch(Fixture.FlyingSwordId, 0, FVector::ForwardVector, Launch)
-		|| !Scene.Timeline.TryAdvance(0.1, Advanced, Scene.Diagnostic) || Advanced <= 0
-		|| !Scene.World->SetGameMode(FURL())) return false;
-	auto* Mode = Cast<Ademo_mapGameMode>(Scene.World->GetAuthGameMode());
-	FActorSpawnParameters Spawn;
-	Spawn.ObjectFlags |= RF_Transient;
-	Spawn.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-	auto* Manager = Scene.World->SpawnActor<Ademo_mapV3ProgressionManager>(
-		Ademo_mapV3ProgressionManager::StaticClass(), FTransform::Identity, Spawn);
-	if (!Mode || !Manager) return false;
-	Mode->CombatRunCoordinator = MoveTemp(Scene.Coordinator);
-	Mode->ControlledWeaponRunHost = MoveTemp(Scene.Host);
-	Mode->ControlledWeaponWorldLifecycle = MoveTemp(Scene.Lifecycle);
-	Mode->CombatRunFixedTimeline = MoveTemp(Scene.Timeline);
-	Mode->M01EnemyActors.Add(Enemy);
-	Mode->Enemy = Enemy;
-	Mode->bM01EnemyContentActive = true;
-	Mode->bM01ExtractionFoundationActive = true;
-	Mode->bV3MissionContentActive = true;
-	Manager->ProfilePreparationFlow = MoveTemp(Flow);
-	Manager->Items = Runtime;
-	Manager->bInitialized = true;
-	Manager->ProfileStartupMode = Edemo_mapProfileStartupMode::ProductionProfile;
-	Manager->bProfileWorldActive = true;
-	Manager->bSettlementPending = true;
-	Mode->V3ProgressionManager = Manager;
-	Fdemo_mapShanmenRunCorrelation Correlation;
-	if (!Manager->ProfilePreparationFlow->TryGetActiveShanmenRunCorrelation(Correlation)) return false;
-	Mode->Prepared0909BRunCorrelation = Correlation;
-	auto* Controller = Scene.World->SpawnActor<Ademo_mapPlayerController>(
-		Ademo_mapPlayerController::StaticClass(), FTransform::Identity, Spawn);
-	if (!Controller) return false;
-	Fdemo_map0909BRunStartCoordinator Coordinator;
-	Coordinator.Initialize(Mode, Controller);
-	const FGuid AttemptId = FGuid::NewGuid();
-	// Bind a pre-existing activation attempt to actual authority identity. No
-	// authored map, BeginActivation, input restoration or successful rollback is faked.
-	Coordinator.State = Edemo_map0909BTopState::ActivatingWorld;
-	Coordinator.LastDiagnostic.StartAttemptId = AttemptId;
-	Coordinator.LastDiagnostic.OwnerId = Correlation.OwnerId;
-	Coordinator.LastDiagnostic.RunId = RunId;
-	Coordinator.LastDiagnostic.AttemptSequence = 1;
-	Coordinator.AttemptRunCorrelation = Correlation;
-	Coordinator.M01Adapter->ActiveAttempt.Emplace();
-	Coordinator.M01Adapter->ActiveAttempt->StartAttemptId = AttemptId;
-	Coordinator.M01Adapter->ActiveAttempt->OwnerId = Correlation.OwnerId;
-	Coordinator.M01Adapter->ActiveAttempt->RunInstanceId = RunId;
-	Coordinator.M01Adapter->ActiveAttempt->RunCorrelation = Correlation;
-	Coordinator.M01Adapter->ActiveAttempt->bCodeARunCreated = true;
-	FShanmenItemAuthoritySnapshot Before;
-	if (!Fixture.Authority->TryCaptureSnapshot(Before)) return false;
-	const ENetRole OriginalRole = Weapon->GetLocalRole();
-	Weapon->SetRole(ROLE_SimulatedProxy);
-	AddExpectedError(TEXT("Event=ControlledWeaponWorldReleaseRejected"), EAutomationExpectedErrorFlags::Contains, 2);
-	AddExpectedError(TEXT("Event=TechnicalRollback"), EAutomationExpectedErrorFlags::Contains, 3);
+	AddExpectedError(TEXT("Event=ControlledWeaponWorldReleaseRejected"), EAutomationExpectedErrorFlags::Contains, 4);
+	AddExpectedError(TEXT("Event=TechnicalRollback"), EAutomationExpectedErrorFlags::Contains, 6);
 	AddExpectedError(TEXT("Event=TechnicalFailureBlocked"), EAutomationExpectedErrorFlags::Contains, 2);
-	FString Diagnostic;
-	for (int32 Attempt = 0; Attempt < 2; ++Attempt)
+	for (const bool bViaGeneralStart : { false, true })
 	{
-		TestFalse(TEXT("Technical rollback cannot acknowledge an unreleased World"),
-			Attempt == 0
-				? Coordinator.ReturnToSectAfterTechnicalFailure(TEXT("FixtureActivationFailure"), TEXT("Existing attempt"), Diagnostic)
-				: Coordinator.StartM01Run(Diagnostic));
-		TestTrue(TEXT("Failed release retains the top-level attempt and exact prepared correlation"),
-			Coordinator.GetState() == Edemo_map0909BTopState::TechnicalStartFailure
-			&& Coordinator.M01Adapter->IsAttemptPending(AttemptId)
-			&& Coordinator.GetLastDiagnostic().StartAttemptId == AttemptId
-			&& Coordinator.GetLastDiagnostic().AttemptSequence == 1
-			&& Mode->Prepared0909BRunCorrelation.IsSet()
-			&& Mode->Prepared0909BRunCorrelation.GetValue() == Correlation
-			&& Manager->HasPendingProfileWorldRollback());
-		TestTrue(TEXT("Pending world cleanup retains Manager and original mission context"),
-			Manager->IsProfileWorldActive() && Manager->IsSettlementPending()
-			&& Mode->PendingCombatRunRetirement.IsSet()
-			&& Mode->PendingCombatRunRetirement->RunId == RunId
-			&& Mode->PendingCombatRunRetirement->InterruptedItemCount == 1
-			&& Mode->ControlledWeaponWorldLifecycle.GetWeaponActor() == Weapon
-			&& Mode->CombatRunFixedTimeline.GetCurrentTick() == Advanced
-			&& IsValid(Enemy) && !Enemy->IsActorBeingDestroyed() && Mode->bV3MissionContentActive);
-		TestTrue(TEXT("Accepted Runtime prefix is cleared once, without replacing durable identity"),
-			Runtime->GetRunState() == Edemo_mapRunState::Inactive
-			&& !Runtime->GetActiveRunId().IsValid()
-			&& Manager->ProfilePreparationFlow->GetSettlementSubmitCount() == 1
-			&& Manager->ProfilePreparationFlow->GetStartedRunId() == RunId
+		FPreparationAdapterFixture Fixture;
+		auto Flow = MakeUnique<Fdemo_mapProfilePreparationFlow>();
+		if (!Fixture.StartAndCutover(*this, TEXT("P286ManagerRollback"), Flow.Get())
+			|| !Fixture.Session->SetPreparationEquipment(
+				Fdemo_mapItemIds::WeaponSlot, Fixture.FlyingSwordId).IsAccepted()) return false;
+		Udemo_mapItemSubsystem* Runtime = Fixture.GameInstance->GetSubsystem<Udemo_mapItemSubsystem>();
+		const auto Started = Flow->StartPreparedRunDirect();
+		const FGuid RunId = Started.Snapshot.ActiveRunId;
+		FControlledWeaponWorldFixture Scene;
+		if (!Runtime || !Started.IsRunActive() || !Scene.Start(*this, Fixture.GameInstance, RunId)) return false;
+		const auto Began = Scene.Lifecycle.TryBegin(Scene.World, Fixture.Authority, Runtime,
+			Scene.Coordinator, Scene.Host, Scene.Player, 1);
+		Ademo_mapShanmenControlledWeaponActor* Weapon = Began.WeaponActor.Get();
+		Ademo_mapEnemyCharacter* Enemy = Began.IsStarted()
+			? Scene.SpawnRegisteredEnemy(*this, FVector(900.0f, 0.0f, 0.0f)) : nullptr;
+		FShanmenControlledWeaponCommandReceipt Launch;
+		int64 Advanced = 0;
+		if (!Weapon || !Enemy || !Scene.Host.TryLaunch(Fixture.FlyingSwordId, 0, FVector::ForwardVector, Launch)
+			|| !Scene.Timeline.TryAdvance(0.1, Advanced, Scene.Diagnostic) || Advanced <= 0
+			|| !Scene.World->SetGameMode(FURL())) return false;
+		auto* Mode = Cast<Ademo_mapGameMode>(Scene.World->GetAuthGameMode());
+		FActorSpawnParameters Spawn;
+		Spawn.ObjectFlags |= RF_Transient;
+		Spawn.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		auto* Manager = Scene.World->SpawnActor<Ademo_mapV3ProgressionManager>(
+			Ademo_mapV3ProgressionManager::StaticClass(), FTransform::Identity, Spawn);
+		if (!Mode || !Manager) return false;
+		Mode->CombatRunCoordinator = MoveTemp(Scene.Coordinator);
+		Mode->ControlledWeaponRunHost = MoveTemp(Scene.Host);
+		Mode->ControlledWeaponWorldLifecycle = MoveTemp(Scene.Lifecycle);
+		Mode->CombatRunFixedTimeline = MoveTemp(Scene.Timeline);
+		Mode->M01EnemyActors.Add(Enemy);
+		Mode->Enemy = Enemy;
+		Mode->bM01EnemyContentActive = true;
+		Mode->bM01ExtractionFoundationActive = true;
+		Mode->bV3MissionContentActive = true;
+		Manager->ProfilePreparationFlow = MoveTemp(Flow);
+		Manager->Items = Runtime;
+		Manager->bInitialized = true;
+		Manager->ProfileStartupMode = Edemo_mapProfileStartupMode::ProductionProfile;
+		// Match the immutable initialization route; ordinary Start must not take
+		// ownership of an attempt retained by the framework coordinator.
+		Manager->bUse0909BFrameworkHost = !bViaGeneralStart;
+		Manager->bProfileWorldActive = true;
+		Manager->bSettlementPending = true;
+		Mode->V3ProgressionManager = Manager;
+		Fdemo_mapShanmenRunCorrelation Correlation;
+		if (!Manager->ProfilePreparationFlow->TryGetActiveShanmenRunCorrelation(Correlation)) return false;
+		if (!bViaGeneralStart) Mode->Prepared0909BRunCorrelation = Correlation;
+		Fdemo_map0909BRunStartCoordinator Coordinator;
+		const FGuid AttemptId = FGuid::NewGuid();
+		if (!bViaGeneralStart)
+		{
+			auto* Controller = Scene.World->SpawnActor<Ademo_mapPlayerController>(
+				Ademo_mapPlayerController::StaticClass(), FTransform::Identity, Spawn);
+			if (!Controller) return false;
+			Coordinator.Initialize(Mode, Controller);
+			// Bind a pre-existing activation attempt to actual authority identity. No
+			// authored map, BeginActivation, input restoration or successful rollback is faked.
+			Coordinator.State = Edemo_map0909BTopState::ActivatingWorld;
+			Coordinator.LastDiagnostic.StartAttemptId = AttemptId;
+			Coordinator.LastDiagnostic.OwnerId = Correlation.OwnerId;
+			Coordinator.LastDiagnostic.RunId = RunId;
+			Coordinator.LastDiagnostic.AttemptSequence = 1;
+			Coordinator.AttemptRunCorrelation = Correlation;
+			Coordinator.M01Adapter->ActiveAttempt.Emplace();
+			Coordinator.M01Adapter->ActiveAttempt->StartAttemptId = AttemptId;
+			Coordinator.M01Adapter->ActiveAttempt->OwnerId = Correlation.OwnerId;
+			Coordinator.M01Adapter->ActiveAttempt->RunInstanceId = RunId;
+			Coordinator.M01Adapter->ActiveAttempt->RunCorrelation = Correlation;
+			Coordinator.M01Adapter->ActiveAttempt->bCodeARunCreated = true;
+		}
+		FShanmenItemAuthoritySnapshot Before;
+		if (!Fixture.Authority->TryCaptureSnapshot(Before)) return false;
+		const ENetRole OriginalRole = Weapon->GetLocalRole();
+		Weapon->SetRole(ROLE_SimulatedProxy);
+		FString Diagnostic;
+		const auto ContinueGeneralStart = [&]()
+		{
+			const auto Retry = Manager->StartPreparedProfileRunFromSect();
+			TestTrue(TEXT("Ordinary continuation never reports a new active Run"),
+				!Retry.IsRunActive() && Retry.Status == Edemo_mapProfileSessionBeginStatus::SessionNotReady);
+			Diagnostic = Retry.Diagnostic;
+			return !Manager->HasPendingProfileWorldRollback();
+		};
+		for (int32 Attempt = 0; Attempt < 2; ++Attempt)
+		{
+			TestFalse(TEXT("Technical rollback cannot acknowledge an unreleased World"),
+				bViaGeneralStart
+					? (Attempt == 0 ? Manager->RollbackPreparedProfileRunFor0909B(Diagnostic) : ContinueGeneralStart())
+					: Attempt == 0
+					? Coordinator.ReturnToSectAfterTechnicalFailure(TEXT("FixtureActivationFailure"), TEXT("Existing attempt"), Diagnostic)
+					: Coordinator.StartM01Run(Diagnostic));
+			if (bViaGeneralStart)
+			{
+				TestTrue(TEXT("Ordinary retry retains only its own rollback, without a framework attempt"),
+					Manager->HasPendingProfileWorldRollback() && !Mode->Prepared0909BRunCorrelation.IsSet());
+			}
+			else
+			{
+				TestTrue(TEXT("Failed release retains the top-level attempt and exact prepared correlation"),
+					Coordinator.GetState() == Edemo_map0909BTopState::TechnicalStartFailure
+					&& Coordinator.M01Adapter->IsAttemptPending(AttemptId)
+					&& Coordinator.GetLastDiagnostic().StartAttemptId == AttemptId
+					&& Coordinator.GetLastDiagnostic().AttemptSequence == 1
+					&& Mode->Prepared0909BRunCorrelation.IsSet()
+					&& Mode->Prepared0909BRunCorrelation.GetValue() == Correlation
+					&& Manager->HasPendingProfileWorldRollback());
+			}
+			TestTrue(TEXT("Pending world cleanup retains Manager and original mission context"),
+				Manager->IsProfileWorldActive() && Manager->IsSettlementPending()
+				&& Mode->PendingCombatRunRetirement.IsSet()
+				&& Mode->PendingCombatRunRetirement->RunId == RunId
+				&& Mode->PendingCombatRunRetirement->InterruptedItemCount == 1
+				&& Mode->ControlledWeaponWorldLifecycle.GetWeaponActor() == Weapon
+				&& Mode->CombatRunFixedTimeline.GetCurrentTick() == Advanced
+				&& IsValid(Enemy) && !Enemy->IsActorBeingDestroyed() && Mode->bV3MissionContentActive);
+			TestTrue(TEXT("Accepted Runtime prefix is cleared once, without replacing durable identity"),
+				Runtime->GetRunState() == Edemo_mapRunState::Inactive
+				&& !Runtime->GetActiveRunId().IsValid()
+				&& Manager->ProfilePreparationFlow->GetSettlementSubmitCount() == 1
+				&& Manager->ProfilePreparationFlow->GetStartedRunId() == RunId
+				&& Manager->ProfilePreparationFlow->GetRecoverableShanmenRunId() == RunId);
+		}
+		const auto BlockedBegin = Manager->BeginPreparedProfileRunFor0909B();
+		// Even a stale ordinary entry on a framework-owned Manager must not bypass
+		// its coordinator. For the ordinary variant this also probes the route fence.
+		Manager->bUse0909BFrameworkHost = true;
+		const auto BlockedStart = Manager->StartPreparedProfileRunFromSect();
+		Manager->bUse0909BFrameworkHost = !bViaGeneralStart;
+		Fdemo_map0909BRunStartResult BlockedPrepare;
+		TestTrue(TEXT("Both start routes reject the pending rollback before input or new authority work"),
+			BlockedBegin.Status == Edemo_mapProfileSessionBeginStatus::SessionNotReady
+			&& BlockedBegin.Diagnostic.Contains(TEXT("world rollback"))
+			&& BlockedStart.Status == Edemo_mapProfileSessionBeginStatus::SessionNotReady
+			&& BlockedStart.Diagnostic.Contains(TEXT("world rollback"))
+			&& !Mode->Prepare0909BRun(BlockedPrepare)
+			&& (bViaGeneralStart ? !Mode->Prepared0909BRunCorrelation.IsSet()
+				: Mode->Prepared0909BRunCorrelation.IsSet()
+					&& Mode->Prepared0909BRunCorrelation.GetValue() == Correlation));
+		TestFalse(TEXT("Pending cleanup cannot be mistaken for an already-active World"),
+			Manager->ActivatePreparedProfileWorldFor0909B(Diagnostic));
+		TestFalse(TEXT("Legacy activation also rejects a pending cleanup"), Manager->ActivatePreparedProfileWorld());
+		Manager->Items.Reset();
+		TestFalse(TEXT("Changed Runtime binding cannot consume the accepted rollback prefix"),
+			Mode->Rollback0909BPreparedRun(Diagnostic));
+		TestTrue(TEXT("Binding mismatch retains the exact prefix and does not clear upper correlation"),
+			Manager->HasPendingProfileWorldRollback()
+			&& (bViaGeneralStart ? !Mode->Prepared0909BRunCorrelation.IsSet()
+				: Mode->Prepared0909BRunCorrelation.IsSet()
+					&& Mode->Prepared0909BRunCorrelation.GetValue() == Correlation)
+			&& Mode->ControlledWeaponWorldLifecycle.GetWeaponActor() == Weapon);
+		Manager->Items = Runtime;
+		Weapon->SetRole(OriginalRole);
+		int32 DestroyedWeapons = 0, DestroyedEnemies = 0;
+		const auto Observer = Scene.World->AddOnActorDestroyedHandler(FOnActorDestroyed::FDelegate::CreateLambda(
+			[&](AActor* Actor) { if (Actor == Weapon) ++DestroyedWeapons; if (Actor == Enemy) ++DestroyedEnemies; }));
+		if (bViaGeneralStart)
+		{
+			TestTrue(TEXT("Ordinary Start resumes the original pending World after fault removal"),
+				ContinueGeneralStart());
+			TestTrue(TEXT("Ordinary continuation reports completion without making a new Run"),
+				Diagnostic.Contains(TEXT("rollback complete")) && !Mode->Prepared0909BRunCorrelation.IsSet());
+		}
+		else
+		{
+			TestFalse(TEXT("Ordinary route cannot steal a now-recoverable framework attempt"),
+				Manager->StartPreparedProfileRunFromSect().IsRunActive());
+			TestTrue(TEXT("Framework cleanup is still owned by its original upper attempt"),
+				Manager->HasPendingProfileWorldRollback() && Coordinator.M01Adapter->IsAttemptPending(AttemptId)
+				&& Mode->Prepared0909BRunCorrelation.IsSet());
+			TestFalse(TEXT("Recovered cleanup request never starts gameplay on the same call"),
+				Coordinator.StartM01Run(Diagnostic));
+			TestTrue(TEXT("Same Run resumes unfinished cleanup and only then acknowledges AtSect"),
+				Coordinator.IsAtSect() && !Coordinator.M01Adapter->IsAttemptPending(AttemptId)
+				&& Coordinator.GetLastDiagnostic().StartAttemptId == AttemptId
+				&& Coordinator.GetLastDiagnostic().RunId == RunId
+				&& Coordinator.GetLastDiagnostic().AttemptSequence == 1
+				&& !Mode->Prepared0909BRunCorrelation.IsSet() && !Manager->HasPendingProfileWorldRollback());
+			TestTrue(TEXT("An acknowledged adapter cancellation remains idempotent"),
+				Coordinator.M01Adapter->CancelAttempt(AttemptId, Diagnostic));
+		}
+		Scene.World->RemoveOnActorDestroyedHandler(Observer);
+		TestEqual(TEXT("Continuation destroys the original weapon exactly once"), DestroyedWeapons, 1);
+		TestEqual(TEXT("Continuation destroys the original enemy exactly once"), DestroyedEnemies, 1);
+		TestTrue(TEXT("Only completed rollback clears Manager and GameMode context"),
+			!Manager->IsProfileWorldActive() && !Manager->IsSettlementPending()
+			&& !Mode->bV3MissionContentActive && !Mode->PendingCombatRunRetirement.IsSet()
+			&& Mode->ControlledWeaponWorldLifecycle.IsEmpty());
+		TestEqual(TEXT("Continuation never resubmits the completed lower rollback"),
+			Manager->ProfilePreparationFlow->GetSettlementSubmitCount(), 1);
+		FShanmenItemAuthoritySnapshot After;
+		TestTrue(TEXT("Technical rollback does not settle or replace the durable Run"),
+			Fixture.Authority->TryCaptureSnapshot(After) && Before == After
 			&& Manager->ProfilePreparationFlow->GetRecoverableShanmenRunId() == RunId);
 	}
-	const auto BlockedBegin = Manager->BeginPreparedProfileRunFor0909B();
-	const auto BlockedStart = Manager->StartPreparedProfileRunFromSect();
-	Fdemo_map0909BRunStartResult BlockedPrepare;
-	TestTrue(TEXT("Both start routes reject the pending rollback before input or new authority work"),
-		BlockedBegin.Status == Edemo_mapProfileSessionBeginStatus::SessionNotReady
-		&& BlockedBegin.Diagnostic.Contains(TEXT("world rollback"))
-		&& BlockedStart.Status == Edemo_mapProfileSessionBeginStatus::SessionNotReady
-		&& BlockedStart.Diagnostic.Contains(TEXT("world rollback"))
-		&& !Mode->Prepare0909BRun(BlockedPrepare)
-		&& Mode->Prepared0909BRunCorrelation.IsSet()
-		&& Mode->Prepared0909BRunCorrelation.GetValue() == Correlation);
-	TestFalse(TEXT("Pending cleanup cannot be mistaken for an already-active World"),
-		Manager->ActivatePreparedProfileWorldFor0909B(Diagnostic));
-	TestFalse(TEXT("Legacy activation also rejects a pending cleanup"), Manager->ActivatePreparedProfileWorld());
-	Manager->Items.Reset();
-	TestFalse(TEXT("Changed Runtime binding cannot consume the accepted rollback prefix"),
-		Mode->Rollback0909BPreparedRun(Diagnostic));
-	TestTrue(TEXT("Binding mismatch retains the exact prefix and does not clear upper correlation"),
-		Manager->HasPendingProfileWorldRollback() && Mode->Prepared0909BRunCorrelation.IsSet()
-		&& Mode->Prepared0909BRunCorrelation.GetValue() == Correlation
-		&& Mode->ControlledWeaponWorldLifecycle.GetWeaponActor() == Weapon);
-	Manager->Items = Runtime;
-	Weapon->SetRole(OriginalRole);
-	int32 DestroyedWeapons = 0, DestroyedEnemies = 0;
-	const auto Observer = Scene.World->AddOnActorDestroyedHandler(FOnActorDestroyed::FDelegate::CreateLambda(
-		[&](AActor* Actor) { if (Actor == Weapon) ++DestroyedWeapons; if (Actor == Enemy) ++DestroyedEnemies; }));
-	TestFalse(TEXT("Recovered cleanup request never starts gameplay on the same call"),
-		Coordinator.StartM01Run(Diagnostic));
-	TestTrue(TEXT("Same Run resumes unfinished cleanup and only then acknowledges AtSect"),
-		Coordinator.IsAtSect() && !Coordinator.M01Adapter->IsAttemptPending(AttemptId)
-		&& Coordinator.GetLastDiagnostic().StartAttemptId == AttemptId
-		&& Coordinator.GetLastDiagnostic().RunId == RunId
-		&& Coordinator.GetLastDiagnostic().AttemptSequence == 1
-		&& !Mode->Prepared0909BRunCorrelation.IsSet() && !Manager->HasPendingProfileWorldRollback());
-	TestTrue(TEXT("An acknowledged adapter cancellation remains idempotent"),
-		Coordinator.M01Adapter->CancelAttempt(AttemptId, Diagnostic));
-	Scene.World->RemoveOnActorDestroyedHandler(Observer);
-	TestEqual(TEXT("Continuation destroys the original weapon exactly once"), DestroyedWeapons, 1);
-	TestEqual(TEXT("Continuation destroys the original enemy exactly once"), DestroyedEnemies, 1);
-	TestTrue(TEXT("Only completed rollback clears Manager and GameMode context"),
-		!Manager->IsProfileWorldActive() && !Manager->IsSettlementPending()
-		&& !Mode->bV3MissionContentActive && !Mode->PendingCombatRunRetirement.IsSet()
-		&& Mode->ControlledWeaponWorldLifecycle.IsEmpty());
-	TestEqual(TEXT("Continuation never resubmits the completed lower rollback"),
-		Manager->ProfilePreparationFlow->GetSettlementSubmitCount(), 1);
-	FShanmenItemAuthoritySnapshot After;
-	TestTrue(TEXT("Technical rollback does not settle or replace the durable Run"),
-		Fixture.Authority->TryCaptureSnapshot(After) && Before == After
-		&& Manager->ProfilePreparationFlow->GetRecoverableShanmenRunId() == RunId);
 	return true;
 }
 
