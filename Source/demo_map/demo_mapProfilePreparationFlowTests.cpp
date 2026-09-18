@@ -942,8 +942,10 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FShanmenProductFlowManagerRollbackRetentionTest::RunTest(const FString&)
 {
 	const FProductionSnapshot Production;
-	for (const bool bFaultAuthority : { false, true })
+	for (int32 Variant = 0; Variant < 4; ++Variant)
 	{
+		const bool bFaultAuthority = (Variant & 1) != 0;
+		const bool bViaGeneralActivation = (Variant & 2) != 0;
 		const FString Root = NewFlowRoot();
 		const Fdemo_mapProfileStorageContext ProfileStorage =
 			Fdemo_mapProfileStorageContext::ForRoot(Root);
@@ -1027,8 +1029,16 @@ bool FShanmenProductFlowManagerRollbackRetentionTest::RunTest(const FString&)
 		Manager->Items = Fixture.Runtime;
 		Manager->ProfilePreparationFlow = MoveTemp(Flow);
 		Manager->InitialWorldItems.Add(LootActor);
-		Manager->bProfileWorldActive = true;
-		Manager->bSettlementPending = true;
+		Manager->bProfileWorldActive = !bViaGeneralActivation;
+		Manager->bSettlementPending = !bViaGeneralActivation;
+		if (bViaGeneralActivation)
+		{
+			// Missing AuthGameMode is the real first activation-failure branch.
+			// The transient World has partial content, but no controller or UI.
+			TestNull(TEXT("General activation fixture has no mission GameMode"), World->GetAuthGameMode());
+			AddExpectedError(TEXT("PROFILE_NORMAL_STARTUP: world activation failed"),
+				EAutomationExpectedErrorFlags::Contains, 1);
+		}
 		TArray<uint8> ProfileBefore;
 		if (!ReadFlowBytes(ProfileStorage.PrimaryPath(), ProfileBefore)) return false;
 		FShanmenItemAuthorityDocument BeforeDocument;
@@ -1047,19 +1057,30 @@ bool FShanmenProductFlowManagerRollbackRetentionTest::RunTest(const FString&)
 					Authority->GetLifecycleState() == Edemo_mapShanmenItemAuthorityLifecycleState::RecoveryRequired
 					&& Fixture.Runtime->GetActiveRunId() == RunId)) return false;
 			AddExpectedError(TEXT("I1_RUN_COORDINATOR Event=TechnicalRollback"),
-				EAutomationExpectedErrorFlags::Contains, 2);
+				EAutomationExpectedErrorFlags::Contains, bViaGeneralActivation ? 1 : 2);
 		}
 		TArray<uint8> AuthorityBytesBefore;
 		if (!ReadFlowBytes(ItemStorage.PrimaryPath(), AuthorityBytesBefore)) return false;
 		for (int32 Attempt = 0; Attempt < (bFaultAuthority ? 2 : 1); ++Attempt)
 		{
 			FString Diagnostic;
-			const bool bRolledBack = Manager->RollbackPreparedProfileRunFor0909B(Diagnostic);
+			bool bRolledBack = false;
+			if (bViaGeneralActivation)
+			{
+				TestFalse(TEXT("Failed general activation never reports an active World"),
+					Manager->ActivatePreparedProfileWorld());
+				bRolledBack = !Manager->IsSettlementPending()
+					&& Fixture.Runtime->GetRunState() == Edemo_mapRunState::Inactive;
+			}
+			else
+			{
+				bRolledBack = Manager->RollbackPreparedProfileRunFor0909B(Diagnostic);
+			}
 			if (bFaultAuthority)
 			{
 				TestFalse(TEXT("Manager propagates technical rollback rejection"), bRolledBack);
 				TestTrue(TEXT("Rejected rollback retains Manager world context and pending state"),
-					Manager->IsProfileWorldActive() && Manager->IsSettlementPending()
+					Manager->IsProfileWorldActive() == !bViaGeneralActivation && Manager->IsSettlementPending()
 					&& Manager->InitialWorldItems.Contains(LootOwner));
 				const auto* Loot = Fixture.Runtime->GetAuthority().FindInstance(LootId);
 				TestTrue(TEXT("Rejected rollback retains actual World owner, binding and nonzero item"),

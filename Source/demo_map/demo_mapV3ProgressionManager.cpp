@@ -4079,7 +4079,7 @@ Fdemo_mapProfileSessionBeginResult Ademo_mapV3ProgressionManager::StartPreparedP
 	if (!ActivatePreparedProfileWorld())
 	{
 		Result.Status = Edemo_mapProfileSessionBeginStatus::RuntimeMaterializationFailed;
-		Result.Diagnostic = TEXT("V3 world activation failed and was rolled back as a technical ActivationFailure, not a player Abandon.");
+		Result.Diagnostic = TEXT("V3 world activation failed. Return to preparation requires the original technical rollback and World release to complete; pending recovery must not be treated as player Abandon.");
 		Result.Snapshot = ProfilePreparationFlow->GetPresentationSnapshot();
 	}
 	else if (Result.Snapshot.ProfileId.IsValid() && Result.Snapshot.ActiveRunId.IsValid())
@@ -4247,16 +4247,25 @@ bool Ademo_mapV3ProgressionManager::ActivatePreparedProfileWorld()
 	{
 		return false;
 	}
+	const auto FailActivation = [this](const TCHAR* Reason)
+	{
+		// Every caller must respect both the lower rollback and World acknowledgment.
+		// Do not independently tear down a World retained by either stage.
+		bSettlementPending = true;
+		FString Diagnostic;
+		const bool bRollbackComplete = RollbackPreparedProfileRunFor0909B(Diagnostic);
+		UE_LOG(Logdemo_map, Error,
+			TEXT("PROFILE_NORMAL_STARTUP: %s; activation_rollback_complete=%d diagnostic=%s."),
+			Reason, bRollbackComplete ? 1 : 0, *Diagnostic);
+		if (bRollbackComplete) ShowSectNavigation();
+		return false;
+	};
 	DismissSettlementPresentation(TEXT("ActivatePreparedProfileWorld"));
 	Items->BeginWorld(GetWorld());
 	Ademo_mapGameMode* Mode = GetWorld() ? Cast<Ademo_mapGameMode>(GetWorld()->GetAuthGameMode()) : nullptr;
 	if (!Mode || !Mode->ActivateV3MissionContentForRun() || !InitializeWorldContent())
 	{
-		const Fdemo_mapProfileSessionSettlementResult RollbackResult = ProfilePreparationFlow->CancelActiveRunForActivationFailure();
-		UE_LOG(Logdemo_map, Error, TEXT("PROFILE_NORMAL_STARTUP: world activation failed; activation_rollback_status=%d diagnostic=%s."), static_cast<int32>(RollbackResult.Status), *RollbackResult.Diagnostic);
-		DeactivateProfileWorld();
-		ShowSectNavigation();
-		return false;
+		return FailActivation(TEXT("world activation failed"));
 	}
 	if (SpiritStonePickup.IsValid())
 	{
@@ -4274,11 +4283,7 @@ bool Ademo_mapV3ProgressionManager::ActivatePreparedProfileWorld()
 			Ademo_mapSpiritStonePickup::StaticClass(), PickupLocation, FRotator::ZeroRotator, PickupSpawn);
 		if (!SpiritStonePickup.IsValid())
 		{
-			const Fdemo_mapProfileSessionSettlementResult RollbackResult = ProfilePreparationFlow->CancelActiveRunForActivationFailure();
-			UE_LOG(Logdemo_map, Error, TEXT("PROFILE_NORMAL_STARTUP: fixed Spirit Stone spawn failed; activation_rollback_status=%d."), static_cast<int32>(RollbackResult.Status));
-			DeactivateProfileWorld();
-			ShowSectNavigation();
-			return false;
+			return FailActivation(TEXT("fixed Spirit Stone spawn failed"));
 		}
 	}
 	else
@@ -4291,11 +4296,7 @@ bool Ademo_mapV3ProgressionManager::ActivatePreparedProfileWorld()
 	Ademo_mapPlayerController* Controller = GetDemoController();
 	if (!Controller || !Controller->RestoreGameplayControlForNewRun())
 	{
-		const Fdemo_mapProfileSessionSettlementResult RollbackResult = ProfilePreparationFlow->CancelActiveRunForActivationFailure();
-		UE_LOG(Logdemo_map, Error, TEXT("PROFILE_NORMAL_STARTUP: gameplay input activation failed; activation_rollback_status=%d diagnostic=%s."), static_cast<int32>(RollbackResult.Status), *RollbackResult.Diagnostic);
-		DeactivateProfileWorld();
-		ShowSectNavigation();
-		return false;
+		return FailActivation(TEXT("gameplay input activation failed"));
 	}
 	UE_LOG(Logdemo_map, Log, TEXT("PROFILE_NORMAL_STARTUP: prepared Runtime and V3 world activated run=%s."), *ProfilePreparationFlow->GetStartedRunId().ToString(EGuidFormats::DigitsWithHyphens));
 	return true;
