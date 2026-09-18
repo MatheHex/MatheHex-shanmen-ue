@@ -3761,104 +3761,152 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool Fdemo_mapManagerSettlementContinuationTest::RunTest(const FString&)
 {
-	FPreparationAdapterFixture Fixture;
-	auto Flow = MakeUnique<Fdemo_mapProfilePreparationFlow>();
-	if (!Fixture.StartAndCutover(*this, TEXT("P289ManagerSettlement"), Flow.Get())
-		|| !Fixture.Session->SetPreparationEquipment(
-			Fdemo_mapItemIds::WeaponSlot, Fixture.FlyingSwordId).IsAccepted()) return false;
-	auto* Runtime = Fixture.GameInstance->GetSubsystem<Udemo_mapItemSubsystem>();
-	const auto Started = Flow->StartPreparedRunDirect();
-	const FGuid RunId = Started.Snapshot.ActiveRunId;
-	FControlledWeaponWorldFixture Scene;
-	if (!Runtime || !Started.IsRunActive() || !Scene.Start(*this, Fixture.GameInstance, RunId)) return false;
-	const auto Began = Scene.Lifecycle.TryBegin(Scene.World, Fixture.Authority, Runtime,
-		Scene.Coordinator, Scene.Host, Scene.Player, 1);
-	auto* Weapon = Began.WeaponActor.Get();
-	auto* Enemy = Began.IsStarted()
-		? Scene.SpawnRegisteredEnemy(*this, FVector(900.0f, 0.0f, 0.0f)) : nullptr;
-	FShanmenControlledWeaponCommandReceipt Launch;
-	int64 Advanced = 0;
-	if (!Weapon || !Enemy || !Scene.Host.TryLaunch(Fixture.FlyingSwordId, 0, FVector::ForwardVector, Launch)
-		|| !Scene.Timeline.TryAdvance(0.1, Advanced, Scene.Diagnostic) || Advanced <= 0
-		|| !Scene.World->SetGameMode(FURL())) return false;
-	auto* Mode = Cast<Ademo_mapGameMode>(Scene.World->GetAuthGameMode());
-	FActorSpawnParameters Spawn;
-	Spawn.ObjectFlags |= RF_Transient;
-	Spawn.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-	auto* Manager = Scene.World->SpawnActor<Ademo_mapV3ProgressionManager>(
-		Ademo_mapV3ProgressionManager::StaticClass(), FTransform::Identity, Spawn);
-	if (!Mode || !Manager) return false;
-	Mode->CombatRunCoordinator = MoveTemp(Scene.Coordinator);
-	Mode->ControlledWeaponRunHost = MoveTemp(Scene.Host);
-	Mode->ControlledWeaponWorldLifecycle = MoveTemp(Scene.Lifecycle);
-	Mode->CombatRunFixedTimeline = MoveTemp(Scene.Timeline);
-	Mode->M01EnemyActors.Add(Enemy);
-	Mode->Enemy = Enemy;
-	Mode->bM01EnemyContentActive = true;
-	Mode->bM01ExtractionFoundationActive = true;
-	Mode->bV3MissionContentActive = true;
-	Mode->V3ProgressionManager = Manager;
-	Manager->ProfilePreparationFlow = MoveTemp(Flow);
-	Manager->Items = Runtime;
-	Manager->bInitialized = true;
-	Manager->ProfileStartupMode = Edemo_mapProfileStartupMode::ProductionProfile;
-	Manager->bProfileWorldActive = true;
-	int32 DestroyedWeapons = 0, DestroyedEnemies = 0;
-	const auto Observer = Scene.World->AddOnActorDestroyedHandler(FOnActorDestroyed::FDelegate::CreateLambda(
-		[&](AActor* Actor) { if (Actor == Weapon) ++DestroyedWeapons; if (Actor == Enemy) ++DestroyedEnemies; }));
-	const ENetRole OriginalRole = Weapon->GetLocalRole();
-	Weapon->SetRole(ROLE_SimulatedProxy);
-	AddExpectedError(TEXT("Event=ControlledWeaponWorldReleaseRejected"), EAutomationExpectedErrorFlags::Contains, 2);
-	TestTrue(TEXT("Actual terminal event is accepted once"),
-		Manager->RequestSettlementAndReload(Edemo_mapRunEndReason::Extraction).bSuccess);
-	FShanmenItemAuthoritySnapshot Committed;
-	if (!Fixture.Authority->TryCaptureSnapshot(Committed)) return false;
-	TestTrue(TEXT("Durable terminal precedes World acknowledgment without reopening the start gate"),
-		Manager->IsSettlementPending() && Manager->IsProfileWorldActive()
-		&& Manager->ProfilePreparationFlow->GetPhase() == Edemo_mapProfilePreparationFlowPhase::Preparation
-		&& Runtime->GetRunState() == Edemo_mapRunState::Inactive
-		&& !Runtime->GetActiveRunId().IsValid()
-		&& Manager->ProfilePreparationFlow->GetSettlementSubmitCount() == 1);
-	const auto Retained = Manager->RetryPendingProfileSettlement();
-	TestTrue(TEXT("World-only retry retains the durable receipt and pending World"),
-		Retained.IsDurablySettled() && Manager->IsSettlementPending() && Manager->IsProfileWorldActive()
-		&& Retained.Diagnostic.Contains(TEXT("World release remains pending"))
-		&& Mode->PendingCombatRunRetirement.IsSet()
-		&& Mode->PendingCombatRunRetirement->RunId == RunId
-		&& Mode->CombatRunFixedTimeline.GetCurrentTick() == Advanced
-		&& Mode->ControlledWeaponWorldLifecycle.GetWeaponActor() == Weapon
-		&& DestroyedWeapons == 0 && DestroyedEnemies == 0);
-	// Do not issue an unsafe fresh Run in the red build after it incorrectly drops the gate.
-	if (Manager->IsSettlementPending())
+	// Direct terminal: two World refusals. Delayed durable terminal: three.
+	AddExpectedError(TEXT("Event=ControlledWeaponWorldReleaseRejected"), EAutomationExpectedErrorFlags::Contains, 5);
+	const auto RunVariant = [this](const bool bRetryDurable)
 	{
-		TestTrue(TEXT("Both preparation entry points reject pending terminal World cleanup"),
-			Manager->BeginPreparedProfileRunFor0909B().Status == Edemo_mapProfileSessionBeginStatus::SessionNotReady
-			&& Manager->StartPreparedProfileRunFromSect().Status == Edemo_mapProfileSessionBeginStatus::SessionNotReady);
-		FString Diagnostic;
-		TestFalse(TEXT("Framework activation cannot reinterpret the retained terminal World as active"),
-			Manager->ActivatePreparedProfileWorldFor0909B(Diagnostic));
-		TestFalse(TEXT("Ordinary activation cannot reinterpret retained terminal World"), Manager->ActivatePreparedProfileWorld());
-	}
-	Manager->Items.Reset();
-	TestFalse(TEXT("Wrong Runtime binding cannot acknowledge a committed terminal"),
-		Manager->RetryPendingProfileSettlement().IsDurablySettled());
-	Manager->Items = Runtime;
-	Weapon->SetRole(OriginalRole);
-	const auto Finished = Manager->RetryPendingProfileSettlement();
-	TestTrue(TEXT("Original terminal completes after the real destroy fault is removed"),
-		Finished.IsDurablySettled() && !Manager->IsSettlementPending() && !Manager->IsProfileWorldActive()
-		&& !Mode->PendingCombatRunRetirement.IsSet() && Mode->ControlledWeaponWorldLifecycle.IsEmpty()
-		&& Mode->CombatRunFixedTimeline.IsEmpty());
-	TestEqual(TEXT("Settlement continuation destroys the original weapon exactly once"), DestroyedWeapons, 1);
-	TestEqual(TEXT("Settlement continuation destroys the original enemy exactly once"), DestroyedEnemies, 1);
-	Scene.World->RemoveOnActorDestroyedHandler(Observer);
-	Manager->RetryPendingProfileSettlement();
-	FShanmenItemAuthoritySnapshot After;
-	TestTrue(TEXT("World retries never resubmit the durable settlement or replace its identity"),
-		Fixture.Authority->TryCaptureSnapshot(After) && After == Committed
-		&& Manager->ProfilePreparationFlow->GetSettlementSubmitCount() == 1
-		&& Manager->ProfilePreparationFlow->GetSettlementRetryCount() == 0);
-	return true;
+		FPreparationAdapterFixture Fixture;
+		auto Flow = MakeUnique<Fdemo_mapProfilePreparationFlow>();
+		if (!Fixture.StartAndCutover(*this, bRetryDurable ? TEXT("P2810ManagerSettlementRetry") : TEXT("P289ManagerSettlement"), Flow.Get())
+			|| !Fixture.Session->SetPreparationEquipment(
+				Fdemo_mapItemIds::WeaponSlot, Fixture.FlyingSwordId).IsAccepted()) return false;
+		auto* Runtime = Fixture.GameInstance->GetSubsystem<Udemo_mapItemSubsystem>();
+		const auto Started = Flow->StartPreparedRunDirect();
+		const FGuid RunId = Started.Snapshot.ActiveRunId;
+		FControlledWeaponWorldFixture Scene;
+		if (!Runtime || !Started.IsRunActive() || !Scene.Start(*this, Fixture.GameInstance, RunId)) return false;
+		const auto Began = Scene.Lifecycle.TryBegin(Scene.World, Fixture.Authority, Runtime,
+			Scene.Coordinator, Scene.Host, Scene.Player, 1);
+		auto* Weapon = Began.WeaponActor.Get();
+		auto* Enemy = Began.IsStarted()
+			? Scene.SpawnRegisteredEnemy(*this, FVector(900.0f, 0.0f, 0.0f)) : nullptr;
+		FShanmenControlledWeaponCommandReceipt Launch;
+		int64 Advanced = 0;
+		if (!Weapon || !Enemy || !Scene.Host.TryLaunch(Fixture.FlyingSwordId, 0, FVector::ForwardVector, Launch)
+			|| !Scene.Timeline.TryAdvance(0.1, Advanced, Scene.Diagnostic) || Advanced <= 0
+			|| !Scene.World->SetGameMode(FURL())) return false;
+		auto* Mode = Cast<Ademo_mapGameMode>(Scene.World->GetAuthGameMode());
+		FActorSpawnParameters Spawn;
+		Spawn.ObjectFlags |= RF_Transient;
+		Spawn.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		auto* Manager = Scene.World->SpawnActor<Ademo_mapV3ProgressionManager>(
+			Ademo_mapV3ProgressionManager::StaticClass(), FTransform::Identity, Spawn);
+		if (!Mode || !Manager) return false;
+		Mode->CombatRunCoordinator = MoveTemp(Scene.Coordinator);
+		Mode->ControlledWeaponRunHost = MoveTemp(Scene.Host);
+		Mode->ControlledWeaponWorldLifecycle = MoveTemp(Scene.Lifecycle);
+		Mode->CombatRunFixedTimeline = MoveTemp(Scene.Timeline);
+		Mode->M01EnemyActors.Add(Enemy);
+		Mode->Enemy = Enemy;
+		Mode->bM01EnemyContentActive = true;
+		Mode->bM01ExtractionFoundationActive = true;
+		Mode->bV3MissionContentActive = true;
+		Mode->V3ProgressionManager = Manager;
+		Manager->ProfilePreparationFlow = MoveTemp(Flow);
+		Manager->Items = Runtime;
+		Manager->bInitialized = true;
+		Manager->ProfileStartupMode = Edemo_mapProfileStartupMode::ProductionProfile;
+		Manager->bProfileWorldActive = true;
+		int32 DestroyedWeapons = 0, DestroyedEnemies = 0;
+		const auto Observer = Scene.World->AddOnActorDestroyedHandler(FOnActorDestroyed::FDelegate::CreateLambda(
+			[&](AActor* Actor) { if (Actor == Weapon) ++DestroyedWeapons; if (Actor == Enemy) ++DestroyedEnemies; }));
+		const ENetRole OriginalRole = Weapon->GetLocalRole();
+		Weapon->SetRole(ROLE_SimulatedProxy);
+		FShanmenItemAuthoritySnapshot Before;
+		if (!Fixture.Authority->TryCaptureSnapshot(Before)) return false;
+		if (bRetryDurable)
+		{
+			Fixture.Authority->SetInjectedFailureForAutomation(EShanmenItemStoreFailureStage::WriteTemp);
+		}
+		TestTrue(TEXT("Actual terminal event is accepted once"),
+			Manager->RequestSettlementAndReload(Edemo_mapRunEndReason::Extraction).bSuccess);
+		if (bRetryDurable)
+		{
+			FShanmenItemAuthoritySnapshot Rejected;
+			TestTrue(TEXT("Failed durable write preserves the exact active authority and terminal evidence"),
+				Fixture.Authority->TryCaptureSnapshot(Rejected) && Rejected == Before
+				&& Manager->IsSettlementPending() && Manager->IsProfileWorldActive()
+				&& !Manager->PendingProfileWorldSettlement.IsSet()
+				&& Manager->ProfilePreparationFlow->GetPhase() == Edemo_mapProfilePreparationFlowPhase::SettlementPending
+				&& Manager->ProfilePreparationFlow->GetStartedRunId() == RunId
+				&& Runtime->GetRunState() == Edemo_mapRunState::Settled
+				&& Runtime->GetActiveRunId() == RunId
+				&& Manager->ProfilePreparationFlow->GetSettlementSubmitCount() == 1
+				&& Manager->ProfilePreparationFlow->GetSettlementRetryCount() == 0
+				&& Mode->PendingCombatRunRetirement.IsSet()
+				&& Mode->PendingCombatRunRetirement->RunId == RunId
+				&& Mode->CombatRunFixedTimeline.GetCurrentTick() == Advanced
+				&& DestroyedWeapons == 0 && DestroyedEnemies == 0);
+			const auto StillRejected = Manager->RetryPendingProfileSettlement();
+			TestTrue(TEXT("Repeated durable failure keeps original evidence without a false World acknowledgment"),
+				StillRejected.Status == Edemo_mapProfileSessionSettlementStatus::PendingRetry
+				&& Fixture.Authority->TryCaptureSnapshot(Rejected) && Rejected == Before
+				&& Manager->IsSettlementPending() && Manager->IsProfileWorldActive()
+				&& !Manager->PendingProfileWorldSettlement.IsSet()
+				&& Manager->ProfilePreparationFlow->GetStartedRunId() == RunId
+				&& Manager->ProfilePreparationFlow->GetSettlementSubmitCount() == 1
+				&& Manager->ProfilePreparationFlow->GetSettlementRetryCount() == 1
+				&& Mode->ControlledWeaponWorldLifecycle.GetWeaponActor() == Weapon
+				&& DestroyedWeapons == 0 && DestroyedEnemies == 0);
+			Fixture.Authority->SetInjectedFailureForAutomation(EShanmenItemStoreFailureStage::None);
+			const auto DurableRetry = Manager->RetryPendingProfileSettlement();
+			TestTrue(TEXT("Successful durable retry hands its original Run to World-only continuation"),
+				DurableRetry.IsDurablySettled() && Manager->PendingProfileWorldSettlement.IsSet()
+				&& Manager->PendingProfileWorldSettlement->RunId == RunId
+				&& Manager->ProfilePreparationFlow->GetSettlementSubmitCount() == 1
+				&& Manager->ProfilePreparationFlow->GetSettlementRetryCount() == 2);
+		}
+		FShanmenItemAuthoritySnapshot Committed;
+		if (!Fixture.Authority->TryCaptureSnapshot(Committed)) return false;
+		TestFalse(TEXT("Committed terminal differs from the nonzero active authority baseline"), Committed == Before);
+		TestTrue(TEXT("Durable terminal precedes World acknowledgment without reopening the start gate"),
+			Manager->IsSettlementPending() && Manager->IsProfileWorldActive()
+			&& Manager->ProfilePreparationFlow->GetPhase() == Edemo_mapProfilePreparationFlowPhase::Preparation
+			&& Runtime->GetRunState() == Edemo_mapRunState::Inactive
+			&& !Runtime->GetActiveRunId().IsValid()
+			&& Manager->ProfilePreparationFlow->GetSettlementSubmitCount() == 1);
+		const auto Retained = Manager->RetryPendingProfileSettlement();
+		TestTrue(TEXT("World-only retry retains the durable receipt and pending World"),
+			Retained.IsDurablySettled() && Manager->IsSettlementPending() && Manager->IsProfileWorldActive()
+			&& Retained.Diagnostic.Contains(TEXT("World release remains pending"))
+			&& Mode->PendingCombatRunRetirement.IsSet()
+			&& Mode->PendingCombatRunRetirement->RunId == RunId
+			&& Mode->CombatRunFixedTimeline.GetCurrentTick() == Advanced
+			&& Mode->ControlledWeaponWorldLifecycle.GetWeaponActor() == Weapon
+			&& DestroyedWeapons == 0 && DestroyedEnemies == 0);
+		// Do not issue an unsafe fresh Run in the red build after it incorrectly drops the gate.
+		if (Manager->IsSettlementPending())
+		{
+			TestTrue(TEXT("Both preparation entry points reject pending terminal World cleanup"),
+				Manager->BeginPreparedProfileRunFor0909B().Status == Edemo_mapProfileSessionBeginStatus::SessionNotReady
+				&& Manager->StartPreparedProfileRunFromSect().Status == Edemo_mapProfileSessionBeginStatus::SessionNotReady);
+			FString Diagnostic;
+			TestFalse(TEXT("Framework activation cannot reinterpret the retained terminal World as active"),
+				Manager->ActivatePreparedProfileWorldFor0909B(Diagnostic));
+			TestFalse(TEXT("Ordinary activation cannot reinterpret retained terminal World"), Manager->ActivatePreparedProfileWorld());
+		}
+		Manager->Items.Reset();
+		TestFalse(TEXT("Wrong Runtime binding cannot acknowledge a committed terminal"),
+			Manager->RetryPendingProfileSettlement().IsDurablySettled());
+		Manager->Items = Runtime;
+		Weapon->SetRole(OriginalRole);
+		const auto Finished = Manager->RetryPendingProfileSettlement();
+		TestTrue(TEXT("Original terminal completes after the real destroy fault is removed"),
+			Finished.IsDurablySettled() && !Manager->IsSettlementPending() && !Manager->IsProfileWorldActive()
+			&& !Mode->PendingCombatRunRetirement.IsSet() && Mode->ControlledWeaponWorldLifecycle.IsEmpty()
+			&& Mode->CombatRunFixedTimeline.IsEmpty());
+		TestEqual(TEXT("Settlement continuation destroys the original weapon exactly once"), DestroyedWeapons, 1);
+		TestEqual(TEXT("Settlement continuation destroys the original enemy exactly once"), DestroyedEnemies, 1);
+		Scene.World->RemoveOnActorDestroyedHandler(Observer);
+		Manager->RetryPendingProfileSettlement();
+		FShanmenItemAuthoritySnapshot After;
+		TestTrue(TEXT("World retries never resubmit the durable settlement or replace its identity"),
+			Fixture.Authority->TryCaptureSnapshot(After) && After == Committed
+			&& Manager->ProfilePreparationFlow->GetSettlementSubmitCount() == 1
+			&& Manager->ProfilePreparationFlow->GetSettlementRetryCount() == (bRetryDurable ? 2 : 0));
+		return true;
+	};
+	return RunVariant(false) && RunVariant(true);
 }
 
 #endif
