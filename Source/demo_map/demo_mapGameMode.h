@@ -751,6 +751,7 @@ private:
 	friend class Fdemo_mapPreparationDeactivationRetentionTest;
 	friend class Fdemo_mapManagerWorldDeactivationRetentionTest;
 	friend class Fdemo_mapManagerRollbackContinuationTest;
+	friend class Fdemo_mapManagerSettlementContinuationTest;
 	friend class Fdemo_mapSwordQiPhysicalIssueRetryTest;
 #endif
 	TArray<TWeakObjectPtr<Ademo_mapM01ExtractionZone>> M01ExtractionZones;

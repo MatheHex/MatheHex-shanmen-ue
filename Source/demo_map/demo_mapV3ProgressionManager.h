@@ -302,6 +302,7 @@ private:
 	friend class FShanmenProductFlowManagerRollbackRetentionTest;
 	friend class Fdemo_mapManagerWorldDeactivationRetentionTest;
 	friend class Fdemo_mapManagerRollbackContinuationTest;
+	friend class Fdemo_mapManagerSettlementContinuationTest;
 #endif
 	/** P7 input edge: reads an exact P6 active session and opens the shared P3/P4 host. */
 	bool OpenCodeBActiveRunInventory(FString& OutFeedback);
@@ -441,6 +442,8 @@ private:
 	void ShowSectNavigation();
 	void HideProfilePreparation();
 	bool DeactivateProfileWorld();
+	Fdemo_mapProfileSessionSettlementResult CompleteDurableProfileSettlementWorld(
+		Fdemo_mapProfileSessionSettlementResult Accepted, const FGuid& RunId);
 	void DestroyRuntimeContainers(const FString& Reason);
 	/** The sole post-activation Code B observer.  It never feeds back into Code A. */
 	void ObserveCodeBRunAfterActivation(const Fdemo_mapProfileSessionSnapshot& Snapshot);
@@ -577,6 +580,23 @@ private:
 		int32 SettlementSubmitCount = 0;
 	};
 	TOptional<FPendingProfileWorldRollback> PendingProfileWorldRollback;
+	/** One already-committed terminal awaiting this exact World; never a second durable authority. */
+	struct FPendingProfileWorldSettlement
+	{
+		const Fdemo_mapProfilePreparationFlow* Flow = nullptr;
+		TWeakObjectPtr<Udemo_mapItemSubsystem> Runtime;
+		TWeakObjectPtr<Udemo_mapProfileSessionSubsystem> Session;
+		TWeakObjectPtr<UWorld> World;
+		TWeakObjectPtr<AActor> WorldMode;
+		FString StorageRoot;
+		FGuid OwnerId;
+		FGuid RunId;
+		FGuid StartedRunIdAfterCommit;
+		int32 SubmitCount = 0;
+		int32 RetryCount = 0;
+		Fdemo_mapProfileSessionSettlementResult Accepted;
+	};
+	TOptional<FPendingProfileWorldSettlement> PendingProfileWorldSettlement;
 	TUniquePtr<demo_map_code_b::FCodeBRepository> CodeBOutOfRaidRepository;
 	TUniquePtr<FCodeBOutOfRaidProfileStore> CodeBOutOfRaidProfileStore;
 	/** When the I1 host opens P5, the host (not the retired sect page) regains focus on close. */

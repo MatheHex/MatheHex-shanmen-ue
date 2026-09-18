@@ -3847,6 +3847,13 @@ void Ademo_mapV3ProgressionManager::RunFullSystemLoopAutomation()
 Fdemo_mapProfileSessionBeginResult
 Ademo_mapV3ProgressionManager::BeginPreparedProfileRunFor0909B()
 {
+	if (PendingProfileWorldSettlement.IsSet())
+	{
+		Fdemo_mapProfileSessionBeginResult Rejected;
+		Rejected.Status = Edemo_mapProfileSessionBeginStatus::SessionNotReady;
+		Rejected.Diagnostic = TEXT("Finish the committed terminal World release before preparing another Run.");
+		return Rejected;
+	}
 	if (PendingProfileWorldRollback.IsSet())
 	{
 		Fdemo_mapProfileSessionBeginResult Rejected;
@@ -3891,6 +3898,11 @@ bool Ademo_mapV3ProgressionManager::ActivatePreparedProfileWorldFor0909B(
 	FString& OutDiagnostic)
 {
 	OutDiagnostic.Reset();
+	if (PendingProfileWorldSettlement.IsSet())
+	{
+		OutDiagnostic = TEXT("The committed terminal still owns this World; activation is rejected.");
+		return false;
+	}
 	if (PendingProfileWorldRollback.IsSet())
 	{
 		OutDiagnostic = TEXT("The original world rollback is not complete; activation is rejected.");
@@ -4029,6 +4041,13 @@ void Ademo_mapV3ProgressionManager::Set0909BOutOfRaidCloseCallback(
 
 Fdemo_mapProfileSessionBeginResult Ademo_mapV3ProgressionManager::StartPreparedProfileRun()
 {
+	if (PendingProfileWorldSettlement.IsSet())
+	{
+		Fdemo_mapProfileSessionBeginResult Rejected;
+		Rejected.Status = Edemo_mapProfileSessionBeginStatus::SessionNotReady;
+		Rejected.Diagnostic = TEXT("Finish the committed terminal World release before starting another Run.");
+		return Rejected;
+	}
 	if (PendingProfileWorldRollback.IsSet())
 	{
 		Fdemo_mapProfileSessionBeginResult Rejected;
@@ -4230,6 +4249,12 @@ Fdemo_mapProfileSessionBeginResult Ademo_mapV3ProgressionManager::StartPreparedP
 
 Fdemo_mapProfileSessionSettlementResult Ademo_mapV3ProgressionManager::RetryPendingProfileSettlement()
 {
+	if (PendingProfileWorldSettlement.IsSet())
+	{
+		// The lower transaction is already accepted. Do not submit it to Flow again.
+		return CompleteDurableProfileSettlementWorld(
+			PendingProfileWorldSettlement->Accepted, PendingProfileWorldSettlement->RunId);
+	}
 	Fdemo_mapProfileSessionSettlementResult Result;
 	if (!ProfilePreparationFlow)
 	{
@@ -4237,17 +4262,83 @@ Fdemo_mapProfileSessionSettlementResult Ademo_mapV3ProgressionManager::RetryPend
 		Result.Diagnostic = TEXT("Profile Preparation lifecycle has no pending Settlement.");
 		return Result;
 	}
+	const FGuid OriginalRunId = ProfilePreparationFlow->GetStartedRunId();
 	Result = ProfilePreparationFlow->RetryPendingSettlement();
 	if (Result.IsDurablySettled())
 	{
-		bSettlementPending = false;
+		return CompleteDurableProfileSettlementWorld(Result, OriginalRunId);
 	}
-	ShowSectNavigation();
+	if (!bProfileWorldActive) ShowSectNavigation();
 	return Result;
+}
+
+Fdemo_mapProfileSessionSettlementResult Ademo_mapV3ProgressionManager::CompleteDurableProfileSettlementWorld(
+	Fdemo_mapProfileSessionSettlementResult Accepted, const FGuid& RunId)
+{
+	const auto Reject = [&Accepted](const TCHAR* Diagnostic)
+	{
+		Accepted.Status = Edemo_mapProfileSessionSettlementStatus::SessionStateRejected;
+		Accepted.Diagnostic = Diagnostic;
+		return Accepted;
+	};
+	if (!ProfilePreparationFlow || !Accepted.IsDurablySettled() || !RunId.IsValid())
+	{
+		return Reject(TEXT("World settlement completion requires the original committed terminal."));
+	}
+	if (!PendingProfileWorldSettlement.IsSet())
+	{
+		FPendingProfileWorldSettlement Prefix;
+		Prefix.Flow = ProfilePreparationFlow.Get();
+		Prefix.Runtime = ProfilePreparationFlow->GetRuntime();
+		Prefix.Session = ProfilePreparationFlow->GetSession();
+		Prefix.World = GetWorld();
+		Prefix.WorldMode = GetWorld() ? GetWorld()->GetAuthGameMode() : nullptr;
+		Prefix.StorageRoot = ProfilePreparationFlow->GetStorageRoot();
+		Prefix.OwnerId = ProfilePreparationFlow->GetProfileId();
+		Prefix.RunId = RunId;
+		Prefix.StartedRunIdAfterCommit = ProfilePreparationFlow->GetStartedRunId();
+		Prefix.SubmitCount = ProfilePreparationFlow->GetSettlementSubmitCount();
+		Prefix.RetryCount = ProfilePreparationFlow->GetSettlementRetryCount();
+		Prefix.Accepted = Accepted;
+		PendingProfileWorldSettlement = MoveTemp(Prefix);
+	}
+	bSettlementPending = true;
+	const auto& Prefix = PendingProfileWorldSettlement.GetValue();
+	const auto Snapshot = ProfilePreparationFlow->GetPresentationSnapshot();
+	if (Prefix.Flow != ProfilePreparationFlow.Get() || Prefix.RunId != RunId
+		|| !Prefix.Runtime.IsValid() || Prefix.Runtime.Get() != Items.Get()
+		|| Prefix.Runtime.Get() != ProfilePreparationFlow->GetRuntime()
+		|| !Prefix.Session.IsValid() || Prefix.Session.Get() != ProfilePreparationFlow->GetSession()
+		|| !Prefix.World.IsValid() || Prefix.World.Get() != GetWorld()
+		|| Prefix.WorldMode.IsStale() || Prefix.WorldMode.Get() != GetWorld()->GetAuthGameMode()
+		|| !Prefix.OwnerId.IsValid() || Prefix.OwnerId != ProfilePreparationFlow->GetProfileId()
+		|| Prefix.OwnerId != Accepted.Snapshot.ProfileId || Prefix.OwnerId != Snapshot.ProfileId
+		|| !Prefix.StorageRoot.Equals(ProfilePreparationFlow->GetStorageRoot(), ESearchCase::IgnoreCase)
+		|| Prefix.StartedRunIdAfterCommit != ProfilePreparationFlow->GetStartedRunId()
+		|| Prefix.SubmitCount != ProfilePreparationFlow->GetSettlementSubmitCount()
+		|| Prefix.RetryCount != ProfilePreparationFlow->GetSettlementRetryCount()
+		|| ProfilePreparationFlow->GetPhase() != Edemo_mapProfilePreparationFlowPhase::Preparation
+		|| Snapshot.SessionState != Edemo_mapProfileSessionState::ReadyForPreparation
+		|| Snapshot.ActiveRunId.IsValid() || Prefix.Runtime->GetRunState() != Edemo_mapRunState::Inactive
+		|| Prefix.Runtime->GetActiveRunId().IsValid())
+	{
+		return Reject(TEXT("Committed terminal World continuation no longer matches its original binding; receipt retained."));
+	}
+	if (!DeactivateProfileWorld())
+	{
+		Accepted.Diagnostic += TEXT(" Durable terminal accepted; original World release remains pending.");
+		return Accepted;
+	}
+	Accepted.Diagnostic += TEXT(" Original terminal World release complete; durable transaction was not repeated.");
+	PendingProfileWorldSettlement.Reset();
+	bSettlementPending = false;
+	ShowSectNavigation();
+	return Accepted;
 }
 
 bool Ademo_mapV3ProgressionManager::ActivatePreparedProfileWorld()
 {
+	if (PendingProfileWorldSettlement.IsSet()) return false;
 	if (PendingProfileWorldRollback.IsSet()) return false;
 	if (bProfileWorldActive)
 	{
@@ -9119,11 +9210,10 @@ Fdemo_mapItemOperationResult Ademo_mapV3ProgressionManager::RequestSettlementAnd
 			Summary.PersistentBefore = PersistentResult.PersistentResult.PersistentBefore;
 			Summary.PersistentAfter = PersistentResult.PersistentResult.PersistentAfter;
 			Summary.ClearedPreparationItemIds = PersistentResult.PersistentResult.ClearedPreparationItemIds;
-			DeactivateProfileWorld();
-			bSettlementPending = false;
-			// Product flow has no blocking settlement report: durable settlement
-			// returns directly to Sect Home, with the durable summary kept in log.
-			ShowSectNavigation();
+			// Durable acceptance is not a World acknowledgment. Retain this exact
+			// result for World-only retries before allowing another prepared Run.
+			CompleteDurableProfileSettlementWorld(PersistentResult, Summary.RunId);
+			if (PendingProfileWorldSettlement.IsSet()) return LastOperationResult;
 #if !UE_BUILD_SHIPPING
 			if (bProfileFlowAutomation
 				&& (ProfileFlowAutomationPhase == Edemo_mapProfileFlowAutomationPhase::Extract
@@ -9135,8 +9225,7 @@ Fdemo_mapItemOperationResult Ademo_mapV3ProgressionManager::RequestSettlementAnd
 		}
 		else
 		{
-			DeactivateProfileWorld();
-			ShowSectNavigation();
+			if (DeactivateProfileWorld()) ShowSectNavigation();
 #if !UE_BUILD_SHIPPING
 			if (bProfileFlowAutomation && PersistentResult.Status != Edemo_mapProfileSessionSettlementStatus::PendingRetry)
 			{
