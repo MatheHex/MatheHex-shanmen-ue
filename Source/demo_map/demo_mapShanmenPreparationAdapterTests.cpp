@@ -3793,9 +3793,10 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool Fdemo_mapManagerSettlementContinuationTest::RunTest(const FString&)
 {
-	// Direct terminal: two World refusals. Delayed durable terminal: three.
-	AddExpectedError(TEXT("Event=ControlledWeaponWorldReleaseRejected"), EAutomationExpectedErrorFlags::Contains, 5);
-	const auto RunVariant = [this](const bool bRetryDurable)
+	// Direct terminal: two weapon refusals. Delayed durable terminal: three.
+	// Preserve both original variants and repeat them with refused loose-item release.
+	AddExpectedError(TEXT("Event=ControlledWeaponWorldReleaseRejected"), EAutomationExpectedErrorFlags::Contains, 10);
+	const auto RunVariant = [this](const bool bRetryDurable, const bool bLooseWorld)
 	{
 		FPreparationAdapterFixture Fixture;
 		auto Flow = MakeUnique<Fdemo_mapProfilePreparationFlow>();
@@ -3849,13 +3850,38 @@ bool Fdemo_mapManagerSettlementContinuationTest::RunTest(const FString&)
 		Manager->M01RewardRunId = RunId;
 		const FGuid ContainerId = Chest->GetContainerId();
 		if (!ContainerId.IsValid() || Chest->IsContainerEmpty()) return false;
-		int32 DestroyedWeapons = 0, DestroyedEnemies = 0, DestroyedChests = 0;
+		Ademo_mapWorldItem* LooseItem = nullptr;
+		FGuid LooseId;
+		ENetRole OriginalLooseRole = ROLE_None;
+		if (bLooseWorld)
+		{
+			AActor* Floor = Scene.World->SpawnActor<AActor>(AActor::StaticClass(), FTransform::Identity, Spawn);
+			auto* Box = Floor ? NewObject<UBoxComponent>(Floor, NAME_None, RF_Transient) : nullptr;
+			if (!Box) return false;
+			Floor->SetRootComponent(Box);
+			Floor->AddInstanceComponent(Box);
+			Box->SetBoxExtent(FVector(1000.0f, 1000.0f, 10.0f));
+			Box->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+			Box->SetCollisionObjectType(ECC_WorldStatic);
+			Box->SetCollisionResponseToAllChannels(ECR_Block);
+			Box->RegisterComponent();
+			Floor->SetActorLocation(FVector(0.0f, 0.0f, -10.0f));
+			Scene.World->UpdateWorldComponents(true, false);
+			if (!Runtime->CreateWorldItem(Scene.World, Fdemo_mapItemIds::SpiritDust, 2,
+				FVector(200.0f, 0.0f, 0.0f), LooseItem).bSuccess || !LooseItem) return false;
+			LooseId = LooseItem->GetInstanceId();
+			Manager->InitialWorldItems.Add(LooseItem);
+			OriginalLooseRole = LooseItem->GetLocalRole();
+			LooseItem->SetRole(ROLE_SimulatedProxy);
+		}
+		int32 DestroyedWeapons = 0, DestroyedEnemies = 0, DestroyedChests = 0, DestroyedLoose = 0;
 		const auto Observer = Scene.World->AddOnActorDestroyedHandler(FOnActorDestroyed::FDelegate::CreateLambda(
 			[&](AActor* Actor)
 			{
 				if (Actor == Weapon) ++DestroyedWeapons;
 				if (Actor == Enemy) ++DestroyedEnemies;
 				if (Actor == Chest) ++DestroyedChests;
+				if (Actor == LooseItem) ++DestroyedLoose;
 			}));
 		const auto HasOriginalContainer = [&]()
 		{
@@ -3876,6 +3902,24 @@ bool Fdemo_mapManagerSettlementContinuationTest::RunTest(const FString&)
 			Manager->RequestSettlementAndReload(Edemo_mapRunEndReason::Extraction).bSuccess);
 		TestTrue(TEXT("Terminal caller preserves original container until combat World release acknowledges"),
 			HasOriginalContainer());
+		const auto HasRetiredLooseOwner = [&]()
+		{
+			const auto* Item = Runtime->GetAuthority().FindInstance(LooseId);
+			const auto& Summary = Runtime->GetLastSettlementSummary();
+			return Item && Item->Quantity == 2 && Item->DefinitionId == Fdemo_mapItemIds::SpiritDust
+				&& Item->OwnershipState == Edemo_mapItemOwnershipState::Destroyed
+				&& Runtime->IsWorldActorBound(LooseId, LooseItem) && IsValid(LooseItem)
+				&& !LooseItem->IsActorBeingDestroyed() && DestroyedLoose == 0
+				&& Runtime->GetRunState() == Edemo_mapRunState::Settled && Runtime->GetActiveRunId() == RunId
+				&& Summary.bValid && Summary.RunId == RunId && Summary.Reason == Edemo_mapRunEndReason::Extraction
+				&& Summary.Rows.ContainsByPredicate([&](const Fdemo_mapSettlementItemRow& Row)
+				{
+					return Row.InstanceId == LooseId && Row.Quantity == 2
+						&& Row.SourceOwnership == Edemo_mapItemOwnershipState::World
+						&& Row.FinalOwnership == Edemo_mapItemOwnershipState::Destroyed;
+				}) && Runtime->ValidateInvariants();
+		};
+		if (bLooseWorld) TestTrue(TEXT("Accepted terminal retains refused retired World identity and its exact loss row"), HasRetiredLooseOwner());
 		if (bRetryDurable)
 		{
 			FShanmenItemAuthoritySnapshot Rejected;
@@ -3916,11 +3960,23 @@ bool Fdemo_mapManagerSettlementContinuationTest::RunTest(const FString&)
 		FShanmenItemAuthoritySnapshot Committed;
 		if (!Fixture.Authority->TryCaptureSnapshot(Committed)) return false;
 		TestFalse(TEXT("Committed terminal differs from the nonzero active authority baseline"), Committed == Before);
+		if (bLooseWorld)
+		{
+			Fdemo_mapSettlementSummary Competing;
+			const auto CompetingResult = Runtime->RequestSettlement(Edemo_mapRunEndReason::Death, Competing);
+			TestTrue(TEXT("Refused terminal projection cannot rewrite the accepted terminal reason or loss evidence"),
+				!CompetingResult.bSuccess && CompetingResult.Code == Edemo_mapItemResultCode::SettlementAlreadyCompleted
+				&& Competing.RuntimeSnapshot == Runtime->GetLastSettlementSummary().RuntimeSnapshot && HasRetiredLooseOwner());
+			FShanmenItemAuthoritySnapshot AfterDirectStart;
+			TestTrue(TEXT("Direct Flow Start cannot commit a fresh durable Run while a terminal projection is retained"),
+				Manager->ProfilePreparationFlow->StartPreparedRunDirect().Status == Edemo_mapProfileSessionBeginStatus::SessionNotReady
+				&& Fixture.Authority->TryCaptureSnapshot(AfterDirectStart) && AfterDirectStart == Committed);
+		}
 		TestTrue(TEXT("Durable terminal precedes World acknowledgment without reopening the start gate"),
 			Manager->IsSettlementPending() && Manager->IsProfileWorldActive()
 			&& Manager->ProfilePreparationFlow->GetPhase() == Edemo_mapProfilePreparationFlowPhase::Preparation
-			&& Runtime->GetRunState() == Edemo_mapRunState::Inactive
-			&& !Runtime->GetActiveRunId().IsValid()
+			&& (bLooseWorld ? HasRetiredLooseOwner()
+				: (Runtime->GetRunState() == Edemo_mapRunState::Inactive && !Runtime->GetActiveRunId().IsValid()))
 			&& Manager->ProfilePreparationFlow->GetSettlementSubmitCount() == 1);
 		const auto Retained = Manager->RetryPendingProfileSettlement();
 		TestTrue(TEXT("World-only retry preserves the pending container owner"), HasOriginalContainer());
@@ -3975,6 +4031,27 @@ bool Fdemo_mapManagerSettlementContinuationTest::RunTest(const FString&)
 			}
 		}
 		Chest->SetRole(OriginalChestRole);
+		if (bLooseWorld)
+		{
+			for (int32 Attempt = 0; Attempt < 2; ++Attempt)
+			{
+				const auto LoosePending = Manager->RetryPendingProfileSettlement();
+				FShanmenItemAuthoritySnapshot StillCommitted;
+				TestTrue(TEXT("Post-settlement loose-item refusal keeps original World continuation after other owners release"),
+					LoosePending.IsDurablySettled() && Manager->IsSettlementPending() && Manager->IsProfileWorldActive()
+					&& Manager->PendingProfileWorldSettlement.IsSet() && HasRetiredLooseOwner()
+					&& Manager->InitialWorldItems.Contains(LooseItem));
+				TestTrue(TEXT("Loose-item-only retry preserves durable commit and successful release prefix"),
+					DestroyedWeapons == 1 && DestroyedEnemies == 1 && DestroyedChests == 1
+					&& Fixture.Authority->TryCaptureSnapshot(StillCommitted) && StillCommitted == Committed
+					&& Manager->ProfilePreparationFlow->GetSettlementSubmitCount() == 1
+					&& Manager->ProfilePreparationFlow->GetSettlementRetryCount() == (bRetryDurable ? 2 : 0));
+				if (Manager->IsSettlementPending()) TestTrue(TEXT("Retained terminal item blocks new prepared Runs"),
+					Manager->BeginPreparedProfileRunFor0909B().Status == Edemo_mapProfileSessionBeginStatus::SessionNotReady
+					&& Manager->StartPreparedProfileRunFromSect().Status == Edemo_mapProfileSessionBeginStatus::SessionNotReady);
+			}
+			LooseItem->SetRole(OriginalLooseRole);
+		}
 		const auto Finished = Manager->RetryPendingProfileSettlement();
 		TestTrue(TEXT("Original terminal completes after the real destroy fault is removed"),
 			Finished.IsDurablySettled() && !Manager->IsSettlementPending() && !Manager->IsProfileWorldActive()
@@ -3983,6 +4060,10 @@ bool Fdemo_mapManagerSettlementContinuationTest::RunTest(const FString&)
 		TestEqual(TEXT("Settlement continuation destroys the original weapon exactly once"), DestroyedWeapons, 1);
 		TestEqual(TEXT("Settlement continuation destroys the original enemy exactly once"), DestroyedEnemies, 1);
 		TestEqual(TEXT("Container cleanup follows accepted combat World release exactly once"), DestroyedChests, 1);
+		if (bLooseWorld) TestTrue(TEXT("Terminal loose-item cleanup destroys once before Runtime preparation completes"),
+			DestroyedLoose == 1 && Runtime->GetWorldActorCount() == 0
+			&& Runtime->GetRunState() == Edemo_mapRunState::Inactive && !Runtime->GetActiveRunId().IsValid()
+			&& Runtime->ValidateInvariants());
 		TestTrue(TEXT("Completed container cleanup clears its original Manager owner"),
 			Manager->Chests.IsEmpty() && !Manager->bM01RewardContentActive && !Manager->M01RewardRunId.IsValid());
 		Scene.World->RemoveOnActorDestroyedHandler(Observer);
@@ -3994,7 +4075,8 @@ bool Fdemo_mapManagerSettlementContinuationTest::RunTest(const FString&)
 			&& Manager->ProfilePreparationFlow->GetSettlementRetryCount() == (bRetryDurable ? 2 : 0));
 		return true;
 	};
-	return RunVariant(false) && RunVariant(true);
+	return RunVariant(false, false) && RunVariant(true, false)
+		&& RunVariant(false, true) && RunVariant(true, true);
 }
 
 #endif

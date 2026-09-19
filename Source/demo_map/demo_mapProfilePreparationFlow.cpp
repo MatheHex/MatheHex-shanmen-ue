@@ -441,7 +441,8 @@ Fdemo_mapProfileSessionBeginResult Fdemo_mapProfilePreparationFlow::StartPrepare
 	Fdemo_mapProfileSessionBeginResult Result;
 	if (Phase != Edemo_mapProfilePreparationFlowPhase::Preparation
 		|| !Session.IsValid()
-		|| !Runtime.IsValid())
+		|| !Runtime.IsValid()
+		|| (Runtime->GetRunState() == Edemo_mapRunState::Settled && Runtime->GetWorldActorCount() != 0))
 	{
 		Result.Status = Edemo_mapProfileSessionBeginStatus::SessionNotReady;
 		Result.Diagnostic = TEXT("Profile Flow Start requires a ready preparation session.");
@@ -847,13 +848,26 @@ Fdemo_mapProfilePreparationFlow::FinalizeShanmenSettlement(
 			: Edemo_mapProfileSessionSettlementStatus::Committed;
 		const Fdemo_mapItemOperationResult RuntimePreparation =
 			Runtime->PrepareForPersistentRun();
+		// On retry Summary aliases PendingShanmenSettlement. Inspect it before
+		// clearing that owner, otherwise the retained terminal loses its match.
+		const bool bWorldReleasePending = !RuntimePreparation.bSuccess
+			&& RuntimePreparation.Code == Edemo_mapItemResultCode::InvalidWorldBinding
+			&& Runtime->GetRunState() == Edemo_mapRunState::Settled
+			&& Runtime->GetActiveRunId() == Summary.RunId
+			&& Runtime->GetLastSettlementSummary().RuntimeSnapshot == Summary.RuntimeSnapshot;
 		bShanmenRunMaterialized = false;
 		PendingShanmenSettlement.Reset();
 		StartedRunId.Invalidate();
-		Phase = RuntimePreparation.bSuccess
+		Phase = (RuntimePreparation.bSuccess || bWorldReleasePending)
 			? Edemo_mapProfilePreparationFlowPhase::Preparation
 			: Edemo_mapProfilePreparationFlowPhase::RecoveryRequired;
-		if (!RuntimePreparation.bSuccess)
+		if (bWorldReleasePending)
+		{
+			// Preserve durable acceptance for the Manager's existing World-only
+			// continuation. Refused projections are not a failed disk commit.
+			Result.Diagnostic += TEXT(" Durable terminal accepted; original Runtime World release remains pending.");
+		}
+		else if (!RuntimePreparation.bSuccess)
 		{
 			Result.Status =
 				Edemo_mapProfileSessionSettlementStatus::FatalProfileError;

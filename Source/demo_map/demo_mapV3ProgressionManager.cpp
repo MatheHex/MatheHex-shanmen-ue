@@ -4309,6 +4309,12 @@ Fdemo_mapProfileSessionSettlementResult Ademo_mapV3ProgressionManager::CompleteD
 	bSettlementPending = true;
 	const auto& Prefix = PendingProfileWorldSettlement.GetValue();
 	const auto Snapshot = ProfilePreparationFlow->GetPresentationSnapshot();
+	const bool bRetainedTerminalRuntime = Prefix.Runtime.IsValid()
+		&& Prefix.Runtime->GetRunState() == Edemo_mapRunState::Settled
+		&& Prefix.Runtime->GetActiveRunId() == RunId
+		&& Prefix.Runtime->GetLastSettlementSummary().bValid
+		&& Prefix.Runtime->GetLastSettlementSummary().RunId == RunId
+		&& Prefix.Runtime->GetLastSettlementSummary().Reason == Accepted.Snapshot.LastTerminalReason;
 	if (Prefix.Flow != ProfilePreparationFlow.Get() || Prefix.RunId != RunId
 		|| !Prefix.Runtime.IsValid() || Prefix.Runtime.Get() != Items.Get()
 		|| Prefix.Runtime.Get() != ProfilePreparationFlow->GetRuntime()
@@ -4323,14 +4329,20 @@ Fdemo_mapProfileSessionSettlementResult Ademo_mapV3ProgressionManager::CompleteD
 		|| Prefix.RetryCount != ProfilePreparationFlow->GetSettlementRetryCount()
 		|| ProfilePreparationFlow->GetPhase() != Edemo_mapProfilePreparationFlowPhase::Preparation
 		|| Snapshot.SessionState != Edemo_mapProfileSessionState::ReadyForPreparation
-		|| Snapshot.ActiveRunId.IsValid() || Prefix.Runtime->GetRunState() != Edemo_mapRunState::Inactive
-		|| Prefix.Runtime->GetActiveRunId().IsValid())
+		|| Snapshot.ActiveRunId.IsValid()
+		|| (!bRetainedTerminalRuntime && (Prefix.Runtime->GetRunState() != Edemo_mapRunState::Inactive
+			|| Prefix.Runtime->GetActiveRunId().IsValid())))
 	{
 		return Reject(TEXT("Committed terminal World continuation no longer matches its original binding; receipt retained."));
 	}
 	if (!DeactivateProfileWorld())
 	{
 		Accepted.Diagnostic += TEXT(" Durable terminal accepted; original World release remains pending.");
+		return Accepted;
+	}
+	if (bRetainedTerminalRuntime && !Prefix.Runtime->PrepareForPersistentRun().bSuccess)
+	{
+		Accepted.Diagnostic += TEXT(" Durable terminal accepted; original Runtime preparation remains pending.");
 		return Accepted;
 	}
 	Accepted.Diagnostic += TEXT(" Original terminal World release complete; durable transaction was not repeated.");

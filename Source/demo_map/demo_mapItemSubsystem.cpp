@@ -1614,15 +1614,20 @@ Fdemo_mapItemOperationResult Udemo_mapItemSubsystem::RequestSettlement(Edemo_map
 	}
 	RefreshHotbarBindings();
 
-	ClearSpatialBundleTracking();
 	for (const Fdemo_mapSettlementItemRow& Row : Rows)
 	{
 		if (Row.SourceOwnership != Edemo_mapItemOwnershipState::World) continue;
 		TWeakObjectPtr<Ademo_mapWorldItem> Actor = WorldActors.FindRef(Row.InstanceId);
+		// Logical loss is already decided, but rejected World destruction is
+		// still owned by this Runtime until the original teardown can continue.
+		if (Actor.IsValid() && !Actor->IsActorBeingDestroyed() && !Actor->Destroy()) continue;
 		RemoveWorldBinding(Row.InstanceId);
-		if (Actor.IsValid()) Actor->Destroy();
 	}
-	Authority.CompactDestroyedRun(SettledRunId, DeployedItemIds);
+	if (WorldActors.IsEmpty())
+	{
+		ClearSpatialBundleTracking();
+		Authority.CompactDestroyedRun(SettledRunId, DeployedItemIds);
+	}
 	Fdemo_mapSettlementSummary Summary;
 	Summary.RunId = SettledRunId;
 	Summary.Reason = Reason;
@@ -1756,7 +1761,9 @@ bool Udemo_mapItemSubsystem::TeardownWorld(UWorld* World)
 	if (!ActiveWorld.IsValid()) return WorldActors.IsEmpty();
 	if (World == nullptr || ActiveWorld.Get() != World) return false;
 	bool bReleased = true;
-	const TArray<FGuid> WorldIds = Authority.FindWorldInstances();
+	TArray<FGuid> WorldIds = Authority.FindWorldInstances();
+	// A committed terminal may retain a Destroyed identity's refused actor.
+	for (const auto& Pair : WorldActors) WorldIds.AddUnique(Pair.Key);
 	for (const FGuid& InstanceId : WorldIds)
 	{
 		TWeakObjectPtr<Ademo_mapWorldItem> Actor = WorldActors.FindRef(InstanceId);
@@ -1774,6 +1781,7 @@ bool Udemo_mapItemSubsystem::TeardownWorld(UWorld* World)
 		}
 	}
 	if (!bReleased || !WorldActors.IsEmpty()) return false;
+	if (RunState == Edemo_mapRunState::Settled) Authority.CompactDestroyedRun(ActiveRunId, DeployedItemIds);
 	ClearSpatialBundleTracking();
 	WorldActors.Reset();
 	ActiveWorld.Reset();
@@ -2735,7 +2743,23 @@ int32 Udemo_mapItemSubsystem::GetWorldActorCount() const { return WorldActors.Nu
 bool Udemo_mapItemSubsystem::ValidateWorldBindings(FString* OutError) const
 {
 	auto Fail = [OutError](const FString& Message) { if (OutError) *OutError = Message; return false; };
-	const TArray<FGuid> WorldIds = Authority.FindWorldInstances();
+	TArray<FGuid> WorldIds = Authority.FindWorldInstances();
+	if (RunState == Edemo_mapRunState::Settled && LastSettlementSummary.bValid
+		&& LastSettlementSummary.RunId == ActiveRunId && ActiveRunId.IsValid())
+	{
+		for (const auto& Row : LastSettlementSummary.Rows)
+		{
+			const auto* Item = Authority.FindInstance(Row.InstanceId);
+			if (Row.SourceOwnership == Edemo_mapItemOwnershipState::World
+				&& Row.FinalOwnership == Edemo_mapItemOwnershipState::Destroyed
+				&& WorldActors.Contains(Row.InstanceId) && Item
+				&& Item->OwnershipState == Edemo_mapItemOwnershipState::Destroyed
+				&& Item->DefinitionId == Row.DefinitionId && Item->Quantity == Row.Quantity)
+			{
+				WorldIds.AddUnique(Row.InstanceId);
+			}
+		}
+	}
 	if (WorldIds.Num() != WorldActors.Num()) return Fail(TEXT("World instance and actor binding counts differ."));
 	TSet<const Ademo_mapWorldItem*> UniqueActors;
 	for (const FGuid& InstanceId : WorldIds)
