@@ -4000,6 +4000,12 @@ bool Ademo_mapV3ProgressionManager::RollbackPreparedProfileRunFor0909B(
 	// Never repeat the accepted lower mutation, nor let a new binding consume its prefix.
 	const FPendingProfileWorldRollback& Prefix = PendingProfileWorldRollback.GetValue();
 	const auto Snapshot = ProfilePreparationFlow->GetPresentationSnapshot();
+	const bool bRetainedRollbackRuntime = Prefix.Runtime.IsValid()
+		&& Prefix.Runtime->GetRunState() == Edemo_mapRunState::Settled
+		&& Prefix.Runtime->GetActiveRunId() == Prefix.RunId
+		&& Prefix.Runtime->GetLastSettlementSummary().bValid
+		&& Prefix.Runtime->GetLastSettlementSummary().RunId == Prefix.RunId
+		&& Prefix.Runtime->GetLastSettlementSummary().Reason == Edemo_mapRunEndReason::ActivationFailure;
 	if (Prefix.Flow != ProfilePreparationFlow.Get()
 		|| !Prefix.Runtime.IsValid() || Prefix.Runtime.Get() != Items.Get()
 		|| Prefix.Runtime.Get() != ProfilePreparationFlow->GetRuntime()
@@ -4013,14 +4019,19 @@ bool Ademo_mapV3ProgressionManager::RollbackPreparedProfileRunFor0909B(
 		|| Prefix.SettlementSubmitCount != ProfilePreparationFlow->GetSettlementSubmitCount()
 		|| ProfilePreparationFlow->GetPhase() != Edemo_mapProfilePreparationFlowPhase::Preparation
 		|| Snapshot.SessionState != Edemo_mapProfileSessionState::ReadyForPreparation
-		|| Snapshot.ActiveRunId.IsValid() || Prefix.Runtime->GetRunState() != Edemo_mapRunState::Inactive
-		|| Prefix.Runtime->GetActiveRunId().IsValid())
+		|| Snapshot.ActiveRunId.IsValid()
+		|| (!bRetainedRollbackRuntime && (Prefix.Runtime->GetRunState() != Edemo_mapRunState::Inactive
+			|| Prefix.Runtime->GetActiveRunId().IsValid())))
 	{
 		return Reject(TEXT("Activation rollback continuation no longer matches its accepted owner/Run binding; original prefix retained."));
 	}
 	if (!DeactivateProfileWorld())
 	{
 		return Reject(TEXT("Runtime rollback accepted; original World release remains pending."));
+	}
+	if (bRetainedRollbackRuntime && !Prefix.Runtime->PrepareForPersistentRun().bSuccess)
+	{
+		return Reject(TEXT("Runtime rollback accepted; original Runtime preparation remains pending."));
 	}
 	OutDiagnostic = FString::Printf(TEXT("Activation rollback complete OwnerId=%s RunId=%s; Runtime prefix applied once and World released."),
 		*Prefix.OwnerId.ToString(EGuidFormats::DigitsWithHyphens),

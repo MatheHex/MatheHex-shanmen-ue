@@ -3582,9 +3582,11 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool Fdemo_mapManagerRollbackContinuationTest::RunTest(const FString&)
 {
-	AddExpectedError(TEXT("Event=ControlledWeaponWorldReleaseRejected"), EAutomationExpectedErrorFlags::Contains, 4);
-	AddExpectedError(TEXT("Event=TechnicalRollback"), EAutomationExpectedErrorFlags::Contains, 6);
-	AddExpectedError(TEXT("Event=TechnicalFailureBlocked"), EAutomationExpectedErrorFlags::Contains, 2);
+	AddExpectedError(TEXT("Event=ControlledWeaponWorldReleaseRejected"), EAutomationExpectedErrorFlags::Contains, 8);
+	AddExpectedError(TEXT("Event=TechnicalRollback"), EAutomationExpectedErrorFlags::Contains, 16);
+	AddExpectedError(TEXT("Event=TechnicalFailureBlocked"), EAutomationExpectedErrorFlags::Contains, 6);
+	// Keep the original ordinary/framework variants and add real retired-item refusal.
+	for (const bool bLooseWorld : { false, true })
 	for (const bool bViaGeneralStart : { false, true })
 	{
 		FPreparationAdapterFixture Fixture;
@@ -3633,6 +3635,47 @@ bool Fdemo_mapManagerRollbackContinuationTest::RunTest(const FString&)
 		Manager->bProfileWorldActive = true;
 		Manager->bSettlementPending = true;
 		Mode->V3ProgressionManager = Manager;
+		Ademo_mapWorldItem* LooseItem = nullptr;
+		FGuid LooseId;
+		ENetRole OriginalLooseRole = ROLE_None;
+		if (bLooseWorld)
+		{
+			AActor* Floor = Scene.World->SpawnActor<AActor>(AActor::StaticClass(), FTransform::Identity, Spawn);
+			auto* Box = Floor ? NewObject<UBoxComponent>(Floor, NAME_None, RF_Transient) : nullptr;
+			if (!Box) return false;
+			Floor->SetRootComponent(Box);
+			Floor->AddInstanceComponent(Box);
+			Box->SetBoxExtent(FVector(1000.0f, 1000.0f, 10.0f));
+			Box->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+			Box->SetCollisionObjectType(ECC_WorldStatic);
+			Box->SetCollisionResponseToAllChannels(ECR_Block);
+			Box->RegisterComponent();
+			Floor->SetActorLocation(FVector(0.0f, 0.0f, -10.0f));
+			Scene.World->UpdateWorldComponents(true, false);
+			if (!Runtime->CreateWorldItem(Scene.World, Fdemo_mapItemIds::SpiritDust, 2,
+				FVector(200.0f, 0.0f, 0.0f), LooseItem).bSuccess || !LooseItem) return false;
+			LooseId = LooseItem->GetInstanceId();
+			Manager->InitialWorldItems.Add(LooseItem);
+			OriginalLooseRole = LooseItem->GetLocalRole();
+			LooseItem->SetRole(ROLE_SimulatedProxy);
+		}
+		const auto HasRetiredLooseOwner = [&]()
+		{
+			const auto* Item = Runtime->GetAuthority().FindInstance(LooseId);
+			const auto& Summary = Runtime->GetLastSettlementSummary();
+			return Item && Item->Quantity == 2 && Item->DefinitionId == Fdemo_mapItemIds::SpiritDust
+				&& Item->OwnershipState == Edemo_mapItemOwnershipState::Destroyed
+				&& Runtime->IsWorldActorBound(LooseId, LooseItem) && IsValid(LooseItem)
+				&& !LooseItem->IsActorBeingDestroyed() && Manager->InitialWorldItems.Contains(LooseItem)
+				&& Runtime->GetRunState() == Edemo_mapRunState::Settled && Runtime->GetActiveRunId() == RunId
+				&& Summary.bValid && Summary.RunId == RunId && Summary.Reason == Edemo_mapRunEndReason::ActivationFailure
+				&& Summary.Rows.ContainsByPredicate([&](const Fdemo_mapSettlementItemRow& Row)
+				{
+					return Row.InstanceId == LooseId && Row.Quantity == 2
+						&& Row.SourceOwnership == Edemo_mapItemOwnershipState::World
+						&& Row.FinalOwnership == Edemo_mapItemOwnershipState::Destroyed;
+				}) && Runtime->ValidateInvariants();
+		};
 		Fdemo_mapShanmenRunCorrelation Correlation;
 		if (!Manager->ProfilePreparationFlow->TryGetActiveShanmenRunCorrelation(Correlation)) return false;
 		if (!bViaGeneralStart) Mode->Prepared0909BRunCorrelation = Correlation;
@@ -3704,9 +3747,9 @@ bool Fdemo_mapManagerRollbackContinuationTest::RunTest(const FString&)
 				&& Mode->ControlledWeaponWorldLifecycle.GetWeaponActor() == Weapon
 				&& Mode->CombatRunFixedTimeline.GetCurrentTick() == Advanced
 				&& IsValid(Enemy) && !Enemy->IsActorBeingDestroyed() && Mode->bV3MissionContentActive);
-			TestTrue(TEXT("Accepted Runtime prefix is cleared once, without replacing durable identity"),
-				Runtime->GetRunState() == Edemo_mapRunState::Inactive
-				&& !Runtime->GetActiveRunId().IsValid()
+			TestTrue(TEXT("Accepted Runtime prefix retains refused projections or completes once without replacing durable identity"),
+				(bLooseWorld ? HasRetiredLooseOwner()
+					: (Runtime->GetRunState() == Edemo_mapRunState::Inactive && !Runtime->GetActiveRunId().IsValid()))
 				&& Manager->ProfilePreparationFlow->GetSettlementSubmitCount() == 1
 				&& Manager->ProfilePreparationFlow->GetStartedRunId() == RunId
 				&& Manager->ProfilePreparationFlow->GetRecoverableShanmenRunId() == RunId);
@@ -3741,9 +3784,36 @@ bool Fdemo_mapManagerRollbackContinuationTest::RunTest(const FString&)
 			&& Mode->ControlledWeaponWorldLifecycle.GetWeaponActor() == Weapon);
 		Manager->Items = Runtime;
 		Weapon->SetRole(OriginalRole);
-		int32 DestroyedWeapons = 0, DestroyedEnemies = 0;
+		int32 DestroyedWeapons = 0, DestroyedEnemies = 0, DestroyedLoose = 0;
 		const auto Observer = Scene.World->AddOnActorDestroyedHandler(FOnActorDestroyed::FDelegate::CreateLambda(
-			[&](AActor* Actor) { if (Actor == Weapon) ++DestroyedWeapons; if (Actor == Enemy) ++DestroyedEnemies; }));
+			[&](AActor* Actor)
+			{
+				if (Actor == Weapon) ++DestroyedWeapons;
+				if (Actor == Enemy) ++DestroyedEnemies;
+				if (Actor == LooseItem) ++DestroyedLoose;
+			}));
+		if (bLooseWorld)
+		{
+			for (int32 Attempt = 0; Attempt < 2; ++Attempt)
+			{
+				TestFalse(TEXT("Technical rollback waits for the original loose projection after combat release"),
+					bViaGeneralStart ? ContinueGeneralStart() : Coordinator.StartM01Run(Diagnostic));
+				FShanmenItemAuthoritySnapshot StillActive;
+				TestTrue(TEXT("Loose-only rollback retains original owner and exact durable ActiveRun without resubmission"),
+					HasRetiredLooseOwner() && Manager->HasPendingProfileWorldRollback()
+					&& Manager->IsProfileWorldActive() && Manager->IsSettlementPending()
+					&& DestroyedWeapons == 1 && DestroyedEnemies == 1 && DestroyedLoose == 0
+					&& Manager->ProfilePreparationFlow->GetSettlementSubmitCount() == 1
+					&& Fixture.Authority->TryCaptureSnapshot(StillActive) && StillActive == Before);
+				if (!bViaGeneralStart) TestTrue(TEXT("Loose-only refusal keeps the original upper activation attempt"),
+					Coordinator.GetState() == Edemo_map0909BTopState::TechnicalStartFailure
+					&& Coordinator.M01Adapter->IsAttemptPending(AttemptId)
+					&& Coordinator.GetLastDiagnostic().AttemptSequence == 1
+					&& Mode->Prepared0909BRunCorrelation.IsSet()
+					&& Mode->Prepared0909BRunCorrelation.GetValue() == Correlation);
+			}
+			LooseItem->SetRole(OriginalLooseRole);
+		}
 		if (bViaGeneralStart)
 		{
 			TestTrue(TEXT("Ordinary Start resumes the original pending World after fault removal"),
@@ -3772,6 +3842,10 @@ bool Fdemo_mapManagerRollbackContinuationTest::RunTest(const FString&)
 		Scene.World->RemoveOnActorDestroyedHandler(Observer);
 		TestEqual(TEXT("Continuation destroys the original weapon exactly once"), DestroyedWeapons, 1);
 		TestEqual(TEXT("Continuation destroys the original enemy exactly once"), DestroyedEnemies, 1);
+		if (bLooseWorld) TestTrue(TEXT("Technical rollback releases the retired loose projection exactly once before Runtime reset"),
+			DestroyedLoose == 1 && Runtime->GetWorldActorCount() == 0
+			&& Runtime->GetRunState() == Edemo_mapRunState::Inactive && !Runtime->GetActiveRunId().IsValid()
+			&& Runtime->ValidateInvariants());
 		TestTrue(TEXT("Only completed rollback clears Manager and GameMode context"),
 			!Manager->IsProfileWorldActive() && !Manager->IsSettlementPending()
 			&& !Mode->bV3MissionContentActive && !Mode->PendingCombatRunRetirement.IsSet()

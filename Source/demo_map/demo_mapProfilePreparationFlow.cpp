@@ -686,19 +686,31 @@ Fdemo_mapProfileSessionSettlementResult Fdemo_mapProfilePreparationFlow::CancelA
 		++SettlementSubmitCount;
 		const Fdemo_mapItemOperationResult Prepared =
 			Runtime->PrepareForPersistentRun();
+		const bool bWorldReleasePending = !Prepared.bSuccess
+			&& Prepared.Code == Edemo_mapItemResultCode::InvalidWorldBinding
+			&& Runtime->GetRunState() == Edemo_mapRunState::Settled
+			&& Summary.bValid && Summary.RunId == StartedRunId
+			&& Summary.Reason == Edemo_mapRunEndReason::ActivationFailure
+			&& Runtime->GetActiveRunId() == Summary.RunId
+			&& Runtime->GetLastSettlementSummary().RuntimeSnapshot == Summary.RuntimeSnapshot;
+		const bool bRuntimePrefixAccepted = Prepared.bSuccess || bWorldReleasePending;
 		Fdemo_mapProfileSessionSettlementResult Result;
 		Result.Snapshot = Session->GetSnapshot();
 		Result.Snapshot.LastTerminalReason =
 			Edemo_mapRunEndReason::ActivationFailure;
-		Result.Status = Prepared.bSuccess
+		Result.Status = bRuntimePrefixAccepted
 			? Edemo_mapProfileSessionSettlementStatus::RuntimeRollbackReady
 			: Edemo_mapProfileSessionSettlementStatus::FatalProfileError;
-		Result.Diagnostic = Prepared.bSuccess
+		Result.Diagnostic = bWorldReleasePending
+			? TEXT("Technical Runtime rollback accepted; original World release remains pending and the durable Shanmen ActiveRun is unchanged.")
+			: Prepared.bSuccess
 			? TEXT("Technical activation rollback cleared only Runtime; the durable Shanmen ActiveRun remains available for exact-identity recovery.")
 			: Prepared.Diagnostic;
 		bShanmenRunMaterialized = false;
 		PendingShanmenSettlement.Reset();
-		Phase = Prepared.bSuccess
+		// Hand accepted Runtime work to the Manager's existing World-only continuation.
+		// This does not acknowledge final rollback or authorize a fresh Run.
+		Phase = bRuntimePrefixAccepted
 			? Edemo_mapProfilePreparationFlowPhase::Preparation
 			: Edemo_mapProfilePreparationFlowPhase::RecoveryRequired;
 		return Result;
