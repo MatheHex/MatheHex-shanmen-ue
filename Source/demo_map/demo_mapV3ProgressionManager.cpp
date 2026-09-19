@@ -7117,6 +7117,10 @@ bool Ademo_mapV3ProgressionManager::DeactivateProfileWorld()
 			return false;
 		}
 	}
+	if (!DestroyRuntimeContainers(TEXT("ProfileWorldDeactivated")))
+	{
+		return false;
+	}
 	SetFocusedActor(nullptr);
 	if (SpiritStonePickup.IsValid())
 	{
@@ -7132,7 +7136,6 @@ bool Ademo_mapV3ProgressionManager::DeactivateProfileWorld()
 	}
 	M01SpiritStonePickups.Reset();
 	M01SpiritStoneSpawnSourceIds.Reset();
-	DestroyRuntimeContainers(TEXT("ProfileWorldDeactivated"));
 	InitialWorldItems.Reset();
 	if (Items.IsValid())
 	{
@@ -7142,7 +7145,7 @@ bool Ademo_mapV3ProgressionManager::DeactivateProfileWorld()
 	return true;
 }
 
-void Ademo_mapV3ProgressionManager::DestroyRuntimeContainers(const FString& Reason)
+bool Ademo_mapV3ProgressionManager::DestroyRuntimeContainers(const FString& Reason)
 {
 	if (bCodeBNormalContainerOpen || CodeBNormalContainerActionId.IsValid())
 	{
@@ -7152,40 +7155,40 @@ void Ademo_mapV3ProgressionManager::DestroyRuntimeContainers(const FString& Reas
 	{
 		CloseCodeBBodyContainerPage(Reason);
 	}
-	for (const TWeakObjectPtr<Ademo_mapCodeBNormalContainerActor>& Target : SpawnedCodeBNormalContainerTargets)
-	{
-		if (Target.IsValid())
-		{
-			Target->Destroy();
-		}
-	}
-	SpawnedCodeBNormalContainerTargets.Reset();
-	CodeBNormalContainerTargets.Reset();
 	CloseSearchContainer(Reason, true);
+	// EndPlay may remove entries from the Manager arrays. Iterate a snapshot and
+	// keep only refusals, without losing their Run/reward context or retrying an
+	// already accepted destruction on the next continuation.
+	const auto ReleaseOwned = [](auto& Owners)
+	{
+		const auto ToRelease = Owners;
+		auto Remaining = Owners;
+		Remaining.Reset();
+		for (const auto& Owner : ToRelease)
+		{
+			if (Owner.IsValid() && !Owner->IsActorBeingDestroyed() && !Owner->Destroy())
+			{
+				Remaining.Add(Owner);
+			}
+		}
+		Owners = MoveTemp(Remaining);
+		return Owners.IsEmpty();
+	};
+	const bool bCodeBReleased = ReleaseOwned(SpawnedCodeBNormalContainerTargets);
+	const bool bChestsReleased = ReleaseOwned(Chests);
+	const bool bCorpsesReleased = ReleaseOwned(Corpses);
+	if (!bCodeBReleased || !bChestsReleased || !bCorpsesReleased)
+	{
+		return false;
+	}
+	CodeBNormalContainerTargets.Reset();
 	DestroyEnemyEncounterContent();
 	RewardGenerationSession.Reset();
 	RewardAffixPityLedger.Reset();
 	bM01RewardContentActive = false;
 	M01RewardRunId.Invalidate();
-	const TArray<TWeakObjectPtr<Ademo_mapLootChest>> ChestsToDestroy = Chests;
-	const TArray<TWeakObjectPtr<Ademo_mapCorpseContainerActor>> CorpsesToDestroy = Corpses;
-	Chests.Reset();
-	Corpses.Reset();
 	CorpseLootSourceIds.Reset();
-	for (const TWeakObjectPtr<Ademo_mapLootChest>& Chest : ChestsToDestroy)
-	{
-		if (Chest.IsValid())
-		{
-			Chest->Destroy();
-		}
-	}
-	for (const TWeakObjectPtr<Ademo_mapCorpseContainerActor>& Corpse : CorpsesToDestroy)
-	{
-		if (Corpse.IsValid())
-		{
-			Corpse->Destroy();
-		}
-	}
+	return true;
 }
 
 bool Ademo_mapV3ProgressionManager::InitializeM01RewardContent()
@@ -7203,7 +7206,7 @@ bool Ademo_mapV3ProgressionManager::InitializeM01RewardContent()
 	}
 	if (bM01RewardContentActive || !Chests.IsEmpty() || !Corpses.IsEmpty())
 	{
-		DestroyRuntimeContainers(TEXT("M01RewardRunRebind"));
+		if (!DestroyRuntimeContainers(TEXT("M01RewardRunRebind"))) return false;
 	}
 
 	FString ValidationError;

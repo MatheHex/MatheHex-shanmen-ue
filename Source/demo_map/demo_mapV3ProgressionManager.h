@@ -444,7 +444,8 @@ private:
 	bool DeactivateProfileWorld();
 	Fdemo_mapProfileSessionSettlementResult CompleteDurableProfileSettlementWorld(
 		Fdemo_mapProfileSessionSettlementResult Accepted, const FGuid& RunId);
-	void DestroyRuntimeContainers(const FString& Reason);
+	/** Retains refused container owners; true only when their release is acknowledged. */
+	bool DestroyRuntimeContainers(const FString& Reason);
 	/** The sole post-activation Code B observer.  It never feeds back into Code A. */
 	void ObserveCodeBRunAfterActivation(const Fdemo_mapProfileSessionSnapshot& Snapshot);
 #if !UE_BUILD_SHIPPING

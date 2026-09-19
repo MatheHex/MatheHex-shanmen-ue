@@ -3917,6 +3917,33 @@ bool Fdemo_mapManagerSettlementContinuationTest::RunTest(const FString&)
 			Manager->RetryPendingProfileSettlement().IsDurablySettled());
 		Manager->Items = Runtime;
 		Weapon->SetRole(OriginalRole);
+		// The combat prefix can finish while the original container still refuses
+		// real engine destruction. Its owner must survive this later release stage.
+		const ENetRole OriginalChestRole = Chest->GetLocalRole();
+		Chest->SetRole(ROLE_SimulatedProxy);
+		for (int32 Attempt = 0; Attempt < 2; ++Attempt)
+		{
+			const auto ContainerPending = Manager->RetryPendingProfileSettlement();
+			FShanmenItemAuthoritySnapshot StillCommitted;
+			TestTrue(TEXT("Container destroy refusal retains original terminal owner after combat release"),
+				ContainerPending.IsDurablySettled() && Manager->IsSettlementPending()
+				&& Manager->IsProfileWorldActive() && Manager->PendingProfileWorldSettlement.IsSet()
+				&& Manager->PendingProfileWorldSettlement->RunId == RunId && HasOriginalContainer()
+				&& IsValid(Chest) && !Chest->IsActorBeingDestroyed());
+			TestTrue(TEXT("Container-only retry neither repeats the combat prefix nor the durable settlement"),
+				Mode->ControlledWeaponWorldLifecycle.IsEmpty() && !Mode->PendingCombatRunRetirement.IsSet()
+				&& Mode->CombatRunFixedTimeline.IsEmpty() && DestroyedWeapons == 1 && DestroyedEnemies == 1
+				&& Fixture.Authority->TryCaptureSnapshot(StillCommitted) && StillCommitted == Committed
+				&& Manager->ProfilePreparationFlow->GetSettlementSubmitCount() == 1
+				&& Manager->ProfilePreparationFlow->GetSettlementRetryCount() == (bRetryDurable ? 2 : 0));
+			if (Manager->IsSettlementPending())
+			{
+				TestTrue(TEXT("Container-only pending cleanup blocks a new prepared Run"),
+					Manager->BeginPreparedProfileRunFor0909B().Status == Edemo_mapProfileSessionBeginStatus::SessionNotReady
+					&& Manager->StartPreparedProfileRunFromSect().Status == Edemo_mapProfileSessionBeginStatus::SessionNotReady);
+			}
+		}
+		Chest->SetRole(OriginalChestRole);
 		const auto Finished = Manager->RetryPendingProfileSettlement();
 		TestTrue(TEXT("Original terminal completes after the real destroy fault is removed"),
 			Finished.IsDurablySettled() && !Manager->IsSettlementPending() && !Manager->IsProfileWorldActive()
