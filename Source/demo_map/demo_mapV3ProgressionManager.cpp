@@ -9158,7 +9158,16 @@ Fdemo_mapItemOperationResult Ademo_mapV3ProgressionManager::RequestSettlementAnd
 	if (!LastOperationResult.bSuccess) return LastOperationResult;
 	bSettlementPending = true;
 	SetFocusedActor(nullptr);
-	DestroyRuntimeContainers(TEXT("TerminalSettlement"));
+	const bool bUsesProfileSettlement =
+		Fdemo_mapProfileStartupModeSelector::UsesProfilePreparation(ProfileStartupMode)
+		&& ProfilePreparationFlow;
+	// Profile World cleanup is owned by DeactivateProfileWorld, after the
+	// combat owner acknowledges release. Do not erase container ownership
+	// before that gate, including when a durable settlement needs retry.
+	if (!bUsesProfileSettlement)
+	{
+		DestroyRuntimeContainers(TEXT("TerminalSettlement"));
+	}
 	for (TActorIterator<Ademo_mapEnemyCharacter> It(GetWorld()); It; ++It) It->SetCombatSuppressed(true);
 	for (TActorIterator<Ademo_mapRangedEnemyCharacter> It(GetWorld()); It; ++It) It->SetCombatSuppressed(true);
 	for (TActorIterator<Ademo_mapHeavyEnemyCharacter> It(GetWorld()); It; ++It) It->SetCombatSuppressed(true);
@@ -9170,7 +9179,7 @@ Fdemo_mapItemOperationResult Ademo_mapV3ProgressionManager::RequestSettlementAnd
 			Knockback->Cancel(false);
 		}
 	}
-	if (Fdemo_mapProfileStartupModeSelector::UsesProfilePreparation(ProfileStartupMode) && ProfilePreparationFlow)
+	if (bUsesProfileSettlement)
 	{
 		const Fdemo_mapProfileSessionSettlementResult PersistentResult = ProfilePreparationFlow->CommitRuntimeSettlement(Summary);
 		UE_LOG(Logdemo_map, Log, TEXT("PROFILE_NORMAL_STARTUP: settlement status=%d run=%s reason=%d settlement=%s generation=%d submits=%d retries=%d diagnostic=%s."),

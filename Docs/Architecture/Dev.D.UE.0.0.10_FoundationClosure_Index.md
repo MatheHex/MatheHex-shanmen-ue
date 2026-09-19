@@ -1,6 +1,6 @@
 # 0.0.10 底层契约、权威与生命周期索引
 
-状态：`FREEZE_AUDIT_IN_PROGRESS`，不是整体冻结或 F 阶段验收。初版 P28.0，2026-09-16；最近完整产品根验证为 [P28.10](../Report/Dev.D.UE.0.0.10.P28.10.r0_report.md)，于 2026-09-18 完成新根1430/0、旧根1330/0及双构建核验。P28.1路由修补、P28.2携入身份保护、P28.3/4/5分层清理拒绝保持、P28.6上层回滚续接、P28.7普通激活失败调用方、P28.8普通Start外层续接、P28.9持久终局后的World确认及P28.10延迟持久成功变体的测试证据见第4节。后续审计更新本文的有限清单，不因“继续”无限追加系统。
+状态：`FREEZE_AUDIT_IN_PROGRESS`，不是整体冻结或 F 阶段验收。初版 P28.0，2026-09-16；最近完整产品根验证为 [P28.11](../Report/Dev.D.UE.0.0.10.P28.11.r0_report.md)，于 2026-09-19 完成新根1430/0、旧根1330/0及双构建核验。P28.1路由修补、P28.2携入身份保护、P28.3/4/5分层清理拒绝保持、P28.6上层回滚续接、P28.7普通激活失败调用方、P28.8普通Start外层续接、P28.9持久终局后的World确认、P28.10延迟持久成功变体及P28.11终局上游容器清理次序的证据见第4节。后续审计更新本文的有限清单，不因“继续”无限追加系统。
 
 ## 1. 范围来源与非目标
 
@@ -46,7 +46,7 @@
 | 编号 | 状态 | 关闭条件 |
 |---|---|---|
 | FZ-1 全入口权威路由 | P28.1 修复 Ready/归属混用；P28.2 修复携入堆叠被新获物合并的身份缺口，阶段验证见对应 Report；全部入口审计仍待完成 | 覆盖产品整备/拾取/快捷使用/库存使用/终局，标注 Shanmen cutover 及旧兼容分支；说明 Code A Runtime 可变投影如何受 durable 结果约束。不能以局部修复代替全部调用图证明 |
-| FZ-2 Run 激活失败及最终释放 | P28.3/4/5完成分层拒绝保持，P28.6闭合已接受Runtime回滚后的World完成确认与原启动尝试续接，P28.7使普通激活三个失败调用点遵守同一完成端口，P28.8闭合普通Start外层续接且不接管框架尝试，P28.9闭合直接持久终局成功后的World确认/续清理，P28.10实测持久失败后重试成功的同一续清理变体；终局前置容器/World物品和强制EndPlay仍待核对 | 将 TryActivateCombatRun 的早期回滚与统一 Release 的适用范围说明清楚；对可达失败证明 owner 保留或安全回滚，对前置约束已排除的分支记录推理；EndPlay 不可当已成功清理的证据 |
+| FZ-2 Run 激活失败及最终释放 | P28.3/4/5完成分层拒绝保持，P28.6闭合已接受Runtime回滚后的World完成确认与原启动尝试续接，P28.7使普通激活三个失败调用点遵守同一完成端口，P28.8闭合普通Start外层续接且不接管框架尝试，P28.9闭合直接持久终局成功后的World确认/续清理，P28.10实测持久失败后重试成功的同一续清理变体，P28.11修复Profile终局提前清理Manager容器、绕过战斗释放确认的上游次序；容器自身Destroy拒绝、散落World物品及强制EndPlay仍待核对 | 将 TryActivateCombatRun 的早期回滚与统一 Release 的适用范围说明清楚；对可达失败证明 owner 保留或安全回滚，对前置约束已排除的分支记录推理；EndPlay 不可当已成功清理的证据 |
 | FZ-3 最终冻结证据 | 等 FZ-1/2 关闭后执行 | 产品输入固定，完整新旧根、Editor/Game、改动映射和文档检查完成；保留失败/中断原件，发布最终 Report/Log/Git 基线后暂停监控 |
 
 P28.0 已深读 FZ-2 的部分源码：激活入口先排斥残留 session/condition；Condition TryBegin 建立无活动 modifier 状态；剑法 Session/Presentation TryBegin 以有效 Run 构造候选。早期回滚仍有 TryEnd 失败后 Reset 的分支，但仅看到这些代码不足以证明正常入口能制造该失败。没有因此修改源码或新增故障注入接口。
@@ -73,7 +73,9 @@ P28.9实际Red证明终局持久提交已成功而World拒绝释放时，Manager
 
 P28.10只补测试：既有ManagerSettlementContinuation保持直接变体，并加入WriteTemp使初次持久提交和一次重试失败、撤销存盘故障后第二次重试成功、World仍拒绝、原Run继续清理的组合。两次存盘失败保持活动持久快照；成功终局快照区别于非零基准；其后World重试不再提交持久结算，解除真实Destroy拒绝后飞剑/敌人各释放一次。新增变体在P28.9生产逻辑上首次即通过，没有生产修复或本阶段Red；注册数不变。专项7/0与5/0、新根1430/0、旧根1330/0、双构建、四路径3必跑组和529项映射自检均通过，见 [P28.10 Report](../Report/Dev.D.UE.0.0.10.P28.10.r0_report.md) / [Log](../Log/Dev.D.UE.0.0.10.P28.10.r0_log.md)。
 
-剩余FZ-2限定为其余调用点与可达性：终局前置Runtime容器/World物品清理与强制EndPlay次序尚未全部取证。P28.9/10完成端口与两种持久成功路径不等于全部World路径已实测，IsDurablySettled也不等于World释放已完成。P28.6的既有启动尝试友元绑定及P28.7/8/9/10瞬态World测试均不替代正式M01 BeginActivation/玩家流程，不证明所有清理均原子化。后续先核对现有调用条件，再决定最小修复；不得据本段扩充通用恢复系统。
+P28.11沿RequestSettlementAndReload真实终局入口复现：战斗World尚拒绝释放，Manager却已在持久提交/去激活前销毁宝箱并清掉原容器归属。现在Profile容器清理交回既有DeactivateProfileWorld，获得战斗释放确认后才执行，非Profile兼容清理时机不变。既有直接/延迟持久成功两变体加入实际初始化的非空LootChest、原ContainerId/RunId及Manager归属，在持久失败和World-only重试时保持，恢复后恰好一次销毁；Red0/1（5条新断言失败、原生0）转为专项7/0与5/0、完整新根1430/0、旧根1330/0、双构建及五路径7必跑组覆盖门通过，529项映射自检通过。见 [P28.11 Report](../Report/Dev.D.UE.0.0.10.P28.11.r0_report.md) / [Log](../Log/Dev.D.UE.0.0.10.P28.11.r0_log.md)。没有新增公共接口、schema或恢复记录。
+
+剩余FZ-2限定为其余调用点与可达性：容器自身Destroy被拒绝的处理、Runtime.RequestSettlement/TeardownWorld散落物清理及强制EndPlay次序尚未全部取证。P28.11只证明Manager上游清理次序，不证明容器内容跨终局原子保持；P28.9/10完成端口与两种持久成功路径不等于全部World路径已实测，IsDurablySettled也不等于World释放已完成。P28.6的既有启动尝试友元绑定及P28.7/8/9/10/11瞬态World测试均不替代正式M01 BeginActivation/玩家流程，不证明所有清理均原子化。后续先核对现有调用条件，再决定最小修复；不得据本段扩充通用恢复系统。
 
 ## 5. 与冻结分开的债务
 
@@ -85,7 +87,7 @@ P28.10只补测试：既有ManagerSettlementContinuation保持直接变体，并
 
 ## 6. 证据与文档入口
 
-- 最近完整产品验证：[P28.10 Report](../Report/Dev.D.UE.0.0.10.P28.10.r0_report.md)、[Log](../Log/Dev.D.UE.0.0.10.P28.10.r0_log.md)：新根1430/0、旧根1330/0、双构建原生0/0，精确4路径映射覆盖3个必跑组；不是FZ-1/2关闭后的最终冻结验证。此前 [P28.9](../Report/Dev.D.UE.0.0.10.P28.9.r0_report.md) 的直接持久终局World确认、[P28.8](../Report/Dev.D.UE.0.0.10.P28.8.r0_report.md) 的普通Start续接、[P28.7](../Report/Dev.D.UE.0.0.10.P28.7.r0_report.md) 的普通激活失败调用方、[P28.6](../Report/Dev.D.UE.0.0.10.P28.6.r0_report.md) 的原启动尝试续接、[P28.5](../Report/Dev.D.UE.0.0.10.P28.5.r0_report.md) 的Manager直接World保持、[P28.4](../Report/Dev.D.UE.0.0.10.P28.4.r0_report.md) 的Manager下层回滚拒绝保持、[P28.3](../Report/Dev.D.UE.0.0.10.P28.3.r0_report.md) 的GameMode拒绝保持和 [P27.31](../Report/Dev.D.UE.0.0.10.P27.31.r0_report.md) 的结算重放证据保留。
+- 最近完整产品验证：[P28.11 Report](../Report/Dev.D.UE.0.0.10.P28.11.r0_report.md)、[Log](../Log/Dev.D.UE.0.0.10.P28.11.r0_log.md)：新根1430/0、旧根1330/0、双构建原生0/0，精确5路径映射覆盖7个必跑组；不是FZ-1/2关闭后的最终冻结验证。此前 [P28.10](../Report/Dev.D.UE.0.0.10.P28.10.r0_report.md) 的延迟持久成功变体、[P28.9](../Report/Dev.D.UE.0.0.10.P28.9.r0_report.md) 的直接持久终局World确认、[P28.8](../Report/Dev.D.UE.0.0.10.P28.8.r0_report.md) 的普通Start续接、[P28.7](../Report/Dev.D.UE.0.0.10.P28.7.r0_report.md) 的普通激活失败调用方、[P28.6](../Report/Dev.D.UE.0.0.10.P28.6.r0_report.md) 的原启动尝试续接、[P28.5](../Report/Dev.D.UE.0.0.10.P28.5.r0_report.md) 的Manager直接World保持、[P28.4](../Report/Dev.D.UE.0.0.10.P28.4.r0_report.md) 的Manager下层回滚拒绝保持、[P28.3](../Report/Dev.D.UE.0.0.10.P28.3.r0_report.md) 的GameMode拒绝保持和 [P27.31](../Report/Dev.D.UE.0.0.10.P27.31.r0_report.md) 的结算重放证据保留。
 - 最新携入身份保护：[P28.2 Report](../Report/Dev.D.UE.0.0.10.P28.2.r0_report.md)、[Log](../Log/Dev.D.UE.0.0.10.P28.2.r0_log.md)：Items 84/0、旧根 1330/0、双构建原生 0/0；专项 10 项包含在 Items 内，不当作最终 Shanmen 全根验证。
 - 本次索引与文档分类：[P28.0 Report](../Report/Dev.D.UE.0.0.10.P28.0.r0_report.md)、[Log](../Log/Dev.D.UE.0.0.10.P28.0.r0_log.md)。其验证不冒充新一轮完整产品根。
 - [项目入口](../../PROJECT.md)、[信息卡](../../PROJECT_INFO_CARD.md) 顶部为当前说明，下部是明确标注的 0.0.9B 历史；[旧 I 门禁](../Process/I_STAGE_FOUNDATION_GATE.md) 仅作历史。

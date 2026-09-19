@@ -17,6 +17,7 @@
 #include "demo_mapGameMode.h"
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapItemSubsystem.h"
+#include "demo_mapLootChest.h"
 #include "demo_mapM01EnemyIdentityComponent.h"
 #include "demo_mapM01EnemyTypes.h"
 #include "demo_mapProfileRepository.h"
@@ -3807,9 +3808,31 @@ bool Fdemo_mapManagerSettlementContinuationTest::RunTest(const FString&)
 		Manager->bInitialized = true;
 		Manager->ProfileStartupMode = Edemo_mapProfileStartupMode::ProductionProfile;
 		Manager->bProfileWorldActive = true;
-		int32 DestroyedWeapons = 0, DestroyedEnemies = 0;
+		auto* Chest = Scene.World->SpawnActor<Ademo_mapLootChest>(
+			Ademo_mapLootChest::StaticClass(), FTransform::Identity, Spawn);
+		if (!Chest) return false;
+		Chest->ConfigureChest(0, TEXT("P2811TerminalContainer"));
+		if (!Chest->InitializeChest(Manager, Runtime, RunId)) return false;
+		Manager->Chests.Add(Chest);
+		Manager->bM01RewardContentActive = true;
+		Manager->M01RewardRunId = RunId;
+		const FGuid ContainerId = Chest->GetContainerId();
+		if (!ContainerId.IsValid() || Chest->IsContainerEmpty()) return false;
+		int32 DestroyedWeapons = 0, DestroyedEnemies = 0, DestroyedChests = 0;
 		const auto Observer = Scene.World->AddOnActorDestroyedHandler(FOnActorDestroyed::FDelegate::CreateLambda(
-			[&](AActor* Actor) { if (Actor == Weapon) ++DestroyedWeapons; if (Actor == Enemy) ++DestroyedEnemies; }));
+			[&](AActor* Actor)
+			{
+				if (Actor == Weapon) ++DestroyedWeapons;
+				if (Actor == Enemy) ++DestroyedEnemies;
+				if (Actor == Chest) ++DestroyedChests;
+			}));
+		const auto HasOriginalContainer = [&]()
+		{
+			return Manager->Chests.Num() == 1 && Manager->Chests[0].Get() == Chest
+				&& Chest->GetContainerId() == ContainerId && Chest->GetOwningRunId() == RunId
+				&& Manager->bM01RewardContentActive && Manager->M01RewardRunId == RunId
+				&& DestroyedChests == 0;
+		};
 		const ENetRole OriginalRole = Weapon->GetLocalRole();
 		Weapon->SetRole(ROLE_SimulatedProxy);
 		FShanmenItemAuthoritySnapshot Before;
@@ -3820,6 +3843,8 @@ bool Fdemo_mapManagerSettlementContinuationTest::RunTest(const FString&)
 		}
 		TestTrue(TEXT("Actual terminal event is accepted once"),
 			Manager->RequestSettlementAndReload(Edemo_mapRunEndReason::Extraction).bSuccess);
+		TestTrue(TEXT("Terminal caller preserves original container until combat World release acknowledges"),
+			HasOriginalContainer());
 		if (bRetryDurable)
 		{
 			FShanmenItemAuthoritySnapshot Rejected;
@@ -3838,6 +3863,7 @@ bool Fdemo_mapManagerSettlementContinuationTest::RunTest(const FString&)
 				&& Mode->CombatRunFixedTimeline.GetCurrentTick() == Advanced
 				&& DestroyedWeapons == 0 && DestroyedEnemies == 0);
 			const auto StillRejected = Manager->RetryPendingProfileSettlement();
+			TestTrue(TEXT("Persistent retry failure preserves the pending container owner"), HasOriginalContainer());
 			TestTrue(TEXT("Repeated durable failure keeps original evidence without a false World acknowledgment"),
 				StillRejected.Status == Edemo_mapProfileSessionSettlementStatus::PendingRetry
 				&& Fixture.Authority->TryCaptureSnapshot(Rejected) && Rejected == Before
@@ -3866,6 +3892,7 @@ bool Fdemo_mapManagerSettlementContinuationTest::RunTest(const FString&)
 			&& !Runtime->GetActiveRunId().IsValid()
 			&& Manager->ProfilePreparationFlow->GetSettlementSubmitCount() == 1);
 		const auto Retained = Manager->RetryPendingProfileSettlement();
+		TestTrue(TEXT("World-only retry preserves the pending container owner"), HasOriginalContainer());
 		TestTrue(TEXT("World-only retry retains the durable receipt and pending World"),
 			Retained.IsDurablySettled() && Manager->IsSettlementPending() && Manager->IsProfileWorldActive()
 			&& Retained.Diagnostic.Contains(TEXT("World release remains pending"))
@@ -3897,6 +3924,9 @@ bool Fdemo_mapManagerSettlementContinuationTest::RunTest(const FString&)
 			&& Mode->CombatRunFixedTimeline.IsEmpty());
 		TestEqual(TEXT("Settlement continuation destroys the original weapon exactly once"), DestroyedWeapons, 1);
 		TestEqual(TEXT("Settlement continuation destroys the original enemy exactly once"), DestroyedEnemies, 1);
+		TestEqual(TEXT("Container cleanup follows accepted combat World release exactly once"), DestroyedChests, 1);
+		TestTrue(TEXT("Completed container cleanup clears its original Manager owner"),
+			Manager->Chests.IsEmpty() && !Manager->bM01RewardContentActive && !Manager->M01RewardRunId.IsValid());
 		Scene.World->RemoveOnActorDestroyedHandler(Observer);
 		Manager->RetryPendingProfileSettlement();
 		FShanmenItemAuthoritySnapshot After;
