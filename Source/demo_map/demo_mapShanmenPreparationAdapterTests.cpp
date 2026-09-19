@@ -3516,6 +3516,37 @@ bool Fdemo_mapManagerWorldDeactivationRetentionTest::RunTest(const FString&)
 	int32 DestroyedLoot = 0, DestroyedEnemies = 0;
 	const auto Observer = Scene.World->AddOnActorDestroyedHandler(FOnActorDestroyed::FDelegate::CreateLambda(
 		[&](AActor* Actor) { if (Actor == LootActor) ++DestroyedLoot; if (Actor == Enemy) ++DestroyedEnemies; }));
+	const ENetRole OriginalLootRole = LootActor->GetLocalRole();
+	LootActor->SetRole(ROLE_SimulatedProxy);
+	for (int32 Attempt = 0; Attempt < 2; ++Attempt)
+	{
+		TestFalse(TEXT("Loose item destruction refusal cannot acknowledge Manager World release"),
+			Manager->DeactivateProfileWorld());
+		const auto* RetainedLoot = Runtime->GetAuthority().FindInstance(LootId);
+		FShanmenItemAuthoritySnapshot StillActive;
+		TestTrue(TEXT("Loose item refusal retains original identity, quantity, binding and Manager owner"),
+			Manager->IsProfileWorldActive() && Manager->IsSettlementPending()
+			&& Manager->InitialWorldItems.Contains(LootOwner)
+			&& LootOwner.IsValid() && !LootOwner->IsActorBeingDestroyed()
+			&& Runtime->IsWorldActorBound(LootId, LootActor) && RetainedLoot
+			&& RetainedLoot->Quantity == 2 && RetainedLoot->OwnershipState == Edemo_mapItemOwnershipState::World
+			&& Runtime->ValidateInvariants());
+		TestTrue(TEXT("Loose item retry does not repeat combat release or change durable authority"),
+			DestroyedLoot == 0 && DestroyedEnemies == 1
+			&& Mode->ControlledWeaponWorldLifecycle.IsEmpty() && !Mode->PendingCombatRunRetirement.IsSet()
+			&& Fixture.Authority->TryCaptureSnapshot(StillActive) && Before == StillActive
+			&& Runtime->GetActiveRunId() == Started.ActiveRunId);
+	}
+	UWorld* OtherWorld = NewObject<UWorld>(GetTransientPackage(), NAME_None, RF_Transient);
+	TestFalse(TEXT("A different World cannot clear the retained item owner"), Runtime->TeardownWorld(OtherWorld));
+	TestFalse(TEXT("A new World cannot replace a refused item owner"), Runtime->BeginWorld(OtherWorld));
+	Ademo_mapWorldItem* RejectedActor = nullptr;
+	const auto RejectedSpawn = Runtime->CreateWorldItem(OtherWorld, Fdemo_mapItemIds::SpiritDust, 1,
+		FVector::ZeroVector, RejectedActor);
+	TestTrue(TEXT("Cross-World creation stops before projection and retains the original binding"),
+		!RejectedSpawn.bSuccess && RejectedSpawn.Code == Edemo_mapItemResultCode::InvalidWorldBinding
+		&& !RejectedActor && Runtime->IsWorldActorBound(LootId, LootActor) && Runtime->ValidateInvariants());
+	LootActor->SetRole(OriginalLootRole);
 	Manager->DeactivateProfileWorld();
 	Manager->DeactivateProfileWorld();
 	Scene.World->RemoveOnActorDestroyedHandler(Observer);

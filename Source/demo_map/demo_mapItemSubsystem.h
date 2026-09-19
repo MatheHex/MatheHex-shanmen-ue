@@ -91,8 +91,10 @@ public:
 	);
 	Fdemo_mapItemUseCooldownSnapshot GetItemUseCooldownSnapshot() const;
 	void ClearItemUseCooldown();
-	void BeginWorld(UWorld* World);
-	void TeardownWorld(UWorld* World);
+	/** A different World cannot replace an owner whose release was refused. */
+	bool BeginWorld(UWorld* World);
+	/** Retains refused actors, item identities and World binding for continuation. */
+	bool TeardownWorld(UWorld* World);
 	Fdemo_mapItemOperationResult CreateWorldItem(UWorld* World, FName DefinitionId, int32 Quantity, const FVector& DesiredLocation, Ademo_mapWorldItem*& OutActor, FName SourceId = NAME_None);
 	Fdemo_mapItemOperationResult CreateWorldItemsAtomically(UWorld* World, const TArray<Fdemo_mapWorldSpawnRequest>& Requests, TArray<Ademo_mapWorldItem*>& OutActors);
 	Fdemo_mapItemOperationResult CreateContainerItem(

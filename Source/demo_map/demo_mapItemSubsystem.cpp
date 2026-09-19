@@ -1337,9 +1337,11 @@ Fdemo_mapItemOperationResult Udemo_mapItemSubsystem::PrepareForPersistentRun()
 
 	const int32 ResidueCount = Authority.GetInstanceSnapshot().Num();
 	const Edemo_mapRunState PreviousState = RunState;
-	if (ActiveWorld.IsValid())
+	if (ActiveWorld.IsValid() && !TeardownWorld(ActiveWorld.Get()))
 	{
-		TeardownWorld(ActiveWorld.Get());
+		return Fdemo_mapItemOperationResult::Failure(
+			Edemo_mapItemResultCode::InvalidWorldBinding,
+			TEXT("Preparation cannot replace a Runtime whose World release was refused."));
 	}
 	RemoveAllEquipmentSourcesFromBoundComponent();
 	Authority.Reset();
@@ -1740,30 +1742,42 @@ Fdemo_mapItemOperationResult Udemo_mapItemSubsystem::Destroy(FGuid InstanceId)
 	return Result;
 }
 
-void Udemo_mapItemSubsystem::BeginWorld(UWorld* World)
+bool Udemo_mapItemSubsystem::BeginWorld(UWorld* World)
 {
-	if (ActiveWorld.Get() == World) return;
-	if (ActiveWorld.IsValid()) TeardownWorld(ActiveWorld.Get());
+	if (!World) return false;
+	if (ActiveWorld.Get() == World) return true;
+	if (ActiveWorld.IsValid() && !TeardownWorld(ActiveWorld.Get())) return false;
 	ActiveWorld = World;
+	return true;
 }
 
-void Udemo_mapItemSubsystem::TeardownWorld(UWorld* World)
+bool Udemo_mapItemSubsystem::TeardownWorld(UWorld* World)
 {
-	if (World == nullptr || ActiveWorld.Get() != World) return;
-	ClearSpatialBundleTracking();
+	if (!ActiveWorld.IsValid()) return WorldActors.IsEmpty();
+	if (World == nullptr || ActiveWorld.Get() != World) return false;
+	bool bReleased = true;
 	const TArray<FGuid> WorldIds = Authority.FindWorldInstances();
 	for (const FGuid& InstanceId : WorldIds)
 	{
 		TWeakObjectPtr<Ademo_mapWorldItem> Actor = WorldActors.FindRef(InstanceId);
+		// EndPlay may remove the binding and retire its identity. A refused
+		// destruction must leave both untouched for this same World to retry.
+		if (Actor.IsValid() && !Actor->IsActorBeingDestroyed() && !Actor->Destroy())
+		{
+			bReleased = false;
+			continue;
+		}
 		RemoveWorldBinding(InstanceId);
-		if (Actor.IsValid()) Actor->Destroy();
 		if (const Fdemo_mapItemInstance* Instance = Authority.FindInstance(InstanceId); Instance != nullptr && Instance->OwnershipState == Edemo_mapItemOwnershipState::World)
 		{
-			Authority.DestroyWorld(InstanceId);
+			bReleased = Authority.DestroyWorld(InstanceId).bSuccess && bReleased;
 		}
 	}
+	if (!bReleased || !WorldActors.IsEmpty()) return false;
+	ClearSpatialBundleTracking();
 	WorldActors.Reset();
 	ActiveWorld.Reset();
+	return true;
 }
 
 Fdemo_mapItemOperationResult Udemo_mapItemSubsystem::CreateWorldItem(UWorld* World, FName DefinitionId, int32 Quantity, const FVector& DesiredLocation, Ademo_mapWorldItem*& OutActor, FName SourceId)
@@ -1784,7 +1798,8 @@ Fdemo_mapItemOperationResult Udemo_mapItemSubsystem::CreateWorldItemsAtomically(
 {
 	OutActors.Reset();
 	if (World == nullptr || Requests.IsEmpty()) return Fdemo_mapItemOperationResult::Failure(Edemo_mapItemResultCode::LootSpawnFailed, TEXT("World and at least one spawn request are required."));
-	BeginWorld(World);
+	if (!BeginWorld(World)) return Fdemo_mapItemOperationResult::Failure(
+		Edemo_mapItemResultCode::InvalidWorldBinding, TEXT("World creation cannot replace an unreleased World owner."));
 	TArray<FVector> SafeLocations;
 	for (int32 RequestIndex = 0; RequestIndex < Requests.Num(); ++RequestIndex)
 	{
@@ -2450,7 +2465,8 @@ Fdemo_mapItemOperationResult Udemo_mapItemSubsystem::DiscardSpatialItemBundle(
 			Edemo_mapItemResultCode::UnsafeDropLocation,
 			TEXT("No safe location exists for the spatial discard bundle."));
 	}
-	BeginWorld(Pawn->GetWorld());
+	if (!BeginWorld(Pawn->GetWorld())) return Fdemo_mapItemOperationResult::Failure(
+		Edemo_mapItemResultCode::InvalidWorldBinding, TEXT("Spatial discard cannot replace an unreleased World owner."));
 	const Fdemo_mapItemAuthorityState Before = Authority.CaptureState();
 	Fdemo_mapItemOperationResult Result = Authority.DiscardSpatialBundle(OutBundle);
 	if (!Result.bSuccess) return Result;
@@ -2949,7 +2965,7 @@ bool Udemo_mapItemSubsystem::ValidateInvariants(FString* OutError) const
 #if !UE_BUILD_SHIPPING
 void Udemo_mapItemSubsystem::ResetForAutomation()
 {
-	if (ActiveWorld.IsValid()) TeardownWorld(ActiveWorld.Get());
+	if (ActiveWorld.IsValid() && !TeardownWorld(ActiveWorld.Get())) return;
 	RemoveAllEquipmentSourcesFromBoundComponent();
 	Authority.Reset();
 	ClearHotbarBindings();

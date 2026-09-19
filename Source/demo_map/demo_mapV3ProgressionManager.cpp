@@ -1527,7 +1527,7 @@ bool Ademo_mapV3ProgressionManager::Initialize(
 		return true;
 	}
 
-	Items->BeginWorld(GetWorld());
+	if (!Items->BeginWorld(GetWorld())) return false;
 	#if !UE_BUILD_SHIPPING
 	if (bEnemyRouteLootAutomation)
 	{
@@ -3922,7 +3922,11 @@ bool Ademo_mapV3ProgressionManager::ActivatePreparedProfileWorldFor0909B(
 		return false;
 	}
 
-	Items->BeginWorld(GetWorld());
+	if (!Items->BeginWorld(GetWorld()))
+	{
+		OutDiagnostic = TEXT("M01 activation cannot replace an unreleased item World owner.");
+		return false;
+	}
 	Ademo_mapGameMode* Mode = GetWorld()
 		? Cast<Ademo_mapGameMode>(GetWorld()->GetAuthGameMode())
 		: nullptr;
@@ -4364,7 +4368,7 @@ bool Ademo_mapV3ProgressionManager::ActivatePreparedProfileWorld()
 		return false;
 	};
 	DismissSettlementPresentation(TEXT("ActivatePreparedProfileWorld"));
-	Items->BeginWorld(GetWorld());
+	if (!Items->BeginWorld(GetWorld())) return FailActivation(TEXT("item World rebind refused"));
 	Ademo_mapGameMode* Mode = GetWorld() ? Cast<Ademo_mapGameMode>(GetWorld()->GetAuthGameMode()) : nullptr;
 	if (!Mode || !Mode->ActivateV3MissionContentForRun() || !InitializeWorldContent())
 	{
@@ -7121,6 +7125,10 @@ bool Ademo_mapV3ProgressionManager::DeactivateProfileWorld()
 	{
 		return false;
 	}
+	if (Items.IsValid() && !Items->TeardownWorld(GetWorld()))
+	{
+		return false;
+	}
 	SetFocusedActor(nullptr);
 	if (SpiritStonePickup.IsValid())
 	{
@@ -7137,10 +7145,6 @@ bool Ademo_mapV3ProgressionManager::DeactivateProfileWorld()
 	M01SpiritStonePickups.Reset();
 	M01SpiritStoneSpawnSourceIds.Reset();
 	InitialWorldItems.Reset();
-	if (Items.IsValid())
-	{
-		Items->TeardownWorld(GetWorld());
-	}
 	bProfileWorldActive = false;
 	return true;
 }
