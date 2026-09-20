@@ -18,6 +18,7 @@
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapItemSubsystem.h"
 #include "demo_mapLootChest.h"
+#include "demo_mapM01BossCharacter.h"
 #include "demo_mapM01EnemyIdentityComponent.h"
 #include "demo_mapM01EnemyTypes.h"
 #include "demo_mapProfileRepository.h"
@@ -3378,11 +3379,29 @@ bool Fdemo_mapPreparationDeactivationRetentionTest::RunTest(const FString&)
 	FShanmenItemAuthoritySnapshot Before;
 	if (!Fixture.Authority->TryCaptureSnapshot(Before)) return false;
 	Ademo_mapGameMode* Mode = NewObject<Ademo_mapGameMode>(GetTransientPackage());
+	FActorSpawnParameters EnemySpawn;
+	EnemySpawn.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	Ademo_mapEnemyCharacter* AcceptedEnemy = Scene.World->SpawnActor<Ademo_mapEnemyCharacter>(
+		Ademo_mapEnemyCharacter::StaticClass(), FTransform::Identity, EnemySpawn);
+	Ademo_mapM01BossCharacter* Boss = Scene.World->SpawnActor<Ademo_mapM01BossCharacter>(
+		Ademo_mapM01BossCharacter::StaticClass(), FTransform::Identity, EnemySpawn);
+	const auto* BossDefinition = Fdemo_mapM01EnemyConfig::GetDefinitions().FindByPredicate(
+		[](const Fdemo_mapM01EnemyDefinition& Definition) { return Definition.IsBoss(); });
+	if (!AcceptedEnemy || !Boss || !BossDefinition || !Boss->ConfigureBoss(*BossDefinition)) return false;
+	const int32 BossHealthBefore = Boss->GetCurrentHealth();
+	if (!TestTrue(TEXT("Enemy release fixture has nonzero Boss vitality"), BossHealthBefore > 0)) return false;
 	Mode->CombatRunCoordinator = MoveTemp(Scene.Coordinator);
 	Mode->ControlledWeaponRunHost = MoveTemp(Scene.Host);
 	Mode->ControlledWeaponWorldLifecycle = MoveTemp(Scene.Lifecycle);
 	Mode->CombatRunFixedTimeline = MoveTemp(Scene.Timeline);
 	Mode->M01EnemyActors.Add(Enemy);
+	Mode->M01EnemyActors.Add(AcceptedEnemy);
+	Mode->M01EnemyActors.Add(Boss);
+	Mode->M01Boss = Boss;
+	Mode->M01RunEnemyLedger.ResetForNewRun(Started.ActiveRunId);
+	if (!Mode->M01RunEnemyLedger.TryClaimEncounter(TEXT("P2817.RefusedEnemy"))
+		|| !Mode->M01RunEnemyLedger.TryClaimEncounter(TEXT("P2817.AcceptedEnemy"))
+		|| !Mode->M01RunEnemyLedger.TryClaimEncounter(BossDefinition->EncounterId)) return false;
 	Mode->Enemy = Enemy;
 	Mode->bM01EnemyContentActive = true;
 	Mode->bM01ExtractionFoundationActive = true;
@@ -3397,7 +3416,7 @@ bool Fdemo_mapPreparationDeactivationRetentionTest::RunTest(const FString&)
 			Mode->DeactivateV3MissionContentForPreparation());
 		TestTrue(TEXT("Rejected Run release retains its mission actors and active flags"),
 			IsValid(Enemy) && !Enemy->IsActorBeingDestroyed()
-			&& Mode->M01EnemyActors.Num() == 1 && Mode->M01EnemyActors[0].Get() == Enemy
+			&& Mode->M01EnemyActors.Num() == 3 && Mode->M01EnemyActors[0].Get() == Enemy
 			&& Mode->Enemy.Get() == Enemy && Mode->bM01EnemyContentActive
 			&& Mode->bM01ExtractionFoundationActive && Mode->bV3MissionContentActive);
 		TestTrue(TEXT("Prepared deactivation preserves the original completed prefix and physical owner"),
@@ -3408,14 +3427,49 @@ bool Fdemo_mapPreparationDeactivationRetentionTest::RunTest(const FString&)
 			&& Mode->CombatRunFixedTimeline.GetCurrentTick() == Advanced);
 	}
 	Weapon->SetRole(OriginalRole);
-	int32 DestroyedEnemies = 0;
+	int32 DestroyedEnemies = 0, DestroyedAcceptedEnemies = 0, DestroyedBosses = 0, DestroyedWeapons = 0;
 	const auto Observer = Scene.World->AddOnActorDestroyedHandler(FOnActorDestroyed::FDelegate::CreateLambda(
-		[&](AActor* Actor) { if (Actor == Enemy) ++DestroyedEnemies; }));
+		[&](AActor* Actor)
+		{
+			if (Actor == Enemy) ++DestroyedEnemies;
+			if (Actor == AcceptedEnemy) ++DestroyedAcceptedEnemies;
+			if (Actor == Boss) ++DestroyedBosses;
+			if (Actor == Weapon) ++DestroyedWeapons;
+		}));
+	const ENetRole EnemyRole = Enemy->GetLocalRole();
+	const ENetRole BossRole = Boss->GetLocalRole();
+	Enemy->SetRole(ROLE_SimulatedProxy);
+	Boss->SetRole(ROLE_SimulatedProxy);
+	for (int32 Attempt = 0; Attempt < 2; ++Attempt)
+	{
+		TestFalse(TEXT("Enemy projection refusal cannot acknowledge mission deactivation"),
+			Mode->DeactivateV3MissionContentForPreparation());
+		TestTrue(TEXT("Enemy refusal retains original enemy and Boss owners before downstream release"),
+			Mode->M01EnemyActors.Num() == 2 && Mode->M01EnemyActors.Contains(Enemy)
+			&& Mode->M01EnemyActors.Contains(Boss) && Mode->M01Boss.Get() == Boss
+			&& Mode->Enemy.Get() == Enemy && IsValid(Enemy) && !Enemy->IsActorBeingDestroyed()
+			&& IsValid(Boss) && !Boss->IsActorBeingDestroyed() && Boss->GetCurrentHealth() == BossHealthBefore
+			&& Mode->bV3MissionContentActive && Mode->bM01ExtractionFoundationActive);
+		FShanmenItemAuthoritySnapshot Unchanged;
+		TestTrue(TEXT("Logical enemy terminal keeps Run identity and successful release prefix without replay"),
+			!Mode->bM01EnemyContentActive && !Mode->M01RunEnemyLedger.IsActive()
+			&& Mode->M01RunEnemyLedger.GetRunId() == Started.ActiveRunId
+			&& Mode->M01RunEnemyLedger.GetClaimedEncounterCount() == 3
+			&& !Mode->M01RunEnemyLedger.TryCommitBossDeath(TEXT("M01.Boss.Main"))
+			&& !Mode->PendingCombatRunRetirement.IsSet() && Mode->ControlledWeaponWorldLifecycle.IsEmpty()
+			&& Mode->CombatRunFixedTimeline.IsEmpty() && DestroyedWeapons == 1
+			&& DestroyedAcceptedEnemies == 1 && DestroyedEnemies == 0 && DestroyedBosses == 0
+			&& Runtime->GetActiveRunId() == Started.ActiveRunId
+			&& Fixture.Authority->TryCaptureSnapshot(Unchanged) && Before == Unchanged);
+	}
+	Enemy->SetRole(EnemyRole);
+	Boss->SetRole(BossRole);
 	TestTrue(TEXT("Recovered mission deactivation reports success"), Mode->DeactivateV3MissionContentForPreparation());
 	TestTrue(TEXT("Empty mission deactivation reports success"), Mode->DeactivateV3MissionContentForPreparation());
 	Scene.World->RemoveOnActorDestroyedHandler(Observer);
 	TestTrue(TEXT("Same owner retry completes once, then empty deactivation is idempotent"),
-		DestroyedEnemies == 1 && Mode->M01EnemyActors.IsEmpty() && !Mode->Enemy.IsValid()
+		DestroyedEnemies == 1 && DestroyedAcceptedEnemies == 1 && DestroyedBosses == 1 && DestroyedWeapons == 1
+		&& Mode->M01EnemyActors.IsEmpty() && !Mode->Enemy.IsValid() && !Mode->M01Boss.IsValid()
 		&& !Mode->bM01EnemyContentActive && !Mode->bM01ExtractionFoundationActive
 		&& !Mode->bV3MissionContentActive && !Mode->PendingCombatRunRetirement.IsSet()
 		&& Mode->ControlledWeaponWorldLifecycle.IsEmpty() && Mode->CombatRunFixedTimeline.IsEmpty());

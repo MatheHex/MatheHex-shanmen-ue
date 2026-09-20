@@ -4702,7 +4702,10 @@ bool Ademo_mapGameMode::DeactivateV3MissionContentForPreparation()
 	{
 		return false;
 	}
-	DestroyM01EnemyContent();
+	if (!DestroyM01EnemyContent())
+	{
+		return false;
+	}
 	DestroyM01ExtractionFoundation();
 	if (IsM01ExpeditionMap())
 	{
@@ -4742,7 +4745,7 @@ bool Ademo_mapGameMode::DeactivateV3MissionContentForPreparation()
 bool Ademo_mapGameMode::InitializeM01EnemyContent(APawn* PlayerPawn)
 {
 	if (!IsM01ExpeditionMap() || !PlayerPawn || !GetWorld()) return false;
-	DestroyM01EnemyContent();
+	if (!DestroyM01EnemyContent()) return false;
 	FString ValidationError;
 	if (!Fdemo_mapM01EnemyConfig::Validate(&ValidationError))
 	{
@@ -4897,18 +4900,25 @@ void Ademo_mapGameMode::SuppressM01EnemyContent()
 	}
 }
 
-void Ademo_mapGameMode::DestroyM01EnemyContent()
+bool Ademo_mapGameMode::DestroyM01EnemyContent()
 {
 	M01RunEnemyLedger.MarkTerminal();
 	bM01EnemyContentActive = false;
 	SuppressM01EnemyContent();
 	const TArray<TWeakObjectPtr<AActor>> ActorsToDestroy = M01EnemyActors;
-	M01EnemyActors.Reset();
-	M01Boss.Reset();
+	TArray<TWeakObjectPtr<AActor>> RemainingActors;
 	for (const TWeakObjectPtr<AActor>& Actor : ActorsToDestroy)
 	{
-		if (Actor.IsValid()) Actor->Destroy();
+		if (Actor.IsValid() && !Actor->IsActorBeingDestroyed() && !Actor->Destroy())
+		{
+			RemainingActors.Add(Actor);
+		}
 	}
+	// Terminal gameplay is not proof of World release. Preserve original owners
+	// until destruction is accepted, without repeating the successful prefix.
+	M01EnemyActors = MoveTemp(RemainingActors);
+	if (!M01Boss.IsValid() || M01Boss->IsActorBeingDestroyed()) M01Boss.Reset();
+	return M01EnemyActors.IsEmpty();
 }
 
 bool Ademo_mapGameMode::InitializeM01ExtractionFoundation(APawn* PlayerPawn)

@@ -566,7 +566,7 @@ private:
 	bool InitializeM01ExtractionFoundation(APawn* PlayerPawn);
 	void DestroyM01ExtractionFoundation();
 	bool InitializeM01EnemyContent(APawn* PlayerPawn);
-	void DestroyM01EnemyContent();
+	bool DestroyM01EnemyContent();
 	void SuppressM01EnemyContent();
 	void StartM01ExtractionVisibleSmoke();
 	void RunM01IntegrationArtCaptureStep();
