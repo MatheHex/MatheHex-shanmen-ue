@@ -373,7 +373,7 @@ private:
 		const Fdemo_mapM01EnemyDefinition& EnemyDefinition,
 		const FVector& DeathLocation,
 		const AActor* EnemyActor);
-	void DestroyEnemyEncounterContent();
+	bool DestroyEnemyEncounterContent();
 	void SetFocusedActor(AActor* NewFocus);
 	/** Returns true when a real mouse ray was available, even if it found no legal target. */
 	bool ResolvePointerFocusedActor(AActor*& OutFocus) const;

@@ -7218,8 +7218,8 @@ bool Ademo_mapV3ProgressionManager::DestroyRuntimeContainers(const FString& Reas
 	{
 		return false;
 	}
+	if (!DestroyEnemyEncounterContent()) return false;
 	CodeBNormalContainerTargets.Reset();
-	DestroyEnemyEncounterContent();
 	RewardGenerationSession.Reset();
 	RewardAffixPityLedger.Reset();
 	bM01RewardContentActive = false;
@@ -7412,18 +7412,23 @@ bool Ademo_mapV3ProgressionManager::InitializeM01RewardContent()
 	return true;
 }
 
-void Ademo_mapV3ProgressionManager::DestroyEnemyEncounterContent()
+bool Ademo_mapV3ProgressionManager::DestroyEnemyEncounterContent()
 {
 	const TArray<TWeakObjectPtr<AActor>> ActorsToDestroy = EnemyActors;
-	EnemyActors.Reset();
-	NavigableEnemySpawnMarkerIds.Reset();
+	TArray<TWeakObjectPtr<AActor>> RemainingActors;
 	for (const TWeakObjectPtr<AActor>& Actor : ActorsToDestroy)
 	{
-		if (Actor.IsValid())
+		if (Actor.IsValid() && !Actor->IsActorBeingDestroyed() && !Actor->Destroy())
 		{
-			Actor->Destroy();
+			RemainingActors.Add(Actor);
 		}
 	}
+	// The Manager owns more than GameMode's primary projections. Preserve every
+	// refused owner and its navigation context until this same release finishes.
+	EnemyActors = MoveTemp(RemainingActors);
+	if (!EnemyActors.IsEmpty()) return false;
+	NavigableEnemySpawnMarkerIds.Reset();
+	return true;
 }
 
 bool Ademo_mapV3ProgressionManager::InitializeEnemyEncounterContent()

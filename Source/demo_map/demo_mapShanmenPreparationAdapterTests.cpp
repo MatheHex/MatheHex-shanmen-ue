@@ -3805,6 +3805,63 @@ bool Fdemo_mapManagerWorldDeactivationRetentionTest::RunTest(const FString&)
 	TestTrue(TEXT("World deactivation does not settle or replace the durable Run"),
 		Fixture.Authority->TryCaptureSnapshot(After) && Before == After
 		&& Runtime->GetActiveRunId() == Started.ActiveRunId);
+
+	// The Manager also owns encounter projections not among GameMode's three
+	// primary bindings. Their release must finish before item World teardown.
+	auto* RefusedEncounter = Scene.World->SpawnActor<Ademo_mapEnemyCharacter>(
+		Ademo_mapEnemyCharacter::StaticClass(), FTransform::Identity, Spawn);
+	auto* AcceptedEncounter = Scene.World->SpawnActor<Ademo_mapEnemyCharacter>(
+		Ademo_mapEnemyCharacter::StaticClass(), FTransform::Identity, Spawn);
+	Ademo_mapWorldItem* RetainedWorldItem = nullptr;
+	if (!RefusedEncounter || !AcceptedEncounter
+		|| !Runtime->CreateWorldItem(Scene.World, Fdemo_mapItemIds::SpiritDust, 2,
+			FVector(100.0f, 0.0f, 0.0f), RetainedWorldItem).bSuccess || !RetainedWorldItem) return false;
+	const FGuid RetainedItemId = RetainedWorldItem->GetInstanceId();
+	const FName RefusedMarker(TEXT("P2820.Encounter.Refused"));
+	const FName AcceptedMarker(TEXT("P2820.Encounter.Accepted"));
+	Manager->EnemyActors = { RefusedEncounter, AcceptedEncounter };
+	Manager->NavigableEnemySpawnMarkerIds = { RefusedMarker, AcceptedMarker };
+	Manager->InitialWorldItems.Add(RetainedWorldItem);
+	Manager->bProfileWorldActive = true;
+	const ENetRole EncounterRole = RefusedEncounter->GetLocalRole();
+	RefusedEncounter->SetRole(ROLE_SimulatedProxy);
+	int32 RefusedReleaseCount = 0, AcceptedReleaseCount = 0, ItemReleaseCount = 0;
+	const auto EncounterObserver = Scene.World->AddOnActorDestroyedHandler(FOnActorDestroyed::FDelegate::CreateLambda(
+		[&](AActor* Actor)
+		{
+			if (Actor == RefusedEncounter) ++RefusedReleaseCount;
+			if (Actor == AcceptedEncounter) ++AcceptedReleaseCount;
+			if (Actor == RetainedWorldItem) ++ItemReleaseCount;
+		}));
+	for (int32 Attempt = 0; Attempt < 2; ++Attempt)
+	{
+		TestFalse(TEXT("Manager encounter refusal cannot acknowledge World deactivation"),
+			Manager->DeactivateProfileWorld());
+		const auto* RetainedItem = Runtime->GetAuthority().FindInstance(RetainedItemId);
+		TestTrue(TEXT("Encounter refusal retains original owner, marker context and downstream item World"),
+			Manager->EnemyActors.Num() == 1 && Manager->EnemyActors[0].Get() == RefusedEncounter
+			&& IsValid(RefusedEncounter) && !RefusedEncounter->IsActorBeingDestroyed()
+			&& Manager->NavigableEnemySpawnMarkerIds.Num() == 2
+			&& Manager->NavigableEnemySpawnMarkerIds.Contains(RefusedMarker)
+			&& Manager->NavigableEnemySpawnMarkerIds.Contains(AcceptedMarker)
+			&& Manager->IsProfileWorldActive() && Manager->InitialWorldItems.Contains(RetainedWorldItem)
+			&& RetainedItem && RetainedItem->Quantity == 2 && RetainedItem->OwnershipState == Edemo_mapItemOwnershipState::World
+			&& Runtime->IsWorldActorBound(RetainedItemId, RetainedWorldItem) && Runtime->ValidateInvariants()
+			&& RefusedReleaseCount == 0 && AcceptedReleaseCount == 1 && ItemReleaseCount == 0
+			&& Runtime->GetActiveRunId() == Started.ActiveRunId
+			&& Fixture.Authority->TryCaptureSnapshot(After) && Before == After);
+	}
+	RefusedEncounter->SetRole(EncounterRole);
+	TestTrue(TEXT("Recovered Manager encounter deactivation succeeds"), Manager->DeactivateProfileWorld());
+	TestTrue(TEXT("Completed Manager encounter deactivation is idempotent"), Manager->DeactivateProfileWorld());
+	Scene.World->RemoveOnActorDestroyedHandler(EncounterObserver);
+	TestTrue(TEXT("Encounter recovery releases each original once before clearing context"),
+		RefusedReleaseCount == 1 && AcceptedReleaseCount == 1 && ItemReleaseCount == 1
+		&& Manager->EnemyActors.IsEmpty() && Manager->NavigableEnemySpawnMarkerIds.IsEmpty()
+		&& !Manager->IsProfileWorldActive() && Manager->InitialWorldItems.IsEmpty()
+		&& Runtime->GetWorldActorCount() == 0 && Runtime->ValidateInvariants()
+		&& Runtime->GetActiveRunId() == Started.ActiveRunId
+		&& Fixture.Authority->TryCaptureSnapshot(After) && Before == After);
 	return true;
 }
 
