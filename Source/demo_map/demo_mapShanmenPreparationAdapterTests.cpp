@@ -14,7 +14,10 @@
 #include "demo_mapAttributeComponent.h"
 #include "demo_mapCombatRunCoordinator.h"
 #include "demo_mapEnemyCharacter.h"
+#include "demo_mapExitZone.h"
+#include "demo_mapFriendlyUnit.h"
 #include "demo_mapGameMode.h"
+#include "demo_mapHeavyEnemyCharacter.h"
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapItemSubsystem.h"
 #include "demo_mapLootChest.h"
@@ -27,8 +30,10 @@
 #include "demo_mapPlayerHealthComponent.h"
 #include "demo_mapPlayerController.h"
 #include "demo_mapRewardAffix.h"
+#include "demo_mapRangedEnemyCharacter.h"
 #include "demo_mapRuntimeContainer.h"
 #include "demo_mapSpiritStonePickup.h"
+#include "demo_mapTrainingTarget.h"
 #include "demo_mapWorldItem.h"
 #include "demo_mapV3ProgressionManager.h"
 #include "demo_mapShanmenControlledWeaponActiveRunRoute.h"
@@ -3526,6 +3531,75 @@ bool Fdemo_mapPreparationDeactivationRetentionTest::RunTest(const FString&)
 	TestTrue(TEXT("Mission deactivation never finalizes or rewrites the durable item Run"),
 		Fixture.Authority->TryCaptureSnapshot(After) && Before == After
 		&& Runtime->GetActiveRunId() == Started.ActiveRunId);
+
+	// Exercise the remaining non-M01 owner slots through the same real release
+	// entry point, without loading a map or running a gameplay activation.
+	auto SpawnProjection = [&](UClass* Class)
+	{
+		return Scene.World->SpawnActor<AActor>(Class, FTransform::Identity, EnemySpawn);
+	};
+	auto* RefusedTarget = Cast<Ademo_mapTrainingTarget>(SpawnProjection(Ademo_mapTrainingTarget::StaticClass()));
+	auto* AcceptedTarget = Cast<Ademo_mapTrainingTarget>(SpawnProjection(Ademo_mapTrainingTarget::StaticClass()));
+	auto* OtherAcceptedTarget = Cast<Ademo_mapTrainingTarget>(SpawnProjection(Ademo_mapTrainingTarget::StaticClass()));
+	auto* LegacyExit = Cast<Ademo_mapExitZone>(SpawnProjection(Ademo_mapExitZone::StaticClass()));
+	auto* LegacyMelee = Cast<Ademo_mapEnemyCharacter>(SpawnProjection(Ademo_mapEnemyCharacter::StaticClass()));
+	auto* LegacyRanged = Cast<Ademo_mapRangedEnemyCharacter>(SpawnProjection(Ademo_mapRangedEnemyCharacter::StaticClass()));
+	auto* LegacyHeavy = Cast<Ademo_mapHeavyEnemyCharacter>(SpawnProjection(Ademo_mapHeavyEnemyCharacter::StaticClass()));
+	auto* LegacyFriendly = Cast<Ademo_mapFriendlyUnit>(SpawnProjection(Ademo_mapFriendlyUnit::StaticClass()));
+	if (!RefusedTarget || !AcceptedTarget || !OtherAcceptedTarget || !LegacyExit
+		|| !LegacyMelee || !LegacyRanged || !LegacyHeavy || !LegacyFriendly) return false;
+	Mode->SpawnedTargets = { RefusedTarget, AcceptedTarget, OtherAcceptedTarget };
+	Mode->CountedTargetActors.Add(AcceptedTarget);
+	Mode->ExitZone = LegacyExit;
+	Mode->Enemy = LegacyMelee;
+	Mode->RangedEnemy = LegacyRanged;
+	Mode->HeavyEnemy = LegacyHeavy;
+	Mode->FriendlyUnit = LegacyFriendly;
+	Mode->bV3MissionContentActive = true;
+	const TArray<AActor*> RefusedProjections = { RefusedTarget, LegacyExit, LegacyMelee, LegacyRanged, LegacyHeavy, LegacyFriendly };
+	TArray<ENetRole> ProjectionRoles;
+	for (AActor* Projection : RefusedProjections)
+	{
+		ProjectionRoles.Add(Projection->GetLocalRole());
+		Projection->SetRole(ROLE_SimulatedProxy);
+	}
+	TMap<AActor*, int32> ReleasedProjections;
+	const auto ProjectionObserver = Scene.World->AddOnActorDestroyedHandler(FOnActorDestroyed::FDelegate::CreateLambda(
+		[&](AActor* Actor) { ++ReleasedProjections.FindOrAdd(Actor); }));
+	for (int32 Attempt = 0; Attempt < 2; ++Attempt)
+	{
+		TestFalse(TEXT("Non-M01 projection refusal cannot acknowledge mission deactivation"),
+			Mode->DeactivateV3MissionContentForPreparation());
+		bool bRefusedAlive = true;
+		for (AActor* Projection : RefusedProjections)
+		{
+			bRefusedAlive &= IsValid(Projection) && !Projection->IsActorBeingDestroyed()
+				&& ReleasedProjections.FindRef(Projection) == 0;
+		}
+		TestTrue(TEXT("Non-M01 refusal retains each original owner and count guard without replaying the accepted prefix"),
+			bRefusedAlive && Mode->SpawnedTargets.Num() == 1 && Mode->SpawnedTargets[0].Get() == RefusedTarget
+			&& Mode->ExitZone.Get() == LegacyExit && Mode->Enemy.Get() == LegacyMelee
+			&& Mode->RangedEnemy.Get() == LegacyRanged && Mode->HeavyEnemy.Get() == LegacyHeavy
+			&& Mode->FriendlyUnit.Get() == LegacyFriendly && Mode->bV3MissionContentActive
+			&& Mode->CountedTargetActors.Num() == 1 && Mode->CountedTargetActors.Contains(AcceptedTarget)
+			&& ReleasedProjections.FindRef(AcceptedTarget) == 1 && ReleasedProjections.FindRef(OtherAcceptedTarget) == 1
+			&& !Mode->PendingCombatRunRetirement.IsSet() && Mode->CombatRunFixedTimeline.IsEmpty()
+			&& Runtime->GetActiveRunId() == Started.ActiveRunId
+			&& Fixture.Authority->TryCaptureSnapshot(After) && Before == After);
+	}
+	for (int32 Index = 0; Index < RefusedProjections.Num(); ++Index) RefusedProjections[Index]->SetRole(ProjectionRoles[Index]);
+	TestTrue(TEXT("Recovered non-M01 deactivation succeeds"), Mode->DeactivateV3MissionContentForPreparation());
+	TestTrue(TEXT("Completed non-M01 deactivation is idempotent"), Mode->DeactivateV3MissionContentForPreparation());
+	Scene.World->RemoveOnActorDestroyedHandler(ProjectionObserver);
+	bool bReleasedOnce = true;
+	for (AActor* Projection : RefusedProjections) bReleasedOnce &= ReleasedProjections.FindRef(Projection) == 1;
+	TestTrue(TEXT("Non-M01 recovery releases every original owner once and only then clears mission context"),
+		bReleasedOnce && ReleasedProjections.FindRef(AcceptedTarget) == 1 && ReleasedProjections.FindRef(OtherAcceptedTarget) == 1
+		&& Mode->SpawnedTargets.IsEmpty() && Mode->CountedTargetActors.IsEmpty()
+		&& !Mode->ExitZone.IsValid() && !Mode->Enemy.IsValid() && !Mode->RangedEnemy.IsValid()
+		&& !Mode->HeavyEnemy.IsValid() && !Mode->FriendlyUnit.IsValid() && !Mode->bV3MissionContentActive
+		&& Runtime->GetActiveRunId() == Started.ActiveRunId
+		&& Fixture.Authority->TryCaptureSnapshot(After) && Before == After);
 	return true;
 }
 

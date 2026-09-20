@@ -4715,32 +4715,29 @@ bool Ademo_mapGameMode::DeactivateV3MissionContentForPreparation()
 		bV3MissionContentActive = false;
 		return true;
 	}
-	auto DestroyActor = [](TWeakObjectPtr<AActor>& Actor)
+	auto DestroyActor = [](auto& Actor)
 	{
-		if (Actor.IsValid()) Actor->Destroy();
+		if (Actor.IsValid() && !Actor->IsActorBeingDestroyed() && !Actor->Destroy()) return false;
 		Actor.Reset();
+		return true;
 	};
-	for (TWeakObjectPtr<Ademo_mapTrainingTarget>& Target : SpawnedTargets)
+	const auto TargetsToRelease = SpawnedTargets;
+	TArray<TWeakObjectPtr<Ademo_mapTrainingTarget>> RemainingTargets;
+	for (auto Target : TargetsToRelease)
 	{
-		if (Target.IsValid()) Target->Destroy();
+		if (!DestroyActor(Target)) RemainingTargets.Add(Target);
 	}
-	SpawnedTargets.Reset();
+	SpawnedTargets = MoveTemp(RemainingTargets);
+	// Attempt every owner, retaining only refusals. A successful prefix must not
+	// be repeated or allow the caller to forget the unfinished mission context.
+	const bool bExitReleased = DestroyActor(ExitZone);
+	const bool bMeleeReleased = DestroyActor(Enemy);
+	const bool bRangedReleased = DestroyActor(RangedEnemy);
+	const bool bHeavyReleased = DestroyActor(HeavyEnemy);
+	const bool bFriendlyReleased = DestroyActor(FriendlyUnit);
+	if (!SpawnedTargets.IsEmpty() || !bExitReleased || !bMeleeReleased
+		|| !bRangedReleased || !bHeavyReleased || !bFriendlyReleased) return false;
 	CountedTargetActors.Reset();
-	TWeakObjectPtr<AActor> Exit = ExitZone;
-	TWeakObjectPtr<AActor> Melee = Enemy;
-	TWeakObjectPtr<AActor> Ranged = RangedEnemy;
-	TWeakObjectPtr<AActor> Heavy = HeavyEnemy;
-	TWeakObjectPtr<AActor> Friendly = FriendlyUnit;
-	DestroyActor(Exit);
-	DestroyActor(Melee);
-	DestroyActor(Ranged);
-	DestroyActor(Heavy);
-	DestroyActor(Friendly);
-	ExitZone.Reset();
-	Enemy.Reset();
-	RangedEnemy.Reset();
-	HeavyEnemy.Reset();
-	FriendlyUnit.Reset();
 	bV3MissionContentActive = false;
 	return true;
 }
