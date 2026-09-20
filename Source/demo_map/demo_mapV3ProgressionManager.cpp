@@ -7153,19 +7153,29 @@ bool Ademo_mapV3ProgressionManager::DeactivateProfileWorld()
 		return false;
 	}
 	SetFocusedActor(nullptr);
-	if (SpiritStonePickup.IsValid())
+	// Currency projections are World owners too: retain refusals and their
+	// source guards until the original release is complete, not just requested.
+	bool bFixedStoneReleased = true;
+	if (SpiritStonePickup.IsValid() && !SpiritStonePickup->IsActorBeingDestroyed()
+		&& !SpiritStonePickup->Destroy())
 	{
-		SpiritStonePickup->Destroy();
+		bFixedStoneReleased = false;
+	}
+	else
+	{
 		SpiritStonePickup.Reset();
 	}
-	for (const TWeakObjectPtr<Ademo_mapSpiritStonePickup>& Pickup : M01SpiritStonePickups)
+	const auto PickupsToRelease = M01SpiritStonePickups;
+	TArray<TWeakObjectPtr<Ademo_mapSpiritStonePickup>> RemainingPickups;
+	for (const TWeakObjectPtr<Ademo_mapSpiritStonePickup>& Pickup : PickupsToRelease)
 	{
-		if (Pickup.IsValid())
+		if (Pickup.IsValid() && !Pickup->IsActorBeingDestroyed() && !Pickup->Destroy())
 		{
-			Pickup->Destroy();
+			RemainingPickups.Add(Pickup);
 		}
 	}
-	M01SpiritStonePickups.Reset();
+	M01SpiritStonePickups = MoveTemp(RemainingPickups);
+	if (!bFixedStoneReleased || !M01SpiritStonePickups.IsEmpty()) return false;
 	M01SpiritStoneSpawnSourceIds.Reset();
 	InitialWorldItems.Reset();
 	bProfileWorldActive = false;

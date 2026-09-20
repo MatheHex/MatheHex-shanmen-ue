@@ -26,6 +26,7 @@
 #include "demo_mapPlayerController.h"
 #include "demo_mapRewardAffix.h"
 #include "demo_mapRuntimeContainer.h"
+#include "demo_mapSpiritStonePickup.h"
 #include "demo_mapWorldItem.h"
 #include "demo_mapV3ProgressionManager.h"
 #include "demo_mapShanmenControlledWeaponActiveRunRoute.h"
@@ -3476,6 +3477,21 @@ bool Fdemo_mapManagerWorldDeactivationRetentionTest::RunTest(const FString&)
 			FVector(100.0f, 0.0f, 0.0f), LootActor).bSuccess && LootActor)) return false;
 	const FGuid LootId = LootActor->GetInstanceId();
 	const TWeakObjectPtr<Ademo_mapWorldItem> LootOwner = LootActor;
+	auto* FixedStone = Scene.World->SpawnActor<Ademo_mapSpiritStonePickup>(
+		Ademo_mapSpiritStonePickup::StaticClass(), FTransform::Identity, Spawn);
+	auto* RefusedStone = Scene.World->SpawnActor<Ademo_mapSpiritStonePickup>(
+		Ademo_mapSpiritStonePickup::StaticClass(), FTransform::Identity, Spawn);
+	auto* AcceptedStone = Scene.World->SpawnActor<Ademo_mapSpiritStonePickup>(
+		Ademo_mapSpiritStonePickup::StaticClass(), FTransform::Identity, Spawn);
+	const FName RefusedSource(TEXT("P2816.RefusedStone.Source"));
+	const FName AcceptedSource(TEXT("P2816.AcceptedStone.Source"));
+	if (!FixedStone || !RefusedStone || !AcceptedStone
+		|| !FixedStone->InitializeRuntimePickup(TEXT("P2816.FixedStone"), TEXT("P2816.FixedStone.Source"), 20, Started.ActiveRunId)
+		|| !RefusedStone->InitializeRuntimePickup(TEXT("P2816.RefusedStone"), RefusedSource, 30, Started.ActiveRunId)
+		|| !AcceptedStone->InitializeRuntimePickup(TEXT("P2816.AcceptedStone"), AcceptedSource, 40, Started.ActiveRunId)) return false;
+	Manager->SpiritStonePickup = FixedStone;
+	Manager->M01SpiritStonePickups = { RefusedStone, AcceptedStone };
+	Manager->M01SpiritStoneSpawnSourceIds = { RefusedSource, AcceptedSource };
 	Mode->CombatRunCoordinator = MoveTemp(Scene.Coordinator);
 	Mode->ControlledWeaponRunHost = MoveTemp(Scene.Host);
 	Mode->ControlledWeaponWorldLifecycle = MoveTemp(Scene.Lifecycle);
@@ -3514,8 +3530,16 @@ bool Fdemo_mapManagerWorldDeactivationRetentionTest::RunTest(const FString&)
 	}
 	Weapon->SetRole(OriginalRole);
 	int32 DestroyedLoot = 0, DestroyedEnemies = 0;
+	int32 DestroyedFixedStone = 0, DestroyedRefusedStone = 0, DestroyedAcceptedStone = 0;
 	const auto Observer = Scene.World->AddOnActorDestroyedHandler(FOnActorDestroyed::FDelegate::CreateLambda(
-		[&](AActor* Actor) { if (Actor == LootActor) ++DestroyedLoot; if (Actor == Enemy) ++DestroyedEnemies; }));
+		[&](AActor* Actor)
+		{
+			if (Actor == LootActor) ++DestroyedLoot;
+			if (Actor == Enemy) ++DestroyedEnemies;
+			if (Actor == FixedStone) ++DestroyedFixedStone;
+			if (Actor == RefusedStone) ++DestroyedRefusedStone;
+			if (Actor == AcceptedStone) ++DestroyedAcceptedStone;
+		}));
 	const ENetRole OriginalLootRole = LootActor->GetLocalRole();
 	LootActor->SetRole(ROLE_SimulatedProxy);
 	for (int32 Attempt = 0; Attempt < 2; ++Attempt)
@@ -3547,9 +3571,41 @@ bool Fdemo_mapManagerWorldDeactivationRetentionTest::RunTest(const FString&)
 		!RejectedSpawn.bSuccess && RejectedSpawn.Code == Edemo_mapItemResultCode::InvalidWorldBinding
 		&& !RejectedActor && Runtime->IsWorldActorBound(LootId, LootActor) && Runtime->ValidateInvariants());
 	LootActor->SetRole(OriginalLootRole);
+	const ENetRole FixedStoneRole = FixedStone->GetLocalRole();
+	const ENetRole RefusedStoneRole = RefusedStone->GetLocalRole();
+	FixedStone->SetRole(ROLE_SimulatedProxy);
+	RefusedStone->SetRole(ROLE_SimulatedProxy);
+	for (int32 Attempt = 0; Attempt < 2; ++Attempt)
+	{
+		TestFalse(TEXT("Currency projection refusal cannot acknowledge Manager World release"),
+			Manager->DeactivateProfileWorld());
+		FShanmenItemAuthoritySnapshot StillActive;
+		TestTrue(TEXT("Currency refusal retains both original owners and source deduplication context"),
+			Manager->IsProfileWorldActive() && Manager->IsSettlementPending()
+			&& Manager->SpiritStonePickup.Get() == FixedStone && IsValid(FixedStone) && !FixedStone->IsActorBeingDestroyed()
+			&& FixedStone->GetPickupId() == FName(TEXT("P2816.FixedStone")) && FixedStone->GetValue() == 20
+			&& Manager->M01SpiritStonePickups.Num() == 1 && Manager->M01SpiritStonePickups.Contains(RefusedStone)
+			&& IsValid(RefusedStone) && !RefusedStone->IsActorBeingDestroyed()
+			&& RefusedStone->GetSourceId() == RefusedSource && RefusedStone->GetValue() == 30
+			&& Manager->M01SpiritStoneSpawnSourceIds.Num() == 2
+			&& Manager->M01SpiritStoneSpawnSourceIds.Contains(RefusedSource)
+			&& Manager->M01SpiritStoneSpawnSourceIds.Contains(AcceptedSource));
+		TestTrue(TEXT("Currency-only retries keep accepted releases single and durable Run unchanged"),
+			DestroyedLoot == 1 && DestroyedEnemies == 1 && DestroyedAcceptedStone == 1
+			&& DestroyedFixedStone == 0 && DestroyedRefusedStone == 0
+			&& Runtime->GetWorldActorCount() == 0 && Runtime->ValidateInvariants()
+			&& Runtime->GetActiveRunId() == Started.ActiveRunId
+			&& Fixture.Authority->TryCaptureSnapshot(StillActive) && Before == StillActive);
+	}
+	FixedStone->SetRole(FixedStoneRole);
+	RefusedStone->SetRole(RefusedStoneRole);
 	Manager->DeactivateProfileWorld();
 	Manager->DeactivateProfileWorld();
 	Scene.World->RemoveOnActorDestroyedHandler(Observer);
+	TestTrue(TEXT("Currency recovery releases each original exactly once and only then clears source guards"),
+		DestroyedFixedStone == 1 && DestroyedRefusedStone == 1 && DestroyedAcceptedStone == 1
+		&& !Manager->SpiritStonePickup.IsValid() && Manager->M01SpiritStonePickups.IsEmpty()
+		&& Manager->M01SpiritStoneSpawnSourceIds.IsEmpty());
 	TestEqual(TEXT("Recovered deactivation destroys the retained loot exactly once"), DestroyedLoot, 1);
 	TestEqual(TEXT("Recovered deactivation destroys the retained enemy exactly once"), DestroyedEnemies, 1);
 	TestFalse(TEXT("Recovered deactivation clears Manager active flag"), Manager->IsProfileWorldActive());
