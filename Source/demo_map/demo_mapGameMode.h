@@ -564,7 +564,7 @@ private:
 	void BeginReset(const FString& StatusText, const TCHAR* LogMarker);
 	void ReloadDemoLevel();
 	bool InitializeM01ExtractionFoundation(APawn* PlayerPawn);
-	void DestroyM01ExtractionFoundation();
+	bool DestroyM01ExtractionFoundation();
 	bool InitializeM01EnemyContent(APawn* PlayerPawn);
 	bool DestroyM01EnemyContent();
 	void SuppressM01EnemyContent();

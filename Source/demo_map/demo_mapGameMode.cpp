@@ -4706,7 +4706,10 @@ bool Ademo_mapGameMode::DeactivateV3MissionContentForPreparation()
 	{
 		return false;
 	}
-	DestroyM01ExtractionFoundation();
+	if (!DestroyM01ExtractionFoundation())
+	{
+		return false;
+	}
 	if (IsM01ExpeditionMap())
 	{
 		bV3MissionContentActive = false;
@@ -4924,7 +4927,7 @@ bool Ademo_mapGameMode::DestroyM01EnemyContent()
 bool Ademo_mapGameMode::InitializeM01ExtractionFoundation(APawn* PlayerPawn)
 {
 	if (!PlayerPawn || !GetWorld() || !PlayerItemSubsystem.IsValid()) return false;
-	DestroyM01ExtractionFoundation();
+	if (!DestroyM01ExtractionFoundation()) return false;
 	const bool bSpatialEquipped = PlayerItemSubsystem->GetAuthority()
 		.GetEquippedInstance(Fdemo_mapItemIds::BackpackSlot).IsValid();
 	M01ExtractionAuthority.ResetForNewRun(bSpatialEquipped);
@@ -5009,17 +5012,25 @@ bool Ademo_mapGameMode::InitializeM01ExtractionFoundation(APawn* PlayerPawn)
 	return bM01ExtractionFoundationActive;
 }
 
-void Ademo_mapGameMode::DestroyM01ExtractionFoundation()
+bool Ademo_mapGameMode::DestroyM01ExtractionFoundation()
 {
 	bM01ExtractionFoundationActive = false;
 	ActiveM01RiskId = NAME_None;
-	for (TWeakObjectPtr<Ademo_mapM01ExtractionZone>& Zone : M01ExtractionZones)
+	const TArray<TWeakObjectPtr<Ademo_mapM01ExtractionZone>> ZonesToRelease = M01ExtractionZones;
+	TArray<TWeakObjectPtr<Ademo_mapM01ExtractionZone>> RemainingZones;
+	for (const TWeakObjectPtr<Ademo_mapM01ExtractionZone>& Zone : ZonesToRelease)
 	{
-		if (!Zone.IsValid()) continue;
-		if (Zone->IsAuthoredForM01()) Zone->SetProjectionActive(false);
-		else Zone->Destroy();
+		if (!Zone.IsValid() || Zone->IsActorBeingDestroyed()) continue;
+		// Disable interactions even when physical retirement is refused. Authored
+		// actors stay in their world; only dynamic owners require destruction.
+		Zone->SetProjectionActive(false);
+		if (!Zone->IsAuthoredForM01() && !Zone->Destroy())
+		{
+			RemainingZones.Add(Zone);
+		}
 	}
-	M01ExtractionZones.Reset();
+	M01ExtractionZones = MoveTemp(RemainingZones);
+	return M01ExtractionZones.IsEmpty();
 }
 
 Fdemo_mapM01ExtractionSnapshot Ademo_mapGameMode::GetM01ExtractionSnapshot(Edemo_mapM01ExitType ExitType) const

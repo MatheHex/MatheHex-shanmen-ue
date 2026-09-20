@@ -21,6 +21,7 @@
 #include "demo_mapM01BossCharacter.h"
 #include "demo_mapM01EnemyIdentityComponent.h"
 #include "demo_mapM01EnemyTypes.h"
+#include "demo_mapM01ExtractionZone.h"
 #include "demo_mapProfileRepository.h"
 #include "demo_mapProfileSessionSubsystem.h"
 #include "demo_mapPlayerHealthComponent.h"
@@ -3390,6 +3391,20 @@ bool Fdemo_mapPreparationDeactivationRetentionTest::RunTest(const FString&)
 	if (!AcceptedEnemy || !Boss || !BossDefinition || !Boss->ConfigureBoss(*BossDefinition)) return false;
 	const int32 BossHealthBefore = Boss->GetCurrentHealth();
 	if (!TestTrue(TEXT("Enemy release fixture has nonzero Boss vitality"), BossHealthBefore > 0)) return false;
+	Ademo_mapM01ExtractionZone* RefusedExit = Scene.World->SpawnActor<Ademo_mapM01ExtractionZone>(
+		Ademo_mapM01ExtractionZone::StaticClass(), FTransform::Identity, EnemySpawn);
+	Ademo_mapM01ExtractionZone* AcceptedExit = Scene.World->SpawnActor<Ademo_mapM01ExtractionZone>(
+		Ademo_mapM01ExtractionZone::StaticClass(), FTransform::Identity, EnemySpawn);
+	Ademo_mapM01ExtractionZone* AuthoredExit = Scene.World->SpawnActor<Ademo_mapM01ExtractionZone>(
+		Ademo_mapM01ExtractionZone::StaticClass(), FTransform::Identity, EnemySpawn);
+	if (!RefusedExit || !AcceptedExit || !AuthoredExit) return false;
+	RefusedExit->Configure(Edemo_mapM01ExitType::Regular);
+	AcceptedExit->Configure(Edemo_mapM01ExitType::Boss);
+	AuthoredExit->ConfigureAuthored(Edemo_mapM01ExitType::DiscardSpatial);
+	AuthoredExit->SetProjectionActive(true);
+	Mode->M01ExtractionZones = { RefusedExit, AcceptedExit, AuthoredExit };
+	Mode->M01ExtractionAuthority.ResetForNewRun(true);
+	if (!Mode->M01ExtractionAuthority.NotifyBossDefeated(Fdemo_mapM01Ids::MainBoss)) return false;
 	Mode->CombatRunCoordinator = MoveTemp(Scene.Coordinator);
 	Mode->ControlledWeaponRunHost = MoveTemp(Scene.Host);
 	Mode->ControlledWeaponWorldLifecycle = MoveTemp(Scene.Lifecycle);
@@ -3428,6 +3443,7 @@ bool Fdemo_mapPreparationDeactivationRetentionTest::RunTest(const FString&)
 	}
 	Weapon->SetRole(OriginalRole);
 	int32 DestroyedEnemies = 0, DestroyedAcceptedEnemies = 0, DestroyedBosses = 0, DestroyedWeapons = 0;
+	int32 DestroyedRefusedExits = 0, DestroyedAcceptedExits = 0, DestroyedAuthoredExits = 0;
 	const auto Observer = Scene.World->AddOnActorDestroyedHandler(FOnActorDestroyed::FDelegate::CreateLambda(
 		[&](AActor* Actor)
 		{
@@ -3435,6 +3451,9 @@ bool Fdemo_mapPreparationDeactivationRetentionTest::RunTest(const FString&)
 			if (Actor == AcceptedEnemy) ++DestroyedAcceptedEnemies;
 			if (Actor == Boss) ++DestroyedBosses;
 			if (Actor == Weapon) ++DestroyedWeapons;
+			if (Actor == RefusedExit) ++DestroyedRefusedExits;
+			if (Actor == AcceptedExit) ++DestroyedAcceptedExits;
+			if (Actor == AuthoredExit) ++DestroyedAuthoredExits;
 		}));
 	const ENetRole EnemyRole = Enemy->GetLocalRole();
 	const ENetRole BossRole = Boss->GetLocalRole();
@@ -3464,6 +3483,32 @@ bool Fdemo_mapPreparationDeactivationRetentionTest::RunTest(const FString&)
 	}
 	Enemy->SetRole(EnemyRole);
 	Boss->SetRole(BossRole);
+	const ENetRole ExitRole = RefusedExit->GetLocalRole();
+	RefusedExit->SetRole(ROLE_SimulatedProxy);
+	for (int32 Attempt = 0; Attempt < 2; ++Attempt)
+	{
+		TestFalse(TEXT("Extraction projection refusal cannot acknowledge mission deactivation"),
+			Mode->DeactivateV3MissionContentForPreparation());
+		TestTrue(TEXT("Extraction refusal retains only its original dynamic owner without destroying authored content"),
+			Mode->M01ExtractionZones.Num() == 1 && Mode->M01ExtractionZones[0].Get() == RefusedExit
+			&& IsValid(RefusedExit) && !RefusedExit->IsActorBeingDestroyed()
+			&& RefusedExit->GetStableId() == Fdemo_mapM01Ids::ExitRegular
+			&& RefusedExit->IsHidden() && !RefusedExit->IsActorTickEnabled()
+			&& IsValid(AuthoredExit) && !AuthoredExit->IsActorBeingDestroyed()
+			&& AuthoredExit->IsHidden() && !AuthoredExit->IsActorTickEnabled()
+			&& DestroyedRefusedExits == 0 && DestroyedAcceptedExits == 1 && DestroyedAuthoredExits == 0
+			&& Mode->bV3MissionContentActive && !Mode->bM01ExtractionFoundationActive);
+		FShanmenItemAuthoritySnapshot Unchanged;
+		TestTrue(TEXT("Extraction retirement disables interaction without replaying earlier releases or resetting authority"),
+			Mode->GetM01ExtractionSnapshot(Edemo_mapM01ExitType::Boss).State == Edemo_mapM01ExtractionState::Unavailable
+			&& Mode->M01ExtractionAuthority.IsBossUnlocked() && !Mode->M01ExtractionAuthority.HasIssuedCompletion()
+			&& DestroyedWeapons == 1 && DestroyedEnemies == 1 && DestroyedAcceptedEnemies == 1 && DestroyedBosses == 1
+			&& Mode->M01EnemyActors.IsEmpty() && !Mode->M01Boss.IsValid()
+			&& !Mode->PendingCombatRunRetirement.IsSet() && Mode->ControlledWeaponWorldLifecycle.IsEmpty()
+			&& Runtime->GetActiveRunId() == Started.ActiveRunId
+			&& Fixture.Authority->TryCaptureSnapshot(Unchanged) && Before == Unchanged);
+	}
+	RefusedExit->SetRole(ExitRole);
 	TestTrue(TEXT("Recovered mission deactivation reports success"), Mode->DeactivateV3MissionContentForPreparation());
 	TestTrue(TEXT("Empty mission deactivation reports success"), Mode->DeactivateV3MissionContentForPreparation());
 	Scene.World->RemoveOnActorDestroyedHandler(Observer);
@@ -3473,6 +3518,10 @@ bool Fdemo_mapPreparationDeactivationRetentionTest::RunTest(const FString&)
 		&& !Mode->bM01EnemyContentActive && !Mode->bM01ExtractionFoundationActive
 		&& !Mode->bV3MissionContentActive && !Mode->PendingCombatRunRetirement.IsSet()
 		&& Mode->ControlledWeaponWorldLifecycle.IsEmpty() && Mode->CombatRunFixedTimeline.IsEmpty());
+	TestTrue(TEXT("Recovered dynamic exit releases once; authored exit remains inactive and owned by its world"),
+		DestroyedRefusedExits == 1 && DestroyedAcceptedExits == 1 && DestroyedAuthoredExits == 0
+		&& Mode->M01ExtractionZones.IsEmpty() && IsValid(AuthoredExit)
+		&& !AuthoredExit->IsActorBeingDestroyed() && AuthoredExit->IsHidden());
 	FShanmenItemAuthoritySnapshot After;
 	TestTrue(TEXT("Mission deactivation never finalizes or rewrites the durable item Run"),
 		Fixture.Authority->TryCaptureSnapshot(After) && Before == After
