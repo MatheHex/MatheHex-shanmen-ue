@@ -7767,13 +7767,19 @@ bool Ademo_mapV3ProgressionManager::InitializeCodeBNormalContainerTarget()
 			return true;
 		}
 	}
-	for (const TWeakObjectPtr<Ademo_mapCodeBNormalContainerActor>& SpawnedTarget
-		: SpawnedCodeBNormalContainerTargets)
+	const auto PreviousTargets = SpawnedCodeBNormalContainerTargets;
+	TArray<TWeakObjectPtr<Ademo_mapCodeBNormalContainerActor>> RemainingTargets;
+	for (const auto& SpawnedTarget : PreviousTargets)
 	{
-		if (SpawnedTarget.IsValid()) SpawnedTarget->Destroy();
+		if (SpawnedTarget.IsValid() && !SpawnedTarget->IsActorBeingDestroyed() && !SpawnedTarget->Destroy())
+		{
+			RemainingTargets.Add(SpawnedTarget);
+		}
 	}
+	SpawnedCodeBNormalContainerTargets = MoveTemp(RemainingTargets);
+	// Do not rediscover a refused runtime owner as if the map owned it instead.
+	if (!SpawnedCodeBNormalContainerTargets.IsEmpty()) return false;
 	CodeBNormalContainerTargets.Reset();
-	SpawnedCodeBNormalContainerTargets.Reset();
 
 	TMap<FName, Ademo_mapCodeBNormalContainerActor*> ExistingTargets;
 	for (TActorIterator<Ademo_mapCodeBNormalContainerActor> It(GetWorld()); It; ++It)

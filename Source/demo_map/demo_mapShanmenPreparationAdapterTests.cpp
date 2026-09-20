@@ -13,6 +13,7 @@
 #include "demo_map0909BRunStartCoordinator.h"
 #include "demo_mapAttributeComponent.h"
 #include "demo_mapCombatRunCoordinator.h"
+#include "demo_mapCodeBNormalContainerActor.h"
 #include "demo_mapEnemyCharacter.h"
 #include "demo_mapExitZone.h"
 #include "demo_mapFriendlyUnit.h"
@@ -3860,6 +3861,69 @@ bool Fdemo_mapManagerWorldDeactivationRetentionTest::RunTest(const FString&)
 		&& Manager->EnemyActors.IsEmpty() && Manager->NavigableEnemySpawnMarkerIds.IsEmpty()
 		&& !Manager->IsProfileWorldActive() && Manager->InitialWorldItems.IsEmpty()
 		&& Runtime->GetWorldActorCount() == 0 && Runtime->ValidateInvariants()
+		&& Runtime->GetActiveRunId() == Started.ActiveRunId
+		&& Fixture.Authority->TryCaptureSnapshot(After) && Before == After);
+
+	// A partially invalid container registration must not turn a refused runtime
+	// owner into a map-authored target during the next projection initialization.
+	auto* RefusedCache = Scene.World->SpawnActor<Ademo_mapCodeBNormalContainerActor>(
+		Ademo_mapCodeBNormalContainerActor::StaticClass(), FTransform::Identity, Spawn);
+	auto* ExpiredCache = Scene.World->SpawnActor<Ademo_mapCodeBNormalContainerActor>(
+		Ademo_mapCodeBNormalContainerActor::StaticClass(), FTransform::Identity, Spawn);
+	if (!RefusedCache || !ExpiredCache) return false;
+	RefusedCache->MapTargetIdentity = TEXT("M01.CodeBNormalContainer.BasicCache.01");
+	ExpiredCache->MapTargetIdentity = TEXT("M01.CodeBNormalContainer.BasicCache.02");
+	Manager->PlayerPawn = Scene.Player;
+	Manager->CodeBNormalContainerTargets = { RefusedCache, ExpiredCache };
+	Manager->SpawnedCodeBNormalContainerTargets = { RefusedCache, ExpiredCache };
+	int32 RefusedCacheReleases = 0, ExpiredCacheReleases = 0;
+	const auto CacheObserver = Scene.World->AddOnActorDestroyedHandler(FOnActorDestroyed::FDelegate::CreateLambda(
+		[&](AActor* Actor)
+		{
+			if (Actor == RefusedCache) ++RefusedCacheReleases;
+			if (Actor == ExpiredCache) ++ExpiredCacheReleases;
+		}));
+	if (!ExpiredCache->Destroy())
+	{
+		Scene.World->RemoveOnActorDestroyedHandler(CacheObserver);
+		return false;
+	}
+	const ENetRole CacheRole = RefusedCache->GetLocalRole();
+	RefusedCache->SetRole(ROLE_SimulatedProxy);
+	// No formal marker/content is created. After release, absence of the anchor
+	// must still reject fallback materialization (also reached earlier by Red).
+	AddExpectedError(TEXT("CODEB_P10_BASIC_CACHE: missing static M01 anchor="), EAutomationExpectedErrorFlags::Contains, 0);
+	for (int32 Attempt = 0; Attempt < 2; ++Attempt)
+	{
+		TestFalse(TEXT("Container rebind cannot pass a refused old runtime owner"), Manager->InitializeCodeBNormalContainerTarget());
+		TestTrue(TEXT("Container rebind refusal retains original owner and registration"),
+			Manager->SpawnedCodeBNormalContainerTargets.Num() == 1
+			&& Manager->SpawnedCodeBNormalContainerTargets[0].Get() == RefusedCache
+			&& Manager->CodeBNormalContainerTargets.Contains(RefusedCache)
+			&& IsValid(RefusedCache) && !RefusedCache->IsActorBeingDestroyed()
+			&& RefusedCacheReleases == 0 && ExpiredCacheReleases == 1
+			&& Runtime->GetActiveRunId() == Started.ActiveRunId
+			&& Fixture.Authority->TryCaptureSnapshot(After) && Before == After);
+	}
+	RefusedCache->SetRole(CacheRole);
+	TestFalse(TEXT("Released container rebind still requires its missing anchor"), Manager->InitializeCodeBNormalContainerTarget());
+	TestFalse(TEXT("Missing-anchor retry does not repeat completed owner release"), Manager->InitializeCodeBNormalContainerTarget());
+	Scene.World->RemoveOnActorDestroyedHandler(CacheObserver);
+	if (!TestTrue(TEXT("Old container generation is released exactly once before rebind"),
+		RefusedCacheReleases == 1 && ExpiredCacheReleases == 1
+		&& Manager->SpawnedCodeBNormalContainerTargets.IsEmpty()
+		&& Manager->CodeBNormalContainerTargets.IsEmpty())) return false;
+	auto* AuthoredFirst = Scene.World->SpawnActor<Ademo_mapCodeBNormalContainerActor>(
+		Ademo_mapCodeBNormalContainerActor::StaticClass(), FTransform::Identity, Spawn);
+	auto* AuthoredSecond = Scene.World->SpawnActor<Ademo_mapCodeBNormalContainerActor>(
+		Ademo_mapCodeBNormalContainerActor::StaticClass(), FTransform::Identity, Spawn);
+	if (!AuthoredFirst || !AuthoredSecond) return false;
+	AuthoredFirst->MapTargetIdentity = TEXT("M01.CodeBNormalContainer.BasicCache.01");
+	AuthoredSecond->MapTargetIdentity = TEXT("M01.CodeBNormalContainer.BasicCache.02");
+	TestTrue(TEXT("Healthy map-owned container registration and replay remain available"),
+		Manager->InitializeCodeBNormalContainerTarget() && Manager->InitializeCodeBNormalContainerTarget()
+		&& Manager->CodeBNormalContainerTargets.Num() == 2 && Manager->SpawnedCodeBNormalContainerTargets.IsEmpty()
+		&& IsValid(AuthoredFirst) && IsValid(AuthoredSecond)
 		&& Runtime->GetActiveRunId() == Started.ActiveRunId
 		&& Fixture.Authority->TryCaptureSnapshot(After) && Before == After);
 	return true;
