@@ -7767,19 +7767,25 @@ bool Ademo_mapV3ProgressionManager::InitializeCodeBNormalContainerTarget()
 			return true;
 		}
 	}
-	const auto PreviousTargets = SpawnedCodeBNormalContainerTargets;
-	TArray<TWeakObjectPtr<Ademo_mapCodeBNormalContainerActor>> RemainingTargets;
-	for (const auto& SpawnedTarget : PreviousTargets)
+	const auto ReleaseSpawnedTargets = [this]()
 	{
-		if (SpawnedTarget.IsValid() && !SpawnedTarget->IsActorBeingDestroyed() && !SpawnedTarget->Destroy())
+		const auto PreviousTargets = SpawnedCodeBNormalContainerTargets;
+		TArray<TWeakObjectPtr<Ademo_mapCodeBNormalContainerActor>> RemainingTargets;
+		for (const auto& SpawnedTarget : PreviousTargets)
 		{
-			RemainingTargets.Add(SpawnedTarget);
+			if (SpawnedTarget.IsValid() && !SpawnedTarget->IsActorBeingDestroyed() && !SpawnedTarget->Destroy())
+			{
+				RemainingTargets.Add(SpawnedTarget);
+			}
 		}
-	}
-	SpawnedCodeBNormalContainerTargets = MoveTemp(RemainingTargets);
+		SpawnedCodeBNormalContainerTargets = MoveTemp(RemainingTargets);
+		// Partial materialization rollback must retain owners exactly like rebind.
+		if (!SpawnedCodeBNormalContainerTargets.IsEmpty()) return false;
+		CodeBNormalContainerTargets.Reset();
+		return true;
+	};
 	// Do not rediscover a refused runtime owner as if the map owned it instead.
-	if (!SpawnedCodeBNormalContainerTargets.IsEmpty()) return false;
-	CodeBNormalContainerTargets.Reset();
+	if (!ReleaseSpawnedTargets()) return false;
 
 	TMap<FName, Ademo_mapCodeBNormalContainerActor*> ExistingTargets;
 	for (TActorIterator<Ademo_mapCodeBNormalContainerActor> It(GetWorld()); It; ++It)
@@ -7844,17 +7850,13 @@ bool Ademo_mapV3ProgressionManager::InitializeCodeBNormalContainerTarget()
 				UE_LOG(Logdemo_map, Error,
 					TEXT("CODEB_P57_BASIC_CACHE: no safe projection for target=%s anchor=%s."),
 					*TargetIdentity.ToString(), *GCodeBNormalContainerAnchorId.ToString());
-				for (const TWeakObjectPtr<Ademo_mapCodeBNormalContainerActor>& SpawnedTarget
-					: SpawnedCodeBNormalContainerTargets)
-				{
-					if (SpawnedTarget.IsValid()) SpawnedTarget->Destroy();
-				}
-				CodeBNormalContainerTargets.Reset();
-				SpawnedCodeBNormalContainerTargets.Reset();
+				ReleaseSpawnedTargets();
 				return false;
 			}
 			FActorSpawnParameters Params;
 			Params.Name = FName(*FString::Printf(TEXT("M01_CodeBNormalContainer_BasicCache_%02d"), TargetIndex + 1));
+			// MapTargetIdentity is stable; a retired UObject may still occupy its old name.
+			Params.NameMode = FActorSpawnParameters::ESpawnActorNameMode::Requested;
 			Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 			Target = GetWorld()->SpawnActor<Ademo_mapCodeBNormalContainerActor>(
 				Ademo_mapCodeBNormalContainerActor::StaticClass(), Location, Anchor->GetActorRotation(), Params);
@@ -7864,14 +7866,8 @@ bool Ademo_mapV3ProgressionManager::InitializeCodeBNormalContainerTarget()
 			}
 			if (!Target || Target->GetMapTargetIdentity() != TargetIdentity)
 			{
-				if (Target) Target->Destroy();
-				for (const TWeakObjectPtr<Ademo_mapCodeBNormalContainerActor>& SpawnedTarget
-					: SpawnedCodeBNormalContainerTargets)
-				{
-					if (SpawnedTarget.IsValid()) SpawnedTarget->Destroy();
-				}
-				CodeBNormalContainerTargets.Reset();
-				SpawnedCodeBNormalContainerTargets.Reset();
+				if (Target) SpawnedCodeBNormalContainerTargets.AddUnique(Target);
+				ReleaseSpawnedTargets();
 				UE_LOG(Logdemo_map, Error,
 					TEXT("CODEB_P57_BASIC_CACHE: target spawn did not retain identity=%s."),
 					*TargetIdentity.ToString());

@@ -26,6 +26,7 @@
 #include "demo_mapM01EnemyIdentityComponent.h"
 #include "demo_mapM01EnemyTypes.h"
 #include "demo_mapM01ExtractionZone.h"
+#include "demo_mapM01Marker.h"
 #include "demo_mapProfileRepository.h"
 #include "demo_mapProfileSessionSubsystem.h"
 #include "demo_mapPlayerHealthComponent.h"
@@ -3926,6 +3927,67 @@ bool Fdemo_mapManagerWorldDeactivationRetentionTest::RunTest(const FString&)
 		&& IsValid(AuthoredFirst) && IsValid(AuthoredSecond)
 		&& Runtime->GetActiveRunId() == Started.ActiveRunId
 		&& Fixture.Authority->TryCaptureSnapshot(After) && Before == After);
+
+	// Exercise the real partial materialization path, not a pre-filled owner array.
+	// A transient anchor/floor supplies placement; removing that floor after the
+	// first spawn makes the second placement fail without changing formal assets.
+	if (!AuthoredFirst->Destroy() || !AuthoredSecond->Destroy()) return false;
+	auto* CacheAnchor = Scene.World->SpawnActor<Ademo_mapM01Marker>(
+		Ademo_mapM01Marker::StaticClass(), FTransform::Identity, Spawn);
+	if (!CacheAnchor) return false;
+	CacheAnchor->ConfigureLowResourceCluster(TEXT("M01.Resource.TIER_1.Cluster.01"));
+	CacheAnchor->SetActorLocation(FVector(200.0f, 1600.0f, 0.0f));
+	Ademo_mapCodeBNormalContainerActor* PartialCache = nullptr;
+	ENetRole PartialRole = ROLE_None;
+	int32 PartialSpawnCount = 0, PartialReleaseCount = 0;
+	const auto PartialSpawnObserver = Scene.World->AddOnActorSpawnedHandler(FOnActorSpawned::FDelegate::CreateLambda(
+		[&](AActor* Actor)
+		{
+			if (auto* Cache = Cast<Ademo_mapCodeBNormalContainerActor>(Actor))
+			{
+				++PartialSpawnCount;
+				if (!PartialCache)
+				{
+					PartialCache = Cache;
+					PartialRole = Cache->GetLocalRole();
+					Cache->SetRole(ROLE_SimulatedProxy);
+					FloorBox->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+				}
+			}
+		}));
+	const auto PartialDestroyObserver = Scene.World->AddOnActorDestroyedHandler(FOnActorDestroyed::FDelegate::CreateLambda(
+		[&](AActor* Actor) { if (Actor == PartialCache) ++PartialReleaseCount; }));
+	AddExpectedError(TEXT("CODEB_P57_BASIC_CACHE: no safe projection for target="), EAutomationExpectedErrorFlags::Contains, 1);
+	TestFalse(TEXT("Second container placement failure rejects partial generation"), Manager->InitializeCodeBNormalContainerTarget());
+	TestTrue(TEXT("Partial generation rollback preserves its real refused spawned owner"),
+		PartialCache && PartialSpawnCount == 1 && PartialReleaseCount == 0
+		&& Manager->SpawnedCodeBNormalContainerTargets.Num() == 1
+		&& Manager->SpawnedCodeBNormalContainerTargets[0].Get() == PartialCache
+		&& Manager->CodeBNormalContainerTargets.Contains(PartialCache));
+	FloorBox->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	TestFalse(TEXT("Restored placement cannot bypass refused partial-generation release"), Manager->InitializeCodeBNormalContainerTarget());
+	TestTrue(TEXT("Refused generation retry neither respawns nor reclassifies the original owner"),
+		PartialCache && PartialSpawnCount == 1 && PartialReleaseCount == 0
+		&& Manager->SpawnedCodeBNormalContainerTargets.Num() == 1
+		&& Manager->SpawnedCodeBNormalContainerTargets[0].Get() == PartialCache);
+	Scene.World->RemoveOnActorSpawnedHandler(PartialSpawnObserver);
+	const FName PartialObjectName = PartialCache ? PartialCache->GetFName() : NAME_None;
+	if (PartialCache) PartialCache->SetRole(PartialRole);
+	TestTrue(TEXT("Recovered partial generation can materialize a fresh complete pair"), Manager->InitializeCodeBNormalContainerTarget());
+	const auto RecoveredOwners = Manager->SpawnedCodeBNormalContainerTargets;
+	TestTrue(TEXT("Immediate same-world recovery changes occupied object name, not stable target identity"),
+		RecoveredOwners.Num() == 2 && RecoveredOwners[0].IsValid() && RecoveredOwners[1].IsValid()
+		&& RecoveredOwners[0]->GetFName() != PartialObjectName
+		&& RecoveredOwners[0]->GetMapTargetIdentity() == FName(TEXT("M01.CodeBNormalContainer.BasicCache.01"))
+		&& RecoveredOwners[1]->GetMapTargetIdentity() == FName(TEXT("M01.CodeBNormalContainer.BasicCache.02")));
+	TestTrue(TEXT("Recovered generation replay does not replace or release its healthy owners"),
+		Manager->InitializeCodeBNormalContainerTarget() && RecoveredOwners.Num() == 2
+		&& Manager->SpawnedCodeBNormalContainerTargets == RecoveredOwners
+		&& Manager->CodeBNormalContainerTargets.Num() == 2
+		&& !Manager->CodeBNormalContainerTargets.Contains(PartialCache) && PartialReleaseCount == 1
+		&& Runtime->GetActiveRunId() == Started.ActiveRunId
+		&& Fixture.Authority->TryCaptureSnapshot(After) && Before == After);
+	Scene.World->RemoveOnActorDestroyedHandler(PartialDestroyObserver);
 	return true;
 }
 
