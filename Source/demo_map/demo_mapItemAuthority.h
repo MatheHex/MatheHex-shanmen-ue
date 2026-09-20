@@ -9,6 +9,8 @@ struct Fdemo_mapItemAuthorityState
 	TArray<FGuid> InventorySlots;
 	TMap<FName, FGuid> EquipmentSlots;
 	TArray<FGuid> SessionStash;
+	/** Rollback must restore the revision alongside the item values it identifies. */
+	int32 AuthorityRevision = 0;
 };
 
 /** One atomic world-lost spatial item plus the instances that occupied its storage cells. */

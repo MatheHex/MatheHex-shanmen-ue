@@ -1291,6 +1291,40 @@ bool FShanmenPreparedWorldPickupIdentityTest::RunTest(const FString&)
 	if (!TestTrue(TEXT("Transient physics scene creates one real bound World item"),
 		Created.bSuccess && LootActor && Controller->GetPawn() == Scene.Player)) return false;
 	const FGuid LootId = LootActor->GetInstanceId();
+	const auto VerifyRefusedPickup = [&](Ademo_mapWorldItem* Actor)
+	{
+		const FGuid Id = Actor->GetInstanceId();
+		const Fdemo_mapItemInstance BeforeItem = *Runtime->GetAuthority().FindInstance(Id);
+		const auto BeforeSlots = Runtime->GetAuthority().GetInventorySlotSnapshot();
+		const int32 BeforeRevision = Runtime->GetAuthority().GetAuthorityRevision();
+		FShanmenItemAuthoritySnapshot BeforeDurable;
+		TestTrue(TEXT("Pickup refusal starts with a real durable Run"),
+			Fixture.Authority->TryCaptureSnapshot(BeforeDurable) && BeforeRevision > 0);
+		const ENetRole OriginalRole = Actor->GetLocalRole();
+		Actor->SetRole(ROLE_SimulatedProxy);
+		for (int32 Attempt = 0; Attempt < 2; ++Attempt)
+		{
+			const auto Refused = Runtime->PickupWorldItem(Actor, Controller);
+			const auto* Retained = Runtime->GetAuthority().FindInstance(Id);
+			FShanmenItemAuthoritySnapshot AfterDurable;
+			TestTrue(TEXT("World pickup cannot report success when its original Actor refuses release"),
+				!Refused.bSuccess && Refused.Code == Edemo_mapItemResultCode::InvalidWorldBinding);
+			TestTrue(TEXT("Refused pickup preserves its original World owner, quantity and provenance"),
+				IsValid(Actor) && !Actor->IsActorBeingDestroyed() && Actor->GetInstanceId() == Id
+				&& Runtime->IsWorldActorBound(Id, Actor) && Retained
+				&& Retained->OwnershipState == Edemo_mapItemOwnershipState::World
+				&& Retained->Quantity == BeforeItem.Quantity && Retained->DefinitionId == BeforeItem.DefinitionId
+				&& Retained->OwnerId == BeforeItem.OwnerId && Retained->ContainerId == BeforeItem.ContainerId
+				&& Retained->OriginRunId == BeforeItem.OriginRunId && Runtime->ValidateInvariants());
+			TestTrue(TEXT("Refused pickup preserves inventory layout, revision and durable Run"),
+				Runtime->GetAuthority().GetInventorySlotSnapshot() == BeforeSlots
+				&& Runtime->GetAuthority().GetAuthorityRevision() == BeforeRevision
+				&& Runtime->GetActiveRunId() == Started.ActiveRunId
+				&& Fixture.Authority->TryCaptureSnapshot(AfterDurable) && BeforeDurable == AfterDurable);
+		}
+		Actor->SetRole(OriginalRole);
+	};
+	VerifyRefusedPickup(LootActor);
 	const auto Picked = Runtime->PickupWorldItem(LootActor, Controller);
 	const auto* Original = Runtime->GetAuthority().FindInstance(Fixture.DustId);
 	const auto* Loot = Runtime->GetAuthority().FindInstance(LootId);
@@ -1307,6 +1341,33 @@ bool FShanmenPreparedWorldPickupIdentityTest::RunTest(const FString&)
 		Original && Original->Quantity == 3 && !Original->OriginRunId.IsValid()
 		&& Loot && Loot->Quantity == 1 && Loot->OriginRunId == Started.ActiveRunId
 		&& Runtime->GetDeployedItemIds().Contains(Fixture.DustId));
+	Ademo_mapWorldItem* MergeActor = nullptr;
+	if (!Runtime->CreateWorldItem(Scene.World, Fdemo_mapItemIds::SpiritDust, 2,
+		FVector(100.0f, 0.0f, 0.0f), MergeActor).bSuccess || !MergeActor) return false;
+	const FGuid MergeId = MergeActor->GetInstanceId();
+	int32 DestroyedMerge = 0;
+	const auto Observer = Scene.World->AddOnActorDestroyedHandler(FOnActorDestroyed::FDelegate::CreateLambda(
+		[&](AActor* Actor) { if (Actor == MergeActor) ++DestroyedMerge; }));
+	VerifyRefusedPickup(MergeActor);
+	Loot = Runtime->GetAuthority().FindInstance(LootId);
+	TestTrue(TEXT("Refused merged pickup restores the existing nonzero target stack"),
+		Loot && Loot->Quantity == 1 && Loot->OriginRunId == Started.ActiveRunId && DestroyedMerge == 0);
+	const auto Merged = Runtime->PickupWorldItem(MergeActor, Controller);
+	Loot = Runtime->GetAuthority().FindInstance(LootId);
+	const auto* Retired = Runtime->GetAuthority().FindInstance(MergeId);
+	Original = Runtime->GetAuthority().FindInstance(Fixture.DustId);
+	TestTrue(TEXT("Same-object retry commits the merge once and releases only its World projection"),
+		Merged.bSuccess && DestroyedMerge == 1 && !Runtime->IsWorldActorBound(MergeId, MergeActor)
+		&& Loot && Loot->Quantity == 3 && Loot->OriginRunId == Started.ActiveRunId
+		&& Retired && Retired->OwnershipState == Edemo_mapItemOwnershipState::Destroyed
+		&& Original && Original->Quantity == 3 && !Original->OriginRunId.IsValid()
+		&& Runtime->ValidateInvariants());
+	const int32 MergedRevision = Runtime->GetAuthority().GetAuthorityRevision();
+	TestTrue(TEXT("Retired projection replay cannot repeat the merge or release"),
+		!Runtime->PickupWorldItem(MergeActor, Controller).bSuccess && DestroyedMerge == 1
+		&& Runtime->GetAuthority().GetAuthorityRevision() == MergedRevision
+		&& Runtime->GetAuthority().FindInstance(LootId)->Quantity == 3);
+	Scene.World->RemoveOnActorDestroyedHandler(Observer);
 	Fdemo_mapSettlementSummary Summary;
 	TestTrue(TEXT("Unedited World-path extraction reaches durable finalization"),
 		Runtime->RequestSettlement(Edemo_mapRunEndReason::Extraction, Summary).bSuccess

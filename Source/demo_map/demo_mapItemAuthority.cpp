@@ -270,7 +270,7 @@ FGuid Fdemo_mapItemAuthority::GenerateUniqueInstanceId() const
 
 Fdemo_mapItemAuthorityState Fdemo_mapItemAuthority::CaptureState() const
 {
-	return { Instances, InventorySlots, EquipmentSlots, SessionStash };
+	return { Instances, InventorySlots, EquipmentSlots, SessionStash, AuthorityRevision };
 }
 
 void Fdemo_mapItemAuthority::RestoreState(const Fdemo_mapItemAuthorityState& State)
@@ -279,6 +279,7 @@ void Fdemo_mapItemAuthority::RestoreState(const Fdemo_mapItemAuthorityState& Sta
 	InventorySlots = State.InventorySlots;
 	EquipmentSlots = State.EquipmentSlots;
 	SessionStash = State.SessionStash;
+	AuthorityRevision = State.AuthorityRevision;
 }
 
 Fdemo_mapItemOperationResult Fdemo_mapItemAuthority::MaterializeDeployedInstance(

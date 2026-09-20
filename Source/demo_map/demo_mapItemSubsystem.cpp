@@ -2252,9 +2252,15 @@ Fdemo_mapItemOperationResult Udemo_mapItemSubsystem::PickupWorldItem(Ademo_mapWo
 	{
 		Authority.RestoreState(Before);
 		WorldActors.Add(InstanceId, Actor);
-		return Fdemo_mapItemOperationResult::Failure(Edemo_mapItemResultCode::InvariantViolation, Error, InstanceId, Instance->DefinitionId);
+		return Fdemo_mapItemOperationResult::Failure(Edemo_mapItemResultCode::InvariantViolation, Error, InstanceId, Result.RelatedDefinitionId);
 	}
-	Actor->Destroy();
+	if (!Actor->Destroy())
+	{
+		Authority.RestoreState(Before);
+		WorldActors.Add(InstanceId, Actor);
+		return Fdemo_mapItemOperationResult::Failure(Edemo_mapItemResultCode::InvalidWorldBinding,
+			TEXT("World item release was refused; pickup was rolled back."), InstanceId, Result.RelatedDefinitionId);
+	}
 	return Result;
 }
 
