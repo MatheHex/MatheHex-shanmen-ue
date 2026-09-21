@@ -1,6 +1,6 @@
 # 0.0.10 底层契约、权威与生命周期索引
 
-状态：`FREEZE_AUDIT_IN_PROGRESS`，不是整体冻结或 F 阶段验收。初版 P28.0，2026-09-16；最近完整产品根验证为 [P28.26](../Report/Dev.D.UE.0.0.10.P28.26.r0_report.md)，于 2026-09-21 完成新根1430/0、旧根1330/0、双构建及最终覆盖核验（UTC）。P28.1—26的路由、携入身份、分层拒绝保持、终局续清理与物品/容器World证据见第4节；P28.26闭合旧空间包续清理与已释放成员独立新投影的归属隔离。后续审计只更新有限清单，不因“继续”无限追加系统。
+状态：`FREEZE_AUDIT_IN_PROGRESS`，不是整体冻结或 F 阶段验收。初版 P28.0，2026-09-16；最近完整产品根验证为 [P28.26](../Report/Dev.D.UE.0.0.10.P28.26.r0_report.md)，于 2026-09-21 完成新根1430/0、旧根1330/0、双构建及最终覆盖核验（UTC）。P28.1—26的路由、携入身份、分层拒绝保持、终局续清理与物品/容器World证据见第4节；P28.26闭合旧空间包续清理与已释放成员独立新投影的归属隔离。最新 [P28.27](../Report/Dev.D.UE.0.0.10.P28.27.r0_report.md)为旧兼容终局可达性审计，源码零改动、专项17/0，不冒充新的完整根验证。后续审计只更新有限清单，不因“继续”无限追加系统。
 
 ## 1. 范围来源与非目标
 
@@ -105,7 +105,9 @@ P28.25沿Manager确认丢弃→Runtime.DiscardSpatialItemBundle复现：第三�
 
 P28.26沿Manager普通库存丢弃→Runtime.DropPlayerItemToWorld复现：旧空间包一项投影仍拒绝释放，其他成员已回收并释放；已释放成员再次独立丢弃，却被历史成员列表的归属验证拒绝。现在旧回执的范围、释放、不变量及最后成员收尾只遍历仍精确归属原BundleId的成员，独立新对象继续由正常World权威与绑定验证。既有PreparedWorldPickupIdentity追加独立新投影、两次旧清理拒绝、原包完成且不干扰新对象、新对象沿普通拾取恰好一次、非零修订/携入三单位/持久Run保持；实际Red0/1转为专项1/0、7/0、5/0、完整新根1430/0、旧根1330/0、双构建、五路径3必跑组及537项映射自检通过，共2760独立成功用例。生产13新增/3删除、测试77新增，无新API/schema/权威/恢复字段/故障端口或注册测试。见 [P28.26 Report](../Report/Dev.D.UE.0.0.10.P28.26.r0_report.md) / [Log](../Log/Dev.D.UE.0.0.10.P28.26.r0_log.md)。首次缺头文件构建错误单独保留，不冒充产品Red；后续隔离/完成变体没有独立Red，范围筛选未单独做远距离反例，不替代所有重入、强制EndPlay或跨进程恢复。
 
-剩余FZ-2限定为其余调用点与可达性：其余容器入口与尚未专项注入的生成失败分支、旧兼容终局物品释放、空间包其他未覆盖的生成/释放变体、其他灵石/敌人释放调用点、撤离其他调用点与局部生成失败及强制EndPlay次序尚未全部取证。P28.13证明持久Run仍活动时直接Manager去激活的Teardown拒绝保持；P28.14证明Shanmen正常Manager终局的直接/延迟持久成功两类World-only续接；P28.15证明既有技术激活回滚/保留attempt路径的散落物拒绝续接。P28.16另核对外部RunLifecycleAdapter.StartPreparedRun当前非测试调用方为ProfilePreparationFlow，Flow已有Settled且残留WorldActorCount的先行拒绝，因此未凭Adapter内部次序单独认定可达新故障或扩充接口；其他激活失败入口仍需取证。P28.11/12证明上游清理次序和终局LootChest拒绝保持，不证明容器内容跨终局原子保持。P28.9/10完成端口与两种持久成功路径不等于全部World路径已实测，IsDurablySettled也不等于World释放已完成。P28.6的既有启动尝试友元绑定及P28.7—25瞬态World测试均不替代正式M01 BeginActivation/玩家流程，不证明所有清理均原子化。后续先核对现有调用条件，再决定最小修复；不得据本段扩充通用恢复系统。
+P28.27完成旧兼容终局正常入口可达性分类：成功初始化且尚未进入EndPlay的V3 Manager，无显式旧自动化标志时选择ProductionProfile并保持Flow，终局在Profile分支返回，不进入旧定时ReloadAfterSettlement；显式LegacyAutomation仍可达旧分支。六处非终止Flow.Reset均为非Shipping自动化初始化失败并立即返回，EndPlay的Reset另列边界。选择器本身仍接受Legacy输入，Manager标志来源的Shipping结论仅静态审阅，未构建Shipping。源码零改动，已有启动专项17/0、双Development构建检查原生0/0且均up-to-date；完整双根明确复用P28.26输入一致证据。见 [P28.27 Report](../Report/Dev.D.UE.0.0.10.P28.27.r0_report.md) / [Log](../Log/Dev.D.UE.0.0.10.P28.27.r0_log.md)。旧Smoke/地图卸载未验收，强制EndPlay仍开放，不把路由排除称为修复或完整动态产品证明。
+
+剩余FZ-2限定为其余调用点与可达性：其余容器入口与尚未专项注入的生成失败分支、空间包其他未覆盖的生成/释放变体、其他灵石/敌人释放调用点、撤离其他调用点与局部生成失败及强制EndPlay次序尚未全部取证。旧兼容终局已按P28.27区分正常产品入口与显式旧自动化，不再以未分类名称重复立项；其旧Smoke和强制卸载不在已通过结论内。P28.13证明持久Run仍活动时直接Manager去激活的Teardown拒绝保持；P28.14证明Shanmen正常Manager终局的直接/延迟持久成功两类World-only续接；P28.15证明既有技术激活回滚/保留attempt路径的散落物拒绝续接。P28.16另核对外部RunLifecycleAdapter.StartPreparedRun当前非测试调用方为ProfilePreparationFlow，Flow已有Settled且残留WorldActorCount的先行拒绝，因此未凭Adapter内部次序单独认定可达新故障或扩充接口；其他激活失败入口仍需取证。P28.11/12证明上游清理次序和终局LootChest拒绝保持，不证明容器内容跨终局原子保持。P28.9/10完成端口与两种持久成功路径不等于全部World路径已实测，IsDurablySettled也不等于World释放已完成。P28.6的既有启动尝试友元绑定及P28.7—26瞬态World测试均不替代正式M01 BeginActivation/玩家流程，不证明所有清理均原子化。后续先核对现有调用条件，再决定最小修复；不得据本段扩充通用恢复系统。
 
 ## 5. 与冻结分开的债务
 
@@ -116,6 +118,8 @@ P28.26沿Manager普通库存丢弃→Runtime.DropPlayerItemToWorld复现：旧�
 - **维护：** 历史巨型产品类与长恢复链优先使用可检索入口，只有真实结构缺口才改动，不为降低文件行数进行无需求重构。
 
 ## 6. 证据与文档入口
+
+- 最新可达性审计：[P28.27 Report](../Report/Dev.D.UE.0.0.10.P28.27.r0_report.md)、[Log](../Log/Dev.D.UE.0.0.10.P28.27.r0_log.md)：仅三份文档，启动专项17/0、双Development构建检查up-to-date且原生0/0；完整根复用下列P28.26，不是整体冻结。
 
 - 最近完整产品验证：[P28.26 Report](../Report/Dev.D.UE.0.0.10.P28.26.r0_report.md)、[Log](../Log/Dev.D.UE.0.0.10.P28.26.r0_log.md)：本阶段新根1430/0、旧根1330/0、双构建原生0/0，精确5路径映射覆盖3个必跑组，2760个独立成功用例；首次构建错误及实际Red原件保留。阶段闭合旧空间包续清理与成员独立新World投影的归属隔离，不是FZ-1/2关闭后的最终冻结验证。
 
