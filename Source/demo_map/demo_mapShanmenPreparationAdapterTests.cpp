@@ -1371,6 +1371,84 @@ bool FShanmenPreparedWorldPickupIdentityTest::RunTest(const FString&)
 	Scene.World->RemoveOnActorDestroyedHandler(Observer);
 	TArray<FGuid> Fillers;
 	if (!Runtime->AddDefinition(Fdemo_mapItemIds::TrainingBlade, 6, &Fillers).bSuccess) return false;
+	// Exercise a real partial spawn failure through the engine's existing World
+	// teardown guard. This is an isolated refusal fixture, not full World shutdown.
+	for (const bool bRefuseRollback : { true, false })
+	{
+		const auto BeforeSlots = Runtime->GetAuthority().GetInventorySlotSnapshot();
+		const int32 BeforeRevision = Runtime->GetAuthority().GetAuthorityRevision();
+		FShanmenItemAuthoritySnapshot BeforeDurable;
+		if (!Fixture.Authority->TryCaptureSnapshot(BeforeDurable)) return false;
+		TArray<Ademo_mapWorldItem*> PartialActors;
+		ENetRole OriginalRole = ROLE_None;
+		int32 Released = 0;
+		const auto SpawnObserver = Scene.World->AddOnActorSpawnedHandler(FOnActorSpawned::FDelegate::CreateLambda(
+			[&](AActor* Actor)
+			{
+				if (auto* Item = Cast<Ademo_mapWorldItem>(Actor))
+				{
+					PartialActors.Add(Item);
+					if (PartialActors.Num() == 2)
+					{
+						OriginalRole = Item->GetLocalRole();
+						if (bRefuseRollback) Item->SetRole(ROLE_SimulatedProxy);
+						Scene.World->bIsTearingDown = true;
+					}
+				}
+			}));
+		const auto DestroyObserver = Scene.World->AddOnActorDestroyedHandler(FOnActorDestroyed::FDelegate::CreateLambda(
+			[&](AActor* Actor) { if (PartialActors.Contains(Actor)) ++Released; }));
+		Fdemo_mapSpatialDiscardBundle FailedBundle;
+		TArray<Ademo_mapWorldItem*> FailedActors;
+		const auto Failed = Runtime->DiscardSpatialItemBundle(Scene.Player, FailedBundle, FailedActors);
+		Scene.World->bIsTearingDown = false;
+		Scene.World->RemoveOnActorSpawnedHandler(SpawnObserver);
+		const auto Unchanged = [&]()
+		{
+			FShanmenItemAuthoritySnapshot AfterDurable;
+			const auto* Dust = Runtime->GetAuthority().FindInstance(Fixture.DustId);
+			return Runtime->GetAuthority().GetInventorySlotSnapshot() == BeforeSlots
+				&& BeforeRevision > 0 && Runtime->GetAuthority().GetAuthorityRevision() == BeforeRevision
+				&& Runtime->GetAuthority().GetEquippedInstance(Fdemo_mapItemIds::BackpackSlot) == Fixture.BackpackId
+				&& Dust && Dust->Quantity == 3 && Runtime->GetActiveRunId() == Started.ActiveRunId
+				&& Fixture.Authority->TryCaptureSnapshot(AfterDurable) && BeforeDurable == AfterDurable;
+		};
+		TestTrue(TEXT("Third spatial spawn refusal restores original nonzero item authority"),
+			!Failed.bSuccess && Failed.Code == Edemo_mapItemResultCode::WorldActorSpawnFailed
+			&& PartialActors.Num() == 2 && !FailedBundle.IsValid() && FailedActors.IsEmpty() && Unchanged());
+		Ademo_mapWorldItem* Refused = PartialActors.Num() == 2 ? PartialActors[1] : nullptr;
+		if (bRefuseRollback)
+		{
+			const bool bRetained = TestTrue(TEXT("Partial spatial spawn rollback retains its original refused projection"),
+				Refused && Released == 1 && Runtime->GetWorldActorCount() == 1
+				&& Runtime->IsWorldActorBound(Refused->GetInstanceId(), Refused)
+				&& Runtime->IsSpatialRecoveryPending(Refused->GetInstanceId()) && Runtime->ValidateInvariants());
+			if (!bRetained)
+			{
+				if (Refused) { Refused->SetRole(OriginalRole); Refused->Destroy(); }
+				Scene.World->RemoveOnActorDestroyedHandler(DestroyObserver);
+				return false;
+			}
+			for (int32 Attempt = 0; Attempt < 2; ++Attempt)
+			{
+				TestTrue(TEXT("Discard rollback continuation never repeats item recovery or the released prefix"),
+					!Refused->RequestInteract(Controller).bSuccess && Released == 1
+					&& Runtime->IsWorldActorBound(Refused->GetInstanceId(), Refused)
+					&& Unchanged() && Runtime->ValidateInvariants());
+			}
+			TestTrue(TEXT("A failed spatial generation cannot bypass pending rollback with a fresh discard"),
+				!Runtime->DiscardSpatialItemBundle(Scene.Player, FailedBundle, FailedActors).bSuccess
+				&& FailedActors.IsEmpty() && !FailedBundle.IsValid() && Released == 1 && Unchanged());
+			Refused->SetRole(OriginalRole);
+			TestTrue(TEXT("Original failed-generation projection releases exactly once after refusal ends"),
+				Refused->RequestInteract(Controller).bSuccess && Released == 2 && Unchanged());
+		}
+		TestTrue(TEXT("Completed spatial rollback clears projections without touching restored item state"),
+			Released == 2 && Runtime->GetWorldActorCount() == 0 && Unchanged() && Runtime->ValidateInvariants()
+			&& Refused && !Runtime->IsSpatialRecoveryPending(Refused->GetInstanceId())
+			&& !Runtime->FindSpatialBundleId(Refused->GetInstanceId()).IsValid());
+		Scene.World->RemoveOnActorDestroyedHandler(DestroyObserver);
+	}
 	Fdemo_mapSpatialDiscardBundle Bundle;
 	TArray<Ademo_mapWorldItem*> BundleActors;
 	if (!TestTrue(TEXT("Real spatial discard creates bag plus two overflow projections"),

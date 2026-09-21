@@ -2535,16 +2535,43 @@ Fdemo_mapItemOperationResult Udemo_mapItemSubsystem::DiscardSpatialItemBundle(
 
 	auto Rollback = [&]()
 	{
+		// Restore logical ownership before releasing projections so EndPlay cannot
+		// retire restored items. Reuse the same World-only continuation as pickup.
+		Authority.RestoreState(Before);
+		SynchronizeEquipmentModifiers();
+		const FGuid BundleId = OutBundle.BundleId;
+		SpatialDiscardBundles.Add(BundleId, OutBundle);
+		PendingSpatialRecoveries.Add(BundleId, Fdemo_mapItemOperationResult::Success(
+			Result.RelatedInstanceId, Result.RelatedDefinitionId, Result.RelatedSlotId));
+		for (Ademo_mapWorldItem* Actor : OutActors)
+		{
+			if (IsValid(Actor)) SpatialBundleByInstance.Add(Actor->GetInstanceId(), BundleId);
+		}
+		bool bReleased = true;
 		for (int32 Index = 0; Index < OutActors.Num(); ++Index)
 		{
 			Ademo_mapWorldItem* Actor = OutActors[Index];
-			RemoveWorldBinding(InstanceIds[Index], Actor);
-			if (IsValid(Actor)) Actor->Destroy();
+			if (IsValid(Actor) && !Actor->IsActorBeingDestroyed() && !Actor->Destroy())
+			{
+				bReleased = false;
+				continue;
+			}
+			// Accepted Destroy can invalidate the weak binding before EndPlay is
+			// observed in an unstarted World. Release by the owned instance id.
+			RemoveWorldBinding(InstanceIds[Index]);
+		}
+		if (bReleased)
+		{
+			for (const FGuid Id : InstanceIds)
+			{
+				if (FindSpatialBundleId(Id) == BundleId) SpatialBundleByInstance.Remove(Id);
+			}
+			PendingSpatialRecoveries.Remove(BundleId);
+			SpatialDiscardBundles.Remove(BundleId);
 		}
 		OutActors.Reset();
-		Authority.RestoreState(Before);
-		SynchronizeEquipmentModifiers();
 		OutBundle = Fdemo_mapSpatialDiscardBundle();
+		return bReleased;
 	};
 
 	for (int32 Index = 0; Index < InstanceIds.Num(); ++Index)
@@ -2552,10 +2579,11 @@ Fdemo_mapItemOperationResult Udemo_mapItemSubsystem::DiscardSpatialItemBundle(
 		Ademo_mapWorldItem* Actor = SpawnBoundWorldActor(Pawn->GetWorld(), InstanceIds[Index], SafeLocations[Index]);
 		if (!Actor)
 		{
-			Rollback();
+			const bool bReleased = Rollback();
 			return Fdemo_mapItemOperationResult::Failure(
 				Edemo_mapItemResultCode::WorldActorSpawnFailed,
-				TEXT("Spatial discard actor projection failed; all ownership was restored."));
+				bReleased ? TEXT("Spatial discard actor projection failed; ownership restored and projections released.")
+					: TEXT("Spatial discard ownership restored; original projection release remains pending."));
 		}
 		OutActors.Add(Actor);
 	}
@@ -2568,11 +2596,10 @@ Fdemo_mapItemOperationResult Udemo_mapItemSubsystem::DiscardSpatialItemBundle(
 	FString Error;
 	if (!ValidateInvariants(&Error))
 	{
-		ClearSpatialBundleTracking();
-		Rollback();
+		const bool bReleased = Rollback();
 		return Fdemo_mapItemOperationResult::Failure(
 			Edemo_mapItemResultCode::InvariantViolation,
-			Error);
+			bReleased ? Error : Error + TEXT(" Original spatial projection release remains pending."));
 	}
 	return Result;
 }

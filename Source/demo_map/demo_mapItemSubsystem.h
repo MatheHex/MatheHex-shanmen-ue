@@ -225,7 +225,7 @@ private:
 	TMap<FGuid, TWeakObjectPtr<Ademo_mapWorldItem>> WorldActors;
 	TMap<FGuid, Fdemo_mapSpatialDiscardBundle> SpatialDiscardBundles;
 	TMap<FGuid, FGuid> SpatialBundleByInstance;
-	/** Accepted logical recovery receipts, only until their original projections release. */
+	/** Items returned by recovery or discard rollback; receipts last only until original projections release. */
 	TMap<FGuid, Fdemo_mapItemOperationResult> PendingSpatialRecoveries;
 	Edemo_mapRunState RunState = Edemo_mapRunState::Inactive;
 	FGuid ActiveRunId;
