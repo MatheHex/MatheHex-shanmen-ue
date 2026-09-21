@@ -1260,7 +1260,8 @@ bool FShanmenPreparedWorldPickupIdentityTest::RunTest(const FString&)
 {
 	FPreparationAdapterFixture Fixture;
 	if (!Fixture.StartAndCutover(*this, TEXT("PreparedWorldPickupIdentity"))
-		|| !Fixture.Session->SetPreparationMaterial(Fixture.DustId, true).IsAccepted()) return false;
+		|| !Fixture.Session->SetPreparationMaterial(Fixture.DustId, true).IsAccepted()
+		|| !Fixture.Session->SetPreparationEquipment(Fdemo_mapItemIds::BackpackSlot, Fixture.BackpackId).IsAccepted()) return false;
 	Udemo_mapItemSubsystem* Runtime = Fixture.GameInstance->GetSubsystem<Udemo_mapItemSubsystem>();
 	if (!Runtime) return false;
 	const auto Started = Fdemo_mapShanmenRunLifecycleAdapter::StartPreparedRun(*Fixture.Authority, *Runtime);
@@ -1368,11 +1369,102 @@ bool FShanmenPreparedWorldPickupIdentityTest::RunTest(const FString&)
 		&& Runtime->GetAuthority().GetAuthorityRevision() == MergedRevision
 		&& Runtime->GetAuthority().FindInstance(LootId)->Quantity == 3);
 	Scene.World->RemoveOnActorDestroyedHandler(Observer);
+	TArray<FGuid> Fillers;
+	if (!Runtime->AddDefinition(Fdemo_mapItemIds::TrainingBlade, 6, &Fillers).bSuccess) return false;
+	Fdemo_mapSpatialDiscardBundle Bundle;
+	TArray<Ademo_mapWorldItem*> BundleActors;
+	if (!TestTrue(TEXT("Real spatial discard creates bag plus two overflow projections"),
+		Runtime->DiscardSpatialItemBundle(Scene.Player, Bundle, BundleActors).bSuccess
+		&& BundleActors.Num() == 3 && Bundle.SpatialItemInstanceId == Fixture.BackpackId
+		&& Runtime->ValidateInvariants())) return false;
+	Ademo_mapWorldItem* RefusedActor = BundleActors[1];
+	const FGuid RefusedId = RefusedActor->GetInstanceId();
+	const ENetRole BundleRole = RefusedActor->GetLocalRole();
+	RefusedActor->SetRole(ROLE_SimulatedProxy);
+	int32 ReleasedMembers = 0;
+	const auto BundleObserver = Scene.World->AddOnActorDestroyedHandler(FOnActorDestroyed::FDelegate::CreateLambda(
+		[&](AActor* Actor) { if (BundleActors.Contains(Actor)) ++ReleasedMembers; }));
+	FShanmenItemAuthoritySnapshot DurableBeforeBundle;
+	TestTrue(TEXT("Spatial recovery starts against the original durable Run"),
+		Fixture.Authority->TryCaptureSnapshot(DurableBeforeBundle));
+	const int32 BeforeBundleRevision = Runtime->GetAuthority().GetAuthorityRevision();
+	int32 RecoveredRevision = 0;
+	for (int32 Attempt = 0; Attempt < 2; ++Attempt)
+	{
+		const auto Recover = RefusedActor->RequestInteract(Controller);
+		TestTrue(TEXT("Partial spatial release cannot report whole-operation success"),
+			!Recover.bSuccess && Recover.Code == Edemo_mapItemResultCode::InvalidWorldBinding);
+		TestTrue(TEXT("Partial spatial release keeps only original refused owner and callable continuation"),
+			ReleasedMembers == 2 && Runtime->GetWorldActorCount() == 1
+			&& Runtime->IsWorldActorBound(RefusedId, RefusedActor)
+			&& Runtime->FindSpatialBundleId(RefusedId) == Bundle.BundleId
+			&& RefusedActor->CanInteract(Controller) && Runtime->ValidateInvariants());
+		if (Attempt == 0) RecoveredRevision = Runtime->GetAuthority().GetAuthorityRevision();
+		FShanmenItemAuthoritySnapshot DurableAfterBundle;
+		TestTrue(TEXT("Repeated World-only recovery keeps committed items and durable Run unchanged"),
+			RecoveredRevision > BeforeBundleRevision
+			&& Runtime->GetAuthority().GetAuthorityRevision() == RecoveredRevision
+			&& Runtime->GetAuthority().GetEquippedInstance(Fdemo_mapItemIds::BackpackSlot) == Fixture.BackpackId
+			&& Runtime->GetAuthority().GetUsedInventorySlots() == 8
+			&& Runtime->GetAuthority().FindInstance(Fixture.DustId)->Quantity == 3
+			&& Runtime->GetActiveRunId() == Started.ActiveRunId
+			&& Fixture.Authority->TryCaptureSnapshot(DurableAfterBundle) && DurableBeforeBundle == DurableAfterBundle);
+	}
+	Fdemo_mapSpatialDiscardBundle CompetingBundle;
+	TArray<Ademo_mapWorldItem*> CompetingActors;
+	TestTrue(TEXT("A refused spatial projection cannot be rebound into a new discard"),
+		!Runtime->DiscardSpatialItemBundle(Scene.Player, CompetingBundle, CompetingActors).bSuccess
+		&& !CompetingBundle.BundleId.IsValid() && CompetingActors.IsEmpty()
+		&& Runtime->GetAuthority().GetAuthorityRevision() == RecoveredRevision);
+	RefusedActor->SetRole(BundleRole);
+	const auto Continued = RefusedActor->RequestInteract(Controller);
+	TestTrue(TEXT("Original spatial continuation releases once without repeating logical recovery"),
+		Continued.bSuccess && ReleasedMembers == 3 && Runtime->GetWorldActorCount() == 0
+		&& !Runtime->FindSpatialBundleId(RefusedId).IsValid()
+		&& Runtime->GetAuthority().GetAuthorityRevision() == RecoveredRevision && Runtime->ValidateInvariants());
+	TestTrue(TEXT("Completed spatial replay cannot re-equip or release a second time"),
+		!Runtime->RecoverSpatialItemBundle(Bundle.BundleId, Controller).bSuccess
+		&& ReleasedMembers == 3 && Runtime->GetAuthority().GetAuthorityRevision() == RecoveredRevision);
+	Scene.World->RemoveOnActorDestroyedHandler(BundleObserver);
+	// A new bundle is legal after release. Its accepted items may settle while
+	// a refused projection remains owned by the existing World teardown port.
+	if (!TestTrue(TEXT("Completed release permits a fresh spatial discard"),
+		Runtime->DiscardSpatialItemBundle(Scene.Player, Bundle, BundleActors).bSuccess
+		&& BundleActors.Num() == 3)) return false;
+	RefusedActor = BundleActors[1];
+	const FGuid TerminalRefusedId = RefusedActor->GetInstanceId();
+	const ENetRole TerminalRole = RefusedActor->GetLocalRole();
+	RefusedActor->SetRole(ROLE_SimulatedProxy);
+	ReleasedMembers = 0;
+	const auto TerminalObserver = Scene.World->AddOnActorDestroyedHandler(FOnActorDestroyed::FDelegate::CreateLambda(
+		[&](AActor* Actor) { if (BundleActors.Contains(Actor)) ++ReleasedMembers; }));
+	TestTrue(TEXT("Terminal variant retains one refused projection after logical recovery"),
+		!RefusedActor->RequestInteract(Controller).bSuccess
+		&& ReleasedMembers == 2 && Runtime->IsSpatialRecoveryPending(TerminalRefusedId));
 	Fdemo_mapSettlementSummary Summary;
 	TestTrue(TEXT("Unedited World-path extraction reaches durable finalization"),
 		Runtime->RequestSettlement(Edemo_mapRunEndReason::Extraction, Summary).bSuccess
 		&& Fdemo_mapShanmenRunLifecycleAdapter::FinalizeSettlement(*Fixture.Authority, Summary).IsFinalized());
-	Runtime->TeardownWorld(Scene.World);
+	FShanmenItemAuthoritySnapshot SettledDurable;
+	TestTrue(TEXT("Terminal keeps recovered spatial goods secured and original World owner visible"),
+		Summary.bValid && Summary.LostItemCount == 0
+		&& Fixture.Authority->TryCaptureSnapshot(SettledDurable)
+		&& Runtime->IsWorldActorBound(TerminalRefusedId, RefusedActor) && Runtime->ValidateInvariants());
+	const int32 SettledRevision = Runtime->GetAuthority().GetAuthorityRevision();
+	TestTrue(TEXT("Teardown refusal cannot repeat logical settlement or lose pending spatial owner"),
+		!Runtime->TeardownWorld(Scene.World) && ReleasedMembers == 2
+		&& Runtime->IsWorldActorBound(TerminalRefusedId, RefusedActor)
+		&& Runtime->GetAuthority().GetAuthorityRevision() == SettledRevision && Runtime->ValidateInvariants());
+	RefusedActor->SetRole(TerminalRole);
+	FShanmenItemAuthoritySnapshot AfterReleaseDurable;
+	TestTrue(TEXT("Original terminal teardown releases once and preserves secured authority"),
+		Runtime->TeardownWorld(Scene.World) && ReleasedMembers == 3 && Runtime->GetWorldActorCount() == 0
+		&& !Runtime->IsSpatialRecoveryPending(TerminalRefusedId)
+		&& !Runtime->FindSpatialBundleId(TerminalRefusedId).IsValid()
+		&& Runtime->GetAuthority().GetAuthorityRevision() == SettledRevision
+		&& Fixture.Authority->TryCaptureSnapshot(AfterReleaseDurable) && SettledDurable == AfterReleaseDurable
+		&& Runtime->ValidateInvariants());
+	Scene.World->RemoveOnActorDestroyedHandler(TerminalObserver);
 	Scene.Stop();
 	return true;
 }

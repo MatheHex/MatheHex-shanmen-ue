@@ -6971,6 +6971,22 @@ try
             -Paths @($PreparedRunPath) -Logs @($ProfileFlowLegacy, $PreparedRunNewRoot)
     }
 
+    $WorldProjection = New-AutomationLogFixture -Name 'world-projection.log' -Group 'demo_map.V3.WorldInteraction'
+    $SpatialBundle = New-AutomationLogFixture -Name 'spatial-bundle.log' -Group 'demo_map.M01Extraction'
+    foreach ($ProjectionPath in @(
+            'Source/demo_map/demo_mapWorldItem.cpp',
+            'Source/demo_map/demo_mapWorldItem.h'))
+    {
+        Invoke-ExpectedPass -Name "World item projection includes lifecycle and both authority generations: $ProjectionPath" `
+            -Paths @($ProjectionPath) -Logs @($WorldProjection, $SpatialBundle, $Full)
+        Invoke-ExpectedFail -Name "World item projection cannot discard spatial recovery regression: $ProjectionPath" `
+            -Paths @($ProjectionPath) -Logs @($WorldProjection, $Full) -ExpectedText 'missing required groups'
+        Invoke-ExpectedFail -Name "World item projection cannot discard interaction regression: $ProjectionPath" `
+            -Paths @($ProjectionPath) -Logs @($SpatialBundle, $Full) -ExpectedText 'missing required groups'
+        Invoke-ExpectedFail -Name "World item projection cannot discard new item authority regression: $ProjectionPath" `
+            -Paths @($ProjectionPath) -Logs @($WorldProjection, $SpatialBundle) -ExpectedText 'missing required groups'
+    }
+
     Write-Output (
         'SELF_TEST: PASS {0}/{0}' -f $script:SelfTestPassCount)
 }

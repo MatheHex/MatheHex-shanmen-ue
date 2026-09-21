@@ -2231,6 +2231,10 @@ Fdemo_mapItemOperationResult Udemo_mapItemSubsystem::PickupWorldItem(Ademo_mapWo
 {
 	if (!IsValid(Actor)) return Fdemo_mapItemOperationResult::Failure(Edemo_mapItemResultCode::InvalidWorldBinding, TEXT("World Item actor is invalid."));
 	const FGuid InstanceId = Actor->GetInstanceId();
+	if (IsSpatialRecoveryPending(InstanceId) && IsWorldActorBound(InstanceId, Actor))
+	{
+		return RecoverSpatialItemBundle(FindSpatialBundleId(InstanceId), Controller);
+	}
 	const Fdemo_mapItemInstance* Instance = Authority.FindInstance(InstanceId);
 	if (Instance == nullptr || Instance->OwnershipState != Edemo_mapItemOwnershipState::World) return Fdemo_mapItemOperationResult::Failure(Edemo_mapItemResultCode::AlreadyClaimed, TEXT("World item was already claimed."), InstanceId);
 	if (!IsWorldActorBound(InstanceId, Actor)) return Fdemo_mapItemOperationResult::Failure(Edemo_mapItemResultCode::InvalidWorldBinding, TEXT("Actor and world instance binding do not match."), InstanceId, Instance->DefinitionId);
@@ -2465,6 +2469,11 @@ Fdemo_mapItemOperationResult Udemo_mapItemSubsystem::DiscardSpatialItemBundle(
 {
 	OutBundle = Fdemo_mapSpatialDiscardBundle();
 	OutActors.Reset();
+	if (!PendingSpatialRecoveries.IsEmpty())
+	{
+		return Fdemo_mapItemOperationResult::Failure(Edemo_mapItemResultCode::InvalidWorldBinding,
+			TEXT("Spatial discard must wait for the original recovered projections to release."));
+	}
 	if (!Pawn || !Pawn->GetWorld() || RunState != Edemo_mapRunState::Active)
 	{
 		return Fdemo_mapItemOperationResult::Failure(
@@ -2574,7 +2583,7 @@ Fdemo_mapItemOperationResult Udemo_mapItemSubsystem::RecoverSpatialItemBundle(
 {
 	const Fdemo_mapSpatialDiscardBundle* Bundle = SpatialDiscardBundles.Find(BundleId);
 	const APawn* Pawn = Controller ? Controller->GetPawn() : nullptr;
-	if (!Bundle || !Pawn)
+	if (!Bundle || !Pawn || Pawn->GetWorld() != ActiveWorld.Get())
 	{
 		return Fdemo_mapItemOperationResult::Failure(
 			Edemo_mapItemResultCode::InvalidWorldBinding,
@@ -2596,26 +2605,47 @@ Fdemo_mapItemOperationResult Udemo_mapItemSubsystem::RecoverSpatialItemBundle(
 	}
 
 	const Fdemo_mapSpatialDiscardBundle BundleCopy = *Bundle;
-	const Fdemo_mapItemAuthorityState Before = Authority.CaptureState();
-	Fdemo_mapItemOperationResult Result = Authority.RecoverSpatialBundle(BundleCopy);
-	if (!Result.bSuccess) return Result;
-	if (!SynchronizeEquipmentModifiers())
+	Fdemo_mapItemOperationResult Result;
+	if (const auto* Accepted = PendingSpatialRecoveries.Find(BundleId))
 	{
-		Authority.RestoreState(Before);
-		SynchronizeEquipmentModifiers();
-		return Fdemo_mapItemOperationResult::Failure(
-			Edemo_mapItemResultCode::ModifierApplicationFailed,
-			TEXT("Spatial recovery rolled back because equipment modifiers could not synchronize."));
+		Result = *Accepted;
+	}
+	else
+	{
+		const Fdemo_mapItemAuthorityState Before = Authority.CaptureState();
+		Result = Authority.RecoverSpatialBundle(BundleCopy);
+		if (!Result.bSuccess) return Result;
+		if (!SynchronizeEquipmentModifiers())
+		{
+			Authority.RestoreState(Before);
+			SynchronizeEquipmentModifiers();
+			return Fdemo_mapItemOperationResult::Failure(
+				Edemo_mapItemResultCode::ModifierApplicationFailed,
+				TEXT("Spatial recovery rolled back because equipment modifiers could not synchronize."));
+		}
+		PendingSpatialRecoveries.Add(BundleId, Result);
 	}
 
-	SpatialDiscardBundles.Remove(BundleId);
+	bool bReleased = true;
 	for (const FGuid InstanceId : BundleCopy.GetAllInstanceIds())
 	{
-		SpatialBundleByInstance.Remove(InstanceId);
 		TWeakObjectPtr<Ademo_mapWorldItem> Actor = WorldActors.FindRef(InstanceId);
+		// Logical recovery is already committed. EndPlay may release a binding,
+		// but must not cause a second item transfer or discard a refused owner.
+		if (Actor.IsValid() && !Actor->IsActorBeingDestroyed() && !Actor->Destroy())
+		{
+			bReleased = false;
+			continue;
+		}
 		RemoveWorldBinding(InstanceId);
-		if (Actor.IsValid()) Actor->Destroy();
+		SpatialBundleByInstance.Remove(InstanceId);
 	}
+	if (!bReleased) return Fdemo_mapItemOperationResult::Failure(
+		Edemo_mapItemResultCode::InvalidWorldBinding,
+		TEXT("Spatial items are recovered; original World projection release remains pending."),
+		Result.RelatedInstanceId, Result.RelatedDefinitionId, Result.RelatedSlotId);
+	PendingSpatialRecoveries.Remove(BundleId);
+	SpatialDiscardBundles.Remove(BundleId);
 	FString Error;
 	if (!ValidateInvariants(&Error))
 	{
@@ -2630,6 +2660,11 @@ Fdemo_mapItemOperationResult Udemo_mapItemSubsystem::RecoverSpatialItemBundle(
 FGuid Udemo_mapItemSubsystem::FindSpatialBundleId(FGuid InstanceId) const
 {
 	return SpatialBundleByInstance.FindRef(InstanceId);
+}
+
+bool Udemo_mapItemSubsystem::IsSpatialRecoveryPending(FGuid InstanceId) const
+{
+	return PendingSpatialRecoveries.Contains(FindSpatialBundleId(InstanceId));
 }
 
 int32 Udemo_mapItemSubsystem::GetSpatialBundleMemberCount(FGuid InstanceId) const
@@ -2728,13 +2763,25 @@ void Udemo_mapItemSubsystem::NotifyWorldActorEndPlay(FGuid InstanceId, Ademo_map
 
 void Udemo_mapItemSubsystem::RemoveWorldBinding(FGuid InstanceId, const Ademo_mapWorldItem* ExpectedActor)
 {
-	if (const TWeakObjectPtr<Ademo_mapWorldItem>* Bound = WorldActors.Find(InstanceId); Bound != nullptr && (ExpectedActor == nullptr || Bound->Get() == ExpectedActor)) WorldActors.Remove(InstanceId);
+	if (const TWeakObjectPtr<Ademo_mapWorldItem>* Bound = WorldActors.Find(InstanceId);
+		Bound && ExpectedActor && Bound->Get() != ExpectedActor) return;
+	WorldActors.Remove(InstanceId);
+	const FGuid BundleId = FindSpatialBundleId(InstanceId);
+	const auto* Bundle = SpatialDiscardBundles.Find(BundleId);
+	if (!Bundle || !PendingSpatialRecoveries.Contains(BundleId)) return;
+	SpatialBundleByInstance.Remove(InstanceId);
+	const TArray<FGuid> Members = Bundle->GetAllInstanceIds();
+	for (const FGuid Member : Members) if (WorldActors.Contains(Member)) return;
+	for (const FGuid Member : Members) SpatialBundleByInstance.Remove(Member);
+	PendingSpatialRecoveries.Remove(BundleId);
+	SpatialDiscardBundles.Remove(BundleId);
 }
 
 void Udemo_mapItemSubsystem::ClearSpatialBundleTracking()
 {
 	SpatialDiscardBundles.Reset();
 	SpatialBundleByInstance.Reset();
+	PendingSpatialRecoveries.Reset();
 }
 
 bool Udemo_mapItemSubsystem::IsWorldActorBound(FGuid InstanceId, const Ademo_mapWorldItem* Actor) const
@@ -2750,6 +2797,19 @@ bool Udemo_mapItemSubsystem::ValidateWorldBindings(FString* OutError) const
 {
 	auto Fail = [OutError](const FString& Message) { if (OutError) *OutError = Message; return false; };
 	TArray<FGuid> WorldIds = Authority.FindWorldInstances();
+	// These are non-authoritative projections of an already accepted recovery.
+	// They can be released even if the recovered item was subsequently used or settled.
+	for (const auto& Pending : PendingSpatialRecoveries)
+	{
+		const auto* Bundle = SpatialDiscardBundles.Find(Pending.Key);
+		if (!Bundle || !Pending.Value.bSuccess) return Fail(TEXT("Pending spatial release lost its accepted bundle."));
+		for (const FGuid Id : Bundle->GetAllInstanceIds())
+		{
+			if (!WorldActors.Contains(Id)) continue;
+			if (FindSpatialBundleId(Id) != Pending.Key) return Fail(TEXT("Pending spatial projection changed bundle owner."));
+			WorldIds.AddUnique(Id);
+		}
+	}
 	if (RunState == Edemo_mapRunState::Settled && LastSettlementSummary.bValid
 		&& LastSettlementSummary.RunId == ActiveRunId && ActiveRunId.IsValid())
 	{

@@ -137,12 +137,13 @@ public:
 		APawn* Pawn,
 		Fdemo_mapSpatialDiscardBundle& OutBundle,
 		TArray<Ademo_mapWorldItem*>& OutActors);
-	/** Atomically re-equips one complete discarded spatial bundle using the original GUIDs. */
+	/** Re-equips original GUIDs once; refused World releases retain a same-bundle continuation. */
 	Fdemo_mapItemOperationResult RecoverSpatialItemBundle(
 		FGuid BundleId,
 		APlayerController* Controller);
 	FGuid FindSpatialBundleId(FGuid InstanceId) const;
 	int32 GetSpatialBundleMemberCount(FGuid InstanceId) const;
+	bool IsSpatialRecoveryPending(FGuid InstanceId) const;
 	Fdemo_mapItemOperationResult BeginRun();
 	/**
 	 * Return the transient Runtime authority to its Preparation boundary after a
@@ -224,6 +225,8 @@ private:
 	TMap<FGuid, TWeakObjectPtr<Ademo_mapWorldItem>> WorldActors;
 	TMap<FGuid, Fdemo_mapSpatialDiscardBundle> SpatialDiscardBundles;
 	TMap<FGuid, FGuid> SpatialBundleByInstance;
+	/** Accepted logical recovery receipts, only until their original projections release. */
+	TMap<FGuid, Fdemo_mapItemOperationResult> PendingSpatialRecoveries;
 	Edemo_mapRunState RunState = Edemo_mapRunState::Inactive;
 	FGuid ActiveRunId;
 	TSet<FGuid> DeployedItemIds;

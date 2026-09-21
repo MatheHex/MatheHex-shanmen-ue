@@ -68,7 +68,11 @@ bool Ademo_mapWorldItem::CanInteract(const APlayerController* Controller) const
 	const APawn* Pawn = Controller ? Controller->GetPawn() : nullptr;
 	const Udemo_mapItemSubsystem* Items = GetGameInstance() ? GetGameInstance()->GetSubsystem<Udemo_mapItemSubsystem>() : nullptr;
 	const Fdemo_mapItemInstance* Instance = Items ? Items->GetAuthority().FindInstance(InstanceId) : nullptr;
-	return Pawn != nullptr && Instance != nullptr && Instance->OwnershipState == Edemo_mapItemOwnershipState::World && Items->IsWorldActorBound(InstanceId, this) && FVector::Dist(Pawn->GetActorLocation(), GetInteractionLocation()) <= Fdemo_mapWorldInteractionRules::InteractionRangeUU;
+	return Pawn != nullptr && Items && Pawn->GetWorld() == GetWorld()
+		&& ((Instance && Instance->OwnershipState == Edemo_mapItemOwnershipState::World)
+			|| Items->IsSpatialRecoveryPending(InstanceId))
+		&& Items->IsWorldActorBound(InstanceId, this)
+		&& FVector::Dist(Pawn->GetActorLocation(), GetInteractionLocation()) <= Fdemo_mapWorldInteractionRules::InteractionRangeUU;
 }
 
 FText Ademo_mapWorldItem::GetInteractionPrompt(const APlayerController* Controller) const

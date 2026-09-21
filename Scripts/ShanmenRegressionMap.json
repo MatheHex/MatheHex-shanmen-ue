@@ -3192,13 +3192,22 @@
         "demo_map.V3.WorldInteraction"
       ]
     },
-    {
-      "name": "WorldInteractionContract",
+      {
+        "name": "WorldInteractionContract",
       "pathRegex": "^Source/demo_map/demo_mapWorldInteractionTests\\.cpp$",
       "requiredGroups": [
-        "demo_map.V3.WorldInteraction"
-      ]
-    },
+          "demo_map.V3.WorldInteraction"
+        ]
+      },
+      {
+        "name": "WorldItemProjection",
+        "pathRegex": "^Source/demo_map/demo_mapWorldItem\\.(?:h|cpp)$",
+        "requiredGroups": [
+          "demo_map.V3.WorldInteraction",
+          "demo_map.M01Extraction",
+          "Shanmen.0_0_10.Items"
+        ]
+      },
     {
       "name": "DefenseResourceAdapter",
       "pathRegex": "^Source/demo_map/demo_mapShanmenDefenseResourceAdapter(?:Tests)?\\.(?:h|cpp)$",
