@@ -76,7 +76,9 @@ struct SHANMENITEMS_API FShanmenItemMigrationEvidence
 struct SHANMENITEMS_API FShanmenItemAuthorityDocument
 {
 	static constexpr int32 LegacySchemaVersion = 1;
-	static constexpr int32 CurrentSchemaVersion = 2;
+	static constexpr int32 LegacySchema2Version = 2;
+	static constexpr int32 CurrentSchemaVersion = 3;
+	static constexpr int64 MaxDocumentBytes = 64LL * 1024 * 1024;
 
 	int32 SchemaVersion = CurrentSchemaVersion;
 	FGuid DocumentId;
@@ -138,7 +140,7 @@ struct SHANMENITEMS_API FShanmenItemLoadResult
 	FString TempPath;
 	FString QuarantinedPath;
 	bool bDiskStateChanged = false;
-	/** True when schema-1 bytes were validated and normalized to schema 2 in memory. */
+	/** True when schema-1/2 bytes were validated and normalized to the current schema in memory. */
 	bool bSchemaUpgraded = false;
 	FShanmenItemAuthorityDocument Document;
 
@@ -167,7 +169,7 @@ struct SHANMENITEMS_API FShanmenItemOpenResult
 };
 
 /**
- * Owns the schema-2 JSON document and its atomic filesystem protocol. It never
+ * Owns the schema-3 JSON document and its atomic filesystem protocol. It never
  * reads or writes legacy Code A/Code B data and has no product startup hook.
  */
 class SHANMENITEMS_API FShanmenItemAuthorityStore
@@ -193,6 +195,9 @@ public:
 		const FShanmenItemAuthoritySnapshot& Snapshot,
 		FString& OutDigest,
 		FString* OutError = nullptr);
+	/** Exact schema-2 digest before GeneratedSources existed; requires no sources. */
+	static bool ComputeLegacySchema2SnapshotDigest(
+		const FShanmenItemAuthoritySnapshot& Snapshot, FString& OutDigest, FString* OutError = nullptr);
 	/** Exact digest codec used by schema 1 before RewardMetadata existed. */
 	static bool ComputeLegacySchema1SnapshotDigest(
 		const FShanmenItemAuthoritySnapshot& Snapshot,

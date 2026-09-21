@@ -89,6 +89,24 @@ bool FShanmenItemRepository::TryBuildState(
 	FState Candidate;
 	Candidate.AuthorityRevision = Snapshot.AuthorityRevision;
 	Candidate.Content = Snapshot.Content;
+	if (Snapshot.GeneratedSources.Num() > MaxGeneratedSources)
+	{
+		SetError(OutError, EShanmenItemTransactionError::InvalidSnapshot);
+		return false;
+	}
+	int32 GeneratedEntryCount = 0;
+	for (const FShanmenItemGeneratedSourcePlan& Plan : Snapshot.GeneratedSources)
+	{
+		const FGuid Id = FShanmenItemGeneratedSourceContract::MakeSourceId(Plan.OwnerId, Plan.RunId, Plan.SourceRoleId);
+		if (!Plan.IsValid() || !Id.IsValid() || Candidate.GeneratedSources.Contains(Id)
+			|| Plan.Entries.Num() > MaxGeneratedEntries - GeneratedEntryCount)
+		{
+			SetError(OutError, EShanmenItemTransactionError::InvalidSnapshot);
+			return false;
+		}
+		GeneratedEntryCount += Plan.Entries.Num();
+		Candidate.GeneratedSources.Add(Id, Plan);
+	}
 
 	for (const FShanmenItemDefinition& Definition : Snapshot.Definitions)
 	{
@@ -1096,7 +1114,8 @@ bool FShanmenItemRepository::ValidateState(
 				continue;
 			}
 			if (Processed.Receipt.Operation
-				== EShanmenItemTransactionOperation::ConsumePreparedRunItem)
+				== EShanmenItemTransactionOperation::ConsumePreparedRunItem
+				|| Processed.Receipt.Operation == EShanmenItemTransactionOperation::AcceptGeneratedSource)
 			{
 				continue;
 			}
@@ -1218,6 +1237,7 @@ bool FShanmenItemRepository::ValidateState(
 		}
 	}
 
+	if (!ValidateGeneratedSources(Candidate)) { return Fail(); }
 	SetError(OutError, EShanmenItemTransactionError::None);
 	return true;
 }
@@ -1237,6 +1257,12 @@ FShanmenItemAuthoritySnapshot FShanmenItemRepository::CaptureSnapshot() const
 	State.Items.GenerateValueArray(Snapshot.Items);
 	State.Reservations.GenerateValueArray(Snapshot.Reservations);
 	State.ProcessedRequests.GenerateValueArray(Snapshot.ProcessedRequests);
+	State.GeneratedSources.GenerateValueArray(Snapshot.GeneratedSources);
+	Snapshot.GeneratedSources.Sort([](const FShanmenItemGeneratedSourcePlan& A, const FShanmenItemGeneratedSourcePlan& B)
+	{
+		return GuidLess(FShanmenItemGeneratedSourceContract::MakeSourceId(A.OwnerId, A.RunId, A.SourceRoleId),
+			FShanmenItemGeneratedSourceContract::MakeSourceId(B.OwnerId, B.RunId, B.SourceRoleId));
+	});
 
 	Snapshot.Definitions.Sort([](const FShanmenItemDefinition& Left, const FShanmenItemDefinition& Right)
 	{

@@ -2,6 +2,7 @@
 
 #include "ShanmenDeterministicId.h"
 #include "ShanmenItemRepository.h"
+#include "ShanmenItemGeneratedSourceCodec.h"
 
 #include "Dom/JsonObject.h"
 #include "HAL/FileManager.h"
@@ -13,6 +14,7 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
+#include "UObject/UnrealType.h"
 
 THIRD_PARTY_INCLUDES_START
 #include <openssl/sha.h>
@@ -143,9 +145,14 @@ namespace
 		}
 		FTCHARToUTF8 Utf8(*Payload);
 		OutBytes.Reset();
-		OutBytes.Append(
-			reinterpret_cast<const uint8*>(Utf8.Get()), Utf8.Length());
-		return !OutBytes.IsEmpty();
+		if (Utf8.Length() == 0 || Utf8.Length() > FShanmenItemAuthorityDocument::MaxDocumentBytes)
+		{
+			OutBytes.Reset();
+			SetError(OutError, TEXT("Authority JSON is empty or exceeds the document byte limit."));
+			return false;
+		}
+		OutBytes.Append(reinterpret_cast<const uint8*>(Utf8.Get()), Utf8.Length());
+		return true;
 	}
 
 	bool CanonicalizeSnapshot(
@@ -195,6 +202,10 @@ namespace
 				return false;
 			}
 		}
+		for (const auto& Plan : Authority.GeneratedSources)
+		{
+			if (Plan.OwnerId != OwnerId) { return false; }
+		}
 		return true;
 	}
 
@@ -221,7 +232,23 @@ namespace
 		TSharedPtr<FJsonObject>& OutObject,
 		FString* OutError)
 	{
-		OutObject = FJsonObjectConverter::UStructToJsonObject(Snapshot);
+		TArray<TSharedPtr<FJsonValue>> Sources;
+		for (const auto& Plan : Snapshot.GeneratedSources)
+		{
+			TSharedPtr<FJsonObject> Source;
+			if (!FShanmenItemGeneratedSourceCodec::Encode(Plan, Source, OutError)) { return false; }
+			Sources.Add(MakeShared<FJsonValueObject>(Source));
+		}
+		const auto Export = FJsonObjectConverter::CustomExportCallback::CreateLambda(
+			[&](FProperty* Property, const void*) -> TSharedPtr<FJsonValue>
+			{
+				if (Property->GetFName() == GET_MEMBER_NAME_CHECKED(FShanmenItemAuthoritySnapshot, GeneratedSources))
+				{
+					return MakeShared<FJsonValueArray>(Sources);
+				}
+				return nullptr;
+			});
+		OutObject = FJsonObjectConverter::UStructToJsonObject(Snapshot, 0, 0, &Export);
 		if (!OutObject.IsValid())
 		{
 			SetError(OutError, TEXT("Authority snapshot reflection serialization failed."));
@@ -309,14 +336,14 @@ namespace
 			&& Left.SourceFingerprint == Right.SourceFingerprint;
 	}
 
-	bool ValidateLegacySchema1Document(
+	bool ValidateLegacyDocument(
 		const FShanmenItemAuthorityDocument& Document,
 		FString* OutError)
 	{
 		FDateTime Created;
 		FDateTime Saved;
-		if (Document.SchemaVersion
-				!= FShanmenItemAuthorityDocument::LegacySchemaVersion
+		if ((Document.SchemaVersion != FShanmenItemAuthorityDocument::LegacySchemaVersion
+				&& Document.SchemaVersion != FShanmenItemAuthorityDocument::LegacySchema2Version)
 			|| !Document.DocumentId.IsValid()
 			|| !Document.OwnerId.IsValid()
 			|| Document.SaveGeneration < 0
@@ -329,7 +356,7 @@ namespace
 			|| !IsSha256(Document.InitialSnapshotDigest)
 			|| !IsSha256(Document.SnapshotDigest))
 		{
-			SetError(OutError, TEXT("Authority schema-1 document identity or evidence is invalid."));
+			SetError(OutError, TEXT("Legacy authority document identity or evidence is invalid."));
 			return false;
 		}
 		FShanmenItemAuthoritySnapshot Canonical;
@@ -339,17 +366,19 @@ namespace
 			|| !AuthorityBelongsTo(Document.Authority, Document.OwnerId))
 		{
 			SetError(OutError, Error.IsEmpty()
-				? TEXT("Authority schema-1 snapshot is non-canonical or crosses owners.")
+				? TEXT("Legacy authority snapshot is non-canonical or crosses owners.")
 				: Error);
 			return false;
 		}
 		FString ActualDigest;
-		if (!FShanmenItemAuthorityStore::ComputeLegacySchema1SnapshotDigest(
-				Document.Authority, ActualDigest, &Error)
+		const bool bDigestValid = Document.SchemaVersion == FShanmenItemAuthorityDocument::LegacySchemaVersion
+			? FShanmenItemAuthorityStore::ComputeLegacySchema1SnapshotDigest(Document.Authority, ActualDigest, &Error)
+			: FShanmenItemAuthorityStore::ComputeLegacySchema2SnapshotDigest(Document.Authority, ActualDigest, &Error);
+		if (!bDigestValid
 			|| ActualDigest != Document.SnapshotDigest)
 		{
 			SetError(OutError, Error.IsEmpty()
-				? TEXT("Authority schema-1 SnapshotDigest does not match its payload.")
+				? TEXT("Legacy authority SnapshotDigest does not match its payload.")
 				: Error);
 			return false;
 		}
@@ -398,11 +427,41 @@ namespace
 		return JsonToBytes(Root, OutBytes, OutError);
 	}
 
+	bool HasNoDuplicateJsonKeys(const FString& Json)
+	{
+		struct FFrame { bool bObject = false; TSet<FString> Keys; };
+		TArray<FFrame> Frames;
+		const auto Reader = TJsonReaderFactory<>::Create(Json);
+		EJsonNotation Notation;
+		while (Reader->ReadNext(Notation))
+		{
+			if (Notation == EJsonNotation::Error) { return false; }
+			if (Notation == EJsonNotation::ObjectEnd || Notation == EJsonNotation::ArrayEnd)
+			{
+				if (Frames.IsEmpty()) { return false; }
+				Frames.Pop();
+				continue;
+			}
+			if (!Frames.IsEmpty() && Frames.Last().bObject)
+			{
+				const FString Key = Reader->GetIdentifier();
+				if (Frames.Last().Keys.Contains(Key)) { return false; }
+				Frames.Last().Keys.Add(Key);
+			}
+			if (Notation == EJsonNotation::ObjectStart || Notation == EJsonNotation::ArrayStart)
+			{
+				Frames.AddDefaulted_GetRef().bObject = Notation == EJsonNotation::ObjectStart;
+				if (Frames.Num() > 64) { return false; }
+			}
+		}
+		return Frames.IsEmpty() && Reader->GetErrorMessage().IsEmpty();
+	}
+
 	FReadResult DeserializeDocument(const TArray<uint8>& Bytes)
 	{
 		FReadResult Result;
 		Result.Bytes = Bytes;
-		if (Bytes.IsEmpty())
+		if (Bytes.IsEmpty() || Bytes.Num() > FShanmenItemAuthorityDocument::MaxDocumentBytes)
 		{
 			Result.Diagnostic = TEXT("Authority document is empty.");
 			return Result;
@@ -410,6 +469,11 @@ namespace
 		FUTF8ToTCHAR Converted(
 			reinterpret_cast<const ANSICHAR*>(Bytes.GetData()), Bytes.Num());
 		const FString Json(Converted.Length(), Converted.Get());
+		if (!HasNoDuplicateJsonKeys(Json))
+		{
+			Result.Diagnostic = TEXT("Authority JSON is malformed, too deep, or contains duplicate keys.");
+			return Result;
+		}
 		TSharedPtr<FJsonObject> Root;
 		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Json);
 		if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid())
@@ -430,8 +494,8 @@ namespace
 			Result.Diagnostic = TEXT("Authority document uses a future schema.");
 			return Result;
 		}
-		const bool bLegacySchema = SchemaVersion
-			== FShanmenItemAuthorityDocument::LegacySchemaVersion;
+		const bool bSchema1 = SchemaVersion == FShanmenItemAuthorityDocument::LegacySchemaVersion;
+		const bool bLegacySchema = bSchema1 || SchemaVersion == FShanmenItemAuthorityDocument::LegacySchema2Version;
 		if ((!bLegacySchema
 				&& SchemaVersion
 					!= FShanmenItemAuthorityDocument::CurrentSchemaVersion)
@@ -492,13 +556,48 @@ namespace
 		}
 
 		FString SchemaPreparationError;
-		if (bLegacySchema
+		if (bSchema1
 			&& !PrepareSchema1AuthorityForStrictConversion(
 				*AuthorityObject, &SchemaPreparationError))
 		{
 			Result.Diagnostic = SchemaPreparationError;
 			return Result;
 		}
+		TArray<FShanmenItemGeneratedSourcePlan> Sources;
+		const TArray<TSharedPtr<FJsonValue>>* SourceObjects = nullptr;
+		if (bLegacySchema)
+		{
+			if ((*AuthorityObject)->HasField(TEXT("GeneratedSources")))
+			{
+				Result.Diagnostic = TEXT("Legacy authority cannot contain generated sources.");
+				return Result;
+			}
+		}
+		else
+		{
+			if (!(*AuthorityObject)->TryGetArrayField(TEXT("GeneratedSources"), SourceObjects)
+				|| !SourceObjects || SourceObjects->Num() > FShanmenItemRepository::MaxGeneratedSources)
+			{
+				Result.Diagnostic = TEXT("Authority generated source collection is invalid.");
+				return Result;
+			}
+			int32 EntryCount = 0;
+			for (const auto& Value : *SourceObjects)
+			{
+				FShanmenItemGeneratedSourcePlan Plan;
+				if (!Value.IsValid() || Value->Type != EJson::Object
+					|| !FShanmenItemGeneratedSourceCodec::Decode(Value->AsObject(), Plan, &Result.Diagnostic)) { return Result; }
+				EntryCount += Plan.Entries.Num();
+				if (EntryCount > FShanmenItemRepository::MaxGeneratedEntries)
+				{
+					Result.Diagnostic = TEXT("Authority generated entry limit exceeded.");
+					return Result;
+				}
+				Sources.Add(MoveTemp(Plan));
+			}
+		}
+		// Decode this field only through the lossless codec, never through reflection's integer coercion.
+		(*AuthorityObject)->SetArrayField(TEXT("GeneratedSources"), {});
 		FText ConversionFailure;
 		if (!FJsonObjectConverter::JsonObjectToUStruct(
 				AuthorityObject->ToSharedRef(), &Document.Authority,
@@ -509,10 +608,11 @@ namespace
 				*ConversionFailure.ToString());
 			return Result;
 		}
+		Document.Authority.GeneratedSources = MoveTemp(Sources);
 		FString ValidationError;
 		if (bLegacySchema)
 		{
-			if (!ValidateLegacySchema1Document(Document, &ValidationError))
+			if (!ValidateLegacyDocument(Document, &ValidationError))
 			{
 				Result.Diagnostic = ValidationError;
 				return Result;
@@ -536,7 +636,7 @@ namespace
 		Result.Kind = EReadKind::Valid;
 		Result.bSchemaUpgraded = bLegacySchema;
 		Result.Diagnostic = bLegacySchema
-			? TEXT("Authority schema-1 document validated and normalized to schema 2 in memory.")
+			? TEXT("Authority schema-1/2 document validated with its original digest and normalized to schema 3 in memory.")
 			: TEXT("Authority document parsed and validated.");
 		Result.Document = MoveTemp(Document);
 		return Result;
@@ -551,10 +651,19 @@ namespace
 			Result.Diagnostic = TEXT("Authority document does not exist.");
 			return Result;
 		}
-		if (!FFileHelper::LoadFileToArray(Result.Bytes, *Path))
+		TUniquePtr<IFileHandle> Handle(FPlatformFileManager::Get().GetPlatformFile().OpenRead(*Path));
+		const int64 Size = Handle ? Handle->Size() : -1;
+		if (Size < 0 || Size > FShanmenItemAuthorityDocument::MaxDocumentBytes)
 		{
 			Result.Kind = EReadKind::ReadFailure;
-			Result.Diagnostic = TEXT("Authority document could not be read.");
+			Result.Diagnostic = TEXT("Authority document is unreadable or exceeds its byte limit.");
+			return Result;
+		}
+		Result.Bytes.SetNumUninitialized(static_cast<int32>(Size));
+		if ((Size > 0 && !Handle->Read(Result.Bytes.GetData(), Size)) || Handle->Size() != Size)
+		{
+			Result.Kind = EReadKind::ReadFailure;
+			Result.Diagnostic = TEXT("Authority bounded read failed or size changed during read.");
 			return Result;
 		}
 		return DeserializeDocument(Result.Bytes);
@@ -890,13 +999,25 @@ bool FShanmenItemAuthorityStore::ComputeSnapshotDigest(
 	return true;
 }
 
+bool FShanmenItemAuthorityStore::ComputeLegacySchema2SnapshotDigest(
+	const FShanmenItemAuthoritySnapshot& Snapshot, FString& OutDigest, FString* OutError)
+{
+	FShanmenItemAuthoritySnapshot Canonical;
+	if (!Snapshot.GeneratedSources.IsEmpty() || !CanonicalizeSnapshot(Snapshot, Canonical, OutError)) { return false; }
+	TSharedPtr<FJsonObject> Object;
+	if (!SnapshotToObject(Canonical, Object, OutError)) { return false; }
+	Object->RemoveField(TEXT("GeneratedSources"));
+	TArray<uint8> Bytes;
+	return JsonToBytes(Object.ToSharedRef(), Bytes, OutError) && HashBytes(Bytes, OutDigest);
+}
+
 bool FShanmenItemAuthorityStore::ComputeLegacySchema1SnapshotDigest(
 	const FShanmenItemAuthoritySnapshot& Snapshot,
 	FString& OutDigest,
 	FString* OutError)
 {
 	FShanmenItemAuthoritySnapshot Canonical;
-	if (!CanonicalizeSnapshot(Snapshot, Canonical, OutError))
+	if (!Snapshot.GeneratedSources.IsEmpty() || !CanonicalizeSnapshot(Snapshot, Canonical, OutError))
 	{
 		return false;
 	}
@@ -906,6 +1027,7 @@ bool FShanmenItemAuthorityStore::ComputeLegacySchema1SnapshotDigest(
 	{
 		return false;
 	}
+	Object->RemoveField(TEXT("GeneratedSources"));
 	TArray<uint8> Bytes;
 	if (!JsonToBytes(Object.ToSharedRef(), Bytes, OutError)
 		|| !HashBytes(Bytes, OutDigest))
@@ -1057,7 +1179,7 @@ FShanmenItemLoadResult FShanmenItemAuthorityStore::LoadExisting(
 		Result.Status = EShanmenItemLoadStatus::LoadedPrimary;
 		Result.bSchemaUpgraded = Primary.bSchemaUpgraded;
 		Result.Diagnostic = Primary.bSchemaUpgraded
-			? TEXT("Authority schema-1 primary loaded and normalized to schema 2 in memory without a write.")
+			? TEXT("Authority schema-1/2 primary loaded and normalized to schema 3 in memory without a write.")
 			: TEXT("Authority primary loaded without a write.");
 		Result.Document = Primary.Document;
 		return Result;
@@ -1175,6 +1297,7 @@ FShanmenItemOpenResult FShanmenItemAuthorityStore::OpenOrCreateFromMigration(
 	FString Error;
 	FString InitialDigest;
 	FString LegacyInitialDigest;
+	FString Schema2InitialDigest;
 	if (!Migration.IsValid()
 		|| !Storage.OwnerId.IsValid()
 		|| Storage.OwnerId != Migration.OwnerId
@@ -1186,7 +1309,8 @@ FShanmenItemOpenResult FShanmenItemAuthorityStore::OpenOrCreateFromMigration(
 		|| Canonical.Items.Num() != Migration.ItemCount
 		|| !ComputeSnapshotDigest(Canonical, InitialDigest, &Error)
 		|| !ComputeLegacySchema1SnapshotDigest(
-			Canonical, LegacyInitialDigest, &Error))
+			Canonical, LegacyInitialDigest, &Error)
+		|| !ComputeLegacySchema2SnapshotDigest(Canonical, Schema2InitialDigest, &Error))
 	{
 		Result.Status = EShanmenItemOpenStatus::InvalidRequest;
 		Result.Diagnostic = Error.IsEmpty()
@@ -1211,11 +1335,12 @@ FShanmenItemOpenResult FShanmenItemAuthorityStore::OpenOrCreateFromMigration(
 			Loaded.Document.InitialSnapshotDigest == InitialDigest;
 		const bool bLegacyInitial =
 			Loaded.Document.InitialSnapshotDigest == LegacyInitialDigest;
+		const bool bSchema2Initial = Loaded.Document.InitialSnapshotDigest == Schema2InitialDigest;
 		const bool bMigrationMatches =
 			Loaded.Document.Migration == Migration
-			|| (bLegacyInitial
+			|| ((bLegacyInitial || bSchema2Initial)
 				&& SameMigrationSource(Loaded.Document.Migration, Migration));
-		if (!bMigrationMatches || (!bCurrentInitial && !bLegacyInitial))
+		if (!bMigrationMatches || (!bCurrentInitial && !bLegacyInitial && !bSchema2Initial))
 		{
 			Result.Status = EShanmenItemOpenStatus::MigrationConflict;
 			Result.Diagnostic = TEXT("An authority document already exists for different migration evidence.");
@@ -1275,7 +1400,7 @@ FShanmenItemOpenResult FShanmenItemAuthorityStore::OpenOrCreateFromMigration(
 			? EShanmenItemOpenStatus::OpenedExisting
 			: EShanmenItemOpenStatus::RecoveredExisting;
 		Result.Diagnostic = Loaded.bSchemaUpgraded || bMetadataEnriched
-			? TEXT("Existing authority matched legacy migration evidence; schema 2 and immutable reward metadata were atomically published.")
+			? TEXT("Existing authority matched legacy migration evidence; current schema and immutable reward metadata were atomically published.")
 			: TEXT("Existing authority document matches the migration and was reopened without reimporting legacy data.");
 		Result.Document = MoveTemp(OpenedDocument);
 		return Result;

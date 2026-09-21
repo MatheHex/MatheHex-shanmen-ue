@@ -117,6 +117,11 @@ public:
 
 	FShanmenItemDurableCommandResult ReserveDurable(
 		const FShanmenItemReserveRequest& Request);
+	FShanmenItemDurableCommandResult AcceptGeneratedSourceDurable(
+		const FShanmenItemGeneratedSourceRequest& Request);
+	/** Only Ready durable state may publish a source for later materialization. */
+	bool TryGetGeneratedSource(const FGuid& OwnerId, const FGuid& RunId, FName SourceRoleId,
+		FShanmenItemGeneratedSourceReceipt& OutReceipt) const;
 	FShanmenItemDurableCommandResult CommitDurable(
 		const FShanmenItemReservationActionRequest& Request);
 	FShanmenItemDurableCommandResult CommitBatchDurable(

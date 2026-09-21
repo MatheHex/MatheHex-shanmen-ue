@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "ShanmenItemTypes.h"
+#include "ShanmenItemGeneratedSource.h"
 
 /**
  * The sole mutable item authority for 0.0.10. It owns the item graph,
@@ -10,6 +11,11 @@
 class SHANMENITEMS_API FShanmenItemRepository
 {
 public:
+	static constexpr int32 MaxGeneratedSources = 4096;
+	static constexpr int32 MaxGeneratedEntries = 65536;
+	FShanmenItemTransactionReceipt AcceptGeneratedSource(const FShanmenItemGeneratedSourceRequest& Request);
+	bool TryGetGeneratedSource(const FGuid& OwnerId, const FGuid& RunId, FName SourceRoleId,
+		FShanmenItemGeneratedSourceReceipt& OutReceipt) const;
 	bool TryLoadSnapshot(
 		const FShanmenItemAuthoritySnapshot& Snapshot,
 		EShanmenItemTransactionError* OutError = nullptr);
@@ -67,6 +73,7 @@ private:
 		TMap<FGuid, FShanmenItemInstance> Items;
 		TMap<FGuid, FShanmenItemReservationSnapshot> Reservations;
 		TMap<FGuid, FShanmenItemProcessedRequestSnapshot> ProcessedRequests;
+		TMap<FGuid, FShanmenItemGeneratedSourcePlan> GeneratedSources;
 	};
 
 	FState State;
@@ -77,6 +84,8 @@ private:
 		FState& OutState,
 		EShanmenItemTransactionError* OutError);
 	static bool ValidateState(const FState& Candidate, EShanmenItemTransactionError* OutError);
+	static bool ValidateGeneratedSources(const FState& Candidate);
+	static FGuid Fingerprint(const FShanmenItemGeneratedSourceRequest& Request);
 
 	static FGuid Fingerprint(const FShanmenItemReserveRequest& Request);
 	static FGuid Fingerprint(

@@ -62,7 +62,9 @@ enum class EShanmenItemTransactionOperation : uint8
 	/** Durably reserves active-Run Quantity for one external action intent. */
 	PreparePreparedRunQuantityIntent,
 	/** Commits or cancels one prepared active-Run Quantity intent. */
-	FinalizePreparedRunQuantityIntent
+	FinalizePreparedRunQuantityIntent,
+	/** Accepts one complete resolved source into this authority document. */
+	AcceptGeneratedSource
 };
 
 UENUM(BlueprintType)
@@ -256,6 +258,102 @@ struct SHANMENITEMS_API FShanmenItemDefinition
 	bool IsValid() const;
 	bool Supports(EShanmenItemResourceKind Kind) const;
 	bool operator==(const FShanmenItemDefinition& Other) const;
+};
+
+/** Resolved facts only. Generator policy, catalog lookup and RNG stay outside this module. */
+USTRUCT()
+struct SHANMENITEMS_API FShanmenItemGeneratedSourceEntry
+{
+	GENERATED_BODY()
+	UPROPERTY()
+	FShanmenItemDefinition Definition;
+	UPROPERTY()
+	int32 Quantity = 0;
+	UPROPERTY()
+	FName SectionId = NAME_None;
+	UPROPERTY()
+	int32 SlotIndex = INDEX_NONE;
+	UPROPERTY()
+	int64 UnitValue = 0;
+	UPROPERTY()
+	int64 TotalValue = 0;
+	UPROPERTY()
+	FShanmenItemRewardMetadata RewardMetadata;
+	UPROPERTY()
+	FName ChildContainerType = NAME_None;
+	UPROPERTY()
+	int32 ChildContainerCapacity = 0;
+
+	bool IsValid() const;
+	bool operator==(const FShanmenItemGeneratedSourceEntry& Other) const;
+};
+
+/**
+ * Complete ordered resolved plan, not a seed-only regeneration instruction.
+ * Content is the source manifest, not necessarily the authority's item catalog stamp.
+ * ExpectedSequence/PityStateBefore are a per-Run compare-and-swap cursor. For a
+ * non-pity source the adapter must carry the current pity through unchanged.
+ */
+USTRUCT()
+struct SHANMENITEMS_API FShanmenItemGeneratedSourcePlan
+{
+	GENERATED_BODY()
+	static constexpr int32 MaxEntries = 1024;
+	static constexpr int32 MaxSlots = 4096;
+	static constexpr int32 MaxTagsPerDefinition = 64;
+	static constexpr int32 MaxDigestLength = 1024;
+
+	UPROPERTY()
+	FGuid OwnerId;
+	UPROPERTY()
+	FGuid RunId;
+	UPROPERTY()
+	FName SourceRoleId = NAME_None;
+	UPROPERTY()
+	FShanmenContentStamp Content;
+	UPROPERTY()
+	FName SlotId = NAME_None;
+	UPROPERTY()
+	FName ProjectionId = NAME_None;
+	UPROPERTY()
+	FName DistributionProfileId = NAME_None;
+	UPROPERTY()
+	FName BudgetProfileId = NAME_None;
+	UPROPERTY()
+	FName MarkerId = NAME_None;
+	UPROPERTY()
+	FName EncounterId = NAME_None;
+	UPROPERTY()
+	FName JackpotPolicyId = NAME_None;
+	UPROPERTY()
+	FName RareExtremePolicyId = NAME_None;
+	UPROPERTY()
+	FName AffixPolicyId = NAME_None;
+	UPROPERTY()
+	uint64 EffectiveSeed = 0;
+	UPROPERTY()
+	int64 RandomizedBudget = 0;
+	UPROPERTY()
+	int64 GeneratedTotalValue = 0;
+	UPROPERTY()
+	int64 ResidualValue = 0;
+	UPROPERTY()
+	int64 ExpectedSequence = 0;
+	UPROPERTY()
+	int32 PityStateBefore = 0;
+	UPROPERTY()
+	int32 PityStateAfter = 0;
+	UPROPERTY()
+	bool bPityCommitRequired = false;
+	UPROPERTY()
+	bool bFallbackUsed = false;
+	UPROPERTY()
+	bool bLegacyCompatibilityView = false;
+	UPROPERTY()
+	TArray<FShanmenItemGeneratedSourceEntry> Entries;
+
+	bool IsValid() const;
+	bool operator==(const FShanmenItemGeneratedSourcePlan& Other) const;
 };
 
 USTRUCT(BlueprintType)
@@ -906,6 +1004,10 @@ struct SHANMENITEMS_API FShanmenItemAuthoritySnapshot
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shanmen|Items")
 	TArray<FShanmenItemProcessedRequestSnapshot> ProcessedRequests;
+
+	/** Immutable source history in the same authority; never Blueprint-writable. */
+	UPROPERTY()
+	TArray<FShanmenItemGeneratedSourcePlan> GeneratedSources;
 
 	bool operator==(const FShanmenItemAuthoritySnapshot& Other) const;
 };

@@ -3,63 +3,11 @@
 #include "CoreMinimal.h"
 #include "ShanmenItemTypes.h"
 
-/** Resolved facts only. Generator policy, catalog lookup and RNG stay outside this module. */
-struct SHANMENITEMS_API FShanmenItemGeneratedSourceEntry
+/** Catalog identity is the authority's stamp; Plan.Content is the source manifest. */
+struct SHANMENITEMS_API FShanmenItemGeneratedSourceRequest
 {
-	FShanmenItemDefinition Definition;
-	int32 Quantity = 0;
-	FName SectionId = NAME_None;
-	int32 SlotIndex = INDEX_NONE;
-	int64 UnitValue = 0;
-	int64 TotalValue = 0;
-	FShanmenItemRewardMetadata RewardMetadata;
-	FName ChildContainerType = NAME_None;
-	int32 ChildContainerCapacity = 0;
-
-	bool IsValid() const;
-	bool operator==(const FShanmenItemGeneratedSourceEntry& Other) const;
-};
-
-/**
- * Complete ordered resolved plan, not a seed-only regeneration instruction.
- * Content is the source manifest, not necessarily the authority's item catalog stamp.
- * ExpectedSequence/PityStateBefore are a per-Run compare-and-swap cursor. For a
- * non-pity source the adapter must carry the current pity through unchanged.
- */
-struct SHANMENITEMS_API FShanmenItemGeneratedSourcePlan
-{
-	static constexpr int32 MaxEntries = 1024;
-	static constexpr int32 MaxSlots = 4096;
-	static constexpr int32 MaxTagsPerDefinition = 64;
-	static constexpr int32 MaxDigestLength = 1024;
-
-	FGuid OwnerId;
-	FGuid RunId;
-	FName SourceRoleId = NAME_None;
-	FShanmenContentStamp Content;
-	FName SlotId = NAME_None;
-	FName ProjectionId = NAME_None;
-	FName DistributionProfileId = NAME_None;
-	FName BudgetProfileId = NAME_None;
-	FName MarkerId = NAME_None;
-	FName EncounterId = NAME_None;
-	FName JackpotPolicyId = NAME_None;
-	FName RareExtremePolicyId = NAME_None;
-	FName AffixPolicyId = NAME_None;
-	uint64 EffectiveSeed = 0;
-	int64 RandomizedBudget = 0;
-	int64 GeneratedTotalValue = 0;
-	int64 ResidualValue = 0;
-	int64 ExpectedSequence = 0;
-	int32 PityStateBefore = 0;
-	int32 PityStateAfter = 0;
-	bool bPityCommitRequired = false;
-	bool bFallbackUsed = false;
-	bool bLegacyCompatibilityView = false;
-	TArray<FShanmenItemGeneratedSourceEntry> Entries;
-
-	bool IsValid() const;
-	bool operator==(const FShanmenItemGeneratedSourcePlan& Other) const;
+	FShanmenContentStamp ItemContent;
+	FShanmenItemGeneratedSourcePlan Plan;
 };
 
 enum class EShanmenItemGeneratedSourceRunState : uint8

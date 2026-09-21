@@ -6,6 +6,7 @@
 #include "ShanmenItemTags.h"
 
 #include "HAL/FileManager.h"
+#include "HAL/PlatformFileManager.h"
 #include "Dom/JsonObject.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/FileHelper.h"
@@ -13,6 +14,10 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
+
+THIRD_PARTY_INCLUDES_START
+#include <openssl/sha.h>
+THIRD_PARTY_INCLUDES_END
 
 namespace
 {
@@ -153,6 +158,7 @@ namespace
 			OutError = TEXT("schema2_fixture_shape_invalid");
 			return false;
 		}
+		(*Authority)->RemoveField(TEXT("GeneratedSources"));
 		for (const TSharedPtr<FJsonValue>& Value : *Items)
 		{
 			const TSharedPtr<FJsonObject> Item = Value.IsValid()
@@ -327,7 +333,7 @@ bool FShanmenItemPersistenceSchema1MetadataMigrationTest::RunTest(
 
 	const FShanmenItemOpenResult Upgraded =
 		Store.OpenOrCreateFromMigration(Candidate, Evidence, Storage);
-	TestTrue(TEXT("Open enriches immutable metadata and atomically publishes schema 2"),
+	TestTrue(TEXT("Open enriches immutable metadata and atomically publishes current schema"),
 		Upgraded.IsSuccess()
 		&& Upgraded.bDiskStateChanged
 		&& Upgraded.Document.SaveGeneration == 2
@@ -337,9 +343,9 @@ bool FShanmenItemPersistenceSchema1MetadataMigrationTest::RunTest(
 		&& IFileManager::Get().FileExists(*Storage.BackupPath()));
 	FString PrimaryJson;
 	FString BackupJson;
-	TestTrue(TEXT("Primary is schema 2 and backup preserves exact schema-1 evidence"),
+	TestTrue(TEXT("Primary is current schema and backup preserves exact schema-1 evidence"),
 		FFileHelper::LoadFileToString(PrimaryJson, *Storage.PrimaryPath())
-		&& PrimaryJson.Contains(TEXT("\"SchemaVersion\":2"))
+		&& PrimaryJson.Contains(FString::Printf(TEXT("\"SchemaVersion\":%d"), FShanmenItemAuthorityDocument::CurrentSchemaVersion))
 		&& PrimaryJson.Contains(TEXT("\"RewardMetadata\""))
 		&& FFileHelper::LoadFileToString(BackupJson, *Storage.BackupPath())
 		&& BackupJson.Contains(TEXT("\"SchemaVersion\":1"))
@@ -559,7 +565,8 @@ bool FShanmenItemPersistenceRecoveryTest::RunTest(const FString&)
 		FFileHelper::LoadFileToString(FutureJson, *Storage.PrimaryPath()));
 	TestEqual(TEXT("One current schema token becomes future schema"),
 		FutureJson.ReplaceInline(
-			TEXT("\"SchemaVersion\":2"), TEXT("\"SchemaVersion\":3"),
+			*FString::Printf(TEXT("\"SchemaVersion\":%d"), FShanmenItemAuthorityDocument::CurrentSchemaVersion),
+			*FString::Printf(TEXT("\"SchemaVersion\":%d"), FShanmenItemAuthorityDocument::CurrentSchemaVersion + 1),
 			ESearchCase::CaseSensitive), 1);
 	TestTrue(TEXT("Future schema fixture replaces primary"),
 		FFileHelper::SaveStringToFile(
@@ -624,6 +631,99 @@ bool FShanmenItemPersistenceNoSilentResetTest::RunTest(const FString&)
 		&& ReadBytes(Storage.PrimaryPath(), After)
 		&& After == CorruptBytes);
 
+	RemovePersistenceRoot(Root);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShanmenItemPersistenceSchema2MigrationTest,
+	"Shanmen.0_0_10.Items.PersistenceDocument.Schema2NonzeroMigration",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FShanmenItemPersistenceSchema2MigrationTest::RunTest(const FString&)
+{
+	const FString Root = NewPersistenceRoot(TEXT("Schema2Nonzero"));
+	const auto Storage = FShanmenItemStorageContext::ForRoot(Root, PersistenceOwnerId);
+	const auto Candidate = MetadataCandidate();
+	auto Evidence = PersistenceEvidence();
+	FShanmenItemAuthorityStore Store;
+	const auto Created = Store.OpenOrCreateFromMigration(Candidate, Evidence, Storage);
+	TestTrue(TEXT("Nonzero metadata baseline publishes"), Created.IsSuccess());
+	FString Json;
+	FFileHelper::LoadFileToString(Json, *Storage.PrimaryPath());
+	TSharedPtr<FJsonObject> Object;
+	if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Object)) { RemovePersistenceRoot(Root); return false; }
+	auto Authority = Object->GetObjectField(TEXT("Authority"));
+	Authority->RemoveField(TEXT("GeneratedSources"));
+	// Independent pre-schema-3 wire digest, not the migration function under test.
+	FString OldAuthorityJson;
+	FJsonSerializer::Serialize(Authority, TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&OldAuthorityJson));
+	FTCHARToUTF8 Utf8(*OldAuthorityJson);
+	uint8 Digest[SHA256_DIGEST_LENGTH]{};
+	SHA256(reinterpret_cast<const uint8*>(Utf8.Get()), Utf8.Length(), Digest);
+	FString OldDigest;
+	for (uint8 Byte : Digest) { OldDigest += FString::Printf(TEXT("%02X"), Byte); }
+	FString ActualLegacyDigest;
+	TestTrue(TEXT("Schema-2 digest still equals its original wire shape"),
+		FShanmenItemAuthorityStore::ComputeLegacySchema2SnapshotDigest(Candidate, ActualLegacyDigest) && ActualLegacyDigest == OldDigest);
+	Object->SetNumberField(TEXT("SchemaVersion"), 2);
+	Object->SetStringField(TEXT("InitialSnapshotDigest"), OldDigest);
+	Object->SetStringField(TEXT("SnapshotDigest"), OldDigest);
+	FString LegacyJson;
+	FJsonSerializer::Serialize(Object.ToSharedRef(), TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&LegacyJson));
+	auto Write = [&](const FString& Text) { return FFileHelper::SaveStringToFile(Text, *Storage.PrimaryPath(), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM); };
+	FString Tampered = LegacyJson;
+	TestTrue(TEXT("Tamper nonzero inventory without changing its old digest"), Tampered.ReplaceInline(TEXT("\"Quantity\":5"), TEXT("\"Quantity\":4")) == 1 && Write(Tampered));
+	TestFalse(TEXT("Old digest is verified before migration"), Store.LoadExisting(Storage).IsSuccess());
+	TestTrue(TEXT("Restore exact schema-2 fixture"), Write(LegacyJson));
+	TArray<uint8> Before, After;
+	ReadBytes(Storage.PrimaryPath(), Before);
+	const auto ReadOnly = Store.LoadExisting(Storage);
+	TestTrue(TEXT("Read-only upgrade preserves nonzero inventory, metadata and old initial digest"),
+		ReadOnly.IsSuccess() && ReadOnly.bSchemaUpgraded && !ReadOnly.bDiskStateChanged
+		&& ReadOnly.Document.Authority == Candidate && ReadOnly.Document.InitialSnapshotDigest == OldDigest
+		&& ReadOnly.Document.SnapshotDigest != OldDigest
+		&& ReadBytes(Storage.PrimaryPath(), After) && After == Before);
+	Evidence.CandidateDigest += TEXT(".new-adapter");
+	const auto Upgraded = Store.OpenOrCreateFromMigration(Candidate, Evidence, Storage);
+	TestTrue(TEXT("Exact old source can normalize once without reimport or metadata replacement"),
+		Upgraded.IsSuccess() && Upgraded.bDiskStateChanged && Upgraded.Document.SaveGeneration == 2
+		&& Upgraded.Document.Authority == Candidate && Upgraded.Document.InitialSnapshotDigest == OldDigest);
+	const auto Reopened = Store.OpenOrCreateFromMigration(Candidate, Evidence, Storage);
+	TestTrue(TEXT("Next reopen is exact and write-free"), Reopened.IsSuccess() && !Reopened.bDiskStateChanged && Reopened.Document == Upgraded.Document);
+	RemovePersistenceRoot(Root);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShanmenItemPersistenceBoundedJsonTest,
+	"Shanmen.0_0_10.Items.PersistenceDocument.BoundedUnambiguousJson",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FShanmenItemPersistenceBoundedJsonTest::RunTest(const FString&)
+{
+	const FString Root = NewPersistenceRoot(TEXT("BoundedJson"));
+	const auto Storage = FShanmenItemStorageContext::ForRoot(Root, PersistenceOwnerId);
+	FShanmenItemAuthorityStore Store;
+	TestTrue(TEXT("Parser baseline publishes"), Store.OpenOrCreateFromMigration(PersistenceCandidate(), PersistenceEvidence(), Storage).IsSuccess());
+	FString Original;
+	FFileHelper::LoadFileToString(Original, *Storage.PrimaryPath());
+	for (int32 Case = 0; Case < 4; ++Case)
+	{
+		FString Bad = Original;
+		if (Case == 0) { Bad.ReplaceInline(TEXT("\"SchemaVersion\":3"), TEXT("\"SchemaVersion\":3,\"SchemaVersion\":3")); }
+		if (Case == 1) { Bad.ReplaceInline(TEXT("\"Quantity\":5"), TEXT("\"Quantity\":5,\"Quantity\":5")); }
+		if (Case == 2) { Bad.ReplaceInline(TEXT("\"GeneratedSources\":[]"), TEXT("\"GeneratedSources\":[],\"GeneratedSources\":[]")); }
+		if (Case == 3) { Bad = FString::ChrN(65, '[') + TEXT("0") + FString::ChrN(65, ']'); }
+		TestTrue(TEXT("Malformed parser fixture differs from valid baseline"), Bad != Original);
+		FFileHelper::SaveStringToFile(Bad, *Storage.PrimaryPath(), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
+		TestFalse(TEXT("Duplicate object keys and excessive nesting fail before normalization"), Store.LoadExisting(Storage).IsSuccess());
+	}
+	{
+		TUniquePtr<IFileHandle> File(FPlatformFileManager::Get().GetPlatformFile().OpenWrite(*Storage.PrimaryPath()));
+		const uint8 Byte = 0;
+		TestTrue(TEXT("Create over-limit file without allocating a payload-sized buffer"), File && File->Seek(FShanmenItemAuthorityDocument::MaxDocumentBytes) && File->Write(&Byte, 1));
+	}
+	const auto Oversized = Store.LoadExisting(Storage);
+	TestFalse(TEXT("Oversized document is rejected before payload allocation"), Oversized.IsSuccess());
+	FFileHelper::SaveStringToFile(Original, *Storage.PrimaryPath(), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
+	TestTrue(TEXT("Original bounded document still loads after all rejected cases"), Store.LoadExisting(Storage).IsSuccess());
 	RemovePersistenceRoot(Root);
 	return true;
 }

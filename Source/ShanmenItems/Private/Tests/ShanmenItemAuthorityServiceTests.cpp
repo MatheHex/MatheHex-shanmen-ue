@@ -1335,4 +1335,216 @@ bool FShanmenItemAuthorityServiceSerializationTest::RunTest(const FString&)
 	return true;
 }
 
+namespace
+{
+	FGuid StartSourceRun(FAutomationTestBase& Test, FShanmenItemAuthorityService& Service,
+		const FShanmenItemStorageContext& Storage)
+	{
+		Test.TestTrue(TEXT("Source fixture migration is durable"), CreateService(Service, Storage).IsReady());
+		const auto Reserved = Service.ReserveDurable(ServiceReserve(200, 4));
+		Test.TestTrue(TEXT("Source fixture reserves four nonzero units"), Reserved.IsCommandSuccess());
+		const auto Started = Service.StartPreparedRunDurable(ServiceRunStart(201, { Reserved.Receipt.ReservationId }));
+		Test.TestTrue(TEXT("Source fixture owns a real active Run"), Started.IsCommandSuccess());
+		return Started.Receipt.ReservationId;
+	}
+	FShanmenItemGeneratedSourceRequest SourceRequest(const FGuid& RunId, FName Role = TEXT("Source.Test.First"),
+		int64 Sequence = 0, int32 PityBefore = 0, int32 PityAfter = 7)
+	{
+		FShanmenItemGeneratedSourceRequest R;
+		R.ItemContent = ServiceContent();
+		auto& P = R.Plan;
+		P.OwnerId = ServiceOwnerId; P.RunId = RunId; P.SourceRoleId = Role;
+		P.Content.Version = TEXT("Source.Test.Manifest.v1"); P.Content.Digest = TEXT("Source.Manifest.Nonzero");
+		P.ProjectionId = TEXT("Projection.Test"); P.DistributionProfileId = TEXT("Distribution.Test");
+		P.BudgetProfileId = TEXT("Budget.Test"); P.EffectiveSeed = MAX_uint64;
+		P.RandomizedBudget = MAX_int64; P.GeneratedTotalValue = MAX_int64 - 1; P.ResidualValue = 1;
+		P.ExpectedSequence = Sequence; P.PityStateBefore = PityBefore; P.PityStateAfter = PityAfter;
+		P.bPityCommitRequired = true;
+		auto& E = P.Entries.AddDefaulted_GetRef();
+		E.Definition = ServiceCandidate().Definitions[0]; E.Quantity = 3;
+		E.SectionId = TEXT("Section.Test"); E.SlotIndex = 0;
+		E.UnitValue = 9007199254740993LL; E.TotalValue = MAX_int64 - 1;
+		return R;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShanmenSourceDurableRestartTest,
+	"Shanmen.0_0_10.Items.GeneratedSource.DurableRestartAndTerminalReplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FShanmenSourceDurableRestartTest::RunTest(const FString&)
+{
+	const FString Root = NewServiceRoot(TEXT("SourceRestart"));
+	const auto Storage = FShanmenItemStorageContext::ForRoot(Root, ServiceOwnerId);
+	FShanmenItemAuthorityService Service;
+	const FGuid Run = StartSourceRun(*this, Service, Storage);
+	const auto First = SourceRequest(Run);
+	const auto Second = SourceRequest(Run, TEXT("Source.Test.Second"), 1, 7, 8);
+	FShanmenItemAuthorityDocument Before, After;
+	Service.TryGetDocument(Before);
+	const auto Accepted = Service.AcceptGeneratedSourceDurable(First);
+	TestTrue(TEXT("Source and receipt commit in the inventory document"), Accepted.IsCommandSuccess());
+	TestTrue(TEXT("Next source uses the first source's nonzero pity and cursor"),
+		Service.AcceptGeneratedSourceDurable(Second).IsCommandSuccess());
+	TestTrue(TEXT("Exactly two generations; source entries are not unproven inventory items"),
+		Service.TryGetDocument(After) && After.SaveGeneration == Before.SaveGeneration + 2
+		&& After.Authority.GeneratedSources.Num() == 2 && After.Authority.Items == Before.Authority.Items);
+	FShanmenItemAuthorityService Restart;
+	FShanmenItemGeneratedSourceReceipt Source;
+	TestTrue(TEXT("Fresh authority restores the complete lossless source plan"),
+		Restart.StartExisting(Storage).IsReady()
+		&& Restart.TryGetGeneratedSource(ServiceOwnerId, Run, First.Plan.SourceRoleId, Source)
+		&& Source.GetPlan() == First.Plan && Source.IsValid());
+	TArray<uint8> BytesBefore, BytesAfter;
+	ReadServiceBytes(Storage.PrimaryPath(), BytesBefore);
+	const auto Replay = Restart.AcceptGeneratedSourceDurable(First);
+	TestTrue(TEXT("Older source replay after a later source is exact and write-free"),
+		Replay.Status == EShanmenItemDurableCommandStatus::Replayed && Replay.Receipt == Accepted.Receipt
+		&& ReadServiceBytes(Storage.PrimaryPath(), BytesAfter) && BytesAfter == BytesBefore);
+	TestFalse(TEXT("Wrong-owner read clears a previously valid output"),
+		Restart.TryGetGeneratedSource(FGuid(8, 8, 8, 8), Run, First.Plan.SourceRoleId, Source));
+	TestFalse(TEXT("No stale output survives denied read"), Source.IsValid());
+	FShanmenItemRunFinalizeRequest End;
+	End.Context.RunId = ServiceRunId; End.Context.OwnerId = ServiceOwnerId;
+	End.Context.RequestId = FGuid(0x513F0100, 0, 0, 1); End.Context.Content = ServiceContent();
+	End.ActiveRunId = Run; End.TerminalReason = EShanmenItemRunTerminalReason::Abandon;
+	TestTrue(TEXT("Existing Run terminal command preserves source history"), Restart.FinalizePreparedRunDurable(End).IsCommandSuccess());
+	TestTrue(TEXT("Exact source history remains replayable after terminal"), Restart.AcceptGeneratedSourceDurable(First).IsCommandSuccess());
+	TestFalse(TEXT("Terminal Run cannot accept a new source"),
+		Restart.AcceptGeneratedSourceDurable(SourceRequest(Run, TEXT("Source.Test.Third"), 2, 8, 9)).IsCommandSuccess());
+	FShanmenItemAuthorityService Closed, TerminalRestart;
+	TestFalse(TEXT("Closed service cannot publish sources"), Closed.TryGetGeneratedSource(ServiceOwnerId, Run, First.Plan.SourceRoleId, Source));
+	TestTrue(TEXT("Terminal and immutable history survive another reopen"), TerminalRestart.StartExisting(Storage).IsReady()
+		&& TerminalRestart.TryGetGeneratedSource(ServiceOwnerId, Run, First.Plan.SourceRoleId, Source) && Source.GetPlan() == First.Plan);
+	RemoveServiceRoot(Root);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShanmenSourceDurableFailureTest,
+	"Shanmen.0_0_10.Items.GeneratedSource.DurableFailureAndReconcile",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FShanmenSourceDurableFailureTest::RunTest(const FString&)
+{
+	const FString Root = NewServiceRoot(TEXT("SourceFailures"));
+	const auto Storage = FShanmenItemStorageContext::ForRoot(Root, ServiceOwnerId);
+	FShanmenItemAuthorityService Service;
+	const auto Request = SourceRequest(StartSourceRun(*this, Service, Storage));
+	FShanmenItemAuthorityDocument Before, After;
+	Service.TryGetDocument(Before);
+	TArray<uint8> BytesBefore, BytesAfter;
+	ReadServiceBytes(Storage.PrimaryPath(), BytesBefore);
+	for (const auto Stage : { EShanmenItemStoreFailureStage::WriteTemp, EShanmenItemStoreFailureStage::ReadBackTemp,
+		EShanmenItemStoreFailureStage::PrepareBackup, EShanmenItemStoreFailureStage::AtomicReplace })
+	{
+		Service.SetInjectedFailureForTests(Stage);
+		const auto Failed = Service.AcceptGeneratedSourceDurable(Request);
+		FShanmenItemGeneratedSourceReceipt Source;
+		TestTrue(TEXT("Pre-publication failure rolls back document, cursor, pity and receipt"),
+			!Failed.IsCommandSuccess() && Failed.Status == EShanmenItemDurableCommandStatus::PersistenceFailedRolledBack
+			&& Service.TryGetDocument(After) && After == Before
+			&& ReadServiceBytes(Storage.PrimaryPath(), BytesAfter) && BytesAfter == BytesBefore
+			&& !Service.TryGetGeneratedSource(ServiceOwnerId, Request.Plan.RunId, Request.Plan.SourceRoleId, Source));
+	}
+	Service.SetInjectedFailureForTests(EShanmenItemStoreFailureStage::ReadBackCommittedPrimary);
+	const auto Reconciled = Service.AcceptGeneratedSourceDurable(Request);
+	TestTrue(TEXT("Post-replace ambiguity resolves only from exact durable after-state"),
+		Reconciled.Status == EShanmenItemDurableCommandStatus::ResolvedAfterReopen && Reconciled.IsCommandSuccess()
+		&& Service.TryGetDocument(After) && After.SaveGeneration == Before.SaveGeneration + 1);
+	Service.SetInjectedFailureForTests(EShanmenItemStoreFailureStage::None);
+	TestTrue(TEXT("Retry cannot duplicate a reconciled acceptance"),
+		Service.AcceptGeneratedSourceDurable(Request).Status == EShanmenItemDurableCommandStatus::Replayed);
+	RemoveServiceRoot(Root);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShanmenSourceDurableGuardsTest,
+	"Shanmen.0_0_10.Items.GeneratedSource.DurableGuardsAndSnapshotIntegrity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FShanmenSourceDurableGuardsTest::RunTest(const FString&)
+{
+	const FString Root = NewServiceRoot(TEXT("SourceGuards"));
+	const auto Storage = FShanmenItemStorageContext::ForRoot(Root, ServiceOwnerId);
+	FShanmenItemAuthorityService Service;
+	const FGuid Run = StartSourceRun(*this, Service, Storage);
+	const auto First = SourceRequest(Run);
+	const auto Accepted = Service.AcceptGeneratedSourceDurable(First);
+	if (!TestTrue(TEXT("Guard baseline has accepted nonzero source"), Accepted.IsCommandSuccess()))
+	{
+		AddError(Accepted.Diagnostic);
+		RemoveServiceRoot(Root);
+		return false;
+	}
+	FShanmenItemAuthorityDocument Before, After;
+	Service.TryGetDocument(Before);
+	for (int32 Case = 0; Case < 9; ++Case)
+	{
+		auto R = SourceRequest(Run, TEXT("Source.Test.Second"), 1, 7, 8);
+		switch (Case)
+		{
+		case 0: R.Plan.OwnerId = FGuid(9, 9, 9, 9); break;
+		case 1: R.Plan.RunId = ServiceRunId; break;
+		case 2: R.ItemContent.Digest += TEXT(".drift"); break;
+		case 3: R.Plan.ExpectedSequence = 0; break;
+		case 4: R.Plan.PityStateBefore = 0; break;
+		case 5: R.Plan.Content.Digest += TEXT(".drift"); break;
+		case 6: R.Plan.Entries[0].Definition.MaxStack = 31; break;
+		case 7: R = First; ++R.Plan.EffectiveSeed; break; // wraps to invalid zero
+		case 8: R = First; --R.Plan.EffectiveSeed; break; // valid but conflicting identity
+		}
+		const auto Denied = Service.AcceptGeneratedSourceDurable(R);
+		TestTrue(*FString::Printf(TEXT("Invalid source %d cannot mutate any authority field"), Case),
+			!Denied.IsCommandSuccess() && Service.TryGetDocument(After) && After == Before);
+	}
+	for (int32 Case = 0; Case < 6; ++Case)
+	{
+		auto Bad = Before.Authority;
+		const FGuid Id = FShanmenItemGeneratedSourceContract::MakeSourceId(ServiceOwnerId, Run, First.Plan.SourceRoleId);
+		switch (Case)
+		{
+		case 0: Bad.GeneratedSources.Reset(); break;
+		case 1: Bad.ProcessedRequests.RemoveAll([&](const auto& R) { return R.RequestId == Id; }); break;
+		case 2: --Bad.GeneratedSources[0].EffectiveSeed; break;
+		case 3: Bad.GeneratedSources[0].ExpectedSequence = 1; break;
+		case 4: { const auto Duplicate = Bad.GeneratedSources[0]; Bad.GeneratedSources.Add(Duplicate); break; }
+		case 5: Bad.GeneratedSources[0].PityStateAfter = 8; break;
+		}
+		FShanmenItemRepository Repo;
+		TestFalse(*FString::Printf(TEXT("Damaged source/receipt snapshot %d fails closed"), Case), Repo.TryLoadSnapshot(Bad));
+	}
+	RemoveServiceRoot(Root);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShanmenSourceDurableConcurrentTest,
+	"Shanmen.0_0_10.Items.GeneratedSource.DurableConcurrentAcceptance",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FShanmenSourceDurableConcurrentTest::RunTest(const FString&)
+{
+	const FString Root = NewServiceRoot(TEXT("SourceConcurrency"));
+	const auto Storage = FShanmenItemStorageContext::ForRoot(Root, ServiceOwnerId);
+	FShanmenItemAuthorityService Service;
+	const FGuid Run = StartSourceRun(*this, Service, Storage);
+	const auto Request = SourceRequest(Run);
+	FShanmenItemAuthorityDocument Before, After;
+	Service.TryGetDocument(Before);
+	TArray<TFuture<FShanmenItemDurableCommandResult>> Futures;
+	for (int32 I = 0; I < 8; ++I)
+	{
+		Futures.Add(Async(EAsyncExecution::ThreadPool, [&Service, Request]() { return Service.AcceptGeneratedSourceDurable(Request); }));
+	}
+	int32 Persisted = 0, Replayed = 0;
+	for (auto& Future : Futures)
+	{
+		const auto R = Future.Get();
+		TestTrue(TEXT("Every concurrent same-source command returns durable success"), R.IsCommandSuccess());
+		Persisted += R.Status == EShanmenItemDurableCommandStatus::Persisted;
+		Replayed += R.Status == EShanmenItemDurableCommandStatus::Replayed;
+	}
+	TestTrue(TEXT("Eight concurrent attempts accept exactly once"), Persisted == 1 && Replayed == 7
+		&& Service.TryGetDocument(After) && After.SaveGeneration == Before.SaveGeneration + 1
+		&& After.Authority.GeneratedSources.Num() == 1);
+	RemoveServiceRoot(Root);
+	return true;
+}
+
+
 #endif

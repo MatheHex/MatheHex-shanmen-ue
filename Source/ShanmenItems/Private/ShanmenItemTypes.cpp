@@ -522,6 +522,16 @@ bool FShanmenItemTransactionReceipt::IsValid() const
 		return Phase == EShanmenItemTransactionPhase::Rejected
 			&& Error != EShanmenItemTransactionError::None;
 	}
+	if (Operation == EShanmenItemTransactionOperation::AcceptGeneratedSource)
+	{
+		return Error == EShanmenItemTransactionError::None
+			&& Phase == EShanmenItemTransactionPhase::Committed
+			&& ReservationId.IsValid() && ItemInstanceId.IsValid()
+			&& Amount > 0 && Amount <= FShanmenItemGeneratedSourcePlan::MaxEntries
+			&& ResourceKind == EShanmenItemResourceKind::Quantity
+			&& ResourceBefore == 0 && ResourceAfter == 0 && AvailableAfter == 0
+			&& ItemRevision == INDEX_NONE && ReservationIds.IsEmpty() && !PurposeId.IsNone();
+	}
 	if (Operation == EShanmenItemTransactionOperation::CommitBatch)
 	{
 		if (Error != EShanmenItemTransactionError::None
@@ -777,5 +787,6 @@ bool FShanmenItemAuthoritySnapshot::operator==(const FShanmenItemAuthoritySnapsh
 		&& Containers == Other.Containers
 		&& Items == Other.Items
 		&& Reservations == Other.Reservations
-		&& ProcessedRequests == Other.ProcessedRequests;
+		&& ProcessedRequests == Other.ProcessedRequests
+		&& GeneratedSources == Other.GeneratedSources;
 }

@@ -540,6 +540,22 @@ FShanmenItemAuthorityService::EnterRecoveryRequiredLocked(
 	return Result;
 }
 
+FShanmenItemDurableCommandResult FShanmenItemAuthorityService::AcceptGeneratedSourceDurable(
+	const FShanmenItemGeneratedSourceRequest& Request)
+{
+	FScopeLock Lock(&Mutex);
+	return ExecuteCommandLocked([&](FShanmenItemRepository& Target) { return Target.AcceptGeneratedSource(Request); });
+}
+
+bool FShanmenItemAuthorityService::TryGetGeneratedSource(const FGuid& OwnerId, const FGuid& RunId,
+	FName SourceRoleId, FShanmenItemGeneratedSourceReceipt& OutReceipt) const
+{
+	FScopeLock Lock(&Mutex);
+	OutReceipt = FShanmenItemGeneratedSourceReceipt();
+	return State == EShanmenItemAuthorityServiceState::Ready && OwnerId == Storage.OwnerId
+		&& Repository.TryGetGeneratedSource(OwnerId, RunId, SourceRoleId, OutReceipt);
+}
+
 EShanmenItemAuthorityServiceState
 FShanmenItemAuthorityService::GetState() const
 {
