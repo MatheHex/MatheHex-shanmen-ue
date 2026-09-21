@@ -15,6 +15,7 @@
 #include "demo_mapCombatRunCoordinator.h"
 #include "demo_mapCodeBNormalContainerActor.h"
 #include "demo_mapEnemyCharacter.h"
+#include "demo_mapEntityLoadoutPresenter.h"
 #include "demo_mapExitZone.h"
 #include "demo_mapFriendlyUnit.h"
 #include "demo_mapGameMode.h"
@@ -1504,6 +1505,82 @@ bool FShanmenPreparedWorldPickupIdentityTest::RunTest(const FString&)
 		!Runtime->RecoverSpatialItemBundle(Bundle.BundleId, Controller).bSuccess
 		&& ReleasedMembers == 3 && Runtime->GetAuthority().GetAuthorityRevision() == RecoveredRevision);
 	Scene.World->RemoveOnActorDestroyedHandler(BundleObserver);
+	// A released member can be dropped again while another original projection
+	// is pending. The old bundle receipt must never acquire that new projection.
+	if (!Runtime->DiscardSpatialItemBundle(Scene.Player, Bundle, BundleActors).bSuccess
+		|| BundleActors.Num() != 3) return false;
+	Ademo_mapWorldItem* PendingActor = BundleActors[1];
+	Ademo_mapWorldItem* ReleasedActor = BundleActors[2];
+	const FGuid PendingId = PendingActor->GetInstanceId();
+	const FGuid RedroppedId = ReleasedActor->GetInstanceId();
+	const ENetRole PendingRole = PendingActor->GetLocalRole();
+	PendingActor->SetRole(ROLE_SimulatedProxy);
+	int32 OriginalReleases = 0;
+	int32 RedroppedReleases = 0;
+	Ademo_mapWorldItem* RedroppedActor = nullptr;
+	const auto GenerationObserver = Scene.World->AddOnActorDestroyedHandler(FOnActorDestroyed::FDelegate::CreateLambda(
+		[&](AActor* Actor)
+		{
+			if (BundleActors.Contains(Actor)) ++OriginalReleases;
+			if (Actor == RedroppedActor) ++RedroppedReleases;
+		}));
+	TestTrue(TEXT("Redrop variant retains one original spatial projection"),
+		!PendingActor->RequestInteract(Controller).bSuccess && OriginalReleases == 2
+		&& Runtime->IsSpatialRecoveryPending(PendingId)
+		&& !Runtime->FindSpatialBundleId(RedroppedId).IsValid() && Runtime->ValidateInvariants());
+	const int32 BeforeRedropRevision = Runtime->GetAuthority().GetAuthorityRevision();
+	FShanmenItemAuthoritySnapshot BeforeRedropDurable;
+	if (!Fixture.Authority->TryCaptureSnapshot(BeforeRedropDurable)) return false;
+	Fdemo_mapPlayerItemDropIntent RedropIntent;
+	RedropIntent.ExpectedAuthorityRevision = BeforeRedropRevision;
+	RedropIntent.ExpectedSourceItemInstanceId = RedroppedId;
+	const int32 RedropSlot = Runtime->GetAuthority().FindInventorySlot(RedroppedId);
+	RedropIntent.SourceArea = RedropSlot < Fdemo_mapEntityLoadoutRules::BaseQuickItemSlotCount
+		? Edemo_mapPlayerItemArea::BaseQuickItems : Edemo_mapPlayerItemArea::SpatialStorage;
+	RedropIntent.SourceSlotIndex = RedropIntent.SourceArea == Edemo_mapPlayerItemArea::SpatialStorage
+		? RedropSlot - Fdemo_mapEntityLoadoutRules::BaseQuickItemSlotCount : RedropSlot;
+	const auto Redropped = Runtime->DropPlayerItemToWorld(RedropIntent, Scene.Player, RedroppedActor);
+	if (!TestTrue(TEXT("Released bundle member can acquire an independent new World projection"),
+		Redropped.bSuccess && RedroppedActor && RedroppedActor != ReleasedActor
+		&& Runtime->IsWorldActorBound(RedroppedId, RedroppedActor)
+		&& !Runtime->FindSpatialBundleId(RedroppedId).IsValid() && Runtime->ValidateInvariants()))
+	{
+		PendingActor->SetRole(PendingRole);
+		PendingActor->RequestInteract(Controller);
+		Scene.World->RemoveOnActorDestroyedHandler(GenerationObserver);
+		return false;
+	}
+	const int32 RedropRevision = Runtime->GetAuthority().GetAuthorityRevision();
+	const auto NewProjectionUnchanged = [&]()
+	{
+		FShanmenItemAuthoritySnapshot AfterDurable;
+		const auto* Item = Runtime->GetAuthority().FindInstance(RedroppedId);
+		return IsValid(RedroppedActor) && RedroppedReleases == 0 && Item
+			&& Item->Quantity == 1 && Item->OwnershipState == Edemo_mapItemOwnershipState::World
+			&& Runtime->IsWorldActorBound(RedroppedId, RedroppedActor)
+			&& !Runtime->FindSpatialBundleId(RedroppedId).IsValid()
+			&& RedropRevision > BeforeRedropRevision && Runtime->GetAuthority().GetAuthorityRevision() == RedropRevision
+			&& Runtime->GetAuthority().FindInstance(Fixture.DustId)->Quantity == 3
+			&& Runtime->GetActiveRunId() == Started.ActiveRunId
+			&& Fixture.Authority->TryCaptureSnapshot(AfterDurable) && BeforeRedropDurable == AfterDurable
+			&& Runtime->ValidateInvariants();
+	};
+	for (int32 Attempt = 0; Attempt < 2; ++Attempt)
+	{
+		TestTrue(TEXT("Old spatial release retries cannot destroy or adopt a redropped member"),
+			!PendingActor->RequestInteract(Controller).bSuccess && OriginalReleases == 2
+			&& Runtime->IsSpatialRecoveryPending(PendingId) && NewProjectionUnchanged());
+	}
+	PendingActor->SetRole(PendingRole);
+	TestTrue(TEXT("Finishing the original bundle leaves the independent new projection intact"),
+		PendingActor->RequestInteract(Controller).bSuccess && OriginalReleases == 3
+		&& Runtime->GetWorldActorCount() == 1 && !Runtime->IsSpatialRecoveryPending(PendingId)
+		&& !Runtime->RecoverSpatialItemBundle(Bundle.BundleId, Controller).bSuccess && NewProjectionUnchanged());
+	TestTrue(TEXT("The new projection is picked up through its own ordinary identity exactly once"),
+		RedroppedActor->RequestInteract(Controller).bSuccess && RedroppedReleases == 1
+		&& OriginalReleases == 3 && Runtime->GetWorldActorCount() == 0
+		&& Runtime->GetAuthority().GetUsedInventorySlots() == 8 && Runtime->ValidateInvariants());
+	Scene.World->RemoveOnActorDestroyedHandler(GenerationObserver);
 	// A new bundle is legal after release. Its accepted items may settle while
 	// a refused projection remains owned by the existing World teardown port.
 	if (!TestTrue(TEXT("Completed release permits a fresh spatial discard"),

@@ -2619,6 +2619,7 @@ Fdemo_mapItemOperationResult Udemo_mapItemSubsystem::RecoverSpatialItemBundle(
 	bool bAnyMemberInRange = false;
 	for (const FGuid InstanceId : Bundle->GetAllInstanceIds())
 	{
+		if (FindSpatialBundleId(InstanceId) != BundleId) continue;
 		const Ademo_mapWorldItem* Actor = GetWorldActor(InstanceId);
 		bAnyMemberInRange |= Actor
 			&& FVector::Dist(Pawn->GetActorLocation(), Actor->GetInteractionLocation())
@@ -2656,6 +2657,9 @@ Fdemo_mapItemOperationResult Udemo_mapItemSubsystem::RecoverSpatialItemBundle(
 	bool bReleased = true;
 	for (const FGuid InstanceId : BundleCopy.GetAllInstanceIds())
 	{
+		// The receipt lists original members, not ownership of later projections.
+		// A released member may already have been independently dropped again.
+		if (FindSpatialBundleId(InstanceId) != BundleId) continue;
 		TWeakObjectPtr<Ademo_mapWorldItem> Actor = WorldActors.FindRef(InstanceId);
 		// Logical recovery is already committed. EndPlay may release a binding,
 		// but must not cause a second item transfer or discard a refused owner.
@@ -2798,8 +2802,14 @@ void Udemo_mapItemSubsystem::RemoveWorldBinding(FGuid InstanceId, const Ademo_ma
 	if (!Bundle || !PendingSpatialRecoveries.Contains(BundleId)) return;
 	SpatialBundleByInstance.Remove(InstanceId);
 	const TArray<FGuid> Members = Bundle->GetAllInstanceIds();
-	for (const FGuid Member : Members) if (WorldActors.Contains(Member)) return;
-	for (const FGuid Member : Members) SpatialBundleByInstance.Remove(Member);
+	for (const FGuid Member : Members)
+	{
+		if (FindSpatialBundleId(Member) == BundleId && WorldActors.Contains(Member)) return;
+	}
+	for (const FGuid Member : Members)
+	{
+		if (FindSpatialBundleId(Member) == BundleId) SpatialBundleByInstance.Remove(Member);
+	}
 	PendingSpatialRecoveries.Remove(BundleId);
 	SpatialDiscardBundles.Remove(BundleId);
 }
@@ -2832,8 +2842,8 @@ bool Udemo_mapItemSubsystem::ValidateWorldBindings(FString* OutError) const
 		if (!Bundle || !Pending.Value.bSuccess) return Fail(TEXT("Pending spatial release lost its accepted bundle."));
 		for (const FGuid Id : Bundle->GetAllInstanceIds())
 		{
+			if (FindSpatialBundleId(Id) != Pending.Key) continue;
 			if (!WorldActors.Contains(Id)) continue;
-			if (FindSpatialBundleId(Id) != Pending.Key) return Fail(TEXT("Pending spatial projection changed bundle owner."));
 			WorldIds.AddUnique(Id);
 		}
 	}
