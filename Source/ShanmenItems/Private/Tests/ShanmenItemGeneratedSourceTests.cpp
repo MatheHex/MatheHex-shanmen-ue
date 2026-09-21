@@ -2,7 +2,12 @@
 
 #include "Misc/AutomationTest.h"
 #include "ShanmenItemGeneratedSource.h"
+#include "ShanmenItemGeneratedSourceCodec.h"
 #include "ShanmenItemTags.h"
+#include "Dom/JsonObject.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonWriter.h"
 
 namespace
 {
@@ -190,6 +195,18 @@ bool FShanmenGeneratedSourceConflictTest::RunTest(const FString&)
 		TestTrue(Label, !(Changed == Original) && Result.Decision == EDecision::Rejected);
 		TestFalse(TEXT("rejection exposes no reusable receipt"), Result.Receipt.IsValid());
 		TestTrue(TEXT("original receipt preserved"), Receipt.GetPlan() == Original);
+		TSharedPtr<FJsonObject> Object;
+		FPlan Decoded;
+		if (Changed.IsValid())
+		{
+			TestTrue(TEXT("changed full payload encodes"), FShanmenItemGeneratedSourceCodec::Encode(Changed, Object));
+			TestTrue(TEXT("changed full payload decodes"), FShanmenItemGeneratedSourceCodec::Decode(Object, Decoded));
+			TestTrue(TEXT("codec retains changed field, not fixture default"), Decoded == Changed);
+		}
+		else
+		{
+			TestFalse(TEXT("codec rejects invalid changed payload"), FShanmenItemGeneratedSourceCodec::Encode(Changed, Object));
+		}
 		++Cases;
 	};
 #define CHECK_CHANGE(Expression) RejectChange(TEXT(#Expression), [](FPlan& P) { Expression; })
@@ -361,6 +378,232 @@ bool FShanmenGeneratedSourceBoundsTest::RunTest(const FString&)
 	TestTrue(TEXT("resolved compatibility plan needs no projection policy"), Legacy.IsValid());
 	Legacy.bLegacyCompatibilityView = false;
 	TestFalse(TEXT("current projection requires policy identity"), Legacy.IsValid());
+	return true;
+}
+
+namespace
+{
+	using FCodec = FShanmenItemGeneratedSourceCodec;
+	using FObject = TSharedPtr<FJsonObject>;
+	FString JsonText(const FObject& Object)
+	{
+		FString Text;
+		const auto Writer = TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&Text);
+		if (Object.IsValid()) { FJsonSerializer::Serialize(Object.ToSharedRef(), Writer); }
+		return Text;
+	}
+	FObject JsonCopy(const FObject& Object)
+	{
+		FObject Copy;
+		const auto Reader = TJsonReaderFactory<>::Create(JsonText(Object));
+		FJsonSerializer::Deserialize(Reader, Copy);
+		return Copy;
+	}
+	FObject EntryObject(const FObject& Root, int32 Index = 1)
+	{
+		return Root->GetArrayField(TEXT("Entries"))[Index]->AsObject();
+	}
+	FObject RewardObject(const FObject& Root)
+	{
+		return EntryObject(Root)->GetObjectField(TEXT("RewardMetadata"));
+	}
+	FObject AffixObject(const FObject& Root)
+	{
+		return RewardObject(Root)->GetArrayField(TEXT("Affixes"))[0]->AsObject();
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShanmenGeneratedSourceCodecRoundTripTest,
+	"Shanmen.0_0_10.Items.GeneratedSource.Codec.LosslessRoundTrip",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FShanmenGeneratedSourceCodecRoundTripTest::RunTest(const FString&)
+{
+	FPlan Plan = MakePlan();
+	Plan.EffectiveSeed = MAX_uint64;
+	Plan.RandomizedBudget = MAX_int64;
+	Plan.GeneratedTotalValue = MAX_int64 - 1;
+	Plan.ResidualValue = 9007199254740993LL; // First integer above double's exact range.
+	Plan.ExpectedSequence = MAX_int64 - 1;
+	Plan.bFallbackUsed = Plan.bLegacyCompatibilityView = true;
+	Plan.Content.Digest = TEXT("resolved-unicode-山门-\"quoted\"-\\escaped");
+	Plan.Entries[0].UnitValue = MAX_int64;
+	Plan.Entries[0].TotalValue = MAX_int64 - 1;
+	auto& Reward = Plan.Entries[1].RewardMetadata;
+	Reward.RareRewardBonusValue = MAX_int64;
+	Reward.Affixes[0].ResolvedValue = MAX_int64 - 1;
+	FShanmenItemResolvedRewardAffix Second = Reward.Affixes[0];
+	Second.AffixId = TEXT("Affix.Ordered.Second");
+	Second.ResolvedValue = 9007199254740993LL;
+	Reward.Affixes.Add(Second);
+	FObject Object;
+	FString Error;
+	if (!TestTrue(TEXT("encode all populated fields at integer limits"), FCodec::Encode(Plan, Object, &Error))) { return false; }
+	TestEqual(TEXT("unsigned max is an exact decimal string"), Object->GetStringField(TEXT("EffectiveSeed")), FString(TEXT("18446744073709551615")));
+	TestEqual(TEXT("signed max is an exact decimal string"), Object->GetStringField(TEXT("RandomizedBudget")), FString(TEXT("9223372036854775807")));
+	FPlan Decoded;
+	if (!TestTrue(TEXT("real JSON text round trip"), FCodec::Decode(JsonCopy(Object), Decoded, &Error))) { return false; }
+	TestTrue(TEXT("whole plan equality including ordered affixes"), Plan == Decoded);
+	TestTrue(TEXT("success clears diagnostic"), Error.IsEmpty());
+	const auto Before = FContract::Evaluate(MakeView(Plan), Plan);
+	const auto AfterDecode = FContract::Evaluate(MakeView(Decoded), Decoded);
+	TestTrue(TEXT("complete candidate identity and payload retained"), Before.Receipt.IsValid() && Before.Receipt == AfterDecode.Receipt);
+	FObject Again;
+	TestTrue(TEXT("re-encode"), FCodec::Encode(Decoded, Again));
+	TestEqual(TEXT("canonical emitted JSON is stable"), JsonText(Object), JsonText(Again));
+	const FGameplayTagContainer Tags = Plan.Entries[1].Definition.ItemTags;
+	Plan.Entries[1].Definition.ItemTags.Reset();
+	const auto& TagArray = Tags.GetGameplayTagArray();
+	for (int32 I = TagArray.Num() - 1; I >= 0; --I) { Plan.Entries[1].Definition.ItemTags.AddTag(TagArray[I]); }
+	TestTrue(TEXT("tag insertion order not persistent meaning"), FCodec::Encode(Plan, Again));
+	TestEqual(TEXT("tag set canonicalized"), JsonText(Object), JsonText(Again));
+	TestEqual(TEXT("sequence upper boundary remains exact"), AfterDecode.Receipt.GetAcceptedSequence(), MAX_int64);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShanmenGeneratedSourceCodecRejectTest,
+	"Shanmen.0_0_10.Items.GeneratedSource.Codec.StrictRejection",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FShanmenGeneratedSourceCodecRejectTest::RunTest(const FString&)
+{
+	const FPlan Plan = MakePlan();
+	FObject Original;
+	if (!TestTrue(TEXT("valid fixture"), FCodec::Encode(Plan, Original))) { return false; }
+	int32 Cases = 0;
+	auto Reject = [&](TFunctionRef<void(const FObject&)> Mutate)
+	{
+		FObject Bad = JsonCopy(Original);
+		Mutate(Bad);
+		FPlan Output = Plan; // Must not retain a previous success after failure.
+		FString Error;
+		TestFalse(TEXT("bad document rejected"), FCodec::Decode(Bad, Output, &Error));
+		TestTrue(TEXT("failure is diagnostic and clears entire output"), !Error.IsEmpty() && Output == FPlan());
+		++Cases;
+	};
+	Reject([](const FObject& J) { J->RemoveField(TEXT("FormatVersion")); });
+	Reject([](const FObject& J) { J->SetNumberField(TEXT("FormatVersion"), 2); });
+	Reject([](const FObject& J) { J->SetStringField(TEXT("FormatVersion"), TEXT("1")); });
+	Reject([](const FObject& J) { J->SetNumberField(TEXT("Extra"), 1); });
+	Reject([](const FObject& J) { J->RemoveField(TEXT("PityStateBefore")); });
+	Reject([](const FObject& J) { J->SetNumberField(TEXT("PityStateBefore"), 7.5); });
+	Reject([](const FObject& J) { J->SetNumberField(TEXT("PityStateBefore"), 2147483648.0); });
+	Reject([](const FObject& J) { J->SetStringField(TEXT("FallbackUsed"), TEXT("true")); });
+	Reject([](const FObject& J) { J->SetNumberField(TEXT("EffectiveSeed"), 123456789); });
+	for (const FString BadInteger : { TEXT(""), TEXT("01"), TEXT("+1"), TEXT("-1"), TEXT(" 1"), TEXT("1 "), TEXT("1.0"), TEXT("1e3"), TEXT("1x"), TEXT("18446744073709551616"), TEXT("111111111111111111111") })
+	{
+		Reject([&](const FObject& J) { J->SetStringField(TEXT("EffectiveSeed"), BadInteger); });
+	}
+	Reject([](const FObject& J) { J->SetStringField(TEXT("EffectiveSeed"), TEXT("0")); });
+	Reject([](const FObject& J) { J->SetStringField(TEXT("RandomizedBudget"), TEXT("9223372036854775808")); });
+	Reject([](const FObject& J) { J->SetStringField(TEXT("ExpectedSequence"), TEXT("9223372036854775807")); });
+	Reject([](const FObject& J) { J->SetStringField(TEXT("OwnerId"), TEXT("not-a-guid")); });
+	Reject([](const FObject& J) { J->SetStringField(TEXT("RunId"), TEXT("00000000000000000000000000000000")); });
+	Reject([](const FObject& J) { J->SetStringField(TEXT("SourceRoleId"), FString::ChrN(NAME_SIZE, TEXT('a'))); });
+	Reject([](const FObject& J) { FString Name = TEXT("Source"); Name.AppendChar(0); Name += TEXT("Other"); J->SetStringField(TEXT("SourceRoleId"), Name); });
+	Reject([](const FObject& J) { J->SetStringField(TEXT("ContentDigest"), FString::ChrN(FPlan::MaxDigestLength + 1, TEXT('d'))); });
+	Reject([](const FObject& J) { EntryObject(J)->SetStringField(TEXT("UnitValue"), TEXT("-1")); });
+	Reject([](const FObject& J) { EntryObject(J)->SetNumberField(TEXT("TotalValue"), 800); });
+	Reject([](const FObject& J) { EntryObject(J)->SetBoolField(TEXT("Extra"), false); });
+	Reject([](const FObject& J) { EntryObject(J)->SetField(TEXT("RewardMetadata"), MakeShared<FJsonValueNull>()); });
+	Reject([](const FObject& J) { RewardObject(J)->SetNumberField(TEXT("RewardEventKind"), 257); });
+	Reject([](const FObject& J) { RewardObject(J)->SetNumberField(TEXT("AffixAcquisition"), -1); });
+	Reject([](const FObject& J) { RewardObject(J)->SetNumberField(TEXT("RareRewardBonusValue"), 150); });
+	Reject([](const FObject& J) { RewardObject(J)->RemoveField(TEXT("AffixPolicyId")); });
+	Reject([](const FObject& J) { AffixObject(J)->SetNumberField(TEXT("Tier"), 257); });
+	Reject([](const FObject& J) { AffixObject(J)->SetStringField(TEXT("ResolvedValue"), TEXT("9223372036854775808")); });
+	Reject([](const FObject& J) { AffixObject(J)->SetBoolField(TEXT("Extra"), false); });
+	Reject([](const FObject& J) { EntryObject(J)->SetArrayField(TEXT("ItemTags"), { MakeShared<FJsonValueString>(TEXT("Shanmen.Unknown.CodecTag.MustNotRegister")) }); });
+	Reject([](const FObject& J) { auto Tags = EntryObject(J)->GetArrayField(TEXT("ItemTags")); const auto Duplicate = Tags[0]; Tags.Add(Duplicate); EntryObject(J)->SetArrayField(TEXT("ItemTags"), Tags); });
+	Reject([](const FObject& J) { EntryObject(J)->SetArrayField(TEXT("ItemTags"), { MakeShared<FJsonValueNumber>(1) }); });
+	Reject([](const FObject& J) { J->SetArrayField(TEXT("Entries"), { MakeShared<FJsonValueNull>() }); });
+	TestEqual(TEXT("explicit malformed variants"), Cases, 43);
+	FPlan Output = Plan;
+	TestFalse(TEXT("null object rejected"), FCodec::Decode(nullptr, Output));
+	TestTrue(TEXT("null object also clears output"), Output == FPlan());
+	FPlan BadPlan = Plan;
+	BadPlan.EffectiveSeed = 0;
+	FObject OutputObject = Original;
+	TestFalse(TEXT("invalid encode rejected"), FCodec::Encode(BadPlan, OutputObject));
+	TestFalse(TEXT("invalid encode clears previous object"), OutputObject.IsValid());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShanmenGeneratedSourceCodecBoundsTest,
+	"Shanmen.0_0_10.Items.GeneratedSource.Codec.BoundedCollections",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FShanmenGeneratedSourceCodecBoundsTest::RunTest(const FString&)
+{
+	FPlan Plan = MakePlan();
+	const auto First = Plan.Entries[0];
+	Plan.Entries.Reset();
+	for (int32 I = 0; I < FPlan::MaxEntries; ++I)
+	{
+		auto Entry = First;
+		Entry.SlotIndex = I;
+		Plan.Entries.Add(MoveTemp(Entry));
+	}
+	FObject Object;
+	FPlan Decoded;
+	if (!TestTrue(TEXT("exact upper entry bound encodes"), FCodec::Encode(Plan, Object))) { return false; }
+	TestTrue(TEXT("upper bound survives actual JSON"), FCodec::Decode(JsonCopy(Object), Decoded) && Decoded == Plan);
+	const FString Text = JsonText(Object);
+	FTCHARToUTF8 Bytes(*Text);
+	AddInfo(FString::Printf(TEXT("GeneratedSourceCodec representative 1024-stack plan UTF8Bytes=%d; not process RAM or a worst-case bound"), Bytes.Length()));
+	const FObject Original = JsonCopy(Object);
+	auto Entries = Object->GetArrayField(TEXT("Entries"));
+	const auto Extra = Entries[0];
+	Entries.Add(Extra);
+	Object->SetArrayField(TEXT("Entries"), Entries);
+	TestFalse(TEXT("entry count above limit rejected before value reserve"), FCodec::Decode(Object, Decoded));
+	Object = JsonCopy(Original);
+	TArray<TSharedPtr<FJsonValue>> Tags;
+	for (int32 I = 0; I <= FPlan::MaxTagsPerDefinition; ++I) { Tags.Add(MakeShared<FJsonValueString>(TEXT("Ignored.After.CountGuard"))); }
+	EntryObject(Object, 0)->SetArrayField(TEXT("ItemTags"), Tags);
+	TestFalse(TEXT("tag count bounded before lookup"), FCodec::Decode(Object, Decoded));
+	Plan = MakePlan();
+	TestTrue(TEXT("restore reward fixture"), FCodec::Encode(Plan, Object));
+	TArray<TSharedPtr<FJsonValue>> Affixes;
+	const auto Affix = RewardObject(Object)->GetArrayField(TEXT("Affixes"))[0];
+	for (int32 I = 0; I < 17; ++I) { Affixes.Add(Affix); }
+	RewardObject(Object)->SetArrayField(TEXT("Affixes"), Affixes);
+	TestFalse(TEXT("affix count bounded"), FCodec::Decode(Object, Decoded));
+	TestTrue(TEXT("all bounds failures clear result"), Decoded == FPlan());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShanmenGeneratedSourceCodecFieldsTest,
+	"Shanmen.0_0_10.Items.GeneratedSource.Codec.RequiredFieldMatrix",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FShanmenGeneratedSourceCodecFieldsTest::RunTest(const FString&)
+{
+	const FPlan Plan = MakePlan();
+	FObject Original;
+	if (!TestTrue(TEXT("populated and empty metadata fixture"), FCodec::Encode(Plan, Original))) { return false; }
+	const TArray<TFunction<FObject(const FObject&)>> Selectors = {
+		[](const FObject& J) { return J; },
+		[](const FObject& J) { return EntryObject(J, 0); },
+		[](const FObject& J) { return EntryObject(J, 1); },
+		[](const FObject& J) -> FObject { return EntryObject(J, 0)->GetObjectField(TEXT("RewardMetadata")); },
+		[](const FObject& J) { return RewardObject(J); },
+		[](const FObject& J) { return AffixObject(J); }
+	};
+	int32 Fields = 0;
+	for (const auto& Select : Selectors)
+	{
+		for (const auto& Pair : Select(Original)->Values)
+		{
+			for (bool bNull : { false, true })
+			{
+				const FObject Bad = JsonCopy(Original);
+				if (bNull) { Select(Bad)->SetField(Pair.Key, MakeShared<FJsonValueNull>()); }
+				else { Select(Bad)->RemoveField(Pair.Key); }
+				FPlan Output = Plan;
+				TestFalse(*FString::Printf(TEXT("required field %s null=%d"), *Pair.Key, bNull), FCodec::Decode(Bad, Output));
+				TestTrue(TEXT("no partial success output"), Output == FPlan());
+			}
+			++Fields;
+		}
+	}
+	TestEqual(TEXT("all 80 populated/empty wire fields required, 160 negative variants"), Fields, 80);
 	return true;
 }
 
