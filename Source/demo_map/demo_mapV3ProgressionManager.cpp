@@ -9026,7 +9026,13 @@ Fdemo_mapItemOperationResult Ademo_mapV3ProgressionManager::HandleM01EnemyDeath(
 			*FString::Printf(TEXT("%s materialization=%s"),
 				*Plan.Trace.Diagnostic,
 				Corpse ? *Corpse->GetLastContainerDiagnostic() : TEXT("no_actor")));
-		if (Corpse) Corpse->Destroy();
+		if (IsValid(Corpse) && !Corpse->IsActorBeingDestroyed() && !Corpse->Destroy())
+		{
+			// Failed initialization does not transfer ownership to the World.
+			// Keep the refused projection in the existing cleanup chain without
+			// marking its reward source as successfully materialized.
+			Corpses.AddUnique(Corpse);
+		}
 		return Fdemo_mapItemOperationResult::Failure(
 			Edemo_mapItemResultCode::LootSpawnFailed,
 			TEXT("M01 generated Corpse planning, materialization, or commit failed."));

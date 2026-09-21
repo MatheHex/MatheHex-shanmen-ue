@@ -14,6 +14,7 @@
 #include "demo_mapAttributeComponent.h"
 #include "demo_mapCombatRunCoordinator.h"
 #include "demo_mapCodeBNormalContainerActor.h"
+#include "demo_mapCorpseContainerActor.h"
 #include "demo_mapEnemyCharacter.h"
 #include "demo_mapEntityLoadoutPresenter.h"
 #include "demo_mapExitZone.h"
@@ -4296,6 +4297,75 @@ bool Fdemo_mapManagerWorldDeactivationRetentionTest::RunTest(const FString&)
 		&& Runtime->GetActiveRunId() == Started.ActiveRunId
 		&& Fixture.Authority->TryCaptureSnapshot(After) && Before == After);
 	Scene.World->RemoveOnActorDestroyedHandler(PartialDestroyObserver);
+
+	// A real cutover Run cannot write a generated source through the inactive
+	// legacy Profile writer. The existing M01 endpoint must still own a newly
+	// spawned corpse if cleanup of that rejected projection is refused.
+	if (!Manager->DeactivateProfileWorld()) return false;
+	const auto& CorpseDefinition = Fdemo_mapM01EnemyConfig::GetDefinitions()[1];
+	AActor* CorpseSource = Scene.World->SpawnActor<AActor>(AActor::StaticClass(), FTransform::Identity, Spawn);
+	auto* CorpseIdentity = CorpseSource
+		? NewObject<Udemo_mapM01EnemyIdentityComponent>(CorpseSource, NAME_None, RF_Transient) : nullptr;
+	if (!CorpseIdentity || !CorpseIdentity->Configure(CorpseDefinition)) return false;
+	CorpseSource->AddInstanceComponent(CorpseIdentity);
+	CorpseIdentity->RegisterComponent();
+	AddExpectedError(TEXT("M01_CORPSE_GENERATION_FAILED"), EAutomationExpectedErrorFlags::Contains, 2);
+	for (const bool bRefuseCorpseCleanup : { true, false })
+	{
+		Manager->bProfileWorldActive = true;
+		Ademo_mapCorpseContainerActor* RejectedCorpse = nullptr;
+		ENetRole CorpseRole = ROLE_None;
+		int32 CorpseSpawns = 0, CorpseReleases = 0;
+		const auto CorpseSpawnObserver = Scene.World->AddOnActorSpawnedHandler(FOnActorSpawned::FDelegate::CreateLambda(
+			[&](AActor* Actor)
+			{
+				if (auto* Corpse = Cast<Ademo_mapCorpseContainerActor>(Actor))
+				{
+					++CorpseSpawns;
+					RejectedCorpse = Corpse;
+					CorpseRole = Corpse->GetLocalRole();
+					if (bRefuseCorpseCleanup) Corpse->SetRole(ROLE_SimulatedProxy);
+				}
+			}));
+		const auto CorpseDestroyObserver = Scene.World->AddOnActorDestroyedHandler(FOnActorDestroyed::FDelegate::CreateLambda(
+			[&](AActor* Actor) { if (Actor == RejectedCorpse) ++CorpseReleases; }));
+		const FGuid SourceId = FGuid::NewGuid();
+		const auto Rejected = Manager->HandleM01EnemyDeath(CorpseDefinition.RewardSourceRoleId,
+			CorpseDefinition.CorpseIdentity, SourceId, FVector(100.0f, 0.0f, 0.0f), CorpseSource);
+		Scene.World->RemoveOnActorSpawnedHandler(CorpseSpawnObserver);
+		TestTrue(TEXT("Cutover source rejection neither commits legacy rewards nor changes the durable Run"),
+			!Rejected.bSuccess && Rejected.Code == Edemo_mapItemResultCode::LootSpawnFailed
+			&& CorpseSpawns == 1 && RejectedCorpse && !RejectedCorpse->IsContainerInitialized()
+			&& !Manager->CorpseLootSourceIds.Contains(SourceId)
+			&& Fixture.Session->GetActiveGeneratedRewardSources().IsEmpty()
+			&& Runtime->GetActiveRunId() == Started.ActiveRunId
+			&& Fixture.Authority->TryCaptureSnapshot(After) && Before == After);
+		if (bRefuseCorpseCleanup)
+		{
+			for (int32 Attempt = 0; Attempt < 2; ++Attempt)
+			{
+				TestFalse(TEXT("Refused rejected-corpse cleanup cannot acknowledge Manager deactivation"),
+					Manager->DeactivateProfileWorld());
+				TestTrue(TEXT("Rejected corpse retains its original owner until cleanup succeeds"),
+					Manager->Corpses.Num() == 1 && Manager->Corpses[0].Get() == RejectedCorpse
+					&& IsValid(RejectedCorpse) && !RejectedCorpse->IsActorBeingDestroyed()
+					&& Manager->IsProfileWorldActive() && CorpseReleases == 0
+					&& Runtime->GetActiveRunId() == Started.ActiveRunId
+					&& Fixture.Authority->TryCaptureSnapshot(After) && Before == After);
+			}
+			if (RejectedCorpse) RejectedCorpse->SetRole(CorpseRole);
+		}
+		TestTrue(TEXT("Recovered rejected-corpse cleanup completes"), Manager->DeactivateProfileWorld());
+		TestTrue(TEXT("Completed rejected-corpse cleanup is idempotent"), Manager->DeactivateProfileWorld());
+		TestTrue(TEXT("Failed generation releases its original projection exactly once without committing a reward"),
+			CorpseReleases == 1 && Manager->Corpses.IsEmpty() && !Manager->IsProfileWorldActive()
+			&& !Manager->CorpseLootSourceIds.Contains(SourceId)
+			&& Fixture.Session->GetActiveGeneratedRewardSources().IsEmpty()
+			&& Fixture.Authority->TryCaptureSnapshot(After) && Before == After);
+		Scene.World->RemoveOnActorDestroyedHandler(CorpseDestroyObserver);
+		// Red cleanup is local to the test; never conceal the preceding assertions.
+		if (IsValid(RejectedCorpse) && !RejectedCorpse->IsActorBeingDestroyed()) RejectedCorpse->Destroy();
+	}
 	return true;
 }
 
