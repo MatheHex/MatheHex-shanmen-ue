@@ -4,6 +4,7 @@
 #include "demo_mapPersistentProfileTypes.h"
 #include "demo_mapRewardAffix.h"
 #include "demo_mapRewardEventTypes.h"
+#include "demo_mapRewardGenerationTypes.h"
 
 namespace
 {
@@ -68,6 +69,7 @@ namespace
 	template <typename SourceType>
 	bool Convert(
 		const SourceType& Source,
+		FName DefinitionId,
 		FShanmenItemRewardMetadata& OutMetadata,
 		FString& OutDiagnostic)
 	{
@@ -86,7 +88,7 @@ namespace
 			return false;
 		}
 		if (!Fdemo_mapRewardAffixPolicyRegistry::ValidateSet(
-				Source.ItemDefinitionId,
+				DefinitionId,
 				Source.StackCount,
 				Source.AffixSet,
 				&OutDiagnostic))
@@ -150,7 +152,7 @@ bool Fdemo_mapShanmenItemMetadataAdapter::FromPersistentItem(
 	FShanmenItemRewardMetadata& OutMetadata,
 	FString& OutDiagnostic)
 {
-	return Convert(Source, OutMetadata, OutDiagnostic);
+	return Convert(Source, Source.ItemDefinitionId, OutMetadata, OutDiagnostic);
 }
 
 bool Fdemo_mapShanmenItemMetadataAdapter::FromRuntimeItem(
@@ -158,5 +160,17 @@ bool Fdemo_mapShanmenItemMetadataAdapter::FromRuntimeItem(
 	FShanmenItemRewardMetadata& OutMetadata,
 	FString& OutDiagnostic)
 {
-	return Convert(Source, OutMetadata, OutDiagnostic);
+	return Convert(Source, Source.ItemDefinitionId, OutMetadata, OutDiagnostic);
+}
+
+bool Fdemo_mapShanmenItemMetadataAdapter::FromPlannedStack(
+	const Fdemo_mapRewardPlannedStack& Source,
+	FShanmenItemRewardMetadata& OutMetadata,
+	FString& OutDiagnostic)
+{
+	FShanmenItemRewardMetadata Candidate;
+	OutMetadata = FShanmenItemRewardMetadata();
+	if (!Convert(Source, Source.DefinitionId, Candidate, OutDiagnostic)) { return false; }
+	OutMetadata = MoveTemp(Candidate);
+	return true;
 }

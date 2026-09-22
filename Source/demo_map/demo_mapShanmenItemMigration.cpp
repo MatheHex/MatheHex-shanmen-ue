@@ -3,10 +3,10 @@
 #include "CodeB/demo_mapCodeBP2.h"
 #include "ShanmenDeterministicId.h"
 #include "ShanmenItemRepository.h"
-#include "ShanmenItemTags.h"
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapProfileRepository.h"
 #include "demo_mapShanmenItemMetadataAdapter.h"
+#include "demo_mapShanmenItemDefinitionAdapter.h"
 
 namespace
 {
@@ -444,53 +444,12 @@ Fdemo_mapShanmenItemMigrationResult Fdemo_mapShanmenItemMigration::BuildCandidat
 				TEXT("A used Code B definition disappeared during normalization."));
 		}
 		FShanmenItemDefinition Definition;
-		Definition.DefinitionId = DefinitionId;
-		Definition.MaxStack = SourceDefinition->MaxStack;
-		const Fdemo_mapItemDefinition* ProductDefinition =
-			Fdemo_mapItemDefinitions::Find(DefinitionId);
-		if (ProductDefinition)
+		if (!Fdemo_mapShanmenItemDefinitionAdapter::Build(DefinitionId, Definition)
+			|| Definition.MaxStack != SourceDefinition->MaxStack
+			|| (Definition.MaxStack > 1) != SourceDefinition->bStackable)
 		{
-			Definition.MaxDurability = ProductDefinition->MaxDurability;
-			Definition.MaxCharges = ProductDefinition->MaxCharges;
-		}
-		if (SourceDefinition->bStackable)
-		{
-			Definition.ItemTags.AddTag(
-				FShanmenItemNativeTags::CapabilityConsumeQuantity());
-		}
-		else if (ProductDefinition
-			&& ProductDefinition->MaxStackSize == 1
-			&& !ProductDefinition->CompatibleSlotIds.IsEmpty())
-		{
-			// P1.6 preparation selection is a durable deployment intent. The
-			// capability is derived from the immutable product definition during
-			// the one-time migration; mutable UI/profile state never grants it.
-			Definition.ItemTags.AddTag(
-				FShanmenItemNativeTags::CapabilityDeploy());
-		}
-		if (Definition.MaxDurability > 0)
-		{
-			Definition.ItemTags.AddTag(
-				FShanmenItemNativeTags::CapabilityDurability());
-		}
-		if (Definition.MaxCharges > 0)
-		{
-			Definition.ItemTags.AddTag(
-				FShanmenItemNativeTags::CapabilityCharges());
-		}
-		if (ProductDefinition
-			&& ProductDefinition->HasGameplaySemantic(
-				Edemo_mapItemGameplaySemantic::ThrownWeapon))
-		{
-			Definition.ItemTags.AddTag(
-				FShanmenItemNativeTags::ItemWeaponThrown());
-		}
-		if (ProductDefinition
-			&& ProductDefinition->HasGameplaySemantic(
-				Edemo_mapItemGameplaySemantic::FlyingSword))
-		{
-			Definition.ItemTags.AddTag(
-				FShanmenItemNativeTags::ItemWeaponFlyingSword());
+			return Fail(Edemo_mapShanmenItemMigrationError::SourceItemMismatch,
+				TEXT("A used definition no longer matches the canonical authority projection."));
 		}
 		Candidate.Definitions.Add(MoveTemp(Definition));
 	}

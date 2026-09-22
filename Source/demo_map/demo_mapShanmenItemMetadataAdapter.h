@@ -5,6 +5,7 @@
 
 struct Fdemo_mapPersistentItemRecord;
 struct Fdemo_mapRuntimeSettlementItem;
+struct Fdemo_mapRewardPlannedStack;
 
 /**
  * One product-boundary codec for resolved reward metadata. It validates the
@@ -12,6 +13,11 @@ struct Fdemo_mapRuntimeSettlementItem;
  */
 struct Fdemo_mapShanmenItemMetadataAdapter
 {
+	static bool FromPlannedStack(
+		const Fdemo_mapRewardPlannedStack& Source,
+		FShanmenItemRewardMetadata& OutMetadata,
+		FString& OutDiagnostic);
+
 	static bool FromPersistentItem(
 		const Fdemo_mapPersistentItemRecord& Source,
 		FShanmenItemRewardMetadata& OutMetadata,

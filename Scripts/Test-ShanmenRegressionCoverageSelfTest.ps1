@@ -6987,6 +6987,22 @@ try
             -Paths @($ProjectionPath) -Logs @($WorldProjection, $SpatialBundle) -ExpectedText 'missing required groups'
     }
 
+    $SourceLegacy = New-AutomationLogFixture -Name 'source-adapter-legacy.log' -Group 'demo_map'
+    $SourceItems = New-AutomationLogFixture -Name 'source-adapter-items.log' -Group 'Shanmen.0_0_10.Items'
+    foreach ($SourcePath in @(
+            'Source/demo_map/demo_mapShanmenItemGeneratedSourceAdapter.h',
+            'Source/demo_map/demo_mapShanmenItemDefinitionAdapter.cpp',
+            'Source/demo_map/demo_mapShanmenItemMetadataAdapter.cpp',
+            'Source/demo_map/demo_mapShanmenItemMigration.cpp'))
+    {
+        Invoke-ExpectedPass -Name "source boundary includes both generations: $SourcePath" `
+            -Paths @($SourcePath) -Logs @($Full, $SourceLegacy)
+        Invoke-ExpectedFail -Name "source boundary retains migrated weapon capability proofs: $SourcePath" `
+            -Paths @($SourcePath) -Logs @($SourceItems, $SourceLegacy) -ExpectedText 'missing required groups'
+        Invoke-ExpectedFail -Name "source boundary retains canonical planner regression: $SourcePath" `
+            -Paths @($SourcePath) -Logs @($Full) -ExpectedText 'missing required groups'
+    }
+
     Write-Output (
         'SELF_TEST: PASS {0}/{0}' -f $script:SelfTestPassCount)
 }

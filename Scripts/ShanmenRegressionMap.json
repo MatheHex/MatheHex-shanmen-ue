@@ -3171,6 +3171,17 @@
       ]
     },
     {
+      "name": "GeneratedSourceProductBoundary",
+      "pathRegex": "^Source/demo_map/demo_mapShanmenItem(?:GeneratedSourceAdapter|DefinitionAdapter|MetadataAdapter|Migration)(?:Tests)?\\.(?:h|cpp)$",
+      "requiredGroups": [
+        "Shanmen.0_0_10.Items",
+        "Shanmen.0_0_10.Product.ThrownWeaponContent",
+        "Shanmen.0_0_10.Product.ControlledWeaponContent",
+        "demo_map.RewardSourceProjection",
+        "demo_map.RewardFullMapDistribution"
+      ]
+    },
+    {
       "name": "ItemProductAdapters",
       "pathRegex": "^Source/demo_map/demo_map(?:ShanmenItem|ShanmenPreparation|Item|GridInventory|EntityLoadout|0909BCodeBItemBridge|0909BM01RuntimeAdapter|PreparationAdapter).*\\.(?:h|cpp)$",
       "requiredGroups": [
