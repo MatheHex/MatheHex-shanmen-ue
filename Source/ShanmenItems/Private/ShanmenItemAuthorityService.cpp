@@ -563,6 +563,17 @@ FShanmenItemAuthorityService::GetState() const
 	return State;
 }
 
+FShanmenItemGeneratedSourceReadResult FShanmenItemAuthorityService::ReadGeneratedSource(
+	const FGuid& OwnerId, const FGuid& RunId, FName SourceRoleId) const
+{
+	FScopeLock Lock(&Mutex);
+	if (State != EShanmenItemAuthorityServiceState::Ready || OwnerId != Storage.OwnerId)
+	{
+		return FShanmenItemGeneratedSourceReadResult();
+	}
+	return Repository.ReadGeneratedSource(OwnerId, RunId, SourceRoleId);
+}
+
 bool FShanmenItemAuthorityService::TryGetDocument(
 	FShanmenItemAuthorityDocument& OutDocument) const
 {

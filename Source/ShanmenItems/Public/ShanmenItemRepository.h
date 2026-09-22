@@ -16,6 +16,8 @@ public:
 	FShanmenItemTransactionReceipt AcceptGeneratedSource(const FShanmenItemGeneratedSourceRequest& Request);
 	bool TryGetGeneratedSource(const FGuid& OwnerId, const FGuid& RunId, FName SourceRoleId,
 		FShanmenItemGeneratedSourceReceipt& OutReceipt) const;
+	FShanmenItemGeneratedSourceReadResult ReadGeneratedSource(
+		const FGuid& OwnerId, const FGuid& RunId, FName SourceRoleId) const;
 	bool TryLoadSnapshot(
 		const FShanmenItemAuthoritySnapshot& Snapshot,
 		EShanmenItemTransactionError* OutError = nullptr);

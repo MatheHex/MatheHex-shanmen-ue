@@ -1529,7 +1529,16 @@ bool FShanmenSourceDurableConcurrentTest::RunTest(const FString&)
 	TArray<TFuture<FShanmenItemDurableCommandResult>> Futures;
 	for (int32 I = 0; I < 8; ++I)
 	{
-		Futures.Add(Async(EAsyncExecution::ThreadPool, [&Service, Request]() { return Service.AcceptGeneratedSourceDurable(Request); }));
+		Futures.Add(Async(EAsyncExecution::ThreadPool, [&Service, Request]() {
+			const auto Accepted = Service.AcceptGeneratedSourceDurable(Request);
+			const auto Read = Service.ReadGeneratedSource(ServiceOwnerId, Request.Plan.RunId, Request.Plan.SourceRoleId);
+			if (Read.Status != EShanmenItemGeneratedSourceReadStatus::Accepted || Read.AcceptedSequence != 1
+				|| Read.PityState != 7 || !(Read.Receipt.GetPlan() == Request.Plan))
+			{
+				return FShanmenItemDurableCommandResult();
+			}
+			return Accepted;
+		}));
 	}
 	int32 Persisted = 0, Replayed = 0;
 	for (auto& Future : Futures)
@@ -1546,5 +1555,125 @@ bool FShanmenSourceDurableConcurrentTest::RunTest(const FString&)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShanmenSourceReadLifecycleTest,
+	"Shanmen.0_0_10.Items.GeneratedSource.Read.LifecycleAndRestart",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FShanmenSourceReadLifecycleTest::RunTest(const FString&)
+{
+	using ERead = EShanmenItemGeneratedSourceReadStatus;
+	using ERun = EShanmenItemGeneratedSourceRunState;
+	const FString Root = NewServiceRoot(TEXT("SourceReadLifecycle"));
+	const auto Storage = FShanmenItemStorageContext::ForRoot(Root, ServiceOwnerId);
+	FShanmenItemAuthorityService Service;
+	const FGuid Run = StartSourceRun(*this, Service, Storage);
+	const auto First = SourceRequest(Run);
+	const auto Empty = Service.ReadGeneratedSource(ServiceOwnerId, Run, First.Plan.SourceRoleId);
+	TestTrue(TEXT("First source is proven absent, with unbound source manifest and actual item content"),
+		Empty.Status == ERead::Absent && Empty.RunState == ERun::Active
+		&& Empty.OwnerId == ServiceOwnerId && Empty.RunId == Run && Empty.SourceRoleId == First.Plan.SourceRoleId
+		&& Empty.AcceptedSequence == 0 && Empty.PityState == 0 && !Empty.SourceContent.IsValid()
+		&& Empty.ItemContent.Version == ServiceContent().Version && Empty.ItemContent.Digest == ServiceContent().Digest
+		&& Empty.AuthorityRevision > 0 && !Empty.Receipt.IsValid());
+	TestTrue(TEXT("Nonzero durable first source"), Service.AcceptGeneratedSourceDurable(First).IsCommandSuccess());
+	const auto ReadFirst = Service.ReadGeneratedSource(ServiceOwnerId, Run, First.Plan.SourceRoleId);
+	TestTrue(TEXT("One read binds accepted plan, cursor, pity, manifest and revision"),
+		ReadFirst.Status == ERead::Accepted && ReadFirst.RunState == ERun::Active
+		&& ReadFirst.Receipt.GetPlan() == First.Plan && ReadFirst.AcceptedSequence == 1 && ReadFirst.PityState == 7
+		&& ReadFirst.SourceContent.Version == First.Plan.Content.Version && ReadFirst.SourceContent.Digest == First.Plan.Content.Digest
+		&& ReadFirst.AuthorityRevision == Empty.AuthorityRevision + 1);
+	const auto Second = SourceRequest(Run, TEXT("Source.Test.Second"), ReadFirst.AcceptedSequence, ReadFirst.PityState, 8);
+	const auto Stale = SourceRequest(Run, TEXT("Source.Test.Stale"), ReadFirst.AcceptedSequence, ReadFirst.PityState, 9);
+	TestTrue(TEXT("Next source accepts from read cursor"), Service.AcceptGeneratedSourceDurable(Second).IsCommandSuccess());
+	FShanmenItemAuthorityDocument Before, After;
+	TArray<uint8> BytesBefore, BytesAfter;
+	TestTrue(TEXT("Capture nonempty state baseline"), Service.TryGetDocument(Before) && ReadServiceBytes(Storage.PrimaryPath(), BytesBefore));
+	TestFalse(TEXT("Read result is not a lease: intervening acceptance rejects stale cursor"), Service.AcceptGeneratedSourceDurable(Stale).IsCommandSuccess());
+	const auto Older = Service.ReadGeneratedSource(ServiceOwnerId, Run, First.Plan.SourceRoleId);
+	const auto Absent = Service.ReadGeneratedSource(ServiceOwnerId, Run, Stale.Plan.SourceRoleId);
+	TestTrue(TEXT("Older receipt and current cursor coexist without re-planning"),
+		Older.Status == ERead::Accepted && Older.Receipt == ReadFirst.Receipt
+		&& Older.AcceptedSequence == 2 && Older.PityState == 8 && Older.AuthorityRevision == ReadFirst.AuthorityRevision + 1);
+	TestTrue(TEXT("Absent source still reports current nonzero Run facts"), Absent.Status == ERead::Absent
+		&& Absent.AcceptedSequence == 2 && Absent.PityState == 8 && !Absent.Receipt.IsValid());
+	TestTrue(TEXT("Reads and stale rejection do not mutate document or bytes"), Service.TryGetDocument(After) && After == Before
+		&& ReadServiceBytes(Storage.PrimaryPath(), BytesAfter) && BytesAfter == BytesBefore);
+	FShanmenItemAuthorityService Restart;
+	TestTrue(TEXT("Reopen without re-planning"), Restart.StartExisting(Storage).IsReady());
+	const auto Reopened = Restart.ReadGeneratedSource(ServiceOwnerId, Run, First.Plan.SourceRoleId);
+	TestTrue(TEXT("Fresh service restores exact read facts"), Reopened.Status == Older.Status && Reopened.Receipt == Older.Receipt
+		&& Reopened.AcceptedSequence == 2 && Reopened.PityState == 8 && Reopened.AuthorityRevision == Older.AuthorityRevision);
+	FShanmenItemRunFinalizeRequest End;
+	End.Context.RunId = ServiceRunId; End.Context.OwnerId = ServiceOwnerId;
+	End.Context.RequestId = FGuid(0x513F0300, 0, 0, 1); End.Context.Content = ServiceContent();
+	End.ActiveRunId = Run; End.TerminalReason = EShanmenItemRunTerminalReason::Abandon;
+	TestTrue(TEXT("Finalize real source Run"), Restart.FinalizePreparedRunDurable(End).IsCommandSuccess());
+	FShanmenItemAuthorityService TerminalRestart;
+	TestTrue(TEXT("Terminal is durable across reopen"), TerminalRestart.StartExisting(Storage).IsReady());
+	const auto Terminal = TerminalRestart.ReadGeneratedSource(ServiceOwnerId, Run, First.Plan.SourceRoleId);
+	const auto TerminalAbsent = TerminalRestart.ReadGeneratedSource(ServiceOwnerId, Run, Stale.Plan.SourceRoleId);
+	TestTrue(TEXT("Finalized accepted history remains visible, without reopening Run"), Terminal.Status == ERead::Accepted
+		&& Terminal.RunState == ERun::Finalized && Terminal.Receipt == Older.Receipt && Terminal.AcceptedSequence == 2 && Terminal.PityState == 8);
+	TestTrue(TEXT("Terminal absence never implies fresh generation permission"), TerminalAbsent.Status == ERead::Absent
+		&& TerminalAbsent.RunState == ERun::Finalized && TerminalAbsent.AcceptedSequence == 2 && TerminalAbsent.PityState == 8);
+	RemoveServiceRoot(Root);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShanmenSourceReadUnavailableTest,
+	"Shanmen.0_0_10.Items.GeneratedSource.Read.UnavailableAndRecovery",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FShanmenSourceReadUnavailableTest::RunTest(const FString&)
+{
+	using ERead = EShanmenItemGeneratedSourceReadStatus;
+	auto Unavailable = [&](const FShanmenItemGeneratedSourceReadResult& R) {
+		TestTrue(TEXT("Unavailable is not absence and exposes no stale facts"), R.Status == ERead::Unavailable
+			&& R.RunState == EShanmenItemGeneratedSourceRunState::Unavailable && !R.OwnerId.IsValid() && !R.RunId.IsValid()
+			&& R.SourceRoleId.IsNone() && !R.ItemContent.IsValid() && !R.SourceContent.IsValid()
+			&& R.AuthorityRevision == INDEX_NONE && R.AcceptedSequence == 0 && R.PityState == 0 && !R.Receipt.IsValid());
+	};
+	const FString Root = NewServiceRoot(TEXT("SourceReadUnavailable"));
+	const auto Storage = FShanmenItemStorageContext::ForRoot(Root, ServiceOwnerId);
+	FShanmenItemAuthorityService Service, Closed;
+	const auto First = SourceRequest(StartSourceRun(*this, Service, Storage));
+	const FGuid Run = First.Plan.RunId;
+	Unavailable(Closed.ReadGeneratedSource(ServiceOwnerId, Run, First.Plan.SourceRoleId));
+	for (const auto Stage : { EShanmenItemStoreFailureStage::WriteTemp, EShanmenItemStoreFailureStage::AtomicReplace })
+	{
+		Service.SetInjectedFailureForTests(Stage);
+		const auto Failed = Service.AcceptGeneratedSourceDurable(First);
+		const auto Read = Service.ReadGeneratedSource(ServiceOwnerId, Run, First.Plan.SourceRoleId);
+		TestTrue(TEXT("Proven rollback is Ready absence, not a candidate receipt"),
+			Failed.Status == EShanmenItemDurableCommandStatus::PersistenceFailedRolledBack
+			&& Read.Status == ERead::Absent && Read.AcceptedSequence == 0 && Read.PityState == 0 && !Read.Receipt.IsValid());
+	}
+	Service.SetInjectedFailureForTests(EShanmenItemStoreFailureStage::ReadBackCommittedPrimary);
+	TestTrue(TEXT("Post-commit readback failure reconciles durable source"),
+		Service.AcceptGeneratedSourceDurable(First).Status == EShanmenItemDurableCommandStatus::ResolvedAfterReopen);
+	Service.SetInjectedFailureForTests(EShanmenItemStoreFailureStage::None);
+	const auto Good = Service.ReadGeneratedSource(ServiceOwnerId, Run, First.Plan.SourceRoleId);
+	TestTrue(TEXT("Reconciled read carries actual nonzero state"), Good.Status == ERead::Accepted && Good.AcceptedSequence == 1 && Good.PityState == 7);
+	Unavailable(Service.ReadGeneratedSource(FGuid(9, 9, 9, 9), Run, First.Plan.SourceRoleId));
+	Unavailable(Service.ReadGeneratedSource(FGuid(), Run, First.Plan.SourceRoleId));
+	Unavailable(Service.ReadGeneratedSource(ServiceOwnerId, FGuid(), First.Plan.SourceRoleId));
+	Unavailable(Service.ReadGeneratedSource(ServiceOwnerId, ServiceRunId, First.Plan.SourceRoleId));
+	Unavailable(Service.ReadGeneratedSource(ServiceOwnerId, Run, NAME_None));
+	FShanmenItemAuthorityService Stale;
+	TestTrue(TEXT("Second lifecycle establishes nonzero read baseline"), Stale.StartExisting(Storage).IsReady()
+		&& Stale.ReadGeneratedSource(ServiceOwnerId, Run, First.Plan.SourceRoleId).Receipt == Good.Receipt);
+	TestTrue(TEXT("Winning lifecycle advances"), Service.AcceptGeneratedSourceDurable(SourceRequest(Run, TEXT("Source.Winner"), 1, 7, 8)).IsCommandSuccess());
+	const auto Diverged = Stale.AcceptGeneratedSourceDurable(SourceRequest(Run, TEXT("Source.Loser"), 1, 7, 9));
+	TestTrue(TEXT("Actual divergent disk outcome enters recovery"), Diverged.Status == EShanmenItemDurableCommandStatus::RecoveryRequired);
+	Unavailable(Stale.ReadGeneratedSource(ServiceOwnerId, Run, First.Plan.SourceRoleId));
+	Unavailable(Stale.ReadGeneratedSource(ServiceOwnerId, Run, TEXT("Source.Loser")));
+	FShanmenItemAuthorityService Recovered;
+	TestTrue(TEXT("Fresh lifecycle recovers winning history only"), Recovered.StartExisting(Storage).IsReady());
+	const auto Winner = Recovered.ReadGeneratedSource(ServiceOwnerId, Run, TEXT("Source.Winner"));
+	const auto Loser = Recovered.ReadGeneratedSource(ServiceOwnerId, Run, TEXT("Source.Loser"));
+	TestTrue(TEXT("Recovery distinguishes accepted winner from absent loser with identical current cursor"),
+		Winner.Status == ERead::Accepted && Loser.Status == ERead::Absent
+		&& Winner.AcceptedSequence == 2 && Loser.AcceptedSequence == 2 && Winner.PityState == 8 && Loser.PityState == 8);
+	RemoveServiceRoot(Root);
+	return true;
+}
 
 #endif

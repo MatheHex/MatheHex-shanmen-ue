@@ -55,6 +55,35 @@ private:
 	int64 AcceptedSequence = 0;
 };
 
+enum class EShanmenItemGeneratedSourceReadStatus : uint8
+{
+	Unavailable,
+	Absent,
+	Accepted
+};
+
+/**
+ * One coherent read, not a reservation or a second ledger. Only the Ready service
+ * publishes durable facts. Absent is proven absence in a known Run, not permission
+ * to generate: RunState must still be Active and a later commit rechecks the cursor.
+ * SourceContent is empty until the Run's first source binds it; ItemContent is not.
+ * At most the requested source plan is copied, never the entire inventory/history.
+ */
+struct SHANMENITEMS_API FShanmenItemGeneratedSourceReadResult
+{
+	EShanmenItemGeneratedSourceReadStatus Status = EShanmenItemGeneratedSourceReadStatus::Unavailable;
+	EShanmenItemGeneratedSourceRunState RunState = EShanmenItemGeneratedSourceRunState::Unavailable;
+	FGuid OwnerId;
+	FGuid RunId;
+	FName SourceRoleId;
+	FShanmenContentStamp ItemContent;
+	FShanmenContentStamp SourceContent;
+	int32 AuthorityRevision = INDEX_NONE;
+	int64 AcceptedSequence = 0;
+	int32 PityState = 0;
+	FShanmenItemGeneratedSourceReceipt Receipt;
+};
+
 enum class EShanmenItemGeneratedSourceDecision : uint8
 {
 	Rejected,

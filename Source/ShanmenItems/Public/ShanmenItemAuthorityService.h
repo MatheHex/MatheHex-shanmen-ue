@@ -122,6 +122,9 @@ public:
 	/** Only Ready durable state may publish a source for later materialization. */
 	bool TryGetGeneratedSource(const FGuid& OwnerId, const FGuid& RunId, FName SourceRoleId,
 		FShanmenItemGeneratedSourceReceipt& OutReceipt) const;
+	/** One lock covers availability, Run/cursor/content and optional accepted plan. */
+	FShanmenItemGeneratedSourceReadResult ReadGeneratedSource(
+		const FGuid& OwnerId, const FGuid& RunId, FName SourceRoleId) const;
 	FShanmenItemDurableCommandResult CommitDurable(
 		const FShanmenItemReservationActionRequest& Request);
 	FShanmenItemDurableCommandResult CommitBatchDurable(

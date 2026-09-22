@@ -166,3 +166,41 @@ bool FShanmenItemRepository::TryGetGeneratedSource(const FGuid& OwnerId, const F
 	OutReceipt = Rebuild(*Plan);
 	return OutReceipt.IsValid();
 }
+
+FShanmenItemGeneratedSourceReadResult FShanmenItemRepository::ReadGeneratedSource(
+	const FGuid& OwnerId, const FGuid& RunId, FName SourceRoleId) const
+{
+	FShanmenItemGeneratedSourceReadResult Result;
+	if (!bInitialized || !OwnerId.IsValid() || !RunId.IsValid() || SourceRoleId.IsNone()) { return Result; }
+	const auto* Claim = FindRunReceipt(State.ProcessedRequests, RunId, false);
+	const auto* First = Claim && !Claim->ReservationIds.IsEmpty() ? State.Reservations.Find(Claim->ReservationIds[0]) : nullptr;
+	if (!First || First->OwnerId != OwnerId) { return Result; }
+	Result.OwnerId = OwnerId; Result.RunId = RunId; Result.SourceRoleId = SourceRoleId;
+	Result.ItemContent = State.Content; Result.AuthorityRevision = State.AuthorityRevision;
+	Result.RunState = FindRunReceipt(State.ProcessedRequests, RunId, true)
+		? EShanmenItemGeneratedSourceRunState::Finalized : EShanmenItemGeneratedSourceRunState::Active;
+	// State is validated at every install/commit: per-Run sequence is contiguous,
+	// manifest is constant, and each prior pity output equals the next input.
+	const FPlan* Latest = nullptr;
+	for (const auto& Pair : State.GeneratedSources)
+	{
+		const auto& Plan = Pair.Value;
+		if (Plan.RunId == RunId && Plan.OwnerId == OwnerId
+			&& (!Latest || Plan.ExpectedSequence > Latest->ExpectedSequence)) { Latest = &Plan; }
+	}
+	if (Latest)
+	{
+		Result.SourceContent = Latest->Content;
+		Result.AcceptedSequence = Latest->ExpectedSequence + 1;
+		Result.PityState = Latest->PityStateAfter;
+	}
+	const auto* Existing = State.GeneratedSources.Find(FContract::MakeSourceId(OwnerId, RunId, SourceRoleId));
+	if (Existing)
+	{
+		Result.Receipt = Rebuild(*Existing);
+		if (!Result.Receipt.IsValid()) { return FShanmenItemGeneratedSourceReadResult(); }
+		Result.Status = EShanmenItemGeneratedSourceReadStatus::Accepted;
+	}
+	else { Result.Status = EShanmenItemGeneratedSourceReadStatus::Absent; }
+	return Result;
+}
