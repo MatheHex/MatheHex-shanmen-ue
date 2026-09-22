@@ -288,6 +288,39 @@ bool FShanmenItemGeneratedSourceCodec::Encode(const FPlan& Plan, FObject& OutObj
 	return true;
 }
 
+bool FShanmenItemGeneratedSourceCodec::EncodeRewardMetadata(
+	const FShanmenItemRewardMetadata& Metadata, FObject& OutObject, FString* OutError)
+{
+	OutObject.Reset();
+	if (OutError) { OutError->Reset(); }
+	if (!Metadata.IsValid())
+	{
+		if (OutError) { *OutError = TEXT("Invalid reward metadata."); }
+		return false;
+	}
+	FWriter Writer;
+	RewardFields(Writer, Metadata);
+	OutObject = MoveTemp(Writer.Object);
+	return true;
+}
+
+bool FShanmenItemGeneratedSourceCodec::DecodeRewardMetadata(
+	const FObject& Object, FShanmenItemRewardMetadata& OutMetadata, FString* OutError)
+{
+	OutMetadata = FShanmenItemRewardMetadata();
+	if (OutError) { OutError->Reset(); }
+	FReader Reader(Object);
+	FShanmenItemRewardMetadata Candidate;
+	RewardFields(Reader, Candidate);
+	if (!Reader.Finish() || !Candidate.IsValid())
+	{
+		if (OutError) { *OutError = TEXT("Reward metadata has invalid fields, bounds or domain invariants."); }
+		return false;
+	}
+	OutMetadata = MoveTemp(Candidate);
+	return true;
+}
+
 bool FShanmenItemGeneratedSourceCodec::Decode(const FObject& Object, FPlan& OutPlan, FString* OutError)
 {
 	OutPlan = FPlan();

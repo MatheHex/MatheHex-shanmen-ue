@@ -3,6 +3,8 @@
 #include "ShanmenItemPersistence.h"
 
 #include "ShanmenItemRepository.h"
+#include "ShanmenItemGeneratedSourceCodec.h"
+#include "JsonObjectConverter.h"
 #include "ShanmenItemTags.h"
 
 #include "HAL/FileManager.h"
@@ -653,6 +655,9 @@ bool FShanmenItemPersistenceSchema2MigrationTest::RunTest(const FString&)
 	if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Object)) { RemovePersistenceRoot(Root); return false; }
 	auto Authority = Object->GetObjectField(TEXT("Authority"));
 	Authority->RemoveField(TEXT("GeneratedSources"));
+	// Preserve reflection's lower-camel key spelling: the original wire digest is byte-sensitive.
+	Authority->GetArrayField(TEXT("Items"))[0]->AsObject()->SetObjectField(TEXT("rewardMetadata"),
+		FJsonObjectConverter::UStructToJsonObject(Candidate.Items[0].RewardMetadata));
 	// Independent pre-schema-3 wire digest, not the migration function under test.
 	FString OldAuthorityJson;
 	FJsonSerializer::Serialize(Authority, TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&OldAuthorityJson));
@@ -707,7 +712,11 @@ bool FShanmenItemPersistenceBoundedJsonTest::RunTest(const FString&)
 	for (int32 Case = 0; Case < 4; ++Case)
 	{
 		FString Bad = Original;
-		if (Case == 0) { Bad.ReplaceInline(TEXT("\"SchemaVersion\":3"), TEXT("\"SchemaVersion\":3,\"SchemaVersion\":3")); }
+		if (Case == 0)
+		{
+			const FString Token = FString::Printf(TEXT("\"SchemaVersion\":%d"), FShanmenItemAuthorityDocument::CurrentSchemaVersion);
+			Bad.ReplaceInline(*Token, *(Token + TEXT(",") + Token));
+		}
 		if (Case == 1) { Bad.ReplaceInline(TEXT("\"Quantity\":5"), TEXT("\"Quantity\":5,\"Quantity\":5")); }
 		if (Case == 2) { Bad.ReplaceInline(TEXT("\"GeneratedSources\":[]"), TEXT("\"GeneratedSources\":[],\"GeneratedSources\":[]")); }
 		if (Case == 3) { Bad = FString::ChrN(65, '[') + TEXT("0") + FString::ChrN(65, ']'); }
@@ -724,6 +733,166 @@ bool FShanmenItemPersistenceBoundedJsonTest::RunTest(const FString&)
 	TestFalse(TEXT("Oversized document is rejected before payload allocation"), Oversized.IsSuccess());
 	FFileHelper::SaveStringToFile(Original, *Storage.PrimaryPath(), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
 	TestTrue(TEXT("Original bounded document still loads after all rejected cases"), Store.LoadExisting(Storage).IsSuccess());
+	RemovePersistenceRoot(Root);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShanmenItemPersistenceExactMetadataTest,
+	"Shanmen.0_0_10.Items.PersistenceDocument.ExactInventoryMetadata",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FShanmenItemPersistenceExactMetadataTest::RunTest(const FString&)
+{
+	for (int64 Value : { int64(9007199254740993LL), MAX_int64 })
+	{
+		const FString Root = NewPersistenceRoot(TEXT("ExactMetadata"));
+		const auto Storage = FShanmenItemStorageContext::ForRoot(Root, PersistenceOwnerId);
+		auto Candidate = MetadataCandidate();
+		Candidate.Items[0].RewardMetadata.RareRewardBonusValue = Value;
+		Candidate.Items[0].RewardMetadata.Affixes[0].ResolvedValue = Value;
+		FShanmenItemAuthorityStore Store;
+		const auto Created = Store.OpenOrCreateFromMigration(Candidate, PersistenceEvidence(), Storage);
+		TestTrue(TEXT("Full-range metadata publishes without rounding"), Created.IsSuccess());
+		if (Created.IsSuccess())
+		{
+			FString Json;
+			TestTrue(TEXT("Inventory metadata uses exact decimal strings on disk"),
+				FFileHelper::LoadFileToString(Json, *Storage.PrimaryPath())
+				&& Json.Contains(FString::Printf(TEXT("\"RareRewardBonusValue\":\"%lld\""), Value))
+				&& Json.Contains(FString::Printf(TEXT("\"ResolvedValue\":\"%lld\""), Value)));
+			FShanmenItemAuthorityStore ReopenedStore;
+			auto Loaded = ReopenedStore.LoadExisting(Storage);
+			TestTrue(TEXT("Fresh store reopens the exact complete inventory"), Loaded.IsSuccess() && Loaded.Document.Authority == Candidate);
+			const auto Reserved = ReserveOne(*this, Candidate, 340);
+			TestTrue(TEXT("A real subsequent transaction preserves exact metadata and increments generation once"),
+				Store.SaveAuthority(Loaded.Document, Reserved, Storage).IsSuccess()
+				&& Loaded.Document.SaveGeneration == 2
+				&& ReopenedStore.LoadExisting(Storage).Document.Authority == Reserved);
+		}
+		RemovePersistenceRoot(Root);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShanmenItemPersistenceSchema3MigrationTest,
+	"Shanmen.0_0_10.Items.PersistenceDocument.Schema3LiveHistoryMigration",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FShanmenItemPersistenceSchema3MigrationTest::RunTest(const FString&)
+{
+	const FString Root = NewPersistenceRoot(TEXT("Schema3LiveHistory"));
+	const auto Storage = FShanmenItemStorageContext::ForRoot(Root, PersistenceOwnerId);
+	const auto Candidate = MetadataCandidate();
+	FShanmenItemAuthorityStore Store;
+	auto Created = Store.OpenOrCreateFromMigration(Candidate, PersistenceEvidence(), Storage);
+	if (!TestTrue(TEXT("Schema-3 fixture starts from nonzero inventory"), Created.IsSuccess())) { RemovePersistenceRoot(Root); return false; }
+	FShanmenItemRepository Repository;
+	const auto Reserved = ReserveOne(*this, Candidate, 341);
+	if (!TestTrue(TEXT("Reserved fixture loads"), Repository.TryLoadSnapshot(Reserved))) { RemovePersistenceRoot(Root); return false; }
+	FShanmenItemRunStartRequest Start;
+	Start.Context.RunId = PersistenceRunId; Start.Context.OwnerId = PersistenceOwnerId;
+	Start.Context.Content = PersistenceContent(); Start.Context.RequestId = FGuid(0x50123401, 0, 0, 1);
+	Start.ReservationIds = { Reserved.Reservations[0].ReservationId };
+	const auto Started = Repository.StartPreparedRun(Start);
+	TestTrue(TEXT("Real Run is active before schema migration"), Started.IsSuccess());
+	FShanmenItemGeneratedSourceRequest Source;
+	Source.ItemContent = PersistenceContent();
+	auto& Plan = Source.Plan;
+	Plan.OwnerId = PersistenceOwnerId; Plan.RunId = Started.ReservationId;
+	Plan.SourceRoleId = TEXT("Source.Schema3"); Plan.Content.Version = TEXT("Source.Schema3.v1"); Plan.Content.Digest = TEXT("Manifest.Schema3");
+	Plan.ProjectionId = TEXT("Projection.Schema3"); Plan.DistributionProfileId = TEXT("Distribution.Schema3"); Plan.BudgetProfileId = TEXT("Budget.Schema3");
+	Plan.EffectiveSeed = MAX_uint64; Plan.RandomizedBudget = 19; Plan.GeneratedTotalValue = 19;
+	Plan.PityStateAfter = 7; Plan.bPityCommitRequired = true;
+	auto& Entry = Plan.Entries.AddDefaulted_GetRef();
+	Entry.Definition = Candidate.Definitions[0]; Entry.Quantity = 1; Entry.SectionId = TEXT("Section.Schema3"); Entry.SlotIndex = 0;
+	Entry.UnitValue = 19; Entry.TotalValue = 19;
+	const auto Accepted = Repository.AcceptGeneratedSource(Source);
+	TestTrue(TEXT("Source acceptance creates real immutable history"), Accepted.IsSuccess());
+	const auto Live = Repository.CaptureSnapshot();
+	if (!TestTrue(TEXT("Mutated authority is durable"), Store.SaveAuthority(Created.Document, Live, Storage).IsSuccess())) { RemovePersistenceRoot(Root); return false; }
+	FString Json;
+	FFileHelper::LoadFileToString(Json, *Storage.PrimaryPath());
+	TSharedPtr<FJsonObject> Object;
+	if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Object)) { RemovePersistenceRoot(Root); return false; }
+	auto Authority = Object->GetObjectField(TEXT("Authority"));
+	const auto& Items = Authority->GetArrayField(TEXT("Items"));
+	for (int32 Index = 0; Index < Items.Num(); ++Index)
+	{
+		Items[Index]->AsObject()->SetObjectField(TEXT("rewardMetadata"), FJsonObjectConverter::UStructToJsonObject(Live.Items[Index].RewardMetadata));
+	}
+	FString OldJson;
+	FJsonSerializer::Serialize(Authority, TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&OldJson));
+	FTCHARToUTF8 Utf8(*OldJson);
+	uint8 Hash[SHA256_DIGEST_LENGTH]{};
+	SHA256(reinterpret_cast<const uint8*>(Utf8.Get()), Utf8.Length(), Hash);
+	FString OldDigest, Computed, InitialDigest;
+	for (uint8 Byte : Hash) { OldDigest += FString::Printf(TEXT("%02X"), Byte); }
+	TestTrue(TEXT("Schema-3 digest equals independent old reflection-metadata wire SHA"),
+		FShanmenItemAuthorityStore::ComputeLegacySchema3SnapshotDigest(Live, Computed) && Computed == OldDigest);
+	FShanmenItemAuthorityStore::ComputeLegacySchema3SnapshotDigest(Candidate, InitialDigest);
+	Object->SetNumberField(TEXT("SchemaVersion"), 3);
+	Object->SetStringField(TEXT("SnapshotDigest"), OldDigest); Object->SetStringField(TEXT("InitialSnapshotDigest"), InitialDigest);
+	FString LegacyJson;
+	FJsonSerializer::Serialize(Object.ToSharedRef(), TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&LegacyJson));
+	auto Write = [&](const FString& Text) { return FFileHelper::SaveStringToFile(Text, *Storage.PrimaryPath(), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM); };
+	TestTrue(TEXT("Isolate the historical primary from current-format backup"), IFileManager::Get().Delete(*Storage.BackupPath(), false, true, true));
+	FString Tampered = LegacyJson;
+	TestTrue(TEXT("Tamper live source with unchanged old digest"), Tampered.ReplaceInline(TEXT("\"PityStateAfter\":7"), TEXT("\"PityStateAfter\":8")) == 1 && Write(Tampered));
+	TestFalse(TEXT("Invalid historical evidence cannot normalize"), Store.LoadExisting(Storage).IsSuccess());
+	TestTrue(TEXT("Restore historical schema-3 primary"), Write(LegacyJson));
+	TArray<uint8> Before, After;
+	ReadBytes(Storage.PrimaryPath(), Before);
+	const auto Loaded = Store.LoadExisting(Storage);
+	TestTrue(TEXT("Read-only schema upgrade preserves full live Run, inventory, sources, receipts and initial digest"),
+		Loaded.IsSuccess() && Loaded.bSchemaUpgraded && !Loaded.bDiskStateChanged
+		&& Loaded.Document.Authority == Live && Loaded.Document.InitialSnapshotDigest == InitialDigest
+		&& ReadBytes(Storage.PrimaryPath(), After) && After == Before);
+	const auto Upgraded = Store.OpenOrCreateFromMigration(Candidate, PersistenceEvidence(), Storage);
+	TestTrue(TEXT("Normalize exactly once without reimporting original inventory"), Upgraded.IsSuccess()
+		&& Upgraded.Document.Authority == Live && Upgraded.Document.SaveGeneration == Created.Document.SaveGeneration + 1
+		&& Upgraded.Document.InitialSnapshotDigest == InitialDigest);
+	FShanmenItemRepository Restored;
+	TestTrue(TEXT("Source replay after migration uses the original receipt and revision"),
+		Restored.TryLoadSnapshot(Upgraded.Document.Authority) && Restored.AcceptGeneratedSource(Source) == Accepted
+		&& Restored.CaptureSnapshot() == Live);
+	const auto Again = Store.OpenOrCreateFromMigration(Candidate, PersistenceEvidence(), Storage);
+	TestTrue(TEXT("Repeat reopen is write-free"), Again.IsSuccess() && !Again.bDiskStateChanged && Again.Document == Upgraded.Document);
+	RemovePersistenceRoot(Root);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShanmenItemPersistenceMetadataGuardsTest,
+	"Shanmen.0_0_10.Items.PersistenceDocument.StrictInventoryMetadata",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FShanmenItemPersistenceMetadataGuardsTest::RunTest(const FString&)
+{
+	const FString Root = NewPersistenceRoot(TEXT("MetadataGuards"));
+	const auto Storage = FShanmenItemStorageContext::ForRoot(Root, PersistenceOwnerId);
+	FShanmenItemAuthorityStore Store;
+	const auto Candidate = MetadataCandidate();
+	if (!TestTrue(TEXT("Strict metadata fixture publishes"), Store.OpenOrCreateFromMigration(Candidate, PersistenceEvidence(), Storage).IsSuccess())) { RemovePersistenceRoot(Root); return false; }
+	FString Original;
+	FFileHelper::LoadFileToString(Original, *Storage.PrimaryPath());
+	for (int32 Case = 0; Case < 10; ++Case)
+	{
+		TSharedPtr<FJsonObject> Object;
+		FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Original), Object);
+		auto Metadata = Object->GetObjectField(TEXT("Authority"))->GetArrayField(TEXT("Items"))[0]->AsObject()->GetObjectField(TEXT("RewardMetadata"));
+		const TCHAR* BadStrings[] = { TEXT("017"), TEXT("-1"), TEXT("1e2"), TEXT("9223372036854775808"), TEXT("") };
+		if (Case < 5) { Metadata->SetStringField(TEXT("RareRewardBonusValue"), BadStrings[Case]); }
+		if (Case == 5) { Metadata->SetNumberField(TEXT("RareRewardBonusValue"), 17); }
+		if (Case == 6) { Metadata->RemoveField(TEXT("RareRewardBonusValue")); }
+		if (Case == 7) { Metadata->SetBoolField(TEXT("Unexpected"), true); }
+		if (Case == 8) { Metadata->GetArrayField(TEXT("Affixes"))[0]->AsObject()->SetNumberField(TEXT("ResolvedValue"), 120); }
+		if (Case == 9) { Metadata->SetNumberField(TEXT("RewardEventKind"), 9); }
+		auto Decoded = Candidate.Items[0].RewardMetadata;
+		TestFalse(TEXT("Shared decoder rejects malformed metadata before digest checking"), FShanmenItemGeneratedSourceCodec::DecodeRewardMetadata(Metadata, Decoded));
+		TestTrue(TEXT("Failure clears previously nonempty output"), Decoded.IsEmpty());
+		FString Bad;
+		FJsonSerializer::Serialize(Object.ToSharedRef(), TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&Bad));
+		TestTrue(TEXT("Malformed fixture changes actual bytes"), Bad != Original && FFileHelper::SaveStringToFile(Bad, *Storage.PrimaryPath(), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM));
+		TestFalse(TEXT("Current schema cannot coerce malformed metadata"), Store.LoadExisting(Storage).IsSuccess());
+	}
+	TestTrue(TEXT("Original still reopens exactly"), FFileHelper::SaveStringToFile(Original, *Storage.PrimaryPath(), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM)
+		&& Store.LoadExisting(Storage).Document.Authority == Candidate);
 	RemovePersistenceRoot(Root);
 	return true;
 }

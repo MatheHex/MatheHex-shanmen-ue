@@ -21,4 +21,10 @@ struct SHANMENITEMS_API FShanmenItemGeneratedSourceCodec
 	/** Failure clears OutPlan; it never publishes a partly decoded plan. */
 	static bool Decode(const TSharedPtr<FJsonObject>& Object,
 		FShanmenItemGeneratedSourcePlan& OutPlan, FString* OutError = nullptr);
+	/** Same metadata layout as embedded plans; selected by authority schema >= 4.
+	 * No independent version field. Failure clears output, including partial arrays. */
+	static bool EncodeRewardMetadata(const FShanmenItemRewardMetadata& Metadata,
+		TSharedPtr<FJsonObject>& OutObject, FString* OutError = nullptr);
+	static bool DecodeRewardMetadata(const TSharedPtr<FJsonObject>& Object,
+		FShanmenItemRewardMetadata& OutMetadata, FString* OutError = nullptr);
 };

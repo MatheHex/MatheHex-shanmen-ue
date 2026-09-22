@@ -77,7 +77,8 @@ struct SHANMENITEMS_API FShanmenItemAuthorityDocument
 {
 	static constexpr int32 LegacySchemaVersion = 1;
 	static constexpr int32 LegacySchema2Version = 2;
-	static constexpr int32 CurrentSchemaVersion = 3;
+	static constexpr int32 LegacySchema3Version = 3;
+	static constexpr int32 CurrentSchemaVersion = 4;
 	static constexpr int64 MaxDocumentBytes = 64LL * 1024 * 1024;
 
 	int32 SchemaVersion = CurrentSchemaVersion;
@@ -169,7 +170,7 @@ struct SHANMENITEMS_API FShanmenItemOpenResult
 };
 
 /**
- * Owns the schema-3 JSON document and its atomic filesystem protocol. It never
+ * Owns the current-version JSON document and its atomic filesystem protocol. It never
  * reads or writes legacy Code A/Code B data and has no product startup hook.
  */
 class SHANMENITEMS_API FShanmenItemAuthorityStore
@@ -195,6 +196,9 @@ public:
 		const FShanmenItemAuthoritySnapshot& Snapshot,
 		FString& OutDigest,
 		FString* OutError = nullptr);
+	/** Exact schema-3 digest: lossless sources, reflection-encoded inventory metadata. */
+	static bool ComputeLegacySchema3SnapshotDigest(
+		const FShanmenItemAuthoritySnapshot& Snapshot, FString& OutDigest, FString* OutError = nullptr);
 	/** Exact schema-2 digest before GeneratedSources existed; requires no sources. */
 	static bool ComputeLegacySchema2SnapshotDigest(
 		const FShanmenItemAuthoritySnapshot& Snapshot, FString& OutDigest, FString* OutError = nullptr);
