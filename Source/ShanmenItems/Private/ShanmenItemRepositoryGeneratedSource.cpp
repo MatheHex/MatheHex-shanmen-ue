@@ -146,6 +146,19 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::AcceptGeneratedSource(con
 	const FSource Source = Rebuild(Plan);
 	if (!Source.IsValid()) { return Reject(EShanmenItemTransactionError::InvalidRequest); }
 	FState Candidate = State;
+	// A migrated catalog contains only previously owned definitions. Admit the
+	// plan's complete definitions in the SAME candidate as its immutable source.
+	// As with terminal acquired-item import, existing definitions are immutable;
+	// this is catalog consistency, not authorization of a product source/manifest.
+	for (const auto& Entry : Plan.Entries)
+	{
+		const auto* ExistingDefinition = Candidate.Definitions.Find(Entry.Definition.DefinitionId);
+		if (ExistingDefinition)
+		{
+			if (!(*ExistingDefinition == Entry.Definition)) { return Reject(EShanmenItemTransactionError::InvariantViolation); }
+		}
+		else { Candidate.Definitions.Add(Entry.Definition.DefinitionId, Entry.Definition); }
+	}
 	Candidate.GeneratedSources.Add(Id, Plan);
 	++Candidate.AuthorityRevision;
 	const auto Receipt = Transaction(Source, Candidate.AuthorityRevision,

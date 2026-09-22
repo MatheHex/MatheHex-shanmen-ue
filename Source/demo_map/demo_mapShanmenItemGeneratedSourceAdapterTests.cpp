@@ -9,6 +9,7 @@
 #include "demo_mapRewardFullMapDistribution.h"
 #include "ShanmenItemGeneratedSourceCodec.h"
 #include "ShanmenItemTags.h"
+#include "ShanmenItemRepository.h"
 
 namespace
 {
@@ -147,6 +148,64 @@ bool FShanmenSourceAdapterDefinitionsTest::RunTest(const FString&)
 	Stack.RewardEventKind = static_cast<Edemo_mapRewardEventKind>(255);
 	TestFalse(TEXT("Unknown event never gets cast through"), Fdemo_mapShanmenItemMetadataAdapter::FromPlannedStack(Stack, Metadata, Diagnostic));
 	TestTrue(TEXT("Malformed metadata clears previous output"), Metadata == FShanmenItemRewardMetadata() && !Diagnostic.IsEmpty());
+	return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShanmenSourceCatalogProductTest,
+	"Shanmen.0_0_10.Items.GeneratedSource.Catalog.CanonicalProductAdmission",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FShanmenSourceCatalogProductTest::RunTest(const FString&)
+{
+	FShanmenItemAuthoritySnapshot Initial;
+	Initial.Content = ItemContent();
+	FShanmenItemDefinition Carry;
+	if (!TestTrue(TEXT("Real canonical carried definition"), Fdemo_mapShanmenItemDefinitionAdapter::Build(
+		Fdemo_mapItemIds::TrainingFlyingSword, Carry))) { return false; }
+	Initial.Definitions.Add(Carry);
+	FShanmenItemInstance Item;
+	Item.ItemInstanceId = FGuid(0x513F0500, 0, 0, 1); Item.OwnerId = Owner; Item.RunId = Run;
+	Item.DefinitionId = Carry.DefinitionId; Item.Quantity = 1; Item.Durability = Carry.MaxDurability;
+	Item.Charges = Carry.MaxCharges; Item.ParentContainerId = FGuid(0x513F0500, 0, 0, 2); Item.SlotIndex = 0;
+	Initial.Items.Add(Item);
+	FShanmenItemContainer Container;
+	Container.ContainerId = Item.ParentContainerId; Container.OwnerId = Owner; Container.RunId = Run;
+	Container.ContainerType = TEXT("Source.Catalog.Fixture"); Container.Slots.Add(Item.ItemInstanceId);
+	Initial.Containers.Add(Container);
+	FShanmenItemRepository Repository;
+	if (!TestTrue(TEXT("Sparse catalog fixture is valid"), Repository.TryLoadSnapshot(Initial))) { return false; }
+	FShanmenItemReserveRequest Reserve;
+	Reserve.Context.Content = Initial.Content; Reserve.Context.OwnerId = Owner; Reserve.Context.RunId = Run;
+	Reserve.Context.RequestId = FGuid(0x513F0500, 0, 0, 3); Reserve.ItemInstanceId = Item.ItemInstanceId;
+	Reserve.ResourceKind = EShanmenItemResourceKind::DeploymentLock; Reserve.Amount = 1;
+	Reserve.PurposeId = TEXT("Source.Catalog.Fixture");
+	const auto Reserved = Repository.Reserve(Reserve);
+	if (!TestTrue(TEXT("Real carried item is reserved"), Reserved.IsSuccess())) { return false; }
+	FShanmenItemRunStartRequest Start;
+	Start.Context = Reserve.Context; Start.Context.RequestId = FGuid(0x513F0500, 0, 0, 4);
+	Start.ReservationIds.Add(Reserved.ReservationId);
+	const auto Started = Repository.StartPreparedRun(Start);
+	if (!TestTrue(TEXT("Real prepared Run, not fabricated source ownership"), Started.IsSuccess())) { return false; }
+	const auto Before = Repository.CaptureSnapshot();
+	int32 AcceptedCount = 0;
+	auto AcceptSlot = [&](FName SlotId)
+	{
+		FShanmenItemGeneratedSourceRequest Request;
+		FString Diagnostic;
+		// Source snapshots are not sequence-sorted. Obtain the authoritative cursor via the read API.
+		const auto Read = Repository.ReadGeneratedSource(Owner, Started.ReservationId, TEXT("Catalog.Unused.Query"));
+		if (!TestTrue(TEXT("Canonical source builds from current authority cursor"),
+			Fdemo_mapShanmenItemGeneratedSourceAdapter::BuildRequest(Initial.Content, Owner, Started.ReservationId,
+				SlotId, Read.AcceptedSequence, Read.PityState, Request, Diagnostic))) { return; }
+		const auto Result = Repository.AcceptGeneratedSource(Request);
+		if (!TestTrue(*FString::Printf(TEXT("Canonical slot %s admits definitions absent from sparse catalog"), *SlotId.ToString()), Result.IsSuccess())) { return; }
+		const auto Stored = Repository.ReadGeneratedSource(Owner, Started.ReservationId, Request.Plan.SourceRoleId);
+		TestTrue(TEXT("Exact original plan is retained"), Stored.Receipt.GetPlan() == Request.Plan);
+		++AcceptedCount;
+	};
+	AcceptSlot(Fdemo_mapM01RewardDistribution::GetSlots()[0].SlotId);
+	AcceptSlot(Fdemo_mapRewardFullMapDistribution::GetSlots()[0].SlotId);
+	const auto After = Repository.CaptureSnapshot();
+	TestTrue(TEXT("Both canonical distributions expand catalog without inventory materialization"), AcceptedCount == 2
+		&& After.Definitions.Num() > Before.Definitions.Num() && After.Items == Before.Items && After.Containers == Before.Containers);
 	return true;
 }
 #endif
