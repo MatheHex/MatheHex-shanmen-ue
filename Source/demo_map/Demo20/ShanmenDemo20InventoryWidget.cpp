@@ -1,6 +1,7 @@
 #include "ShanmenDemo20InventoryWidget.h"
 #include "ShanmenDemo20World.h"
 #include "ShanmenDemo20Catalog.h"
+#include "ShanmenDemo20Loadout.h"
 #include "ShanmenItemRepository.h"
 #include "Rendering/DrawElements.h"
 #include "Styling/CoreStyle.h"
@@ -24,6 +25,7 @@ void UShanmenDemo20InventoryWidget::InitializeForDemo(AShanmenDemo20GameMode* In
 void UShanmenDemo20InventoryWidget::RefreshProjection()
 {
 	if (Host.IsValid()) Host->TryCaptureItems(Projection);
+	LoadoutSummary = FShanmenDemo20Loadout::Summary(Projection);
 	Dragging = false;
 	if (!Projection.Items.ContainsByPredicate([&](const auto& I) { return I.ItemInstanceId == Selected && Live(I); })) Selected.Invalidate();
 }
@@ -285,6 +287,9 @@ int32 UShanmenDemo20InventoryWidget::NativePaint(const FPaintArgs& Args, const F
 		}
 	}
 	Text({448,467},TEXT("安全格只接受丹药、材料与战利品。储物装备仅整备更换。"),12,Gold);
+	// Carry is at most five rows high; this gap keeps both summary lines clear
+	// of the stash grid and the equipment labels in the 720p scaled surface.
+	Text({448,298},LoadoutSummary,12,Gold);
 	Box({24,394},{172,44},FLinearColor(.11f,.29f,.22f)); Text({36,406},TEXT("领取基础补给"),15);
 	Text({208,402},TEXT("正式死亡后一次"),12,Gold);
 	Text({208,420},TEXT("只补缺失，不补货币"),11,Gold);

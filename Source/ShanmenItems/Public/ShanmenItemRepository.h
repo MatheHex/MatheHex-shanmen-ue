@@ -4,6 +4,7 @@
 #include "ShanmenItemTypes.h"
 #include "ShanmenItemGeneratedSource.h"
 #include "ShanmenItemResupply.h"
+#include "ShanmenItemLoadout.h"
 
 /**
  * The sole mutable item authority for 0.0.10. It owns the item graph,
@@ -16,6 +17,7 @@ public:
 	static constexpr int32 MaxGeneratedEntries = 65536;
 	FShanmenItemTransactionReceipt EditGrid(const FShanmenItemGridRequest& Request);
 	FShanmenItemTransactionReceipt ReplenishBasics(const FShanmenItemBasicSupplyRequest& Request);
+	FShanmenItemTransactionReceipt StartLoadout(const FShanmenItemLoadoutStartRequest& Request);
 	FShanmenItemTransactionReceipt AcceptGeneratedSource(const FShanmenItemGeneratedSourceRequest& Request);
 	bool TryGetGeneratedSource(const FGuid& OwnerId, const FGuid& RunId, FName SourceRoleId,
 		FShanmenItemGeneratedSourceReceipt& OutReceipt) const;

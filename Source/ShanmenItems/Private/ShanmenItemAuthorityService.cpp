@@ -456,6 +456,12 @@ FShanmenItemAuthorityService::FinalizePreparedRunDurable(
 		});
 }
 
+FShanmenItemDurableCommandResult FShanmenItemAuthorityService::StartLoadoutDurable(const FShanmenItemLoadoutStartRequest& Request)
+{
+	FScopeLock Lock(&Mutex);
+	return ExecuteCommandLocked([&](FShanmenItemRepository& Repository) { return Repository.StartLoadout(Request); });
+}
+
 FShanmenItemDurableCommandResult
 FShanmenItemAuthorityService::ExecuteCommandLocked(
 	TFunctionRef<FShanmenItemTransactionReceipt(FShanmenItemRepository&)>

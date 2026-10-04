@@ -122,6 +122,7 @@ public:
 		const FShanmenItemReserveRequest& Request);
 	FShanmenItemDurableCommandResult EditGridDurable(const FShanmenItemGridRequest& Request);
 	FShanmenItemDurableCommandResult ReplenishBasicsDurable(const FShanmenItemBasicSupplyRequest& Request);
+	FShanmenItemDurableCommandResult StartLoadoutDurable(const FShanmenItemLoadoutStartRequest& Request);
 	FShanmenItemDurableCommandResult AcceptGeneratedSourceDurable(
 		const FShanmenItemGeneratedSourceRequest& Request);
 	/** Only Ready durable state may publish a source for later materialization. */

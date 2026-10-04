@@ -21,6 +21,23 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::EditGrid(const FShanmenIt
 	if (!IsSameContent(R.Context.Content, State.Content)) { return Reject(EError::ContentMismatch); }
 	if (R.ExpectedAuthorityRevision != State.AuthorityRevision) { return Reject(EError::StaleAuthorityRevision); }
 	if (State.AuthorityRevision == MAX_int32) { return Reject(EError::InvariantViolation); }
+	// This is a preparation edit port, not an active-Run inventory bypass. Even
+	// stored secure/stash items must wait for the Run-specific command path.
+	for (const auto& Pair : State.ProcessedRequests)
+	{
+		const auto& Active = Pair.Value.Receipt;
+		if (!Active.IsSuccess() || (Active.Operation != EShanmenItemTransactionOperation::StartPreparedRun
+			&& Active.Operation != EShanmenItemTransactionOperation::ClaimPreparedRun) || Active.ReservationIds.IsEmpty()) continue;
+		const auto* First = State.Reservations.Find(Active.ReservationIds[0]);
+		if (!First || First->OwnerId != R.Context.OwnerId) continue;
+		bool Finished = false;
+		for (const auto& P : State.ProcessedRequests)
+		{
+			if (P.Value.Receipt.IsSuccess() && P.Value.Receipt.Operation == EShanmenItemTransactionOperation::FinalizePreparedRun
+				&& P.Value.Receipt.ReservationId == Active.ReservationId) { Finished = true; break; }
+		}
+		if (!Finished) return Reject(EError::ActiveRunConflict);
+	}
 	const auto* Original = State.Items.Find(R.ItemInstanceId);
 	if (!Original) { return Reject(EError::ItemNotFound); }
 	if (Original->RunId != R.Context.RunId || Original->OwnerId != R.Context.OwnerId) { return Reject(EError::ScopeMismatch); }

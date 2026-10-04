@@ -41,4 +41,5 @@ private:
 	bool Rotated = false;
 	bool PreviewValid = false;
 	FString Feedback;
+	FString LoadoutSummary;
 };

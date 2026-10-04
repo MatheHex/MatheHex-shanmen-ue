@@ -89,6 +89,7 @@ public:
 		const FShanmenItemReserveRequest& Request);
 	FShanmenItemDurableCommandResult EditGridDurable(const FShanmenItemGridRequest& Request);
 	FShanmenItemDurableCommandResult ReplenishBasicsDurable(const FShanmenItemBasicSupplyRequest& Request);
+	FShanmenItemDurableCommandResult StartLoadoutDurable(const FShanmenItemLoadoutStartRequest& Request);
 	FShanmenItemDurableCommandResult CommitDurable(
 		const FShanmenItemReservationActionRequest& Request);
 	FShanmenItemDurableCommandResult CommitBatchDurable(

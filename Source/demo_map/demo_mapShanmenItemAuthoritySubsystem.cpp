@@ -333,6 +333,14 @@ FShanmenItemDurableCommandResult Udemo_mapShanmenItemAuthoritySubsystem::Repleni
 	SynchronizeCommandState(Result); return Result;
 }
 
+FShanmenItemDurableCommandResult Udemo_mapShanmenItemAuthoritySubsystem::StartLoadoutDurable(const FShanmenItemLoadoutStartRequest& Request)
+{
+	if (!IsInGameThread() || !AuthorityService || LifecycleState != Edemo_mapShanmenItemAuthorityLifecycleState::Ready)
+		return RejectCommand(TEXT("Loadout start requires the ready item authority on the Game Thread."));
+	const auto Result = AuthorityService->StartLoadoutDurable(Request);
+	SynchronizeCommandState(Result); return Result;
+}
+
 FShanmenItemDurableCommandResult
 Udemo_mapShanmenItemAuthoritySubsystem::CommitDurable(
 	const FShanmenItemReservationActionRequest& Request)
