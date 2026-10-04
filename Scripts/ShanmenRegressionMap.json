@@ -23,6 +23,7 @@
       "pathRegex": "^(?:Source/demo_map/Demo20/|Content/Demo20/)",
       "requiredGroups": [
         "Shanmen.Demo20",
+        "Shanmen.0_0_10.Items",
         "Shanmen.0_0_10.CombatCore",
         "Shanmen.0_0_10.CombatRuntime.BasicSword",
         "Shanmen.0_0_10.CombatRuntime.VitalityAuthority",

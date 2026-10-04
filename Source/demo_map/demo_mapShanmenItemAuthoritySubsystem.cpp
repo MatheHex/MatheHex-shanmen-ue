@@ -129,6 +129,10 @@ Udemo_mapShanmenItemAuthoritySubsystem::ApplyStartResult(
 		LifecycleState = Edemo_mapShanmenItemAuthorityLifecycleState::Ready;
 		Result.Status = Edemo_mapShanmenItemAuthorityBindStatus::CreatedFromLegacy;
 		break;
+	case EShanmenItemAuthorityStartStatus::CreatedNewProfile:
+		LifecycleState = Edemo_mapShanmenItemAuthorityLifecycleState::Ready;
+		Result.Status = Edemo_mapShanmenItemAuthorityBindStatus::CreatedNativeProfile;
+		break;
 	case EShanmenItemAuthorityStartStatus::AlreadyReady:
 		LifecycleState = Edemo_mapShanmenItemAuthorityLifecycleState::Ready;
 		Result.Status = Edemo_mapShanmenItemAuthorityBindStatus::AlreadyReady;
@@ -184,6 +188,16 @@ Udemo_mapShanmenItemAuthoritySubsystem::BindExisting(
 			FShanmenItemStorageContext::ForRoot(
 				BoundStorageRoot, BoundOwnerId)),
 		false);
+}
+
+Fdemo_mapShanmenItemAuthorityBindResult Udemo_mapShanmenItemAuthoritySubsystem::BindNativeProfile(
+	const Fdemo_mapProfileStorageContext& ProfileStorage, const FGuid& OwnerId, FName ProductId,
+	const FShanmenItemAuthoritySnapshot& Initial)
+{
+	Fdemo_mapShanmenItemAuthorityBindResult Result;
+	if (!EstablishOrValidateBinding(ProfileStorage, OwnerId, Result)) { return Result; }
+	return ApplyStartResult(AuthorityService->StartNativeProfile(
+		FShanmenItemStorageContext::ForRoot(BoundStorageRoot, BoundOwnerId), ProductId, Initial), false);
 }
 
 Fdemo_mapShanmenItemAuthorityBindResult

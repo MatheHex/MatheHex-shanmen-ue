@@ -1,5 +1,12 @@
 #include "ShanmenDemo20World.h"
 #include "ShanmenDemo20Widget.h"
+#include "ShanmenDemo20Catalog.h"
+#include "demo_mapShanmenItemAuthoritySubsystem.h"
+#include "Engine/GameInstance.h"
+#include "Blueprint/WidgetLayoutLibrary.h"
+#include "Misc/Paths.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 #include "demo_mapInputActionRegistry.h"
 #include "demo_mapInputBindingSettings.h"
 #include "Camera/CameraComponent.h"
@@ -99,6 +106,7 @@ void AShanmenDemo20Controller::SetupInputComponent()
 	InputComponent->BindKey(Key(Fdemo_mapInputActionIds::SpiritEvasion), IE_Pressed, this, &AShanmenDemo20Controller::Evade);
 	InputComponent->BindKey(Key(Fdemo_mapInputActionIds::Interact), IE_Pressed, this, &AShanmenDemo20Controller::Interact);
 	InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AShanmenDemo20Controller::ToggleMenu);
+	InputComponent->BindKey(Key(Fdemo_mapInputActionIds::Inventory), IE_Pressed, this, &AShanmenDemo20Controller::ToggleInventory);
 }
 
 void AShanmenDemo20Controller::ApplySurface(bool bGameplay)
@@ -168,6 +176,7 @@ void AShanmenDemo20Controller::Attack() { if (auto* Game = Mode(this)) Game->Att
 void AShanmenDemo20Controller::Evade() { if (auto* Game = Mode(this)) Game->Evade(); }
 void AShanmenDemo20Controller::Interact() { if (auto* Game = Mode(this)) Game->Interact(); }
 void AShanmenDemo20Controller::ToggleMenu() { if (auto* Game = Mode(this)) Game->TogglePause(); }
+void AShanmenDemo20Controller::ToggleInventory() { if (auto* Game = Mode(this)) Game->ToggleInventory(); }
 
 AShanmenDemo20GameMode::AShanmenDemo20GameMode()
 {
@@ -247,6 +256,23 @@ void AShanmenDemo20GameMode::BeginPlay()
 {
 	Super::BeginPlay();
 	bWorldReady = BuildArena();
+	int32 TestMoney = 1000000;
+	FParse::Value(FCommandLine::Get(), TEXT("Demo20TestMoney="), TestMoney);
+	FString ProfileName = TEXT("ExpeditionProfile");
+	FParse::Value(FCommandLine::Get(), TEXT("Demo20ProfileName="), ProfileName);
+	bool ValidProfileName = !ProfileName.IsEmpty() && ProfileName.Len() <= 64;
+	for (TCHAR C : ProfileName) ValidProfileName &= (C >= 'A' && C <= 'Z') || (C >= 'a' && C <= 'z')
+		|| (C >= '0' && C <= '9') || C == '_' || C == '-';
+	if (auto* Authority = ValidProfileName ? GetGameInstance()->GetSubsystem<Udemo_mapShanmenItemAuthoritySubsystem>() : nullptr)
+	{
+		const auto Initial = FShanmenDemo20Catalog::Initial(TestMoney);
+		const auto Bound = Authority->BindNativeProfile(Fdemo_mapProfileStorageContext::ForRoot(
+			FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Demo20"), ProfileName)),
+			FShanmenDemo20Catalog::OwnerId(), FShanmenDemo20Catalog::ProductId(), Initial);
+		bProfileReady = Bound.IsReady();
+		UE_LOG(LogTemp, Display, TEXT("DEMO20_PROFILE Ready=%d Native=%d Generation=%d Diagnostic=%s"),
+			bProfileReady, !Bound.bLegacyInputsRead, Bound.AuthorityStart.DocumentGeneration, *Bound.Diagnostic);
+	}
 	auto* Player = Cast<AShanmenDemo20Controller>(GetWorld()->GetFirstPlayerController());
 	if (!Player) { bWorldReady = false; return; }
 	if (Player->GetPawn()) Player->GetPawn()->SetActorLocation(ExitLocation() + FVector(0,0,100));
@@ -255,7 +281,9 @@ void AShanmenDemo20GameMode::BeginPlay()
 	if (!Screen) { bWorldReady = false; return; }
 	Screen->InitializeForDemo(this);
 	Screen->AddToViewport(20);
-	Notice = bWorldReady ? TEXT("试炼场已就绪。这里不会读取或修改旧存档。") : TEXT("新场景初始化失败，请查看运行日志。未进入试炼。");
+	Notice = !bProfileReady ? TEXT("隔离物品档未能打开，整备已禁用。未覆盖旧档，请查看运行日志。")
+		: bWorldReady ? TEXT("隔离物品档已就绪，可打开仓库与整备。石庭仅为不结算的战斗练习。")
+		: TEXT("新场景初始化失败，请查看运行日志。未进入试炼。");
 	RefreshSurface();
 	UE_LOG(LogTemp, Display, TEXT("DEMO20_READY World=%s Ready=%d Actors=%d"), *GetWorld()->GetMapName(), bWorldReady, ArenaActors.Num());
 }
@@ -264,10 +292,12 @@ void AShanmenDemo20GameMode::RefreshSurface()
 {
 	if (Screen) Screen->Refresh();
 	if (auto* Player = Cast<AShanmenDemo20Controller>(GetWorld()->GetFirstPlayerController())) Player->ApplySurface(IsPlaying());
+	if (Screen) Screen->FocusActiveSurface();
 }
 
 void AShanmenDemo20GameMode::StartTrial()
 {
+	if (bInventoryOpen) ToggleInventory();
 	if (!bWorldReady || !Session.Begin(FGuid::NewGuid())) return;
 	bPaused = false;
 	for (int32 Index = 0; Index < 3; ++Index)
@@ -284,9 +314,48 @@ void AShanmenDemo20GameMode::StartTrial()
 	UE_LOG(LogTemp, Display, TEXT("DEMO20_BEGIN Run=%s"), *Session.GetRunId().ToString());
 }
 
+bool AShanmenDemo20GameMode::TryCaptureItems(FShanmenItemAuthoritySnapshot& Out) const
+{
+	const auto* Authority = GetGameInstance()->GetSubsystem<Udemo_mapShanmenItemAuthoritySubsystem>();
+	return bProfileReady && Authority && Authority->TryCaptureSnapshot(Out);
+}
+FShanmenItemDurableCommandResult AShanmenDemo20GameMode::EditItemGrid(const FShanmenItemGridRequest& Intent)
+{
+	if (Session.GetPhase() != EShanmenDemo20Phase::Preparation || !bInventoryOpen || !bProfileReady)
+	{
+		FShanmenItemDurableCommandResult Rejected; Rejected.Diagnostic = TEXT("Inventory edits require the ready preparation surface."); return Rejected;
+	}
+	auto* Authority = GetGameInstance()->GetSubsystem<Udemo_mapShanmenItemAuthoritySubsystem>();
+	if (!Authority) return {};
+	const auto Result = Authority->EditGridDurable(Intent);
+	bProfileReady = Authority->GetLifecycleState() == Edemo_mapShanmenItemAuthorityLifecycleState::Ready;
+	UE_LOG(LogTemp, Display, TEXT("DEMO20_GRID Success=%d Status=%d Error=%d Generation=%d"),
+		Result.IsCommandSuccess(), static_cast<int32>(Result.Status), static_cast<int32>(Result.Receipt.Error), Result.DocumentGeneration);
+	return Result;
+}
+void AShanmenDemo20GameMode::ToggleInventory()
+{
+	if (bInventoryOpen) { bInventoryOpen = false; RefreshSurface(); return; }
+	if (Session.GetPhase() != EShanmenDemo20Phase::Preparation || !bProfileReady)
+	{
+		Notice = TEXT("当前仅整备支持持久背包；局内探索接线尚未完成。未执行物品操作。"); NoticeTime = 4.f; return;
+	}
+	bInventoryOpen = true; if (Screen) Screen->RefreshInventory(); RefreshSurface();
+}
+
 void AShanmenDemo20GameMode::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	if (const auto* Viewport = GetWorld()->GetGameViewport(); Viewport && Viewport->Viewport)
+	{
+		const FIntPoint Pixels = Viewport->Viewport->GetSizeXY();
+		if (Pixels != LastViewportPixels && Pixels.X > 0 && Pixels.Y > 0)
+		{
+			LastViewportPixels = Pixels;
+			UE_LOG(LogTemp, Display, TEXT("DEMO20_VIEWPORT Pixels=%dx%d WidgetScale=%.3f"),
+				Pixels.X, Pixels.Y, UWidgetLayoutLibrary::GetViewportScale(this));
+		}
+	}
 	const auto Previous = Session.GetPhase();
 	if (IsPlaying())
 	{
@@ -405,6 +474,7 @@ void AShanmenDemo20GameMode::Interact()
 void AShanmenDemo20GameMode::SetGuard(bool bHeld) { Session.SetGuarding(bHeld && IsPlaying()); }
 void AShanmenDemo20GameMode::TogglePause()
 {
+	if (bInventoryOpen) { ToggleInventory(); return; }
 	if (Session.GetPhase() != EShanmenDemo20Phase::Active) return;
 	bPaused = !bPaused;
 	Session.SetGuarding(false);

@@ -7,7 +7,7 @@ if (@(Get-Process -Name UnrealEditor,UnrealEditor-Cmd -ErrorAction SilentlyConti
 $userRoot=Join-Path $project.ProjectRoot 'Saved/Demo20/AutomationUser'
 New-Item -ItemType Directory -Path $userRoot -Force | Out-Null
 # Keep one native group per log, matching the repository coverage gate.
-$groups=@('Shanmen.Demo20','Shanmen.0_0_10.CombatCore','Shanmen.0_0_10.CombatRuntime.BasicSword','Shanmen.0_0_10.CombatRuntime.VitalityAuthority','Shanmen.0_0_10.CombatRuntime.VitalityLedger')
+$groups=@('Shanmen.Demo20','Shanmen.0_0_10.CombatCore','Shanmen.0_0_10.CombatRuntime.BasicSword','Shanmen.0_0_10.CombatRuntime.VitalityAuthority','Shanmen.0_0_10.CombatRuntime.VitalityLedger','Shanmen.0_0_10.Items')
 $logs=@()
 foreach($group in $groups) {
 $evidence=New-ShanmenEvidenceContext -Project $project -Action "Automation-$group" -TaskId 'Demo20.S01'

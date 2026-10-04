@@ -524,7 +524,7 @@ bool FShanmenItemTransactionReceipt::IsValid() const
 	}
 	if (Operation == EShanmenItemTransactionOperation::EditGrid)
 	{
-		const bool Move = PurposeId == TEXT("Grid.Move");
+		const bool Move = PurposeId == TEXT("Grid.Move") || PurposeId == TEXT("Grid.Equip");
 		return Error == EShanmenItemTransactionError::None && Phase == EShanmenItemTransactionPhase::Committed
 			&& ItemInstanceId.IsValid() && !ReservationId.IsValid() && ReservationIds.IsEmpty()
 			&& ResourceKind == EShanmenItemResourceKind::Quantity && ResourceBefore > 0 && ResourceAfter >= 0

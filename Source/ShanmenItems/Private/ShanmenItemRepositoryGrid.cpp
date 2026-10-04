@@ -16,7 +16,7 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::EditGrid(const FShanmenIt
 	if (bInitialized && TryReplay(R.Context.RequestId, FingerprintId, Operation, Replayed)) { return Replayed; }
 	auto Reject = [&](EError Error) { return MakeRejected(Operation, R.Context.RequestId, FingerprintId, Error); };
 	if (!bInitialized) { return Reject(EError::NotInitialized); }
-	if (!R.Context.IsValid() || !R.ItemInstanceId.IsValid() || static_cast<uint8>(R.Action) > static_cast<uint8>(EShanmenItemGridAction::Merge)
+	if (!R.Context.IsValid() || !R.ItemInstanceId.IsValid() || static_cast<uint8>(R.Action) > static_cast<uint8>(EShanmenItemGridAction::Equip)
 		|| R.ExpectedAuthorityRevision < 0 || R.ExpectedItemRevision < 0 || R.ExpectedTargetRevision < 0) { return Reject(EError::InvalidRequest); }
 	if (!IsSameContent(R.Context.Content, State.Content)) { return Reject(EError::ContentMismatch); }
 	if (R.ExpectedAuthorityRevision != State.AuthorityRevision) { return Reject(EError::StaleAuthorityRevision); }
@@ -42,7 +42,45 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::EditGrid(const FShanmenIt
 	FGuid ResultItemId = R.ItemInstanceId;
 	int32 Transferred = 1;
 	const int32 BeforeQuantity = Original->Quantity;
-	if (R.Action == EShanmenItemGridAction::Merge)
+	if (R.Action == EShanmenItemGridAction::Equip)
+	{
+		const auto* Destination = State.Grid.Layouts.FindByPredicate([&](const auto& L) { return L.ContainerId == R.DestinationContainerId; });
+		const auto* SourceLayout = State.Grid.Layouts.FindByPredicate([&](const auto& L) { return L.ContainerId == Original->ParentContainerId; });
+		if (!Destination || Destination->Kind != EShanmenItemGridKind::Equipment || !SourceLayout
+			|| R.DestinationContainerId == Original->ParentContainerId || R.MergeTargetId.IsValid()
+			|| R.Amount != 0 || R.X != 0 || R.Y != 0 || R.bRotated) { return Reject(EError::InvalidRequest); }
+		const FGuid DisplacedId = State.Containers.FindChecked(R.DestinationContainerId).Slots[0];
+		const auto* Displaced = State.Items.Find(DisplacedId);
+		if (DisplacedId.IsValid() && (!Displaced || !Editable(*Displaced))) { return Reject(EError::GridPolicyViolation); }
+		if (R.ExpectedTargetRevision != (Displaced ? Displaced->Revision : 0)) { return Reject(EError::StaleItemRevision); }
+		auto Detach = [&](FGuid Id)
+		{
+			auto& I = Candidate.Items.FindChecked(Id);
+			Candidate.Containers.FindChecked(I.ParentContainerId).Slots[I.SlotIndex].Invalidate();
+			I.ParentContainerId.Invalidate(); I.SlotIndex = INDEX_NONE;
+		};
+		Detach(R.ItemInstanceId); if (Displaced) { Detach(DisplacedId); }
+		FShanmenItemRepository Preview; Preview.State = Candidate; Preview.bInitialized = true;
+		auto Placement = FShanmenItemGridPolicy::CanPlace(Preview.CaptureSnapshot(), R.ItemInstanceId, R.DestinationContainerId, 0, 0, false);
+		if (Placement != EError::None) { return Reject(Placement); }
+		if (Displaced)
+		{
+			Placement = FShanmenItemGridPolicy::CanPlace(Preview.CaptureSnapshot(), DisplacedId, Original->ParentContainerId,
+				Original->SlotIndex % SourceLayout->Width, Original->SlotIndex / SourceLayout->Width,
+				State.Grid.RotatedItems.Contains(R.ItemInstanceId));
+			if (Placement != EError::None) { return Reject(Placement); }
+			auto& OldEquipment = Candidate.Items.FindChecked(DisplacedId);
+			OldEquipment.ParentContainerId = Original->ParentContainerId; OldEquipment.SlotIndex = Original->SlotIndex; ++OldEquipment.Revision;
+			Candidate.Containers.FindChecked(Original->ParentContainerId).Slots[Original->SlotIndex] = DisplacedId;
+			Candidate.Grid.RotatedItems.Remove(DisplacedId);
+			if (State.Grid.RotatedItems.Contains(R.ItemInstanceId)) { Candidate.Grid.RotatedItems.Add(DisplacedId); }
+		}
+		auto& NewEquipment = Candidate.Items.FindChecked(R.ItemInstanceId);
+		NewEquipment.ParentContainerId = R.DestinationContainerId; NewEquipment.SlotIndex = 0; ++NewEquipment.Revision;
+		Candidate.Containers.FindChecked(R.DestinationContainerId).Slots[0] = R.ItemInstanceId;
+		Candidate.Grid.RotatedItems.Remove(R.ItemInstanceId);
+	}
+	else if (R.Action == EShanmenItemGridAction::Merge)
 	{
 		if (R.ItemInstanceId == R.MergeTargetId || R.DestinationContainerId.IsValid() || R.Amount < 1 || R.X != 0 || R.Y != 0 || R.bRotated)
 		{
@@ -105,6 +143,14 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::EditGrid(const FShanmenIt
 		if (R.bRotated) { Candidate.Grid.RotatedItems.Add(ResultItemId); }
 		Candidate.Grid.Canonicalize();
 	}
+	FShanmenItemRepository StorageCandidate; StorageCandidate.State = Candidate; StorageCandidate.bInitialized = true;
+	auto Resized = StorageCandidate.CaptureSnapshot();
+	const auto CapacityError = FShanmenItemGridPolicy::ReconcileStorage(Resized);
+	if (CapacityError != EError::None) { return Reject(CapacityError); }
+	Candidate.Grid = MoveTemp(Resized.Grid);
+	for (const auto& C : Resized.Containers) { Candidate.Containers.Add(C.ContainerId, C); }
+	for (const auto& I : Resized.Items) { Candidate.Items.Add(I.ItemInstanceId, I); }
+	Candidate.Grid.Canonicalize();
 	++Candidate.AuthorityRevision;
 	FShanmenItemTransactionReceipt Receipt;
 	Receipt.bSuccess = true; Receipt.Operation = Operation; Receipt.Phase = EShanmenItemTransactionPhase::Committed;
@@ -114,7 +160,7 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::EditGrid(const FShanmenIt
 	Receipt.ResourceBefore = BeforeQuantity; Receipt.ResourceAfter = Candidate.Items.FindChecked(R.ItemInstanceId).Quantity;
 	Receipt.AvailableAfter = Receipt.ResourceAfter; Receipt.ItemRevision = Candidate.Items.FindChecked(ResultItemId).Revision;
 	Receipt.AuthorityRevision = Candidate.AuthorityRevision;
-	Receipt.PurposeId = R.Action == EShanmenItemGridAction::Move ? TEXT("Grid.Move")
+	Receipt.PurposeId = R.Action == EShanmenItemGridAction::Equip ? TEXT("Grid.Equip") : R.Action == EShanmenItemGridAction::Move ? TEXT("Grid.Move")
 		: R.Action == EShanmenItemGridAction::Split ? TEXT("Grid.Split") : TEXT("Grid.Merge");
 	Receipt.ReceiptId = MakeReceiptId(R.Context.RequestId, FingerprintId, Receipt.Phase, Receipt.Error);
 	RecordProcessed(Candidate, R.Context.RequestId, FingerprintId, Receipt);

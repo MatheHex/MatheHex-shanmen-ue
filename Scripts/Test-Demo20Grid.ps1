@@ -15,6 +15,11 @@ $gridGroups = @($gridMap.rules | Where-Object {
     @($gridPaths | Where-Object { $_ -match $gridRule.pathRegex }).Count -gt 0
 } | ForEach-Object requiredGroups | Sort-Object -Unique)
 if (!$gridGroups.Count) { throw 'Changed production paths have no mapped regression groups.' }
+# Fail quickly in the new product and its direct item authority, without
+# removing any group derived from changed files or weakening the coverage gate.
+$gridGroups = @($gridGroups | Sort-Object @{Expression={
+    if ($_ -eq 'Shanmen.Demo20') { 0 } elseif ($_ -eq 'Shanmen.0_0_10.Items') { 1 } else { 2 }
+}}, @{Expression={$_}})
 $gridLogs = @()
 foreach ($gridGroup in $gridGroups) {
     $gridEvidence = New-ShanmenEvidenceContext -Project $gridProject -Action "Automation-$gridGroup" -TaskId $TaskId

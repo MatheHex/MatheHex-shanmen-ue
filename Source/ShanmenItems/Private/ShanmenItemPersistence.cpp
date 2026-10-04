@@ -359,11 +359,12 @@ namespace
 		if ((Document.SchemaVersion != FShanmenItemAuthorityDocument::LegacySchemaVersion
 				&& Document.SchemaVersion != FShanmenItemAuthorityDocument::LegacySchema2Version
 				&& Document.SchemaVersion != FShanmenItemAuthorityDocument::LegacySchema3Version
-				&& Document.SchemaVersion != FShanmenItemAuthorityDocument::LegacySchema4Version)
+				&& Document.SchemaVersion != FShanmenItemAuthorityDocument::LegacySchema4Version
+				&& Document.SchemaVersion != FShanmenItemAuthorityDocument::LegacySchema5Version)
 			|| !Document.DocumentId.IsValid()
 			|| !Document.OwnerId.IsValid()
 			|| Document.SaveGeneration < 0
-			|| !Document.Migration.IsValid()
+			|| !Document.Migration.IsValid() || Document.Migration.IsNativeProfileGenesis()
 			|| Document.Migration.OwnerId != Document.OwnerId
 			|| Document.DocumentId != ExpectedDocumentId(Document)
 			|| !FDateTime::ParseIso8601(*Document.CreatedUtc, Created)
@@ -393,7 +394,9 @@ namespace
 				? FShanmenItemAuthorityStore::ComputeLegacySchema2SnapshotDigest(Document.Authority, ActualDigest, &Error)
 				: Document.SchemaVersion == FShanmenItemAuthorityDocument::LegacySchema3Version
 					? FShanmenItemAuthorityStore::ComputeLegacySchema3SnapshotDigest(Document.Authority, ActualDigest, &Error)
-					: FShanmenItemAuthorityStore::ComputeLegacySchema4SnapshotDigest(Document.Authority, ActualDigest, &Error);
+					: Document.SchemaVersion == FShanmenItemAuthorityDocument::LegacySchema4Version
+						? FShanmenItemAuthorityStore::ComputeLegacySchema4SnapshotDigest(Document.Authority, ActualDigest, &Error)
+						: FShanmenItemAuthorityStore::ComputeLegacySchema5SnapshotDigest(Document.Authority, ActualDigest, &Error);
 		if (!bDigestValid
 			|| ActualDigest != Document.SnapshotDigest)
 		{
@@ -517,7 +520,9 @@ namespace
 		const bool bSchema1 = SchemaVersion == FShanmenItemAuthorityDocument::LegacySchemaVersion;
 		const bool bLegacyWithoutSources = bSchema1 || SchemaVersion == FShanmenItemAuthorityDocument::LegacySchema2Version;
 		const bool bLegacyMetadata = bLegacyWithoutSources || SchemaVersion == FShanmenItemAuthorityDocument::LegacySchema3Version;
-		const bool bLegacySchema = bLegacyMetadata || SchemaVersion == FShanmenItemAuthorityDocument::LegacySchema4Version;
+		const bool bWithoutGrid = bLegacyMetadata || SchemaVersion == FShanmenItemAuthorityDocument::LegacySchema4Version;
+		const bool bSchema5 = SchemaVersion == FShanmenItemAuthorityDocument::LegacySchema5Version;
+		const bool bLegacySchema = bWithoutGrid || bSchema5;
 		if ((!bLegacySchema
 				&& SchemaVersion
 					!= FShanmenItemAuthorityDocument::CurrentSchemaVersion)
@@ -578,7 +583,7 @@ namespace
 		}
 
 		FString SchemaPreparationError;
-		if (bLegacySchema)
+		if (bWithoutGrid)
 		{
 			if ((*AuthorityObject)->HasField(TEXT("Grid")))
 			{
@@ -591,6 +596,25 @@ namespace
 		{
 			Result.Diagnostic = TEXT("Current authority schema requires the Grid field.");
 			return Result;
+		}
+		if (bSchema5)
+		{
+			const TSharedPtr<FJsonObject>* Grid = nullptr;
+			if (!(*AuthorityObject)->TryGetObjectField(TEXT("Grid"), Grid) || !Grid
+				|| !HasExactFields(*Grid, {TEXT("Footprints"), TEXT("Layouts"), TEXT("RotatedItems")}))
+			{
+				Result.Diagnostic = TEXT("Schema-5 grid cannot contain storage-capacity definitions."); return Result;
+			}
+			(*Grid)->SetArrayField(TEXT("StorageDefinitions"), {});
+		}
+		else if (!bWithoutGrid)
+		{
+			const TSharedPtr<FJsonObject>* Grid = nullptr;
+			if (!(*AuthorityObject)->TryGetObjectField(TEXT("Grid"), Grid) || !Grid
+				|| !HasExactFields(*Grid, {TEXT("Footprints"), TEXT("Layouts"), TEXT("RotatedItems"), TEXT("StorageDefinitions")}))
+			{
+				Result.Diagnostic = TEXT("Current grid requires exactly its four fields."); return Result;
+			}
 		}
 		if (bSchema1
 			&& !PrepareSchema1AuthorityForStrictConversion(
@@ -957,8 +981,18 @@ namespace
 	}
 }
 
+bool FShanmenItemMigrationEvidence::IsNativeProfileGenesis() const
+{
+	return MigrationId.IsValid() && OwnerId.IsValid() && SourceProfileSchema == 0
+		&& SourceSaveGeneration == 0 && SourceCodeBPersistentRevision == 0 && SourceCodeBRepositoryRevision == 0
+		&& DefinitionCount > 0 && ContainerCount > 0 && ItemCount > 0
+		&& SourceFingerprint.StartsWith(TEXT("NativeProfile:")) && SourceFingerprint.Len() > 14
+		&& IsSha256(CandidateDigest);
+}
+
 bool FShanmenItemMigrationEvidence::IsValid() const
 {
+	if (IsNativeProfileGenesis()) { return true; }
 	return MigrationId.IsValid()
 		&& OwnerId.IsValid()
 		&& SourceProfileSchema > 0
@@ -1080,6 +1114,18 @@ bool FShanmenItemAuthorityStore::ComputeLegacySchema4SnapshotDigest(
 	return JsonToBytes(Object.ToSharedRef(), Bytes, OutError) && HashBytes(Bytes, OutDigest);
 }
 
+bool FShanmenItemAuthorityStore::ComputeLegacySchema5SnapshotDigest(
+	const FShanmenItemAuthoritySnapshot& Snapshot, FString& OutDigest, FString* OutError)
+{
+	FShanmenItemAuthoritySnapshot Canonical;
+	if (!Snapshot.Grid.StorageDefinitions.IsEmpty() || !CanonicalizeSnapshot(Snapshot, Canonical, OutError)) { return false; }
+	TSharedPtr<FJsonObject> Object;
+	if (!SnapshotToObject(Canonical, Object, OutError)) { return false; }
+	Object->GetObjectField(TEXT("Grid"))->RemoveField(TEXT("StorageDefinitions"));
+	TArray<uint8> Bytes;
+	return JsonToBytes(Object.ToSharedRef(), Bytes, OutError) && HashBytes(Bytes, OutDigest);
+}
+
 bool FShanmenItemAuthorityStore::ComputeLegacySchema3SnapshotDigest(
 	const FShanmenItemAuthoritySnapshot& Snapshot, FString& OutDigest, FString* OutError)
 {
@@ -1165,6 +1211,16 @@ bool FShanmenItemAuthorityStore::ValidateDocument(
 			? TEXT("Authority document snapshot is non-canonical or crosses owners.")
 			: CanonicalError);
 		return false;
+	}
+	if (Document.Migration.IsNativeProfileGenesis())
+	{
+		const FGuid GenesisId = FShanmenDeterministicId::FromCanonicalParts(TEXT("Shanmen.Items.NativeGenesis.r1"),
+			{GuidDigits(Document.OwnerId), Document.Migration.SourceFingerprint.Mid(14),
+			Document.Authority.Content.Version.ToString(), Document.Authority.Content.Digest});
+		if (GenesisId != Document.Migration.MigrationId || Document.InitialSnapshotDigest != Document.Migration.CandidateDigest)
+		{
+			SetError(OutError, TEXT("Native genesis identity or initial digest is inconsistent.")); return false;
+		}
 	}
 	FString ActualDigest;
 	if (!ComputeSnapshotDigest(Document.Authority, ActualDigest, &CanonicalError)
@@ -1387,6 +1443,73 @@ FShanmenItemOpenResult FShanmenItemAuthorityStore::OpenOrCreateFromMigration(
 	const FShanmenItemMigrationEvidence& Migration,
 	const FShanmenItemStorageContext& Storage) const
 {
+	if (Migration.IsNativeProfileGenesis())
+	{
+		FShanmenItemOpenResult Rejected; Rejected.Status = EShanmenItemOpenStatus::InvalidRequest;
+		Rejected.Diagnostic = TEXT("Native genesis must use the explicit native-profile port, not legacy migration."); return Rejected;
+	}
+	return OpenOrCreateFromGenesis(MigrationCandidate, Migration, Storage);
+}
+
+bool FShanmenItemAuthorityStore::MakeNativeProfileEvidence(FName ProductId,
+	const FShanmenItemAuthoritySnapshot& Initial, const FGuid& OwnerId, FShanmenItemMigrationEvidence& OutEvidence)
+{
+	OutEvidence = {};
+	FShanmenItemAuthoritySnapshot Canonical;
+	if (ProductId.IsNone() || !OwnerId.IsValid() || Initial.AuthorityRevision != 0
+		|| !Initial.Reservations.IsEmpty() || !Initial.ProcessedRequests.IsEmpty() || !Initial.GeneratedSources.IsEmpty()
+		|| !CanonicalizeSnapshot(Initial, Canonical, nullptr) || !AuthorityBelongsTo(Canonical, OwnerId)
+		|| Canonical.Grid.IsEmpty()) { return false; }
+	OutEvidence.OwnerId = OwnerId;
+	OutEvidence.MigrationId = FShanmenDeterministicId::FromCanonicalParts(TEXT("Shanmen.Items.NativeGenesis.r1"),
+		{GuidDigits(OwnerId), ProductId.ToString(), Initial.Content.Version.ToString(), Initial.Content.Digest});
+	OutEvidence.SourceProfileSchema = 0; OutEvidence.SourceSaveGeneration = 0;
+	OutEvidence.SourceCodeBPersistentRevision = 0; OutEvidence.SourceCodeBRepositoryRevision = 0;
+	OutEvidence.DefinitionCount = Canonical.Definitions.Num(); OutEvidence.ContainerCount = Canonical.Containers.Num();
+	OutEvidence.ItemCount = Canonical.Items.Num(); OutEvidence.SourceFingerprint = TEXT("NativeProfile:") + ProductId.ToString();
+	return ComputeSnapshotDigest(Canonical, OutEvidence.CandidateDigest) && OutEvidence.IsNativeProfileGenesis();
+}
+
+FShanmenItemOpenResult FShanmenItemAuthorityStore::OpenOrCreateNativeProfile(FName ProductId,
+	const FShanmenItemAuthoritySnapshot& Initial, const FShanmenItemStorageContext& Storage) const
+{
+	FShanmenItemMigrationEvidence Origin;
+	FShanmenItemOpenResult Result;
+	FShanmenItemAuthoritySnapshot Canonical;
+	if (!CanonicalizeSnapshot(Initial, Canonical, nullptr)
+		|| !MakeNativeProfileEvidence(ProductId, Canonical, Storage.OwnerId, Origin) || Storage.RootDirectory.IsEmpty())
+	{
+		Result.Status = EShanmenItemOpenStatus::InvalidRequest; Result.Diagnostic = TEXT("Invalid native profile genesis."); return Result;
+	}
+	const auto Existing = LoadExisting(Storage);
+	Result.bDiskStateChanged = Existing.bDiskStateChanged;
+	if (Existing.IsSuccess())
+	{
+		if (!Existing.Document.Migration.IsNativeProfileGenesis() || Existing.Document.Migration.MigrationId != Origin.MigrationId
+			|| Existing.Document.Authority.Definitions != Canonical.Definitions
+			|| Existing.Document.Authority.Grid.Footprints != Canonical.Grid.Footprints
+			|| Existing.Document.Authority.Grid.StorageDefinitions != Canonical.Grid.StorageDefinitions)
+		{
+			Result.Status = EShanmenItemOpenStatus::MigrationConflict; Result.Diagnostic = TEXT("Existing origin or frozen native catalog differs."); return Result;
+		}
+		Result.Status = Existing.Status == EShanmenItemLoadStatus::LoadedPrimary
+			? EShanmenItemOpenStatus::OpenedExisting : EShanmenItemOpenStatus::RecoveredExisting;
+		Result.Document = Existing.Document; Result.Diagnostic = TEXT("Native profile reopened; no starting items or currency were regranted."); return Result;
+	}
+	if (Existing.Status != EShanmenItemLoadStatus::Missing)
+	{
+		Result.Status = EShanmenItemOpenStatus::PersistenceFailure; Result.Diagnostic = Existing.Diagnostic; return Result;
+	}
+	Result = OpenOrCreateFromGenesis(Canonical, Origin, Storage);
+	if (Result.Status == EShanmenItemOpenStatus::CreatedFromMigration) { Result.Status = EShanmenItemOpenStatus::CreatedNewProfile; }
+	return Result;
+}
+
+FShanmenItemOpenResult FShanmenItemAuthorityStore::OpenOrCreateFromGenesis(
+	const FShanmenItemAuthoritySnapshot& MigrationCandidate,
+	const FShanmenItemMigrationEvidence& Migration,
+	const FShanmenItemStorageContext& Storage) const
+{
 	FShanmenItemOpenResult Result;
 	FShanmenItemAuthoritySnapshot Canonical;
 	FString Error;
@@ -1395,6 +1518,7 @@ FShanmenItemOpenResult FShanmenItemAuthorityStore::OpenOrCreateFromMigration(
 	FString Schema2InitialDigest;
 	FString Schema3InitialDigest;
 	FString Schema4InitialDigest;
+	FString Schema5InitialDigest;
 	if (!Migration.IsValid()
 		|| !Storage.OwnerId.IsValid()
 		|| Storage.OwnerId != Migration.OwnerId
@@ -1420,6 +1544,7 @@ FShanmenItemOpenResult FShanmenItemAuthorityStore::OpenOrCreateFromMigration(
 		ComputeLegacySchema3SnapshotDigest(Canonical, Schema3InitialDigest);
 		ComputeLegacySchema4SnapshotDigest(Canonical, Schema4InitialDigest);
 	}
+	ComputeLegacySchema5SnapshotDigest(Canonical, Schema5InitialDigest);
 
 	const bool bAnyDurableFile =
 		IFileManager::Get().FileExists(*Storage.PrimaryPath())
@@ -1441,11 +1566,12 @@ FShanmenItemOpenResult FShanmenItemAuthorityStore::OpenOrCreateFromMigration(
 		const bool bSchema2Initial = Loaded.Document.InitialSnapshotDigest == Schema2InitialDigest;
 		const bool bSchema3Initial = Loaded.Document.InitialSnapshotDigest == Schema3InitialDigest;
 		const bool bSchema4Initial = Loaded.Document.InitialSnapshotDigest == Schema4InitialDigest;
+		const bool bSchema5Initial = Loaded.Document.InitialSnapshotDigest == Schema5InitialDigest;
 		const bool bMigrationMatches =
 			Loaded.Document.Migration == Migration
-			|| ((bLegacyInitial || bSchema2Initial || bSchema3Initial || bSchema4Initial)
+			|| ((bLegacyInitial || bSchema2Initial || bSchema3Initial || bSchema4Initial || bSchema5Initial)
 				&& SameMigrationSource(Loaded.Document.Migration, Migration));
-		if (!bMigrationMatches || (!bCurrentInitial && !bLegacyInitial && !bSchema2Initial && !bSchema3Initial && !bSchema4Initial))
+		if (!bMigrationMatches || (!bCurrentInitial && !bLegacyInitial && !bSchema2Initial && !bSchema3Initial && !bSchema4Initial && !bSchema5Initial))
 		{
 			Result.Status = EShanmenItemOpenStatus::MigrationConflict;
 			Result.Diagnostic = TEXT("An authority document already exists for different migration evidence.");

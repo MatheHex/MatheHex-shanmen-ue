@@ -2,7 +2,9 @@
 param(
     [ValidateSet('Play','Editor','GenerateMap','GenerateMaterial')][string]$Action='Play',
     [ValidateRange(960,3840)][int]$Width=1280,
-    [ValidateRange(540,2160)][int]$Height=720
+    [ValidateRange(540,2160)][int]$Height=720,
+    [ValidatePattern('^[A-Za-z0-9_-]{1,64}$')][string]$ProfileName='ExpeditionProfile',
+    [ValidateRange(1,1000000000)][int]$TestMoney=1000000
 )
 $ErrorActionPreference='Stop'
 Import-Module (Join-Path $PSScriptRoot 'Shanmen.Foundation.psm1') -Force
@@ -24,7 +26,7 @@ if ($Action -in @('GenerateMap','GenerateMaterial')) {
     if($result.State.exit_code -ne 0 -or !(Test-Path -LiteralPath $outputFile)){throw 'Asset generation failed; see evidence log.'}
 } else {
     if(!(Test-Path -LiteralPath $mapFile)){throw 'Generate the new Demo20 map first with -Action GenerateMap.'}
-    $arguments=@($project.Uproject,$map,'-nosplash',"-UserDir=$isolated","-abslog=$(Join-Path $evidence.Root 'UnrealEditor.log')")
+    $arguments=@($project.Uproject,$map,'-nosplash',"-UserDir=$isolated","-Demo20ProfileName=$ProfileName","-Demo20TestMoney=$TestMoney","-abslog=$(Join-Path $evidence.Root 'UnrealEditor.log')")
     if($Action -eq 'Play'){$arguments+=@('-game','-windowed',"-ResX=$Width","-ResY=$Height",'-ForceRes')}
     $result=Start-ShanmenTrackedProcess -FilePath $project.Editor -ArgumentList $arguments -WorkingDirectory $project.ProjectRoot -Evidence $evidence
     "Demo20 PID: $($result.Process.Id)"

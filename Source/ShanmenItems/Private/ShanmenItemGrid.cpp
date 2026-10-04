@@ -14,17 +14,22 @@ bool FShanmenItemGridLayout::operator==(const FShanmenItemGridLayout& O) const
 }
 bool FShanmenItemGridSnapshot::IsEmpty() const
 {
-	return Footprints.IsEmpty() && Layouts.IsEmpty() && RotatedItems.IsEmpty();
+	return Footprints.IsEmpty() && Layouts.IsEmpty() && RotatedItems.IsEmpty() && StorageDefinitions.IsEmpty();
+}
+bool FShanmenItemStorageDefinition::operator==(const FShanmenItemStorageDefinition& O) const
+{
+	return DefinitionId == O.DefinitionId && Kind == O.Kind && Width == O.Width && Height == O.Height;
 }
 void FShanmenItemGridSnapshot::Canonicalize()
 {
 	Footprints.Sort([](const auto& A, const auto& B) { return A.DefinitionId.LexicalLess(B.DefinitionId); });
 	Layouts.Sort([](const auto& A, const auto& B) { return A.ContainerId.ToString() < B.ContainerId.ToString(); });
 	RotatedItems.Sort([](const auto& A, const auto& B) { return A.ToString() < B.ToString(); });
+	StorageDefinitions.Sort([](const auto& A, const auto& B) { return A.DefinitionId.LexicalLess(B.DefinitionId); });
 }
 bool FShanmenItemGridSnapshot::operator==(const FShanmenItemGridSnapshot& O) const
 {
-	return Footprints == O.Footprints && Layouts == O.Layouts && RotatedItems == O.RotatedItems;
+	return Footprints == O.Footprints && Layouts == O.Layouts && RotatedItems == O.RotatedItems && StorageDefinitions == O.StorageDefinitions;
 }
 
 namespace
@@ -49,6 +54,73 @@ namespace
 		return L.Kind == EShanmenItemGridKind::Equipment ? FIntPoint(1, 1)
 			: Rotated ? FIntPoint(F.Height, F.Width) : FIntPoint(F.Width, F.Height);
 	}
+	bool StorageExtent(const FShanmenItemAuthoritySnapshot& S, const FShanmenItemGridLayout& L, FIntPoint& Extent, bool& Enabled)
+	{
+		Extent = FIntPoint(L.Width, L.Height); Enabled = true;
+		if (S.Grid.StorageDefinitions.IsEmpty() || (L.Kind != EShanmenItemGridKind::Carry && L.Kind != EShanmenItemGridKind::Secure)) { return true; }
+		const auto* Container = S.Containers.FindByPredicate([&](const auto& C) { return C.ContainerId == L.ContainerId; });
+		if (!Container) { return false; }
+		FName Role;
+		for (const auto& D : S.Grid.StorageDefinitions)
+		{
+			if (D.Kind != L.Kind) { continue; }
+			const auto* F = Footprint(S, D.DefinitionId);
+			if (!F || !F->bStorageEquipment || F->EquipmentRole.IsNone() || (!Role.IsNone() && Role != F->EquipmentRole)) { return false; }
+			Role = F->EquipmentRole;
+		}
+		if (Role.IsNone()) { return false; }
+		const FShanmenItemContainer* Equipment = nullptr;
+		for (const auto& Other : S.Grid.Layouts)
+		{
+			const auto* C = S.Containers.FindByPredicate([&](const auto& Value) { return Value.ContainerId == Other.ContainerId; });
+			if (!C || C->OwnerId != Container->OwnerId || C->RunId != Container->RunId) { continue; }
+			if (Other.Kind == L.Kind && Other.ContainerId != L.ContainerId) { return false; }
+			if (Other.Kind == EShanmenItemGridKind::Equipment && Other.EquipmentRole == Role)
+			{
+				if (Equipment || C->Slots.Num() != 1) { return false; } Equipment = C;
+			}
+		}
+		if (!Equipment) { return false; }
+		Extent = FIntPoint(1, 1); Enabled = false;
+		if (!Equipment->Slots[0].IsValid()) { return true; }
+		const auto* Item = S.Items.FindByPredicate([&](const auto& I) { return I.ItemInstanceId == Equipment->Slots[0] && Live(I); });
+		if (!Item) { return false; }
+		const auto* Definition = S.Grid.StorageDefinitions.FindByPredicate([&](const auto& D) { return D.DefinitionId == Item->DefinitionId && D.Kind == L.Kind; });
+		if (!Definition) { return false; }
+		Extent = FIntPoint(Definition->Width, Definition->Height); Enabled = true; return true;
+	}
+}
+
+EShanmenItemTransactionError FShanmenItemGridPolicy::ReconcileStorage(FShanmenItemAuthoritySnapshot& S)
+{
+	for (auto& L : S.Grid.Layouts)
+	{
+		FIntPoint Extent; bool Enabled;
+		if (!StorageExtent(S, L, Extent, Enabled)) { return EError::GridPolicyViolation; }
+		if (L.Width == Extent.X && L.Height == Extent.Y && Enabled) { continue; }
+		if (L.Width < 1 || Extent.X < 1 || Extent.X > 64 || Extent.Y < 1 || Extent.Y > 64) { return EError::InvariantViolation; }
+		auto* C = S.Containers.FindByPredicate([&](const auto& Value) { return Value.ContainerId == L.ContainerId; });
+		if (!C) { return EError::ContainerNotFound; }
+		TArray<FGuid> Slots; Slots.SetNum(Extent.X * Extent.Y);
+		for (auto& I : S.Items)
+		{
+			if (!Live(I) || I.ParentContainerId != L.ContainerId) { continue; }
+			const auto* F = Footprint(S, I.DefinitionId);
+			if (!Enabled || !F || I.SlotIndex < 0) { return EError::GridNoSpace; }
+			const auto Dimensions = Size(L, *F, S.Grid.RotatedItems.Contains(I.ItemInstanceId));
+			const int32 X = I.SlotIndex % L.Width, Y = I.SlotIndex / L.Width;
+			if (X > Extent.X - Dimensions.X || Y > Extent.Y - Dimensions.Y) { return EError::GridNoSpace; }
+			const int32 Anchor = Y * Extent.X + X;
+			if (Slots[Anchor].IsValid()) { return EError::InvariantViolation; }
+			if (I.SlotIndex != Anchor)
+			{
+				if (I.Revision == MAX_int32) { return EError::InvariantViolation; } ++I.Revision;
+			}
+			I.SlotIndex = Anchor; Slots[Anchor] = I.ItemInstanceId;
+		}
+		L.Width = Extent.X; L.Height = Extent.Y; C->Slots = MoveTemp(Slots);
+	}
+	return EError::None;
 }
 
 EShanmenItemTransactionError FShanmenItemGridPolicy::CanPlace(const FShanmenItemAuthoritySnapshot& S,
@@ -63,6 +135,10 @@ EShanmenItemTransactionError FShanmenItemGridPolicy::CanPlace(const FShanmenItem
 		|| Container->Slots.Num() != Layout->Width * Layout->Height
 		|| static_cast<uint8>(Layout->Kind) > static_cast<uint8>(EShanmenItemGridKind::World)) { return EError::InvariantViolation; }
 	if (Item->OwnerId != Container->OwnerId || Item->RunId != Container->RunId) { return EError::ScopeMismatch; }
+	FIntPoint StorageSize; bool StorageEnabled;
+	if (!StorageExtent(S, *Layout, StorageSize, StorageEnabled)) { return EError::GridPolicyViolation; }
+	if (!StorageEnabled) { return EError::GridPolicyViolation; }
+	if (StorageSize != FIntPoint(Layout->Width, Layout->Height)) { return EError::InvariantViolation; }
 	const auto* F = Footprint(S, Item->DefinitionId);
 	if (!F || F->Width < 1 || F->Width > 16 || F->Height < 1 || F->Height > 16
 		|| !Allowed(*Layout, *F) || Item->ChildContainerId.IsValid()) { return EError::GridPolicyViolation; }
@@ -85,7 +161,7 @@ bool FShanmenItemGridPolicy::Validate(const FShanmenItemAuthoritySnapshot& S)
 {
 	// Bounded derived occupancy, not a second inventory. Do not scan every item
 	// against every other item while validating a large persisted source history.
-	if (S.Grid.Layouts.Num() > 4096 || S.Grid.Footprints.Num() > 4096) { return false; }
+	if (S.Grid.Layouts.Num() > 4096 || S.Grid.Footprints.Num() > 4096 || S.Grid.StorageDefinitions.Num() > 4096) { return false; }
 	TSet<FName> KnownDefinitions;
 	for (const auto& D : S.Definitions) { KnownDefinitions.Add(D.DefinitionId); }
 	TMap<FName, const FShanmenItemFootprint*> Definitions;
@@ -97,6 +173,19 @@ bool FShanmenItemGridPolicy::Validate(const FShanmenItemAuthoritySnapshot& S)
 		Definitions.Add(F.DefinitionId, &F);
 	}
 	TMap<FGuid, const FShanmenItemContainer*> Containers;
+	TSet<FName> StorageIds;
+	for (const auto& D : S.Grid.StorageDefinitions)
+	{
+		const auto* F = Definitions.FindRef(D.DefinitionId);
+		if (!F || !F->bStorageEquipment || StorageIds.Contains(D.DefinitionId)
+			|| (D.Kind != EShanmenItemGridKind::Carry && D.Kind != EShanmenItemGridKind::Secure)
+			|| D.Width < 1 || D.Width > 64 || D.Height < 1 || D.Height > 64) { return false; }
+		StorageIds.Add(D.DefinitionId);
+	}
+	if (!StorageIds.IsEmpty())
+	{
+		for (const auto& F : S.Grid.Footprints) { if (F.bStorageEquipment && !StorageIds.Contains(F.DefinitionId)) { return false; } }
+	}
 	for (const auto& C : S.Containers) { Containers.Add(C.ContainerId, &C); }
 	TMap<FGuid, int32> LayoutIndices;
 	TArray<TBitArray<>> Occupancy;
@@ -114,6 +203,12 @@ bool FShanmenItemGridPolicy::Validate(const FShanmenItemAuthoritySnapshot& S)
 		Occupancy.Add(TBitArray<>(false, L.Width * L.Height));
 	}
 	TMap<FGuid, const FShanmenItemInstance*> Items;
+	for (const auto& L : S.Grid.Layouts)
+	{
+		FIntPoint Extent; bool Enabled;
+		if (!StorageExtent(S, L, Extent, Enabled) || Extent != FIntPoint(L.Width, L.Height)
+			|| (!Enabled && S.Items.ContainsByPredicate([&](const auto& I) { return Live(I) && I.ParentContainerId == L.ContainerId; }))) { return false; }
+	}
 	for (const auto& I : S.Items) { Items.Add(I.ItemInstanceId, &I); }
 	TSet<FGuid> Rotations;
 	for (const auto& Id : S.Grid.RotatedItems)

@@ -1,5 +1,6 @@
 #include "ShanmenDemo20Widget.h"
 #include "ShanmenDemo20World.h"
+#include "ShanmenDemo20InventoryWidget.h"
 #include "demo_mapInputActionRegistry.h"
 #include "demo_mapInputBindingSettings.h"
 #include "Blueprint/WidgetTree.h"
@@ -43,6 +44,7 @@ void UShanmenDemo20Widget::InitializeForDemo(AShanmenDemo20GameMode* InHost)
 {
 	Host = InHost;
 	Build();
+	if (InventoryView) InventoryView->InitializeForDemo(InHost);
 	Refresh();
 }
 void UShanmenDemo20Widget::NativeOnInitialized() { Super::NativeOnInitialized(); Build(); }
@@ -50,6 +52,7 @@ void UShanmenDemo20Widget::NativeOnInitialized() { Super::NativeOnInitialized();
 void UShanmenDemo20Widget::Build()
 {
 	if (!WidgetTree || WidgetTree->RootWidget) return;
+	SetIsFocusable(true);
 	SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 	auto* Canvas = WidgetTree->ConstructWidget<UCanvasPanel>();
 	WidgetTree->RootWidget = Canvas;
@@ -120,7 +123,27 @@ void UShanmenDemo20Widget::Build()
 	Button(SecondaryButton, SecondaryLabel, FLinearColor(.12f,.16f,.15f));
 	PrimaryButton->OnClicked.AddDynamic(this, &UShanmenDemo20Widget::Primary);
 	SecondaryButton->OnClicked.AddDynamic(this, &UShanmenDemo20Widget::Secondary);
-	Add(CardBox, Text(WidgetTree, TEXT("本地试炼 · 不打包 · 不读取旧档\n首个战斗切片，暂不包含背包、治疗与持久奖励。"), 12, FLinearColor(.50f,.61f,.56f)), 0);
+	InventoryButton = WidgetTree->ConstructWidget<UButton>();
+	InventoryButton->SetBackgroundColor(FLinearColor(.12f,.28f,.22f));
+	auto* InventoryLabel = Text(WidgetTree, TEXT("仓库与整备"), 20, Paper);
+	InventoryLabel->SetAutoWrapText(false);
+	InventoryLabel->SetJustification(ETextJustify::Center);
+	InventoryButton->SetContent(InventoryLabel);
+	InventoryButton->OnClicked.AddDynamic(this, &UShanmenDemo20Widget::Inventory);
+	Add(CardBox, InventoryButton, 14);
+	Add(CardBox, Text(WidgetTree, TEXT("本地 Demo · 隔离新档 · 不读取旧档\n整备物品已持久保存；石庭练习暂不结算物品或奖励。"), 12, FLinearColor(.50f,.61f,.56f)), 0);
+	InventorySurface = WidgetTree->ConstructWidget<UBorder>();
+	InventorySurface->SetBrushColor(FLinearColor(.005f,.015f,.012f,.9f));
+	InventorySurface->SetHorizontalAlignment(HAlign_Center); InventorySurface->SetVerticalAlignment(VAlign_Center);
+	auto* SurfaceSlot = Canvas->AddChildToCanvas(InventorySurface);
+	SurfaceSlot->SetAnchors(FAnchors(0,0,1,1));
+	SurfaceSlot->SetOffsets(FMargin(12));
+	auto* InventoryScale = WidgetTree->ConstructWidget<UScaleBox>(); InventoryScale->SetStretch(EStretch::ScaleToFit);
+	InventoryScale->SetStretchDirection(EStretchDirection::DownOnly); InventorySurface->SetContent(InventoryScale);
+	auto* InventorySize = WidgetTree->ConstructWidget<USizeBox>(); InventorySize->SetWidthOverride(960); InventorySize->SetHeightOverride(640);
+	InventoryScale->SetContent(InventorySize);
+	InventoryView = CreateWidget<UShanmenDemo20InventoryWidget>(GetOwningPlayer(), UShanmenDemo20InventoryWidget::StaticClass());
+	InventorySize->SetContent(InventoryView);
 }
 
 void UShanmenDemo20Widget::Refresh()
@@ -128,10 +151,14 @@ void UShanmenDemo20Widget::Refresh()
 	if (!Host.IsValid() || !Modal) return;
 	const auto& Session = Host->GetSession();
 	const auto Phase = Session.GetPhase();
-	Set(HealthLabel, FString::Printf(TEXT("生命  %.0f / 100"), Session.GetHealth()));
+	InventorySurface->SetVisibility(Host->IsInventoryOpen() ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	InventoryButton->SetVisibility(Phase == EShanmenDemo20Phase::Preparation ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	InventoryButton->SetIsEnabled(Host->IsProfileReady());
+	const bool Preparing = Phase == EShanmenDemo20Phase::Preparation;
+	Set(HealthLabel, Preparing ? TEXT("整备阶段 · 尚未出发") : FString::Printf(TEXT("生命  %.0f / 100"), Session.GetHealth()));
 	Health->SetPercent(Session.GetHealth() / 100.f);
-	Set(Objective, FString::Printf(TEXT("守阵石卫  %d / 3"), Session.NumDefeated()));
-	Set(Defense, Session.IsGuarding() ? TEXT("格挡中 · 无法出剑") : Session.IsEvading() ? TEXT("闪身中") : Session.GetEvadeCooldown() > 0.f ? FString::Printf(TEXT("闪身恢复  %.1f 秒"), Session.GetEvadeCooldown()) : TEXT("闪身就绪"));
+	Set(Objective, Preparing ? TEXT("仓库 / 背包 / 装备") : FString::Printf(TEXT("守阵石卫  %d / 3"), Session.NumDefeated()));
+	Set(Defense, Preparing ? TEXT("正式探索入口开发中") : Session.IsGuarding() ? TEXT("格挡中 · 无法出剑") : Session.IsEvading() ? TEXT("闪身中") : Session.GetEvadeCooldown() > 0.f ? FString::Printf(TEXT("闪身恢复  %.1f 秒"), Session.GetEvadeCooldown()) : TEXT("闪身就绪"));
 	Set(Notice, Host->GetNotice());
 	Modal->SetVisibility(Host->IsPlaying() ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
 	PrimaryButton->SetIsEnabled(Host->IsWorldReady());
@@ -140,7 +167,7 @@ void UShanmenDemo20Widget::Refresh()
 	{
 		Set(Heading, TEXT("归尘试炼"));
 		Set(Body, Host->IsWorldReady() ? TEXT("进入石庭，以剑破阵。\n\n靠近三座石卫，鼠标指向目标出剑。\n赤光蓄势时，闪身避开或持剑格挡。\n击破全部石卫后，回到青色归阵撤出。") : Host->GetNotice());
-		Set(PrimaryLabel, TEXT("进入试炼"));
+		Set(PrimaryLabel, TEXT("石庭练习（不结算）"));
 	}
 	else if (Host->IsPaused())
 	{
@@ -165,3 +192,23 @@ void UShanmenDemo20Widget::Primary()
 	else Host->ReturnToPreparation();
 }
 void UShanmenDemo20Widget::Secondary() { if (Host.IsValid() && Host->IsPaused()) Host->LeaveTrial(); }
+void UShanmenDemo20Widget::Inventory() { if (Host.IsValid()) Host->ToggleInventory(); }
+void UShanmenDemo20Widget::RefreshInventory() { if (InventoryView) InventoryView->RefreshProjection(); }
+
+void UShanmenDemo20Widget::FocusActiveSurface()
+{
+	if (!Host.IsValid() || Host->IsPlaying()) return;
+	if (Host->IsInventoryOpen() && InventoryView) InventoryView->SetKeyboardFocus();
+	else SetKeyboardFocus();
+}
+
+FReply UShanmenDemo20Widget::NativeOnPreviewKeyDown(const FGeometry& Geometry, const FKeyEvent& Event)
+{
+	if (Host.IsValid() && (Event.GetKey() == Fdemo_mapInputBindingSettings::Get().GetKey(Fdemo_mapInputActionIds::Inventory)
+		|| (Event.GetKey() == EKeys::Escape && Host->IsInventoryOpen())))
+	{
+		Host->ToggleInventory();
+		return FReply::Handled().ReleaseMouseCapture();
+	}
+	return Super::NativeOnPreviewKeyDown(Geometry, Event);
+}

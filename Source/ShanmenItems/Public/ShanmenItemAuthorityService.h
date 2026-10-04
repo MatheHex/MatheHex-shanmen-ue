@@ -25,7 +25,8 @@ enum class EShanmenItemAuthorityStartStatus : uint8
 	MigrationNotAuthorized,
 	InvalidRequest,
 	PersistenceFailure,
-	RepositoryLoadFailure
+	RepositoryLoadFailure,
+	CreatedNewProfile
 };
 
 /** Durable outcome of one repository command. */
@@ -108,6 +109,8 @@ public:
 
 	FShanmenItemAuthorityStartResult StartExisting(
 		const FShanmenItemStorageContext& InStorage);
+	FShanmenItemAuthorityStartResult StartNativeProfile(const FShanmenItemStorageContext& InStorage,
+		FName ProductId, const FShanmenItemAuthoritySnapshot& Initial);
 
 	FShanmenItemAuthorityStartResult StartFromAuthorizedMigration(
 		const FShanmenItemStorageContext& InStorage,

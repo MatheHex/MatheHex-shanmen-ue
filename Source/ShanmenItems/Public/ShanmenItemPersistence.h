@@ -50,7 +50,8 @@ enum class EShanmenItemOpenStatus : uint8
 	RecoveredExisting,
 	InvalidRequest,
 	MigrationConflict,
-	PersistenceFailure
+	PersistenceFailure,
+	CreatedNewProfile
 };
 
 /** Legacy-independent evidence retained for the one-time authority handoff. */
@@ -68,6 +69,8 @@ struct SHANMENITEMS_API FShanmenItemMigrationEvidence
 	FString SourceFingerprint;
 	FString CandidateDigest;
 
+	/** Schema zero plus this tagged origin is a native genesis, never a legacy import. */
+	bool IsNativeProfileGenesis() const;
 	bool IsValid() const;
 	bool operator==(const FShanmenItemMigrationEvidence& Other) const;
 };
@@ -79,7 +82,8 @@ struct SHANMENITEMS_API FShanmenItemAuthorityDocument
 	static constexpr int32 LegacySchema2Version = 2;
 	static constexpr int32 LegacySchema3Version = 3;
 	static constexpr int32 LegacySchema4Version = 4;
-	static constexpr int32 CurrentSchemaVersion = 5;
+	static constexpr int32 LegacySchema5Version = 5;
+	static constexpr int32 CurrentSchemaVersion = 6;
 	static constexpr int64 MaxDocumentBytes = 64LL * 1024 * 1024;
 
 	int32 SchemaVersion = CurrentSchemaVersion;
@@ -165,6 +169,7 @@ struct SHANMENITEMS_API FShanmenItemOpenResult
 	bool IsSuccess() const
 	{
 		return Status == EShanmenItemOpenStatus::CreatedFromMigration
+			|| Status == EShanmenItemOpenStatus::CreatedNewProfile
 			|| Status == EShanmenItemOpenStatus::OpenedExisting
 			|| Status == EShanmenItemOpenStatus::RecoveredExisting;
 	}
@@ -177,6 +182,10 @@ struct SHANMENITEMS_API FShanmenItemOpenResult
 class SHANMENITEMS_API FShanmenItemAuthorityStore
 {
 public:
+	FShanmenItemOpenResult OpenOrCreateNativeProfile(FName ProductId,
+		const FShanmenItemAuthoritySnapshot& Initial, const FShanmenItemStorageContext& Storage) const;
+	static bool MakeNativeProfileEvidence(FName ProductId, const FShanmenItemAuthoritySnapshot& Initial,
+		const FGuid& OwnerId, FShanmenItemMigrationEvidence& OutEvidence);
 	FShanmenItemOpenResult OpenOrCreateFromMigration(
 		const FShanmenItemAuthoritySnapshot& MigrationCandidate,
 		const FShanmenItemMigrationEvidence& Migration,
@@ -203,6 +212,8 @@ public:
 	/** Exact schema-4 wire before optional grid geometry existed. Requires empty Grid. */
 	static bool ComputeLegacySchema4SnapshotDigest(
 		const FShanmenItemAuthoritySnapshot& Snapshot, FString& OutDigest, FString* OutError = nullptr);
+	static bool ComputeLegacySchema5SnapshotDigest(
+		const FShanmenItemAuthoritySnapshot& Snapshot, FString& OutDigest, FString* OutError = nullptr);
 	/** Exact schema-2 digest before GeneratedSources existed; requires no sources. */
 	static bool ComputeLegacySchema2SnapshotDigest(
 		const FShanmenItemAuthoritySnapshot& Snapshot, FString& OutDigest, FString* OutError = nullptr);
@@ -211,4 +222,7 @@ public:
 		const FShanmenItemAuthoritySnapshot& Snapshot,
 		FString& OutDigest,
 		FString* OutError = nullptr);
+private:
+	FShanmenItemOpenResult OpenOrCreateFromGenesis(const FShanmenItemAuthoritySnapshot& Candidate,
+		const FShanmenItemMigrationEvidence& Origin, const FShanmenItemStorageContext& Storage) const;
 };

@@ -28,6 +28,7 @@ bool FShanmenItemAuthorityStartResult::IsReady() const
 	return Status == EShanmenItemAuthorityStartStatus::OpenedExisting
 		|| Status == EShanmenItemAuthorityStartStatus::RecoveredExisting
 		|| Status == EShanmenItemAuthorityStartStatus::CreatedFromMigration
+		|| Status == EShanmenItemAuthorityStartStatus::CreatedNewProfile
 		|| Status == EShanmenItemAuthorityStartStatus::AlreadyReady;
 }
 
@@ -63,6 +64,58 @@ FShanmenItemAuthorityService::StartFromAuthorizedMigration(
 	FScopeLock Lock(&Mutex);
 	return StartLocked(
 		InStorage, &Authorization, &MigrationCandidate, &Migration);
+}
+
+FShanmenItemAuthorityStartResult FShanmenItemAuthorityService::StartNativeProfile(
+	const FShanmenItemStorageContext& InStorage, FName ProductId, const FShanmenItemAuthoritySnapshot& Initial)
+{
+	FScopeLock Lock(&Mutex);
+	FShanmenItemAuthorityStartResult Result;
+	FShanmenItemMigrationEvidence Origin;
+	FShanmenItemRepository InitialValidator;
+	const bool ValidInitial = InitialValidator.TryLoadSnapshot(Initial);
+	const auto Canonical = ValidInitial ? InitialValidator.CaptureSnapshot() : FShanmenItemAuthoritySnapshot{};
+	if (!ValidInitial || !FShanmenItemAuthorityStore::MakeNativeProfileEvidence(ProductId, Canonical, InStorage.OwnerId, Origin)
+		|| InStorage.RootDirectory.IsEmpty()
+		|| (State == EShanmenItemAuthorityServiceState::Ready && (Storage.OwnerId != InStorage.OwnerId
+			|| Storage.RootDirectory != InStorage.RootDirectory || Document.Migration.MigrationId != Origin.MigrationId
+			|| Document.Authority.Definitions != Canonical.Definitions || Document.Authority.Grid.Footprints != Canonical.Grid.Footprints
+			|| Document.Authority.Grid.StorageDefinitions != Canonical.Grid.StorageDefinitions)))
+	{
+		Result.Status = EShanmenItemAuthorityStartStatus::InvalidRequest;
+		Result.Diagnostic = TEXT("Native profile cannot replace a different bound origin, owner or root."); return Result;
+	}
+	if (State == EShanmenItemAuthorityServiceState::Ready)
+	{
+		Result.Status = EShanmenItemAuthorityStartStatus::AlreadyReady; Result.DocumentGeneration = Document.SaveGeneration; return Result;
+	}
+	auto Opened = Store.OpenOrCreateNativeProfile(ProductId, Canonical, InStorage);
+	Result.OpenStatus = Opened.Status; Result.bDiskStateChanged = Opened.bDiskStateChanged;
+	if (!Opened.IsSuccess() && Opened.Status == EShanmenItemOpenStatus::PersistenceFailure)
+	{
+		// Publication may have succeeded before its read-back failed. Verify the same
+		// native origin rather than creating/regranting a second initialization.
+		Opened = Store.OpenOrCreateNativeProfile(ProductId, Canonical, InStorage);
+		Result.bDiskStateChanged |= Opened.bDiskStateChanged;
+	}
+	if (!Opened.IsSuccess())
+	{
+		Result.Status = Opened.Status == EShanmenItemOpenStatus::InvalidRequest || Opened.Status == EShanmenItemOpenStatus::MigrationConflict
+			? EShanmenItemAuthorityStartStatus::InvalidRequest : EShanmenItemAuthorityStartStatus::PersistenceFailure;
+		if (Result.Status == EShanmenItemAuthorityStartStatus::PersistenceFailure) { State = EShanmenItemAuthorityServiceState::RecoveryRequired; }
+		Result.Diagnostic = Opened.Diagnostic; return Result;
+	}
+	FString Error;
+	if (!InstallDocumentLocked(Opened.Document, InStorage, Error))
+	{
+		State = EShanmenItemAuthorityServiceState::RecoveryRequired;
+		Result.Status = EShanmenItemAuthorityStartStatus::RepositoryLoadFailure; Result.Diagnostic = Error; return Result;
+	}
+	Result.Status = Opened.Status == EShanmenItemOpenStatus::CreatedNewProfile ? EShanmenItemAuthorityStartStatus::CreatedNewProfile
+		: Opened.Status == EShanmenItemOpenStatus::RecoveredExisting ? EShanmenItemAuthorityStartStatus::RecoveredExisting
+		: EShanmenItemAuthorityStartStatus::OpenedExisting;
+	Result.OpenStatus = Opened.Status; Result.Diagnostic = Opened.Diagnostic; Result.DocumentGeneration = Document.SaveGeneration;
+	return Result;
 }
 
 FShanmenItemAuthorityStartResult FShanmenItemAuthorityService::StartLocked(

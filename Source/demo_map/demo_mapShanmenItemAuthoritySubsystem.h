@@ -32,7 +32,8 @@ enum class Edemo_mapShanmenItemAuthorityBindStatus : uint8
 	BindingMismatch,
 	InvalidRequest,
 	PersistenceFailure,
-	RecoveryRequired
+	RecoveryRequired,
+	CreatedNativeProfile
 };
 
 struct Fdemo_mapShanmenItemAuthorityBindResult
@@ -50,6 +51,7 @@ struct Fdemo_mapShanmenItemAuthorityBindResult
 		return Status == Edemo_mapShanmenItemAuthorityBindStatus::OpenedExisting
 			|| Status == Edemo_mapShanmenItemAuthorityBindStatus::RecoveredExisting
 			|| Status == Edemo_mapShanmenItemAuthorityBindStatus::CreatedFromLegacy
+			|| Status == Edemo_mapShanmenItemAuthorityBindStatus::CreatedNativeProfile
 			|| Status == Edemo_mapShanmenItemAuthorityBindStatus::AlreadyReady;
 	}
 };
@@ -75,6 +77,8 @@ public:
 	Fdemo_mapShanmenItemAuthorityBindResult BindExisting(
 		const Fdemo_mapProfileStorageContext& ProfileStorage,
 		const FGuid& OwnerId);
+	Fdemo_mapShanmenItemAuthorityBindResult BindNativeProfile(const Fdemo_mapProfileStorageContext& ProfileStorage,
+		const FGuid& OwnerId, FName ProductId, const FShanmenItemAuthoritySnapshot& Initial);
 	Fdemo_mapShanmenItemAuthorityBindResult BindFromStableLegacy(
 		const Fdemo_mapProfileStorageContext& ProfileStorage,
 		const FGuid& OwnerId,

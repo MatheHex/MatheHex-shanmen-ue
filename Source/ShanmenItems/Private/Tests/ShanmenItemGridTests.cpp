@@ -222,4 +222,44 @@ bool FShanmenGridSchema4Test::RunTest(const FString&)
 	TestTrue(TEXT("Repeat open is write-free"), !Store.OpenOrCreateFromMigration(S, E, Disk).bDiskStateChanged);
 	return true;
 }
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShanmenGridSchema5Test, "Shanmen.0_0_10.Items.Grid.Schema5NonzeroLedgerMigration", Flags)
+bool FShanmenGridSchema5Test::RunTest(const FString&)
+{
+	const auto Initial = Fixture(); const auto Origin = Evidence(Initial); const auto SourceDisk = Storage(TEXT("Schema5Source"));
+	FShanmenItemAuthorityStore Store; auto Created = Store.OpenOrCreateFromMigration(Initial, Origin, SourceDisk);
+	if (!TestTrue(TEXT("Create fixture"), Created.IsSuccess())) return false;
+	FShanmenItemRepository Repo; Repo.TryLoadSnapshot(Initial);
+	const auto Move = Request(Repo, Sword, Carry, 3, 1); const auto Accepted = Repo.EditGrid(Move);
+	const auto Current = Repo.CaptureSnapshot();
+	TestTrue(TEXT("Fixture has nonzero grid and accepted ledger"),Accepted.IsSuccess() && Current.ProcessedRequests.Num() == 1 && Total(Current) == 30);
+	TestTrue(TEXT("Publish fixture with history"),Store.SaveAuthority(Created.Document, Current, SourceDisk).IsSuccess());
+	FString Json; FFileHelper::LoadFileToString(Json,*SourceDisk.PrimaryPath()); TSharedPtr<FJsonObject> Root;
+	if (!FJsonSerializer::Deserialize(TJsonReaderFactory<TCHAR>::Create(Json),Root)) return false;
+	const auto Authority = Root->GetObjectField(TEXT("Authority")); Authority->GetObjectField(TEXT("Grid"))->RemoveField(TEXT("StorageDefinitions"));
+	FString Wire; FJsonSerializer::Serialize(Authority.ToSharedRef(),TJsonWriterFactory<TCHAR,TCondensedJsonPrintPolicy<TCHAR>>::Create(&Wire));
+	FTCHARToUTF8 Utf8(*Wire); uint8 Hash[SHA256_DIGEST_LENGTH]{}; SHA256(reinterpret_cast<const uint8*>(Utf8.Get()),Utf8.Length(),Hash);
+	FString CurrentDigest; for (uint8 Byte : Hash) CurrentDigest += FString::Printf(TEXT("%02X"),Byte);
+	FString Computed, InitialDigest;
+	TestTrue(TEXT("Schema-5 codec equals independent old wire hash"),FShanmenItemAuthorityStore::ComputeLegacySchema5SnapshotDigest(Current,Computed) && Computed == CurrentDigest);
+	FShanmenItemAuthorityStore::ComputeLegacySchema5SnapshotDigest(Initial,InitialDigest);
+	Root->SetNumberField(TEXT("SchemaVersion"),5); Root->SetStringField(TEXT("InitialSnapshotDigest"),InitialDigest); Root->SetStringField(TEXT("SnapshotDigest"),CurrentDigest);
+	FJsonSerializer::Serialize(Root.ToSharedRef(),TJsonWriterFactory<TCHAR,TCondensedJsonPrintPolicy<TCHAR>>::Create(&Json));
+	const auto OldDisk = Storage(TEXT("Schema5WithoutBackup")); IFileManager::Get().MakeDirectory(*OldDisk.StorageDirectory(),true);
+	FString Tampered = Json; TestEqual(TEXT("Tamper real quantity"),Tampered.ReplaceInline(TEXT("\"Quantity\":12"),TEXT("\"Quantity\":11")),1);
+	FFileHelper::SaveStringToFile(Tampered,*OldDisk.PrimaryPath(),FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
+	TestFalse(TEXT("Old digest validated before current normalization"),Store.LoadExisting(OldDisk).IsSuccess());
+	FFileHelper::SaveStringToFile(Json,*OldDisk.PrimaryPath(),FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
+	TArray<uint8> Before,After; FFileHelper::LoadFileToArray(Before,*OldDisk.PrimaryPath());
+	const auto Read = Store.LoadExisting(OldDisk); FFileHelper::LoadFileToArray(After,*OldDisk.PrimaryPath());
+	TestTrue(TEXT("N-1 readonly load preserves exact nonempty inventory/geometry/ledger bytes"),Read.IsSuccess() && Read.bSchemaUpgraded
+		&& Read.Document.Authority == Current && Before == After);
+	const auto Normalized = Store.OpenOrCreateFromMigration(Initial,Origin,OldDisk);
+	TestTrue(TEXT("Normalize once preserves original initial evidence and current ledger"),Normalized.IsSuccess() && Normalized.bDiskStateChanged
+		&& Normalized.Document.SaveGeneration == Created.Document.SaveGeneration + 1 && Normalized.Document.InitialSnapshotDigest == InitialDigest
+		&& Normalized.Document.Authority == Current);
+	FShanmenItemRepository Restored; Restored.TryLoadSnapshot(Normalized.Document.Authority);
+	TestTrue(TEXT("Accepted request remains replayable after schema migration"),Restored.EditGrid(Move) == Accepted && Restored.CaptureSnapshot() == Current);
+	TestFalse(TEXT("Second normalization write-free"),Store.OpenOrCreateFromMigration(Initial,Origin,OldDisk).bDiskStateChanged);
+	return true;
+}
 #endif

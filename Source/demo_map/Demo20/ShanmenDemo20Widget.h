@@ -9,6 +9,7 @@ class UBorder;
 class UButton;
 class UProgressBar;
 class UTextBlock;
+class UShanmenDemo20InventoryWidget;
 
 /** Presentation only: consumes the session, invokes the product host, never mutates vitality. */
 UCLASS()
@@ -18,12 +19,16 @@ class UShanmenDemo20Widget : public UUserWidget
 public:
 	void InitializeForDemo(AShanmenDemo20GameMode* InHost);
 	void Refresh();
+	void RefreshInventory();
+	void FocusActiveSurface();
 protected:
 	virtual void NativeOnInitialized() override;
+	virtual FReply NativeOnPreviewKeyDown(const FGeometry&, const FKeyEvent&) override;
 private:
 	void Build();
 	UFUNCTION() void Primary();
 	UFUNCTION() void Secondary();
+	UFUNCTION() void Inventory();
 	TWeakObjectPtr<AShanmenDemo20GameMode> Host;
 	UPROPERTY() TObjectPtr<UBorder> Modal;
 	UPROPERTY() TObjectPtr<UProgressBar> Health;
@@ -37,4 +42,7 @@ private:
 	UPROPERTY() TObjectPtr<UTextBlock> SecondaryLabel;
 	UPROPERTY() TObjectPtr<UButton> PrimaryButton;
 	UPROPERTY() TObjectPtr<UButton> SecondaryButton;
+	UPROPERTY() TObjectPtr<UButton> InventoryButton;
+	UPROPERTY() TObjectPtr<UBorder> InventorySurface;
+	UPROPERTY() TObjectPtr<UShanmenDemo20InventoryWidget> InventoryView;
 };

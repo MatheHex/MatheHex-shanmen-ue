@@ -7004,10 +7004,16 @@ try
     }
 
     $Demo20 = New-AutomationLogFixture -Name 'demo20.log' -Group 'Shanmen.Demo20'
+    $Demo20DomainsWithoutItems = @($Demo20)
+    foreach ($Demo20Domain in @('CombatCore','CombatRuntime.BasicSword','CombatRuntime.VitalityAuthority','CombatRuntime.VitalityLedger'))
+    {
+        $Demo20DomainsWithoutItems += New-AutomationLogFixture -Name "demo20-$Demo20Domain.log" -Group "Shanmen.0_0_10.$Demo20Domain"
+    }
     foreach ($Demo20Path in @('Source/demo_map/Demo20/ShanmenDemo20Session.cpp', 'Content/Demo20/Maps/L_Demo20_StoneCourt.umap'))
     {
         Invoke-ExpectedFail -Name "Demo20 cannot omit domain regressions: $Demo20Path" -Paths @($Demo20Path) -Logs @($Demo20) -ExpectedText 'missing required groups'
         Invoke-ExpectedFail -Name "Demo20 cannot omit new slice tests: $Demo20Path" -Paths @($Demo20Path) -Logs @($Full) -ExpectedText 'missing required groups'
+        Invoke-ExpectedFail -Name "Demo20 inventory consumers cannot omit Items: $Demo20Path" -Paths @($Demo20Path) -Logs $Demo20DomainsWithoutItems -ExpectedText 'Shanmen.0_0_10.Items'
         Invoke-ExpectedPass -Name "Demo20 includes slice and domain: $Demo20Path" -Paths @($Demo20Path) -Logs @($Demo20, $Full)
     }
 

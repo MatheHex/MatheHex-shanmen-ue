@@ -5,6 +5,7 @@
 #include "GameFramework/GameModeBase.h"
 #include "GameFramework/PlayerController.h"
 #include "ShanmenDemo20Session.h"
+#include "ShanmenItemAuthorityService.h"
 #include "ShanmenDemo20World.generated.h"
 
 class UStaticMeshComponent;
@@ -38,6 +39,7 @@ private:
 	void Evade();
 	void Interact();
 	void ToggleMenu();
+	void ToggleInventory();
 	FVector MoveDirection = FVector::ZeroVector;
 };
 
@@ -60,6 +62,11 @@ public:
 	void Interact();
 	void SetGuard(bool bHeld);
 	void LeaveTrial();
+	void ToggleInventory();
+	bool IsInventoryOpen() const { return bInventoryOpen; }
+	bool IsProfileReady() const { return bProfileReady; }
+	bool TryCaptureItems(FShanmenItemAuthoritySnapshot& Out) const;
+	FShanmenItemDurableCommandResult EditItemGrid(const FShanmenItemGridRequest& Intent);
 	bool IsPlaying() const { return Session.GetPhase() == EShanmenDemo20Phase::Active && !bPaused; }
 	bool IsPaused() const { return bPaused; }
 	bool IsWorldReady() const { return bWorldReady; }
@@ -83,4 +90,7 @@ private:
 	FString Notice;
 	bool bPaused = false;
 	bool bWorldReady = false;
+	bool bProfileReady = false;
+	bool bInventoryOpen = false;
+	FIntPoint LastViewportPixels = FIntPoint::ZeroValue;
 };

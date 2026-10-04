@@ -35,6 +35,17 @@ struct SHANMENITEMS_API FShanmenItemGridLayout
 };
 
 USTRUCT()
+struct SHANMENITEMS_API FShanmenItemStorageDefinition
+{
+	GENERATED_BODY()
+	UPROPERTY() FName DefinitionId;
+	UPROPERTY() EShanmenItemGridKind Kind = EShanmenItemGridKind::Carry;
+	UPROPERTY() int32 Width = 1;
+	UPROPERTY() int32 Height = 1;
+	bool operator==(const FShanmenItemStorageDefinition& Other) const;
+};
+
+USTRUCT()
 struct SHANMENITEMS_API FShanmenItemGridSnapshot
 {
 	GENERATED_BODY()
@@ -42,12 +53,14 @@ struct SHANMENITEMS_API FShanmenItemGridSnapshot
 	UPROPERTY() TArray<FShanmenItemGridLayout> Layouts;
 	/** Only orientation; anchor remains the existing ItemInstance.SlotIndex. */
 	UPROPERTY() TArray<FGuid> RotatedItems;
+	/** Frozen storage capacities, not caller-supplied resize dimensions. */
+	UPROPERTY() TArray<FShanmenItemStorageDefinition> StorageDefinitions;
 	bool IsEmpty() const;
 	void Canonicalize();
 	bool operator==(const FShanmenItemGridSnapshot& Other) const;
 };
 
-enum class EShanmenItemGridAction : uint8 { Move, Split, Merge };
+enum class EShanmenItemGridAction : uint8 { Move, Split, Merge, Equip };
 
 struct SHANMENITEMS_API FShanmenItemGridRequest
 {
@@ -73,6 +86,8 @@ class SHANMENITEMS_API FShanmenItemGridPolicy
 {
 public:
 	static bool Validate(const FShanmenItemAuthoritySnapshot& Snapshot);
+	/** Only call on a private command candidate. Preserve coordinates, refuse overflow. */
+	static EShanmenItemTransactionError ReconcileStorage(FShanmenItemAuthoritySnapshot& Candidate);
 	static EShanmenItemTransactionError CanPlace(const FShanmenItemAuthoritySnapshot& Snapshot,
 		const FGuid& ItemId, const FGuid& ContainerId, int32 X, int32 Y, bool bRotated,
 		bool bIgnoreOriginal = true);
