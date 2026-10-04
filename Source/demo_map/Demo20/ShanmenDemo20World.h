@@ -67,6 +67,7 @@ public:
 	bool IsProfileReady() const { return bProfileReady; }
 	bool TryCaptureItems(FShanmenItemAuthoritySnapshot& Out) const;
 	FShanmenItemDurableCommandResult EditItemGrid(const FShanmenItemGridRequest& Intent);
+	FString ReplenishBasicEquipment();
 	bool IsPlaying() const { return Session.GetPhase() == EShanmenDemo20Phase::Active && !bPaused; }
 	bool IsPaused() const { return bPaused; }
 	bool IsWorldReady() const { return bWorldReady; }

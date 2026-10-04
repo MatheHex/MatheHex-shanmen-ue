@@ -325,6 +325,14 @@ Udemo_mapShanmenItemAuthoritySubsystem::ReserveDurable(
 	return Result;
 }
 
+FShanmenItemDurableCommandResult Udemo_mapShanmenItemAuthoritySubsystem::ReplenishBasicsDurable(const FShanmenItemBasicSupplyRequest& Request)
+{
+	if (!IsInGameThread() || !AuthorityService || LifecycleState != Edemo_mapShanmenItemAuthorityLifecycleState::Ready)
+		return RejectCommand(TEXT("Basic supply requires the ready item authority on the Game Thread."));
+	const auto Result = AuthorityService->ReplenishBasicsDurable(Request);
+	SynchronizeCommandState(Result); return Result;
+}
+
 FShanmenItemDurableCommandResult
 Udemo_mapShanmenItemAuthoritySubsystem::CommitDurable(
 	const FShanmenItemReservationActionRequest& Request)

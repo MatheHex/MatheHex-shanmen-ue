@@ -67,7 +67,9 @@ enum class EShanmenItemTransactionOperation : uint8
 	/** Accepts one complete resolved source into this authority document. */
 	AcceptGeneratedSource,
 	/** Atomic grid placement/stack edit in the existing authority. */
-	EditGrid
+	EditGrid,
+	/** Finite missing-basics assistance bound to a durable Death receipt. */
+	ReplenishBasics
 };
 
 UENUM(BlueprintType)
@@ -126,7 +128,10 @@ enum class EShanmenItemTransactionError : uint8
 	RunItemIntentNotFound,
 	GridNoSpace,
 	GridPolicyViolation,
-	StaleAuthorityRevision
+	StaleAuthorityRevision,
+	BasicSupplyNotEligible,
+	BasicSupplyAlreadyUsed,
+	BasicSupplyNotNeeded
 };
 
 /** Authority-independent terminal reason for one claimed prepared Run. */

@@ -605,6 +605,12 @@ FShanmenItemDurableCommandResult FShanmenItemAuthorityService::AcceptGeneratedSo
 	return ExecuteCommandLocked([&](FShanmenItemRepository& Target) { return Target.AcceptGeneratedSource(Request); });
 }
 
+FShanmenItemDurableCommandResult FShanmenItemAuthorityService::ReplenishBasicsDurable(const FShanmenItemBasicSupplyRequest& Request)
+{
+	FScopeLock Lock(&Mutex);
+	return ExecuteCommandLocked([&Request](FShanmenItemRepository& Items) { return Items.ReplenishBasics(Request); });
+}
+
 bool FShanmenItemAuthorityService::TryGetGeneratedSource(const FGuid& OwnerId, const FGuid& RunId,
 	FName SourceRoleId, FShanmenItemGeneratedSourceReceipt& OutReceipt) const
 {

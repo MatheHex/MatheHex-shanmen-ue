@@ -343,6 +343,34 @@ void AShanmenDemo20GameMode::ToggleInventory()
 	bInventoryOpen = true; if (Screen) Screen->RefreshInventory(); RefreshSurface();
 }
 
+FString AShanmenDemo20GameMode::ReplenishBasicEquipment()
+{
+	if (Session.GetPhase() != EShanmenDemo20Phase::Preparation || !bInventoryOpen || !bProfileReady)
+		return TEXT("补给不可用：请先返回已就绪的整备界面。");
+	auto* Authority = GetGameInstance()->GetSubsystem<Udemo_mapShanmenItemAuthoritySubsystem>();
+	FShanmenItemAuthoritySnapshot Snapshot;
+	if (!Authority || !Authority->TryCaptureSnapshot(Snapshot)) return TEXT("物品档尚未就绪，未发放补给。");
+	const auto Request = FShanmenDemo20Catalog::BasicSupply(Snapshot);
+	if (!Request.DeathRequestId.IsValid()) return TEXT("无需领取：仅正式探索死亡后提供有限补给；石庭练习不计入。");
+	const auto Result = Authority->ReplenishBasicsDurable(Request);
+	bProfileReady = Authority->GetLifecycleState() == Edemo_mapShanmenItemAuthorityLifecycleState::Ready;
+	UE_LOG(LogTemp, Display, TEXT("DEMO20_RESUPPLY Success=%d Status=%d Error=%d Generation=%d Lines=%d"),
+		Result.IsCommandSuccess(), static_cast<int32>(Result.Status), static_cast<int32>(Result.Receipt.Error), Result.DocumentGeneration, Result.Receipt.Amount);
+	if (!Result.IsDurable()) return bProfileReady ? TEXT("补给未保存，已回滚；可重试，未确认发放。") : TEXT("物品档正在恢复，补给未确认；请重新打开游戏。");
+	if (Result.IsCommandSuccess()) return Result.bRepositoryMutated
+		? TEXT("补给已保存：缺失的基础装备已穿戴，缺药时仓库提供 2 枚丹药。")
+		: TEXT("本次死亡的补给已经领取，没有重复发放。");
+	switch (Result.Receipt.Error)
+	{
+	case EShanmenItemTransactionError::BasicSupplyNotNeeded: return TEXT("无需补给：已有可用装备和丹药；请检查仓库，不会额外发放。");
+	case EShanmenItemTransactionError::BasicSupplyAlreadyUsed: return TEXT("本次死亡的补给机会已使用，不可反复领取。");
+	case EShanmenItemTransactionError::BasicSupplyNotEligible: return TEXT("补给条件不满足：需要最近一次正式死亡结算，且尚未开始准备下一局。");
+	case EShanmenItemTransactionError::GridNoSpace: return TEXT("仓库空间不足或背包仍有未处理物品；整理后再领取，未发放任何补给。");
+	case EShanmenItemTransactionError::StaleAuthorityRevision: return TEXT("物品状态已变化，请刷新后重试；未发放补给。");
+	default: return TEXT("补给被物品权威拒绝，未执行变更；详情已写入日志。");
+	}
+}
+
 void AShanmenDemo20GameMode::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);

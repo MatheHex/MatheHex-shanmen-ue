@@ -1,6 +1,7 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "ShanmenItemTypes.h"
+#include "ShanmenItemResupply.h"
 
 /** Immutable product definitions. Quantities/placements exist only in ShanmenItems. */
 struct FShanmenDemo20Catalog
@@ -13,4 +14,5 @@ struct FShanmenDemo20Catalog
 	static FString ItemName(FName DefinitionId);
 	static FString ItemPurpose(FName DefinitionId);
 	static FString ContainerName(FName Role);
+	static FShanmenItemBasicSupplyRequest BasicSupply(const FShanmenItemAuthoritySnapshot& Snapshot);
 };

@@ -179,6 +179,7 @@ bool FShanmenItemRepository::ValidateState(
 	{
 		return Fail();
 	}
+	TSet<FGuid> ReplenishedDeathRequests;
 
 	for (const TPair<FName, FShanmenItemDefinition>& Pair : Candidate.Definitions)
 	{
@@ -1185,6 +1186,26 @@ bool FShanmenItemRepository::ValidateState(
 			{
 				const auto* EditedItem = Candidate.Items.Find(Processed.Receipt.ItemInstanceId);
 				if (!EditedItem || Processed.Receipt.ItemRevision > EditedItem->Revision) { return Fail(); }
+				continue;
+			}
+			if (Processed.Receipt.Operation == EShanmenItemTransactionOperation::ReplenishBasics)
+			{
+				const auto& Supply = Processed.Receipt;
+				if (ReplenishedDeathRequests.Contains(Supply.ReservationId)) return Fail();
+				ReplenishedDeathRequests.Add(Supply.ReservationId);
+				const auto* Death = Candidate.ProcessedRequests.Find(Supply.ReservationId);
+				if (!Death || !Death->Receipt.IsSuccess() || Death->Receipt.Operation != EShanmenItemTransactionOperation::FinalizePreparedRun
+					|| Death->Receipt.PurposeId != FShanmenItemRunLifecyclePurpose::Death()
+					|| Death->Receipt.AuthorityRevision >= Supply.AuthorityRevision || Death->Receipt.ReservationIds.IsEmpty()) return Fail();
+				const auto* First = Candidate.Reservations.Find(Death->Receipt.ReservationIds[0]);
+				if (!First || Supply.RequestId != FShanmenItemBasicSupplyRequest::MakeRequestId(First->OwnerId, First->RunId,
+					Supply.ReservationId, Supply.PurposeId)) return Fail();
+				for (const auto& Id : Supply.ReservationIds)
+				{
+					const auto* I = Candidate.Items.Find(Id);
+					if (!I || I->OwnerId != First->OwnerId || I->RunId != First->RunId
+						|| Id != FShanmenItemBasicSupplyRequest::MakeItemId(First->OwnerId, First->RunId, Supply.ReservationId, I->DefinitionId)) return Fail();
+				}
 				continue;
 			}
 			const FShanmenItemReservationSnapshot* Reservation = Candidate.Reservations.Find(Processed.Receipt.ReservationId);
@@ -4334,6 +4355,18 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::FinalizePreparedRun(
 			MutableWarehouse->Slots[Item.SlotIndex] = Item.ItemInstanceId;
 			Candidate.Items.Add(Item.ItemInstanceId, MoveTemp(Item));
 		}
+	}
+	// Storage equipment loss is part of the SAME terminal candidate. Never retain
+	// an enabled bag geometry whose equipment has just become a loss tombstone.
+	if (!Candidate.Grid.IsEmpty())
+	{
+		FShanmenItemRepository Preview; Preview.State = Candidate; Preview.bInitialized = true;
+		auto Resized = Preview.CaptureSnapshot();
+		const auto CapacityError = FShanmenItemGridPolicy::ReconcileStorage(Resized);
+		if (CapacityError != EShanmenItemTransactionError::None) return Reject(CapacityError);
+		Candidate.Grid = MoveTemp(Resized.Grid);
+		for (const auto& C : Resized.Containers) Candidate.Containers.Add(C.ContainerId, C);
+		for (const auto& I : Resized.Items) Candidate.Items.Add(I.ItemInstanceId, I);
 	}
 	++Candidate.AuthorityRevision;
 

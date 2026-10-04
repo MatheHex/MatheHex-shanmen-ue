@@ -532,6 +532,16 @@ bool FShanmenItemTransactionReceipt::IsValid() const
 			&& (Move ? (Amount == 1 && ResourceAfter == ResourceBefore)
 				: ((PurposeId == TEXT("Grid.Split") || PurposeId == TEXT("Grid.Merge")) && Amount > 0 && ResourceAfter == ResourceBefore - Amount));
 	}
+	if (Operation == EShanmenItemTransactionOperation::ReplenishBasics)
+	{
+		TSet<FGuid> Unique;
+		for (const auto& Id : ReservationIds) { if (!Id.IsValid() || Unique.Contains(Id)) return false; Unique.Add(Id); }
+		return Error == EShanmenItemTransactionError::None && Phase == EShanmenItemTransactionPhase::Committed
+			&& ReservationId.IsValid() && Amount > 0 && Amount <= 4 && Amount == ReservationIds.Num()
+			&& ItemInstanceId == ReservationIds[0] && !PurposeId.IsNone()
+			&& ResourceKind == EShanmenItemResourceKind::Quantity && ResourceBefore == 0 && ResourceAfter == 0
+			&& AvailableAfter == 0 && ItemRevision == INDEX_NONE;
+	}
 	if (Operation == EShanmenItemTransactionOperation::AcceptGeneratedSource)
 	{
 		return Error == EShanmenItemTransactionError::None

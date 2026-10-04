@@ -27,6 +27,26 @@ namespace
 FGuid FShanmenDemo20Catalog::OwnerId() { return Identity(TEXT("Owner")); }
 FGuid FShanmenDemo20Catalog::ScopeId() { return Identity(TEXT("PreparationScope")); }
 FGuid FShanmenDemo20Catalog::ContainerId(FName Role) { return Identity(TEXT("Container:") + Role.ToString()); }
+FShanmenItemBasicSupplyRequest FShanmenDemo20Catalog::BasicSupply(const FShanmenItemAuthoritySnapshot& S)
+{
+	FShanmenItemBasicSupplyRequest R;
+	R.Context.OwnerId = OwnerId(); R.Context.RunId = ScopeId(); R.Context.Content = S.Content;
+	R.PolicyId = TEXT("Demo20.BasicSupply.r1"); R.ExpectedAuthorityRevision = S.AuthorityRevision;
+	int32 Latest = INDEX_NONE;
+	for (const auto& P : S.ProcessedRequests)
+	{
+		const auto& Receipt = P.Receipt;
+		if (!Receipt.IsSuccess() || Receipt.Operation != EShanmenItemTransactionOperation::FinalizePreparedRun
+			|| Receipt.PurposeId != FShanmenItemRunLifecyclePurpose::Death() || Receipt.AuthorityRevision <= Latest
+			|| Receipt.ReservationIds.IsEmpty()) continue;
+		const auto* First = S.Reservations.FindByPredicate([&](const auto& V) { return V.ReservationId == Receipt.ReservationIds[0]; });
+		if (First && First->OwnerId == OwnerId() && First->RunId == ScopeId()) { R.DeathRequestId = Receipt.RequestId; Latest = Receipt.AuthorityRevision; }
+	}
+	R.Context.RequestId = FShanmenItemBasicSupplyRequest::MakeRequestId(OwnerId(), ScopeId(), R.DeathRequestId, R.PolicyId);
+	R.Lines = {{TEXT("Sword.Plain"), ContainerId(TEXT("Weapon")), 1}, {TEXT("Armor.Robe"), ContainerId(TEXT("Armor")), 1},
+		{TEXT("Backpack.Small"), ContainerId(TEXT("Backpack")), 1}, {TEXT("Heal.Pill"), ContainerId(TEXT("Stash")), 2}};
+	return R;
+}
 FString FShanmenDemo20Catalog::ItemName(FName DefinitionId)
 {
 	for (const auto& E : Entries) { if (DefinitionId == FName(E.Id)) { return E.Name; } }

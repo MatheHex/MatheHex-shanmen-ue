@@ -189,6 +189,11 @@ FReply UShanmenDemo20InventoryWidget::NativeOnMouseButtonDown(const FGeometry& G
 {
 	if (E.GetEffectingButton() != EKeys::LeftMouseButton) return FReply::Unhandled();
 	Cursor = G.AbsoluteToLocal(E.GetScreenSpacePosition());
+	if (Cursor.X >= 24 && Cursor.X < 196 && Cursor.Y >= 394 && Cursor.Y < 438)
+	{
+		if (Host.IsValid()) { Feedback = Host->ReplenishBasicEquipment(); RefreshProjection(); }
+		return FReply::Handled();
+	}
 	if (Cursor.Y >= 566 && Cursor.Y < 612)
 	{
 		const int32 Index = FMath::FloorToInt((Cursor.X - 24) / 176); if (Index >= 0 && Index < 5) Toolbar(Index);
@@ -280,6 +285,9 @@ int32 UShanmenDemo20InventoryWidget::NativePaint(const FPaintArgs& Args, const F
 		}
 	}
 	Text({448,467},TEXT("安全格只接受丹药、材料与战利品。储物装备仅整备更换。"),12,Gold);
+	Box({24,394},{172,44},FLinearColor(.11f,.29f,.22f)); Text({36,406},TEXT("领取基础补给"),15);
+	Text({208,402},TEXT("正式死亡后一次"),12,Gold);
+	Text({208,420},TEXT("只补缺失，不补货币"),11,Gold);
 	if (const auto* I = Projection.Items.FindByPredicate([&](const auto& Value) { return Value.ItemInstanceId == Selected; }))
 	{
 		Text({24,480}, FString::Printf(TEXT("已选：%s  ×%d"),*FShanmenDemo20Catalog::ItemName(I->DefinitionId),I->Quantity),17);
