@@ -19,6 +19,17 @@
   ],
   "rules": [
     {
+      "name": "Demo20StandaloneSlice",
+      "pathRegex": "^(?:Source/demo_map/Demo20/|Content/Demo20/)",
+      "requiredGroups": [
+        "Shanmen.Demo20",
+        "Shanmen.0_0_10.CombatCore",
+        "Shanmen.0_0_10.CombatRuntime.BasicSword",
+        "Shanmen.0_0_10.CombatRuntime.VitalityAuthority",
+        "Shanmen.0_0_10.CombatRuntime.VitalityLedger"
+      ]
+    },
+    {
       "name": "CombatCore",
       "pathRegex": "^Source/ShanmenCombatCore/",
       "requiredGroups": [
