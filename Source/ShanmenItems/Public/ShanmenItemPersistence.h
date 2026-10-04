@@ -78,7 +78,8 @@ struct SHANMENITEMS_API FShanmenItemAuthorityDocument
 	static constexpr int32 LegacySchemaVersion = 1;
 	static constexpr int32 LegacySchema2Version = 2;
 	static constexpr int32 LegacySchema3Version = 3;
-	static constexpr int32 CurrentSchemaVersion = 4;
+	static constexpr int32 LegacySchema4Version = 4;
+	static constexpr int32 CurrentSchemaVersion = 5;
 	static constexpr int64 MaxDocumentBytes = 64LL * 1024 * 1024;
 
 	int32 SchemaVersion = CurrentSchemaVersion;
@@ -198,6 +199,9 @@ public:
 		FString* OutError = nullptr);
 	/** Exact schema-3 digest: lossless sources, reflection-encoded inventory metadata. */
 	static bool ComputeLegacySchema3SnapshotDigest(
+		const FShanmenItemAuthoritySnapshot& Snapshot, FString& OutDigest, FString* OutError = nullptr);
+	/** Exact schema-4 wire before optional grid geometry existed. Requires empty Grid. */
+	static bool ComputeLegacySchema4SnapshotDigest(
 		const FShanmenItemAuthoritySnapshot& Snapshot, FString& OutDigest, FString* OutError = nullptr);
 	/** Exact schema-2 digest before GeneratedSources existed; requires no sources. */
 	static bool ComputeLegacySchema2SnapshotDigest(

@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameplayTagContainer.h"
 #include "ShanmenCoreTypes.h"
+#include "ShanmenItemGrid.h"
 
 #include "ShanmenItemTypes.generated.h"
 
@@ -64,7 +65,9 @@ enum class EShanmenItemTransactionOperation : uint8
 	/** Commits or cancels one prepared active-Run Quantity intent. */
 	FinalizePreparedRunQuantityIntent,
 	/** Accepts one complete resolved source into this authority document. */
-	AcceptGeneratedSource
+	AcceptGeneratedSource,
+	/** Atomic grid placement/stack edit in the existing authority. */
+	EditGrid
 };
 
 UENUM(BlueprintType)
@@ -120,7 +123,10 @@ enum class EShanmenItemTransactionError : uint8
 	/** An active-Run Quantity intent overlaps or disagrees with another decision. */
 	RunItemIntentConflict,
 	/** The requested active-Run Quantity prepare receipt is missing or mismatched. */
-	RunItemIntentNotFound
+	RunItemIntentNotFound,
+	GridNoSpace,
+	GridPolicyViolation,
+	StaleAuthorityRevision
 };
 
 /** Authority-independent terminal reason for one claimed prepared Run. */
@@ -1008,6 +1014,10 @@ struct SHANMENITEMS_API FShanmenItemAuthoritySnapshot
 	/** Immutable source history in the same authority; never Blueprint-writable. */
 	UPROPERTY()
 	TArray<FShanmenItemGeneratedSourcePlan> GeneratedSources;
+
+	/** Optional geometry for new grids. Legacy one-slot containers remain unchanged. */
+	UPROPERTY()
+	FShanmenItemGridSnapshot Grid;
 
 	bool operator==(const FShanmenItemAuthoritySnapshot& Other) const;
 };

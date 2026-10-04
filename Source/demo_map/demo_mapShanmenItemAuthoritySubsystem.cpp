@@ -1,5 +1,16 @@
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
 
+FShanmenItemDurableCommandResult Udemo_mapShanmenItemAuthoritySubsystem::EditGridDurable(const FShanmenItemGridRequest& Request)
+{
+	if (!IsInGameThread() || !AuthorityService || LifecycleState != Edemo_mapShanmenItemAuthorityLifecycleState::Ready)
+	{
+		return RejectCommand(TEXT("Grid editing requires the ready GameInstance item authority on the Game Thread."));
+	}
+	auto Result = AuthorityService->EditGridDurable(Request);
+	SynchronizeCommandState(Result);
+	return Result;
+}
+
 #include "Misc/Paths.h"
 
 namespace

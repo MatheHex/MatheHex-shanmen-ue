@@ -89,6 +89,8 @@ bool FShanmenItemRepository::TryBuildState(
 	FState Candidate;
 	Candidate.AuthorityRevision = Snapshot.AuthorityRevision;
 	Candidate.Content = Snapshot.Content;
+	Candidate.Grid = Snapshot.Grid;
+	Candidate.Grid.Canonicalize();
 	if (Snapshot.GeneratedSources.Num() > MaxGeneratedSources)
 	{
 		SetError(OutError, EShanmenItemTransactionError::InvalidSnapshot);
@@ -1179,6 +1181,12 @@ bool FShanmenItemRepository::ValidateState(
 				}
 				continue;
 			}
+			if (Processed.Receipt.Operation == EShanmenItemTransactionOperation::EditGrid)
+			{
+				const auto* EditedItem = Candidate.Items.Find(Processed.Receipt.ItemInstanceId);
+				if (!EditedItem || Processed.Receipt.ItemRevision > EditedItem->Revision) { return Fail(); }
+				continue;
+			}
 			const FShanmenItemReservationSnapshot* Reservation = Candidate.Reservations.Find(Processed.Receipt.ReservationId);
 			if (!Reservation
 				|| Reservation->ItemInstanceId != Processed.Receipt.ItemInstanceId
@@ -1238,6 +1246,15 @@ bool FShanmenItemRepository::ValidateState(
 	}
 
 	if (!ValidateGeneratedSources(Candidate)) { return Fail(); }
+	if (!Candidate.Grid.IsEmpty())
+	{
+		FShanmenItemAuthoritySnapshot Geometry;
+		Candidate.Definitions.GenerateValueArray(Geometry.Definitions);
+		Candidate.Containers.GenerateValueArray(Geometry.Containers);
+		Candidate.Items.GenerateValueArray(Geometry.Items);
+		Geometry.Grid = Candidate.Grid;
+		if (!FShanmenItemGridPolicy::Validate(Geometry)) { return Fail(); }
+	}
 	SetError(OutError, EShanmenItemTransactionError::None);
 	return true;
 }
@@ -1252,6 +1269,7 @@ FShanmenItemAuthoritySnapshot FShanmenItemRepository::CaptureSnapshot() const
 
 	Snapshot.AuthorityRevision = State.AuthorityRevision;
 	Snapshot.Content = State.Content;
+	Snapshot.Grid = State.Grid;
 	State.Definitions.GenerateValueArray(Snapshot.Definitions);
 	State.Containers.GenerateValueArray(Snapshot.Containers);
 	State.Items.GenerateValueArray(Snapshot.Items);

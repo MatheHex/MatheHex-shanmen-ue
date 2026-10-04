@@ -161,6 +161,7 @@ namespace
 			return false;
 		}
 		(*Authority)->RemoveField(TEXT("GeneratedSources"));
+		(*Authority)->RemoveField(TEXT("Grid"));
 		for (const TSharedPtr<FJsonValue>& Value : *Items)
 		{
 			const TSharedPtr<FJsonObject> Item = Value.IsValid()
@@ -655,6 +656,7 @@ bool FShanmenItemPersistenceSchema2MigrationTest::RunTest(const FString&)
 	if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Object)) { RemovePersistenceRoot(Root); return false; }
 	auto Authority = Object->GetObjectField(TEXT("Authority"));
 	Authority->RemoveField(TEXT("GeneratedSources"));
+	Authority->RemoveField(TEXT("Grid"));
 	// Preserve reflection's lower-camel key spelling: the original wire digest is byte-sensitive.
 	Authority->GetArrayField(TEXT("Items"))[0]->AsObject()->SetObjectField(TEXT("rewardMetadata"),
 		FJsonObjectConverter::UStructToJsonObject(Candidate.Items[0].RewardMetadata));
@@ -813,6 +815,7 @@ bool FShanmenItemPersistenceSchema3MigrationTest::RunTest(const FString&)
 	TSharedPtr<FJsonObject> Object;
 	if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Object)) { RemovePersistenceRoot(Root); return false; }
 	auto Authority = Object->GetObjectField(TEXT("Authority"));
+	Authority->RemoveField(TEXT("Grid"));
 	const auto& Items = Authority->GetArrayField(TEXT("Items"));
 	for (int32 Index = 0; Index < Items.Num(); ++Index)
 	{

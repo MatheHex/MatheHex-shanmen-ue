@@ -13,6 +13,7 @@ class SHANMENITEMS_API FShanmenItemRepository
 public:
 	static constexpr int32 MaxGeneratedSources = 4096;
 	static constexpr int32 MaxGeneratedEntries = 65536;
+	FShanmenItemTransactionReceipt EditGrid(const FShanmenItemGridRequest& Request);
 	FShanmenItemTransactionReceipt AcceptGeneratedSource(const FShanmenItemGeneratedSourceRequest& Request);
 	bool TryGetGeneratedSource(const FGuid& OwnerId, const FGuid& RunId, FName SourceRoleId,
 		FShanmenItemGeneratedSourceReceipt& OutReceipt) const;
@@ -76,6 +77,7 @@ private:
 		TMap<FGuid, FShanmenItemReservationSnapshot> Reservations;
 		TMap<FGuid, FShanmenItemProcessedRequestSnapshot> ProcessedRequests;
 		TMap<FGuid, FShanmenItemGeneratedSourcePlan> GeneratedSources;
+		FShanmenItemGridSnapshot Grid;
 	};
 
 	FState State;

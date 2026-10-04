@@ -1,6 +1,11 @@
 #include "ShanmenItemAuthorityService.h"
-
 #include "Misc/ScopeLock.h"
+
+FShanmenItemDurableCommandResult FShanmenItemAuthorityService::EditGridDurable(const FShanmenItemGridRequest& Request)
+{
+	FScopeLock Lock(&Mutex);
+	return ExecuteCommandLocked([&](FShanmenItemRepository& MutableRepository) { return MutableRepository.EditGrid(Request); });
+}
 
 FShanmenItemMigrationAuthorization
 FShanmenItemMigrationAuthorization::Explicit(const FGuid& MigrationId)

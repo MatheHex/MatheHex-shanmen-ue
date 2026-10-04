@@ -522,6 +522,16 @@ bool FShanmenItemTransactionReceipt::IsValid() const
 		return Phase == EShanmenItemTransactionPhase::Rejected
 			&& Error != EShanmenItemTransactionError::None;
 	}
+	if (Operation == EShanmenItemTransactionOperation::EditGrid)
+	{
+		const bool Move = PurposeId == TEXT("Grid.Move");
+		return Error == EShanmenItemTransactionError::None && Phase == EShanmenItemTransactionPhase::Committed
+			&& ItemInstanceId.IsValid() && !ReservationId.IsValid() && ReservationIds.IsEmpty()
+			&& ResourceKind == EShanmenItemResourceKind::Quantity && ResourceBefore > 0 && ResourceAfter >= 0
+			&& AvailableAfter == ResourceAfter && ItemRevision >= 0
+			&& (Move ? (Amount == 1 && ResourceAfter == ResourceBefore)
+				: ((PurposeId == TEXT("Grid.Split") || PurposeId == TEXT("Grid.Merge")) && Amount > 0 && ResourceAfter == ResourceBefore - Amount));
+	}
 	if (Operation == EShanmenItemTransactionOperation::AcceptGeneratedSource)
 	{
 		return Error == EShanmenItemTransactionError::None
@@ -788,5 +798,6 @@ bool FShanmenItemAuthoritySnapshot::operator==(const FShanmenItemAuthoritySnapsh
 		&& Items == Other.Items
 		&& Reservations == Other.Reservations
 		&& ProcessedRequests == Other.ProcessedRequests
-		&& GeneratedSources == Other.GeneratedSources;
+		&& GeneratedSources == Other.GeneratedSources
+		&& Grid == Other.Grid;
 }
