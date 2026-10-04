@@ -10,6 +10,7 @@
 #include "demo_mapInputActionRegistry.h"
 #include "demo_mapInputBindingSettings.h"
 #include "Camera/CameraComponent.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/InputComponent.h"
@@ -26,6 +27,7 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "UObject/ConstructorHelpers.h"
 #include "UnrealClient.h"
+#include "Kismet/GameplayStatics.h"
 
 namespace
 {
@@ -95,6 +97,7 @@ void AShanmenDemo20Character::Tick(float DeltaSeconds)
 
 AShanmenDemo20Controller::AShanmenDemo20Controller()
 {
+	bShouldPerformFullTickWhenPaused = true;
 	bShowMouseCursor = true;
 	DefaultMouseCursor = EMouseCursor::Crosshairs;
 }
@@ -105,7 +108,7 @@ void AShanmenDemo20Controller::SetupInputComponent()
 	InputComponent->BindKey(Key(Fdemo_mapInputActionIds::PrimaryAttack), IE_Pressed, this, &AShanmenDemo20Controller::Attack);
 	InputComponent->BindKey(Key(Fdemo_mapInputActionIds::SpiritEvasion), IE_Pressed, this, &AShanmenDemo20Controller::Evade);
 	InputComponent->BindKey(Key(Fdemo_mapInputActionIds::Interact), IE_Pressed, this, &AShanmenDemo20Controller::Interact);
-	InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AShanmenDemo20Controller::ToggleMenu);
+	InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AShanmenDemo20Controller::ToggleMenu).bExecuteWhenPaused = true;
 	InputComponent->BindKey(Key(Fdemo_mapInputActionIds::Inventory), IE_Pressed, this, &AShanmenDemo20Controller::ToggleInventory);
 }
 
@@ -133,11 +136,47 @@ void AShanmenDemo20Controller::ApplySurface(bool bGameplay)
 	if (!bGameplay) if (auto* Game = Mode(this)) Game->SetGuard(false);
 }
 
+void AShanmenDemo20Controller::GetPlayerViewPoint(FVector& OutLocation, FRotator& OutRotation) const
+{
+	Super::GetPlayerViewPoint(OutLocation, OutRotation);
+	const auto* Game = Mode(this);
+	// UE treats cache time zero as uninitialized, even after UpdateCamera has
+	// completed at world time zero. A restored expedition is deliberately paused
+	// before time advances; use its explicitly initialized view, not pawn origin.
+	if (bPausedCameraReady && Game && Game->IsExpedition() && Game->IsPaused()
+		&& PlayerCameraManager && PlayerCameraManager->GetCameraCacheTime() == 0.f)
+	{
+		PlayerCameraManager->GetCameraViewPoint(OutLocation, OutRotation);
+	}
+}
+
 void AShanmenDemo20Controller::PlayerTick(float DeltaSeconds)
 {
 	Super::PlayerTick(DeltaSeconds);
 	auto* Game = Mode(this);
 	if (!Game || !GetPawn()) return;
+	// A restored world can be paused before its first camera update. GameMode
+	// BeginPlay is too early: local-player view setup may overwrite that cache.
+	// Refresh only the view while paused; never tick movement or combat here.
+	if (Game->IsPaused())
+	{
+		if (auto* Arm = GetPawn()->FindComponentByClass<USpringArmComponent>()) Arm->TickComponent(0.f, LEVELTICK_All, nullptr);
+		SetViewTarget(GetPawn());
+		UpdateCameraManager(0.f);
+		bPausedCameraReady = PlayerCameraManager != nullptr;
+		if (!bPausedViewLogged && PlayerCameraManager)
+		{
+			const auto& View = PlayerCameraManager->GetCameraCacheView();
+			FVector PlayerViewLocation;
+			FRotator PlayerViewRotation;
+			GetPlayerViewPoint(PlayerViewLocation, PlayerViewRotation);
+			UE_LOG(LogTemp, Display, TEXT("DEMO20_PAUSED_VIEW Pawn=%s Camera=%s Rotation=%s CacheTime=%.3f PlayerView=%s PlayerRotation=%s"),
+				*GetPawn()->GetActorLocation().ToString(), *View.Location.ToString(), *View.Rotation.ToString(),
+				PlayerCameraManager->GetCameraCacheTime(), *PlayerViewLocation.ToString(), *PlayerViewRotation.ToString());
+			bPausedViewLogged = true;
+		}
+	}
+	else { bPausedViewLogged = false; bPausedCameraReady = false; }
 	const auto* Viewport = GetWorld()->GetGameViewport();
 	// UMG temporarily owns keyboard focus during button activation. That is not
 	// application deactivation and must not immediately pause a newly started run.
@@ -217,6 +256,7 @@ AActor* AShanmenDemo20GameMode::AddShape(const FVector& Location, const FVector&
 
 bool AShanmenDemo20GameMode::BuildArena()
 {
+	if (bExpeditionMode) return BuildExpedition();
 	const FLinearColor Stone(.25f, .30f, .29f), Dark(.07f, .115f, .105f), Gold(.55f, .40f, .16f);
 	if (!AddShape(FVector(0,0,-35), FVector(26,22,.7f), Stone, true)) return false;
 	for (int32 Side : {-1, 1})
@@ -255,6 +295,9 @@ bool AShanmenDemo20GameMode::BuildArena()
 void AShanmenDemo20GameMode::BeginPlay()
 {
 	Super::BeginPlay();
+	// Keep the render view live during pause, not gameplay. Otherwise a Run
+	// restored before frame one can display the initial, unpositioned view.
+	if (bExpeditionMode) GetWorld()->bIsCameraMoveableWhenPaused = true;
 	bWorldReady = BuildArena();
 	int32 TestMoney = 1000000;
 	FParse::Value(FCommandLine::Get(), TEXT("Demo20TestMoney="), TestMoney);
@@ -270,6 +313,7 @@ void AShanmenDemo20GameMode::BeginPlay()
 			FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Demo20"), ProfileName)),
 			FShanmenDemo20Catalog::OwnerId(), FShanmenDemo20Catalog::ProductId(), Initial);
 		bProfileReady = Bound.IsReady();
+		if (bProfileReady) WorldProfileRoot = Authority->GetBoundStorageRoot();
 		UE_LOG(LogTemp, Display, TEXT("DEMO20_PROFILE Ready=%d Native=%d Generation=%d Diagnostic=%s"),
 			bProfileReady, !Bound.bLegacyInputsRead, Bound.AuthorityStart.DocumentGeneration, *Bound.Diagnostic);
 	}
@@ -284,12 +328,14 @@ void AShanmenDemo20GameMode::BeginPlay()
 	Notice = !bProfileReady ? TEXT("隔离物品档未能打开，整备已禁用。未覆盖旧档，请查看运行日志。")
 		: bWorldReady ? TEXT("隔离物品档已就绪，可打开仓库与整备。石庭仅为不结算的战斗练习。")
 		: TEXT("新场景初始化失败，请查看运行日志。未进入试炼。");
+	if (bExpeditionMode && bProfileReady && bWorldReady) RestoreExpeditionOnOpen();
 	RefreshSurface();
 	UE_LOG(LogTemp, Display, TEXT("DEMO20_READY World=%s Ready=%d Actors=%d"), *GetWorld()->GetMapName(), bWorldReady, ArenaActors.Num());
 }
 
 void AShanmenDemo20GameMode::RefreshSurface()
 {
+	if (bExpeditionMode) UGameplayStatics::SetGamePaused(this, bPaused);
 	if (Screen) Screen->Refresh();
 	if (auto* Player = Cast<AShanmenDemo20Controller>(GetWorld()->GetFirstPlayerController())) Player->ApplySurface(IsPlaying());
 	if (Screen) Screen->FocusActiveSurface();
@@ -297,6 +343,7 @@ void AShanmenDemo20GameMode::RefreshSurface()
 
 void AShanmenDemo20GameMode::StartTrial()
 {
+	if (bExpeditionMode) { StartExpedition(); return; }
 	if (bInventoryOpen) ToggleInventory();
 	if (!bWorldReady || !Session.Begin(FGuid::NewGuid())) return;
 	bPaused = false;
@@ -358,7 +405,7 @@ FString AShanmenDemo20GameMode::ReplenishBasicEquipment()
 		Result.IsCommandSuccess(), static_cast<int32>(Result.Status), static_cast<int32>(Result.Receipt.Error), Result.DocumentGeneration, Result.Receipt.Amount);
 	if (!Result.IsDurable()) return bProfileReady ? TEXT("补给未保存，已回滚；可重试，未确认发放。") : TEXT("物品档正在恢复，补给未确认；请重新打开游戏。");
 	if (Result.IsCommandSuccess()) return Result.bRepositoryMutated
-		? TEXT("补给已保存：缺失的基础装备已穿戴，缺药时仓库提供 2 枚丹药。")
+		? TEXT("补给已保存：只补缺失项目；仓库备用装备请自行穿戴，丹药请自行携带。")
 		: TEXT("本次死亡的补给已经领取，没有重复发放。");
 	switch (Result.Receipt.Error)
 	{
@@ -384,6 +431,7 @@ void AShanmenDemo20GameMode::Tick(float DeltaSeconds)
 				Pixels.X, Pixels.Y, UWidgetLayoutLibrary::GetViewportScale(this));
 		}
 	}
+	if (bExpeditionMode) { TickExpedition(DeltaSeconds); if (Screen) Screen->Refresh(); return; }
 	const auto Previous = Session.GetPhase();
 	if (IsPlaying())
 	{
@@ -435,7 +483,7 @@ void AShanmenDemo20GameMode::Attack()
 	float Nearest = 250.f;
 	for (int32 Index = 0; Index < 3; ++Index)
 	{
-		const FVector Offset = SentinelLocation(Index) - Pawn->GetActorLocation();
+		const FVector Offset = (bExpeditionMode ? Sentinels[Index]->GetActorLocation() : SentinelLocation(Index)) - Pawn->GetActorLocation();
 		const float Distance = Offset.Size2D();
 		if (Session.GetHealth(Index + 1) > 0.f && Distance < Nearest
 			&& FVector::DotProduct(Offset.GetSafeNormal2D(), Pawn->GetActorForwardVector()) > .25f)
@@ -444,8 +492,11 @@ void AShanmenDemo20GameMode::Attack()
 			Nearest = Distance;
 		}
 	}
-	if (Best != INDEX_NONE && Session.StrikeSentinel(Best))
+	auto Candidate = Session;
+	if (Best != INDEX_NONE && Candidate.StrikeSentinel(Best))
 	{
+		if (bExpeditionMode && !SaveExpedition(Candidate)) { RefreshSurface(); return; }
+		Session = MoveTemp(Candidate);
 		Notice = TEXT("剑击命中");
 		NoticeTime = 1.f;
 		if (Session.GetHealth(Best + 1) <= 0.f)
@@ -453,7 +504,7 @@ void AShanmenDemo20GameMode::Attack()
 			Sentinels[Best]->SetActorHiddenInGame(true);
 			Sentinels[Best]->SetActorEnableCollision(false);
 			Warnings[Best]->SetActorHiddenInGame(true);
-			Notice = TEXT("守阵石卫已击破");
+			Notice = bExpeditionMode ? TEXT("敌人已击败 · 掉落搜索接线开发中") : TEXT("守阵石卫已击破");
 		}
 		UE_LOG(LogTemp, Display, TEXT("DEMO20_HIT Target=%d Health=%.1f"), Best, Session.GetHealth(Best + 1));
 	}
@@ -489,6 +540,11 @@ void AShanmenDemo20GameMode::Interact()
 		NoticeTime = 2.f;
 		return;
 	}
+	if (bExpeditionMode)
+	{
+		if (!bExtracting) { bExtracting = true; ExtractionClock = 0.f; Notice = TEXT("归阵撤离中 · 离开范围或受伤会中断（3 秒）"); }
+		return;
+	}
 	if (!Session.TryExtract())
 	{
 		Notice = TEXT("归阵尚未开启：先击破全部三座石卫。");
@@ -504,6 +560,17 @@ void AShanmenDemo20GameMode::TogglePause()
 {
 	if (bInventoryOpen) { ToggleInventory(); return; }
 	if (Session.GetPhase() != EShanmenDemo20Phase::Active) return;
+	if (bExpeditionMode)
+	{
+		if (bPaused)
+		{
+			if (!RetryExpeditionCheckpoint()) return;
+			bPaused = false;
+		}
+		else { if (!SaveExpedition(Session)) { RefreshSurface(); return; } bPaused = true; }
+		bExtracting = false; ExtractionClock = 0.f;
+		Session.SetGuarding(false); RefreshSurface(); return;
+	}
 	bPaused = !bPaused;
 	Session.SetGuarding(false);
 	RefreshSurface();
@@ -512,6 +579,7 @@ void AShanmenDemo20GameMode::PauseForFocusLoss()
 {
 	if (IsPlaying())
 	{
+		if (bExpeditionMode && !SaveExpedition(Session)) { RefreshSurface(); return; }
 		bPaused = true;
 		Session.SetGuarding(false);
 		Notice = TEXT("窗口失去焦点，试炼已暂停。点击继续后恢复。");
@@ -520,19 +588,30 @@ void AShanmenDemo20GameMode::PauseForFocusLoss()
 }
 void AShanmenDemo20GameMode::LeaveTrial()
 {
+	if (bExpeditionMode)
+	{
+		if (!RetryExpeditionCheckpoint() || !SaveExpedition(Session)) { RefreshSurface(); return; }
+		Session = FShanmenDemo20Session(); bPaused = false; bExtracting = false; ExtractionClock = 0.f;
+		Notice = TEXT("探索进度已保存。原局未结算；整备不可修改携带，点击继续原局返回。");
+		ApplyExpeditionProjection(); RefreshSurface(); return;
+	}
 	Session.Abandon();
 	bPaused = false;
 	RefreshSurface();
 }
 void AShanmenDemo20GameMode::ReturnToPreparation()
 {
+	if (bExpeditionMode && !bTerminalConfirmed) { FinalizeExpedition(); RefreshSurface(); return; }
 	if (!Session.ReturnToPreparation()) return;
 	bPaused = false;
-	Notice = TEXT("可再次开始独立试炼。未发放奖励，未修改持久存档。");
+	Notice = bExpeditionMode ? TEXT("已返回整备。可整理带回物品；死亡后可领取有限基础补给，再次出发。")
+		: TEXT("可再次开始独立试炼。未发放奖励，未修改持久存档。");
+	if (bExpeditionMode) ApplyExpeditionProjection();
 	RefreshSurface();
 }
 void AShanmenDemo20GameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	if (bExpeditionMode && Session.GetPhase() == EShanmenDemo20Phase::Active && !bCheckpointPending) SaveExpedition(Session);
 	if (Screen) Screen->RemoveFromParent();
 	Screen = nullptr;
 	Session.Abandon();

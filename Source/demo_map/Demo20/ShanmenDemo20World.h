@@ -5,6 +5,7 @@
 #include "GameFramework/GameModeBase.h"
 #include "GameFramework/PlayerController.h"
 #include "ShanmenDemo20Session.h"
+#include "ShanmenDemo20WorldCheckpoint.h"
 #include "ShanmenItemAuthorityService.h"
 #include "ShanmenDemo20World.generated.h"
 
@@ -32,6 +33,7 @@ public:
 	AShanmenDemo20Controller();
 	virtual void SetupInputComponent() override;
 	virtual void PlayerTick(float DeltaSeconds) override;
+	virtual void GetPlayerViewPoint(FVector& OutLocation, FRotator& OutRotation) const override;
 	void ApplySurface(bool bGameplay);
 	FVector GetMoveDirection() const { return MoveDirection; }
 private:
@@ -41,6 +43,8 @@ private:
 	void ToggleMenu();
 	void ToggleInventory();
 	FVector MoveDirection = FVector::ZeroVector;
+	bool bPausedViewLogged = false;
+	bool bPausedCameraReady = false;
 };
 
 /** Demo-specific composition only; damage and vitality remain existing domain types. */
@@ -65,21 +69,37 @@ public:
 	void ToggleInventory();
 	bool IsInventoryOpen() const { return bInventoryOpen; }
 	bool IsProfileReady() const { return bProfileReady; }
+	bool IsExpedition() const { return bExpeditionMode; }
+	FString GetExplorationArea() const;
+	float GetExtractionProgress() const { return ExtractionClock / 3.f; }
+	bool IsTerminalConfirmed() const { return bTerminalConfirmed; }
 	bool TryCaptureItems(FShanmenItemAuthoritySnapshot& Out) const;
 	FShanmenItemDurableCommandResult EditItemGrid(const FShanmenItemGridRequest& Intent);
 	FString ReplenishBasicEquipment();
-	bool IsPlaying() const { return Session.GetPhase() == EShanmenDemo20Phase::Active && !bPaused; }
+	bool IsPlaying() const { return Session.GetPhase() == EShanmenDemo20Phase::Active && !bPaused && !bInventoryOpen; }
 	bool IsPaused() const { return bPaused; }
 	bool IsWorldReady() const { return bWorldReady; }
 	const FShanmenDemo20Session& GetSession() const { return Session; }
 	FString GetNotice() const { return Notice; }
 	static FVector ExitLocation() { return FVector(-760.f, 0.f, 0.f); }
 	static FVector SentinelLocation(int32 Index);
+protected:
+	bool bExpeditionMode = false;
 private:
 	bool BuildArena();
 	AActor* AddShape(const FVector& Location, const FVector& Scale, const FLinearColor& Color, bool bCollision, bool bCylinder = false);
 	void RefreshSurface();
 	void UpdateSentinels(float DeltaSeconds);
+	bool BuildExpedition();
+	void StartExpedition();
+	void RestoreExpeditionOnOpen();
+	void TickExpedition(float DeltaSeconds);
+	void UpdateExpeditionEnemies(float DeltaSeconds);
+	bool SaveExpedition(const FShanmenDemo20Session& Candidate);
+	bool RetryExpeditionCheckpoint();
+	void ApplyExpeditionProjection();
+	bool FinalizeExpedition();
+	FShanmenDemo20WorldCheckpoint CaptureWorld(const FShanmenDemo20Session& Candidate) const;
 	FShanmenDemo20Session Session;
 	UPROPERTY() TObjectPtr<UShanmenDemo20Widget> Screen;
 	UPROPERTY() TArray<TObjectPtr<AActor>> ArenaActors;
@@ -94,4 +114,18 @@ private:
 	bool bProfileReady = false;
 	bool bInventoryOpen = false;
 	FIntPoint LastViewportPixels = FIntPoint::ZeroValue;
+	FShanmenDemo20WorldCheckpoint WorldCheckpoint, PendingCheckpoint;
+	bool bCheckpointPending = false, bTerminalConfirmed = false;
+	FString WorldProfileRoot;
+	float CheckpointClock = 0.f, ExtractionClock = 0.f;
+	bool bExtracting = false;
+};
+
+/** Formal exploration map; shares existing Demo20 UI/input, not the practice map. */
+UCLASS()
+class AShanmenDemo20ExpeditionGameMode : public AShanmenDemo20GameMode
+{
+	GENERATED_BODY()
+public:
+	AShanmenDemo20ExpeditionGameMode() { bExpeditionMode = true; }
 };

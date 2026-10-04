@@ -26,6 +26,11 @@ void UShanmenDemo20InventoryWidget::RefreshProjection()
 {
 	if (Host.IsValid()) Host->TryCaptureItems(Projection);
 	LoadoutSummary = FShanmenDemo20Loadout::Summary(Projection);
+	FShanmenDemo20ActiveLoadout Active;
+	FString Reason;
+	bRunLocked = FShanmenDemo20Loadout::InspectActive(Projection, Active, Reason);
+	if (bRunLocked && Host.IsValid() && Host->IsExpedition())
+		LoadoutSummary = TEXT("有未结算探索：整备已锁定，不会覆盖原局。\n请返回入口继续原局；空装备格不表示探索装备丢失。");
 	Dragging = false;
 	if (!Projection.Items.ContainsByPredicate([&](const auto& I) { return I.ItemInstanceId == Selected && Live(I); })) Selected.Invalidate();
 }
@@ -258,12 +263,18 @@ int32 UShanmenDemo20InventoryWidget::NativePaint(const FPaintArgs& Args, const F
 	Text({550,26}, FString::Printf(TEXT("测试灵石  %d · 新档一次性初始化"), Money),14,Gold);
 	Text({24,59},TEXT("拖动物品到格子；同类拖到一起合并。点击选择后使用下方操作。"),14);
 	const auto List = Boards();
+	const bool HasBackpack = Projection.Items.ContainsByPredicate([&](const auto& I)
+	{
+		return Live(I) && I.ParentContainerId == FShanmenDemo20Catalog::ContainerId(TEXT("Backpack"));
+	});
 	for (const auto& B : List)
 	{
 		const auto* C = Projection.Containers.FindByPredicate([&](const auto& Value) { return Value.ContainerId == B.Id; });
-		Text(B.Origin - FVector2D(0,24), FString::Printf(TEXT("%s %d×%d"), *FShanmenDemo20Catalog::ContainerName(C ? C->ContainerType : NAME_None), B.Width, B.Height),13,Gold);
+		const bool DisabledCarry = B.Id == FShanmenDemo20Catalog::ContainerId(TEXT("Carry")) && !HasBackpack;
+		Text(B.Origin - FVector2D(0,24), DisabledCarry ? (bRunLocked ? TEXT("普通背包 · 原局携带已锁定") : TEXT("普通背包 · 未装备行囊"))
+			: FString::Printf(TEXT("%s %d×%d"), *FShanmenDemo20Catalog::ContainerName(C ? C->ContainerType : NAME_None), B.Width, B.Height),13,Gold);
 		for (int32 Y = 0; Y < B.Height; ++Y) for (int32 X = 0; X < B.Width; ++X)
-			Box(B.Origin + FVector2D(X*Cell,Y*Cell),{Cell-1,Cell-1},FLinearColor(.09f,.14f,.12f));
+			Box(B.Origin + FVector2D(X*Cell,Y*Cell),{Cell-1,Cell-1},DisabledCarry ? FLinearColor(.065f,.07f,.065f) : FLinearColor(.09f,.14f,.12f));
 		for (const auto& I : Projection.Items)
 		{
 			if (!Live(I) || I.ParentContainerId != B.Id) continue;
@@ -309,6 +320,8 @@ int32 UShanmenDemo20InventoryWidget::NativePaint(const FPaintArgs& Args, const F
 	{
 		Box({24.f+Index*176.f,566},{164,46},FLinearColor(.11f,.29f,.22f)); Text({36.f+Index*176.f,578},Labels[Index],15);
 	}
-	Text({24,622},TEXT("整备功能增量：探索、治疗、终局损失与恢复尚未接通；石庭练习不发放奖励。"),11,Gold);
+	Text({24,622},Host.IsValid() && Host->IsExpedition()
+		? TEXT("正式探索：普通携带死亡损失，安全格与仓库保留。治疗与随机搜集正在接线。")
+		: TEXT("石庭为独立战斗练习，不消耗或发放物品；正式探索请使用默认启动入口。"),11,Gold);
 	return Base + 6;
 }

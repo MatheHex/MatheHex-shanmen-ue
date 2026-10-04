@@ -5,12 +5,28 @@
 
 enum class EShanmenDemo20Phase : uint8 { Preparation, Active, Extracted, Defeated, Abandoned };
 
-/** Disposable arena session, not a Profile/Item authority or a persistent expedition. */
+/** Combat checkpoint only; item quantities remain exclusively in ShanmenItems. */
+struct FShanmenDemo20CombatCheckpoint
+{
+	FGuid RunId;
+	EShanmenDemo20Phase Phase = EShanmenDemo20Phase::Active;
+	uint64 Sequence = 0;
+	float Health[4] = {100.f, 78.f, 65.f, 156.f};
+	int64 Revisions[4] = {0, 0, 0, 0};
+	float Elapsed = 0.f, AttackCooldown = 0.f, EvadeCooldown = 0.f, EvadeWindow = 0.f;
+	float SwordDamage = 26.f, ArmorFraction = .12f;
+	bool IsValid() const;
+};
+
+/** Combat projection shared by practice and checkpointed expeditions; never an Item/Profile authority. */
 class FShanmenDemo20Session
 {
 public:
 	static constexpr int32 SentinelCount = 3;
 	bool Begin(const FGuid& NewRunId);
+	bool BeginExpedition(const FGuid& NewRunId, float SwordDamage, float ArmorFraction);
+	bool RestoreExpedition(const FShanmenDemo20CombatCheckpoint& Checkpoint);
+	bool CaptureExpedition(FShanmenDemo20CombatCheckpoint& Out) const;
 	void Advance(float DeltaSeconds);
 	bool StrikeSentinel(int32 Index);
 	bool ReceiveSentinelStrike(int32 Index);
@@ -41,4 +57,6 @@ private:
 	float EvadeWindow = 0.f;
 	float EvadeCooldown = 0.f;
 	bool bGuarding = false;
+	bool bExpedition = false;
+	float ExpeditionSwordDamage = 26.f, ExpeditionArmorFraction = .12f;
 };

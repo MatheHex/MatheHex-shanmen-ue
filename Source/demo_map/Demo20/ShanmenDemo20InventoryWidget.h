@@ -40,6 +40,7 @@ private:
 	bool Dragging = false;
 	bool Rotated = false;
 	bool PreviewValid = false;
+	bool bRunLocked = false;
 	FString Feedback;
 	FString LoadoutSummary;
 };

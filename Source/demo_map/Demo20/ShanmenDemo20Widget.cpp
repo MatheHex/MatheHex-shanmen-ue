@@ -64,7 +64,7 @@ void UShanmenDemo20Widget::Build()
 	StatusSlot->SetOffsets(FMargin(24,24,330,205));
 	auto* StatusBox = WidgetTree->ConstructWidget<UVerticalBox>();
 	Status->SetContent(StatusBox);
-	Add(StatusBox, Text(WidgetTree, TEXT("山 门  /  归尘试炼"), 23, Gold));
+	Add(StatusBox, Text(WidgetTree, TEXT("山 门  /  Demo 2.0"), 23, Gold));
 	HealthLabel = Text(WidgetTree, TEXT("生命"), 16, Paper);
 	Add(StatusBox, HealthLabel, 6);
 	Health = WidgetTree->ConstructWidget<UProgressBar>();
@@ -131,7 +131,7 @@ void UShanmenDemo20Widget::Build()
 	InventoryButton->SetContent(InventoryLabel);
 	InventoryButton->OnClicked.AddDynamic(this, &UShanmenDemo20Widget::Inventory);
 	Add(CardBox, InventoryButton, 14);
-	Add(CardBox, Text(WidgetTree, TEXT("本地 Demo · 隔离新档 · 不读取旧档\n整备物品已持久保存；石庭练习暂不结算物品或奖励。"), 12, FLinearColor(.50f,.61f,.56f)), 0);
+	Add(CardBox, Text(WidgetTree, TEXT("本地 Demo · 隔离档 · 不读取旧档\n正式探索按携带规则结算；练习不改物品。"), 12, FLinearColor(.50f,.61f,.56f)), 0);
 	InventorySurface = WidgetTree->ConstructWidget<UBorder>();
 	InventorySurface->SetBrushColor(FLinearColor(.005f,.015f,.012f,.9f));
 	InventorySurface->SetHorizontalAlignment(HAlign_Center); InventorySurface->SetVerticalAlignment(VAlign_Center);
@@ -155,29 +155,45 @@ void UShanmenDemo20Widget::Refresh()
 	InventoryButton->SetVisibility(Phase == EShanmenDemo20Phase::Preparation ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 	InventoryButton->SetIsEnabled(Host->IsProfileReady());
 	const bool Preparing = Phase == EShanmenDemo20Phase::Preparation;
-	Set(HealthLabel, Preparing ? TEXT("整备阶段 · 尚未出发") : FString::Printf(TEXT("生命  %.0f / 100"), Session.GetHealth()));
+	Set(HealthLabel, Preparing ? (Host->IsExpedition() ? TEXT("整备入口 · 携带状态见下方") : TEXT("整备阶段 · 尚未出发"))
+		: FString::Printf(TEXT("生命  %.0f / 100"), Session.GetHealth()));
 	Health->SetPercent(Session.GetHealth() / 100.f);
-	Set(Objective, Preparing ? TEXT("仓库 / 背包 / 装备") : FString::Printf(TEXT("守阵石卫  %d / 3"), Session.NumDefeated()));
-	Set(Defense, Preparing ? TEXT("正式探索入口开发中") : Session.IsGuarding() ? TEXT("格挡中 · 无法出剑") : Session.IsEvading() ? TEXT("闪身中") : Session.GetEvadeCooldown() > 0.f ? FString::Printf(TEXT("闪身恢复  %.1f 秒"), Session.GetEvadeCooldown()) : TEXT("闪身就绪"));
+	Set(Objective, Preparing ? TEXT("仓库 / 背包 / 装备") : Host->IsExpedition() ? Host->GetExplorationArea()
+		: FString::Printf(TEXT("守阵石卫  %d / 3"), Session.NumDefeated()));
+	Set(Defense, Preparing ? (Host->IsExpedition()?TEXT("携带确认后出发 · 开局可撤离"):TEXT("石庭练习 · 不结算"))
+		: Session.IsGuarding() ? TEXT("格挡中 · 无法出剑") : Session.IsEvading() ? TEXT("闪身中") : Session.GetEvadeCooldown() > 0.f ? FString::Printf(TEXT("闪身恢复  %.1f 秒"), Session.GetEvadeCooldown()) : TEXT("闪身就绪"));
 	Set(Notice, Host->GetNotice());
 	Modal->SetVisibility(Host->IsPlaying() ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
-	PrimaryButton->SetIsEnabled(Host->IsWorldReady());
-	SecondaryButton->SetVisibility(Host->IsPaused() ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	PrimaryButton->SetIsEnabled(Host->IsWorldReady() && (!Host->IsExpedition() || Host->IsProfileReady()));
+	SecondaryButton->SetVisibility(Host->IsPaused() && Phase==EShanmenDemo20Phase::Active ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 	if (Phase == EShanmenDemo20Phase::Preparation)
 	{
+		if (Host->IsExpedition())
+		{
+			Set(Heading,TEXT("青岚关探索"));
+			Set(Body,TEXT("整备武器、护具与行囊后出发。\n石径 → 竹林 → 遗坛，相连区域可自由探索。\n归阵从开局可用，交互后等待 3 秒撤离。\n普通携带死亡损失；安全格与仓库保留。\n\n")+Host->GetNotice());
+			Set(PrimaryLabel,TEXT("出发 / 继续原局")); return;
+		}
 		Set(Heading, TEXT("归尘试炼"));
 		Set(Body, Host->IsWorldReady() ? TEXT("进入石庭，以剑破阵。\n\n靠近三座石卫，鼠标指向目标出剑。\n赤光蓄势时，闪身避开或持剑格挡。\n击破全部石卫后，回到青色归阵撤出。") : Host->GetNotice());
 		Set(PrimaryLabel, TEXT("石庭练习（不结算）"));
 	}
-	else if (Host->IsPaused())
+	else if (Host->IsPaused() && Phase==EShanmenDemo20Phase::Active)
 	{
 		Set(Heading, TEXT("片刻静心"));
-		Set(Body, TEXT("试炼已暂停，计时与石卫攻击已停止。\n\n继续后按新的键位输入行动；不会保留失焦前的移动或格挡。"));
-		Set(PrimaryLabel, TEXT("继续试炼"));
-		Set(SecondaryLabel, TEXT("结束本次试炼"));
+		Set(Body, Host->IsExpedition()?TEXT("世界已暂停，移动与敌人计时停止。\n继续或重试保存后行动；失焦前的输入不会遗留。\n\n")+Host->GetNotice():
+			TEXT("试炼已暂停，计时与石卫攻击已停止。\n\n继续后按新的键位输入行动；不会保留失焦前的移动或格挡。"));
+		Set(PrimaryLabel, Host->IsExpedition()?TEXT("继续 / 重试保存"):TEXT("继续试炼"));
+		Set(SecondaryLabel, Host->IsExpedition()?TEXT("保存并返回入口（原局保留）"):TEXT("结束本次试炼"));
 	}
 	else
 	{
+		if (Host->IsExpedition())
+		{
+			Set(Heading,Host->IsTerminalConfirmed()?(Phase==EShanmenDemo20Phase::Extracted?TEXT("归阵撤离"):TEXT("力竭止步")):TEXT("结算待确认"));
+			Set(Body,FString::Printf(TEXT("击败守卫  %d / 3\n本局用时  %.1f 秒\n\n"),Session.NumDefeated(),Session.GetElapsed())+Host->GetNotice());
+			Set(PrimaryLabel,Host->IsTerminalConfirmed()?TEXT("返回仓库与整备"):TEXT("重试确认结算")); return;
+		}
 		Set(Heading, Phase == EShanmenDemo20Phase::Extracted ? TEXT("破阵归来") : Phase == EShanmenDemo20Phase::Defeated ? TEXT("力竭止步") : TEXT("试炼已结束"));
 		Set(Body, FString::Printf(TEXT("击破石卫  %d / 3\n本次用时  %.1f 秒\n\n这是独立试炼结果，不代表持久奖励入库。\n返回后可开启全新一局。"), Session.NumDefeated(), Session.GetElapsed()));
 		Set(PrimaryLabel, TEXT("返回试炼入口"));
@@ -187,7 +203,7 @@ void UShanmenDemo20Widget::Refresh()
 void UShanmenDemo20Widget::Primary()
 {
 	if (!Host.IsValid()) return;
-	if (Host->IsPaused()) Host->TogglePause();
+	if (Host->IsPaused() && Host->GetSession().GetPhase()==EShanmenDemo20Phase::Active) Host->TogglePause();
 	else if (Host->GetSession().GetPhase() == EShanmenDemo20Phase::Preparation) Host->StartTrial();
 	else Host->ReturnToPreparation();
 }

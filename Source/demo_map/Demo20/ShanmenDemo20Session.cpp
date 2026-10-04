@@ -4,6 +4,57 @@
 #include "ShanmenCombatTags.h"
 #include "ShanmenWorldEntityRegistry.h"
 
+bool FShanmenDemo20CombatCheckpoint::IsValid() const
+{
+	if (!RunId.IsValid() || Sequence == MAX_uint64 || (Phase != EShanmenDemo20Phase::Active
+		&& Phase != EShanmenDemo20Phase::Extracted && Phase != EShanmenDemo20Phase::Defeated)
+		|| !FMath::IsFinite(Elapsed) || Elapsed < 0.f || Elapsed > 86400.f
+		|| !FMath::IsFinite(SwordDamage) || SwordDamage < 1.f || SwordDamage > 100.f
+		|| !FMath::IsFinite(ArmorFraction) || ArmorFraction < 0.f || ArmorFraction > .9f) return false;
+	for (float Timer : {AttackCooldown, EvadeCooldown, EvadeWindow})
+		if (!FMath::IsFinite(Timer) || Timer < 0.f || Timer > 2.f) return false;
+	const float Maximums[4] = {100.f, 78.f, 65.f, 156.f};
+	for (int32 I = 0; I < 4; ++I) if (!FMath::IsFinite(Health[I]) || Health[I] < 0.f || Health[I] > Maximums[I]
+		|| Revisions[I] < 0 || Revisions[I] == MAX_int64) return false;
+	return (Phase == EShanmenDemo20Phase::Defeated) == (Health[0] == 0.f);
+}
+
+bool FShanmenDemo20Session::BeginExpedition(const FGuid& Id, float Damage, float Armor)
+{
+	if (Phase != EShanmenDemo20Phase::Preparation || Id == RunId) return false;
+	FShanmenDemo20CombatCheckpoint C; C.RunId = Id; C.SwordDamage = Damage; C.ArmorFraction = Armor;
+	return RestoreExpedition(C);
+}
+
+bool FShanmenDemo20Session::RestoreExpedition(const FShanmenDemo20CombatCheckpoint& C)
+{
+	if (!C.IsValid()) return false;
+	TArray<FShanmenVitalityAuthority> Candidate;
+	const float Maximums[4] = {100.f, 78.f, 65.f, 156.f};
+	for (int32 I = 0; I < 4; ++I)
+	{
+		FShanmenVitalityAuthority V;
+		if (!FShanmenVitalityAuthority::TryCreate(FShanmenWorldEntityIdFactory::MakeEntityId(C.RunId, TEXT("Demo20.Expedition"), I),
+			C.Health[I], Maximums[I], C.Revisions[I], V)) return false;
+		Candidate.Add(MoveTemp(V));
+	}
+	Vitalities = MoveTemp(Candidate); RunId = C.RunId; Phase = C.Phase; Sequence = C.Sequence;
+	Elapsed = C.Elapsed; AttackCooldown = C.AttackCooldown; EvadeCooldown = C.EvadeCooldown; EvadeWindow = C.EvadeWindow;
+	ExpeditionSwordDamage = C.SwordDamage; ExpeditionArmorFraction = C.ArmorFraction;
+	bExpedition = true; bGuarding = false; return true;
+}
+
+bool FShanmenDemo20Session::CaptureExpedition(FShanmenDemo20CombatCheckpoint& Out) const
+{
+	if (!bExpedition || Vitalities.Num() != 4) return false;
+	FShanmenDemo20CombatCheckpoint C; C.RunId = RunId; C.Phase = Phase; C.Sequence = Sequence;
+	C.Elapsed = Elapsed; C.AttackCooldown = AttackCooldown; C.EvadeCooldown = EvadeCooldown; C.EvadeWindow = EvadeWindow;
+	C.SwordDamage = ExpeditionSwordDamage; C.ArmorFraction = ExpeditionArmorFraction;
+	for (int32 I = 0; I < 4; ++I) { C.Health[I] = GetHealth(I); C.Revisions[I] = Vitalities[I].GetAuthorityRevision(); }
+	if (!C.IsValid()) return false;
+	Out = C; return true;
+}
+
 bool FShanmenDemo20Session::Begin(const FGuid& NewRunId)
 {
 	if (Phase != EShanmenDemo20Phase::Preparation || !NewRunId.IsValid() || NewRunId == RunId)
@@ -21,6 +72,7 @@ bool FShanmenDemo20Session::Begin(const FGuid& NewRunId)
 		Candidate.Add(MoveTemp(Vitality));
 	}
 	Vitalities = MoveTemp(Candidate);
+	bExpedition = false;
 	RunId = NewRunId;
 	Sequence = 0;
 	Elapsed = AttackCooldown = EvadeWindow = EvadeCooldown = 0.f;
@@ -42,7 +94,7 @@ bool FShanmenDemo20Session::StrikeSentinel(int32 Index)
 {
 	if (Phase != EShanmenDemo20Phase::Active || Index < 0 || Index >= SentinelCount
 		|| AttackCooldown > 0.f || IsEvading() || bGuarding || GetHealth(Index + 1) <= 0.f) return false;
-	if (!ResolveContact(0, Index + 1, 26.f)) return false;
+	if (!ResolveContact(0, Index + 1, bExpedition ? ExpeditionSwordDamage : 26.f)) return false;
 	AttackCooldown = 0.38f;
 	return true;
 }
@@ -50,7 +102,8 @@ bool FShanmenDemo20Session::StrikeSentinel(int32 Index)
 bool FShanmenDemo20Session::ReceiveSentinelStrike(int32 Index)
 {
 	if (Phase != EShanmenDemo20Phase::Active || Index < 0 || Index >= SentinelCount || GetHealth(Index + 1) <= 0.f) return false;
-	if (!ResolveContact(Index + 1, 0, 18.f)) return false;
+	const float Damages[3] = {18.f, 14.f, 28.f};
+	if (!ResolveContact(Index + 1, 0, bExpedition ? Damages[Index] : 18.f)) return false;
 	if (GetHealth() <= 0.f)
 	{
 		Phase = EShanmenDemo20Phase::Defeated;
@@ -70,6 +123,7 @@ bool FShanmenDemo20Session::ResolveContact(int32 SourceIndex, int32 TargetIndex,
 	Capture.ActivationId = FShanmenCombatIdFactory::MakeActivationId(RunId, Capture.SourceEntityId, Capture.ActionDefinitionId, ++Sequence);
 	Capture.Content.Version = TEXT("Demo20.Slice01");
 	Capture.Content.Digest = TEXT("Arena-3x78-Sword26-Sentinel18-Guard75-Evade035-v1");
+	if (bExpedition) { Capture.Content.Version = TEXT("Demo20.Expedition.Combat.r1"); Capture.Content.Digest = TEXT("ThreeZones-MeleeRangedElite-FixedGear-r1"); }
 	FShanmenCombatActionSnapshot Action;
 	FShanmenBasicSwordDefinitionCapture DefinitionCapture;
 	DefinitionCapture.ActionDefinitionId = Capture.ActionDefinitionId;
@@ -113,6 +167,15 @@ bool FShanmenDemo20Session::ResolveContact(int32 SourceIndex, int32 TargetIndex,
 		Layer.LayerTags.AddTag(IsEvading() ? FShanmenCombatNativeTags::DefenseEvade() : FShanmenCombatNativeTags::DefenseGuard());
 		Defense.Layers.Add(Layer);
 	}
+	if (bExpedition && TargetIndex == 0)
+	{
+		FShanmenDefenseLayer Layer;
+		Layer.LayerId = FShanmenWorldEntityIdFactory::MakeEntityId(RunId, TEXT("Demo20.Armor"), 0);
+		Layer.SourceInstanceId = Candidate.TargetEntityId; Layer.RuleId = TEXT("Demo20.FixedArmor");
+		Layer.Operation = EShanmenDefenseOperation::ReduceFraction; Layer.Order = FShanmenDefenseOrder::Resistance;
+		Layer.LayerTags.AddTag(FShanmenCombatNativeTags::DefenseArmor());
+		Layer.Magnitude = ExpeditionArmorFraction; Defense.Layers.Add(Layer);
+	}
 	FShanmenBasicSwordImpactReceipt Impact;
 	FShanmenVitalityCommitCommand Command;
 	return Vitalities[TargetIndex].TryCaptureSnapshot(Vitality)
@@ -137,7 +200,7 @@ void FShanmenDemo20Session::SetGuarding(bool bHeld)
 
 bool FShanmenDemo20Session::TryExtract()
 {
-	if (Phase != EShanmenDemo20Phase::Active || NumDefeated() != SentinelCount) return false;
+	if (Phase != EShanmenDemo20Phase::Active || (!bExpedition && NumDefeated() != SentinelCount)) return false;
 	Phase = EShanmenDemo20Phase::Extracted;
 	bGuarding = false;
 	return true;

@@ -68,10 +68,12 @@ FString FShanmenDemo20Catalog::ItemPurpose(FName Id)
 {
 	if (Id == TEXT("Backpack.Small")) return TEXT("背包装备：普通背包 6×4，仅整备更换");
 	if (Id == TEXT("Backpack.Large")) return TEXT("背包装备：普通背包 8×5，仅整备更换");
-	if (Id == TEXT("Secure.Basic")) return TEXT("安全格装备：2×2；死亡保留接线开发中");
+	if (Id == TEXT("Secure.Basic")) return TEXT("安全格装备：2×2；装备和已确认内容死亡保留");
 	if (Id == TEXT("Heal.Pill")) return TEXT("治疗丹药；正式治疗接线开发中");
-	if (Id == TEXT("Sword.Plain") || Id == TEXT("Sword.Heavy")) return TEXT("剑类武器；固定属性接线开发中");
-	if (Id == TEXT("Armor.Robe") || Id == TEXT("Armor.Leather")) return TEXT("护具；正式防御接线开发中");
+	if (Id == TEXT("Sword.Plain")) return TEXT("剑类武器；正式探索基础伤害 26");
+	if (Id == TEXT("Sword.Heavy")) return TEXT("剑类武器；正式探索基础伤害 34");
+	if (Id == TEXT("Armor.Robe")) return TEXT("护具；正式探索护甲减免 12%");
+	if (Id == TEXT("Armor.Leather")) return TEXT("护具；正式探索护甲减免 28%");
 	if (Id == TEXT("Material.Herb") || Id == TEXT("Material.Ore")) return TEXT("材料，可存入安全格；制作不在本阶段范围");
 	if (Id == TEXT("Trophy.Jade") || Id == TEXT("Trophy.Scroll")) return TEXT("战利品，可存入安全格；出售不在本阶段范围");
 	return TEXT("测试货币，仅新档初始化一次；本阶段无商店");
