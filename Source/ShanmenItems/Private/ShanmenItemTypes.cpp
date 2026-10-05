@@ -522,11 +522,20 @@ bool FShanmenItemTransactionReceipt::IsValid() const
 		return Phase == EShanmenItemTransactionPhase::Rejected
 			&& Error != EShanmenItemTransactionError::None;
 	}
-	if (Operation == EShanmenItemTransactionOperation::EditGrid)
+	if (Operation == EShanmenItemTransactionOperation::MaterializeGeneratedSource)
+	{
+		TSet<FGuid> Ids;
+		for (const auto& Id : ReservationIds) { if (!Id.IsValid() || Ids.Contains(Id)) return false; Ids.Add(Id); }
+		return Error == EShanmenItemTransactionError::None && Phase == EShanmenItemTransactionPhase::Committed
+			&& ReservationId.IsValid() && ItemInstanceId.IsValid() && !PurposeId.IsNone()
+			&& Amount > 0 && Amount == ReservationIds.Num() && Amount <= FShanmenItemGeneratedSourcePlan::MaxEntries
+			&& ResourceBefore == 0 && ResourceAfter == 0 && AvailableAfter == 0 && ItemRevision == INDEX_NONE;
+	}
+	if (Operation == EShanmenItemTransactionOperation::EditGrid || Operation == EShanmenItemTransactionOperation::EditActiveRunGrid)
 	{
 		const bool Move = PurposeId == TEXT("Grid.Move") || PurposeId == TEXT("Grid.Equip");
 		return Error == EShanmenItemTransactionError::None && Phase == EShanmenItemTransactionPhase::Committed
-			&& ItemInstanceId.IsValid() && !ReservationId.IsValid() && ReservationIds.IsEmpty()
+			&& ItemInstanceId.IsValid() && (Operation == EShanmenItemTransactionOperation::EditActiveRunGrid ? ReservationId.IsValid() : !ReservationId.IsValid()) && ReservationIds.IsEmpty()
 			&& ResourceKind == EShanmenItemResourceKind::Quantity && ResourceBefore > 0 && ResourceAfter >= 0
 			&& AvailableAfter == ResourceAfter && ItemRevision >= 0
 			&& (Move ? (Amount == 1 && ResourceAfter == ResourceBefore)

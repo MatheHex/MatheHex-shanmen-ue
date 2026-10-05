@@ -78,6 +78,22 @@ struct SHANMENITEMS_API FShanmenItemGridRequest
 	int32 ExpectedTargetRevision = 0;
 };
 
+/** Active-Run edit capability; never widens the preparation edit port. */
+struct SHANMENITEMS_API FShanmenItemRunGridRequest
+{
+	FShanmenItemGridRequest Grid;
+	FGuid ActiveRunId;
+};
+
+/** Materializes only the already accepted immutable plan, never caller loot. */
+struct SHANMENITEMS_API FShanmenItemSourceMaterializeRequest
+{
+	FShanmenOperationContext Context;
+	FGuid ActiveRunId;
+	FName SourceRoleId;
+	static FGuid MakeRequestId(const FGuid& Owner, const FGuid& Run, FName Role);
+};
+
 struct FShanmenItemAuthoritySnapshot;
 enum class EShanmenItemTransactionError : uint8;
 
@@ -91,4 +107,15 @@ public:
 	static EShanmenItemTransactionError CanPlace(const FShanmenItemAuthoritySnapshot& Snapshot,
 		const FGuid& ItemId, const FGuid& ContainerId, int32 X, int32 Y, bool bRotated,
 		bool bIgnoreOriginal = true);
+};
+
+/** Read-only overlay of prepared balances on the SAME authority item graph.
+ * Virtual prepared quantities come exclusively from the existing consumption
+ * receipts. Consumers must never pass this display snapshot to authority loading
+ * or saving; write ports accept command requests, not this projection. */
+class SHANMENITEMS_API FShanmenItemRunGridPolicy
+{
+public:
+	static bool Project(const FShanmenItemAuthoritySnapshot& Authority, const FGuid& Owner,
+		const FGuid& Scope, const FGuid& Run, FShanmenItemAuthoritySnapshot& Out);
 };

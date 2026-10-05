@@ -1,6 +1,17 @@
 #include "ShanmenItemAuthorityService.h"
 #include "Misc/ScopeLock.h"
 
+FShanmenItemDurableCommandResult FShanmenItemAuthorityService::EditActiveRunGridDurable(const FShanmenItemRunGridRequest& R)
+{
+	FScopeLock Lock(&Mutex);
+	return ExecuteCommandLocked([&](FShanmenItemRepository& Items) { return Items.EditActiveRunGrid(R); });
+}
+FShanmenItemDurableCommandResult FShanmenItemAuthorityService::MaterializeGeneratedSourceDurable(const FShanmenItemSourceMaterializeRequest& R)
+{
+	FScopeLock Lock(&Mutex);
+	return ExecuteCommandLocked([&](FShanmenItemRepository& Items) { return Items.MaterializeGeneratedSource(R); });
+}
+
 FShanmenItemDurableCommandResult FShanmenItemAuthorityService::EditGridDurable(const FShanmenItemGridRequest& Request)
 {
 	FScopeLock Lock(&Mutex);

@@ -348,6 +348,18 @@ FShanmenItemGeneratedSourceReadResult Udemo_mapShanmenItemAuthoritySubsystem::Re
 		|| OwnerId!=BoundOwnerId) return {};
 	return AuthorityService->ReadGeneratedSource(OwnerId,RunId,Role);
 }
+FShanmenItemDurableCommandResult Udemo_mapShanmenItemAuthoritySubsystem::EditActiveRunGridDurable(const FShanmenItemRunGridRequest& R)
+{
+	if (!IsInGameThread() || !AuthorityService || LifecycleState!=Edemo_mapShanmenItemAuthorityLifecycleState::Ready || R.Grid.Context.OwnerId!=BoundOwnerId)
+		return RejectCommand(TEXT("Run grid requires the ready bound authority on the Game Thread."));
+	const auto Result=AuthorityService->EditActiveRunGridDurable(R); SynchronizeCommandState(Result); return Result;
+}
+FShanmenItemDurableCommandResult Udemo_mapShanmenItemAuthoritySubsystem::MaterializeGeneratedSourceDurable(const FShanmenItemSourceMaterializeRequest& R)
+{
+	if (!IsInGameThread() || !AuthorityService || LifecycleState!=Edemo_mapShanmenItemAuthorityLifecycleState::Ready || R.Context.OwnerId!=BoundOwnerId)
+		return RejectCommand(TEXT("Source materialization requires the ready bound authority on the Game Thread."));
+	const auto Result=AuthorityService->MaterializeGeneratedSourceDurable(R); SynchronizeCommandState(Result); return Result;
+}
 FShanmenItemDurableCommandResult Udemo_mapShanmenItemAuthoritySubsystem::AcceptGeneratedSourceDurable(
 	const FShanmenItemGeneratedSourceRequest& Request)
 {

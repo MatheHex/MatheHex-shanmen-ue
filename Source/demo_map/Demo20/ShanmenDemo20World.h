@@ -82,6 +82,9 @@ public:
 	float GetExtractionProgress() const { return ExtractionClock / 3.f; }
 	bool IsTerminalConfirmed() const { return bTerminalConfirmed; }
 	bool TryCaptureItems(FShanmenItemAuthoritySnapshot& Out) const;
+	bool TryCaptureInventoryGrid(FShanmenItemAuthoritySnapshot& Out) const;
+	bool IsRunInventory() const { return bExpeditionMode && Session.GetPhase()==EShanmenDemo20Phase::Active; }
+	FGuid GetOpenSourceContainer() const { return bSourcePreviewOpen ? SourcePreview.GetContainerId() : FGuid(); }
 	FShanmenItemDurableCommandResult EditItemGrid(const FShanmenItemGridRequest& Intent);
 	FString ReplenishBasicEquipment();
 	bool IsPlaying() const { return Session.GetPhase() == EShanmenDemo20Phase::Active && !bPaused && !bInventoryOpen && !IsSourceSurfaceOpen(); }

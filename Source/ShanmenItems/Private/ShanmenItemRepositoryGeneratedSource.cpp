@@ -69,6 +69,15 @@ bool FShanmenItemRepository::ValidateGeneratedSources(const FState& Candidate)
 	{
 		if (Pair.Value.Receipt.IsSuccess() && Pair.Value.Receipt.Operation == EOperation::AcceptGeneratedSource
 			&& !Candidate.GeneratedSources.Contains(Pair.Key)) { return false; }
+		if (Pair.Value.Receipt.IsSuccess() && Pair.Value.Receipt.Operation == EOperation::MaterializeGeneratedSource)
+		{
+			const auto& M=Pair.Value.Receipt;
+			bool Found=false;
+			for (const auto& SourcePair:Candidate.GeneratedSources) if (SourcePair.Value.RunId==M.ReservationId
+				&& SourcePair.Value.SourceRoleId==M.PurposeId && FShanmenItemSourceMaterializeRequest::MakeRequestId(
+					SourcePair.Value.OwnerId,M.ReservationId,M.PurposeId)==M.RequestId) { Found=true; break; }
+			if (!Found) return false;
+		}
 		IdentitySet.Add(Pair.Value.Receipt.ReceiptId);
 	}
 	for (const auto& Pair : Candidate.GeneratedSources)
@@ -89,12 +98,38 @@ bool FShanmenItemRepository::ValidateGeneratedSources(const FState& Candidate)
 		const FGuid FP = Fingerprint(Request);
 		const FGuid ReceiptId = MakeReceiptId(Pair.Key, FP, EShanmenItemTransactionPhase::Committed, EShanmenItemTransactionError::None);
 		if (Processed->Fingerprint != FP || !(Processed->Receipt == Transaction(Source, Processed->Receipt.AuthorityRevision, ReceiptId))) { return false; }
+		const auto MaterializeId=FShanmenItemSourceMaterializeRequest::MakeRequestId(Plan.OwnerId,Plan.RunId,Plan.SourceRoleId);
+		const auto* Materialized=Candidate.ProcessedRequests.Find(MaterializeId);
+		if (Materialized)
+		{
+			const auto& M=Materialized->Receipt;
+			const auto MaterializeFP=FShanmenDeterministicId::FromCanonicalParts(TEXT("Shanmen.Items.Source.Materialize.Command.r1"),
+				{Plan.OwnerId.ToString(),First->RunId.ToString(),Plan.RunId.ToString(),Plan.SourceRoleId.ToString().ToLower(),
+				Candidate.Content.Version.ToString(),Candidate.Content.Digest});
+			const auto* C=Candidate.Containers.Find(Source.GetContainerId());
+			const auto* L=Candidate.Grid.Layouts.FindByPredicate([&](const auto& V){return V.ContainerId==Source.GetContainerId();});
+			if (!M.IsSuccess() || M.Operation!=EOperation::MaterializeGeneratedSource || M.ReservationId!=Plan.RunId
+				|| M.ItemInstanceId!=Source.GetContainerId() || M.ReservationIds!=Source.GetItemIds() || M.PurposeId!=Plan.SourceRoleId
+				|| M.Amount!=Plan.Entries.Num() || M.AuthorityRevision<=Processed->Receipt.AuthorityRevision
+				|| (Terminal && M.AuthorityRevision>=Terminal->AuthorityRevision) || Materialized->Fingerprint!=MaterializeFP
+				|| M.ReceiptId!=MakeReceiptId(MaterializeId,MaterializeFP,M.Phase,M.Error)
+				|| !C || C->OwnerId!=Plan.OwnerId || C->RunId!=First->RunId || C->ContainerType!=TEXT("GeneratedSource")
+				|| !L || L->Kind!=EShanmenItemGridKind::World || L->Width!=8 || L->Height!=8) return false;
+			for (int32 N=0;N<Plan.Entries.Num();++N)
+			{
+				const auto* I=Candidate.Items.Find(Source.GetItemIds()[N]); const auto& E=Plan.Entries[N];
+				if (!I || I->OwnerId!=Plan.OwnerId || I->RunId!=First->RunId || I->DefinitionId!=E.Definition.DefinitionId
+					|| !(I->RewardMetadata==E.RewardMetadata)) return false;
+			}
+		}
 		TArray<FGuid> Ids = Source.GetItemIds();
 		Ids.Add(Source.GetSourceId()); Ids.Add(Source.GetContainerId());
 		for (const FGuid& Id : Ids)
 		{
 			// Unacquired source identities are reserved, not inserted into the item graph.
-			if (IdentitySet.Contains(Id) || Candidate.Items.Contains(Id) || Candidate.Containers.Contains(Id)
+			const bool ItemId=Source.GetItemIds().Contains(Id), ContainerId=Id==Source.GetContainerId();
+			if (IdentitySet.Contains(Id) || (Candidate.Items.Contains(Id) && !(Materialized && ItemId))
+				|| (Candidate.Containers.Contains(Id) && !(Materialized && ContainerId))
 				|| Candidate.Reservations.Contains(Id) || (Candidate.ProcessedRequests.Contains(Id) && Id != Pair.Key)) { return false; }
 			IdentitySet.Add(Id);
 		}

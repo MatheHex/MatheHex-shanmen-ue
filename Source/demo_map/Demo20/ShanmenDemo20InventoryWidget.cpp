@@ -10,7 +10,7 @@ namespace
 {
 	constexpr float Cell = 32.f;
 	const FLinearColor Paper(.9f,.9f,.82f), Jade(.18f,.56f,.43f), Gold(.8f,.68f,.42f);
-	bool Live(const FShanmenItemInstance& I) { return I.State == EShanmenItemInstanceState::Stored; }
+	bool Live(const FShanmenItemInstance& I) { return I.State == EShanmenItemInstanceState::Stored || I.State == EShanmenItemInstanceState::Deployed; }
 	FVector2D ItemSize(const FShanmenItemAuthoritySnapshot& S, const FShanmenItemInstance& I, bool Equipment, bool Rotate)
 	{
 		const auto* F = S.Grid.Footprints.FindByPredicate([&](const auto& Value) { return Value.DefinitionId == I.DefinitionId; });
@@ -24,12 +24,17 @@ void UShanmenDemo20InventoryWidget::InitializeForDemo(AShanmenDemo20GameMode* In
 }
 void UShanmenDemo20InventoryWidget::RefreshProjection()
 {
-	if (Host.IsValid()) Host->TryCaptureItems(Projection);
+	if (Host.IsValid() && !Host->TryCaptureInventoryGrid(Projection)) { Projection={}; Feedback=TEXT("物品状态未确认，不显示缓存数量，请返回恢复。"); }
 	LoadoutSummary = FShanmenDemo20Loadout::Summary(Projection);
 	FShanmenDemo20ActiveLoadout Active;
 	FString Reason;
-	bRunLocked = FShanmenDemo20Loadout::InspectActive(Projection, Active, Reason);
-	if (bRunLocked && Host.IsValid() && Host->IsExpedition())
+	// Prepared quantities are a display-only ledger overlay, not the authoritative
+	// snapshot. Consumer code must never load or persist that overlay.
+	bRunLocked = Host.IsValid() && Host->IsRunInventory();
+	if (!bRunLocked) bRunLocked = FShanmenDemo20Loadout::InspectActive(Projection, Active, Reason);
+	if (bRunLocked && Host.IsValid() && Host->IsRunInventory())
+		LoadoutSummary=TEXT("世界继续运行，请注意附近敌人。\n新获得物与安全格可整理；原携带物暂只读。");
+	else if (bRunLocked && Host.IsValid() && Host->IsExpedition())
 		LoadoutSummary = TEXT("有未结算探索：整备已锁定，不会覆盖原局。\n请返回入口继续原局；空装备格不表示探索装备丢失。");
 	Dragging = false;
 	if (!Projection.Items.ContainsByPredicate([&](const auto& I) { return I.ItemInstanceId == Selected && Live(I); })) Selected.Invalidate();
@@ -41,7 +46,8 @@ TArray<UShanmenDemo20InventoryWidget::FBoard> UShanmenDemo20InventoryWidget::Boa
 	const FVector2D Positions[] = {{24,100},{448,100},{756,100},{448,400},{544,400},{640,400},{756,400}};
 	for (int32 Index = 0; Index < UE_ARRAY_COUNT(Roles); ++Index)
 	{
-		const auto Id = FShanmenDemo20Catalog::ContainerId(Roles[Index]);
+		const bool InRun=Host.IsValid() && Host->IsRunInventory();
+		const auto Id = InRun && Index==0 ? Host->GetOpenSourceContainer() : FShanmenDemo20Catalog::ContainerId(Roles[Index]);
 		if (const auto* L = Projection.Grid.Layouts.FindByPredicate([&](const auto& Value) { return Value.ContainerId == Id; }))
 		{
 			FBoard Board; Board.Id = Id; Board.Origin = Positions[Index]; Board.Width = L->Width; Board.Height = L->Height;
@@ -110,7 +116,9 @@ void UShanmenDemo20InventoryWidget::UpdateDragPreview()
 	// shrink and partial merge included). It never publishes or saves anything.
 	// Evaluate on pointer changes, not from NativePaint on every frame.
 	FShanmenItemRepository Validation;
-	if (Validation.TryLoadSnapshot(Projection)) PreviewValid = Validation.EditGrid(Intent).bSuccess;
+	FShanmenItemAuthoritySnapshot Actual;
+	if (Host.IsValid() && Host->TryCaptureItems(Actual) && Validation.TryLoadSnapshot(Actual))
+		PreviewValid=Host->IsRunInventory() ? Validation.EditActiveRunGrid({Intent,Host->GetSession().GetRunId()}).bSuccess : Validation.EditGrid(Intent).bSuccess;
 }
 void UShanmenDemo20InventoryWidget::Submit(FShanmenItemGridRequest Intent)
 {
@@ -139,6 +147,14 @@ void UShanmenDemo20InventoryWidget::Submit(FShanmenItemGridRequest Intent)
 			: TEXT("物品类型与装备槽不匹配，或储物容器未启用。原物品保留。");
 	}
 	else Feedback = TEXT("容器规则或装备条件不允许这次操作，原物品未改变。");
+	if (Host->IsRunInventory() && Result.Receipt.Error==EShanmenItemTransactionError::GridPolicyViolation)
+		Feedback=TEXT("原携带物及装备本轮只读；武器护具不能进入安全格，仓库与储物装备不能局内更换。");
+	if (Intent.Action==EShanmenItemGridAction::Merge && Result.Receipt.Error==EShanmenItemTransactionError::GridPolicyViolation)
+	{
+		const auto* From=Projection.Items.FindByPredicate([&](const auto& I){return I.ItemInstanceId==Intent.ItemInstanceId;});
+		const auto* To=Projection.Items.FindByPredicate([&](const auto& I){return I.ItemInstanceId==Intent.MergeTargetId;});
+		if (From && To && !(From->RewardMetadata==To->RewardMetadata)) Feedback=TEXT("来源记录不同，本轮暂不能合并。两堆物品的位置与数量保留。");
+	}
 	RefreshProjection();
 }
 bool UShanmenDemo20InventoryWidget::FirstFit(FShanmenItemGridRequest& R, FGuid Id, bool IgnoreOriginal) const
@@ -174,7 +190,8 @@ void UShanmenDemo20InventoryWidget::Toolbar(int32 Index)
 	}
 	else if (Index == 2)
 	{
-		const FGuid Destination = I->ParentContainerId == FShanmenDemo20Catalog::ContainerId(TEXT("Stash"))
+		const FGuid Destination = Host.IsValid() && Host->IsRunInventory() ? FShanmenDemo20Catalog::ContainerId(TEXT("Carry"))
+			: I->ParentContainerId == FShanmenDemo20Catalog::ContainerId(TEXT("Stash"))
 			? FShanmenDemo20Catalog::ContainerId(TEXT("Carry")) : FShanmenDemo20Catalog::ContainerId(TEXT("Stash"));
 		if (!FirstFit(R, Destination)) { Feedback = TEXT("目标容器无合法空间，请手动整理。"); return; } Submit(R);
 	}
@@ -198,7 +215,7 @@ FReply UShanmenDemo20InventoryWidget::NativeOnMouseButtonDown(const FGeometry& G
 	Cursor = G.AbsoluteToLocal(E.GetScreenSpacePosition());
 	if (Cursor.X >= 24 && Cursor.X < 196 && Cursor.Y >= 394 && Cursor.Y < 438)
 	{
-		if (Host.IsValid()) { Feedback = Host->ReplenishBasicEquipment(); RefreshProjection(); }
+		if (Host.IsValid() && !Host->IsRunInventory()) { Feedback = Host->ReplenishBasicEquipment(); RefreshProjection(); }
 		return FReply::Handled();
 	}
 	if (Cursor.Y >= 566 && Cursor.Y < 612)
@@ -258,9 +275,10 @@ int32 UShanmenDemo20InventoryWidget::NativePaint(const FPaintArgs& Args, const F
 			Value, FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), FontSize), ESlateDrawEffect::None, Color);
 	};
 	Box({0,0},{960,640}, FLinearColor(.025f,.05f,.043f,.99f));
-	Text({24,18},TEXT("山门 / 仓库与整备"),25,Gold);
+	const bool InRun=Host.IsValid() && Host->IsRunInventory();
+	Text({24,18},InRun?TEXT("山门 / 搜索与背包"):TEXT("山门 / 仓库与整备"),25,Gold);
 	int32 Money = 0; for (const auto& I : Projection.Items) if (Live(I) && I.DefinitionId == TEXT("Currency.Test")) Money += I.Quantity;
-	Text({550,26}, FString::Printf(TEXT("测试灵石  %d · 新档一次性初始化"), Money),14,Gold);
+	Text({550,26}, InRun?TEXT("世界继续运行 · 仓库不在局内开放"):FString::Printf(TEXT("测试灵石  %d · 新档一次性初始化"), Money),14,Gold);
 	Text({24,59},TEXT("拖动物品到格子；同类拖到一起合并。点击选择后使用下方操作。"),14);
 	const auto List = Boards();
 	const bool HasBackpack = Projection.Items.ContainsByPredicate([&](const auto& I)
@@ -271,7 +289,9 @@ int32 UShanmenDemo20InventoryWidget::NativePaint(const FPaintArgs& Args, const F
 	{
 		const auto* C = Projection.Containers.FindByPredicate([&](const auto& Value) { return Value.ContainerId == B.Id; });
 		const bool DisabledCarry = B.Id == FShanmenDemo20Catalog::ContainerId(TEXT("Carry")) && !HasBackpack;
-		Text(B.Origin - FVector2D(0,24), DisabledCarry ? (bRunLocked ? TEXT("普通背包 · 原局携带已锁定") : TEXT("普通背包 · 未装备行囊"))
+		const bool World=C && C->ContainerType==TEXT("GeneratedSource");
+		Text(B.Origin - FVector2D(0,24), World ? Host->GetSourceHeading() + (C->Slots.ContainsByPredicate([](const FGuid& Id){return Id.IsValid();}) ? TEXT(" · 可领取") : TEXT(" · 已搜空"))
+			: DisabledCarry ? (bRunLocked ? TEXT("普通背包 · 原局携带已锁定") : TEXT("普通背包 · 未装备行囊"))
 			: FString::Printf(TEXT("%s %d×%d"), *FShanmenDemo20Catalog::ContainerName(C ? C->ContainerType : NAME_None), B.Width, B.Height),13,Gold);
 		for (int32 Y = 0; Y < B.Height; ++Y) for (int32 X = 0; X < B.Width; ++X)
 			Box(B.Origin + FVector2D(X*Cell,Y*Cell),{Cell-1,Cell-1},DisabledCarry ? FLinearColor(.065f,.07f,.065f) : FLinearColor(.09f,.14f,.12f));
@@ -301,9 +321,12 @@ int32 UShanmenDemo20InventoryWidget::NativePaint(const FPaintArgs& Args, const F
 	// Carry is at most five rows high; this gap keeps both summary lines clear
 	// of the stash grid and the equipment labels in the 720p scaled surface.
 	Text({448,298},LoadoutSummary,12,Gold);
-	Box({24,394},{172,44},FLinearColor(.11f,.29f,.22f)); Text({36,406},TEXT("领取基础补给"),15);
-	Text({208,402},TEXT("正式死亡后一次"),12,Gold);
-	Text({208,420},TEXT("只补缺失，不补货币"),11,Gold);
+	if (!InRun)
+	{
+		Box({24,394},{172,44},FLinearColor(.11f,.29f,.22f)); Text({36,406},TEXT("领取基础补给"),15);
+		Text({208,402},TEXT("正式死亡后一次"),12,Gold); Text({208,420},TEXT("只补缺失，不补货币"),11,Gold);
+	}
+	else Text({24,394},TEXT("未领取物留在来源；原携带物暂只读。\n满包请整理新物或安全格，不会自动丢物。"),13,Gold);
 	if (const auto* I = Projection.Items.FindByPredicate([&](const auto& Value) { return Value.ItemInstanceId == Selected; }))
 	{
 		Text({24,480}, FString::Printf(TEXT("已选：%s  ×%d"),*FShanmenDemo20Catalog::ItemName(I->DefinitionId),I->Quantity),17);
@@ -315,13 +338,13 @@ int32 UShanmenDemo20InventoryWidget::NativePaint(const FPaintArgs& Args, const F
 			F ? (IsRotated ? F->Width : F->Height) : 1, D ? D->MaxStack : 1),13);
 	}
 	Text({24,539},Feedback.IsEmpty() ? TEXT("所有移动、装备和数量变化均经物品权威确认后保存。") : Feedback,14,Gold);
-	const TCHAR* Labels[] = {TEXT("旋转所选"),TEXT("拆分一半"),TEXT("便捷转移"),TEXT("装备 / 替换"),TEXT("返回入口")};
+	const TCHAR* Labels[] = {TEXT("旋转所选"),TEXT("拆分一半"),InRun?TEXT("移入普通背包"):TEXT("便捷转移"),InRun?TEXT("装备仅整备更换"):TEXT("装备 / 替换"),InRun?TEXT("关闭背包"):TEXT("返回入口")};
 	for (int32 Index = 0; Index < 5; ++Index)
 	{
 		Box({24.f+Index*176.f,566},{164,46},FLinearColor(.11f,.29f,.22f)); Text({36.f+Index*176.f,578},Labels[Index],15);
 	}
 	Text({24,622},Host.IsValid() && Host->IsExpedition()
-		? TEXT("正式探索：普通携带死亡损失，安全格与仓库保留。丹药可用，随机搜集开发中。")
+		? TEXT("普通携带死亡损失；安全格保留。可领取与整理新物，原携带物暂只读，世界继续运行。")
 		: TEXT("石庭为独立战斗练习，不消耗或发放物品；正式探索请使用默认启动入口。"),11,Gold);
 	return Base + 6;
 }

@@ -4,14 +4,29 @@
 
 FShanmenItemTransactionReceipt FShanmenItemRepository::EditGrid(const FShanmenItemGridRequest& R)
 {
+	return EditGridImpl(R, FGuid());
+}
+
+FShanmenItemTransactionReceipt FShanmenItemRepository::EditActiveRunGrid(const FShanmenItemRunGridRequest& R)
+{
+	if (!R.ActiveRunId.IsValid())
+		return MakeRejected(EShanmenItemTransactionOperation::EditActiveRunGrid, R.Grid.Context.RequestId,
+			FGuid(), EShanmenItemTransactionError::InvalidRequest);
+	return EditGridImpl(R.Grid, R.ActiveRunId);
+}
+
+FShanmenItemTransactionReceipt FShanmenItemRepository::EditGridImpl(const FShanmenItemGridRequest& R, const FGuid& ActiveRunId)
+{
 	using EError = EShanmenItemTransactionError;
-	constexpr auto Operation = EShanmenItemTransactionOperation::EditGrid;
-	const FGuid FingerprintId = FShanmenDeterministicId::FromCanonicalParts(TEXT("Shanmen.Items.Grid.Command.r1"),
-		{R.Context.RunId.ToString(), R.Context.OwnerId.ToString(), R.Context.RequestId.ToString(),
+	const bool InRun = ActiveRunId.IsValid();
+	const auto Operation = InRun ? EShanmenItemTransactionOperation::EditActiveRunGrid : EShanmenItemTransactionOperation::EditGrid;
+	TArray<FString> Parts = {R.Context.RunId.ToString(), R.Context.OwnerId.ToString(), R.Context.RequestId.ToString(),
 		R.Context.Content.Version.ToString(), R.Context.Content.Digest, FString::FromInt(static_cast<int32>(R.Action)),
 		R.ItemInstanceId.ToString(), R.DestinationContainerId.ToString(), R.MergeTargetId.ToString(),
 		FString::FromInt(R.X), FString::FromInt(R.Y), R.bRotated ? TEXT("1") : TEXT("0"), FString::FromInt(R.Amount),
-		FString::FromInt(R.ExpectedAuthorityRevision), FString::FromInt(R.ExpectedItemRevision), FString::FromInt(R.ExpectedTargetRevision)});
+		FString::FromInt(R.ExpectedAuthorityRevision), FString::FromInt(R.ExpectedItemRevision), FString::FromInt(R.ExpectedTargetRevision)};
+	if (InRun) Parts.Add(ActiveRunId.ToString());
+	const FGuid FingerprintId = FShanmenDeterministicId::FromCanonicalParts(TEXT("Shanmen.Items.Grid.Command.r1"), Parts);
 	FShanmenItemTransactionReceipt Replayed;
 	if (bInitialized && TryReplay(R.Context.RequestId, FingerprintId, Operation, Replayed)) { return Replayed; }
 	auto Reject = [&](EError Error) { return MakeRejected(Operation, R.Context.RequestId, FingerprintId, Error); };
@@ -21,8 +36,11 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::EditGrid(const FShanmenIt
 	if (!IsSameContent(R.Context.Content, State.Content)) { return Reject(EError::ContentMismatch); }
 	if (R.ExpectedAuthorityRevision != State.AuthorityRevision) { return Reject(EError::StaleAuthorityRevision); }
 	if (State.AuthorityRevision == MAX_int32) { return Reject(EError::InvariantViolation); }
-	// This is a preparation edit port, not an active-Run inventory bypass. Even
-	// stored secure/stash items must wait for the Run-specific command path.
+	// Preparation stays locked during a Run. The explicit Run port below is
+	// limited to Carry/Secure/current-source containers and cannot access Stash.
+	FShanmenItemAuthoritySnapshot RunProjection;
+	if (InRun && !FShanmenItemRunGridPolicy::Project(CaptureSnapshot(), R.Context.OwnerId, R.Context.RunId, ActiveRunId, RunProjection))
+		return Reject(EError::RunItemIntentConflict);
 	for (const auto& Pair : State.ProcessedRequests)
 	{
 		const auto& Active = Pair.Value.Receipt;
@@ -36,12 +54,30 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::EditGrid(const FShanmenIt
 			if (P.Value.Receipt.IsSuccess() && P.Value.Receipt.Operation == EShanmenItemTransactionOperation::FinalizePreparedRun
 				&& P.Value.Receipt.ReservationId == Active.ReservationId) { Finished = true; break; }
 		}
-		if (!Finished) return Reject(EError::ActiveRunConflict);
+		if (!Finished && !InRun) return Reject(EError::ActiveRunConflict);
 	}
 	const auto* Original = State.Items.Find(R.ItemInstanceId);
 	if (!Original) { return Reject(EError::ItemNotFound); }
 	if (Original->RunId != R.Context.RunId || Original->OwnerId != R.Context.OwnerId) { return Reject(EError::ScopeMismatch); }
 	if (Original->Revision != R.ExpectedItemRevision) { return Reject(EError::StaleItemRevision); }
+	if (InRun)
+	{
+		auto Allowed = [&](const FGuid& ContainerId)
+		{
+			const auto* L = State.Grid.Layouts.FindByPredicate([&](const auto& V) { return V.ContainerId == ContainerId; });
+			const auto* C = State.Containers.Find(ContainerId);
+			if (!L || !C || C->OwnerId != R.Context.OwnerId || C->RunId != R.Context.RunId) return false;
+			if (L->Kind == EShanmenItemGridKind::Carry || L->Kind == EShanmenItemGridKind::Secure) return true;
+			if (L->Kind != EShanmenItemGridKind::World) return false;
+			for (const auto& P : State.GeneratedSources) if (P.Value.RunId == ActiveRunId && P.Value.OwnerId == R.Context.OwnerId
+				&& ReadGeneratedSource(R.Context.OwnerId,ActiveRunId,P.Value.SourceRoleId).Receipt.GetContainerId() == ContainerId) return true;
+			return false;
+		};
+		const auto* MergeTarget = State.Items.Find(R.MergeTargetId);
+		if (R.Action == EShanmenItemGridAction::Equip || !Allowed(Original->ParentContainerId)
+			|| !(R.Action == EShanmenItemGridAction::Merge ? MergeTarget && Allowed(MergeTarget->ParentContainerId) : Allowed(R.DestinationContainerId)))
+			return Reject(EError::GridPolicyViolation);
+	}
 	auto Editable = [&](const FShanmenItemInstance& Item)
 	{
 		for (const auto& Pair : State.Reservations)
@@ -133,7 +169,7 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::EditGrid(const FShanmenIt
 		const auto* Definition = State.Definitions.Find(Original->DefinitionId);
 		if (Split && (R.Amount < 1 || R.Amount >= Original->Quantity || !Definition
 			|| !Definition->Supports(EShanmenItemResourceKind::Quantity))) { return Reject(EError::InvalidRequest); }
-		const auto PlacementError = FShanmenItemGridPolicy::CanPlace(CaptureSnapshot(), R.ItemInstanceId,
+		const auto PlacementError = FShanmenItemGridPolicy::CanPlace(InRun ? RunProjection : CaptureSnapshot(), R.ItemInstanceId,
 			R.DestinationContainerId, R.X, R.Y, R.bRotated, !Split);
 		if (PlacementError != EError::None) { return Reject(PlacementError); }
 		const auto& Layout = *Candidate.Grid.Layouts.FindByPredicate([&](const auto& L) { return L.ContainerId == R.DestinationContainerId; });
@@ -173,6 +209,7 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::EditGrid(const FShanmenIt
 	Receipt.bSuccess = true; Receipt.Operation = Operation; Receipt.Phase = EShanmenItemTransactionPhase::Committed;
 	Receipt.Error = EError::None;
 	Receipt.RequestId = R.Context.RequestId; Receipt.ItemInstanceId = ResultItemId;
+	Receipt.ReservationId = ActiveRunId;
 	Receipt.Amount = Transferred; Receipt.ResourceKind = EShanmenItemResourceKind::Quantity;
 	Receipt.ResourceBefore = BeforeQuantity; Receipt.ResourceAfter = Candidate.Items.FindChecked(R.ItemInstanceId).Quantity;
 	Receipt.AvailableAfter = Receipt.ResourceAfter; Receipt.ItemRevision = Candidate.Items.FindChecked(ResultItemId).Revision;

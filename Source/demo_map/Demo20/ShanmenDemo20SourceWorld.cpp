@@ -1,4 +1,6 @@
 #include "ShanmenDemo20World.h"
+#include "ShanmenDemo20Catalog.h"
+#include "ShanmenDemo20Widget.h"
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
@@ -27,10 +29,11 @@ void AShanmenDemo20GameMode::ApplySourceProjection()
 FString AShanmenDemo20GameMode::GetSourceBody() const
 {
 	return SourceSearch.IsActive()?FString::Printf(TEXT("搜索  %.1f / 1.0 秒\n\n世界继续运行；受伤、失焦或取消会中断。\n搜索结束才保存内容，没有提前领取。"),SourceSearch.Clock)
-		:FShanmenDemo20Sources::Preview(SourcePreview);
+		:TEXT("搜索已确认。请从左侧来源格拖入普通背包或安全格；未领取物品继续留在来源中。");
 }
 void AShanmenDemo20GameMode::CloseSourceSurface()
 {
+	if (bSourcePreviewOpen) bInventoryOpen=false;
 	SourceSearch.Cancel(); bSourcePreviewOpen=false; SourcePreview=FShanmenItemGeneratedSourceReceipt();
 	if (Screen) RefreshSurface();
 }
@@ -78,9 +81,17 @@ void AShanmenDemo20GameMode::ConfirmSourceSearch(FName SourceRole)
 	Ports.Read=[A](const auto& Owner,const auto& Run,FName Source){return A->ReadGeneratedSource(Owner,Run,Source);};
 	Ports.Accept=[A](const auto& Request){return A->AcceptGeneratedSourceDurable(Request);};
 	FString Reason; FShanmenItemGeneratedSourceReceipt Confirmed;
-	const bool Success=FShanmenDemo20Sources::Resolve(Session.GetRunId(),WorldCheckpoint.RunSeed,SourceRole,Ports,Confirmed,Reason);
+	bool Success=FShanmenDemo20Sources::Resolve(Session.GetRunId(),WorldCheckpoint.RunSeed,SourceRole,Ports,Confirmed,Reason);
+	if (Success)
+	{
+		FShanmenItemSourceMaterializeRequest R; R.Context.OwnerId=A->GetBoundOwnerId(); R.Context.RunId=FShanmenDemo20Catalog::ScopeId();
+		R.Context.Content=FShanmenDemo20Catalog::ContentStamp(); R.ActiveRunId=Session.GetRunId(); R.SourceRoleId=SourceRole;
+		R.Context.RequestId=FShanmenItemSourceMaterializeRequest::MakeRequestId(R.Context.OwnerId,R.ActiveRunId,SourceRole);
+		const auto M=A->MaterializeGeneratedSourceDurable(R); Success=M.IsCommandSuccess();
+		if (!Success) Reason=TEXT("来源内容尚未确认落实，未开放领取。关闭后可重试；需要恢复时请重启原档。");
+	}
 	bProfileReady=A->GetLifecycleState()==Edemo_mapShanmenItemAuthorityLifecycleState::Ready;
-	if (Success) { SourcePreview=MoveTemp(Confirmed); bSourcePreviewOpen=true; Session.SetGuarding(false); }
+	if (Success) { SourcePreview=MoveTemp(Confirmed); bSourcePreviewOpen=true; bInventoryOpen=true; Session.SetGuarding(false); if (Screen) Screen->RefreshInventory(); }
 	else { Notice=Reason; NoticeTime=6; if (!bProfileReady) bPaused=true; }
 	UE_LOG(LogTemp,Display,TEXT("DEMO20_SOURCE_SEARCH Run=%s Role=%s Success=%d Source=%s Entries=%d"),
 		*Session.GetRunId().ToString(),*SourceRole.ToString(),Success,*SourcePreview.GetSourceId().ToString(),SourcePreview.GetPlan().Entries.Num());

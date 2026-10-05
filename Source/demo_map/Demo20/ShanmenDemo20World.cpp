@@ -370,26 +370,35 @@ bool AShanmenDemo20GameMode::TryCaptureItems(FShanmenItemAuthoritySnapshot& Out)
 }
 FShanmenItemDurableCommandResult AShanmenDemo20GameMode::EditItemGrid(const FShanmenItemGridRequest& Intent)
 {
-	if (Session.GetPhase() != EShanmenDemo20Phase::Preparation || !bInventoryOpen || !bProfileReady)
+	if ((!IsRunInventory() && Session.GetPhase()!=EShanmenDemo20Phase::Preparation) || bPaused || IsMedicinePending() || !bInventoryOpen || !bProfileReady)
 	{
 		FShanmenItemDurableCommandResult Rejected; Rejected.Diagnostic = TEXT("Inventory edits require the ready preparation surface."); return Rejected;
 	}
 	auto* Authority = GetGameInstance()->GetSubsystem<Udemo_mapShanmenItemAuthoritySubsystem>();
 	if (!Authority) return {};
-	const auto Result = Authority->EditGridDurable(Intent);
+	const auto Result = IsRunInventory() ? Authority->EditActiveRunGridDurable({Intent,Session.GetRunId()}) : Authority->EditGridDurable(Intent);
 	bProfileReady = Authority->GetLifecycleState() == Edemo_mapShanmenItemAuthorityLifecycleState::Ready;
+	if (IsRunInventory()) { RefreshMedicineProjection(); if (!bProfileReady) { bPaused=true; bInventoryOpen=false; CloseSourceSurface(); } }
 	UE_LOG(LogTemp, Display, TEXT("DEMO20_GRID Success=%d Status=%d Error=%d Generation=%d"),
 		Result.IsCommandSuccess(), static_cast<int32>(Result.Status), static_cast<int32>(Result.Receipt.Error), Result.DocumentGeneration);
 	return Result;
 }
 void AShanmenDemo20GameMode::ToggleInventory()
 {
-	if (bInventoryOpen) { bInventoryOpen = false; RefreshSurface(); return; }
-	if (Session.GetPhase() != EShanmenDemo20Phase::Preparation || !bProfileReady)
+	if (bInventoryOpen) { bInventoryOpen = false; CloseSourceSurface(); RefreshSurface(); return; }
+	if ((!IsRunInventory() && Session.GetPhase()!=EShanmenDemo20Phase::Preparation) || bPaused || IsMedicinePending() || !bProfileReady)
 	{
-		Notice = TEXT("当前仅整备支持持久背包；局内探索接线尚未完成。未执行物品操作。"); NoticeTime = 4.f; return;
+		Notice = TEXT("当前不能打开背包：需要已确认的整备或进行中的探索，且没有待确认治疗。未执行物品操作。"); NoticeTime = 4.f; return;
 	}
+	bExtracting=false; ExtractionClock=0; Session.SetGuarding(false);
 	bInventoryOpen = true; if (Screen) Screen->RefreshInventory(); RefreshSurface();
+}
+
+bool AShanmenDemo20GameMode::TryCaptureInventoryGrid(FShanmenItemAuthoritySnapshot& Out) const
+{
+	FShanmenItemAuthoritySnapshot S; if (!TryCaptureItems(S)) { Out={}; return false; }
+	if (!IsRunInventory()) { Out=MoveTemp(S); return true; }
+	return FShanmenItemRunGridPolicy::Project(S,FShanmenDemo20Catalog::OwnerId(),FShanmenDemo20Catalog::ScopeId(),Session.GetRunId(),Out);
 }
 
 FString AShanmenDemo20GameMode::ReplenishBasicEquipment()
@@ -506,7 +515,7 @@ void AShanmenDemo20GameMode::Attack()
 			Sentinels[Best]->SetActorHiddenInGame(true);
 			Sentinels[Best]->SetActorEnableCollision(false);
 			Warnings[Best]->SetActorHiddenInGame(true);
-			Notice = bExpeditionMode ? TEXT("敌人已击败 · 掉落搜索接线开发中") : TEXT("守阵石卫已击破");
+			Notice = bExpeditionMode ? TEXT("敌人已击败 · 靠近金色遗物按交互键搜索") : TEXT("守阵石卫已击破");
 		}
 		UE_LOG(LogTemp, Display, TEXT("DEMO20_HIT Target=%d Health=%.1f"), Best, Session.GetHealth(Best + 1));
 	}
@@ -584,6 +593,7 @@ void AShanmenDemo20GameMode::PauseForFocusLoss()
 	if (Session.GetPhase()==EShanmenDemo20Phase::Active && !bPaused)
 	{
 		CloseSourceSurface();
+		bInventoryOpen=false;
 		if (bExpeditionMode && !SaveExpedition(Session)) { RefreshSurface(); return; }
 		bPaused = true;
 		Session.SetGuarding(false);

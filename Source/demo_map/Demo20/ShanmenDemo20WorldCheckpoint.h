@@ -2,7 +2,7 @@
 #include "CoreMinimal.h"
 #include "ShanmenDemo20Session.h"
 
-enum class EShanmenDemo20MedicineOrigin : uint8 { PreparedCarry, Secure };
+enum class EShanmenDemo20MedicineOrigin : uint8 { PreparedCarry, Secure, StoredCarry };
 /** Exact operation input, not a second quantity balance. The item ledger owns consumption. */
 struct FShanmenDemo20MedicineIntent
 {

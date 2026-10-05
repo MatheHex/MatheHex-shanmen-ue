@@ -113,7 +113,7 @@ void AShanmenDemo20GameMode::RefreshMedicineProjection()
 	CarryMedicine=SecureMedicine=0; FShanmenItemAuthoritySnapshot S; FString Reason;
 	TArray<FShanmenDemo20MedicineLine> Lines;
 	if (!TryCaptureItems(S) || !FShanmenDemo20Medicine::Capture(S,Session.GetRunId(),Lines,Reason)) return;
-	for (const auto& L:Lines) (L.Origin==EShanmenDemo20MedicineOrigin::PreparedCarry?CarryMedicine:SecureMedicine)+=L.Quantity;
+	for (const auto& L:Lines) (L.Origin==EShanmenDemo20MedicineOrigin::Secure?SecureMedicine:CarryMedicine)+=L.Quantity;
 }
 
 bool AShanmenDemo20GameMode::ResolvePendingMedicine()
@@ -245,13 +245,14 @@ void AShanmenDemo20GameMode::StartExpedition()
 	bExtracting=false; ExtractionClock=CheckpointClock=0.f; ApplyExpeditionProjection();
 	RefreshMedicineProjection();
 	CloseSourceSurface();
-	Notice=TEXT("已确认出发 · 金色宝匣和守卫遗物可搜索；暂为只读预览，领取尚未开放。归阵开局可用。"); NoticeTime=8.f;
+	Notice=TEXT("已确认出发 · 靠近金色宝匣或守卫遗物按交互键搜索，可拖入背包或安全格。归阵开局可用。"); NoticeTime=8.f;
 	RefreshSurface(); UE_LOG(LogTemp,Display,TEXT("DEMO20_EXPEDITION_BEGIN Run=%s Seed=%llu ItemGeneration=%d"),
 		*Session.GetRunId().ToString(),WorldCheckpoint.RunSeed,Started.DocumentGeneration);
 }
 
 bool AShanmenDemo20GameMode::FinalizeExpedition()
 {
+	bInventoryOpen=false;
 	CloseSourceSurface();
 	if (!RetryExpeditionCheckpoint()) return false;
 	const auto Phase=Session.GetPhase();

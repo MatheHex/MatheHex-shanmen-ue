@@ -87,7 +87,7 @@ bool FShanmenDemo20WorldCheckpoint::IsValid() const
 	if (Medicine.IsSet())
 	{
 		if (Medicine.ExpectedQuantity < 1 || Medicine.ExpectedQuantity > 10 || Medicine.ExpectedItemRevision < 0
-			|| Medicine.ExpectedItemRevision == MAX_int64 || static_cast<uint8>(Medicine.Origin)>1
+			|| Medicine.ExpectedItemRevision == MAX_int64 || static_cast<uint8>(Medicine.Origin)>2
 			|| Combat.Phase != EShanmenDemo20Phase::Active || Combat.Health[0]<=0.f || Combat.Health[0]>=100.f
 			|| Combat.AttackCooldown>0.f || Combat.EvadeWindow>0.f || Combat.Sequence>=MAX_uint64-1) return false;
 	}

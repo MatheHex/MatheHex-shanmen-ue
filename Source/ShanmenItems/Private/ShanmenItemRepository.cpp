@@ -1182,6 +1182,25 @@ bool FShanmenItemRepository::ValidateState(
 				}
 				continue;
 			}
+			if (Processed.Receipt.Operation == EShanmenItemTransactionOperation::MaterializeGeneratedSource) continue;
+			if (Processed.Receipt.Operation == EShanmenItemTransactionOperation::EditActiveRunGrid)
+			{
+				const auto& Edit=Processed.Receipt;
+				const auto* Item=Candidate.Items.Find(Edit.ItemInstanceId);
+				const FShanmenItemTransactionReceipt* Claim=nullptr;
+				const FShanmenItemTransactionReceipt* Terminal=nullptr;
+				for (const auto& P:Candidate.ProcessedRequests) if (P.Value.Receipt.IsSuccess() && P.Value.Receipt.ReservationId==Edit.ReservationId)
+				{
+					const auto& R=P.Value.Receipt;
+					if (R.Operation==EShanmenItemTransactionOperation::StartPreparedRun || R.Operation==EShanmenItemTransactionOperation::ClaimPreparedRun) Claim=&R;
+					if (R.Operation==EShanmenItemTransactionOperation::FinalizePreparedRun) Terminal=&R;
+				}
+				const auto* First=Claim && !Claim->ReservationIds.IsEmpty()?Candidate.Reservations.Find(Claim->ReservationIds[0]):nullptr;
+				if (!Item || !First || Item->OwnerId!=First->OwnerId || Item->RunId!=First->RunId
+					|| Edit.ItemRevision>Item->Revision || Edit.AuthorityRevision<=Claim->AuthorityRevision
+					|| (Terminal && Edit.AuthorityRevision>=Terminal->AuthorityRevision) || Edit.PurposeId==TEXT("Grid.Equip")) return Fail();
+				continue;
+			}
 			if (Processed.Receipt.Operation == EShanmenItemTransactionOperation::EditGrid)
 			{
 				const auto* EditedItem = Candidate.Items.Find(Processed.Receipt.ItemInstanceId);
@@ -4194,6 +4213,7 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::FinalizePreparedRun(
 
 	FState Candidate = State;
 	TSet<FGuid> DetachedChildContainerIds;
+	if (!FinalizeActiveRunGrid(Candidate, Request)) return Reject(EShanmenItemTransactionError::InvariantViolation);
 	for (const FGuid& ReservationId : Claim->ReservationIds)
 	{
 		FShanmenItemReservationSnapshot* Reservation =

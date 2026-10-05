@@ -69,7 +69,9 @@ enum class EShanmenItemTransactionOperation : uint8
 	/** Atomic grid placement/stack edit in the existing authority. */
 	EditGrid,
 	/** Finite missing-basics assistance bound to a durable Death receipt. */
-	ReplenishBasics
+	ReplenishBasics,
+	MaterializeGeneratedSource,
+	EditActiveRunGrid
 };
 
 UENUM(BlueprintType)

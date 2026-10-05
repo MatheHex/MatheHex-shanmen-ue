@@ -33,7 +33,13 @@ bool FShanmenDemo20Medicine::Capture(const FShanmenItemAuthoritySnapshot& S,cons
 				&& I.State==EShanmenItemInstanceState::Stored && I.Quantity>0 && I.ParentContainerId==FShanmenDemo20Catalog::ContainerId(TEXT("Secure")))
 				Out.Add({I.ItemInstanceId,I.Quantity,I.Revision,EShanmenDemo20MedicineOrigin::Secure});
 	}
-	Out.Sort([](const auto& A,const auto& B){return A.Origin==B.Origin ? A.ItemId.ToString()<B.ItemId.ToString() : A.Origin<B.Origin;});
+	for (const auto& I:S.Items) if (I.DefinitionId==TEXT("Heal.Pill") && I.OwnerId==FShanmenDemo20Catalog::OwnerId()
+		&& I.RunId==FShanmenDemo20Catalog::ScopeId() && I.State==EShanmenItemInstanceState::Stored && I.Quantity>0
+		&& I.ParentContainerId==FShanmenDemo20Catalog::ContainerId(TEXT("Carry")))
+		Out.Add({I.ItemInstanceId,I.Quantity,I.Revision,EShanmenDemo20MedicineOrigin::StoredCarry});
+	Out.Sort([](const auto& A,const auto& B){const int32 AP=A.Origin==EShanmenDemo20MedicineOrigin::Secure?1:0;
+		const int32 BP=B.Origin==EShanmenDemo20MedicineOrigin::Secure?1:0;
+		return AP==BP ? A.ItemId.ToString()<B.ItemId.ToString() : AP<BP;});
 	return true;
 }
 
@@ -82,17 +88,19 @@ bool FShanmenDemo20Medicine::Recover(const FString& Root,FShanmenDemo20WorldChec
 	}
 	else
 	{
+		const bool StoredCarry=C.Medicine.Origin==EShanmenDemo20MedicineOrigin::StoredCarry;
+		const FName Purpose=StoredCarry?TEXT("Demo20.Medicine.Carry.r1"):TEXT("Demo20.Medicine.Secure.r1");
 		// Consuming the last secure pill clears placement. Only its exact committed
 		// reservation can authorize tombstone recovery; never select a replacement.
 		const bool ExactDepleted=S.Reservations.ContainsByPredicate([&](const auto& V){return V.ReserveRequestId==PrepareContext.RequestId
 			&& V.ItemInstanceId==Item->ItemInstanceId && V.State==EShanmenItemReservationState::Committed
-			&& V.Amount==1 && V.ResourceKind==EShanmenItemResourceKind::Quantity && V.PurposeId==TEXT("Demo20.Medicine.Secure.r1")
+			&& V.Amount==1 && V.ResourceKind==EShanmenItemResourceKind::Quantity && V.PurposeId==Purpose
 			&& V.ItemRevisionAtReserve==C.Medicine.ExpectedItemRevision && V.OwnerId==Item->OwnerId && V.RunId==Item->RunId;});
-		if (Item->ParentContainerId!=FShanmenDemo20Catalog::ContainerId(TEXT("Secure"))
+		if (Item->ParentContainerId!=FShanmenDemo20Catalog::ContainerId(StoredCarry?TEXT("Carry"):TEXT("Secure"))
 			&& !(ExactDepleted && Item->Quantity==0 && Item->State==EShanmenItemInstanceState::Depleted)) return Fail();
 		FShanmenItemReserveRequest R; R.Context=PrepareContext; R.ItemInstanceId=Item->ItemInstanceId;
 		R.ExpectedItemRevision=C.Medicine.ExpectedItemRevision; R.Amount=1; R.ResourceKind=EShanmenItemResourceKind::Quantity;
-		R.PurposeId=TEXT("Demo20.Medicine.Secure.r1");
+		R.PurposeId=Purpose;
 		const auto Reserved=P.Reserve(R); if (!Reserved.IsCommandSuccess()) return Fail();
 		FShanmenItemReservationActionRequest F; F.Context=Context(S,Id,TEXT("Commit")); F.ReservationId=Reserved.Receipt.ReservationId;
 		if (!P.Commit(F).IsCommandSuccess()) return Fail();
