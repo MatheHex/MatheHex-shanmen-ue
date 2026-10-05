@@ -112,6 +112,7 @@ bool FShanmenDemo20Loadout::InspectActive(const FShanmenItemAuthoritySnapshot& S
 			|| !FShanmenItemReservationPlacement::Decode(V->PurposeId, Purpose, Container, Slot) || Purpose != OrdinaryPurpose)
 		{ Reason = TEXT("正式探索携带来源不匹配，禁止生成替代清单。"); return false; }
 		int32 Remaining = V->Amount;
+		if (FShanmenItemRunGridPolicy::IsTransferred(S,R.RunId,Id)) continue;
 		if (V->ResourceKind == EShanmenItemResourceKind::Quantity)
 			for (const auto& P : S.ProcessedRequests)
 			{

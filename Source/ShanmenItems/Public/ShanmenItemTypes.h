@@ -71,7 +71,9 @@ enum class EShanmenItemTransactionOperation : uint8
 	/** Finite missing-basics assistance bound to a durable Death receipt. */
 	ReplenishBasics,
 	MaterializeGeneratedSource,
-	EditActiveRunGrid
+	EditActiveRunGrid,
+	/** One-way transfer of prepared balances into the existing item graph. */
+	MaterializeRunInventory
 };
 
 UENUM(BlueprintType)

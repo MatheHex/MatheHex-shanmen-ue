@@ -1,5 +1,12 @@
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
 
+FShanmenItemDurableCommandResult Udemo_mapShanmenItemAuthoritySubsystem::MaterializeRunInventoryDurable(const FShanmenItemRunInventoryRequest& R)
+{
+	if (!IsInGameThread() || !AuthorityService || LifecycleState != Edemo_mapShanmenItemAuthorityLifecycleState::Ready
+		|| R.Context.OwnerId != BoundOwnerId) return RejectCommand(TEXT("Run inventory requires the ready bound owner."));
+	const auto Result=AuthorityService->MaterializeRunInventoryDurable(R); SynchronizeCommandState(Result); return Result;
+}
+
 FShanmenItemDurableCommandResult Udemo_mapShanmenItemAuthoritySubsystem::EditGridDurable(const FShanmenItemGridRequest& Request)
 {
 	if (!IsInGameThread() || !AuthorityService || LifecycleState != Edemo_mapShanmenItemAuthorityLifecycleState::Ready)

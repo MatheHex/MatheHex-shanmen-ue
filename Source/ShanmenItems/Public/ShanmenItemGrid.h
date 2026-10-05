@@ -97,6 +97,15 @@ struct SHANMENITEMS_API FShanmenItemSourceMaterializeRequest
 struct FShanmenItemAuthoritySnapshot;
 enum class EShanmenItemTransactionError : uint8;
 
+/** No caller quantities: the authority reconstructs the exact remaining balance. */
+struct SHANMENITEMS_API FShanmenItemRunInventoryRequest
+{
+	FShanmenOperationContext Context;
+	FGuid ActiveRunId;
+	static FGuid MakeRequestId(const FGuid& Owner, const FGuid& Scope, const FGuid& Run);
+	FGuid Fingerprint() const;
+};
+
 /** Shared by authority and read-only drag preview; does not mutate a snapshot. */
 class SHANMENITEMS_API FShanmenItemGridPolicy
 {
@@ -109,13 +118,16 @@ public:
 		bool bIgnoreOriginal = true);
 };
 
-/** Read-only overlay of prepared balances on the SAME authority item graph.
- * Virtual prepared quantities come exclusively from the existing consumption
- * receipts. Consumers must never pass this display snapshot to authority loading
- * or saving; write ports accept command requests, not this projection. */
+/** Read-only projection of the SAME authority item graph. Before one-way Run
+ * transfer, prepared balances are overlaid exclusively from existing receipts;
+ * afterwards the projection is the actual graph, without a second balance.
+ * Never pass a display snapshot to authority loading or saving: writes accept
+ * command requests, not this projection. */
 class SHANMENITEMS_API FShanmenItemRunGridPolicy
 {
 public:
+	static bool IsMaterialized(const FShanmenItemAuthoritySnapshot& Authority, const FGuid& Run);
+	static bool IsTransferred(const FShanmenItemAuthoritySnapshot& Authority, const FGuid& Run, const FGuid& Reservation);
 	static bool Project(const FShanmenItemAuthoritySnapshot& Authority, const FGuid& Owner,
 		const FGuid& Scope, const FGuid& Run, FShanmenItemAuthoritySnapshot& Out);
 };

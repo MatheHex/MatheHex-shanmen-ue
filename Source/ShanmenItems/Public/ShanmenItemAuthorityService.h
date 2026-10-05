@@ -122,6 +122,7 @@ public:
 		const FShanmenItemReserveRequest& Request);
 	FShanmenItemDurableCommandResult EditGridDurable(const FShanmenItemGridRequest& Request);
 	FShanmenItemDurableCommandResult EditActiveRunGridDurable(const FShanmenItemRunGridRequest& Request);
+	FShanmenItemDurableCommandResult MaterializeRunInventoryDurable(const FShanmenItemRunInventoryRequest& Request);
 	FShanmenItemDurableCommandResult MaterializeGeneratedSourceDurable(const FShanmenItemSourceMaterializeRequest& Request);
 	FShanmenItemDurableCommandResult ReplenishBasicsDurable(const FShanmenItemBasicSupplyRequest& Request);
 	FShanmenItemDurableCommandResult StartLoadoutDurable(const FShanmenItemLoadoutStartRequest& Request);

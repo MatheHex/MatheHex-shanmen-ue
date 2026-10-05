@@ -60,6 +60,20 @@ namespace
 			R.Context.RequestId=R.MakeRequestId(R.Context.OwnerId,Run,R.SourceRoleId); return R;
 		}
 		bool Materialize() { return Items->MaterializeGeneratedSourceDurable(MaterializeRequest()).IsCommandSuccess(); }
+		FShanmenItemRunInventoryRequest InventoryRequest() const
+		{
+			FShanmenItemRunInventoryRequest R; R.Context=Context(Snapshot()); R.ActiveRunId=Run;
+			R.Context.RequestId=R.MakeRequestId(R.Context.OwnerId,R.Context.RunId,Run); return R;
+		}
+		bool Unify() { return Items->MaterializeRunInventoryDurable(InventoryRequest()).IsCommandSuccess(); }
+		FGuid OriginalPills() const
+		{
+			const auto S=Snapshot();
+			for (const auto& V:S.Reservations) if (V.State==EShanmenItemReservationState::Committed
+				&& V.ResourceKind==EShanmenItemResourceKind::Quantity)
+				if (const auto* I=Find(S,V.ItemInstanceId); I && I->DefinitionId==TEXT("Heal.Pill")) return I->ItemInstanceId;
+			return {};
+		}
 		FShanmenItemRunGridRequest Move(FGuid Id,FGuid Container,int32 X,int32 Y,bool Rotated=false) const
 		{
 			const auto S=Snapshot(); FShanmenItemRunGridRequest R; R.ActiveRunId=Run; auto& G=R.Grid;
@@ -337,10 +351,14 @@ bool FDemo20LootFacadeTest::RunTest(const FString&)
 	if (!TestNotNull(TEXT("Existing product subsystem"),A)) { GI->Shutdown(); return false; }
 	FFixture F; FShanmenItemSourceMaterializeRequest Unbound;
 	TestFalse(TEXT("Unbound materialization is not success"),A->MaterializeGeneratedSourceDurable(Unbound).IsCommandSuccess());
+	TestFalse(TEXT("Unbound Run inventory transfer is not success"),A->MaterializeRunInventoryDurable({}).IsCommandSuccess());
 	if (!TestTrue(TEXT("Isolated existing native profile"),A->BindNativeProfile(Fdemo_mapProfileStorageContext::ForRoot(F.Root),
 		FShanmenDemo20Catalog::OwnerId(),FShanmenDemo20Catalog::ProductId(),FShanmenDemo20Catalog::Initial()).IsReady())) { GI->Shutdown(); return false; }
 	FShanmenItemAuthoritySnapshot S; A->TryCaptureSnapshot(S); FShanmenItemLoadoutStartRequest L; FShanmenDemo20Loadout::Build(S,L,F.Why);
 	const auto Started=A->StartLoadoutDurable(L); F.Run=Started.Receipt.ReservationId;
+	A->TryCaptureSnapshot(S); FShanmenItemRunInventoryRequest Inventory; Inventory.Context=F.Context(S); Inventory.ActiveRunId=F.Run;
+	Inventory.Context.RequestId=Inventory.MakeRequestId(Inventory.Context.OwnerId,Inventory.Context.RunId,F.Run);
+	TestTrue(TEXT("Existing GameInstance facade transfers actual original quantity"),A->MaterializeRunInventoryDurable(Inventory).IsCommandSuccess());
 	FShanmenDemo20SourcePorts P; P.Read=[A](const auto& O,const auto& R,FName Role){return A->ReadGeneratedSource(O,R,Role);};
 	P.Accept=[A](const auto& R){return A->AcceptGeneratedSourceDurable(R);};
 	if (!TestTrue(TEXT("Actual product source"),FShanmenDemo20Sources::Resolve(F.Run,FShanmenDemo20WorldCheckpoint::SeedForRun(F.Run),FShanmenDemo20Sources::ChestRole(0),P,F.Source,F.Why))) { GI->Shutdown(); return false; }
@@ -354,5 +372,191 @@ bool FDemo20LootFacadeTest::RunTest(const FString&)
 	TestTrue(TEXT("Facade durable real pickup"),A->EditActiveRunGridDurable(G).IsCommandSuccess());
 	A->TryCaptureSnapshot(S); TestEqual(TEXT("Actual same subsystem graph"),F.Find(S,ItemId)->ParentContainerId,Carry());
 	GI->Shutdown(); return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20UnifiedTransferTest,"Shanmen.Demo20.RunInventory.PreparedBalanceOneWayTransferAndNativeReplay",Flags)
+bool FDemo20UnifiedTransferTest::RunTest(const FString&)
+{
+	FFixture F; if (!TestTrue(TEXT("Existing loadout"),F.Start())) return false;
+	const auto Id=F.OriginalPills(); const auto Legacy=F.Snapshot();
+	FShanmenItemRunConsumeRequest Consume; Consume.Context=F.Context(Legacy); Consume.ActiveRunId=F.Run;
+	Consume.ItemInstanceId=Id; Consume.ExpectedQuantityBefore=8; Consume.Amount=3; Consume.PurposeId=TEXT("Test.Inventory.PriorConsume");
+	if (!TestTrue(TEXT("Three durably used before upgrade"),F.Items->ConsumePreparedRunItemDurable(Consume).IsCommandSuccess())) return false;
+	const auto Before=F.Snapshot(); const auto R=F.InventoryRequest();
+	if (!TestTrue(TEXT("Exact five transferred in one durable command"),F.Items->MaterializeRunInventoryDurable(R).IsCommandSuccess())) return false;
+	const auto S=F.Snapshot(); TestEqual(TEXT("No new items"),S.Items.Num(),Before.Items.Num());
+	TestEqual(TEXT("Same original identity restored"),F.Find(S,Id)->ParentContainerId,Carry());
+	TestEqual(TEXT("Only unconsumed five available"),F.Find(S,Id)->Quantity,5);
+	FShanmenItemAuthoritySnapshot P; TestTrue(TEXT("Projection is exact graph, no second balance"),
+		FShanmenItemRunGridPolicy::Project(S,R.Context.OwnerId,R.Context.RunId,F.Run,P) && P==S);
+	TestTrue(TEXT("Exact command duplicate"),F.Items->MaterializeRunInventoryDurable(R).IsCommandSuccess() && S==F.Snapshot());
+	TestTrue(TEXT("Native reopen before retry"),F.Restart());
+	TestTrue(TEXT("No migration refill after native reopen"),S==F.Snapshot() && F.Items->MaterializeRunInventoryDurable(R).IsCommandSuccess() && S==F.Snapshot());
+	Consume.Context=F.Context(S); Consume.ExpectedQuantityBefore=5; Consume.Amount=1;
+	TestFalse(TEXT("Old quantity ledger cannot consume after transfer"),F.Items->ConsumePreparedRunItemDurable(Consume).IsCommandSuccess());
+	TestEqual(TEXT("Actual five unchanged by stale writer"),F.Find(F.Snapshot(),Id)->Quantity,5);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20UnifiedGridTest,"Shanmen.Demo20.RunInventory.OriginalMoveSplitMergeSecureAndExtraction",Flags)
+bool FDemo20UnifiedGridTest::RunTest(const FString&)
+{
+	FFixture F; if (!TestTrue(TEXT("Unified original eight"),F.Start() && F.Unify())) return false;
+	const auto Id=F.OriginalPills(); const auto Move=F.Move(Id,Carry(),4,3);
+	if (!TestTrue(TEXT("Original stack freely moved"),F.Items->EditActiveRunGridDurable(Move).IsCommandSuccess())) return false;
+	auto Split=F.Move(Id,Secure(),1,0); Split.Grid.Action=EAction::Split; Split.Grid.Amount=3;
+	const auto Divided=F.Items->EditActiveRunGridDurable(Split);
+	if (!TestTrue(TEXT("Original three placed secure"),Divided.IsCommandSuccess())) return false;
+	auto S=F.Snapshot(); TestEqual(TEXT("Five ordinary"),F.Find(S,Id)->Quantity,5);
+	TestEqual(TEXT("Three secure"),F.Find(S,Divided.Receipt.ItemInstanceId)->Quantity,3);
+	TestTrue(TEXT("Original split can merge with same provenance"),F.Items->EditActiveRunGridDurable(F.Merge(Divided.Receipt.ItemInstanceId,Id,1)).IsCommandSuccess());
+	S=F.Snapshot(); TestEqual(TEXT("Six ordinary"),F.Find(S,Id)->Quantity,6);
+	TestEqual(TEXT("Two secure"),F.Find(S,Divided.Receipt.ItemInstanceId)->Quantity,2);
+	const auto Terminal=F.Terminal(EShanmenItemRunTerminalReason::Extraction);
+	TestFalse(TEXT("No caller quantity return for transferred originals"),Terminal.SecuredOriginals.ContainsByPredicate([&](const auto& I){return I.ItemInstanceId==Id;}));
+	auto Forged=Terminal; Forged.Context=F.Context(S); FShanmenItemRunSecuredOriginal Extra; Extra.ItemInstanceId=Id; Extra.RemainingQuantity=6;
+	Forged.SecuredOriginals.Add(Extra);
+	TestFalse(TEXT("Caller cannot return transferred balance again"),F.Items->FinalizePreparedRunDurable(Forged).IsCommandSuccess());
+	TestEqual(TEXT("Rejected duplicate return leaves actual six"),F.Find(F.Snapshot(),Id)->Quantity,6);
+	if (!TestTrue(TEXT("Extraction preserves graph without original-position restore"),F.Items->FinalizePreparedRunDurable(Terminal).IsCommandSuccess())) return false;
+	S=F.Snapshot(); TestEqual(TEXT("Six kept in moved ordinary cell"),F.Find(S,Id)->SlotIndex,22);
+	TestEqual(TEXT("Secure split kept"),F.Find(S,Divided.Receipt.ItemInstanceId)->Quantity,2);
+	TestTrue(TEXT("Native terminal and exact replay"),F.Restart() && S==F.Snapshot()
+		&& F.Items->FinalizePreparedRunDurable(Terminal).IsCommandSuccess() && S==F.Snapshot());
+	FShanmenItemLoadoutStartRequest Next;
+	TestTrue(TEXT("Rearranged originals can start next real Run"),FShanmenDemo20Loadout::Build(S,Next,F.Why) && F.Items->StartLoadoutDurable(Next).IsCommandSuccess());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20UnifiedDeathTest,"Shanmen.Demo20.RunInventory.DeathKeepsActualOriginalSecurePlacement",Flags)
+bool FDemo20UnifiedDeathTest::RunTest(const FString&)
+{
+	FFixture F; if (!TestTrue(TEXT("Unified original"),F.Start() && F.Unify())) return false;
+	const auto Id=F.OriginalPills(); auto Split=F.Move(Id,Secure(),1,0); Split.Grid.Action=EAction::Split; Split.Grid.Amount=3;
+	const auto Divided=F.Items->EditActiveRunGridDurable(Split); if (!TestTrue(TEXT("Three safe"),Divided.IsCommandSuccess())) return false;
+	Split=F.Move(Divided.Receipt.ItemInstanceId,Carry(),2,0); Split.Grid.Action=EAction::Split; Split.Grid.Amount=1;
+	const auto Out=F.Items->EditActiveRunGridDurable(Split); if (!TestTrue(TEXT("One moved out of secure"),Out.IsCommandSuccess())) return false;
+	const auto Before=F.Snapshot(); const auto Terminal=F.Terminal(EShanmenItemRunTerminalReason::Death);
+	if (!TestTrue(TEXT("Death closes quantities and ordinary equipment"),F.Items->FinalizePreparedRunDurable(Terminal).IsCommandSuccess())) return false;
+	const auto S=F.Snapshot(); TestEqual(TEXT("Original ordinary five lost"),F.Find(S,Id)->State,EState::Destroyed);
+	TestEqual(TEXT("Moved-out original one lost"),F.Find(S,Out.Receipt.ItemInstanceId)->State,EState::Destroyed);
+	TestEqual(TEXT("Actually secure original two retained"),F.Find(S,Divided.Receipt.ItemInstanceId)->Quantity,2);
+	TestEqual(TEXT("Secure parent retained"),F.Find(S,Divided.Receipt.ItemInstanceId)->ParentContainerId,Secure());
+	for (const auto& I:Before.Items) if (I.ParentContainerId==FShanmenDemo20Catalog::ContainerId(TEXT("Stash"))
+		|| I.DefinitionId==TEXT("Currency.Test") || I.ParentContainerId==FShanmenDemo20Catalog::ContainerId(TEXT("SecureBox")))
+		TestTrue(TEXT("Exact nonzero warehouse wallet and safe equipment unchanged"),F.Find(S,I.ItemInstanceId) && *F.Find(S,I.ItemInstanceId)==I);
+	TestTrue(TEXT("Restart and duplicate death preserve exact graph"),F.Restart() && S==F.Snapshot()
+		&& F.Items->FinalizePreparedRunDurable(Terminal).IsCommandSuccess() && S==F.Snapshot()); return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20UnifiedPendingTest,"Shanmen.Demo20.RunInventory.PendingLegacyIntentMustResolveBeforeTransfer",Flags)
+bool FDemo20UnifiedPendingTest::RunTest(const FString&)
+{
+	FFixture F; if (!TestTrue(TEXT("Legacy native active Run"),F.Start())) return false;
+	FShanmenItemRunQuantityIntentRequest R; R.Context=F.Context(F.Snapshot()); R.ActiveRunId=F.Run; R.IntentId=FGuid::NewGuid();
+	R.ItemInstanceId=F.OriginalPills(); R.ExpectedQuantityBefore=8; R.Amount=1; R.PurposeId=TEXT("Test.Inventory.Pending");
+	if (!TestTrue(TEXT("Pending original medicine"),F.Items->PreparePreparedRunQuantityIntentDurable(R).IsCommandSuccess())) return false;
+	const auto Pending=F.Snapshot(); TestFalse(TEXT("Transfer fails closed"),F.Unify()); TestTrue(TEXT("Pending ledger unchanged"),Pending==F.Snapshot());
+	TestTrue(TEXT("Restart keeps pending intent, still no transfer"),F.Restart() && !F.Unify() && Pending==F.Snapshot());
+	FShanmenItemRunQuantityIntentFinalizeRequest Done; Done.Context=F.Context(Pending); Done.ActiveRunId=F.Run;
+	Done.PrepareRequestId=R.Context.RequestId; Done.IntentId=R.IntentId; Done.ItemInstanceId=R.ItemInstanceId; Done.bCommit=true;
+	if (!TestTrue(TEXT("Existing formal resolution before transfer"),F.Items->FinalizePreparedRunQuantityIntentDurable(Done).IsCommandSuccess() && F.Unify())) return false;
+	TestEqual(TEXT("No refund of confirmed one"),F.Find(F.Snapshot(),R.ItemInstanceId)->Quantity,7);
+	R.Context=F.Context(F.Snapshot()); R.ExpectedQuantityBefore=7;
+	TestFalse(TEXT("No new legacy intent after transfer"),F.Items->PreparePreparedRunQuantityIntentDurable(R).IsCommandSuccess()); return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20UnifiedFailureTest,"Shanmen.Demo20.RunInventory.NativeTransferFailureAndExactRecovery",Flags)
+bool FDemo20UnifiedFailureTest::RunTest(const FString&)
+{
+	for (auto Fault:{EShanmenItemStoreFailureStage::AtomicReplace,EShanmenItemStoreFailureStage::ReadBackCommittedPrimary})
+	{
+		FFixture F; if (!TestTrue(TEXT("Native active"),F.Start())) return false;
+		const auto Before=F.Snapshot(); const auto R=F.InventoryRequest(); F.Items->SetInjectedFailureForTests(Fault);
+		const auto Failed=F.Items->MaterializeRunInventoryDurable(R);
+		if (Fault==EShanmenItemStoreFailureStage::AtomicReplace)
+			TestTrue(TEXT("No accepted write no claimed success"),!Failed.IsCommandSuccess() && Before==F.Snapshot());
+		else TestTrue(TEXT("Exact poststate can be proven by service reopen"),Failed.IsCommandSuccess() && Failed.IsDurable());
+		if (!TestTrue(TEXT("Native reopen then exact retry"),F.Restart() && F.Items->MaterializeRunInventoryDurable(R).IsCommandSuccess())) return false;
+		const auto S=F.Snapshot(); TestEqual(TEXT("One accepted transfer only"),S.AuthorityRevision,Before.AuthorityRevision+1);
+		TestEqual(TEXT("Exactly eight, not sixteen"),F.Find(S,F.OriginalPills())->Quantity,8);
+		TestTrue(TEXT("Replay same identity has no refill"),F.Items->MaterializeRunInventoryDurable(R).IsCommandSuccess() && S==F.Snapshot());
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20UnifiedMedicineTest,"Shanmen.Demo20.RunInventory.RearrangedOriginalUsesActualQuantityAndRecovery",Flags)
+bool FDemo20UnifiedMedicineTest::RunTest(const FString&)
+{
+	FFixture F; if (!TestTrue(TEXT("Original eight and same graph"),F.Start() && F.Unify())) return false;
+	const auto Id=F.OriginalPills(); if (!TestTrue(TEXT("Original moved"),F.Items->EditActiveRunGridDurable(F.Move(Id,Carry(),5,3)).IsCommandSuccess())) return false;
+	FShanmenDemo20Session Session; Session.BeginExpedition(F.Run,26,.12f); for (int32 N=0;N<4;++N) Session.ReceiveSentinelStrike(0);
+	FShanmenDemo20WorldCheckpoint C,Fresh; Fresh.ContentId=C.CurrentContentId(); Fresh.RunSeed=C.SeedForRun(F.Run); Session.CaptureExpedition(Fresh.Combat);
+	if (!TestTrue(TEXT("Nonzero HP saved"),FShanmenDemo20WorldCheckpointStore::Save(F.Root,C,Fresh,F.Why))) return false;
+	const auto HP=C.Combat.Health[0]; FShanmenDemo20WorldCheckpoint Intent;
+	if (!TestTrue(TEXT("Formal intent on moved original"),FShanmenDemo20Medicine::BuildIntent(C,F.Snapshot(),Intent,F.Why))) return false;
+	TestEqual(TEXT("Original now actual carry, not virtual ledger"),Intent.Medicine.Origin,EOrigin::StoredCarry);
+	TestEqual(TEXT("Exact original identity"),Intent.Medicine.ItemId,Id);
+	if (!TestTrue(TEXT("World intent saved"),FShanmenDemo20WorldCheckpointStore::Save(F.Root,C,Intent,F.Why))) return false;
+	{ TGuardValue<bool> Fault(FShanmenDemo20WorldCheckpointStore::bFailBeforeReplace,true);
+		TestFalse(TEXT("Confirmed item use but HP save fails, no fake heal"),FShanmenDemo20Medicine::Recover(F.Root,C,F.MedicinePorts(),F.Why)); }
+	TestEqual(TEXT("HP remains unconfirmed"),C.Combat.Health[0],HP);
+	if (!TestTrue(TEXT("Native restart same intent"),F.Restart() && FShanmenDemo20WorldCheckpointStore::Load(F.Root,F.Run,C,F.Why)
+		&& F.Unify() && FShanmenDemo20Medicine::Recover(F.Root,C,F.MedicinePorts(),F.Why))) return false;
+	const auto S=F.Snapshot(); TestEqual(TEXT("One original deducted not refunded by materialize replay"),F.Find(S,Id)->Quantity,7);
+	TestTrue(TEXT("Health +35 once"),FMath::IsNearlyEqual(C.Combat.Health[0],HP+35));
+	TestTrue(TEXT("Repeat restore no second consumption"),FShanmenDemo20Medicine::Recover(F.Root,C,F.MedicinePorts(),F.Why) && S==F.Snapshot()); return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20UnifiedIntegrityTest,"Shanmen.Demo20.RunInventory.ScopeAndReceiptIntegrity",Flags)
+bool FDemo20UnifiedIntegrityTest::RunTest(const FString&)
+{
+	FFixture F; if (!TestTrue(TEXT("Active Run"),F.Start())) return false;
+	const auto Before=F.Snapshot(); auto R=F.InventoryRequest(); R.Context.OwnerId=FGuid::NewGuid();
+	R.Context.RequestId=R.MakeRequestId(R.Context.OwnerId,R.Context.RunId,R.ActiveRunId);
+	TestFalse(TEXT("Foreign owner cannot transfer"),F.Items->MaterializeRunInventoryDurable(R).IsCommandSuccess());
+	R=F.InventoryRequest(); R.Context.RunId=FGuid::NewGuid();
+	R.Context.RequestId=R.MakeRequestId(R.Context.OwnerId,R.Context.RunId,R.ActiveRunId);
+	TestFalse(TEXT("Foreign preparation scope cannot transfer"),F.Items->MaterializeRunInventoryDurable(R).IsCommandSuccess());
+	R=F.InventoryRequest(); R.ActiveRunId=FGuid::NewGuid(); R.Context.RequestId=R.MakeRequestId(R.Context.OwnerId,R.Context.RunId,R.ActiveRunId);
+	TestFalse(TEXT("Foreign Run"),F.Items->MaterializeRunInventoryDurable(R).IsCommandSuccess());
+	TestTrue(TEXT("Scope rejects preserve exact native state"),Before==F.Snapshot());
+	if (!TestTrue(TEXT("Actual transfer"),F.Unify())) return false;
+	const auto S=F.Snapshot(); FShanmenItemRepository Check; TestTrue(TEXT("Actual native graph validates"),Check.TryLoadSnapshot(S));
+	auto Bad=S; Bad.ProcessedRequests.RemoveAll([](const auto& P){return P.Receipt.Operation==EShanmenItemTransactionOperation::MaterializeRunInventory;});
+	TestFalse(TEXT("Actual original quantity needs cutover receipt"),Check.TryLoadSnapshot(Bad));
+	Bad=S; for (auto& P:Bad.ProcessedRequests) if (P.Receipt.Operation==EShanmenItemTransactionOperation::MaterializeRunInventory)
+	{ ++P.Receipt.ResourceBefore; ++P.Receipt.ResourceAfter; ++P.Receipt.AvailableAfter; }
+	TestFalse(TEXT("False historical transfer balance"),Check.TryLoadSnapshot(Bad));
+	Bad=S; for (auto& P:Bad.ProcessedRequests) if (P.Receipt.Operation==EShanmenItemTransactionOperation::MaterializeRunInventory)
+		P.Fingerprint=FGuid::NewGuid();
+	TestFalse(TEXT("False command fingerprint"),Check.TryLoadSnapshot(Bad));
+	R=F.InventoryRequest(); R.Context.RequestId=FGuid::NewGuid();
+	TestFalse(TEXT("Caller cannot create a second cutover identity"),F.Items->MaterializeRunInventoryDurable(R).IsCommandSuccess());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20UnifiedUnequippedTest,"Shanmen.Demo20.RunInventory.CarriedUnequippedWeaponAndZeroBalance",Flags)
+bool FDemo20UnifiedUnequippedTest::RunTest(const FString&)
+{
+	FFixture F;
+	if (!TestTrue(TEXT("Native prep"),F.Items->StartNativeProfile(F.Disk,FShanmenDemo20Catalog::ProductId(),FShanmenDemo20Catalog::Initial()).IsReady())) return false;
+	auto S=F.Snapshot(); const auto* Spare=S.Items.FindByPredicate([](const auto& I){return I.DefinitionId==TEXT("Sword.Heavy") && I.State==EState::Stored;});
+	if (!TestNotNull(TEXT("Existing spare heavy sword"),Spare)) return false; const auto Id=Spare->ItemInstanceId;
+	auto Move=F.Move(Id,Carry(),2,0);
+	if (!TestTrue(TEXT("Ordinary prep carries spare weapon"),F.Items->EditGridDurable(Move.Grid).IsCommandSuccess())) return false;
+	FShanmenItemLoadoutStartRequest Loadout;
+	if (!TestTrue(TEXT("Start ordinary loadout"),FShanmenDemo20Loadout::Build(F.Snapshot(),Loadout,F.Why))) return false;
+	const auto Started=F.Items->StartLoadoutDurable(Loadout); F.Run=Started.Receipt.ReservationId;
+	if (!TestTrue(TEXT("Original quantity legitimately spent, then transferred"),Started.IsCommandSuccess() && F.EmptyPreparedPills() && F.Unify())) return false;
+	S=F.Snapshot(); const auto Pills=F.OriginalPills(); TestEqual(TEXT("Zero original balance not recreated"),F.Find(S,Pills)->Quantity,0);
+	TestEqual(TEXT("Carried but unequipped weapon uses actual Stored state"),F.Find(S,Id)->State,EState::Stored);
+	TestFalse(TEXT("No stale deployment identity"),F.Find(S,Id)->DeploymentReservationId.IsValid());
+	if (!TestTrue(TEXT("Original spare weapon may rotate and move"),F.Items->EditActiveRunGridDurable(F.Move(Id,Carry(),0,2,true)).IsCommandSuccess())) return false;
+	const auto Terminal=F.Terminal(EShanmenItemRunTerminalReason::Extraction);
+	if (!TestTrue(TEXT("Extraction retains moved spare without deploying or returning twice"),F.Items->FinalizePreparedRunDurable(Terminal).IsCommandSuccess())) return false;
+	S=F.Snapshot(); TestEqual(TEXT("Spare remains same ID at rotated cell"),F.Find(S,Id)->SlotIndex,12);
+	TestTrue(TEXT("Orientation preserved"),S.Grid.RotatedItems.Contains(Id));
+	TestEqual(TEXT("Spent original never refunded"),F.Find(S,Pills)->Quantity,0);
+	TestTrue(TEXT("Native reopen"),F.Restart() && S==F.Snapshot()); return true;
 }
 #endif

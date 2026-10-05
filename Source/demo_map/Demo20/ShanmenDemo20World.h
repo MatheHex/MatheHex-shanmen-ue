@@ -112,6 +112,7 @@ private:
 	bool SaveExpedition(const FShanmenDemo20Session& Candidate);
 	bool RetryExpeditionCheckpoint();
 	bool ResolvePendingMedicine();
+	bool EnsureRunInventory();
 	void RefreshMedicineProjection();
 	void ApplyExpeditionProjection();
 	bool FinalizeExpedition();

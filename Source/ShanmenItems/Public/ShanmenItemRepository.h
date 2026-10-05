@@ -17,6 +17,7 @@ public:
 	static constexpr int32 MaxGeneratedEntries = 65536;
 	FShanmenItemTransactionReceipt EditGrid(const FShanmenItemGridRequest& Request);
 	FShanmenItemTransactionReceipt EditActiveRunGrid(const FShanmenItemRunGridRequest& Request);
+	FShanmenItemTransactionReceipt MaterializeRunInventory(const FShanmenItemRunInventoryRequest& Request);
 	FShanmenItemTransactionReceipt MaterializeGeneratedSource(const FShanmenItemSourceMaterializeRequest& Request);
 	FShanmenItemTransactionReceipt ReplenishBasics(const FShanmenItemBasicSupplyRequest& Request);
 	FShanmenItemTransactionReceipt StartLoadout(const FShanmenItemLoadoutStartRequest& Request);
@@ -95,6 +96,7 @@ private:
 		EShanmenItemTransactionError* OutError);
 	static bool ValidateState(const FState& Candidate, EShanmenItemTransactionError* OutError);
 	static bool ValidateGeneratedSources(const FState& Candidate);
+	static bool ValidateRunInventory(const FState& Candidate);
 	FShanmenItemTransactionReceipt EditGridImpl(const FShanmenItemGridRequest& Request, const FGuid& ActiveRunId);
 	static bool FinalizeActiveRunGrid(FState& Candidate, const FShanmenItemRunFinalizeRequest& Request);
 	static FGuid Fingerprint(const FShanmenItemGeneratedSourceRequest& Request);

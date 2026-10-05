@@ -148,7 +148,7 @@ void UShanmenDemo20InventoryWidget::Submit(FShanmenItemGridRequest Intent)
 	}
 	else Feedback = TEXT("容器规则或装备条件不允许这次操作，原物品未改变。");
 	if (Host->IsRunInventory() && Result.Receipt.Error==EShanmenItemTransactionError::GridPolicyViolation)
-		Feedback=TEXT("原携带物及装备本轮只读；武器护具不能进入安全格，仓库与储物装备不能局内更换。");
+		Feedback=TEXT("武器护具不能进入安全格；已装备物与储物装备仅整备更换，仓库不在局内开放。");
 	if (Intent.Action==EShanmenItemGridAction::Merge && Result.Receipt.Error==EShanmenItemTransactionError::GridPolicyViolation)
 	{
 		const auto* From=Projection.Items.FindByPredicate([&](const auto& I){return I.ItemInstanceId==Intent.ItemInstanceId;});
@@ -326,7 +326,7 @@ int32 UShanmenDemo20InventoryWidget::NativePaint(const FPaintArgs& Args, const F
 		Box({24,394},{172,44},FLinearColor(.11f,.29f,.22f)); Text({36,406},TEXT("领取基础补给"),15);
 		Text({208,402},TEXT("正式死亡后一次"),12,Gold); Text({208,420},TEXT("只补缺失，不补货币"),11,Gold);
 	}
-	else Text({24,394},TEXT("未领取物留在来源；原携带物暂只读。\n满包请整理新物或安全格，不会自动丢物。"),13,Gold);
+	else Text({24,394},TEXT("未领取物留在来源；携带物可整理与拆分。\n安全格已确认物死亡保留，不会自动丢物。"),13,Gold);
 	if (const auto* I = Projection.Items.FindByPredicate([&](const auto& Value) { return Value.ItemInstanceId == Selected; }))
 	{
 		Text({24,480}, FString::Printf(TEXT("已选：%s  ×%d"),*FShanmenDemo20Catalog::ItemName(I->DefinitionId),I->Quantity),17);
@@ -344,7 +344,7 @@ int32 UShanmenDemo20InventoryWidget::NativePaint(const FPaintArgs& Args, const F
 		Box({24.f+Index*176.f,566},{164,46},FLinearColor(.11f,.29f,.22f)); Text({36.f+Index*176.f,578},Labels[Index],15);
 	}
 	Text({24,622},Host.IsValid() && Host->IsExpedition()
-		? TEXT("普通携带死亡损失；安全格保留。可领取与整理新物，原携带物暂只读，世界继续运行。")
+		? TEXT("普通携带死亡损失；安全格保留。携带物与新物使用同一背包，世界继续运行。")
 		: TEXT("石庭为独立战斗练习，不消耗或发放物品；正式探索请使用默认启动入口。"),11,Gold);
 	return Base + 6;
 }

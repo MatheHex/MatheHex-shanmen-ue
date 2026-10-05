@@ -105,7 +105,31 @@ bool AShanmenDemo20GameMode::RetryExpeditionCheckpoint()
 	}
 	if (!ResolvePendingMedicine()) { RefreshSurface(); return false; }
 	if (!Session.RestoreExpedition(WorldCheckpoint.Combat)) { Notice=TEXT("战斗恢复校验失败，未继续探索。"); return false; }
+	if (!EnsureRunInventory()) { RefreshSurface(); return false; }
 	CheckpointClock=0.f; ApplyExpeditionProjection(); RefreshMedicineProjection(); return true;
+}
+
+bool AShanmenDemo20GameMode::EnsureRunInventory()
+{
+	// Terminal legacy worlds keep their original finalization semantics. Pending
+	// medicine is always resolved BEFORE transferring prepared balances.
+	if (Session.GetPhase()!=EShanmenDemo20Phase::Active) return true;
+	FShanmenItemAuthoritySnapshot S;
+	if (WorldCheckpoint.Medicine.IsSet() || !TryCaptureItems(S))
+	{ bPaused=true; Notice=TEXT("物品或治疗状态尚待确认，未开放探索。请重试恢复或重启同一隔离档。"); return false; }
+	if (FShanmenItemRunGridPolicy::IsMaterialized(S,Session.GetRunId())) return true;
+	auto* A=GetGameInstance()->GetSubsystem<Udemo_mapShanmenItemAuthoritySubsystem>();
+	if (!A) { bPaused=true; Notice=TEXT("物品权威不可用，未开放探索；原档保留。请重启恢复。"); return false; }
+	FShanmenItemRunInventoryRequest R; R.Context.OwnerId=FShanmenDemo20Catalog::OwnerId(); R.Context.RunId=FShanmenDemo20Catalog::ScopeId();
+	R.Context.Content=S.Content; R.ActiveRunId=Session.GetRunId();
+	R.Context.RequestId=R.MakeRequestId(R.Context.OwnerId,R.Context.RunId,R.ActiveRunId);
+	const auto Result=A->MaterializeRunInventoryDurable(R);
+	bProfileReady=A->GetLifecycleState()==Edemo_mapShanmenItemAuthorityLifecycleState::Ready;
+	if (!Result.IsCommandSuccess())
+	{ bPaused=true; Notice=TEXT("携带背包尚未确认，原余额保留。请重试恢复；没有重新发物或返还已消耗丹药。"); }
+	UE_LOG(LogTemp,Display,TEXT("DEMO20_RUN_INVENTORY Run=%s Success=%d Status=%d Quantity=%d Generation=%d"),
+		*R.ActiveRunId.ToString(),Result.IsCommandSuccess(),static_cast<int32>(Result.Status),Result.Receipt.ResourceAfter,Result.DocumentGeneration);
+	return Result.IsCommandSuccess();
 }
 
 void AShanmenDemo20GameMode::RefreshMedicineProjection()
@@ -196,6 +220,7 @@ void AShanmenDemo20GameMode::RestoreExpeditionOnOpen()
 	{ bWorldReady=false; Notice=Reason.IsEmpty()?TEXT("探索恢复失败，原局未覆盖。"):Reason; return; }
 	bTerminalConfirmed=false; ApplyExpeditionProjection();
 	if (!ResolvePendingMedicine()) { bPaused=true; return; }
+	if (!EnsureRunInventory()) { RefreshSurface(); return; }
 	if (!TryCaptureItems(S) || !FShanmenDemo20Loadout::InspectActive(S,Active,Reason)
 		|| !Session.RestoreExpedition(WorldCheckpoint.Combat))
 	{ bWorldReady=false; Notice=Reason.IsEmpty()?TEXT("携带恢复校验失败，原局未覆盖。"):Reason; return; }
@@ -242,6 +267,7 @@ void AShanmenDemo20GameMode::StartExpedition()
 	if (!Started.IsCommandSuccess()) { Notice=Started.IsDurable()?TEXT("物品权威拒绝出发，未进入关卡。请检查携带状态。"):
 		TEXT("出发保存未确认。原档保留，可重试或重启恢复；没有假成功。"); RefreshSurface(); return; }
 	Session=MoveTemp(Candidate); WorldCheckpoint=Confirmed; bPaused=false; bCheckpointPending=false; bTerminalConfirmed=false;
+	if (!EnsureRunInventory()) { ApplyExpeditionProjection(); RefreshSurface(); return; }
 	bExtracting=false; ExtractionClock=CheckpointClock=0.f; ApplyExpeditionProjection();
 	RefreshMedicineProjection();
 	CloseSourceSurface();

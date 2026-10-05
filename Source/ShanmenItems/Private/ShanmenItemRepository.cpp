@@ -1058,7 +1058,19 @@ bool FShanmenItemRepository::ValidateState(
 				Remaining = Consume->ResourceAfter;
 				PreviousAuthorityRevision = Consume->AuthorityRevision;
 			}
-			if (FinalizedRunIds.Contains(ClaimPair.Key))
+			bool Materialized=false;
+			for (const auto& Entry:Candidate.ProcessedRequests) if (Entry.Value.Receipt.IsSuccess()
+				&& Entry.Value.Receipt.Operation==EShanmenItemTransactionOperation::MaterializeRunInventory
+				&& Entry.Value.Receipt.ReservationId==ClaimPair.Key) Materialized=true;
+			const auto* Reserve=Candidate.ProcessedRequests.Find(Reservation->ReserveRequestId);
+			if (!FinalizedRunIds.Contains(ClaimPair.Key) && !Materialized && !Candidate.Grid.IsEmpty()
+				&& Reserve && Reserve->Receipt.ResourceBefore==Reservation->Amount)
+			{
+				const auto* Item=Candidate.Items.Find(Reservation->ItemInstanceId);
+				if (!Item || Item->State!=EShanmenItemInstanceState::Depleted || Item->Quantity!=0
+					|| Item->ParentContainerId.IsValid()) return Fail();
+			}
+			if (FinalizedRunIds.Contains(ClaimPair.Key) && !Materialized)
 			{
 				const FShanmenItemInstance* Item =
 					Candidate.Items.Find(Reservation->ItemInstanceId);
@@ -1182,7 +1194,8 @@ bool FShanmenItemRepository::ValidateState(
 				}
 				continue;
 			}
-			if (Processed.Receipt.Operation == EShanmenItemTransactionOperation::MaterializeGeneratedSource) continue;
+			if (Processed.Receipt.Operation == EShanmenItemTransactionOperation::MaterializeGeneratedSource
+				|| Processed.Receipt.Operation == EShanmenItemTransactionOperation::MaterializeRunInventory) continue;
 			if (Processed.Receipt.Operation == EShanmenItemTransactionOperation::EditActiveRunGrid)
 			{
 				const auto& Edit=Processed.Receipt;
@@ -1285,7 +1298,7 @@ bool FShanmenItemRepository::ValidateState(
 		}
 	}
 
-	if (!ValidateGeneratedSources(Candidate)) { return Fail(); }
+	if (!ValidateGeneratedSources(Candidate) || !ValidateRunInventory(Candidate)) { return Fail(); }
 	if (!Candidate.Grid.IsEmpty())
 	{
 		FShanmenItemAuthoritySnapshot Geometry;
@@ -2632,6 +2645,8 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::ConsumePreparedRunItem(
 		return Reject(EShanmenItemTransactionError::ContentMismatch);
 	}
 
+	if (FShanmenItemRunGridPolicy::IsMaterialized(CaptureSnapshot(),Request.ActiveRunId))
+		return Reject(EShanmenItemTransactionError::RunItemIntentConflict);
 	const FShanmenItemTransactionReceipt* Claim = nullptr;
 	bool bFinalized = false;
 	for (const TPair<FGuid, FShanmenItemProcessedRequestSnapshot>& Pair :
@@ -2848,6 +2863,8 @@ FShanmenItemRepository::PreparePreparedRunQuantityIntent(
 		return Reject(EShanmenItemTransactionError::ContentMismatch);
 	}
 
+	if (FShanmenItemRunGridPolicy::IsMaterialized(CaptureSnapshot(),Request.ActiveRunId))
+		return Reject(EShanmenItemTransactionError::RunItemIntentConflict);
 	const FShanmenItemTransactionReceipt* Claim = nullptr;
 	bool bFinalized = false;
 	for (const TPair<FGuid, FShanmenItemProcessedRequestSnapshot>& Pair :
@@ -3067,6 +3084,8 @@ FShanmenItemRepository::FinalizePreparedRunQuantityIntent(
 		return Reject(EShanmenItemTransactionError::ContentMismatch);
 	}
 
+	if (FShanmenItemRunGridPolicy::IsMaterialized(CaptureSnapshot(),Request.ActiveRunId))
+		return Reject(EShanmenItemTransactionError::RunItemIntentConflict);
 	const FShanmenItemProcessedRequestSnapshot* PrepareProcessed =
 		State.ProcessedRequests.Find(Request.PrepareRequestId);
 	const FShanmenItemTransactionReceipt* Prepare = PrepareProcessed
@@ -3971,6 +3990,7 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::FinalizePreparedRun(
 		}
 	}
 
+	const auto InventorySnapshot=CaptureSnapshot();
 	TMap<FGuid, int32> SecuredQuantities;
 	for (const FShanmenItemRunSecuredOriginal& Original :
 		Request.SecuredOriginals)
@@ -3999,6 +4019,12 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::FinalizePreparedRun(
 		}
 		PreparedItemIds.Add(Item->ItemInstanceId);
 		const int32 Remaining = SecuredQuantities.FindRef(Item->ItemInstanceId);
+		if (FShanmenItemRunGridPolicy::IsTransferred(InventorySnapshot,Request.ActiveRunId,ReservationId))
+		{
+			// The graph, not caller return quantities, owns this balance now.
+			if (Remaining!=0) return Reject(EShanmenItemTransactionError::SecuredItemMismatch);
+			continue;
+		}
 		if (bDestructive)
 		{
 			continue;
@@ -4225,6 +4251,11 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::FinalizePreparedRun(
 			return Reject(EShanmenItemTransactionError::InvariantViolation);
 		}
 		const int32 Remaining = SecuredQuantities.FindRef(Item->ItemInstanceId);
+		if (FShanmenItemRunGridPolicy::IsTransferred(InventorySnapshot,Request.ActiveRunId,ReservationId))
+		{
+			Reservation->State=EShanmenItemReservationState::Released;
+			continue;
+		}
 		if (bDestructive)
 		{
 			if (Item->ParentContainerId.IsValid())

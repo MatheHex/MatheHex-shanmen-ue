@@ -522,6 +522,15 @@ bool FShanmenItemTransactionReceipt::IsValid() const
 		return Phase == EShanmenItemTransactionPhase::Rejected
 			&& Error != EShanmenItemTransactionError::None;
 	}
+	if (Operation == EShanmenItemTransactionOperation::MaterializeRunInventory)
+	{
+		TSet<FGuid> Ids;
+		for (const auto& Id : ReservationIds) { if (!Id.IsValid() || Ids.Contains(Id)) return false; Ids.Add(Id); }
+		return Error == EShanmenItemTransactionError::None && Phase == EShanmenItemTransactionPhase::Committed
+			&& ReservationId.IsValid() && ItemInstanceId.IsValid() && PurposeId == TEXT("Run.Inventory.r1")
+			&& Amount == ReservationIds.Num() && ResourceBefore >= 0 && ResourceAfter == ResourceBefore
+			&& AvailableAfter == ResourceAfter && ItemRevision == INDEX_NONE;
+	}
 	if (Operation == EShanmenItemTransactionOperation::MaterializeGeneratedSource)
 	{
 		TSet<FGuid> Ids;
