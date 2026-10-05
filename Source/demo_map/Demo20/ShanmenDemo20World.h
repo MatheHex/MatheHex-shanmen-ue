@@ -39,6 +39,7 @@ public:
 private:
 	void Attack();
 	void Evade();
+	void UseMedicine();
 	void Interact();
 	void ToggleMenu();
 	void ToggleInventory();
@@ -63,6 +64,7 @@ public:
 	void PauseForFocusLoss();
 	void Attack();
 	void Evade();
+	void UseMedicine();
 	void Interact();
 	void SetGuard(bool bHeld);
 	void LeaveTrial();
@@ -81,6 +83,9 @@ public:
 	bool IsWorldReady() const { return bWorldReady; }
 	const FShanmenDemo20Session& GetSession() const { return Session; }
 	FString GetNotice() const { return Notice; }
+	int32 GetCarryMedicine() const { return CarryMedicine; }
+	int32 GetSecureMedicine() const { return SecureMedicine; }
+	bool IsMedicinePending() const { return WorldCheckpoint.Medicine.IsSet() || (bCheckpointPending && PendingCheckpoint.Medicine.IsSet()); }
 	static FVector ExitLocation() { return FVector(-760.f, 0.f, 0.f); }
 	static FVector SentinelLocation(int32 Index);
 protected:
@@ -97,6 +102,8 @@ private:
 	void UpdateExpeditionEnemies(float DeltaSeconds);
 	bool SaveExpedition(const FShanmenDemo20Session& Candidate);
 	bool RetryExpeditionCheckpoint();
+	bool ResolvePendingMedicine();
+	void RefreshMedicineProjection();
 	void ApplyExpeditionProjection();
 	bool FinalizeExpedition();
 	FShanmenDemo20WorldCheckpoint CaptureWorld(const FShanmenDemo20Session& Candidate) const;
@@ -119,6 +126,7 @@ private:
 	FString WorldProfileRoot;
 	float CheckpointClock = 0.f, ExtractionClock = 0.f;
 	bool bExtracting = false;
+	int32 CarryMedicine = 0, SecureMedicine = 0;
 };
 
 /** Formal exploration map; shares existing Demo20 UI/input, not the practice map. */

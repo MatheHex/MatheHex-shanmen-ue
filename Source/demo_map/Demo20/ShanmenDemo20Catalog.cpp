@@ -69,7 +69,7 @@ FString FShanmenDemo20Catalog::ItemPurpose(FName Id)
 	if (Id == TEXT("Backpack.Small")) return TEXT("背包装备：普通背包 6×4，仅整备更换");
 	if (Id == TEXT("Backpack.Large")) return TEXT("背包装备：普通背包 8×5，仅整备更换");
 	if (Id == TEXT("Secure.Basic")) return TEXT("安全格装备：2×2；装备和已确认内容死亡保留");
-	if (Id == TEXT("Heal.Pill")) return TEXT("治疗丹药；正式治疗接线开发中");
+	if (Id == TEXT("Heal.Pill")) return TEXT("探索中恢复 35 生命；优先普通携带，其次安全格。满生命不消耗");
 	if (Id == TEXT("Sword.Plain")) return TEXT("剑类武器；正式探索基础伤害 26");
 	if (Id == TEXT("Sword.Heavy")) return TEXT("剑类武器；正式探索基础伤害 34");
 	if (Id == TEXT("Armor.Robe")) return TEXT("护具；正式探索护甲减免 12%");

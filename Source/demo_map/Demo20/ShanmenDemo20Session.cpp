@@ -184,6 +184,19 @@ bool FShanmenDemo20Session::ResolveContact(int32 SourceIndex, int32 TargetIndex,
 		&& Vitalities[TargetIndex].Commit(Command).IsSuccess();
 }
 
+bool FShanmenDemo20Session::TryUseMedicine(FString& Reason)
+{
+	if (!bExpedition || Phase != EShanmenDemo20Phase::Active || GetHealth() <= 0.f)
+	{ Reason = TEXT("治疗不可用：需要存活的正式探索角色。"); return false; }
+	if (GetHealth() >= 100.f) { Reason = TEXT("生命已满，没有消耗回春丹。"); return false; }
+	if (AttackCooldown > 0.f || IsEvading() || bGuarding)
+	{ Reason = TEXT("当前动作未结束：请停止格挡并等待出剑、闪身或用药恢复。"); return false; }
+	if (Sequence >= MAX_uint64-1 || !Vitalities[0].TryCommitExternalMutation(
+		FMath::Min(100.f,GetHealth()+35.f),100.f,Vitalities[0].GetAuthorityRevision()))
+	{ Reason = TEXT("生命状态校验失败，未执行治疗。"); return false; }
+	++Sequence; AttackCooldown=.6f; Reason.Reset(); return true;
+}
+
 bool FShanmenDemo20Session::TryEvade()
 {
 	if (Phase != EShanmenDemo20Phase::Active || EvadeCooldown > 0.f) return false;

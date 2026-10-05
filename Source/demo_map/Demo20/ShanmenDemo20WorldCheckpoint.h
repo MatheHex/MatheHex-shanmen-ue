@@ -2,6 +2,17 @@
 #include "CoreMinimal.h"
 #include "ShanmenDemo20Session.h"
 
+enum class EShanmenDemo20MedicineOrigin : uint8 { PreparedCarry, Secure };
+/** Exact operation input, not a second quantity balance. The item ledger owns consumption. */
+struct FShanmenDemo20MedicineIntent
+{
+	FGuid ItemId;
+	int32 ExpectedQuantity = 0;
+	int64 ExpectedItemRevision = 0;
+	EShanmenDemo20MedicineOrigin Origin = EShanmenDemo20MedicineOrigin::PreparedCarry;
+	bool IsSet() const { return ItemId.IsValid(); }
+};
+
 /** Product-world state, never an inventory/quantity authority. Fixed layout revision 1. */
 struct FShanmenDemo20WorldCheckpoint
 {
@@ -14,6 +25,7 @@ struct FShanmenDemo20WorldCheckpoint
 	FVector EnemyPositions[3] = {FVector(1000,-350,65), FVector(3100,200,65), FVector(5200,-300,80)};
 	FVector WarningTargets[3] = {FVector::ZeroVector, FVector::ZeroVector, FVector::ZeroVector};
 	float EnemyClocks[3] = {0.f,0.f,0.f};
+	FShanmenDemo20MedicineIntent Medicine;
 	bool IsValid() const;
 	static FGuid CurrentContentId();
 	static uint64 SeedForRun(const FGuid& Run);

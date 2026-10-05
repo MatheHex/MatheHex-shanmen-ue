@@ -36,6 +36,7 @@ private:
 	UPROPERTY() TObjectPtr<UTextBlock> Objective;
 	UPROPERTY() TObjectPtr<UTextBlock> Notice;
 	UPROPERTY() TObjectPtr<UTextBlock> Defense;
+	UPROPERTY() TObjectPtr<UTextBlock> Medicine;
 	UPROPERTY() TObjectPtr<UTextBlock> Heading;
 	UPROPERTY() TObjectPtr<UTextBlock> Body;
 	UPROPERTY() TObjectPtr<UTextBlock> PrimaryLabel;

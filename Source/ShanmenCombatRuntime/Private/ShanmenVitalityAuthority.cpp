@@ -562,6 +562,14 @@ FShanmenVitalityCommitResult FShanmenVitalityAuthority::Commit(
 		MaximumVitality);
 }
 
+bool FShanmenVitalityAuthority::TryCommitExternalMutation(float NewCurrentVitality,
+	float NewMaximumVitality, int64 ExpectedAuthorityRevision)
+{
+	return ExpectedAuthorityRevision == GetAuthorityRevision()
+		&& CommitLedger.TryCommitExternalMutation(CurrentVitality, MaximumVitality,
+			NewCurrentVitality, NewMaximumVitality);
+}
+
 void FShanmenVitalityAuthority::Reset()
 {
 	*this = FShanmenVitalityAuthority();

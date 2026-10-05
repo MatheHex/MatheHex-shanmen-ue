@@ -61,7 +61,7 @@ void UShanmenDemo20Widget::Build()
 	Status->SetPadding(FMargin(22,16));
 	Status->SetVisibility(ESlateVisibility::HitTestInvisible);
 	auto* StatusSlot = Canvas->AddChildToCanvas(Status);
-	StatusSlot->SetOffsets(FMargin(24,24,330,205));
+	StatusSlot->SetOffsets(FMargin(24,24,330,245));
 	auto* StatusBox = WidgetTree->ConstructWidget<UVerticalBox>();
 	Status->SetContent(StatusBox);
 	Add(StatusBox, Text(WidgetTree, TEXT("山 门  /  Demo 2.0"), 23, Gold));
@@ -74,6 +74,7 @@ void UShanmenDemo20Widget::Build()
 	Objective = Text(WidgetTree, TEXT("守阵石卫  0 / 3"), 17, Paper);
 	Add(StatusBox, Objective);
 	Defense = Text(WidgetTree, FString(), 14, Gold); Add(StatusBox, Defense, 0);
+	Medicine = Text(WidgetTree, FString(), 14, Paper); Add(StatusBox, Medicine, 4);
 
 	auto* Footer = WidgetTree->ConstructWidget<UBorder>();
 	Footer->SetBrushColor(Ink);
@@ -163,6 +164,9 @@ void UShanmenDemo20Widget::Refresh()
 	Set(Defense, Preparing ? (Host->IsExpedition()?TEXT("携带确认后出发 · 开局可撤离"):TEXT("石庭练习 · 不结算"))
 		: Session.IsGuarding() ? TEXT("格挡中 · 无法出剑") : Session.IsEvading() ? TEXT("闪身中") : Session.GetEvadeCooldown() > 0.f ? FString::Printf(TEXT("闪身恢复  %.1f 秒"), Session.GetEvadeCooldown()) : TEXT("闪身就绪"));
 	Set(Notice, Host->GetNotice());
+	Set(Medicine, Phase==EShanmenDemo20Phase::Active && Host->IsExpedition() ? FString::Printf(TEXT("[%s] 回春丹 · 普通 %d / 安全格 %d\n非满生命使用 · 仓库不可局内使用"),
+		*KeyLabel(Fdemo_mapInputActionIds::Hotbar1),Host->GetCarryMedicine(),Host->GetSecureMedicine()) : FString());
+	if (Host->IsMedicinePending()) Set(Medicine,TEXT("丹药使用正在恢复确认\n操作已暂停 · 请重试或重启恢复"));
 	Modal->SetVisibility(Host->IsPlaying() ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
 	PrimaryButton->SetIsEnabled(Host->IsWorldReady() && (!Host->IsExpedition() || Host->IsProfileReady()));
 	SecondaryButton->SetVisibility(Host->IsPaused() && Phase==EShanmenDemo20Phase::Active ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);

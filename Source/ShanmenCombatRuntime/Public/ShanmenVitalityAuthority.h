@@ -259,6 +259,10 @@ public:
 	bool IsValid() const;
 	bool TryCaptureSnapshot(FShanmenTargetVitalitySnapshot& OutSnapshot) const;
 	FShanmenVitalityCommitResult Commit(const FShanmenVitalityCommitCommand& Command);
+	/** Product external effects use the same ledger; callers must durably authorize
+	 * the effect before publishing this candidate. A stale revision never mutates. */
+	bool TryCommitExternalMutation(float NewCurrentVitality, float NewMaximumVitality,
+		int64 ExpectedAuthorityRevision);
 	void Reset();
 
 	const FGuid& GetTargetEntityId() const { return CommitLedger.GetTargetEntityId(); }

@@ -30,6 +30,8 @@ public:
 	void Advance(float DeltaSeconds);
 	bool StrikeSentinel(int32 Index);
 	bool ReceiveSentinelStrike(int32 Index);
+	/** Mutates a candidate only. World/item coordination must confirm it before publication. */
+	bool TryUseMedicine(FString& Reason);
 	bool TryEvade();
 	void SetGuarding(bool bHeld);
 	bool TryExtract();

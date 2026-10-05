@@ -321,7 +321,7 @@ int32 UShanmenDemo20InventoryWidget::NativePaint(const FPaintArgs& Args, const F
 		Box({24.f+Index*176.f,566},{164,46},FLinearColor(.11f,.29f,.22f)); Text({36.f+Index*176.f,578},Labels[Index],15);
 	}
 	Text({24,622},Host.IsValid() && Host->IsExpedition()
-		? TEXT("正式探索：普通携带死亡损失，安全格与仓库保留。治疗与随机搜集正在接线。")
+		? TEXT("正式探索：普通携带死亡损失，安全格与仓库保留。丹药可用，随机搜集开发中。")
 		: TEXT("石庭为独立战斗练习，不消耗或发放物品；正式探索请使用默认启动入口。"),11,Gold);
 	return Base + 6;
 }

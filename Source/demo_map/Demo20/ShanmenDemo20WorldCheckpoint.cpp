@@ -25,6 +25,16 @@ namespace
 		A << C.Combat.Elapsed << C.Combat.AttackCooldown << C.Combat.EvadeCooldown << C.Combat.EvadeWindow
 			<< C.Combat.SwordDamage << C.Combat.ArmorFraction << C.PlayerPosition << C.PlayerYaw;
 		for (int32 I = 0; I < 3; ++I) A << C.EnemyPositions[I] << C.WarningTargets[I] << C.EnemyClocks[I];
+		// Legacy r1 records end here. Empty intents keep their exact encoding, so
+		// CAS against an existing 333-byte record remains valid without migration.
+		if ((A.IsLoading() && !A.AtEnd()) || (A.IsSaving() && C.Medicine.IsSet()))
+		{
+			uint32 Extension = 0x484C3031; A << Extension;
+			uint8 Origin = static_cast<uint8>(C.Medicine.Origin);
+			A << C.Medicine.ItemId << C.Medicine.ExpectedQuantity << C.Medicine.ExpectedItemRevision << Origin;
+			C.Medicine.Origin = static_cast<EShanmenDemo20MedicineOrigin>(Origin);
+			if (Extension != 0x484C3031 || !C.Medicine.IsSet()) A.SetError();
+		}
 	}
 	FGuid Digest(const TArray<uint8>& Bytes)
 	{
@@ -74,6 +84,15 @@ bool FShanmenDemo20WorldCheckpoint::IsValid() const
 		|| RunSeed != SeedForRun(Combat.RunId) || !Position(PlayerPosition) || !FMath::IsFinite(PlayerYaw)) return false;
 	for (int32 I = 0; I < 3; ++I) if (!Position(EnemyPositions[I]) || !Position(WarningTargets[I])
 		|| !FMath::IsFinite(EnemyClocks[I]) || EnemyClocks[I] < -2.f || EnemyClocks[I] > 2.f) return false;
+	if (Medicine.IsSet())
+	{
+		if (Medicine.ExpectedQuantity < 1 || Medicine.ExpectedQuantity > 10 || Medicine.ExpectedItemRevision < 0
+			|| Medicine.ExpectedItemRevision == MAX_int64 || static_cast<uint8>(Medicine.Origin)>1
+			|| Combat.Phase != EShanmenDemo20Phase::Active || Combat.Health[0]<=0.f || Combat.Health[0]>=100.f
+			|| Combat.AttackCooldown>0.f || Combat.EvadeWindow>0.f || Combat.Sequence>=MAX_uint64-1) return false;
+	}
+	else if (Medicine.ExpectedQuantity != 0 || Medicine.ExpectedItemRevision != 0
+		|| Medicine.Origin != EShanmenDemo20MedicineOrigin::PreparedCarry) return false;
 	return true;
 }
 

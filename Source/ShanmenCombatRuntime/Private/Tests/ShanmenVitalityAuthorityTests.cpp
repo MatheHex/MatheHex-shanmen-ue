@@ -104,6 +104,28 @@ namespace
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FShanmenVitalityExternalMutationTest,
+	"Shanmen.0_0_10.CombatRuntime.VitalityAuthority.ExternalMutationRevisionAndLedger",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FShanmenVitalityExternalMutationTest::RunTest(const FString&)
+{
+	FShanmenVitalityAuthority A;
+	TestTrue(TEXT("Nonzero baseline"),FShanmenVitalityAuthority::TryCreate(VitalityTargetA,100.f,100.f,7,A));
+	const auto Command=MakeCommand(MakeImpactRequest(VitalityTargetA,0,40.f,CaptureVitality(A)));
+	TestTrue(TEXT("Canonical damage first"),A.Commit(Command).IsSuccess());
+	TestEqual(TEXT("Damaged vitality"),A.GetCurrentVitality(),60.f);
+	TestFalse(TEXT("Stale external mutation fails closed"),A.TryCommitExternalMutation(95.f,100.f,7));
+	TestFalse(TEXT("Out of range external mutation fails closed"),A.TryCommitExternalMutation(101.f,100.f,8));
+	TestEqual(TEXT("Rejected values preserved"),A.GetCurrentVitality(),60.f); TestEqual(TEXT("Rejected revision preserved"),A.GetAuthorityRevision(),int64(8));
+	TestTrue(TEXT("Same values no-op"),A.TryCommitExternalMutation(60.f,100.f,8)); TestEqual(TEXT("No-op keeps revision"),A.GetAuthorityRevision(),int64(8));
+	TestTrue(TEXT("Heal via same ledger"),A.TryCommitExternalMutation(95.f,100.f,8)); TestEqual(TEXT("One revision"),A.GetAuthorityRevision(),int64(9));
+	TestEqual(TEXT("Impact ledger not discarded"),A.NumCommittedImpacts(),1);
+	TestTrue(TEXT("Old Impact replay still idempotent"),A.Commit(Command).IsSuccess()); TestEqual(TEXT("Replay cannot damage healed state"),A.GetCurrentVitality(),95.f);
+	const auto Next=MakeCommand(MakeImpactRequest(VitalityTargetA,1,10.f,CaptureVitality(A)));
+	TestTrue(TEXT("New damage after healing"),A.Commit(Next).IsSuccess()); TestEqual(TEXT("Same authority keeps working"),A.GetCurrentVitality(),85.f); return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FShanmenVitalityCommitLifecycleTest,
 	"Shanmen.0_0_10.CombatRuntime.VitalityAuthority.CommitLifecycle",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

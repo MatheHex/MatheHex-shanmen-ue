@@ -1,6 +1,7 @@
 #include "ShanmenDemo20World.h"
 #include "ShanmenDemo20Loadout.h"
 #include "ShanmenDemo20Catalog.h"
+#include "ShanmenDemo20Medicine.h"
 #include "ShanmenItemRepository.h"
 #include "ShanmenDeterministicId.h"
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
@@ -74,6 +75,7 @@ FShanmenDemo20WorldCheckpoint AShanmenDemo20GameMode::CaptureWorld(const FShanme
 
 bool AShanmenDemo20GameMode::SaveExpedition(const FShanmenDemo20Session& Candidate)
 {
+	if (WorldCheckpoint.Medicine.IsSet()) { bPaused=true; Notice=TEXT("治疗结果尚待确认，请重试原请求。探索不会覆盖该记录。"); return false; }
 	const auto C = CaptureWorld(Candidate); FString Reason;
 	if (!FShanmenDemo20WorldCheckpointStore::Save(WorldProfileRoot,WorldCheckpoint,C,Reason))
 	{
@@ -89,11 +91,68 @@ bool AShanmenDemo20GameMode::SaveExpedition(const FShanmenDemo20Session& Candida
 }
 bool AShanmenDemo20GameMode::RetryExpeditionCheckpoint()
 {
-	if (!bCheckpointPending) return true;
 	FString Reason;
-	if (!FShanmenDemo20WorldCheckpointStore::Save(WorldProfileRoot,WorldCheckpoint,PendingCheckpoint,Reason)) { Notice=Reason; RefreshSurface(); return false; }
+	if (bCheckpointPending)
+	{
+		if (!FShanmenDemo20WorldCheckpointStore::Save(WorldProfileRoot,WorldCheckpoint,PendingCheckpoint,Reason)) { Notice=Reason; RefreshSurface(); return false; }
+		bCheckpointPending=false;
+	}
+	if (!ResolvePendingMedicine()) { RefreshSurface(); return false; }
 	if (!Session.RestoreExpedition(WorldCheckpoint.Combat)) { Notice=TEXT("战斗恢复校验失败，未继续探索。"); return false; }
-	bCheckpointPending=false; CheckpointClock=0.f; ApplyExpeditionProjection(); return true;
+	CheckpointClock=0.f; ApplyExpeditionProjection(); RefreshMedicineProjection(); return true;
+}
+
+void AShanmenDemo20GameMode::RefreshMedicineProjection()
+{
+	CarryMedicine=SecureMedicine=0; FShanmenItemAuthoritySnapshot S; FString Reason;
+	TArray<FShanmenDemo20MedicineLine> Lines;
+	if (!TryCaptureItems(S) || !FShanmenDemo20Medicine::Capture(S,Session.GetRunId(),Lines,Reason)) return;
+	for (const auto& L:Lines) (L.Origin==EShanmenDemo20MedicineOrigin::PreparedCarry?CarryMedicine:SecureMedicine)+=L.Quantity;
+}
+
+bool AShanmenDemo20GameMode::ResolvePendingMedicine()
+{
+	if (!WorldCheckpoint.Medicine.IsSet()) return true;
+	auto* A=GetGameInstance()->GetSubsystem<Udemo_mapShanmenItemAuthoritySubsystem>();
+	if (!A) return false;
+	FShanmenDemo20MedicinePorts P;
+	P.Capture=[A](auto& S){return A->TryCaptureSnapshot(S);};
+	P.PrepareRun=[A](const auto& R){return A->PreparePreparedRunQuantityIntentDurable(R);};
+	P.FinalizeRun=[A](const auto& R){return A->FinalizePreparedRunQuantityIntentDurable(R);};
+	P.Reserve=[A](const auto& R){return A->ReserveDurable(R);};
+	P.Commit=[A](const auto& R){return A->CommitDurable(R);};
+	FString Reason; const bool Confirmed=FShanmenDemo20Medicine::Recover(WorldProfileRoot,WorldCheckpoint,P,Reason);
+	bProfileReady=A->GetLifecycleState()==Edemo_mapShanmenItemAuthorityLifecycleState::Ready;
+	if (!Confirmed) { bPaused=true; bExtracting=false; ExtractionClock=0; Notice=Reason; }
+	UE_LOG(LogTemp,Display,TEXT("DEMO20_MEDICINE_CONFIRM Run=%s Success=%d Generation=%d Seq=%llu HP=%.2f"),
+		*WorldCheckpoint.Combat.RunId.ToString(),Confirmed,WorldCheckpoint.Generation,WorldCheckpoint.Combat.Sequence,WorldCheckpoint.Combat.Health[0]);
+	return Confirmed;
+}
+
+void AShanmenDemo20GameMode::UseMedicine()
+{
+	if (!IsPlaying()) return;
+	if (!bExpeditionMode) { Notice=TEXT("石庭练习不消耗持久物品；请进入青岚关探索使用丹药。"); NoticeTime=4; return; }
+	FString Reason; auto Candidate=Session;
+	if (!Candidate.TryUseMedicine(Reason))
+	{
+		Notice=Reason; NoticeTime=3;
+		UE_LOG(LogTemp,Display,TEXT("DEMO20_MEDICINE_REJECT HP=%.2f Reason=%s"),Session.GetHealth(),*Reason); return;
+	}
+	FShanmenItemAuthoritySnapshot S; FShanmenDemo20WorldCheckpoint Intent;
+	if (!TryCaptureItems(S) || !FShanmenDemo20Medicine::BuildIntent(CaptureWorld(Session),S,Intent,Reason))
+	{ Notice=Reason.IsEmpty()?TEXT("物品状态未确认，未使用丹药。"):Reason; NoticeTime=4; return; }
+	const float Before=Session.GetHealth();
+	if (!FShanmenDemo20WorldCheckpointStore::Save(WorldProfileRoot,WorldCheckpoint,Intent,Reason))
+	{
+		PendingCheckpoint=Intent; bCheckpointPending=true; bPaused=true; bExtracting=false; ExtractionClock=0;
+		Notice=Reason; RefreshSurface(); return;
+	}
+	if (!ResolvePendingMedicine()) { RefreshSurface(); return; }
+	if (!Session.RestoreExpedition(WorldCheckpoint.Combat)) { bPaused=true; Notice=TEXT("治疗战斗状态校验失败，请重启恢复原局。"); RefreshSurface(); return; }
+	CheckpointClock=0; RefreshMedicineProjection(); Notice=TEXT("回春丹已确认使用 · 生命恢复，携带数量已扣除。"); NoticeTime=3;
+	UE_LOG(LogTemp,Display,TEXT("DEMO20_MEDICINE_USED Run=%s Before=%.2f After=%.2f Carry=%d Secure=%d"),
+		*Session.GetRunId().ToString(),Before,Session.GetHealth(),CarryMedicine,SecureMedicine);
 }
 
 void AShanmenDemo20GameMode::ApplyExpeditionProjection()
@@ -124,11 +183,16 @@ void AShanmenDemo20GameMode::RestoreExpeditionOnOpen()
 	FShanmenItemAuthoritySnapshot S; FShanmenDemo20ActiveLoadout Active; FString Reason;
 	if (!TryCaptureItems(S)) { bWorldReady=false; return; }
 	if (!HasUnfinished(S)) { Notice=TEXT("青岚关探索 · 可先整备，携带确认后出发。归阵从开局可用。"); ApplyExpeditionProjection(); return; }
-	if (!FShanmenDemo20Loadout::InspectActive(S,Active,Reason)
+	if (!FShanmenDemo20Loadout::InspectActiveIdentity(S,Active,Reason)
 		|| !FShanmenDemo20WorldCheckpointStore::Load(WorldProfileRoot,Active.RunId,WorldCheckpoint,Reason)
 		|| WorldCheckpoint.RunSeed != Active.RunSeed || !Session.RestoreExpedition(WorldCheckpoint.Combat))
 	{ bWorldReady=false; Notice=Reason.IsEmpty()?TEXT("探索恢复失败，原局未覆盖。"):Reason; return; }
 	bTerminalConfirmed=false; ApplyExpeditionProjection();
+	if (!ResolvePendingMedicine()) { bPaused=true; return; }
+	if (!TryCaptureItems(S) || !FShanmenDemo20Loadout::InspectActive(S,Active,Reason)
+		|| !Session.RestoreExpedition(WorldCheckpoint.Combat))
+	{ bWorldReady=false; Notice=Reason.IsEmpty()?TEXT("携带恢复校验失败，原局未覆盖。"):Reason; return; }
+	ApplyExpeditionProjection(); RefreshMedicineProjection();
 	if (Session.GetPhase()!=EShanmenDemo20Phase::Active) FinalizeExpedition();
 	else { bPaused=true; Notice=TEXT("原局已恢复：位置、生命和敌人状态保持。点击继续后行动；撤离读条需重新开始。"); }
 	UE_LOG(LogTemp,Display,TEXT("DEMO20_WORLD_RESTORED Run=%s Generation=%d Seed=%llu HP=%.1f Position=%s"),
@@ -172,7 +236,8 @@ void AShanmenDemo20GameMode::StartExpedition()
 		TEXT("出发保存未确认。原档保留，可重试或重启恢复；没有假成功。"); RefreshSurface(); return; }
 	Session=MoveTemp(Candidate); WorldCheckpoint=Confirmed; bPaused=false; bCheckpointPending=false; bTerminalConfirmed=false;
 	bExtracting=false; ExtractionClock=CheckpointClock=0.f; ApplyExpeditionProjection();
-	Notice=TEXT("已确认出发 · 石径、竹林、遗坛相连；归阵开局可用。背包搜集与治疗接线开发中。"); NoticeTime=8.f;
+	RefreshMedicineProjection();
+	Notice=TEXT("已确认出发 · 回春丹优先使用普通携带，其次安全格；归阵开局可用。搜索接线开发中。"); NoticeTime=8.f;
 	RefreshSurface(); UE_LOG(LogTemp,Display,TEXT("DEMO20_EXPEDITION_BEGIN Run=%s Seed=%llu ItemGeneration=%d"),
 		*Session.GetRunId().ToString(),WorldCheckpoint.RunSeed,Started.DocumentGeneration);
 }

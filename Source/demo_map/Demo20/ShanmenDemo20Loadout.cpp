@@ -24,7 +24,7 @@ bool FShanmenDemo20Loadout::Build(const FShanmenItemAuthoritySnapshot& S, FShanm
 	Out = {}; Reason.Reset();
 	FShanmenItemRepository Check;
 	if (!Check.TryLoadSnapshot(S)) { Reason = TEXT("物品权威不可用，请先恢复存档。"); return false; }
-	if (HasActive(S)) { Reason = TEXT("有未结算探索：整备已锁定，不会覆盖原局。续局入口尚在接通。"); return false; }
+	if (HasActive(S)) { Reason = TEXT("有未结算探索：整备已锁定，不会覆盖原局。请返回入口继续原局。"); return false; }
 	for (FName Role : {FName(TEXT("Weapon")), FName(TEXT("Armor")), FName(TEXT("Backpack"))})
 	{
 		if (!S.Items.ContainsByPredicate([&](const auto& I) { return I.OwnerId == FShanmenDemo20Catalog::OwnerId()
@@ -58,7 +58,7 @@ bool FShanmenDemo20Loadout::Build(const FShanmenItemAuthoritySnapshot& S, FShanm
 	Out = MoveTemp(R); return true;
 }
 
-bool FShanmenDemo20Loadout::InspectActive(const FShanmenItemAuthoritySnapshot& S, FShanmenDemo20ActiveLoadout& Out, FString& Reason)
+bool FShanmenDemo20Loadout::InspectActiveIdentity(const FShanmenItemAuthoritySnapshot& S, FShanmenDemo20ActiveLoadout& Out, FString& Reason)
 {
 	Out = {}; Reason.Reset(); FShanmenItemRepository Check;
 	if (!Check.TryLoadSnapshot(S)) { Reason = TEXT("存档权威校验失败。"); return false; }
@@ -71,6 +71,18 @@ bool FShanmenDemo20Loadout::InspectActive(const FShanmenItemAuthoritySnapshot& S
 		Active = &P.Receipt;
 	}
 	if (!Active) { Reason = TEXT("没有未结算的正式探索。"); return false; }
+	Out.RunId=Active->ReservationId; Out.StartRequestId=Active->RequestId;
+	const FGuid Seed=FShanmenDeterministicId::FromCanonicalParts(TEXT("Demo20.Expedition.RunSeed.r1"),{Out.RunId.ToString()});
+	Out.RunSeed=(static_cast<uint64>(Seed.A)<<32)|Seed.B; return true;
+}
+
+bool FShanmenDemo20Loadout::InspectActive(const FShanmenItemAuthoritySnapshot& S, FShanmenDemo20ActiveLoadout& Out, FString& Reason)
+{
+	Out={};
+	FShanmenDemo20ActiveLoadout Identity;
+	if (!InspectActiveIdentity(S,Identity,Reason)) { Out={}; return false; }
+	const auto* ActiveProcessed=S.ProcessedRequests.FindByPredicate([&](const auto& P){return P.Receipt.RequestId==Identity.StartRequestId;});
+	const auto* Active=&ActiveProcessed->Receipt;
 	for (const auto& P : S.ProcessedRequests)
 	{
 		const auto& Prepare = P.Receipt;

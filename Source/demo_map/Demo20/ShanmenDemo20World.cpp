@@ -108,6 +108,7 @@ void AShanmenDemo20Controller::SetupInputComponent()
 	InputComponent->BindKey(Key(Fdemo_mapInputActionIds::PrimaryAttack), IE_Pressed, this, &AShanmenDemo20Controller::Attack);
 	InputComponent->BindKey(Key(Fdemo_mapInputActionIds::SpiritEvasion), IE_Pressed, this, &AShanmenDemo20Controller::Evade);
 	InputComponent->BindKey(Key(Fdemo_mapInputActionIds::Interact), IE_Pressed, this, &AShanmenDemo20Controller::Interact);
+	InputComponent->BindKey(Key(Fdemo_mapInputActionIds::Hotbar1), IE_Pressed, this, &AShanmenDemo20Controller::UseMedicine);
 	InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AShanmenDemo20Controller::ToggleMenu).bExecuteWhenPaused = true;
 	InputComponent->BindKey(Key(Fdemo_mapInputActionIds::Inventory), IE_Pressed, this, &AShanmenDemo20Controller::ToggleInventory);
 }
@@ -215,6 +216,7 @@ void AShanmenDemo20Controller::Attack() { if (auto* Game = Mode(this)) Game->Att
 void AShanmenDemo20Controller::Evade() { if (auto* Game = Mode(this)) Game->Evade(); }
 void AShanmenDemo20Controller::Interact() { if (auto* Game = Mode(this)) Game->Interact(); }
 void AShanmenDemo20Controller::ToggleMenu() { if (auto* Game = Mode(this)) Game->TogglePause(); }
+void AShanmenDemo20Controller::UseMedicine() { if (auto* Game = Mode(this)) Game->UseMedicine(); }
 void AShanmenDemo20Controller::ToggleInventory() { if (auto* Game = Mode(this)) Game->ToggleInventory(); }
 
 AShanmenDemo20GameMode::AShanmenDemo20GameMode()
@@ -611,7 +613,7 @@ void AShanmenDemo20GameMode::ReturnToPreparation()
 }
 void AShanmenDemo20GameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	if (bExpeditionMode && Session.GetPhase() == EShanmenDemo20Phase::Active && !bCheckpointPending) SaveExpedition(Session);
+	if (bExpeditionMode && Session.GetPhase() == EShanmenDemo20Phase::Active && !bCheckpointPending && !WorldCheckpoint.Medicine.IsSet()) SaveExpedition(Session);
 	if (Screen) Screen->RemoveFromParent();
 	Screen = nullptr;
 	Session.Abandon();

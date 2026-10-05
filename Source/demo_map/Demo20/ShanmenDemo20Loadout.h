@@ -13,10 +13,13 @@ struct FShanmenDemo20ActiveLoadout
 struct FShanmenDemo20Loadout
 {
 	/** Ordinary equipment and Carry only. Secure equipment/content stay owned in
-	 * the same document and must be accessed through Run-specific ports later. */
+	 * the same document; medicine uses its existing durable reserve/commit ports. */
 	static bool Build(const FShanmenItemAuthoritySnapshot& Snapshot,
 		FShanmenItemLoadoutStartRequest& Out, FString& Reason);
 	static bool InspectActive(const FShanmenItemAuthoritySnapshot& Snapshot,
+		FShanmenDemo20ActiveLoadout& Out, FString& Reason);
+	/** Identity only, for recovering an exact pending external intent before balance projection. */
+	static bool InspectActiveIdentity(const FShanmenItemAuthoritySnapshot& Snapshot,
 		FShanmenDemo20ActiveLoadout& Out, FString& Reason);
 	static FString Summary(const FShanmenItemAuthoritySnapshot& Snapshot);
 };
