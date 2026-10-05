@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "ShanmenVitalityAuthority.h"
+#include "ShanmenDemo20Encounters.h"
 
 enum class EShanmenDemo20Phase : uint8 { Preparation, Active, Extracted, Defeated, Abandoned };
 
@@ -11,6 +12,8 @@ struct FShanmenDemo20CombatCheckpoint
 	FGuid RunId;
 	EShanmenDemo20Phase Phase = EShanmenDemo20Phase::Active;
 	uint64 Sequence = 0;
+	// Derived from the existing world ContentId on load; not another serialized field.
+	int32 EncounterRevision = 1;
 	float Health[4] = {100.f, 78.f, 65.f, 156.f};
 	int64 Revisions[4] = {0, 0, 0, 0};
 	float Elapsed = 0.f, AttackCooldown = 0.f, EvadeCooldown = 0.f, EvadeWindow = 0.f;
@@ -24,7 +27,7 @@ class FShanmenDemo20Session
 public:
 	static constexpr int32 SentinelCount = 3;
 	bool Begin(const FGuid& NewRunId);
-	bool BeginExpedition(const FGuid& NewRunId, float SwordDamage, float ArmorFraction);
+	bool BeginExpedition(const FGuid& NewRunId, float SwordDamage, float ArmorFraction, int32 EncounterRevision = 1);
 	bool RestoreExpedition(const FShanmenDemo20CombatCheckpoint& Checkpoint);
 	bool CaptureExpedition(FShanmenDemo20CombatCheckpoint& Out) const;
 	void Advance(float DeltaSeconds);
@@ -47,6 +50,7 @@ public:
 	float GetAttackCooldown() const { return AttackCooldown; }
 	float GetElapsed() const { return Elapsed; }
 	int32 GetImpactCount() const;
+	int32 GetEncounterRevision() const { return ExpeditionEncounterRevision; }
 
 private:
 	bool ResolveContact(int32 SourceIndex, int32 TargetIndex, float Damage);
@@ -61,4 +65,6 @@ private:
 	bool bGuarding = false;
 	bool bExpedition = false;
 	float ExpeditionSwordDamage = 26.f, ExpeditionArmorFraction = .12f;
+	int32 ExpeditionEncounterRevision = 1;
+	FShanmenDemo20EnemySpec EnemySpecs[FShanmenDemo20Encounters::Count];
 };

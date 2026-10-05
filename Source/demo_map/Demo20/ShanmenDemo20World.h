@@ -133,6 +133,7 @@ private:
 	UPROPERTY() TMap<FGuid,TObjectPtr<AActor>> GroundMarkers;
 	UPROPERTY() TObjectPtr<AActor> ExitMarker;
 	float SentinelClocks[3] = {0.f, 0.f, 0.f};
+	FShanmenDemo20EnemySpec ExpeditionEnemies[FShanmenDemo20Encounters::Count];
 	float NoticeTime = 0.f;
 	FString Notice;
 	bool bPaused = false;

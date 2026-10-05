@@ -13,7 +13,7 @@ struct FShanmenDemo20MedicineIntent
 	bool IsSet() const { return ItemId.IsValid(); }
 };
 
-/** Product-world state, never an inventory/quantity authority. Fixed layout revision 1. */
+/** Product-world state, never an inventory/quantity authority. Fixed layout, versioned encounter content. */
 struct FShanmenDemo20WorldCheckpoint
 {
 	int32 Generation = 0;
@@ -28,6 +28,7 @@ struct FShanmenDemo20WorldCheckpoint
 	FShanmenDemo20MedicineIntent Medicine;
 	bool IsValid() const;
 	static FGuid CurrentContentId();
+	static FGuid LegacyContentId();
 	static uint64 SeedForRun(const FGuid& Run);
 };
 

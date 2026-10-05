@@ -76,7 +76,8 @@ FName FShanmenDemo20Sources::EnemyRole(int32 I)
 bool FShanmenDemo20Sources::IsRegistered(FName R) { return RoleIndex(R)!=INDEX_NONE; }
 FString FShanmenDemo20Sources::Name(FName R)
 {
-	const TCHAR* Names[]={TEXT("石径宝匣"),TEXT("竹林宝匣"),TEXT("遗坛宝匣"),TEXT("近战守卫遗物"),TEXT("远程守卫遗物"),TEXT("精英守卫遗物")};
+	// Enemy role keys are historical slot identities, not the new random archetype.
+	const TCHAR* Names[]={TEXT("石径宝匣"),TEXT("竹林宝匣"),TEXT("遗坛宝匣"),TEXT("石径守卫遗物"),TEXT("竹林守卫遗物"),TEXT("遗坛精英遗物")};
 	const int32 I=RoleIndex(R); return I==INDEX_NONE?TEXT("未注册来源"):Names[I];
 }
 bool FShanmenDemo20Sources::ChestPosition(const FGuid& Run,uint64 RunSeed,int32 Index,FVector& Out)

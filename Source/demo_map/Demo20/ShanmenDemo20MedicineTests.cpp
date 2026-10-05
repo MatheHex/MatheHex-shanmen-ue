@@ -37,7 +37,7 @@ namespace
 			FShanmenDemo20Session Session; if (!Session.BeginExpedition(Started.Receipt.ReservationId,26.f,.12f)) return false;
 			// Nonzero health baseline produced by actual canonical attacks, not 0==0.
 			for (int32 I=0; I<4; ++I) if (!Session.ReceiveSentinelStrike(0)) return false;
-			auto Fresh=C; Fresh.ContentId=C.CurrentContentId(); Fresh.RunSeed=C.SeedForRun(Started.Receipt.ReservationId); Session.CaptureExpedition(Fresh.Combat);
+			auto Fresh=C; Fresh.ContentId=C.LegacyContentId(); Fresh.RunSeed=C.SeedForRun(Started.Receipt.ReservationId); Session.CaptureExpedition(Fresh.Combat);
 			if (!FShanmenDemo20WorldCheckpointStore::Save(Root,C,Fresh,Why)) return false;
 			if (EmptyCarry)
 			{

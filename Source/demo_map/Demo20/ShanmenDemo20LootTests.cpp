@@ -311,7 +311,7 @@ bool FDemo20LootMedicineTest::RunTest(const FString&)
 			&& F.Accept(FShanmenDemo20Sources::EnemyRole(2),TEXT("Heal.Pill"),Last?1:3) && F.Materialize())) return false;
 		const auto Id=F.Source.GetItemIds()[0]; if (!TestTrue(TEXT("Pickup into released original cell"),F.Items->EditActiveRunGridDurable(F.Move(Id,Carry(),0,0)).IsCommandSuccess())) return false;
 		FShanmenDemo20Session Session; Session.BeginExpedition(F.Run,26,.12f); for (int32 N=0;N<4;++N) Session.ReceiveSentinelStrike(0);
-		FShanmenDemo20WorldCheckpoint C,Fresh; Fresh.ContentId=C.CurrentContentId(); Fresh.RunSeed=C.SeedForRun(F.Run); Session.CaptureExpedition(Fresh.Combat);
+		FShanmenDemo20WorldCheckpoint C,Fresh; Fresh.ContentId=C.LegacyContentId(); Fresh.RunSeed=C.SeedForRun(F.Run); Session.CaptureExpedition(Fresh.Combat);
 		if (!TestTrue(TEXT("Actual nonzero attacked health saved"),FShanmenDemo20WorldCheckpointStore::Save(F.Root,C,Fresh,F.Why))) return false;
 		const float HP=C.Combat.Health[0]; FShanmenDemo20WorldCheckpoint Intent;
 		TestTrue(TEXT("Newly picked pill accepted by existing medicine saga"),FShanmenDemo20Medicine::BuildIntent(C,F.Snapshot(),Intent,F.Why));
@@ -503,7 +503,7 @@ bool FDemo20UnifiedMedicineTest::RunTest(const FString&)
 	FFixture F; if (!TestTrue(TEXT("Original eight and same graph"),F.Start() && F.Unify())) return false;
 	const auto Id=F.OriginalPills(); if (!TestTrue(TEXT("Original moved"),F.Items->EditActiveRunGridDurable(F.Move(Id,Carry(),5,3)).IsCommandSuccess())) return false;
 	FShanmenDemo20Session Session; Session.BeginExpedition(F.Run,26,.12f); for (int32 N=0;N<4;++N) Session.ReceiveSentinelStrike(0);
-	FShanmenDemo20WorldCheckpoint C,Fresh; Fresh.ContentId=C.CurrentContentId(); Fresh.RunSeed=C.SeedForRun(F.Run); Session.CaptureExpedition(Fresh.Combat);
+	FShanmenDemo20WorldCheckpoint C,Fresh; Fresh.ContentId=C.LegacyContentId(); Fresh.RunSeed=C.SeedForRun(F.Run); Session.CaptureExpedition(Fresh.Combat);
 	if (!TestTrue(TEXT("Nonzero HP saved"),FShanmenDemo20WorldCheckpointStore::Save(F.Root,C,Fresh,F.Why))) return false;
 	const auto HP=C.Combat.Health[0]; FShanmenDemo20WorldCheckpoint Intent;
 	if (!TestTrue(TEXT("Formal intent on moved original"),FShanmenDemo20Medicine::BuildIntent(C,F.Snapshot(),Intent,F.Why))) return false;
@@ -838,7 +838,7 @@ bool FDemo20CrossOriginMedicineTest::RunTest(const FString&)
 		&& F.Items->EditActiveRunGridDurable(F.Merge(F.Source.GetItemIds()[0],F.OriginalPills())).IsCommandSuccess())) return false;
 	const auto Id=F.OriginalPills(); FShanmenDemo20Session Session; Session.BeginExpedition(F.Run,26,.12f);
 	for (int32 N=0;N<4;++N) Session.ReceiveSentinelStrike(0);
-	FShanmenDemo20WorldCheckpoint C,Fresh; Fresh.ContentId=C.CurrentContentId(); Fresh.RunSeed=C.SeedForRun(F.Run); Session.CaptureExpedition(Fresh.Combat);
+	FShanmenDemo20WorldCheckpoint C,Fresh; Fresh.ContentId=C.LegacyContentId(); Fresh.RunSeed=C.SeedForRun(F.Run); Session.CaptureExpedition(Fresh.Combat);
 	if (!TestTrue(TEXT("Save nonzero damaged health"),FShanmenDemo20WorldCheckpointStore::Save(F.Root,C,Fresh,F.Why))) return false;
 	const auto HP=C.Combat.Health[0]; FShanmenDemo20WorldCheckpoint Intent;
 	if (!TestTrue(TEXT("Formal medicine intent sees actual mixed ten"),FShanmenDemo20Medicine::BuildIntent(C,F.Snapshot(),Intent,F.Why))) return false;

@@ -15,7 +15,7 @@ namespace
 	FShanmenDemo20WorldCheckpoint Fresh(FGuid Run)
 	{
 		FShanmenDemo20Session Session; Session.BeginExpedition(Run,26.f,.12f);
-		FShanmenDemo20WorldCheckpoint C; C.ContentId=C.CurrentContentId(); C.RunSeed=C.SeedForRun(Run); Session.CaptureExpedition(C.Combat); return C;
+		FShanmenDemo20WorldCheckpoint C; C.ContentId=C.LegacyContentId(); C.RunSeed=C.SeedForRun(Run); Session.CaptureExpedition(C.Combat); return C;
 	}
 	FShanmenItemRunFinalizeRequest Terminal(const FShanmenItemAuthoritySnapshot& S, const FShanmenDemo20ActiveLoadout& A, bool Death)
 	{

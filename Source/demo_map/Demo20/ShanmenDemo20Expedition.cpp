@@ -11,6 +11,8 @@
 #include "Engine/SkyLight.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/SkyLightComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "HAL/FileManager.h"
 
 namespace
@@ -67,7 +69,7 @@ bool AShanmenDemo20GameMode::BuildExpedition()
 
 FShanmenDemo20WorldCheckpoint AShanmenDemo20GameMode::CaptureWorld(const FShanmenDemo20Session& Candidate) const
 {
-	auto C = WorldCheckpoint; C.ContentId = C.CurrentContentId(); Candidate.CaptureExpedition(C.Combat);
+	auto C = WorldCheckpoint; Candidate.CaptureExpedition(C.Combat);
 	C.RunSeed = C.SeedForRun(C.Combat.RunId);
 	if (const auto* P = GetWorld()->GetFirstPlayerController()) if (const APawn* Pawn = P->GetPawn())
 	{ C.PlayerPosition = Pawn->GetActorLocation(); C.PlayerYaw = Pawn->GetActorRotation().Yaw; }
@@ -188,6 +190,8 @@ void AShanmenDemo20GameMode::UseMedicine()
 void AShanmenDemo20GameMode::ApplyExpeditionProjection()
 {
 	const bool Running = Session.GetPhase() != EShanmenDemo20Phase::Preparation;
+	if (Running && (!WorldCheckpoint.IsValid() || !FShanmenDemo20Encounters::Build(Session.GetRunId(),Session.GetEncounterRevision(),ExpeditionEnemies)))
+	{ bPaused=true; bWorldReady=false; Notice=TEXT("遭遇内容未确认，原局保留；不会替换敌人或重抽。请重启恢复。"); return; }
 	for (int32 I = 0; I < 3; ++I)
 	{
 		const bool Alive = Running && Session.GetHealth(I+1)>0.f;
@@ -195,9 +199,17 @@ void AShanmenDemo20GameMode::ApplyExpeditionProjection()
 		Warnings[I]->SetActorHiddenInGame(!Alive || WorldCheckpoint.EnemyClocks[I]<=0.f);
 		if (Running)
 		{
+			const auto& Spec=ExpeditionEnemies[I];
+			Sentinels[I]->SetActorScale3D(Spec.Scale);
+			if (auto* Mesh=Sentinels[I]->FindComponentByClass<UStaticMeshComponent>())
+			{
+				auto* Material=Cast<UMaterialInstanceDynamic>(Mesh->GetMaterial(0));
+				if (!Material) Material=Mesh->CreateAndSetMaterialInstanceDynamic(0);
+				if (Material) Material->SetVectorParameterValue(TEXT("Color"),Spec.Color);
+			}
 			Sentinels[I]->SetActorLocation(WorldCheckpoint.EnemyPositions[I]); SentinelClocks[I]=WorldCheckpoint.EnemyClocks[I];
 			Warnings[I]->SetActorLocation(WorldCheckpoint.WarningTargets[I]);
-			const float Diameter = I == 1 ? 2.4f : I == 2 ? 6.2f : 4.8f;
+			const float Diameter = Spec.WarningRadius/50.f;
 			Warnings[I]->SetActorScale3D(FVector(Diameter,Diameter,.04f));
 		}
 	}
@@ -250,9 +262,12 @@ void AShanmenDemo20GameMode::StartExpedition()
 		if (I.ParentContainerId==FShanmenDemo20Catalog::ContainerId(TEXT("Armor")) && I.DefinitionId==TEXT("Armor.Leather")) Armor=.28f;
 	}
 	FShanmenDemo20Session Candidate;
-	if (!Candidate.BeginExpedition(PreviewStart.ReservationId,Damage,Armor)) return;
+	if (!Candidate.BeginExpedition(PreviewStart.ReservationId,Damage,Armor,FShanmenDemo20Encounters::CurrentRevision)) return;
 	FShanmenDemo20WorldCheckpoint Initial; Initial.ContentId=Initial.CurrentContentId(); Initial.RunSeed=Initial.SeedForRun(PreviewStart.ReservationId);
 	Candidate.CaptureExpedition(Initial.Combat);
+	FShanmenDemo20EnemySpec Specs[FShanmenDemo20Encounters::Count];
+	if (!FShanmenDemo20Encounters::Build(PreviewStart.ReservationId,FShanmenDemo20Encounters::CurrentRevision,Specs)) return;
+	for (int32 I=0;I<FShanmenDemo20Encounters::Count;++I) Initial.EnemyPositions[I]=Specs[I].Spawn;
 	FShanmenDemo20WorldCheckpoint Confirmed;
 	if (IFileManager::Get().FileExists(*FShanmenDemo20WorldCheckpointStore::Path(WorldProfileRoot,PreviewStart.ReservationId)))
 	{
@@ -260,6 +275,9 @@ void AShanmenDemo20GameMode::StartExpedition()
 			|| Confirmed.Generation!=1 || Confirmed.Combat.Sequence!=0 || Confirmed.Combat.Elapsed!=0.f
 			|| Confirmed.Combat.Phase!=EShanmenDemo20Phase::Active || Confirmed.Combat.SwordDamage!=Damage || Confirmed.Combat.ArmorFraction!=Armor)
 		{ Notice=TEXT("出发记录冲突，未启动或扣除；请查看运行日志。"); RefreshSurface(); return; }
+		// An orphan preflight from an older executable belongs to that exact Run/content.
+		// Do not mix a newly generated session with its already-confirmed world.
+		if (!Candidate.RestoreExpedition(Confirmed.Combat)) { Notice=TEXT("出发内容恢复失败，未扣除携带物。"); RefreshSurface(); return; }
 	}
 	else if (!FShanmenDemo20WorldCheckpointStore::Save(WorldProfileRoot,Confirmed,Initial,Reason)) { Notice=Reason; RefreshSurface(); return; }
 	auto* Authority=GetGameInstance()->GetSubsystem<Udemo_mapShanmenItemAuthoritySubsystem>();
@@ -275,6 +293,10 @@ void AShanmenDemo20GameMode::StartExpedition()
 	Notice=TEXT("已确认出发 · 靠近金色宝匣或守卫遗物按交互键搜索，可拖入背包或安全格。归阵开局可用。"); NoticeTime=8.f;
 	RefreshSurface(); UE_LOG(LogTemp,Display,TEXT("DEMO20_EXPEDITION_BEGIN Run=%s Seed=%llu ItemGeneration=%d"),
 		*Session.GetRunId().ToString(),WorldCheckpoint.RunSeed,Started.DocumentGeneration);
+	for (int32 I=0;I<FShanmenDemo20Encounters::Count;++I)
+		UE_LOG(LogTemp,Display,TEXT("DEMO20_ENCOUNTER Run=%s Content=%s Revision=%d Slot=%d Kind=%d HP=%.1f Spawn=%s"),
+			*Session.GetRunId().ToString(),*WorldCheckpoint.ContentId.ToString(),Session.GetEncounterRevision(),I,
+			static_cast<int32>(ExpeditionEnemies[I].Kind),ExpeditionEnemies[I].Health,*WorldCheckpoint.EnemyPositions[I].ToString());
 }
 
 bool AShanmenDemo20GameMode::FinalizeExpedition()
@@ -313,7 +335,9 @@ FString AShanmenDemo20GameMode::GetExplorationArea() const
 	const auto* P=GetWorld()->GetFirstPlayerController(); const APawn* Pawn=P?P->GetPawn():nullptr;
 	if (!Pawn || Pawn->GetActorLocation().X<0) return TEXT("归阵 · 安全入口");
 	const float X=Pawn->GetActorLocation().X;
-	return X<2050?TEXT("石径 · 近战守卫"):X<4150?TEXT("竹林 · 远程守卫"):TEXT("遗坛 · 精英守卫");
+	const int32 Slot=X<2050?0:X<4150?1:2;
+	const TCHAR* Areas[]={TEXT("石径"),TEXT("竹林"),TEXT("遗坛")};
+	return FString::Printf(TEXT("%s · %s"),Areas[Slot],*ExpeditionEnemies[Slot].Name());
 }
 
 void AShanmenDemo20GameMode::TickExpedition(float Delta)
@@ -354,7 +378,8 @@ void AShanmenDemo20GameMode::UpdateExpeditionEnemies(float Delta)
 	{
 		if (Session.GetHealth(I+1)<=0) continue;
 		const FVector Enemy=Sentinels[I]->GetActorLocation(), Player=Pawn->GetActorLocation();
-		const float Distance=FVector::Dist2D(Enemy,Player), Range=I==1?800.f:I==2?310.f:240.f;
+		const auto& Spec=ExpeditionEnemies[I]; const bool Ranged=Spec.Kind==EShanmenDemo20EnemyKind::Ranged;
+		const float Distance=FVector::Dist2D(Enemy,Player), Range=Spec.Range;
 		FCollisionQueryParams Sight(SCENE_QUERY_STAT(Demo20Sight),false,Sentinels[I]); Sight.AddIgnoredActor(Pawn);
 		const bool Visible=!GetWorld()->LineTraceTestByChannel(Enemy+FVector(0,0,80),Player+FVector(0,0,80),ECC_WorldStatic,Sight);
 		float& Clock=SentinelClocks[I];
@@ -362,22 +387,22 @@ void AShanmenDemo20GameMode::UpdateExpeditionEnemies(float Delta)
 		if (Clock<=0 && Distance<1000.f && Distance>180.f)
 		{
 			FVector Direction=(Player-Enemy).GetSafeNormal2D();
-			if (I==1 && Distance<400.f) Direction=-Direction;
-			else if (I==1 && Distance<650.f) Direction=FVector::ZeroVector;
-			Sentinels[I]->SetActorLocation(Enemy+Direction*(I==2?210.f:155.f)*Delta,true);
+			if (Ranged && Distance<400.f) Direction=-Direction;
+			else if (Ranged && Distance<650.f) Direction=FVector::ZeroVector;
+			Sentinels[I]->SetActorLocation(Enemy+Direction*Spec.Speed*Delta,true);
 		}
 		if (Clock==0 && Distance<Range && Visible)
 		{
-			Clock=.001f; Warnings[I]->SetActorLocation((I==1?Player:Sentinels[I]->GetActorLocation())*FVector(1,1,0)+FVector(0,0,8));
-			const float Diameter=I==1?2.4f:I==2?6.2f:4.8f; Warnings[I]->SetActorScale3D(FVector(Diameter,Diameter,.04f));
+			Clock=.001f; Warnings[I]->SetActorLocation((Ranged?Player:Sentinels[I]->GetActorLocation())*FVector(1,1,0)+FVector(0,0,8));
+			const float Diameter=Spec.WarningRadius/50.f; Warnings[I]->SetActorScale3D(FVector(Diameter,Diameter,.04f));
 			Warnings[I]->SetActorHiddenInGame(false);
 		}
 		if (Clock>0)
 		{
 			Clock+=Delta;
-			if (Clock>=(I==2?1.1f:.85f))
+			if (Clock>=Spec.Windup)
 			{
-				const bool Hit=FVector::Dist2D(Player,Warnings[I]->GetActorLocation())<(I==1?120.f:Range) && Visible;
+				const bool Hit=FVector::Dist2D(Player,Warnings[I]->GetActorLocation())<Spec.WarningRadius && Visible;
 				Clock=-1.4f; Warnings[I]->SetActorHiddenInGame(true);
 				if (Hit)
 				{
@@ -387,7 +412,7 @@ void AShanmenDemo20GameMode::UpdateExpeditionEnemies(float Delta)
 					Session=MoveTemp(Candidate);
 					if (Session.GetHealth()<Before) { bExtracting=false; ExtractionClock=0; }
 					Notice=Session.GetHealth()==Before?TEXT("闪避成功"):Session.IsGuarding()?TEXT("格挡与护具减免 · 撤离读条已中断"):
-						I==1?TEXT("受到远程攻击 · 侧移避开红色落点"):TEXT("受到攻击 · 可闪避或格挡，留意红色预警"); NoticeTime=2.f;
+						Ranged?TEXT("受到远程攻击 · 侧移避开红色落点"):TEXT("受到攻击 · 可闪避或格挡，留意红色预警"); NoticeTime=2.f;
 				}
 			}
 		}

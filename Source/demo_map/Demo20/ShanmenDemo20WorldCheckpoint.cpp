@@ -19,6 +19,7 @@ namespace
 	void Payload(FArchive& A, FShanmenDemo20WorldCheckpoint& C)
 	{
 		A << C.Generation << C.ContentId << C.RunSeed << C.Combat.RunId;
+		if (A.IsLoading()) C.Combat.EncounterRevision=FShanmenDemo20Encounters::RevisionForContent(C.ContentId);
 		uint8 Phase = static_cast<uint8>(C.Combat.Phase); A << Phase; C.Combat.Phase = static_cast<EShanmenDemo20Phase>(Phase);
 		A << C.Combat.Sequence;
 		for (int32 I = 0; I < 4; ++I) A << C.Combat.Health[I] << C.Combat.Revisions[I];
@@ -71,7 +72,11 @@ namespace
 
 FGuid FShanmenDemo20WorldCheckpoint::CurrentContentId()
 {
-	return FShanmenDeterministicId::FromCanonicalParts(TEXT("Demo20.WorldContent.r1"), {TEXT("JadePass.FixedThreeZones.r1"),TEXT("MeleeRangedElite.FixedGear.r1")});
+	return FShanmenDemo20Encounters::ContentId(FShanmenDemo20Encounters::CurrentRevision);
+}
+FGuid FShanmenDemo20WorldCheckpoint::LegacyContentId()
+{
+	return FShanmenDemo20Encounters::ContentId(1);
 }
 uint64 FShanmenDemo20WorldCheckpoint::SeedForRun(const FGuid& Run)
 {
@@ -80,7 +85,7 @@ uint64 FShanmenDemo20WorldCheckpoint::SeedForRun(const FGuid& Run)
 }
 bool FShanmenDemo20WorldCheckpoint::IsValid() const
 {
-	if (Generation < 0 || Generation == MAX_int32 || ContentId != CurrentContentId() || !Combat.IsValid()
+	if (Generation < 0 || Generation == MAX_int32 || FShanmenDemo20Encounters::RevisionForContent(ContentId)!=Combat.EncounterRevision || !Combat.IsValid()
 		|| RunSeed != SeedForRun(Combat.RunId) || !Position(PlayerPosition) || !FMath::IsFinite(PlayerYaw)) return false;
 	for (int32 I = 0; I < 3; ++I) if (!Position(EnemyPositions[I]) || !Position(WarningTargets[I])
 		|| !FMath::IsFinite(EnemyClocks[I]) || EnemyClocks[I] < -2.f || EnemyClocks[I] > 2.f) return false;
@@ -116,7 +121,7 @@ bool FShanmenDemo20WorldCheckpointStore::Save(const FString& Root, FShanmenDemo2
 {
 	auto Fail = [&]() { Reason = TEXT("探索进度未确认保存，游戏已暂停。可重试；不会显示已带回或已保存。"); return false; };
 	if (Root.IsEmpty() || !Intent.IsValid() || Before.Generation < 0 || Before.Generation >= MAX_int32-1
-		|| (Before.Generation > 0 && Before.Combat.RunId != Intent.Combat.RunId)) return Fail();
+		|| (Before.Generation > 0 && (Before.Combat.RunId != Intent.Combat.RunId || Before.ContentId != Intent.ContentId))) return Fail();
 	auto C = Intent; C.Generation = Before.Generation+1;
 	TArray<uint8> Bytes; if (!Encode(C,Bytes)) return Fail();
 	const FString P=Path(Root,C.Combat.RunId), Temp=P+TEXT(".tmp"), Backup=P+TEXT(".bak");
