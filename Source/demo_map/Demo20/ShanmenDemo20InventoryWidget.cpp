@@ -1,4 +1,5 @@
 #include "ShanmenDemo20InventoryWidget.h"
+#include "ShanmenItemStackTransfer.h"
 #include "ShanmenDemo20World.h"
 #include "ShanmenDemo20Catalog.h"
 #include "ShanmenDemo20Loadout.h"
@@ -127,6 +128,10 @@ void UShanmenDemo20InventoryWidget::Submit(FShanmenItemGridRequest Intent)
 	if (Result.IsCommandSuccess())
 	{
 		Feedback = TEXT("已确认并保存。");
+		if (Intent.Action==EShanmenItemGridAction::Merge)
+			Feedback=Result.Receipt.ResourceAfter>0
+				? FString::Printf(TEXT("已合并 %d 个；原处还剩 %d 个。"),Result.Receipt.Amount,Result.Receipt.ResourceAfter)
+				: FString::Printf(TEXT("已合并 %d 个，原堆已移空。"),Result.Receipt.Amount);
 		if (Intent.Action == EShanmenItemGridAction::Split) Selected = Result.Receipt.ItemInstanceId;
 	}
 	else if (Result.Status == EShanmenItemDurableCommandStatus::PersistenceFailedRolledBack)
@@ -135,6 +140,8 @@ void UShanmenDemo20InventoryWidget::Submit(FShanmenItemGridRequest Intent)
 		Feedback = TEXT("物品权威不可用或正在恢复，未报告成功。请返回入口检查。");
 	else if (Result.Receipt.Error == EShanmenItemTransactionError::GridNoSpace)
 		Feedback = TEXT("空间不足或缩容放不下：请先整理内容，原物品未改变。");
+	else if (Intent.Action==EShanmenItemGridAction::Merge && Result.Receipt.Error==EShanmenItemTransactionError::InsufficientResource)
+		Feedback=TEXT("目标已达到堆叠上限，或原堆没有可合并数量。原物品保留。");
 	else if (Result.Receipt.Error == EShanmenItemTransactionError::StaleAuthorityRevision || Result.Receipt.Error == EShanmenItemTransactionError::StaleItemRevision)
 		Feedback = TEXT("物品状态已改变，已刷新。请重新操作。");
 	else if (Result.Receipt.Error == EShanmenItemTransactionError::GridPolicyViolation)
@@ -153,7 +160,8 @@ void UShanmenDemo20InventoryWidget::Submit(FShanmenItemGridRequest Intent)
 	{
 		const auto* From=Projection.Items.FindByPredicate([&](const auto& I){return I.ItemInstanceId==Intent.ItemInstanceId;});
 		const auto* To=Projection.Items.FindByPredicate([&](const auto& I){return I.ItemInstanceId==Intent.MergeTargetId;});
-		if (From && To && !(From->RewardMetadata==To->RewardMetadata)) Feedback=TEXT("来源记录不同，本轮暂不能合并。两堆物品的位置与数量保留。");
+		if (From && To && !FShanmenItemStackTransferPolicy::MetadataCompatible(From->RewardMetadata,To->RewardMetadata))
+			Feedback=TEXT("物品的特殊奖励或词条不同，暂不能合并。两堆物品保留。");
 	}
 	RefreshProjection();
 }

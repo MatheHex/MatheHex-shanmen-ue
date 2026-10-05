@@ -1,6 +1,7 @@
 #include "ShanmenItemRepository.h"
 #include "ShanmenDeterministicId.h"
 #include "ShanmenItemTags.h"
+#include "ShanmenItemStackTransfer.h"
 
 FShanmenItemTransactionReceipt FShanmenItemRepository::EditGrid(const FShanmenItemGridRequest& R)
 {
@@ -147,7 +148,7 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::EditGridImpl(const FShanm
 		if (Target->Revision != R.ExpectedTargetRevision) { return Reject(EError::StaleItemRevision); }
 		const auto* Definition = State.Definitions.Find(Original->DefinitionId);
 		if (!Editable(*Target) || Target->OwnerId != Original->OwnerId || Target->RunId != Original->RunId
-			|| Target->DefinitionId != Original->DefinitionId || !(Target->RewardMetadata == Original->RewardMetadata)
+			|| Target->DefinitionId != Original->DefinitionId || !FShanmenItemStackTransferPolicy::MetadataCompatible(Target->RewardMetadata,Original->RewardMetadata)
 			|| !State.Grid.Layouts.ContainsByPredicate([&](const auto& L) { return L.ContainerId == Target->ParentContainerId; })
 			|| !Definition || !Definition->Supports(EShanmenItemResourceKind::Quantity)) { return Reject(EError::GridPolicyViolation); }
 		Transferred = FMath::Min3(R.Amount, Original->Quantity, Definition->MaxStack - Target->Quantity);
@@ -218,8 +219,11 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::EditGridImpl(const FShanm
 	Receipt.AvailableAfter = Receipt.ResourceAfter; Receipt.ItemRevision = Candidate.Items.FindChecked(ResultItemId).Revision;
 	Receipt.AuthorityRevision = Candidate.AuthorityRevision;
 	Receipt.PurposeId = R.Action == EShanmenItemGridAction::Equip ? TEXT("Grid.Equip") : R.Action == EShanmenItemGridAction::Move ? TEXT("Grid.Move")
-		: R.Action == EShanmenItemGridAction::Split ? TEXT("Grid.Split") : TEXT("Grid.Merge");
+		: R.Action == EShanmenItemGridAction::Split ? TEXT("Grid.Split.r2") : TEXT("Grid.Merge.r2");
 	Receipt.ReceiptId = MakeReceiptId(R.Context.RequestId, FingerprintId, Receipt.Phase, Receipt.Error);
+	if (R.Action==EShanmenItemGridAction::Split || R.Action==EShanmenItemGridAction::Merge)
+		FShanmenItemStackTransferPolicy::Stamp(Receipt,R.ItemInstanceId,
+			R.Action==EShanmenItemGridAction::Split?ResultItemId:R.MergeTargetId,FingerprintId);
 	RecordProcessed(Candidate, R.Context.RequestId, FingerprintId, Receipt);
 	EError Error;
 	if (!Receipt.IsValid() || !ValidateState(Candidate, &Error)) { return Reject(EError::InvariantViolation); }

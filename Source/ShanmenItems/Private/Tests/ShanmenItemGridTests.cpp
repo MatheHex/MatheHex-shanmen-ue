@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 #include "ShanmenItemAuthorityService.h"
 #include "ShanmenItemTags.h"
+#include "ShanmenItemStackTransfer.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/Paths.h"
 #include "Misc/FileHelper.h"
@@ -261,5 +262,45 @@ bool FShanmenGridSchema5Test::RunTest(const FString&)
 	TestTrue(TEXT("Accepted request remains replayable after schema migration"),Restored.EditGrid(Move) == Accepted && Restored.CaptureSnapshot() == Current);
 	TestFalse(TEXT("Second normalization write-free"),Store.OpenOrCreateFromMigration(Initial,Origin,OldDisk).bDiskStateChanged);
 	return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShanmenGridMetadataTest, "Shanmen.0_0_10.Items.Grid.OrdinaryOriginsAndSpecialRewardIsolation", Flags)
+bool FShanmenGridMetadataTest::RunTest(const FString&)
+{
+	FShanmenItemRewardMetadata A,B; A.RewardSourceRoleId=TEXT("Enemy.Melee"); B.RewardSourceRoleId=TEXT("Chest.North");
+	const auto BeforeA=A,BeforeB=B;
+	TestTrue(TEXT("Ordinary roles may differ"),FShanmenItemStackTransferPolicy::MetadataCompatible(A,B));
+	TestTrue(TEXT("Prepared ordinary metadata may mix"),FShanmenItemStackTransferPolicy::MetadataCompatible(A,{}));
+	TestTrue(TEXT("Compatibility does not erase birth records"),A==BeforeA && B==BeforeB);
+	A.RewardEventKind=EShanmenItemRewardEventKind::Jackpot; A.RewardEventId=FGuid::NewGuid(); A.RewardValueMultiplierBps=A.JackpotMultiplierBps;
+	TestFalse(TEXT("Jackpot cannot become ordinary"),FShanmenItemStackTransferPolicy::MetadataCompatible(A,B));
+	B=A; TestTrue(TEXT("Exact same special birth still supported"),FShanmenItemStackTransferPolicy::MetadataCompatible(A,B));
+	B.RewardSourceRoleId=TEXT("Chest.North"); TestFalse(TEXT("Special origins are not stripped"),FShanmenItemStackTransferPolicy::MetadataCompatible(A,B));
+	B=A; B.RewardEventId=FGuid::NewGuid(); TestFalse(TEXT("Different jackpot events cannot mix"),FShanmenItemStackTransferPolicy::MetadataCompatible(A,B));
+	A=BeforeA; B=BeforeB; A.RareRewardEventId=FGuid::NewGuid(); A.RareRewardPolicyId=TEXT("Rare.Policy"); A.RareRewardTierId=TEXT("Rare.Tier1"); A.RareRewardBonusValue=10;
+	TestTrue(TEXT("Valid rare fixture"),A.IsValid()); TestFalse(TEXT("Rare bonus retained, not ordinary"),FShanmenItemStackTransferPolicy::MetadataCompatible(A,B));
+	A=BeforeA; A.AffixSetEventId=FGuid::NewGuid(); A.AffixPolicyId=TEXT("Affix.Policy"); A.AffixAcquisition=EShanmenItemRewardAffixAcquisition::Natural;
+	FShanmenItemResolvedRewardAffix Affix; Affix.AffixId=TEXT("Affix.Attack"); Affix.Tier=EShanmenItemRewardAffixTier::Tier1;
+	Affix.ResolvedMagnitudeScaled=10; Affix.ResolvedValue=5; A.Affixes.Add(Affix);
+	TestTrue(TEXT("Valid affix fixture"),A.IsValid()); TestFalse(TEXT("Affix is not discarded for stacking"),FShanmenItemStackTransferPolicy::MetadataCompatible(A,B));
+	A=BeforeA; A.RewardValueMultiplierBps=9999; B=A;
+	TestFalse(TEXT("Equal invalid metadata is not compatible"),FShanmenItemStackTransferPolicy::MetadataCompatible(A,B)); return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShanmenGridLegacyStackTest, "Shanmen.0_0_10.Items.Grid.LegacyStackReceiptsReplayWithoutRewrite", Flags)
+bool FShanmenGridLegacyStackTest::RunTest(const FString&)
+{
+	FShanmenItemRepository R; if (!TestTrue(TEXT("Nonzero legacy fixture"),R.TryLoadSnapshot(Fixture()))) return false;
+	auto Q=Request(R,MaterialStackAId,FGuid()); Q.Action=EShanmenItemGridAction::Merge; Q.MergeTargetId=MaterialStackBId; Q.Amount=8;
+	Q.ExpectedTargetRevision=R.FindItem(MaterialStackBId)->Revision;
+	if (!TestTrue(TEXT("Current partial merge"),R.EditGrid(Q).IsSuccess())) return false;
+	auto Historical=R.CaptureSnapshot();
+	// The old command fingerprint and receipt identity do not depend on the
+	// new purpose/witness. Model actual pre-r2 empty transfer fields exactly.
+	for (auto& P:Historical.ProcessedRequests) { P.Receipt.PurposeId=TEXT("Grid.Merge"); P.Receipt.ReservationIds.Reset(); }
+	FShanmenItemRepository Old; if (!TestTrue(TEXT("Historical shape loads unchanged"),Old.TryLoadSnapshot(Historical))) return false;
+	TestTrue(TEXT("Historical exact replay, no inferred recipient/witness rewrite"),Old.EditGrid(Q)==Historical.ProcessedRequests[0].Receipt && Old.CaptureSnapshot()==Historical);
+	auto Split=Request(Old,MaterialStackAId,Carry); Split.Action=EShanmenItemGridAction::Split; Split.Amount=2;
+	const auto Result=Old.EditGrid(Split); TestTrue(TEXT("Next real command is witnessed"),Result.IsSuccess() && FShanmenItemStackTransferPolicy::HasWitness(Result));
+	TestEqual(TEXT("Conservation uses nonzero thirty, not a zero baseline"),Total(Old.CaptureSnapshot()),30); return true;
 }
 #endif

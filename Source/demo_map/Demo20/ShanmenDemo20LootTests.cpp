@@ -3,6 +3,7 @@
 #include "ShanmenDemo20Catalog.h"
 #include "ShanmenDemo20Loadout.h"
 #include "ShanmenDemo20Medicine.h"
+#include "ShanmenItemStackTransfer.h"
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
 #include "Engine/GameInstance.h"
 #include "Misc/AutomationTest.h"
@@ -732,5 +733,124 @@ bool FDemo20GroundWeaponTest::RunTest(const FString&)
 	TestTrue(TEXT("Old positions never appear in new Run"),FShanmenItemGroundDropPolicy::Read(S,FShanmenDemo20Catalog::OwnerId(),FShanmenDemo20Catalog::ScopeId(),F.Run,Views) && Views.IsEmpty());
 	TestFalse(TEXT("New Run cannot write previous ground"),F.Items->EditActiveRunGridDurable(F.Move(Id,Drop.ContainerId(),0,0)).IsCommandSuccess());
 	TestTrue(TEXT("Previous terminal exact drop replay has no new effect"),F.Items->DropActiveRunItemDurable(Drop).IsCommandSuccess() && S==F.Snapshot()); return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20CrossOriginPartialTest,"Shanmen.Demo20.StackTransfer.CrossSourcePreparedPartialAndNativeReplay",Flags)
+bool FDemo20CrossOriginPartialTest::RunTest(const FString&)
+{
+	FFixture F; if (!TestTrue(TEXT("Ordinary original and two independent sources"),F.Start() && F.Unify()
+		&& F.Accept(FShanmenDemo20Sources::EnemyRole(0),TEXT("Heal.Pill")) && F.Materialize())) return false;
+	const auto Enemy=F.Source; if (!TestTrue(TEXT("Chest independently accepted"),F.Accept(FShanmenDemo20Sources::ChestRole(0),TEXT("Heal.Pill")) && F.Materialize())) return false;
+	const auto Chest=F.Source; const auto Original=F.OriginalPills(); const auto Before=F.Snapshot();
+	const auto Q=F.Merge(Enemy.GetItemIds()[0],Original); const auto Result=F.Items->EditActiveRunGridDurable(Q);
+	if (!TestTrue(TEXT("Enemy ordinary pills mix with prepared eight"),Result.IsCommandSuccess())) return false;
+	auto S=F.Snapshot(); TestEqual(TEXT("Actual capacity ten"),F.Find(S,Original)->Quantity,10);
+	TestEqual(TEXT("Only two transferred"),Result.Receipt.Amount,2); TestEqual(TEXT("One remains in actual source"),F.Find(S,Enemy.GetItemIds()[0])->Quantity,1);
+	TestTrue(TEXT("Both immutable birth metadata unchanged"),F.Find(S,Original)->RewardMetadata==F.Find(Before,Original)->RewardMetadata
+		&& F.Find(S,Enemy.GetItemIds()[0])->RewardMetadata==F.Find(Before,Enemy.GetItemIds()[0])->RewardMetadata && S.GeneratedSources==Before.GeneratedSources);
+	TestTrue(TEXT("Durable edge records both identities, not another quantity map"),Result.Receipt.ReservationIds.Num()==3
+		&& Result.Receipt.ReservationIds[0]==Enemy.GetItemIds()[0] && Result.Receipt.ReservationIds[1]==Original);
+	const auto Failed=F.Merge(Chest.GetItemIds()[0],Original); TestFalse(TEXT("Full target refuses without mutation"),F.Items->EditActiveRunGridDurable(Failed).IsCommandSuccess());
+	TestTrue(TEXT("Exact nonzero source graph remains"),S==F.Snapshot());
+	TestTrue(TEXT("Chest and enemy may merge at world sources"),F.Items->EditActiveRunGridDurable(F.Merge(Chest.GetItemIds()[0],Enemy.GetItemIds()[0])).IsCommandSuccess());
+	S=F.Snapshot(); TestEqual(TEXT("Recipient is actual four"),F.Find(S,Enemy.GetItemIds()[0])->Quantity,4);
+	TestEqual(TEXT("Consumed source tombstone preserved for lineage"),F.Find(S,Chest.GetItemIds()[0])->State,EState::Depleted);
+	int32 Total=0; for (const auto& I:S.Items) if (I.DefinitionId==TEXT("Heal.Pill")) Total+=I.Quantity;
+	TestEqual(TEXT("All ordinary pills conserved across distinct origins"),Total,32);
+	TestTrue(TEXT("Reopen exact plans, quantities, lineage and replay"),F.Restart() && S==F.Snapshot()
+		&& F.Items->EditActiveRunGridDurable(Q).IsCommandSuccess() && S==F.Snapshot()); return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20CrossOriginSplitTest,"Shanmen.Demo20.StackTransfer.MixedSplitDropAndTerminalPlacement",Flags)
+bool FDemo20CrossOriginSplitTest::RunTest(const FString&)
+{
+	for (auto Reason:{EShanmenItemRunTerminalReason::Extraction,EShanmenItemRunTerminalReason::Death})
+	{
+		FFixture F; if (!TestTrue(TEXT("Native unified source"),F.Start() && F.Unify() && F.Accept(FShanmenDemo20Sources::EnemyRole(1),TEXT("Heal.Pill")) && F.Materialize())) return false;
+		const auto Origin=F.OriginalPills(), Target=F.Source.GetItemIds()[0];
+		if (!TestTrue(TEXT("Actual pickup then reversed-origin merge"),F.Items->EditActiveRunGridDurable(F.Move(Target,Carry(),1,0)).IsCommandSuccess()
+			&& F.Items->EditActiveRunGridDurable(F.Merge(Origin,Target)).IsCommandSuccess())) return false;
+		TestEqual(TEXT("Target ten, original remainder one"),F.Find(F.Snapshot(),Origin)->Quantity,1);
+		auto Split=F.Move(Target,Secure(),1,0); Split.Grid.Action=EAction::Split; Split.Grid.Amount=3;
+		const auto Divided=F.Items->EditActiveRunGridDurable(Split); if (!TestTrue(TEXT("Mixed three explicitly confirmed safe"),Divided.IsCommandSuccess())) return false;
+		const auto Child=Divided.Receipt.ItemInstanceId; const auto Before=F.Snapshot(); const auto Drop=F.Drop(Target);
+		if (!TestTrue(TEXT("Mixed remainder same-ID ground trip"),F.Items->DropActiveRunItemDurable(Drop).IsCommandSuccess()
+			&& F.Items->EditActiveRunGridDurable(F.Move(Target,Carry(),1,0)).IsCommandSuccess())) return false;
+		const auto Terminal=F.Terminal(Reason); if (!TestTrue(TEXT("Terminal follows confirmed placement, not birth source"),F.Items->FinalizePreparedRunDurable(Terminal).IsCommandSuccess())) return false;
+		const auto S=F.Snapshot(); TestEqual(TEXT("Safe mixed three preserved"),F.Find(S,Child)->Quantity,3);
+		TestEqual(TEXT("Ordinary mixed seven follow terminal reason"),F.Find(S,Target)->Quantity,Reason==EShanmenItemRunTerminalReason::Extraction?7:0);
+		TestEqual(TEXT("Original remainder one follows actual ordinary placement"),F.Find(S,Origin)->Quantity,Reason==EShanmenItemRunTerminalReason::Extraction?1:0);
+		TestTrue(TEXT("Split edge links mixed parent and same-metadata child"),Divided.Receipt.ReservationIds[0]==Target && Divided.Receipt.ReservationIds[1]==Child
+			&& F.Find(S,Child)->RewardMetadata==F.Find(Before,Target)->RewardMetadata);
+		TestTrue(TEXT("Restart and terminal replay never refund merged originals"),F.Restart() && S==F.Snapshot()
+			&& F.Items->FinalizePreparedRunDurable(Terminal).IsCommandSuccess() && S==F.Snapshot());
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20CrossOriginFailureTest,"Shanmen.Demo20.StackTransfer.NativeFailureAndExactRetry",Flags)
+bool FDemo20CrossOriginFailureTest::RunTest(const FString&)
+{
+	for (bool Split:{false,true}) for (auto Fault:{EShanmenItemStoreFailureStage::AtomicReplace,EShanmenItemStoreFailureStage::ReadBackCommittedPrimary})
+	{
+		FFixture F; if (!TestTrue(TEXT("Isolated native source"),F.Start() && F.Unify() && F.Accept(FShanmenDemo20Sources::EnemyRole(0),TEXT("Heal.Pill")) && F.Materialize())) return false;
+		const auto Id=F.Source.GetItemIds()[0]; auto Q=F.Merge(Id,F.OriginalPills());
+		if (Split) { Q=F.Move(F.OriginalPills(),Secure(),1,0); Q.Grid.Action=EAction::Split; Q.Grid.Amount=2; }
+		const auto Before=F.Snapshot(); F.Items->SetInjectedFailureForTests(Fault); const auto Result=F.Items->EditActiveRunGridDurable(Q);
+		if (Fault==EShanmenItemStoreFailureStage::AtomicReplace) TestTrue(TEXT("Failed write preserves quantity and no witness is installed"),!Result.IsCommandSuccess() && Before==F.Snapshot());
+		else TestTrue(TEXT("Confirmed durable post-state, not guessed success"),Result.IsCommandSuccess() && Result.IsDurable());
+		if (!TestTrue(TEXT("Native reopen and exact retry"),F.Restart() && F.Items->EditActiveRunGridDurable(Q).IsCommandSuccess())) return false;
+		const auto S=F.Snapshot(); TestEqual(TEXT("Exactly one authority mutation"),S.AuthorityRevision,Before.AuthorityRevision+1);
+		TestTrue(TEXT("Exact retry does not create another edge or quantity"),F.Items->EditActiveRunGridDurable(Q).IsCommandSuccess() && S==F.Snapshot());
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20CrossOriginIntegrityTest,"Shanmen.Demo20.StackTransfer.WitnessParticipantsAndBirthIntegrity",Flags)
+bool FDemo20CrossOriginIntegrityTest::RunTest(const FString&)
+{
+	FFixture F; if (!TestTrue(TEXT("Native source"),F.Start() && F.Unify() && F.Accept(FShanmenDemo20Sources::EnemyRole(0),TEXT("Heal.Pill")) && F.Materialize())) return false;
+	const auto Q=F.Merge(F.Source.GetItemIds()[0],F.OriginalPills()); if (!TestTrue(TEXT("Witnessed cross-origin merge"),F.Items->EditActiveRunGridDurable(Q).IsCommandSuccess())) return false;
+	const auto S=F.Snapshot(); FShanmenItemRepository Check;
+	for (int32 N=0;N<6;++N)
+	{
+		auto Bad=S; for (auto& P:Bad.ProcessedRequests) if (P.Receipt.RequestId==Q.Grid.Context.RequestId)
+		{
+			if (N==0) P.Receipt.ReservationIds.Reset();
+			if (N==1) P.Receipt.ReservationIds[1]=F.Source.GetItemIds()[1];
+			if (N==2) P.Receipt.ReservationIds[2]=FGuid::NewGuid();
+			if (N==3) { ++P.Receipt.Amount; --P.Receipt.ResourceAfter; --P.Receipt.AvailableAfter; }
+			if (N==4) P.Fingerprint=FGuid::NewGuid();
+		}
+		if (N==5) for (auto& I:Bad.Items) if (I.ItemInstanceId==Q.Grid.ItemInstanceId) I.RewardMetadata.RewardSourceRoleId=TEXT("Chest.False");
+		TestFalse(TEXT("Missing witness, false participant, witness, balanced amount, fingerprint and overwritten birth all fail load"),Check.TryLoadSnapshot(Bad));
+	}
+	auto Split=F.Move(F.OriginalPills(),Secure(),1,0); Split.Grid.Action=EAction::Split; Split.Grid.Amount=2;
+	const auto Result=F.Items->EditActiveRunGridDurable(Split); if (!TestTrue(TEXT("Split descendant"),Result.IsCommandSuccess())) return false;
+	auto Bad=F.Snapshot(); for (auto& I:Bad.Items) if (I.ItemInstanceId==Result.Receipt.ItemInstanceId) I.RewardMetadata.RewardSourceRoleId=TEXT("Chest.False");
+	TestFalse(TEXT("Split cannot invent a new birth origin"),Check.TryLoadSnapshot(Bad));
+	TestTrue(TEXT("Valid native graph still exact after all rejected loads"),F.Restart() && F.Snapshot()!=Bad); return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20CrossOriginMedicineTest,"Shanmen.Demo20.StackTransfer.MixedMedicineConsumesOnceAcrossRecovery",Flags)
+bool FDemo20CrossOriginMedicineTest::RunTest(const FString&)
+{
+	FFixture F; if (!TestTrue(TEXT("Native mixed ordinary pills"),F.Start() && F.Unify() && F.Accept(FShanmenDemo20Sources::EnemyRole(0),TEXT("Heal.Pill")) && F.Materialize()
+		&& F.Items->EditActiveRunGridDurable(F.Merge(F.Source.GetItemIds()[0],F.OriginalPills())).IsCommandSuccess())) return false;
+	const auto Id=F.OriginalPills(); FShanmenDemo20Session Session; Session.BeginExpedition(F.Run,26,.12f);
+	for (int32 N=0;N<4;++N) Session.ReceiveSentinelStrike(0);
+	FShanmenDemo20WorldCheckpoint C,Fresh; Fresh.ContentId=C.CurrentContentId(); Fresh.RunSeed=C.SeedForRun(F.Run); Session.CaptureExpedition(Fresh.Combat);
+	if (!TestTrue(TEXT("Save nonzero damaged health"),FShanmenDemo20WorldCheckpointStore::Save(F.Root,C,Fresh,F.Why))) return false;
+	const auto HP=C.Combat.Health[0]; FShanmenDemo20WorldCheckpoint Intent;
+	if (!TestTrue(TEXT("Formal medicine intent sees actual mixed ten"),FShanmenDemo20Medicine::BuildIntent(C,F.Snapshot(),Intent,F.Why))) return false;
+	TestEqual(TEXT("Exact target identity"),Intent.Medicine.ItemId,Id); TestEqual(TEXT("Quantity from actual graph"),Intent.Medicine.ExpectedQuantity,10);
+	if (!TestTrue(TEXT("Durable intent"),FShanmenDemo20WorldCheckpointStore::Save(F.Root,C,Intent,F.Why))) return false;
+	{ TGuardValue<bool> Fault(FShanmenDemo20WorldCheckpointStore::bFailBeforeReplace,true);
+		TestFalse(TEXT("Item deducted, failed HP save does not pretend healing"),FShanmenDemo20Medicine::Recover(F.Root,C,F.MedicinePorts(),F.Why)); }
+	TestEqual(TEXT("HP still pre-confirmation"),C.Combat.Health[0],HP);
+	if (!TestTrue(TEXT("Reopen exact intent and recover existing consumption"),F.Restart() && FShanmenDemo20WorldCheckpointStore::Load(F.Root,F.Run,C,F.Why)
+		&& FShanmenDemo20Medicine::Recover(F.Root,C,F.MedicinePorts(),F.Why))) return false;
+	const auto S=F.Snapshot(); TestEqual(TEXT("Mixed ten becomes nine once"),F.Find(S,Id)->Quantity,9);
+	TestTrue(TEXT("HP increases thirty-five once"),FMath::IsNearlyEqual(C.Combat.Health[0],HP+35));
+	TestTrue(TEXT("No second consume across duplicate recovery"),FShanmenDemo20Medicine::Recover(F.Root,C,F.MedicinePorts(),F.Why) && S==F.Snapshot()); return true;
 }
 #endif

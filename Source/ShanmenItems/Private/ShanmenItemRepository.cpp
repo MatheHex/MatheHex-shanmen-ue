@@ -1,4 +1,5 @@
 #include "ShanmenItemRepository.h"
+#include "ShanmenItemStackTransfer.h"
 
 #include "ShanmenDeterministicId.h"
 
@@ -1197,6 +1198,15 @@ bool FShanmenItemRepository::ValidateState(
 			if (Processed.Receipt.Operation == EShanmenItemTransactionOperation::MaterializeGeneratedSource
 				|| Processed.Receipt.Operation == EShanmenItemTransactionOperation::MaterializeRunInventory
 				|| Processed.Receipt.Operation == EShanmenItemTransactionOperation::DropActiveRunItem) continue;
+			if (FShanmenItemStackTransferPolicy::HasWitness(Processed.Receipt))
+			{
+				const auto& Edit=Processed.Receipt;
+				if (!FShanmenItemStackTransferPolicy::IsWitnessShapeValid(Edit)) return Fail();
+				const auto* From=Candidate.Items.Find(Edit.ReservationIds[0]);
+				const auto* To=Candidate.Items.Find(Edit.ReservationIds[1]);
+				const auto* Definition=From?Candidate.Definitions.Find(From->DefinitionId):nullptr;
+				if (!From || !To || !Definition || !FShanmenItemStackTransferPolicy::Validate(Edit,Processed.Fingerprint,*From,*To,*Definition)) return Fail();
+			}
 			if (Processed.Receipt.Operation == EShanmenItemTransactionOperation::EditActiveRunGrid)
 			{
 				const auto& Edit=Processed.Receipt;

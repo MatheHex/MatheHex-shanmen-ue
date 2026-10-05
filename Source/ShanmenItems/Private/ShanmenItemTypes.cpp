@@ -1,6 +1,7 @@
 #include "ShanmenItemTypes.h"
 
 #include "ShanmenItemTags.h"
+#include "ShanmenItemStackTransfer.h"
 
 namespace
 {
@@ -552,12 +553,14 @@ bool FShanmenItemTransactionReceipt::IsValid() const
 	if (Operation == EShanmenItemTransactionOperation::EditGrid || Operation == EShanmenItemTransactionOperation::EditActiveRunGrid)
 	{
 		const bool Move = PurposeId == TEXT("Grid.Move") || PurposeId == TEXT("Grid.Equip");
+		const bool Witnessed=FShanmenItemStackTransferPolicy::HasWitness(*this);
 		return Error == EShanmenItemTransactionError::None && Phase == EShanmenItemTransactionPhase::Committed
-			&& ItemInstanceId.IsValid() && (Operation == EShanmenItemTransactionOperation::EditActiveRunGrid ? ReservationId.IsValid() : !ReservationId.IsValid()) && ReservationIds.IsEmpty()
+			&& ItemInstanceId.IsValid() && (Operation == EShanmenItemTransactionOperation::EditActiveRunGrid ? ReservationId.IsValid() : !ReservationId.IsValid())
+			&& (Witnessed ? FShanmenItemStackTransferPolicy::IsWitnessShapeValid(*this) : ReservationIds.IsEmpty())
 			&& ResourceKind == EShanmenItemResourceKind::Quantity && ResourceBefore > 0 && ResourceAfter >= 0
 			&& AvailableAfter == ResourceAfter && ItemRevision >= 0
 			&& (Move ? (Amount == 1 && ResourceAfter == ResourceBefore)
-				: ((PurposeId == TEXT("Grid.Split") || PurposeId == TEXT("Grid.Merge")) && Amount > 0 && ResourceAfter == ResourceBefore - Amount));
+				: ((Witnessed || PurposeId == TEXT("Grid.Split") || PurposeId == TEXT("Grid.Merge")) && Amount > 0 && ResourceAfter == ResourceBefore - Amount));
 	}
 	if (Operation == EShanmenItemTransactionOperation::ReplenishBasics)
 	{
