@@ -10,6 +10,7 @@
 #include "Components/CanvasPanelSlot.h"
 #include "Components/ProgressBar.h"
 #include "Components/ScaleBox.h"
+#include "Components/ScrollBox.h"
 #include "Components/SizeBox.h"
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
@@ -108,7 +109,10 @@ void UShanmenDemo20Widget::Build()
 	auto* CardBox = WidgetTree->ConstructWidget<UVerticalBox>(); Card->SetContent(CardBox);
 	Add(CardBox, Text(WidgetTree, TEXT("SHANMEN    /    DEMO 2.0"), 13, Gold), 20);
 	Heading = Text(WidgetTree, TEXT("归尘试炼"), 34, Paper); Add(CardBox, Heading, 16);
-	Body = Text(WidgetTree, FString(), 17, Paper); Add(CardBox, Body, 24);
+	// Bound text only: long item lists scroll without pushing return/retry off screen.
+	auto* BodySize = WidgetTree->ConstructWidget<USizeBox>(); BodySize->SetHeightOverride(250);
+	BodyScroll = WidgetTree->ConstructWidget<UScrollBox>(); BodySize->SetContent(BodyScroll);
+	Body = Text(WidgetTree, FString(), 17, Paper); BodyScroll->AddChild(Body); Add(CardBox, BodySize, 24);
 	auto Button = [&](TObjectPtr<UButton>& OutButton, TObjectPtr<UTextBlock>& OutLabel, const FLinearColor& Color)
 	{
 		OutButton = WidgetTree->ConstructWidget<UButton>();
@@ -152,6 +156,9 @@ void UShanmenDemo20Widget::Refresh()
 	if (!Host.IsValid() || !Modal) return;
 	const auto& Session = Host->GetSession();
 	const auto Phase = Session.GetPhase();
+	if (Phase != EShanmenDemo20Phase::Preparation) bViewingLastSettlement = false;
+	if (BodyScroll && (LastBodyPhase != static_cast<int32>(Phase) || bLastHistorySurface != bViewingLastSettlement))
+	{ BodyScroll->ScrollToStart(); LastBodyPhase=static_cast<int32>(Phase); bLastHistorySurface=bViewingLastSettlement; }
 	InventorySurface->SetVisibility(Host->IsInventoryOpen() ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 	InventoryButton->SetVisibility(Phase == EShanmenDemo20Phase::Preparation ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 	InventoryButton->SetIsEnabled(Host->IsProfileReady());
@@ -170,6 +177,15 @@ void UShanmenDemo20Widget::Refresh()
 	Modal->SetVisibility(Host->IsPlaying() ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
 	PrimaryButton->SetIsEnabled(Host->IsWorldReady() && (!Host->IsExpedition() || Host->IsProfileReady()));
 	SecondaryButton->SetVisibility(Host->IsPaused() && Phase==EShanmenDemo20Phase::Active ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	if (Phase == EShanmenDemo20Phase::Preparation && Host->IsExpedition() && !Host->GetLastSettlementDetails().IsEmpty())
+	{
+		if (bViewingLastSettlement)
+		{
+			Set(Heading,TEXT("已保存物品结算")); Set(Body,Host->GetLastSettlementDetails()); Set(PrimaryLabel,TEXT("返回整备"));
+			PrimaryButton->SetIsEnabled(true); InventoryButton->SetVisibility(ESlateVisibility::Collapsed); return;
+		}
+		SecondaryButton->SetVisibility(ESlateVisibility::Visible); Set(SecondaryLabel,TEXT("查看最近结算"));
+	}
 	if (Host->IsSourceSurfaceOpen() && !Host->IsPaused() && Phase==EShanmenDemo20Phase::Active)
 	{
 		Set(Heading,Host->GetSourceHeading()); Set(Body,Host->GetSourceBody());
@@ -201,7 +217,8 @@ void UShanmenDemo20Widget::Refresh()
 		if (Host->IsExpedition())
 		{
 			Set(Heading,Host->IsTerminalConfirmed()?(Phase==EShanmenDemo20Phase::Extracted?TEXT("归阵撤离"):TEXT("力竭止步")):TEXT("结算待确认"));
-			Set(Body,FString::Printf(TEXT("击败守卫  %d / 3\n本局用时  %.1f 秒\n\n"),Session.NumDefeated(),Session.GetElapsed())+Host->GetNotice());
+			Set(Body,FString::Printf(TEXT("击败守卫  %d / 3\n本局用时  %.1f 秒\n\n"),Session.NumDefeated(),Session.GetElapsed())
+				+Host->GetNotice()+TEXT("\n\n")+(Host->IsTerminalConfirmed()?Host->GetTerminalItemDetails():TEXT("物品结算正在确认，尚未展示成功数量。")));
 			Set(PrimaryLabel,Host->IsTerminalConfirmed()?TEXT("返回仓库与整备"):TEXT("重试确认结算")); return;
 		}
 		Set(Heading, Phase == EShanmenDemo20Phase::Extracted ? TEXT("破阵归来") : Phase == EShanmenDemo20Phase::Defeated ? TEXT("力竭止步") : TEXT("试炼已结束"));
@@ -213,12 +230,19 @@ void UShanmenDemo20Widget::Refresh()
 void UShanmenDemo20Widget::Primary()
 {
 	if (!Host.IsValid()) return;
+	if (bViewingLastSettlement) { bViewingLastSettlement=false; Refresh(); SetKeyboardFocus(); return; }
 	if (Host->IsSourceSurfaceOpen() && !Host->IsPaused()) Host->CloseSourceSurface();
 	else if (Host->IsPaused() && Host->GetSession().GetPhase()==EShanmenDemo20Phase::Active) Host->TogglePause();
 	else if (Host->GetSession().GetPhase() == EShanmenDemo20Phase::Preparation) Host->StartTrial();
 	else Host->ReturnToPreparation();
 }
-void UShanmenDemo20Widget::Secondary() { if (Host.IsValid() && Host->IsPaused()) Host->LeaveTrial(); }
+void UShanmenDemo20Widget::Secondary()
+{
+	if (!Host.IsValid()) return;
+	if (Host->GetSession().GetPhase()==EShanmenDemo20Phase::Preparation && !Host->GetLastSettlementDetails().IsEmpty())
+	{ bViewingLastSettlement=true; Refresh(); SetKeyboardFocus(); }
+	else if (Host->IsPaused()) Host->LeaveTrial();
+}
 void UShanmenDemo20Widget::Inventory() { if (Host.IsValid()) Host->ToggleInventory(); }
 void UShanmenDemo20Widget::RefreshInventory() { if (InventoryView) InventoryView->RefreshProjection(); }
 
@@ -231,11 +255,14 @@ void UShanmenDemo20Widget::FocusActiveSurface()
 
 FReply UShanmenDemo20Widget::NativeOnPreviewKeyDown(const FGeometry& Geometry, const FKeyEvent& Event)
 {
+	if (bViewingLastSettlement && Event.GetKey()==EKeys::Escape)
+	{ bViewingLastSettlement=false; Refresh(); SetKeyboardFocus(); return FReply::Handled().ReleaseMouseCapture(); }
 	if (Host.IsValid() && Host->IsSourceSurfaceOpen() && Event.GetKey()==EKeys::Escape)
 	{ Host->TogglePause(); return FReply::Handled().ReleaseMouseCapture(); }
 	if (Host.IsValid() && (Event.GetKey() == Fdemo_mapInputBindingSettings::Get().GetKey(Fdemo_mapInputActionIds::Inventory)
 		|| (Event.GetKey() == EKeys::Escape && Host->IsInventoryOpen())))
 	{
+		bViewingLastSettlement=false;
 		Host->ToggleInventory();
 		return FReply::Handled().ReleaseMouseCapture();
 	}

@@ -86,6 +86,7 @@ private:
 		TMap<FGuid, FShanmenItemProcessedRequestSnapshot> ProcessedRequests;
 		TMap<FGuid, FShanmenItemGeneratedSourcePlan> GeneratedSources;
 		FShanmenItemGridSnapshot Grid;
+		TMap<FGuid, FShanmenItemRunReport> RunReports;
 	};
 
 	FState State;
@@ -99,6 +100,10 @@ private:
 	static bool ValidateGeneratedSources(const FState& Candidate);
 	static bool ValidateRunInventory(const FState& Candidate);
 	static bool ValidateGroundDrops(const FState& Candidate);
+	static bool BeginRunReport(FState& Candidate, const FShanmenItemTransactionReceipt& Start, const FShanmenOperationContext& Context);
+	static bool AccumulateRunPickup(FState& Candidate, const FGuid& Run, const FShanmenItemInstance& Source, const FGuid& Destination, int32 Amount);
+	static bool CloseRunReport(FState& Candidate, const FShanmenItemAuthoritySnapshot& Before, const FShanmenItemRunFinalizeRequest& Request, const FShanmenItemTransactionReceipt& Terminal);
+	static bool ValidateRunReports(const FState& Candidate);
 	FShanmenItemTransactionReceipt EditGridImpl(const FShanmenItemGridRequest& Request, const FGuid& ActiveRunId);
 	static bool FinalizeActiveRunGrid(FState& Candidate, const FShanmenItemRunFinalizeRequest& Request);
 	static FGuid Fingerprint(const FShanmenItemGeneratedSourceRequest& Request);

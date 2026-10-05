@@ -995,6 +995,44 @@ struct SHANMENITEMS_API FShanmenItemProcessedRequestSnapshot
 	bool operator==(const FShanmenItemProcessedRequestSnapshot& Other) const;
 };
 
+USTRUCT()
+struct SHANMENITEMS_API FShanmenItemRunReportLine
+{
+	GENERATED_BODY()
+	UPROPERTY() FName DefinitionId;
+	/** Confirmed search-container -> Carry/Secure transfers; not generated loot or a balance. */
+	UPROPERTY() int32 Obtained = 0;
+	UPROPERTY() int32 Consumed = 0;
+	UPROPERTY() int32 BroughtBack = 0;
+	UPROPERTY() int32 Lost = 0;
+	UPROPERTY() int32 Retained = 0;
+	/** Scene remainder includes never-taken loot and player drops. Not claimed as player loss. */
+	UPROPERTY() int32 LeftInWorld = 0;
+	bool operator==(const FShanmenItemRunReportLine& Other) const;
+};
+
+/** Historical presentation evidence in the SAME atomic authority document.
+ * No command uses these counts to grant, consume, reserve, or return items.
+ * New grid Runs only; old history is never retroactively fabricated.
+ * Obtained accumulates confirmed transfers; terminal counts freeze before
+ * destructive quantities disappear and never refresh from later inventory. */
+USTRUCT()
+struct SHANMENITEMS_API FShanmenItemRunReport
+{
+	GENERATED_BODY()
+	UPROPERTY() FGuid ActiveRunId;
+	UPROPERTY() FGuid OwnerId;
+	UPROPERTY() FGuid ScopeId;
+	UPROPERTY() int32 StartRevision = INDEX_NONE;
+	UPROPERTY() int32 EndRevision = INDEX_NONE;
+	UPROPERTY() FGuid TerminalRequestId;
+	UPROPERTY() EShanmenItemRunTerminalReason TerminalReason = EShanmenItemRunTerminalReason::None;
+	UPROPERTY() TArray<FShanmenItemRunReportLine> Lines;
+	bool IsClosed() const { return EndRevision != INDEX_NONE; }
+	bool IsValid() const;
+	bool operator==(const FShanmenItemRunReport& Other) const;
+};
+
 /** Complete persistence boundary for item graph, reservations, and idempotency ledger. */
 USTRUCT(BlueprintType)
 struct SHANMENITEMS_API FShanmenItemAuthoritySnapshot
@@ -1029,6 +1067,10 @@ struct SHANMENITEMS_API FShanmenItemAuthoritySnapshot
 	/** Optional geometry for new grids. Legacy one-slot containers remain unchanged. */
 	UPROPERTY()
 	FShanmenItemGridSnapshot Grid;
+
+	/** Historical display counts, never a second item quantity authority. */
+	UPROPERTY()
+	TArray<FShanmenItemRunReport> RunReports;
 
 	bool operator==(const FShanmenItemAuthoritySnapshot& Other) const;
 };

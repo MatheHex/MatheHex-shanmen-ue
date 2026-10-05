@@ -839,5 +839,6 @@ bool FShanmenItemAuthoritySnapshot::operator==(const FShanmenItemAuthoritySnapsh
 		&& Reservations == Other.Reservations
 		&& ProcessedRequests == Other.ProcessedRequests
 		&& GeneratedSources == Other.GeneratedSources
-		&& Grid == Other.Grid;
+		&& Grid == Other.Grid
+		&& RunReports == Other.RunReports;
 }

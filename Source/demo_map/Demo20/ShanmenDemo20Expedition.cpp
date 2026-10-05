@@ -2,6 +2,7 @@
 #include "ShanmenDemo20Loadout.h"
 #include "ShanmenDemo20Catalog.h"
 #include "ShanmenDemo20Medicine.h"
+#include "ShanmenDemo20Settlement.h"
 #include "ShanmenItemRepository.h"
 #include "ShanmenDeterministicId.h"
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
@@ -226,6 +227,7 @@ void AShanmenDemo20GameMode::RestoreExpeditionOnOpen()
 {
 	FShanmenItemAuthoritySnapshot S; FShanmenDemo20ActiveLoadout Active; FString Reason;
 	if (!TryCaptureItems(S)) { bWorldReady=false; return; }
+	LastSettlementDetails=FShanmenDemo20Settlement::DescribeLatestSaved(S);
 	if (!HasUnfinished(S)) { Notice=TEXT("青岚关探索 · 可先整备，携带确认后出发。归阵从开局可用。"); ApplyExpeditionProjection(); return; }
 	if (!FShanmenDemo20Loadout::InspectActiveIdentity(S,Active,Reason)
 		|| !FShanmenDemo20WorldCheckpointStore::Load(WorldProfileRoot,Active.RunId,WorldCheckpoint,Reason)
@@ -313,7 +315,9 @@ bool AShanmenDemo20GameMode::FinalizeExpedition()
 	R.Context.RequestId=FShanmenDeterministicId::FromCanonicalParts(TEXT("Demo20.Expedition.Terminal.r1"),{R.ActiveRunId.ToString(),FString::FromInt(static_cast<int32>(ReasonKind))});
 	if (const auto* Existing=S.ProcessedRequests.FindByPredicate([&](const auto& P){return P.Receipt.RequestId==R.Context.RequestId
 		&& P.Receipt.IsSuccess() && P.Receipt.Operation==EShanmenItemTransactionOperation::FinalizePreparedRun && P.Receipt.ReservationId==R.ActiveRunId;}))
-	{ bTerminalConfirmed=true; bPaused=false; Notice=TEXT("终局已确认保存，没有重复结算。"); ApplyGroundProjection(); return true; }
+	{ bTerminalConfirmed=true; bPaused=false; TerminalItemDetails=FShanmenDemo20Settlement::Describe(S,R.ActiveRunId);
+		LastSettlementDetails=FShanmenDemo20Settlement::DescribeLatestSaved(S);
+		Notice=TEXT("终局已确认保存，没有重复结算。"); ApplyGroundProjection(); return true; }
 	FShanmenDemo20ActiveLoadout Active; FString Why;
 	if (!FShanmenDemo20Loadout::InspectActive(S,Active,Why) || Active.RunId!=R.ActiveRunId)
 	{ Notice=Why; bPaused=true; return false; }
@@ -322,6 +326,15 @@ bool AShanmenDemo20GameMode::FinalizeExpedition()
 	const auto Result=Authority->FinalizePreparedRunDurable(R);
 	bProfileReady=Authority->GetLifecycleState()==Edemo_mapShanmenItemAuthorityLifecycleState::Ready;
 	bTerminalConfirmed=Result.IsCommandSuccess(); bPaused=!bTerminalConfirmed;
+	TerminalItemDetails.Reset();
+	if (bTerminalConfirmed)
+	{
+		FShanmenItemAuthoritySnapshot Confirmed;
+		if (TryCaptureItems(Confirmed))
+		{ TerminalItemDetails=FShanmenDemo20Settlement::Describe(Confirmed,R.ActiveRunId);
+			LastSettlementDetails=FShanmenDemo20Settlement::DescribeLatestSaved(Confirmed); }
+		else TerminalItemDetails=TEXT("结算已保存，但物品明细暂无法读取。请重启恢复，不从未确认的库存猜测数量。");
+	}
 	Notice=bTerminalConfirmed?(Phase==EShanmenDemo20Phase::Extracted?TEXT("撤离已保存 · 普通携带已带回；安全格和仓库保持。"):
 		TEXT("死亡已保存 · 普通携带与装备损失；安全格和仓库保留。返回整备可领取有限补给。")):
 		TEXT("终局尚未确认保存，未显示已带回。点击重试结算；原局不会另开或重复发物。");

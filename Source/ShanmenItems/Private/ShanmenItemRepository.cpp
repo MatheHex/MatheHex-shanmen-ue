@@ -92,6 +92,12 @@ bool FShanmenItemRepository::TryBuildState(
 	Candidate.Content = Snapshot.Content;
 	Candidate.Grid = Snapshot.Grid;
 	Candidate.Grid.Canonicalize();
+	if (Snapshot.RunReports.Num() > 4096) return false;
+	for (const auto& Report : Snapshot.RunReports)
+	{
+		if (!Report.IsValid() || Candidate.RunReports.Contains(Report.ActiveRunId)) return false;
+		Candidate.RunReports.Add(Report.ActiveRunId, Report);
+	}
 	if (Snapshot.GeneratedSources.Num() > MaxGeneratedSources)
 	{
 		SetError(OutError, EShanmenItemTransactionError::InvalidSnapshot);
@@ -1309,7 +1315,8 @@ bool FShanmenItemRepository::ValidateState(
 		}
 	}
 
-	if (!ValidateGeneratedSources(Candidate) || !ValidateRunInventory(Candidate) || !ValidateGroundDrops(Candidate)) { return Fail(); }
+	if (!ValidateGeneratedSources(Candidate) || !ValidateRunInventory(Candidate) || !ValidateGroundDrops(Candidate)
+		|| !ValidateRunReports(Candidate)) { return Fail(); }
 	if (!Candidate.Grid.IsEmpty())
 	{
 		FShanmenItemAuthoritySnapshot Geometry;
@@ -1340,6 +1347,8 @@ FShanmenItemAuthoritySnapshot FShanmenItemRepository::CaptureSnapshot() const
 	State.Reservations.GenerateValueArray(Snapshot.Reservations);
 	State.ProcessedRequests.GenerateValueArray(Snapshot.ProcessedRequests);
 	State.GeneratedSources.GenerateValueArray(Snapshot.GeneratedSources);
+	State.RunReports.GenerateValueArray(Snapshot.RunReports);
+	Snapshot.RunReports.Sort([](const auto& A, const auto& B) { return GuidLess(A.ActiveRunId, B.ActiveRunId); });
 	Snapshot.GeneratedSources.Sort([](const FShanmenItemGeneratedSourcePlan& A, const FShanmenItemGeneratedSourcePlan& B)
 	{
 		return GuidLess(FShanmenItemGeneratedSourceContract::MakeSourceId(A.OwnerId, A.RunId, A.SourceRoleId),
@@ -2449,6 +2458,7 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::StartPreparedRun(
 		Receipt.Phase, Receipt.Error);
 	RecordProcessed(
 		Candidate, Request.Context.RequestId, RequestFingerprint, Receipt);
+	if (!BeginRunReport(Candidate, Receipt, Request.Context)) return Reject(EShanmenItemTransactionError::InvariantViolation);
 
 	EShanmenItemTransactionError ValidationError;
 	if (!Receipt.IsValid() || !ValidateState(Candidate, &ValidationError))
@@ -2594,6 +2604,7 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::ClaimPreparedRun(
 		Receipt.Phase, Receipt.Error);
 	RecordProcessed(
 		Candidate, Request.Context.RequestId, RequestFingerprint, Receipt);
+	if (!BeginRunReport(Candidate, Receipt, Request.Context)) return Reject(EShanmenItemTransactionError::InvariantViolation);
 
 	EShanmenItemTransactionError ValidationError;
 	if (!Receipt.IsValid() || !ValidateState(Candidate, &ValidationError))
@@ -4451,6 +4462,7 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::FinalizePreparedRun(
 	Receipt.ReceiptId = MakeReceiptId(
 		Request.Context.RequestId, RequestFingerprint,
 		Receipt.Phase, Receipt.Error);
+	if (!CloseRunReport(Candidate, InventorySnapshot, Request, Receipt)) return Reject(EShanmenItemTransactionError::InvariantViolation);
 	RecordProcessed(
 		Candidate, Request.Context.RequestId, RequestFingerprint, Receipt);
 

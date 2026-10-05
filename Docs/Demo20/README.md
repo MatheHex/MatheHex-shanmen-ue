@@ -82,6 +82,8 @@ Editor 打开新地图后按 Play。不要直接双击工程后运行旧默认�
 
 点击“石庭练习（不结算）”，靠近石卫，将鼠标指向目标并出剑。赤色范围出现后约 0.8 秒发动攻击；移出范围、闪身或格挡。三座石卫全部击破后，返回入口青色归阵，按交互键撤出。死亡或主动结束后可以返回入口重新开始。这是历史战斗练习，不是探索 Goal 中开局可用的撤离流程。
 
+正式探索终局确认保存后显示物品明细：搜寻实际取出、已提交消耗、撤离带回或死亡损失／安全保留，以及未带回的场景遗留。带回包含原携带和安全格，不全是新奖励；取得是搜寻容器累计取出量，部分合并只计实转，地面拾回不重复计，退回搜寻容器再取出会再次计入操作统计。正文可滚动，返回／重试按钮在正文外。重启同档后，整备页“查看最近结算”只读显示最近一份已保存完整物品统计，按 Esc 或“返回整备”关闭，不重新结算，不由当前仓库重算。旧版本已开始的局缺少历史起点，不猜造统计，新局才记录完整明细。实际画面与组合数量见 [结算人工审查](ManualSettlementReview.md)。
+
 | 默认输入 | 操作 |
 | --- | --- |
 | W/A/S/D | 移动 |
@@ -124,6 +126,8 @@ Editor 打开新地图后按 Play。不要直接双击工程后运行旧默认�
 最新跨来源普通堆叠通过同一八源码的双目标构建、六组路径映射回归和两组旧系统补充回归：271 Success／0 Fail、271 个去重路径。新增五项 Demo20 与两项 Items 用例覆盖来源兼容、实际部分合并、混合堆拆分／地面／终局、失败重试、回执完整性及混合药恢复只扣一次。见 [堆叠 Report](../Report/Demo20.M3.StackTransfer.r0_report.md) 和 [Development Log](../Log/Demo20.M3.StackTransfer.r0_log.md)。本轮未接管窗口，待 [人工审查](ManualStackTransferReview.md)；不宣布完整 M3 或 Demo 完成。
 
 随机遭遇增量完成十三源码 Editor／Game 双构建，六组最终文件映射回归 222 Success／0 Fail、222 个去重路径，原生码和结束记录闭合。四项新增测试证明种子类型／位置、三个类型的实际领域计算、原生恢复／内容冻结、失败保存／重试及提前撤离。首次 77／1 是测试读取输入漏填 revision，完整保留并仅修测试后重新验证，不放宽生产检查；见 [遭遇 Report](../Report/Demo20.M3.Encounters.r0_report.md) 和 [Development Log](../Log/Demo20.M3.Encounters.r0_log.md)。没有新窗口或截图，真实战斗与原局恢复待 [人工审查](ManualEncounterReview.md)。
+
+持久结算增量已编码、固定十七源码 Editor／Game 双构建和六组文件映射回归通过：226 Success／0 Fail、226 个去重路径，`PASS Changed=17 Rules=2 Required=6 Logs=6`。四项新增用例包含非零实际取出／消费／安全保留、死亡清零前明细、原生重启／只读历史、保存失败及 Schema 6 活动局兼容。首次 80／2 的错误测试预期及原始 SHA 保留；没有放宽生产规则。补充新旧全根在此代码候选发布时尚未结束，不计通过。见 [结算 Report](../Report/Demo20.M4.Settlement.r0_report.md) 和 [Development Log](../Log/Demo20.M4.Settlement.r0_log.md)；新增界面与真实循环仍待 [人工审查](ManualSettlementReview.md)，不宣布完整 M4 或 Demo 完成。
 
 ![最终候选整备页与安全格拒绝提示，实际视口 1920×1080](Evidence/M1.Preparation/secure-policy-1920x1080.png)
 

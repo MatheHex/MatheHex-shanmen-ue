@@ -9,6 +9,7 @@ class UBorder;
 class UButton;
 class UProgressBar;
 class UTextBlock;
+class UScrollBox;
 class UShanmenDemo20InventoryWidget;
 
 /** Presentation only: consumes the session, invokes the product host, never mutates vitality. */
@@ -30,6 +31,9 @@ private:
 	UFUNCTION() void Secondary();
 	UFUNCTION() void Inventory();
 	TWeakObjectPtr<AShanmenDemo20GameMode> Host;
+	bool bViewingLastSettlement = false, bLastHistorySurface = false;
+	int32 LastBodyPhase = INDEX_NONE;
+	UPROPERTY() TObjectPtr<UScrollBox> BodyScroll;
 	UPROPERTY() TObjectPtr<UBorder> Modal;
 	UPROPERTY() TObjectPtr<UProgressBar> Health;
 	UPROPERTY() TObjectPtr<UTextBlock> HealthLabel;

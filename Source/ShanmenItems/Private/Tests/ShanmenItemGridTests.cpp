@@ -199,6 +199,7 @@ bool FShanmenGridSchema4Test::RunTest(const FString&)
 	FString Json; FFileHelper::LoadFileToString(Json, *Disk.PrimaryPath()); TSharedPtr<FJsonObject> Root;
 	if (!FJsonSerializer::Deserialize(TJsonReaderFactory<TCHAR>::Create(Json), Root) || !Root.IsValid()) { AddError(TEXT("Fixture unavailable")); return false; }
 	const auto Authority = Root->GetObjectField(TEXT("Authority")); Authority->RemoveField(TEXT("Grid"));
+	Authority->RemoveField(TEXT("RunReports"));
 	FString OldWire; FJsonSerializer::Serialize(Authority.ToSharedRef(), TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&OldWire));
 	FTCHARToUTF8 Utf8(*OldWire); uint8 Hash[SHA256_DIGEST_LENGTH]{}; SHA256(reinterpret_cast<const uint8*>(Utf8.Get()), Utf8.Length(), Hash);
 	FString OldDigest; for (uint8 Byte : Hash) { OldDigest += FString::Printf(TEXT("%02X"), Byte); }
@@ -237,6 +238,7 @@ bool FShanmenGridSchema5Test::RunTest(const FString&)
 	FString Json; FFileHelper::LoadFileToString(Json,*SourceDisk.PrimaryPath()); TSharedPtr<FJsonObject> Root;
 	if (!FJsonSerializer::Deserialize(TJsonReaderFactory<TCHAR>::Create(Json),Root)) return false;
 	const auto Authority = Root->GetObjectField(TEXT("Authority")); Authority->GetObjectField(TEXT("Grid"))->RemoveField(TEXT("StorageDefinitions"));
+	Authority->RemoveField(TEXT("RunReports"));
 	FString Wire; FJsonSerializer::Serialize(Authority.ToSharedRef(),TJsonWriterFactory<TCHAR,TCondensedJsonPrintPolicy<TCHAR>>::Create(&Wire));
 	FTCHARToUTF8 Utf8(*Wire); uint8 Hash[SHA256_DIGEST_LENGTH]{}; SHA256(reinterpret_cast<const uint8*>(Utf8.Get()),Utf8.Length(),Hash);
 	FString CurrentDigest; for (uint8 Byte : Hash) CurrentDigest += FString::Printf(TEXT("%02X"),Byte);

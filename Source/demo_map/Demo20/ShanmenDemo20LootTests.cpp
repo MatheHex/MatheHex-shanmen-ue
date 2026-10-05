@@ -4,6 +4,13 @@
 #include "ShanmenDemo20Loadout.h"
 #include "ShanmenDemo20Medicine.h"
 #include "ShanmenItemStackTransfer.h"
+#include "ShanmenDemo20Settlement.h"
+#include "Dom/JsonObject.h"
+#include "Misc/FileHelper.h"
+#include "HAL/FileManager.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonWriter.h"
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
 #include "Engine/GameInstance.h"
 #include "Misc/AutomationTest.h"
@@ -852,5 +859,159 @@ bool FDemo20CrossOriginMedicineTest::RunTest(const FString&)
 	const auto S=F.Snapshot(); TestEqual(TEXT("Mixed ten becomes nine once"),F.Find(S,Id)->Quantity,9);
 	TestTrue(TEXT("HP increases thirty-five once"),FMath::IsNearlyEqual(C.Combat.Health[0],HP+35));
 	TestTrue(TEXT("No second consume across duplicate recovery"),FShanmenDemo20Medicine::Recover(F.Root,C,F.MedicinePorts(),F.Why) && S==F.Snapshot()); return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20SettlementMixedTest,"Shanmen.Demo20.Settlement.MixedPartialConsumedTerminalAndRestart",Flags)
+bool FDemo20SettlementMixedTest::RunTest(const FString&)
+{
+	for (auto Reason : {EShanmenItemRunTerminalReason::Extraction, EShanmenItemRunTerminalReason::Death})
+	{
+		FFixture F; if (!TestTrue(TEXT("Native Run, real inventory, curated source"), F.Start() && F.Unify()
+			&& F.Accept(FShanmenDemo20Sources::EnemyRole(2),TEXT("Heal.Pill"),3) && F.Materialize())) return false;
+		const auto Original = F.OriginalPills(); const auto Source = F.Source.GetItemIds()[0];
+		const auto Pickup = F.Merge(Source,Original);
+		if (!TestTrue(TEXT("Only two fit in original eight"), F.Items->EditActiveRunGridDurable(Pickup).IsCommandSuccess())) return false;
+		const auto Picked = F.Snapshot();
+		TestTrue(TEXT("Repeated click no statistics or inventory duplication"), F.Items->EditActiveRunGridDurable(Pickup).IsCommandSuccess() && Picked == F.Snapshot());
+		FShanmenItemReserveRequest Use; Use.Context=F.Context(Picked); Use.ItemInstanceId=Original;
+		Use.ResourceKind=EShanmenItemResourceKind::Quantity; Use.Amount=1; Use.ExpectedItemRevision=F.Find(Picked,Original)->Revision;
+		Use.PurposeId=TEXT("Test.Settlement.Medicine");
+		const auto Reserved=F.Items->ReserveDurable(Use);
+		FShanmenItemReservationActionRequest Commit; Commit.Context=F.Context(F.Snapshot()); Commit.ReservationId=Reserved.Receipt.ReservationId;
+		if (!TestTrue(TEXT("One real quantity committed"), Reserved.IsCommandSuccess() && F.Items->CommitDurable(Commit).IsCommandSuccess())) return false;
+		auto Split=F.Move(Original,Secure(),1,0); Split.Grid.Action=EAction::Split; Split.Grid.Amount=4;
+		if (!TestTrue(TEXT("Four mixed units moved to secure"), F.Items->EditActiveRunGridDurable(Split).IsCommandSuccess())) return false;
+		const auto Drop=F.Drop(Original);
+		if (!TestTrue(TEXT("Drop and reclaim exact remaining five"), F.Items->DropActiveRunItemDurable(Drop).IsCommandSuccess()
+			&& F.Items->EditActiveRunGridDurable(F.Move(Original,Carry(),0,0)).IsCommandSuccess())) return false;
+		if (!TestTrue(TEXT("Reopen before terminal"), F.Restart())) return false;
+		const auto End=F.Terminal(Reason); const auto Result=F.Items->FinalizePreparedRunDurable(End);
+		if (!TestTrue(TEXT("Exact terminal saved"), Result.IsCommandSuccess())) return false;
+		const auto S=F.Snapshot(); const auto* Report=S.RunReports.FindByPredicate([&](const auto& R){return R.ActiveRunId==F.Run;});
+		if (!TestTrue(TEXT("Historical report closed with same revision and terminal request"),Report && Report->IsClosed()
+			&& Report->EndRevision==Result.Receipt.AuthorityRevision && Report->TerminalRequestId==End.Context.RequestId)) return false;
+		const auto* Pills=Report->Lines.FindByPredicate([](const auto& L){return L.DefinitionId==TEXT("Heal.Pill");});
+		if (!TestNotNull(TEXT("Actual nonzero pill line"),Pills)) return false;
+		TestEqual(TEXT("Not all twelve generated, not birth-origin eight, only transferred two"),Pills->Obtained,2);
+		TestEqual(TEXT("Start debit not consumption; one use only"),Pills->Consumed,1);
+		TestEqual(TEXT("Ten left in scene: partial one plus unopened three stacks"),Pills->LeftInWorld,10);
+		if (Reason==EShanmenItemRunTerminalReason::Extraction)
+		{ TestEqual(TEXT("Carry five plus confirmed safe split four returned"),Pills->BroughtBack,9); TestEqual(TEXT("No death loss on extraction"),Pills->Lost,0); }
+		else
+		{ TestEqual(TEXT("Destroyed carry keeps historical quantity five"),Pills->Lost,5); TestEqual(TEXT("Secure retains actual split four"),Pills->Retained,4);
+			TestEqual(TEXT("Actual graph destroyed original zero"),F.Find(S,Original)->Quantity,0); }
+		const auto* Jade=Report->Lines.FindByPredicate([](const auto& L){return L.DefinitionId==TEXT("Trophy.Jade");});
+		TestTrue(TEXT("Initial secure stock is one jade, not two fabricated pills"),Jade && (Reason==EShanmenItemRunTerminalReason::Extraction
+			? Jade->BroughtBack==1 : Jade->Retained==1));
+		const auto Text=FShanmenDemo20Settlement::Describe(S,F.Run);
+		TestTrue(TEXT("Chinese real sections, not raw technical identities"),Text.Contains(TEXT("回春丹")) && Text.Contains(TEXT("本局消耗"))
+			&& Text.Contains(TEXT("累计取出")) && !Text.Contains(F.Run.ToString()));
+		const auto Latest=FShanmenDemo20Settlement::DescribeLatestSaved(S);
+		TestTrue(TEXT("Closed history available without restoring a World"),Latest.Contains(Text) && Latest.Contains(TEXT("只读历史")));
+		auto WithUnrelated=S; auto Foreign=*Report; Foreign.OwnerId=FGuid::NewGuid(); Foreign.EndRevision=S.AuthorityRevision;
+		Foreign.ActiveRunId=FGuid::NewGuid(); WithUnrelated.RunReports.Add(Foreign);
+		auto Active=*Report; Active.ActiveRunId=FGuid::NewGuid(); Active.EndRevision=INDEX_NONE; Active.TerminalRequestId.Invalidate();
+		Active.TerminalReason=EShanmenItemRunTerminalReason::None; Active.Lines.Reset(); WithUnrelated.RunReports.Add(Active);
+		TestEqual(TEXT("Other owner and unconfirmed active report cannot replace saved history"),FShanmenDemo20Settlement::DescribeLatestSaved(WithUnrelated),Latest);
+		TestTrue(TEXT("Duplicate terminal no changed report"),F.Items->FinalizePreparedRunDurable(End).IsCommandSuccess() && S==F.Snapshot());
+		TestTrue(TEXT("Native restart retains exact immutable report and presentation"),F.Restart() && S==F.Snapshot()
+			&& FShanmenDemo20Settlement::Describe(F.Snapshot(),F.Run)==Text
+			&& FShanmenDemo20Settlement::DescribeLatestSaved(F.Snapshot())==Latest);
+		FShanmenItemAuthorityDocument Document; F.Items->TryGetDocument(Document); FShanmenItemAuthorityStore Store;
+		auto Changed=S; Changed.RunReports[0].Lines[0].Obtained++;
+		TestFalse(TEXT("Closed display history cannot be rewritten by save port"),Store.SaveAuthority(Document,Changed,F.Disk).IsSuccess());
+		Changed=S; Changed.RunReports.Reset();
+		TestFalse(TEXT("History cannot be removed"),Store.SaveAuthority(Document,Changed,F.Disk).IsSuccess());
+		Changed=S; auto* ChangedPill=Changed.RunReports[0].Lines.FindByPredicate([](const auto& L){return L.DefinitionId==TEXT("Heal.Pill");});
+		ChangedPill->Consumed++;
+		FShanmenItemRepository Check; TestFalse(TEXT("Consumed amount independently matches committed ledger"),Check.TryLoadSnapshot(Changed));
+		if (Reason==EShanmenItemRunTerminalReason::Death)
+		{
+			const auto Supply=FShanmenDemo20Catalog::BasicSupply(F.Snapshot());
+			const auto ResultSupply=F.Items->ReplenishBasicsDurable(Supply);
+			TestTrue(TEXT("Existing safe pills and alternatives mean no missing basics; refused supply cannot rewrite loss"),
+				ResultSupply.Receipt.Error==EShanmenItemTransactionError::BasicSupplyNotNeeded && S==F.Snapshot()
+				&& FShanmenDemo20Settlement::Describe(F.Snapshot(),F.Run)==Text);
+		}
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20SettlementLegacyReturnTest,"Shanmen.Demo20.Settlement.LegacyPartialReturnAndNextRunHistory",Flags)
+bool FDemo20SettlementLegacyReturnTest::RunTest(const FString&)
+{
+	FFixture F; if (!TestTrue(TEXT("Native grid Run before inventory materialization"),F.Start())) return false;
+	TestTrue(TEXT("Active Run not a saved settlement"),FShanmenDemo20Settlement::DescribeLatestSaved(F.Snapshot()).IsEmpty());
+	auto End=F.Terminal(EShanmenItemRunTerminalReason::Extraction); const auto Original=F.OriginalPills(); bool Changed=false;
+	for (auto& I:End.SecuredOriginals) if (I.ItemInstanceId==Original && I.RemainingQuantity==8) { I.RemainingQuantity=7; Changed=true; }
+	if (!TestTrue(TEXT("Existing legal legacy return of seven must not be blocked by audit"),Changed && F.Items->FinalizePreparedRunDurable(End).IsCommandSuccess())) return false;
+	const auto S=F.Snapshot(); const auto* L=S.RunReports[0].Lines.FindByPredicate([](const auto& V){return V.DefinitionId==TEXT("Heal.Pill");});
+	if (!TestNotNull(TEXT("Nonzero legacy amount preserved"),L)) return false;
+	TestEqual(TEXT("Declared seven actually returned"),L->BroughtBack,7); TestEqual(TEXT("Unreturned one is not silently consumption"),L->Lost,1);
+	TestEqual(TEXT("No consume receipt means zero consumed"),L->Consumed,0);
+	const auto Last=FShanmenDemo20Settlement::DescribeLatestSaved(S);
+	TestTrue(TEXT("Legacy loss visibly distinguished from death"),Last.Contains(TEXT("未返还余量")));
+	TestTrue(TEXT("Native reopen exact; no new terminal effects"),F.Restart() && S==F.Snapshot()
+		&& F.Items->FinalizePreparedRunDurable(End).IsCommandSuccess() && S==F.Snapshot());
+	FShanmenItemLoadoutStartRequest Next;
+	if (!TestTrue(TEXT("Next legal departure"),FShanmenDemo20Loadout::Build(F.Snapshot(),Next,F.Why) && F.Items->StartLoadoutDurable(Next).IsCommandSuccess())) return false;
+	TestEqual(TEXT("New active Run does not erase last saved settlement"),FShanmenDemo20Settlement::DescribeLatestSaved(F.Snapshot()),Last);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20SettlementFailureTest,"Shanmen.Demo20.Settlement.AtomicFailureNoFakeCountsAndReplay",Flags)
+bool FDemo20SettlementFailureTest::RunTest(const FString&)
+{
+	for (auto Fault : {EShanmenItemStoreFailureStage::AtomicReplace,EShanmenItemStoreFailureStage::ReadBackCommittedPrimary})
+	{
+		FFixture F; if (!TestTrue(TEXT("Native nonzero carried Run"),F.Start() && F.Unify())) return false;
+		const auto Before=F.Snapshot(); const auto End=F.Terminal(EShanmenItemRunTerminalReason::Death);
+		F.Items->SetInjectedFailureForTests(Fault); const auto Result=F.Items->FinalizePreparedRunDurable(End);
+		if (Fault==EShanmenItemStoreFailureStage::AtomicReplace)
+			TestTrue(TEXT("Failed atomic write retains live report, no fake closed quantities"),!Result.IsCommandSuccess() && Before==F.Snapshot()
+				&& FShanmenDemo20Settlement::Describe(F.Snapshot(),F.Run).Contains(TEXT("尚未确认")));
+		else TestTrue(TEXT("Exact post-replace evidence can be proven"),Result.IsCommandSuccess() && Result.IsDurable());
+		if (!TestTrue(TEXT("Restart then same terminal request"),F.Restart() && F.Items->FinalizePreparedRunDurable(End).IsCommandSuccess())) return false;
+		const auto S=F.Snapshot(); TestEqual(TEXT("One terminal authority revision"),S.AuthorityRevision,Before.AuthorityRevision+1);
+		TestTrue(TEXT("Repeated recovery does not change history or grant"),F.Items->FinalizePreparedRunDurable(End).IsCommandSuccess() && S==F.Snapshot());
+		const auto History=FShanmenDemo20Settlement::DescribeLatestSaved(S);
+		const auto Supply=F.Items->ReplenishBasicsDurable(FShanmenDemo20Catalog::BasicSupply(S));
+		TestTrue(TEXT("When all pills are lost, real finite two-pill grant cannot rewrite historical eight lost"),Supply.IsCommandSuccess()
+			&& Supply.Receipt.Amount==1 && FShanmenDemo20Settlement::DescribeLatestSaved(F.Snapshot())==History);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20SettlementSchema6Test,"Shanmen.Demo20.Settlement.NativeSchema6NonzeroUpgradeAndLegacyHistory",Flags)
+bool FDemo20SettlementSchema6Test::RunTest(const FString&)
+{
+	FFixture F; if (!TestTrue(TEXT("Create a real nonzero native active ledger"),F.Start() && F.Unify())) return false;
+	FShanmenItemAuthorityDocument D; F.Items->TryGetDocument(D);
+	auto Old=D.Authority; Old.RunReports.Reset(); FString OldDigest,InitialDigest;
+	if (!TestTrue(TEXT("Historical codec accepts exact old graph"),FShanmenItemAuthorityStore::ComputeLegacySchema6SnapshotDigest(Old,OldDigest)
+		&& FShanmenItemAuthorityStore::ComputeLegacySchema6SnapshotDigest(FShanmenDemo20Catalog::Initial(),InitialDigest))) return false;
+	FString Wire; FFileHelper::LoadFileToString(Wire,*F.Disk.PrimaryPath()); TSharedPtr<FJsonObject> Root;
+	if (!FJsonSerializer::Deserialize(TJsonReaderFactory<TCHAR>::Create(Wire),Root)) return false;
+	Root->GetObjectField(TEXT("Authority"))->RemoveField(TEXT("RunReports"));
+	Root->SetNumberField(TEXT("SchemaVersion"),6); Root->SetStringField(TEXT("SnapshotDigest"),OldDigest);
+	Root->SetStringField(TEXT("InitialSnapshotDigest"),InitialDigest); Root->GetObjectField(TEXT("Migration"))->SetStringField(TEXT("CandidateDigest"),InitialDigest);
+	FJsonSerializer::Serialize(Root.ToSharedRef(),TJsonWriterFactory<TCHAR,TCondensedJsonPrintPolicy<TCHAR>>::Create(&Wire));
+	F.Disk=FShanmenItemStorageContext::ForRoot(F.Root+TEXT("-schema6-no-backup"),FShanmenDemo20Catalog::OwnerId());
+	IFileManager::Get().MakeDirectory(*F.Disk.StorageDirectory(),true);
+	if (!TestTrue(TEXT("Isolated historical fixture"),FFileHelper::SaveStringToFile(Wire,*F.Disk.PrimaryPath(),FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))) return false;
+	TArray<uint8> Before,After; FFileHelper::LoadFileToArray(Before,*F.Disk.PrimaryPath()); FShanmenItemAuthorityStore Store;
+	const auto Loaded=Store.LoadExisting(F.Disk); FFileHelper::LoadFileToArray(After,*F.Disk.PrimaryPath());
+	TestTrue(TEXT("Read validates N-1 native origin before upgrade and never rewrites"),Loaded.IsSuccess() && Loaded.bSchemaUpgraded
+		&& Loaded.Document.Authority==Old && Before==After && Loaded.Document.Authority.RunReports.IsEmpty());
+	if (!TestTrue(TEXT("Native service opens old exact ledger"),F.Restart())) return false;
+	TestTrue(TEXT("No refill or fake retrospective report"),F.Snapshot()==Old);
+	const auto End=F.Terminal(EShanmenItemRunTerminalReason::Extraction);
+	TestTrue(TEXT("Legacy terminal still works, history explicitly unavailable"),F.Items->FinalizePreparedRunDurable(End).IsCommandSuccess()
+		&& F.Snapshot().RunReports.IsEmpty() && FShanmenDemo20Settlement::Describe(F.Snapshot(),F.Run).Contains(TEXT("旧版本局")));
+	FShanmenItemLoadoutStartRequest Next; FString Why;
+	TestTrue(TEXT("New Run after legacy has complete audit starting at its claim"),FShanmenDemo20Loadout::Build(F.Snapshot(),Next,Why)
+		&& F.Items->StartLoadoutDurable(Next).IsCommandSuccess() && F.Snapshot().RunReports.Num()==1);
+	F.Items->TryGetDocument(D); TestEqual(TEXT("Current schema persisted without changing origin identity"),D.SchemaVersion,7);
+	TestEqual(TEXT("Original initial evidence preserved"),D.InitialSnapshotDigest,InitialDigest);
+	return true;
 }
 #endif

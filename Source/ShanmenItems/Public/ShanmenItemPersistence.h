@@ -83,7 +83,8 @@ struct SHANMENITEMS_API FShanmenItemAuthorityDocument
 	static constexpr int32 LegacySchema3Version = 3;
 	static constexpr int32 LegacySchema4Version = 4;
 	static constexpr int32 LegacySchema5Version = 5;
-	static constexpr int32 CurrentSchemaVersion = 6;
+	static constexpr int32 LegacySchema6Version = 6;
+	static constexpr int32 CurrentSchemaVersion = 7;
 	static constexpr int64 MaxDocumentBytes = 64LL * 1024 * 1024;
 
 	int32 SchemaVersion = CurrentSchemaVersion;
@@ -213,6 +214,9 @@ public:
 	static bool ComputeLegacySchema4SnapshotDigest(
 		const FShanmenItemAuthoritySnapshot& Snapshot, FString& OutDigest, FString* OutError = nullptr);
 	static bool ComputeLegacySchema5SnapshotDigest(
+		const FShanmenItemAuthoritySnapshot& Snapshot, FString& OutDigest, FString* OutError = nullptr);
+	/** Exact schema 6 wire, before Run report evidence. Requires empty RunReports. */
+	static bool ComputeLegacySchema6SnapshotDigest(
 		const FShanmenItemAuthoritySnapshot& Snapshot, FString& OutDigest, FString* OutError = nullptr);
 	/** Exact schema-2 digest before GeneratedSources existed; requires no sources. */
 	static bool ComputeLegacySchema2SnapshotDigest(

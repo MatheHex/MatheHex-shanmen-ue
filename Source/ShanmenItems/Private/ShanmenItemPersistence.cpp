@@ -206,6 +206,7 @@ namespace
 		{
 			if (Plan.OwnerId != OwnerId) { return false; }
 		}
+		for (const auto& Report : Authority.RunReports) if (Report.OwnerId != OwnerId) return false;
 		return true;
 	}
 
@@ -360,11 +361,13 @@ namespace
 				&& Document.SchemaVersion != FShanmenItemAuthorityDocument::LegacySchema2Version
 				&& Document.SchemaVersion != FShanmenItemAuthorityDocument::LegacySchema3Version
 				&& Document.SchemaVersion != FShanmenItemAuthorityDocument::LegacySchema4Version
-				&& Document.SchemaVersion != FShanmenItemAuthorityDocument::LegacySchema5Version)
+				&& Document.SchemaVersion != FShanmenItemAuthorityDocument::LegacySchema5Version
+				&& Document.SchemaVersion != FShanmenItemAuthorityDocument::LegacySchema6Version)
 			|| !Document.DocumentId.IsValid()
 			|| !Document.OwnerId.IsValid()
 			|| Document.SaveGeneration < 0
-			|| !Document.Migration.IsValid() || Document.Migration.IsNativeProfileGenesis()
+			|| !Document.Migration.IsValid() || (Document.Migration.IsNativeProfileGenesis()
+				&& Document.SchemaVersion != FShanmenItemAuthorityDocument::LegacySchema6Version)
 			|| Document.Migration.OwnerId != Document.OwnerId
 			|| Document.DocumentId != ExpectedDocumentId(Document)
 			|| !FDateTime::ParseIso8601(*Document.CreatedUtc, Created)
@@ -396,7 +399,9 @@ namespace
 					? FShanmenItemAuthorityStore::ComputeLegacySchema3SnapshotDigest(Document.Authority, ActualDigest, &Error)
 					: Document.SchemaVersion == FShanmenItemAuthorityDocument::LegacySchema4Version
 						? FShanmenItemAuthorityStore::ComputeLegacySchema4SnapshotDigest(Document.Authority, ActualDigest, &Error)
-						: FShanmenItemAuthorityStore::ComputeLegacySchema5SnapshotDigest(Document.Authority, ActualDigest, &Error);
+						: Document.SchemaVersion == FShanmenItemAuthorityDocument::LegacySchema5Version
+							? FShanmenItemAuthorityStore::ComputeLegacySchema5SnapshotDigest(Document.Authority, ActualDigest, &Error)
+							: FShanmenItemAuthorityStore::ComputeLegacySchema6SnapshotDigest(Document.Authority, ActualDigest, &Error);
 		if (!bDigestValid
 			|| ActualDigest != Document.SnapshotDigest)
 		{
@@ -522,7 +527,8 @@ namespace
 		const bool bLegacyMetadata = bLegacyWithoutSources || SchemaVersion == FShanmenItemAuthorityDocument::LegacySchema3Version;
 		const bool bWithoutGrid = bLegacyMetadata || SchemaVersion == FShanmenItemAuthorityDocument::LegacySchema4Version;
 		const bool bSchema5 = SchemaVersion == FShanmenItemAuthorityDocument::LegacySchema5Version;
-		const bool bLegacySchema = bWithoutGrid || bSchema5;
+		const bool bSchema6 = SchemaVersion == FShanmenItemAuthorityDocument::LegacySchema6Version;
+		const bool bLegacySchema = bWithoutGrid || bSchema5 || bSchema6;
 		if ((!bLegacySchema
 				&& SchemaVersion
 					!= FShanmenItemAuthorityDocument::CurrentSchemaVersion)
@@ -583,6 +589,14 @@ namespace
 		}
 
 		FString SchemaPreparationError;
+		if (bLegacySchema)
+		{
+			if ((*AuthorityObject)->HasField(TEXT("RunReports")))
+			{ Result.Diagnostic = TEXT("Legacy schema cannot contain RunReports."); return Result; }
+			(*AuthorityObject)->SetArrayField(TEXT("RunReports"), {});
+		}
+		else if (!(*AuthorityObject)->HasField(TEXT("RunReports")))
+		{ Result.Diagnostic = TEXT("Schema 7 requires explicit RunReports, including an empty history."); return Result; }
 		if (bWithoutGrid)
 		{
 			if ((*AuthorityObject)->HasField(TEXT("Grid")))
@@ -1106,10 +1120,11 @@ bool FShanmenItemAuthorityStore::ComputeLegacySchema4SnapshotDigest(
 	const FShanmenItemAuthoritySnapshot& Snapshot, FString& OutDigest, FString* OutError)
 {
 	FShanmenItemAuthoritySnapshot Canonical;
-	if (!Snapshot.Grid.IsEmpty() || !CanonicalizeSnapshot(Snapshot, Canonical, OutError)) { return false; }
+	if (!Snapshot.RunReports.IsEmpty() || !Snapshot.Grid.IsEmpty() || !CanonicalizeSnapshot(Snapshot, Canonical, OutError)) { return false; }
 	TSharedPtr<FJsonObject> Object;
 	if (!SnapshotToObject(Canonical, Object, OutError)) { return false; }
 	Object->RemoveField(TEXT("Grid"));
+	Object->RemoveField(TEXT("RunReports"));
 	TArray<uint8> Bytes;
 	return JsonToBytes(Object.ToSharedRef(), Bytes, OutError) && HashBytes(Bytes, OutDigest);
 }
@@ -1118,10 +1133,23 @@ bool FShanmenItemAuthorityStore::ComputeLegacySchema5SnapshotDigest(
 	const FShanmenItemAuthoritySnapshot& Snapshot, FString& OutDigest, FString* OutError)
 {
 	FShanmenItemAuthoritySnapshot Canonical;
-	if (!Snapshot.Grid.StorageDefinitions.IsEmpty() || !CanonicalizeSnapshot(Snapshot, Canonical, OutError)) { return false; }
+	if (!Snapshot.RunReports.IsEmpty() || !Snapshot.Grid.StorageDefinitions.IsEmpty() || !CanonicalizeSnapshot(Snapshot, Canonical, OutError)) { return false; }
 	TSharedPtr<FJsonObject> Object;
 	if (!SnapshotToObject(Canonical, Object, OutError)) { return false; }
 	Object->GetObjectField(TEXT("Grid"))->RemoveField(TEXT("StorageDefinitions"));
+	Object->RemoveField(TEXT("RunReports"));
+	TArray<uint8> Bytes;
+	return JsonToBytes(Object.ToSharedRef(), Bytes, OutError) && HashBytes(Bytes, OutDigest);
+}
+
+bool FShanmenItemAuthorityStore::ComputeLegacySchema6SnapshotDigest(
+	const FShanmenItemAuthoritySnapshot& Snapshot, FString& OutDigest, FString* OutError)
+{
+	FShanmenItemAuthoritySnapshot Canonical;
+	if (!Snapshot.RunReports.IsEmpty() || !CanonicalizeSnapshot(Snapshot, Canonical, OutError)) return false;
+	TSharedPtr<FJsonObject> Object;
+	if (!SnapshotToObject(Canonical, Object, OutError)) return false;
+	Object->RemoveField(TEXT("RunReports"));
 	TArray<uint8> Bytes;
 	return JsonToBytes(Object.ToSharedRef(), Bytes, OutError) && HashBytes(Bytes, OutDigest);
 }
@@ -1130,10 +1158,11 @@ bool FShanmenItemAuthorityStore::ComputeLegacySchema3SnapshotDigest(
 	const FShanmenItemAuthoritySnapshot& Snapshot, FString& OutDigest, FString* OutError)
 {
 	FShanmenItemAuthoritySnapshot Canonical;
-	if (!Snapshot.Grid.IsEmpty() || !CanonicalizeSnapshot(Snapshot, Canonical, OutError)) { return false; }
+	if (!Snapshot.RunReports.IsEmpty() || !Snapshot.Grid.IsEmpty() || !CanonicalizeSnapshot(Snapshot, Canonical, OutError)) { return false; }
 	TSharedPtr<FJsonObject> Object;
 	if (!SnapshotToObject(Canonical, Object, OutError, false)) { return false; }
 	Object->RemoveField(TEXT("Grid"));
+	Object->RemoveField(TEXT("RunReports"));
 	TArray<uint8> Bytes;
 	return JsonToBytes(Object.ToSharedRef(), Bytes, OutError) && HashBytes(Bytes, OutDigest);
 }
@@ -1142,11 +1171,12 @@ bool FShanmenItemAuthorityStore::ComputeLegacySchema2SnapshotDigest(
 	const FShanmenItemAuthoritySnapshot& Snapshot, FString& OutDigest, FString* OutError)
 {
 	FShanmenItemAuthoritySnapshot Canonical;
-	if (!Snapshot.Grid.IsEmpty() || !Snapshot.GeneratedSources.IsEmpty() || !CanonicalizeSnapshot(Snapshot, Canonical, OutError)) { return false; }
+	if (!Snapshot.RunReports.IsEmpty() || !Snapshot.Grid.IsEmpty() || !Snapshot.GeneratedSources.IsEmpty() || !CanonicalizeSnapshot(Snapshot, Canonical, OutError)) { return false; }
 	TSharedPtr<FJsonObject> Object;
 	if (!SnapshotToObject(Canonical, Object, OutError, false)) { return false; }
 	Object->RemoveField(TEXT("GeneratedSources"));
 	Object->RemoveField(TEXT("Grid"));
+	Object->RemoveField(TEXT("RunReports"));
 	TArray<uint8> Bytes;
 	return JsonToBytes(Object.ToSharedRef(), Bytes, OutError) && HashBytes(Bytes, OutDigest);
 }
@@ -1157,7 +1187,7 @@ bool FShanmenItemAuthorityStore::ComputeLegacySchema1SnapshotDigest(
 	FString* OutError)
 {
 	FShanmenItemAuthoritySnapshot Canonical;
-	if (!Snapshot.Grid.IsEmpty() || !Snapshot.GeneratedSources.IsEmpty() || !CanonicalizeSnapshot(Snapshot, Canonical, OutError))
+	if (!Snapshot.RunReports.IsEmpty() || !Snapshot.Grid.IsEmpty() || !Snapshot.GeneratedSources.IsEmpty() || !CanonicalizeSnapshot(Snapshot, Canonical, OutError))
 	{
 		return false;
 	}
@@ -1169,6 +1199,7 @@ bool FShanmenItemAuthorityStore::ComputeLegacySchema1SnapshotDigest(
 	}
 	Object->RemoveField(TEXT("GeneratedSources"));
 	Object->RemoveField(TEXT("Grid"));
+	Object->RemoveField(TEXT("RunReports"));
 	TArray<uint8> Bytes;
 	if (!JsonToBytes(Object.ToSharedRef(), Bytes, OutError)
 		|| !HashBytes(Bytes, OutDigest))
@@ -1262,6 +1293,22 @@ FShanmenItemSaveResult FShanmenItemAuthorityStore::SaveAuthority(
 		Rejected.Diagnostic = Error.IsEmpty()
 			? TEXT("New authority snapshot crosses owners.") : Error;
 		return Rejected;
+	}
+	for (const auto& Old : InOutDocument.Authority.RunReports)
+	{
+		const auto* New = Canonical.RunReports.FindByPredicate([&](const auto& R) { return R.ActiveRunId == Old.ActiveRunId; });
+		if (!New || (Old.IsClosed() && !(*New == Old)) || New->OwnerId != Old.OwnerId
+			|| New->ScopeId != Old.ScopeId || New->StartRevision != Old.StartRevision)
+		{
+			Rejected.Status = EShanmenItemSaveStatus::ValidationRejected;
+			Rejected.Diagnostic = TEXT("Run history cannot be removed, rebound, or changed after terminal confirmation."); return Rejected;
+		}
+		for (const auto& L : Old.Lines)
+		{
+			const auto* Next = New->Lines.FindByPredicate([&](const auto& V) { return V.DefinitionId == L.DefinitionId; });
+			if (!Next || Next->Obtained < L.Obtained)
+			{ Rejected.Status = EShanmenItemSaveStatus::ValidationRejected; Rejected.Diagnostic = TEXT("Run acquisition history cannot regress."); return Rejected; }
+		}
 	}
 	if (Canonical == InOutDocument.Authority)
 	{
@@ -1519,6 +1566,7 @@ FShanmenItemOpenResult FShanmenItemAuthorityStore::OpenOrCreateFromGenesis(
 	FString Schema3InitialDigest;
 	FString Schema4InitialDigest;
 	FString Schema5InitialDigest;
+	FString Schema6InitialDigest;
 	if (!Migration.IsValid()
 		|| !Storage.OwnerId.IsValid()
 		|| Storage.OwnerId != Migration.OwnerId
@@ -1545,6 +1593,7 @@ FShanmenItemOpenResult FShanmenItemAuthorityStore::OpenOrCreateFromGenesis(
 		ComputeLegacySchema4SnapshotDigest(Canonical, Schema4InitialDigest);
 	}
 	ComputeLegacySchema5SnapshotDigest(Canonical, Schema5InitialDigest);
+	ComputeLegacySchema6SnapshotDigest(Canonical, Schema6InitialDigest);
 
 	const bool bAnyDurableFile =
 		IFileManager::Get().FileExists(*Storage.PrimaryPath())
@@ -1567,11 +1616,12 @@ FShanmenItemOpenResult FShanmenItemAuthorityStore::OpenOrCreateFromGenesis(
 		const bool bSchema3Initial = Loaded.Document.InitialSnapshotDigest == Schema3InitialDigest;
 		const bool bSchema4Initial = Loaded.Document.InitialSnapshotDigest == Schema4InitialDigest;
 		const bool bSchema5Initial = Loaded.Document.InitialSnapshotDigest == Schema5InitialDigest;
+		const bool bSchema6Initial = Loaded.Document.InitialSnapshotDigest == Schema6InitialDigest;
 		const bool bMigrationMatches =
 			Loaded.Document.Migration == Migration
-			|| ((bLegacyInitial || bSchema2Initial || bSchema3Initial || bSchema4Initial || bSchema5Initial)
+			|| ((bLegacyInitial || bSchema2Initial || bSchema3Initial || bSchema4Initial || bSchema5Initial || bSchema6Initial)
 				&& SameMigrationSource(Loaded.Document.Migration, Migration));
-		if (!bMigrationMatches || (!bCurrentInitial && !bLegacyInitial && !bSchema2Initial && !bSchema3Initial && !bSchema4Initial && !bSchema5Initial))
+		if (!bMigrationMatches || (!bCurrentInitial && !bLegacyInitial && !bSchema2Initial && !bSchema3Initial && !bSchema4Initial && !bSchema5Initial && !bSchema6Initial))
 		{
 			Result.Status = EShanmenItemOpenStatus::MigrationConflict;
 			Result.Diagnostic = TEXT("An authority document already exists for different migration evidence.");

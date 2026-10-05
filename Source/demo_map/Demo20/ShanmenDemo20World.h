@@ -81,6 +81,8 @@ public:
 	FString GetExplorationArea() const;
 	float GetExtractionProgress() const { return ExtractionClock / 3.f; }
 	bool IsTerminalConfirmed() const { return bTerminalConfirmed; }
+	FString GetTerminalItemDetails() const { return TerminalItemDetails; }
+	const FString& GetLastSettlementDetails() const { return LastSettlementDetails; }
 	bool TryCaptureItems(FShanmenItemAuthoritySnapshot& Out) const;
 	bool TryCaptureInventoryGrid(FShanmenItemAuthoritySnapshot& Out) const;
 	bool IsRunInventory() const { return bExpeditionMode && Session.GetPhase()==EShanmenDemo20Phase::Active; }
@@ -136,6 +138,9 @@ private:
 	FShanmenDemo20EnemySpec ExpeditionEnemies[FShanmenDemo20Encounters::Count];
 	float NoticeTime = 0.f;
 	FString Notice;
+	/** Updated on durable terminal confirmation/recovery, not by polling the ledger each UI frame. */
+	FString TerminalItemDetails;
+	FString LastSettlementDetails;
 	bool bPaused = false;
 	bool bWorldReady = false;
 	bool bProfileReady = false;

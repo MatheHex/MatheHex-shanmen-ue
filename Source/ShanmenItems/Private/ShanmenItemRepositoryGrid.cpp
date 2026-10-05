@@ -209,6 +209,13 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::EditGridImpl(const FShanm
 	for (const auto& I : Resized.Items) { Candidate.Items.Add(I.ItemInstanceId, I); }
 	Candidate.Grid.Canonicalize();
 	++Candidate.AuthorityRevision;
+	if (InRun)
+	{
+		const auto* Target = State.Items.Find(R.MergeTargetId);
+		const auto Destination = R.Action == EShanmenItemGridAction::Merge && Target ? Target->ParentContainerId : R.DestinationContainerId;
+		const int32 Picked = R.Action == EShanmenItemGridAction::Move ? BeforeQuantity : Transferred;
+		if (!AccumulateRunPickup(Candidate, ActiveRunId, *Original, Destination, Picked)) return Reject(EError::InvariantViolation);
+	}
 	FShanmenItemTransactionReceipt Receipt;
 	Receipt.bSuccess = true; Receipt.Operation = Operation; Receipt.Phase = EShanmenItemTransactionPhase::Committed;
 	Receipt.Error = EError::None;
