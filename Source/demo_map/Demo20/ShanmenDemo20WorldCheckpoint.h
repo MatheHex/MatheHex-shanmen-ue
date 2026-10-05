@@ -33,17 +33,25 @@ struct FShanmenDemo20WorldCheckpoint
 };
 
 /** Same-volume verified-temp/atomic-replace protocol used by existing native stores.
- * A stale backup is NOT automatically substituted: doing so could resurrect a confirmed enemy.
+ * A bounded high-water witness admits an exact next candidate before replacement;
+ * an identical replica permits explicit repair without selecting an older backup.
+ * Legacy files remain readable, but corrupt legacy data has no invented recovery.
  * Each file is one Run, with CAS generation. No item schema or quantity is duplicated. */
 class FShanmenDemo20WorldCheckpointStore
 {
 public:
 	static FString Path(const FString& ProfileRoot, const FGuid& Run);
 	static bool Load(const FString& ProfileRoot, const FGuid& Run, FShanmenDemo20WorldCheckpoint& Out, FString& Reason);
+	/** Explicitly finish/repair ONLY the candidate named by the durable witness.
+	 * Damaged primary bytes are preserved; failure leaves Out unchanged. */
+	static bool Recover(const FString& ProfileRoot, const FGuid& Run, FShanmenDemo20WorldCheckpoint& Out, FString& Reason);
 	static bool Save(const FString& ProfileRoot, FShanmenDemo20WorldCheckpoint& InOutConfirmed,
 		const FShanmenDemo20WorldCheckpoint& Candidate, FString& Reason);
 #if WITH_DEV_AUTOMATION_TESTS
 	static bool bFailBeforeReplace;
 	static bool bFailFirstReadAfterReplace;
+	static bool bFailAfterWitnessBeforeReplace;
+	static bool bFailReplicaWrite;
+	static bool bFailBeforeRepairReplace;
 #endif
 };

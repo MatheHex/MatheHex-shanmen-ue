@@ -17,6 +17,7 @@ protected:
 	virtual int32 NativePaint(const FPaintArgs&, const FGeometry&, const FSlateRect&, FSlateWindowElementList&,
 		int32, const FWidgetStyle&, bool) const override;
 	virtual FReply NativeOnMouseButtonDown(const FGeometry&, const FPointerEvent&) override;
+	virtual FReply NativeOnMouseButtonDoubleClick(const FGeometry&, const FPointerEvent&) override;
 	virtual FReply NativeOnMouseMove(const FGeometry&, const FPointerEvent&) override;
 	virtual FReply NativeOnMouseButtonUp(const FGeometry&, const FPointerEvent&) override;
 	virtual void NativeOnMouseCaptureLost(const FCaptureLostEvent&) override;

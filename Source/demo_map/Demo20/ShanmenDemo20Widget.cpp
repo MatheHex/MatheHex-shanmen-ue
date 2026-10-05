@@ -186,6 +186,11 @@ void UShanmenDemo20Widget::Refresh()
 		}
 		SecondaryButton->SetVisibility(ESlateVisibility::Visible); Set(SecondaryLabel,TEXT("查看最近结算"));
 	}
+	if (Host->IsWorldRecoveryPending())
+	{
+		Set(Heading,TEXT("原局恢复受阻")); Set(Body,Host->GetNotice()); Set(PrimaryLabel,TEXT("修复并恢复原局"));
+		PrimaryButton->SetIsEnabled(Host->IsProfileReady()); InventoryButton->SetVisibility(ESlateVisibility::Collapsed); return;
+	}
 	if (Host->IsSourceSurfaceOpen() && !Host->IsPaused() && Phase==EShanmenDemo20Phase::Active)
 	{
 		Set(Heading,Host->GetSourceHeading()); Set(Body,Host->GetSourceBody());
@@ -231,6 +236,7 @@ void UShanmenDemo20Widget::Primary()
 {
 	if (!Host.IsValid()) return;
 	if (bViewingLastSettlement) { bViewingLastSettlement=false; Refresh(); SetKeyboardFocus(); return; }
+	if (Host->IsWorldRecoveryPending()) { Host->RetryWorldRecovery(); return; }
 	if (Host->IsSourceSurfaceOpen() && !Host->IsPaused()) Host->CloseSourceSurface();
 	else if (Host->IsPaused() && Host->GetSession().GetPhase()==EShanmenDemo20Phase::Active) Host->TogglePause();
 	else if (Host->GetSession().GetPhase() == EShanmenDemo20Phase::Preparation) Host->StartTrial();

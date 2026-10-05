@@ -194,4 +194,35 @@ bool FDemo20MedicineWorldRetryTest::RunTest(const FString&)
 	TestEqual(TEXT("Only one heal generation"),F.C.Generation,PendingGeneration+1); TestTrue(TEXT("Exact item document not rewritten"),Consumed==F.Snapshot());
 	TestTrue(TEXT("Actual nonzero health plus 35"),FMath::IsNearlyEqual(F.C.Combat.Health[0],Before.Combat.Health[0]+35.f)); return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20MedicineWorldRepairTest,"Shanmen.Demo20.Expedition.MedicineWorldRepairNoRefundOrDoubleHeal",Flags)
+bool FDemo20MedicineWorldRepairTest::RunTest(const FString&)
+{
+	for (bool Pending:{false,true}) for (bool Secure:{false,true})
+	{
+		FFixture F; if (!TestTrue(TEXT("Damaged health, finite medicine and exact persisted intent"),F.Start(Secure?3:0,Secure) && F.Intent())) return false;
+		const float HP=F.C.Combat.Health[0];
+		if (Pending)
+		{
+			TGuardValue<bool> Fault(FShanmenDemo20WorldCheckpointStore::bFailAfterWitnessBeforeReplace,true);
+			TestFalse(TEXT("Item committed, heal candidate admitted, not yet published"),FShanmenDemo20Medicine::Recover(F.Root,F.C,F.Ports(),F.Why));
+			TestEqual(TEXT("Unconfirmed HP remains damaged"),F.C.Combat.Health[0],HP);
+		}
+		else if (!TestTrue(TEXT("Confirmed heal before damage"),FShanmenDemo20Medicine::Recover(F.Root,F.C,F.Ports(),F.Why))) return false;
+		const auto Consumed=F.Snapshot(); const auto P=FShanmenDemo20WorldCheckpointStore::Path(F.Root,F.C.Combat.RunId);
+		TArray<uint8> Damaged; FFileHelper::LoadFileToArray(Damaged,*P); Damaged.Last()^=1; FFileHelper::SaveArrayToFile(Damaged,*P);
+		FShanmenDemo20WorldCheckpoint Repaired;
+		TestFalse(TEXT("Readonly restart does not guess old health"),FShanmenDemo20WorldCheckpointStore::Load(F.Root,F.C.Combat.RunId,Repaired,F.Why));
+		if (!TestTrue(TEXT("Explicit exact replica or admitted temp repair"),FShanmenDemo20WorldCheckpointStore::Recover(F.Root,F.C.Combat.RunId,Repaired,F.Why))) return false;
+		F.C=Repaired;
+		TestTrue(TEXT("Native item and world reopen"),F.Restart());
+		TestTrue(TEXT("No old quantity authority or refund"),Consumed==F.Snapshot());
+		TestTrue(TEXT("Healing is exactly 35, not zero or seventy"),FMath::IsNearlyEqual(F.C.Combat.Health[0],HP+35.f));
+		TestEqual(TEXT("Exactly one pill absent after repair"),F.Quantity(Secure?EShanmenDemo20MedicineOrigin::Secure:EShanmenDemo20MedicineOrigin::PreparedCarry),Secure?2:7);
+		const auto Generation=F.C.Generation;
+		TestTrue(TEXT("Repeated medicine recovery is read only after exact completed heal"),FShanmenDemo20Medicine::Recover(F.Root,F.C,F.Ports(),F.Why)
+			&& F.Snapshot()==Consumed && F.C.Generation==Generation);
+	}
+	return true;
+}
 #endif

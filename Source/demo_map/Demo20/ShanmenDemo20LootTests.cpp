@@ -5,6 +5,7 @@
 #include "ShanmenDemo20Medicine.h"
 #include "ShanmenItemStackTransfer.h"
 #include "ShanmenDemo20Settlement.h"
+#include "ShanmenDemo20InventoryTransfer.h"
 #include "Dom/JsonObject.h"
 #include "Misc/FileHelper.h"
 #include "HAL/FileManager.h"
@@ -127,6 +128,101 @@ namespace
 	};
 	FGuid Carry() { return FShanmenDemo20Catalog::ContainerId(TEXT("Carry")); }
 	FGuid Secure() { return FShanmenDemo20Catalog::ContainerId(TEXT("Secure")); }
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20QuickTransferNativeTest,"Shanmen.Demo20.Loot.QuickTransferPartialThenMoveNativeReplay",Flags)
+bool FDemo20QuickTransferNativeTest::RunTest(const FString&)
+{
+	FFixture F;
+	if (!TestTrue(TEXT("Actual eight carried pills plus accepted four stacks of three"),F.Start() && F.Unify()
+		&& F.Accept(FShanmenDemo20Sources::EnemyRole(2),TEXT("Heal.Pill")) && F.Materialize())) return false;
+	const auto Source=F.Source.GetItemIds()[0]; const auto Original=F.OriginalPills(); const auto Before=F.Snapshot();
+	FShanmenItemGridRequest Intent;
+	if (!TestTrue(TEXT("The widget's actual planner builds one intent"),FShanmenDemo20InventoryTransfer::Build(Before,Source,Carry(),F.Run,Intent,F.Why))) return false;
+	TestEqual(TEXT("Merge before taking an empty cell"),Intent.Action,EAction::Merge);
+	TestEqual(TEXT("Existing carried stack selected"),Intent.MergeTargetId,Original);
+	TestTrue(TEXT("No hidden authority mutation from preview"),Before==F.Snapshot());
+	const auto Taken=F.Items->EditActiveRunGridDurable({Intent,F.Run});
+	if (!TestTrue(TEXT("One actual durable command"),Taken.IsCommandSuccess())) return false;
+	TestEqual(TEXT("Authority, not UI, takes only two"),Taken.Receipt.Amount,2);
+	TestEqual(TEXT("Authority-confirmed source remainder one"),Taken.Receipt.ResourceAfter,1);
+	const auto Partial=F.Snapshot();
+	TestEqual(TEXT("Unclaimed remainder stays in chest"),F.Find(Partial,Source)->ParentContainerId,F.Source.GetContainerId());
+	TestTrue(TEXT("Repeated delivery of same click no repeat quantity"),F.Items->EditActiveRunGridDurable({Intent,F.Run}).IsCommandSuccess() && Partial==F.Snapshot());
+	if (!TestTrue(TEXT("Next real click gets fresh revisions"),FShanmenDemo20InventoryTransfer::Build(Partial,Source,Carry(),F.Run,Intent,F.Why))) return false;
+	TestEqual(TEXT("Full stack is skipped; remaining one moves to space"),Intent.Action,EAction::Move);
+	TestTrue(TEXT("Fresh source revision"),Intent.ExpectedItemRevision==F.Find(Partial,Source)->Revision);
+	if (!TestTrue(TEXT("Move remainder durably"),F.Items->EditActiveRunGridDurable({Intent,F.Run}).IsCommandSuccess())) return false;
+	const auto After=F.Snapshot();
+	TestTrue(TEXT("Exact same source instance now in carry, quantity one"),F.Find(After,Source)->ParentContainerId==Carry() && F.Find(After,Source)->Quantity==1);
+	TestTrue(TEXT("Native restart preserves both actual balances"),F.Restart() && After==F.Snapshot());
+	const auto* Report=After.RunReports.FindByPredicate([&](const auto& R){return R.ActiveRunId==F.Run;});
+	const auto* Line=Report?Report->Lines.FindByPredicate([](const auto& L){return L.DefinitionId==TEXT("Heal.Pill");}):nullptr;
+	TestTrue(TEXT("Settlement audit counts only actual three claimed, not twelve generated"),Line && Line->Obtained==3);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20QuickTransferFullTest,"Shanmen.Demo20.Loot.QuickTransferFullGridAndAutoOrientation",Flags)
+bool FDemo20QuickTransferFullTest::RunTest(const FString&)
+{
+	auto S=FShanmenDemo20Catalog::Initial();
+	const auto* Pill=S.Items.FindByPredicate([](const auto& I){return I.DefinitionId==TEXT("Heal.Pill");});
+	if (!TestNotNull(TEXT("Nonzero starting pills"),Pill)) return false;
+	const auto Template=*Pill;
+	for (int32 Slot=1;Slot<24;++Slot)
+	{
+		auto I=Template; I.ItemInstanceId=FGuid::NewGuid(); I.SlotIndex=Slot; I.Quantity=10;
+		S.Items.Add(I); S.Containers.FindByPredicate([](const auto& C){return C.ContainerId==Carry();})->Slots[Slot]=I.ItemInstanceId;
+	}
+	auto Source=Template; Source.ItemInstanceId=FGuid::NewGuid(); Source.ParentContainerId=FShanmenDemo20Catalog::ContainerId(TEXT("Stash"));
+	Source.SlotIndex=89; Source.Quantity=3; S.Items.Add(Source);
+	S.Containers.FindByPredicate([&](const auto& C){return C.ContainerId==Source.ParentContainerId;})->Slots[89]=Source.ItemInstanceId;
+	FShanmenItemRepository Repo;
+	if (!TestTrue(TEXT("Full grid fixture is a legal real authority graph"),Repo.TryLoadSnapshot(S))) return false;
+	S=Repo.CaptureSnapshot(); const auto Before=S; FShanmenItemGridRequest Intent; FString Reason;
+	if (!TestTrue(TEXT("Full grid can still accept two into existing stack"),FShanmenDemo20InventoryTransfer::Build(S,Source.ItemInstanceId,Carry(),{},Intent,Reason))) return false;
+	TestEqual(TEXT("Full grid uses merge, not invented cell"),Intent.Action,EAction::Merge);
+	const auto Receipt=Repo.EditGrid(Intent);
+	TestTrue(TEXT("One actual command preserves one at source"),Receipt.bSuccess && Receipt.Amount==2 && Receipt.ResourceAfter==1);
+	S=Repo.CaptureSnapshot(); const auto SavedIntent=Intent;
+	TestFalse(TEXT("All full now: another click does not pretend to move"),FShanmenDemo20InventoryTransfer::Build(S,Source.ItemInstanceId,Carry(),{},Intent,Reason));
+	TestTrue(TEXT("Failed plan publishes neither command nor quantity change"),Intent.Context.RequestId==SavedIntent.Context.RequestId && S==Repo.CaptureSnapshot() && !Reason.IsEmpty());
+	TestTrue(TEXT("Original snapshot passed to preview stayed intact"),Before.Items.ContainsByPredicate([&](const auto& I){return I.ItemInstanceId==Template.ItemInstanceId && I.Quantity==8;}));
+	// Leave only two horizontal cells. A 1x2 herb fits solely after rotation.
+	for (int32 Slot : {22,23})
+	{
+		const auto Id=S.Containers.FindByPredicate([](const auto& C){return C.ContainerId==Carry();})->Slots[Slot];
+		S.Items.RemoveAll([&](const auto& I){return I.ItemInstanceId==Id;});
+		S.Containers.FindByPredicate([](const auto& C){return C.ContainerId==Carry();})->Slots[Slot].Invalidate();
+	}
+	// This is a separate geometry fixture, not an edit to a saved player document.
+	S.ProcessedRequests.Reset(); S.AuthorityRevision=0;
+	FShanmenItemRepository Rotated;
+	if (!TestTrue(TEXT("Horizontal-space fixture remains legal"),Rotated.TryLoadSnapshot(S))) return false;
+	S=Rotated.CaptureSnapshot();
+	const auto* Herb=S.Items.FindByPredicate([](const auto& I){return I.DefinitionId==TEXT("Material.Herb");});
+	if (!TestNotNull(TEXT("Actual 1x2 item"),Herb)) return false;
+	TestTrue(TEXT("Automatic alternate orientation"),FShanmenDemo20InventoryTransfer::Build(S,Herb->ItemInstanceId,Carry(),{},Intent,Reason)
+		&& Intent.bRotated && Intent.X==4 && Intent.Y==3 && Intent.Action==EAction::Move);
+	TestTrue(TEXT("Same existing authority accepts selected orientation"),Rotated.EditGrid(Intent).bSuccess);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20QuickTransferFailureTest,"Shanmen.Demo20.Loot.QuickTransferSaveFailureAndForeignRun",Flags)
+bool FDemo20QuickTransferFailureTest::RunTest(const FString&)
+{
+	FFixture F;
+	if (!TestTrue(TEXT("Real native source and carry"),F.Start() && F.Unify() && F.Accept(FShanmenDemo20Sources::EnemyRole(2),TEXT("Heal.Pill")) && F.Materialize())) return false;
+	const auto Before=F.Snapshot(); const auto Source=F.Source.GetItemIds()[0]; FShanmenItemGridRequest Intent;
+	TestFalse(TEXT("Foreign Run cannot turn UI intent into authority bypass"),FShanmenDemo20InventoryTransfer::Build(Before,Source,Carry(),FGuid::NewGuid(),Intent,F.Why));
+	if (!TestTrue(TEXT("Correct Run planner"),FShanmenDemo20InventoryTransfer::Build(Before,Source,Carry(),F.Run,Intent,F.Why))) return false;
+	F.Items->SetInjectedFailureForTests(EShanmenItemStoreFailureStage::AtomicReplace);
+	const auto Failed=F.Items->EditActiveRunGridDurable({Intent,F.Run});
+	TestTrue(TEXT("Failed save reports rollback; no fake claimed quantity"),Failed.Status==EShanmenItemDurableCommandStatus::PersistenceFailedRolledBack && Before==F.Snapshot());
+	TestTrue(TEXT("Reopen then deliver exact same intent once"),F.Restart() && Before==F.Snapshot() && F.Items->EditActiveRunGridDurable({Intent,F.Run}).IsCommandSuccess());
+	const auto After=F.Snapshot();
+	TestTrue(TEXT("Repeat confirmed request idempotent"),F.Items->EditActiveRunGridDurable({Intent,F.Run}).IsCommandSuccess() && After==F.Snapshot());
+	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20LootActualSourcesTest,"Shanmen.Demo20.Loot.MaterializeActualSixSourcesNativeReplay",Flags)

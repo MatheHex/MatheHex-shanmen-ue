@@ -60,6 +60,7 @@ public:
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	void StartTrial();
+	void RetryWorldRecovery();
 	void ReturnToPreparation();
 	void TogglePause();
 	void PauseForFocusLoss();
@@ -93,6 +94,7 @@ public:
 	bool IsPlaying() const { return Session.GetPhase() == EShanmenDemo20Phase::Active && !bPaused && !bInventoryOpen && !IsSourceSurfaceOpen(); }
 	bool IsPaused() const { return bPaused; }
 	bool IsWorldReady() const { return bWorldReady; }
+	bool IsWorldRecoveryPending() const { return WorldRecoveryRun.IsValid(); }
 	const FShanmenDemo20Session& GetSession() const { return Session; }
 	FString GetNotice() const { return Notice; }
 	int32 GetCarryMedicine() const { return CarryMedicine; }
@@ -149,6 +151,8 @@ private:
 	FShanmenDemo20WorldCheckpoint WorldCheckpoint, PendingCheckpoint;
 	bool bCheckpointPending = false, bTerminalConfirmed = false;
 	FString WorldProfileRoot;
+	/** UI recovery target only; revalidated against the Item Run/normal start preview. */
+	FGuid WorldRecoveryRun;
 	float CheckpointClock = 0.f, ExtractionClock = 0.f;
 	bool bExtracting = false;
 	int32 CarryMedicine = 0, SecureMedicine = 0;

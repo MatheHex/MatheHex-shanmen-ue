@@ -1,5 +1,6 @@
 #include "ShanmenDemo20InventoryWidget.h"
 #include "ShanmenItemStackTransfer.h"
+#include "ShanmenDemo20InventoryTransfer.h"
 #include "ShanmenDemo20World.h"
 #include "ShanmenDemo20Catalog.h"
 #include "ShanmenDemo20Loadout.h"
@@ -130,7 +131,7 @@ void UShanmenDemo20InventoryWidget::Submit(FShanmenItemGridRequest Intent)
 		Feedback = TEXT("已确认并保存。");
 		if (Intent.Action==EShanmenItemGridAction::Merge)
 			Feedback=Result.Receipt.ResourceAfter>0
-				? FString::Printf(TEXT("已合并 %d 个；原处还剩 %d 个。"),Result.Receipt.Amount,Result.Receipt.ResourceAfter)
+				? FString::Printf(TEXT("已转入并合并 %d 个；原处还剩 %d 个，可继续领取或留下。"),Result.Receipt.Amount,Result.Receipt.ResourceAfter)
 				: FString::Printf(TEXT("已合并 %d 个，原堆已移空。"),Result.Receipt.Amount);
 		if (Intent.Action == EShanmenItemGridAction::Split) Selected = Result.Receipt.ItemInstanceId;
 	}
@@ -201,7 +202,12 @@ void UShanmenDemo20InventoryWidget::Toolbar(int32 Index)
 		const FGuid Destination = Host.IsValid() && Host->IsRunInventory() ? FShanmenDemo20Catalog::ContainerId(TEXT("Carry"))
 			: I->ParentContainerId == FShanmenDemo20Catalog::ContainerId(TEXT("Stash"))
 			? FShanmenDemo20Catalog::ContainerId(TEXT("Carry")) : FShanmenDemo20Catalog::ContainerId(TEXT("Stash"));
-		if (!FirstFit(R, Destination)) { Feedback = TEXT("目标容器无合法空间，请手动整理。"); return; } Submit(R);
+		FShanmenItemAuthoritySnapshot Actual;
+		if (!Host.IsValid() || !Host->TryCaptureItems(Actual))
+		{ Feedback = TEXT("物品状态尚未确认，未转移；请返回入口恢复。"); return; }
+		const FGuid Run = Host->IsRunInventory() ? Host->GetSession().GetRunId() : FGuid();
+		if (!FShanmenDemo20InventoryTransfer::Build(Actual, Selected, Destination, Run, R, Feedback)) return;
+		Submit(R);
 	}
 	else if (Index == 3)
 	{
@@ -262,6 +268,13 @@ FReply UShanmenDemo20InventoryWidget::NativeOnMouseMove(const FGeometry& G, cons
 	if (Dragging) UpdateDragPreview();
 	return Dragging ? FReply::Handled() : FReply::Unhandled();
 }
+FReply UShanmenDemo20InventoryWidget::NativeOnMouseButtonDoubleClick(const FGeometry& G, const FPointerEvent& E)
+{
+	if (E.GetEffectingButton() != EKeys::LeftMouseButton) return FReply::Unhandled();
+	Dragging = false; Cursor = G.AbsoluteToLocal(E.GetScreenSpacePosition());
+	if (const auto* I = HitItem(Cursor)) { Selected = I->ItemInstanceId; Toolbar(2); }
+	return FReply::Handled().ReleaseMouseCapture();
+}
 FReply UShanmenDemo20InventoryWidget::NativeOnMouseButtonUp(const FGeometry& G, const FPointerEvent& E)
 {
 	if (!Dragging || E.GetEffectingButton() != EKeys::LeftMouseButton) return FReply::Unhandled();
@@ -299,7 +312,7 @@ int32 UShanmenDemo20InventoryWidget::NativePaint(const FPaintArgs& Args, const F
 	Text({24,18},InRun?TEXT("山门 / 搜索与背包"):TEXT("山门 / 仓库与整备"),25,Gold);
 	int32 Money = 0; for (const auto& I : Projection.Items) if (Live(I) && I.DefinitionId == TEXT("Currency.Test")) Money += I.Quantity;
 	Text({550,26}, InRun?TEXT("世界继续运行 · 仓库不在局内开放"):FString::Printf(TEXT("测试灵石  %d · 新档一次性初始化"), Money),14,Gold);
-	Text({24,59},TEXT("拖动物品到格子；同类拖到一起合并。点击选择后使用下方操作。"),14);
+	Text({24,59},TEXT("双击便捷转移：先合并再放空格。拖动可整理；部分领取后余量仍在原处。"),14);
 	const auto List = Boards();
 	const bool HasBackpack = Projection.Items.ContainsByPredicate([&](const auto& I)
 	{

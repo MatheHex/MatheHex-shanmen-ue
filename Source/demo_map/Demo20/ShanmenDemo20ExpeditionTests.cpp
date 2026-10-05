@@ -113,7 +113,11 @@ bool FDemo20EntryRecoveryTest::RunTest(const FString&)
 	const auto Final=Terminal(S,Active,false); Items.SetInjectedFailureForTests(EShanmenItemStoreFailureStage::AtomicReplace);
 	TestFalse(TEXT("Terminal save failure cannot announce carried home"),Items.FinalizePreparedRunDurable(Final).IsCommandSuccess());
 	FShanmenItemAuthorityService Restart; TestTrue(TEXT("Native reopen"),Restart.StartNativeProfile(ItemDisk,FShanmenDemo20Catalog::ProductId(),FShanmenDemo20Catalog::Initial()).IsReady());
-	FShanmenDemo20WorldCheckpoint Loaded; TestTrue(TEXT("Terminal intention survives restart"),FShanmenDemo20WorldCheckpointStore::Load(Disk,Active.RunId,Loaded,Reason));
+	const FString WorldPath=FShanmenDemo20WorldCheckpointStore::Path(Disk,Active.RunId); TArray<uint8> Damaged;
+	FFileHelper::LoadFileToArray(Damaged,*WorldPath); Damaged.Last()^=1; FFileHelper::SaveArrayToFile(Damaged,*WorldPath);
+	FShanmenDemo20WorldCheckpoint Loaded;
+	TestFalse(TEXT("Corrupt terminal primary cannot resume earlier combat"),FShanmenDemo20WorldCheckpointStore::Load(Disk,Active.RunId,Loaded,Reason));
+	TestTrue(TEXT("Explicit repair retains terminal intention for same item Run"),FShanmenDemo20WorldCheckpointStore::Recover(Disk,Active.RunId,Loaded,Reason));
 	TestEqual(TEXT("No resumed combat after extraction"),Loaded.Combat.Phase,EShanmenDemo20Phase::Extracted);
 	TestTrue(TEXT("Existing terminal command retry"),Restart.FinalizePreparedRunDurable(Final).IsCommandSuccess());
 	FShanmenItemAuthorityDocument Before,After; Restart.TryGetDocument(Before);

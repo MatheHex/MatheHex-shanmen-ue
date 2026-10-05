@@ -229,10 +229,13 @@ void AShanmenDemo20GameMode::RestoreExpeditionOnOpen()
 	if (!TryCaptureItems(S)) { bWorldReady=false; return; }
 	LastSettlementDetails=FShanmenDemo20Settlement::DescribeLatestSaved(S);
 	if (!HasUnfinished(S)) { Notice=TEXT("青岚关探索 · 可先整备，携带确认后出发。归阵从开局可用。"); ApplyExpeditionProjection(); return; }
-	if (!FShanmenDemo20Loadout::InspectActiveIdentity(S,Active,Reason)
-		|| !FShanmenDemo20WorldCheckpointStore::Load(WorldProfileRoot,Active.RunId,WorldCheckpoint,Reason)
-		|| WorldCheckpoint.RunSeed != Active.RunSeed || !Session.RestoreExpedition(WorldCheckpoint.Combat))
+	if (!FShanmenDemo20Loadout::InspectActiveIdentity(S,Active,Reason))
+	{ bWorldReady=false; Notice=Reason; return; }
+	if (!FShanmenDemo20WorldCheckpointStore::Load(WorldProfileRoot,Active.RunId,WorldCheckpoint,Reason))
+	{ bWorldReady=false; bPaused=true; WorldRecoveryRun=Active.RunId; Notice=Reason; return; }
+	if (WorldCheckpoint.RunSeed != Active.RunSeed || !Session.RestoreExpedition(WorldCheckpoint.Combat))
 	{ bWorldReady=false; Notice=Reason.IsEmpty()?TEXT("探索恢复失败，原局未覆盖。"):Reason; return; }
+	WorldRecoveryRun.Invalidate(); bWorldReady=true;
 	bTerminalConfirmed=false; ApplyExpeditionProjection();
 	if (!ResolvePendingMedicine()) { bPaused=true; return; }
 	if (!EnsureRunInventory()) { RefreshSurface(); return; }
@@ -244,6 +247,39 @@ void AShanmenDemo20GameMode::RestoreExpeditionOnOpen()
 	else { bPaused=true; Notice=TEXT("原局已恢复：位置、生命和敌人状态保持。点击继续后行动；撤离读条需重新开始。"); }
 	UE_LOG(LogTemp,Display,TEXT("DEMO20_WORLD_RESTORED Run=%s Generation=%d Seed=%llu HP=%.1f Position=%s"),
 		*Active.RunId.ToString(),WorldCheckpoint.Generation,Active.RunSeed,Session.GetHealth(),*WorldCheckpoint.PlayerPosition.ToString());
+}
+
+void AShanmenDemo20GameMode::RetryWorldRecovery()
+{
+	if (!bExpeditionMode || !bProfileReady || !WorldRecoveryRun.IsValid()) return;
+	FShanmenItemAuthoritySnapshot S; FShanmenDemo20ActiveLoadout Active; FString Reason;
+	if (!TryCaptureItems(S)) { Notice=TEXT("物品权威未就绪，原局未修复。请先恢复原物品档。"); RefreshSurface(); return; }
+	const bool ActiveRun=HasUnfinished(S);
+	FGuid ExpectedRun;
+	if (ActiveRun)
+	{
+		if (FShanmenDemo20Loadout::InspectActiveIdentity(S,Active,Reason)) ExpectedRun=Active.RunId;
+	}
+	else
+	{
+		// A damaged orphan preflight is repairable only for the SAME normal start
+		// preview. Repair itself must not debit stock or start an unauthorized Run.
+		FShanmenItemLoadoutStartRequest R; FShanmenItemRepository Preview;
+		if (FShanmenDemo20Loadout::Build(S,R,Reason) && Preview.TryLoadSnapshot(S))
+		{ const auto Start=Preview.StartLoadout(R); if (Start.IsSuccess()) ExpectedRun=Start.ReservationId; }
+	}
+	if (ExpectedRun!=WorldRecoveryRun)
+	{ Notice=TEXT("原局身份与当前物品权威不一致，未修复、未另开局。原档保留，请查看日志。"); RefreshSurface(); return; }
+	bPaused=true; bInventoryOpen=false; CloseSourceSurface(); Session.SetGuarding(false);
+	FShanmenDemo20WorldCheckpoint Repaired;
+	const bool Success=FShanmenDemo20WorldCheckpointStore::Recover(WorldProfileRoot,ExpectedRun,Repaired,Reason);
+	UE_LOG(LogTemp,Display,TEXT("DEMO20_WORLD_REPAIR Run=%s Success=%d Generation=%d Reason=%s"),
+		*ExpectedRun.ToString(),Success,Repaired.Generation,*Reason);
+	if (!Success) { Notice=Reason; RefreshSurface(); return; }
+	WorldRecoveryRun.Invalidate(); bWorldReady=true;
+	RestoreExpeditionOnOpen();
+	if (!ActiveRun && bWorldReady) { bPaused=false; Notice=TEXT("出发记录已修复，尚未扣除携带物。点击正常出发后才开始探索。"); }
+	RefreshSurface();
 }
 
 void AShanmenDemo20GameMode::StartExpedition()
@@ -273,8 +309,9 @@ void AShanmenDemo20GameMode::StartExpedition()
 	FShanmenDemo20WorldCheckpoint Confirmed;
 	if (IFileManager::Get().FileExists(*FShanmenDemo20WorldCheckpointStore::Path(WorldProfileRoot,PreviewStart.ReservationId)))
 	{
-		if (!FShanmenDemo20WorldCheckpointStore::Load(WorldProfileRoot,PreviewStart.ReservationId,Confirmed,Reason)
-			|| Confirmed.Generation!=1 || Confirmed.Combat.Sequence!=0 || Confirmed.Combat.Elapsed!=0.f
+		if (!FShanmenDemo20WorldCheckpointStore::Load(WorldProfileRoot,PreviewStart.ReservationId,Confirmed,Reason))
+		{ bWorldReady=false; bPaused=true; WorldRecoveryRun=PreviewStart.ReservationId; Notice=Reason; RefreshSurface(); return; }
+		if (Confirmed.Generation!=1 || Confirmed.Combat.Sequence!=0 || Confirmed.Combat.Elapsed!=0.f
 			|| Confirmed.Combat.Phase!=EShanmenDemo20Phase::Active || Confirmed.Combat.SwordDamage!=Damage || Confirmed.Combat.ArmorFraction!=Armor)
 		{ Notice=TEXT("出发记录冲突，未启动或扣除；请查看运行日志。"); RefreshSurface(); return; }
 		// An orphan preflight from an older executable belongs to that exact Run/content.
