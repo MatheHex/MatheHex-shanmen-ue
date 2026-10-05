@@ -534,6 +534,7 @@ void AShanmenDemo20GameMode::Evade()
 void AShanmenDemo20GameMode::Interact()
 {
 	if (!IsPlaying()) return;
+	if (bExpeditionMode && TryInteractSource()) return;
 	const auto* Player = GetWorld()->GetFirstPlayerController();
 	const APawn* Pawn = Player ? Player->GetPawn() : nullptr;
 	if (!Pawn || FVector::Dist2D(Pawn->GetActorLocation(), ExitLocation()) > 210.f)
@@ -560,6 +561,7 @@ void AShanmenDemo20GameMode::Interact()
 void AShanmenDemo20GameMode::SetGuard(bool bHeld) { Session.SetGuarding(bHeld && IsPlaying()); }
 void AShanmenDemo20GameMode::TogglePause()
 {
+	if (IsSourceSurfaceOpen()) { CloseSourceSurface(); RefreshSurface(); return; }
 	if (bInventoryOpen) { ToggleInventory(); return; }
 	if (Session.GetPhase() != EShanmenDemo20Phase::Active) return;
 	if (bExpeditionMode)
@@ -579,8 +581,9 @@ void AShanmenDemo20GameMode::TogglePause()
 }
 void AShanmenDemo20GameMode::PauseForFocusLoss()
 {
-	if (IsPlaying())
+	if (Session.GetPhase()==EShanmenDemo20Phase::Active && !bPaused)
 	{
+		CloseSourceSurface();
 		if (bExpeditionMode && !SaveExpedition(Session)) { RefreshSurface(); return; }
 		bPaused = true;
 		Session.SetGuarding(false);
@@ -590,6 +593,7 @@ void AShanmenDemo20GameMode::PauseForFocusLoss()
 }
 void AShanmenDemo20GameMode::LeaveTrial()
 {
+	CloseSourceSurface();
 	if (bExpeditionMode)
 	{
 		if (!RetryExpeditionCheckpoint() || !SaveExpedition(Session)) { RefreshSurface(); return; }
@@ -603,6 +607,7 @@ void AShanmenDemo20GameMode::LeaveTrial()
 }
 void AShanmenDemo20GameMode::ReturnToPreparation()
 {
+	CloseSourceSurface();
 	if (bExpeditionMode && !bTerminalConfirmed) { FinalizeExpedition(); RefreshSurface(); return; }
 	if (!Session.ReturnToPreparation()) return;
 	bPaused = false;

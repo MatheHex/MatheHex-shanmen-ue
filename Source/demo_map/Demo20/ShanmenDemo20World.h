@@ -6,6 +6,7 @@
 #include "GameFramework/PlayerController.h"
 #include "ShanmenDemo20Session.h"
 #include "ShanmenDemo20WorldCheckpoint.h"
+#include "ShanmenDemo20Sources.h"
 #include "ShanmenItemAuthorityService.h"
 #include "ShanmenDemo20World.generated.h"
 
@@ -70,6 +71,11 @@ public:
 	void LeaveTrial();
 	void ToggleInventory();
 	bool IsInventoryOpen() const { return bInventoryOpen; }
+	bool IsSourceSurfaceOpen() const { return SourceSearch.IsActive() || bSourcePreviewOpen; }
+	bool IsSearchingSource() const { return SourceSearch.IsActive(); }
+	FString GetSourceHeading() const { return FShanmenDemo20Sources::Name(SourceSearch.IsActive()?SourceSearch.Role:SourcePreview.GetPlan().SourceRoleId); }
+	FString GetSourceBody() const;
+	void CloseSourceSurface();
 	bool IsProfileReady() const { return bProfileReady; }
 	bool IsExpedition() const { return bExpeditionMode; }
 	FString GetExplorationArea() const;
@@ -78,7 +84,7 @@ public:
 	bool TryCaptureItems(FShanmenItemAuthoritySnapshot& Out) const;
 	FShanmenItemDurableCommandResult EditItemGrid(const FShanmenItemGridRequest& Intent);
 	FString ReplenishBasicEquipment();
-	bool IsPlaying() const { return Session.GetPhase() == EShanmenDemo20Phase::Active && !bPaused && !bInventoryOpen; }
+	bool IsPlaying() const { return Session.GetPhase() == EShanmenDemo20Phase::Active && !bPaused && !bInventoryOpen && !IsSourceSurfaceOpen(); }
 	bool IsPaused() const { return bPaused; }
 	bool IsWorldReady() const { return bWorldReady; }
 	const FShanmenDemo20Session& GetSession() const { return Session; }
@@ -106,12 +112,17 @@ private:
 	void RefreshMedicineProjection();
 	void ApplyExpeditionProjection();
 	bool FinalizeExpedition();
+	void ApplySourceProjection();
+	bool TryInteractSource();
+	void TickSourceSearch(float Delta);
+	void ConfirmSourceSearch(FName SourceRole);
 	FShanmenDemo20WorldCheckpoint CaptureWorld(const FShanmenDemo20Session& Candidate) const;
 	FShanmenDemo20Session Session;
 	UPROPERTY() TObjectPtr<UShanmenDemo20Widget> Screen;
 	UPROPERTY() TArray<TObjectPtr<AActor>> ArenaActors;
 	UPROPERTY() TArray<TObjectPtr<AActor>> Sentinels;
 	UPROPERTY() TArray<TObjectPtr<AActor>> Warnings;
+	UPROPERTY() TArray<TObjectPtr<AActor>> SourceMarkers;
 	UPROPERTY() TObjectPtr<AActor> ExitMarker;
 	float SentinelClocks[3] = {0.f, 0.f, 0.f};
 	float NoticeTime = 0.f;
@@ -127,6 +138,10 @@ private:
 	float CheckpointClock = 0.f, ExtractionClock = 0.f;
 	bool bExtracting = false;
 	int32 CarryMedicine = 0, SecureMedicine = 0;
+	FShanmenDemo20Search SourceSearch;
+	FShanmenItemGeneratedSourceReceipt SourcePreview;
+	bool bSourcePreviewOpen = false;
+	FGuid SourceLayoutRun;
 };
 
 /** Formal exploration map; shares existing Demo20 UI/input, not the practice map. */

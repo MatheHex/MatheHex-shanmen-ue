@@ -27,6 +27,20 @@ namespace
 FGuid FShanmenDemo20Catalog::OwnerId() { return Identity(TEXT("Owner")); }
 FGuid FShanmenDemo20Catalog::ScopeId() { return Identity(TEXT("PreparationScope")); }
 FGuid FShanmenDemo20Catalog::ContainerId(FName Role) { return Identity(TEXT("Container:") + Role.ToString()); }
+FShanmenContentStamp FShanmenDemo20Catalog::ContentStamp()
+{
+	FShanmenContentStamp C; C.Version=TEXT("Demo20.Catalog.r1"); C.Digest=TEXT("Demo20.FixedCatalog.13.GridStorage.r1"); return C;
+}
+bool FShanmenDemo20Catalog::Definition(FName Id, FShanmenItemDefinition& Out)
+{
+	for (const auto& E:Entries) if (Id==FName(E.Id))
+	{
+		FShanmenItemDefinition D; D.DefinitionId=E.Id; D.MaxStack=E.Stack;
+		D.ItemTags.AddTag(E.Role[0]?FShanmenItemNativeTags::CapabilityDeploy():FShanmenItemNativeTags::CapabilityConsumeQuantity());
+		Out=MoveTemp(D); return true;
+	}
+	return false;
+}
 FShanmenItemBasicSupplyRequest FShanmenDemo20Catalog::BasicSupply(const FShanmenItemAuthoritySnapshot& S)
 {
 	FShanmenItemBasicSupplyRequest R;
@@ -83,11 +97,10 @@ FShanmenItemAuthoritySnapshot FShanmenDemo20Catalog::Initial(int32 TestMoney)
 {
 	FShanmenItemAuthoritySnapshot S;
 	if (TestMoney < 1 || TestMoney > 1000000000) return S;
-	S.Content.Version = TEXT("Demo20.Catalog.r1"); S.Content.Digest = TEXT("Demo20.FixedCatalog.13.GridStorage.r1");
+	S.Content = ContentStamp();
 	for (const auto& E : Entries)
 	{
-		FShanmenItemDefinition D; D.DefinitionId = E.Id; D.MaxStack = E.Stack;
-		D.ItemTags.AddTag(E.Role[0] ? FShanmenItemNativeTags::CapabilityDeploy() : FShanmenItemNativeTags::CapabilityConsumeQuantity());
+		FShanmenItemDefinition D; Definition(E.Id,D);
 		S.Definitions.Add(D);
 		FShanmenItemFootprint F; F.DefinitionId = E.Id; F.Width = E.Width; F.Height = E.Height;
 		F.EquipmentRole = E.Role; F.bSecureAllowed = E.Secure;

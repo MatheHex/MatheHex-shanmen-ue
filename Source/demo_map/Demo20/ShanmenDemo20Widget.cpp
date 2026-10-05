@@ -86,7 +86,7 @@ void UShanmenDemo20Widget::Build()
 	auto* FooterBox = WidgetTree->ConstructWidget<UVerticalBox>();
 	Footer->SetContent(FooterBox);
 	Notice = Text(WidgetTree, FString(), 17, Gold); Add(FooterBox, Notice, 9);
-	const FString Controls = FString::Printf(TEXT("%s/%s/%s/%s 移动    %s 出剑    %s 闪身    按住 %s 格挡    %s 归阵    Esc 暂停"),
+	const FString Controls = FString::Printf(TEXT("%s/%s/%s/%s 移动    %s 出剑    %s 闪身    按住 %s 格挡    %s 搜索/归阵    Esc 返回/暂停"),
 		*KeyLabel(Fdemo_mapInputActionIds::MoveForward), *KeyLabel(Fdemo_mapInputActionIds::MoveLeft),
 		*KeyLabel(Fdemo_mapInputActionIds::MoveBackward), *KeyLabel(Fdemo_mapInputActionIds::MoveRight),
 		*KeyLabel(Fdemo_mapInputActionIds::PrimaryAttack), *KeyLabel(Fdemo_mapInputActionIds::SpiritEvasion),
@@ -170,6 +170,12 @@ void UShanmenDemo20Widget::Refresh()
 	Modal->SetVisibility(Host->IsPlaying() ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
 	PrimaryButton->SetIsEnabled(Host->IsWorldReady() && (!Host->IsExpedition() || Host->IsProfileReady()));
 	SecondaryButton->SetVisibility(Host->IsPaused() && Phase==EShanmenDemo20Phase::Active ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	if (Host->IsSourceSurfaceOpen() && !Host->IsPaused() && Phase==EShanmenDemo20Phase::Active)
+	{
+		Set(Heading,Host->GetSourceHeading()); Set(Body,Host->GetSourceBody());
+		Set(PrimaryLabel,Host->IsSearchingSource()?TEXT("取消搜索"):TEXT("关闭预览"));
+		SecondaryButton->SetVisibility(ESlateVisibility::Collapsed); return;
+	}
 	if (Phase == EShanmenDemo20Phase::Preparation)
 	{
 		if (Host->IsExpedition())
@@ -207,7 +213,8 @@ void UShanmenDemo20Widget::Refresh()
 void UShanmenDemo20Widget::Primary()
 {
 	if (!Host.IsValid()) return;
-	if (Host->IsPaused() && Host->GetSession().GetPhase()==EShanmenDemo20Phase::Active) Host->TogglePause();
+	if (Host->IsSourceSurfaceOpen() && !Host->IsPaused()) Host->CloseSourceSurface();
+	else if (Host->IsPaused() && Host->GetSession().GetPhase()==EShanmenDemo20Phase::Active) Host->TogglePause();
 	else if (Host->GetSession().GetPhase() == EShanmenDemo20Phase::Preparation) Host->StartTrial();
 	else Host->ReturnToPreparation();
 }
@@ -224,6 +231,8 @@ void UShanmenDemo20Widget::FocusActiveSurface()
 
 FReply UShanmenDemo20Widget::NativeOnPreviewKeyDown(const FGeometry& Geometry, const FKeyEvent& Event)
 {
+	if (Host.IsValid() && Host->IsSourceSurfaceOpen() && Event.GetKey()==EKeys::Escape)
+	{ Host->TogglePause(); return FReply::Handled().ReleaseMouseCapture(); }
 	if (Host.IsValid() && (Event.GetKey() == Fdemo_mapInputBindingSettings::Get().GetKey(Fdemo_mapInputActionIds::Inventory)
 		|| (Event.GetKey() == EKeys::Escape && Host->IsInventoryOpen())))
 	{

@@ -19,6 +19,11 @@
   ],
   "rules": [
     {
+      "name": "SharedDeterministicRewardStream",
+      "pathRegex": "^Source/demo_map/demo_map(?:DeterministicRewardRandom|RewardGenerator|RewardGenerationTests)\\.(?:h|cpp)$",
+      "requiredGroups": ["demo_map.RewardGeneration", "demo_map.RewardSourceProjection", "demo_map.RewardFullMapDistribution", "Shanmen.Demo20"]
+    },
+    {
       "name": "Demo20StandaloneSlice",
       "pathRegex": "^(?:Source/demo_map/Demo20/|Content/Demo20/)",
       "requiredGroups": [

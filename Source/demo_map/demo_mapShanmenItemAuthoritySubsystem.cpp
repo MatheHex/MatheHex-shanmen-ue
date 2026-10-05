@@ -341,6 +341,23 @@ FShanmenItemDurableCommandResult Udemo_mapShanmenItemAuthoritySubsystem::StartLo
 	SynchronizeCommandState(Result); return Result;
 }
 
+FShanmenItemGeneratedSourceReadResult Udemo_mapShanmenItemAuthoritySubsystem::ReadGeneratedSource(
+	const FGuid& OwnerId, const FGuid& RunId, FName Role) const
+{
+	if (!IsInGameThread() || !AuthorityService || LifecycleState!=Edemo_mapShanmenItemAuthorityLifecycleState::Ready
+		|| OwnerId!=BoundOwnerId) return {};
+	return AuthorityService->ReadGeneratedSource(OwnerId,RunId,Role);
+}
+FShanmenItemDurableCommandResult Udemo_mapShanmenItemAuthoritySubsystem::AcceptGeneratedSourceDurable(
+	const FShanmenItemGeneratedSourceRequest& Request)
+{
+	if (!IsInGameThread() || !AuthorityService || LifecycleState!=Edemo_mapShanmenItemAuthorityLifecycleState::Ready
+		|| Request.Plan.OwnerId!=BoundOwnerId)
+		return RejectCommand(TEXT("Source admission requires the ready bound item authority on the Game Thread."));
+	const auto Result=AuthorityService->AcceptGeneratedSourceDurable(Request);
+	SynchronizeCommandState(Result); return Result;
+}
+
 FShanmenItemDurableCommandResult
 Udemo_mapShanmenItemAuthoritySubsystem::CommitDurable(
 	const FShanmenItemReservationActionRequest& Request)

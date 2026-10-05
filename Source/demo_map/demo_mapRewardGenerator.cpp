@@ -2,37 +2,11 @@
 
 #include "demo_mapItemDefinitions.h"
 #include "demo_mapRewardGenerationRegistry.h"
+#include "demo_mapDeterministicRewardRandom.h"
 
 namespace
 {
-	struct FRewardRandom
-	{
-		explicit FRewardRandom(uint64 InSeed)
-			: State(InSeed == 0
-				? 0x9E3779B97F4A7C15ull
-				: InSeed)
-		{
-		}
-
-		uint64 Next()
-		{
-			uint64 X = State;
-			X ^= X >> 12;
-			X ^= X << 25;
-			X ^= X >> 27;
-			State = X;
-			return X * 2685821657736338717ull;
-		}
-
-		uint64 RangeInclusive(uint64 Min, uint64 Max)
-		{
-			return Min >= Max
-				? Min
-				: Min + (Next() % (Max - Min + 1));
-		}
-
-		uint64 State;
-	};
+	using FRewardRandom = Fdemo_mapDeterministicRewardRandom;
 
 	uint64 HashUtf8(const FString& Text)
 	{

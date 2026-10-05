@@ -52,6 +52,12 @@ bool AShanmenDemo20GameMode::BuildExpedition()
 		if (!Sentinels.Last() || !Warnings.Last()) return false;
 		Sentinels.Last()->SetActorHiddenInGame(true); Sentinels.Last()->SetActorEnableCollision(false); Warnings.Last()->SetActorHiddenInGame(true);
 	}
+	for (int32 I=0;I<6;++I)
+	{
+		SourceMarkers.Add(AddShape(FVector::ZeroVector,I<3?FVector(.85f,.85f,.8f):FVector(.9f,.9f,.35f),Gold,false,I>=3));
+		if (!SourceMarkers.Last()) return false;
+		SourceMarkers.Last()->SetActorHiddenInGame(true);
+	}
 	auto* Sun = GetWorld()->SpawnActor<ADirectionalLight>(FVector(0,0,1000),FRotator(-55,-25,0));
 	auto* Sky = GetWorld()->SpawnActor<ASkyLight>();
 	if (!Sun || !Sky || !ExitMarker) return false;
@@ -176,6 +182,7 @@ void AShanmenDemo20GameMode::ApplyExpeditionProjection()
 		Pawn->SetActorLocation(Running ? WorldCheckpoint.PlayerPosition : ExitLocation()+FVector(0,0,100));
 		if (Running) Pawn->SetActorRotation(FRotator(0,WorldCheckpoint.PlayerYaw,0));
 	}
+	ApplySourceProjection();
 }
 
 void AShanmenDemo20GameMode::RestoreExpeditionOnOpen()
@@ -237,13 +244,15 @@ void AShanmenDemo20GameMode::StartExpedition()
 	Session=MoveTemp(Candidate); WorldCheckpoint=Confirmed; bPaused=false; bCheckpointPending=false; bTerminalConfirmed=false;
 	bExtracting=false; ExtractionClock=CheckpointClock=0.f; ApplyExpeditionProjection();
 	RefreshMedicineProjection();
-	Notice=TEXT("已确认出发 · 回春丹优先使用普通携带，其次安全格；归阵开局可用。搜索接线开发中。"); NoticeTime=8.f;
+	CloseSourceSurface();
+	Notice=TEXT("已确认出发 · 金色宝匣和守卫遗物可搜索；暂为只读预览，领取尚未开放。归阵开局可用。"); NoticeTime=8.f;
 	RefreshSurface(); UE_LOG(LogTemp,Display,TEXT("DEMO20_EXPEDITION_BEGIN Run=%s Seed=%llu ItemGeneration=%d"),
 		*Session.GetRunId().ToString(),WorldCheckpoint.RunSeed,Started.DocumentGeneration);
 }
 
 bool AShanmenDemo20GameMode::FinalizeExpedition()
 {
+	CloseSourceSurface();
 	if (!RetryExpeditionCheckpoint()) return false;
 	const auto Phase=Session.GetPhase();
 	if (Phase!=EShanmenDemo20Phase::Extracted && Phase!=EShanmenDemo20Phase::Defeated) return false;
@@ -283,8 +292,11 @@ void AShanmenDemo20GameMode::TickExpedition(float Delta)
 {
 	if (Session.GetPhase()!=EShanmenDemo20Phase::Active || bPaused) return;
 	Session.Advance(Delta); UpdateExpeditionEnemies(Delta);
+	ApplySourceProjection();
 	if (bPaused) { RefreshSurface(); return; }
 	if (Session.GetPhase()==EShanmenDemo20Phase::Defeated) { FinalizeExpedition(); RefreshSurface(); return; }
+	TickSourceSearch(Delta);
+	if (bPaused) return;
 	CheckpointClock+=Delta; NoticeTime=FMath::Max(0.f,NoticeTime-Delta);
 	const auto* P=GetWorld()->GetFirstPlayerController(); const APawn* Pawn=P?P->GetPawn():nullptr;
 	if (bExtracting)

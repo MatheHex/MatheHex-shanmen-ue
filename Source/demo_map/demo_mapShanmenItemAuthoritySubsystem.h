@@ -90,6 +90,8 @@ public:
 	FShanmenItemDurableCommandResult EditGridDurable(const FShanmenItemGridRequest& Request);
 	FShanmenItemDurableCommandResult ReplenishBasicsDurable(const FShanmenItemBasicSupplyRequest& Request);
 	FShanmenItemDurableCommandResult StartLoadoutDurable(const FShanmenItemLoadoutStartRequest& Request);
+	FShanmenItemGeneratedSourceReadResult ReadGeneratedSource(const FGuid& OwnerId, const FGuid& RunId, FName Role) const;
+	FShanmenItemDurableCommandResult AcceptGeneratedSourceDurable(const FShanmenItemGeneratedSourceRequest& Request);
 	FShanmenItemDurableCommandResult CommitDurable(
 		const FShanmenItemReservationActionRequest& Request);
 	FShanmenItemDurableCommandResult CommitBatchDurable(

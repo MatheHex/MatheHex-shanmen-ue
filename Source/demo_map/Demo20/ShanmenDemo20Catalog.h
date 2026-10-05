@@ -11,6 +11,8 @@ struct FShanmenDemo20Catalog
 	static FGuid ScopeId();
 	static FGuid ContainerId(FName Role);
 	static FShanmenItemAuthoritySnapshot Initial(int32 TestMoney = 1000000);
+	static FShanmenContentStamp ContentStamp();
+	static bool Definition(FName Id, FShanmenItemDefinition& Out);
 	static FString ItemName(FName DefinitionId);
 	static FString ItemPurpose(FName DefinitionId);
 	static FString ContainerName(FName Role);
