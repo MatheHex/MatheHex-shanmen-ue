@@ -207,6 +207,7 @@ void AShanmenDemo20GameMode::ApplyExpeditionProjection()
 		if (Running) Pawn->SetActorRotation(FRotator(0,WorldCheckpoint.PlayerYaw,0));
 	}
 	ApplySourceProjection();
+	ApplyGroundProjection();
 }
 
 void AShanmenDemo20GameMode::RestoreExpeditionOnOpen()
@@ -290,7 +291,7 @@ bool AShanmenDemo20GameMode::FinalizeExpedition()
 	R.Context.RequestId=FShanmenDeterministicId::FromCanonicalParts(TEXT("Demo20.Expedition.Terminal.r1"),{R.ActiveRunId.ToString(),FString::FromInt(static_cast<int32>(ReasonKind))});
 	if (const auto* Existing=S.ProcessedRequests.FindByPredicate([&](const auto& P){return P.Receipt.RequestId==R.Context.RequestId
 		&& P.Receipt.IsSuccess() && P.Receipt.Operation==EShanmenItemTransactionOperation::FinalizePreparedRun && P.Receipt.ReservationId==R.ActiveRunId;}))
-	{ bTerminalConfirmed=true; bPaused=false; Notice=TEXT("终局已确认保存，没有重复结算。"); return true; }
+	{ bTerminalConfirmed=true; bPaused=false; Notice=TEXT("终局已确认保存，没有重复结算。"); ApplyGroundProjection(); return true; }
 	FShanmenDemo20ActiveLoadout Active; FString Why;
 	if (!FShanmenDemo20Loadout::InspectActive(S,Active,Why) || Active.RunId!=R.ActiveRunId)
 	{ Notice=Why; bPaused=true; return false; }
@@ -304,7 +305,7 @@ bool AShanmenDemo20GameMode::FinalizeExpedition()
 		TEXT("终局尚未确认保存，未显示已带回。点击重试结算；原局不会另开或重复发物。");
 	UE_LOG(LogTemp,Display,TEXT("DEMO20_EXPEDITION_TERMINAL Run=%s Reason=%d Success=%d Status=%d Error=%d Generation=%d"),
 		*R.ActiveRunId.ToString(),static_cast<int32>(ReasonKind),bTerminalConfirmed,static_cast<int32>(Result.Status),static_cast<int32>(Result.Receipt.Error),Result.DocumentGeneration);
-	return bTerminalConfirmed;
+	ApplyGroundProjection(); return bTerminalConfirmed;
 }
 
 FString AShanmenDemo20GameMode::GetExplorationArea() const

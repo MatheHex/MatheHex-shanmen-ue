@@ -69,6 +69,9 @@ FShanmenItemTransactionReceipt FShanmenItemRepository::EditGridImpl(const FShanm
 			if (!L || !C || C->OwnerId != R.Context.OwnerId || C->RunId != R.Context.RunId) return false;
 			if (L->Kind == EShanmenItemGridKind::Carry || L->Kind == EShanmenItemGridKind::Secure) return true;
 			if (L->Kind != EShanmenItemGridKind::World) return false;
+			for (const auto& P : State.ProcessedRequests) if (P.Value.Receipt.IsSuccess()
+				&& P.Value.Receipt.Operation==EShanmenItemTransactionOperation::DropActiveRunItem
+				&& P.Value.Receipt.ReservationId==ActiveRunId && P.Value.Receipt.ReservationIds.Contains(ContainerId)) return true;
 			for (const auto& P : State.GeneratedSources) if (P.Value.RunId == ActiveRunId && P.Value.OwnerId == R.Context.OwnerId
 				&& ReadGeneratedSource(R.Context.OwnerId,ActiveRunId,P.Value.SourceRoleId).Receipt.GetContainerId() == ContainerId) return true;
 			return false;

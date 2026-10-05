@@ -1,6 +1,12 @@
 #include "ShanmenItemAuthorityService.h"
 #include "Misc/ScopeLock.h"
 
+FShanmenItemDurableCommandResult FShanmenItemAuthorityService::DropActiveRunItemDurable(const FShanmenItemGroundDropRequest& R)
+{
+	FScopeLock Lock(&Mutex);
+	return ExecuteCommandLocked([&](FShanmenItemRepository& Items) { return Items.DropActiveRunItem(R); });
+}
+
 FShanmenItemDurableCommandResult FShanmenItemAuthorityService::MaterializeRunInventoryDurable(const FShanmenItemRunInventoryRequest& R)
 {
 	FScopeLock Lock(&Mutex);

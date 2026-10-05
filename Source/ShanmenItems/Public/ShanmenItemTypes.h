@@ -73,7 +73,9 @@ enum class EShanmenItemTransactionOperation : uint8
 	MaterializeGeneratedSource,
 	EditActiveRunGrid,
 	/** One-way transfer of prepared balances into the existing item graph. */
-	MaterializeRunInventory
+	MaterializeRunInventory,
+	/** Moves an existing stored instance into an authority-owned ground container. */
+	DropActiveRunItem
 };
 
 UENUM(BlueprintType)

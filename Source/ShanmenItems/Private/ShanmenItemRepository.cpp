@@ -1195,7 +1195,8 @@ bool FShanmenItemRepository::ValidateState(
 				continue;
 			}
 			if (Processed.Receipt.Operation == EShanmenItemTransactionOperation::MaterializeGeneratedSource
-				|| Processed.Receipt.Operation == EShanmenItemTransactionOperation::MaterializeRunInventory) continue;
+				|| Processed.Receipt.Operation == EShanmenItemTransactionOperation::MaterializeRunInventory
+				|| Processed.Receipt.Operation == EShanmenItemTransactionOperation::DropActiveRunItem) continue;
 			if (Processed.Receipt.Operation == EShanmenItemTransactionOperation::EditActiveRunGrid)
 			{
 				const auto& Edit=Processed.Receipt;
@@ -1298,7 +1299,7 @@ bool FShanmenItemRepository::ValidateState(
 		}
 	}
 
-	if (!ValidateGeneratedSources(Candidate) || !ValidateRunInventory(Candidate)) { return Fail(); }
+	if (!ValidateGeneratedSources(Candidate) || !ValidateRunInventory(Candidate) || !ValidateGroundDrops(Candidate)) { return Fail(); }
 	if (!Candidate.Grid.IsEmpty())
 	{
 		FShanmenItemAuthoritySnapshot Geometry;

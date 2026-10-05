@@ -71,9 +71,9 @@ public:
 	void LeaveTrial();
 	void ToggleInventory();
 	bool IsInventoryOpen() const { return bInventoryOpen; }
-	bool IsSourceSurfaceOpen() const { return SourceSearch.IsActive() || bSourcePreviewOpen; }
+	bool IsSourceSurfaceOpen() const { return SourceSearch.IsActive() || bSourcePreviewOpen || OpenGroundContainer.IsValid(); }
 	bool IsSearchingSource() const { return SourceSearch.IsActive(); }
-	FString GetSourceHeading() const { return FShanmenDemo20Sources::Name(SourceSearch.IsActive()?SourceSearch.Role:SourcePreview.GetPlan().SourceRoleId); }
+	FString GetSourceHeading() const;
 	FString GetSourceBody() const;
 	void CloseSourceSurface();
 	bool IsProfileReady() const { return bProfileReady; }
@@ -84,8 +84,9 @@ public:
 	bool TryCaptureItems(FShanmenItemAuthoritySnapshot& Out) const;
 	bool TryCaptureInventoryGrid(FShanmenItemAuthoritySnapshot& Out) const;
 	bool IsRunInventory() const { return bExpeditionMode && Session.GetPhase()==EShanmenDemo20Phase::Active; }
-	FGuid GetOpenSourceContainer() const { return bSourcePreviewOpen ? SourcePreview.GetContainerId() : FGuid(); }
+	FGuid GetOpenSourceContainer() const { return OpenGroundContainer.IsValid()?OpenGroundContainer:bSourcePreviewOpen?SourcePreview.GetContainerId():FGuid(); }
 	FShanmenItemDurableCommandResult EditItemGrid(const FShanmenItemGridRequest& Intent);
+	FShanmenItemDurableCommandResult DropInventoryItem(const FGuid& Item, int32 ExpectedAuthorityRevision, int32 ExpectedItemRevision);
 	FString ReplenishBasicEquipment();
 	bool IsPlaying() const { return Session.GetPhase() == EShanmenDemo20Phase::Active && !bPaused && !bInventoryOpen && !IsSourceSurfaceOpen(); }
 	bool IsPaused() const { return bPaused; }
@@ -117,6 +118,8 @@ private:
 	void ApplyExpeditionProjection();
 	bool FinalizeExpedition();
 	void ApplySourceProjection();
+	void ApplyGroundProjection();
+	bool TryInteractGround();
 	bool TryInteractSource();
 	void TickSourceSearch(float Delta);
 	void ConfirmSourceSearch(FName SourceRole);
@@ -127,6 +130,7 @@ private:
 	UPROPERTY() TArray<TObjectPtr<AActor>> Sentinels;
 	UPROPERTY() TArray<TObjectPtr<AActor>> Warnings;
 	UPROPERTY() TArray<TObjectPtr<AActor>> SourceMarkers;
+	UPROPERTY() TMap<FGuid,TObjectPtr<AActor>> GroundMarkers;
 	UPROPERTY() TObjectPtr<AActor> ExitMarker;
 	float SentinelClocks[3] = {0.f, 0.f, 0.f};
 	float NoticeTime = 0.f;
@@ -146,6 +150,7 @@ private:
 	FShanmenItemGeneratedSourceReceipt SourcePreview;
 	bool bSourcePreviewOpen = false;
 	FGuid SourceLayoutRun;
+	FGuid OpenGroundContainer;
 };
 
 /** Formal exploration map; shares existing Demo20 UI/input, not the practice map. */

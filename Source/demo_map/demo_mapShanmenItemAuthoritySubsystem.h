@@ -90,6 +90,7 @@ public:
 	FShanmenItemDurableCommandResult EditGridDurable(const FShanmenItemGridRequest& Request);
 	FShanmenItemDurableCommandResult EditActiveRunGridDurable(const FShanmenItemRunGridRequest& Request);
 	FShanmenItemDurableCommandResult MaterializeRunInventoryDurable(const FShanmenItemRunInventoryRequest& Request);
+	FShanmenItemDurableCommandResult DropActiveRunItemDurable(const FShanmenItemGroundDropRequest& Request);
 	FShanmenItemDurableCommandResult MaterializeGeneratedSourceDurable(const FShanmenItemSourceMaterializeRequest& Request);
 	FShanmenItemDurableCommandResult ReplenishBasicsDurable(const FShanmenItemBasicSupplyRequest& Request);
 	FShanmenItemDurableCommandResult StartLoadoutDurable(const FShanmenItemLoadoutStartRequest& Request);

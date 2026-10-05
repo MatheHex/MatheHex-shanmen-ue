@@ -18,6 +18,7 @@ public:
 	FShanmenItemTransactionReceipt EditGrid(const FShanmenItemGridRequest& Request);
 	FShanmenItemTransactionReceipt EditActiveRunGrid(const FShanmenItemRunGridRequest& Request);
 	FShanmenItemTransactionReceipt MaterializeRunInventory(const FShanmenItemRunInventoryRequest& Request);
+	FShanmenItemTransactionReceipt DropActiveRunItem(const FShanmenItemGroundDropRequest& Request);
 	FShanmenItemTransactionReceipt MaterializeGeneratedSource(const FShanmenItemSourceMaterializeRequest& Request);
 	FShanmenItemTransactionReceipt ReplenishBasics(const FShanmenItemBasicSupplyRequest& Request);
 	FShanmenItemTransactionReceipt StartLoadout(const FShanmenItemLoadoutStartRequest& Request);
@@ -97,6 +98,7 @@ private:
 	static bool ValidateState(const FState& Candidate, EShanmenItemTransactionError* OutError);
 	static bool ValidateGeneratedSources(const FState& Candidate);
 	static bool ValidateRunInventory(const FState& Candidate);
+	static bool ValidateGroundDrops(const FState& Candidate);
 	FShanmenItemTransactionReceipt EditGridImpl(const FShanmenItemGridRequest& Request, const FGuid& ActiveRunId);
 	static bool FinalizeActiveRunGrid(FState& Candidate, const FShanmenItemRunFinalizeRequest& Request);
 	static FGuid Fingerprint(const FShanmenItemGeneratedSourceRequest& Request);

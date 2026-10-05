@@ -33,7 +33,7 @@ void UShanmenDemo20InventoryWidget::RefreshProjection()
 	bRunLocked = Host.IsValid() && Host->IsRunInventory();
 	if (!bRunLocked) bRunLocked = FShanmenDemo20Loadout::InspectActive(Projection, Active, Reason);
 	if (bRunLocked && Host.IsValid() && Host->IsRunInventory())
-		LoadoutSummary=TEXT("世界继续运行，请注意附近敌人。\n新获得物与安全格可整理；原携带物暂只读。");
+		LoadoutSummary=TEXT("世界继续运行，请注意附近敌人。\n携带物与新物可整理；丢弃后失去安全格保护。");
 	else if (bRunLocked && Host.IsValid() && Host->IsExpedition())
 		LoadoutSummary = TEXT("有未结算探索：整备已锁定，不会覆盖原局。\n请返回入口继续原局；空装备格不表示探索装备丢失。");
 	Dragging = false;
@@ -197,6 +197,18 @@ void UShanmenDemo20InventoryWidget::Toolbar(int32 Index)
 	}
 	else if (Index == 3)
 	{
+		if (Host.IsValid() && Host->IsRunInventory())
+		{
+			const auto Result=Host->DropInventoryItem(I->ItemInstanceId,Projection.AuthorityRevision,I->Revision);
+			Feedback=Result.IsCommandSuccess()?TEXT("已保存到脚下地面行囊；按交互键重新打开。安全格保护已解除。")
+				:Result.Status==EShanmenItemDurableCommandStatus::PersistenceFailedRolledBack?TEXT("丢弃保存失败，已回滚；物品仍在原格。")
+				:!Result.Diagnostic.IsEmpty() && Result.Status==EShanmenItemDurableCommandStatus::NotReady?Result.Diagnostic
+				:Result.Receipt.Error==EShanmenItemTransactionError::StaleAuthorityRevision || Result.Receipt.Error==EShanmenItemTransactionError::StaleItemRevision
+				?TEXT("状态已改变，未丢弃；请刷新后重试。")
+				:Result.Receipt.Error==EShanmenItemTransactionError::GridPolicyViolation?TEXT("只可丢弃普通背包或安全格中的物品；已穿戴和储物装备不允许。")
+				:TEXT("丢弃尚未确认，未报告成功；请恢复原档查看实际状态。");
+			RefreshProjection(); return;
+		}
 		const auto* F = Projection.Grid.Footprints.FindByPredicate([&](const auto& Value) { return Value.DefinitionId == I->DefinitionId; });
 		if (!F || F->EquipmentRole.IsNone()) { Feedback = TEXT("这个物品不是装备。"); return; }
 		R.Action = EShanmenItemGridAction::Equip; R.bRotated = false; R.DestinationContainerId = FShanmenDemo20Catalog::ContainerId(F->EquipmentRole);
@@ -289,7 +301,7 @@ int32 UShanmenDemo20InventoryWidget::NativePaint(const FPaintArgs& Args, const F
 	{
 		const auto* C = Projection.Containers.FindByPredicate([&](const auto& Value) { return Value.ContainerId == B.Id; });
 		const bool DisabledCarry = B.Id == FShanmenDemo20Catalog::ContainerId(TEXT("Carry")) && !HasBackpack;
-		const bool World=C && C->ContainerType==TEXT("GeneratedSource");
+		const bool World=C && (C->ContainerType==TEXT("GeneratedSource") || C->ContainerType==TEXT("GroundDrop"));
 		Text(B.Origin - FVector2D(0,24), World ? Host->GetSourceHeading() + (C->Slots.ContainsByPredicate([](const FGuid& Id){return Id.IsValid();}) ? TEXT(" · 可领取") : TEXT(" · 已搜空"))
 			: DisabledCarry ? (bRunLocked ? TEXT("普通背包 · 原局携带已锁定") : TEXT("普通背包 · 未装备行囊"))
 			: FString::Printf(TEXT("%s %d×%d"), *FShanmenDemo20Catalog::ContainerName(C ? C->ContainerType : NAME_None), B.Width, B.Height),13,Gold);
@@ -326,7 +338,7 @@ int32 UShanmenDemo20InventoryWidget::NativePaint(const FPaintArgs& Args, const F
 		Box({24,394},{172,44},FLinearColor(.11f,.29f,.22f)); Text({36,406},TEXT("领取基础补给"),15);
 		Text({208,402},TEXT("正式死亡后一次"),12,Gold); Text({208,420},TEXT("只补缺失，不补货币"),11,Gold);
 	}
-	else Text({24,394},TEXT("未领取物留在来源；携带物可整理与拆分。\n安全格已确认物死亡保留，不会自动丢物。"),13,Gold);
+	else Text({24,394},TEXT("未领取物留在来源；携带物可整理、拆分和丢弃。\n地面物不随撤离带回，死亡也不享受安全格保护。"),13,Gold);
 	if (const auto* I = Projection.Items.FindByPredicate([&](const auto& Value) { return Value.ItemInstanceId == Selected; }))
 	{
 		Text({24,480}, FString::Printf(TEXT("已选：%s  ×%d"),*FShanmenDemo20Catalog::ItemName(I->DefinitionId),I->Quantity),17);
@@ -338,7 +350,7 @@ int32 UShanmenDemo20InventoryWidget::NativePaint(const FPaintArgs& Args, const F
 			F ? (IsRotated ? F->Width : F->Height) : 1, D ? D->MaxStack : 1),13);
 	}
 	Text({24,539},Feedback.IsEmpty() ? TEXT("所有移动、装备和数量变化均经物品权威确认后保存。") : Feedback,14,Gold);
-	const TCHAR* Labels[] = {TEXT("旋转所选"),TEXT("拆分一半"),InRun?TEXT("移入普通背包"):TEXT("便捷转移"),InRun?TEXT("装备仅整备更换"):TEXT("装备 / 替换"),InRun?TEXT("关闭背包"):TEXT("返回入口")};
+	const TCHAR* Labels[] = {TEXT("旋转所选"),TEXT("拆分一半"),InRun?TEXT("移入普通背包"):TEXT("便捷转移"),InRun?TEXT("丢弃所选整堆"):TEXT("装备 / 替换"),InRun?TEXT("关闭背包"):TEXT("返回入口")};
 	for (int32 Index = 0; Index < 5; ++Index)
 	{
 		Box({24.f+Index*176.f,566},{164,46},FLinearColor(.11f,.29f,.22f)); Text({36.f+Index*176.f,578},Labels[Index],15);

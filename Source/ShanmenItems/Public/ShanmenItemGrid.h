@@ -97,6 +97,37 @@ struct SHANMENITEMS_API FShanmenItemSourceMaterializeRequest
 struct FShanmenItemAuthoritySnapshot;
 enum class EShanmenItemTransactionError : uint8;
 
+/** Whole-instance transfer, not generation. Split first to discard part of a stack.
+ * Integer centimetres are frozen in the durable receipt, never in an Actor ledger. */
+struct SHANMENITEMS_API FShanmenItemGroundDropRequest
+{
+	FShanmenOperationContext Context;
+	FGuid ActiveRunId, ItemInstanceId;
+	FIntVector Position = FIntVector::ZeroValue;
+	int32 ExpectedAuthorityRevision = 0, ExpectedItemRevision = 0;
+	static FGuid MakeRequestId(const FGuid& Owner, const FGuid& Scope, const FGuid& Run, const FGuid& Item, int32 ItemRevision);
+	FGuid ContainerId() const;
+	FGuid Fingerprint() const;
+};
+
+/** Read-only world presentation. Empty is derived from the real container slots. */
+struct SHANMENITEMS_API FShanmenItemGroundDropView
+{
+	FGuid ContainerId;
+	FIntVector Position = FIntVector::ZeroValue;
+	bool bEmpty = false;
+};
+
+class SHANMENITEMS_API FShanmenItemGroundDropPolicy
+{
+public:
+	static bool IsPositionValid(const FIntVector& Position);
+	static FName EncodePosition(const FIntVector& Position);
+	static bool DecodePosition(FName Encoded, FIntVector& Out);
+	static bool Read(const FShanmenItemAuthoritySnapshot& Authority, const FGuid& Owner, const FGuid& Scope,
+		const FGuid& ActiveRun, TArray<FShanmenItemGroundDropView>& Out);
+};
+
 /** No caller quantities: the authority reconstructs the exact remaining balance. */
 struct SHANMENITEMS_API FShanmenItemRunInventoryRequest
 {

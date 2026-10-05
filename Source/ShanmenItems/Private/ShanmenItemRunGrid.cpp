@@ -293,6 +293,9 @@ bool FShanmenItemRepository::FinalizeActiveRunGrid(FState& Candidate,const FShan
 	TSet<FGuid> WorldContainers;
 	for (const auto& P:Candidate.GeneratedSources) if (P.Value.RunId==R.ActiveRunId && P.Value.OwnerId==R.Context.OwnerId)
 		WorldContainers.Add(Source(P.Value).GetContainerId());
+	for (const auto& P:Candidate.ProcessedRequests) if (P.Value.Receipt.IsSuccess()
+		&& P.Value.Receipt.Operation==EOp::DropActiveRunItem && P.Value.Receipt.ReservationId==R.ActiveRunId)
+		for (const auto& Id:P.Value.Receipt.ReservationIds) WorldContainers.Add(Id);
 	for (auto& P:Candidate.Items)
 	{
 		auto& I=P.Value; if (I.State!=EShanmenItemInstanceState::Stored || I.OwnerId!=R.Context.OwnerId || I.RunId!=R.Context.RunId) continue;

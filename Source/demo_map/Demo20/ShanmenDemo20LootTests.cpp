@@ -86,6 +86,13 @@ namespace
 			auto R=Move(From,FGuid(),0,0); R.Grid.Action=EAction::Merge; R.Grid.MergeTargetId=To; R.Grid.Amount=Amount;
 			const auto S=Snapshot(); if (const auto* I=Find(S,To)) R.Grid.ExpectedTargetRevision=I->Revision; return R;
 		}
+		FShanmenItemGroundDropRequest Drop(FGuid Id,FIntVector Position=FIntVector(120,-160,12)) const
+		{
+			const auto S=Snapshot(); FShanmenItemGroundDropRequest R; R.Context=Context(S); R.ActiveRunId=Run;
+			R.ItemInstanceId=Id; R.Position=Position; R.ExpectedAuthorityRevision=S.AuthorityRevision;
+			if (const auto* I=Find(S,Id)) R.ExpectedItemRevision=I->Revision;
+			R.Context.RequestId=R.MakeRequestId(R.Context.OwnerId,R.Context.RunId,Run,Id,R.ExpectedItemRevision); return R;
+		}
 		FShanmenItemRunFinalizeRequest Terminal(EShanmenItemRunTerminalReason Reason) const
 		{
 			const auto S=Snapshot(); FShanmenItemRunFinalizeRequest R; R.Context=Context(S); R.ActiveRunId=Run; R.TerminalReason=Reason;
@@ -352,6 +359,7 @@ bool FDemo20LootFacadeTest::RunTest(const FString&)
 	FFixture F; FShanmenItemSourceMaterializeRequest Unbound;
 	TestFalse(TEXT("Unbound materialization is not success"),A->MaterializeGeneratedSourceDurable(Unbound).IsCommandSuccess());
 	TestFalse(TEXT("Unbound Run inventory transfer is not success"),A->MaterializeRunInventoryDurable({}).IsCommandSuccess());
+	TestFalse(TEXT("Unbound ground transfer is not success"),A->DropActiveRunItemDurable({}).IsCommandSuccess());
 	if (!TestTrue(TEXT("Isolated existing native profile"),A->BindNativeProfile(Fdemo_mapProfileStorageContext::ForRoot(F.Root),
 		FShanmenDemo20Catalog::OwnerId(),FShanmenDemo20Catalog::ProductId(),FShanmenDemo20Catalog::Initial()).IsReady())) { GI->Shutdown(); return false; }
 	FShanmenItemAuthoritySnapshot S; A->TryCaptureSnapshot(S); FShanmenItemLoadoutStartRequest L; FShanmenDemo20Loadout::Build(S,L,F.Why);
@@ -371,6 +379,10 @@ bool FDemo20LootFacadeTest::RunTest(const FString&)
 	G.Grid.ExpectedItemRevision=I->Revision; G.Grid.ExpectedAuthorityRevision=S.AuthorityRevision; G.Grid.DestinationContainerId=Carry(); G.Grid.X=2;
 	TestTrue(TEXT("Facade durable real pickup"),A->EditActiveRunGridDurable(G).IsCommandSuccess());
 	A->TryCaptureSnapshot(S); TestEqual(TEXT("Actual same subsystem graph"),F.Find(S,ItemId)->ParentContainerId,Carry());
+	auto Drop=F.Drop(ItemId); Drop.Context=F.Context(S); Drop.ExpectedAuthorityRevision=S.AuthorityRevision; Drop.ExpectedItemRevision=F.Find(S,ItemId)->Revision;
+	Drop.Context.RequestId=Drop.MakeRequestId(Drop.Context.OwnerId,Drop.Context.RunId,F.Run,ItemId,Drop.ExpectedItemRevision);
+	TestTrue(TEXT("Bound facade durable ground transfer"),A->DropActiveRunItemDurable(Drop).IsCommandSuccess());
+	A->TryCaptureSnapshot(S); TestEqual(TEXT("Same bound graph, not actor quantity"),F.Find(S,ItemId)->ParentContainerId,Drop.ContainerId());
 	GI->Shutdown(); return true;
 }
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20UnifiedTransferTest,"Shanmen.Demo20.RunInventory.PreparedBalanceOneWayTransferAndNativeReplay",Flags)
@@ -558,5 +570,167 @@ bool FDemo20UnifiedUnequippedTest::RunTest(const FString&)
 	TestTrue(TEXT("Orientation preserved"),S.Grid.RotatedItems.Contains(Id));
 	TestEqual(TEXT("Spent original never refunded"),F.Find(S,Pills)->Quantity,0);
 	TestTrue(TEXT("Native reopen"),F.Restart() && S==F.Snapshot()); return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20GroundRoundTripTest,"Shanmen.Demo20.GroundDrop.SameIdentityRoundTripAndNativeReplay",Flags)
+bool FDemo20GroundRoundTripTest::RunTest(const FString&)
+{
+	FFixture F; if (!TestTrue(TEXT("Native unified Run"),F.Start() && F.Unify())) return false;
+	const auto Id=F.OriginalPills(); const auto Before=F.Snapshot(); const auto Drop=F.Drop(Id);
+	const auto Result=F.Items->DropActiveRunItemDurable(Drop);
+	if (!TestTrue(TEXT("Whole original stack durably dropped"),Result.IsCommandSuccess())) return false;
+	auto S=F.Snapshot(); TestEqual(TEXT("No new item identity"),S.Items.Num(),Before.Items.Num());
+	TestEqual(TEXT("Real quantity unchanged"),F.Find(S,Id)->Quantity,8); TestEqual(TEXT("Same original ID at ground"),F.Find(S,Id)->ParentContainerId,Drop.ContainerId());
+	TArray<FShanmenItemGroundDropView> Views;
+	TestTrue(TEXT("Actual read-only world projection"),FShanmenItemGroundDropPolicy::Read(S,FShanmenDemo20Catalog::OwnerId(),FShanmenDemo20Catalog::ScopeId(),F.Run,Views));
+	if (!TestEqual(TEXT("Exactly one ground position"),Views.Num(),1)) return false;
+	TestTrue(TEXT("Frozen centimetre position and nonempty"),Views[0].Position==Drop.Position && !Views[0].bEmpty);
+	TestTrue(TEXT("Exact repeated drop"),F.Items->DropActiveRunItemDurable(Drop).IsCommandSuccess() && S==F.Snapshot());
+	TestTrue(TEXT("Native reopen exact ground graph"),F.Restart() && S==F.Snapshot());
+	TestTrue(TEXT("Prior request after reopen"),F.Items->DropActiveRunItemDurable(Drop).IsCommandSuccess() && S==F.Snapshot());
+	const auto Pickup=F.Move(Id,Carry(),0,0); TestTrue(TEXT("Existing Run grid picks same instance"),F.Items->EditActiveRunGridDurable(Pickup).IsCommandSuccess());
+	S=F.Snapshot(); TestTrue(TEXT("Repeated pickup exact replay"),F.Items->EditActiveRunGridDurable(Pickup).IsCommandSuccess() && S==F.Snapshot());
+	TestTrue(TEXT("Old drop replay never moves picked item again"),F.Items->DropActiveRunItemDurable(Drop).IsCommandSuccess() && S==F.Snapshot());
+	TestTrue(TEXT("Empty is derived from real slots"),FShanmenItemGroundDropPolicy::Read(S,FShanmenDemo20Catalog::OwnerId(),FShanmenDemo20Catalog::ScopeId(),F.Run,Views) && Views[0].bEmpty);
+	const auto Again=F.Drop(Id,FIntVector(250,300,12)); TestTrue(TEXT("A later intentional drop has a new identity"),Again.ContainerId()!=Drop.ContainerId() && F.Items->DropActiveRunItemDurable(Again).IsCommandSuccess());
+	S=F.Snapshot(); TestEqual(TEXT("Still no copied items after a second trip"),S.Items.Num(),Before.Items.Num());
+	TestTrue(TEXT("Restore both positions, not redraw generation"),F.Restart() && S==F.Snapshot()
+		&& FShanmenItemGroundDropPolicy::Read(S,FShanmenDemo20Catalog::OwnerId(),FShanmenDemo20Catalog::ScopeId(),F.Run,Views) && Views.Num()==2);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20GroundTerminalTest,"Shanmen.Demo20.GroundDrop.SecureDiscardLosesProtectionAndTerminalReplay",Flags)
+bool FDemo20GroundTerminalTest::RunTest(const FString&)
+{
+	for (auto Reason:{EShanmenItemRunTerminalReason::Extraction,EShanmenItemRunTerminalReason::Death})
+	{
+		FFixture F; if (!TestTrue(TEXT("Native Run"),F.Start() && F.Unify())) return false;
+		const auto Original=F.OriginalPills(); auto Split=F.Move(Original,Secure(),1,0); Split.Grid.Action=EAction::Split; Split.Grid.Amount=3;
+		const auto Divided=F.Items->EditActiveRunGridDurable(Split); if (!TestTrue(TEXT("Three confirmed safe pills"),Divided.IsCommandSuccess())) return false;
+		const auto Drop=F.Drop(Divided.Receipt.ItemInstanceId); if (!TestTrue(TEXT("Explicit safe discard"),F.Items->DropActiveRunItemDurable(Drop).IsCommandSuccess())) return false;
+		const auto Before=F.Snapshot(); const auto Terminal=F.Terminal(Reason);
+		if (!TestTrue(TEXT("Existing atomic terminal includes ground"),F.Items->FinalizePreparedRunDurable(Terminal).IsCommandSuccess())) return false;
+		const auto After=F.Snapshot(); const auto* Lost=F.Find(After,Divided.Receipt.ItemInstanceId);
+		TestTrue(TEXT("Unpicked safe discard is lost even on extraction"),Lost && Lost->State==EState::Destroyed && Lost->Quantity==0 && !Lost->ParentContainerId.IsValid());
+		TestEqual(TEXT("Ordinary five follow terminal reason, never refunded eight"),F.Find(After,Original)->Quantity,Reason==EShanmenItemRunTerminalReason::Extraction?5:0);
+		for (const auto& I:Before.Items) if (I.ParentContainerId==Secure() || I.ParentContainerId==FShanmenDemo20Catalog::ContainerId(TEXT("Stash"))
+			|| I.ParentContainerId==FShanmenDemo20Catalog::ContainerId(TEXT("Wallet")) || I.ParentContainerId==FShanmenDemo20Catalog::ContainerId(TEXT("SecureBox")))
+			TestTrue(TEXT("Nonzero secure jade, equipment, stash and wallet unchanged"),F.Find(After,I.ItemInstanceId) && *F.Find(After,I.ItemInstanceId)==I);
+		TestTrue(TEXT("Terminal and drop replay cannot revive ground"),F.Items->FinalizePreparedRunDurable(Terminal).IsCommandSuccess()
+			&& F.Items->DropActiveRunItemDurable(Drop).IsCommandSuccess() && After==F.Snapshot());
+		TestTrue(TEXT("Native terminal remains exact"),F.Restart() && After==F.Snapshot());
+		TestFalse(TEXT("New ground write after terminal"),F.Items->DropActiveRunItemDurable(F.Drop(Original)).IsCommandSuccess());
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20GroundPartialTest,"Shanmen.Demo20.GroundDrop.FailedPickupAndPartialStackStayOnGround",Flags)
+bool FDemo20GroundPartialTest::RunTest(const FString&)
+{
+	FFixture F; if (!TestTrue(TEXT("Native real source stacks"),F.Start() && F.Unify() && F.Accept(FShanmenDemo20Sources::EnemyRole(2),TEXT("Heal.Pill")) && F.Materialize())) return false;
+	const auto Ids=F.Source.GetItemIds();
+	if (!TestTrue(TEXT("Pickup drop stack"),F.Items->EditActiveRunGridDurable(F.Move(Ids[0],Carry(),1,0)).IsCommandSuccess())) return false;
+	const auto Drop=F.Drop(Ids[0]); if (!TestTrue(TEXT("Source provenance retained on ground"),F.Items->DropActiveRunItemDurable(Drop).IsCommandSuccess())) return false;
+	if (!TestTrue(TEXT("Pickup target stack"),F.Items->EditActiveRunGridDurable(F.Move(Ids[1],Carry(),2,0)).IsCommandSuccess())) return false;
+	for (int32 N=2;N<4;++N) if (!TestTrue(TEXT("Make actual target nine"),F.Items->EditActiveRunGridDurable(F.Merge(Ids[N],Ids[1])).IsCommandSuccess())) return false;
+	const auto Before=F.Snapshot(); TestEqual(TEXT("Nonzero target nine"),F.Find(Before,Ids[1])->Quantity,9);
+	TestFalse(TEXT("Occupied backpack cell does not erase ground"),F.Items->EditActiveRunGridDurable(F.Move(Ids[0],Carry(),0,0)).IsCommandSuccess());
+	TestFalse(TEXT("Out of capacity does not erase ground"),F.Items->EditActiveRunGridDurable(F.Move(Ids[0],Carry(),6,0)).IsCommandSuccess());
+	TestTrue(TEXT("Both failures preserve exact native graph"),Before==F.Snapshot());
+	const auto Merge=F.Merge(Ids[0],Ids[1]); TestTrue(TEXT("One fits, rest remains"),F.Items->EditActiveRunGridDurable(Merge).IsCommandSuccess());
+	const auto S=F.Snapshot(); TestEqual(TEXT("Target bounded at ten"),F.Find(S,Ids[1])->Quantity,10);
+	TestTrue(TEXT("Ground two retain same ID, origin and container"),F.Find(S,Ids[0])->Quantity==2 && F.Find(S,Ids[0])->ParentContainerId==Drop.ContainerId()
+		&& F.Find(S,Ids[0])->RewardMetadata==F.Find(Before,Ids[0])->RewardMetadata);
+	TestTrue(TEXT("No duplicate on repeat or native reopen"),F.Items->EditActiveRunGridDurable(Merge).IsCommandSuccess() && S==F.Snapshot() && F.Restart() && S==F.Snapshot());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20GroundFailureTest,"Shanmen.Demo20.GroundDrop.NativeSaveFailureDropAndPickupRecovery",Flags)
+bool FDemo20GroundFailureTest::RunTest(const FString&)
+{
+	for (bool Pickup:{false,true}) for (auto Fault:{EShanmenItemStoreFailureStage::AtomicReplace,EShanmenItemStoreFailureStage::ReadBackCommittedPrimary})
+	{
+		FFixture F; if (!TestTrue(TEXT("Native isolated unified Run"),F.Start() && F.Unify())) return false;
+		const auto Id=F.OriginalPills(); const auto Drop=F.Drop(Id);
+		if (Pickup && !TestTrue(TEXT("Drop before pickup failure"),F.Items->DropActiveRunItemDurable(Drop).IsCommandSuccess())) return false;
+		const auto Move=F.Move(Id,Carry(),0,0); const auto Before=F.Snapshot(); F.Items->SetInjectedFailureForTests(Fault);
+		const auto Result=Pickup?F.Items->EditActiveRunGridDurable(Move):F.Items->DropActiveRunItemDurable(Drop);
+		if (Fault==EShanmenItemStoreFailureStage::AtomicReplace) TestTrue(TEXT("Not confirmed, exact before-state"),!Result.IsCommandSuccess() && Before==F.Snapshot());
+		else TestTrue(TEXT("Existing service proves exact durable after-state"),Result.IsCommandSuccess() && Result.IsDurable());
+		if (!TestTrue(TEXT("Reopen native primary"),F.Restart())) return false;
+		TestTrue(TEXT("Retry exact identity, never a second grant"),(Pickup?F.Items->EditActiveRunGridDurable(Move):F.Items->DropActiveRunItemDurable(Drop)).IsCommandSuccess());
+		const auto S=F.Snapshot(); TestEqual(TEXT("Only one mutation committed"),S.AuthorityRevision,Before.AuthorityRevision+1);
+		TestEqual(TEXT("Eight same-ID pills, not sixteen"),F.Find(S,Id)->Quantity,8);
+		TestEqual(TEXT("Actual container after recovery"),F.Find(S,Id)->ParentContainerId,Pickup?Carry():Drop.ContainerId());
+		TestTrue(TEXT("No second mutation on repeated recover"),(Pickup?F.Items->EditActiveRunGridDurable(Move):F.Items->DropActiveRunItemDurable(Drop)).IsCommandSuccess() && S==F.Snapshot());
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20GroundScopeTest,"Shanmen.Demo20.GroundDrop.ScopePlacementAndReceiptIntegrity",Flags)
+bool FDemo20GroundScopeTest::RunTest(const FString&)
+{
+	FFixture F; if (!TestTrue(TEXT("Native unified Run"),F.Start() && F.Unify())) return false;
+	const auto Id=F.OriginalPills(); const auto Before=F.Snapshot(); const auto Good=F.Drop(Id);
+	for (int32 N=0;N<6;++N)
+	{
+		auto R=Good;
+		if (N==0) R.Context.OwnerId=FGuid::NewGuid(); if (N==1) R.Context.RunId=FGuid::NewGuid(); if (N==2) R.ActiveRunId=FGuid::NewGuid();
+		if (N==3) R.Position.X=1000001; if (N==4) R.ExpectedItemRevision+=1; if (N==5) R.ExpectedAuthorityRevision+=1;
+		R.Context.RequestId=R.MakeRequestId(R.Context.OwnerId,R.Context.RunId,R.ActiveRunId,Id,R.ExpectedItemRevision);
+		TestFalse(TEXT("Foreign identity, invalid position and stale revisions refuse"),F.Items->DropActiveRunItemDurable(R).IsCommandSuccess());
+	}
+	auto R=Good; R.Context.RequestId=FGuid::NewGuid(); TestFalse(TEXT("Arbitrary request cannot create ground identities"),F.Items->DropActiveRunItemDurable(R).IsCommandSuccess());
+	for (const auto& I:Before.Items) if (I.ParentContainerId==FShanmenDemo20Catalog::ContainerId(TEXT("Stash"))
+		|| I.ParentContainerId==FShanmenDemo20Catalog::ContainerId(TEXT("Weapon")) || I.ParentContainerId==FShanmenDemo20Catalog::ContainerId(TEXT("Backpack")))
+		TestFalse(TEXT("No stash, worn or storage discard"),F.Items->DropActiveRunItemDurable(F.Drop(I.ItemInstanceId)).IsCommandSuccess());
+	TestTrue(TEXT("All rejects preserve real quantity and graph"),Before==F.Snapshot());
+	if (!TestTrue(TEXT("Canonical ground command"),F.Items->DropActiveRunItemDurable(Good).IsCommandSuccess())) return false;
+	const auto S=F.Snapshot(); FShanmenItemRepository Check;
+	for (int32 N=0;N<5;++N)
+	{
+		auto Bad=S;
+		if (N==0) Bad.ProcessedRequests.RemoveAll([](const auto& P){return P.Receipt.Operation==EShanmenItemTransactionOperation::DropActiveRunItem;});
+		if (N==1) for (auto& P:Bad.ProcessedRequests) if (P.Receipt.Operation==EShanmenItemTransactionOperation::DropActiveRunItem) P.Receipt.PurposeId=TEXT("Run.GroundDrop.r1.X999.Y0.Z12");
+		if (N==2) for (auto& C:Bad.Containers) if (C.ContainerId==Good.ContainerId()) C.OwnerId=FGuid::NewGuid();
+		if (N==3) for (auto& L:Bad.Grid.Layouts) if (L.ContainerId==Good.ContainerId()) L.Kind=EShanmenItemGridKind::Stash;
+		if (N==4) for (auto& P:Bad.ProcessedRequests) if (P.Receipt.Operation==EShanmenItemTransactionOperation::DropActiveRunItem) P.Fingerprint=FGuid::NewGuid();
+		TestFalse(TEXT("Orphan, position, owner, geometry and fingerprint tamper fail load"),Check.TryLoadSnapshot(Bad));
+	}
+	R=Good; R.Position.Y+=1; TestFalse(TEXT("Same identity changed payload is conflict"),F.Items->DropActiveRunItemDurable(R).IsCommandSuccess());
+	TestTrue(TEXT("Conflicting replay does not change ground"),S==F.Snapshot()); return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20GroundReservedTest,"Shanmen.Demo20.GroundDrop.PendingConsumeMustCloseBeforeDiscard",Flags)
+bool FDemo20GroundReservedTest::RunTest(const FString&)
+{
+	FFixture F; if (!TestTrue(TEXT("Native Run"),F.Start() && F.Unify())) return false;
+	const auto Id=F.OriginalPills(); const auto S=F.Snapshot(); FShanmenItemReserveRequest Reserve;
+	Reserve.Context=F.Context(S); Reserve.ItemInstanceId=Id; Reserve.ResourceKind=EShanmenItemResourceKind::Quantity; Reserve.Amount=1;
+	Reserve.ExpectedItemRevision=F.Find(S,Id)->Revision; Reserve.PurposeId=TEXT("Test.Pending.Medicine");
+	const auto Pending=F.Items->ReserveDurable(Reserve); if (!TestTrue(TEXT("Existing quantity intent pending"),Pending.IsCommandSuccess())) return false;
+	const auto Before=F.Snapshot(); TestFalse(TEXT("Pending quantity cannot disappear into ground"),F.Items->DropActiveRunItemDurable(F.Drop(Id)).IsCommandSuccess());
+	TestTrue(TEXT("Pending state unchanged across native reopen"),Before==F.Snapshot() && F.Restart() && Before==F.Snapshot());
+	FShanmenItemReservationActionRequest Cancel; Cancel.Context=F.Context(Before); Cancel.ReservationId=Pending.Receipt.ReservationId;
+	if (!TestTrue(TEXT("Existing cancel resolves intent"),F.Items->CancelDurable(Cancel).IsCommandSuccess())) return false;
+	TestTrue(TEXT("Actual stored quantity may now transfer"),F.Items->DropActiveRunItemDurable(F.Drop(Id)).IsCommandSuccess()); return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDemo20GroundWeaponTest,"Shanmen.Demo20.GroundDrop.RotationAndNewRunCannotReachOldGround",Flags)
+bool FDemo20GroundWeaponTest::RunTest(const FString&)
+{
+	FFixture F; if (!TestTrue(TEXT("Actual weapon source"),F.Start() && F.Unify() && F.Accept(FShanmenDemo20Sources::EnemyRole(2),TEXT("Sword.Plain"),1) && F.Materialize())) return false;
+	const auto Id=F.Source.GetItemIds()[0]; if (!TestTrue(TEXT("Rotate picked weapon"),F.Items->EditActiveRunGridDurable(F.Move(Id,Carry(),2,1,true)).IsCommandSuccess())) return false;
+	const auto Drop=F.Drop(Id); if (!TestTrue(TEXT("Backpack weapon may discard without unequipping worn sword"),F.Items->DropActiveRunItemDurable(Drop).IsCommandSuccess())) return false;
+	auto S=F.Snapshot(); TestTrue(TEXT("Same ID, provenance and rotation"),S.Grid.RotatedItems.Contains(Id) && F.Find(S,Id)->Quantity==1);
+	TestTrue(TEXT("World edge failure keeps geometry"),!F.Items->EditActiveRunGridDurable(F.Move(Id,Drop.ContainerId(),7,0,true)).IsCommandSuccess() && S==F.Snapshot());
+	TestTrue(TEXT("Pick up rotated same item"),F.Items->EditActiveRunGridDurable(F.Move(Id,Carry(),2,1,true)).IsCommandSuccess());
+	const auto Terminal=F.Terminal(EShanmenItemRunTerminalReason::Extraction); if (!TestTrue(TEXT("Extraction with picked weapon"),F.Items->FinalizePreparedRunDurable(Terminal).IsCommandSuccess())) return false;
+	S=F.Snapshot(); TestTrue(TEXT("Picked weapon retained, exact native reopen"),F.Find(S,Id)->State==EState::Stored && S.Grid.RotatedItems.Contains(Id) && F.Restart() && S==F.Snapshot());
+	const auto OldRun=F.Run; FShanmenItemLoadoutStartRequest Loadout; if (!TestTrue(TEXT("Next normal departure"),FShanmenDemo20Loadout::Build(S,Loadout,F.Why))) return false;
+	const auto Start=F.Items->StartLoadoutDurable(Loadout); F.Run=Start.Receipt.ReservationId; if (!TestTrue(TEXT("New native Run and transfer"),Start.IsCommandSuccess() && F.Run!=OldRun && F.Unify())) return false;
+	S=F.Snapshot(); TArray<FShanmenItemGroundDropView> Views;
+	TestTrue(TEXT("Old positions never appear in new Run"),FShanmenItemGroundDropPolicy::Read(S,FShanmenDemo20Catalog::OwnerId(),FShanmenDemo20Catalog::ScopeId(),F.Run,Views) && Views.IsEmpty());
+	TestFalse(TEXT("New Run cannot write previous ground"),F.Items->EditActiveRunGridDurable(F.Move(Id,Drop.ContainerId(),0,0)).IsCommandSuccess());
+	TestTrue(TEXT("Previous terminal exact drop replay has no new effect"),F.Items->DropActiveRunItemDurable(Drop).IsCommandSuccess() && S==F.Snapshot()); return true;
 }
 #endif

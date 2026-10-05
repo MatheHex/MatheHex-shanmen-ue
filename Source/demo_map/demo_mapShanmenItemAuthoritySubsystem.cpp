@@ -1,5 +1,12 @@
 #include "demo_mapShanmenItemAuthoritySubsystem.h"
 
+FShanmenItemDurableCommandResult Udemo_mapShanmenItemAuthoritySubsystem::DropActiveRunItemDurable(const FShanmenItemGroundDropRequest& R)
+{
+	if (!IsInGameThread() || !AuthorityService || LifecycleState != Edemo_mapShanmenItemAuthorityLifecycleState::Ready
+		|| R.Context.OwnerId != BoundOwnerId) return RejectCommand(TEXT("Ground drop requires the ready bound owner."));
+	const auto Result=AuthorityService->DropActiveRunItemDurable(R); SynchronizeCommandState(Result); return Result;
+}
+
 FShanmenItemDurableCommandResult Udemo_mapShanmenItemAuthoritySubsystem::MaterializeRunInventoryDurable(const FShanmenItemRunInventoryRequest& R)
 {
 	if (!IsInGameThread() || !AuthorityService || LifecycleState != Edemo_mapShanmenItemAuthorityLifecycleState::Ready

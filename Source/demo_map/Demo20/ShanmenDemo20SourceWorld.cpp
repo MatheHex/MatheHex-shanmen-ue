@@ -26,6 +26,10 @@ void AShanmenDemo20GameMode::ApplySourceProjection()
 		if (Visible && I>=3) SourceMarkers[I]->SetActorLocation(Position);
 	}
 }
+FString AShanmenDemo20GameMode::GetSourceHeading() const
+{
+	return OpenGroundContainer.IsValid()?TEXT("地面行囊"):FShanmenDemo20Sources::Name(SourceSearch.IsActive()?SourceSearch.Role:SourcePreview.GetPlan().SourceRoleId);
+}
 FString AShanmenDemo20GameMode::GetSourceBody() const
 {
 	return SourceSearch.IsActive()?FString::Printf(TEXT("搜索  %.1f / 1.0 秒\n\n世界继续运行；受伤、失焦或取消会中断。\n搜索结束才保存内容，没有提前领取。"),SourceSearch.Clock)
@@ -33,12 +37,14 @@ FString AShanmenDemo20GameMode::GetSourceBody() const
 }
 void AShanmenDemo20GameMode::CloseSourceSurface()
 {
-	if (bSourcePreviewOpen) bInventoryOpen=false;
+	if (bSourcePreviewOpen || OpenGroundContainer.IsValid()) bInventoryOpen=false;
 	SourceSearch.Cancel(); bSourcePreviewOpen=false; SourcePreview=FShanmenItemGeneratedSourceReceipt();
+	OpenGroundContainer.Invalidate();
 	if (Screen) RefreshSurface();
 }
 bool AShanmenDemo20GameMode::TryInteractSource()
 {
+	if (TryInteractGround()) return true;
 	if (SourceMarkers.Num()!=6) return false;
 	const auto* P=GetWorld()->GetFirstPlayerController(); const APawn* Pawn=P?P->GetPawn():nullptr;
 	if (!Pawn) return false;
@@ -91,7 +97,7 @@ void AShanmenDemo20GameMode::ConfirmSourceSearch(FName SourceRole)
 		if (!Success) Reason=TEXT("来源内容尚未确认落实，未开放领取。关闭后可重试；需要恢复时请重启原档。");
 	}
 	bProfileReady=A->GetLifecycleState()==Edemo_mapShanmenItemAuthorityLifecycleState::Ready;
-	if (Success) { SourcePreview=MoveTemp(Confirmed); bSourcePreviewOpen=true; bInventoryOpen=true; Session.SetGuarding(false); if (Screen) Screen->RefreshInventory(); }
+	if (Success) { OpenGroundContainer.Invalidate(); SourcePreview=MoveTemp(Confirmed); bSourcePreviewOpen=true; bInventoryOpen=true; Session.SetGuarding(false); if (Screen) Screen->RefreshInventory(); }
 	else { Notice=Reason; NoticeTime=6; if (!bProfileReady) bPaused=true; }
 	UE_LOG(LogTemp,Display,TEXT("DEMO20_SOURCE_SEARCH Run=%s Role=%s Success=%d Source=%s Entries=%d"),
 		*Session.GetRunId().ToString(),*SourceRole.ToString(),Success,*SourcePreview.GetSourceId().ToString(),SourcePreview.GetPlan().Entries.Num());

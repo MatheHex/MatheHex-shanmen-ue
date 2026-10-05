@@ -378,7 +378,7 @@ FShanmenItemDurableCommandResult AShanmenDemo20GameMode::EditItemGrid(const FSha
 	if (!Authority) return {};
 	const auto Result = IsRunInventory() ? Authority->EditActiveRunGridDurable({Intent,Session.GetRunId()}) : Authority->EditGridDurable(Intent);
 	bProfileReady = Authority->GetLifecycleState() == Edemo_mapShanmenItemAuthorityLifecycleState::Ready;
-	if (IsRunInventory()) { RefreshMedicineProjection(); if (!bProfileReady) { bPaused=true; bInventoryOpen=false; CloseSourceSurface(); } }
+	if (IsRunInventory()) { RefreshMedicineProjection(); ApplyGroundProjection(); if (!bProfileReady) { bPaused=true; bInventoryOpen=false; CloseSourceSurface(); } }
 	UE_LOG(LogTemp, Display, TEXT("DEMO20_GRID Success=%d Status=%d Error=%d Generation=%d"),
 		Result.IsCommandSuccess(), static_cast<int32>(Result.Status), static_cast<int32>(Result.Receipt.Error), Result.DocumentGeneration);
 	return Result;

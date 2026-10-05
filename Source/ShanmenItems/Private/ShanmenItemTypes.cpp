@@ -522,6 +522,15 @@ bool FShanmenItemTransactionReceipt::IsValid() const
 		return Phase == EShanmenItemTransactionPhase::Rejected
 			&& Error != EShanmenItemTransactionError::None;
 	}
+	if (Operation == EShanmenItemTransactionOperation::DropActiveRunItem)
+	{
+		FIntVector Position;
+		return Error == EShanmenItemTransactionError::None && Phase == EShanmenItemTransactionPhase::Committed
+			&& ReservationId.IsValid() && ItemInstanceId.IsValid() && ReservationIds.Num()==1 && ReservationIds[0].IsValid()
+			&& FShanmenItemGroundDropPolicy::DecodePosition(PurposeId,Position)
+			&& Amount==1 && ResourceKind==EShanmenItemResourceKind::Quantity && ResourceBefore>0
+			&& ResourceAfter==ResourceBefore && AvailableAfter==ResourceAfter && ItemRevision>0 && AuthorityRevision>0;
+	}
 	if (Operation == EShanmenItemTransactionOperation::MaterializeRunInventory)
 	{
 		TSet<FGuid> Ids;
